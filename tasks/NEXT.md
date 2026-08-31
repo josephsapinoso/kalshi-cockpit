@@ -242,7 +242,95 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-08-30 (latest) — the deadline the screen promised had never once been kept
+## 2026-08-31 (latest) — the Scout reaches the parlay legs, and the budget says it can only flag them
+
+**Live is on `9832834`. `main` carries the scout slice, ADR 0088 — written,
+tested, NOT deployed.**
+
+### The Scout on the parlay legs — ADR 0088
+
+Open item 3 from the previous entry, built as a first slice. Joe's ruling was
+*"the Scout gates eligibility and flags, and never moves the price."* **The
+flagging half is shipped. The gating half is arithmetically impossible and
+that is the finding, not an excuse:**
+
+    a briefing = 4 metered calls (2 staff, master, pro-bettor seat)
+    AGENT_MAX_CALLS_PER_DAY    = 24  -> 6 convenings
+    AGENT_MAX_SEARCHES_PER_DAY = 60  -> 5 convenings   <- binds first
+
+**Five convenings a day**, against a ladder of six cards of up to six legs.
+Scouting the legs of one card could spend the day. So automatic gating cannot
+exist at this ceiling, and the ADR records the gap rather than shipping half
+the ruling silently.
+
+What the card does now: shows what the desk **already knows** about each leg's
+game, read from `scout_briefings` rows that exist. **Zero calls, zero credits,
+zero tokens.** Three properties, each pinned by a mutation observed red:
+
+- **The join is by GAME, not by market.** `scout_briefings.ticker` is whichever
+  market was in front of Joe when he convened the desk; a briefing describes a
+  *fixture*. Joining leg-to-briefing by ticker showed a game as unscouted while
+  its own briefing sat in the table. It runs through
+  `kalshi_markets.event_ticker` (`idx_markets_event`).
+- **Six states, because absence has three meanings.** `absent` (nobody looked
+  — the ordinary case at five a day), `filed_nothing` (looked, nothing to say)
+  and `refused` (a ceiling turned it away) are not interchangeable, and only
+  the middle one is information about the game.
+- **A gap is a flag.** Every tile that is not `clear` flags, including
+  `unconfirmed` and `stale_only`. `BoardTile` has four states rather than a
+  boolean because the first real briefing's most decision-relevant fact was a
+  gap — the weather unchecked — and flagging findings alone renders that as
+  calm.
+
+Screen rules, asserted over the component source because they are about what it
+is *allowed* to do: no scout value in arithmetic, none in a sort (ADR 0071
+§2.5 — and here ranking by scout state would rank by *which games Joe happened
+to tap*), and no colour, because the palette's red means lose (ADR 0081).
+
+**`leg_facts` costs a third statement, still one for the whole ladder.** The
+O(1)-in-legs guard now asserts the exact set of fact families rather than the
+number 2, so a fourth has to come and say what it is.
+
+### NOT built, and each is a decision rather than an oversight
+
+- **Automatic gating or dropping a leg.** The ceiling forbids it.
+- **A per-leg "send the desk" button.** The obvious next step, and it spends a
+  fifth of the day's budget per tap — so it wants its own decision about what
+  the screen says about the four remaining.
+- **The graphs Joe asked for** (*"remember this is a cockpit"*). This slice
+  ships words. Charting a field that is `absent` on most legs would be worse
+  than saying so.
+
+### A test in this change asserted a bug that cannot happen
+
+The first shallow-copy guard claimed "mutation observed red" and stayed green
+when the mutation was actually run — `_scout_facts` builds its own dict with
+its own list, so the aliasing it described could not occur. **Exactly ADR
+0087's failure, one file and one day later.** Rewritten to assert the
+invariant that is load-bearing: no leg is handed `_NO_FACTS`'s own list, which
+a single future in-place `append` would poison for the life of the process.
+That version goes red.
+
+### Open — pick up here
+
+1. **Deploy the scout slice.** `main` is ahead of live by it.
+2. **The per-leg convening button** — needs Joe's call on who may spend a fifth
+   of a day's budget from a card, and what the screen says about the rest.
+3. **The graphs.** Joe's cockpit ask, still unmet on this screen.
+4. **`odds_snapshots` retention** — ADR 0086 changed the constant and left the
+   growth term. `fair_prices` (529 MB) and `kalshi_quotes` (451 MB) are the two
+   larger unretained btrees.
+5. **`user_not_found` on shard 3** — carried. Blocks every baseball hand bet
+   regardless of funding; the falsifying test is a few cents moved to shard 3.
+6. **Joe's shard allocation** — carried. The 23:20Z auto-cancel returned $1.81
+   to shard 1; shard 0 is ~$0.002 and shard 3 is $0.
+7. **Time the v31 index build at boot.** The grace period went 40s → 120s to
+   cover it and the deploy succeeded, so the build is bounded below the failure
+   point — but the deploy log was never read for the actual duration.
+
+---
+
+## 2026-08-30 — the deadline the screen promised had never once been kept
 
 **Live is on `9832834`, which is `main` and `origin/main`.** Deploys this
 session, each verified against `/api/health` `git_sha` rather than assumed:

@@ -960,6 +960,18 @@ def _serialise_leg(leg: CandidateLeg, facts: Optional[dict] = None) -> dict:
         # --- What the twelve mechanical checks said, or why they are silent.
         "skeptic": skeptic,
         "suppressed_reason": facts["suppressed_reason"],
+        # --- What the scout desk knows about this leg's game (Joe's ruling,
+        # 2026-08-30: the Scout gates eligibility and FLAGS, and never moves
+        # the price). These are words about a fixture, never an input to one
+        # of the numbers above, and never a sort key -- ADR 0071 section 2.5.
+        "scout": facts["scout"],
+        "scout_headline": facts["scout_headline"],
+        "scout_flags": facts["scout_flags"],
+        "scout_age_ms": facts["scout_age_ms"],
+        # The market ticker the existing briefing was filed against, so the
+        # card can link to it. `None` when nothing has been filed for this
+        # game -- which is the ordinary case at five convenings a day.
+        "scout_ticker": facts["scout_ticker"],
     }
 
 
@@ -1042,7 +1054,137 @@ _NO_FACTS: dict = {
     "quote_age_ms": None,
     "skeptic": "absent",
     "suppressed_reason": None,
+    # --- What the scout desk knows about this leg's GAME. See `_leg_scouting`.
+    "scout": "absent",
+    "scout_headline": None,
+    "scout_flags": [],
+    "scout_age_ms": None,
+    "scout_ticker": None,
 }
+
+#: A board tile in this state means the desk looked and found nothing to say.
+#: Every other state is a thing Joe should see -- including the two that are
+#: absences rather than findings, which is the whole reason `BoardTile` has
+#: four states instead of a boolean (`agents/scout_desk.py`).
+_SCOUT_TILE_CLEAR = "clear"
+
+
+def _leg_scouting(conn, tickers: Sequence[str]) -> dict[str, dict]:
+    """The newest scout briefing for each leg's GAME, keyed by leg ticker.
+
+    **A briefing is about a fixture; `scout_briefings.ticker` is a MARKET.**
+    The desk is convened from `/api/scout/{ticker}` on whatever market ticker
+    happened to be in front of Joe, so a briefing filed against the moneyline
+    describes the same game as a prop or spread on that fixture. Matching leg
+    ticker to briefing ticker directly would show a game as unscouted while its
+    own briefing sat in the table -- so the join is through
+    `kalshi_markets.event_ticker`, which is what "the same game" actually means
+    here, and which `idx_markets_event` already indexes.
+
+    **This spends nothing.** It reads briefings that exist; it never convenes
+    the desk. That matters more than it looks: `AGENT_MAX_SEARCHES_PER_DAY`
+    allows **five convenings a day** (`fly.live.toml` -- it binds before the
+    24-call cap), so a ladder of six cards could not have its legs scouted
+    automatically even once. Any convening stays a deliberate tap.
+
+    **No number crosses from here into a price.** The fields returned are a
+    state, a headline, and tiles -- prose, by the same structural rule that
+    keeps `DeskBriefing` numeric-free. ADR 0071 §2.5's ordering ban applies
+    with full force: a scout flag may be SHOWN on a leg and must never rank
+    one.
+    """
+    if not tickers:
+        return {}
+    unique = sorted(set(tickers))
+    placeholders = ",".join("?" * len(unique))
+    rows = conn.execute(
+        f"""
+        SELECT leg_ticker, status, requested_ms, completed_ms, briefing_json,
+               scout_ticker
+        FROM (
+          SELECT m.ticker           AS leg_ticker,
+                 b.ticker           AS scout_ticker,
+                 b.status, b.requested_ms, b.completed_ms, b.briefing_json,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY m.ticker ORDER BY b.requested_ms DESC, b.id DESC
+                 ) AS rn
+          FROM kalshi_markets m
+          JOIN kalshi_markets sm ON sm.event_ticker = m.event_ticker
+          JOIN scout_briefings b ON b.ticker = sm.ticker
+          WHERE m.ticker IN ({placeholders})
+        ) WHERE rn = 1
+        """,
+        unique,
+    ).fetchall()
+    return {row["leg_ticker"]: row for row in rows}
+
+
+def _scout_facts(row, *, now_ms: int) -> dict:
+    """One briefing row, read into the five `scout_*` fields.
+
+    The states are the briefing's own, not a re-derivation:
+
+        briefed         complete or partial, and the master filed a headline
+        filed_nothing   complete, but the desk had nothing to say
+        briefing        still running
+        refused         a ceiling turned it away -- budget, searches, tokens
+        failed          it died
+
+    `partial` maps to `briefed` rather than to a fourth visible state: a
+    briefing with one staff scout missing is still a briefing, and its own
+    `conflicts`/`unanswered` fields are where that thinness is already said.
+    Inventing a separate chip for it would put the same fact in two places and
+    let them disagree.
+    """
+    facts: dict = {
+        "scout": "absent",
+        "scout_headline": None,
+        "scout_flags": [],
+        "scout_age_ms": None,
+        "scout_ticker": row["scout_ticker"],
+    }
+    status = row["status"]
+    stamp = row["completed_ms"] or row["requested_ms"]
+    if stamp:
+        facts["scout_age_ms"] = max(0, now_ms - int(stamp))
+
+    if status == "running":
+        facts["scout"] = "briefing"
+        return facts
+    if status in ("failed", "refused"):
+        facts["scout"] = status
+        return facts
+
+    try:
+        briefing = json.loads(row["briefing_json"] or "null")
+    except (TypeError, ValueError):
+        briefing = None
+    if not isinstance(briefing, dict):
+        # Recorded complete with unreadable content. `None` resolves to a
+        # refusal to claim, never to "nothing found" -- the convention rule.
+        facts["scout"] = "failed"
+        return facts
+
+    headline = briefing.get("headline")
+    facts["scout_headline"] = headline if isinstance(headline, str) else None
+    tiles = briefing.get("board")
+    flags = []
+    if isinstance(tiles, list):
+        for tile in tiles:
+            if not isinstance(tile, dict):
+                continue
+            if tile.get("state") == _SCOUT_TILE_CLEAR:
+                continue
+            flags.append({
+                "category": tile.get("category"),
+                "state": tile.get("state"),
+                "note": tile.get("note"),
+            })
+    facts["scout_flags"] = flags
+    facts["scout"] = "briefed" if (facts["scout_headline"] or flags) else (
+        "filed_nothing"
+    )
+    return facts
 
 
 def leg_facts(conn, tickers: Sequence[str], *, now_ms: int) -> dict[str, dict]:
@@ -1129,9 +1271,17 @@ def leg_facts(conn, tickers: Sequence[str], *, now_ms: int) -> dict[str, dict]:
         ).fetchall()
     }
 
+    scouting = _leg_scouting(conn, unique)
+
     out: dict[str, dict] = {}
     for ticker in unique:
         facts = dict(_NO_FACTS)
+        # A fresh list per leg. `dict(_NO_FACTS)` is a shallow copy, so every
+        # leg would otherwise append into one shared `scout_flags`.
+        facts["scout_flags"] = []
+        scout_row = scouting.get(ticker)
+        if scout_row is not None:
+            facts.update(_scout_facts(scout_row, now_ms=now_ms))
         quote = quotes.get(ticker)
         if quote is not None:
             ask = ask_for_side(quote, "yes")

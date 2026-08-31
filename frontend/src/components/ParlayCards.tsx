@@ -335,6 +335,9 @@ function LegProvenance({ card }: { card: ParlayCardData }) {
             <span className="block text-muted">
               <SkepticNote leg={leg} />
             </span>
+            <span className="block text-muted">
+              <ScoutNote leg={leg} />
+            </span>
           </li>
         ))}
       </ul>
@@ -380,6 +383,99 @@ function SkepticNote({ leg }: { leg: ParlayCardLeg }) {
       Skeptic: <code className="font-mono">{leg.suppressed_reason}</code>
       {gloss && <span className="block">{gloss}</span>}
     </>
+  );
+}
+
+/** How old a briefing is, in the coarsest unit that is still honest. */
+function scoutAge(ms: number | null): string {
+  if (ms === null) return "";
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return " Filed just now.";
+  if (minutes < 60) return ` Filed ${minutes}m ago.`;
+  return ` Filed ${Math.floor(minutes / 60)}h ago.`;
+}
+
+/**
+ * What the scout desk knows about this leg's game.
+ *
+ * **Joe's ruling, 2026-08-30: the Scout gates eligibility and flags, and never
+ * moves the price.** He chose that over letting it adjust the fair value. So
+ * this renders words beside the number and never touches it, and per ADR 0071
+ * §2.5 nothing here may order a list.
+ *
+ * **`absent` is the ordinary case and must not read as an alarm.** Five
+ * convenings a day (`AGENT_MAX_SEARCHES_PER_DAY`) against a six-card ladder
+ * means most legs have never been scouted, and a screen that shouted about it
+ * would be shouting almost always.
+ *
+ * The four states that are NOT `absent` are each different, and the two
+ * absence-shaped ones are the reason this is not a boolean:
+ * `filed_nothing` is a quiet game, `refused` is a ceiling, and only the first
+ * is information.
+ */
+function ScoutNote({ leg }: { leg: ParlayCardLeg }) {
+  if (leg.scout === "absent") {
+    return <>No scout briefing on this game.</>;
+  }
+  if (leg.scout === "briefing") {
+    return <>The scout desk is out on this game now.</>;
+  }
+  if (leg.scout === "refused") {
+    return (
+      <>
+        The scout desk was refused on this game — a daily ceiling, not a
+        finding. Nothing was looked at.
+      </>
+    );
+  }
+  if (leg.scout === "failed") {
+    return (
+      <>
+        The scout desk failed on this game, so there is nothing to read. That
+        is not the same as a quiet game.
+      </>
+    );
+  }
+  if (leg.scout === "filed_nothing") {
+    return <>The scout desk looked at this game and had nothing to add.{scoutAge(leg.scout_age_ms)}</>;
+  }
+  return (
+    <>
+      <span className="block">
+        Scout: {leg.scout_headline ?? "filed, with no headline."}
+        {scoutAge(leg.scout_age_ms)}
+      </span>
+      <ScoutFlags leg={leg} />
+    </>
+  );
+}
+
+/**
+ * The board tiles worth seeing, which includes the ones that are GAPS.
+ *
+ * `BoardTile` has four states rather than a boolean because the first real
+ * briefing's most decision-relevant fact was a gap — the weather unchecked.
+ * `unconfirmed` and `stale_only` are absences and they are flags; only `clear`
+ * is silence. Rendering findings alone would show that gap as calm, which is
+ * the exact misreading the four states exist to prevent.
+ */
+function ScoutFlags({ leg }: { leg: ParlayCardLeg }) {
+  if (leg.scout_flags.length === 0) return null;
+  return (
+    <span className="mt-0.5 flex flex-wrap gap-1">
+      {leg.scout_flags.map((flag) => (
+        <span
+          key={`${leg.ticker}-${flag.category}`}
+          className="rounded border border-border px-1 py-px font-mono text-[0.6rem] uppercase tracking-wide"
+          // No colour by state, deliberately. The palette's red means "lose"
+          // (ADR 0081) and a scout flag is not a loss; colouring these would
+          // make a word about a lineup look like a verdict about money.
+          title={flag.note}
+        >
+          {flag.category}: {flag.state}
+        </span>
+      ))}
+    </span>
   );
 }
 

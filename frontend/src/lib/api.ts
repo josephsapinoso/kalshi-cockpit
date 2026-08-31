@@ -721,6 +721,37 @@ export type ParlayCardLeg = {
    */
   skeptic: "checked" | "not_on_this_path" | "absent";
   suppressed_reason: string | null;
+  /**
+   * What the scout desk knows about this leg's GAME.
+   *
+   * Joe's ruling, 2026-08-30: the Scout gates eligibility and flags, and
+   * **never moves the price**. Nothing here is an input to any number on the
+   * card, and ADR 0071 §2.5 forbids ranking by it — a flag may be shown on a
+   * leg and must never sort one.
+   *
+   * `absent` is the ordinary case, not a fault. `AGENT_MAX_SEARCHES_PER_DAY`
+   * allows five convenings a day, so most legs will never have been scouted.
+   *
+   * `briefing` — the desk is out now.
+   * `briefed` — it filed something.
+   * `filed_nothing` — it looked and had nothing to say. Not the same as
+   *   `absent`, which means nobody looked.
+   * `refused` — a ceiling turned it away. Not information about the game.
+   * `failed` — it died, or filed content that will not parse.
+   */
+  scout:
+    | "briefed"
+    | "filed_nothing"
+    | "briefing"
+    | "refused"
+    | "failed"
+    | "absent";
+  scout_headline: string | null;
+  /** Board tiles that are NOT `clear` — findings AND gaps. See `ScoutFlags`. */
+  scout_flags: { category: string; state: string; note: string }[];
+  scout_age_ms: number | null;
+  /** The market ticker the briefing was filed against, for a link to it. */
+  scout_ticker: string | null;
 };
 
 /**

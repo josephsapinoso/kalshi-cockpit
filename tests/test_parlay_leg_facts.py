@@ -19,6 +19,7 @@ WHAT THIS DOES NOT ESTABLISH
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -254,13 +255,27 @@ class TestTheAskIsReadNotInvented:
         assert facts["ask_display"] is None
         assert facts["quote_age_ms"] is None
 
-    def test_the_whole_ladder_costs_two_queries_not_one_per_leg(self, conn):
+    #: One statement per fact family, and each is named so that adding a
+    #: fourth is a decision rather than drift. It was 2 until 2026-08-30, when
+    #: the scout state became a third — still one statement for the whole
+    #: ladder, which is the property this guards.
+    LADDER_STATEMENTS = ("kalshi_quotes", "recommendations", "scout_briefings")
+
+    def test_the_whole_ladder_costs_a_fixed_number_of_queries_not_one_per_leg(
+        self, conn
+    ):
         """The scope that keeps this off the N+1 path.
 
         Facts are attached to the SELECTED legs — at most six per card across
         six cards — and read in one statement each. Enriching the ~200-row
         candidate pool per-row is the shape `/api/slate` is separately being
         cured of.
+
+        **The count is fixed, not "small".** Asserting `<= n` would let this
+        drift upward a query at a time, each one defensible; asserting the
+        exact set means a new fact family has to come here and say what it is.
+        20 legs would give 20+ statements if any of these went per-row, so the
+        O(n) failure this exists for is still caught with room to spare.
         """
         now = db.now_ms()
         tickers = [f"T{i}" for i in range(20)]
@@ -277,10 +292,15 @@ class TestTheAskIsReadNotInvented:
         finally:
             conn.set_trace_callback(None)
 
-        assert len(seen) == 2, (
+        assert len(seen) == len(self.LADDER_STATEMENTS), (
             f"{len(seen)} statements for 20 legs — this must be O(1) in legs, "
             f"not O(n). Statements: {seen}"
         )
+        for table in self.LADDER_STATEMENTS:
+            assert any(table in s for s in seen), (
+                f"no statement read {table}; the count is right but the "
+                f"families are not the ones this test claims to cover"
+            )
 
 
 class TestTheScreenKeepsItsHonesty:
@@ -336,3 +356,335 @@ class TestTheScreenKeepsItsHonesty:
         source = self._source().lower()
         for word in ("breakeven", "break-even", "edge_tenths", "expected value"):
             assert word not in source, f"{word!r} appeared on the parlay screen"
+
+
+class TestTheScoutStateRidesOnTheLegWithoutTouchingThePrice:
+    """Joe's ruling, 2026-08-30: the Scout gates eligibility and FLAGS, and
+    never moves the price. He chose that over letting it adjust fair value.
+
+    **What this establishes.** That a briefing filed against ANY market on a
+    fixture surfaces on every leg of that fixture; that the non-`clear` board
+    states all become flags while `clear` does not; that a running, refused or
+    failed briefing says so rather than reading as calm; and that none of it
+    reaches a number.
+
+    **What it does not.** That any briefing is any good, or that a flag should
+    drop a leg. This slice makes the desk's knowledge visible per leg. Gating
+    on it is a later decision, and at five convenings a day
+    (`AGENT_MAX_SEARCHES_PER_DAY`, which binds before the call cap) it cannot
+    be automatic for a six-card ladder.
+    """
+
+    @pytest.fixture
+    def conn(self):
+        path = os.path.join(tempfile.mkdtemp(), "scout_facts.db")
+        c = db.init_db(path)
+        yield c
+        c.close()
+
+    def _fixture(self, conn, *, event="EV1", tickers=("M1", "M2")):
+        conn.execute(
+            "INSERT OR IGNORE INTO kalshi_events (event_ticker, title, "
+            "first_seen_ms, last_seen_ms) VALUES (?, 'A at B', 0, 0)",
+            (event,),
+        )
+        for t in tickers:
+            conn.execute(
+                "INSERT OR IGNORE INTO kalshi_markets (ticker, event_ticker, "
+                "yes_side_team, market_type, status, first_seen_ms, "
+                "last_seen_ms) VALUES (?, ?, 'T', 'moneyline', 'active', 0, 0)",
+                (t, event),
+            )
+        conn.commit()
+
+    def _briefing(self, conn, ticker, *, status="complete", board=None,
+                  headline="Starter scratched", requested=1_000,
+                  completed=2_000, briefing_json=...):
+        if briefing_json is ...:
+            briefing_json = json.dumps({
+                "headline": headline,
+                "board": board if board is not None else [],
+                "assessment": "", "what_matters": [], "conflicts": [],
+                "unanswered": [],
+            })
+        conn.execute(
+            "INSERT INTO scout_briefings (ticker, event_title, league, "
+            "home_team, away_team, requested_ms, completed_ms, status, "
+            "briefing_json, model) VALUES (?, 'A at B', 'x', 'A', 'B', ?, ?, "
+            "?, ?, 'm')",
+            (ticker, requested, completed, status, briefing_json),
+        )
+        conn.commit()
+
+    def test_a_briefing_on_one_market_reaches_every_leg_of_that_game(self, conn):
+        """The join is the point of the whole design.
+
+        `/api/scout/{ticker}` convenes the desk on whatever market was in front
+        of Joe, but the briefing describes a FIXTURE. Keying leg to briefing by
+        market ticker would show a game as unscouted while its own briefing sat
+        in the table. Mutation observed red: join `b.ticker = m.ticker`.
+        """
+        self._fixture(conn, tickers=("M1", "M2"))
+        self._briefing(conn, "M1")
+
+        facts = parlays.leg_facts(conn, ["M2"], now_ms=10_000)["M2"]
+
+        assert facts["scout"] == "briefed"
+        assert facts["scout_headline"] == "Starter scratched"
+        assert facts["scout_ticker"] == "M1", (
+            "the card needs the ticker the briefing was actually filed against "
+            "so it can link to it"
+        )
+
+    def test_a_briefing_on_another_game_does_not_leak_across(self, conn):
+        self._fixture(conn, event="EV1", tickers=("M1",))
+        self._fixture(conn, event="EV2", tickers=("N1",))
+        self._briefing(conn, "M1")
+
+        facts = parlays.leg_facts(conn, ["N1"], now_ms=10_000)["N1"]
+        assert facts["scout"] == "absent"
+
+    def test_every_non_clear_tile_becomes_a_flag_and_clear_does_not(self, conn):
+        """`unconfirmed` and `stale_only` are absences, and they are flags.
+
+        `BoardTile` has four states rather than a boolean because the first
+        real briefing's most decision-relevant fact was a GAP -- weather
+        unchecked. A card that flagged only findings would render that gap as
+        calm, which is the misreading the four states exist to prevent.
+        """
+        self._fixture(conn, tickers=("M1",))
+        self._briefing(conn, "M1", board=[
+            {"category": "lineup", "state": "fresh", "note": "scratched"},
+            {"category": "weather", "state": "unconfirmed", "note": "roof?"},
+            {"category": "injury", "state": "stale_only", "note": "old note"},
+            {"category": "venue", "state": "clear", "note": "nothing"},
+        ])
+
+        flags = parlays.leg_facts(
+            conn, ["M1"], now_ms=10_000
+        )["M1"]["scout_flags"]
+
+        assert [f["category"] for f in flags] == ["lineup", "weather", "injury"]
+        assert flags[1]["note"] == "roof?"
+
+    def test_a_running_briefing_reads_as_briefing_not_as_absent(self, conn):
+        self._fixture(conn, tickers=("M1",))
+        conn.execute(
+            "INSERT INTO scout_briefings (ticker, event_title, league, "
+            "home_team, away_team, requested_ms, status, model) "
+            "VALUES ('M1', 'A at B', 'x', 'A', 'B', 1000, 'running', 'm')"
+        )
+        conn.commit()
+
+        facts = parlays.leg_facts(conn, ["M1"], now_ms=10_000)["M1"]
+        assert facts["scout"] == "briefing"
+        assert facts["scout_headline"] is None
+
+    @pytest.mark.parametrize("status", ["failed", "refused"])
+    def test_a_refusal_or_a_death_says_so(self, conn, status):
+        """Neither may render as "nothing found".
+
+        A ceiling turning the desk away and the desk finding a quiet game are
+        opposite facts, and only one of them is information about the game.
+        """
+        self._fixture(conn, tickers=("M1",))
+        self._briefing(conn, "M1", status=status, briefing_json=None)
+
+        facts = parlays.leg_facts(conn, ["M1"], now_ms=10_000)["M1"]
+        assert facts["scout"] == status
+
+    def test_unreadable_content_refuses_rather_than_reading_as_quiet(self, conn):
+        """Unreadable resolves to a refusal, never to a calm state.
+
+        CLAUDE.md's convention is that unreadable resolves to `None` and
+        callers refuse. The equivalent here is `failed`: a row marked complete
+        whose JSON will not parse knows nothing, and "knows nothing" must not
+        be spelled the same way as "found nothing".
+        """
+        self._fixture(conn, tickers=("M1",))
+        self._briefing(conn, "M1", briefing_json="{not json")
+
+        facts = parlays.leg_facts(conn, ["M1"], now_ms=10_000)["M1"]
+        assert facts["scout"] == "failed"
+
+    def test_a_complete_briefing_with_nothing_to_say_is_not_briefed(self, conn):
+        """"The desk looked and found nothing" is its own state.
+
+        Collapsing it into `briefed` puts a chip on a leg with no content
+        behind it; collapsing it into `absent` claims nobody looked.
+        """
+        self._fixture(conn, tickers=("M1",))
+        self._briefing(conn, "M1", headline="", board=[
+            {"category": "venue", "state": "clear", "note": "nothing"},
+        ])
+
+        facts = parlays.leg_facts(conn, ["M1"], now_ms=10_000)["M1"]
+        assert facts["scout"] == "filed_nothing"
+
+    def test_the_newest_briefing_for_the_game_wins(self, conn):
+        self._fixture(conn, tickers=("M1", "M2"))
+        self._briefing(conn, "M1", headline="older", requested=1_000,
+                       completed=1_500)
+        self._briefing(conn, "M2", headline="newer", requested=9_000,
+                       completed=9_500)
+
+        facts = parlays.leg_facts(conn, ["M1"], now_ms=10_000)["M1"]
+        assert facts["scout_headline"] == "newer"
+        assert facts["scout_age_ms"] == 500
+
+    def test_no_leg_is_handed_the_module_level_default_list(self, conn):
+        """`dict(_NO_FACTS)` is a SHALLOW copy, and the default is mutable.
+
+        **The first version of this test asserted a bug that cannot happen and
+        claimed a mutation it had not run** -- removing the fresh-list line
+        left it green, because `_scout_facts` builds its own dict with its own
+        list and `update` replaces the entry. That claim is recorded here
+        rather than quietly deleted: it is exactly ADR 0087's failure, one file
+        later.
+
+        What IS load-bearing is narrower and real. An unscouted leg gets
+        `_NO_FACTS["scout_flags"]` **itself** unless a fresh list is
+        substituted, so a single future `facts["scout_flags"].append(...)`
+        would corrupt the module-level default for the life of the process --
+        and every leg served afterwards would carry another game's warning.
+        Mutation observed red: delete the `facts["scout_flags"] = []` line.
+        """
+        self._fixture(conn, event="EV1", tickers=("M1",))
+        self._fixture(conn, event="EV2", tickers=("N1",))
+        self._briefing(conn, "M1", board=[
+            {"category": "lineup", "state": "fresh", "note": "scratched"},
+        ])
+
+        facts = parlays.leg_facts(conn, ["M1", "N1"], now_ms=10_000)
+
+        assert len(facts["M1"]["scout_flags"]) == 1
+        assert facts["N1"]["scout_flags"] == []
+        assert facts["M1"]["scout_flags"] is not facts["N1"]["scout_flags"]
+        for ticker in ("M1", "N1"):
+            assert (
+                facts[ticker]["scout_flags"]
+                is not parlays._NO_FACTS["scout_flags"]
+            ), (
+                f"{ticker} was handed the module-level default list; one "
+                f"in-place append would poison every leg served afterwards"
+            )
+
+    def test_no_scout_field_carries_a_number_that_could_feed_a_bet(self, conn):
+        """The package's no-numbers rule, enforced at this boundary too.
+
+        `scout_age_ms` is the one number and it is about the BRIEFING, not
+        about the game -- how old the words are, which is exactly what a reader
+        needs in order to discount them. Every field describing the fixture is
+        a string.
+        """
+        self._fixture(conn, tickers=("M1",))
+        self._briefing(conn, "M1", board=[
+            {"category": "lineup", "state": "fresh", "note": "scratched"},
+        ])
+
+        facts = parlays.leg_facts(conn, ["M1"], now_ms=10_000)["M1"]
+        assert isinstance(facts["scout_headline"], str)
+        for flag in facts["scout_flags"]:
+            for value in flag.values():
+                assert isinstance(value, str), (
+                    f"{value!r} is a number on a scout flag; the desk's output "
+                    f"is prose by design and a number here could be priced"
+                )
+
+
+class TestTheScoutNeverReachesAPrice:
+    """Joe's ruling made structural on the screen, not just in the docstring.
+
+    He chose "gates eligibility and flags" over "adjusts the fair value", so
+    the scout's words must sit BESIDE the numbers and never inside one. These
+    are source assertions because the property is about what the component is
+    allowed to do, and a render test would only show what it happens to do
+    today.
+    """
+
+    def _source(self) -> str:
+        return COMPONENT.read_text(encoding="utf-8")
+
+    def test_no_scout_field_is_arithmetic_on_a_price(self):
+        """The failure this forbids is a scout field inside a calculation.
+
+        Mutation observed red: add `leg.p_conservative * leg.scout_flags.length`
+        anywhere in the component.
+        """
+        source = self._source()
+        for token in ("scout_flags.length *", "* leg.scout_flags",
+                      "scout_age_ms *", "+ leg.scout_flags",
+                      "scout_headline +"):
+            assert token not in source, (
+                f"{token!r} puts a scout value into arithmetic; the Scout "
+                f"flags and never moves the price"
+            )
+
+    def test_the_scout_does_not_sort_anything(self):
+        """ADR 0071 section 2.5: a per-row fact may be shown, never ranked by.
+
+        The same rule that forbids ordering the ladder by the Kalshi gap
+        applies to a scout flag, and for a sharper reason: with five convenings
+        a day, ranking by scout state would rank by WHICH GAMES JOE HAPPENED TO
+        TAP, not by anything about the bets.
+        """
+        source = self._source()
+        for token in ("sort", "Sort"):
+            for field in ("scout", "scout_flags", "scout_headline"):
+                assert f"{token}({field}" not in source
+                assert f".{token}((a, b) => a.{field}" not in source
+
+    def test_absent_does_not_render_as_an_alarm(self):
+        """Most legs will never have been scouted, so this is the common case.
+
+        A screen that treated `absent` as a warning would be warning almost
+        always, which trains the reader to ignore the one that matters.
+        """
+        source = self._source()
+        assert 'No scout briefing on this game.' in source
+
+    def test_a_refusal_is_not_worded_as_a_quiet_game(self):
+        """A ceiling and a quiet game are opposite facts.
+
+        Only one of them is information about the fixture, and collapsing them
+        is the flattering direction: it turns "we never looked" into "nothing
+        to worry about".
+        """
+        source = self._source()
+        i = source.index('leg.scout === "refused"')
+        j = source.index('leg.scout === "failed"')
+        refused = source[i:j]
+        assert "ceiling" in refused and "Nothing was looked at" in refused
+        quiet = "had nothing to add"
+        assert quiet not in refused, (
+            "the refusal branch is worded like a quiet game"
+        )
+
+    def test_a_gap_is_shown_as_a_flag_not_hidden(self):
+        """`unconfirmed` and `stale_only` are absences AND flags.
+
+        The component must not filter tiles down to findings; the backend
+        already dropped only `clear`, and re-filtering here would restore the
+        exact misreading `BoardTile`'s four states exist to prevent.
+        """
+        source = self._source()
+        i = source.index("function ScoutFlags")
+        block = source[i:i + 1400]
+        for token in ('"fresh"', "'fresh'"):
+            assert token not in block, (
+                "ScoutFlags filters by tile state; that hides gaps, which are "
+                "the flags most worth seeing"
+            )
+
+    def test_a_scout_flag_is_not_coloured_like_a_loss(self):
+        """The palette's red means "lose" (ADR 0081).
+
+        A word about a lineup is not a verdict about money, and colouring it
+        like one would make the screen claim something the desk did not.
+        """
+        source = self._source()
+        i = source.index("function ScoutFlags")
+        block = source[i:i + 1400]
+        for token in ("text-red", "bg-red", "text-lose", "bg-lose",
+                      "text-green", "bg-green"):
+            assert token not in block, f"{token} colours a scout flag"
