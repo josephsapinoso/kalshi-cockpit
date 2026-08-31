@@ -355,11 +355,53 @@ source test saw:
    its own size, at exactly what the card was already rendering, so the card is
    unchanged.
 
-**Not verified: 390px.** The check ran at desktop width; `resize_window`
-reported success and the viewport did not move. Both new elements are wrapping
-prose in slots the row already uses full-width (the same wrapper as the gloss
-line and `DispersionStrip`), so the phone behaviour is inherited rather than
-new — but it was not observed, and ADR 0093 says so rather than assuming.
+**390px: TAKEN, and it passes on both surfaces.** Done on live `b09ad5c` with
+the real session cookie, against real rows.
+
+**`resize_window` does not work here and reports success anyway** — after a
+call to 390x844 the page still measured `innerWidth: 1045` (Chrome ignores it
+on a maximised window). Do not trust its return value; measure `innerWidth`.
+
+**What does work: a same-origin iframe.** Load any page on the live origin,
+replace the document with a 390px-wide `<iframe src="/slate">`, and the frame
+gets a genuine 390px viewport — real media queries, real layout, and the
+session cookie flows because it is same-origin. Set the iframe tall (9000px)
+and let the OUTER page scroll, or the frame clips and its own `scrollTo` will
+not move. Measured, not eyeballed:
+
+    viewport                          390
+    documentElement.scrollWidth       375     <- no horizontal page scroll
+    score spans found                 100
+    score lines that wrapped            0     (max width 210px of 390)
+    prose blocks overflowing            0
+    /market/{ticker}: scrollWidth     375     prose 343px, 2 lines, no overflow
+
+Three elements do extend past 390 and all three are in the **nav** — a
+deliberately horizontally-scrolling strip, pre-existing and not this work.
+
+**The status-line fix was observed at 390px on a real row**, which the desktop
+read could not show because the window was open by then:
+
+    Books last read 16 min ago — past the 15 min limit. Not
+    actionable until the odds are refreshed.
+    READINGS DISAGREE BY 0.1 PTS — tap for the ranges
+    EVIDENCE 6/7 CHECKS · 1 NOT CHECKED
+    sportsbook consensus 944s old, limit 900s.
+
+**One observation, not a defect, and it is Joe's call.** On the slate the score
+renders at **9.6px** — the smallest text on the row, 0.8px under the
+`READINGS DISAGREE BY` line directly above it. The two read as a matched pair
+of mono caption lines, which is coherent; but it does mean the sweet spot, the
+thing he asked for, is the quietest element on the row. It inherited
+`text-[0.6rem]` from the parlay card, where six legs share one card. Changing
+it is a one-word edit (`size="panel"`, already built and used on the market
+screen, 12px).
+
+**And one security finding, incidental to the method.** The live app sends
+**no `X-Frame-Options` and no CSP `frame-ancestors`** — which is why the iframe
+harness worked at all. Any site can frame the authed cockpit, including the
+real-money confirm button. Not exploited here (same-origin, own browser), not
+fixed, and filed as its own open item below.
 
 ### Also done
 
@@ -456,9 +498,17 @@ to carry:**
 5. **`odds_snapshots` retention** — ADR 0086 bought headroom, not a bound.
 6. **`user_not_found` on shard 3** and **Joe's shard allocation** — both his,
    both money-touching, both carried.
-7. **Read the phone.** The one verification this session could not take. Any
-   session with a working viewport should open `/slate` and `/market/[ticker]`
-   at 390px before the next screen change lands.
+7. ~~Read the phone.~~ **DONE — 390px verified on live, both surfaces**, with
+   the same-origin iframe method recorded above. Reuse it; `resize_window` is
+   a no-op that reports success.
+8. **The cockpit can be framed.** No `X-Frame-Options`, no CSP
+   `frame-ancestors` anywhere in the repo or on the live response. The app is
+   behind auth and has a real-money confirm button, so a clickjacking frame is
+   a real if unglamorous exposure. One header in the proxy/middleware. Not
+   done — it is a security change to a live money instance and was not what
+   was asked for.
+9. **Optional, Joe's call:** the sweet spot renders at 9.6px on the slate row,
+   the smallest text there. `size="panel"` (12px) is already built.
 
 ---
 
