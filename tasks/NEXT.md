@@ -314,11 +314,14 @@ disagree with` — the least-evidenced thing on the screen finally saying so.
 2. **Watch whether `database is locked` recurs.** `loop_failures` is the
    instrument and it already records them correctly. If the rate holds, see the
    two unexamined suspects above.
-3. **`run_scoring_pass`'s `try/except` wraps the FETCH, not the store**
-   (`scoring.py:251`), so a lock error there still abandons every remaining
-   market in the pass. Fixing the holder makes that rarer; it does not make the
-   loop tolerant. **A separate decision, deliberately not bundled** — it
-   changes the scoring path.
+3. ~~`run_scoring_pass`'s `try/except` wraps the FETCH, not the store.~~
+   **DONE — ADR 0092, on Joe's word.** The store is inside the guard the
+   docstring already promised; a failure now costs one line rather than the
+   pass. `lines_unstored` is its own counter (a 404 is history the venue no
+   longer has; a failed store is history we held and dropped), and a
+   `rollback()` runs before continuing, because a lock can refuse the COMMIT
+   rather than the execute and an open transaction would fail every subsequent
+   store. **Two of the four guards were decoration first** — see the ADR.
 4. **`odds_snapshots` retention** — ADR 0086 bought headroom, not a bound.
 5. **`user_not_found` on shard 3** and **Joe's shard allocation** — both his,
    both money-touching, both carried.

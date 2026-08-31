@@ -11,6 +11,8 @@ exists to make.
 
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from backend.analysis.clv import CONTROL_HORIZON_HOURS, DEFAULT_HORIZON_HOURS
@@ -437,3 +439,152 @@ class TestTheScoringPassRespectsTheTemporalRule:
         """The discriminating pair: same fixture, same line, different entry time."""
         _seed(conn, created_ms=TRUE_COMMENCE - 2 * HOUR_MS)
         assert (await run_scoring_pass(conn, FakeKalshi(), now=NOW)).scored == 1
+
+
+class TestAStoreFailureLosesOneLineNotThePass:
+    """The half of "one market's failure does not stop the others" that the
+    `try` did not cover.
+
+    The docstring on `run_scoring_pass` has always promised that a single
+    market must not stop the other thirty. The `try` delivered it for the
+    FETCH and left `store_closing_line` outside, so a `database is locked` on
+    one write -- which happened four to five times a day (ADR 0091) -- escaped
+    the function, killed the whole pass, and abandoned every market still in
+    the loop.
+
+    That is the expensive direction: a closing line not stored is not deferred,
+    it is lost. Candlesticks age out and the game only closes once.
+
+    **This is a different repair from ADR 0091 and neither replaces the other.**
+    That one removed the biggest lock holder; this one makes the loop survive
+    the next holder, whatever it turns out to be.
+    """
+
+    async def test_a_failing_store_does_not_abandon_the_remaining_markets(
+        self, conn, monkeypatch
+    ):
+        """Mutation observed red: move `store_closing_line` back outside the
+        `try`, and the pass raises instead of scoring the healthy market."""
+        _seed(conn, ticker="KXMLBGAME-T-A")
+        _seed(conn, ticker="KXMLBGAME-T-B")
+
+        import backend.scoring as scoring
+
+        real = scoring.store_closing_line
+        seen: list[str] = []
+
+        def flaky(conn_, line):
+            seen.append(line.ticker)
+            if line.ticker == "KXMLBGAME-T-A":
+                raise sqlite3.OperationalError("database is locked")
+            return real(conn_, line)
+
+        monkeypatch.setattr(scoring, "store_closing_line", flaky)
+
+        counts = await run_scoring_pass(conn, FakeKalshi(), now=NOW)
+
+        assert "KXMLBGAME-T-B" in seen, (
+            "the pass stopped at the failing market and never reached the "
+            "healthy one -- which is the defect, not the symptom"
+        )
+        assert counts.scored == 1, "the healthy market must still be scored"
+
+    async def test_a_lost_line_is_counted_as_lost_not_as_missing_candles(
+        self, conn, monkeypatch
+    ):
+        """`lines_unstored` is its own counter for a reason.
+
+        A 404 from candlesticks is history the venue no longer has. A failed
+        store is history we HELD and dropped. Only the second is our fault and
+        only the second is recoverable by fixing something, so folding it into
+        `candles_missing` would make a lock storm read as a bad night for the
+        candle endpoint.
+        """
+        _seed(conn, ticker="KXMLBGAME-T-A")
+
+        import backend.scoring as scoring
+
+        def always_locked(conn_, line):
+            raise sqlite3.OperationalError("database is locked")
+
+        monkeypatch.setattr(scoring, "store_closing_line", always_locked)
+
+        counts = await run_scoring_pass(conn, FakeKalshi(), now=NOW)
+
+        assert counts.lines_unstored == 2       # both horizons
+        assert counts.lines_stored == 0
+        assert counts.candles_missing == 0, (
+            "a store failure was counted as a missing candle; those have "
+            "different causes and different fixes"
+        )
+        assert any("store failed" in e for e in counts.errors)
+
+    async def test_the_connection_is_rolled_back_so_the_next_store_can_work(
+        self, conn, monkeypatch
+    ):
+        """One failure must not become all of them.
+
+        **The fake leaves a REAL open transaction, and that is the whole point
+        of it.** The first version raised before touching SQL, so nothing was
+        left mid-transaction, the rollback was never needed, and deleting the
+        rollback left the test green -- a guard that guarded nothing. Recorded
+        rather than quietly fixed: it is ADR 0087's failure again.
+
+        The production shape it models: `store_closing_line` runs
+        `conn.execute(INSERT ...)` and then `conn.commit()`. A lock can refuse
+        the COMMIT rather than the execute, and that leaves the write
+        transaction open -- so every subsequent store in the pass fails too,
+        turning one lost line into the whole loop's worth by a different route.
+
+        Mutation observed red: delete the `conn.rollback()` in `scoring.py`.
+        """
+        _seed(conn, ticker="KXMLBGAME-T-A")
+        _seed(conn, ticker="KXMLBGAME-T-B")
+
+        import backend.scoring as scoring
+
+        real = scoring.store_closing_line
+        calls = {"n": 0}
+
+        def fail_first(conn_, line):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                # A real write, then a refusal -- so the connection is left
+                # mid-transaction exactly as a lock on COMMIT would leave it.
+                # A seeded ticker at an unused horizon: `closing_lines` has
+                # a FOREIGN KEY on `ticker`, so an invented one raises
+                # IntegrityError *before* opening a transaction -- which is
+                # how the first version of this probe silently tested nothing.
+                conn_.execute(
+                    "INSERT INTO closing_lines (ticker, horizon_hours, "
+                    "observed_ms, yes_bid_tenths, yes_ask_tenths) "
+                    "VALUES ('KXMLBGAME-T-A', 99.0, 1, 1, 1)"
+                )
+                raise sqlite3.OperationalError("database is locked")
+            return real(conn_, line)
+
+        monkeypatch.setattr(scoring, "store_closing_line", fail_first)
+
+        counts = await run_scoring_pass(conn, FakeKalshi(), now=NOW)
+
+        assert counts.lines_unstored == 1
+        assert counts.lines_stored >= 1, (
+            "every store after the first failure also failed; the connection "
+            "was not rolled back"
+        )
+        assert conn.execute(
+            "SELECT COUNT(*) n FROM closing_lines WHERE horizon_hours = 99.0"
+        ).fetchone()["n"] == 0, (
+            "the half-written row survived; the rollback did not happen, so "
+            "the failing store's transaction rode along with the next commit"
+        )
+
+    async def test_a_healthy_pass_reports_no_losses(self, conn):
+        """The counter must stay quiet when nothing is wrong, or it is noise."""
+        _seed(conn)
+        counts = await run_scoring_pass(conn, FakeKalshi(), now=NOW)
+        assert counts.lines_unstored == 0
+        assert "lines_unstored" not in counts.as_dict(), (
+            "a zero loss count should not be reported; `as_dict` omits falsy "
+            "fields outside ALWAYS_REPORT and this is not one of them"
+        )

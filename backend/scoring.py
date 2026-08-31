@@ -34,6 +34,7 @@ which row came from which.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional, Sequence
@@ -64,6 +65,15 @@ class ScoringCounts:
     lines_stored: int = 0
     candles_missing: int = 0
     unreadable_quotes: int = 0
+    #: Lines fetched successfully and then refused by the DATABASE on write.
+    #:
+    #: Its own counter rather than a line in `errors`, because it is the only
+    #: one of these that means *the observation existed and we lost it*. A
+    #: 404 from candlesticks is history the venue no longer has; a failed store
+    #: is history we held and dropped, and an unrecorded close is gone for good
+    #: once candlesticks age out. Mixing the two in one list made a lock storm
+    #: read like a bad night for the candle endpoint.
+    lines_unstored: int = 0
     scored: int = 0
     skipped_no_mid: int = 0
     skipped_entry_after_close: int = 0
@@ -261,7 +271,34 @@ async def run_scoring_pass(
                 # evidence that the market was thin at that moment, which a
                 # missing row is not.
                 counts.unreadable_quotes += 1
-            store_closing_line(conn, line)
+            # **The store is inside the guard, and until 2026-08-31 it was
+            # not.** The docstring above already promised that one market's
+            # failure must not stop the other thirty; the `try` delivered that
+            # for the FETCH and left the write outside it. So a
+            # `database is locked` on one line -- which happened four to five
+            # times a day (ADR 0091) -- escaped `run_scoring_pass`, killed the
+            # whole pass, and abandoned every market still in the loop.
+            #
+            # That is the expensive direction. A closing line not stored is
+            # not deferred, it is lost: candlesticks age out, and the game
+            # only closes once.
+            #
+            # ADR 0091 fixed the biggest lock HOLDER. This makes the loop
+            # survive the next one, whatever it turns out to be -- the two are
+            # different repairs and neither substitutes for the other.
+            try:
+                store_closing_line(conn, line)
+            except Exception as exc:                      # noqa: BLE001
+                # Rolled back so the next iteration starts clean: a connection
+                # left mid-transaction fails every subsequent store in the
+                # pass, which would turn one lost line into all of them.
+                with contextlib.suppress(Exception):
+                    conn.rollback()
+                counts.lines_unstored += 1
+                counts.errors.append(
+                    f"{market['ticker']}@{horizon}h: store failed: {exc}"
+                )
+                continue
             counts.lines_stored += 1
 
     # Primary horizon only. Scoring at both would make `clv_tenths` a mixture
