@@ -76,6 +76,7 @@ from .. import estimates as bet_estimates
 from .. import hedge as held_parlays
 from .. import passes as desk_passes
 from ..core.suppression import SuppressionConfig, gauntlet_view
+from ..core.trust import TrustThresholds
 from ..core.teaser import find_wong_candidates
 from ..engine import suppression_summary
 from ..analysis.clv import DEFAULT_HORIZON_HOURS
@@ -2761,6 +2762,15 @@ def create_app(
             conn,
             now_ms=now,
             max_odds_age_ms=staleness.max_odds_age_s * 1000,
+            # Built from the configs that already enforce these limits, so the
+            # score refuses on the same numbers every other surface does.
+            # `thresholds` here is the SuppressionConfig -- deliberately not
+            # named `suppression`, because a route function by that name would
+            # rebind it, which it silently did once (see the comment at its
+            # definition). Passing the engine's own config, not a second set.
+            trust_thresholds=TrustThresholds.from_configs(
+                staleness, thresholds
+            ),
         )
 
     @app.post("/api/parlays/lookup", dependencies=[Depends(require_auth)])

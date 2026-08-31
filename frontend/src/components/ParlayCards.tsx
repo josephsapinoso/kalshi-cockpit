@@ -9,6 +9,7 @@ import type {
   Refreshable,
 } from "@/lib/api";
 import { glossSentence } from "@/lib/suppressionGloss";
+import DispersionStrip from "@/components/DispersionStrip";
 import LeagueTag from "@/components/LeagueTag";
 import ParlayDifficulty from "@/components/ParlayDifficulty";
 import ManualTicket from "@/components/ManualTicket";
@@ -192,6 +193,7 @@ function Card({ card }: { card: ParlayCardData }) {
             ))}
           </ol>
           <LegProvenance card={card} />
+          <LegOrigins card={card} />
           {card.joint && (
             <ParlayDifficulty
               prefixes={card.joint.prefixes}
@@ -338,6 +340,7 @@ function LegProvenance({ card }: { card: ParlayCardData }) {
             <span className="block text-muted">
               <ScoutNote leg={leg} />
             </span>
+            <TrustNote leg={leg} />
           </li>
         ))}
       </ul>
@@ -476,6 +479,100 @@ function ScoutFlags({ leg }: { leg: ParlayCardLeg }) {
         </span>
       ))}
     </span>
+  );
+}
+
+/**
+ * The sweet spot on one leg: how much its number deserves to be acted on.
+ *
+ * **The number is never rendered bare, and that is the single most important
+ * rule here.** A lone "6/8" beside a bet reads to a beginner as "this is a
+ * 6-out-of-8 bet" — precisely the edge claim the whole design avoids, and the
+ * measured one (`beta = -0.141`) points the other way. So the label names the
+ * subject (*evidence*, not *value*), the failures are always spelled out, and
+ * the unknowns are counted separately rather than folded in.
+ *
+ * **An unknown is not a pass.** `total - known` is how many checks nobody ran,
+ * and it is stated. Hiding it would make the least-examined leg look like the
+ * best one — the same failure `suppression.py` records for a `0.0` width.
+ *
+ * No colour: the palette's red means *lose* (ADR 0081), and a failing evidence
+ * check is not a loss. No ordering: ADR 0071 §2.5.
+ */
+function TrustNote({ leg }: { leg: ParlayCardLeg }) {
+  const trust = leg.trust;
+  if (!trust) return null;
+  const unknown = trust.total - trust.known;
+  const failures = trust.checks.filter((c) => c.state === "fail");
+  return (
+    <span className="block text-muted">
+      <span className="font-mono text-[0.6rem] uppercase tracking-wide">
+        evidence {trust.passed}/{trust.known} checks
+      </span>
+      {unknown > 0 && <> · {unknown} not checked</>}
+      {failures.length > 0 && (
+        <span className="block">
+          {failures.map((f) => f.detail).join("; ")}.
+        </span>
+      )}
+      {failures.length === 0 && unknown === 0 && (
+        <span className="block">
+          Every check the desk can run on this leg passed. That is about the
+          evidence, not about whether the bet wins.
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Where each leg's number came from, on one axis per leg.
+ *
+ * **This restores an axis on a SECOND surface, and that needed a decision.**
+ * The 2026-08-21 ruling took the readings-plus-ask drawing off the slate row
+ * ("strip the landing screen"); ADR 0068 / ADR 0071 §2.2 restored it on
+ * `/market/[ticker]` alone. Joe chose it for the parlay card on 2026-08-31,
+ * behind a tap. It is the same component, unchanged — no new SVG — so the
+ * three properties the ruling preserved come with it and cannot drift:
+ *
+ * - **No direction on the ask.** A neutral tick with its own label. No colour,
+ *   no arrow, no cheap/expensive wording.
+ * - **No `used` mark.** All four readings are drawn alike; the caption says
+ *   the lowest is the one the card takes.
+ * - **The ask is never clamped onto the scale.** Off-domain is said in words.
+ *   A marker pinned to the end of a scale it is not on is a drawing that lies.
+ *
+ * Behind a `<details>` because six legs times an axis is a wall at 390px —
+ * the precedent `LegProvenance` and `LegBuys` already set on this card.
+ *
+ * `books` is null on every leg and that is a stated limit, not an omission:
+ * the unanchored per-book distribution needs a per-book re-devig per leg,
+ * which `leg_facts` refuses as out of scope. `dispersion()` handles the null
+ * span by taking its axis from the marks alone.
+ */
+function LegOrigins({ card }: { card: ParlayCardData }) {
+  if (card.legs.length === 0) return null;
+  return (
+    <details className="mt-2">
+      <summary className="cursor-pointer list-none font-mono text-[0.65rem] uppercase tracking-widest text-muted">
+        where each number came from
+      </summary>
+      <ul className="mt-2 space-y-3">
+        {card.legs.map((leg) => (
+          <li key={`origin-${leg.ticker}`}>
+            <span className="text-[11px] font-semibold">{leg.label}</span>
+            <DispersionStrip
+              variant="chart"
+              /* Null by design — see this component's docstring. */
+              books={null}
+              methods={leg.methods}
+              kalshiProbability={leg.ask_probability}
+              anchoredBookCount={leg.book_count}
+            />
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 

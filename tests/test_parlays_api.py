@@ -1074,3 +1074,78 @@ class TestThePriceToBeatIsServedAndIsBreakEven:
             assert shown is not None
             assert shown[0] in "+-", "American odds carry their sign"
             assert shown[1:].isdigit()
+
+
+class TestTheSweetSpotReachesTheWire:
+    """The score on a real leg through the real route, not a unit fixture.
+
+    `trust.py` was correct in isolation before any of this existed, which is
+    exactly the state four modules in this repo were in when nothing called
+    them. These assertions are the caller.
+    """
+
+    async def test_every_leg_carries_a_trust_score(self, build):
+        app = build(_fresh_slate)
+        body = (await get(app, "/api/parlays")).json()
+        legs = [leg for card in body["cards"] for leg in card["legs"]]
+        assert legs, "no legs to score"
+        for leg in legs:
+            assert leg["trust"] is not None, (
+                "the route supplied no thresholds, so the score silently "
+                "declined to compute -- which is the wiring failure this "
+                "test exists to catch"
+            )
+            assert set(leg["trust"]) == {"passed", "known", "total", "checks"}
+
+    async def test_the_three_counts_all_travel(self, build):
+        """`passed/total` alone hides how many checks nobody ran; `passed/known`
+        alone hides that they exist. The screen needs all three to word it."""
+        app = build(_fresh_slate)
+        body = (await get(app, "/api/parlays")).json()
+        leg = next(leg for card in body["cards"] for leg in card["legs"])
+        t = leg["trust"]
+        assert t["total"] >= t["known"] >= t["passed"]
+        assert t["total"] == len(t["checks"])
+
+    async def test_the_score_is_thresholded_by_the_engines_own_config(
+        self, build
+    ):
+        """Not by a default baked into the scorer.
+
+        The route builds `TrustThresholds` from the same `SuppressionConfig`
+        the engine judged the row against, so a limit cannot mean one thing to
+        the gauntlet and another to this score.
+        """
+        app = build(_fresh_slate)
+        body = (await get(app, "/api/parlays")).json()
+        leg = next(leg for card in body["cards"] for leg in card["legs"])
+        names = {c["name"] for c in leg["trust"]["checks"]}
+        assert names == {
+            "consensus_fresh", "quote_fresh", "books", "books_agree",
+            "methods_agree", "depth", "skeptic", "scout",
+        }
+
+    async def test_no_check_state_is_invented(self, build):
+        app = build(_fresh_slate)
+        body = (await get(app, "/api/parlays")).json()
+        for card in body["cards"]:
+            for leg in card["legs"]:
+                for check in leg["trust"]["checks"]:
+                    assert check["state"] in ("pass", "fail", "unknown")
+                    assert isinstance(check["detail"], str) and check["detail"]
+
+    async def test_an_unscouted_leg_scores_unknown_not_pass(self, build):
+        """The seeded slate has no scout briefings, so every leg proves it.
+
+        This is the flattering direction and the one worth catching on the
+        wire as well as in the unit: a leg nobody scouted must not score as a
+        leg the scout cleared.
+        """
+        app = build(_fresh_slate)
+        body = (await get(app, "/api/parlays")).json()
+        for card in body["cards"]:
+            for leg in card["legs"]:
+                scout = next(
+                    c for c in leg["trust"]["checks"] if c["name"] == "scout"
+                )
+                assert scout["state"] == "unknown", scout

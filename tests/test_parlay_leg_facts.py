@@ -688,3 +688,207 @@ class TestTheScoutNeverReachesAPrice:
         for token in ("text-red", "bg-red", "text-lose", "bg-lose",
                       "text-green", "bg-green"):
             assert token not in block, f"{token} colours a scout flag"
+
+
+class TestTheLegCarriesItsReadingsAsNumbers:
+    """`method_spread_display` summarises a distribution the payload withheld.
+
+    The card told the reader the four devig methods disagree by N points and
+    gave no way to see how. These keys are that distribution, shaped for
+    `DispersionStrip` so the component receives them untouched.
+
+    **What this establishes.** That the wire names match `DispersionMethods`
+    exactly; that an unsolved method is `null` and PRESENT; that the ask is a
+    probability or `None`, never 0; and that no forbidden stem enters.
+
+    **What it does not.** Anything about whether the readings are right. They
+    are provenance for a number the card already showed.
+    """
+
+    def test_the_key_names_match_the_component_contract_exactly(self):
+        """A rename on either side draws an EMPTY strip -- no error, no blank.
+
+        `dispersion()` reads `methods[key]` for each of its four names and
+        `continue`s on anything not a number, so a misspelled key is silently
+        four absent marks. That is the failure mode with no symptom, which is
+        why the names are asserted rather than trusted.
+        """
+        out = parlays._serialise_leg(_leg())
+        assert set(out["methods"]) == {
+            "p_multiplicative",
+            "p_additive",
+            "p_power",
+            "p_shin",
+            "p_conservative",
+        }
+
+    def test_the_readings_are_the_legs_own_numbers(self):
+        out = parlays._serialise_leg(_leg())
+        assert out["methods"]["p_multiplicative"] == 0.60
+        assert out["methods"]["p_shin"] == 0.58
+        assert out["methods"]["p_conservative"] == 0.58
+
+    def test_an_unsolved_method_is_null_and_present(self):
+        """`null` and absent mean different things and both must survive.
+
+        `dispersion.ts`: absent means the route never joined `fair_prices`;
+        `null` means the join ran and that method did not solve. A parlay leg
+        always comes from `fair_prices`, so every key is present -- a consumer
+        can rely on that, and would be wrong to if the backend dropped nulls.
+
+        Mutation observed red: emit only the solved methods.
+        """
+        out = parlays._serialise_leg(
+            _leg(p_by_method={"multiplicative": 0.6, "additive": None,
+                              "power": None, "shin": None})
+        )
+        assert "p_shin" in out["methods"], (
+            "an unsolved method was dropped; absent means something else"
+        )
+        assert out["methods"]["p_shin"] is None
+        assert out["methods"]["p_additive"] is None
+
+    def test_the_ask_is_a_probability(self):
+        facts = dict(parlays._NO_FACTS)
+        facts["ask_tenths"] = 550
+        out = parlays._serialise_leg(_leg(), facts)
+        assert out["ask_probability"] == 0.55
+
+    def test_an_unreadable_ask_is_none_never_zero(self):
+        """A 0 ask is a free contract and a real price.
+
+        Using it for "the book could not be read" is exactly the substitution
+        CLAUDE.md's unreadable-resolves-to-None convention forbids -- and here
+        it would put a neutral tick at the far left of the axis, which is the
+        drawing that lies.
+        """
+        out = parlays._serialise_leg(_leg())
+        assert out["ask_probability"] is None
+
+    def test_no_new_key_carries_a_forbidden_stem(self):
+        """The payload may not carry an edge claim or its reconstructible half.
+
+        These keys are provenance, not an edge: the gap was already
+        reconstructible from `fair_percent_display` and `ask_display`, and ADR
+        0071 s2.5 permits the two prices side by side. What stays forbidden is
+        ranking by it, which `test_parlays_api.py` owns.
+        """
+        forbidden = ("breakeven", "edge", "kelly", "ev_", "suggested")
+        out = parlays._serialise_leg(_leg())
+        for key in list(out) + list(out["methods"]):
+            assert not any(stem in key for stem in forbidden), key
+
+
+class TestTheOriginsTapObeysTheRulingItExtends:
+    """The 2026-08-21 ruling took this drawing off the slate row; ADR 0068
+    restored it on `/market` alone; Joe put it on the parlay card 2026-08-31.
+
+    Source assertions, because these are properties about what the component
+    is ALLOWED to do -- a render test only shows what it happens to do today.
+    """
+
+    def _source(self) -> str:
+        return COMPONENT.read_text(encoding="utf-8")
+
+    def test_it_reuses_the_component_rather_than_drawing_its_own_axis(self):
+        """No new SVG. The three properties the ruling preserved come with the
+        component; a hand-rolled copy would carry none of them."""
+        source = self._source()
+        i = source.index("function LegOrigins")
+        block = source[i:i + 1800]
+        assert "DispersionStrip" in block
+        assert "<svg" not in block, (
+            "LegOrigins draws its own axis; reuse the blessed component"
+        )
+
+    def test_it_passes_a_null_book_span(self):
+        """A per-leg book span needs a per-book re-devig, refused as out of
+        scope. Passing anything else would draw a population that was never
+        computed."""
+        source = self._source()
+        i = source.index("function LegOrigins")
+        block = source[i:i + 1800]
+        assert "books={null}" in block
+
+    def test_it_does_not_hand_the_strip_a_used_mark_or_a_colour(self):
+        """Both were removed by the ruling and must not return by the side door.
+
+        The `used` mark re-renders the discredited point estimate; a colour on
+        the ask renders a verdict the desk is barred from making.
+        """
+        source = self._source()
+        i = source.index("function LegOrigins")
+        block = source[i:i + 1800]
+        for token in ("used=", "text-red", "bg-red", "text-green", "bg-green",
+                      "cheap", "expensive"):
+            assert token not in block, f"{token} reintroduces a verdict"
+
+    def test_the_legs_are_not_reordered(self):
+        """ADR 0071 s2.5: a per-row fact may be shown, never ranked by.
+
+        The card's own leg order is the ladder's; sorting them here by anything
+        derived from the readings would be the ordering the ruling forbids.
+        """
+        source = self._source()
+        i = source.index("function LegOrigins")
+        block = source[i:i + 1800]
+        assert ".sort(" not in block
+
+
+class TestTheSweetSpotIsNeverRenderedBare:
+    """The single most likely way this feature goes wrong.
+
+    A lone "6/8" beside a bet reads to a beginner as "this is a 6-out-of-8
+    bet" -- the edge claim the whole design avoids, and the measured signal
+    points the other way (`beta = -0.141`). These are source assertions
+    because the property is about what the component may do.
+    """
+
+    def _block(self) -> str:
+        source = COMPONENT.read_text(encoding="utf-8")
+        i = source.index("function TrustNote")
+        return source[i:i + 2000]
+
+    def test_the_number_carries_its_subject(self):
+        """`evidence`, not `value`, `score`, `rating` or `quality of bet`."""
+        block = self._block()
+        assert "evidence" in block
+        for banned in ("good bet", "rating", "grade"):
+            assert banned not in block, banned
+
+    def test_the_unknown_count_is_shown_not_folded_in(self):
+        """`total - known` is how many checks nobody ran.
+
+        Hiding it makes the least-examined leg look like the best one -- the
+        same failure `suppression.py` records for a 0.0 market width.
+        Mutation observed red: render `passed`/`total` and drop the unknowns.
+        """
+        block = self._block()
+        assert "trust.total - trust.known" in block
+        assert "not checked" in block
+
+    def test_the_denominator_is_known_not_total(self):
+        """Scoring against `total` silently counts an unknown as a miss, which
+        is the opposite error and equally wrong: it punishes a row for a check
+        nobody ran."""
+        block = self._block()
+        assert "{trust.passed}/{trust.known}" in block
+
+    def test_every_failure_is_spelled_out(self):
+        """Naming one hides the one that mattered more, and choosing which to
+        name would be the importance weight the module refuses to invent."""
+        block = self._block()
+        assert 'state === "fail"' in block
+        assert ".join(" in block
+
+    def test_a_full_score_still_disclaims_the_bet(self):
+        block = self._block()
+        assert "not about whether the bet wins" in block
+
+    def test_no_colour_and_no_sort(self):
+        """Red means lose (ADR 0081); a failing evidence check is not a loss.
+        And ADR 0071 s2.5 bars ranking by a per-row fact."""
+        block = self._block()
+        for token in ("text-red", "bg-red", "text-green", "bg-green",
+                      "text-positive", "text-negative", ".sort("):
+            assert token not in block, token

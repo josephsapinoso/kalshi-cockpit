@@ -32,6 +32,7 @@ from typing import NamedTuple, Optional, Sequence
 from backend.core.correlation import Leg
 from backend.core.ladder import (
     CARD_SHAPES,
+    METHODS,
     Card,
     CandidateLeg,
     Ladder,
@@ -42,7 +43,13 @@ from backend.core.ladder import (
     usable_legs,
 )
 from backend.core.parlay import ParlayQuote, value_parlay
-from backend.core.prices import format_dollars, format_price, format_probability
+from backend.core.trust import TrustThresholds, score_trust
+from backend.core.prices import (
+    PRICE_MAX,
+    format_dollars,
+    format_price,
+    format_probability,
+)
 from backend.kalshi.combos import (
     ComboScope, echoed_legs, fetch_collections, lookup_combo,
 )
@@ -894,7 +901,11 @@ def _prefix_chances(legs: Sequence[CandidateLeg]) -> list[dict]:
     return out
 
 
-def _serialise_leg(leg: CandidateLeg, facts: Optional[dict] = None) -> dict:
+def _serialise_leg(
+    leg: CandidateLeg,
+    facts: Optional[dict] = None,
+    trust_thresholds: Optional[TrustThresholds] = None,
+) -> dict:
     """One leg, with the provenance behind its number.
 
     Until 2026-08-26 this returned the fair percent and nothing else -- one
@@ -960,6 +971,72 @@ def _serialise_leg(leg: CandidateLeg, facts: Optional[dict] = None) -> dict:
         # --- What the twelve mechanical checks said, or why they are silent.
         "skeptic": skeptic,
         "suppressed_reason": facts["suppressed_reason"],
+        # --- Where the number came from, as NUMBERS rather than a summary.
+        #
+        # `method_spread_display` above is a summary of a distribution the
+        # payload did not send, so the reader was told the methods disagree and
+        # could not see how. These five keys are that distribution, in the wire
+        # shape `DispersionMethods` (frontend/src/lib/dispersion.ts) expects, so
+        # `DispersionStrip` receives them untouched exactly as `ConsensusPanel`
+        # passes `detail`. **Renaming a key on either side silently draws an
+        # empty strip** -- no error, no blank, just four absent marks -- which
+        # is why `tests/test_parlay_leg_facts.py` pins the names.
+        #
+        # **A method that could not be solved is `null` and PRESENT, never
+        # absent.** `dispersion.ts` gives the two different meanings: absent
+        # means the route never joined `fair_prices` at all, `null` means the
+        # join ran and that method did not solve (`p_shin` is genuinely NULL on
+        # real rows). A parlay leg always comes from `fair_prices`, so the join
+        # ran, so every key is here.
+        "methods": {
+            f"p_{method}": leg.p_by_method.get(method) for method in METHODS
+        } | {"p_conservative": leg.p_conservative},
+        # Kalshi's derived ask as a probability, for the strip's neutral tick.
+        #
+        # **`None` when unreadable, never 0.** A 0 ask is a free contract and a
+        # real price; using it for "we could not read the book" is the
+        # substitution CLAUDE.md's convention exists to forbid.
+        #
+        # ADR 0071 s2.5 permits the two prices side by side; what stays
+        # forbidden is a DIRECTION on this tick or an ordering by the gap
+        # between it and the readings above.
+        "ask_probability": (
+            facts["ask_tenths"] / PRICE_MAX
+            if facts["ask_tenths"] is not None
+            else None
+        ),
+        # --- The sweet spot: how much this number deserves to be acted on.
+        #
+        # Computed HERE because this is where the two halves meet -- the leg
+        # carries the consensus provenance (age, width, books, method spread)
+        # and `facts` carries what the venue and the examiners said (depth,
+        # quote age, skeptic, scout). Neither alone can score the row.
+        #
+        # **`None` when no thresholds were supplied**, never a score computed
+        # against defaults: a limit written down twice is the drift
+        # `StalenessLimitsDisagree` exists to refuse, and a silently-defaulted
+        # score would be exactly that with no error.
+        "trust": (
+            score_trust(
+                max_odds_age_s=trust_thresholds.max_odds_age_s,
+                max_kalshi_quote_age_s=trust_thresholds.max_kalshi_quote_age_s,
+                min_book_count=trust_thresholds.min_book_count,
+                max_market_width=trust_thresholds.max_market_width,
+                min_depth_contracts=trust_thresholds.min_depth_contracts,
+                odds_age_ms=leg.odds_age_now_ms,
+                quote_age_ms=facts["quote_age_ms"],
+                book_count=leg.book_count,
+                market_width=leg.market_width,
+                method_spread_points=_method_spread_points(leg),
+                depth_at_ask=facts["depth_at_ask"],
+                skeptic=skeptic,
+                suppressed_reason=facts["suppressed_reason"],
+                scout=facts["scout"],
+                scout_flags=facts["scout_flags"],
+            ).as_payload()
+            if trust_thresholds is not None
+            else None
+        ),
         # --- What the scout desk knows about this leg's game (Joe's ruling,
         # 2026-08-30: the Scout gates eligibility and FLAGS, and never moves
         # the price). These are words about a fixture, never an input to one
@@ -975,7 +1052,11 @@ def _serialise_leg(leg: CandidateLeg, facts: Optional[dict] = None) -> dict:
     }
 
 
-def _serialise_card(card: Card, facts: Optional[dict] = None) -> dict:
+def _serialise_card(
+    card: Card,
+    facts: Optional[dict] = None,
+    trust_thresholds: Optional[TrustThresholds] = None,
+) -> dict:
     if card.not_built_reason is not None:
         return {
             "key": card.key,
@@ -997,7 +1078,9 @@ def _serialise_card(card: Card, facts: Optional[dict] = None) -> dict:
         "title": card.title,
         "what_it_is": card.what_it_is,
         "legs": [
-            _serialise_leg(leg, (facts or {}).get(leg.kalshi_market_ticker))
+            _serialise_leg(
+                leg, (facts or {}).get(leg.kalshi_market_ticker), trust_thresholds
+            )
             for leg in card.legs
         ],
         "not_built_reason": None,
@@ -1300,11 +1383,17 @@ def leg_facts(conn, tickers: Sequence[str], *, now_ms: int) -> dict[str, dict]:
 
 
 def serialise_ladder(
-    ladder: Ladder, *, generated_ms: int, facts: Optional[dict] = None
+    ladder: Ladder,
+    *,
+    generated_ms: int,
+    facts: Optional[dict] = None,
+    trust_thresholds: Optional[TrustThresholds] = None,
 ) -> dict:
     return {
         "generated_ms": generated_ms,
-        "cards": [_serialise_card(card, facts) for card in ladder.cards],
+        "cards": [
+            _serialise_card(card, facts, trust_thresholds) for card in ladder.cards
+        ],
         "excluded": ladder.excluded,
         "notes": dict(NOTES),
     }
@@ -2100,7 +2189,13 @@ async def price_card_on_kalshi(
     }
 
 
-def build_ladder_payload(conn, *, now_ms: int, max_odds_age_ms: int) -> dict:
+def build_ladder_payload(
+    conn,
+    *,
+    now_ms: int,
+    max_odds_age_ms: int,
+    trust_thresholds: Optional[TrustThresholds] = None,
+) -> dict:
     candidates, excluded = ladder_candidates(
         conn, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms
     )
@@ -2119,4 +2214,5 @@ def build_ladder_payload(conn, *, now_ms: int, max_odds_age_ms: int) -> dict:
         Ladder(cards=ladder.cards, excluded=merged),
         generated_ms=now_ms,
         facts=leg_facts(conn, selected, now_ms=now_ms),
+        trust_thresholds=trust_thresholds,
     )

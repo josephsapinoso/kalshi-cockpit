@@ -722,6 +722,59 @@ export type ParlayCardLeg = {
   skeptic: "checked" | "not_on_this_path" | "absent";
   suppressed_reason: string | null;
   /**
+   * The sweet spot: how much this number deserves to be acted on.
+   *
+   * **Evidence quality, never bet quality.** Joe chose trust over edge on
+   * 2026-08-31, and the reason is measured rather than stylistic: the
+   * consensus-vs-Kalshi gap has `beta = -0.141`, so a score containing it
+   * would rank the least trustworthy rows highest.
+   *
+   * **All three counts travel and the screen must use them.** `passed/total`
+   * alone hides how many checks nobody ran; `passed/known` alone hides that
+   * those checks exist. `total - known` is the number of unknowns, and an
+   * unknown is never a pass.
+   *
+   * `null` when the caller supplied no thresholds — a score computed against
+   * defaults would be a second definition of limits that live in config.
+   */
+  trust: {
+    passed: number;
+    known: number;
+    total: number;
+    checks: {
+      name: string;
+      state: "pass" | "fail" | "unknown";
+      detail: string;
+    }[];
+  } | null;
+  /**
+   * The four devig readings plus the one the card took, for `DispersionStrip`.
+   *
+   * **Every key is present; an unsolved method is `null`.** `dispersion.ts`
+   * gives absent and `null` different meanings — absent means the route never
+   * joined `fair_prices`, `null` means the join ran and that method did not
+   * solve. A parlay leg always comes from `fair_prices`, so nothing here is
+   * ever absent, and a consumer can rely on that.
+   *
+   * Shaped to match `DispersionMethods` exactly so it passes through
+   * untouched. A rename on either side draws an empty strip with no error.
+   */
+  methods: {
+    p_multiplicative: number | null;
+    p_additive: number | null;
+    p_power: number | null;
+    p_shin: number | null;
+    p_conservative: number | null;
+  };
+  /**
+   * Kalshi's derived ask as a probability. `null` when unreadable, never 0 —
+   * a 0 ask is a free contract and a real price.
+   *
+   * Drawn as a neutral tick and nothing more: ADR 0071 §2.5 permits the two
+   * prices side by side, and forbids a direction on this one.
+   */
+  ask_probability: number | null;
+  /**
    * What the scout desk knows about this leg's GAME.
    *
    * Joe's ruling, 2026-08-30: the Scout gates eligibility and flags, and
