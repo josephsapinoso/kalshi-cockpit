@@ -242,7 +242,51 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-08-31 (latest) — the Scout reaches the parlay legs, and the budget says it can only flag them
+## 2026-08-31 (latest) — the sweet spot, and the graph Joe asked for
+
+**Live is on `0d5b992`, verified.** Suite **5,408 passed / 10 xfailed**,
+collected on a frozen tree with the ADRs added after it finished.
+
+Two things Joe chose from options put to him, both shipped:
+
+**ADR 0089 — the provenance axis reaches the parlay card.** Each leg shows
+where its number came from, behind a tap, reusing `DispersionStrip
+variant="chart"` UNCHANGED so the three properties the 2026-08-21 ruling
+preserved cannot drift. **This is a SECOND surface** for a chart that ruling
+deleted from the slate row and ADR 0068 restored on `/market` alone — Joe's
+choice is the authority, and the ADR exists so nobody later reads the ruling
+and concludes the card is in breach.
+
+**ADR 0090 — the sweet spot scores trust, not edge.** He asked for "the
+overall score that determines a yes or no on what is a good bet"; put the
+evidence, he chose trust. The exclusion of edge is arithmetic:
+`beta = -0.141`, every interval below the registered 0.40 threshold, so a
+composite containing the gap ranks the LEAST trustworthy rows highest.
+
+`backend/core/trust.py` counts the desk's own existing refusal criteria —
+**no invented thresholds** (every limit from the config that already enforces
+it; NO argument has a default, because a default is a second definition),
+**no invented weights** (a count, with EVERY failure named — picking one
+"binding" constraint would smuggle in the importance weight, which is
+`SuppressionResult.reason`'s own argument), and **unknown is never a pass**
+(folding it in makes the least-examined row score highest, the same failure
+`suppression.py` records for a 0.0 width; that mutation turns 12 tests red).
+
+The screen never renders the number bare: a lone "6/8" beside a bet reads as
+"a 6-out-of-8 bet". It reads `evidence 6/6 checks · 2 not checked`, names every
+failure, and a clean row still says it is *not about whether the bet wins*.
+
+**Wiring proven on the wire**: removing the route's threshold argument turns
+five route tests red — the guard against the built-but-never-called failure
+this repo has hit four times.
+
+**Still open from Joe's own choice: the SLATE ROW and MARKET DETAIL surfaces.**
+He picked all three. The module is surface-agnostic precisely so they consume
+the same score rather than computing their own.
+
+---
+
+## 2026-08-31 — the Scout reaches the parlay legs, and the budget says it can only flag them
 
 **Live is on `cd9e842` — the scout slice is DEPLOYED and verified.** Health
 ok, six passes since boot, no post-boot errors, and `candidate_ms` holds at
@@ -341,7 +385,44 @@ That version goes red.
 7. **Time the v31 index build at boot.** The grace period went 40s → 120s to
    cover it and the deploy succeeded, so the build is bounded below the failure
    point — but the deploy log was never read for the actual duration.
-8. **`OperationalError: database is locked` on FULL passes, four times in 24 h**
+8. **`OperationalError: database is locked` — SHARPENED 2026-08-31, and it is
+   worse than the entry below said.** A fifth occurrence at 05:32:45Z gave the
+   traceback the earlier four lacked:
+
+       scoring.py:264   run_scoring_pass -> store_closing_line(conn, line)
+       clv.py:183       conn.execute(INSERT INTO closing_lines ...)
+       sqlite3.OperationalError: database is locked
+
+   Three things follow, and the third is the one that changes its priority:
+
+   - **`BUSY_TIMEOUT_MS = 5_000` is already set** on every connection, and
+     `db.py` records that it is passed explicitly rather than inherited. So
+     this is not a missing timeout — **something holds the write lock for over
+     five seconds.** The WAL `TRUNCATE` checkpoint is the obvious suspect: on
+     2026-08-31 a `wal_ckpt_error: database table is locked` landed at 00:56Z,
+     one minute after the 00:55Z loop failure. Not established.
+   - **`store_closing_line` commits per row inside a per-market, per-horizon
+     loop**, so a scoring pass takes and releases the write lock once per
+     closing line — many small windows for a slow holder to collide with.
+   - **The `try/except` in that loop wraps only the FETCH, not the store**
+     (`scoring.py:251` appends to `counts.errors` and continues). A lock error
+     on the store therefore escapes `run_scoring_pass` and kills the whole
+     pass, **abandoning every remaining market in the loop.** And
+     `fly.live.toml` says why that matters: *"an unrecorded close is an
+     observation lost forever, since candlesticks age out."*
+
+   **So the earlier note that it "recovers each time" was right about the loop
+   and wrong about the record.** The loop recovers; the closing lines that
+   pass would have written do not. Each occurrence is potentially permanent
+   evidence loss on the registered CLV record, ~4-5 times a day.
+
+   Not fixed: the obvious candidates (widen the timeout, batch the commits,
+   or catch-and-continue on the store) each change the scoring path and one of
+   them would hide the contention rather than fix it. Wants a look, not a
+   patch.
+
+   *(original entry follows)* `OperationalError: database is locked` on FULL
+   passes, four times in 24 h
    and NOT caused by anything shipped tonight: 2026-08-30 07:25Z, 09:10Z,
    22:13Z and 2026-08-31 00:55Z — three of the four predate the index
    (23:34Z). Each carries `consecutive_failures` 2-3, so the loop recovers.
