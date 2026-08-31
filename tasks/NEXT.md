@@ -325,7 +325,14 @@ disagree with` — the least-evidenced thing on the screen finally saying so.
 4. **`odds_snapshots` retention** — ADR 0086 bought headroom, not a bound.
 5. **`user_not_found` on shard 3** and **Joe's shard allocation** — both his,
    both money-touching, both carried.
-6. **`tasks/lessons.md` is 86.3%** and will need its own split soon.
+6. ~~`tasks/lessons.md` is 86.3% and will need its own split.~~ **DONE.**
+   Split at 87.8%: fifty lessons, 2026-08-25 back to 2026-08-18, moved to
+   `archive/lessons-2026-08-31.md` verbatim. Now **52%**, a deeper cut than the
+   last one on purpose — the file was split twice in three days.
+   **Seven index markers were flipped in the same edit**, which is the half
+   that matters: moving entries without moving their index lines is a data loss
+   with a table of contents. Both session files are now comfortable
+   (`NEXT.md` 70%, `lessons.md` 52%).
 
 ---
 
