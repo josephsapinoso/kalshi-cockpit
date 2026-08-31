@@ -507,8 +507,11 @@ to carry:**
    a real if unglamorous exposure. One header in the proxy/middleware. Not
    done — it is a security change to a live money instance and was not what
    was asked for.
-9. **Optional, Joe's call:** the sweet spot renders at 9.6px on the slate row,
-   the smallest text there. `size="panel"` (12px) is already built.
+9. ~~The sweet spot renders at 9.6px on the slate row, the smallest text
+   there.~~ **DONE — Joe took it. The slate row passes `size="panel"` (12px),
+   matching the gloss and status lines beside it.** The parlay card keeps
+   `compact`: six legs share one `text-[11px]` list there, which is what
+   compact was sized for.
 
 ---
 

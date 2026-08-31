@@ -551,8 +551,16 @@ function Row({
           state for a row whose `fair_prices` join found nothing: half the
           checks read off that row, and four unknowns from one missing join is
           a different quantity from four separately unmeasured checks. */}
+      {/* `size="panel"`, not the parlay card's `compact`, and the reason is a
+          measurement. At 390px the compact score renders at 9.6px -- the
+          SMALLEST text on the row, under the 10.4px `readings disagree by`
+          line directly above it. Compact was sized for the card, where six
+          legs share one `text-[11px]` list; on a row whose other captions are
+          `text-xs` it made the thing Joe asked for the quietest element
+          there. Panel is 12px, matching the gloss and status lines beside it.
+          Joe's call, 2026-08-31, after the 390px read. */}
       <span className="w-full xl:col-span-full">
-        <TrustNote trust={row.trust} />
+        <TrustNote trust={row.trust} size="panel" />
       </span>
 
       {/* The hand-bet door (ADR 0063), last on the row so the facts are read
