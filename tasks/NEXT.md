@@ -244,10 +244,22 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ## 2026-08-30 (latest) — the deadline the screen promised had never once been kept
 
-**Live is on `07a89e2`. `main` is level with it and with `origin/main`.**
-Three deploys this session, each verified against `/api/health` `git_sha`
-rather than assumed: `99625ff` (last session's card work), `351f594` (the bid
-watcher), `07a89e2` (the covering index, schema v31).
+**Live is on `9832834`, which is `main` and `origin/main`.** Deploys this
+session, each verified against `/api/health` `git_sha` rather than assumed:
+`99625ff` (last session's card work), `351f594` (the bid watcher), `9832834`
+(the covering index, schema v31, verified on the live volume).
+
+**One deploy failed first and it was NOT the change.** Fly's remote Depot
+builder was unavailable — `error releasing builder: deadline_exceeded`, then
+`failed to list workers: authentication handshake failed: EOF` — so the image
+never built and the migration never ran. A straight re-dispatch succeeded.
+**Read the log before diagnosing a failed deploy**; nothing about the schema
+change was exercised by that failure.
+
+**Splitting the two deploys earned its keep.** The money fix went out and was
+verified on Joe's real order 25 minutes before the schema change even built.
+Had they shipped together, the watcher fix would have sat undeployed behind a
+builder outage that had nothing to do with it.
 
 **Test baseline: 5,343 passed / 10 xfailed in 10:22** on the final tree, with
 nothing edited after the run started and the tree clean throughout. **Every
@@ -363,13 +375,22 @@ a lost stream. Give it 300s.
 
 ### OPEN — pick up here
 
-1. **Read the real `idx_odds_sport_commence` size on live** with `db-sizes`,
-   and **time the index build**. The synthetic 52.8 MB *understates* it —
-   synthetic team names are short and uniform. `idx_odds_event` is 136 MB
-   against its 244 MB table with two TEXT columns; this has four. Bracket it
-   between those and write the real number into
-   `docs/measurements/2026-08-30-the-candidate-scan-index.md`, which has a
-   slot waiting.
+1. ~~Read the real index size on live.~~ **DONE, and the index is verified
+   working on live — `9832834`.** `idx_odds_sport_commence` is **150.3 MB**
+   (the ADR's bracket of 136–244 MB held; the synthetic 52.8 MB understated it
+   by 2.85x, in the direction the caveat named). The database is 2.25 GB, 45%
+   of the volume. **`candidate_ms` p50 438 ms → 60.5 ms on live, 7.2x**,
+   against the committed pre-index series (n=182). The synthetic model
+   predicted the *before* to within 10%, which is why it is worth keeping.
+   **Two things it does NOT establish, both written into the measurement:** the
+   tail is unassessed at n=12 against a before-p99 of 5,451 ms, and all twelve
+   samples are within four minutes of a boot. **Re-read `loop-rss` once the box
+   has hours of uptime** — that is the remaining half.
+
+   Also still unmeasured: **how long the index build actually took at boot.**
+   The grace period was raised 40s → 120s to cover it and the deploy succeeded,
+   which bounds it below the failure point but leaves the margin unknown. The
+   deploy log was never read for the duration.
 2. **`odds_snapshots` still has no retention rule.** ADR 0086 changed the
    constant and left the growth term alone, and says so. `store/retention.py`
    already names this table as deliberately out of scope. `fair_prices`
