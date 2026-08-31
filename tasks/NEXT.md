@@ -440,6 +440,22 @@ Two things to carry, and the second is the method:
   clientWidth` instead — that is what located it in one pass after two failed
   scans.
 
+**CONFIRMED on live `39d6f92`, and this time the number moved:**
+
+    documentElement.scrollWidth   375   (was 428)
+    content overflowing its box     0   (scrollWidth > clientWidth, non-scrollers)
+    score font                   12px   x100 rows, 0 wrapped
+    longest multi-code reason      65 chars, right edge 351 of 390
+
+**The qualification that matters is the last line.** The stressing data was on
+the page this time — `insufficient_depth,too_few_books,no_market_width` was
+rendered and fitted inside the column — so this is a clean read *of the
+defect's own conditions*, which the earlier 375 was not. A layout check that
+passes without the shape that breaks it has proven nothing.
+
+Everything is deployed and verified: live is `39d6f92`, `/api/health` read
+from the machine.
+
 **It is data-dependent, which is why the earlier 390px read at 375 saw
 nothing** — the same page, the same width, an hour apart, and no long
 multi-code reason on the slate at the time. A layout measurement is a
