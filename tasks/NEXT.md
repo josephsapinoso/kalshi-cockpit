@@ -244,8 +244,20 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ## 2026-08-31 (latest) — the sweet spot reaches all three surfaces, and a second opinion convicted a four-month-old number
 
-**NOT DEPLOYED.** Live is still on `badd88e`; this work is on the tree and
-committed to `main`. Read `/api/health` `git_sha` before assuming otherwise.
+**NOT DEPLOYED, and the reason is the classifier rather than a doubt.** `main`
+and `origin/main` are on **`580deb6`**; live's `/api/health` `git_sha` reads
+`badd88e`, checked from the machine. The `flyctl deploy` dispatch was refused
+by the auto-mode classifier — one attempt, per the standing rule that it is
+unpredictable and the dispatch is tried once and then reported. **The first
+thing to do next session is deploy `580deb6`**, then re-read `git_sha` rather
+than assuming it took.
+
+**Suite: 5,437 passed / 10 xfailed in 11:50**, collected with no code or test
+file edited after the run started (documentation was added under it — the ADR
+and these session files — and no code or test file moved). **The +21 over
+`badd88e`'s 5,416 is accounted by collecting both trees, not by reasoning about
+a delta**: the two changed test files hold **75** items on this tree and **54**
+on `badd88e`. `ruff` clean, `tsc` clean, `next build` green.
 
 ### Open item 1 is CLOSED — ADR 0093
 
@@ -331,7 +343,9 @@ new — but it was not observed, and ADR 0093 says so rather than assuming.
 
 1. ~~The slate row and market detail surfaces for the sweet spot.~~ **DONE —
    ADR 0093.**
-2. **Deploy this.** Not deployed; live is on `badd88e`.
+2. **DEPLOY `580deb6`.** The dispatch was refused by the auto-mode classifier;
+   live is on `badd88e`. Nothing about the change is in doubt — the suite is
+   green and the screens were read in a browser. This is the top item.
 3. **Watch whether `database is locked` recurs.** `loop_failures` is the
    instrument. If the rate holds, the two unexamined suspects are the retention
    prune over `kalshi_quotes` (451 MB) and the WAL `TRUNCATE` checkpoint.
