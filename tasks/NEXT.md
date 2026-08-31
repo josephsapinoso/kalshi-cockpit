@@ -244,7 +244,14 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ## 2026-08-31 (latest) — the lock holder was found, and a wording rule lost to typography
 
-**Live is on `984cecc`, verified.** Suite **5,412 passed / 10 xfailed**.
+**Live is on `badd88e`, verified** — health ok, recorder writing, no
+post-boot errors. Suite **5,416 passed / 10 xfailed** on that tree.
+`main` is level with it apart from session-file commits.
+
+Deployed this session, each verified against `/api/health` `git_sha` rather
+than assumed: `0d5b992` (sweet spot + provenance chart, ADR 0089/0090),
+`c05cb1f` (the typography fix), `984cecc` (the lock holder, ADR 0091),
+`badd88e` (the scoring pass survives a refused write, ADR 0092).
 `tasks/NEXT.md` was split at **87.3%** BEFORE this entry was written — five
 2026-08-27 entries to `archive/next-2026-08-31.md`, verbatim, verified moved
 exactly once and named in the index. It is 68.4% now.
