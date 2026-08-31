@@ -100,41 +100,47 @@ passes, `candidate_rows` p50 162:
 
     min 419   p50 438   p90 459   p99 5451   max 11202
 
-**After**, `loop-rss -n 12` on live at 00:02–00:06Z, `candidate_rows` 155, all
-twelve values sorted:
+**After**, and the sample is now 102 passes over 1.7 hours rather than the
+twelve this section first carried:
 
-    59 59 60 60 60 60 61 61 62 63 75 76     p50 60.5
+    no index    n=46    min 392  p50 407  p90 427  max 900   >200ms: 46 (100%)
+    v31 index   n=102   min  58  p50  60  p90  67  max  78   >200ms:  0 (0%)
 
-**p50 438 ms → 60.5 ms, 7.2x.** The two largest (75, 76) are the two most
-recent passes, which are also the two carrying a WAL checkpoint — one of them
-a `TRUNCATE` at 74 MB with `wal_ckpt_busy = 1`. Noted, not explained: twelve
-passes cannot separate a checkpoint effect from ordinary variation.
+**p50 407 ms → 60 ms, 6.8x. Every pass before the index exceeded 200 ms and
+none after it did.**
 
-**The synthetic model predicted the "before" to within 10%** — 394 ms against
-the live 438 ms — which is the strongest evidence available that the modelled
-row count, sport mix and fixture spread were representative. That agreement was
-not designed in; the synthetic figure was fixed before this series was read.
+Two independent pre-index samples agree: 407 ms here and 438 ms in the
+committed series, taken hours apart under different WAL conditions. The
+synthetic model predicted 394 ms, which is inside both.
 
-**The "after" is 61 ms, not the synthetic 0 ms, and the gap is expected.** Live
-carries real strings in a 150 MB index rather than short uniform ones in a
-52.8 MB index, on a shared-cpu-1x box, four minutes after a boot with a cold
-page cache. The plan is the same; the constant is not.
+### The split is on `db_kb`, not on when the deploy happened, and that matters
+
+`loop_rss.jsonl` lives on the volume and survives deploys, so one file holds
+both regimes and the boundary has to be found rather than assumed. **Splitting
+on the deploy's wall-clock time gave a materially wrong answer** — it put 79
+with-index passes into the "before" bucket and reported the pre-index p50 as
+63 ms, which would have been published as "the index does not move the median".
+
+The honest boundary is the index itself: `db_kb` steps **2,034,808 →
+2,182,008 KB at 23:34:56Z**, +147 MB against a measured index of 150.3 MB.
+That is the row where the index began to exist, and it is not a guess.
 
 ### What the live read does NOT establish
 
-- **The tail is unassessed.** n = 12 after, against a before-distribution whose
-  p99 was 5,451 ms and whose max was 11,202. Twelve passes cannot see a tail
-  that appeared in roughly one pass in a hundred. **The pathological case is
-  not shown to be gone — only absent from a small sample.**
-- **All twelve passes are within four minutes of a boot**, so the page cache is
-  cold-to-warming. The steady-state figure could move in either direction.
-- **`candidate_rows` differs slightly** (162 before, 155 after): a different
-  slate, not a controlled variable. Too small to matter at this effect size,
-  and named rather than hidden.
-- **Nothing here isolates the index from the deploy.** The machine restarted,
-  which resets the WAL and the page cache. The plan assertion in
-  `tests/test_candidate_scan_plan.py` is what ties the improvement to the
-  index; this series alone could not.
+- **It does not isolate the index from everything else in the deploy.** The
+  machine restarted, which resets the WAL and the page cache. What ties the
+  effect to the index rather than to the restart is the plan assertion in
+  `tests/test_candidate_scan_plan.py` plus the `db_kb` step — the two regimes
+  are separated by the index's own 147 MB, not by a clock.
+- **`candidate_rows` differs slightly** across the boundary (162 in the
+  committed series, 155–156 now): a different slate, not a controlled
+  variable. Too small to matter at this effect size, and named rather than
+  hidden.
+- **1.7 hours is not a week.** The pre-index record had a p99 of 5,451 ms and a
+  max of 11,202 ms in the committed series; nothing here has run long enough to
+  meet whatever produced those. The 900 ms pre-index max in *this* window is
+  the ordinary slow mode, not that one.
+- **`n` is one machine.** SQLite's plan choice is asserted by test, not by this.
 
 ### The size prediction, scored
 

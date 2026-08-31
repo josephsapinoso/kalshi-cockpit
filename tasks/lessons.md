@@ -40,6 +40,37 @@ writing an entry, not after.
 
 ---
 
+## 2026-08-30 - Split a before/after on evidence of the change, never on when you think you made it
+
+A live before/after for a new index was cut at the deploy's wall-clock time.
+The answer that came out: pre-index p50 **63 ms**, post-index **61 ms** -- the
+index does nothing to the median. It was one edit away from being published as
+a correction to a claim that was, in fact, right.
+
+The log file lives on the volume and survives deploys, so one file held both
+regimes and the boundary had to be *found*. The deploy did not land when the
+dispatch happened: the first attempt failed on a builder outage, the retry
+landed earlier than assumed, and the guessed cut put **79 with-index passes
+into the "before" bucket**, dragging its median down to meet the after.
+
+The honest boundary was in the data. `db_kb` steps 2,034,808 -> 2,182,008 KB in
+one pass -- +147 MB against a separately measured 150.3 MB index. That row is
+where the index began to exist. Re-split there: **p50 407 -> 60 ms, and 100% of
+pre-index passes over 200 ms against 0% after.**
+
+**Pattern: when comparing two regimes in one continuous series, find the
+boundary from a variable the change itself moves -- a file size, a schema
+version, a row count -- not from a timestamp you supply. Your timestamp records
+when you ACTED; the data records when the system CHANGED, and deploys, retries,
+restarts and caches put a gap between them.**
+
+The failure is nastier than an ordinary confound because it is directional:
+misassigning post-change samples into the before-bucket always drags the two
+groups *together*, so the error reliably manufactures a null. A null looks like
+rigour. This one would have been written up as "the honest correction to an
+overclaim", which is the disguise a wrong result wears when it is most likely
+to be believed.
+
 ## 2026-08-30 - A test double that is kinder than the real object hides the bug it exists to catch
 
 `watch_bids_forever` passed `KalshiRestClient(cfg)` -- constructed, never

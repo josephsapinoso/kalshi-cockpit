@@ -382,10 +382,26 @@ a lost stream. Give it 300s.
    of the volume. **`candidate_ms` p50 438 ms → 60.5 ms on live, 7.2x**,
    against the committed pre-index series (n=182). The synthetic model
    predicted the *before* to within 10%, which is why it is worth keeping.
-   **Two things it does NOT establish, both written into the measurement:** the
-   tail is unassessed at n=12 against a before-p99 of 5,451 ms, and all twelve
-   samples are within four minutes of a boot. **Re-read `loop-rss` once the box
-   has hours of uptime** — that is the remaining half.
+   ~~The tail is unassessed at n=12.~~ **Re-read at n=102 over 1.7 hours, and
+   the tail is closed:**
+
+       no index    n=46    p50 407  p90 427  max 900   >200ms: 46 (100%)
+       v31 index   n=102   p50  60  p90  67  max  78   >200ms:  0 (0%)
+
+   **The split is on `db_kb`, not on the deploy clock, and that is not a
+   detail.** `loop_rss.jsonl` survives deploys, so one file holds both regimes.
+   Cutting at the wall-clock time I dispatched the deploy put 79 with-index
+   passes into the "before" bucket and produced "pre-index p50 63 ms — the
+   index does not move the median", which was one edit from being published as
+   a correction to a claim that was right. The real boundary is `db_kb`
+   stepping +147 MB at 23:34:56Z, against a separately measured 150.3 MB index.
+   Lesson at the top of `tasks/lessons.md`.
+
+   Still open on this item: **how long the index build actually took at boot**
+   (the grace period went 40s → 120s to cover it, the deploy succeeded, the
+   margin is unknown), and the committed series' p99 of 5,451 ms / max of
+   11,202 ms — 1.7 hours has not run long enough to meet whatever produced
+   those.
 
    Also still unmeasured: **how long the index build actually took at boot.**
    The grace period was raised 40s → 120s to cover it and the deploy succeeded,
