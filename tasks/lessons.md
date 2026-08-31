@@ -54,6 +54,36 @@ writing an entry, not after.
 
 ---
 
+## 2026-08-31 - A header you set is not a header the framework sends
+
+The framing headers were added in one funnel through the Next middleware, every
+exit wrapped, twelve source tests green, three mutations verified red. Reading
+them off the live wire afterwards:
+
+    /login /slate /market/{ticker} /parlays   both headers
+    /api/health, /api/slate (200)             NEITHER
+    /api/slate (401 from the middleware)      both headers
+
+`/api/*` is a rewrite to a backend process, and the framework serves that
+backend's headers rather than the ones set on `NextResponse.next()`. The 401
+carries them only because the middleware constructs that response itself rather
+than passing one through.
+
+Every source test was correct and none of them could have found this. They
+assert what the code *sets*; whether a set header survives depends on what the
+framework does with it on each code path, and that is not visible in the code
+you wrote.
+
+**Pattern: setting a response header is a request to a framework, not an
+effect. On any path where the framework proxies, rewrites, caches or
+regenerates the response, the header may not survive -- so read the header back
+from the deployed system, on one URL of each SHAPE.** One page, one redirect,
+one proxied route, one error: four requests, and they disagreed.
+
+The same shape as the deploy that reports success and the resize that reports
+success. The general rule this file keeps rediscovering: **the confirmation and
+the effect are different things, and only one of them is what you needed.**
+
 ## 2026-08-31 - A guard on the code must not be able to read the comment beside it
 
 Three tests on a new middleware failed the moment they were written, and the
@@ -2383,6 +2413,7 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-08-31 — in this file, above
+- A header you set is not a header the framework sends
 - A guard on the code must not be able to read the comment beside it
 - Text can overflow a correctly-sized box, so hunt overflow with scrollWidth and not with rects
 - A fix that does not move the number has not been shown to work

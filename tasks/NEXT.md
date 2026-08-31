@@ -569,8 +569,8 @@ a real immediate-or-cancel order (`MANUAL_ORDERS_ARE_DRY_RUNS = false` since
 2026-08-26, ADR 0073), and a clickjacked click is a genuine click from a
 genuine session — valid cookie, fresh order token, every check passes.
 
-Set in `frontend/src/middleware.ts`, which runs **before** the `/api` rewrite,
-so one place covers every page and every proxied route. Three decisions:
+Set in `frontend/src/middleware.ts`, which runs **before** the `/api` rewrite.
+Three decisions:
 
 - **`'self'`, not `DENY`.** An attacker cannot serve a page from this origin,
   so same-origin framing is not a way in; `DENY` would block only our own
@@ -591,6 +591,32 @@ instance an attacker can reach with no password at all — and a header set on
 four of them is absent exactly where somebody adds a sixth. The guard counts
 bare `NextResponse` returns rather than asserting a number, so a sixth exit
 fails it until it is wrapped.
+
+**VERIFIED ON THE WIRE, and the read corrected a claim the source could not
+have.** This entry first said one place covers "every page and every proxied
+route". Reading the live headers says otherwise:
+
+    /login /slate /market/{ticker} /parlays   both headers, 200
+    /api/health, /api/slate (200)             NEITHER header
+    /api/slate (401 from the middleware)      both headers
+
+**A successful `/api/*` response does not carry them.** That path is a rewrite
+to uvicorn and Next serves the backend's own headers, discarding the ones set
+on `NextResponse.next()`; the 401 carries them only because the middleware
+constructs that response itself.
+
+**The exposure is closed anyway, and the reason is worth stating rather than
+assuming.** Clickjacking needs a surface to click; a JSON body has none, and
+every HTML page carries the header. So this is a gap in coverage, not an open
+door — but it would become one the day an `/api/*` route returns HTML. Left
+unpatched deliberately: fixing it in `next.config.ts` would put the policy in a
+second place, and two places that must agree is the drift this repo keeps
+recording. Written down in the test file's own "does not establish" list so
+nobody re-derives it.
+
+**And note which check found it.** The source tests were green and would have
+stayed green forever; the header only reaches a browser if the framework
+propagates it, and no amount of reading the middleware says whether it does.
 
 **One thing the tests had to learn, and it is the third time today.** They
 first grepped the raw file and three failed — on the *comments*, which discuss

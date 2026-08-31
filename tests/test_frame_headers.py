@@ -16,11 +16,22 @@ so every check the order path makes passes.
 
 WHAT THESE TESTS DO NOT ESTABLISH
 ---------------------------------
-- **That the deployed instance sends them.** These read the source. The
-  headers reach the browser only if this middleware runs, and its `matcher`
-  excludes `_next/static` and `_next/image` -- hashed build assets with no UI
-  on them. Confirm on live by reading the response headers after a deploy; the
-  session that added this did exactly that and recorded the result.
+- **That the deployed instance sends them.** These read the source. Confirm on
+  live by reading the response headers after a deploy -- the session that added
+  this did, and the read corrected a claim the source could not have:
+
+      /login /slate /market/{ticker} /parlays  ->  both headers, 200
+      /api/health, /api/slate (200)            ->  NEITHER header
+      /api/slate (401 from the middleware)     ->  both headers
+
+  **A successful `/api/*` response does not carry them.** That path is a
+  rewrite to uvicorn, and Next serves the backend's own headers rather than the
+  ones set on `NextResponse.next()`; the 401 carries them only because the
+  middleware constructs that response itself. **The exposure is still closed**
+  -- clickjacking needs a surface to click, and every HTML page has the header
+  -- but the gap is real and would matter the day an `/api/*` route returns
+  HTML. Not papered over in `next.config.ts`, because that would be a second
+  place the policy is written and the two would drift.
 - **That the app is protected against anything else.** This is not a content
   security policy. There is no `script-src` and no `style-src`, deliberately:
   those have a real chance of breaking a page, and shipping them inside a
