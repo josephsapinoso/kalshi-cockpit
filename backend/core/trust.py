@@ -75,7 +75,7 @@ and no clock of its own.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional, Sequence
+from typing import Iterable, Literal, Optional, Sequence
 
 from .ladder import AGREEMENT_SPREAD_POINTS
 
@@ -83,6 +83,26 @@ from .ladder import AGREEMENT_SPREAD_POINTS
 #: absence of a look, and it is reported separately so it cannot be mistaken
 #: for either.
 TrustState = Literal["pass", "fail", "unknown"]
+
+
+def method_spread_points(values: Iterable[Optional[float]]) -> Optional[float]:
+    """How far the devig readings sit apart, in percentage points.
+
+    **One implementation, because three surfaces now score against it.** The
+    parlay card, the slate row and the market screen all feed this number to
+    `methods_agree`, and a second copy would be a second definition of "the
+    methods disagree" — the drift `StalenessLimitsDisagree` exists to refuse,
+    with no error to announce it.
+
+    `None` on fewer than two solvable readings, and that is the whole subtlety:
+    **one reading is not perfect agreement, it is one reading.** Returning 0.0
+    there would score the least-evidenced row as the most agreed-upon one,
+    which is the `market_width = 0.0` failure `suppression.py` records.
+    """
+    solved = [v for v in values if v is not None]
+    if len(solved) < 2:
+        return None
+    return (max(solved) - min(solved)) * 100
 
 
 @dataclass(frozen=True)

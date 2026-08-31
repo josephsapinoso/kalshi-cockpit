@@ -20,6 +20,7 @@ import RefreshWhenPriced from "@/components/RefreshWhenPriced";
 import { anAutomaticBuyIsComing } from "@/lib/nextOddsWindow";
 import StaleOddsExit from "@/components/StaleOddsExit";
 import Term from "@/components/Term";
+import TrustNote from "@/components/TrustNote";
 
 /**
  * The ladder: six parlay cards at fair value (ADR 0070).
@@ -342,7 +343,7 @@ function LegProvenance({ card }: { card: ParlayCardData }) {
             <span className="block text-muted">
               <ScoutNote leg={leg} />
             </span>
-            <TrustNote leg={leg} />
+            <TrustNote trust={leg.trust} />
           </li>
         ))}
       </ul>
@@ -480,63 +481,6 @@ function ScoutFlags({ leg }: { leg: ParlayCardLeg }) {
           {flag.category}: {flag.state}
         </span>
       ))}
-    </span>
-  );
-}
-
-/**
- * The sweet spot on one leg: how much its number deserves to be acted on.
- *
- * **The number is never rendered bare, and that is the single most important
- * rule here.** A lone "6/8" beside a bet reads to a beginner as "this is a
- * 6-out-of-8 bet" — precisely the edge claim the whole design avoids, and the
- * measured one (`beta = -0.141`) points the other way. So the label names the
- * subject (*evidence*, not *value*), the failures are always spelled out, and
- * the unknowns are counted separately rather than folded in.
- *
- * **An unknown is not a pass.** `total - known` is how many checks nobody ran,
- * and it is stated. Hiding it would make the least-examined leg look like the
- * best one — the same failure `suppression.py` records for a `0.0` width.
- *
- * No colour: the palette's red means *lose* (ADR 0081), and a failing evidence
- * check is not a loss. No ordering: ADR 0071 §2.5.
- */
-function TrustNote({ leg }: { leg: ParlayCardLeg }) {
-  const trust = leg.trust;
-  if (!trust) return null;
-  const unknown = trust.total - trust.known;
-  const failures = trust.checks.filter((c) => c.state === "fail");
-  return (
-    <span className="block text-muted">
-      {/*
-        **The unknown count sits INSIDE the styled span, not after it, and that
-        is the whole point of this element.** Shipped 2026-08-31 with the count
-        outside it, which rendered as
-
-            EVIDENCE 7/7 CHECKS · 1 not checked
-
-        — a loud perfect score with a lowercase footnote. The words were right
-        and the typography subordinated them, which defeated the rule by a
-        route no wording test could see: a reader stops at 7/7. Caught by
-        looking at the live screen, which is the only thing that would have.
-
-        Same register, one phrase, so the gap cannot be skimmed past.
-      */}
-      <span className="font-mono text-[0.6rem] uppercase tracking-wide">
-        evidence {trust.passed}/{trust.known} checks
-        {unknown > 0 && <> · {unknown} not checked</>}
-      </span>
-      {failures.length > 0 && (
-        <span className="block">
-          {failures.map((f) => f.detail).join("; ")}.
-        </span>
-      )}
-      {failures.length === 0 && unknown === 0 && (
-        <span className="block">
-          Every check the desk can run on this leg passed. That is about the
-          evidence, not about whether the bet wins.
-        </span>
-      )}
     </span>
   );
 }

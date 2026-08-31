@@ -56,6 +56,7 @@ import PriceChart from "@/components/PriceChart";
 import ScoutDesk from "@/components/ScoutDesk";
 import SkepticPanel from "@/components/SkepticPanel";
 import Term from "@/components/Term";
+import TrustNote from "@/components/TrustNote";
 import { SHELL_WIDTH } from "@/lib/shell";
 import { kalshiMarketUrl } from "@/lib/kalshiLink";
 import { leagueLabel } from "@/lib/leagueLabel";
@@ -269,6 +270,25 @@ export default function MarketPage() {
           </a>
         </p>
         {detail && <QuoteStrip detail={detail} now={now} kalshiUrl={kalshiUrl} />}
+        {/* **The sweet spot** (ADR 0090; Joe chose all three surfaces). In the
+            header rather than in one of the five desk areas below, because it
+            summarises across them — the consensus's age and width, the
+            venue's depth and quote age, the Skeptic's verdict and whether the
+            Scout has looked. Filing it under any single area would put a
+            statement about six sections inside one of them.
+
+            Under the quote strip on purpose: the price is what you transact
+            at, and this says how much of what stands behind it was actually
+            checked. `size="panel"` is the only difference from the parlay
+            card's — the type scale, never the wording or the nesting.
+
+            Absent when the server sent no score, which is the honest state
+            for a ticker whose `fair_prices` join found nothing. */}
+        {detail?.trust && (
+          <p className="mt-3 max-w-[65ch]">
+            <TrustNote trust={detail.trust} size="panel" />
+          </p>
+        )}
       </header>
 
       {/* The desk's five areas, all fully present (ADR 0068) — Joe's

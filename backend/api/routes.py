@@ -76,7 +76,11 @@ from .. import estimates as bet_estimates
 from .. import hedge as held_parlays
 from .. import passes as desk_passes
 from ..core.suppression import SuppressionConfig, gauntlet_view
-from ..core.trust import TrustThresholds
+from ..core.trust import (
+    TrustThresholds,
+    method_spread_points,
+    score_trust,
+)
 from ..core.teaser import find_wong_candidates
 from ..engine import suppression_summary
 from ..analysis.clv import DEFAULT_HORIZON_HOURS
@@ -109,7 +113,12 @@ from ..odds.timing import (
     SLATE_WINDOW_MS,
     window_status,
 )
-from ..parlays import LookupRefused, build_ladder_payload, price_card_on_kalshi
+from ..parlays import (
+    LookupRefused,
+    build_ladder_payload,
+    price_card_on_kalshi,
+    scouting_facts,
+)
 from ..combo_bids import place_resting_bid
 from ..store.combo_orders import (
     TERMINAL_STATUSES as TERMINAL_COMBO_STATUSES,
@@ -1369,6 +1378,22 @@ def create_app(
         # different book sets, which would look like disagreement between the
         # sides rather than between the reads.
         book_cache: dict[str, object] = {}
+        # **One scout read for the whole slate, before the loop.** The scout
+        # state feeds the sweet spot's last check, and the join is through the
+        # fixture rather than the row's own ticker (`parlays.scouting_facts`
+        # owns that reasoning). Read per row it would be a hundred queries on
+        # the path `/api/slate` was separately cured of; read here it is one.
+        #
+        # Empty on an empty slate, and `scouting_facts` returns a key for every
+        # ticker asked about -- so a missing entry below cannot mean "we forgot
+        # to ask", only "there is no such row".
+        scouting = scouting_facts(
+            conn, [row["ticker"] for row in rows], now_ms=now
+        )
+        # Built from the configs that already enforce these limits, so the
+        # slate refuses on the same numbers the parlay card and the engine do.
+        # `thresholds` is the SuppressionConfig; `staleness` the clocks.
+        slate_trust = TrustThresholds.from_configs(staleness, thresholds)
         items, off_basis, with_books = [], 0, 0
         # Grouping key for the picks block below: the odds fixture, which the
         # serialised item deliberately does not carry. Falls back to the event
@@ -1376,7 +1401,13 @@ def create_app(
         # forming a phantom one per row.
         picks_source: list[tuple[str, dict]] = []
         for row in rows:
-            item = _serialise(row, now_ms=now, staleness=staleness)
+            item = _serialise(
+                row,
+                now_ms=now,
+                staleness=staleness,
+                trust_thresholds=slate_trust,
+                scout=scouting.get(row["ticker"]),
+            )
             if since is not None and item["freshness_measured_from_ms"] < since:
                 off_basis += 1
                 continue
@@ -1792,7 +1823,20 @@ def create_app(
         # time: without them a 6pm quote still reads "30s ago" at 11pm, on the
         # one screen with no list of fresher rows beside it to give the lie.
         now = db.now_ms()
-        detail = _serialise(row, now_ms=now, staleness=staleness)
+        # The sweet spot on this screen too (ADR 0090's open item; Joe chose
+        # all three surfaces). One ticker, so `scouting_facts` is one query
+        # with a single-element IN clause -- the same fixture join the ladder
+        # takes, rather than a second way of asking whether this game has been
+        # scouted.
+        detail = _serialise(
+            row,
+            now_ms=now,
+            staleness=staleness,
+            trust_thresholds=TrustThresholds.from_configs(
+                staleness, thresholds
+            ),
+            scout=scouting_facts(conn, [ticker], now_ms=now).get(ticker),
+        )
         detail["volume_24h"] = row["volume_24h"]
         detail["open_interest"] = row["open_interest"]
         detail["close_ms"] = row["close_ms"]
@@ -5954,6 +5998,8 @@ def _serialise(
     *,
     now_ms: Optional[int] = None,
     staleness: Optional[StalenessConfig] = None,
+    trust_thresholds: Optional[TrustThresholds] = None,
+    scout: Optional[dict] = None,
 ) -> dict:
     """Row -> JSON, with prices rendered for display alongside the raw tenths.
 
@@ -5967,7 +6013,39 @@ def _serialise(
     under distinct names, which is what the Board needs and what the Ledger
     must not silently be given: one field name meaning "then" on one screen and
     "now" on another is how the two screens come to disagree.
+
+    Pass `trust_thresholds` (and `scout`) to add the sweet spot -- ADR 0090's
+    evidence score, the same one the parlay card carries. **The key is absent
+    entirely when no thresholds arrive**, never computed against defaults: a
+    limit written down twice is the drift `StalenessLimitsDisagree` refuses to
+    boot on, and a silently-defaulted score would be exactly that with no error
+    to announce it. That is why the Ledger, which calls this with neither,
+    serves no score rather than a stale one.
     """
+    # **Argument validation before any work**, and before any column is read:
+    # a caller that asked for a score it cannot honestly get should be told so
+    # rather than handed a payload it half-filled.
+    if trust_thresholds is not None:
+        if now_ms is None or staleness is None:
+            # Refuse rather than score against ages that were never computed.
+            # Without `live` there is no `odds_age_now_ms`, so every age check
+            # would read `unknown` -- a score that looks measured and is not,
+            # on a screen offering a money decision.
+            raise ValueError(
+                "trust_thresholds needs now_ms and staleness: without them "
+                "the age checks score as unknown and the row looks examined"
+            )
+        if "p_conservative" not in row.keys():
+            # The devig join is what supplies the readings, the book count and
+            # the width. Missing, the score would still render -- with
+            # `methods_agree` reading "fewer than two devig methods solved",
+            # which is a claim about the DEVIG when the truth is that the
+            # caller never joined `fair_prices`. Refuse rather than say that.
+            raise ValueError(
+                "trust_thresholds needs the fair_prices join: without it the "
+                "score reports an unsolved devig where none was attempted"
+            )
+
     ask = row["entry_ask_tenths"]
     live = _live_ages(row, now_ms=now_ms, staleness=staleness)
     contracts = row["suggested_contracts"] or 0
@@ -6072,10 +6150,75 @@ def _serialise(
         if "book_count" in row.keys()
         else {}
     )
+    # **The sweet spot, on the two screens Joe asked for it on** (ADR 0090's
+    # open item: he chose the parlay card, the slate row and the market
+    # detail; the card shipped first). The same `score_trust` the card calls,
+    # not a second scorer -- which is why `core/trust.py` takes primitives and
+    # owns no query: three surfaces feeding one function is what stops them
+    # disagreeing about whether a row is well-evidenced.
+    #
+    # Three arguments are worth reading twice:
+    #
+    # - `skeptic="checked"` is true BY CONSTRUCTION here and is not a guess.
+    #   This function serialises a `recommendations` row, and the existence of
+    #   that row is precisely what `parlays.leg_facts` looks up to decide
+    #   between `checked` and `absent`. The parlay path has to ask because it
+    #   starts from a leg; this path starts from the answer.
+    # - `depth_at_ask` is the depth RECORDED WITH THE ROW, not a fresh read.
+    #   That is the honest pairing: every other input here is the same
+    #   observation's, and `quote_fresh` is the check that says how old the
+    #   whole set is. Re-reading the book for this one field would score a
+    #   row's depth against a different instant from its price.
+    # - `market_width=None` reaches `score_trust` as a FAILURE, not an
+    #   unknown, and that is the module's own rule: fewer than two books
+    #   contributed, so there was no second book to disagree with.
+    trust = None
+    if trust_thresholds is not None:
+        # **A row the devig join missed gets no score at all.** `book_count`
+        # is `NOT NULL` in `fair_prices`, so `None` here means the LEFT JOIN
+        # found nothing -- the tell `consensus` above already documents. Four
+        # of the eight checks read off that row, and scoring anyway would
+        # publish "fewer than two devig methods solved", which is a claim
+        # about the DEVIG when the truth is that there was no fair price to
+        # read. Four unknowns from one missing join is also not the same
+        # quantity as four separately unmeasured checks, and the payload has
+        # no way to say which it is holding.
+        #
+        # `None` rather than a partial score, which is this repo's convention
+        # in one line: unreadable resolves to `None`, never to a number that
+        # looks measured.
+        if row["book_count"] is not None:
+            scout_facts = scout or {}
+            trust = score_trust(
+                max_odds_age_s=trust_thresholds.max_odds_age_s,
+                max_kalshi_quote_age_s=trust_thresholds.max_kalshi_quote_age_s,
+                min_book_count=trust_thresholds.min_book_count,
+                max_market_width=trust_thresholds.max_market_width,
+                min_depth_contracts=trust_thresholds.min_depth_contracts,
+                odds_age_ms=live.get("odds_age_now_ms"),
+                quote_age_ms=live.get("quote_age_now_ms"),
+                book_count=row["book_count"],
+                market_width=row["market_width"],
+                method_spread_points=method_spread_points(
+                    (
+                        row["p_multiplicative"],
+                        row["p_additive"],
+                        row["p_power"],
+                        row["p_shin"],
+                    )
+                ),
+                depth_at_ask=row["depth_at_ask"],
+                skeptic="checked",
+                suppressed_reason=row["suppressed_reason"],
+                scout=scout_facts.get("scout", "absent"),
+                scout_flags=scout_facts.get("scout_flags") or [],
+            ).as_payload()
+
     return {
         **live,
         **methods,
         **consensus,
+        **({"trust": trust} if trust_thresholds is not None else {}),
         "id": row["id"],
         "ticker": row["ticker"],
         "created_ms": row["created_ms"],

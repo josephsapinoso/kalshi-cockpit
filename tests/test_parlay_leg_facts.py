@@ -835,82 +835,41 @@ class TestTheOriginsTapObeysTheRulingItExtends:
         assert ".sort(" not in block
 
 
-class TestTheSweetSpotIsNeverRenderedBare:
-    """The single most likely way this feature goes wrong.
+class TestTheCardReusesTheSweetSpotComponent:
+    """The card renders `TrustNote`; it does not draw its own.
 
-    A lone "6/8" beside a bet reads to a beginner as "this is a 6-out-of-8
-    bet" -- the edge claim the whole design avoids, and the measured signal
-    points the other way (`beta = -0.141`). These are source assertions
-    because the property is about what the component may do.
+    The component's four honesty properties -- the `known` denominator, the
+    unknowns nested inside the score's own styled span, every failure named,
+    no colour and no ordering -- are pinned in
+    `tests/test_trust_surfaces.py`, against the one implementation. They are
+    guarantees about a component, and a hand-rolled copy on this card would
+    carry none of them while passing every test written about the card.
+
+    Same shape as `test_it_reuses_the_component_rather_than_drawing_its_own
+    _axis` above, for the same reason.
     """
 
-    def _block(self) -> str:
-        source = COMPONENT.read_text(encoding="utf-8")
-        i = source.index("function TrustNote")
-        return source[i:i + 2000]
+    def _source(self) -> str:
+        return COMPONENT.read_text(encoding="utf-8")
 
-    def test_the_number_carries_its_subject(self):
-        """`evidence`, not `value`, `score`, `rating` or `quality of bet`."""
-        block = self._block()
-        assert "evidence" in block
-        for banned in ("good bet", "rating", "grade"):
-            assert banned not in block, banned
+    def test_the_card_imports_the_shared_component(self):
+        source = self._source()
+        assert 'from "@/components/TrustNote"' in source
 
-    def test_the_unknown_count_shares_the_scores_own_styled_span(self):
-        """Words are not enough; the TYPOGRAPHY has to carry them too.
-
-        Shipped 2026-08-31 with the count outside the styled span, rendering
-        `EVIDENCE 7/7 CHECKS · 1 not checked` -- a loud perfect score with a
-        lowercase footnote. Every wording test passed. A reader stops at 7/7.
-
-        The fix is that the unknown lives inside the same
-        `font-mono uppercase` span, so it cannot be skimmed past, and this
-        asserts the nesting rather than the presence.
-
-        Mutation observed red: move `{unknown > 0 && ...}` back outside the
-        closing `</span>`.
-        """
-        block = self._block()
-        i = block.index("evidence {trust.passed}/{trust.known} checks")
-        j = block.index("</span>", i)
-        assert "unknown > 0" in block[i:j], (
-            "the unknown count is rendered outside the score's own span; it "
-            "reads as a footnote to a perfect score"
+    def test_the_card_does_not_declare_its_own(self):
+        """Mutation observed red: paste the old local `function TrustNote`
+        back into this file."""
+        source = self._source()
+        assert "function TrustNote" not in source, (
+            "the card declares its own sweet-spot renderer; use the shared one"
         )
 
-    def test_the_unknown_count_is_shown_not_folded_in(self):
-        """`total - known` is how many checks nobody ran.
+    def test_the_leg_hands_it_the_score_rather_than_the_leg(self):
+        """`trust={leg.trust}`, not `leg={leg}`.
 
-        Hiding it makes the least-examined leg look like the best one -- the
-        same failure `suppression.py` records for a 0.0 market width.
-        Mutation observed red: render `passed`/`total` and drop the unknowns.
+        The component serves three surfaces now, and a parlay leg is the shape
+        only one of them has. Passing the row object would make the card the
+        only caller that could work.
         """
-        block = self._block()
-        assert "trust.total - trust.known" in block
-        assert "not checked" in block
-
-    def test_the_denominator_is_known_not_total(self):
-        """Scoring against `total` silently counts an unknown as a miss, which
-        is the opposite error and equally wrong: it punishes a row for a check
-        nobody ran."""
-        block = self._block()
-        assert "{trust.passed}/{trust.known}" in block
-
-    def test_every_failure_is_spelled_out(self):
-        """Naming one hides the one that mattered more, and choosing which to
-        name would be the importance weight the module refuses to invent."""
-        block = self._block()
-        assert 'state === "fail"' in block
-        assert ".join(" in block
-
-    def test_a_full_score_still_disclaims_the_bet(self):
-        block = self._block()
-        assert "not about whether the bet wins" in block
-
-    def test_no_colour_and_no_sort(self):
-        """Red means lose (ADR 0081); a failing evidence check is not a loss.
-        And ADR 0071 s2.5 bars ranking by a per-row fact."""
-        block = self._block()
-        for token in ("text-red", "bg-red", "text-green", "bg-green",
-                      "text-positive", "text-negative", ".sort("):
-            assert token not in block, token
+        source = self._source()
+        assert "<TrustNote trust={leg.trust} />" in source

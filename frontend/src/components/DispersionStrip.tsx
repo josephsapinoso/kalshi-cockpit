@@ -72,10 +72,35 @@ export default function DispersionStrip(
   const d = dispersion(props);
   if (!d) return null;
 
-  const spreadPoints = (d.domain.hi - d.domain.lo) * 100;
   const methodProbabilities = d.marks.map((m) => m.probability);
   const methodLo = Math.min(...methodProbabilities);
   const methodHi = Math.max(...methodProbabilities);
+  /*
+    **The readings' own span, and until 2026-08-31 this was the padded axis.**
+    It read the width of the padded domain instead, which is wrong twice
+    over, and both errors point the same way — they overstate the
+    disagreement:
+
+    - `domain` is padded by a tenth of the span at each end so a mark sitting
+      at an extreme is not half-clipped by the edge, so the axis is exactly
+      1.2x the span. Every row ever rendered read 20% high.
+    - `domain` also contains the BOOK span when one is present
+      (`dispersion.ts` pushes `bookLo`/`bookHi` into `values`), so on those
+      rows the headline was not about the readings at all — while the
+      sentence one line below it, off `methodLo`/`methodHi`, was correct.
+
+    Found by putting the trust score's `methods_agree` detail on the same row
+    (ADR 0090's slate surface): one row printed `readings disagree by 0.6 pts`
+    and `four methods within 0.5 pts`, and another `8.4` against `7.0`. **Two
+    numbers on one row for one fact is what made a four-month-old arithmetic
+    error visible**, and neither figure was wrong in a way a test comparing
+    it to itself could ever have caught.
+
+    This is now the same quantity `core/trust.py:method_spread_points`
+    computes, which is the point: the strip and the score are two renderings
+    of one number, and they may not disagree.
+  */
+  const spreadPoints = (methodHi - methodLo) * 100;
 
   if (props.variant === "chart") {
     const at = (x: number) => CPAD.left + x * CPW;

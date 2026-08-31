@@ -242,7 +242,109 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-08-31 (latest) — the lock holder was found, and a wording rule lost to typography
+## 2026-08-31 (latest) — the sweet spot reaches all three surfaces, and a second opinion convicted a four-month-old number
+
+**NOT DEPLOYED.** Live is still on `badd88e`; this work is on the tree and
+committed to `main`. Read `/api/health` `git_sha` before assuming otherwise.
+
+### Open item 1 is CLOSED — ADR 0093
+
+ADR 0090's own closing line said it: *"Still open from Joe's own choice: the
+SLATE ROW and MARKET DETAIL surfaces. He picked all three."* Both are built.
+`/api/slate` and `/api/market/{ticker}` serve the same `trust` payload the
+parlay card carries, from the same `score_trust`, and all three screens render
+it through one extracted `components/TrustNote.tsx`.
+
+**Verified on the wire, not by reading the diff**: the slate row and the market
+screen for one ticker return byte-identical `trust` objects, and dropping
+`trust_thresholds=` from either route turns tests red. That is the
+built-but-never-called guard this repo has needed four times.
+
+Two refusals worth knowing before touching it:
+
+- **A row whose `fair_prices` join found nothing gets `trust: null`**, not a
+  score on the four checks it still has inputs for. `book_count` is `NOT NULL`
+  in that table, so `None` is the join's own tell, and scoring anyway publishes
+  *"fewer than two devig methods solved"* — a claim about the devig when the
+  truth is there was no fair price to read.
+- **Thresholds without a clock raise.** Without `now_ms`/`staleness` both age
+  checks read `unknown` and the row looks examined when nothing was measured.
+  The Ledger passes neither and gets no key at all.
+
+### THE FINDING — the dispersion strip has overstated disagreement by a fifth since it shipped
+
+**Read this one even if you skip the rest.** Putting the score on the slate row
+put a second rendering of one quantity beside an existing one. They disagreed:
+
+    READINGS DISAGREE BY 0.6 PTS        four methods within 0.5 pts
+    READINGS DISAGREE BY 8.4 PTS        four methods span 7.0 pts, over 2
+
+`DispersionStrip`'s summary computed the width of the **padded axis**, not the
+readings' span. `dispersion.ts` pads the domain by a tenth of the span at each
+end so an extreme mark is not half-clipped, so the axis is exactly **1.2x** the
+truth — and where books are joined it also contains the **book span**, so the
+headline was not about the readings at all. The sentence one line below it,
+computed from the marks, was right the whole time. Both errors overstate.
+
+Fixed to the readings' own span, which is now the same quantity
+`core.trust.method_spread_points` computes; `parlays._method_spread_points`
+delegates to it, so the strip and the score cannot drift apart again.
+
+**The lesson is how it was found, and it is at the top of `tasks/lessons.md`.**
+A number cannot be checked against itself: nothing else on the screen claimed
+that quantity, so every test about it compared it to its own derivation. **Two
+numbers for one fact is normally a defect; here it was the only instrument.**
+
+### The screen was opened, and it caught what tests could not — again
+
+Per the 2026-08-31 lesson one entry below. Seeded a two-row demo DB, ran the
+real production build against a local API, and read the pages. Two things no
+source test saw:
+
+1. The wrong dispersion figure above.
+2. **`TrustNote` had no typography of its own.** On the parlay card it sat in
+   an `11px` list item and looked right; on the slate row — same markup, same
+   words, every test green — it rendered at body size, the loudest text on a
+   row whose every other caption is `text-xs`. A component borrowing its weight
+   from its host looks different on every screen it is reused on. It now sets
+   its own size, at exactly what the card was already rendering, so the card is
+   unchanged.
+
+**Not verified: 390px.** The check ran at desktop width; `resize_window`
+reported success and the viewport did not move. Both new elements are wrapping
+prose in slots the row already uses full-width (the same wrapper as the gloss
+line and `DispersionStrip`), so the phone behaviour is inherited rather than
+new — but it was not observed, and ADR 0093 says so rather than assuming.
+
+### Also done
+
+- **`tasks/lessons.md`'s pattern index was stale again, in the same way its own
+  note warns about.** Newest section was 2026-08-26 with eight lines while the
+  file held **64** unarchived lessons across six dates. Regenerated from the
+  headings (a script, not a judgement). **An index not regenerated in the same
+  edit as the entry is stale by one immediately and by dozens within a week.**
+- `parlays.scouting_facts` is public, so the slate reads the scout state
+  through the one correct join (fixture, not leg ticker) rather than a second
+  reader that would disagree with the ladder.
+
+### Still open
+
+1. ~~The slate row and market detail surfaces for the sweet spot.~~ **DONE —
+   ADR 0093.**
+2. **Deploy this.** Not deployed; live is on `badd88e`.
+3. **Watch whether `database is locked` recurs.** `loop_failures` is the
+   instrument. If the rate holds, the two unexamined suspects are the retention
+   prune over `kalshi_quotes` (451 MB) and the WAL `TRUNCATE` checkpoint.
+4. **`odds_snapshots` retention** — ADR 0086 bought headroom, not a bound.
+5. **`user_not_found` on shard 3** and **Joe's shard allocation** — both his,
+   both money-touching, both carried.
+6. **Read the phone.** The one verification this session could not take. Any
+   session with a working viewport should open `/slate` and `/market/[ticker]`
+   at 390px before the next screen change lands.
+
+---
+
+## 2026-08-31 — the lock holder was found, and a wording rule lost to typography
 
 **Live is on `badd88e`, verified** — health ok, recorder writing, no
 post-boot errors. Suite **5,416 passed / 10 xfailed** on that tree.

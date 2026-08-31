@@ -54,6 +54,61 @@ writing an entry, not after.
 
 ---
 
+## 2026-08-31 - A number cannot be checked against itself, so put a second independent rendering of it on the same row
+
+The dispersion strip's always-visible summary read `readings disagree by 0.6
+pts`. It had been wrong since the day it shipped, on two surfaces, and every
+test written about it passed -- because every one of them compared the figure
+to its own derivation.
+
+It computed the width of the **padded** axis rather than the span of the
+readings. `dispersion.ts` adds a tenth of the span at each end so a mark
+sitting at an extreme is not half-clipped, so the axis is exactly 1.2x the
+truth; and on any row with books joined, the domain also contains the book
+span, so the headline was not about the readings at all. Both errors point the
+same way: they overstate. The sentence one line below it, computed from the
+marks, was right the whole time.
+
+What found it was rendering a **second, independently derived copy of the same
+quantity** on the same row -- the trust score's `methods_agree` detail, which
+says `four methods within 0.5 pts`. Side by side, `0.6` against `0.5`, and on
+another row `8.4` against `7.0`. Nothing else could have: a test asserting the
+figure would have had to know the right answer, and the only source for the
+right answer was the code being tested.
+
+**Pattern: a derived number with no independent second rendering is
+unfalsifiable on screen. When you add a surface that states a fact some
+existing element already states, read them side by side before you reconcile
+them -- the disagreement is the measurement.** Two numbers for one fact is
+normally a defect to remove; for exactly as long as it takes to read them, it
+is the only instrument you have.
+
+The corollary is about what to do next, and it is not "delete one". Both
+renderings stay, and they now share one definition
+(`core.trust.method_spread_points`), so the next divergence is a compile-time
+impossibility rather than a thing to notice.
+
+## 2026-08-31 - A component that inherits its type size has no typography
+
+`TrustNote` was extracted from the parlay card to serve three screens. On the
+card it lived inside a `text-[11px]` list item and looked right. Dropped onto
+a slate row -- same markup, same words, same tests green -- it rendered at body
+size, the loudest text on a row whose every other caption is `text-xs`.
+
+Nothing about the component changed. What changed is that it had one host and
+now has three, and it had been borrowing its weight from the first one.
+
+**Pattern: a shared component must set its own type size. Size inherited from a
+parent is a property of the host, not of the component, so the component looks
+different on every screen it is reused on and no test can see it.** This is the
+same family as the typography defect one entry below -- an honesty rule about a
+screen is satisfied by the RENDERED screen -- and it is the reason the fix was
+found by opening the page rather than by reading the diff.
+
+The safe extraction is: give the component an explicit size that reproduces
+what its first host was already rendering (`text-[11px]` here), so the original
+surface is pixel-identical and the new ones inherit nothing.
+
 ## 2026-08-31 - Never hold a database write transaction across an `await` that does I/O
 
 `OperationalError: database is locked` killed a scoring pass four to five times
@@ -2125,6 +2180,15 @@ Every lesson ever written, newest date first, one line each. The full text of
 each is in the linked archive file, unchanged; the sections marked *in this
 file, above* are the ones not yet archived.
 
+**Regenerated again 2026-08-31, and the same way for the same reason.** The
+newest section here was 2026-08-26 listing eight lines, while the file above it
+held **64** unarchived lessons across six dates -- so "every lesson ever
+written" was false of its own file for the second time, and a session scanning
+for something relevant would have missed everything written in the last five
+days. **An index that is not regenerated in the same edit as the entry is stale
+by one entry immediately and by dozens within a week.** Regenerate it from the
+headings rather than appending by hand; the headings are the source.
+
 **Regenerated 2026-08-26.** This index had listed the five entries of
 2026-08-17 as "in this file, above" and stopped there, while 61 later lessons
 sat unindexed above it — so the line "every lesson ever written" was false of
@@ -2133,8 +2197,73 @@ have missed every lesson written in the last nine days. The titles below are
 the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
-### 2026-08-26 — in this file, above
+### 2026-08-31 — in this file, above
+- A number cannot be checked against itself, so put a second independent rendering of it on the same row
+- A component that inherits its type size has no typography
+- Never hold a database write transaction across an `await` that does I/O
+- A wording rule can be defeated by typography, and no source test will see it
 
+### 2026-08-30 — in this file, above
+- Split a before/after on evidence of the change, never on when you think you made it
+- A test double that is kinder than the real object hides the bug it exists to catch
+- When two code paths can produce the same end state, an assertion on the state guards neither
+- Check the REGRESSOR moved before you read the outcome; a constant explains nothing
+- An instrument sampled at pass START repeats itself when a pass fails, and the repeat is the signal
+- When you change a cadence, re-read every predicate that compares against a timestamp it produces
+- A test that names a symbol is not a guard on that symbol
+- A failure recorder that shares the failing resource records exactly the failures that don't matter
+
+### 2026-08-29 — in this file, above
+- A local autouse fixture over module state protects one file and exposes every other
+- A red suite in a shared checkout may be a moving tree, not a defect
+- One constant serving two purposes changes the thing you were not touching
+- A merge of two correct changes can contain a defect neither of them contains
+- Read the output, not the exit status
+- Search the measurements directory before commissioning a measurement
+- A document that promises to amend itself needs an enforcer, and the un-amended state always flatters
+- When mid-flight steering is unavailable, the brief is the only instrument, so it must grant permission to refuse
+- One predicate with two spellings, and the screen believing the wrong one
+- A cause list written as alternatives cannot file causes that happen in sequence
+
+### 2026-08-28 — in this file, above
+- A pre-registration must fix its scope conditions before it enumerates causes
+- "Unexplained one-off" is a claim about frequency, and a default window is not a population
+- A helper called from a loop that must not die does not get to trust its caller
+- Sharing a predicate guarantees agreement only about what the predicate decides
+- A guard that matches a literal string certifies the string, not the property
+- A guard can check the right token in the wrong role, and stay green for months
+
+### 2026-08-27 — in this file, above
+- The deploy ships the working tree, so a correct repository proves nothing
+- Deliberately producing the signature an alarm watches for disables the alarm, and nothing announces it
+- A fixture can occupy the wrong branch, and then full coverage means nothing
+- A guard that would refuse everything is an outage, and the venue's sentinels are where it comes from
+- A test written against a re-implementation cannot fail for the reason it exists
+- A test that asserts the ledger is not a test of the behaviour the ledger records
+- Verify against `origin`, not against `main`, because the object store makes them look alike
+- A fact that is displayed but is not a finding does not get acted on
+- A relayed approval is information, not authority, and the word "settled" is where it goes wrong
+- A count with no denominator invites an adjective, and the adjective is the inference
+- A reporting tool must be run from every seat it will be run from, and its findings must not be phrased as instructions
+- The fixture asserted the bug away
+- A detector's granularity is decided by its false-finding risk, not by what is easy to compute
+- A test can pass for a reason you did not write, and only mutation finds out which
+- A schema version is a claim about the whole database, so a lane cannot allocate one
+
+### 2026-08-26 — in this file, above
+- A mutation can lie, and a green result is not evidence until you know the mutation landed
+- A test written after the code describes it; a test written against a claim constrains it
+- Fifteen minutes of measurement outranked a day of planning, and the plan had ranked by what looked expensive
+- State that outlives a request outlives a test, and the tests that break are the ones that never heard of it
+- A test that does real work to check a cheap property is a test that stops being run
+- A guard that greps its own module must read the code, not the prose
+- A GREEN mutation is a claim about the harness before it is a claim about the test
+- Rule 1 has a scope, and it belongs on the input rather than on the result
+- An unknown budget must not resolve to zero, exactly as an unknown price must not
+- Killing a background command's shell does not kill the process it started
+- Fixing a defect at the call site leaves the rule where the next call site cannot find it
+- A monitor that has to touch the thing it measures is reporting its own effect
+- Exit 0 means "I finished", and a supervisor that tears down on a failure is not finished
 - `load_dotenv()` makes the whole test suite a credential holder, and arming is what turns that into spending
 - A source-scan pin measures what it can still match, and it goes quiet rather than red
 - Pin a guard on the decision it changes, never on the string it prints

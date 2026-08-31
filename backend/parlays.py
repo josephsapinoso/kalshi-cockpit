@@ -43,7 +43,11 @@ from backend.core.ladder import (
     usable_legs,
 )
 from backend.core.parlay import ParlayQuote, value_parlay
-from backend.core.trust import TrustThresholds, score_trust
+from backend.core.trust import (
+    TrustThresholds,
+    method_spread_points,
+    score_trust,
+)
 from backend.core.prices import (
     PRICE_MAX,
     format_dollars,
@@ -856,17 +860,19 @@ def _at_stake(
 
 
 def _method_spread_points(leg: CandidateLeg) -> Optional[float]:
-    """How far the four devig readings sit apart, in percentage points.
+    """How far this leg's four devig readings sit apart, in percentage points.
 
     The same figure `DispersionStrip` shows as its always-visible summary, and
     for the same reason: it bounds how seriously any single reading deserves to
-    be taken. `None` on fewer than two solvable readings -- one reading is not
-    perfect agreement, it is one reading.
+    be taken.
+
+    **The arithmetic is `core.trust.method_spread_points` and is not repeated
+    here.** The slate row and the market screen score `methods_agree` off the
+    same helper, and three surfaces disagreeing about what "the methods
+    disagree" means is exactly the drift a shared threshold exists to prevent.
+    All this adds is where the readings come from on a parlay leg.
     """
-    values = [v for v in leg.p_by_method.values() if v is not None]
-    if len(values) < 2:
-        return None
-    return (max(values) - min(values)) * 100
+    return method_spread_points(leg.p_by_method.values())
 
 
 def _prefix_chances(legs: Sequence[CandidateLeg]) -> list[dict]:
@@ -1145,6 +1151,16 @@ _NO_FACTS: dict = {
     "scout_ticker": None,
 }
 
+#: The scout half of `_NO_FACTS`, named once so `scouting_facts` cannot return
+#: a different set of keys from the one `_serialise_leg` reads.
+_SCOUT_FACT_KEYS = (
+    "scout",
+    "scout_headline",
+    "scout_flags",
+    "scout_age_ms",
+    "scout_ticker",
+)
+
 #: A board tile in this state means the desk looked and found nothing to say.
 #: Every other state is a thing Joe should see -- including the two that are
 #: absences rather than findings, which is the whole reason `BoardTile` has
@@ -1270,6 +1286,39 @@ def _scout_facts(row, *, now_ms: int) -> dict:
     return facts
 
 
+def scouting_facts(
+    conn, tickers: Sequence[str], *, now_ms: int
+) -> dict[str, dict]:
+    """The five `scout_*` fields for each ticker's GAME, one query.
+
+    **Public because the slate row and the market screen score trust too.**
+    The scout check in `core/trust.py` needs a state and its flags, and there
+    is exactly one correct way to get them -- the fixture join in
+    `_leg_scouting`, not the leg ticker. A second reader matching
+    `scout_briefings.ticker` to the row's own ticker would show a scouted game
+    as unscouted on one screen and scouted on another, which is the
+    two-screens-disagree failure this repo keeps catching.
+
+    Every ticker asked about is present in the result, carrying the honest
+    absence when nothing was filed: a caller must not have to tell "no
+    briefing" apart from "I forgot to ask".
+
+    Spends nothing. It reads briefings that exist and never convenes the desk.
+    """
+    facts: dict[str, dict] = {}
+    scouting = _leg_scouting(conn, tickers)
+    for ticker in sorted(set(tickers)):
+        # A fresh list per ticker: `dict(_NO_FACTS)` is a shallow copy, so a
+        # shared `scout_flags` would accumulate every game's flags.
+        one = {k: _NO_FACTS[k] for k in _SCOUT_FACT_KEYS}
+        one["scout_flags"] = []
+        row = scouting.get(ticker)
+        if row is not None:
+            one.update(_scout_facts(row, now_ms=now_ms))
+        facts[ticker] = one
+    return facts
+
+
 def leg_facts(conn, tickers: Sequence[str], *, now_ms: int) -> dict[str, dict]:
     """Kalshi's own price and the skeptic's verdict, for the SELECTED legs.
 
@@ -1354,17 +1403,15 @@ def leg_facts(conn, tickers: Sequence[str], *, now_ms: int) -> dict[str, dict]:
         ).fetchall()
     }
 
-    scouting = _leg_scouting(conn, unique)
+    scouting = scouting_facts(conn, unique, now_ms=now_ms)
 
     out: dict[str, dict] = {}
     for ticker in unique:
         facts = dict(_NO_FACTS)
-        # A fresh list per leg. `dict(_NO_FACTS)` is a shallow copy, so every
-        # leg would otherwise append into one shared `scout_flags`.
-        facts["scout_flags"] = []
-        scout_row = scouting.get(ticker)
-        if scout_row is not None:
-            facts.update(_scout_facts(scout_row, now_ms=now_ms))
+        # The scout half comes from the shared reader rather than being read
+        # again here -- `scouting_facts` already supplies a fresh `scout_flags`
+        # list per ticker, which is what stops every leg appending into one.
+        facts.update(scouting[ticker])
         quote = quotes.get(ticker)
         if quote is not None:
             ask = ask_for_side(quote, "yes")

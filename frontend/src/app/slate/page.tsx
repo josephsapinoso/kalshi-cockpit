@@ -36,6 +36,7 @@ import RefreshWhenPriced from "@/components/RefreshWhenPriced";
 import StaleOddsExit from "@/components/StaleOddsExit";
 import SignalStrip from "@/components/SignalStrip";
 import TonightStrip from "@/components/TonightStrip";
+import TrustNote from "@/components/TrustNote";
 
 export const dynamic = "force-dynamic";
 
@@ -532,6 +533,26 @@ function Row({
           }
           anchoredBookCount={row.book_count ?? null}
         />
+      </span>
+
+      {/* **The sweet spot** (ADR 0090; Joe chose all three surfaces and the
+          parlay card shipped first). Directly above the hand-bet door, which
+          is where it earns its place: the last thing read before the control
+          is how much of this row was actually checked.
+
+          The component is `TrustNote`, unchanged and shared with the parlay
+          card — the same reasoning as `DispersionStrip variant="chart"`. Its
+          four honesty properties (denominator is `known`, the unknowns live
+          inside the score's own span, every failure is named, no colour and
+          no ordering) are only guaranteed while there is one implementation
+          of them, and a copy here would carry none of them.
+
+          Renders nothing when the server sent no score, which is the honest
+          state for a row whose `fair_prices` join found nothing: half the
+          checks read off that row, and four unknowns from one missing join is
+          a different quantity from four separately unmeasured checks. */}
+      <span className="w-full xl:col-span-full">
+        <TrustNote trust={row.trust} />
       </span>
 
       {/* The hand-bet door (ADR 0063), last on the row so the facts are read

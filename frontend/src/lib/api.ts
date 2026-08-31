@@ -79,6 +79,36 @@ export type ConsensusProvenance = {
   anchored_on_sharp: boolean | null;
 };
 
+/**
+ * The sweet spot: how much a number deserves to be acted on (ADR 0090).
+ *
+ * **Evidence quality, never bet quality.** Joe chose trust over edge on
+ * 2026-08-31, and the reason is measured rather than stylistic: the
+ * consensus-vs-Kalshi gap has `beta = -0.141`, so a score containing it would
+ * rank the least trustworthy rows highest.
+ *
+ * **All three counts travel and the screen must use them.** `passed/total`
+ * alone hides how many checks nobody ran; `passed/known` alone hides that
+ * those checks exist. `total - known` is the number of unknowns, and an
+ * unknown is never a pass. `components/TrustNote.tsx` is the one renderer —
+ * three surfaces now carry this and a second drawing of it would be a second
+ * set of honesty properties to keep in step.
+ *
+ * `null` when the server could not score honestly: no thresholds supplied (a
+ * score against defaults would be a second definition of limits that live in
+ * config), or the `fair_prices` join found nothing to read.
+ */
+export type TrustScore = {
+  passed: number;
+  known: number;
+  total: number;
+  checks: {
+    name: string;
+    state: "pass" | "fail" | "unknown";
+    detail: string;
+  }[];
+};
+
 export type Recommendation = Partial<DevigMethods> &
   Partial<ConsensusProvenance> & {
   id: number;
@@ -737,16 +767,7 @@ export type ParlayCardLeg = {
    * `null` when the caller supplied no thresholds — a score computed against
    * defaults would be a second definition of limits that live in config.
    */
-  trust: {
-    passed: number;
-    known: number;
-    total: number;
-    checks: {
-      name: string;
-      state: "pass" | "fail" | "unknown";
-      detail: string;
-    }[];
-  } | null;
+  trust: TrustScore | null;
   /**
    * The four devig readings plus the one the card took, for `DispersionStrip`.
    *
@@ -1399,6 +1420,12 @@ export type SlateRowData = Recommendation & {
    * edge by subtraction. `null` when the ask is not a tradeable price.
    */
   breakeven_win_rate: number | null;
+  /**
+   * The sweet spot for this row (ADR 0090). Optional because a deployed
+   * backend one version behind omits the key entirely; `null` when the server
+   * had nothing honest to score — see `TrustScore`.
+   */
+  trust?: TrustScore | null;
 };
 
 /**
@@ -2421,6 +2448,13 @@ export type MarketDetail = {
   kalshi_drift_tenths?: number | null;
   drift_window_ms?: number;
   gauntlet?: Gauntlet;
+  /**
+   * The sweet spot for this market (ADR 0090), identical to the value the
+   * slate row for the same ticker carries — both routes call one scorer, so
+   * one tap cannot change the number. Optional for a backend one version
+   * behind; `null` when the server had nothing honest to score.
+   */
+  trust?: TrustScore | null;
 };
 
 /** `null` when the record has no row for this ticker — a market the runner
