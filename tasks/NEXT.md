@@ -279,6 +279,12 @@ Three things that confirms and one that is new:
   and nothing said so until this line. That is the redundancy question from
   ADR 0093 answering in the useful direction on the first real screen.
 
+**Suite: 5,444 passed / 10 xfailed in 10:39** on the tree with the status-line
+fix. The **+7 over 5,437 is the new `tests/test_slate_status_line.py`
+entirely**, collected rather than reasoned about: that file holds exactly 7
+items and no other test file changed. The 5,437 below was the tree deployed as
+`11bd2c0`:
+
 **Suite: 5,437 passed / 10 xfailed in 11:50**, collected with no code or test
 file edited after the run started (documentation was added under it — the ADR
 and these session files — and no code or test file moved). **The +21 over
@@ -366,22 +372,69 @@ new — but it was not observed, and ADR 0093 says so rather than assuming.
   through the one correct join (fixture, not leg ticker) rather than a second
   reader that would disagree with the ladder.
 
+### The status line now names the clock that binds — Joe's ask, same session
+
+The row I flagged one turn earlier as "pre-existing and unexamined" is fixed.
+`StatusLine` voices one warning by fixed priority, and the priority put the
+**Kalshi quote** first and the **sportsbook consensus** second. That is
+backwards, and the reason is not taste — it is `_live_ages`' own rule, written
+out in full four hundred lines away:
+
+> `actionable` is the ODDS clock, not both clocks. The order endpoint re-reads
+> the Kalshi quote inside the request, so the recorded quote's age no longer
+> decides whether an order is accepted.
+
+So a stale quote means *the price printed here is a memory*; a stale consensus
+means *the row is not actionable at all until a credit re-buys the books*.
+Outside an odds window **both are stale on most rows**, so the old order voiced
+the less binding of the two on exactly the rows where the difference decides
+what to do — and the more binding one is the only one with an action attached.
+
+Branches swapped, drift stays third. Verified on a rendered page against a row
+seeded to the live shape (consensus 2042s / limit 900s, quote 134s / limit 30s):
+
+    Books last read 35 min ago — past the 15 min limit. Not actionable until
+    the odds are refreshed.
+    EVIDENCE 5/7 CHECKS · 1 NOT CHECKED
+    sportsbook consensus 2075s old, limit 900s; Kalshi quote 167s old, limit 30s.
+
+The `quote 3m` column still renders in the negative colour, so the price
+caveat is not lost — it is demoted, which is the whole intent.
+
+**`OpportunityCard` already had this right and always did** ("A stale quote is
+no longer what makes a row unbettable"), so the slate was the only inverted
+site. That is worth knowing: the correct behaviour had a precedent in the
+codebase the whole time.
+
+**Two lessons, both at the top of `tasks/lessons.md`, and the first is the one
+to carry:**
+
+- **Code and its own comment agreeing is not verification.** The docstring
+  numbered the priority, the branches matched it exactly, and both had been
+  wrong since they were written. A comment and the code beneath it are one
+  source, not two; the check that matters is against the rule they serve,
+  which lives somewhere else. A defect of this shape leaves **no inconsistency
+  anywhere in the file**, so no amount of reading that file finds it.
+- **A test named for a relationship must read both artifacts.** My first
+  version of `test_the_stated_priority_matches_the_branch_order` read only the
+  docstring and compared it to a literal — so the exact mutation it is named
+  for (swap the branches, leave the comment) left it **green**. Caught by
+  running the mutation. It now reads both and compares them to each other.
+
 ### Still open
 
 1. ~~The slate row and market detail surfaces for the sweet spot.~~ **DONE —
    ADR 0093.**
 2. ~~Deploy this.~~ **DONE — `11bd2c0` is live and verified on the screen.**
-   Worth carrying: the StatusLine's fixed priority named the *quote* clock and
-   not the *consensus* clock on a row whose consensus was 2042s past a 900s
-   limit. The trust line covers it now, but the selection rule that chose the
-   less binding fact is pre-existing and unexamined.
-3. **Watch whether `database is locked` recurs.** `loop_failures` is the
+3. ~~The StatusLine names the less binding clock.~~ **FIXED — the section
+   above. Needs its own deploy; `11bd2c0` predates it.**
+4. **Watch whether `database is locked` recurs.** `loop_failures` is the
    instrument. If the rate holds, the two unexamined suspects are the retention
    prune over `kalshi_quotes` (451 MB) and the WAL `TRUNCATE` checkpoint.
-4. **`odds_snapshots` retention** — ADR 0086 bought headroom, not a bound.
-5. **`user_not_found` on shard 3** and **Joe's shard allocation** — both his,
+5. **`odds_snapshots` retention** — ADR 0086 bought headroom, not a bound.
+6. **`user_not_found` on shard 3** and **Joe's shard allocation** — both his,
    both money-touching, both carried.
-6. **Read the phone.** The one verification this session could not take. Any
+7. **Read the phone.** The one verification this session could not take. Any
    session with a working viewport should open `/slate` and `/market/[ticker]`
    at 390px before the next screen change lands.
 

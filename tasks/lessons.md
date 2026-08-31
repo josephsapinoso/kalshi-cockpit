@@ -54,6 +54,57 @@ writing an entry, not after.
 
 ---
 
+## 2026-08-31 - Code and its own comment agreeing is not verification; both can be wrong together about the rule they serve
+
+The slate row's `StatusLine` voices one warning by fixed priority, and its
+docstring numbered that priority. Quote clock first, consensus clock second.
+The code matched the list exactly. It had matched since the day both were
+written, and it was wrong.
+
+`actionable` is the **odds** clock and only the odds clock -- the order
+endpoint re-reads the Kalshi quote inside the request, so a stale quote means
+*the price printed here is a memory*, not *this row is dead*. The consensus is
+the one nothing but a credit can refresh, so it is the limit that ends a row's
+life. Outside an odds window both are stale on most rows, so the stated order
+voiced the LESS binding of the two on exactly the rows where the difference
+decides what to do.
+
+**Pattern: a comment and the code beneath it are one source, not two. When they
+agree, you have learned that nobody mistyped -- not that either is right. The
+check that matters is against the rule they serve, which lives somewhere else.**
+Here the rule was four hundred lines away in `_live_ages`, written out in full,
+and contradicted the docstring that had been read past for weeks.
+
+The corollary for where to look: a defect of this shape leaves **no
+inconsistency anywhere in the file**, so no amount of reading that file finds
+it. It is found by reading the screen (a live row printed the wrong caveat) or
+by reading the rule. Both are outside.
+
+## 2026-08-31 - A test named for a relationship between two artifacts must read both of them
+
+Written for the lesson above: `test_the_stated_priority_matches_the_branch
+_order`. It read the docstring's numbered list and asserted the order that list
+was in. Then the mutation it was named for -- swap the two `if` branches,
+leave the comment -- **left it green**, because it never opened the code half
+of the relationship its own name claims to check.
+
+The fix is one line of shape: read both, compare them to *each other*, and
+never to a literal typed into the test.
+
+    assert (doc_a < doc_b) == (code_a < code_b)
+
+**Pattern: when a test's name is `X matches Y`, the assertion must contain both
+X and Y. An assertion of the form `X is <constant>` tests X against the test
+author's memory, and passes for as long as X is untouched no matter what Y
+does.** The name is the tell, and it is checkable by eye: count the artifacts
+named in the name, then count the artifacts read in the body.
+
+This is the same family as *a test that names a symbol is not a guard on that
+symbol* and *pin a guard on the decision it changes, never on the string it
+prints*, and it is worth its own entry because the failure is invisible at
+review: the test is about the right subject, in the right file, with the right
+name, and green for the wrong reason.
+
 ## 2026-08-31 - A number cannot be checked against itself, so put a second independent rendering of it on the same row
 
 The dispersion strip's always-visible summary read `readings disagree by 0.6
@@ -2198,6 +2249,8 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-08-31 — in this file, above
+- Code and its own comment agreeing is not verification; both can be wrong together about the rule they serve
+- A test named for a relationship between two artifacts must read both of them
 - A number cannot be checked against itself, so put a second independent rendering of it on the same row
 - A component that inherits its type size has no typography
 - Never hold a database write transaction across an `await` that does I/O

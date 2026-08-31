@@ -733,11 +733,32 @@ function QuoteAge({
  * reader meeting a greyed-out row needs the *reason* without decoding four
  * ages. It voices exactly one fact, by fixed priority:
  *
- *   1. the Kalshi quote is past the staleness limit  — the ask may be gone
- *   2. the consensus is past the odds limit          — the row cannot be
+ *   1. the consensus is past the odds limit          — the row cannot be
  *      actionable until the books are re-bought (the button above the list)
+ *   2. the Kalshi quote is past the staleness limit  — the ask may be gone
  *   3. the tape has moved ≥ 1.0c in the drift window — the price being
  *      compared is not the price that was compared
+ *
+ * **The first two were the other way round until 2026-08-31, and the order is
+ * not a matter of taste — it is `_live_ages`' own rule.** `actionable` is the
+ * ODDS clock and only the odds clock: the order endpoint re-reads the Kalshi
+ * quote inside the request (`kalshi/quotes.py`), so a recorded quote past its
+ * thirty-second limit no longer stops an order. It means the price on the row
+ * is a memory, not that the row is dead. **Nothing refreshes the sportsbook
+ * consensus but a credit, so that is the limit which actually ends a row's
+ * life.**
+ *
+ * Both are stale on most rows outside a window, so the old order voiced the
+ * *less* binding of the two on exactly the rows where the difference matters.
+ * Seen on live 2026-08-31: a row whose consensus was **2042s past a 900s
+ * limit** printed only "Kalshi quote is 134s old", and nothing on the row said
+ * the thing a reader could act on — re-buy the odds. Reading a live screen is
+ * what found it; the priority had been stated in this docstring since it was
+ * written and never checked against the rule it was serving.
+ *
+ * This stays a SELECTION, not a composite (ADR 0021 §9): one line voices one
+ * fact from one source, and choosing which by fixed priority weighs nothing
+ * against anything. What changed is which fact, not how many.
  *
  * Rendering nothing is the fourth state and it is deliberate: a status line
  * that always says something becomes furniture, and the suppression code
@@ -758,18 +779,20 @@ function StatusLine({
   maxOddsAgeMs: number;
 }) {
   let line: string | null = null;
+  // The odds clock FIRST: it is the one that decides `actionable`, and it is
+  // the one with an action attached (re-buy the books). See the note above.
   if (
-    row.quote_age_now_ms !== null &&
-    row.quote_age_now_ms !== undefined &&
-    row.quote_age_now_ms > maxQuoteAgeMs
-  ) {
-    line = `Kalshi quote is ${Math.round((row.quote_age_now_ms ?? 0) / 1000)}s old — past the ${Math.round(maxQuoteAgeMs / 1000)}s limit, so the ask shown may already be gone.`;
-  } else if (
     row.odds_age_now_ms !== null &&
     row.odds_age_now_ms !== undefined &&
     row.odds_age_now_ms > maxOddsAgeMs
   ) {
     line = `Books last read ${Math.round((row.odds_age_now_ms ?? 0) / 60_000)} min ago — past the ${Math.round(maxOddsAgeMs / 60_000)} min limit. Not actionable until the odds are refreshed.`;
+  } else if (
+    row.quote_age_now_ms !== null &&
+    row.quote_age_now_ms !== undefined &&
+    row.quote_age_now_ms > maxQuoteAgeMs
+  ) {
+    line = `Kalshi quote is ${Math.round((row.quote_age_now_ms ?? 0) / 1000)}s old — past the ${Math.round(maxQuoteAgeMs / 1000)}s limit, so the ask shown may already be gone.`;
   } else if (
     row.kalshi_drift_tenths !== null &&
     Math.abs(row.kalshi_drift_tenths) >= 10
