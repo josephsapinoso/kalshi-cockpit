@@ -401,6 +401,29 @@ seeded to the live shape (consensus 2042s / limit 900s, quote 134s / limit 30s):
 The `quote 3m` column still renders in the negative colour, so the price
 caveat is not lost — it is demoted, which is the whole intent.
 
+**DEPLOYED `b09ad5c`, verified** — `/api/health` `git_sha` reads
+`b09ad5c9e3bfd6b6f61b7cb0b8ee39a1cba24b0f`, status ok, recorder writing 14s
+before the read. The first dispatch was refused by the classifier again (that
+call bundled `git status` with it, against the standing "issue commands
+singly" rule); the single dispatch went through.
+
+**What the live screen could and could not show.** The odds window was OPEN at
+the time of the read (`window open · fresh for 12m`), so the consensus was
+fresh on every row and the odds branch correctly did not fire:
+
+    Kalshi quote is 55s old — past the 30s limit, so the ask shown may already
+    be gone.
+    EVIDENCE 6/7 CHECKS · 1 NOT CHECKED
+    Kalshi quote 55s old, limit 30s.
+
+That is the **ordinary case confirmed intact** — a fresh-consensus row still
+gets the quote caveat, and the trust line reads 6/7 rather than the 5/7 it
+read when the consensus was also stale. **The both-stale case, which is the
+one that changed, was verified on a local render against a row seeded to the
+live shape, not on live** — reproducing it on live would mean waiting out the
+window, and the branch that fires is not window-dependent. Stated rather than
+glossed.
+
 **`OpportunityCard` already had this right and always did** ("A stale quote is
 no longer what makes a row unbettable"), so the slate was the only inverted
 site. That is worth knowing: the correct behaviour had a precedent in the
@@ -426,8 +449,7 @@ to carry:**
 1. ~~The slate row and market detail surfaces for the sweet spot.~~ **DONE —
    ADR 0093.**
 2. ~~Deploy this.~~ **DONE — `11bd2c0` is live and verified on the screen.**
-3. ~~The StatusLine names the less binding clock.~~ **FIXED — the section
-   above. Needs its own deploy; `11bd2c0` predates it.**
+3. ~~The StatusLine names the less binding clock.~~ **FIXED and DEPLOYED (`b09ad5c`).**
 4. **Watch whether `database is locked` recurs.** `loop_failures` is the
    instrument. If the rate holds, the two unexamined suspects are the retention
    prune over `kalshi_quotes` (451 MB) and the WAL `TRUNCATE` checkpoint.
