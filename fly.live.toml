@@ -601,7 +601,31 @@ primary_region = "ord"
     hard_limit = 50
 
 [[vm]]
-  size = "shared-cpu-1x"
+  # **Two shared vCPUs since 2026-08-31, and the reason is a measurement rather
+  # than a hunch.** On one shared vCPU a QUOTE pass took **75.0 seconds against
+  # a 15-second cadence**, so the recorder never stopped running -- and it
+  # shares that single core with the Python API and with Next's SSR. The API
+  # queued behind it: `/api/slate` took 30s and then 500'd (`Failed to proxy
+  # ... socket hang up, ECONNRESET` at the Next proxy) while `/api/bets`
+  # answered in 324ms, and `flyctl ssh` hung twice on the same box.
+  #
+  # The scheduler had been saying so in its own words: *"a QUOTE pass took
+  # 75.0s; with a 15s fast interval and 15% jitter the worst-case gap between
+  # confirmations is 92.3s, past the 30s Kalshi quote limit."*
+  #
+  # **What changed is the season, not the code.** That pass discovered 663
+  # events and quoted 7,833 markets; `CLAUDE.md` predicted this when NCAAF and
+  # NFL came into scope. The work is real, so the honest fix is a box that can
+  # do it rather than a record that skips it.
+  #
+  # **`shared-cpu-2x` and not `performance-1x`, deliberately.** A dedicated
+  # core is roughly $31/month against ~$11 here, on an instance whose deployed
+  # bankroll is $100 -- disproportionate before two shared cores have been
+  # shown to be insufficient. The thing to watch is the same warning line: if
+  # a pass still exceeds its cadence at 2x, the workload wants a dedicated
+  # core (shared CPU is credit-throttled, and this loop runs continuously
+  # rather than in bursts), and THAT is the moment to spend the difference.
+  size = "shared-cpu-2x"
   # **2gb because 1gb was measured, not because bigger is safer.** On
   # 2026-08-19 the loop held ~585 MB steady with a ~70 MB spike on every full
   # pass, against 962 MB usable. That left `MemAvailable` at 21-82 MB and the
