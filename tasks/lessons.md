@@ -40,6 +40,73 @@ writing an entry, not after.
 
 ---
 
+## 2026-08-31 - Never hold a database write transaction across an `await` that does I/O
+
+`OperationalError: database is locked` killed a scoring pass four to five times
+a day, and the busy timeout was already set correctly at 5 seconds -- so
+something held the write lock for longer than that. It was the portfolio
+poller:
+
+    await poll_balance(...)      # INSERTs -> SQLite's write lock is taken
+    await poll_fills(...)        # network round trip, lock HELD
+    await poll_settlements(...)  # network round trip, lock HELD
+    await poll_positions(...)    # network round trip, lock HELD
+    conn.commit()                # released, three round trips later
+
+Python's `sqlite3` opens an implicit write transaction at the first INSERT and
+holds it to COMMIT. Every other writer that landed in that window waited out
+the timeout and raised.
+
+**Pattern: a lock is held in wall-clock time, and an `await` is an unbounded
+amount of it. Commit before any await that performs I/O, or do the I/O first
+and write afterwards.**
+
+Three things about how it got there, and the second is the one that
+generalises:
+
+- **The transaction boundary HAD been thought about, and the wrong property was
+  checked.** The comment beside it reasons carefully about rollback scope --
+  "after the commit, so a matcher failure cannot roll back the mirror" -- and
+  never about lock duration. Rollback scope and lock duration are different
+  questions about the same `commit()`, and answering one feels like answering
+  both.
+- **Three separate correct changes each widened the window, and none noticed.**
+  `poll_fills`, `poll_settlements` and `poll_positions` were moved onto the
+  fast cadence on three different dates for three good recorded reasons. Every
+  one added a network round trip inside an open transaction. **A shared
+  resource held across a call site degrades one caller at a time, and each
+  addition looks local.**
+- **The frequency is what identified the right site.** The same shape existed
+  on a 12-hour mirror and on a 300-second loop. Twice a day does not explain
+  four-to-five failures a day; 288 times a day does. Checking whether the
+  proposed cause fires often enough to produce the observed rate is what moved
+  this from a plausible story to the actual one -- and it is the same discipline
+  as reading `n` before the effect size.
+
+## 2026-08-31 - A wording rule can be defeated by typography, and no source test will see it
+
+A screen element was built to say that some checks had not been run, so that a
+score could never read as a clean bill of health. Every wording test passed:
+the string was present, the count was right, the unknown was not folded into
+the pass. It rendered as
+
+    EVIDENCE 7/7 CHECKS · 1 not checked
+
+with the score in uppercase mono and the caveat in lowercase prose after a dot.
+**The honest half was typographically subordinate to the flattering half**, and
+a reader stops at 7/7.
+
+**Pattern: an honesty rule about a screen is only satisfied when the RENDERED
+screen satisfies it. A test that greps the source can prove a string is
+present and can never prove it is legible. If a claim about honesty matters
+enough to test, open the page and read it.**
+
+The corrected guard asserts the *nesting* -- the caveat must live inside the
+score's own styled span -- rather than the presence, because presence was
+always true. This is the same family as "a test double must not be more
+permissive than the real object": the assertion was about a proxy for the
+property rather than the property.
+
 ## 2026-08-30 - Split a before/after on evidence of the change, never on when you think you made it
 
 A live before/after for a new index was cut at the deploy's wall-clock time.
