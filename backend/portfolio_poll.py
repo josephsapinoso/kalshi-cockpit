@@ -305,17 +305,41 @@ async def poll_portfolio(
 
     Returns a summary dict for the caller's log line. The summary is
     convenience; `poll_log` is the record.
+
+    **Each step commits before the next network call, and that is a lock
+    property rather than a durability one.** Until 2026-08-31 the four steps
+    shared one transaction: `poll_settlements` INSERTs, which acquires SQLite's
+    write lock, and nothing released it until the single commit **three Kalshi
+    round trips later**. Every other writer landing in that window waited out
+    `BUSY_TIMEOUT_MS` and raised -- `store_closing_line` on the scoring pass
+    most often, which kills the whole pass and loses closing lines that cannot
+    be re-observed.
+
+    The comment below this block reasons carefully about **rollback scope**
+    ("so a matcher failure cannot roll back the mirror") and says nothing about
+    **lock duration**. They are different questions and only one had been asked.
+
+    **Nothing that is relied upon becomes less atomic.** The four steps write
+    independent records to different tables from different endpoints, each an
+    `INSERT OR IGNORE`; a failure in one never made the rows already written
+    wrong, and each endpoint's outcome is recorded in `poll_log` separately
+    either way. The rule: **never hold a write transaction across an `await`
+    that performs I/O** -- a lock is held in wall-clock time and an `await` is
+    an unbounded amount of it.
     """
     summary: dict[str, Any] = {}
 
     # -- settlements: the primary statistic's inputs live here ---------------
     summary["settlements"] = await poll_settlements(conn, client, now_ms=now_ms)
+    conn.commit()
 
     # -- fills: source='venue_hand', never 'engine' (ADR 0043) ---------------
     summary["fills"] = await poll_fills(conn, client, now_ms=now_ms)
+    conn.commit()
 
     # -- positions: COUNTED, NOT PARSED. Shape never observed. ---------------
     summary["positions"] = await poll_positions(conn, client, now_ms=now_ms)
+    conn.commit()
 
     # -- balance: dollars string, never the cents integer --------------------
     summary["balance"] = await poll_balance(conn, client, now_ms=now_ms)
@@ -681,7 +705,26 @@ async def poll_portfolio_forever(
                     last_mirror = now
                     logger.info("portfolio mirror: %s", summary)
                 else:
+                    # **Each step commits before the next network call.**
+                    # This branch runs every `balance_interval_s` -- 300s, so
+                    # 288 times a day -- and until 2026-08-31 all four shared
+                    # one transaction: `poll_balance` INSERTs, taking SQLite's
+                    # write lock, and nothing released it until the commit
+                    # below, THREE Kalshi round trips later. Any other writer
+                    # landing in that window waited out `BUSY_TIMEOUT_MS` and
+                    # raised `database is locked` -- most often
+                    # `store_closing_line` on the scoring pass, which kills the
+                    # whole pass and loses closing lines that cannot be
+                    # re-observed.
+                    #
+                    # **The frequency is why this branch is the one that
+                    # mattered.** `poll_portfolio` above had the identical
+                    # shape and was fixed with it, but the mirror runs twice a
+                    # day; this runs every five minutes. The observed failure
+                    # rate (four to five a day) fits 288 windows and does not
+                    # fit two.
                     result = await poll_balance(conn, client, now_ms=now_ms)
+                    conn.commit()
                     # Fills ride the balance cadence (2026-08-21 ruling) so
                     # the landing screen's "tonight" strip is at most minutes
                     # behind the venue, not hours. See `poll_fills` for why
@@ -691,9 +734,11 @@ async def poll_portfolio_forever(
                     # on the 12-hour clock alone the order path would be
                     # refused nearly all day -- see `poll_settlements`.
                     fills_result = await poll_fills(conn, client, now_ms=now_ms)
+                    conn.commit()
                     settle_result = await poll_settlements(
                         conn, client, now_ms=now_ms
                     )
+                    conn.commit()
                     # Positions ride it too (2026-08-29): the open-positions
                     # count on the landing screen is this endpoint's newest
                     # successful poll, and a hand bet placed at 8pm did not
