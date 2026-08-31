@@ -405,10 +405,39 @@ a lost stream. Give it 300s.
 5. **Joe's shard allocation** — carried. Shard 0 was down to $0.0020 and shard
    3 to $0 before tonight's cancel returned $1.81 to shard 1. Worth telling him
    before he tries a single-market hand bet.
-6. **A sweep for the ADR 0087 pattern elsewhere.** Nothing else was found doing
-   it — the only other `factory()` call sites (`agents/review.py`,
-   `notify/alerts.py`) build coroutines, not clients — but that was a grep, not
-   an audit. Any double for an object with a lifecycle deserves the same check.
+6. ~~A sweep for the ADR 0087 pattern elsewhere.~~ **DONE. `bid_watch` was the
+   only one, and the mechanism was checked per task rather than inferred from
+   the absence of `factory()`:**
+
+       portfolio-poll   gets the ENTERED `kalshi` from the outer `async with`
+       hedge-watch      LiveQuoteSource._api() builds with `client=`, so the
+                        guard is satisfied -- and that class is PROVEN working
+                        on live through its other callers (the API's
+                        `live_quotes()`, `/api/health` live_quotes_available)
+       bid-watch        the unentered factory. Fixed, ADR 0087.
+
+   **But the audit found a different thing, and it is the one to carry.** The
+   empirical question — *has this unattended feature ever been observed doing
+   its job on live?* — is what actually caught `bid_watch`, and one task still
+   answers it badly:
+
+       poll_log                  59 pages   portfolio-poll works, at length
+       venue_balance_snapshots   17 pages   and succeeds
+       parlay_positions           1 page    a handful of rows at most
+       parlay_position_legs       1 page
+
+   `watch_hedges_forever` gates its whole body on `anything_in_progress`, which
+   needs a `parlay_positions` row. Joe has never recorded one, and no cycle has
+   ever logged an alert or a settlement. **So `watch_once` — the hedge
+   watcher's entire inner body — has almost certainly never executed in
+   production.** That is not a defect and it is precisely the state `bid_watch`
+   was silently broken in for its whole life: wired, tested, never exercised.
+
+   **The cheap generalisation, NOT built and offered rather than assumed:**
+   `/api/health` already reports `recorder.last_write_ms`. A sibling block
+   naming each unattended feature and the last time it actually *did its job*
+   (not merely ran) would have made tonight's defect visible in seconds instead
+   of by accident. Worth a decision before it is worth code.
 
 ---
 
