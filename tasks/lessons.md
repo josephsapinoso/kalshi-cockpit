@@ -54,6 +54,36 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-01 - A CI run that reports on your branch may not be reporting on your commit
+
+The local whole-suite ritual was retired this session in favour of CI, which
+runs `ruff` and `pytest -q` on every push. Correct, and it immediately produced
+two ways to believe a green that was not there.
+
+**Superseding pushes cancel the run.** Three of the session's runs finished
+`cancelled`, not `success` or `failure` -- a fast follow-up push killed each
+one mid-flight. A cancelled run verifies nothing, and it is easy to skim as
+"not failed".
+
+**A scheduled workflow also reports on `main`.** A watcher written as
+`gh run list --limit 1` grabbed a Heartbeat run and announced success for a
+commit whose own run was still in progress. The commit under test was never
+checked; the message said it was.
+
+**Pattern: after a push, wait for the run whose `headSha` is YOUR commit and
+whose workflow is the one that runs the tests, and treat any conclusion that is
+not `success` -- including `cancelled` -- as unverified. `--limit 1` is not a
+query for "my run".**
+
+    gh run list --limit 12 --json headSha,status,conclusion,workflowName       --jq '.[] | select(.headSha=="<sha>" and .workflowName!="Heartbeat")'
+
+The deeper half is about what replaced the local suite rather than about CI. A
+targeted local run is a **guess about blast radius**, and the guess is made
+from the diff when it should be made from the artifact: adding a line shape to
+an append-only journal broke a test in a file the diff never touched. So the
+retirement is right and the workflow that replaces it has two steps, not one --
+run what you think is affected, then let CI tell you what you missed.
+
 ## 2026-09-01 - Adding a SHAPE to a shared artifact is a wider change than adding a field
 
 A third line shape (`kind: "rollback"`) was appended to `loop_failures.jsonl`.
@@ -2704,6 +2734,7 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-09-01 — in this file, above
+- A CI run that reports on your branch may not be reporting on your commit
 - Adding a SHAPE to a shared artifact is a wider change than adding a field
 - A registration's "what we cannot measure" list is a claim, and getting it wrong retires the falsifying test
 - A subagent with Bash mutates the tree you are committing from

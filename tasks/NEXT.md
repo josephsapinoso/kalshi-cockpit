@@ -197,8 +197,30 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ## 2026-09-01 (latest) — the lock holder is attributed, the partner had never been invoked, ticket #11 is resolved, and a $100 money stop turns out to be unable to fire
 
-**LIVE IS `fb799be`; HEAD is ahead by this file alone.** Two halves to this session
-and a fresh session needs both:
+**STATE, verified at close:** `main` = `ae7122a`, pushed, **CI green**. Live is
+`fb799be` and carries every byte of application code — the delta is this file
+alone. Working tree clean. `lane_board.py` exits 0.
+
+**THE BATCHED DECISION INTERVIEW IS WAITING ON JOE** and a session cannot find it
+without the link:
+
+    https://claude.ai/code/artifact/d3d3a506-0100-499e-8b48-d77d7abf0280
+
+Ten map tickets that need his taste and nothing else, each with options and a
+recommendation, answerable as "16A, 12C, 15A…". It unblocks ten tickets plus
+four behind them and is the largest single unlock available. **Do not rebuild
+it** — republish to that URL if it needs changing.
+
+**CI IS NOW THE ONLY COMPLETE CHECK, AND IT CANCELS ITSELF.** The local whole-suite
+ritual was retired this session (see below). Two things follow, both learned the
+hard way tonight: a targeted local run is a **guess about blast radius** — one
+commit went red on the single file the targeted set did not open, and was
+deployed before anyone looked; and **pushing again cancels the in-flight run**, so
+three of tonight's runs finished `cancelled` and verified nothing. Push, then
+wait, then call it green — and check the run belongs to your sha, because the
+Heartbeat schedule also reports on `main`.
+
+Two halves to this session and a fresh session needs both:
 
 1. **The lock work** — open items 2 and 3 closed, item 1 reframed. Below.
 2. **The decision map** — Joe invoked `/wayfinder`; **#11 was grilled to a full
