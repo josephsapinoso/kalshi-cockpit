@@ -574,7 +574,12 @@ primary_region = "ord"
   # roughly the whole file free on the same filesystem. A volume that only
   # extends at 90% can still be unable to run the repair.
   #
-  # The limit is a real ceiling, not a formality — AND IT HAS BEEN REACHED,
+  # **RESOLVED 2026-09-01: the volume is 10GB and the limit is 20GB.** The
+  # paragraph below describes the state that ended that day and is kept
+  # because the trap in it recurs — a limit equal to the volume's own size is
+  # a net that cannot fire, and it reads exactly like a net that can.
+  #
+  # The limit is a real ceiling, not a formality — AND IT HAD BEEN REACHED,
   # by the wrong route. The volume was extended to 5GB manually on
   # 2026-08-16 (ADR 0054's own extend), not by unbounded growth, so the
   # tripwire this comment used to describe ("reaching 5GB means something
@@ -602,9 +607,27 @@ primary_region = "ord"
   # If usage climbs again, first ask what lost its retention rule; raise
   # the number only with the answer in hand. Today the answer is known:
   # `fair_prices` is 646 MB and has no retention rule.
+  # **Raised 5GB -> 20GB on 2026-09-01, and the ceiling is the whole point of
+  # the edit.** Joe extended the volume 5GB -> 10GB by hand the same day, on
+  # the measured 161.40 MB/day fill date of ~2026-09-17. Extending ALONE would
+  # have left this at 5GB — below the volume's own new size — so the net would
+  # still have been unable to fire, which is exactly the state that let the
+  # 2026-09-17 clock run unnoticed for twelve days. A limit under the current
+  # size is a disabled net that reads like a configured one.
+  #
+  # 20GB is a backstop, not a plan: at the measured rate the 10GB volume runs
+  # to roughly mid-November, and the retention downsample is the thing that
+  # should actually bound growth. The net exists so that a miss costs money
+  # rather than an outage — about 15 cents per GB per month, against an ENOSPC
+  # a restart does not clear.
+  #
+  # Threshold stays 80 rather than 90 for the reason recorded above: SQLite
+  # extends the WAL before a write, and this record has seen a 175 MiB WAL
+  # during an in-play burst. A volume that only extends at 90% can be unable
+  # to run its own repair.
   auto_extend_size_threshold = 80
   auto_extend_size_increment = "1GB"
-  auto_extend_size_limit = "5GB"
+  auto_extend_size_limit = "20GB"
 
 [http_service]
   internal_port = 3000
