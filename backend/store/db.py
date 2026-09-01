@@ -1547,17 +1547,34 @@ def record_loop_failure_durably(
     1. **The journal file, first.** An append beside the database that no
        lock can refuse. Carries the traceback, which otherwise lives only in
        a log stream with ~10 minutes of retention.
-    2. **The cure attempt.** `rollback()` closes an open transaction, which
-       is the reachable half of the poison. (The unreachable half -- a
-       cursor still referenced by something long-lived -- rollback cannot
-       reset since 3.11; measured, not assumed.)
+    2. **The cure attempt, and what it found.** `rollback()` closes an open
+       transaction, which is the reachable half of the poison. (The
+       unreachable half -- a cursor still referenced by something
+       long-lived -- rollback cannot reset since 3.11; measured, not
+       assumed.) Since 2026-09-01 the attempt journals its own line
+       (`kind: "rollback"`) carrying `in_transaction` as read *before* the
+       rollback, whether the rollback raised, and what it raised. Until then
+       the call sat inside `except sqlite3.Error: pass` and told nobody
+       anything, which left layer 3's diagnosis unable to tell "a fresh
+       connection was refused by someone else" from "the shared connection
+       was still holding a write lock and refused the fresh one itself".
+
+       **Read `in_transaction` before `rollback_ok`.** A rollback on a
+       connection with no open transaction is a no-op that always succeeds,
+       so `rollback_ok = True` on its own is consistent with the poison
+       having been cleared AND with there having been nothing to clear.
+       Neither field names the lock HOLDER, and no combination of them
+       does.
     3. **The row, with a fallback that also diagnoses.** The insert runs on
        the shared connection; if that is refused, a THROWAWAY connection
        tries the same insert. Fresh-connection success while the shared one
        refuses proves the poison is in the connection, not the database --
        and the journal says so, which turns the next incident into a
-       one-line read. Both refusing is a different, worse fact, and the
-       journal says that instead.
+       one-line read. Both refusing is a different fact, and the journal
+       says that instead -- **conditioned on layer 2's observation**, because
+       how much it excludes depends on what the rollback found. It used to
+       assert "this is not the poisoned-connection case" unconditionally,
+       which is true only in the branch where no transaction was open.
 
     Returns one of `"recorded"`, `"recorded_on_fresh_connection"`,
     `"journal_only"` -- callers log it; nothing here raises.
@@ -1575,6 +1592,7 @@ def record_loop_failure_durably(
 
     _journal(
         {
+            "kind": "failure",
             "ms": int(failed_ms),
             "pass_number": int(pass_number),
             "consecutive_failures": int(consecutive_failures),
@@ -1586,10 +1604,81 @@ def record_loop_failure_durably(
         }
     )
 
+    # The cure attempt, observed. Until 2026-09-01 this was a bare
+    # `rollback()` inside `except sqlite3.Error: pass`, and its outcome was
+    # the one observation the diagnosis line below was missing: without it,
+    # "a fresh connection also refused" cannot be told apart from "the shared
+    # connection was still holding a write lock and refused the fresh one
+    # itself".
+    #
+    # **`rollback_ok` alone separates almost nothing, and that is why
+    # `in_transaction` is recorded beside it.** A rollback on a connection
+    # with no open transaction is a no-op that always succeeds, so a bare
+    # `True` is consistent with "the poison was cleared" AND with "there was
+    # nothing to clear". Reading order is `in_transaction` first.
+    #
+    # Unreadable resolves to `None`, never `False`: `in_transaction` raises
+    # `ProgrammingError` on a closed connection, and a closed connection is
+    # one of the states this path exists to survive.
+    try:
+        in_transaction: Optional[bool] = bool(conn.in_transaction)
+    except sqlite3.Error:
+        in_transaction = None
+
+    rollback_error: Optional[str] = None
     try:
         conn.rollback()
-    except sqlite3.Error:
-        pass
+        rollback_ok = True
+    except sqlite3.Error as refused:
+        rollback_ok = False
+        rollback_error = f"{type(refused).__name__}: {refused}"
+
+    # Its own line, not a field on the diagnosis, because the diagnosis is
+    # written only when the shared connection refuses -- and the case where
+    # the rollback CURED the connection is the one that then records
+    # successfully and writes no diagnosis at all. An observation only kept
+    # on the failing branch cannot answer "did the cure work".
+    _journal(
+        {
+            "kind": "rollback",
+            "ms": int(failed_ms),
+            "in_transaction": in_transaction,
+            "rollback_ok": rollback_ok,
+            "rollback_error": rollback_error,
+        }
+    )
+
+    def _cure_note() -> str:
+        """What the cure attempt licenses, in the diagnosis's own words.
+
+        Three readings, and only the first excludes the shared connection.
+        The blanket sentence this replaces -- "This is not the
+        poisoned-connection case." -- asserted the first one unconditionally.
+        """
+        if not rollback_ok:
+            return (
+                f"The shared connection would not even roll back "
+                f"({rollback_error}), so it is NOT excluded as the holder "
+                f"and this does not establish that the database itself "
+                f"refuses writes."
+            )
+        if in_transaction is None:
+            return (
+                "Whether a transaction was open on the shared connection "
+                "could not be read, so it is not excluded as the holder."
+            )
+        if in_transaction:
+            return (
+                "An open transaction on the shared connection was rolled "
+                "back first, so it is not holding a write lock now -- but a "
+                "stale read snapshot survives a rollback, so the shared "
+                "connection is not fully excluded."
+            )
+        return (
+            "No transaction was open on the shared connection, so it was "
+            "not holding a write lock: this is not the poisoned-connection "
+            "case."
+        )
 
     try:
         record_loop_failure(
@@ -1619,7 +1708,10 @@ def record_loop_failure_durably(
                 fresh.close()
             _journal(
                 {
+                    "kind": "diagnosis",
                     "ms": int(failed_ms),
+                    "in_transaction": in_transaction,
+                    "rollback_ok": rollback_ok,
                     "diagnosis": (
                         f"the shared connection refused the failure row "
                         f"({shared_refused}) but a fresh connection wrote "
@@ -1633,12 +1725,14 @@ def record_loop_failure_durably(
         except sqlite3.Error as fresh_refused:
             _journal(
                 {
+                    "kind": "diagnosis",
                     "ms": int(failed_ms),
+                    "in_transaction": in_transaction,
+                    "rollback_ok": rollback_ok,
                     "diagnosis": (
-                        f"the database itself refuses writes: shared "
+                        f"a fresh connection was refused too: shared "
                         f"connection said {shared_refused!r}, a fresh "
-                        f"connection said {fresh_refused!r}. This is not "
-                        f"the poisoned-connection case."
+                        f"connection said {fresh_refused!r}. {_cure_note()}"
                     ),
                 }
             )

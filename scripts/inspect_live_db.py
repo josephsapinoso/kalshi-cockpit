@@ -106,6 +106,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sqlite3
 import sys
 import time
@@ -2031,10 +2032,12 @@ def _q_failure_journal(conn: sqlite3.Connection, args) -> list[Section]:
     - **It samples the wrong moment.** The diagnosis describes the lock state
       when the RECORD was attempted -- after the pass raised, after the
       journal append, and after `record_loop_failure_durably`'s `rollback()`.
-      It is not the lock state at the moment the pass failed. That rollback
-      swallows `sqlite3.Error` and its success is never written down, so "the
-      shared connection was still holding a write lock, and refused the fresh
-      one itself" is NOT excluded by a `both refused` line.
+      It is not the lock state at the moment the pass failed. On lines
+      written before 2026-09-01 that rollback swallowed `sqlite3.Error` and
+      its outcome was never written down, so "the shared connection was
+      still holding a write lock, and refused the fresh one itself" is NOT
+      excluded by one of those lines. Section 3 carries the observation for
+      every line written since.
     - **It does not name the holder.** Anything holding the write lock past
       `BUSY_TIMEOUT_MS` produces this reading: the portfolio poller, the API's
       per-request connections, `maybe_checkpoint`, `store_closing_line`. A
@@ -2042,14 +2045,28 @@ def _q_failure_journal(conn: sqlite3.Connection, args) -> list[Section]:
       for it. What would separate them is correlating these stamps against
       the poller's own start and finish times, which nothing here does.
 
+    **Section 3 is the second of those limits closing, and only the
+    second.** Since 2026-09-01 the writer journals its `rollback()` -- the
+    `in_transaction` state read before it, whether it raised, and what it
+    raised -- joined here to what the row attempt did next. The reading
+    order is `in_transaction` FIRST: a rollback on a connection with no open
+    transaction is a no-op that always succeeds, so `rollback_ok = True` by
+    itself does not distinguish "the poison was cleared" from "there was
+    nothing to clear". It still does not name the holder, and no field here
+    ever will; that needs the poller's own start and finish times.
+
+    A failure written before the field carries no rollback line, so the
+    section reports how many predate it. **An empty section 3 is not "no
+    rollback was attempted"** -- every failure ever journalled attempted one.
+
     And section 1 is a census, not a rate: its rows are SELECTED by having no
     table row, and `journal_only` is the only outcome that produces one. So
     "every line in section 1 says both connections refused" is a tautology,
-    not a finding. The population to quote is section 3's -- how many
+    not a finding. The population to quote is section 4's -- how many
     recorded on the shared connection, how many on a fresh one, how many on
     neither.
 
-    Section 4 renders the newest traceback one line per row. The traceback is
+    Section 5 renders the newest traceback one line per row. The traceback is
     written only here -- stdout retention on the machine is ~10 minutes -- and
     a table cell cannot hold it, so it gets its own single-column block rather
     than being summarised into a column nobody can act on.
@@ -2106,10 +2123,22 @@ def _q_failure_journal(conn: sqlite3.Connection, args) -> list[Section]:
         if isinstance(entry, dict):
             parsed.append(entry)
 
-    # Two shapes share the file. A diagnosis line carries no `pass_number`,
-    # and counting it as a failure would double every burst that got one.
-    failures = [e for e in parsed if "diagnosis" not in e]
-    diagnoses = [e for e in parsed if "diagnosis" in e]
+    # THREE shapes share the file, and classification is by an explicit
+    # `kind` field since 2026-09-01. It used to be by key-ABSENCE -- a line
+    # with no `diagnosis` key was a failure -- which is a rule that silently
+    # miscounts the next shape somebody adds, and the rollback line added
+    # that day would have been counted as a failure under it. Lines written
+    # before the field carry no `kind`, so the old heuristic stays as the
+    # fallback for exactly those; it is not dead code until the journal is.
+    def _kind(entry: dict) -> str:
+        declared = entry.get("kind")
+        if isinstance(declared, str):
+            return declared
+        return "diagnosis" if "diagnosis" in entry else "failure"
+
+    failures = [e for e in parsed if _kind(e) == "failure"]
+    diagnoses = [e for e in parsed if _kind(e) == "diagnosis"]
+    rollbacks = [e for e in parsed if _kind(e) == "rollback"]
 
     # Indexed by position, not by name: `connect_readonly` does not set a
     # `row_factory`, so every row here is a plain tuple.
@@ -2170,6 +2199,36 @@ def _q_failure_journal(conn: sqlite3.Connection, args) -> list[Section]:
         if _in_table(e) is True and e.get("ms") in diagnosed_ms
     )
 
+    # The cure attempt, joined to what happened next. `record_loop_failure_
+    # durably` journals `kind: "rollback"` after its `rollback()` and before
+    # the row attempt, so the pair answers the question neither half can:
+    # `in_transaction = True, rollback_ok = True, then = recorded` is the
+    # rollback working; the same two with `then = journal_only` is a cure
+    # that did not cure.
+    rollback_ms = {
+        e["ms"] for e in rollbacks if isinstance(e.get("ms"), int)
+    }
+
+    def _outcome_of(ms: Any) -> Optional[str]:
+        if not isinstance(ms, int):
+            return None
+        if ms not in recorded_ms:
+            return "journal_only"
+        return (
+            "recorded_on_fresh_connection" if ms in diagnosed_ms
+            else "recorded"
+        )
+
+    # A failure with no rollback line predates the observation, which landed
+    # 2026-09-01. Reporting only the observations would let an empty section
+    # read as "no rollback was ever attempted" on a journal whose every line
+    # attempted one -- the `walk-log` failure mode, in the flattering
+    # direction.
+    unobserved = sum(
+        1 for e in failures if e.get("ms") not in rollback_ms
+    )
+    rollbacks_newest = list(reversed(rollbacks))
+
     newest_tb = next((e for e in reversed(failures) if e.get("traceback")), None)
     tb_lines = (newest_tb.get("traceback") or "").splitlines() if newest_tb else []
     tb_stamp = (
@@ -2197,10 +2256,13 @@ def _q_failure_journal(conn: sqlite3.Connection, args) -> list[Section]:
                 f"failure-journal: DIAGNOSIS lines, newest first "
                 f"({len(diagnoses)} in {path.name}). TWO LIMITS: this is the "
                 f"lock state when the RECORD was attempted -- after the pass "
-                f"raised and after a rollback() whose success is not written "
-                f"down -- not when the pass failed; and it does not name the "
-                f"holder, so 'both refused' is CONSISTENT WITH the poller, "
-                f"the API's connections and the checkpoint alike."
+                f"raised and after the rollback in section 3 -- not when the "
+                f"pass failed; and it does not name the holder, so 'a fresh "
+                f"connection was refused too' is CONSISTENT WITH the poller, "
+                f"the API's connections and the checkpoint alike. Lines "
+                f"written before 2026-09-01 end 'this is not the "
+                f"poisoned-connection case' unconditionally; that sentence "
+                f"is only earned in section 3's in_transaction = False row."
             ),
             columns=("iso", "ms", "diagnosis"),
             rows=[
@@ -2212,6 +2274,37 @@ def _q_failure_journal(conn: sqlite3.Connection, args) -> list[Section]:
                 for e in diagnoses_newest[:cap]
             ],
             truncated=len(diagnoses) > cap,
+            cap=cap,
+        ),
+        Section(
+            title=(
+                f"failure-journal: what the CURE ATTEMPT found "
+                f"({len(rollbacks)} observations; {unobserved} failures "
+                f"predate the field, which landed 2026-09-01 -- an empty "
+                f"section is NOT 'no rollback was attempted'). READ "
+                f"in_transaction FIRST: a rollback on a connection with no "
+                f"open transaction is a no-op that always succeeds, so "
+                f"rollback_ok = True alone is consistent with the poison "
+                f"being cleared AND with there having been nothing to clear. "
+                f"`then` is what the row attempt did next. NEITHER FIELD "
+                f"NAMES THE HOLDER."
+            ),
+            columns=(
+                "iso", "ms", "in_transaction", "rollback_ok",
+                "rollback_error", "then",
+            ),
+            rows=[
+                (
+                    _iso(e.get("ms") if isinstance(e.get("ms"), int) else None),
+                    e.get("ms"),
+                    e.get("in_transaction"),
+                    e.get("rollback_ok"),
+                    e.get("rollback_error"),
+                    _outcome_of(e.get("ms")),
+                )
+                for e in rollbacks_newest[:cap]
+            ],
+            truncated=len(rollbacks) > cap,
             cap=cap,
         ),
         Section(
@@ -2236,6 +2329,306 @@ def _q_failure_journal(conn: sqlite3.Connection, args) -> list[Section]:
             columns=("line",),
             rows=[(line,) for line in tb_lines[:cap]],
             truncated=len(tb_lines) > cap,
+            cap=cap,
+        ),
+    ]
+
+
+#: The registered H1 window, in seconds, from
+#: `docs/measurements/2026-09-01-lock-holder-attribution-registration.md` §5.
+#:
+#: The poller took SQLite's write lock at its first INSERT -- one Kalshi round
+#: trip after the cycle stamp -- and held it until a commit three round trips
+#: later; a victim then waits `BUSY_TIMEOUT_MS` (5,000 ms) before raising, and
+#: is stamped at the raise. Bounding a round trip at 3 s gives 3*3 + 5 = 14.
+#:
+#: **Fixed before the join was computed.** Widening it after seeing the offsets
+#: is the defect this constant exists to make visible in a diff.
+LOCK_WINDOW_S = 14.0
+
+#: Two-sided exact-binomial threshold, §6. 0.01 rather than 0.05 because this
+#: record has run many tests and CLAUDE.md requires counting them.
+LOCK_ALPHA = 0.01
+
+
+def _binom_pmf(k: int, n: int, p: float) -> float:
+    return math.comb(n, k) * (p ** k) * ((1.0 - p) ** (n - k))
+
+
+def _binom_two_sided(k: int, n: int, p: float) -> float:
+    """Exact two-sided binomial p-value, by the method-of-small-likelihoods.
+
+    Sums every outcome at least as improbable as the observed one. No scipy on
+    the machine -- and a normal approximation is exactly what CLAUDE.md's "read
+    `n` before the effect size" rule forbids at these counts.
+    """
+    if n <= 0:
+        return 1.0
+    observed = _binom_pmf(k, n, p)
+    tol = observed * (1.0 + 1e-7)
+    return min(1.0, sum(
+        _binom_pmf(i, n, p) for i in range(n + 1) if _binom_pmf(i, n, p) <= tol
+    ))
+
+
+def _q_lock_attribution(conn: sqlite3.Connection, args) -> list[Section]:
+    """Does each `database is locked` burst land inside a poller cycle?
+
+    The registered analysis of `tasks/NEXT.md` open item 2 -- *"Before
+    crediting ADR 0091, attribute the holder"* -- run to the rule fixed in
+    `docs/measurements/2026-09-01-lock-holder-attribution-registration.md`
+    **before** the join was computed. Read that document before quoting
+    anything here; this docstring restates it, it does not amend it.
+
+    The question
+    ------------
+    ADR 0091 changed `poll_portfolio_forever`'s fast branch so each step
+    commits before the next network call. Before it, the four steps shared one
+    transaction and the write lock was held across **three Kalshi round
+    trips**, every 300 s. The ADR's argument is a rate -- *"four to five a day
+    fits 288 windows and does not fit two"* -- and a rate is not an
+    attribution. **Nothing had placed one observed failure inside one poller
+    window.** This does.
+
+    The join
+    --------
+    For every burst, the offset from the newest `poll_log.polled_ms` at or
+    before it. `polled_ms` is the poller's **cycle start**: `now_ms` is taken
+    once at the top of the loop body and handed to every `log_poll_attempt` in
+    that cycle, so all of a cycle's rows share one stamp and **the cycle's
+    duration is recorded nowhere.** That is the instrument's limit, not a
+    choice, and it is why §7 of the registration allows no exonerating verdict.
+
+    The unit is the BURST
+    ---------------------
+    `consecutive_failures == 1`. `Tempo.pass_kind` re-arms a full pass the
+    moment one fails, so the failures inside a burst are one draw, not four.
+    Section 2 lists every failure so the drop is visible; the test in section 3
+    runs on bursts alone.
+
+    The verdicts, and the one that does not exist
+    ---------------------------------------------
+    - **POLLER IMPLICATED** -- two-sided exact binomial p < 0.01.
+    - **NOT ESTABLISHED** -- everything else.
+
+    There is deliberately **no POLLER EXONERATED**. At n ~ 13 and
+    p0 = 14/300 = 0.047 the expected count under the null is 0.61, so the
+    design can convict and cannot clear: a k of 0 is what the null predicts.
+    Section 3 prints that sentence beside the verdict, because the next
+    session reads the screen.
+
+    What this does not establish
+    ----------------------------
+    - **That the poller is the ONLY holder.** `maybe_checkpoint`, the API's
+      per-request connections and `store_closing_line` raise the same error,
+      and a conviction here does not partition the population between them.
+    - **That ADR 0091 worked.** Attribution and efficacy are different claims.
+      Efficacy is open item 1 and is separately blocked -- its quiet window
+      contains thirteen process restarts, and a restart is this class's own
+      documented cure.
+    - **Anything if `poll_log` does not span the journal.** A burst scored
+      against a cycle stamp that is hours old is not a measurement, so
+      section 1 REFUSES rather than reporting a large offset. A poller cycle
+      that died before its commit leaves no stamp at all, which inflates a
+      neighbouring offset and biases the test **against** H1.
+    - **Anything before 2026-08-30**, when the durable journal landed.
+    """
+    path = Path(args.db).resolve().parent / FAILURE_LOG_NAME
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        return [
+            Section(
+                title=(
+                    "lock-attribution: THE JOURNAL IS NOT THERE -- this is "
+                    "not 'no failures'"
+                ),
+                columns=("problem", "path", "writer"),
+                rows=[(
+                    str(exc), str(path),
+                    "backend.store.db.record_loop_failure_durably",
+                )],
+                cap=args.limit,
+            )
+        ]
+
+    failures: list[dict] = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        kind = entry.get("kind")
+        if not isinstance(kind, str):
+            kind = "diagnosis" if "diagnosis" in entry else "failure"
+        if kind != "failure":
+            continue
+        if "database is locked" not in str(entry.get("error") or ""):
+            continue
+        if isinstance(entry.get("ms"), int):
+            failures.append(entry)
+
+    failures.sort(key=lambda e: e["ms"])
+    bursts = [e for e in failures if e.get("consecutive_failures") == 1]
+
+    # Distinct cycle stamps. All four endpoints of one cycle share `now_ms`,
+    # so DISTINCT is what turns rows into cycles.
+    stamps = [
+        int(row[0])
+        for row in conn.execute(
+            "SELECT DISTINCT polled_ms FROM poll_log ORDER BY polled_ms ASC"
+        ).fetchall()
+        if row[0] is not None
+    ]
+    total_rows = conn.execute("SELECT COUNT(*) FROM poll_log").fetchone()[0]
+
+    cap = args.limit
+    if not failures:
+        return [Section(
+            title=(
+                "lock-attribution: no `database is locked` failure in the "
+                "journal -- nothing to attribute (this is not a verdict about "
+                "the poller)"
+            ),
+            columns=("journal", "lines_read"),
+            rows=[(str(path), len(lines))],
+            cap=cap,
+        )]
+
+    oldest, newest = failures[0]["ms"], failures[-1]["ms"]
+    covered = bool(stamps) and stamps[0] <= oldest and stamps[-1] >= newest
+
+    gaps = [
+        (b - a) / 1000.0
+        for a, b in zip(stamps, stamps[1:])
+        if oldest - 3_600_000 <= a <= newest
+    ]
+    gaps.sort()
+    median_gap_s = gaps[len(gaps) // 2] if gaps else None
+
+    preconditions = Section(
+        title=(
+            "lock-attribution: PRECONDITIONS -- read this before section 3. "
+            "The registration is docs/measurements/"
+            "2026-09-01-lock-holder-attribution-registration.md, written "
+            "before this join was computed."
+        ),
+        columns=("check", "value", "reading"),
+        rows=[
+            ("journal failures (locked)", len(failures),
+             "the population; the loop_failures TABLE is a floor and is not used"),
+            ("bursts (consecutive_failures = 1)", len(bursts),
+             "the UNIT; a burst is one draw, its repeats are not"),
+            ("poll_log rows", total_rows, "all endpoints, all cycles"),
+            ("poll_log distinct cycles", len(stamps),
+             "one stamp per cycle; every endpoint in a cycle shares it"),
+            ("journal window", f"{_iso(oldest)} .. {_iso(newest)}", ""),
+            ("poll_log window",
+             f"{_iso(stamps[0]) if stamps else None} .. "
+             f"{_iso(stamps[-1]) if stamps else None}", ""),
+            ("poll_log spans the journal", covered,
+             "FALSE means section 3 REFUSES: an offset measured against a "
+             "stamp hours away is not a measurement"),
+            ("median cycle gap (s)", median_gap_s,
+             "C in the null; read from the data, not assumed to be 300"),
+            ("registered window W (s)", LOCK_WINDOW_S,
+             "3 round trips at 3 s + BUSY_TIMEOUT_MS 5 s; fixed before looking"),
+        ],
+        cap=cap,
+    )
+
+    def _offset_s(ms: int) -> Optional[float]:
+        prior = [s for s in stamps if s <= ms]
+        return None if not prior else (ms - prior[-1]) / 1000.0
+
+    detail = Section(
+        title=(
+            f"lock-attribution: every locked failure, oldest first "
+            f"({len(failures)} of them, {len(bursts)} bursts). `offset_s` is "
+            f"from the newest poller CYCLE START at or before it. Only "
+            f"is_burst = True rows enter the test; the rest are shown so the "
+            f"drop is visible rather than assumed."
+        ),
+        columns=(
+            "iso", "pass_number", "consecutive_failures", "pass_kind",
+            "is_burst", "offset_s", "within_W",
+        ),
+        rows=[
+            (
+                _iso(e["ms"]), e.get("pass_number"),
+                e.get("consecutive_failures"), e.get("pass_kind"),
+                e.get("consecutive_failures") == 1,
+                _offset_s(e["ms"]),
+                None if _offset_s(e["ms"]) is None
+                else _offset_s(e["ms"]) <= LOCK_WINDOW_S,
+            )
+            for e in failures[:cap]
+        ],
+        truncated=len(failures) > cap,
+        cap=cap,
+    )
+
+    if not covered or median_gap_s is None or not median_gap_s:
+        return [preconditions, detail, Section(
+            title=(
+                "lock-attribution: REFUSED -- the preconditions in section 1 "
+                "are not met, so no verdict is computed. An offset scored "
+                "against a cycle stamp outside the journal's window measures "
+                "the gap in poll_log, not the poller's lock."
+            ),
+            columns=("blocker",),
+            rows=[
+                ("poll_log does not span the journal window",)
+                if not covered else
+                ("no usable cycle gap: poll_log has fewer than two cycles "
+                 "near the journal window",)
+            ],
+            cap=cap,
+        )]
+
+    offsets = [_offset_s(e["ms"]) for e in bursts]
+    usable = [o for o in offsets if o is not None]
+    n = len(usable)
+    k = sum(1 for o in usable if o <= LOCK_WINDOW_S)
+    p0 = min(1.0, LOCK_WINDOW_S / median_gap_s)
+    expected = n * p0
+    p_value = _binom_two_sided(k, n, p0)
+    implicated = p_value < LOCK_ALPHA and k > expected
+
+    verdict = "POLLER IMPLICATED" if implicated else "NOT ESTABLISHED"
+
+    return [
+        preconditions,
+        detail,
+        Section(
+            title=(
+                f"lock-attribution: THE REGISTERED TEST -- {verdict}. "
+                f"NO EXONERATING VERDICT EXISTS IN THIS DESIGN: at n = {n} "
+                f"and p0 = {p0:.4f} the null EXPECTS {expected:.2f}, so a "
+                f"small k is what the null predicts and may NOT be reported "
+                f"as 'the poller is cleared'. Only k large enough to give "
+                f"p < {LOCK_ALPHA} convicts. Attribution is not efficacy: "
+                f"whether ADR 0091 WORKED is open item 1 and is blocked "
+                f"separately."
+            ),
+            columns=("quantity", "value", "note"),
+            rows=[
+                ("n (bursts scored)", n, "unit = burst, not pass"),
+                ("k (offset <= W)", k, f"W = {LOCK_WINDOW_S} s, fixed before looking"),
+                ("p0 = W / C", round(p0, 5),
+                 f"C = {median_gap_s} s, the observed median cycle gap"),
+                ("expected under H0", round(expected, 3), "n * p0"),
+                ("two-sided exact binomial p", f"{p_value:.6f}",
+                 "exact; a normal approximation is refused at this n"),
+                ("threshold", LOCK_ALPHA, "0.01, because this record runs many tests"),
+                ("VERDICT", verdict,
+                 "POLLER IMPLICATED requires p < 0.01 AND k above expectation"),
+            ],
             cap=cap,
         ),
     ]
@@ -3655,8 +4048,22 @@ QUERIES: dict[str, QueryDef] = {
         "record, which is exactly the 'database is locked' class -- so a "
         "non-zero count there makes every table-derived count a FLOOR. "
         "Section 2 carries the durable recorder's own poisoned-connection "
-        "verdict; section 4 the newest traceback, which lives nowhere else.",
+        "verdict and section 3 what the rollback before it found -- read "
+        "in_transaction first, because rollback_ok = True on a connection "
+        "with nothing open is a no-op. Section 5 is the newest traceback, "
+        "which lives nowhere else.",
         _q_failure_journal,
+    ),
+    "lock-attribution": QueryDef(
+        "Does each `database is locked` burst land inside a poller cycle? "
+        "Joins the journal's failure stamps to poll_log cycle starts and "
+        "runs the rule fixed in docs/measurements/"
+        "2026-09-01-lock-holder-attribution-registration.md BEFORE the "
+        "join existed. Unit is the BURST. Section 1 REFUSES if poll_log "
+        "does not span the journal. THERE IS NO EXONERATING VERDICT: the "
+        "design can convict the poller and cannot clear it, because a "
+        "small k is exactly what the null predicts.",
+        _q_lock_attribution,
     ),
     "prune-frontier": QueryDef(
         "How far prune_quotes has got: MIN(COALESCE(confirmed_ms, "
