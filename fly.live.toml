@@ -579,12 +579,29 @@ primary_region = "ord"
   # 2026-08-16 (ADR 0054's own extend), not by unbounded growth, so the
   # tripwire this comment used to describe ("reaching 5GB means something
   # is growing without a retention rule") fired without its condition being
-  # true. What matters now (recorded 2026-08-20, measured growth 0 B/day
-  # with retention deployed): **the auto-extend net cannot fire again.**
+  # true. What matters is that **the auto-extend net cannot fire again.**
   # Any further growth ends in ENOSPC — a hard down that a restart does not
   # clear — and recovery is a manual `fly volumes extend` from a laptop.
+  #
+  # **"measured growth 0 B/day with retention deployed" (recorded 2026-08-20)
+  # was here until 2026-09-01 and is wrong by the whole quantity.** Measured
+  # on the live box that day by differencing `db_kb`, which nothing had ever
+  # differenced before: **161.40 MB/day against 2,592,702,464 bytes actually
+  # free**, which fills the volume about 2026-09-17. See
+  # `docs/measurements/2026-09-01-the-volume-clock.md` — and read its n = 1
+  # day caveat, it is not a footnote.
+  #
+  # The zero was reproducible rather than a slip, which is the part worth
+  # keeping: **the file does not grow for about twenty hours a day.** It is
+  # byte-identical across 574 consecutive samples spanning 21.51 hours, and
+  # four hours of in-play carry 99.51% of a day's growth. So any window
+  # shorter than a full day reads 0 B/day no matter what the daily rate is.
+  # A growth measurement on this database must span >= 24 h or it measures
+  # the quiet part.
+  #
   # If usage climbs again, first ask what lost its retention rule; raise
-  # the number only with the answer in hand.
+  # the number only with the answer in hand. Today the answer is known:
+  # `fair_prices` is 646 MB and has no retention rule.
   auto_extend_size_threshold = 80
   auto_extend_size_increment = "1GB"
   auto_extend_size_limit = "5GB"
