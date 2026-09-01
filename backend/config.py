@@ -950,6 +950,53 @@ class ManualOrderConfig:
         return cls(enabled=_bool("MANUAL_ORDERS_ENABLED", False))
 
 
+@dataclass(frozen=True)
+class FairPriceDownsampleConfig:
+    """Whether the `fair_prices` downsample may delete anything. OFF by default.
+
+    The rule is registered in
+    `docs/measurements/2026-09-01-preregistration-fair-prices-downsample.md`
+    and implemented in `backend/store/fair_price_downsample.py`. This is the
+    switch, and **`enabled = False` is the shipped state**: the rule exists so
+    that the byte figure can be measured by a dry run, which converts an
+    irreversible decision into a reversible one. Arming it is a separate,
+    later decision with its own ADR.
+
+    **`enabled` and `dry_run` are two flags rather than one tri-state**, and
+    the asymmetry is deliberate. `dry_run` defaults to `True`, so the *only*
+    configuration that deletes a row is `enabled=true` **and**
+    `dry_run=false` -- two independent edits to the environment, neither of
+    which is the default. A single `MODE` string would make "delete" one typo
+    away from "report".
+
+    **Nothing on a disk threshold may set these.** An automatic deletion fired
+    by a disk alarm is a guard that goes off at the worst possible moment, when
+    nobody is watching and the volume is already in trouble.
+    `backend/store/volume.py` is forbidden from reaching this by
+    `tests/test_volume_alarm.py` and `tests/test_fair_price_downsample.py`.
+    """
+
+    enabled: bool = False
+    dry_run: bool = True
+    #: Registered at 14. Deploying at any other value requires an amendment to
+    #: the registration; a dry run at another value is a sensitivity sweep and
+    #: is permitted, because it deletes nothing.
+    retention_days: int = 14
+
+    @classmethod
+    def load(cls) -> "FairPriceDownsampleConfig":
+        return cls(
+            enabled=_bool("FAIR_PRICE_DOWNSAMPLE_ENABLED", False),
+            dry_run=_bool("FAIR_PRICE_DOWNSAMPLE_DRY_RUN", True),
+            retention_days=_int("FAIR_PRICE_DOWNSAMPLE_RETENTION_DAYS", 14),
+        )
+
+    @property
+    def deletes(self) -> bool:
+        """Whether this configuration would actually remove a row."""
+        return self.enabled and not self.dry_run
+
+
 # --- build identity ---------------------------------------------------------
 #
 # Which build of this repo is answering. Served on `/api/health` so that

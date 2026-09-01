@@ -84,6 +84,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from backend.config import (  # noqa: E402
+    FairPriceDownsampleConfig,
     GateConfig,
     KalshiConfig,
     MarketResultConfig,
@@ -722,6 +723,17 @@ async def main() -> int:
     # be 96 identical ERROR lines a day -- the exact failure the pass itself was
     # just fixed for. It cannot raise; see `MarketResultConfig`.
     market_result_config = MarketResultConfig.load()
+    # The `fair_prices` downsample's switch, read once at startup like every
+    # other config above. **Both of its defaults refuse**, so the shipped state
+    # is that this object exists, is passed on every full pass, and deletes
+    # nothing -- which is the state a flag should be in before it has ever been
+    # measured. Arming it is two independent environment edits plus an ADR; see
+    # `docs/measurements/2026-09-01-preregistration-fair-prices-downsample.md`.
+    #
+    # Passed rather than left `None` on purpose: a rule wired up and refusing is
+    # a rule that can be *observed* refusing, and this project's most repeated
+    # defect is a module that was complete, tested and called by nothing.
+    downsample_config = FairPriceDownsampleConfig.load()
     suppression = SuppressionConfig()
 
     # The on-demand refresh inbox, and this process's watermark into it.
@@ -1345,6 +1357,7 @@ async def main() -> int:
                     # *then* prunes, so a full pass that opens a window prunes
                     # inside the first ~40-94s of it, every time.
                     window_open=lambda: window_now().is_open,
+                    downsample=downsample_config,
                 )
             else:
                 # Kalshi, plus the odds refresh that keeps an already-open
