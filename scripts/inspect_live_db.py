@@ -2806,6 +2806,32 @@ def _q_study_stop(conn: sqlite3.Connection, args) -> list[Section]:
         else None
     )
 
+    # **How MANY rows are unreadable, not just that one is.** The formula
+    # stops at the first bad row by registration, so the refusal above cannot
+    # say whether this is one void or half the record -- and those are
+    # different problems. Added 2026-09-01, when the live read came back
+    # refusing on `market_result = ''` and the natural next question had no
+    # instrument.
+    result_mix: list[tuple[Any, ...]] = []
+    if start_text is not None:
+        result_mix = [
+            (
+                r[0] if r[0] not in (None, "") else (
+                    "NULL" if r[0] is None else "'' (empty string)"
+                ),
+                r[1],
+                "computable"
+                if r[0] in ("yes", "no")
+                else "REFUSES the whole formula",
+            )
+            for r in conn.execute(
+                "SELECT market_result, COUNT(*) FROM venue_settlements "
+                "WHERE settled_ms >= ? GROUP BY market_result "
+                "ORDER BY COUNT(*) DESC",
+                (int(start_text),),
+            ).fetchall()
+        ]
+
     return [
         Section(
             title=(
@@ -2832,7 +2858,19 @@ def _q_study_stop(conn: sqlite3.Connection, args) -> list[Section]:
                  "mean logging is open"),
             ],
             cap=args.limit,
-        )
+        ),
+        Section(
+            title=(
+                "study-stop: every market_result over the study period, so a "
+                "refusal above can be read as 'one void' or 'the record is "
+                "unreadable'. The formula stops at the FIRST bad row, so its "
+                "message names one and cannot count them."
+            ),
+            columns=("market_result", "n", "effect on the formula"),
+            rows=result_mix[:args.limit],
+            truncated=len(result_mix) > args.limit,
+            cap=args.limit,
+        ),
     ]
 
 

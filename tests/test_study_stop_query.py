@@ -235,3 +235,78 @@ class TestTheSelfLockoutIsReportedSeparately:
         out = _read(_build(tmp_path, []))
         assert "self-lockout until" in out
         assert out["self-lockout until"] is None
+
+
+class TestTheRefusalCanBeSizedRatherThanJustNamed:
+    """Added 2026-09-01, after the first live read refused on
+    `market_result = ''` and the obvious next question -- one void, or half the
+    record? -- had no instrument.
+
+    The registered formula stops at the FIRST unreadable row, so its refusal
+    message names one row and structurally cannot count them. A reader deciding
+    whether a silently-inoperative $100 stop is a nuisance or an emergency
+    needs the count, and taking it must not disturb the formula.
+    """
+
+    def _mix(self, db_path: Path) -> dict:
+        from scripts.inspect_live_db import main
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            assert main(["study-stop", "--db", str(db_path), "--json"]) == 0
+        section = json.loads(buf.getvalue())["sections"][1]
+        return {r[0]: r[1] for r in section["rows"]}
+
+    def test_the_unreadable_rows_are_counted_not_just_named(self, tmp_path):
+        path = _build(
+            tmp_path,
+            [WIN, WIN, LOSS]
+            + [dict(side="yes", contracts=1, entry=100, fee=1, result="")] * 4,
+        )
+        mix = self._mix(path)
+        assert mix.get("'' (empty string)") == 4, mix
+        assert mix.get("yes") == 2, mix
+        assert mix.get("no") == 1, mix
+
+    def test_the_section_says_which_values_break_the_formula(self, tmp_path):
+        """A count without that mapping makes the reader re-derive which
+        values are fatal, which is where they will guess wrong."""
+        path = _build(
+            tmp_path,
+            [WIN, dict(side="yes", contracts=1, entry=100, fee=1, result="")],
+        )
+        from scripts.inspect_live_db import main
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            main(["study-stop", "--db", str(path)])
+        rendered = buf.getvalue()
+        assert "REFUSES the whole formula" in rendered, rendered
+        assert "computable" in rendered, rendered
+
+    def test_counting_does_not_disturb_the_registered_figure(self, tmp_path):
+        """The count is a second read over the same rows. If adding it changed
+        the loss, the instrument would be altering what it measures."""
+        rows = [WIN, LOSS, LOSS]
+        path = _build(tmp_path, rows)
+        conn = db.connect(path)
+        try:
+            expected = estimates.study_loss_dollars(conn)
+        finally:
+            conn.close()
+        assert _read(path)["cumulative realised LOSS ($)"] == pytest.approx(
+            expected
+        )
+
+    def test_a_null_result_is_shown_as_NULL_and_not_as_empty(self, tmp_path):
+        """`NULL` and `''` are different failures -- one is the poller never
+        writing, the other is it writing nothing. Collapsing them would hide
+        which."""
+        path = _build(tmp_path, [WIN])
+        conn = db.connect(path)
+        _settle(conn, side="yes", contracts=1, entry=100, fee=1, result=None,
+                ms=START_MS + 900)
+        conn.commit()
+        conn.close()
+        mix = self._mix(path)
+        assert mix.get("NULL") == 1, mix
