@@ -54,6 +54,173 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-01 - A check that fails in the direction that ends the work gets no audit
+
+One dry run produced two failed checks. **P6** failed expensively -- it voided
+the run -- and earned a `pre-registrar`, a 700-line amendment written under a
+deliberate blinding protocol, four salvage conditions and a hand-computed margin
+test. **T-MECH** failed conveniently -- it ended the work with a clean negative
+-- and nobody checked it at all.
+
+T-MECH was inverted. It reported the fraction D4 *keeps* under the label of the
+fraction it *removes*, so a premise that was corroborated at 98.68% was written
+up as refuted at 1.32%. The run's own output contradicted it four lines apart:
+eligibility requires failing D4, so `eligible_rows / d123_rows` = 97.68% is a
+lower bound on the removal rate, and 1.32% is below it. **One division.**
+
+The asymmetry is not about care. Both checks were read by the same person in the
+same hour. The expensive failure *demanded* an explanation and got one; the
+convenient failure supplied its own and closed the question.
+
+**Pattern: audit effort follows cost, and correctness does not. When a result
+ends a line of work, that is the moment to spend the most on it, not the least
+-- and the cheapest available audit is an internal-consistency check between two
+numbers the same report already printed.** Before accepting any negative, find
+two quantities in the output that constrain each other and divide.
+
+## 2026-09-01 - When a property is gated by N independent mechanisms, a guard over one is indistinguishable from a guard over all
+
+A script documented as the deciding instrument for a registered measurement had
+never existed on the deployed box. `.dockerignore` carries `scripts/*` with a
+hand-kept `!` allowlist and the line was never added -- the **fourth** recurrence,
+the file's own comments recording the first three.
+
+The fix derived the allowlist from each script's self-declared `/app/scripts/
+<name>.py` docstring path, added a guard, watched it go red, fixed it, watched it
+go green -- and **the file still did not reach the box.** The Dockerfile's `COPY`
+list is a *second, independent* allowlist and names no `docs/` at all. The new
+guard modelled the first gate only. It passed while the property it existed to
+protect was still false.
+
+So the guard written to catch this class had the class. Twice more in the same
+file: the thing the script *reads* at runtime must also survive both gates, and
+"is the script shipped?" reads exactly like "does the script work?"
+
+**Pattern: before writing a guard, enumerate every gate the property passes
+through, and make the guard fail if ANY of them refuses. A guard covering a
+proper subset of the gates is not a weak guard -- it is a guard whose green is
+uninformative, and it is worse than none because it stops the search.** When the
+guard goes green, ask what would still have to be true, and check that too.
+
+## 2026-09-01 - A limit asserted in a different unit from the one it is stated in cannot see its own failure
+
+`RSS_LOG_CAP_BYTES = 2 MiB`; the trim kept `RSS_LOG_KEEP_LINES = 8_000`. Sized
+when a line was ~80 bytes. The line widened to a measured 286.6 bytes as fields
+were added, and the arithmetic inverted: 8,000 x 286.6 exceeds the cap, so at the
+cap the file holds ~7,317 lines, `[-8000:]` keeps every one, and the file is
+rewritten unchanged. **The cap stopped binding entirely** and became a no-op
+running on every pass.
+
+The test asserted `len(lines) <= RSS_LOG_KEEP_LINES` over a ~42-byte fixture --
+6.8x narrower than production. At that width the slice genuinely trimmed and the
+assertion passed. It could never have failed: `7,317 <= 8,000` is equally true of
+a file that was not trimmed at all.
+
+Two distinct defects, and the unit is only the first. **The trim target was the
+same quantity as the trigger**, so even with matching units the file lands one
+write from tripping again and rewrites forever. Hysteresis was missing and is
+invisible to any test that trims once.
+
+**Pattern: assert in the unit the limit is stated in, and give the fixture
+production's value for the one parameter the guard depends on. A converted unit
+smuggles in an assumption -- here a line width -- that drifts silently while the
+assertion keeps passing. And any trigger/target pair must be two different
+numbers, or the guard fires forever.**
+
+## 2026-09-01 - Assert on the parsed token, never on a substring of a line carrying other tokens
+
+A test for a new branch asserted `"NO" in p6_line`. The same line ends
+`connection refuses writes: NO`, so the assertion was true of every possible
+output. It passed against the mutation it was written to catch: removing the
+branch left all seven tests green.
+
+This is the same shape as the T-MECH inversion one level up -- an assertion whose
+subject is not the quantity it names -- and both happened in the same session, in
+tests written specifically to guard against that.
+
+The repair is to parse: match `\((==|>=)\)\s+(YES|NO)` and compare the captured
+group, so the assertion can only be satisfied by the token in the position that
+means what the test claims.
+
+**Pattern: a substring test over a rich line asserts something weaker than it
+reads. Extract the field, then compare. And the only proof that an assertion has
+a subject is to break the code and watch that specific test fail -- a suite that
+stays green is reporting the absence of a test, not the presence of a
+behaviour.**
+
+## 2026-09-01 - A prerequisite validated only against a fixture with no concurrent writer
+
+A registered prerequisite required `COUNT(*)` before and after a read-only report
+to be **equal**, to prove the instrument deleted nothing. On the live database
+the recorder inserts continuously, so the counts differed by 394 and the
+prerequisite answered NO -- voiding the run for a reason that had nothing to do
+with deletion, which the `mode=ro` connection makes impossible anyway.
+
+The framing that first suggested itself -- "unsatisfiable by construction" -- was
+too strong and the correction is the useful part. The report takes nine
+unenclosed reads, so a run finishing between two commits *would* have answered
+YES. **The check tested a race.** That is worse than an impossible check, because
+a check that passes for no reason is not redeemed by also failing for no reason,
+and nobody audits a YES.
+
+The property was "this instrument removed no row" (`after >= before`, plus a
+probe that the connection actually refuses writes). What was written tested "the
+world was still while I looked".
+
+**Pattern: state a prerequisite as a property of the thing under test, then ask
+what else could move it. Equality over a quantity a concurrent process writes is
+a race, not a check. And validate every prerequisite against the environment it
+will run in -- a fixture with no concurrent writer cannot exercise the one
+condition that breaks it.**
+
+## 2026-09-01 - A rate fitted inside a window shorter than the phenomenon has a sign, not a meaning
+
+`fly.live.toml` already recorded that a growth measurement on this database must
+span >= 24 h "or it measures the quiet part", and that a shorter window reads
+**zero** and looks like a measurement. That lesson did not prevent the next one,
+because the failure wore the opposite face: not a zero, a confident nonzero.
+
+Two runs 28 minutes apart differed by +3,855 bytes. That was extrapolated x51.4
+to ~198,257 B/day and used to overturn a committed argument. Two later looks fell
+-- one by 72,477 bytes -- and the quantity turned out to be a *fraction* times a
+constant, so it declines whenever the denominator grows faster than the
+numerator. Neither the rate nor its **sign** was established.
+
+The error was made while correcting someone else's reasoning, which is where it
+is easiest: the replacement number inherits none of the scepticism aimed at the
+thing it replaces.
+
+**Pattern: a two-point difference inside a window shorter than the phenomenon's
+period is not a rate, whatever its magnitude -- and the tell is that a third
+point can reverse the sign. Before extrapolating, ask what the quantity is a
+function of; a ratio moves for reasons its numerator does not. When replacing a
+claim you have just refuted, hold the replacement to the standard you applied to
+the original.**
+
+## 2026-09-01 - Copy that names a condition is falsified by fixing the condition
+
+Two instances, one repo, one day.
+
+A harness printed *"P6's pass condition stays `after >= before`"* on its
+not-pinned branch, implying the pinned branch tightened to `==`. The amendment
+authorising the change said it must. The code applied `>=` unconditionally, so
+the sentence described a distinction that did not exist.
+
+Separately, a comment justified keeping a reading out of a log file because the
+cap "already exceeds by 1.25x, so from ~2026-09-04 that file rewrites itself
+every pass". That condition was then fixed -- leaving a live comment reasoning
+from a state that no longer held, in support of a conclusion that happened to
+survive for a different reason.
+
+`CLAUDE.md` records three passes at one prior instance of this shape.
+
+**Pattern: prose that cites a condition acquires a dependency on it. When you fix
+the condition, grep for the sentences that named it -- the fix and the copy ship
+in the same commit, or the file lies in the interval. Where the conclusion
+survives on other grounds, rewrite the reason rather than deleting the
+paragraph: a correct conclusion resting on a refuted premise is the harder defect
+to find later.**
+
 ## 2026-09-01 - Under `set -e`, a guard downstream of an abort is decoration
 
 A wizard written to verify a Fly volume extend stopped silently after stage 1.

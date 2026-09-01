@@ -195,7 +195,124 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-02 (latest) — four lanes landed, the volume had 16 days left, and a wizard died of the defect it was written to prevent
+## 2026-09-02 (latest) — one deploy became nine commits, because the instrument was never on the box and then was wrong
+
+**STATE, verified at close:** `main` = `8896318`, pushed, **CI green on
+`8896318`**. **Live = `8896318`**, `/api/health` status ok, recorder wrote 14 s
+before the read. Working tree clean. `lane_board.py` exits 0.
+
+**Read this first if you are picking up the downsample question:** it is
+**answered and closed**. `docs/measurements/2026-09-01-fair-prices-downsample-
+dry-run-result.md`, verdict **NOT WORTH ARMING**. Do not re-run it to check.
+
+**One CI run reads `cancelled` — `1a29ec9` — and it is covered.** Pushing
+`8896318` over it cancelled it; `8896318` is its descendant and is green, so
+that code is verified. Recorded rather than glossed, because the standing rule
+is that cancelled means unverified and the exception needs stating.
+
+### The answer Joe asked for
+
+    VERDICT  NOT WORTH ARMING
+    T-MECH   98.68% against a 90.00% floor        PASS
+    estimate 36,039,175 B against 322,800,000 B   FAIL
+
+**Quote it as a fraction, not as bytes.** The threshold is 35.87% of the
+`fair_prices` family; the run measured 4.00%. **The eligible fraction would have
+to be nine times what it is.** That form does not depend on
+`FAIR_PRICE_FAMILY_BYTES` and it held across four live looks in two hours, within
+0.009 points of 4.00%.
+
+**Why it is small, which is the part that generalises: 95.66% of `fair_prices`
+is younger than the 14-day window.** D4 is not failing — it removes 98.68% of
+what it is shown in the aged slice and 99.84% whole-table. There is simply almost
+no backlog for a 14-day rule to reach. `fair_prices` retention is **closed as an
+approach** (§8's own consequence row), and the volume answer was the extend Joe
+already took.
+
+### It took three deploys to run it once, and each fix revealed the next gate
+
+The script had **never existed on the live box.** Joe's handed-over command
+returned `No such file or directory`, and the deploy of the eight pending commits
+did not fix it, because the commit was never the problem.
+
+1. **`.dockerignore`'s `scripts/*` allowlist** — the **fourth** recurrence, the
+   file's own comments recording the first three. Its stated conclusion, *"the
+   second class cannot be derived"*, was false: every ssh-invoked script already
+   names its own `/app/scripts/<name>.py` path in its docstring.
+2. **`docs/` is excluded too**, and the harness reads its registration at runtime
+   to reproduce §6 and §9 verbatim into every run.
+3. **The Dockerfile's `COPY` list is a SECOND, independent allowlist** and names
+   no `docs/` at all — so negating the `.dockerignore` rule changed nothing.
+   **The guard written in step 1 modelled one gate, went green, and the file
+   still could not reach the box.** The guard had the defect it was written to
+   catch.
+
+Both gates are now derived from source and both halves mutation-tested. Also
+fixed en route: the **RSS log cap never bound** — 8,000 lines x a measured 286.6
+B/line exceeds the 2 MiB cap, so `[-8000:]` kept every line and rewrote the file
+unchanged, a no-op due to start running every pass from ~2026-09-04.
+`loop_walk.jsonl` was identical. Now trims by bytes with hysteresis.
+
+### The measurement was wrong twice and both are in the record
+
+- **P6 voided the run on a race.** It required `COUNT(*)` before == after; the
+  recorder inserted 394 rows mid-run. Amendment 1 to the registration, written by
+  a `pre-registrar` **kept blind** to every substantive figure, rehabilitated it
+  under four conditions — all four evaluated and met, P6b's margin 2,867x its
+  gate.
+- **T-MECH was INVERTED**, and this is the one to carry. It reported the fraction
+  D4 *keeps* under the label of the fraction it *removes*, so the first draft of
+  the result carried `PREMISE REFUTED` — **the opposite of the data**. The run's
+  own output contradicted it four lines apart (`eligible/d123` = 97.68% is a
+  lower bound on the removal rate). Caught by `measurement-skeptic`, not by the
+  suite: every `t_mech` assertion hand-set the field on a constructor and none
+  ran `plan()` against rows.
+
+**Two audits ran before the result entered the record. The first found a
+blocker; the second found four more**, including a **false safety claim** of this
+session's own — `backend/store/publish.py:45` is a whole-table `fair_prices`
+reader that **D2 does not cover**, excluded by F5's *argument* rather than by
+absence — and a **drift rate fitted through noise** used to overturn a committed
+argument. Both corrected in the file rather than folded in silently.
+
+### Still open — unchanged, and none of it was touched
+
+The partner ran and ranked. **Its ranking is still valid and nothing below was
+started**, because this session went four commits deeper than the deploy Joe
+asked for.
+
+1. **P5 §11 instrument additions** — the partner ruled these come **before** the
+   decision-map frontier, on a deadline argument rather than a power one: the
+   registration's wall-clock backstop is **2026-09-15T00:00Z**, after which it
+   self-destructs to `UNRESOLVED — INSUFFICIENT EXPOSURE`. It also found §10's
+   action table has **already decayed** — the SIGNATURE PERSISTS branch names a
+   mitigation that was completed 2026-08-31 and is deployed — and that the
+   amendment fixing it must be written **blind, before any post-`T0` burst is
+   read**. That is the most time-sensitive item in the repo.
+2. **Decision-map ticket #32** (the real-money warning strip colour), the
+   partner's pick of the thirteen frontier tickets, on the ground that it is the
+   only one on a surface where a mistake costs money. Alternate **#25**.
+3. **Queue C enumerated, not triaged** — 15 closed decision tickets; at least
+   **#6** (Games row prints the wrong team on NO rows), **#10** (the live WCAG
+   failure on the real-money confirm button), **#30**, **#27** look
+   decided-but-unbuilt. The partner wanted this enumerated because it may
+   outrank half the frontier.
+4. **Joe's three, untouched by design** — the batched decision interview
+   (artifact link in the 2026-09-01 entry, ten tickets unblocking fourteen), the
+   void-settlement amendment to ADR 0044 (money-touching), and `user_not_found`
+   on shard 3.
+
+**Killed by the partner, recorded so nobody re-adds it:** the `parlay-props`
+worktree (0 ahead / 157 behind, clean — delete it), §0.4's successor lock
+registration (~84 h exposure for a question whose harm is already mitigated),
+and **NEXT.md open item 3** (the 64%/72.5% split — resolved by `cc4a7a9` and
+correctly consumed downstream at 103.9 MB/day; it was a stale open-item).
+
+**The volume is not a clock any more.** 7.66 GB free of 10.5 GB, 27.25% used,
+~47 days at the registered floor. Do not re-plan around 2026-09-17.
+---
+
+## 2026-09-02 — four lanes landed, the volume had 16 days left, and a wizard died of the defect it was written to prevent
 
 **STATE:** `main` = `265bc9a`, pushed, CI green on `40879ef` (every code, schema
 and config change; `265bc9a` adds only a shell script). **DEPLOYED and verified
