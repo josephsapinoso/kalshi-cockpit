@@ -343,18 +343,24 @@ until 30. Full reasoning on the ticket; the map's Decisions-so-far indexes it.
    all it can stop is Joe writing down what he thinks. The self-lockout stays.
 2. **Amend ADR 0065** — the estimate is no longer *only* a ticket precondition;
    the standalone form returns, price-free. The ticket's own mask is untouched.
-3. **`bet_estimates` is not in the closing-line scoring set.** `markets_awaiting_
-   scoring` unions `recommendations` and `venue_settlements` only, so a call on a
-   market he passed on — the case the whole feature is for — would score
-   **never**. A third branch is required. And that function's own docstring warns
-   *"most hand-bet tickers refuse right there"*, which is why the resolution
-   refuses unscoreable markets at log time rather than logging them ungraded.
+3. **~~A third scoring branch is required.~~ CORRECTED the same day, by measuring
+   before building.** `/api/slate` and `markets_awaiting_scoring`'s first branch
+   share the same `recommendations JOIN event_links`, so **every market reachable
+   from the digest is already in the closing-line scoring set by construction**.
+   Coverage at the 1h horizon, live: **136/136 WNBA, 578/604 MLB, 16/16 started
+   NCAAF**. So the build is a **read** — join `bet_estimates` to the `closing_lines`
+   row that already exists — not a new UNION branch. **The first write-up called
+   this a blocker by misreading a docstring**: *"most hand-bet tickers refuse right
+   there"* is about the `venue_settlements` branch — Joe's Kalshi-app bets on UFC,
+   PGA and earnings, which the desk has no odds coverage for and never surfaces.
+   Refusing unscoreable markets at log time still stands; it now catches a ~4% tail
+   instead of being the thing that stops the screen being a wall of refusals.
 4. **Read the $100 arm's current value on live before building any of it** — it
    may already have fired, in which case logging is already closed.
 
-**Unmeasured and it decides whether the feature is worth building:** the share
-of markets the desk cannot link. If it is high, the log screen is mostly a wall
-of "cannot score this". Filed as fog on the map.
+**That question is now measured and closed** — it was filed as fog and refuted
+within the hour. The lesson is the order: the measurement cost one live read and
+would have been worth taking before the resolution was written, not after.
 
 ### Still open
 
