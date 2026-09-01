@@ -54,6 +54,69 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-01 - A flag whose TRUE value has two causes is not an instrument, however carefully it is recorded
+
+An open item named the observation to add, in one sentence: *"whether
+`record_loop_failure_durably`'s `rollback()` succeeded. It separates 'the
+shared connection was still poisoned' from 'someone else held the lock'."*
+The field was obvious, the code was four lines, and the boolean does not
+separate those two things at all.
+
+A `rollback()` on a connection with **no open transaction is a no-op that
+always succeeds**. So `rollback_ok = True` is produced by "an open
+transaction was rolled back and the poison is gone" and by "there was
+nothing to roll back" alike, and those are the two hypotheses under test.
+Only the failing value carries information -- and it is the rare one.
+
+What discriminates is `in_transaction`, read BEFORE the rollback: `False`
+says the reachable half of the poison was absent, so the rollback cured
+nothing and cannot be credited. Recording the pair costs one more line than
+recording the boolean.
+
+**Pattern: before adding a field, ask what its most common value rules out.
+If the same value is produced by both hypotheses you are separating, the
+field is decoration -- find the observation whose values partition the
+hypotheses instead.** The tell is that you can write down the reading for
+each value and one of them says "either".
+
+This generalises past booleans: it is the same defect as a test that passes
+under the bug, and the same check catches both. It is also the reason a
+field's docstring should state the reading order when two fields must be read
+together -- `rollback_ok` beside `in_transaction` is informative, and alone it
+invites the exact overstatement the field was added to prevent.
+
+## 2026-09-01 - A test that addresses its subject by POSITION can keep passing against the wrong subject
+
+Fourteen tests read a query's output sections as `sections[0]`, `[1]`,
+`[2]`, `[3]`. A section was inserted in the middle. Four went red -- and
+**three kept passing while asserting against a section they were never
+written about**, because the new section happened to hold the same row count
+as the one that had moved down.
+
+    assert sections[2]["row_count"] == 1     # meant the population tally
+                                             # now read the new cure section
+
+A green test that has silently retargeted is worse than a red one: the red
+ones announced the change, and these three quietly stopped guarding the thing
+they are named for. Nothing in the run said so, and the row counts made the
+coincidence likely rather than unlikely -- small fixtures produce small
+counts, and small counts collide.
+
+The fix is to address by a stable property of the subject: a helper that
+finds the one section whose title carries a marker, and asserts there is
+**exactly one** match, so an ambiguous or missing subject fails loudly
+instead of silently picking a neighbour.
+
+**Pattern: when a test selects its subject out of an ordered collection,
+select it by something that identifies it -- a name, a title, a key -- never
+by index. An index is a claim about the collection's shape that nothing in
+the test verifies, and when it breaks it can break in the direction that
+still passes.**
+
+The same shape reaches beyond tests: `argv[3]`, a CSV column number, a tuple
+unpacked positionally out of a query whose `SELECT` list grew. Position is a
+coupling to a layout nobody declared.
+
 ## 2026-09-01 - Find the change point before you name the cause
 
 A fix deployed at 15:29Z. The failures it targets stopped at 11:01Z. I wrote up
@@ -2531,6 +2594,8 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-09-01 — in this file, above
+- A flag whose TRUE value has two causes is not an instrument, however carefully it is recorded
+- A test that addresses its subject by POSITION can keep passing against the wrong subject
 - Find the change point before you name the cause
 - A group selected by an outcome cannot report a rate on that outcome
 - A writer with no reader is an instrument that does not exist

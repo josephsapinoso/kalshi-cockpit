@@ -554,6 +554,16 @@ build steps. See `backend/kalshi/combos.py` and `tasks/lessons.md`.
 
 ## Workflow
 
+0. **Invoke the `partner` agent at session start, before planning anything.**
+   It owns what gets worked on, in what order, and by whom; this session
+   executes and Joe oversees. **Until 2026-09-01 this file did not mention
+   the partner at all** — zero grep hits — and `tasks/NEXT.md`'s SESSION
+   START box did not name it either, so no session ever invoked it and every
+   session re-derived its own priorities from a 140KB file. Joe asked why,
+   which is how it was found. Give it the state (what is open, what landed,
+   what is blocked) and ask for a ranked list plus which items can run as
+   parallel lanes. **Skip it only for a single-item errand Joe named
+   himself.**
 1. **Plan first** for anything non-trivial (3+ steps or an architectural
    choice). If something goes sideways, stop and re-plan rather than pushing.
 2. **Vertical slices, not horizontal layers.** Each step ends demoable and
