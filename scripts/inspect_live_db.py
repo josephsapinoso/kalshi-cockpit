@@ -111,6 +111,7 @@ import sqlite3
 import sys
 import time
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
@@ -2670,6 +2671,171 @@ def _q_lock_attribution(conn: sqlite3.Connection, args) -> list[Section]:
     ]
 
 
+#: The registered ceiling of the money arm, ADR 0044 §5 arm 3 as amended by A2.
+#: Spelled here rather than imported: `inspect_live_db` imports nothing from
+#: `backend`, so the number is duplicated on purpose and a guard asserts the two
+#: agree -- the same treatment `FAILURE_LOG_NAME` gets.
+STUDY_LOSS_CEILING_DOLLARS = 100.0
+
+#: `meta` key holding the study's start instant. Absent means never opened.
+STUDY_START_MS_KEY = "calibration_study_start_ms"
+
+
+def _q_study_stop(conn: sqlite3.Connection, args) -> list[Section]:
+    """Has the $100 money arm fired, and can it be computed at all?
+
+    **Why this exists.** `POST /api/estimates` refuses with 423 and the text
+    *"The study is stopped and logging is closed, permanently"* once
+    `estimates.study_loss_dollars` reaches the ceiling. Decision-map ticket
+    #11 (resolved 2026-09-01) repurposes that endpoint for a practice log
+    decoupled from the study, and ruled the arm should stop gating it -- but
+    **nothing on the machine could report whether the arm had already
+    fired**, so the first build step was unanswerable without smuggling SQL
+    onto the money box. That is the drift this whole script exists to
+    replace.
+
+    **It mirrors the registered formula verbatim** (A2): `sum(payout - cost -
+    fee)` over study-period `venue_settlements`, where payout is
+    `contracts x $1` on a win and `$0` on a loss, negated so a positive number
+    is money lost. A second implementation of a decision-bearing formula is a
+    liability, so `tests/test_study_stop_query.py` runs both this and
+    `backend.estimates.study_loss_dollars` over the same fixtures and asserts
+    they agree, including on every refusal.
+
+    **The refusals are the point, and they are tri-state.** `None` is
+    "cannot know", never "not stopped":
+
+    - the study was never stamped open (no `study_start_ms`);
+    - any study-period row carries a `market_result` that is neither `yes`
+      nor `no` -- a void has no registered payout, and inventing one here
+      would silently amend the stopping rule;
+    - any row has an unreadable entry price or fee.
+
+    An empty settlement set with the study open is a true $0.00 and not a
+    refusal.
+
+    Why reading this does not breach the ADR 0044 embargo (A7, and the
+    partner's ruling 2026-08-18): §5 forbids aggregates over *the estimate
+    log*. This reads `venue_settlements` -- Joe's own money, which he sees in
+    the Kalshi app regardless -- and touches no estimate row.
+
+    What this does not establish
+    ----------------------------
+    - **Anything about the estimate log.** Not a win rate, not a count of
+      logged bets, not a figure attributable to them. A7 forbids all three
+      and this query cannot produce any of them: it never reads
+      `bet_estimates`.
+    - **That the endpoint is reachable.** The self-lockout is a second,
+      independent 423 with its own clock, reported here as a separate row
+      precisely so a reader does not take a clear money arm as "logging is
+      open".
+    - **Anything about unsettled positions.** The formula is over *realised*
+      settlements by registration, so tonight's open risk is invisible to it
+      by design.
+    """
+    start_text = None
+    row = conn.execute(
+        "SELECT value FROM meta WHERE key = ?", (STUDY_START_MS_KEY,)
+    ).fetchone()
+    if row is not None and row[0] is not None:
+        start_text = str(row[0])
+
+    refusal: Optional[str] = None
+    loss: Optional[float] = None
+    n_rows = 0
+
+    if start_text is None:
+        refusal = "the study was never stamped open (no study_start_ms in meta)"
+    else:
+        rows = conn.execute(
+            "SELECT side, contracts, entry_price_tenths, fee_cost_tenths, "
+            "market_result FROM venue_settlements WHERE settled_ms >= ?",
+            (int(start_text),),
+        ).fetchall()
+        n_rows = len(rows)
+        net_tenths = Decimal(0)
+        for side, contracts_raw, entry, fee, result in rows:
+            if result not in ("yes", "no"):
+                refusal = (
+                    f"a study-period settlement has market_result "
+                    f"{result!r}, which is neither 'yes' nor 'no' -- a void "
+                    f"has no registered payout"
+                )
+                break
+            if entry is None or fee is None:
+                refusal = (
+                    "a study-period settlement has an unreadable entry price "
+                    "or fee"
+                )
+                break
+            try:
+                contracts = Decimal(str(contracts_raw))
+            except InvalidOperation:
+                refusal = "a study-period settlement has unreadable contracts"
+                break
+            if not contracts.is_finite() or contracts < 0:
+                refusal = "a study-period settlement has negative contracts"
+                break
+            cost = contracts * entry
+            payout = contracts * 1000 if result == side else Decimal(0)
+            net_tenths += payout - cost - Decimal(fee)
+        else:
+            loss = float(-net_tenths / 1000)
+
+    if refusal is not None:
+        fired: Optional[bool] = None
+        reading = "CANNOT KNOW -- and this may not be read as 'not stopped'"
+    else:
+        fired = loss is not None and loss >= STUDY_LOSS_CEILING_DOLLARS
+        reading = (
+            "FIRED -- POST /api/estimates returns 423 'logging is closed, "
+            "permanently'"
+            if fired
+            else "not fired -- the money arm is not what is stopping logging"
+        )
+
+    # The self-lockout lives in its own table, not in `meta`: it is a
+    # deliberate anti-tilt control with its own clock, and the write path
+    # refuses on it independently of the money arm.
+    lock_row = conn.execute(
+        "SELECT MAX(until_ms) AS until_ms FROM self_lockouts WHERE until_ms > ?",
+        (int(time.time() * 1000),),
+    ).fetchone()
+    lockout_ms = (
+        int(lock_row[0]) if lock_row is not None and lock_row[0] is not None
+        else None
+    )
+
+    return [
+        Section(
+            title=(
+                "study-stop: has the $100 money arm fired? The formula is ADR "
+                "0044 §5 arm 3 as amended by A2, mirrored verbatim and pinned "
+                "against `backend.estimates.study_loss_dollars` by "
+                "tests/test_study_stop_query.py. A refusal is 'cannot know' "
+                "and NEVER 'not stopped'."
+            ),
+            columns=("quantity", "value", "note"),
+            rows=[
+                ("study_start_ms", start_text,
+                 "absent means the study was never opened"),
+                ("study-period settlements", n_rows,
+                 "the population the formula runs over"),
+                ("cumulative realised LOSS ($)", loss,
+                 "positive is money lost; NULL is a refusal, not zero"),
+                ("ceiling ($)", STUDY_LOSS_CEILING_DOLLARS,
+                 "registered, not tunable here"),
+                ("refusal", refusal, "why the figure could not be computed"),
+                ("money arm fired", fired, reading),
+                ("self-lockout until", _iso(lockout_ms),
+                 "a SECOND and independent 423; a clear money arm does not "
+                 "mean logging is open"),
+            ],
+            cap=args.limit,
+        )
+    ]
+
+
 #: Columns of `loop_rss.jsonl`, in the order they are rendered.
 #:
 #: Read with `.get(name)`, so a row written before a field existed reports
@@ -4100,6 +4266,16 @@ QUERIES: dict[str, QueryDef] = {
         "design can convict the poller and cannot clear it, because a "
         "small k is exactly what the null predicts.",
         _q_lock_attribution,
+    ),
+    "study-stop": QueryDef(
+        "Has the $100 money arm fired? It gates POST /api/estimates with "
+        "423 'logging is closed, permanently', and nothing on the machine "
+        "could report it. Mirrors ADR 0044 A2's formula verbatim over "
+        "study-period venue_settlements, pinned against "
+        "`estimates.study_loss_dollars` by a test. A refusal is CANNOT "
+        "KNOW and never 'not stopped'. The self-lockout is a second, "
+        "independent 423 and is reported beside it.",
+        _q_study_stop,
     ),
     "prune-frontier": QueryDef(
         "How far prune_quotes has got: MIN(COALESCE(confirmed_ms, "
