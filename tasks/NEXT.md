@@ -275,6 +275,38 @@ reader that **D2 does not cover**, excluded by F5's *argument* rather than by
 absence — and a **drift rate fitted through noise** used to overturn a committed
 argument. Both corrected in the file rather than folded in silently.
 
+### P5 §11 IS BUILT, AND THIS SESSION'S DEPLOYS DAMAGED ITS EXPOSURE
+
+`inspect_live_db.py forward-lock` exists, is deployed, and took its first
+reading. Amendment 1 to the registration landed **first and blind** — §10's
+action table had decayed, its SIGNATURE PERSISTS branch naming a mitigation
+completed 2026-08-31 in `badd88e`.
+
+    T0        2026-09-01T17:52:17.849Z    (the in-DB mirror marker)
+    E         52 fast cycles              E* = 160
+    K         0 bursts post-T0            H = 0     E_n = 1.0000
+    VERDICT   UNRESOLVED - E = 52 < E* = 160
+
+All 13 journalled bursts are **pre-`T0`** and excluded by §2.2. C1, C2 and C6
+pass; **C3/C4/C5 are NOT COMPUTED** and block FIX CONFIRMED by design — §11's
+shortfall clause, working as written.
+
+**Read this before deploying again.** `poll_portfolio_forever` takes the mirror
+branch unconditionally on each process's first cycle, so a mirror row doubles as
+a **restart marker**. There are **9 mirror cycles in 4.8 hours**, against at most
+one scheduled 12-hourly mirror — so roughly **eight are this session's own
+deploys**. §7's C3 wants 30 fast cycles at process age >= 2.0 h, and nothing
+today ran two hours uninterrupted.
+
+`E` is unharmed and accrues at ~12/hour, so `E* = 160` arrives about
+**2026-09-02T08:00Z**, well inside the 2026-09-15 backstop. **C3-eligible
+exposure only accrues while nobody deploys.** A session that redeploys every
+twenty minutes can drive `E` to 160 and still fail C3 — the shape where the
+number looks ready and the verdict is not.
+
+What remains on P5 is **C3/C4/C5**, which need `loop_rss.jsonl`: restart markers
+and `A_pre`, `wal_kb` percentiles, and lines/hour.
+
 ### Still open — unchanged, and none of it was touched
 
 The partner ran and ranked. **Its ranking is still valid and nothing below was
