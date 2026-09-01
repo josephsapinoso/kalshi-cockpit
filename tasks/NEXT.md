@@ -195,9 +195,24 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-01 (latest) — the lock holder is attributed, the partner had never been invoked, and the map was three tickets shorter than it looked
+## 2026-09-01 (latest) — the lock holder is attributed, the partner had never been invoked, ticket #11 is resolved, and a $100 money stop turns out to be unable to fire
 
-**DEPLOYED `d325ed1`.** Joe raised a throughput complaint mid-session — *"I'd
+**LIVE IS `fb799be`; HEAD is ahead by this file alone.** Two halves to this session
+and a fresh session needs both:
+
+1. **The lock work** — open items 2 and 3 closed, item 1 reframed. Below.
+2. **The decision map** — Joe invoked `/wayfinder`; **#11 was grilled to a full
+   resolution** (the estimate decouples from the bet), and its first build step
+   found that the **$100 money arm cannot fire**. Both are further down, under
+   *The decision map* and open item 4.
+
+**Start here if you want the shortest path to useful work:** the three things
+waiting are (a) the void-settlement amendment — **Joe's, money-touching, do not
+pick a side in passing**; (b) #11's build, fully specified with no blockers; and
+(c) the ten decisions in the batched interview artifact, which unblock ten map
+tickets plus four behind them and are the largest single unlock available.
+
+**DEPLOYED `d325ed1` for the lock work.** Joe raised a throughput complaint mid-session — *"I'd
 rather not have to keep perpetually having to start new sessions and asking to
 run next.md"* — and then asked why the partner agent was not involved every
 session. Both are answered below, and the second turned out to be a real gap
