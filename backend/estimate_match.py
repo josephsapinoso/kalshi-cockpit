@@ -64,6 +64,22 @@ async def ensure_estimate_markets_known(
     commence; `markets_awaiting_result` copes via `COALESCE(commence_ms,
     close_ms)`, late by up to the close lag and counted rather than lost.
     A ticker Kalshi refuses stays missing and is retried next cycle.
+
+    **One commit per ticker, and that is a lock property rather than a
+    durability one.** Until 2026-09-01 the commit sat after the loop, so the
+    write lock taken by the first ticker's `INSERT` was held across every
+    remaining `await source.fetch(...)` -- N-1 Kalshi round trips for N missing
+    tickers. Same shape as ADR 0091, loop-carried rather than straight-line;
+    ADR 0091 did not reach it.
+
+    Committing per ticker is preferred over fetch-all-then-write because each
+    ticker is independent, every write here is `INSERT OR IGNORE` and so
+    idempotent, and a ticker Kalshi refuses is already retried next cycle --
+    so a pass that dies halfway leaves the tickers it did read known and the
+    rest exactly where they were. **This is a small fix.** It runs about twice
+    a day on `MIRROR_INTERVAL_S`, `missing` is normally 0 or 1, and five
+    tickers would hold the lock a second or two against `BUSY_TIMEOUT_MS =
+    5000`. It is here because it is ten lines, not because it is on fire.
     """
     missing = [
         row["ticker"]
@@ -120,8 +136,11 @@ async def ensure_estimate_markets_known(
                 now_ms,
             ),
         )
+        # Before the next iteration's `await source.fetch(...)`, never after
+        # the loop: this ticker's three writes are done, so the write lock is
+        # released before the next network round trip begins.
+        conn.commit()
         fetched += 1
-    conn.commit()
     return {"missing": len(missing), "fetched": fetched,
             "unreadable": unreadable}
 

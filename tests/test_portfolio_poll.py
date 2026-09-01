@@ -720,6 +720,60 @@ class TestPollPortfolioForever:
             "re-reading a registered variable on an operational clock"
         )
 
+    async def test_a_mirror_cycle_is_distinguishable_from_a_fast_one(
+        self, tmp_path
+    ):
+        """Which branch ran must be readable from `poll_log`, not inferred.
+
+        Both branches stamp their rows with the same cycle `now_ms` and name
+        the same four endpoints, so until 2026-09-01 nothing in the data told
+        the 12-hour mirror from the 5-minute cadence. §7 of
+        `docs/measurements/2026-09-01-lock-holder-attribution-result.md` needs
+        exactly that split before a forward look can have a decision rule: a
+        post-fix lock burst following a MIRROR cycle is explained by the
+        matcher's own loop and would not refute ADR 0091.
+
+        Three cycles at 300s: cycle 1 is the only mirror. The marker must land
+        on that cycle's `polled_ms` -- a marker on a stamp of its own would be
+        a fifth cycle to `lock-attribution`, which groups by DISTINCT
+        `polled_ms`, and would corrupt the very join it exists to serve.
+        """
+        path = tmp_path / "cockpit.db"
+        db.init_db(path).close()
+        clock, sleep = self._clockwork(step_s=300)
+
+        await poll_portfolio_forever(
+            path, FakeClient(), sleep=sleep, clock=clock, max_cycles=3,
+        )
+
+        conn = db.open_db(path, read_only=True)
+        markers = conn.execute(
+            "SELECT polled_ms, ok, row_count FROM poll_log "
+            "WHERE endpoint = 'mirror' ORDER BY polled_ms"
+        ).fetchall()
+        cycles = [
+            r[0] for r in conn.execute(
+                "SELECT DISTINCT polled_ms FROM poll_log ORDER BY polled_ms"
+            )
+        ]
+        conn.close()
+
+        assert len(markers) == 1, (
+            "one marker per mirror cycle and none on a fast cycle; cycle 1 is "
+            "the only mirror in fifteen minutes"
+        )
+        assert markers[0]["polled_ms"] == cycles[0], (
+            "the marker must share its cycle's stamp -- a stamp of its own "
+            "would read as an extra cycle to `lock-attribution`"
+        )
+        assert len(cycles) == 3, (
+            "three cycles, not four: the marker added a row, not a stamp"
+        )
+        assert markers[0]["ok"] == 1 and markers[0]["row_count"] is None, (
+            "a branch marker, not a poll attempt: nothing was counted, and "
+            "`ok = 0` would land it in the failed-poll tripwires"
+        )
+
 
 # ---------------------------------------------------------------------------
 # The real captures, when this machine has them. Never in CI: the files are a
