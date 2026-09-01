@@ -54,6 +54,40 @@ writing an entry, not after.
 
 ---
 
+## 2026-08-31 - A cost that does not change with the row limit is not in the rows
+
+`/api/slate` was slow. The obvious suspect was the row work -- 55,777
+`recommendations` rows scanned twice with an expression basis no index can
+serve, and an `ORDER BY` on that same expression. The plan was an expression
+index, which on a live 1.5 GB volume means a schema migration.
+
+One measurement killed it. Requesting `limit=1` cost the same as `limit=100`.
+Whatever was slow could not be per-row, and an index on the row table could not
+have helped:
+
+    anchor MAX/COUNT over 55,777 rows      8.2 ms
+    in_window COUNT                        8.0 ms
+    the derived table alone               77.3 ms
+    the whole query                       85.4 ms
+
+The cost was a `LEFT JOIN (SELECT ... GROUP BY ...)` aggregating an entire
+history table to attach one column to at most a hundred rows. Two sibling
+routes had the same shape and one had it without a `WHERE` at all.
+
+**Pattern: vary the limit before you optimise. A cost that is flat in the row
+count lives in something the query does once -- a derived table, an aggregate,
+a subquery -- and no amount of indexing the row table touches it.** It is one
+extra request and it points at the right half of the query.
+
+The general fix is the same each time: **make the work proportional to what the
+screen shows.** Read the ids you are returning, then one bounded query for the
+attachment. This codebase already had the idiom in two places under a different
+name -- "one read per fixture, not per row".
+
+The near-miss is the part to keep: the index would have been written, migrated
+onto a live volume, and measured afterwards as no improvement, because the
+thing it indexed was 8ms of an 85ms query.
+
 ## 2026-08-31 - A header you set is not a header the framework sends
 
 The framing headers were added in one funnel through the Next middleware, every
@@ -2413,6 +2447,7 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-08-31 — in this file, above
+- A cost that does not change with the row limit is not in the rows
 - A header you set is not a header the framework sends
 - A guard on the code must not be able to read the comment beside it
 - Text can overflow a correctly-sized box, so hunt overflow with scrollWidth and not with rects

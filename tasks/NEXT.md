@@ -624,6 +624,85 @@ first grepped the raw file and three failed — on the *comments*, which discuss
 A guard on the code must not be able to read the comment; `_source()` strips
 comments before asserting.
 
+### THE SITE WAS SLOW, AND IT WAS TWO THINGS — Joe's report, same session
+
+**Read this before touching capacity or the slate query.**
+
+#### 1. The recorder was starving the API — fixed by scaling
+
+Joe said "the site is still slow". It was worse than slow: **`/api/slate` took
+30.3 seconds and then 500'd**, while `/api/bets` answered in 324ms.
+
+The live pass log said why in its own words:
+
+    a QUOTE pass took 75.0s; with a 15s fast interval and 15% jitter the
+    worst-case gap between confirmations is 92.3s, past the 30s Kalshi
+    quote limit
+
+A 75-second pass on a 15-second cadence means the recorder never stops, and on
+`shared-cpu-1x` it shares that one core with the Python API and Next's SSR.
+Everything queued behind it; the 500 was the Next proxy giving up
+(`Failed to proxy ... socket hang up, ECONNRESET`), and `flyctl ssh` hung twice
+on the same box.
+
+**The season is what changed, not the code** — 663 events discovered, 7,838
+markets quoted per pass. `CLAUDE.md` predicted exactly this when NCAAF and NFL
+came into scope. **Not today's deploys**: `limit=5` failed identically, and
+`/api/board` was slow without going near any of it.
+
+**Scaled to `shared-cpu-2x`** (Joe's call, ~$11/month against ~$5.70). Same
+workload, measured after:
+
+    QUOTE pass      75.0s  ->  4.6s and 3.7s
+    /api/health      343ms ->  105ms
+    /api/bets        324ms ->  117ms
+    /api/board     4,566ms ->  1,620ms
+    /api/slate    30,311ms + 500  ->  200 (and see below)
+
+`performance-1x` was NOT taken: a dedicated core is ~$31/month on an instance
+whose bankroll is $100. **The trigger for spending it is written down** — if a
+QUOTE pass again exceeds its cadence at 2x, shared CPU is credit-throttled and
+this loop runs continuously rather than in bursts, and that is the moment.
+
+#### 2. Three routes aggregated the whole snapshot history per request
+
+Independent of capacity, and Joe approved fixing it. Measured on a
+**live-shaped local database** (55,777 recommendations, 199,500 snapshots,
+7,980 markets) rather than guessed:
+
+    anchor MAX/COUNT over 55,777 recommendations      8.2 ms
+    in_window COUNT                                   8.0 ms
+    odds_snapshots derived table alone               77.3 ms   <- the cost
+    full rows query (limit 100)                      85.4 ms
+
+**The hypothesis going in was wrong and the measurement is what said so.** The
+plan was an expression index on the basis (`MAX(created_ms, COALESCE(...))`),
+because two full scans of 55,777 rows *looked* like the cost. They are 8ms.
+Had I shipped the index I would have written a schema migration against a live
+1.5 GB volume for nothing.
+
+The real cost: a derived table aggregating `odds_snapshots` to get
+`MIN(commence_ms)` per fixture — **unbounded by what the screen shows**, so
+`limit=1` paid exactly what `limit=100` paid. `/api/market/{ticker}` was worse:
+it grouped the entire table with **no `WHERE` at all**, to answer a question
+about one market. `/api/ledger` had the same shape and was also 500ing.
+
+All three now read the kickoff for the rows they actually return, in one
+bounded query — the "one read per fixture, not per row" idiom
+`book_quotes_for_event` and `scouting_facts` already use here:
+
+    ledger page query          77.1 ms  ->   2.1 ms
+    market detail fixture      86.8 ms  ->   0.1 ms
+    /api/slate  limit=1       200    ms  ->  92    ms
+    /api/slate  limit=100     301    ms  ->  134   ms
+
+**`MIN(commence_ms)` per fixture is unchanged** — same value, same definition
+the scorer uses, which is what ticket #26 exists to protect. The guard caught
+a real slip while making the change: `item["league"] = row["league"]` appears
+in both `/api/board` and `/api/slate`, so the first edit attached the kickoff
+to the wrong route and `test_slate_kickoff_matches_detail.py` went red on the
+list-vs-detail claim immediately.
+
 ### Still open
 
 1. ~~The slate row and market detail surfaces for the sweet spot.~~ **DONE —

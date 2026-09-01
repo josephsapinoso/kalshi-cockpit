@@ -1341,13 +1341,25 @@ def create_app(
                 # The sort below reads this same value, so the printed order
                 # and the printed times cannot disagree.
                 #
-                # The subquery is restricted to linked fixtures for the reason
-                # `backend/parlays.py` records: the outer join discards
-                # everything else anyway, and without it SQLite groups the
-                # whole snapshot history on every page load.
+                # **The kickoff is NOT joined here any more, and that is a
+                # measured change rather than a tidy-up.** This query used to
+                # carry a derived table aggregating `odds_snapshots` for every
+                # linked fixture, and it was restricted to linked fixtures
+                # precisely because grouping the whole history was worse. Both
+                # are unbounded by what the screen shows: on a live-shaped
+                # database (55,777 recommendations, 199,500 snapshots) the
+                # derived table alone measured **77.3ms of an 85.4ms query**,
+                # and it cost that on `limit=1` exactly as on `limit=100`.
+                #
+                # The kickoff for the rows actually returned is read after
+                # this, in ONE bounded query -- the same "one read per fixture,
+                # not per row" shape `book_quotes_for_event` and
+                # `scouting_facts` already use here. Same value, same source,
+                # same `MIN` per fixture; what changes is that the work is now
+                # proportional to the slate rather than to the record.
                 "SELECT r.*, m.title AS market_title, m.yes_side_team, "
                 "       m.volume_24h, m.open_interest, "
-                "       e.title AS event_title, o.commence_ms, "
+                "       e.title AS event_title, "
                 "       f.p_multiplicative, f.p_additive, f.p_power, f.p_shin, "
                 "       f.p_conservative, "
                 "       f.market_width, f.book_count, f.books_used, "
@@ -1358,12 +1370,6 @@ def create_app(
                 "LEFT JOIN kalshi_events e ON e.event_ticker = m.event_ticker "
                 "LEFT JOIN fair_prices f ON f.id = r.fair_price_id "
                 "LEFT JOIN event_links l ON l.id = r.link_id "
-                "LEFT JOIN ( "
-                "    SELECT odds_event_id, MIN(commence_ms) AS commence_ms "
-                "    FROM odds_snapshots "
-                "    WHERE odds_event_id IN (SELECT odds_event_id FROM event_links) "
-                "    GROUP BY odds_event_id "
-                ") o ON o.odds_event_id = l.odds_event_id "
                 f"WHERE {_BASIS_SQL} >= ? "
                 f"ORDER BY r.suggested_contracts DESC, {_BASIS_SQL} DESC, r.id DESC "
                 "LIMIT ?",
@@ -1387,6 +1393,39 @@ def create_app(
         # Empty on an empty slate, and `scouting_facts` returns a key for every
         # ticker asked about -- so a missing entry below cannot mean "we forgot
         # to ask", only "there is no such row".
+        # **Every returned row's kickoff, in one query bounded by the slate.**
+        # Replaces a derived table that aggregated `odds_snapshots` for every
+        # linked fixture on every request -- 77.3ms of an 85.4ms query on a
+        # live-shaped database, and the same cost at `limit=1` as at
+        # `limit=100`.
+        #
+        # `MIN(commence_ms)` per fixture is unchanged, and it is deliberately
+        # the same definition `/api/market/{ticker}`, `/api/ledger` and
+        # `backend/scoring.py:markets_awaiting_scoring` take -- the whole point
+        # of ticket #26 was that the list and the detail screen must not
+        # disagree about when a game starts. Moving the read must not move the
+        # number, and `tests/test_slate_kickoff_matches_detail.py` is what says
+        # it did not.
+        #
+        # The sportsbook's clock, never `kalshi_events.commence_ms`, which
+        # stores `occurrence_datetime` raw -- about three hours late on game
+        # series (ADR 0006).
+        fixture_ids = sorted(
+            {row["odds_event_id"] for row in rows if row["odds_event_id"]}
+        )
+        kickoffs: dict[str, int] = {}
+        if fixture_ids:
+            marks = ",".join("?" * len(fixture_ids))
+            kickoffs = {
+                r["odds_event_id"]: r["commence_ms"]
+                for r in conn.execute(
+                    f"SELECT odds_event_id, MIN(commence_ms) AS commence_ms "
+                    f"FROM odds_snapshots WHERE odds_event_id IN ({marks}) "
+                    f"GROUP BY odds_event_id",
+                    fixture_ids,
+                ).fetchall()
+            }
+
         scouting = scouting_facts(
             conn, [row["ticker"] for row in rows], now_ms=now
         )
@@ -1417,6 +1456,10 @@ def create_app(
 
             # Same fact and same refusal as the Board's: the link's sport key,
             # `None` on an unlinked row.
+            # `None` on an unlinked row, exactly as the LEFT JOIN resolved
+            # it -- the column renders as `--:--` rather than a confident wrong
+            # time, and the sort below puts unknown kickoffs last.
+            item["commence_ms"] = kickoffs.get(row["odds_event_id"])
             item["league"] = row["league"]
             item["volume_24h"] = row["volume_24h"]
             item["open_interest"] = row["open_interest"]
@@ -1801,23 +1844,44 @@ def create_app(
             # 4.8 points of margin, which is what devigging removes.
             "f.overround, "
             "f.anchored_on_sharp, f.outcome_name, "
-            "l.odds_event_id, "
-            "o.commence_ms, o.home_team, o.away_team, o.sport_key "
+            "l.odds_event_id "
             "FROM recommendations r "
             "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
             "LEFT JOIN kalshi_events e ON e.event_ticker = m.event_ticker "
             "LEFT JOIN fair_prices f ON f.id = r.fair_price_id "
             "LEFT JOIN event_links l ON l.id = r.link_id "
-            "LEFT JOIN ( "
-            "    SELECT odds_event_id, MIN(commence_ms) AS commence_ms, "
-            "           home_team, away_team, sport_key "
-            "    FROM odds_snapshots GROUP BY odds_event_id "
-            ") o ON o.odds_event_id = l.odds_event_id "
             "WHERE r.ticker = ? ORDER BY r.created_ms DESC LIMIT 1",
             (ticker,),
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail=f"No data for {ticker}")
+
+        # **The fixture, read for THIS row only.** This was a derived table
+        # grouping `odds_snapshots` with no `WHERE` at all -- the whole
+        # snapshot history aggregated to answer a question about one market.
+        # The slate's version was at least restricted to linked fixtures and
+        # still measured 77.3ms of an 85.4ms query on a live-shaped database;
+        # this one had no restriction.
+        #
+        # `MIN(commence_ms)` with bare columns beside it is unchanged, and the
+        # bare-column rule is the point: with a lone `MIN()` aggregate SQLite
+        # takes the bare columns from the row that achieved the minimum. Same
+        # value, same definition as the slate, `/api/ledger` and the scorer --
+        # ticket #26 exists because those must not disagree.
+        fixture = None
+        if row["odds_event_id"]:
+            fixture = conn.execute(
+                "SELECT MIN(commence_ms) AS commence_ms, home_team, away_team, "
+                "       sport_key "
+                "FROM odds_snapshots WHERE odds_event_id = ?",
+                (row["odds_event_id"],),
+            ).fetchone()
+            # An `odds_event_id` with no snapshots aggregates to a row of
+            # NULLs rather than to no row, so the emptiness has to be read off
+            # the value: `None` here means unlinked or unrecorded, and the
+            # screen says so rather than printing a confident wrong time.
+            if fixture is not None and fixture["commence_ms"] is None:
+                fixture = None
 
         # `now_ms`/`staleness` make the ages live rather than frozen at write
         # time: without them a 6pm quote still reads "30s ago" at 11pm, on the
@@ -1841,9 +1905,10 @@ def create_app(
         detail["open_interest"] = row["open_interest"]
         detail["close_ms"] = row["close_ms"]
         detail["market_status"] = row["market_status"]
-        detail["home_team"] = row["home_team"]
-        detail["away_team"] = row["away_team"]
-        detail["league"] = row["sport_key"]
+        detail["commence_ms"] = fixture["commence_ms"] if fixture else None
+        detail["home_team"] = fixture["home_team"] if fixture else None
+        detail["away_team"] = fixture["away_team"] if fixture else None
+        detail["league"] = fixture["sport_key"] if fixture else None
         # The books' raw implied probabilities summed, before devigging. A
         # fair coin market quoted with no margin sums to 1.0; anything above
         # is the bookmaker's cut, and that difference is precisely what the
@@ -2421,18 +2486,52 @@ def create_app(
             "       f.p_conservative, "
             "       f.market_width, f.book_count, f.books_used, "
             "       f.anchored_on_sharp, "
-            "       o.commence_ms "
+            # The fixture id rather than its start: the kickoff is read below,
+            # in one query bounded by this PAGE. The derived table that used to
+            # sit here aggregated the whole of `odds_snapshots` -- unbounded by
+            # the page, so a 25-row page paid for the entire record. Same
+            # `MIN` per fixture, same value; only the bound changes.
+            "       l.odds_event_id "
             "FROM recommendations r "
             "LEFT JOIN fair_prices f ON f.id = r.fair_price_id "
             "LEFT JOIN event_links l ON l.id = r.link_id "
-            "LEFT JOIN ( "
-            "    SELECT odds_event_id, MIN(commence_ms) AS commence_ms "
-            "    FROM odds_snapshots GROUP BY odds_event_id "
-            ") o ON o.odds_event_id = l.odds_event_id "
             "WHERE (? IS NULL OR r.id <= ?) "
             "ORDER BY r.created_ms DESC, r.id DESC LIMIT ? OFFSET ?",
             (max_id, max_id, limit, offset),
         ).fetchall()
+        # **This page's kickoffs, in one bounded query.** See the SELECT above:
+        # the join it replaces grouped every snapshot ever recorded to answer a
+        # question about at most `limit` rows.
+        #
+        # `MIN(commence_ms)` per fixture is the scorer's own definition
+        # (`backend/scoring.py:markets_awaiting_scoring`), so the ledger's
+        # bucketing axis and the clv machinery still agree on when a game
+        # started -- and it is the sportsbook's clock, never
+        # `kalshi_events.commence_ms`, which is `occurrence_datetime` raw and
+        # about three hours late on game series (ADR 0006).
+        #
+        # `None` on a row with no link or no snapshot, never a substitute.
+        _fixture_ids = sorted(
+            {r["odds_event_id"] for r in rows if r["odds_event_id"]}
+        )
+        _kickoffs: dict[str, int] = {}
+        if _fixture_ids:
+            _marks = ",".join("?" * len(_fixture_ids))
+            _kickoffs = {
+                k["odds_event_id"]: k["commence_ms"]
+                for k in conn.execute(
+                    f"SELECT odds_event_id, MIN(commence_ms) AS commence_ms "
+                    f"FROM odds_snapshots WHERE odds_event_id IN ({_marks}) "
+                    f"GROUP BY odds_event_id",
+                    _fixture_ids,
+                ).fetchall()
+            }
+        _ledger_rows = []
+        for r in rows:
+            item = _serialise(r)
+            item["commence_ms"] = _kickoffs.get(r["odds_event_id"])
+            _ledger_rows.append(item)
+
         # Counted under the same pin as the rows, or paging to `total` never
         # terminates on an active slate: the target would grow while the pull
         # walks it. Unpinned, this is the whole table exactly as before.
@@ -2462,7 +2561,7 @@ def create_app(
         scored = clustered_clv(conn)
 
         return {
-            "rows": [_serialise(r) for r in rows],
+            "rows": _ledger_rows,
             "clv_scored": scored.n_clusters,
             "clv_scored_rows": scored.n_rows,
             "clv_required": gate.min_scored_recommendations,
