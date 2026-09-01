@@ -614,3 +614,30 @@ should go when the split lands.
 **Building those does not amend this registration.** If any of them cannot be
 built as specified, the shortfall is written into the result document and the
 affected arm reports UNRESOLVED.
+
+---
+
+## Provenance of this document — added 2026-09-01, immediately after commit
+
+**It is pre-registered, and here is the check rather than the assurance.** This
+file was committed in `feca481`, blob `f5328a0e0205f308229a489225f6b0f075a4a581`,
+and pushed to `origin/main` **before any post-`T0` burst was read**. No
+subcommand implementing §11 existed at that moment, so the arithmetic this
+document fixes could not have been influenced by a result: the instrument had
+to be built afterwards, which is the point.
+
+**It landed in a commit about something else, and that is a defect in the
+bookkeeping rather than in the registration.** `feca481` is the volume lane's
+merge; a `git add -A` swept this file in alongside it. The agent that wrote it
+had deliberately left it uncommitted to avoid exactly that, and was right to.
+The registration property survives — a git object dated before the data — but
+a reader looking for the registering commit will not find it by its message.
+Hence this note, and the blob hash above, which is what actually pins the
+content.
+
+**The pattern, for `tasks/lessons.md`:** an agent that WRITES to the shared
+tree is as hazardous to a commit as one that mutates code, and the isolation
+rule was applied to four lanes here and not to this one. `git status` cannot
+distinguish a subagent's half-written document from your own work in progress.
+Isolate anything that writes, or stage by explicit path and never `-A` while a
+writer is live.
