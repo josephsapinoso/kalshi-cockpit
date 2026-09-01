@@ -283,9 +283,40 @@ own boundary — every caller error handling is downstream of an exit that
 already happened.** Verified both directions: happy path survives, and a
 nonexistent app reaches the refusal deliberately.
 
+### Both lanes landed after the entry above was written
+
+- **ADR 0095 / 0096** — the volume alarm (statvfs free bytes; notice 1.6 GB /
+  act 800 MB / critical 400 MB, quoted net of the 184 MB WAL reserve, on the
+  Discord channel Joe already uses) and the `fair_prices` downsample, **built
+  and disarmed behind two independent flags**. Registration (1,108 lines)
+  committed BEFORE the implementation; `REGISTERED_DELETABLE_SQL` pinned
+  byte-for-byte to the fenced block in it. Mutation-verified in the main
+  session: collapsing `deletes` to `enabled` turns three tests red.
+- **The downsample cannot rescue September and may free zero filesystem
+  bytes** — it only reaches rows older than 14 days, and only `VACUUM` returns
+  pages to the OS. It bounds long-run growth; the extend was the remedy.
+- **The 64% / 72.5% split is resolved**: both right, the division mixed a
+  44.4 h byte total with a 24 h rate. Size the rule with **103.9 MB/day**;
+  §6's "68 MB/day" was wrong and is corrected.
+- **P5 registration is written and committed** —
+  `docs/measurements/2026-09-01-forward-lock-instrument-registration.md`, blob
+  `f5328a0e`. `T0` is derived from the DB (`MIN(polled_ms) WHERE endpoint =
+  'mirror'`), not a Fly release timestamp, so the boundary needs no external
+  evidence — the refused 2026-09-01 claim leaned on exactly that. Stopping
+  rule is **160 cumulative fast poller cycles**, a unit that survives the 13
+  process restarts. Multiplicity handled by an e-value, not a threshold.
+  **Power is 0.066 against a 50% reduction** and it was registered READY with
+  that disclosed: it can credit a near-total fix and nothing less.
+  §11 lists three instrument additions needed **before** the look.
+
 ### Still open
 
-1. **The volume lane is running** — alarm on statvfs free bytes, plus the
+1. **One live read**: `flyctl ssh console -a kalshi-cockpit -C "python
+   /app/scripts/dry_run_fair_price_downsample.py"`. Bytes-freed is UNKNOWN and
+   was deliberately not estimated — `demo.db` has 22 `fair_prices` rows at one
+   timestamp and no `closing_lines`, so the harness correctly answers VOID.
+   Not urgent: **47 days of headroom** after the extend.
+1b. ~~The volume lane is running~~ — landed; see above. Original text: alarm on statvfs free bytes, plus the
    `fair_prices` downsample **built, registered, and defaulting OFF** with a
    dry-run mode. Partner ruling: it is a *downsample*, not a deletion — the
    runner writes ~96 rows per market per day and every registered analysis

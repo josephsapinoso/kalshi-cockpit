@@ -54,6 +54,47 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-01 - Under `set -e`, a guard downstream of an abort is decoration
+
+A wizard written to verify a Fly volume extend stopped silently after stage 1.
+The template runs `set -euo pipefail`; `flyctl ssh console` exits non-zero on
+Git Bash even when it hands back the data. So `BEFORE_TOTAL=$(_statvfs_field
+total_bytes)` aborted the whole script **at the assignment** -- before the
+`if [[ -z "$BEFORE_TOTAL" ]]` refusal written to catch exactly that condition
+could run.
+
+The guard existed, was correct, and could not fire. That is the same shape as
+four other defects found the same day, and it is the one to generalise from.
+
+**Pattern: under `set -e`, a function that can return non-zero must be made
+total at its own boundary -- swallow the status, echo nothing, `return 0` --
+because every caller's error handling is downstream of an exit that has already
+happened. The same applies to `grep` in a command substitution (returns 1 when
+it matches nothing) and to any pipeline under `pipefail`.**
+
+Verify a refusal path by *taking* it, not by reading it: pointing the script at
+a nonexistent app is what proved the fixed version reaches its own error
+message instead of vanishing.
+
+## 2026-09-01 - Isolate any subagent that WRITES, not just one that mutates code
+
+Four lanes ran in isolated git worktrees, on the recorded lesson that a
+subagent holding Bash acts on the same filesystem. A fifth -- a `pre-registrar`
+whose whole job is to author one document -- was launched without isolation,
+because "it only writes a markdown file" did not sound like mutation.
+
+A `git add -A` for an unrelated merge then swept its registration into that
+commit. It happened to be finished; a half-written pre-registration would have
+been committed just as willingly, and `git status` cannot tell the two apart
+from your own work in progress. The agent had deliberately left it uncommitted
+to prevent this and was right to.
+
+**Pattern: the hazard is concurrent WRITES to the shared tree, not the kind of
+file. Isolate anything that writes, or stage by explicit path and never
+`git add -A` while a writer is live.** The check must also come immediately
+before `git add`, not after the commit -- verifying afterwards establishes only
+what you got away with.
+
 ## 2026-09-01 - A test that asserts copy's TEXT freezes it; assert its SOURCE
 
 `tests/test_parlays_api.py` read `assert "40 of 40" in notes["enter_only"]`,
@@ -2801,6 +2842,8 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-09-01 — in this file, above
+- Under `set -e`, a guard downstream of an abort is decoration
+- Isolate any subagent that WRITES, not just one that mutates code
 - A test that asserts copy's TEXT freezes it; assert its SOURCE
 - A clearing statement in an ADR is a claim about a population, and needs its boundary as precisely as a finding does
 - A CI run that reports on your branch may not be reporting on your commit
