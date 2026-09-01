@@ -105,6 +105,7 @@ What this does not establish
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import math
 import sqlite3
@@ -2372,6 +2373,430 @@ def _binom_two_sided(k: int, n: int, p: float) -> float:
     ))
 
 
+#: Section 6.3's band, in seconds. A burst is in-band if its offset from its matched
+#: cycle start lies here. `BUSY_TIMEOUT_MS = 5_000`, so a lock held by the
+#: poller surfaces just past 5 s; the upper edge is the registered one.
+FORWARD_LOCK_BAND_S = (5.000, 8.000)
+
+#: Section 6.3's e-value alarm. SIGNATURE PERSISTS is declarable at ANY time, which
+#: is the only verdict exempt from the `E >= E*` gate.
+FORWARD_LOCK_E_ALARM = 200.0
+
+#: Section 8's registered stopping point, in fast cycles. Section 7's C6 may RAISE this
+#: and may never lower it.
+FORWARD_LOCK_E_STAR = 160
+
+#: C6's floor: `E* = 160` delivers p <= 0.005 only if `lambda_0` is at least
+#: this. Below it, C6 raises `E*` rather than accepting a weaker test.
+FORWARD_LOCK_LAMBDA_FLOOR = 0.03257
+
+#: Section 6.3's `p0` numerator, in seconds: the width of the band as a share of the
+#: cycle. `p0 = 3.000 / C`, C being the median observed cycle gap.
+FORWARD_LOCK_BAND_WIDTH_S = 3.000
+
+
+def _q_forward_lock(conn: sqlite3.Connection, args) -> list[Section]:
+    """Did ADR 0091 close the `database is locked` symptom, after `T0`?
+
+    Section 11 of `docs/measurements/2026-09-01-forward-lock-instrument-
+    registration.md`, which named three capabilities the instrument lacked and
+    fixed their specification **before** any post-`T0` burst was read. Read
+    that document before quoting anything here; this docstring restates it and
+    does not amend it.
+
+    Why this is a separate subcommand from `lock-attribution`
+    --------------------------------------------------------
+    Section 11 names capabilities, not a location, and putting them here rather than
+    inside `lock-attribution` is deliberate:
+
+    - `lock-attribution` implements a **different, completed** registration
+      (2026-09-01-lock-holder-attribution) whose result is already in the
+      record at `n = 13, k = 13, p = 4.890e-18`. Changing what it prints would
+      break the reproducibility of a recorded measurement.
+    - The two have **different verdict vocabularies**. Attribution answers
+      POLLER IMPLICATED / NOT ESTABLISHED; this answers FIX CONFIRMED /
+      SIGNATURE PERSISTS / MIRROR RESIDUAL / UNRESOLVED. One function printing
+      both would produce a mixture with no column saying which question a line
+      belongs to.
+
+    The three capabilities, and where each lives
+    --------------------------------------------
+    1. **The `T0` boundary** (section 2.1): `MIN(polled_ms) WHERE endpoint = 'mirror'`.
+       A durable in-database deploy marker, so the boundary needs no Fly release
+       timestamp -- which is the class of external evidence a refused claim
+       leaned on. `lock-attribution` reads the whole journal and would pool
+       pre- and post-deploy bursts; this refuses to.
+    2. **The MIRROR/FAST split** (section 4): a cycle is MIRROR if any `poll_log` row
+       at its stamp carries `endpoint = 'mirror'`, else FAST. The older query
+       was `SELECT DISTINCT polled_ms` with no `endpoint` join and could not
+       classify a cycle at all.
+    3. **`E`, `E*` and `E_n`** (section 6.3), and the refusal to print a rate verdict
+       below `E*`.
+
+    The one verdict exempt from `E*`
+    --------------------------------
+    **SIGNATURE PERSISTS is always-valid** and may be declared at any `E`,
+    because an e-value is a martingale under the null: `E_n >= 200` controls
+    the type-I error at any stopping time, including one chosen by looking.
+    Every other verdict is gated on `E >= E*` and this function refuses to
+    print one below it.
+
+    What this does NOT establish
+    ----------------------------
+    - **Nothing, before `E >= E*`, except SIGNATURE PERSISTS.** Section 6.3 says so
+      in those words. A small `K` at small `E` is what the null predicts.
+    - **That the poller is the only holder.** Attribution and efficacy are
+      different claims; this one is efficacy and takes the attribution result
+      as given rather than re-deriving it.
+    - **C3, C4 and C5 are NOT COMPUTED here** -- they need `loop_rss.jsonl`
+      restart markers, `wal_kb` percentiles and pass tempo. Section 6.3 makes FIX
+      CONFIRMED conditional on **every** precondition C1-C6, so while these are
+      uncomputed the best reachable verdict is
+      `UNRESOLVED - C3/C4/C5 NOT COMPUTED`. That is section 11's shortfall clause
+      working as written: the gap is reported, not routed around, and it can
+      never produce a false FIX CONFIRMED.
+    - **Anything about the excluded interval** (section 2.2), the ~19 hours between
+      ADR 0091's deploy and `T0`. It is descriptive context and may not enter
+      either arm.
+    """
+    band_lo, band_hi = FORWARD_LOCK_BAND_S
+    cap = args.limit
+
+    # --- T0, the in-database deploy marker (C2) ------------------------------
+    t0_row = conn.execute(
+        "SELECT MIN(polled_ms) FROM poll_log WHERE endpoint = 'mirror'"
+    ).fetchone()
+    t0 = t0_row[0] if t0_row else None
+
+    if t0 is None:
+        return [Section(
+            title=(
+                "forward-lock: C2 FAILED -- no `endpoint = 'mirror'` row, so "
+                "the build carrying the marker is NOT LIVE. This is 'the "
+                "instrument is not there', never 'no bursts'."
+            ),
+            columns=("check", "value", "reading"),
+            rows=[
+                ("T0", "ABSENT", "MIN(polled_ms) WHERE endpoint = 'mirror'"),
+                ("verdict", "UNRESOLVED - C2", "section 7: refuses a verdict"),
+                ("added by", "ea4c1a3",
+                 "merged 56f4572, deployed 265bc9a; no earlier build writes it"),
+            ],
+            cap=cap,
+        )]
+
+    # --- cycles, split MIRROR/FAST (capability 2) ----------------------------
+    cycle_rows = conn.execute(
+        "SELECT polled_ms, "
+        "       MAX(CASE WHEN endpoint = 'mirror' THEN 1 ELSE 0 END) AS is_mirror "
+        "FROM poll_log GROUP BY polled_ms ORDER BY polled_ms ASC"
+    ).fetchall()
+    cycles = [(int(r[0]), bool(r[1])) for r in cycle_rows if r[0] is not None]
+    stamps = [ms for ms, _ in cycles]
+    is_mirror = {ms: mirror for ms, mirror in cycles}
+
+    # `E` counts FAST cycles at or after T0. The mirror branch is a different
+    # code path with its own history, so pooling them would answer a question
+    # nobody registered.
+    fast_after_t0 = [ms for ms, mirror in cycles if ms >= t0 and not mirror]
+    e_count = len(fast_after_t0)
+
+    # --- the journal population ---------------------------------------------
+    path = Path(args.db).resolve().parent / FAILURE_LOG_NAME
+    try:
+        journal_lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        return [Section(
+            title=(
+                "forward-lock: THE JOURNAL IS NOT THERE -- this is not "
+                "'no failures'"
+            ),
+            columns=("problem", "path", "writer"),
+            rows=[(str(exc), str(path),
+                   "backend.store.db.record_loop_failure_durably")],
+            cap=cap,
+        )]
+
+    failures: list[dict] = []
+    for raw in journal_lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            entry = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        kind = entry.get("kind")
+        if not isinstance(kind, str):
+            kind = "diagnosis" if "diagnosis" in entry else "failure"
+        if kind != "failure":
+            continue
+        if "database is locked" not in str(entry.get("error") or ""):
+            continue
+        if entry.get("consecutive_failures") != 1:
+            continue
+        if isinstance(entry.get("ms"), int):
+            failures.append(entry)
+    failures.sort(key=lambda e: e["ms"])
+
+    # --- match each burst to its cycle, then apply the T0 rule (section 2.4) --------
+    #
+    # The assignment is by the MATCHED CYCLE's stamp, never by the burst's own
+    # `failed_ms`: a failure stamped after T0 whose newest preceding cycle
+    # started before it belongs to a pre-marker cycle and is EXCLUDED. At most
+    # one burst can be in that class, and it is named individually below.
+    matched: list[dict] = []
+    straddlers: list[dict] = []
+    unmatched: list[dict] = []
+    for entry in failures:
+        ms = entry["ms"]
+        idx = bisect.bisect_right(stamps, ms) - 1
+        if idx < 0:
+            unmatched.append(entry)
+            continue
+        cycle_ms = stamps[idx]
+        record = {
+            "ms": ms,
+            "cycle_ms": cycle_ms,
+            "offset_s": (ms - cycle_ms) / 1000.0,
+            "mirror": is_mirror[cycle_ms],
+        }
+        if cycle_ms < t0:
+            (straddlers if ms >= t0 else unmatched).append(record)
+            continue
+        matched.append(record)
+
+    # `K` collapses bursts sharing a matched cycle to one: two failures inside
+    # one cycle are one draw about that cycle, not two.
+    by_cycle: dict[int, dict] = {}
+    for record in matched:
+        by_cycle.setdefault(record["cycle_ms"], record)
+    k_bursts = sorted(by_cycle.values(), key=lambda r: r["ms"])
+    k_count = len(k_bursts)
+
+    fast_bursts = [r for r in k_bursts if not r["mirror"]]
+    h_bursts = [
+        r for r in fast_bursts if band_lo <= r["offset_s"] <= band_hi
+    ]
+    h_count = len(h_bursts)
+
+    # --- C, p0 and the e-value (capability 3) --------------------------------
+    gaps = sorted(
+        (b - a) / 1000.0 for a, b in zip(stamps, stamps[1:]) if b >= t0
+    )
+    median_gap_s = gaps[len(gaps) // 2] if gaps else None
+    p0 = (
+        None if not median_gap_s
+        else FORWARD_LOCK_BAND_WIDTH_S / median_gap_s
+    )
+
+    # `E_n` is a running product over FAST-matched bursts in TIME ORDER --
+    # order matters because an e-value is a martingale and the sequence is the
+    # object, not the final count.
+    e_value = 1.0
+    e_trace: list[tuple] = []
+    if p0 is not None and 0.0 < p0 < 1.0:
+        for record in fast_bursts:
+            in_band = band_lo <= record["offset_s"] <= band_hi
+            factor = 0.5 / p0 if in_band else 0.5 / (1.0 - p0)
+            e_value *= factor
+            e_trace.append((
+                _iso(record["ms"]),
+                f"{record['offset_s']:.3f}",
+                "IN" if in_band else "out",
+                f"{factor:.4f}",
+                f"{e_value:.4f}",
+            ))
+
+    # --- C6: does lambda_0 support the registered E*? ------------------------
+    #
+    # `lambda_0` is the per-cycle probability of a burst under the null. The
+    # registration's own figure is recomputed here rather than assumed, and C6
+    # RAISES `E*` when it is too small. `E*` is never lowered.
+    lambda_0 = (k_count / e_count) if e_count else None
+    e_star = FORWARD_LOCK_E_STAR
+    c6_note = "lambda_0 not computable (E = 0)"
+    if lambda_0 is not None:
+        if lambda_0 >= FORWARD_LOCK_LAMBDA_FLOOR:
+            c6_note = (
+                f"lambda_0 = {lambda_0:.5f} >= {FORWARD_LOCK_LAMBDA_FLOOR}; "
+                f"E* stays {FORWARD_LOCK_E_STAR}"
+            )
+        elif lambda_0 <= 0.0:
+            c6_note = (
+                "lambda_0 = 0 (no burst yet): E* CANNOT be computed from it "
+                f"and stays at the registered {FORWARD_LOCK_E_STAR}"
+            )
+        else:
+            raised = math.ceil(math.log(0.005) / math.log(1.0 - lambda_0))
+            e_star = max(FORWARD_LOCK_E_STAR, raised)
+            c6_note = (
+                f"lambda_0 = {lambda_0:.5f} < {FORWARD_LOCK_LAMBDA_FLOOR}; "
+                f"E* RAISED to {e_star} (never lowered)"
+            )
+
+    # --- C1: does poll_log span the window? ----------------------------------
+    newest_scored = max((r["ms"] for r in k_bursts), default=None)
+    c1_ok = bool(stamps) and stamps[0] <= t0 and (
+        newest_scored is None or stamps[-1] >= newest_scored
+    )
+
+    # --- the verdict, in section 6.3's own order ------------------------------------
+    #
+    # SIGNATURE PERSISTS is tested FIRST and is the sole verdict exempt from
+    # the `E >= E*` gate.
+    reached = e_count >= e_star
+    if e_value >= FORWARD_LOCK_E_ALARM:
+        verdict = "SIGNATURE PERSISTS - ADR 0091 DID NOT CLOSE THE SYMPTOM"
+        why = f"E_n = {e_value:.2f} >= {FORWARD_LOCK_E_ALARM} (always-valid)"
+    elif not c1_ok:
+        verdict = "UNRESOLVED - C1 (poll_log does not span the window)"
+        why = "an offset against a stamp hours away measures a hole, not a lock"
+    elif k_count >= 2 and not fast_bursts and h_count == 0:
+        verdict = "MIRROR RESIDUAL"
+        why = (
+            f"K = {k_count} >= 2, every burst MIRROR-matched, H = 0; "
+            "does not bear on ADR 0091 in either direction"
+        )
+    elif not reached:
+        verdict = f"UNRESOLVED - E = {e_count} < E* = {e_star}"
+        why = (
+            "section 6.3: no verdict of any kind may be quoted before E >= E*, "
+            "except SIGNATURE PERSISTS"
+        )
+    elif k_count == 0 and e_value < FORWARD_LOCK_E_ALARM:
+        verdict = "UNRESOLVED - C3/C4/C5 NOT COMPUTED"
+        why = (
+            "E, K and E_n would license FIX CONFIRMED, but section 6.3 conditions it "
+            "on EVERY precondition C1-C6 and C3/C4/C5 need loop_rss.jsonl. "
+            "Reported, not routed around (section 11's shortfall clause)."
+        )
+    else:
+        verdict = f"UNRESOLVED - E = {e_count} >= E* with K = {k_count} > 0"
+        why = "section 6.3's catch-all: reached exposure, but bursts remain"
+
+    sections = [
+        Section(
+            title=(
+                "forward-lock: THE BOUNDARY AND THE SPLIT -- section 11 capabilities "
+                "1 and 2. Registration: docs/measurements/"
+                "2026-09-01-forward-lock-instrument-registration.md, committed "
+                "in feca481 BEFORE any post-T0 burst was read."
+            ),
+            columns=("quantity", "value", "reading"),
+            rows=[
+                ("T0", _iso(t0),
+                 "MIN(polled_ms) WHERE endpoint='mirror' -- an in-DB deploy "
+                 "marker, not a Fly release timestamp"),
+                ("cycles total", len(cycles), "one stamp per cycle"),
+                ("cycles >= T0 (FAST)", e_count, "this is E"),
+                ("cycles >= T0 (MIRROR)",
+                 sum(1 for ms, m in cycles if ms >= t0 and m),
+                 "a different code path; excluded from E by section 4"),
+                ("median cycle gap C",
+                 "UNKNOWN" if median_gap_s is None else f"{median_gap_s:.3f}s",
+                 "section 6.3's C, over cycles at or after T0"),
+                ("p0 = 3.000 / C",
+                 "UNKNOWN" if p0 is None else f"{p0:.5f}",
+                 "the null probability a burst lands in the band"),
+            ],
+            cap=cap,
+        ),
+        Section(
+            title=(
+                "forward-lock: THE POPULATION -- bursts assigned by their "
+                "MATCHED CYCLE's stamp, never by their own failed_ms (section 2.4)"
+            ),
+            columns=("class", "n", "reading"),
+            rows=[
+                ("journal bursts (locked, consecutive=1)", len(failures),
+                 "before any T0 rule"),
+                ("K -- matched cycle >= T0, collapsed", k_count,
+                 "the registered population; bursts sharing a cycle are ONE"),
+                ("of which FAST-matched", len(fast_bursts),
+                 "the arm E_n runs over"),
+                ("H -- FAST and in band "
+                 f"[{band_lo:.3f}, {band_hi:.3f}]s", h_count,
+                 "the signature ADR 0091 was supposed to remove"),
+                ("EXCLUDED -- straddlers (section 2.4)", len(straddlers),
+                 "stamped >= T0 but matched to a PRE-T0 cycle; at most one "
+                 "can exist, and each is named below"),
+                ("EXCLUDED -- pre-T0 or unmatchable", len(unmatched),
+                 "section 2.2's discarded interval and any burst before the "
+                 "first cycle"),
+            ],
+            cap=cap,
+        ),
+    ]
+
+    if straddlers:
+        sections.append(Section(
+            title=(
+                "forward-lock: THE STRADDLERS, NAMED INDIVIDUALLY as section 2.4 "
+                "requires -- excluded from both arms"
+            ),
+            columns=("failed_at", "matched_cycle", "offset_s", "branch"),
+            rows=[(
+                _iso(r["ms"]), _iso(r["cycle_ms"]),
+                f"{r['offset_s']:.3f}", "MIRROR" if r["mirror"] else "FAST",
+            ) for r in straddlers],
+            cap=cap,
+        ))
+
+    if e_trace:
+        sections.append(Section(
+            title=(
+                "forward-lock: THE E-VALUE, in time order -- E_n is a running "
+                "product and the SEQUENCE is the object, not the final count"
+            ),
+            columns=("failed_at", "offset_s", "band", "factor", "E_n"),
+            rows=e_trace,
+            cap=cap,
+        ))
+
+    sections.append(Section(
+        title=(
+            "forward-lock: PRECONDITIONS -- section 7. A failed one is reported "
+            "BY NAME and never shortened to UNRESOLVED alone."
+        ),
+        columns=("check", "state", "reading"),
+        rows=[
+            ("C1 poll_log spans the window", "PASS" if c1_ok else "FAIL",
+             f"MIN={_iso(stamps[0]) if stamps else 'n/a'} <= T0 and "
+             f"MAX={_iso(stamps[-1]) if stamps else 'n/a'} >= newest burst"),
+            ("C2 T0 exists", "PASS", _iso(t0)),
+            ("C3 restart coverage", "NOT COMPUTED",
+             "needs loop_rss.jsonl restart markers and A_pre; blocks FIX "
+             "CONFIRMED, cannot produce one"),
+            ("C4 WAL comparability", "NOT COMPUTED",
+             "needs median wal_kb post-T0 vs pre-fix 25th percentile"),
+            ("C5 victim tempo", "NOT COMPUTED",
+             "needs loop_rss.jsonl lines/hour, +/- 25%"),
+            ("C6 lambda_0 supports E*", "PASS", c6_note),
+        ],
+        cap=cap,
+    ))
+
+    sections.append(Section(
+        title=f"forward-lock: THE REGISTERED TEST -- {verdict}",
+        columns=("quantity", "value", "note"),
+        rows=[
+            ("E (fast cycles >= T0)", e_count, f"E* = {e_star}"),
+            ("K (bursts)", k_count, "collapsed by matched cycle"),
+            ("H (fast, in band)", h_count, "the removed signature"),
+            ("E_n", f"{e_value:.4f}",
+             f"alarm at {FORWARD_LOCK_E_ALARM}; always-valid, no E* gate"),
+            ("VERDICT", verdict, why),
+            ("exposure reached", "YES" if reached else "NO",
+             "below E*, only SIGNATURE PERSISTS may be quoted"),
+        ],
+        cap=cap,
+    ))
+    return sections
+
+
 def _q_lock_attribution(conn: sqlite3.Connection, args) -> list[Section]:
     """Does each `database is locked` burst land inside a poller cycle?
 
@@ -2396,9 +2821,18 @@ def _q_lock_attribution(conn: sqlite3.Connection, args) -> list[Section]:
     For every burst, the offset from the newest `poll_log.polled_ms` at or
     before it. `polled_ms` is the poller's **cycle start**: `now_ms` is taken
     once at the top of the loop body and handed to every `log_poll_attempt` in
-    that cycle, so all of a cycle's rows share one stamp and **the cycle's
-    duration is recorded nowhere.** That is the instrument's limit, not a
-    choice, and it is why §7 of the registration allows no exonerating verdict.
+    that cycle, so all of a cycle's rows share one stamp.
+
+    **The cycle's DURATION is recorded nowhere -- `poll_log` carries no
+    duration column -- but its CADENCE is**, and §11 of the forward-lock
+    registration called this sentence out for conflating the two. The gap
+    between consecutive cycle starts is derivable from `polled_ms` alone,
+    is computed as `median_gap_s` a few lines below, and is exactly the
+    quantity that registration calls `C`. What is genuinely missing is how
+    long a cycle *ran*, which is what would let an offset be read as
+    "inside the cycle" rather than "after its start" -- that is the
+    instrument's limit, not a choice, and it is why §7 of this
+    registration allows no exonerating verdict.
 
     The unit is the BURST
     ---------------------
@@ -4342,6 +4776,18 @@ QUERIES: dict[str, QueryDef] = {
         "with nothing open is a no-op. Section 5 is the newest traceback, "
         "which lives nowhere else.",
         _q_failure_journal,
+    ),
+    "forward-lock": QueryDef(
+        "Did ADR 0091 close the `database is locked` symptom AFTER the "
+        "deploy? Section 11 of docs/measurements/2026-09-01-forward-lock-"
+        "instrument-registration.md. Adds the three capabilities that "
+        "registration named as missing: a T0 boundary from the in-DB "
+        "mirror marker, the MIRROR/FAST cycle split, and the E / E* / "
+        "E_n arithmetic. REFUSES every verdict below E* except SIGNATURE "
+        "PERSISTS, which is always-valid. C3/C4/C5 are NOT COMPUTED and "
+        "block FIX CONFIRMED by design. Separate from lock-attribution, "
+        "which answers a different, completed registration.",
+        _q_forward_lock,
     ),
     "lock-attribution": QueryDef(
         "Does each `database is locked` burst land inside a poller cycle? "
