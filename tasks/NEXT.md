@@ -355,8 +355,26 @@ until 30. Full reasoning on the ticket; the map's Decisions-so-far indexes it.
    PGA and earnings, which the desk has no odds coverage for and never surfaces.
    Refusing unscoreable markets at log time still stands; it now catches a ~4% tail
    instead of being the thing that stops the screen being a wall of refusals.
-4. **Read the $100 arm's current value on live before building any of it** — it
-   may already have fired, in which case logging is already closed.
+4. **~~Read the $100 arm's current value.~~ DONE, and it found something else.**
+   `inspect_live_db study-stop` shipped for it (the arm gated an endpoint and
+   **nothing on the machine could report whether it had fired**). The read:
+   **the arm cannot fire at all.** A single study-period settlement carries an
+   empty `market_result`, the registered formula refuses all-or-nothing on any
+   unreadable row, and the endpoint only 423s on a *computable* True — so
+   **logging is open, but because the stop is inoperative rather than clear.**
+
+   That is a documented choice, not a bug (`study_loss_dollars`'s docstring says
+   a broken read must not lock Joe out of his own log), but nobody had ever known
+   the arm was in that state. **The fragility is the finding: an all-or-nothing
+   refusal over a growing record is disabled by any one bad row.**
+
+   **It is not moot, and the first draft of this item said it was.** The arm has a
+   SECOND consumer besides the 423 — a read endpoint feeding the "$X of $100"
+   strip — so that strip currently renders *unknown* rather than a figure. Joe's
+   call, money-touching, three options: fix the row at source (the only one that
+   says whether it recurs), amend the formula to skip unreadable rows (changes a
+   registered stopping rule), or accept it. **Figures stay out of this file** per
+   the operator-data rule; run `study-stop` to see them.
 
 **That question is now measured and closed** — it was filed as fog and refuted
 within the hour. The lesson is the order: the measurement cost one live read and
