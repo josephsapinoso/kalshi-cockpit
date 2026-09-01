@@ -71,9 +71,33 @@ tasks/
 # silent absence of a process: the file simply is not there when someone ssh's
 # in, months after the decision that depended on it.
 #
-# So the allowlist now has two classes, and the second one cannot be derived:
-#   - scripts the entrypoint runs      (guarded by derivation)
-#   - scripts the ssh ruling invokes   (guarded by name, below)
+# And it has now failed a FOURTH time, in that same underivable half. The
+# volume lane added `scripts/dry_run_fair_price_downsample.py` -- the deciding
+# instrument for a registered measurement, and by its own docstring "the only
+# permitted source of the bytes figure" -- and never added the `!` line. It was
+# absent from the image from the day it was written. What surfaced it was Joe
+# handing over the documented `flyctl ssh console` command and getting
+# `No such file or directory` back.
+#
+# **"Cannot be derived" was wrong, and that sentence is why this kept
+# happening.** It read as a fact about the problem; it was a fact about where
+# anyone had looked. Every ssh-invoked script already declares its own
+# invocation in its docstring, naming the absolute path it runs at:
+#
+#     -C "python /app/scripts/dry_run_fair_price_downsample.py"
+#
+# So the marker was in all six of them the whole time.
+# `TestTheSshInvokedScriptsSurviveDockerignore` derives this half from that
+# self-reference, and the rule is self-reference rather than mention:
+# `run_signal_test.py`, `analyze_prop_onesided.py` and
+# `read_window_gate_observations.py` all contain `/app/scripts/` while naming
+# `inspect_live_db.py`'s path, never their own. They are laptop-side and must
+# stay out.
+#
+# Both classes are now derived, and neither is maintained by hand:
+#   - scripts the entrypoint runs      (derived from `docker/entrypoint.sh`)
+#   - scripts the ssh ruling invokes   (derived from each script's own docstring)
+# The `!` lines below remain the mechanism; the tests are what keep them honest.
 scripts/*
 !scripts/run_loop.py
 !scripts/migrate_db.py
@@ -81,6 +105,7 @@ scripts/*
 !scripts/inspect_live_disk.py
 !scripts/inspect_live_proc.py
 !scripts/fetch_live_route.py
+!scripts/dry_run_fair_price_downsample.py
 
 *.md
 !README.md

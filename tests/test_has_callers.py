@@ -2172,3 +2172,100 @@ class TestTheQuoteCadenceStaysQuiet:
         assertion above would pass by finding nothing to check.
         """
         assert self._guarded_calls(), "no `if kind == \"full\":` block found"
+
+
+class TestTheSshInvokedScriptsSurviveDockerignore:
+    """The second half of the allowlist, which `.dockerignore` said could not
+    be derived.
+
+    That file carries `scripts/*` and a hand-kept `!` allowlist, and it already records
+    three failures of it. Its own conclusion was that the list has two classes:
+
+        - scripts the entrypoint runs      (guarded by derivation)
+        - scripts the ssh ruling invokes   (guarded by name, below)
+
+    "Guarded by name" is not a guard. It is a comment asking the next author to
+    remember, and on 2026-09-01 the next author did not: the volume lane added
+    `scripts/dry_run_fair_price_downsample.py`, wrote the deciding instrument
+    for a registered measurement into it, and never added the `!` line. The
+    file was absent from the image from the day it was written, and the way
+    that surfaced was Joe handing over an `flyctl ssh console` command that
+    returned `No such file or directory` -- the **fourth** failure of one
+    allowlist, in the half the existing derivation cannot reach.
+
+    It is derivable, and the marker was already there in every one of them.
+    A script that is run on the live box documents its own invocation in its
+    docstring, naming the absolute path it will be run at:
+
+        flyctl ssh console -a kalshi-cockpit \
+          -C "python /app/scripts/dry_run_fair_price_downsample.py"
+
+    **The rule is self-reference, not mention.** `scripts/run_signal_test.py`,
+    `scripts/analyze_prop_onesided.py` and
+    `scripts/read_window_gate_observations.py` all contain the string
+    `/app/scripts/` -- they are laptop-side scripts that pipe the output of
+    `inspect_live_db.py`, and they name *its* path, never their own. Requiring
+    the path to end in the file's own basename separates the two exactly, and
+    a `mention` rule would demand three files be shipped that must not be.
+    """
+
+    def _scripts_declaring_their_own_live_path(self) -> list[str]:
+        """`scripts/<name>.py` files whose text names `/app/scripts/<name>.py`.
+
+        Derived from each script, not listed here, so the next one added is
+        covered without anyone remembering to update this test -- which is the
+        entire defect being closed.
+        """
+        found: list[str] = []
+        for path in sorted((ROOT / "scripts").glob("*.py")):
+            text = path.read_text("utf-8", errors="replace")
+            if f"/app/scripts/{path.name}" in text:
+                found.append(f"scripts/{path.name}")
+        return found
+
+    def test_every_ssh_invoked_script_survives_dockerignore(self):
+        scripts = self._scripts_declaring_their_own_live_path()
+
+        # A vacuous pass reads identically to a real one, so anchor it.
+        assert scripts, (
+            "no script declares its own `/app/scripts/<name>.py` invocation. "
+            "Either the convention changed or the extractor stopped matching."
+        )
+
+        patterns = _dockerignore_patterns()
+        missing = [rel for rel in scripts if _is_ignored(rel, patterns)]
+        assert not missing, (
+            f"{missing} document being run as `/app/scripts/<name>.py` over "
+            "`flyctl ssh console`, but `.dockerignore` excludes them from the "
+            "build context, so the file will not exist on the live box. Add a "
+            "`!scripts/<name>.py` line. This has now happened four times."
+        )
+
+    def test_the_rule_is_self_reference_rather_than_mention(self):
+        """The guard on the guard.
+
+        If `_scripts_declaring_their_own_live_path` were relaxed to match any
+        `/app/scripts/` mention, it would demand three laptop-side scripts be
+        shipped into the runtime image. Naming them here pins the distinction:
+        the moment one of them starts being run on the box, this test fails and
+        forces the decision to be made deliberately.
+        """
+        derived = set(self._scripts_declaring_their_own_live_path())
+        laptop_side = {
+            "scripts/run_signal_test.py",
+            "scripts/analyze_prop_onesided.py",
+            "scripts/read_window_gate_observations.py",
+        }
+
+        for rel in laptop_side:
+            assert (ROOT / rel).exists(), f"{rel} is gone; update this test"
+            assert "/app/scripts/" in (ROOT / rel).read_text("utf-8"), (
+                f"{rel} no longer mentions /app/scripts/ at all, so it no "
+                "longer distinguishes a mention rule from a self-reference one"
+            )
+
+        assert not (derived & laptop_side), (
+            f"{derived & laptop_side} are laptop-side scripts that pipe "
+            "`inspect_live_db.py` output; they must not be required in the "
+            "runtime image"
+        )
