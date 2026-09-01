@@ -1524,11 +1524,30 @@ def create_app(
         # `OBSERVED_KALSHI_COMMENCE_OFFSET_MS` did not carry it -- so an
         # uncorrected sort genuinely reorders a mixed slate rather than merely
         # translating it.
+        # **The third key is the TICKER and may not be `edge_tenths`.** It was
+        # `-(edge_tenths or 0)` until 2026-09-01, and that is the one ordering
+        # the decision map rules out of scope: `beta = -0.141` means ranking by
+        # the Kalshi-vs-consensus gap puts the least trustworthy rows first.
+        #
+        # It was not a rare tiebreak. Both sides of a moneyline carry a
+        # byte-identical `commence_ms`, so this key decided which side of EVERY
+        # game printed first -- and the side printed first was the
+        # higher-apparent-edge one. The row renders neither `side` nor
+        # `event_title`, so a reader could not see which side they were being
+        # shown, let alone that it had been chosen for them on that quantity.
+        #
+        # The "it is only a tiebreak inside a pair, not a ranking of the
+        # screen" reading was available and is refused: a key that orders every
+        # pair orders half the comparisons anyone makes on this screen.
+        #
+        # `ticker` is deterministic, unique per row, and carries no claim --
+        # which is the whole requirement. A stable order matters here because
+        # an unstable one makes two reads of the same slate disagree.
         items.sort(
             key=lambda r: (
                 r["commence_ms"] is None,
                 r["commence_ms"] or 0,
-                -(r["edge_tenths"] or 0),
+                r["ticker"],
             )
         )
 

@@ -382,3 +382,82 @@ class TestTwoGuardsThatWereMissingUntilTheMutationRunFoundThem:
         assert k == 0 and k < expected, (k, expected)
         assert p < 0.01, f"the fixture no longer reaches the deficit case: p={p}"
         assert next(r for r in rows if r[0] == "VERDICT")[1] == "NOT ESTABLISHED"
+
+
+class TestTheGuardsAnAuditFoundMissing:
+    """`measurement-skeptic`, 2026-09-01, running its own mutations against
+    this file: deleting `not covered` from the precondition branch left all 23
+    tests green. The only fixture reaching the refusal used `cycles=1`, which
+    refuses through the `median_gap_s is None` clause instead -- so the span
+    check never fired, and this file's own docstring claimed it did.
+
+    A guard no fixture reaches is decoration, and a docstring asserting it is
+    worse than silence.
+    """
+
+    def test_a_journal_running_PAST_the_last_cycle_stamp_is_refused(
+        self, tmp_path
+    ):
+        """The discriminating case: `poll_log` is healthy and has a usable
+        median gap, so the `median_gap_s` clause does NOT fire -- only the span
+        check can refuse this. A burst after the last stamp would otherwise be
+        scored against a cycle that is hours old, land in the
+        outside-the-window bucket, and bias the test while looking like
+        evidence."""
+        db_path = _build(tmp_path, offsets_s=[2.0], cycles=200)
+        conn = db.init_db(db_path)
+        db.record_loop_failure_durably(
+            conn, db_path=db_path,
+            journal_path=tmp_path / "loop_failures.jsonl",
+            failed_ms=BASE + 400 * CYCLE_MS,        # far past the last stamp
+            pass_number=999, consecutive_failures=1,
+            error="OperationalError: database is locked", pass_kind="full",
+            exc=RuntimeError("x"),
+        )
+        conn.close()
+
+        sections = _read(db_path, "-n", "20")
+        pre = _section(sections, PRECONDITIONS)["rows"]
+        gap = next(r for r in pre if "median cycle gap" in r[0])
+        spans = next(r for r in pre if "spans the journal" in r[0])
+        assert gap[1] is not None, (
+            "the fixture no longer reaches the span check: it is refusing "
+            "through the median-gap clause instead"
+        )
+        assert spans[1] is False, spans
+        assert _section(sections, REFUSED)["row_count"] == 1
+        assert not [s for s in sections if TEST in s["title"]], (
+            "a verdict was computed on a journal poll_log does not span"
+        )
+
+    def test_the_matched_cycle_SPAN_is_reported_beside_the_offset(
+        self, tmp_path
+    ):
+        """The registration said the poller's cycle END was recorded nowhere
+        and used that to rule out any exonerating verdict. It was wrong: the
+        poller sleeps AFTER its cycle, so the gap to the next stamp bounds the
+        cycle above, from the same table.
+
+        This is the falsifying half of the measurement. Without it, a burst on
+        a cycle that finished normally -- meaning something OTHER than the
+        poller held the lock -- is indistinguishable from one on a cycle that
+        hung."""
+        db_path = _build(tmp_path, offsets_s=[2.0], cycles=200)
+        cure = _section(_read(db_path), DETAIL)
+        assert "cycle_span_s" in cure["columns"], cure["columns"]
+        assert 300.0 in cure["rows"][0], cure["rows"][0]
+
+        rows = _section(_read(db_path), TEST)["rows"]
+        labels = [r[0] for r in rows]
+        assert any("matched-cycle span, min" in x for x in labels), labels
+        assert any("matched-cycle span, median" in x for x in labels), labels
+
+    def test_the_p_value_is_not_formatted_to_a_literal_zero(self, tmp_path):
+        """It printed `0.000000` for a quantity around 5e-18 -- so the screen
+        said the p-value was zero, and every write-up quoting it had to compute
+        it somewhere else. That is how the first draft of the result document
+        got a number 22% off the instrument's own."""
+        rows = _section(_read(_build(tmp_path, offsets_s=[1.5] * 13)), TEST)["rows"]
+        p = next(r for r in rows if "binomial" in r[0])[1]
+        assert float(p) > 0.0, f"the p-value formatted to a literal zero: {p}"
+        assert "e-" in str(p), f"not in scientific notation: {p}"

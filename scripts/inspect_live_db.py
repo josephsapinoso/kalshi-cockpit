@@ -2542,6 +2542,29 @@ def _q_lock_attribution(conn: sqlite3.Connection, args) -> list[Section]:
         cap=cap,
     )
 
+    # **The poller's cycle DURATION, which the registration said was not
+    # recorded.** §4 and §7 both claimed only the cycle START exists, and used
+    # that to rule out any exonerating verdict. It is wrong, and an audit on
+    # 2026-09-01 caught it: the poller sleeps AFTER its cycle
+    # (`portfolio_poll.py`), so the gap to the NEXT stamp is
+    # `cycle_wall + 300 + overshoot` and therefore bounds the cycle above.
+    #
+    # It is the falsifying check, not a confirming one. H1 says a victim's
+    # synchronous busy-wait freezes the shared event loop, so on a cycle that
+    # produced a failure the poller cannot have committed for ~5 s and its
+    # span must run LONG. If a matched cycle instead spans the median, the
+    # poller finished normally while something else held the lock, and the
+    # attribution moves to a third party that merely happens to be
+    # phase-locked to it.
+    def _cycle_span_s(ms: Any) -> Optional[float]:
+        if not isinstance(ms, int):
+            return None
+        prior = [t for t in stamps if t <= ms]
+        if not prior:
+            return None
+        after = [t for t in stamps if t > prior[-1]]
+        return None if not after else (after[0] - prior[-1]) / 1000.0
+
     def _offset_s(ms: int) -> Optional[float]:
         prior = [s for s in stamps if s <= ms]
         return None if not prior else (ms - prior[-1]) / 1000.0
@@ -2556,7 +2579,7 @@ def _q_lock_attribution(conn: sqlite3.Connection, args) -> list[Section]:
         ),
         columns=(
             "iso", "pass_number", "consecutive_failures", "pass_kind",
-            "is_burst", "offset_s", "within_W",
+            "is_burst", "offset_s", "within_W", "cycle_span_s",
         ),
         rows=[
             (
@@ -2566,6 +2589,7 @@ def _q_lock_attribution(conn: sqlite3.Connection, args) -> list[Section]:
                 _offset_s(e["ms"]),
                 None if _offset_s(e["ms"]) is None
                 else _offset_s(e["ms"]) <= LOCK_WINDOW_S,
+                _cycle_span_s(e["ms"]),
             )
             for e in failures[:cap]
         ],
@@ -2600,6 +2624,9 @@ def _q_lock_attribution(conn: sqlite3.Connection, args) -> list[Section]:
     p_value = _binom_two_sided(k, n, p0)
     implicated = p_value < LOCK_ALPHA and k > expected
 
+    spans = [
+        v for v in (_cycle_span_s(e["ms"]) for e in bursts) if v is not None
+    ]
     verdict = "POLLER IMPLICATED" if implicated else "NOT ESTABLISHED"
 
     return [
@@ -2623,9 +2650,18 @@ def _q_lock_attribution(conn: sqlite3.Connection, args) -> list[Section]:
                 ("p0 = W / C", round(p0, 5),
                  f"C = {median_gap_s} s, the observed median cycle gap"),
                 ("expected under H0", round(expected, 3), "n * p0"),
-                ("two-sided exact binomial p", f"{p_value:.6f}",
+                ("two-sided exact binomial p", f"{p_value:.3e}",
                  "exact; a normal approximation is refused at this n"),
                 ("threshold", LOCK_ALPHA, "0.01, because this record runs many tests"),
+                ("matched-cycle span, min (s)",
+                 min(spans) if spans else None,
+                 "the poller cycle each burst landed in, bounded above by the "
+                 "gap to the next stamp"),
+                ("matched-cycle span, median (s)",
+                 sorted(spans)[len(spans) // 2] if spans else None,
+                 f"compare against the population median of {median_gap_s} s: "
+                 f"a matched cycle at the median means the poller finished "
+                 f"normally and did NOT hold the lock through the failure"),
                 ("VERDICT", verdict,
                  "POLLER IMPLICATED requires p < 0.01 AND k above expectation"),
             ],
