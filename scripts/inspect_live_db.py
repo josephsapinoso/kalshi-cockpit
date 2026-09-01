@@ -2832,6 +2832,38 @@ def _q_study_stop(conn: sqlite3.Connection, args) -> list[Section]:
             ).fetchall()
         ]
 
+    # **Which rows, not just how many.** A count says the arm is disabled; it
+    # does not say whether the cause is one genuine void the formula should
+    # tolerate or a poller gap that will recur. Those lead to different
+    # repairs, and the repair is money-touching, so the reader needs the row.
+    unreadable: list[tuple[Any, ...]] = []
+    if start_text is not None:
+        unreadable = [
+            (
+                r[0],
+                _iso(r[1]),
+                r[2],
+                "KXMVE combo" if str(r[2] or "").startswith("KXMVE") else "single",
+                r[3],
+                r[4],
+                "NULL" if r[5] is None else f"{r[5]!r}",
+                "entry price unreadable" if r[6] is None else (
+                    "fee unreadable" if r[7] is None else "result unreadable"
+                ),
+            )
+            for r in conn.execute(
+                "SELECT id, settled_ms, ticker, side, contracts, "
+                "market_result, entry_price_tenths, fee_cost_tenths "
+                "FROM venue_settlements WHERE settled_ms >= ? "
+                "AND (market_result NOT IN ('yes','no') "
+                "     OR market_result IS NULL "
+                "     OR entry_price_tenths IS NULL "
+                "     OR fee_cost_tenths IS NULL) "
+                "ORDER BY settled_ms DESC",
+                (int(start_text),),
+            ).fetchall()
+        ]
+
     return [
         Section(
             title=(
@@ -2869,6 +2901,23 @@ def _q_study_stop(conn: sqlite3.Connection, args) -> list[Section]:
             columns=("market_result", "n", "effect on the formula"),
             rows=result_mix[:args.limit],
             truncated=len(result_mix) > args.limit,
+            cap=args.limit,
+        ),
+        Section(
+            title=(
+                "study-stop: the rows that disable the formula, identified. A "
+                "count says the arm is off; only the row says whether the "
+                "cause is a genuine void the formula should tolerate or a "
+                "poller gap that will recur -- and those need different "
+                "repairs. EMPTY here with a refusal above means the refusal "
+                "came from the study never being opened."
+            ),
+            columns=(
+                "id", "settled_iso", "ticker", "kind", "side", "contracts",
+                "market_result", "what is unreadable",
+            ),
+            rows=unreadable[:args.limit],
+            truncated=len(unreadable) > args.limit,
             cap=args.limit,
         ),
     ]

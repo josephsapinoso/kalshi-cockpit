@@ -310,3 +310,83 @@ class TestTheRefusalCanBeSizedRatherThanJustNamed:
         conn.close()
         mix = self._mix(path)
         assert mix.get("NULL") == 1, mix
+
+
+class TestTheOffendingRowsAreIdentifiedAndNotJustCounted:
+    """A count tells you the arm is off. Only the row tells you whether the
+    cause is a genuine void the formula should tolerate or a poller gap that
+    will recur -- and since the repair is money-touching and Joe's, handing him
+    a number he cannot act on is not a finding.
+    """
+
+    def _rows(self, db_path: Path) -> list[list]:
+        from scripts.inspect_live_db import main
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            assert main(["study-stop", "--db", str(db_path), "--json"]) == 0
+        return json.loads(buf.getvalue())["sections"][2]["rows"]
+
+    def test_the_unreadable_row_is_named(self, tmp_path):
+        path = _build(
+            tmp_path,
+            [WIN, dict(side="yes", contracts=3, entry=250, fee=7, result="")],
+        )
+        rows = self._rows(path)
+        assert len(rows) == 1, rows
+        rendered = json.dumps(rows[0])
+        assert "result unreadable" in rendered, rendered
+        assert "3" in rendered, rendered
+
+    def test_a_readable_row_is_not_listed(self, tmp_path):
+        """If this filled up on healthy rows it would cry wolf on every read,
+        and the section would be ignored by the second look."""
+        assert self._rows(_build(tmp_path, [WIN, LOSS])) == []
+
+    def test_an_unreadable_fee_is_distinguished_from_an_unreadable_result(
+        self, tmp_path
+    ):
+        """Three different causes refuse the same formula and need three
+        different repairs. Collapsing them into 'unreadable' would send the
+        reader to the wrong one."""
+        path = _build(tmp_path, [])
+        conn = db.connect(path)
+        _settle(conn, side="yes", contracts=1, entry=100, fee=None,
+                result="yes", ms=START_MS + 5)
+        conn.commit()
+        conn.close()
+        rendered = json.dumps(self._rows(path))
+        assert "fee unreadable" in rendered, rendered
+
+    def test_a_combo_is_labelled_as_one(self, tmp_path):
+        """A KXMVE combination settling without a result is a different fact
+        from a single market doing it -- combos are the majority of the
+        record, and this repo has been wrong about them before."""
+        path = _build(tmp_path, [])
+        conn = db.connect(path)
+        conn.execute(
+            "INSERT INTO venue_settlements (ticker, event_ticker, "
+            "market_result, settled_ms, side, contracts, entry_price_tenths, "
+            "fee_cost_tenths) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            ("KXMVE-ABC", "E", "", START_MS + 9, "yes", 1, 100, 1),
+        )
+        conn.commit()
+        conn.close()
+        rendered = json.dumps(self._rows(path))
+        assert "KXMVE combo" in rendered, rendered
+
+    def test_an_empty_section_beside_a_refusal_means_the_study_never_opened(
+        self, tmp_path
+    ):
+        """The one reading that would otherwise be ambiguous, so the title
+        says it: no offending rows AND a refusal is the never-opened case,
+        not a broken query."""
+        path = _build(tmp_path, [WIN], open_study=False)
+        assert self._rows(path) == []
+
+        from scripts.inspect_live_db import main
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            main(["study-stop", "--db", str(path)])
+        assert "never being opened" in buf.getvalue()
