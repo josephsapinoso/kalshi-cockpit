@@ -15,6 +15,26 @@ What this module does not establish: anything. It is a recorder. The analysis
 (one look, at the registered stop) lives elsewhere and is embargoed until the
 stopping rule fires; the one hard rule enforced here is that the estimate-time
 quote is captured and **never returned to a caller that could render it**.
+
+Two regimes now share this table -- v32, ticket #11, 2026-09-01
+---------------------------------------------------------------
+`is_study_row = 1` is the calibration study's own record: collected under ADR
+0044's promise that its captured quote and its score would never be shown to
+the person being measured. There is exactly one such row and the promise holds,
+because at n = 1 keeping it costs nothing.
+
+`is_study_row = 0` is a **decoupled call**: Joe logging what he thinks from a
+price-free screen that says at log time it will be scored against Kalshi's
+close and read back to him. It is not tied to a bet -- the premise that it was
+turned out to be false (1 typed estimate ever, 0 hand bets through the tool's
+order path, because the Kalshi app is faster and he is already in it), and
+tying the number to a position discards nearly all of it for no gain.
+
+The score is written by `analysis.clv.score_bet_estimate_calls` into the four
+`call_*` columns and read back one row at a time by `last_scored_call` below.
+**It grades him against the market, never against the outcome**, so it measures
+disagreement with Kalshi and not correctness; it is a display and not a verdict,
+and the full statement of what it cannot establish is in those two docstrings.
 """
 
 from __future__ import annotations
@@ -142,8 +162,8 @@ def record_estimate(
             estimate_client_ms, had_already_opened_kalshi, cluster_key,
             server_yes_bid_tenths, server_yes_ask_tenths,
             server_quote_observed_ms, server_quote_unreadable_reason,
-            is_in_play, is_sports, is_multi_leg, sport
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            is_in_play, is_sports, is_multi_leg, sport, is_study_row
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             ticker,
@@ -160,6 +180,16 @@ def record_estimate(
             is_sports,
             is_multi_leg,
             sport,
+            # 0 -- a decoupled call, not a study row (v32, ticket #11).
+            #
+            # **A literal and not a parameter, deliberately.** The study is
+            # stopped and terminal (Amendment 2, 2026-08-20): there is no
+            # production reason to write a study row ever again, and a
+            # parameter would be a door into a closed regime. The column's
+            # DEFAULT is 1, so a *forgotten* value is embargoed rather than
+            # rendered -- the safe direction -- and this line is what makes
+            # the deliberate value the other one.
+            0,
         ),
     )
     conn.commit()
@@ -230,6 +260,66 @@ def recent_estimates(
         (int(limit),),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def last_scored_call(conn: sqlite3.Connection) -> Optional[dict[str, Any]]:
+    """The most recently scored decoupled call. **One, or None. Never a list.**
+
+    Ticket #11 decisions 8 and 9: logging the next call shows the last one's
+    result, where it can still change behaviour, and `/bets` is the archive.
+    The singular return is the design, not an optimisation -- decision 8 reads
+    *"one call at a time until 30 scored"*, and the reason is that **a list is
+    a scoreboard with extra steps**: five rows on one screen is an average the
+    reader computes by eye, and eye-aggregation is still aggregation. So there
+    is no `limit`, no offset and no second row to ask for.
+
+    What it cannot establish
+    ------------------------
+    The number here is Joe's stated probability minus the closing YES mid: it
+    grades him **against the market, never against the outcome**. One result
+    cannot grade a probability -- a good 58% call loses 42% of the time -- and
+    without settlements there is no way to separate "Joe has an edge" from
+    "Joe is noisy" (ADR 0037: the in-house model's own error, 4.04 points,
+    exceeded its whole disagreement with Kalshi, 3.72). It is a **display**.
+    A verdict is a separate pre-registration.
+
+    Fields, and the one that is arithmetic rather than storage:
+
+    - `stated_probability_bp` -- what he typed, in basis points.
+    - `call_clv_tenths` -- the score, in tenths of a percent. Positive means
+      he said higher than Kalshi closed.
+    - `closing_mid_tenths` -- **recovered, not read.** `stated / 10 - clv` is
+      exact, because `stated_probability_bp` is write-once (the DB trigger)
+      and `call_clv_tenths` was written once with the score. Reading it back
+      from `closing_lines` would be *wrong*: `store_closing_line` upserts, so
+      that row can move after the score was taken, and the screen would then
+      show a mid the verdict was not computed from.
+    - `is_in_play` -- decision 14. In-play calls are a different skill and
+      must never share a denominator with pre-game ones. Carried so a consumer
+      can separate them; nothing here pools, so nothing here can breach it.
+    - `is_study_row` -- always 0 by construction (the WHERE clause). Carried
+      because the embargo walker keys on it: a payload may only show a score
+      if it says out loud which regime the row belongs to.
+
+    Returns `None` when nothing has been scored yet -- not a zero, and not an
+    empty score. "No call has been graded" and "your call scored 0.0" are
+    different states and this repo has collapsed that pair before.
+    """
+    row = conn.execute(
+        "SELECT id, ticker, stated_probability_bp, estimate_server_ms, "
+        "is_in_play, is_study_row, stated_probability_is_revised, "
+        "call_clv_tenths, call_clv_horizon_hours, call_clv_scored_ms "
+        "FROM bet_estimates "
+        "WHERE call_clv_scored_ms IS NOT NULL AND is_study_row = 0 "
+        "ORDER BY call_clv_scored_ms DESC, id DESC LIMIT 1"
+    ).fetchone()
+    if row is None:
+        return None
+    call = dict(row)
+    call["closing_mid_tenths"] = (
+        call["stated_probability_bp"] / 10 - call["call_clv_tenths"]
+    )
+    return call
 
 
 def search_markets(

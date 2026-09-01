@@ -30,6 +30,20 @@ convergence. Only the **primary** horizon is scored into `clv_tenths`:
 `score_recommendations` fills in whatever is unscored, so calling it at two
 horizons would leave the column a silent mixture of both with no way to tell
 which row came from which.
+
+Two arms, one set of lines
+--------------------------
+Since 2026-09-01 the pass scores a second population against the same closing
+lines: Joe's own decoupled calls in `bet_estimates` (ticket #11), through
+`score_bet_estimate_calls`. It costs no extra fetch -- every market a call can
+be logged against is already in the closing-line set, because the digest that
+offers the call is built from the same `recommendations JOIN event_links` that
+this module's first branch walks.
+
+**What that arm cannot establish is stated in its own docstring and is not
+repeated here in a form that could drift from it.** In one line: it scores a
+stated probability against the market's close, never against the outcome, so it
+measures disagreement with Kalshi and not correctness.
 """
 
 from __future__ import annotations
@@ -44,6 +58,7 @@ from .analysis.clv import (
     DEFAULT_HORIZON_HOURS,
     ClosingLine,
     parse_candlestick,
+    score_bet_estimate_calls,
     score_recommendations,
     store_closing_line,
 )
@@ -82,6 +97,14 @@ class ScoringCounts:
     # horizon with a stored line -- a different problem from every pair
     # being skipped, and indistinguishable without this.
     rows_joined: int = 0
+    #: The decoupled-call arm (ticket #11), counted separately from the
+    #: recommendation arm on purpose. They read the same `closing_lines` rows
+    #: and write different tables, so one pooled `scored` would hide an arm
+    #: that had stopped working behind an arm that had not.
+    calls_scored: int = 0
+    calls_skipped_no_mid: int = 0
+    calls_skipped_entry_after_close: int = 0
+    calls_rows_joined: int = 0
     errors: list[str] = field(default_factory=list)
 
     # Always reported, even at zero. `scored: 0` alone cannot distinguish "the
@@ -94,6 +117,14 @@ class ScoringCounts:
         "skipped_no_mid",
         "skipped_entry_after_close",
         "rows_joined",
+        # Same argument, same four shapes, for the call arm. `calls_scored: 0`
+        # alone cannot distinguish "no call is waiting" from "every call was
+        # refused", and at n=1 in the whole record the second is the state
+        # that needs seeing.
+        "calls_scored",
+        "calls_skipped_no_mid",
+        "calls_skipped_entry_after_close",
+        "calls_rows_joined",
     )
 
     def as_dict(self) -> dict[str, Any]:
@@ -308,6 +339,30 @@ async def run_scoring_pass(
     counts.skipped_no_mid = scored.get("skipped_no_mid", 0)
     counts.skipped_entry_after_close = scored.get("skipped_entry_after_close", 0)
     counts.rows_joined = scored.get("rows_joined", 0)
+
+    # Joe's own calls, on the same lines and the same horizon (ticket #11).
+    #
+    # **This arm needs no new closing line and that is the point.** `/api/slate`
+    # is `recommendations JOIN event_links`, and `markets_awaiting_scoring`'s
+    # first branch is that same join -- so every market reachable from the
+    # window-open digest is already in the closing-line set by construction,
+    # its line fetched before a call on it could be logged. Measured on live
+    # 2026-09-01 at the 1h horizon: 136/136 WNBA, 578/604 MLB, 16/16 started
+    # NCAAF. A third UNION branch is only needed if logging is ever offered
+    # outside the slate.
+    #
+    # Primary horizon only, for the reason the line above it gives: scoring at
+    # both would make `call_clv_tenths` a mixture with no column saying which
+    # horizon produced which row.
+    calls = score_bet_estimate_calls(
+        conn, horizon_hours=primary_horizon, scored_ms=stamp
+    )
+    counts.calls_scored = calls.get("scored", 0)
+    counts.calls_skipped_no_mid = calls.get("skipped_no_mid", 0)
+    counts.calls_skipped_entry_after_close = calls.get(
+        "skipped_entry_after_close", 0
+    )
+    counts.calls_rows_joined = calls.get("rows_joined", 0)
 
     logger.info("scoring pass: %s", counts.as_dict())
     return counts

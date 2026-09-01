@@ -275,6 +275,140 @@ def score_recommendations(
     return counts
 
 
+def call_clv_tenths(stated_probability_bp: int, closing_mid_tenths: float) -> float:
+    """A decoupled call's score: what Joe said, minus where Kalshi closed.
+
+    **The unit identity, stated here so nobody re-derives it.** A Kalshi
+    contract pays $1 at settlement, so its price *is* a probability: a price in
+    tenths of a cent maps 1:1 onto a probability in tenths of a percent.
+    5800 bp = 58.00% = 580 tenths. `stated_probability_bp / 10` is therefore
+    directly comparable to a closing YES mid in tenths, with no model, no fee
+    and no position in between.
+
+    Positive means Joe said higher than the market closed. Both quantities are
+    YES-denominated, which is why no `side` argument appears and why none may
+    be added: `bet_estimates.stated_probability_bp` is P(YES) always
+    (`schema.sql`), precisely so the number can be formed before a side is
+    chosen -- and there is no side here to choose.
+
+    **This is not `clv_tenths` and must never be pooled with it.** That
+    function scores a *position*: `entry_ask_tenths` is the price actually
+    paid for the side actually taken, and its output is money per contract.
+    This one scores a *call*, has no entry price, and its output is a
+    disagreement in probability points. They share a shape and nothing else.
+
+    What it cannot establish: see this module's `score_bet_estimate_calls`.
+    """
+    return stated_probability_bp / 10 - closing_mid_tenths
+
+
+def score_bet_estimate_calls(
+    conn, *, horizon_hours: float = DEFAULT_HORIZON_HOURS,
+    scored_ms: Optional[int] = None,
+) -> dict[str, int]:
+    """Score every unscored decoupled call against Kalshi's closing mid.
+
+    Ticket #11, decisions 6 and 7: the verdict is *"you said 58%, Kalshi
+    closed 61%"*, taken **at close** rather than at settlement -- which is what
+    makes a call Joe never bet scoreable at all.
+
+    WHAT THIS CANNOT ESTABLISH, AND IT IS THE FIRST THING TO READ
+    ------------------------------------------------------------
+    Scored against Kalshi's close and **never against the outcome**, this
+    measures *disagreement with the market*. It does not measure *correctness*,
+    and no amount of it ever will.
+
+    - One outcome cannot grade a probability: a good 58% call loses 42% of the
+      time. That is why the outcome is not used, not an oversight.
+    - Without settlements there is **no way to separate "Joe has an edge" from
+      "Joe is noisy"**. ADR 0037 is the precedent and it is exact: on 255
+      settled markets the in-house model's disagreement with Kalshi had sd 3.72
+      points while the model's own error was 4.04 -- so every apparent
+      disagreement was our own noise, and the disagreement statistic alone
+      could not have told us. The same arithmetic applies here with Joe in the
+      model's chair.
+    - It is therefore a **display, not a verdict** (ADR 0065's 2026-08-29
+      amendment): `n >= 30` clustered calls is the floor at which the numbers
+      may render at all, and a verdict -- "runs hot", "too tight",
+      "well-calibrated" -- needs its own pre-registration and the shared 300
+      floor. Nothing on this path computes a mean, a rate, a streak or a
+      trend, and nothing downstream may either. (Note the module around it
+      does aggregate -- `load_observations` feeds the signal test. That is a
+      different population and this one must never join it.)
+    - In-play calls are scored and carry `is_in_play`; they are a different
+      skill and must never share a denominator with pre-game ones (decision
+      14). This function does not pool, so it cannot violate that -- any
+      consumer that pools must respect it.
+
+    The two refusals, both inherited from `score_recommendations`
+    -----------------------------------------------------------
+    1. **The call must precede the close it is scored against.** Otherwise
+       whichever way the market drifted between the two instants lands
+       directly in the number, and whether that flatters or punishes is pure
+       chance. Counted, not silently dropped.
+    2. **A missing bid or ask is `skipped_no_mid`, never a substituted
+       number.** A settled loser genuinely trades at 0, so a zero standing in
+       for "unreadable" is indistinguishable from real data.
+
+    Study rows are excluded by `is_study_row = 0`, which is the code half of
+    ADR 0044 Amendment 3: the embargo binds the study's own rows, and the one
+    row collected under the never-shown promise is never scored, so there is
+    nothing to show.
+    """
+    stamp = scored_ms if scored_ms is not None else now_ms()
+
+    rows = conn.execute(
+        "SELECT e.id, e.stated_probability_bp, e.estimate_server_ms, "
+        "c.id AS closing_id, c.observed_ms AS closing_observed_ms, "
+        "c.yes_bid_tenths, c.yes_ask_tenths "
+        "FROM bet_estimates e "
+        "JOIN closing_lines c ON c.ticker = e.ticker "
+        "WHERE e.call_clv_scored_ms IS NULL "
+        "  AND e.is_study_row = 0 "
+        "  AND c.horizon_hours = ?",
+        (horizon_hours,),
+    ).fetchall()
+
+    counts = {
+        "scored": 0,
+        "skipped_no_mid": 0,
+        "skipped_entry_after_close": 0,
+        # "the join matched nothing" and "every match was skipped" both show as
+        # scored=0 without this, and they need different fixes.
+        "rows_joined": len(rows),
+    }
+
+    for row in rows:
+        if row["estimate_server_ms"] > row["closing_observed_ms"]:
+            counts["skipped_entry_after_close"] += 1
+            continue
+        if row["yes_bid_tenths"] is None or row["yes_ask_tenths"] is None:
+            counts["skipped_no_mid"] += 1
+            continue
+        mid = (row["yes_bid_tenths"] + row["yes_ask_tenths"]) / 2
+        value = call_clv_tenths(row["stated_probability_bp"], mid)
+
+        conn.execute(
+            # The horizon is written WITH the score. Inferring it later is how
+            # the column becomes a silent mixture of two anchors, which is the
+            # failure `clv_horizon_hours` exists to prevent one table over.
+            #
+            # The registered four (`clv_tenths`, `closing_line_id`,
+            # `clv_horizon_hours`, `clv_scored_ms`) are deliberately NOT
+            # named here. They belong to a position-bearing statistic this
+            # function cannot compute.
+            "UPDATE bet_estimates SET call_clv_tenths = ?, "
+            "call_closing_line_id = ?, call_clv_scored_ms = ?, "
+            "call_clv_horizon_hours = ? WHERE id = ?",
+            (value, row["closing_id"], stamp, horizon_hours, row["id"]),
+        )
+        counts["scored"] += 1
+
+    conn.commit()
+    logger.info("call scoring at %.1fh horizon: %s", horizon_hours, counts)
+    return counts
+
+
 def load_observations(conn, *, group_by: str = "all") -> list:
     """Load scored recommendations as `validate.Observation` records.
 

@@ -237,6 +237,28 @@ class TestDerivations:
 # checked against it. `server_` catches the whole captured-quote family.
 EMBARGOED_FRAGMENTS = ("bid", "ask", "quote", "server_yes", "outcome", "clv")
 
+# ADR 0044 Amendment 3 (decision-map ticket #11, 2026-09-01): **the embargo
+# binds the study's own rows.** The single row collected under the promise that
+# its quote and its score would never be shown to Joe keeps that promise -- at
+# n = 1 it costs nothing. A **decoupled call** (`is_study_row = 0`) is collected
+# under a screen that says at log time it will be scored against Kalshi's close
+# and read back, so showing that score is the feature, not a breach.
+#
+# The exemption is these four keys and nothing else.
+#
+# **An explicit set, never a `call_` prefix rule.**
+# `call_server_yes_bid_tenths` satisfies any prefix rule and is the precise
+# leak the embargo exists to stop, so every addition here has to be a decision
+# somebody made on purpose rather than a name that happened to match.
+CALL_SCORE_KEYS = frozenset(
+    {
+        "call_clv_tenths",
+        "call_clv_horizon_hours",
+        "call_clv_scored_ms",
+        "call_closing_line_id",
+    }
+)
+
 SAFE_KEYS = {
     "id",
     "ticker",
@@ -248,13 +270,33 @@ SAFE_KEYS = {
 
 
 def _assert_embargo_holds(payload):
+    """ADR 0044's embargo, walked over one renderable payload.
+
+    **Scoped, not weakened, and the difference is checkable.** A dict that says
+    nothing about its regime is bound by the full fragment list exactly as
+    before -- `{}.get("is_study_row") == 0` is False, so every existing call
+    site keeps the assertion it had. What is new is that a dict which *declares
+    itself a decoupled call* may carry the four keys in `CALL_SCORE_KEYS`, and
+    only those.
+
+    A study row that carries a score still fails. A call row that carries the
+    captured quote still fails. `TestTheEmbargoBindsTheStudysOwnRows` holds
+    both halves.
+    """
     def walk(obj):
         if isinstance(obj, dict):
+            # The exemption is a property of THIS dict and is deliberately not
+            # inherited by its values. An inherited one would let a single
+            # `is_study_row: 0` at the top of a payload license every score
+            # anywhere beneath it, including on a study row nested inside --
+            # which is the whole thing being guarded against.
+            exempt = obj.get("is_study_row") == 0
             for key, value in obj.items():
-                for fragment in EMBARGOED_FRAGMENTS:
-                    assert fragment not in key.lower(), (
-                        f"embargoed key {key!r} reached a renderable payload"
-                    )
+                if not (exempt and key in CALL_SCORE_KEYS):
+                    for fragment in EMBARGOED_FRAGMENTS:
+                        assert fragment not in key.lower(), (
+                            f"embargoed key {key!r} reached a renderable payload"
+                        )
                 walk(value)
         elif isinstance(obj, list):
             for item in obj:
@@ -729,7 +771,20 @@ class TestTheMoneyArmOverTheApi:
         assert payload["stopped"] is False
         _assert_embargo_holds(payload)
 
-    async def test_a_fired_stop_locks_the_write_path(self, db_path):
+    async def test_a_fired_stop_no_longer_closes_the_log(self, db_path):
+        """**Inverted 2026-09-01** (ticket #11, ADR 0044 Amendment 3). It used
+        to assert a 423 and the words "logging is closed, permanently".
+
+        The arm is a *study* stop condition and it sat on the one endpoint
+        that records what Joe thinks. It never gated betting: the order path
+        has its own daily-loss switch and its own caps, and 76 of 76 settled
+        positions were placed in the Kalshi app, which this server cannot
+        reach. So the only thing it could stop was him writing a number down,
+        which costs nothing and risks nothing.
+
+        The strip keeps reading -- it is a fact about his wallet -- and the
+        write path is open beside it. That pairing is the claim.
+        """
         self._seed(db_path, loss_dollars=100.0)
         app = _app(db_path)
         strip = (await _request(app, "GET", "/api/estimates/stop")).json()
@@ -737,8 +792,45 @@ class TestTheMoneyArmOverTheApi:
         response = await _request(
             app, "POST", "/api/estimates", json=_body(), headers=AUTH
         )
+        assert response.status_code == 200
+
+    async def test_the_self_lockout_still_closes_it(self, db_path):
+        """The other door, and it is deliberately still shut.
+
+        Deleting the money arm must not read as "the log cannot be locked".
+        The self-lockout is an instruction Joe gave himself and its whole value
+        is that it does not negotiate -- so with the arm fired *and* a lockout
+        engaged, the refusal that comes back must be the lockout's.
+        """
+        self._seed(db_path, loss_dollars=100.0)
+        app = _app(db_path)
+        await _request(app, "POST", "/api/estimates/lockout", headers=AUTH)
+        response = await _request(
+            app, "POST", "/api/estimates", json=_body(), headers=AUTH
+        )
         assert response.status_code == 423
-        assert "$100.00" in response.json()["detail"]
+        assert "locked yourself out" in response.json()["detail"]
+
+    async def test_no_refusal_still_tells_him_logging_is_closed_permanently(
+        self, db_path
+    ):
+        """The copy and the condition ship together, or the screen lies in the
+        interval (the `WindowBanner` lesson).
+
+        A 423 body that still said "the study is stopped and logging is closed,
+        permanently" would be a reassurance-shaped falsehood on the one screen
+        where it decides whether he bothers.
+        """
+        self._seed(db_path, loss_dollars=100.0)
+        app = _app(db_path)
+        await _request(app, "POST", "/api/estimates/lockout", headers=AUTH)
+        detail = (
+            await _request(
+                app, "POST", "/api/estimates", json=_body(), headers=AUTH
+            )
+        ).json()["detail"]
+        assert "logging is closed" not in detail
+        assert "money arm" not in detail
 
     async def test_an_unreadable_record_does_not_lock_joe_out(self, db_path):
         # A void row makes the loss uncomputable. That must read as unknown,
@@ -826,3 +918,134 @@ class TestTheSelfLockout:
     async def test_engaging_requires_auth(self, db_path):
         response = await _request(_app(db_path), "POST", "/api/estimates/lockout")
         assert response.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# The estimate decouples from the bet -- decision-map ticket #11, 2026-09-01
+# ---------------------------------------------------------------------------
+
+
+class TestTheEmbargoBindsTheStudysOwnRows:
+    """ADR 0044 Amendment 3, as a property of `_assert_embargo_holds` itself.
+
+    The walker was rescoped rather than relaxed, and these tests are what make
+    that difference checkable instead of asserted. Two of them would go
+    silently green under a relaxed walker; that is why they are here.
+    """
+
+    def test_a_payload_that_does_not_declare_its_regime_is_bound_in_full(self):
+        """The property that leaves every pre-existing call site unchanged.
+
+        None of `/api/estimates`, `/recent`, `/markets` or `/stop` carries
+        `is_study_row`, so `.get(...) == 0` is False on each and the fragment
+        list applies exactly as it did before the rescope.
+
+        `call_clv_tenths` is in the loop and is the only member of it that
+        can see the mutation: the first version of this test listed only the
+        three study fragments, and `exempt = True` left it **green**, because
+        none of those three is in `CALL_SCORE_KEYS` and the assertion fired
+        either way. A guard that cannot see its own mutation is decoration.
+
+        Mutation observed red: default `exempt` to True.
+        """
+        for key in (
+            "server_yes_bid_tenths",
+            "clv_tenths",
+            "outcome_win",
+            "call_clv_tenths",
+        ):
+            with pytest.raises(AssertionError, match="embargoed key"):
+                _assert_embargo_holds({key: 1})
+
+    def test_a_study_row_may_not_carry_the_call_score(self):
+        """The half that would go silently green if the walker were relaxed
+        into an unconditional allowlist.
+
+        The one row in the record was collected under a promise it would never
+        be shown to him. `is_study_row = 1` is that promise in a column.
+
+        Mutation observed red: drop `exempt and` from the walker's condition.
+        """
+        with pytest.raises(AssertionError, match="embargoed key"):
+            _assert_embargo_holds({"is_study_row": 1, "call_clv_tenths": -30.0})
+
+    def test_a_call_row_may_not_carry_the_captured_quote(self):
+        """The exemption is four named keys, not a regime-wide pass.
+
+        A decoupled call is scoreable and renderable; that says nothing about
+        the estimate-time book, which is still the anchoring tripwire.
+
+        `call_server_yes_bid_tenths` is in the loop on purpose and it is the
+        one that matters: it satisfies any `call_`-prefix rule while being
+        precisely the leak the embargo exists to stop.
+
+        Mutation observed red: replace `key in CALL_SCORE_KEYS` with
+        `key.startswith("call_")`.
+        """
+        for key in (
+            "server_yes_bid_tenths",
+            "yes_ask_tenths",
+            "outcome_win",
+            "call_server_yes_bid_tenths",
+        ):
+            with pytest.raises(AssertionError, match="embargoed key"):
+                _assert_embargo_holds({"is_study_row": 0, key: 1})
+
+    def test_a_call_row_may_carry_the_four_score_keys(self):
+        """The narrow thing the rescope actually permits."""
+        _assert_embargo_holds(
+            {
+                "is_study_row": 0,
+                "call_clv_tenths": -30.0,
+                "call_clv_horizon_hours": 0.0,
+                "call_clv_scored_ms": NOW,
+                "call_closing_line_id": 7,
+            }
+        )
+
+    def test_the_exemption_is_not_inherited_by_a_nested_object(self):
+        """One declaration at the top of a payload must not license a score on
+        a study row nested inside it.
+
+        Mutation observed red: thread `exempt` down into the recursive walk.
+        """
+        with pytest.raises(AssertionError, match="embargoed key"):
+            _assert_embargo_holds(
+                {
+                    "is_study_row": 0,
+                    "call_clv_tenths": -30.0,
+                    "nested": {"is_study_row": 1, "call_clv_tenths": 5.0},
+                }
+            )
+
+
+class TestTheStudyRowFlag:
+    """v32's regime column: which promise a row was collected under."""
+
+    def test_a_new_estimate_is_a_decoupled_call_not_a_study_row(self, conn):
+        row_id = _estimate(conn)
+        row = conn.execute(
+            "SELECT is_study_row FROM bet_estimates WHERE id = ?", (row_id,)
+        ).fetchone()
+        assert row["is_study_row"] == 0
+
+    def test_a_row_written_without_the_column_defaults_to_embargoed(self, conn):
+        """The safe direction, and why the default is 1 rather than 0.
+
+        A writer that forgets produces a row this repo refuses to render -- a
+        missing feature. The other default produces a row it renders in breach
+        of a promise -- the harm. This is also exactly what the v32 ALTER does
+        to the one row already on the live volume.
+
+        Mutation observed red: `DEFAULT 0` in `schema.sql`.
+        """
+        conn.execute(
+            "INSERT INTO bet_estimates (ticker, stated_probability_bp, "
+            "estimate_server_ms, cluster_key) VALUES (?, ?, ?, ?)",
+            (TICKER, 5000, NOW, TICKER),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT is_study_row FROM bet_estimates ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert row["is_study_row"] == 1

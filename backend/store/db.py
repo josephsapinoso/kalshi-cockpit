@@ -48,7 +48,10 @@ from ..core.prices import is_valid_price
 #: in the merge window per the v23 lesson above.
 #: v30 (2026-08-30) adds `combo_orders` -- the resting bids the desk places on
 #: a combination market (ADR 0084). Also a pure new table, so also tableless.
-SCHEMA_VERSION = 31
+#: v32 (2026-09-01) adds the study/call regime flag and the decoupled call's
+#: score to `bet_estimates` -- ticket #11. A column step: the table already
+#: holds a row on the live volume and `schema.sql` alone would never reach it.
+SCHEMA_VERSION = 32
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -663,6 +666,44 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # Ticket #11: the estimate decouples from the bet. Five columns on
+    # `bet_estimates`, all nullable or defaulted, so this is metadata-only --
+    # `ALTER TABLE ADD COLUMN` does not rewrite the table, which matters
+    # against a 2.25 GB live volume opened at boot before uvicorn.
+    #
+    # **`is_study_row` defaults to 1 and that is the whole backfill.** Every
+    # row already on disk was collected under ADR 0044's promise that its
+    # captured quote and its score would never be shown to Joe; stamping them
+    # all as study rows keeps that promise without inventing a cutover instant
+    # nobody could verify afterwards. There is exactly one such row.
+    #
+    # **The four `call_*` columns are NOT the four beside them.** The
+    # registered secondary arm (`clv_tenths`, `closing_line_id`,
+    # `clv_horizon_hours`, `clv_scored_ms`) measures
+    # `clv_tenths(entry_ask, close_mid, side)`, which needs a position; the
+    # decoupled call has none. Reusing the registered columns would leave them
+    # a silent mixture of two regimes. They stay NULL, as they have always
+    # been, and `TestTheRegisteredArmIsNotReused` pins that.
+    #
+    # No `indexes`, because there is no index: the scorer's scan is over a
+    # table holding one row, and the `WHERE` it would serve
+    # (`call_clv_scored_ms IS NULL AND is_study_row = 0`) has nothing to
+    # narrow. Dropping the columns is the whole undo, so `undo_statements`
+    # stays empty -- stated rather than left blank so a future reader does not
+    # think it was forgotten.
+    32: _Migration(
+        columns=(
+            ("bet_estimates", "is_study_row", "INTEGER NOT NULL DEFAULT 1"),
+            ("bet_estimates", "call_clv_tenths", "REAL"),
+            (
+                "bet_estimates",
+                "call_closing_line_id",
+                "INTEGER REFERENCES closing_lines(id)",
+            ),
+            ("bet_estimates", "call_clv_horizon_hours", "REAL"),
+            ("bet_estimates", "call_clv_scored_ms", "INTEGER"),
+        ),
+    ),
     # The covering index on the candidate scan -- ADR 0086. The reasoning, the
     # three query plans and the size cost live beside the statement in
     # `schema.sql`; what belongs here is only why a step is needed at all.

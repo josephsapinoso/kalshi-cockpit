@@ -730,6 +730,120 @@ class TestTheConsensusSnapshotLandsOnAVolumeThatAlreadyExists:
             db.open_db(self._v27_manual_orders(tmp_path))
 
 
+class TestTheCallColumnsLandOnAVolumeThatAlreadyExists:
+    """v32 on a database that predates it -- the only case that matters.
+
+    `bet_estimates` already holds a row on the live volume, and that row was
+    collected under ADR 0044's promise that its captured quote and its score
+    would never be shown to Joe. The migration has to reach the table without
+    breaking that promise, and a FRESH fixture cannot prove it: a fresh
+    database gets `is_study_row` from `CREATE TABLE` and passes whatever the
+    migration does.
+    """
+
+    #: Spelled out rather than derived from `_MIGRATIONS[32]`, for the reason
+    #: the v28 class beside this one gives: a list read from the migration
+    #: shrinks when the migration does, so deleting a column would delete its
+    #: own expectation and the suite would stay green.
+    NEW_COLUMNS = (
+        "is_study_row",
+        "call_clv_tenths",
+        "call_closing_line_id",
+        "call_clv_horizon_hours",
+        "call_clv_scored_ms",
+    )
+
+    def test_the_step_carries_every_column_this_class_names(self):
+        """Mutation observed red: delete any column from `_MIGRATIONS[32]`."""
+        migrated = {
+            column
+            for table, column, _ in db._MIGRATIONS[32].columns
+            if table == "bet_estimates"
+        }
+        assert migrated == set(self.NEW_COLUMNS)
+
+    def _v31_estimates(self, tmp_path):
+        """A v31 volume: the columns dropped, the stamp wound back, and one
+        estimate already logged -- the study's own row."""
+        path = tmp_path / "v31.db"
+        conn = db.init_db(path)
+        # Reverse order: SQLite rewrites the stored CREATE text on each drop.
+        for column in reversed(self.NEW_COLUMNS):
+            conn.execute(f"ALTER TABLE bet_estimates DROP COLUMN {column}")
+        conn.execute(
+            "INSERT INTO bet_estimates (ticker, stated_probability_bp, "
+            "estimate_server_ms, cluster_key, server_yes_bid_tenths, "
+            "server_yes_ask_tenths) "
+            "VALUES ('KXMLBGAME-X', 6250, 1700, 'KXMLBGAME-X', 610, 650)"
+        )
+        db._set_meta(conn, "schema_version", "31")
+        conn.commit()
+        conn.close()
+        return path
+
+    def test_it_migrates_and_the_existing_estimate_keeps_its_data(self, tmp_path):
+        conn = db.init_db(self._v31_estimates(tmp_path))
+        try:
+            assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
+            columns = {
+                r[1] for r in conn.execute("PRAGMA table_info(bet_estimates)")
+            }
+            assert set(self.NEW_COLUMNS) <= columns
+
+            row = conn.execute("SELECT * FROM bet_estimates").fetchone()
+            assert row is not None, "the migration lost the one estimate ever"
+            assert row["stated_probability_bp"] == 6250
+            assert row["server_yes_bid_tenths"] == 610
+        finally:
+            conn.close()
+
+    def test_the_pre_existing_row_is_stamped_as_the_studys_own(self, tmp_path):
+        """**The direction of the default is the whole point of this test.**
+
+        Every row already on disk was collected under a promise it would never
+        be shown to him. `DEFAULT 1` keeps that promise without a backfill that
+        has to guess an instant nobody recorded; `DEFAULT 0` would silently
+        enrol the study's own row into a screen built to display scores.
+
+        Mutation observed red: `DEFAULT 0` in the migration's column decl.
+        """
+        conn = db.init_db(self._v31_estimates(tmp_path))
+        try:
+            row = conn.execute("SELECT * FROM bet_estimates").fetchone()
+            assert row["is_study_row"] == 1
+        finally:
+            conn.close()
+
+    def test_the_score_is_null_and_is_not_backfilled(self, tmp_path):
+        """Unscored is a state, not a zero. A 0.0 here would render as
+        "you agreed with Kalshi exactly", which nothing observed."""
+        conn = db.init_db(self._v31_estimates(tmp_path))
+        try:
+            row = conn.execute("SELECT * FROM bet_estimates").fetchone()
+            for column in self.NEW_COLUMNS[1:]:
+                assert row[column] is None, f"{column} was backfilled"
+        finally:
+            conn.close()
+
+    def test_migrating_twice_leaves_it_alone(self, tmp_path):
+        """`entrypoint.sh` runs this on every boot, against the one volume
+        that cannot be rebuilt."""
+        path = self._v31_estimates(tmp_path)
+        db.init_db(path).close()
+        conn = db.init_db(path)
+        try:
+            assert db.migrate(conn) == [], "a second run tried to migrate again"
+            assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
+        finally:
+            conn.close()
+
+    def test_a_v31_database_is_refused_until_it_is_migrated(self, tmp_path):
+        """The API opens read-only and cannot migrate, which is why the
+        entrypoint runs the migration before uvicorn starts."""
+        with pytest.raises(db.SchemaVersionMismatch):
+            db.open_db(self._v31_estimates(tmp_path))
+
+
 class TestPriceConstraints:
     """Prices are integer tenths in 0..1000. The database refuses anything else."""
 

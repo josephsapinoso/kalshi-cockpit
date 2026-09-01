@@ -1348,6 +1348,15 @@ CREATE TABLE IF NOT EXISTS bet_estimates (
     -- dropping rows on an outage would remove them for a reason correlated
     -- with calendar time, and therefore with sport and with betting streaks.
     retention_at_risk           INTEGER NOT NULL DEFAULT 0,
+    -- THE REGISTERED SECONDARY ARM (registration 2026-08-17 3, "Secondary:
+    -- mean CLV"). Four columns, and **nothing has ever written one of them.**
+    -- They are not spare: the registered quantity is
+    -- `clv_tenths(entry_ask_tenths, close_mid, side)` where `entry_ask_tenths`
+    -- is "the venue's own average entry price" and `side` is supplied by the
+    -- venue -- so it **requires a position**. Ticket #11's decoupled call has
+    -- no position by design, and writing a position-free number in here would
+    -- make the column a silent mixture of two regimes. That is the exact
+    -- failure `clv_horizon_hours` was added to prevent, one line down.
     closing_line_id             INTEGER REFERENCES closing_lines(id),
     clv_tenths                  REAL,
     -- Written *with* the score, never inferred later. Without it the column
@@ -1355,6 +1364,54 @@ CREATE TABLE IF NOT EXISTS bet_estimates (
     -- them biases the result in the flattering direction.
     clv_horizon_hours           REAL,
     clv_scored_ms               INTEGER,
+    -- v32 (2026-09-01, ticket 11): which regime collected this row.
+    --
+    -- 1 = the calibration study's own row, collected under ADR 0044's promise
+    -- that the captured quote and the score would never be shown to the person
+    -- being measured. 0 = a decoupled call, logged from a price-free screen
+    -- that says at log time it will be scored against Kalshi's close and read
+    -- back.
+    --
+    -- **DEFAULT 1 is the safe direction and that is why it is this way round.**
+    -- The ALTER stamps 1 on every row already on the volume -- all one of them
+    -- -- so the promise holds without a backfill that has to guess. A writer
+    -- that forgets to set it produces a row this repo refuses to render, which
+    -- is a missing feature; the other default would produce a row it renders
+    -- in breach of a promise, which is the harm.
+    --
+    -- **No `CHECK (is_study_row IN (0, 1))`, deliberately.** SQLite's
+    -- `ALTER TABLE ADD COLUMN` cannot carry a CHECK, so declaring one here
+    -- would mean a fresh database enforces an invariant the live volume does
+    -- not -- two schemas wearing one version number, which is worse than
+    -- neither enforcing it. The 0/1 domain is held by the writer
+    -- (`estimates.record_estimate` passes an int literal) and by
+    -- `TestTheStudyRowFlag`.
+    is_study_row                INTEGER NOT NULL DEFAULT 1,
+    -- THE DECOUPLED CALL'S SCORE (ticket 11 decision 6, DRAFT ADR
+    -- "the estimate decouples from the bet"). Position-free: the stated
+    -- probability against the closing YES mid, "you said 58%, Kalshi closed
+    -- 61%". Four columns mirroring the four above, and the mirroring IS the
+    -- documentation -- they are separate because they are a different regime,
+    -- not because someone wanted a fresh name.
+    --
+    -- **The unit identity that makes this legal.** A contract pays $1, so a
+    -- price in tenths of a cent maps 1:1 onto a probability in tenths of a
+    -- percent: 5800 bp = 58.00% = 580 tenths. `stated_probability_bp / 10` is
+    -- directly comparable to a closing mid in tenths, with no model and no
+    -- position in between.
+    --
+    -- **There is deliberately no `call_close_mid_tenths`.**
+    -- `stated_probability_bp` is write-once (the trigger below) and
+    -- `call_clv_tenths` is written once with the score, so the mid is
+    -- recovered exactly by `stated_probability_bp / 10 - call_clv_tenths`.
+    -- Storing it as well would be a second representation of one number,
+    -- free to disagree with the first -- the reason v8 declined a `threshold`
+    -- column beside `strike`.
+    call_clv_tenths             REAL,
+    call_closing_line_id        INTEGER REFERENCES closing_lines(id),
+    -- Written *with* the score, for the reason `clv_horizon_hours` gives.
+    call_clv_horizon_hours      REAL,
+    call_clv_scored_ms          INTEGER,
     CHECK (stated_probability_bp BETWEEN 1 AND 9999),
     CHECK (outcome_win IS NULL OR outcome_win IN (0, 1)),
     CHECK (had_already_opened_kalshi IS NULL

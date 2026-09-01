@@ -79,3 +79,35 @@ it hosted moves with the lockout's new server-side wiring (ADR 0063).
   Note the defect was latent only because `warehouse/` is not in the
   Dockerfile (live returns 503 for the dashboards); it goes live the moment a
   session runs `dbt build` locally and lifts a mart row into a document.
+
+**Amended 2026-09-01 — the estimate is no longer ONLY a ticket precondition,
+and the standalone form comes back price-free.**
+
+Decision-map ticket #11, resolved with Joe 2026-09-01. Build:
+`docs/adr/0094-the-estimate-decouples-from-the-bet.md`.
+
+- **§2's premise was measured and did not hold.** This ADR made P(YES) the
+  ticket's first field on the reasoning that a pre-bet estimate now had a
+  consumer. It does — but the ticket does not: `manual_orders` is **empty**,
+  the Buy button has been armed since 2026-08-26 and never used, and all 76
+  settled positions were placed in the Kalshi app. Joe's reason, asked
+  directly: it is faster and he is already in it. A precondition on a path
+  nobody walks collects nothing.
+- **The decision itself stands.** The ticket keeps its estimate precondition
+  and its masked ask, unchanged, for exactly the reason §2 gives: the moment
+  the ask is visible the typed number becomes the ask's number. Ticket #11
+  decision 10 is explicit that these are **two prompts with different jobs** —
+  the ticket's prevents anchoring on a live buy; the new one measures
+  judgement.
+- **§3's second bullet is superseded in the narrow sense that matters.** It
+  read *"the standalone `/estimate` form retires"* and *"nothing here scores
+  estimates against outcomes or resumes calibration"*. The form returns, as a
+  **price-free** screen reached from the Discord window-open digest, and calls
+  logged there **are** scored — against **Kalshi's close, never the outcome**,
+  which is why this is not a resumption of calibration. The stopped study's own
+  log stays terminal: those rows carry `is_study_row = 1` and are neither
+  scored nor served (ADR 0044 Amendment 3).
+- **§3's third bullet is unchanged and now binds a second surface.** No
+  aggregate below n >= 30 with the per-group view beside it, and the
+  2026-08-29 amendment above governs what the 30 buys: a **display**, never a
+  verdict. One call at a time.
