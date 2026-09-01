@@ -84,6 +84,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from backend.config import (  # noqa: E402
+    FairPriceDownsampleConfig,
     GateConfig,
     KalshiConfig,
     MarketResultConfig,
@@ -138,7 +139,7 @@ from backend.gate import (  # noqa: E402
 from backend.market_results import run_market_result_pass  # noqa: E402
 from backend.scoring import run_scoring_pass  # noqa: E402
 from backend.settlement import run_settlement_pass  # noqa: E402
-from backend.store import db  # noqa: E402
+from backend.store import db, volume  # noqa: E402
 
 
 #: Cap on the per-pass RSS log, and the tail kept when it is hit. At the quote
@@ -722,6 +723,17 @@ async def main() -> int:
     # be 96 identical ERROR lines a day -- the exact failure the pass itself was
     # just fixed for. It cannot raise; see `MarketResultConfig`.
     market_result_config = MarketResultConfig.load()
+    # The `fair_prices` downsample's switch, read once at startup like every
+    # other config above. **Both of its defaults refuse**, so the shipped state
+    # is that this object exists, is passed on every full pass, and deletes
+    # nothing -- which is the state a flag should be in before it has ever been
+    # measured. Arming it is two independent environment edits plus an ADR; see
+    # `docs/measurements/2026-09-01-preregistration-fair-prices-downsample.md`.
+    #
+    # Passed rather than left `None` on purpose: a rule wired up and refusing is
+    # a rule that can be *observed* refusing, and this project's most repeated
+    # defect is a module that was complete, tested and called by nothing.
+    downsample_config = FairPriceDownsampleConfig.load()
     suppression = SuppressionConfig()
 
     # The on-demand refresh inbox, and this process's watermark into it.
@@ -1123,6 +1135,29 @@ async def main() -> int:
                 now_ms=stamp,
                 remaining_today=budget.state(stamp).remaining_today,
             )
+            # **The volume alarm, on the same per-pass cadence and for the
+            # same reason the other two are here**: a disk fills at a moment,
+            # not at a cadence, and the dedupe lives in `notifications`.
+            #
+            # The root is the database's own directory rather than a hardcoded
+            # `/data`, so demo, dev and live each measure the filesystem they
+            # would actually hit `ENOSPC` on. On Windows there is no
+            # `os.statvfs` at all and `read_volume` returns `None`, which
+            # `check_volume` treats as UNKNOWN rather than as zero free.
+            #
+            # **Deliberately NOT added to `record_pass_rss` above.** The
+            # obvious second home for a free-byte reading is the per-pass JSON
+            # line, and §10 of `docs/measurements/2026-09-01-the-volume-clock.md`
+            # is why it must not go there: `RSS_LOG_KEEP_LINES` x the observed
+            # line width already exceeds `RSS_LOG_CAP_BYTES` by 1.25x, so from
+            # ~2026-09-04 that file rewrites itself every pass. Widening the
+            # line makes the thrash worse -- on the volume this alarm is about.
+            # The durable record is `notifications.detail`, which carries the
+            # byte count on every tier claim and costs one row per tier per day.
+            await alerter.check_volume(
+                now_ms=stamp,
+                reading=volume.read_volume(str(Path(args.db).resolve().parent)),
+            )
             # **Not gated on a full pass, and NOT on every pass either.**
             #
             # Every pass was the first design and it was wrong on cost, not on
@@ -1322,6 +1357,7 @@ async def main() -> int:
                     # *then* prunes, so a full pass that opens a window prunes
                     # inside the first ~40-94s of it, every time.
                     window_open=lambda: window_now().is_open,
+                    downsample=downsample_config,
                 )
             else:
                 # Kalshi, plus the odds refresh that keeps an already-open

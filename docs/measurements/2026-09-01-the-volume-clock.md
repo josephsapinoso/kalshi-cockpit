@@ -378,19 +378,68 @@ An earlier version of this section labelled the 44.4-hour file total "the
 measured 162 MB/day"; over 44.4 hours it is 94.7 MB/day, which is the artifact,
 not the headline. **This section is a composition. §3 is the rate.**
 
-As shares of the +181,645,312 organic bytes:
+### The denominator of every share below, named because it has been misread
+
+**The denominator is `181,645,312` bytes: organic file growth over the
+44.4-hour composition window** — the file total `+340,824,064` less the v31
+`idx_odds_sport_commence` build of `+159,178,752`. It is a **byte total over
+that window**. It is **not** a per-day rate, it is **not** the headline
+161.40 MB/day, and it shares no endpoint with the 24-hour window §3 measures.
+
+Written out because the arithmetic invites exactly one wrong move: `fair_prices`
+grew `+116,903,936` bytes, `116.9 / 161.40 = 72.4%`, and 72.4% is not 64.4%.
+**Neither number is wrong; the division is.** It divides a **44.4-hour total**
+by a **24-hour rate**, which is a category error and not a discrepancy — the
+same shape as §3's pooled artifact, in a third costume. There is no free-list
+reuse hiding in the gap either, and that can be shown rather than asserted: the
+free list is itself one of the rows, at `+72,031,200`, and the five shares sum
+to 100.0%. The composition is an exact accounting identity over one window.
+
+**What a reader sizing a retention rule should carry is 103.9 MB/day**, and
+here is the whole derivation, in one place, so nobody re-derives it wrong:
 
 ```
-  fair_prices                +64.4%
+  fair_prices share of organic bytes   116,903,936 / 181,645,312  =  64.4%
+  headline rate (§3, clean 24 h)                                     161.40 MB/day
+  fair_prices, if the share holds      0.644 x 161.40             =  103.9 MB/day
+```
+
+The middle line is an **assumption, not a measurement**: it holds only if the
+composition is the same in the 24-hour window as in the 44.4-hour one, and
+nothing here shows that. The consistency check is that the direct route agrees.
+`116,903,936` over 1.85 days is `63.2 MB/day` — but that window is §3's pooled
+artifact, understating by `161.40 / 98.2 = 1.644`, and `63.2 x 1.644 = 103.9`.
+Two routes, one number, and both of them are the same `n = 1`.
+
+**Do not read 117 MB/day anywhere.** It is the 44.4-hour total wearing a
+per-day label.
+
+As shares of the +181,645,312 organic bytes over the 44.4-hour window:
+
+```
+  fair_prices                +64.4%    116,903,936 / 181,645,312
   free list                  +39.7%    pages freed and not yet reused
   quote family               -46.3%    kalshi_quotes + idx_quotes_ticker_time
   odds family                +13.9%    excluding the new index
   residual                   +28.4%    two unmeasured fair_prices indexes
+                             ------
+                            +100.0%    an identity, not a corroboration
 ```
+
+**One loose end, recorded rather than repaired.** The window is stated as
+44.4 ± 1.0 hours, but the baseline is pinned to 2026-08-30T21:14:29Z–23:10:29Z
+and the live read was taken at ~2026-09-01T16:30–16:40Z, which is
+**42.5 ± 1.0 hours**. Nothing above moves: every share is a ratio of two byte
+totals over the same window, and the recommended 103.9 MB/day is share x
+headline rate, so the window's length does not enter either. The 4.5% would
+only matter to a per-day figure taken *inside* this section, and this section
+deliberately publishes none.
 
 Two readings, and the second is the one that could move the clock on its own:
 
-1. **`fair_prices` is the growth.** It is 64.4% of organic bytes by itself, it
+1. **`fair_prices` is the growth.** It is 64.4% of organic bytes by itself
+   (over the 44.4-hour window — read the denominator note above before
+   multiplying that by anything), it
    has **no retention rule**, and with `idx_fair_link` +
    `idx_fair_market_computed` its family is 899,887,104 bytes — **37.3% of the
    file**. `backend/store/retention.py` does mention it, at `:43` (*"`fair_prices`
@@ -443,7 +492,12 @@ not driven by anything in this repo — it is driven by the sports calendar.
   and the postseason follows it. Nothing in the calendar subtracts before the
   volume fills. This is the one input here not read off an instrument.
 - **`fair_prices` is written per pass against a slate.** More fixtures, more
-  books and more markets multiply the term that is already 68 MB/day.
+  books and more markets multiply the term that is already **103.9 MB/day** —
+  64.4% of the headline rate, derived in §5. **That figure read 68 MB/day
+  until 2026-09-01 and was wrong**: it was the same 64.4% applied to the
+  pooled 105.78 MB/day, which §3 labels an artifact and §5 forbids dividing by.
+  Applying a share measured over one window to a rate refused by the document
+  is a way of importing an artifact through a multiplication.
 
 What would move it the other way: a retention rule on `fair_prices`, a
 `VACUUM` (§7), or an extend. None of the three is a code change this lane

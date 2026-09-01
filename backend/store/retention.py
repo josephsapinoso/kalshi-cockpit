@@ -53,6 +53,18 @@ What this does NOT do
 - **It does not bound the tables it does not name.** `odds_snapshots` was
   33.6 MiB and growing slowly when this was written; it is deliberately out of
   scope rather than forgotten.
+- **`fair_prices` is not bounded here, and until 2026-09-01 it was not named
+  here either.** That was worse than an oversight: the table is mentioned at
+  `:43` of this docstring, three lines above this list, so it was in the
+  author's hand while the exclusions were being written and still got neither a
+  rule nor an exclusion. It reached **646,230,016 bytes** and ~64% of the
+  volume's organic growth
+  (`docs/measurements/2026-09-01-the-volume-clock.md`). A rule for it now
+  exists in `backend/store/fair_price_downsample.py`, registered in
+  `docs/measurements/2026-09-01-preregistration-fair-prices-downsample.md` and
+  **shipped off**. It is a separate module rather than a fourth prune here
+  precisely so that the registered cut and this file's unregistered ones cannot
+  be edited as if they were the same kind of thing.
 - **It does not make the retention window a claim about the record's value.**
   The window is set by what the readers reach, not by how long a quote is
   interesting. If a future reader wants older history, it must raise the

@@ -48,6 +48,14 @@ COLOUR_FAILURE = 0xAA0000       # --accent
 #: showing a number is transparency, ranking or colouring by it is a claim.
 COLOUR_PARLAY = 0xB3995D
 
+#: The WAL reserve `volume_filling` quotes, in decimal MB. Spelled here rather
+#: than imported from `backend.store.volume` because this module is the
+#: transport and deliberately imports no policy -- the same separation
+#: `notify/alerts.py` keeps by re-declaring the failure titles. It is one
+#: number, in one sentence, and `tests/test_volume_alarm.py` pins it equal to
+#: `volume.WAL_RESERVE_BYTES` so the two spellings cannot drift.
+WAL_RESERVE_MB = 184.04
+
 
 @dataclass(frozen=True)
 class DiscordConfig:
@@ -592,6 +600,50 @@ class DiscordNotifier:
             f"${actual:.2f}.\n\nThe fee model is wrong, so every EV figure is "
             f"wrong by an unknown amount. Do not place further orders until "
             f"`core/fees.py` is reconciled against real fills.",
+        )
+
+    async def volume_filling(
+        self,
+        title: str,
+        *,
+        free_bytes: int,
+        days: float,
+        days_net_of_wal: float,
+        guidance: str,
+    ) -> bool:
+        """The volume is running out and only a laptop can fix it.
+
+        **The repair is named in the message, because there is no other way to
+        make it.** `auto_extend_size_limit = "5GB"` has been reached
+        (`fly.live.toml:607`), so the net that caught the 2026-08-16 incident
+        cannot fire again; past the last byte this is `ENOSPC`, which is a hard
+        down a restart does not clear. Nothing in this process can extend a
+        Fly volume. An alert that only says "disk is low" would be a
+        notification about a problem with no stated remedy, on a phone, from
+        someone who is away.
+
+        **Two day-figures, not one**, and the smaller is the real one. §4 of
+        `docs/measurements/2026-09-01-the-volume-clock.md` reserves 184.04 MB
+        because the WAL reached 179,731 KiB during the measured burst -- so the
+        last ~184 MB of free space is not available to `cockpit.db` at all. The
+        raw figure is printed beside it so the two can be reconciled against
+        `scripts/inspect_live_disk.py`, which reports raw free space.
+
+        The `n = 1 day` caveat is in the footer rather than the body on purpose:
+        it changes how much to trust the number, not what to do about it, and
+        the thing to do about it is the same at every tier.
+        """
+        return await self.failure(
+            title,
+            f"**{free_bytes / 1_000_000:,.0f} MB free** on `/data` — about "
+            f"**{days_net_of_wal:.1f} days** of recording left once the "
+            f"{WAL_RESERVE_MB:.0f} MB a burst's WAL needs is set aside "
+            f"({days:.1f} days on raw free space).\n\n"
+            f"{guidance}\n\n"
+            f"The fix is `fly volumes extend <id> -s <GB> -a kalshi-cockpit` "
+            f"from a laptop — auto-extend is already at its 5 GB limit and "
+            f"cannot fire again, so past the last byte this is ENOSPC, and "
+            f"ENOSPC is a hard down that a restart does not clear.",
         )
 
 

@@ -59,6 +59,7 @@ from typing import Any, Mapping, Optional, Sequence
 
 from .. import gate
 from ..gate import POPULATIONS
+from ..store import volume
 
 logger = logging.getLogger(__name__)
 
@@ -86,13 +87,55 @@ FAILURE_API_UNREACHABLE = "Cockpit API unreachable"
 # kind that appears nowhere on the phone.
 FAILURE_FEE_MISMATCH = "Fee model mismatch — stop the line"
 
+# The volume alarm, one kind per tier. **Three kinds rather than one kind with
+# a tier in the detail**, and the dedupe key is why: `_failure` keys on
+# `kind:day`, so a single kind would send the first tier crossed and then go
+# silent for the rest of the day -- including the day free space crosses from
+# "a week left" to "one burst left". Escalation has to be able to speak.
+#
+# The reverse direction is deliberately quiet: an extend that takes free space
+# back above a threshold sends nothing, because the repair is the news and the
+# person who made it already knows.
+FAILURE_VOLUME_NOTICE = "Volume is filling"
+FAILURE_VOLUME_ACT = "Volume needs an extend this week"
+FAILURE_VOLUME_CRITICAL = "Volume is nearly full — extend now"
+
 FAILURE_KINDS = (
     FAILURE_LOOP_DIED,
     FAILURE_FEED_DIED,
     FAILURE_CREDITS_EXHAUSTED,
     FAILURE_API_UNREACHABLE,
     FAILURE_FEE_MISMATCH,
+    FAILURE_VOLUME_NOTICE,
+    FAILURE_VOLUME_ACT,
+    FAILURE_VOLUME_CRITICAL,
 )
+
+#: Tier -> (failure kind, what to do about it). The guidance is per-tier because
+#: the *urgency* differs even though the repair does not: every tier ends in the
+#: same `fly volumes extend`, and saying so at the notice tier is what makes the
+#: critical tier believable when it arrives.
+VOLUME_TIER_ALERTS: dict[str, tuple[str, str]] = {
+    volume.TIER_NOTICE: (
+        FAILURE_VOLUME_NOTICE,
+        "Nothing is broken and nothing needs doing today. This is the tier "
+        "that assumes you are away from a laptop: it leaves about a week "
+        "before the next one.",
+    ),
+    volume.TIER_ACT: (
+        FAILURE_VOLUME_ACT,
+        "Extend it the next time you are at a laptop, and do not let a "
+        "weekend pass. The measured rate is a floor rather than a centre — "
+        "NCAAF and NFL widen the feed with no config change, and an NFL "
+        "Sunday is a ~10-hour in-play window against MLB's ~4.",
+    ),
+    volume.TIER_CRITICAL: (
+        FAILURE_VOLUME_CRITICAL,
+        "Stop and do this now. Four hours of in-play carried 99.51% of the "
+        "measured day and the largest single hour took 53.9 MiB, so one "
+        "evening slate can take what is left.",
+    ),
+}
 
 
 #: How many **change-alert** pushes one budget day may carry, across all rungs.
@@ -1113,6 +1156,63 @@ class Alerter:
             FAILURE_FEE_MISMATCH,
             lambda: self.notifier.fee_mismatch(ticker, predicted, actual),
             detail=f"{ticker} {predicted:.2f} vs {actual:.2f}",
+            now_ms=now_ms,
+        )
+
+    async def check_volume(
+        self, *, now_ms: int, reading: Optional[volume.VolumeReading]
+    ) -> Optional[bool]:
+        """Alert when free space on `/data` crosses a tier. Never deletes anything.
+
+        **This is the alert whose repair is not on this box.** Every other
+        failure here is something the loop can recover from or wait out; a full
+        volume is `ENOSPC`, `auto_extend_size_limit` is already at its 5 GB
+        ceiling, and the fix is `fly volumes extend` from a laptop. So the alert
+        *is* the intervention, and there is nothing to do but say so early.
+
+        **It fires on the reading, never on a projected date**, and the reason
+        is the projection's own `n = 1`. See `backend/store/volume.py`; the
+        thresholds are byte levels with their days-of-headroom written beside
+        them, so if the rate is wrong the tier still fires where it says it
+        does and only the English is off.
+
+        **`reading is None` means the volume could not be read, and that is
+        neither healthy nor critical.** It returns `None` -- no claim -- and
+        logs at WARNING. It deliberately does not send: an unreadable
+        `statvfs` is the normal state on the laptop this is developed on
+        (Windows has no `statvfs` at all), and a channel that buzzes on every
+        developer run is a channel that gets muted. What it must never do is
+        substitute `0`, which is the loudest tier and would make a blind alarm
+        indistinguishable from a working one. `volume.classify` raises rather
+        than accept `None`, so this branch cannot be forgotten.
+
+        **The tier does not fall.** An extend that lifts free space back over a
+        threshold sends nothing: the repair is the news, and the person who made
+        it already knows. The consequence to know is that the day's `notice`
+        claim stays burned -- crossing back down the same day is silent at that
+        tier, though the two louder ones still speak.
+        """
+        if reading is None:
+            logger.warning(
+                "volume: free space on /data is UNKNOWN this pass, which is "
+                "not the same as healthy; no tier was claimed."
+            )
+            return None
+        tier = volume.classify(reading.free_bytes)
+        alert = VOLUME_TIER_ALERTS.get(tier)
+        if alert is None:
+            return None
+        kind, guidance = alert
+        return await self._failure(
+            kind,
+            lambda: self.notifier.volume_filling(
+                kind,
+                free_bytes=reading.free_bytes,
+                days=reading.days_of_headroom,
+                days_net_of_wal=reading.days_of_headroom_net_of_wal,
+                guidance=guidance,
+            ),
+            detail=f"{reading.free_bytes} bytes free on {reading.root}",
             now_ms=now_ms,
         )
 

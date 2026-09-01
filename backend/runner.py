@@ -135,7 +135,7 @@ from .odds.timing import (
     SweepSlot,
     decide_sweeps,
 )
-from .store import db, retention
+from .store import db, fair_price_downsample, retention
 from .store.db import ask_for_side, now_ms
 from .settlement import daily_realised_pnl_dollars, open_position_dollars
 from .store.orders import ORDERS_ARE_DRY_RUNS, current_exposure_dollars
@@ -358,6 +358,14 @@ class PassCounts:
     # drain is not wired up, the other that it has finished. Delete this field
     # with `LEGACY_UNMATCHED_TABLE` when the table is gone.
     legacy_unmatched_pruned: int = 0
+    # Rows the `fair_prices` downsample removed. **Zero on every deployed pass
+    # today, and reported anyway**, for exactly the reason the three fields
+    # above are: a rule that is off and a rule that is not wired up produce the
+    # same silence, and this one deletes from the largest table in the system.
+    # See `backend/store/fair_price_downsample.py` and the registration it
+    # implements. The dry run reports through the log, not through here, because
+    # a count of rows it did NOT delete would read as a count of rows it did.
+    fair_prices_downsampled: int = 0
     # Rows `store_quotes_from_discovery` actually inserted, against
     # `markets_quoted` which counts markets carrying a readable quote. Equal
     # before ADR 0055 and deliberately reported separately after it: the ratio
@@ -449,6 +457,7 @@ class PassCounts:
         "quotes_pruned",
         "unmatched_pruned",
         "legacy_unmatched_pruned",
+        "fair_prices_downsampled",
         "quote_rows_written",
         # Reported on every pass, at every value, including `None`. The whole
         # point of the field is that "full" is unremarkable on one cadence and
@@ -3048,6 +3057,7 @@ async def run_once(
     suppression: Optional[SuppressionConfig] = None,
     now: Optional[int] = None,
     window_open: bool | Callable[[], bool] = False,
+    downsample=None,
 ) -> PassCounts:
     """One full pass: ingest, then price. The unit the scheduler repeats.
 
@@ -3086,6 +3096,21 @@ async def run_once(
         pruned = retention.PruneResult()
     else:
         pruned = retention.prune(conn, now=stamp)
+        # **The `fair_prices` downsample, behind the same window guard and for
+        # the same reasons.** It competes for the same write lock and it ranks
+        # three window functions over a 646 MB table, so it is strictly more
+        # expensive than the prune above -- there is no reading under which it
+        # is safe inside a bettable minute if the prune is not.
+        #
+        # `downsample is None` means no configuration was threaded through,
+        # which is the state every test and every non-loop caller is in. It is
+        # NOT read as "off": `run` refuses on the config's own two flags, and
+        # both of them default to refusing, so a caller that forgets to pass
+        # one deletes nothing either way. Two independent refusals.
+        if downsample is not None:
+            counts.fair_prices_downsampled = fair_price_downsample.run(
+                conn, now=stamp, config=downsample
+            )
     counts.quotes_pruned = pruned.quotes_deleted
     counts.unmatched_pruned = pruned.unmatched_deleted
     counts.legacy_unmatched_pruned = pruned.legacy_unmatched_deleted
