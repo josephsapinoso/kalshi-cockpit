@@ -323,6 +323,39 @@ and was really 20.
   bankroll" are true. Recommended a two-chip answer that was not in the
   original option list.
 
+### The decision map: #11 resolved, and it is a build now
+
+Joe invoked `/wayfinder` and we ran **#11 "Do you want your own guesses read
+back to you"** to a resolution. **The ticket's premise was false**, which is the
+part to carry: there is **one** typed estimate in the database, ever, and
+**zero** hand bets have ever gone through the tool's order path. Joe's reason,
+asked directly: the Kalshi app is faster and he is already in it.
+
+The decision, in one line: **the estimate decouples from the bet** — a call is
+logged from a price-free screen off the window-open digest, scored **at close**
+as "you said 58%, Kalshi closed 61%", never with the outcome, one at a time
+until 30. Full reasoning on the ticket; the map's Decisions-so-far indexes it.
+
+**Four builds fall out of it, and the third is a blocker:**
+
+1. **Amend ADR 0044** — the embargo binds the **study's own rows only**, and the
+   $100 money arm stops gating `POST /api/estimates`. It never gated betting;
+   all it can stop is Joe writing down what he thinks. The self-lockout stays.
+2. **Amend ADR 0065** — the estimate is no longer *only* a ticket precondition;
+   the standalone form returns, price-free. The ticket's own mask is untouched.
+3. **`bet_estimates` is not in the closing-line scoring set.** `markets_awaiting_
+   scoring` unions `recommendations` and `venue_settlements` only, so a call on a
+   market he passed on — the case the whole feature is for — would score
+   **never**. A third branch is required. And that function's own docstring warns
+   *"most hand-bet tickers refuse right there"*, which is why the resolution
+   refuses unscoreable markets at log time rather than logging them ungraded.
+4. **Read the $100 arm's current value on live before building any of it** — it
+   may already have fired, in which case logging is already closed.
+
+**Unmeasured and it decides whether the feature is worth building:** the share
+of markets the desk cannot link. If it is high, the log screen is mostly a wall
+of "cannot score this". Filed as fog on the map.
+
 ### Still open
 
 1. **Register the forward lock instrument** before the next burst — §7 of the
