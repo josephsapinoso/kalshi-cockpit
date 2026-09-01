@@ -75,6 +75,19 @@ COPY backend/ ./backend/
 # that grows the evidence record is missing from the filesystem.
 COPY scripts/ ./scripts/
 
+# **The documents a shipped script OPENS at runtime**, which is a second thing
+# from `scripts/` itself. `dry_run_fair_price_downsample.py` reproduces numbered
+# sections of its own registration verbatim in every run, so the document is a
+# runtime dependency of the instrument rather than documentation sitting nearby.
+#
+# There are TWO allowlists here and they are independent: `.dockerignore`
+# decides what reaches the build context, and the `COPY` lines decide what
+# reaches the image. Negating `docs/` in the first one changes nothing on its
+# own, because no `COPY` names `docs/` at all -- which is how this file was
+# still absent after a deploy that had "fixed" it. `docs/` stays excluded
+# wholesale; only the named files are copied.
+COPY docs/measurements/2026-09-01-preregistration-fair-prices-downsample.md ./docs/measurements/
+
 # The standalone output ships its own minimal node_modules; static/ and public/
 # are not traced into it and must be copied alongside.
 COPY --from=frontend /build/.next/standalone ./frontend/

@@ -2357,6 +2357,39 @@ class TestShippedScriptsCanReadTheFilesTheyOpen:
             if not _is_ignored(f"scripts/{path.name}", patterns)
         ]
 
+    def _copied_sources(self) -> list[str]:
+        """Build-context paths named by a `COPY` in the Dockerfile.
+
+        The second allowlist. `.dockerignore` decides what reaches the build
+        context; these decide what reaches the image, and they are independent
+        -- a file can pass the first and still never be copied. `--from=` stages
+        are skipped: they copy out of an earlier build stage, not out of the
+        repo.
+        """
+        found: list[str] = []
+        for raw in (ROOT / "Dockerfile").read_text("utf-8").splitlines():
+            stripped = raw.strip()
+            if not stripped.upper().startswith("COPY "):
+                continue
+            parts = stripped.split()[1:]
+            if any(part.startswith("--from=") for part in parts):
+                continue
+            parts = [part for part in parts if not part.startswith("--")]
+            # The last token is the destination; everything before it is source.
+            found.extend(parts[:-1])
+        return found
+
+    def _is_copied(self, rel: str) -> bool:
+        """Whether some `COPY` source covers this repo-relative path."""
+        for src in self._copied_sources():
+            src = src.rstrip("/")
+            if src in (".", "./"):
+                return True
+            src = src[2:] if src.startswith("./") else src
+            if rel == src or rel.startswith(src + "/"):
+                return True
+        return False
+
     def test_every_file_a_shipped_script_opens_survives_dockerignore(self):
         patterns = _dockerignore_patterns()
         shipped = self._shipped_scripts()
@@ -2372,7 +2405,9 @@ class TestShippedScriptsCanReadTheFilesTheyOpen:
                 if not (ROOT / rel).exists():
                     continue  # a path it writes, or builds conditionally
                 if _is_ignored(rel, patterns):
-                    missing.append(f"{path.name} -> {rel}")
+                    missing.append(f"{path.name} -> {rel} (.dockerignore)")
+                elif not self._is_copied(rel):
+                    missing.append(f"{path.name} -> {rel} (no COPY)")
 
         assert checked, (
             "no `Path(__file__)...parents[1] / ...` read found in any shipped "
@@ -2381,7 +2416,11 @@ class TestShippedScriptsCanReadTheFilesTheyOpen:
         )
         assert not missing, (
             f"{missing} are opened at runtime by a script that IS in the "
-            "image, but .dockerignore keeps the file itself out, so the "
+            "image, but the file itself does not reach the image, so the "
             "script crashes on the live box the first time anyone runs it. "
-            "Add a `!` line for the file."
+            "There are TWO independent allowlists and the tag says which one "
+            "refused: `.dockerignore` decides what reaches the build context "
+            "(fix with a `!` line), and the Dockerfile's `COPY` lines decide "
+            "what reaches the image (fix by naming the file in a COPY). "
+            "Passing one and failing the other still produces an absent file."
         )
