@@ -54,6 +54,40 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-01 - Adding a SHAPE to a shared artifact is a wider change than adding a field
+
+A third line shape (`kind: "rollback"`) was appended to `loop_failures.jsonl`.
+Every reader was updated, every test in the two files that own the journal was
+updated, and CI went red on a third file nobody had opened:
+`test_the_journal_survives_even_when_the_database_is_gone` asserted
+`len(lines) == 2` and read `lines[1]`.
+
+The behaviour it names -- the journal surviving a database that refuses
+everything -- was intact. It broke on the *count*.
+
+**The grep that would have caught it had already been run, at the start of the
+same session, for a different reason.** `grep -rln loop_failures.jsonl tests/`
+returns five files in one second. It was run to find READERS of the artifact,
+before the shape existed; it was never re-run after the shape was added, and
+the targeted test selection was chosen from "files I edited" instead.
+
+**Pattern: adding a field to a record is local; adding a KIND of record is not.
+Every consumer that counts, indexes, or slices the artifact positionally is a
+caller, even though none of them names the new field. Re-run the artifact grep
+AFTER the shape lands, not before -- and select the test set from the artifact,
+not from the diff.**
+
+The secondary lesson is about the fix rather than the break: the assertion was
+positional (`lines[1]`), which is the same defect that let three section tests
+pass against the wrong section earlier the same day. It now addresses lines by
+`kind`, so the next shape added breaks nothing.
+
+And the timing is its own note. The local whole-suite run had been retired that
+hour, correctly -- CI runs it free on every push. What did not survive contact
+was the half of the workflow that replaces it: **a targeted local run is a
+guess about blast radius, so the push is not done until CI is green.** Retiring
+the local suite is only safe if checking CI is treated as part of shipping.
+
 ## 2026-09-01 - A registration's "what we cannot measure" list is a claim, and getting it wrong retires the falsifying test
 
 The lock-holder registration said, in two places, that the poller's cycle END
@@ -2670,6 +2704,7 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-09-01 — in this file, above
+- Adding a SHAPE to a shared artifact is a wider change than adding a field
 - A registration's "what we cannot measure" list is a claim, and getting it wrong retires the falsifying test
 - A subagent with Bash mutates the tree you are committing from
 - Check a ticket against the tree before scheduling it

@@ -295,9 +295,26 @@ class TestTheDurableRecorderSurvivesThePoison:
             error="anything",
         )
         assert outcome == "journal_only"
-        lines = journal.read_text(encoding="utf-8").splitlines()
-        assert len(lines) == 2  # the failure, then the diagnosis
-        assert "refuses writes" in json.loads(lines[1])["diagnosis"]
+        entries = [
+            json.loads(line)
+            for line in journal.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        # **Addressed by `kind`, not by position.** This read `lines[1]` and
+        # asserted a length of exactly 2 until 2026-09-01, when the writer
+        # gained a third shape (`kind: "rollback"`, recording what the cure
+        # attempt found) and this test broke on the count while the behaviour
+        # it names was intact. A positional read of an append-only log asserts
+        # the log's shape, which is not what this test is about -- it is about
+        # the journal surviving a database that refuses everything.
+        kinds = [e.get("kind") for e in entries]
+        assert kinds == ["failure", "rollback", "diagnosis"], kinds
+        diagnosis = next(e for e in entries if e.get("kind") == "diagnosis")
+        assert "a fresh connection was refused too" in diagnosis["diagnosis"]
+        assert "NOT excluded as the holder" in diagnosis["diagnosis"], (
+            "the closed connection would not roll back, so the diagnosis may "
+            "not claim the database itself is the one refusing"
+        )
 
     def test_the_traceback_reaches_the_journal(self, loop_db, tmp_path):
         path, conn = loop_db
