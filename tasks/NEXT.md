@@ -45,7 +45,18 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline: 5,243 passed / 10 xfailed in 11:54** on `a31d12c`, collected
+**Test baseline: 5,474 passed / 10 xfailed in 18:49**, collected 2026-09-01
+with **no code or test file edited after the run started** (documentation was
+added under it — the measurement doc and these session files — and no code or
+test file moved). **The +16 over 5,458 is accounted by COLLECTING both trees,
+not by reasoning about a delta**: `tests/test_failure_journal_read_path.py` is
+14 items, and `tests/test_inspect_live_db.py` collects **233 with the new
+query registered and 231 without it** — `TestEveryWhitelistedQueryRunsAgainst
+TheRealSchema` is parametrised over `QUERIES`, so adding one query adds two
+items. Measured by removing the registration and re-collecting; it took twelve
+seconds and is the only method that has ever worked on this line. `ruff` clean.
+
+**Superseded: 5,243 passed / 10 xfailed in 11:54** on `a31d12c`, collected
 2026-08-30 with **nothing edited after the run started** and the tree clean
 throughout. That qualification is the point: the same 5,243 was collected on
 the previous tree while `tasks/NEXT.md` was being edited under it, so this run
@@ -242,7 +253,158 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-08-31 (latest) — the sweet spot reaches all three surfaces, and a second opinion convicted a four-month-old number
+## 2026-09-01 (latest) — open item 4 named an instrument that cannot see the failure it measures, and the good news I wrote off it was refused
+
+**DEPLOYED `ad3efed`, verified** — `/api/health` `git_sha` reads
+`ad3efed`, status ok, mode live, recorder writing 36s before the read.
+`tasks/NEXT.md` was 80.7% before this entry was written, checked with `wc -c`
+first per the rule at the top of this file. **It is 85.2% now — the next
+session should split BEFORE writing, not after**, because 90% is the rule and
+one more entry of this size crosses it.
+
+**Read the measurement document before acting on any of this:**
+`docs/measurements/2026-09-01-the-lock-failure-table-is-a-floor.md`.
+
+**Suite: 5,474 passed / 10 xfailed in 18:49** on the final tree — see the
+baseline paragraph at the top for how the +16 was accounted.
+
+### The instrument: `loop_failures.jsonl` had a writer and no reader
+
+Open item 4 read *"Watch whether `database is locked` recurs. `loop_failures`
+is the instrument."* **It named the wrong artifact.**
+
+`db.record_loop_failure_durably` has appended every pass failure to
+`loop_failures.jsonl` since 2026-08-30, and its own docstring says why the
+table is not enough: the failure ROW is a write, so a lock that kills a pass
+can kill its own record. `grep -rn loop_failures.jsonl` over the repo returned
+the writer (`scripts/run_loop.py:708`), tests of the writer, and **no consumer
+anywhere** — not `inspect_live_db.py`, which is the only thing permitted to run
+against the live box. For two days the durable half of the record was
+unreachable from the place the question gets asked.
+
+`inspect_live_db.py failure-journal` reads it now. Fourteen guards, every one
+verified by disabling what it guards and watching it go red (ten mutations,
+listed in the commits).
+
+### What the first reading says
+
+    22 journalled failures since 2026-08-30, all `database is locked`
+     8 recorded on the shared connection
+     0 recorded on a fresh connection
+    14 recorded on neither  -> no `loop_failures` row at all
+
+**The table held 8 of 22.** For this failure class, under lock contention, any
+count taken off `loop_failures` is a **floor** — including every count this
+file has quoted. Two scope limits: it is measured over the journal's ~2-day
+life, not the table's, and it does not generalise past lock contention (a
+`PassDeadlineExceeded` inserts fine).
+
+**A reader querying the table by `pass_kind` sees a population with no quote
+failures in it** — all 8 surviving rows are `full`, while 2 of the 22 were
+quote passes and both are among the lost 14. At n = 2 that is consistent with
+chance (Fisher two-sided **p = 0.52**) and is NOT evidence of a kind-specific
+loss; it is one more instance of the floor.
+
+### THE CLAIM THAT WAS REFUSED — read this before writing any before/after here
+
+I wrote this up, and `measurement-skeptic` refused it before it entered the
+record:
+
+> Lock failures fell from 15.84% (16 of 101 full passes) to 0 of 30 in the
+> 8.07 hours after ADR 0091 deployed, on the same hardware. P(0) = 0.006.
+
+**It must not be written, hedged or not.** The fatal defect is one
+subtraction:
+
+    newest journalled failure   2026-08-31T11:01:00Z
+    ADR 0091 deployed           2026-08-31T15:29:19Z   (Fly release 182)
+
+**The quiet run starts 4.47 hours BEFORE the fix.** In full-pass walk lines it
+is 50 passes — **14 on pre-fix code, 36 after** — so the deploy sits at
+position 14 of 50 and nothing in the data locates the change at it. Run the
+claim's own test on the pre-fix half and it "detects a fix" across an interval
+in which nothing shipped. Both timestamps had been on my screen for an hour.
+
+Four more defects, each independently disqualifying:
+
+- **The outcome definition changed inside the window.** `badd88e` (ADR 0092),
+  committed 17:20:15Z, is 1.85h into the post-fix window and covers ~27 of its
+  30 attempts. It stopped a lock in the closing-line store from killing the
+  pass — so that class was a failure in the baseline and cannot be one after.
+- **The denominator premise was wrong.** The walk line is written after the
+  **walk**, not after the pass (`scripts/run_loop.py:1368`, whose own adjacent
+  comment says *"the second half of the pass can still die"*). So a post-walk
+  failure leaves a walk line AND a journal line, and `attempts = successes +
+  failures` double-counts it. `_q_walk_log`'s "does not establish" section
+  already said this.
+- **The unit is the burst, not the pass.** `Tempo.pass_kind` re-arms a full
+  pass immediately when one fails, so the 22 failures are **13 independent
+  bursts** (`consecutive_failures == 1`), mean 1.69, max 4. Passes-as-draws
+  inflates significance by roughly an order of magnitude.
+- **The window was cut where my 6,000-line read ran out**, which raised the
+  baseline; and three further lock-relevant changes landed inside it
+  (`7a3ded9`, `acb8233`, `07a89e2`/`5c7aaf5`).
+
+**What may be said instead:** no `database is locked` failure has been
+journalled since 2026-08-31T11:01:00Z — 50 consecutive full-pass walk lines
+through 2026-09-01T00:39:19Z — and **the interval is not attributable to
+anything.** No rate comparison between these windows is available.
+
+### And the harness was teaching the overstatement, so it was fixed
+
+The audit caught a real defect in what I had already deployed. Section 2 of
+`failure-journal` printed *"'the database itself refuses writes' = a different,
+worse fact"* with no record that:
+
+- the reading is taken **after** a `rollback()` whose success is never written
+  down, so "the shared connection was still holding the lock and refused the
+  fresh one itself" is not excluded; and
+- it **does not name the holder** — the poller, the API's per-request
+  connections and `maybe_checkpoint` all produce it, so it is *consistent
+  with* ADR 0091 and is not evidence for it.
+
+Both are on the screen now, not just in the docstring, because the next session
+reads the screen. And my own first write-up said *"14 of 14 lost lines say both
+connections refused"* — **a tautology**: the 14 are selected by having no table
+row, and journal-only is the only outcome that produces one. The query now
+prints the three-way population tally and says which count may be quoted.
+
+### Three lessons, all at the top of `tasks/lessons.md`, index updated in the same edit
+
+1. **Find the change point before you name the cause.** The complement to the
+   2026-08-30 lesson, which would not have caught this: that one says find the
+   boundary from the data; this one says check the effect does not precede it.
+2. **A group selected by an outcome cannot report a rate on that outcome.**
+3. **A writer with no reader is an instrument that does not exist.** `grep -rn`
+   for a reader of every artifact you write; `test_has_callers.py` covers the
+   other direction only.
+
+### Still open
+
+1. **Open item 4 STAYS OPEN — but the instrument now works.** The next look
+   must start **after `badd88e`** so one definition of "failure" covers it, and
+   must count **bursts**, not passes. At the pre-fix burst rate (~0.39/h) a
+   30-hour clean window expects ~11.7 bursts, which clears the ≥5 rule on the
+   correct unit. Read it with `failure-journal`, not `pass-gaps` alone.
+2. **Before crediting ADR 0091, attribute the holder.** Correlate the 22
+   journal stamps against the portfolio poller's own start and finish times.
+   Nothing else separates the poller from the API's connections or the
+   checkpoint, and the ADR is currently un-attributed on live evidence.
+3. **One boolean would close the biggest gap in the journal**: whether
+   `record_loop_failure_durably`'s `rollback()` succeeded. It separates "the
+   shared connection was still poisoned" from "someone else held the lock",
+   and it is the single observation the diagnosis line is missing.
+4. **`odds_snapshots` retention** — ADR 0086 bought headroom, not a bound.
+5. **`user_not_found` on shard 3** and **Joe's shard allocation** — both his,
+   both money-touching, both carried.
+6. **`/api/*` responses carry neither framing header** — deliberate, not a
+   hole (a JSON body has no surface to click), but it becomes one the day an
+   `/api/*` route returns HTML. Recorded in the test file's own
+   "does not establish" list.
+
+---
+
+## 2026-08-31 — the sweet spot reaches all three surfaces, and a second opinion convicted a four-month-old number
 
 **DEPLOYED `11bd2c0`, verified** — `/api/health` `git_sha` reads
 `11bd2c06b62f22b0bb4489bb1ab230bd461aa495`, status ok, mode live.

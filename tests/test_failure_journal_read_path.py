@@ -235,6 +235,76 @@ class TestADiagnosisLineIsNotAFailure:
         assert _read(db_path)[0]["row_count"] == 0
 
 
+class TestTheScreenCarriesThePopulationAndNotJustTheLoss:
+    """Added 2026-09-01, after an audit convicted this session's own first
+    write-up of the reading.
+
+    Section 1's rows are SELECTED by having no table row, and `journal_only`
+    is the only outcome that produces one -- so "every line in section 1 says
+    both connections refused" is a tautology dressed as a finding. The
+    tally that is not a tautology is the three-way one: how many recorded on
+    the shared connection, how many on a fresh one, how many on neither. It
+    has to be on the SCREEN, because the next session reads the screen.
+    """
+
+    def _one_of_each(self, tmp_path: Path) -> Path:
+        """All three `record_loop_failure_durably` outcomes in one journal."""
+        db_path = tmp_path / "cockpit.db"
+        journal = tmp_path / "loop_failures.jsonl"
+
+        conn = db.init_db(db_path)
+        assert db.record_loop_failure_durably(
+            conn, db_path=db_path, journal_path=journal, failed_ms=NOW,
+            pass_number=1, consecutive_failures=1, error="shared",
+            pass_kind="full", exc=RuntimeError("shared"),
+        ) == "recorded"
+        conn.close()
+
+        closed = db.init_db(db_path)
+        closed.close()
+        assert db.record_loop_failure_durably(
+            closed, db_path=db_path, journal_path=journal, failed_ms=NOW + 1,
+            pass_number=2, consecutive_failures=1, error="fresh",
+            pass_kind="full", exc=RuntimeError("fresh"),
+        ) == "recorded_on_fresh_connection"
+
+        closed2 = db.init_db(db_path)
+        closed2.close()
+        assert db.record_loop_failure_durably(
+            closed2, db_path=tmp_path / "no-such-dir" / "cockpit.db",
+            journal_path=journal, failed_ms=NOW + 2, pass_number=3,
+            consecutive_failures=1, error="neither", pass_kind="full",
+            exc=RuntimeError("neither"),
+        ) == "journal_only"
+        return db_path
+
+    def test_the_three_outcomes_are_counted_on_the_screen(self, tmp_path):
+        """One of each, so a reader that collapsed two of them would be caught
+        -- the shared and the fresh case both leave a row, and only the
+        diagnosis line beside it tells them apart."""
+        title = _read(self._one_of_each(tmp_path), "-n", "10")[2]["title"]
+        assert "3 journalled" in title, title
+        assert "1 recorded on the shared connection" in title, title
+        assert "1 on a fresh" in title, title
+        assert "1 on neither" in title, title
+
+    def test_the_screen_says_which_count_may_be_quoted(self, tmp_path):
+        """The caveat travels with the number or it does not travel."""
+        title = _read(self._one_of_each(tmp_path), "-n", "10")[2]["title"]
+        assert "selected by its own outcome" in title, title
+
+    def test_the_diagnosis_section_states_both_limits_it_cannot_state_itself(
+        self, tmp_path
+    ):
+        """That the reading is taken after a `rollback()` whose success is not
+        recorded, and that it does not identify the lock holder. Without both,
+        a reader takes 'the database itself refuses writes' as evidence for one
+        named writer, which is what happened the day this query shipped."""
+        title = _read(self._one_of_each(tmp_path), "-n", "10")[1]["title"]
+        assert "rollback()" in title, title
+        assert "not name the holder" in title, title
+
+
 class TestTheTracebackIsReachable:
     """It is written here and nowhere else -- stdout retention on the machine
     is ~10 minutes -- so a reader that summarised it into a column would leave

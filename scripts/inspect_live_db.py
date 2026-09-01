@@ -2022,7 +2022,32 @@ def _q_failure_journal(conn: sqlite3.Connection, args) -> list[Section]:
     Section 2 carries the `diagnosis` lines, which are the durable recorder's
     own verdict and exist nowhere else: "a fresh connection wrote it" means
     the CONNECTION is poisoned and a restart cures it, while "the database
-    itself refuses writes" is the different, worse fact.
+    itself refuses writes" is a different fact.
+
+    **Read section 2 with two limits it cannot state itself**, both added
+    2026-09-01 after an audit found the screen teaching a stronger claim than
+    the data carries:
+
+    - **It samples the wrong moment.** The diagnosis describes the lock state
+      when the RECORD was attempted -- after the pass raised, after the
+      journal append, and after `record_loop_failure_durably`'s `rollback()`.
+      It is not the lock state at the moment the pass failed. That rollback
+      swallows `sqlite3.Error` and its success is never written down, so "the
+      shared connection was still holding a write lock, and refused the fresh
+      one itself" is NOT excluded by a `both refused` line.
+    - **It does not name the holder.** Anything holding the write lock past
+      `BUSY_TIMEOUT_MS` produces this reading: the portfolio poller, the API's
+      per-request connections, `maybe_checkpoint`, `store_closing_line`. A
+      `both refused` line is CONSISTENT WITH the poller and is not evidence
+      for it. What would separate them is correlating these stamps against
+      the poller's own start and finish times, which nothing here does.
+
+    And section 1 is a census, not a rate: its rows are SELECTED by having no
+    table row, and `journal_only` is the only outcome that produces one. So
+    "every line in section 1 says both connections refused" is a tautology,
+    not a finding. The population to quote is section 3's -- how many
+    recorded on the shared connection, how many on a fresh one, how many on
+    neither.
 
     Section 4 renders the newest traceback one line per row. The traceback is
     written only here -- stdout retention on the machine is ~10 minutes -- and
@@ -2122,6 +2147,29 @@ def _q_failure_journal(conn: sqlite3.Connection, args) -> list[Section]:
     diagnoses_newest = list(reversed(diagnoses))
     tail = list(reversed(failures))[: max(0, args.tail)]
 
+    # The three outcomes `record_loop_failure_durably` returns, recovered from
+    # the artifacts rather than from a field -- the outcome string is logged
+    # and never persisted. A diagnosis line is written only when the shared
+    # connection refused, so its presence beside a surviving row is what
+    # separates "recorded" from "recorded_on_fresh_connection".
+    #
+    # **This tally is the population to quote, and section 1's is not.**
+    # Section 1's rows are selected by having no table row, and journal-only
+    # is the only outcome that produces one, so a rate computed over them is
+    # a tautology. An audit on 2026-09-01 caught exactly that being written
+    # up as "14 of 14 say both connections refused".
+    diagnosed_ms = {
+        e["ms"] for e in diagnoses if isinstance(e.get("ms"), int)
+    }
+    on_shared = sum(
+        1 for e in failures
+        if _in_table(e) is True and e.get("ms") not in diagnosed_ms
+    )
+    on_fresh = sum(
+        1 for e in failures
+        if _in_table(e) is True and e.get("ms") in diagnosed_ms
+    )
+
     newest_tb = next((e for e in reversed(failures) if e.get("traceback")), None)
     tb_lines = (newest_tb.get("traceback") or "").splitlines() if newest_tb else []
     tb_stamp = (
@@ -2147,9 +2195,12 @@ def _q_failure_journal(conn: sqlite3.Connection, args) -> list[Section]:
         Section(
             title=(
                 f"failure-journal: DIAGNOSIS lines, newest first "
-                f"({len(diagnoses)} in {path.name}). 'a fresh connection wrote "
-                f"it' = poisoned CONNECTION, a restart cures it. 'the database "
-                f"itself refuses writes' = a different, worse fact."
+                f"({len(diagnoses)} in {path.name}). TWO LIMITS: this is the "
+                f"lock state when the RECORD was attempted -- after the pass "
+                f"raised and after a rollback() whose success is not written "
+                f"down -- not when the pass failed; and it does not name the "
+                f"holder, so 'both refused' is CONSISTENT WITH the poller, "
+                f"the API's connections and the checkpoint alike."
             ),
             columns=("iso", "ms", "diagnosis"),
             rows=[
@@ -2165,8 +2216,11 @@ def _q_failure_journal(conn: sqlite3.Connection, args) -> list[Section]:
         ),
         Section(
             title=(
-                f"failure-journal: last {args.tail} failures, newest first "
-                f"({len(failures)} in {path.name})"
+                f"failure-journal: last {args.tail} failures, newest first. "
+                f"THE POPULATION: {len(failures)} journalled -- {on_shared} "
+                f"recorded on the shared connection, {on_fresh} on a fresh "
+                f"one, {len(missing)} on neither. Quote THIS, not section 1's "
+                f"count, which is selected by its own outcome."
             ),
             columns=failure_columns,
             rows=[_failure_row(e) for e in tail[:cap]],

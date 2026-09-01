@@ -54,6 +54,90 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-01 - Find the change point before you name the cause
+
+A fix deployed at 15:29Z. The failures it targets stopped at 11:01Z. I wrote up
+"they stopped after the fix" and computed a p-value for it, and both timestamps
+had been on my screen for an hour.
+
+    newest failure   2026-08-31T11:01:00Z
+    the deploy       2026-08-31T15:29:19Z    4.47 h of quiet BEFORE the cause
+
+The quiet run was 50 passes long and the deploy sat at position 14 of 50. The
+same test applied to the pre-fix half of that run "detects a fix" over an
+interval in which nothing shipped -- which is the falsifying check, and it is
+one subtraction.
+
+**Pattern: before/after is a claim about a change POINT, so locate the change
+point in the DATA first and only then look for a cause at it. The last bad
+event's timestamp minus the deploy's timestamp is the whole test, it costs one
+subtraction, and if the answer is negative there is no comparison to make.**
+
+The reason it is easy to miss: both numbers get computed, for different
+reasons, in different steps -- one to establish "how long has it been quiet",
+one to establish "when did the fix land" -- and neither step is the one that
+would subtract them. A before/after write-up should OPEN with that difference.
+
+**This is the second before/after defect on a live series in two days, and the
+08-30 lesson above would not have caught it** -- that one says to find the
+boundary from a variable the change itself moves, and my cause-boundary was
+correct. The two are complementary halves of the same check:
+
+    08-30   is the boundary where I think it is?      (find it from the data)
+    09-01   does the effect start before the cause?   (subtract the two)
+
+The generalisation covering both: **a quiet interval is not evidence for
+anything that happened inside it.** Something has to distinguish the moment,
+and "the fix is in there somewhere" does not.
+
+## 2026-09-01 - A group selected by an outcome cannot report a rate on that outcome
+
+The failure journal separates three outcomes: the row was written on the shared
+connection, on a fresh one, or on neither. I listed the "neither" group and
+reported that **14 of 14 of them said both connections refused** -- and offered
+it as evidence about the cause.
+
+It is a tautology. "Both refused" is the definition of that group; it is the
+only way to land in it. The number could not have come out differently, so it
+carried no information at all, and it read as the strongest line in the report.
+
+**Pattern: when a subgroup is defined BY an outcome, no proportion computed
+inside it is a finding. Report the full population's split across all the
+outcomes instead -- that one can vary, so it can inform.** Here: 22 journalled,
+8 on the shared connection, 0 on a fresh one, 14 on neither. The 0 is the
+interesting cell and the selected view had hidden it entirely.
+
+The tell is that the denominator is described using the same words as the
+result. "Of the failures the table lost, N had no table row" -- if the sentence
+survives deleting the numbers, there is nothing being measured.
+
+This one now sits on the query's own screen, because the next session reads the
+screen and not the docstring: the section prints the three-way tally and says
+which count may be quoted.
+
+## 2026-09-01 - A writer with no reader is an instrument that does not exist
+
+`record_loop_failure_durably` had appended every pass failure to a journal file
+for two days, specifically because the failure TABLE goes silent under the one
+condition it exists to record. The design was right and the code was correct.
+Nothing ever read the file -- not the ssh-invokable inspector, not a route, not
+a script -- so the open item that needed it read *"`loop_failures` is the
+instrument"*, naming the artifact that cannot see the failure class.
+
+Cost when the reader was finally written: the table held 8 of 22 failures. Every
+count of that class ever taken off it had been a floor by a factor of ~2.75, and
+two whole `pass_kind` values were missing from it.
+
+**Pattern: durability is not readability. A record written where nothing can
+read it from is not a record -- and it is worse than an absent one, because the
+system LOOKS instrumented. Ship the read path in the same change as the write
+path, or the write path is a comment.**
+
+The repo's own `test_has_callers.py` exists for the callers half of this. The
+missing half is the reverse direction: **grep for a reader of every artifact you
+write.** One `grep -rn` over the filename is the whole check, and here it
+returned the writer, tests of the writer, and nothing else.
+
 ## 2026-08-31 - A cost that does not change with the row limit is not in the rows
 
 `/api/slate` was slow. The obvious suspect was the row work -- 55,777
@@ -2445,6 +2529,11 @@ its own file, and a session scanning the index for something relevant would
 have missed every lesson written in the last nine days. The titles below are
 the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
+
+### 2026-09-01 — in this file, above
+- Find the change point before you name the cause
+- A group selected by an outcome cannot report a rate on that outcome
+- A writer with no reader is an instrument that does not exist
 
 ### 2026-08-31 — in this file, above
 - A cost that does not change with the row limit is not in the rows
