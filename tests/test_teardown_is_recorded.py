@@ -39,7 +39,7 @@ import pytest
 
 from scripts.run_loop import (
     RSS_LOG_CAP_BYTES,
-    RSS_LOG_KEEP_LINES,
+    RSS_LOG_KEEP_BYTES,
     record_pass_rss,
 )
 
@@ -324,5 +324,69 @@ class TestTheRssCurveIsOnDisk:
             log, now_ms=99, kind="full", produced_by="quote", proc=proc
         )
         lines = log.read_text(encoding="utf-8").splitlines()
-        assert len(lines) <= RSS_LOG_KEEP_LINES
+        assert log.stat().st_size <= RSS_LOG_KEEP_BYTES
         assert json.loads(lines[-1])["ms"] == 99
+
+    #: A production line as actually written on live, measured 2026-09-01 at
+    #: **286.6 bytes** mean. The fixture above uses a ~42-byte line -- 6.8x
+    #: narrower -- and that single parameter is the whole reason the guard was
+    #: verified for years against a case it never meets.
+    LIVE_LINE_BYTES = 286
+
+    def _wide_filler(self) -> str:
+        """One log line padded to the production width."""
+        bare = json.dumps({"ms": 0, "kind": "quote", "rss_kb": 1, "pad": ""})
+        pad = self.LIVE_LINE_BYTES - len(bare) - 1
+        assert pad > 0, "LIVE_LINE_BYTES is narrower than the bare object"
+        return (
+            json.dumps(
+                {"ms": 0, "kind": "quote", "rss_kb": 1, "pad": "x" * pad}
+            )
+            + "\n"
+        )
+
+    def test_the_cap_binds_at_production_line_width(self, tmp_path):
+        """The assertion above, re-asked in the right unit at the real width.
+
+        The previous version of `test_the_cap_keeps_the_newest_lines` asserted
+        `len(lines) <= RSS_LOG_KEEP_LINES` while the limit being enforced is a
+        **byte** cap. Against its ~42-byte fixture the file held ~49,900 lines,
+        the slice genuinely trimmed, and the assertion passed. Against a
+        production 286-byte line the file holds ~7,317 lines at the cap, so
+        `[-8000:]` kept every one of them and wrote the file back
+        **unchanged** -- still over the cap, re-trimming on every pass forever.
+
+        A line-count assertion cannot see that: `7,317 <= 8,000` is true of a
+        file that was never trimmed. Asserting bytes is what makes the no-op
+        visible. The defect was not a missing test; it was a passing one whose
+        fixture differed from production in the single parameter the guard
+        depends on.
+        """
+        log = tmp_path / "loop_rss.jsonl"
+        proc = _fake_proc(tmp_path)
+        filler = self._wide_filler()
+        assert len(filler) == self.LIVE_LINE_BYTES, "fixture is not at width"
+
+        log.write_text(filler * (RSS_LOG_CAP_BYTES // len(filler) + 10))
+        before = log.stat().st_size
+        assert before > RSS_LOG_CAP_BYTES, "fixture did not exceed the cap"
+
+        record_pass_rss(
+            log, now_ms=99, kind="full", produced_by="quote", proc=proc
+        )
+
+        after = log.stat().st_size
+        assert after < before, (
+            "the file was written back unchanged: at production line width "
+            "the cap is a no-op that still runs on every pass"
+        )
+        assert after <= RSS_LOG_KEEP_BYTES, "trimmed, but not to the budget"
+        # Hysteresis. Trimming to the trigger itself leaves the file one write
+        # from tripping again, so the rewrite runs every pass even when the
+        # units agree. The target must be strictly below the trigger.
+        assert after <= RSS_LOG_CAP_BYTES // 2
+
+        lines = log.read_text(encoding="utf-8").splitlines()
+        assert json.loads(lines[-1])["ms"] == 99, "newest line was not kept"
+        for line in lines:
+            json.loads(line)  # whole lines only; never starts mid-object

@@ -142,19 +142,98 @@ from backend.settlement import run_settlement_pass  # noqa: E402
 from backend.store import db, volume  # noqa: E402
 
 
-#: Cap on the per-pass RSS log, and the tail kept when it is hit. At the quote
-#: cadence (~15s, ~80 bytes/line) the file grows ~460KB/day, so 2MB is roughly
-#: four days of curve -- enough to bracket any incident at the observed one-to-
-#: two-a-day rate, small enough that the volume never notices it exists.
+#: Cap on the per-pass RSS log, and the tail kept when it is hit.
+#:
+#: **The tail is in BYTES, and it used to be in lines.** `RSS_LOG_KEEP_LINES`
+#: was 8,000 against a 2 MiB cap, on the reasoning quoted below: ~80 bytes/line,
+#: so 8,000 lines was ~640 KB and the trim landed the file well under the
+#: trigger. The line has since widened to a measured **286.6 bytes** on live --
+#: `available_kb`, `produced_by` and the three `wal_ckpt_*` fields all arrived
+#: after that sum was done -- and at that width the guard stops working in a
+#: way that reads exactly like working:
+#:
+#:   - 8,000 x 286.6 = 2,292,800 B, which is MORE than the 2,097,152 B cap. At
+#:     the cap the file holds ~7,317 lines, so `[-8000:]` keeps every one of
+#:     them and writes the file back unchanged. **The cap does not bind at all**
+#:     -- a no-op that runs every pass, forever, rewriting ~2.3 MB each time on
+#:     the volume it exists to protect.
+#:   - Measured on live 2026-09-01: 4,047 lines / 1,159,863 B, growing ~379
+#:     KB/day, so the file crosses the cap about **2026-09-04**.
+#:
+#: Two independent defects, and the unit is only the first. **The trim target
+#: must also be strictly below the trigger**, or the file lands one byte under
+#: the cap and re-trims on the next write even when the units agree -- trigger
+#: and target were the same 2 MiB quantity spelled two ways. `KEEP_BYTES` is
+#: half the cap, so one trim buys ~1 MiB before the next.
+#:
+#: The original sizing note, kept because its reasoning is still right and only
+#: its width input went stale: "at the quote cadence the file grows ~460KB/day,
+#: so 2MB is roughly four days of curve -- enough to bracket any incident at the
+#: observed one-to-two-a-day rate, small enough that the volume never notices it
+#: exists." At 286.6 B/line that same 2 MiB is ~1.4 days, which is the number to
+#: argue with if this is ever resized.
 RSS_LOG_CAP_BYTES = 2 * 1024 * 1024
-RSS_LOG_KEEP_LINES = 8_000
+RSS_LOG_KEEP_BYTES = RSS_LOG_CAP_BYTES // 2
 
 #: The same cap on the per-pass walk log. Its lines are ~110 bytes against the
 #: RSS log's ~80, so 2MB is roughly three days at the quote cadence -- long
 #: enough that the day a classification regression started is still in the file
 #: when someone notices the desk is empty, which is the whole reason it exists.
+#: Same two corrections as the RSS log above, for the same reason: this file's
+#: lines were sized at ~110 bytes and the guard was 8,000 of them against the
+#: same 2 MiB cap. It is the sibling diagnostic on the same volume and it had
+#: the identical defect, which is why the fix is one shared helper rather than
+#: two.
 WALK_LOG_CAP_BYTES = 2 * 1024 * 1024
-WALK_LOG_KEEP_LINES = 8_000
+WALK_LOG_KEEP_BYTES = WALK_LOG_CAP_BYTES // 2
+
+
+def _trim_log_to_bytes(path, cap_bytes: int, keep_bytes: int) -> None:
+    """Keep the newest whole lines of `path` within `keep_bytes`, once it
+    passes `cap_bytes`. Byte-in, byte-out.
+
+    Two properties the line-counting version it replaces did not have, and each
+    one was separately enough to break the guard:
+
+    **The trim is in the unit the limit is stated in.** A line count only
+    bounds bytes if you also know the line width, and the width is the thing
+    that drifts -- silently, whenever a field is added to the JSON. When
+    `KEEP_LINES x width` grows past the cap, the slice keeps every line in the
+    file, writes it back unchanged, and the guard becomes a no-op that still
+    runs on every pass. A byte budget cannot drift out from under itself.
+
+    **The target is strictly below the trigger.** Trimming to exactly the cap
+    leaves the file one write away from tripping again, so the rewrite happens
+    every pass forever. `keep_bytes` at half the cap turns that into one
+    rewrite per ~1 MiB written. This is ordinary hysteresis and its absence is
+    invisible in any test that trims once.
+
+    Whole lines only: the tail is assembled newest-first and the first line
+    that would cross the budget stops the walk, so the file never begins with
+    half a JSON object. A single line longer than `keep_bytes` would yield an
+    empty file, so one line is always kept regardless of budget -- an empty
+    diagnostic is strictly worse than an over-budget one.
+    """
+    if path.stat().st_size <= cap_bytes:
+        return
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    kept: list[str] = []
+    used = 0
+    for line in reversed(lines):
+        cost = len(line.encode("utf-8")) + 1  # + the newline
+        if kept and used + cost > keep_bytes:
+            break
+        kept.append(line)
+        used += cost
+    kept.reverse()
+    # `newline=""` rather than `write_text`: on Windows the default
+    # translates each "\n" to CRLF, which adds one byte per line and puts
+    # the result over a budget computed in single bytes -- ~26 KB on a
+    # 26,000-line file. The live volume is Linux and wants LF anyway, so
+    # suppressing translation makes the budget exact on both.
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        handle.write("\n".join(kept) + "\n")
 
 
 def file_kb(path: Path) -> Optional[int]:
@@ -391,11 +470,9 @@ def record_pass_rss(
                 )
                 + "\n"
             )
-        if path.stat().st_size > RSS_LOG_CAP_BYTES:
-            tail = path.read_text(encoding="utf-8").splitlines()[
-                -RSS_LOG_KEEP_LINES:
-            ]
-            path.write_text("\n".join(tail) + "\n", encoding="utf-8")
+        _trim_log_to_bytes(
+            path, RSS_LOG_CAP_BYTES, RSS_LOG_KEEP_BYTES
+        )
     except Exception:  # noqa: BLE001 -- telemetry must never kill a pass
         pass
 
@@ -443,11 +520,9 @@ def record_pass_walk(path: Path, *, now_ms: int, kind: str, counts) -> None:
                 )
                 + "\n"
             )
-        if path.stat().st_size > WALK_LOG_CAP_BYTES:
-            tail = path.read_text(encoding="utf-8").splitlines()[
-                -WALK_LOG_KEEP_LINES:
-            ]
-            path.write_text("\n".join(tail) + "\n", encoding="utf-8")
+        _trim_log_to_bytes(
+            path, WALK_LOG_CAP_BYTES, WALK_LOG_KEEP_BYTES
+        )
     except Exception:  # noqa: BLE001 -- telemetry must never kill a pass
         pass
 
@@ -1148,10 +1223,17 @@ async def main() -> int:
             # **Deliberately NOT added to `record_pass_rss` above.** The
             # obvious second home for a free-byte reading is the per-pass JSON
             # line, and §10 of `docs/measurements/2026-09-01-the-volume-clock.md`
-            # is why it must not go there: `RSS_LOG_KEEP_LINES` x the observed
-            # line width already exceeds `RSS_LOG_CAP_BYTES` by 1.25x, so from
-            # ~2026-09-04 that file rewrites itself every pass. Widening the
-            # line makes the thrash worse -- on the volume this alarm is about.
+            # is why it must not go there. **That condition was fixed on
+            # 2026-09-01 and the conclusion survives it**, which is why this
+            # paragraph is corrected rather than deleted: the cap now trims by
+            # bytes to half the cap, so the file no longer rewrites itself
+            # every pass from ~2026-09-04. The reason to keep the reading out
+            # is the durable one -- widening the line shortens the window the
+            # file covers, on a diagnostic whose whole value is bracketing an
+            # incident that is noticed hours later.
+            #
+            # The measured figures, so the sizing can be argued with: 286.6
+            # bytes/line on live and ~379 KB/day, which is ~1.4 days per 2 MiB.
             # The durable record is `notifications.detail`, which carries the
             # byte count on every tier claim and costs one row per tier per day.
             await alerter.check_volume(
