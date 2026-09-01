@@ -3,6 +3,24 @@
 **Registered 2026-09-01. No row of the live `fair_prices` table has been
 inspected, counted, aged or sized in the course of writing this document.**
 
+> **AMENDMENT 1, 2026-09-01 — read it before reading anything below.**
+> **P6 is superseded.** Its "Equal is the pass condition" is **not a property of
+> the dry-run at all** — the pair is equal only if no recorder commit lands
+> between the two counts, and nothing here bounds either the report's duration
+> or the recorder's cadence. It answered NO on the deciding run for that reason,
+> and it would have answered YES on a shorter run for no better one. The
+> original text is retained in place and marked. The pass condition is now
+> `after >= before`, and a new **P6b** is added which can only ever *void* a
+> run.
+>
+> **The amendment was written after the deciding run and blind to its
+> substantive results.** §A8 argues why that is admissible here; §A9 rules on
+> whether the run stands. **Nothing else changes** — §§1–5, §6 byte-for-byte,
+> the 322,800,000-byte threshold, `RETENTION_DAYS = 14`, T-MECH's 0.90, §7's
+> stopping rule and §9's caveats are untouched (§A10).
+>
+> See [Amendment 1](#amendment-1--2026-09-01--p6-could-not-pass-on-live-and-the-deciding-run-was-voided-by-it).
+
 ---
 
 ## Why this is pre-registered at all, when it is not a statistical estimate
@@ -73,6 +91,18 @@ does not run and this document is amended rather than worked around.**
   `SELECT COUNT(*) FROM fair_prices` is taken immediately before and
   immediately after the dry-run and printed as two numbers. Equal is the pass
   condition. A dry-run that only *claims* to be read-only is decoration.
+
+  > **[SUPERSEDED by Amendment 1 §A4 — text retained.]** "Equal is the pass
+  > condition" **tests a race, not the dry-run.** `backend/runner.py:980` inserts
+  > into this table on every recorder cycle, so the pair is equal only when no
+  > commit lands between the two counts — and P6 answered NO on the deciding run
+  > for that reason and no other (observed: before 3,786,454, after 3,786,848,
+  > **+394**).
+  > The pass condition is now **`after >= before`** — *no row was removed* —
+  > plus a probe that the connection refuses writes (§A7), and Amendment 1 adds
+  > **P6b**, a margin check that can only void a run. `mode=ro` remains the
+  > enforcement; the count pair remains the crude second check, and §A7 says why
+  > both are needed rather than either.
 
 ---
 
@@ -1105,4 +1135,525 @@ must appear there in full.
 | Result destination | `docs/measurements/2026-09-XX-fair-prices-downsample-dry-run-result.md`, **written either way** |
 | Verdict of the power check | **READY** — census resolves exactly; the free-list coefficient is unmeasurable and is carried as §9.4/§9.5 rather than absorbed into the number |
 | Known in advance | **87.5% of the growth remaining before 2026-09-17 is too recent for this rule to reach.** This is a bound on long-run growth, not a rescue for the September deadline. |
-| Amendments | none |
+| Amendments | **1**, dated 2026-09-01, below. Written **after** the deciding run and **blind** to its substantive results; §A8 is the argument, §A9 the ruling. It amends **P6 only** and adds **P6b**. |
+
+---
+
+# Amendment 1 — 2026-09-01 — P6 could not pass on live, and the deciding run was voided by it
+
+**Status: this is an amendment. It changes one prerequisite and adds one.** It
+replaces P6's pass condition, adds **P6b** — a margin check that can only ever
+*void* a run and never rescue one — and requires two new lines of output. It
+changes nothing else: §§1–5 are untouched, **§6 is untouched byte-for-byte**
+(§A10 gives a mechanical reason as well as a principled one), and the
+322,800,000-byte threshold, `RETENTION_DAYS = 14`, T-MECH's 0.90 and §7's
+stopping rule all stand exactly as registered.
+
+**It was written after the deciding run, and it was written blind.** Its author
+was given P6's own `before`/`after` pair and nothing else — not `total_rows`,
+not `eligible_rows`, not `eligible_row_fraction`, not `estimated_freed_bytes`,
+not T-MECH, not the per-`link_id` view, not the verdict. That is recorded here
+rather than in a covering note because a reader auditing this document in a year
+can check this file and cannot check a note. **§A8 is the argument that writing
+it afterwards is acceptable, and it is an argument rather than an assurance.**
+§A9 rules on the run already taken and names the fallback if the argument is
+rejected.
+
+## A1. The defect, in the registration rather than the code
+
+P6, quoted from this document verbatim (retained in place above, marked):
+
+> - **P6. The dry-run deletes nothing, verified rather than asserted.**
+>   `SELECT COUNT(*) FROM fair_prices` is taken immediately before and
+>   immediately after the dry-run and printed as two numbers. Equal is the pass
+>   condition. A dry-run that only *claims* to be read-only is decoration.
+
+`scripts/dry_run_fair_price_downsample.py:191` implements it faithfully:
+
+```
+p6_ok = before == after
+```
+
+**The code is correct against the registration. The registration is wrong.**
+`fair_prices` has exactly one writer, `backend/runner.py:980`, and it inserts
+one row per outcome per market on every evaluation cycle of the live recorder —
+which is the table's entire purpose and the reason it needed a retention rule at
+all. So the two counts are equal only when no recorder commit lands between
+them, and **nothing in this registration bounds either the report's duration or
+the recorder's cadence.** "Equal is the pass condition" therefore does not test
+the dry-run. It tests a race whose terms were never registered.
+
+## A2. The evidence, which is P6's own output
+
+On the deciding run:
+
+```
+COUNT(*) FROM fair_prices   before  3,786,454
+                            after   3,786,848
+                            delta      +394
+```
+
+Three things establish that this is concurrent insertion and not deletion, and
+each is checkable without any other figure from the run:
+
+1. **The direction.** A deletion makes `after` smaller. `after` is larger, by
+   394 rows — 0.0104% of the table.
+2. **Deletion was impossible on that connection.** `main()` opens the database
+   `sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)`, and SQLite raises
+   `attempt to write a readonly database` on any write attempted through it.
+   This document already says so: the `COUNT(*)` pair is the *crude* second
+   check and `mode=ro` is the enforcement.
+3. **The property P6 names is "the dry-run deletes nothing."** Equality is a
+   strictly stronger predicate than that property, and the extra strength does
+   no safety work whatsoever. It is falsified by a writer P6 holds no opinion
+   about and never intended to constrain.
+
+## A3. Why this is a broken check rather than an unlucky run, and what follows
+
+It is not that P6 *happened* to fail. **P6's answer was never about the
+dry-run.** The report issues nine separate reads with no enclosing transaction,
+so the two counts are taken at two different snapshots and see every commit in
+between; whether one lands there is settled by the report's duration against the
+recorder's cadence. Neither is registered, and the harness does not so much as
+print the first (§A12).
+
+**The honest claim is the weaker one, and it is worse rather than better.** P6
+is not *strictly* unsatisfiable: a report completing entirely between two
+recorder cycles would see equality and answer YES. **That is the problem, not a
+reprieve from it.** A prerequisite that answers NO because the run was slow, and
+would have answered YES because it was fast, says nothing either way about
+whether the instrument deleted a row — the only thing it claims to be about. **A
+check that passes for no reason is not redeemed by also failing for no reason**,
+and the passing case is the more dangerous of the two, because nobody audits a
+YES. On a table of this size, read nine times with window functions over every
+row, the presumption is that a live report straddles a recorder cycle — but that
+presumption is unmeasured, and being unmeasured is itself part of the defect.
+
+The consequence is the part that matters. Under §6's own clause —
+
+> **If any of P1–P6 answers NO** — the dry-run does not run, or its result is
+> void if it already has, and this document is **amended** rather than worked
+> around.
+
+— **whether this registration can return a non-void verdict on live is settled
+by a stopwatch.** Not just this run: any run. The defect would have gone
+unnoticed indefinitely had the harness only ever been exercised against
+`demo.db` and the synthetic fixture in `tests/test_fair_price_downsample.py`,
+neither of which has a concurrent writer. It surfaced because the instrument was
+finally pointed at the system it was built for.
+
+That is also why the amendment is **forced rather than chosen**: leaving P6 as
+written does not preserve one verdict at the cost of another, it leaves §6's
+void clause firing on a race. That has to be repaired whatever any run said, and
+§A8 leans on it.
+
+## A4. The corrected pass condition
+
+Four candidates were considered. The ruling is a two-tier one, and both tiers
+are registered here.
+
+| | candidate | verdict |
+|---|---|---|
+| **A** | `after >= before` — "no row was removed" | **adopted now**, hardened by §A7 |
+| **B** | pin one read snapshot for the whole report; predicate returns to `==` | **adopted for every future deciding run** (§A12); cannot be applied to a run already taken |
+| **C** | `after >= before AND after - before <= K` | **rejected as a gate** — §A6 |
+| **D** | drop the count pair, rely on `mode=ro` alone | **rejected** — §A7 |
+
+### The amended P6, verbatim
+
+> **P6. The dry-run deletes nothing, verified rather than asserted.**
+> `SELECT COUNT(*) FROM fair_prices` is taken immediately before and
+> immediately after the dry-run and printed as two numbers, **together with
+> their difference**. The pass condition is
+>
+> ```
+> after >= before        and, where the caller opened the database read-only,
+>                        a probe confirming the connection refuses writes
+> ```
+>
+> — that is, **no row was removed**. Rows *appearing* between the two counts are
+> the live recorder (`backend/runner.py:980`) doing its job; they are not a
+> finding, they are not an error, and they do not void anything. A dry-run that
+> only *claims* to be read-only is still decoration, which is why the read-only
+> property is **probed rather than assumed** (§A7).
+
+### And the new P6b, verbatim
+
+> **P6b. The decision margin is outside the concurrency perturbation.** The rows
+> inserted during the run perturb `eligible_row_fraction`, and therefore
+> `estimated_freed_bytes`, by a bounded amount. Compute
+>
+> ```
+> perturbation_bytes = ceil( (after - before) / before * 899,887,104 )
+> gate               = max(perturbation_bytes, 100,000)
+> ```
+>
+> If `| estimated_freed_bytes - 322,800,000 | <= gate`, the run **does not
+> decide**. Its verdict is **UNRESOLVED — MARGIN INSIDE THE CONCURRENCY
+> PERTURBATION**, and a re-take under the snapshot-corrected harness of §A12 is
+> required before any §6 verdict may be read off it.
+
+**Why B is the better predicate and A is what is adopted today.** Under a single
+pinned read snapshot, `after == before` tests *exactly* the property P6 names —
+"this connection deleted nothing" — because a transaction sees its own writes and
+sees no one else's. `after >= before` tests something weaker: **no net removal**.
+A concurrent inserter can mask a deletion by this connection; ten rows deleted
+against 394 inserted nets +384 and A answers YES. That hole is real and it is
+named here rather than glossed. It is accepted because (i) B changes what the
+two counts *mean* and so cannot be applied retroactively to counts already
+taken, and (ii) the read-only probe of §A7 closes the same hole from the other
+side, on the only path where it is reachable.
+
+## A5. Does the amended P6 still do work? Four ways it can answer NO
+
+A predicate that can never fail is as useless as one that can never pass, so the
+falsifiers are enumerated rather than asserted. Each is a mechanism that exists
+in this repo today:
+
+1. **`report()` accepts any connection.** `mode=ro` is set in `main()`, at the
+   connection; the function that decides P6 takes whatever it is handed.
+   `tests/test_fair_price_downsample.py` already calls
+   `harness.report(conn, ...)` with a **writable** fixture connection, and any
+   future caller may. On that path the count pair is the only guard there is.
+2. **A one-token regression.** `mode=ro` → `mode=rw`, or the `uri=True` dropped,
+   is a single-character edit that no type checker and no other test catches.
+3. **A mis-wire inside the module the plan lives in.**
+   `backend/store/fair_price_downsample.py:638-639` already contains
+   `cursor = conn.execute(sql, params); conn.commit()` — the armed DELETE path —
+   taking the same connection object `plan()` takes. A call-site slip between
+   the two is one identifier.
+4. **A second deleter.** P2 failing *between* its grep and the run, or an armed
+   rule on another deploy against the same volume, removes rows this connection
+   never touched. `after >= before` catches that; `mode=ro` does not.
+
+Four nameable failure modes is not decoration.
+
+## A6. Why the insert count is reported but not gated on
+
+Bounding the *insert* delta as part of P6's pass condition was considered and is
+**rejected**, for three reasons in ascending order of seriousness:
+
+1. **Any bound is a number, and the only number available to pick it from is the
+   delta this run produced.** Choosing a threshold from the run's own output is
+   the move this document exists to prevent, and the innocuousness of the
+   quantity is not a defence — that is what every such choice looks like from
+   the inside.
+2. **This registration has no registered opinion about the recorder's write
+   rate.** Nothing here fixes how many markets are evaluated, how many outcomes
+   each carries, or how long the report takes. A bound would be invented rather
+   than derived, and inventing one after the fact is worse than not having one.
+3. **It would repeat P6's own category error.** An insert bound is a claim about
+   the *environment*. Folding it into a prerequisite about the *instrument* is
+   precisely how P6 came to be falsifiable by a writer it had no opinion about.
+   The lesson of §A11 would be re-broken in the act of writing it down.
+
+**What replaces it.** The delta becomes a mandatory reportable, printed on P6's
+line and carried into the result file, never a gate; and P6b (§A4) converts it
+into a check that is *derived* rather than chosen.
+
+**Why P6b's formula is derived.** Concurrent insertion **into `fair_prices`**
+can increase `total_rows` and cannot increase `eligible_rows`, and that is a
+property of the registered cut rather than a hope:
+
+- A row inserted during the run has `computed_ms ≈ now`, so **D1** excludes it —
+  it is inside the retention window by construction.
+- It cannot free a previously-protected row either. The only condition a fresh
+  insert can disturb is **D6** (`identity_newest`): the previously-newest row for
+  that identity stops being the newest. But that displaced row is at least
+  `RETENTION_DAYS` old and the fresh row is in *today's* UTC day, so the
+  displaced row is still the newest row in its own day and **D4** keeps it — and
+  a keep on any single condition keeps the row, because §4 is a conjunction.
+
+So with `f = eligible / total` and `δ = after - before` rows arriving,
+`estimated_freed_bytes = f · 899,887,104` is perturbed **downward** by at most
+
+```
+899,887,104 · δ / total        (since f <= 1)
+= 899,887,104 · 394 / 3,786,454
+= 93,638 bytes   =  0.029% of the 322,800,000-byte threshold
+```
+
+The `100,000` floor absorbs the fact that `total_rows` is read at its own
+snapshot inside `plan()` and need not equal `before`.
+
+**P6b is written two-sided on purpose.** The `fair_prices` perturbation's
+direction is known to be conservative, so a one-sided gate would be defensible
+arithmetic — and
+writing it one-sided would require its author to know which side of the
+threshold the figure fell on. It is written as an absolute value so that it can
+be written blind.
+
+**P6b bounds the `fair_prices` component and nothing else, and the limit is
+stated here rather than left to be discovered.** S1 reads six tables, and the
+live runner writes to at least four of the five besides `fair_prices` while the
+report is running:
+`recommendations` (`backend/engine.py:415`, D2), `closing_lines`
+(`backend/analysis/clv.py:184`, D3), `odds_snapshots`
+(`backend/odds/client.py:659`, D5's `commence` CTE) and `event_links`
+(`backend/match/linker.py:598`). A `recommendations` row committing mid-report
+*removes* a row from the eligible set; a `closing_lines` row *adds* an event
+ticker to `scored_events` and can add rows to it. **δ does not measure those and
+P6b does not bound them.** Their magnitude is unknown and their sign is not
+one-directional. Nothing short of §A12(4)'s pinned snapshot closes this; it is
+present in the deciding run, and it would be equally present in any re-take not
+taken under a snapshot — which is why §A9 does not treat a bare re-take as the
+clean option.
+
+## A7. Is `mode=ro` plus a `COUNT(*)` floor the right belt-and-braces pair?
+
+**Yes as a pair, no as currently wired — and the fix is to probe rather than
+assume.**
+
+They are not redundant, and the reason is that they protect different callers.
+`mode=ro` is set in `main()` and protects the **script**. The `COUNT(*)` pair is
+computed in `report()` and protects the **function**. Neither covers the other's
+path, so D — dropping the count pair — would leave `report()` unguarded on
+exactly the path the test suite already exercises.
+
+But the belt is asserted rather than checked at the place it is relied on.
+`tests/test_fair_price_downsample.py::test_it_cannot_delete_because_sqlite_refuses`
+opens **its own** `mode=ro` connection and demonstrates that SQLite refuses
+writes on it. That is a test of SQLite. It is not a test that the connection
+`report()` received is read-only, and it is the same shape of gap as the defect
+this amendment exists for: a guard verified where the hazard cannot occur.
+
+**Registered requirement:** where the caller opened the database read-only, P6
+must **probe** that the connection refuses writes rather than assume it, and
+print the probe's result on P6's line. The probe's exact form is the harness
+author's (§A12 suggests one); what is registered is that the property is checked
+and printed, not that it is believed.
+
+## A8. Written after the run, and blind — the argument, and its residual
+
+**The argument.** This amendment changes exactly one boolean and adds a second.
+Neither is an input to any verdict-bearing quantity: not to `eligible_rows`, not
+to `eligible_row_fraction`, not to `estimated_freed_bytes`, not to T-MECH, not to
+any of D1..D6, not to S1. Under the original P6 the deciding run is **VOID** —
+no verdict at all. Under the amended P6 the run's verdict is whatever the
+instrument already computed, by code this amendment does not edit and does not
+authorise editing. **The amendment can therefore select between "no verdict" and
+"the verdict already computed". It cannot select which verdict.** Three further
+properties make that checkable rather than merely asserted:
+
+1. **The correction is forced, not chosen** (§A3). Under the un-amended P6,
+   whether a verdict exists at all is settled by how long the report took
+   against when the recorder last committed. That needed repairing whatever this
+   run said — and it would have needed it just as much had the race gone the
+   other way and P6 answered YES, in which case a broken check would have been
+   passed by luck and nobody would ever have looked at it. Leaving it alone is
+   not the conservative option.
+2. **The corrected predicate is the one P6's own prose already names.** "The
+   dry-run deletes nothing" was always the property. The amendment makes the
+   condition match the sentence above it. It does not reach for a new condition
+   that happens to pass.
+3. **The amendment adds a way for the run to fail that did not exist before**
+   (P6b, §A6). An amendment written to rescue a run does not do that, and this
+   author cannot know whether P6b fires.
+
+**The residual, stated because leaving it out would be the flattering move.**
+Blindness establishes that *this text* was written without reference to the
+outcome. It does not establish that the *decision to amend at all* was reached
+blind, because the person holding the result commissioned it. That freedom — the
+freedom to choose whether a known verdict counts — is not removed by anything
+written here. What reduces it is that §A9's conditions are stated as predicates a
+third party can evaluate against the result file, rather than as a judgement, and
+that one of them can void the run.
+
+## A9. Ruling on the run already taken: **salvageable**, under four conditions
+
+**The run is salvageable and should be salvaged, not re-taken.** The reasoning,
+and the strongest part of it runs against the project's interest:
+
+- **The defect is mechanical, and its `fair_prices` component is bounded at
+  93,638 bytes in the conservative direction** (§A6). It is not an effect on the
+  measurement; it is an effect on a check that was never about the measurement.
+  The cross-table component §A6 names is unbounded and unsigned — **and a bare
+  re-take does not remove it**, only §A12(4) does. Re-running without the
+  snapshot buys the drift below and closes nothing.
+- **Re-taking is the flattering move, and by a magnitude comparable to the
+  decision itself.** `eligible_rows` is monotonically increasing in wall-clock
+  time — §6 says so and builds §7's deadline guard on it. A re-take taken `d`
+  days later admits every row that crossed the 14-day boundary in the interval.
+  Nothing in this registration measures that aging-in rate, but the threshold
+  itself sets the scale: 322,800,000 bytes is **2.00 days** of database growth
+  at the headline 161.40 MB/day. A re-take a day or two later therefore moves
+  the primary quantity by a fraction of the threshold that is plausibly of order
+  one — against a defect that moves it by 0.029%. **The remedy is some three
+  orders of magnitude larger than the disease, and it points uphill.**
+- **§7 already classifies the later number.** *"The number that governs is the
+  one from the first dry-run taken on or after the implementation lands. A
+  later, larger number is monitoring, not evidence."* Re-taking is taking the
+  second look at a monotone quantity and calling it the first.
+
+**The four conditions, all evaluable by the result-holder against the run's own
+output, none requiring this author to see it:**
+
+1. **P1–P5 all answered YES.** If any answered NO, the run is void for a reason
+   this amendment does not reach and must be re-taken. This amendment
+   rehabilitates P6 and nothing else.
+2. **`after >= before` on that run.** Satisfied: 3,786,848 >= 3,786,454.
+3. **P6b passes** — `| estimated_freed_bytes - 322,800,000 | > 100,000`. The
+   harness did not print this; it must be computed by hand from the run's own
+   figures and recorded. If it fails, the run does **not** decide and §A12's
+   correction must land before a re-take.
+4. **The result file records the rehabilitation.** It prints `before`, `after`
+   and the delta; it cites this amendment by number; and it states that the
+   amendment was written after the run and blind. A salvaged run that does not
+   say it was salvaged is worse than a void one.
+
+**The fallback, pre-committed here so it is not available as a choice later.**
+If the result-holder prefers the letter of §6 — that a NO voids the run whatever
+the reason — then the correct action is to land §A12's correction and re-take,
+and **in that case the governing `estimated_freed_bytes` is the LESSER of the
+void run's figure and the re-take's.** Not the re-take's, and not the larger.
+§7's monotone-drift guard is the reason, and fixing it now, blind, is what stops
+the choice being made later with both numbers on the screen.
+
+**This ruling does not move §7's date.** The 2026-09-14 expiry stands. If the
+salvage is rejected and a re-take cannot be taken before it, the registration
+expires as written and reopening it needs a further amendment.
+
+## A10. What this amendment does not change — the blast radius, stated
+
+Nothing below is touched, and the list is exhaustive by section:
+
+- **§1** — both conjuncts of the primary claim, and its one-sided direction.
+- **§2** — the population and every exclusion.
+- **§3** — the unit of observation, the census-not-a-sample rule, and the
+  registered cluster key `link_id`.
+- **§4** — D1, D2, D3, D4, D5, D6, and `RETENTION_DAYS = 14`. The sensitivity
+  set `{7, 21, 28, 60}` is unchanged and still cannot arm anything.
+- **§5** — all three quantities and the `estimated_freed_bytes` formula.
+- **§6 — byte-for-byte, not one character.** Every clause of the decision rule,
+  the **322,800,000-byte threshold**, the **T-MECH 90% threshold**, the
+  multiplicity of 1, the repeated-looks reasoning, and the prohibition on
+  lowering `RETENTION_DAYS` in response to the number. The principled reason is
+  that a post-hoc amendment must not reach the rule it is being judged by. The
+  mechanical reason is that
+  `scripts/dry_run_fair_price_downsample.py::_section()` reproduces §6 and §9
+  **verbatim into every run's output**, so editing §6 would silently change the
+  text printed beside the figures of a run already taken.
+- **§7** — the stopping rule, the "first dry-run" wording, the **2026-09-14**
+  expiry, and the ENOSPC void. §A9 rules on *which* run §7's "first" selects; it
+  does not move the rule or the date.
+- **§8** — the falsification list and the single result destination
+  `docs/measurements/2026-09-XX-fair-prices-downsample-dry-run-result.md`,
+  written either way. Its "any of P1–P6 answers NO" clause now reads against the
+  amended P6, which is the only way it can read at all.
+- **§9** — all eleven caveats, reproduced verbatim as before.
+- **S1** — the extraction query, unchanged. This amendment adds no fenced SQL
+  block, deliberately: `test_the_sql_is_section_s1_of_the_registration_byte_for_byte`
+  compares the module against the **last** fenced `sql` block in this file.
+- **Arming** — still not authorised, by this document or by this amendment.
+  Nothing here permits a single row to be deleted.
+- **`backend/gate.py`** — untouched, as always. It is a different number for a
+  different decision.
+- **No code.** This amendment edits no file but this one. §A12 is a
+  recommendation to whoever owns the harness, not an edit and not an
+  authorisation to change any behaviour beyond what §A4 and §A7 register.
+
+Sweep runs are affected only in that each pass evaluates the amended P6 on its
+own count pair. They still cannot arm and their P6b is diagnostic only.
+
+## A11. The general defect, named so it is not repeated
+
+> **A prerequisite was validated only against a fixture in which the hazard it
+> guards against cannot occur, and was then relied on against a live system in
+> which it can.**
+
+The sharper form, because it generalises further and is the one to carry:
+
+> **P6 named a property of the instrument and tested a property of the world.**
+> *"The dry-run deletes nothing"* is a statement about what **this process** did.
+> `COUNT(*) before == COUNT(*) after` is a statement about what the **table**
+> did. On a fixture the two coincide, because the instrument is the only actor.
+> On live they come apart, because it is not — and the check then fails in the
+> direction that indicts the innocent party.
+
+Two cheap checks fall out of it:
+
+1. **A prerequisite phrased as an equality over a live-mutable quantity is
+   suspect on sight.** Of P1–P5, none is: P1 is a subset test against a code
+   enumeration (`found - F2_KNOWN_READERS`, so a *removed* reader correctly does
+   not fail it), P2 a grep, P3 and P5 inequalities, P4 an environment read. **P6
+   was the only equality in the set, and the only one over a quantity a live
+   process moves.** That is the whole of the audit, and it is why this
+   amendment's blast radius is one prerequisite.
+2. **A guard tested only where the hazard is absent has not been tested.** This
+   repo already holds the rule that a guard is verified by disabling it and
+   watching the test fail. The `mode=ro` test passes against a database nothing
+   else is writing, and the count pair was never once exercised against a
+   concurrent writer — which is the only condition under which it was ever going
+   to be evaluated in anger.
+
+## A12. What the harness must change — a recommendation, authorised by §A4 and §A7
+
+Recorded here so that the document, not a commit message, is what authorises the
+change. **It is not made by this amendment.**
+
+At `scripts/dry_run_fair_price_downsample.py:191`, `p6_ok = before == after`
+becomes, in substance:
+
+```
+p6_no_removal = after >= before          # A: "no row was removed"
+p6_readonly   = probe(conn)              # A7: probed, not assumed
+p6_ok         = p6_no_removal and (p6_readonly or not expect_readonly)
+```
+
+with four companions:
+
+1. **Print the delta** on P6's line — `before`, `after`, `after - before` — and
+   carry all three into the result file. It is a reportable, never a gate (§A6).
+2. **Probe the connection** rather than assume it. `report()` should take an
+   explicit `expect_readonly` flag that `main()` sets and the fixture tests do
+   not, so the writable-connection path still exercises the count half. The
+   probe must be a write that is a no-op on a writable connection.
+3. **Print P6b.** Compute `perturbation_bytes` and `gate` per §A4 and print the
+   verdict `UNRESOLVED — MARGIN INSIDE THE CONCURRENCY PERTURBATION` when it
+   fires. Without this the check exists only in prose, which is the state P6 was
+   already in.
+4. **Pin one read snapshot for the whole report** (candidate B), so that
+   `total_rows`, `eligible_rows`, `d123_rows` and the per-`link_id` view all
+   describe **one** state of the database rather than nine, and so that a future
+   P6 can return to `==` and test exactly the property it names. **Verify on the
+   box that the snapshot actually pins** — a read transaction against a
+   `mode=ro` WAL database has platform-dependent shared-memory requirements —
+   and if it does not, fall back to A and record that it did not.
+   **Once a run is taken under a pinned snapshot, its P6 pass condition is `==`,
+   not `>=`.**
+
+And one gap worth closing while there: **the harness prints no wall-clock
+duration**, so the delta cannot be converted to a rate and a future reader cannot
+tell a 394-row delta over 40 seconds from one over 40 minutes. Print the elapsed
+time.
+
+## A13. Registration record for this amendment
+
+```
+amendment          1
+date               2026-09-01
+defect             P6's pass condition tested a race between the report's
+                   duration and the recorder's cadence; neither is registered
+evidence           COUNT(*) before 3,786,454, after 3,786,848, delta +394
+                   (P6's own output; no other figure from the run was seen)
+writer             backend/runner.py:980, one row per outcome per cycle
+enforcement        mode=ro, scripts/dry_run_fair_price_downsample.py main()
+P6 was             after == before
+P6 is              after >= before, plus a read-only probe where applicable
+P6b added          margin outside max(perturbation, 100,000) bytes; can only void
+perturbation       fair_prices component <= 93,638 bytes = 0.029% of the
+                   threshold, conservative in sign; cross-table component
+                   unbounded, closed only by A12(4)'s pinned snapshot
+threshold          322,800,000  UNCHANGED
+RETENTION_DAYS     14           UNCHANGED
+T-MECH             0.90         UNCHANGED
+stopping rule      first run on or after the implementation lands; expires
+                   2026-09-14  UNCHANGED
+section 6          UNCHANGED, byte-for-byte
+ruling             the deciding run is SALVAGEABLE under the four conditions of
+                   A9; fallback if rejected is re-take, governed by the LESSER
+                   of the two figures
+written            after the deciding run, blind to its substantive results
+general defect     a prerequisite validated only against a fixture with no
+                   concurrent writer, then relied on against a live one
+```
