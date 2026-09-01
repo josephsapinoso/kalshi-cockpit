@@ -405,10 +405,25 @@ until 30. Full reasoning on the ticket; the map's Decisions-so-far indexes it.
    the arm was in that state. **The fragility is the finding: an all-or-nothing
    refusal over a growing record is disabled by any one bad row.**
 
-   **It is not moot, and the first draft of this item said it was.** The arm has a
-   SECOND consumer besides the 423 — a read endpoint feeding the "$X of $100"
-   strip — so that strip currently renders *unknown* rather than a figure. Joe's
-   call, money-touching. **The row is now identified** (`study-stop` section 3):
+   **~~It is not moot, and the first draft of this item said it was.~~ The
+   first draft was right and this correction was wrong — re-corrected
+   2026-09-01.** It claimed the arm has a SECOND consumer besides the 423, "a
+   read endpoint feeding the '$X of $100' strip", rendering *unknown* rather
+   than a figure. **That strip does not exist.**
+   `frontend/src/app/estimate/page.tsx` renders only `study_state` and
+   `stopped_by_owner_ms`; `loss_dollars`, `ceiling_dollars` and `stopped` are
+   typed at `frontend/src/lib/api.ts:2019-2035`, returned by
+   `/api/estimates/stop`, and **rendered nowhere**. `fetchStudyStop` has one
+   caller and it draws none of the three.
+
+   So the only consumer that ever blocked anything is the 423 — which the #11
+   build deletes. **The lesson is that a typed field reads exactly like a
+   rendered one from the backend**: the payload, the type and the fetch all
+   existed, and nothing distinguished them from a live strip except opening
+   the component. This repo's own "built but never called" pattern, applied to
+   a claim about itself, in a correction that was itself checking a claim.
+
+   **The row is now identified** (`study-stop` section 3):
    it is a **single KXMVE cross-category combination**, one of 54 study-period
    settlements, carrying an empty `market_result`. **Not systematic** — the other
    53 are computable — but one row is enough, permanently, because the record only
@@ -1145,9 +1160,13 @@ and never about *lock duration*.
 **NOT claimed: that the symptom is gone.** The frequency now fits where it did
 not, and a fit is not a proof. If failures continue at this rate, the next
 suspects are the retention prune over `kalshi_quotes` (451 MB) and the WAL
-`TRUNCATE` checkpoint — neither examined. Checked and cleared: every
+`TRUNCATE` checkpoint — neither examined. ~~Checked and cleared: every
 `estimate_match` helper commits its own writes, so nothing holds the lock
-across the 300s sleep.
+across the 300s sleep.~~ **That clearing was FALSE — corrected 2026-09-01.**
+It holds for the four synchronous helpers and fails on the one async one,
+`ensure_estimate_markets_known` (`backend/estimate_match.py:56-124`), which
+holds the write lock across N−1 Kalshi round trips. See ADR 0091's own
+corrected bullet.
 
 The guard checks the **shape** with `ast`, not a stopwatch, and **produced two
 confident false findings before it was right** — a `while` header counted as a

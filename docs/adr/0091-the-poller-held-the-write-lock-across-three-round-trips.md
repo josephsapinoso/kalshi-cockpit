@@ -112,9 +112,25 @@ in wall-clock time, and an `await` is an unbounded amount of it.
   boundary so a write in one branch was blamed on a call in the other. A guard
   whose first finding is false gets deleted, so both are written down rather
   than quietly fixed.
-- Every `estimate_match` helper commits its own writes, checked while
+- ~~Every `estimate_match` helper commits its own writes, checked while
   investigating: nothing holds the lock across the 300s sleep. That was the
-  worst case available and it is not happening.
+  worst case available and it is not happening.~~ **FALSE, corrected
+  2026-09-01.** True of the four *synchronous* helpers and false of the one
+  *async* one: `ensure_estimate_markets_known`
+  (`backend/estimate_match.py:56-124`) takes the write lock at its first
+  `INSERT` and does not `commit()` until after the loop, so it holds the lock
+  across N−1 Kalshi HTTP round trips at `await source.fetch(...)` — this ADR's
+  own defect, loop-carried rather than straight-line. Line 81 is the only
+  `await` in the file and line 124 the only deferred commit, which is how a
+  sweep that read "every helper" missed it.
+
+  **The shape of the miss is the part to carry:** "checked while investigating"
+  described a real check over helpers that looked alike. The one that differed
+  differed by a keyword (`async`) rather than by structure, and the sentence
+  generalised across it. A clearing statement in an ADR is a claim about a
+  population, and it needs the population's boundary stated as precisely as the
+  finding's. The same wrong sentence was repeated at `tasks/NEXT.md:1149` and
+  is corrected there too.
 - `store_closing_line`'s caller keeps its own defect, recorded separately: the
   `try/except` in `run_scoring_pass` wraps the fetch and not the store, so a
   lock error there still abandons every remaining market in the pass. Fixing

@@ -54,6 +54,73 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-01 - A test that asserts copy's TEXT freezes it; assert its SOURCE
+
+`tests/test_parlays_api.py` read `assert "40 of 40" in notes["enter_only"]`,
+pinning a caveat that told Joe *"you can buy in, but nobody is bidding to buy
+you out."* The 2026-08-30 census found **0 of 61** open combinations with a
+readable ask and 0 of 6 books non-empty on either side, so "you can buy in" was
+the refuted half, and ADR 0085 ordered the phrase upgraded to *unquoted* the
+same day.
+
+It stayed wrong for two days, in the footer of every nightly Discord parlay
+push, **and telling the truth would have turned the suite red.** A green CI
+certified a claim this repo's own measurement had refuted.
+
+This repo's usual failure is the opposite one -- a claim and its code in
+different files with nothing binding them, which produced five stale record
+corrections on this same day, every one drifting toward "the system is safer
+than it is". Here a binding *existed*. It bound the wrong thing: the literal
+digits rather than where they came from, so it preserved the error instead of
+catching it.
+
+**Pattern: asserting the text of a caveat converts a fact into a fixture.
+Assert that the copy is BUILT from the source of the fact -- a named constant
+carrying the measurement -- and the test goes red on the day the measurement
+moves, which is the day you want to hear about it.** The census figures are now
+`parlays.COMBO_CENSUS_*`, the note is an f-string over them, and the test
+asserts `str(COMBO_CENSUS_OPEN) in note`. Verified by mutation both ways:
+hardcoding the old digits back goes red, and so does restoring the refuted
+clause against an assertion pinning it **absent**.
+
+The corollary is worth its own line, because it is the cheaper half: **pin the
+refuted phrase absent, not just the true one present.** "Present" assertions
+permit a sentence that says both things; only an absence assertion stops the
+old claim creeping back beside the new one.
+
+## 2026-09-01 - A clearing statement in an ADR is a claim about a population, and needs its boundary as precisely as a finding does
+
+ADR 0091 fixed a poller that held the SQLite write lock across three HTTP round
+trips, and cleared the neighbouring module in one bullet: *"Every
+`estimate_match` helper commits its own writes, checked while investigating."*
+
+The check was real and the sentence was false. It holds for the four
+**synchronous** helpers and fails on the one **async** one,
+`ensure_estimate_markets_known`, which takes the lock at its first `INSERT` and
+does not commit until after the loop -- holding it across N-1 Kalshi round
+trips. ADR 0091's own defect, loop-carried instead of straight-line, in the file
+the ADR had just declared clean.
+
+Two things made it invisible. The helper differed from its siblings **by a
+keyword rather than by structure**, so a sweep reading "every helper" read past
+it. And the guard built to catch exactly this class,
+`tests/test_poller_holds_no_lock_across_io.py`, could not see it for two
+independent structural reasons: it matches only `ast.Name` I/O calls, and
+`await source.fetch(...)` is an `ast.Attribute`; and it inspects only
+straight-line blocks, while here the write ends iteration N and the await begins
+N+1.
+
+**Pattern: "checked and cleared" is a claim about a population, and it must
+state the population's boundary as precisely as a finding states its n. Write
+which cases were examined and by what predicate, not "every X" -- because the
+one that escapes is the one that differs on an axis the sweep did not enumerate,
+and a clearing statement is exactly the sentence nobody re-checks.**
+
+Its sibling: a guard that cannot see a defect **reports health over it**, which
+is worse than no guard, because the ADR then cites the green. Before trusting
+one, ask what shape of the defect it matches on -- and confirm by breaking the
+code and watching it go red.
+
 ## 2026-09-01 - A CI run that reports on your branch may not be reporting on your commit
 
 The local whole-suite ritual was retired this session in favour of CI, which
@@ -2734,6 +2801,8 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-09-01 — in this file, above
+- A test that asserts copy's TEXT freezes it; assert its SOURCE
+- A clearing statement in an ADR is a claim about a population, and needs its boundary as precisely as a finding does
 - A CI run that reports on your branch may not be reporting on your commit
 - Adding a SHAPE to a shared artifact is a wider change than adding a field
 - A registration's "what we cannot measure" list is a claim, and getting it wrong retires the falsifying test

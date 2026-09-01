@@ -126,8 +126,13 @@ primary_region = "ord"
   # flag, and a code change to that constant. ADR 0018.
   LIVE_TRADING_ENABLED = "false"
   # The manual (hand-bet) door, ADR 0063. Stated explicitly because a default
-  # is a decision nobody made. Turning it on exposes POST /api/manual-orders
-  # (still dry-run: MANUAL_ORDERS_ARE_DRY_RUNS is a code constant).
+  # is a decision nobody made. Turning it on exposes POST /api/manual-orders.
+  #
+  # This comment read "(still dry-run: MANUAL_ORDERS_ARE_DRY_RUNS is a code
+  # constant)" until 2026-09-01, and that has been FALSE since 2026-08-26:
+  # MANUAL_ORDERS_ARE_DRY_RUNS is False and this route sends real
+  # immediate-or-cancel orders. Someone checking the deploy file for whether
+  # the hand-bet door spends money got the wrong answer for six days.
   #
   # ON since 2026-08-26, and it spends nothing. The door had been built,
   # tested and unreachable: with the flag false every response is "blocked",

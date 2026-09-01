@@ -94,6 +94,21 @@ is why the account's 33 older sports orders are all on shard 0.
   arming it is a one-line commit of its own — the `MANUAL_ORDERS_ARE_DRY_RUNS`
   convention (ADR 0063).
 
+  **AMENDED 2026-09-01: it is `False` on live and has been since 2026-08-30.**
+  Joe armed it, in the one-line commit this bullet asks for, and that stands —
+  nothing here reverts it. What was wrong is this document: it was never
+  amended, so a reader of ADR 0084 alone concludes the combination order path
+  is a rehearsal. It is a **live GTC real-money path**
+  (`backend/store/combo_orders.py:79`), gated by `require_auth` alone
+  (`backend/api/routes.py:2984`) — **not** by `MANUAL_ORDERS_ENABLED` — with no
+  environment kill switch, by the deliberate design recorded above.
+
+  The arming was correct and the silence was the defect. An ADR that states a
+  constant's shipped value acquires a maintenance obligation the moment someone
+  changes it, and nothing in the repo binds the two: the same drift produced
+  four other stale claims corrected on the same day, every one of them making
+  the deployed system sound safer than it is.
+
 ### What the tool will not do
 
 **It does not move money between exchange shards.** The endpoint exists
