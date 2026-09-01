@@ -437,6 +437,13 @@ class DownsamplePlan:
     #: Rows passing D1 and D2 and D3: T-MECH's population and P5's denominator.
     d123_rows: int
     #: The fraction of `d123_rows` that D4 removes. Threshold 0.90.
+    #:
+    #: **This docstring was right and the code under it was backwards.**
+    #: Until 2026-09-01 the value assigned was `day_survivors / d123_rows`
+    #: -- the fraction D4 *keeps*. A prose caveat cannot catch that; only a
+    #: test that runs `plan()` over rows and reads the number back can, and
+    #: every assertion in the suite hand-set this field on a constructor
+    #: instead. See `TestTMechIsComputedFromRowsAndNotFromAConstructor`.
     t_mech: Optional[float]
     #: The fraction of `d123_rows` with no computable `commence_ms`. Those rows
     #: are KEPT. Threshold 0.10, above which nothing may be armed.
@@ -569,7 +576,13 @@ def plan(conn, *, now: int, retention_days: int = REGISTERED_RETENTION_DAYS):
             None if fraction is None else int(fraction * FAIR_PRICE_FAMILY_BYTES)
         ),
         d123_rows=d123_rows,
-        t_mech=(None if not d123_rows else day_survivors / d123_rows),
+        # `day_survivors` counts the rows D4 KEEPS (rn = 1 per identity per
+        # UTC day), so T-MECH -- the fraction D4 REMOVES -- is its
+        # complement. This read `day_survivors / d123_rows` until
+        # 2026-09-01 and reported the keep rate under the remove label, so
+        # the 2026-09-01 deciding run printed 1.32% against a 90% floor and
+        # returned PREMISE REFUTED when the true removal rate was 98.68%.
+        t_mech=(None if not d123_rows else 1.0 - day_survivors / d123_rows),
         p5_no_commence_fraction=(
             None if not d123_rows else no_commence / d123_rows
         ),

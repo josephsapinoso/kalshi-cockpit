@@ -392,6 +392,36 @@ class TestEveryConditionKeepsARow:
 # ---------------------------------------------------------------------------
 
 
+def _populate_one_identity_many_times(conn, *, n: int, days: int = 1):
+    """`n` observations of ONE identity, spread over `days` whole UTC days.
+
+    This is the registration's premise built literally: the runner writes many
+    `fair_prices` rows per market per day and every registered analysis reads
+    one. D4 keeps the newest row per identity per UTC day, so it must keep
+    exactly `days` rows and remove the other `n - days`.
+
+    Timestamps are floored to a UTC midnight so the day count is exact rather
+    than incidental -- `_populate` above spaces rows an hour apart from an
+    unaligned base, which straddles a day boundary or not depending on when
+    `NOW` happens to fall, and a fixture whose day count is accidental cannot
+    anchor a per-day statistic.
+    """
+    link = seed_fixture(conn)
+    day0 = ((NOW - 40 * DAY) // DAY) * DAY
+    per_day = n // days
+    assert per_day >= 2, "need at least two rows a day for a survivor to matter"
+    written = 0
+    for day in range(days):
+        count = per_day if day < days - 1 else n - written
+        for i in range(count):
+            # Spread inside the day, never touching either boundary.
+            offset = HOUR + (i * (22 * HOUR)) // max(count, 1)
+            add_fair_price(conn, link_id=link, computed_ms=day0 + day * DAY + offset)
+        written += count
+    assert written == n
+    return link
+
+
 def _populate(conn):
     link = seed_fixture(conn)
     old = NOW - 40 * DAY
@@ -617,6 +647,95 @@ class TestTheDryRunHarness:
         text = "\n".join(lines)
         assert "sub-daily resolution, ever again" in text
         assert "not found]" not in text
+
+
+class TestTMechIsComputedFromRowsAndNotFromAConstructor:
+    """The deciding statistic, computed by `plan()` against actual rows.
+
+    **Every other `t_mech` assertion in this file hand-sets the field on a
+    `DownsamplePlan(...)` and asserts the `verdict` property.** Not one of them
+    ran `plan()` over data and checked the number that came out, so the
+    direction of the statistic was verified by nothing -- and it was backwards.
+
+    `t_mech` was `day_survivors / d123_rows`. A day survivor is the row D4
+    **keeps** (§4: the deletable condition is "It is *not* the newest row for
+    its identity within its own UTC day"), so the field held the KEEP fraction
+    while its own docstring, the harness label `of those, removed by D4`, and
+    `verdict`'s `< T_MECH_THRESHOLD` comparison all read it as the REMOVE
+    fraction.
+
+    On the 2026-09-01 deciding run that printed **1.32%** against a 90% floor
+    and returned `PREMISE REFUTED`. The true removal rate was **98.68%**, which
+    passes. The premise was corroborated and reported as refuted.
+
+    The run's own output already contradicted it without needing the code:
+    eligibility *requires* failing D4, so `eligible_rows / d123_rows` is a lower
+    bound on the removal rate, and that was 151,642/155,248 = **97.68%**. D4
+    cannot remove 1.32% of a population 97.68% of which is already marked
+    deletable. One division would have caught it.
+    """
+
+    def test_a_table_that_is_the_premise_returns_a_high_removal_rate(self, conn):
+        """Build the premise exactly and read the statistic back.
+
+        One identity observed many times inside a single UTC day, aged past the
+        window, unreferenced, with its event scored. D4 should keep exactly one
+        row per identity-day and remove the rest -- so `t_mech` must be high,
+        and the verdict must not be PREMISE REFUTED.
+        """
+        n = 100
+        _populate_one_identity_many_times(conn, n=n, days=1)
+
+        plan = fpd.plan(conn, now=NOW, retention_days=14)
+
+        assert plan.d123_rows == n, (
+            f"fixture did not land in the D1&D2&D3 population: "
+            f"d123_rows={plan.d123_rows}, expected {n}"
+        )
+        assert plan.t_mech is not None
+        # One survivor per identity-day out of n, so removal is (n-1)/n.
+        assert plan.t_mech == pytest.approx((n - 1) / n), (
+            f"t_mech={plan.t_mech!r}; if this is ~{1/n} the statistic is "
+            "inverted -- it is reporting the fraction D4 KEEPS"
+        )
+        assert plan.t_mech >= fpd.T_MECH_THRESHOLD
+        assert plan.verdict != "PREMISE REFUTED"
+
+    def test_the_removal_rate_is_the_complement_of_the_survivor_count(self, conn):
+        """Ties the statistic to the count it is derived from, in both spans.
+
+        Two UTC days means two survivors, so removal is `(n-2)/n` rather than
+        `(n-1)/n`. A test with a single day cannot tell a complement from an
+        off-by-one.
+        """
+        n = 60
+        _populate_one_identity_many_times(conn, n=n, days=2)
+
+        plan = fpd.plan(conn, now=NOW, retention_days=14)
+        survivors = plan.per_condition["kept_by_d4_day_survivor"]
+
+        assert survivors == 2, f"expected one survivor per UTC day, got {survivors}"
+        assert plan.t_mech == pytest.approx(1.0 - survivors / plan.d123_rows)
+        assert plan.t_mech == pytest.approx((n - 2) / n)
+
+    def test_the_eligible_fraction_is_a_lower_bound_on_the_removal_rate(self, conn):
+        """The internal-consistency check that would have caught the inversion.
+
+        Eligibility requires failing D4, so every eligible row is one D4
+        removes. `eligible_rows / d123_rows` can therefore never exceed
+        `t_mech`. Under the inverted statistic this relation broke by a factor
+        of ~74 on live and nobody computed it.
+        """
+        _populate_one_identity_many_times(conn, n=100, days=1)
+
+        plan = fpd.plan(conn, now=NOW, retention_days=14)
+
+        assert plan.d123_rows > 0
+        lower_bound = plan.eligible_rows / plan.d123_rows
+        assert plan.t_mech >= lower_bound - 1e-9, (
+            f"t_mech={plan.t_mech} is below eligible/d123={lower_bound}, which "
+            "is arithmetically impossible: eligibility requires failing D4"
+        )
 
 
 class TestP6ChecksTheConnectionItWasHanded:
