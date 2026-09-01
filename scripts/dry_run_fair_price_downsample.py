@@ -52,10 +52,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sqlite3
 import sys
+import time
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
@@ -65,6 +67,12 @@ from backend.store import fair_price_downsample as fpd  # noqa: E402
 from backend.store.db import now_ms  # noqa: E402
 
 DEFAULT_DB = "/data/cockpit.db"
+
+#: Amendment 1 sectionA4's absolute floor under P6b's gate. The perturbation bound is
+#: proportional to the insert count, so a run that happened to see zero inserts
+#: would have a gate of zero and P6b could never fire -- a check that cannot
+#: fail, which is the failure mode P6 itself had in the other direction.
+P6B_FLOOR_BYTES = 100_000
 
 REGISTRATION = (
     Path(__file__).resolve().parents[1]
@@ -177,10 +185,60 @@ def _pct(value: Optional[float]) -> str:
     return "UNKNOWN" if value is None else f"{100.0 * value:.2f}%"
 
 
-def report(conn, *, now: int, retention_days: int) -> tuple[fpd.DownsamplePlan, list[str]]:
+def probe_readonly(conn) -> bool:
+    """Whether `conn` actually refuses writes. Probed, never assumed.
+
+    Amendment 1 sectionA7: `mode=ro` is set in `main()`, but `report()` accepts any
+    connection and the fixture tests already pass it a **writable** one. A
+    prerequisite that reads a constant in a different function is not checking
+    the object it was handed.
+
+    The probe is a no-op on a writable connection -- a `DELETE` that matches no
+    row -- so it is safe against the live database whatever the answer is.
+
+    **Scoped to a SAVEPOINT rather than rolled back.** The first version called
+    `conn.rollback()`, which is not a no-op: on a writable connection it
+    discards whatever uncommitted work the caller already had open. A probe
+    that can destroy the state it is inspecting is worse than no probe, and a
+    test caught it doing exactly that. `ROLLBACK TO` undoes the probe and
+    nothing else; `RELEASE` then drops the savepoint without touching the
+    enclosing transaction.
+    """
+    try:
+        conn.execute("SAVEPOINT _p6_probe")
+    except sqlite3.OperationalError:
+        # A read-only connection refuses even to open the savepoint on some
+        # builds; that is itself the answer.
+        return True
+    try:
+        conn.execute("DELETE FROM fair_prices WHERE 0")
+    except sqlite3.OperationalError:
+        writable = False
+    else:
+        writable = True
+    finally:
+        for statement in ("ROLLBACK TO _p6_probe", "RELEASE _p6_probe"):
+            try:
+                conn.execute(statement)
+            except sqlite3.Error:
+                pass
+    return not writable
+
+
+def report(
+    conn,
+    *,
+    now: int,
+    retention_days: int,
+    expect_readonly: bool = False,
+) -> tuple[fpd.DownsamplePlan, list[str]]:
+    started = time.monotonic()
     before = conn.execute("SELECT COUNT(*) FROM fair_prices").fetchone()[0]
     plan = fpd.plan(conn, now=now, retention_days=retention_days)
     after = conn.execute("SELECT COUNT(*) FROM fair_prices").fetchone()[0]
+    delta = after - before
+    readonly = probe_readonly(conn)
+    elapsed = time.monotonic() - started
 
     p1_ok, p1_why = check_p1()
     p2_ok, p2_why = check_p2()
@@ -188,7 +246,14 @@ def report(conn, *, now: int, retention_days: int) -> tuple[fpd.DownsamplePlan, 
     p4_ok, p4_why = check_p4()
     p5_value = plan.p5_no_commence_fraction
     p5_ok = p5_value is not None and p5_value <= fpd.P5_MAX_NO_COMMENCE_FRACTION
-    p6_ok = before == after
+    # Amendment 1 sectionA4: the pass condition is "no row was REMOVED", plus a
+    # probe that the connection this function was handed actually refuses
+    # writes. The registered `before == after` tested a race -- a report that
+    # finished between two recorder commits answered YES, one that straddled
+    # one answered NO, and neither says anything about whether this instrument
+    # deleted a row.
+    p6_no_removal = after >= before
+    p6_ok = p6_no_removal and (readonly or not expect_readonly)
 
     out = [
         f"# fair_prices downsample DRY RUN  (retention_days={retention_days})",
@@ -203,8 +268,11 @@ def report(conn, *, now: int, retention_days: int) -> tuple[fpd.DownsamplePlan, 
         f"  P5 anchor computable for >=90%      {'YES' if p5_ok else 'NO'}  "
         f"no commence_ms on {_pct(p5_value)} of the D1&D2&D3 rows "
         f"(threshold {_pct(fpd.P5_MAX_NO_COMMENCE_FRACTION)}); those rows are KEPT",
-        f"  P6 nothing was deleted              {'YES' if p6_ok else 'NO'}  "
-        f"COUNT(*) before {before:,}, after {after:,}",
+        f"  P6 no row was removed               {'YES' if p6_ok else 'NO'}  "
+        f"COUNT(*) before {before:,}, after {after:,}, delta {delta:+,}"
+        f"; connection refuses writes: {'YES' if readonly else 'NO'}"
+        f"{'' if expect_readonly else ' (not required: expect_readonly=False)'}"
+        f"; report took {elapsed:.1f}s",
         "",
         "## 2. n, before any effect size",
         f"  total_rows              {plan.total_rows:>12,}",
@@ -252,6 +320,33 @@ def report(conn, *, now: int, retention_days: int) -> tuple[fpd.DownsamplePlan, 
         "   = 2.00 days at 161.40 MB/day",
         f"  VERDICT     {plan.verdict}",
     ]
+
+    # Amendment 1 sectionA4/sectionA6: P6b, the margin check. It can only ever VOID a
+    # run, never rescue one -- concurrent inserts perturb `eligible_row_fraction`
+    # and therefore the byte estimate, and a decision resting inside that
+    # perturbation is not a decision. Printed rather than left in prose, which
+    # is the state P6 itself was in when it broke.
+    if plan.estimated_freed_bytes is None:
+        out.append(
+            "  P6b         NOT COMPUTABLE (estimated_freed_bytes is UNKNOWN)"
+        )
+    else:
+        perturbation = (
+            math.ceil(delta / before * fpd.FAIR_PRICE_FAMILY_BYTES)
+            if before and delta > 0
+            else 0
+        )
+        gate = max(perturbation, P6B_FLOOR_BYTES)
+        margin = abs(plan.estimated_freed_bytes - fpd.ARMING_THRESHOLD_BYTES)
+        out += [
+            f"  P6b         perturbation {perturbation:,} B, gate {gate:,} B, "
+            f"margin {margin:,} B  ->  {'PASS' if margin > gate else 'FIRES'}",
+        ]
+        if margin <= gate:
+            out.append(
+                "  ** P6b FIRES: UNRESOLVED - MARGIN INSIDE THE CONCURRENCY "
+                "PERTURBATION. This run does not decide. **"
+            )
     if not all((p1_ok, p2_ok, p3_ok, p4_ok, p5_ok, p6_ok)):
         out.append(
             "  ** A PREREQUISITE ANSWERED NO. The verdict above is VOID and the "
@@ -311,7 +406,37 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # promised, and it is the one line that makes this file reviewable once.
     conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
     try:
-        plan, lines = report(conn, now=now_ms(), retention_days=args.retention_days)
+        # Amendment 1 sectionA12(4): pin ONE read snapshot for the whole report, so
+        # `total_rows`, `eligible_rows`, `d123_rows` and the per-`link_id` view
+        # all describe one state of the database rather than nine.
+        #
+        # **Attempted, not assumed.** A read transaction against a `mode=ro`
+        # WAL database has platform-dependent shared-memory requirements, and
+        # the amendment requires that failure be recorded rather than papered
+        # over -- so the fallback is the unpinned read and the output says which
+        # one happened. `isolation_level = None` puts pysqlite in autocommit, so
+        # BEGIN is ours to issue and is not silently wrapped.
+        conn.isolation_level = None
+        pinned = False
+        try:
+            conn.execute("BEGIN")
+            pinned = True
+        except sqlite3.Error:
+            pinned = False
+
+        plan, lines = report(
+            conn,
+            now=now_ms(),
+            retention_days=args.retention_days,
+            expect_readonly=True,
+        )
+        lines.insert(
+            1,
+            "  read snapshot: PINNED (one consistent state)"
+            if pinned
+            else "  read snapshot: NOT PINNED -- the census below reads nine "
+            "states; P6's pass condition stays `after >= before`",
+        )
         payload: dict[str, Any] = {"deciding_run": plan.as_dict(), "sensitivity": []}
         if args.sweep:
             for days in fpd.SENSITIVITY_RETENTION_DAYS:
@@ -326,6 +451,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     "=" * 72,
                 ] + sweep_lines
     finally:
+        try:
+            conn.rollback()
+        except sqlite3.Error:
+            pass
         conn.close()
 
     print(json.dumps(payload, indent=2) if args.json else "\n".join(lines))

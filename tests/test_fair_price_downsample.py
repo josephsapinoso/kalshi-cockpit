@@ -619,6 +619,123 @@ class TestTheDryRunHarness:
         assert "not found]" not in text
 
 
+class TestP6ChecksTheConnectionItWasHanded:
+    """Amendment 1 sectionA4/sectionA7 to the registration, 2026-09-01.
+
+    The deciding run answered **P6 = NO** with `before` 3,786,454 and `after`
+    3,786,848 -- the live recorder inserting 394 rows while the report ran. The
+    registered condition was `before == after`, which tested a **race**: a
+    report finishing between two recorder commits answers YES, one straddling a
+    commit answers NO, and neither says anything about whether the instrument
+    deleted a row. A check that passes for no reason is not redeemed by also
+    failing for no reason, and the passing case is the more dangerous because
+    nobody audits a YES.
+
+    The amended condition is "no row was **removed**" plus a probe that the
+    connection actually refuses writes -- `mode=ro` is set in `main()`, but
+    `report()` accepts any connection and the fixtures above hand it a
+    **writable** one, so a prerequisite reading a constant in a different
+    function was not checking the object it had.
+    """
+
+    def test_the_probe_says_no_on_a_writable_connection(self, conn):
+        from scripts import dry_run_fair_price_downsample as harness
+
+        assert harness.probe_readonly(conn) is False
+
+    def test_the_probe_says_yes_on_a_readonly_connection(self, tmp_path):
+        import sqlite3
+
+        from scripts import dry_run_fair_price_downsample as harness
+
+        path = tmp_path / "ro.db"
+        c = db.init_db(path)
+        c.close()
+        ro = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            assert harness.probe_readonly(ro) is True
+        finally:
+            ro.close()
+
+    def test_the_probe_deletes_nothing_when_the_connection_allows_it(self, conn):
+        """The probe runs against the LIVE database, so it must be a no-op.
+
+        `DELETE ... WHERE 0` matches no row by construction. If it ever became
+        an unguarded `DELETE`, this is the test that notices -- and it is the
+        whole reason the probe is a matched-nothing delete rather than an
+        insert-and-rollback.
+        """
+        from scripts import dry_run_fair_price_downsample as harness
+
+        _populate(conn)
+        before = conn.execute("SELECT COUNT(*) FROM fair_prices").fetchone()[0]
+        assert before > 0, "fixture is empty; this test would pass vacuously"
+        harness.probe_readonly(conn)
+        after = conn.execute("SELECT COUNT(*) FROM fair_prices").fetchone()[0]
+        assert after == before
+
+    def test_an_insert_during_the_run_no_longer_fails_p6(self, conn):
+        """The exact shape that voided the deciding run.
+
+        Rows *appearing* between the two counts are the recorder doing its job.
+        Under the registered `==` this answered NO; under the amended condition
+        it answers YES, and the delta is reported rather than gated on.
+        """
+        from scripts import dry_run_fair_price_downsample as harness
+
+        _populate(conn)
+        _plan, lines = harness.report(conn, now=NOW, retention_days=14)
+        text = "\n".join(lines)
+        p6 = next(line for line in lines if "P6" in line)
+        assert "delta" in p6, "the delta is a required reportable"
+        # The fixture is static, so the delta is 0 and P6 must pass on it.
+        assert "YES" in p6, text
+
+    def test_p6_fails_when_a_row_is_actually_removed(self, conn):
+        """The condition must still be able to answer NO in its own direction."""
+        from scripts import dry_run_fair_price_downsample as harness
+
+        _populate(conn)
+        before = conn.execute("SELECT COUNT(*) FROM fair_prices").fetchone()[0]
+
+        real_plan = fpd.plan
+
+        def plan_then_delete(c, **kwargs):
+            result = real_plan(c, **kwargs)
+            c.execute(
+                "DELETE FROM fair_prices WHERE id = (SELECT MIN(id) FROM fair_prices)"
+            )
+            return result
+
+        fpd.plan = plan_then_delete
+        try:
+            _plan, lines = harness.report(conn, now=NOW, retention_days=14)
+        finally:
+            fpd.plan = real_plan
+
+        after = conn.execute("SELECT COUNT(*) FROM fair_prices").fetchone()[0]
+        assert after == before - 1, "the mutation did not remove a row"
+        p6 = next(line for line in lines if "P6" in line)
+        assert "NO" in p6, p6
+
+    def test_a_writable_connection_fails_p6_when_readonly_is_expected(self, conn):
+        """sectionA7's case: the live path asserts read-only, the fixture path does not.
+
+        `main()` passes `expect_readonly=True`; the tests above do not, which is
+        what keeps the count half exercised on a writable fixture without the
+        probe failing them.
+        """
+        from scripts import dry_run_fair_price_downsample as harness
+
+        _populate(conn)
+        _plan, lines = harness.report(
+            conn, now=NOW, retention_days=14, expect_readonly=True
+        )
+        p6 = next(line for line in lines if "P6" in line)
+        assert "NO" in p6, p6
+        assert "refuses writes: NO" in p6, p6
+
+
 class TestTheDiskAlarmCannotFireTheDeletion:
     """An automatic deletion fired by a disk alarm is a guard that goes off at
     the worst possible moment. Both directions are asserted, because either one
