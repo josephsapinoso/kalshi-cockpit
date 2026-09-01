@@ -573,7 +573,10 @@ class TestPricing:
             app, "/api/parlays/lookup",
             {"card_key": "safe", "legs": legs}, headers=HEADERS,
         )).json()
-        assert "enter-only" in body["notes"]["enter_only"]
+        # Sourced from the module, not retyped: a caveat asserted as a
+        # literal freezes it, which is how "40 of 40" outlived the census
+        # that refuted it. See `parlays.COMBO_CENSUS_*`.
+        assert body["notes"]["unquoted"] == parlays.NOTES["unquoted"]
         assert "unverified" in body["notes"]["fee"]
         # No fee-net EV key anywhere (ADR 0046): the hold is the verdict.
         def walk(node):

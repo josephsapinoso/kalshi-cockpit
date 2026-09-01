@@ -45,6 +45,36 @@ field is present and correctly named on the payload — `yes_ask_dollars`,
 from the same 61 by its own pre-registered definition. Two readings, one
 conclusion.
 
+### Why the JSON artifact beside this document has no rows — annotated 2026-09-01
+
+`2026-08-30-combo-buyability.json` reads `{"api_calls": 2, …, "rows": []}`, and
+an empty `rows` array next to a document quoting 61 and 0-of-6 looks like a
+harness that failed to write its output. **It is not. The empty array IS the
+finding, and re-running the script would reproduce it exactly.**
+
+`measure_combo_book_presence.eligible()` (`scripts/measure_combo_book_presence.py:495`)
+requires `readable_quote(market) is not None`, and the pre-registered definition
+of that, fixed before collection, is `0 < ask < 1` — *"a `0.0000` ask is not an
+ask."* Every one of the 61 open combinations reported `yes_ask_dollars = 0.0000`.
+So **zero rows were eligible**, and a run that selects nothing writes `rows: []`
+by construction. The script's own "what this does not establish" list already
+says it: *"Rows with no readable ask are excluded by construction, so no
+statement here covers them."*
+
+The consequence worth stating plainly, because it is the stronger reading:
+E2 was designed to ask *"is a combination's list quote backed by an order
+book?"*, and on 2026-08-30 **not one combination had a list quote to check.**
+The question the artifact was built to answer had no population left. That is a
+harder result than any row-level rate it could have printed.
+
+**What is genuinely not re-derivable from this repo**, and should be read as a
+limit on the two ADRs that rest on it (0085's card, and 0078's justification for
+`/hedge`): the 61 / 0-of-61 / 0-of-6 figures come from the ad-hoc `/markets` and
+`/markets/{ticker}/orderbook` sweep described at the top of this document, which
+committed no artifact of its own. They are prose. The `measure_combo_book_presence`
+null result corroborates them from a second direction — it agrees there was
+nothing quoted — but it does not reproduce the counts.
+
 ## What it means, and it is stronger than ADR 0012 §5
 
 ADR 0012 §5 records combinations as **enter-only**: no resting YES bid on 40 of

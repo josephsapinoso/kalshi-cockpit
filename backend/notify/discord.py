@@ -393,7 +393,7 @@ class DiscordNotifier:
                     "text": "\n".join(
                         note for note in (
                             notes.get("fair_value"),
-                            notes.get("enter_only"),
+                            notes.get("unquoted"),
                             notes.get("fee"),
                         ) if note
                     )

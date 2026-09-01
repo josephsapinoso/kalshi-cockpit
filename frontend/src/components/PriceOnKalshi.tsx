@@ -193,7 +193,7 @@ function Result({ value }: { value: ParlayLookupResult }) {
       </p>
       <p className="text-xs text-muted">{value.verdict}</p>
       <p className="text-[11px] leading-snug text-muted">
-        {value.notes.enter_only} {value.notes.fee}
+        {value.notes.unquoted} {value.notes.fee}
       </p>
       {/* The buy, on the minted market's own ticker. `priceAlreadyVisible`
           because the ask is two lines above this — the mask cannot hold on

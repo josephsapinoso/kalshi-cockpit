@@ -844,16 +844,22 @@ class TestTheEmbedRepeatsTheDeskRatherThanRecomputingIt:
         return n, posted
 
     async def test_the_four_caveats_travel_verbatim(self):
-        """Mutation observed red: drop `notes.get("enter_only")` from the footer.
+        """Mutation observed red: drop `notes.get("unquoted")` from the footer.
 
         Two of these are the difference between a number and money: the cost is
-        FAIR value and not a quote, and the market is enter-only.
+        FAIR value and not a quote, and the market is *unquoted* -- ADR 0085's
+        upgrade of ADR 0012 §5's "enter-only", because the 2026-08-30 census
+        found the entry side missing too.
+
+        This assertion was already sourced from `NOTES` rather than retyped,
+        so the rename reached it by construction. That is the shape the other
+        two caveat tests have now been converted to.
         """
         notifier, posted = self._notifier()
         await notifier.parlay_card(_card(), notes=dict(NOTES))
         embed = posted[0]
         assert NOTES["fair_value"] in embed["footer"]["text"]
-        assert NOTES["enter_only"] in embed["footer"]["text"]
+        assert NOTES["unquoted"] in embed["footer"]["text"]
         assert NOTES["fee"] in embed["footer"]["text"]
         assert NOTES["chance"] in embed["description"]
 

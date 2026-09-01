@@ -87,7 +87,7 @@ export default function ParlayCards({
       <Excluded excluded={ladder.excluded} />
       <section className="max-w-[65ch] space-y-2 text-xs leading-snug text-muted">
         <p>{ladder.notes.fair_value}</p>
-        <p>{ladder.notes.enter_only}</p>
+        <p>{ladder.notes.unquoted}</p>
         <p>{ladder.notes.fee}</p>
       </section>
     </div>

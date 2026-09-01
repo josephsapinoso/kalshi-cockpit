@@ -96,6 +96,24 @@ DEFAULT_STAKE_CENTS = 100
 #: A market whose status says the venue is done with it cannot be a leg.
 _TERMINAL_STATUSES = frozenset({"closed", "settled", "finalized", "determined"})
 
+#: The combination-liquidity census, as named constants rather than digits
+#: buried in a sentence
+#: (`docs/measurements/2026-08-30-combination-liquidity-census.md`).
+#:
+#: They are constants because of how the previous version of this caveat
+#: survived being refuted. It said "40 of 40" and "you can buy in", and
+#: `tests/test_parlays_api.py` asserted the literal string `"40 of 40"` was
+#: present. When the 2026-08-30 census found 0 of 61 with a readable ask, the
+#: test kept the refuted sentence looking correct and CI stayed green on it --
+#: **the binding preserved the error instead of catching it.** A test that
+#: asserts the note is BUILT from these names goes red the day the census
+#: moves, which is the behaviour that was wanted all along.
+COMBO_CENSUS_DATE = "2026-08-30"
+COMBO_CENSUS_OPEN = 61
+COMBO_CENSUS_WITH_ASK = 0
+COMBO_CENSUS_BOOKS_READ = 6
+COMBO_CENSUS_BOOKS_NON_EMPTY = 0
+
 NOTES: dict[str, str] = {
     "chance": (
         "Chance every leg hits, by the books' consensus — not an edge. A "
@@ -108,10 +126,20 @@ NOTES: dict[str, str] = {
         "for a combo exists only once it is built in the app, and it will "
         "differ."
     ),
-    "enter_only": (
-        "Kalshi combos are enter-only in every order book this tool has "
-        "ever read (40 of 40): you can buy in, but nobody is bidding to "
-        "buy you out. Plan to hold to settlement."
+    # Was "enter_only", and said "you can buy in". ADR 0085 upgraded ADR 0012
+    # §5's "enter-only" to *unquoted* -- neither buyable nor sellable at a
+    # resting price, most of the time -- because the census found the ENTRY
+    # side missing too. The key is renamed with the sentence so a reader
+    # grepping `enter_only` does not land on a note that says "unquoted".
+    "unquoted": (
+        f"Kalshi combos are unquoted: on {COMBO_CENSUS_DATE}, "
+        f"{COMBO_CENSUS_WITH_ASK} of the {COMBO_CENSUS_OPEN} open "
+        f"combinations carried a readable ask, and "
+        f"{COMBO_CENSUS_BOOKS_NON_EMPTY} of the "
+        f"{COMBO_CENSUS_BOOKS_READ} deepest books had anything resting on "
+        f"either side. Usually you can neither buy in at a quoted price nor "
+        f"be bought out. A resting bid can still fill -- one combination has "
+        f"ever traded -- but plan to hold to settlement."
     ),
     "fee": (
         "Kalshi's combo fee model is unverified. Every combo fill ever "
@@ -2230,7 +2258,7 @@ async def price_card_on_kalshi(
         "hold_display": f"{valuation.hold * 100:.1f}%",
         "verdict": valuation.verdict,
         "notes": {
-            "enter_only": NOTES["enter_only"],
+            "unquoted": NOTES["unquoted"],
             "fee": NOTES["fee"],
         },
     }

@@ -896,7 +896,7 @@ export type ParlayLadder = {
   notes: {
     chance: string;
     fair_value: string;
-    enter_only: string;
+    unquoted: string;
     fee: string;
   };
 };
@@ -932,7 +932,7 @@ export type ParlayLookupResult =
       };
       hold_display: string;
       verdict: string;
-      notes: { enter_only: string; fee: string };
+      notes: { unquoted: string; fee: string };
     }
   | { status: "book_empty"; minted_market_ticker: string; words: string }
   | { status: "no_collection"; words: string }

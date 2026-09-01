@@ -411,9 +411,19 @@ class TestHonesty:
         app = build(lambda conn: None)
         body = (await get(app, "/api/parlays")).json()
         notes = body["notes"]
-        assert set(notes) == {"chance", "fair_value", "enter_only", "fee"}
-        assert "enter-only" in notes["enter_only"]
-        assert "40 of 40" in notes["enter_only"]
+        assert set(notes) == {"chance", "fair_value", "unquoted", "fee"}
+        # Asserted against the census CONSTANTS, never against the digits.
+        # The previous version of this test read `assert "40 of 40" in
+        # notes["enter_only"]`, and when the 2026-08-30 census refuted that
+        # count it kept the refuted sentence green -- the binding preserved
+        # the error rather than catching it. Sourced this way, the day
+        # `COMBO_CENSUS_*` moves and the sentence does not, this goes red.
+        assert "unquoted" in notes["unquoted"]
+        assert str(parlays.COMBO_CENSUS_OPEN) in notes["unquoted"]
+        assert parlays.COMBO_CENSUS_DATE in notes["unquoted"]
+        # The refuted half, pinned absent: the census found the ENTRY side
+        # missing too, so the note may never go back to promising a buy-in.
+        assert "you can buy in" not in notes["unquoted"]
         assert "unverified" in notes["fee"]
         assert "not an edge" in notes["chance"]
         assert "FAIR value" in notes["fair_value"]
