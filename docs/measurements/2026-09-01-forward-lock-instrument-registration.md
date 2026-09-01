@@ -1,5 +1,13 @@
 # PRE-REGISTRATION — did ADR 0091 close the `database is locked` symptom?
 
+> **AMENDMENT 1, 2026-09-01 — read before section 10.** Section 10's SIGNATURE
+> PERSISTS row named a victim-side mitigation as the action that branch
+> buys. That mitigation was completed on 2026-08-31 (`badd88e`) and is
+> deployed, so the branch no longer buys a repair. Written **blind**,
+> before any post-`T0` burst was read and before any section 11 subcommand
+> existed. It changes section 10 only; every threshold, the stopping rule and
+> the decision rule are untouched. Full text at the end of this file.
+
 **Written 2026-09-01, before any post-deploy burst was read.** The deploy that
 makes this measurable (`265bc9a`, carrying `ea4c1a3`) landed on live earlier
 the same day. At the time of writing, no post-deploy `database is locked`
@@ -572,7 +580,7 @@ differ.** If they did not, the honest thing would be to say so and not run it.
 | verdict | what happens |
 |---|---|
 | FIX CONFIRMED | ADR 0091 gains a "confirmed on live evidence" note carrying `E`, `K` and the preconditions. `tasks/NEXT.md` open item 1 closes. The remaining named suspects — the retention prune and the `TRUNCATE` checkpoint — are **not** pursued. |
-| SIGNATURE PERSISTS | ADR 0091 stands as a real defect fix and is recorded as **not the cause**. A successor registration opens on the next suspect. Priority moves to victim tolerance: `run_scoring_pass`'s `try/except` wraps the fetch and not the store, so one lock error still abandons every remaining market in the pass — that becomes the mitigation, since the holder is not closed. |
+| SIGNATURE PERSISTS | ADR 0091 stands as a real defect fix and is recorded as **not the cause**. A successor registration opens on the next suspect. Priority moves to victim tolerance: `run_scoring_pass`'s `try/except` wraps the fetch and not the store, so one lock error still abandons every remaining market in the pass — that becomes the mitigation, since the holder is not closed. **[SUPERSEDED by Amendment 1 §A3 — this mitigation was completed 2026-08-31 in `badd88e` and is deployed. Text retained.]** |
 | MIRROR RESIDUAL | A new investigation into the mirror branch after `ea4c1a3`. ADR 0091 is neither credited nor refuted. |
 | UNRESOLVED | Nothing is credited. Open item 1 stays open, with `E`, `K` and the failed precondition recorded so the next look starts from a number rather than from scratch. |
 
@@ -641,3 +649,112 @@ rule was applied to four lanes here and not to this one. `git status` cannot
 distinguish a subagent's half-written document from your own work in progress.
 Isolate anything that writes, or stage by explicit path and never `-A` while a
 writer is live.
+
+---
+
+# Amendment 1 — 2026-09-01 — §10's action table had already decayed
+
+**Written BLIND, before any post-`T0` burst has been read.** No subcommand
+implementing §11 existed when this was written; `lock-attribution` still reads
+the whole journal with no `T0` boundary, so no post-deploy population can have
+been inspected even accidentally. The §11 build begins after this lands, and
+that ordering is the point: **a decision table rewritten after a result is a
+decision made by the result.**
+
+## A1. What decayed
+
+§10's **SIGNATURE PERSISTS** row reads:
+
+> Priority moves to victim tolerance: `run_scoring_pass`'s `try/except` wraps
+> the fetch and not the store, so one lock error still abandons every remaining
+> market in the pass — that becomes the mitigation, since the holder is not
+> closed.
+
+**That mitigation was completed on 2026-08-31 and is deployed.** It is not
+pending, and it was not pending when this registration was written on
+2026-09-01 either — the registration described a state of the code that had
+already been repaired the day before.
+
+Evidence, checked rather than recalled:
+
+- `backend/scoring.py:320-333` — `store_closing_line(conn, line)` sits inside
+  its own `try`, with a `conn.rollback()` in the handler, `lines_unstored`
+  incremented, and `continue` so the loop survives.
+- Commit **`badd88e`**, 2026-08-31, *"A closing line that cannot be stored costs
+  one line, not the pass"*, whose own comment states the defect and the repair:
+  *"the `try` delivered that for the FETCH and left the write outside it… ADR
+  0091 fixed the biggest lock HOLDER. This makes the loop survive the next one,
+  whatever it turns out to be — the two are different repairs and neither
+  substitutes for the other."*
+- Present at the deployed SHA.
+
+## A2. Why this needed an amendment rather than a footnote
+
+The row does not merely name a stale fact. **It names the action that branch
+buys**, and that action is already taken. A reader reaching SIGNATURE PERSISTS
+under the unamended table would either redo completed work or, more likely,
+discover mid-write that the branch's payoff was already banked — at the one
+moment when re-deciding what the branch is worth is indistinguishable from
+choosing the branch you prefer.
+
+## A3. The corrected payoff, stated in full
+
+| verdict | what it now buys |
+|---|---|
+| **FIX CONFIRMED** | ADR 0091 gains its "confirmed on live evidence" note with `E`, `K` and the preconditions. `tasks/NEXT.md` open item 1 closes. The retention prune and the `TRUNCATE` checkpoint are **not** pursued — which is the real purchase: **the right not to chase two suspects nobody has scheduled.** |
+| **SIGNATURE PERSISTS** | ADR 0091 stands as a real defect fix, recorded as **not the cause**, and a successor registration opens on the next suspect. **The victim-side mitigation this row used to name is already complete** (`badd88e`), so this branch no longer buys a repair — it buys a corrected attribution and a starting point. |
+| **MIRROR RESIDUAL** | Unchanged. A new investigation into the mirror branch after `ea4c1a3`; ADR 0091 neither credited nor refuted. |
+| **UNRESOLVED** | Unchanged. Nothing credited; `E`, `K` and the failed precondition recorded so the next look starts from a number. |
+
+## A4. The consequence for §10's own opening claim, stated against interest
+
+§10 opens: *"This measurement is decision-relevant in all four branches, and the
+actions differ. If they did not, the honest thing would be to say so and not run
+it."*
+
+**That claim is weaker than it was.** Two of the four branches (MIRROR RESIDUAL,
+UNRESOLVED) buy nothing but a recorded number, and SIGNATURE PERSISTS has lost
+the concrete repair that distinguished it. What remains genuinely
+decision-relevant is **FIX CONFIRMED**, which closes an open item and licenses
+*not* opening two investigations.
+
+This amendment does **not** rule on whether that is still worth the exposure.
+Recording it is the point: the test §10 sets for itself should be re-applied
+with the corrected table in view, and by someone who is not mid-measurement.
+**Deliberately left as a question**, because answering it after seeing a result
+is the contamination this document exists to prevent, and answering it here —
+blind, but by the author about to build the instrument — is close enough to that
+to be worth refusing.
+
+## A5. What this amendment does NOT change
+
+Exhaustively, by section:
+
+- **§0** — the power check, the 0.066 figure, and its disclosure. Untouched.
+- **§1** — the claim under test and its falsifying form.
+- **§2** — the population, the boundary, and `T0`'s DB-derived definition.
+- **§3** — the unit (the burst, not the pass).
+- **§4** — the band, and the mirror/fast split.
+- **§5** — the estimator.
+- **§6** — every threshold, the e-value multiplicity treatment, `E`, `E*`,
+  `E_n`, and the decision rule. **Byte-for-byte.**
+- **§7** — the preconditions.
+- **§8** — the stopping rule: **160 cumulative fast-poller cycles**, and the
+  2026-09-15 wall-clock backstop.
+- **§9** — what this cannot establish.
+- **§11** — the three instrument capabilities, which this amendment authorises
+  nothing about and does not modify.
+
+Only §10's action table moves, and only in the direction of claiming less.
+
+## A6. The general defect, for `tasks/lessons.md`
+
+**A pre-registration protects the analysis; it does not protect the action
+table, which keeps rotting while the registration waits.** §10 was accurate for
+one day. The rest of the document is about a population and a statistic, both
+fixed; §10 is about the *state of the repo*, which moves under it — and it is
+the one section that becomes uncorrectable the moment a result is visible.
+
+Re-check the "what we do next" table **blind, immediately before every look**.
+It is the section least protected by pre-registration and the one most likely to
+be wrong.
