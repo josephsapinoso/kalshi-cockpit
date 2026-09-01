@@ -61,6 +61,16 @@ by construction. The script's own "what this does not establish" list already
 says it: *"Rows with no readable ask are excluded by construction, so no
 statement here covers them."*
 
+**And `api_calls: 2` against 61 markets is the same fact, not a second one:**
+the 61 came out of exactly two bulk discovery reads — one per entry in
+`DISCOVERY_SERIES`, `("KXMVESPORTSMULTIGAMEEXTENDED", "KXMVECROSSCATEGORY")`,
+at `scripts/measure_combo_book_presence.py:529` — and the script's stated budget
+of `2 + 1 + N + 1` (`:92`) then spent nothing further because `N = 0`, so the
+batched leg read, the per-row orderbook reads and the contemporaneity re-read
+never fired. Two calls is what a census of 61 markets costs when Kalshi returns
+them a page at a time and none of them earns a follow-up; it is **not** evidence
+that 59 markets went unread.
+
 The consequence worth stating plainly, because it is the stronger reading:
 E2 was designed to ask *"is a combination's list quote backed by an order
 book?"*, and on 2026-08-30 **not one combination had a list quote to check.**
