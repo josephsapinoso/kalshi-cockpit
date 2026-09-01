@@ -3604,6 +3604,35 @@ def create_app(
         """
         return {"estimates": bet_estimates.recent_estimates(conn)}
 
+    @app.get("/api/estimates/last-scored")
+    def estimate_last_scored_call(conn=Depends(get_conn)) -> dict:
+        """The last scored call, singular: "you said 58%, Kalshi closed 61%".
+
+        Ticket #11 decisions 8 and 9. **One call, or null** -- there is no
+        `limit` parameter and no list form, because a list is a scoreboard
+        with extra steps and eye-aggregation is still aggregation. The verdict
+        belongs on the log screen, where seeing the last result immediately
+        before typing the next one is the only place it can change anything.
+
+        This route serves a score, which `/api/estimates/recent` deliberately
+        does not: `recent` is a list, and a list of scores is the aggregate
+        decision 8 forbids.
+
+        **Why this does not breach ADR 0044's embargo.** Amendment 3 scopes the
+        embargo to the study's own rows -- `is_study_row = 1`, collected under
+        a promise they would never be shown. `last_scored_call` selects
+        `is_study_row = 0` only, and the payload carries that flag so the
+        embargo walker in the tests can see which regime it is looking at
+        rather than being told.
+
+        What it cannot establish: the score grades Joe against Kalshi's close
+        and never against an outcome, so it is disagreement with the market,
+        not correctness. A display, not a verdict; a verdict needs its own
+        pre-registration and the shared 300 floor (ADR 0065, amended
+        2026-08-29). Nothing here averages, rates, ranks or trends.
+        """
+        return {"call": bet_estimates.last_scored_call(conn)}
+
     @app.get("/api/estimates/stop")
     def estimate_money_arm(conn=Depends(get_conn)) -> dict:
         """The money arm's position: "$X of $100", for the /estimate strip.
@@ -3749,9 +3778,12 @@ def create_app(
         still call it and both write the same table, so they cannot come to
         disagree. Delete only with a frontend audit in hand.
 
-        Locks `POST /api/estimates` -- the action performed before every hand
-        bet -- until the next day roll at the odds budget's own hour, via the
-        same 423 shape the $100 stop uses. **No parameters and no disengage
+        Locks `POST /api/estimates` -- logging a call -- until the next day
+        roll at the odds budget's own hour, with a 423. **It is now the only
+        423 on that endpoint**: the $100 money arm's was deleted 2026-09-01
+        (ticket #11), and this one was deliberately kept, because a study stop
+        condition and an instruction Joe gave himself are not the same kind of
+        thing. **No parameters and no disengage
         endpoint**, deliberately: a lockout with a duration picker is a
         negotiation, and one that can be cancelled is a speed bump. Tapping
         again is idempotent; the release instant is a property of the clock.
@@ -3785,49 +3817,55 @@ def create_app(
 
     @app.post("/api/estimates", dependencies=[Depends(require_auth)])
     async def log_estimate(request: EstimateRequest) -> dict:
-        """Record one estimate: stamp it, capture the quote, say nothing back.
+        """Record one call: stamp it, capture the quote, say nothing back.
+
+        Since 2026-09-01 (ticket #11) every row written here is a **decoupled
+        call**, `is_study_row = 0`: Joe logging what he thinks, not tied to a
+        bet, scored at close against Kalshi's own price and read back to him
+        one row at a time on `/api/estimates/last-scored`. The stopped study's
+        own row is `is_study_row = 1` and is neither scored nor served (ADR
+        0044 Amendment 3).
 
         The server fetches the market's book *at estimate time* and stores it
-        for the anchoring tripwires (§7.7). **The response never carries it.**
+        for the anchoring tripwires (§7.7). **The response never carries it**,
+        and that is unchanged by the decoupling: the score is the closing mid,
+        not the book at the moment he typed, and handing him the latter would
+        still be handing the anchor to the person being measured.
+
         A quote that cannot be read is recorded as a reason string rather than
         blocking the write -- the estimate is the measurement and a transient
         network failure must not cost the row. The one refusal: a ticker
         Kalshi has permanently never heard of AND discovery has never seen,
         which can only be a typo, and an unjoinable row is worse than a retype.
         """
-        # The $100 stop, checked server-side before anything else: a strip on
-        # the phone is a hint to a human; this is the control. Only a
-        # COMPUTABLE firing refuses -- `None` means the record cannot be read
-        # (no study start, or an unreadable settlement row), and locking Joe
-        # out of his own log on a broken read would punish the wrong party.
-        # 423 Locked: nothing about the request is wrong; the resource is.
-        # Guard verified 2026-08-18: predicate forced False -> the 423 test
-        # fails; restored -> green.
+        # **The $100 money arm used to refuse here, and it no longer does**
+        # (decision-map ticket #11, resolved 2026-09-01; ADR 0044 Amendment 3).
+        # It was a *study* stop condition sitting on the one endpoint that
+        # records what Joe thinks. It never gated betting -- the order path
+        # carries its own daily-loss switch and its own caps, and 76 of 76
+        # settled positions were placed in the Kalshi app, which this server
+        # cannot reach at all. So the only thing it could actually stop was
+        # him writing a number down, which costs nothing and risks nothing.
+        #
+        # `study_loss_dollars` is untouched and `GET /api/estimates/stop`
+        # still serves it: the wallet strip is a fact about his money and
+        # keeps its reader. What is deleted is its power over the write path.
+        #
+        # **The self-lockout below is a different door and is deliberately
+        # kept.** That is an instruction Joe gave himself, and its whole value
+        # is that it does not negotiate.
         stop_conn = db.open_db(app_config.db_path, read_only=True)
         try:
-            stop_loss = bet_estimates.study_loss_dollars(stop_conn)
             lockout_release = bet_estimates.lockout_until(
                 stop_conn, now_ms=db.now_ms()
             )
         finally:
             stop_conn.close()
-        if (
-            stop_loss is not None
-            and stop_loss >= bet_estimates.STUDY_LOSS_CEILING_DOLLARS
-        ):
-            raise HTTPException(
-                status_code=423,
-                detail=(
-                    f"The $100 money arm has fired: cumulative realised loss "
-                    f"since study start is ${stop_loss:.2f} "
-                    f"(registration §5 arm 3, as amended by A2). The study "
-                    f"is stopped and logging is closed, permanently."
-                ),
-            )
-        # The self-lockout, second and server-side (fleet convening item 10):
-        # a disabled button is a hint to a human; this is the control. Same
-        # 423 shape as the stop -- nothing about the request is wrong, the
-        # resource is locked, and it unlocks itself at the day roll.
+        # The self-lockout, server-side (fleet convening item 10) and now the
+        # ONLY refusal on this route: a disabled button is a hint to a human;
+        # this is the control. 423 Locked -- nothing about the request is
+        # wrong, the resource is locked, and it unlocks itself at the day
+        # roll.
         # Guard verified by disabling: predicate forced False -> the 423
         # lockout test fails; restored -> green.
         if lockout_release is not None:
