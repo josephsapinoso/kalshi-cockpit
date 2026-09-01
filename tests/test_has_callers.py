@@ -2269,3 +2269,119 @@ class TestTheSshInvokedScriptsSurviveDockerignore:
             "`inspect_live_db.py` output; they must not be required in the "
             "runtime image"
         )
+
+
+class TestShippedScriptsCanReadTheFilesTheyOpen:
+    """A script in the image is not enough; what it *reads* has to be there too.
+
+    `scripts/dry_run_fair_price_downsample.py` was added to the allowlist above
+    and then failed on the live box at the next line down:
+
+        FileNotFoundError: '/app/docs/measurements/
+        2026-09-01-preregistration-fair-prices-downsample.md'
+
+    `.dockerignore` excludes `docs/` wholesale. The script reproduces numbered
+    sections of its own registration verbatim in every run -- deliberately, so
+    that an amendment reaches the output without anyone re-typing it -- so the
+    document is a **runtime dependency of the deployed instrument**, not
+    documentation that happens to sit nearby.
+
+    This is the allowlist defect one layer down, and it is the same mistake in a
+    different unit: the first guard asks "is the script shipped?", which reads
+    exactly like "does the script work?" and is not the same question. Shipping
+    a program without the file it opens produces a crash at the moment someone
+    finally runs it, which for a hand-invoked instrument is months later.
+
+    Derived, like the other two halves, from the source rather than a list: a
+    path built as `Path(__file__).resolve().parents[1] / "a" / "b"` is a
+    repo-relative file the script intends to open at runtime.
+    """
+
+    def _repo_relative_reads(self, tree: ast.AST) -> list[str]:
+        """Repo-relative paths built from `Path(__file__)...parents[1] / ...`.
+
+        Only `parents[1]`, which is the repo root for a `scripts/*.py` file.
+        Any other index is not a repo-relative read and is skipped rather than
+        guessed at -- a wrong guess here would assert against a path that does
+        not exist and read as a failure of the script instead of the test.
+        """
+        # Only maximal chains. `a / "docs" / "m" / "x.md"` contains two inner
+        # `BinOp`s that are themselves valid chains, and reporting those would
+        # name `docs` and `docs/measurements` as missing files alongside the
+        # real one -- three findings for one defect, two of them directories.
+        inner = {
+            id(node.left)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)
+        }
+
+        found: list[str] = []
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)):
+                continue
+            if id(node) in inner:
+                continue
+
+            segments: list[str] = []
+            cursor: ast.AST = node
+            while isinstance(cursor, ast.BinOp) and isinstance(cursor.op, ast.Div):
+                if not (
+                    isinstance(cursor.right, ast.Constant)
+                    and isinstance(cursor.right.value, str)
+                ):
+                    segments = []
+                    break
+                segments.insert(0, cursor.right.value)
+                cursor = cursor.left
+            if not segments:
+                continue
+
+            if not (
+                isinstance(cursor, ast.Subscript)
+                and isinstance(cursor.value, ast.Attribute)
+                and cursor.value.attr == "parents"
+                and isinstance(cursor.slice, ast.Constant)
+                and cursor.slice.value == 1
+                and "__file__" in ast.dump(cursor.value)
+            ):
+                continue
+
+            found.append("/".join(segments))
+        return found
+
+    def _shipped_scripts(self) -> list[Path]:
+        patterns = _dockerignore_patterns()
+        return [
+            path
+            for path in sorted((ROOT / "scripts").glob("*.py"))
+            if not _is_ignored(f"scripts/{path.name}", patterns)
+        ]
+
+    def test_every_file_a_shipped_script_opens_survives_dockerignore(self):
+        patterns = _dockerignore_patterns()
+        shipped = self._shipped_scripts()
+
+        assert shipped, "no script survives .dockerignore; the extractor broke"
+
+        missing: list[str] = []
+        checked = 0
+        for path in shipped:
+            tree = ast.parse(path.read_text("utf-8", errors="replace"))
+            for rel in self._repo_relative_reads(tree):
+                checked += 1
+                if not (ROOT / rel).exists():
+                    continue  # a path it writes, or builds conditionally
+                if _is_ignored(rel, patterns):
+                    missing.append(f"{path.name} -> {rel}")
+
+        assert checked, (
+            "no `Path(__file__)...parents[1] / ...` read found in any shipped "
+            "script. Either the convention changed or the AST walk broke; "
+            "either way this test is asserting nothing."
+        )
+        assert not missing, (
+            f"{missing} are opened at runtime by a script that IS in the "
+            "image, but .dockerignore keeps the file itself out, so the "
+            "script crashes on the live box the first time anyone runs it. "
+            "Add a `!` line for the file."
+        )

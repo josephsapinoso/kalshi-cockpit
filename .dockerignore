@@ -42,6 +42,25 @@ tests/
 docs/
 tasks/
 
+# **Except the documents a shipped script OPENS at runtime.** The allowlist
+# below is the same mechanism as `scripts/*`'s, one layer down, and it was
+# found the same way: `dry_run_fair_price_downsample.py` was added to that
+# allowlist, deployed, and crashed on the live box at the next line --
+# `FileNotFoundError: /app/docs/measurements/2026-09-01-preregistration-
+# fair-prices-downsample.md`. Shipping a program is not the same as shipping
+# what the program reads, and the first guard reads exactly like the second.
+#
+# This file is a runtime dependency rather than documentation: the dry run
+# reproduces numbered sections of its own registration verbatim in every run,
+# so that an amendment reaches the output without anyone re-typing it. Cutting
+# the document would silently strip §6 and §9 from the evidence -- the caveats
+# that make the byte figure interpretable -- rather than fail loudly.
+#
+# `TestShippedScriptsCanReadTheFilesTheyOpen` derives this from the AST of
+# every shipped script (`Path(__file__).resolve().parents[1] / ... ` chains),
+# so the next one is caught in CI rather than on the box.
+!docs/measurements/2026-09-01-preregistration-fair-prices-downsample.md
+
 # Dev and capture tooling stays out. Everything here either hits the API or
 # exists only to build fixtures -- EXCEPT the scripts `docker/entrypoint.sh`
 # executes, which are part of the runtime and must survive into the image.
