@@ -837,6 +837,55 @@ class TestP6ChecksTheConnectionItWasHanded:
         p6 = next(line for line in lines if "P6" in line)
         assert "NO" in p6, p6
 
+    def test_a_pinned_run_demands_equality_and_an_unpinned_one_does_not(self, conn):
+        """Amendment 1 sectionA12(4)'s last clause, which shipped unimplemented.
+
+        Under a pinned read snapshot a transaction sees its own writes and no
+        one else's, so `==` tests exactly the property P6 names. `>=` is the
+        weaker fallback concurrent inserts force when there is no pin, and a
+        concurrent inserter can mask a deletion under it.
+
+        `93f6a86` wired the pin but left `p6_no_removal = after >= before`
+        unconditional, while the NOT-PINNED branch printed "P6's pass condition
+        stays `after >= before`" -- copy naming a condition the code did not
+        apply, on the branch where it was not true.
+        """
+        from scripts import dry_run_fair_price_downsample as harness
+
+        _populate(conn)
+        real_plan = fpd.plan
+
+        def plan_then_insert(c, **kwargs):
+            result = real_plan(c, **kwargs)
+            add_fair_price(conn, link_id=1, computed_ms=NOW - 40 * DAY)
+            return result
+
+        fpd.plan = plan_then_insert
+        try:
+            _p, unpinned = harness.report(conn, now=NOW, retention_days=14)
+            _p, pinned = harness.report(
+                conn, now=NOW, retention_days=14, pinned=True
+            )
+        finally:
+            fpd.plan = real_plan
+
+        def verdict(lines):
+            """The YES/NO immediately after the P6 label -- not a substring.
+
+            The first version of this test asserted `"NO" in line`, which is
+            true of every P6 line on a writable fixture because the same line
+            ends `connection refuses writes: NO`. It passed against a mutation
+            that removed the branch it exists to check. Parse the token.
+            """
+            line = next(line for line in lines if line.lstrip().startswith("P6"))
+            match = re.search(r"\((==|>=)\)\s+(YES|NO)", line)
+            assert match, line
+            return match.group(1), match.group(2)
+
+        # An INSERT during the run: tolerated without a pin, refused with one.
+        assert verdict(unpinned) == (">=", "YES")
+        assert verdict(pinned) == ("==", "NO")
+
     def test_a_writable_connection_fails_p6_when_readonly_is_expected(self, conn):
         """sectionA7's case: the live path asserts read-only, the fixture path does not.
 

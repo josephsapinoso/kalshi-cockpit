@@ -231,6 +231,7 @@ def report(
     now: int,
     retention_days: int,
     expect_readonly: bool = False,
+    pinned: bool = False,
 ) -> tuple[fpd.DownsamplePlan, list[str]]:
     started = time.monotonic()
     before = conn.execute("SELECT COUNT(*) FROM fair_prices").fetchone()[0]
@@ -252,7 +253,13 @@ def report(
     # finished between two recorder commits answered YES, one that straddled
     # one answered NO, and neither says anything about whether this instrument
     # deleted a row.
-    p6_no_removal = after >= before
+    # Amendment 1 sectionA12(4)'s last clause, which went unimplemented in `93f6a86`
+    # while the not-pinned branch's copy implied it was live. Under a pinned
+    # read snapshot a transaction sees its own writes and no one else's, so
+    # `==` tests EXACTLY the property P6 names -- "this connection deleted
+    # nothing". `>=` is the weaker fallback that concurrent inserts force when
+    # there is no pin, and a concurrent inserter can mask a deletion under it.
+    p6_no_removal = (after == before) if pinned else (after >= before)
     p6_ok = p6_no_removal and (readonly or not expect_readonly)
 
     out = [
@@ -268,7 +275,8 @@ def report(
         f"  P5 anchor computable for >=90%      {'YES' if p5_ok else 'NO'}  "
         f"no commence_ms on {_pct(p5_value)} of the D1&D2&D3 rows "
         f"(threshold {_pct(fpd.P5_MAX_NO_COMMENCE_FRACTION)}); those rows are KEPT",
-        f"  P6 no row was removed               {'YES' if p6_ok else 'NO'}  "
+        f"  P6 no row was removed ({'==' if pinned else '>='})          "
+        f"{'YES' if p6_ok else 'NO'}  "
         f"COUNT(*) before {before:,}, after {after:,}, delta {delta:+,}"
         f"; connection refuses writes: {'YES' if readonly else 'NO'}"
         f"{'' if expect_readonly else ' (not required: expect_readonly=False)'}"
@@ -429,13 +437,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             now=now_ms(),
             retention_days=args.retention_days,
             expect_readonly=True,
+            pinned=pinned,
         )
         lines.insert(
             1,
             "  read snapshot: PINNED (one consistent state)"
             if pinned
             else "  read snapshot: NOT PINNED -- the census below reads nine "
-            "states; P6's pass condition stays `after >= before`",
+            "states; P6 falls back to `after >= before`, under which a "
+            "concurrent inserter can mask a deletion",
         )
         payload: dict[str, Any] = {"deciding_run": plan.as_dict(), "sensitivity": []}
         if args.sweep:
