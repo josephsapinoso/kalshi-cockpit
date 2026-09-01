@@ -45,93 +45,25 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline: 5,474 passed / 10 xfailed in 18:49**, collected 2026-09-01
-with **no code or test file edited after the run started** (documentation was
-added under it — the measurement doc and these session files — and no code or
-test file moved). **The +16 over 5,458 is accounted by COLLECTING both trees,
-not by reasoning about a delta**: `tests/test_failure_journal_read_path.py` is
-14 items, and `tests/test_inspect_live_db.py` collects **233 with the new
-query registered and 231 without it** — `TestEveryWhitelistedQueryRunsAgainst
-TheRealSchema` is parametrised over `QUERIES`, so adding one query adds two
-items. Measured by removing the registration and re-collecting; it took twelve
-seconds and is the only method that has ever worked on this line. `ruff` clean.
+**The test count is CI's, not a hand-collected number. Retired 2026-09-01.**
+`.github/workflows/ci.yml` runs `ruff check .` and `python -m pytest -q` on
+every push to every branch, free, under a 15-minute cap. Read the last green
+run: `gh run list --limit 5`.
 
-**Superseded: 5,243 passed / 10 xfailed in 11:54** on `a31d12c`, collected
-2026-08-30 with **nothing edited after the run started** and the tree clean
-throughout. That qualification is the point: the same 5,243 was collected on
-the previous tree while `tasks/NEXT.md` was being edited under it, so this run
-is the first unqualified confirmation of the number. The change between the
-two trees was documentation only — no code or test file moved — which is why
-the count is identical rather than merely close.
+**What was deleted here, and why it is not a loss.** This spot held ~87 lines
+reconciling a hand-collected suite count across trees. It documented **seven**
+occasions the number was wrong in the same direction, plus four runs killed
+mid-flight -- and every one of those corrections was honest and was spent on a
+figure whose only consumer was the paragraph itself. The rule it taught
+survives and is worth more than the number: **do not reconcile a baseline by
+reasoning about a delta; collect both trees.** Apply it to any count you do
+take. Run targeted tests locally while you work; let CI collect the total.
 
-**Superseded: 4,984 passed / 10 xfailed** on `2b3baa3` — see the #35 entry
-below for the delta. The line below was true of `f1c2b5f` and is kept because
-its reasoning is what keeps this number honest:
+**The suite is ~15-22 minutes and growing with the record.** A slow run is not
+a hung one, and neither is a gap the length of an interval. If it gets slower,
+look for a test doing real work to check a cheap property -- one took 71
+seconds driving a 200,000-sample copula to assert a dictionary length.
 
-**Superseded: 4,972 passed / 10 xfailed in 7:14**, measured 2026-08-28 on
-the tree committed as the watchdog corrections, with nothing edited after the
-run started. The **+13 over the previous 4,959 is fully accounted**: eight
-`TestAWedgedPassIsBoundedAndRecorded` guards in `tests/test_scheduler.py`, four
-`TestTheLadderReportsWhyItRefusedLegs` guards in `tests/test_pass_reporting.py`,
-and one footer guard in `tests/test_heartbeat_threshold_arithmetic.py`. Both
-intermediate runs were collected on their own trees (4,971 at the deadline
-commit) rather than reasoned about. That triple — the number, the tree it was taken
-on, and the fact that nothing moved after — is the qualification this line has
-never carried, and its absence is the whole reason it kept being wrong.
-
-**4,959 on `5436fc8` was correct about that tree** and is superseded, not
-corrected. Two earlier runs this session are NOT this number: one read
-`1 failed, 4962 passed` — a real finding, a structural probe that read the 600
-characters after `alerter.parlay_cards(` and stopped seeing the staleness limit
-once the ladder payload was bound to a name — and one was killed deliberately
-because a fix landed under it.
-
-**And it was wrong again, a seventh time, in the same direction.** The line
-here said **4,942** for the ADR 0080 tree. Collected on that exact tree it is
-**4,954 items = 4,944 passed + 10 xfailed** — two more than claimed. The delta
-into today's number is **+6 and fully accounted for**: the six assertions added
-to `tests/test_palette_contrast.py`, verified by collecting with and without
-the change (`4,954 → 4,960`). **Do not reconcile a baseline by reasoning about
-a delta; collect both trees.** That took twelve seconds and is the only method
-that has ever worked on this line.
-
-**7:29, not the 23:00 below.** Same machine, same suite, nothing removed. The
-paragraph below is right that a slow run is not a hung one; it should not be
-read as promising a *duration*. Time the run you are in.
-
-**Two runs this session are NOT this number and neither was reported as one.**
-One was started at session open and killed as void because the tree was edited
-under it — the exact failure this file records twice. The other read
-`2 failed, 4,940 passed` and was a real finding, not a flake: adding a
-migration at v25 after three tableless versions tripped a contiguity guard on
-`_MIGRATIONS`. Fixed properly, then re-run whole.
-
-**Four other runs happened this session and NONE of them is this number.**
-4,842 before the lane-board work; 4,885 at `1fecb54`, before the parlay lane
-merged; and two killed mid-flight, one because two suites racing read as a
-hang and one because the tree changed underneath it. Each was true of a tree
-that no longer exists. **The failure mode is always the same — a number carried
-across a change to the thing it counts** — so if you change the test corpus,
-this paragraph is stale the moment you do, and the fix is to re-run rather than
-to reason about the delta.
-
-This line has now been wrong in the same direction six times (4,192 written
-when it was 4,200; 4,281 written before three lanes landed; 4,456 written when
-`88d179f` actually measured 4,524; 4,456 again the day it became 4,474; and
-both halves of this merge conflict, each correct about a tree that no longer
-exists). **The failure mode is always the same: a number carried across a
-change to the thing it counts.** The 6 skips are `load_fixture` skipping on a
-machine without the capture fixtures, not a regression.
-
-**The suite is now ~15-22 minutes**, up from 5-8, and the reason is worth
-knowing before you assume it hung: it grew with the record, and one test added
-2026-08-26 briefly took 71 seconds on its own by driving a 200,000-sample
-copula ~300 times to assert a dictionary length. That one was fixed by stubbing
-`_joint`. **If the suite gets slower again, look for a test doing real work to
-check a cheap property** — a test nobody will wait for is a test that stops
-being run. A slow run is not a hung one, and per the 2026-08-25 lesson, neither
-is a gap the length of an interval. **Two suites racing each other reads as a
-hang**: verify by command line, not by a kill's exit code.
 **Two things to know before planning. CLAUDE.md is current on both:**
 
 1. **The signal test has NOT declared. The 2026-08-24 `NO SIGNAL` was
@@ -263,7 +195,149 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-01 (latest) — open item 4 named an instrument that cannot see the failure it measures, and the good news I wrote off it was refused
+## 2026-09-01 (latest) — the lock holder is attributed, the partner had never been invoked, and the map was three tickets shorter than it looked
+
+**DEPLOYED `d325ed1`.** Joe raised a throughput complaint mid-session — *"I'd
+rather not have to keep perpetually having to start new sessions and asking to
+run next.md"* — and then asked why the partner agent was not involved every
+session. Both are answered below, and the second turned out to be a real gap
+in this repo rather than a preference.
+
+**This entry is deliberately short.** Session prose was running at ~1.03 lines
+per line of production code. That ratio is the throughput problem as much as
+anything else.
+
+### Open item 2 is CLOSED — the poller held the lock
+
+Registered before the join existed
+(`docs/measurements/2026-09-01-lock-holder-attribution-registration.md`), run
+by a new `inspect_live_db lock-attribution`, audited by `measurement-skeptic`
+before entering the record.
+
+    n = 13 bursts   k = 13 inside W = 14 s   p0 = 0.0466   expected 0.606
+    two-sided exact binomial p = 4.890e-18   POLLER IMPLICATED
+
+All 13 offsets fall in [5.195, 5.919] s against `BUSY_TIMEOUT_MS = 5_000`.
+
+**The falsifying read is the part to carry.** The registration said in two
+places that the poller's cycle END is recorded nowhere, and used that to rule
+out any exonerating verdict. It was wrong: the poller sleeps *after* its cycle,
+so the gap to the next `poll_log` stamp bounds the cycle above — in the table
+the query already read.
+
+    population median cycle              300.415 s
+    cycles that produced a burst   n=13  median 315.628   (+15.21 s)
+    cycles that produced only repeats n=7 median 300.406  ( -0.01 s)
+    >= 305 s:  12 of 13 burst cycles     0 of 7 repeat-only
+    Fisher two-sided                     p = 0.00010
+
+The poller's own cycles ran long **exactly on the cycles that produced a
+failure**. That excludes the alternative — something else holding the lock
+while merely phase-locked to the poller — and it could have come out the other
+way. Full write-up and every applied correction:
+`docs/measurements/2026-09-01-lock-holder-attribution-result.md`.
+
+**Three things the audit corrected that a future session will otherwise
+repeat:** the p-value was computed off-instrument and 22% wrong while the
+harness printed a literal `0.000000`; "three round trips at ~1.8 s each" is
+refuted by the document's own C (the median whole cycle is ≤0.415 s — the
++15.2 s is the *victim* deadlocking the poller on a shared event loop); and
+this measures "a poller cycle start", **not** the fast branch — `poll_log`
+cannot tell the mirror from the fast cycle, and the mirror still carries an
+uncured long-lock defect at `backend/estimate_match.py:56-124` that ADR 0091
+never touched.
+
+### Open item 3 is CLOSED — and the field it named does not separate anything
+
+The item wanted one boolean: whether `rollback()` succeeded. A rollback on a
+connection with **no open transaction is a no-op that always succeeds**, so
+`rollback_ok = True` is produced by both hypotheses under test. What
+discriminates is `in_transaction`, read *before* the rollback. Both are now
+journalled on their own `kind: "rollback"` line, and the diagnosis stopped
+asserting "this is not the poisoned-connection case" unconditionally — it is
+true only in one of the three branches.
+
+### Open item 1 — reframed, and no longer waiting on a clock
+
+The quiet window contains **13 process restarts** (11 since `badd88e`), and a
+restart is this failure class's own documented cure — every candidate holder
+lives inside that process. Longest uninterrupted process life since the fix:
+**3.13 h**, against the 12.8 h a single run needs to expect 5 bursts. So
+"wait until 23:20Z" was arithmetic that ignores restarts.
+
+It now has a positive instrument instead of a wait: the ~5.3 s poller-cycle
+signature. **But it must be registered before the first post-fix burst
+arrives** — band, tolerance, stopping rule — and a burst after a *mirror*
+cycle would not refute ADR 0091 at all. §7 of the result document has the terms.
+
+### Why the partner had never run, and it was not a preference
+
+`CLAUDE.md` did not mention the partner **once** — zero grep hits — and this
+file's SESSION START box did not name it. So no session ever invoked it, and
+every session re-derived its own priorities. It is now `CLAUDE.md` workflow
+step 0 and a named read in the startup box.
+
+Its ruling, on being asked: **the "resolve exactly one ticket per session" rule
+was never the throttle.** Nine tickets have ever closed, all on 2026-08-28,
+four within eight seconds of each other; since then 12 session entries over 4
+days and **zero**. A quota of 1/session permitted 12 and delivered 0. The real
+constraint is that **13 of 23 tickets need Joe's taste and have no evidence
+path**, asked one at a time at the end of a session.
+
+### What was done about it
+
+- **A batched decision interview**, published as an artifact: ten questions,
+  options and a recommendation on each, answerable in one sitting as
+  "16A, 12C, 15A…". That replaces ten sessions that each end in one question.
+- **The lane graveyard is gone.** 16 dead worktrees and 27 merged branches
+  removed; `scripts/lane_board.py` exits **0** for the first time in days. It
+  had been red on 9 COLLISION findings that were all one merged lane colliding
+  with its own landed work. A salvage patch of that lane's stale uncommitted
+  edits is at `~/kalshi-lane-salvage/` — verified already on main before
+  removal.
+- **The local whole-suite baseline ritual is retired**, on the partner's
+  ruling. `.github/workflows/ci.yml` runs `ruff check .` and `pytest -q` on
+  every push, free, and was green on `1c8acda` at 02:07:30Z. The paragraph at
+  the top of this file documented seven occasions the hand-collected number was
+  wrong; its only consumer was itself. **Run targeted tests locally; let CI
+  collect the number.**
+
+### Map tickets: five closed, one commented — and three were already done
+
+**#13, #26, #30 were fixed on 2026-08-29 and never closed.** Verifying that
+took four minutes; building them would have taken hours. The backlog was 23
+and was really 20.
+
+- **#27 FIXED.** The Games sort's third key was `-(edge_tenths)` — the exact
+  ordering the map rules out of scope. Not a rare tiebreak: both sides of a
+  moneyline share a byte-identical `commence_ms`, so it decided which side of
+  **every** game printed first, and the row renders neither `side` nor
+  `event_title`. Now `ticker`. Guarded, both guards mutation-verified.
+- **#14 FIXED.** CLAUDE.md's actionable figure was 11 rows / 6 games from
+  2026-08-23. Live now: **51 rows across 15 games**, `suggested_contracts = 0`
+  on all 51, two WNBA games carrying **41%** of the rows. The three quantities
+  circulating under the word "actionable" are now named. Verdict unchanged.
+- **#25 commented, left open.** Today's re-audit changes its premise: every one
+  of the 51 rows has a `reason_text` ending "No edge", so the chip is not lying
+  — it is *under-determined*, and both "no edge" and "unbuyable at this
+  bankroll" are true. Recommended a two-chip answer that was not in the
+  original option list.
+
+### Still open
+
+1. **Register the forward lock instrument** before the next burst — §7 of the
+   result document. Nothing else on the lock line is blocked.
+2. **`odds_snapshots` retention** — ADR 0086 bought headroom, not a bound. The
+   partner's ruling: ship the alarm threshold, not a policy, because no
+   measured date exists on which the volume fills.
+3. **The ten decision-map answers** — the artifact is waiting on Joe.
+4. **`user_not_found` on shard 3** and **Joe's shard allocation** — both his,
+   both money-touching, both carried. They belong in the interview, not in a
+   list a session reads and skips.
+
+---
+
+## 2026-09-01 — open item 4 named an instrument that cannot see the failure it measures, and the good news I wrote off it was refused
 
 **DEPLOYED `ad3efed`, verified** — `/api/health` `git_sha` reads
 `ad3efed`, status ok, mode live, recorder writing 36s before the read.

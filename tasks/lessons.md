@@ -54,6 +54,82 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-01 - A registration's "what we cannot measure" list is a claim, and getting it wrong retires the falsifying test
+
+The lock-holder registration said, in two places, that the poller's cycle END
+is recorded nowhere -- and used that to rule out any exonerating verdict. It
+was wrong. The poller sleeps AFTER its cycle, so the gap to the next stamp in
+the very table the query already reads bounds the cycle above. The open item
+had asked for "start **and finish** times" in those words.
+
+The cost was not a missing nicety. It was **the only check that could have
+refuted the result**: if the cycles that produced a failure had run to the
+normal median, the poller finished fine and something else held the lock. The
+registration had retired that test by asserting the data did not exist, and
+the write-up went out with a confirming reading and no falsifying one.
+
+When the check was finally run it separated cleanly -- burst cycles +15.2 s,
+repeat-only cycles -0.01 s, Fisher p = 0.0001 -- so the conclusion held. **That
+is luck, not method.** The same omission with the numbers the other way would
+have put a false attribution into the record with a p-value on it.
+
+**Pattern: the "what this cannot establish" section is the most load-bearing
+part of a registration and gets the least scrutiny, because it reads as
+modesty. Every line of it that says "we have no way to observe X" is a claim
+about the data, and it must be checked against the schema like any other. The
+dangerous ones are the lines that retire a test that would have hurt.**
+
+The tell: a limitation that arrives phrased as an argument for the
+conclusion's own robustness ("so no exonerating verdict is available") rather
+than against it. Modesty that only ever cuts one way is not modesty.
+
+## 2026-09-01 - A subagent with Bash mutates the tree you are committing from
+
+`measurement-skeptic` was asked to audit a finding. It did the right thing --
+built its own mutation harness and disabled each guard in turn to see which
+were real, which is exactly the method this repo requires. It ran that harness
+against the **shared working tree**, writing `LOCK_WINDOW_S = 60.0` into the
+source and restoring it after each run.
+
+For several minutes the tree carried a widened threshold: the precise defect
+the constant exists to prevent, introduced by the auditor checking for it. A
+commit in that window ships it, and the diff looks deliberate.
+
+Nothing warned. `git status` showed one modified file, which is what a session
+mid-edit looks like anyway.
+
+**Pattern: a subagent holding Bash acts on the same filesystem, so "delegate
+the audit" is not isolation. Before any commit taken while a subagent may be
+running, re-read the specific constants and guards that subagent was asked to
+attack -- `git status` is not enough, because a mutation in flight is
+indistinguishable from your own work in progress.**
+
+The structural fix is a worktree for anything that mutates. The cheap fix,
+which is what was done here, is to check the values by name immediately before
+`git add`. Do the cheap one always; do the structural one when the subagent's
+whole job is to break things.
+
+## 2026-09-01 - Check a ticket against the tree before scheduling it
+
+Six decision-map tickets were classified as pure evidence and queued as work.
+**Three of the six were already fixed** -- #13 on 2026-08-29, #30 on
+2026-08-29, #26 in the same window -- each with the correction sitting in the
+file the ticket names, and each still open because nobody closed it.
+
+Verifying all three took about four minutes; building them would have taken
+hours and produced a diff against code that already said what the ticket
+asked for.
+
+**Pattern: a ticket asserts the state of the tree at the moment it was
+written, and a repo under daily change falsifies that faster than the queue
+drains. Read the file the ticket cites BEFORE planning the work -- not to
+check the ticket is well-formed, but because "already done, never closed" is
+a common and invisible state.**
+
+The backlog was 23 open; it was really 20. A queue that is partly finished
+reads as a bigger queue, which is its own cost -- it was one of the reasons
+the map looked immovable.
+
 ## 2026-09-01 - A flag whose TRUE value has two causes is not an instrument, however carefully it is recorded
 
 An open item named the observation to add, in one sentence: *"whether
@@ -2594,6 +2670,9 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-09-01 — in this file, above
+- A registration's "what we cannot measure" list is a claim, and getting it wrong retires the falsifying test
+- A subagent with Bash mutates the tree you are committing from
+- Check a ticket against the tree before scheduling it
 - A flag whose TRUE value has two causes is not an instrument, however carefully it is recorded
 - A test that addresses its subject by POSITION can keep passing against the wrong subject
 - Find the change point before you name the cause
