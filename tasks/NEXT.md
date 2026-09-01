@@ -195,7 +195,119 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-01 (latest) — the lock holder is attributed, the partner had never been invoked, ticket #11 is resolved, and a $100 money stop turns out to be unable to fire
+## 2026-09-02 (latest) — four lanes landed, the volume had 16 days left, and a wizard died of the defect it was written to prevent
+
+**STATE:** `main` = `265bc9a`, pushed, CI green on `40879ef` (every code, schema
+and config change; `265bc9a` adds only a shell script). **DEPLOYED and verified
+end to end**: `/api/health` `git_sha` = `265bc9a`, status ok, `instance_mode`
+live, recorder wrote 13 s before the read, **`schema_version` = 32** with all
+five new `bet_estimates` columns present and the single pre-existing row
+stamped `is_study_row = 1`. Working tree clean.
+
+**The partner ran for the first time** (`CLAUDE.md` workflow step 0, added
+2026-09-01). It ranked the backlog, named four parallel lanes, and was **wrong
+twice in ways worth recording** — see below. Lanes ran in isolated git
+worktrees, because a subagent holding Bash mutates the tree you commit from.
+
+### THE VOLUME WAS 16 DAYS FROM FULL, AND IS NOW 47
+
+`db_kb` has been written to `/data/loop_rss.jsonl` once per pass since
+2026-08-30 and **nothing had ever subtracted two of them.** First differencing:
+**161.40 MB/day against 2,592,702,464 bytes actually free** (statvfs, not the
+nominal 5e9 the rest of the repo divides by) → fill ~**2026-09-17**, with
+auto-extend already exhausted so nothing catches it.
+
+**Joe extended the volume 5GB → 10GB**, via a wizard, verified on both
+instruments: statvfs total 10,533,376,000, free 7,663,521,792, used 27.25%,
+**47.5 days** → ~2026-10-19. `auto_extend_size_limit` raised 5GB → 20GB and
+deployed, because **a limit equal to the volume own size is a disabled net that
+reads like a configured one** — that is what let the clock run unnoticed.
+
+Read `docs/measurements/2026-09-01-the-volume-clock.md` before quoting any of
+it. **n = 1 day.** Four hours carry 99.51% of growth; the file is
+byte-identical across 574 samples spanning 21.51 h. The rate is a **floor** —
+NCAAF and NFL enter with no config change and an NFL Sunday is a ~10 h in-play
+window against MLB ~4. `fair_prices` is 646 MB with no retention rule.
+
+**`fly.live.toml` had said "measured growth 0 B/day"** and the zero was
+reproducible rather than a slip: any window under 24 h reads zero off a file
+flat for twenty hours a day. **A sampling window shorter than the phenomenon
+period reads zero and looks like a measurement.**
+
+### What landed
+
+- **P2** — `NOTES["enter_only"]` told Joe *"you can buy in"* on every parlay
+  card and in the nightly 20:00Z Discord push, two days after the census found
+  0 of 61 with a readable ask. **A green test was pinning the refuted digits**
+  (`assert "40 of 40" in ...`), so telling the truth turned CI red. Census
+  figures are now `COMBO_CENSUS_*` constants, the note is built from them, the
+  key is renamed `unquoted`, and one assertion pins "you can buy in" **absent**.
+  Scoped deliberately: "enter-only" appears at ~40 sites, most accurate in
+  context; only the NOTES sentence was refuted.
+- **P1** — `ensure_estimate_markets_known` held the write lock across N−1
+  Kalshi round trips (ADR 0091 defect, loop-carried). Fixed. **The guard was
+  blind two ways** — matched only `ast.Name` while `await source.fetch` is an
+  `ast.Attribute`, and read only straight-line blocks. Both fixed, each
+  disabled separately to prove it load-bearing. Plus `endpoint="mirror"` on
+  `poll_log`.
+- **P3/P4** — ticket #11 build. **ADR 0094, schema v32.** The $100 money arm no
+  longer gates `POST /api/estimates`; the self-lockout is untouched. Embargo
+  scoped to study rows, not weakened: `{}.get("is_study_row") == 0` is False,
+  so any payload not declaring its regime is bound byte-identically to before.
+  15 guard mutations, 15 red.
+- **P6** — **six** stale record claims, all drifting toward "safer than it is".
+
+### Where the partner was wrong, both times worth carrying
+
+1. **The census JSON did not need re-running.** `rows: []` is the pre-registered
+   null result — `eligible()` requires `0 < ask < 1` and all 61 read 0.0000, so
+   nothing was eligible and a re-run reproduces it exactly. **A pre-registered
+   filter that excludes every row produces an empty artifact that is a result,
+   not an absence.** Annotated instead.
+2. **Ticket #11 own correction was also wrong** — it said the scoring step was
+   "a read, not a new UNION branch". `bet_estimates.clv_tenths` is the
+   *registered secondary arm* (entry price and side from the venue, so it needs
+   a position); #11 verdict is position-free. Reusing it makes the column a
+   silent mixture. **That correction was made by measuring, and it measured
+   coverage rather than the column registered meaning.**
+
+### The wizard, and the defect it died of
+
+`scripts/extend_volume_wizard.sh` stopped silently after stage 1. The template
+runs `set -euo pipefail`; `flyctl ssh console` exits non-zero on Git Bash even
+when it returns the data, so the assignment aborted the script **before the
+`if [[ -z ... ]]` refusal written to catch exactly that could run.**
+
+**Under `set -e`, a function that can return non-zero must be made total at its
+own boundary — every caller error handling is downstream of an exit that
+already happened.** Verified both directions: happy path survives, and a
+nonexistent app reaches the refusal deliberately.
+
+### Still open
+
+1. **The volume lane is running** — alarm on statvfs free bytes, plus the
+   `fair_prices` downsample **built, registered, and defaulting OFF** with a
+   dry-run mode. Partner ruling: it is a *downsample*, not a deletion — the
+   runner writes ~96 rows per market per day and every registered analysis
+   reads exactly one, the observation nearest the closing-line horizon. Needs
+   `pre-registrar` before the deletion logic. **Not urgent at 47 days.**
+2. **P5 registration is running** — the forward lock instrument. It only became
+   writable when the mirror marker deployed: before it, a post-fix burst was
+   uninterpretable, explained equally by ADR 0091 failing or by the
+   `estimate_match` defect fixed in the same commit.
+3. **A discrepancy to resolve before any retention rule quotes it**:
+   `fair_prices` growth is called 64% of organic growth, but 117/161.40 =
+   **72.5%**. Name the denominator or the rule is sized ~13% short.
+4. **The ten decision-map answers** — the artifact is still waiting on Joe.
+   Largest single unlock: ten tickets plus four behind them.
+5. **The void-settlement amendment** — Joe, money-touching, untouched by
+   design. Its only blocking consumer (the 423) is now deleted, and the
+   "$X of $100" strip it was said to feed **does not exist**.
+6. **`user_not_found` on shard 3** and **Joe shard allocation** — both his.
+
+---
+
+## 2026-09-01 — the lock holder is attributed, the partner had never been invoked, ticket #11 is resolved, and a $100 money stop turns out to be unable to fire
 
 **STATE, verified at close:** `main` = `ae7122a`, pushed, **CI green**. Live is
 `fb799be` and carries every byte of application code — the delta is this file
