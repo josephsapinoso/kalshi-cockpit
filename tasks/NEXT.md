@@ -371,10 +371,24 @@ until 30. Full reasoning on the ticket; the map's Decisions-so-far indexes it.
    **It is not moot, and the first draft of this item said it was.** The arm has a
    SECOND consumer besides the 423 — a read endpoint feeding the "$X of $100"
    strip — so that strip currently renders *unknown* rather than a figure. Joe's
-   call, money-touching, three options: fix the row at source (the only one that
-   says whether it recurs), amend the formula to skip unreadable rows (changes a
-   registered stopping rule), or accept it. **Figures stay out of this file** per
-   the operator-data rule; run `study-stop` to see them.
+   call, money-touching. **The row is now identified** (`study-stop` section 3):
+   it is a **single KXMVE cross-category combination**, one of 54 study-period
+   settlements, carrying an empty `market_result`. **Not systematic** — the other
+   53 are computable — but one row is enough, permanently, because the record only
+   grows.
+
+   **The honest repair is an amendment, and it has a real choice in it.** ADR 0044
+   says *"a void has no registered payout and inventing one here would silently
+   amend the stopping rule"* — so the formula cannot just be taught to guess. The
+   amendment must decide whether a void contributes **its fee as a loss** or is
+   **excluded with the exclusion counted**. Those give different numbers and both
+   are defensible. Joe's call; do not pick one in passing.
+
+   Two observations beside the arm, neither chased: the row's `contracts` is
+   **fractional**, which nothing in the record comments on, and it is the
+   cross-category combo shape `backend/kalshi/combos.py` already carries an open
+   calendar caveat about. **Figures and tickers stay out of this file** per the
+   operator-data rule; run `study-stop` to see them.
 
 **That question is now measured and closed** — it was filed as fog and refuted
 within the hour. The lesson is the order: the measurement cost one live read and
