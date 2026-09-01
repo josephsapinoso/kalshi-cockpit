@@ -703,6 +703,26 @@ in both `/api/board` and `/api/slate`, so the first edit attached the kickoff
 to the wrong route and `test_slate_kickoff_matches_detail.py` went red on the
 list-vs-detail claim immediately.
 
+#### Verified on live — `15fd50f`
+
+Sampled from the browser with the session cookie, alternating both routes,
+after one warming read (the first request following a deploy pages the
+database back in and is not representative):
+
+    /api/slate    p50  340ms   min 311   p90 534    0 errors
+    /api/ledger   p50  372ms   min 343   p90 1,343  0 errors
+    QUOTE passes  3.7 - 4.6s, eight consecutive
+
+**The whole arc on `/api/slate`, one number per stage:**
+
+    30,311ms + HTTP 500   before anything
+       805ms  (p50)       after scaling to shared-cpu-2x
+       340ms  (p50)       after bounding the aggregates
+
+Four `socket hang up` lines remain in the log window, all timestamped before
+this deploy. **Watch that count** — it is the honest instrument for whether
+the proxy is still giving up on anything, and it should now stay at zero.
+
 ### Still open
 
 1. ~~The slate row and market detail surfaces for the sweet spot.~~ **DONE —
