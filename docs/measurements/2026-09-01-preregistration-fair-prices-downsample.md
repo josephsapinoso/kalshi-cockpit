@@ -1480,6 +1480,26 @@ and the strongest part of it runs against the project's interest:
   the primary quantity by a fraction of the threshold that is plausibly of order
   one — against a defect that moves it by 0.029%. **The remedy is some three
   orders of magnitude larger than the disease, and it points uphill.**
+
+  > **[WITHDRAWN 2026-09-01, after the run, by the result file. This bullet's
+  > conclusion is unsupported and its stated direction is wrong.]** Four live
+  > looks show `estimated_freed_bytes` is **not monotone** — it is
+  > `eligible / total x constant`, and while the table is dominated by fresh
+  > rows the fraction falls even as the eligible count climbs. Three of the four
+  > sit *below* the deciding run, and run 4 — a re-take under the corrected
+  > instrument — returns 36,004,882 against the deciding run's 36,039,175, so
+  > the re-take path lands **further from the threshold**, not nearer it.
+  > Neither a drift rate nor its sign is established at the hour scale, so no
+  > order-of-magnitude comparison holds in either direction.
+  >
+  > **The ruling of this section is unchanged**; bullets 1 and 3 carry it, and
+  > the salvage conditions below are untouched. This is a pointer, not a
+  > rewrite: nothing in the rule, the thresholds, section 6 or S1 moves. Written after
+  > the figures were seen, and recorded here rather than only in the result file
+  > because a reader who opens this document must not find the argument standing
+  > alone. Full working:
+  > `docs/measurements/2026-09-01-fair-prices-downsample-dry-run-result.md`
+  > section 0.1.
 - **§7 already classifies the later number.** *"The number that governs is the
   one from the first dry-run taken on or after the implementation lands. A
   later, larger number is monitoring, not evidence."* Re-taking is taking the
