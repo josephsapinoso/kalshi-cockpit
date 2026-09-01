@@ -599,6 +599,19 @@ primary_region = "ord"
   # A growth measurement on this database must span >= 24 h or it measures
   # the quiet part.
   #
+  # **There is now an alarm, and it does not fire on that date.** The date is
+  # n = 1 day and the rate is a floor rather than a centre (NCAAF and NFL enter
+  # the feed with no config change), so a date-keyed alarm is silent exactly as
+  # long as the rate is understated. `backend/store/volume.py` fires on
+  # `statvfs` free bytes instead -- 1.6 GB / 800 MB / 400 MB, about 9.9 / 5.0 /
+  # 2.5 days at the measured rate -- through the same Discord failure channel
+  # `check_feed` and `check_credits` use. It reports and never deletes; see
+  # `docs/adr/DRAFT-the-volume-alarm-fires-on-free-bytes.md`.
+  #
+  # An unreadable `statvfs` resolves to UNKNOWN, never to 0 bytes free. On this
+  # question a 0 is the loudest reading, so a blind alarm would be
+  # indistinguishable from a working one.
+  #
   # If usage climbs again, first ask what lost its retention rule; raise
   # the number only with the answer in hand. Today the answer is known:
   # `fair_prices` is 646 MB and has no retention rule.

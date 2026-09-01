@@ -138,7 +138,7 @@ from backend.gate import (  # noqa: E402
 from backend.market_results import run_market_result_pass  # noqa: E402
 from backend.scoring import run_scoring_pass  # noqa: E402
 from backend.settlement import run_settlement_pass  # noqa: E402
-from backend.store import db  # noqa: E402
+from backend.store import db, volume  # noqa: E402
 
 
 #: Cap on the per-pass RSS log, and the tail kept when it is hit. At the quote
@@ -1122,6 +1122,29 @@ async def main() -> int:
             await alerter.check_credits(
                 now_ms=stamp,
                 remaining_today=budget.state(stamp).remaining_today,
+            )
+            # **The volume alarm, on the same per-pass cadence and for the
+            # same reason the other two are here**: a disk fills at a moment,
+            # not at a cadence, and the dedupe lives in `notifications`.
+            #
+            # The root is the database's own directory rather than a hardcoded
+            # `/data`, so demo, dev and live each measure the filesystem they
+            # would actually hit `ENOSPC` on. On Windows there is no
+            # `os.statvfs` at all and `read_volume` returns `None`, which
+            # `check_volume` treats as UNKNOWN rather than as zero free.
+            #
+            # **Deliberately NOT added to `record_pass_rss` above.** The
+            # obvious second home for a free-byte reading is the per-pass JSON
+            # line, and §10 of `docs/measurements/2026-09-01-the-volume-clock.md`
+            # is why it must not go there: `RSS_LOG_KEEP_LINES` x the observed
+            # line width already exceeds `RSS_LOG_CAP_BYTES` by 1.25x, so from
+            # ~2026-09-04 that file rewrites itself every pass. Widening the
+            # line makes the thrash worse -- on the volume this alarm is about.
+            # The durable record is `notifications.detail`, which carries the
+            # byte count on every tier claim and costs one row per tier per day.
+            await alerter.check_volume(
+                now_ms=stamp,
+                reading=volume.read_volume(str(Path(args.db).resolve().parent)),
             )
             # **Not gated on a full pass, and NOT on every pass either.**
             #
