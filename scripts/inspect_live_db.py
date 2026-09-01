@@ -1989,6 +1989,204 @@ def _q_walk_log(conn: sqlite3.Connection, args) -> list[Section]:
     ]
 
 
+FAILURE_LOG_NAME = "loop_failures.jsonl"
+
+
+def _q_failure_journal(conn: sqlite3.Connection, args) -> list[Section]:
+    """Every pass failure as the JOURNAL saw it, beside what the TABLE kept.
+
+    The read path for `db.record_loop_failure_durably`'s first layer. Until
+    this query landed the journal had **no reader anywhere in the repo** --
+    written on the hot path since 2026-08-30, consulted by nothing, which is
+    the "built but never called" shape this codebase has now recorded four
+    times.
+
+    Why it is not `pass-gaps` with a different tail
+    ----------------------------------------------
+    `pass-gaps` reads the `loop_failures` TABLE, and the table is the artifact
+    the journal exists to replace. `record_loop_failure_durably`'s own
+    docstring says why: a pass that dies mid-transaction poisons the shared
+    connection with a stale WAL read snapshot, and every later write on it --
+    including the failure row -- fails instantly with "database is locked".
+    So the one failure class most worth counting is exactly the class the
+    table can be silent about, and a session that answers "have the locks
+    stopped?" from the table is reading an instrument that goes quiet under
+    the condition it measures.
+
+    The reading is therefore the PAIR, and section 1 is the whole point: a
+    journal line whose `ms` matches no `loop_failures.failed_ms` is a failure
+    that happened and left no row. If section 1 is empty the table can be
+    trusted for that window; if it is not, every count taken off the table is
+    a floor.
+
+    Section 2 carries the `diagnosis` lines, which are the durable recorder's
+    own verdict and exist nowhere else: "a fresh connection wrote it" means
+    the CONNECTION is poisoned and a restart cures it, while "the database
+    itself refuses writes" is the different, worse fact.
+
+    Section 4 renders the newest traceback one line per row. The traceback is
+    written only here -- stdout retention on the machine is ~10 minutes -- and
+    a table cell cannot hold it, so it gets its own single-column block rather
+    than being summarised into a column nobody can act on.
+
+    **A missing file reports itself, and does not report zero rows**, for
+    `walk-log`'s reason: an absent instrument and an instrument saying "no
+    failures" are the two readings this script exists to keep apart, and the
+    second is the more flattering of the two.
+
+    What this does not establish
+    ----------------------------
+    - **That a window with no lines was a healthy window.** The journal is
+      written by the loop; a container that died between passes writes
+      nothing at all. `pass-gaps` is the instrument for that half, and its
+      own docstring says the pair is the reading.
+    - **Anything before 2026-08-30**, when the durable recorder landed. An
+      older window reads as a clean file whatever it did.
+    - **Why a section-1 line has no row.** It says the row is absent, not the
+      cause. `record_loop_failure_durably` returns `journal_only` only after a
+      fresh connection ALSO refused, so a section-1 line with no matching
+      section-2 diagnosis is the shape to look at twice: it means either the
+      line predates the fallback, or the process died between the two writes.
+    """
+    path = Path(args.db).resolve().parent / FAILURE_LOG_NAME
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        return [
+            Section(
+                title=(
+                    "failure-journal: THE INSTRUMENT IS NOT THERE -- this is "
+                    "not 'no failures'"
+                ),
+                columns=("problem", "path", "writer"),
+                rows=[(
+                    str(exc),
+                    str(path),
+                    "backend.store.db.record_loop_failure_durably",
+                )],
+                cap=args.limit,
+            )
+        ]
+
+    parsed: list[dict] = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            # A torn last line is what an append-only log looks like mid-write.
+            continue
+        if isinstance(entry, dict):
+            parsed.append(entry)
+
+    # Two shapes share the file. A diagnosis line carries no `pass_number`,
+    # and counting it as a failure would double every burst that got one.
+    failures = [e for e in parsed if "diagnosis" not in e]
+    diagnoses = [e for e in parsed if "diagnosis" in e]
+
+    # Indexed by position, not by name: `connect_readonly` does not set a
+    # `row_factory`, so every row here is a plain tuple.
+    recorded_ms = {
+        int(row[0])
+        for row in conn.execute("SELECT failed_ms FROM loop_failures").fetchall()
+        if row[0] is not None
+    }
+
+    def _in_table(entry: dict) -> Optional[bool]:
+        ms = entry.get("ms")
+        if not isinstance(ms, int):
+            return None
+        return ms in recorded_ms
+
+    failure_columns = (
+        "iso", "ms", "pass_number", "consecutive_failures", "pass_kind",
+        "in_table", "error",
+    )
+
+    def _failure_row(entry: dict) -> tuple[Any, ...]:
+        ms = entry.get("ms")
+        return (
+            _iso(ms if isinstance(ms, int) else None),
+            ms,
+            entry.get("pass_number"),
+            entry.get("consecutive_failures"),
+            entry.get("pass_kind"),
+            _in_table(entry),
+            entry.get("error"),
+        )
+
+    missing = [e for e in failures if _in_table(e) is False]
+    missing.reverse()
+    diagnoses_newest = list(reversed(diagnoses))
+    tail = list(reversed(failures))[: max(0, args.tail)]
+
+    newest_tb = next((e for e in reversed(failures) if e.get("traceback")), None)
+    tb_lines = (newest_tb.get("traceback") or "").splitlines() if newest_tb else []
+    tb_stamp = (
+        _iso(newest_tb.get("ms"))
+        if newest_tb and isinstance(newest_tb.get("ms"), int)
+        else None
+    )
+
+    cap = args.limit
+    return [
+        Section(
+            title=(
+                f"failure-journal: failures the TABLE never got "
+                f"({len(missing)} of {len(failures)} journal failures have no "
+                f"loop_failures row) -- a non-zero count makes every "
+                f"table-derived count a FLOOR"
+            ),
+            columns=failure_columns,
+            rows=[_failure_row(e) for e in missing[:cap]],
+            truncated=len(missing) > cap,
+            cap=cap,
+        ),
+        Section(
+            title=(
+                f"failure-journal: DIAGNOSIS lines, newest first "
+                f"({len(diagnoses)} in {path.name}). 'a fresh connection wrote "
+                f"it' = poisoned CONNECTION, a restart cures it. 'the database "
+                f"itself refuses writes' = a different, worse fact."
+            ),
+            columns=("iso", "ms", "diagnosis"),
+            rows=[
+                (
+                    _iso(e.get("ms") if isinstance(e.get("ms"), int) else None),
+                    e.get("ms"),
+                    e.get("diagnosis"),
+                )
+                for e in diagnoses_newest[:cap]
+            ],
+            truncated=len(diagnoses) > cap,
+            cap=cap,
+        ),
+        Section(
+            title=(
+                f"failure-journal: last {args.tail} failures, newest first "
+                f"({len(failures)} in {path.name})"
+            ),
+            columns=failure_columns,
+            rows=[_failure_row(e) for e in tail[:cap]],
+            truncated=len(tail) > cap,
+            cap=cap,
+        ),
+        Section(
+            title=(
+                f"failure-journal: traceback of the newest failure "
+                f"({tb_stamp or 'none carries one'}) -- written HERE and "
+                f"nowhere else; stdout retention on the machine is ~10 min"
+            ),
+            columns=("line",),
+            rows=[(line,) for line in tb_lines[:cap]],
+            truncated=len(tb_lines) > cap,
+            cap=cap,
+        ),
+    ]
+
+
 #: Columns of `loop_rss.jsonl`, in the order they are rendered.
 #:
 #: Read with `.get(name)`, so a row written before a field existed reports
@@ -3395,6 +3593,16 @@ QUERIES: dict[str, QueryDef] = {
         "paginating ~14,000 events. `prev_discovered` falling off a cliff is a "
         "classification regression; decaying is an emptying slate.",
         _q_walk_log,
+    ),
+    "failure-journal": QueryDef(
+        "Every pass failure as `loop_failures.jsonl` saw it, beside what the "
+        "`loop_failures` TABLE kept (-n, default 5). Section 1 is the point: "
+        "a journal line with no table row is a failure the table could not "
+        "record, which is exactly the 'database is locked' class -- so a "
+        "non-zero count there makes every table-derived count a FLOOR. "
+        "Section 2 carries the durable recorder's own poisoned-connection "
+        "verdict; section 4 the newest traceback, which lives nowhere else.",
+        _q_failure_journal,
     ),
     "prune-frontier": QueryDef(
         "How far prune_quotes has got: MIN(COALESCE(confirmed_ms, "
