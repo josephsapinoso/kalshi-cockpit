@@ -1,26 +1,33 @@
 # The volume clock — 2026-09-01
 
-**At 162 MB/day against 2.59 GB actually free, the volume fills on
+**At 161 MB/day against 2.59 GB actually free, the volume fills on
 2026-09-17.**
 
-That is the deliverable sentence. Everything below is the arithmetic behind
-it, the two things it is more urgent than, and the eight things it does not
-establish.
+**Read the second half of that sentence before acting on the first: `n = 1
+day`.** One 24-hour window, one MLB evening slate, one growth burst. The rate
+is 161.40 MB/day on the db+WAL footprint and 160.23 on the file alone; the
+free space is 2,592,702,464 bytes read by `statvfs`, not the nominal
+5,000,000,000 the rest of this repo divides by. The method bracket is
+2026-09-14 to 2026-09-26 and carries no day-to-day slate variance at all,
+because there is only one day. §6 says why the early end is the one to plan
+against.
 
-Two of those come first, because they change what to do today rather than in
-a fortnight:
+Everything below is the arithmetic, and the twelve things it does not
+establish (§9). Two of those come first, because they change what to do today
+rather than in a fortnight:
 
-- **The `VACUUM` repair expires within about a day, not a fortnight.** Under
-  the rule this repo has recorded twice — `fly.live.toml:568-570`,
-  `backend/store/retention.py:14-16`: *"`VACUUM` needs roughly the whole file
-  free on the same filesystem"* — the margin today is **179.6 MB**, which is
-  **0.55 days** at the measured rate. Tonight's slate (14 MLB fixtures from
-  22:41Z, `sweep-log`) adds ~155 MiB. See §7.
 - **`fly.live.toml:577` says *"measured growth 0 B/day"* and it is wrong by
-  the whole quantity.** §8 shows exactly how that reading was produced, and
-  the mechanism is reproducible rather than a slip: file growth is **zero for
-  twenty hours a day**, so a short window taken outside the in-play burst
-  reads 0 whatever the daily rate is.
+  the whole quantity.** §8 gives a mechanism that would produce that reading,
+  and the mechanism is reproducible rather than a slip: file growth is **zero
+  for twenty hours a day**, so a window shorter than a day reads 0 whatever the
+  daily rate is. It is not the only sufficient mechanism, and §8 says so.
+- **The `VACUUM` escape hatch is narrower than the fill date and this document
+  cannot say by how much.** The margin on `/data` is 179.6 MB — 0.56 days —
+  *if* the repair needs whole-file headroom on `/data`. The temp-file reason
+  for believing that is **refuted**: `/tmp` is a separate 8.35 GB filesystem
+  with 7.87 GB free (§7). A WAL-mode reason survives and is untested. The
+  option is worth 0.56 days of headroom either way, so this is a thing to note
+  losing, not a repair. **§7, not this bullet, is the whole claim.**
 
 ## Instruments
 
@@ -70,15 +77,36 @@ by** (`docs/measurements/2026-08-30-the-candidate-scan-index.md:153`,
 | free space | 2,586,857,984 | 2,592,702,464 | **+5,844,480 (+0.23%)** |
 | used | 48.26% | 50.60% | **+2.34 points** |
 
-**The free-space figure is accidentally right, and the coincidence should not
-be trusted twice.** The filesystem is 248,090,112 bytes *larger* than the
-nominal 5 GB, and 239,449,316 bytes are unaccounted overhead — the two nearly
-cancel. They are unrelated quantities: `unaccounted_bytes` is the walk-vs-`df`
-gap that `inspect_live_disk.py`'s own docstring calls "the finding, not a
-rounding", and it includes anything deleted-but-still-open. It has never been
-read before today, so nothing establishes it is stable. **The percentage-used
+**The free-space figure is accidentally right, and the coincidence has three
+terms rather than two:**
+
+```
+  statvfs free - nominal free
+    = (total - 5,000,000,000) - other files on /data - unaccounted
+    = 248,090,112 - 2,796,316 - 239,449,316
+    = +5,844,480                                       ✓
+```
+
+The filesystem is 248 MB *larger* than the nominal 5 GB and the overhead is
+239 MB, so they nearly cancel — but they are unrelated quantities that move
+independently, and neither had been read before today. **The percentage-used
 figure is out by 2.3 points**, which is the half that matters to anything
 indexed against a threshold.
+
+**The 239 MB is not all mystery, and an earlier version of this document
+treated it as if it were.** `used` is computed as `total - f_bavail * f_frsize`,
+so **the root reserve is inside that 239 MB by construction** — §1 chooses
+`f_bavail` precisely to exclude the reserve from *free*, which necessarily puts
+it into *used*. A large part of the figure is therefore definitionally
+immovable. The remainder is filesystem metadata (ext4 journal, inode tables)
+and anything deleted-but-still-open, and nothing here separates them.
+
+**Nothing else needs subtracting from the denominator, and here is the
+number.** Everything on `/data` other than `cockpit.db` totals
+`2,415,938,332 - 2,413,142,016 =` **2,796,316 bytes** across seven files.
+`loop_rss.jsonl` adds ~377 KB/day and is hard-capped from ~2026-09-04 (§10);
+`loop_walk.jsonl` is capped at ~880 KB. So the db+WAL numerator is the volume
+numerator to within 0.1%, and the question is closed rather than left open.
 
 The last first-hand `df -h /data` before this was **2026-08-19** — 4.9 G,
 3.2 G free, 32% — the reading taken after the extend that revealed the volume
@@ -124,25 +152,47 @@ a p50 of 1,070 KiB — `maybe_checkpoint` works.
 
 ## 3. The measurement
 
-**One clean 24-hour window**, anchored at 12:00Z so that *both* endpoints sit
-inside a flat zone and the boundary choice cannot bias the total. It lies
+**One clean 24-hour window**, anchored at 12:00Z so that both endpoints sit
+inside a flat zone — which makes the anchor free for the db-only series and
+nearly free for the footprint; the sweep below quantifies the difference. It
+lies
 entirely after the index step and entirely after the free-list drain, and it
 contains exactly one growth episode:
 
 ```
 2026-08-31T12:00:00Z -> 2026-09-01T12:00:00Z    24.075 h
 
-  db file only     +156,960 KiB  =  153.28 MiB  =  160.73 MB/day
-  db + WAL         +158,107 KiB  =  154.40 MiB  =  161.90 MB/day   <- headline
+  db file only     +156,960 KiB  =  153.28 MiB     over 24.075 h
+  db + WAL         +158,107 KiB  =  154.40 MiB     over 24.075 h
+
+  normalised to 24 h:   db file  160.23 MB/day
+                        db + WAL 161.40 MB/day   <- headline
 ```
 
-Endpoints snapped 11 s and 260 s from the anchors. **n = 1 day.**
+Endpoints snapped 11 s and 260 s from the anchors, so the window is 24.075 h
+and the totals are divided by that rather than by 24 — an earlier version was
+not normalised and read 161.90, which is 0.31% high and in the direction that
+flatters urgency. **n = 1 day, one MLB evening slate, one burst.**
+
+**The slate that produced it was never counted.** `sweep-log` gives 14 MLB
+fixtures for *tonight*; nothing in the record says how many produced the
+2026-08-31 burst. That gap is load-bearing twice — §7 scales the rate to
+tonight and §6 scales it to an NFL Sunday — and neither scaling is anchored,
+because the rate is per *calendar day* while the process is per *slate*.
 
 ### The anchor is not a degree of freedom, and here is the proof
 
-12:00Z is an arbitrary choice, so it was swept. Every 24-hour window whose
-start falls on an hour inside the post-burst flat zone — 15 of them, stepped
-hourly from 2026-08-31T02:00Z — gives:
+**The claim an earlier version made here was stronger and was wrong.** "The
+boundary choice cannot bias the total" is true of `db_kb`,
+which is byte-identical for 574 samples around one anchor and 414 around the
+other. It is **not** true of `db_kb + wal_kb`, which is the headline: the quiet
+hours oscillate by up to ±1.6 MiB of WAL breathing, so each endpoint carries
+that much slack — about ±2% on 154.40 MiB. Roughly 14 hours of feasible anchors
+exist. The claim of zero boundary bias holds only for the db-only series.
+
+So 12:00Z was swept. Every 24-hour window whose start falls on an hour inside
+the post-burst flat zone — 15 of them, stepped hourly from 2026-08-31T02:00Z —
+gives:
 
 ```
   n = 15 anchors     min 158.23    median 161.62    max 162.58   MB/day
@@ -150,11 +200,17 @@ hourly from 2026-08-31T02:00Z — gives:
 ```
 
 **14 of the 15 land on 2026-09-17 and the fifteenth on 2026-09-18.** The
-spread is 2.7% because both endpoints of every window sit inside a flat zone
-21.5 and 14.7 hours wide, so shifting the anchor moves the window across
-nothing. The headline 161.90 sits at the median. This is not evidence that
-the *rate* is stable across days — it is one day, sliced fifteen ways — only
-that the boundary choice inside that day carries no information.
+spread is 2.7%, which is the WAL slack named above and not a rate difference:
+shifting the anchor moves the window across nothing but WAL breathing. The
+headline sits near the median. **This is not evidence that the rate is stable
+across days** — it is one day, sliced fifteen ways.
+
+**One more check the largest sample gap demanded.** No gap in the series
+exceeds 1,134 s, and at burst rates (~55 MiB/hour) a gap that size would carry
+~17 MiB — enough to move "the largest hour is 34.90%". The five largest gaps
+fall at 2026-09-01T13:50Z, 2026-08-31T20:29Z, 2026-09-01T02:51Z,
+2026-08-30T00:09Z and 2026-08-29T23:18Z. **None is inside a burst**, so the
+hourly decomposition carries no gap-attribution error.
 
 ### The parts, because a pooled number is not a finding until they agree
 
@@ -214,23 +270,25 @@ for the *rate*):
 
 ```
   2026-08-30T12:00Z -> 2026-08-31T12:00Z   24.105 h   (index step subtracted)
-       db file only   +187,252 KiB = 182.86 MiB = 191.75 MB/day
-       db + WAL       +144,434 KiB = 141.05 MiB = 147.90 MB/day
+       db file only   +187,252 KiB = 182.86 MiB   -> 190.91 MB/day
+       db + WAL       +144,434 KiB = 141.05 MiB   -> 147.26 MB/day
 ```
 
 **This contradicts the premise of the exclusion in a way worth recording.**
 The reason for dropping pre-2026-08-30 samples is the free-page one: while
 the list was draining, reused pages made file-size deltas understate real
 growth by ~4.5x (§11). That is true of *logical* growth and false of the
-*file*. On the file this day reads **higher** (191.75 MB) than the clean one,
+*file*. On the file this day reads **higher** (190.91 MB) than the clean one,
 because the checkpoint deploy moved WAL bytes into it; on the footprint it
-reads lower (147.90 MB). Either way it brackets rather than flatters. The
+reads lower (147.26 MB). Either way it brackets rather than flatters. The
 exclusion stands — that day contains a deploy, an index build and a WAL
 migration — but **anyone expecting the excluded samples to be the optimistic
 ones has the sign backwards.**
 
-**Defensible range across every cut above: 148 – 192 MB/day.** The headline
-161.90 sits inside it.
+**Defensible range across every cut above: 147 – 191 MB/day.** The headline
+161.40 sits inside it. **It is method spread over ~2 days, one of them
+contaminated — not sampling uncertainty, and not day-to-day slate variance,
+which is unmeasured.**
 
 ## 4. The clock
 
@@ -241,21 +299,31 @@ max wal_kb observed post-step              179,731 KiB   =   184.04 MB
 
 | rate | basis | all free space | less WAL headroom |
 |---|---|---|---|
-| **161.90 MB/day** | **clean 24 h, db+WAL** | **16.01 d → 2026-09-17** | 14.88 d → 2026-09-16 |
-| 160.73 MB/day | clean 24 h, db only | 16.13 d → 2026-09-17 | 14.98 d → 2026-09-16 |
-| 191.75 MB/day | 2026-08-30 day, db only | 13.52 d → 2026-09-15 | 12.56 d → 2026-09-14 |
+| **161.40 MB/day** | **clean 24 h, db+WAL** | **16.06 d → 2026-09-17** | 14.92 d → 2026-09-16 |
+| 160.23 MB/day | clean 24 h, db only | 16.18 d → 2026-09-17 | 15.03 d → 2026-09-16 |
+| 190.91 MB/day | 2026-08-30 day, db only | 13.58 d → 2026-09-15 | 12.62 d → 2026-09-14 |
 | 105.78 MB/day | pooled 40.9 h (artifact) | 24.51 d → 2026-09-26 | 22.77 d → 2026-09-24 |
 
-**The sentence: at 162 MB/day against 2.59 GB actually free, the volume fills
-on 2026-09-17.** The honest bracket is 2026-09-14 to 2026-09-26, and §6 says
+**Every date in this table is n = 1 day.** The spread across rows is *method*
+spread over ~2 days of data, one of them contaminated. It carries no
+information about day-to-day variance of the slate, which §6 says is the
+dominant uncertainty.
+
+**The sentence: at 161 MB/day against 2.59 GB actually free, the volume fills
+on 2026-09-17 — on n = 1 day.** The honest bracket is 2026-09-14 to 2026-09-26, and §6 says
 why the early end is the one to plan against.
 
-"Less WAL headroom" reserves the largest WAL this record has seen. The WAL is
-extended *before* the pages reach the file, so the last ~184 MB of free space
-is not available to `cockpit.db` — it is the space the writer needs to be able
-to commit at all.
+"Less WAL headroom" reserves the largest WAL this record has seen:
+**179,731 KiB at 2026-08-31T23:30:14Z** — inside the measured day's burst, on a
+`TRUNCATE` checkpoint reporting `busy = 1`, i.e. a reader holding the log open.
+Five of the six largest WAL samples fall in that same eight-minute stretch. So
+the WAL genuinely does reach 175 MiB during a burst, the transient footprint is
+that much above the sampled one, and the last ~184 MB of free space is not
+available to `cockpit.db` — it is the space the writer needs to commit at all.
+Both 24-hour endpoints sit in quiet zones where the WAL is ~1 MiB, so the spike
+does not bias the rate.
 
-## 5. What is growing, and what is holding it down
+## 5. What is growing — a composition, and deliberately not a rate
 
 `db-sizes`, live, 2026-09-01T~16:40Z:
 
@@ -270,54 +338,91 @@ idx_fair_link           133,218,304     idx_fair_market_computed 120,438,784
 idx_odds_commence        26,656,768     recommendations          19,828,736
 ```
 
-Differenced against the 2026-08-30 reading
-(`docs/measurements/2026-08-30-the-candidate-scan-index.md:150-178`), over
-~41 hours. **Directional only — see §9.**
+**One baseline, and it is dated from this document's own series.** The earlier
+reading is the **pre-index** one at
+`docs/measurements/2026-08-30-the-candidate-scan-index.md:162-178`, file
+2,072,317,952 bytes. That file size is `db_kb = 2,023,748`, and the series here
+holds exactly that value on 279 consecutive samples from **2026-08-30T21:14:29Z
+to 23:10:29Z** — so the baseline is pinned to a 1.93-hour window without having
+to trust an undated instrument run. **Interval: 44.4 ± 1.0 hours.**
+
+That same document contains a *second*, post-index `db-sizes` run at `:150-153`
+(total 2,251,366,400). The two differ by 179,048,448 bytes and by the whole v31
+index build. **An earlier version of this section differenced some rows against
+one and some against the other**, which broke the accounting identity it was
+built on. Every row below is against the pre-index reading.
 
 ```
-  fair_prices              +116,903,936     ~ +68 MB/day
-  kalshi_quotes             -37,675,008     ~ -22 MB/day   retention working
-  idx_quotes_ticker_time    -46,399,488     ~ -27 MB/day   retention working
-  odds_snapshots            +13,418,496     ~  +8 MB/day
-  idx_odds_event             +8,048,640
-  idx_odds_sport_commence    +8,876,032
-  idx_odds_commence          +1,564,672
-  freelist                  ~+72,000,000    ~ +42 MB/day   pages freed, not yet reused
-  ------------------------------------------------------------------
-  subtotal of the named     +136,768,480
-  residual                  ~+25,007,136    idx_fair_link and
+  fair_prices                +116,903,936
+  idx_quotes_ticker_time      -46,399,488
+  kalshi_quotes               -37,675,008
+  odds_snapshots              +14,774,272
+  idx_odds_event               +8,929,280
+  idx_odds_commence            +1,564,672
+  idx_odds_sport_commence    +159,178,752   the v31 build, not growth
+  freelist                   ~+72,000,000
+  ----------------------------------------
+  subtotal                   +289,307,616
+  residual                   ~+51,516,448   idx_fair_link and
                                             idx_fair_market_computed were not
                                             measured on 2026-08-30 at all
-  ------------------------------------------------------------------
-  file total               +161,775,616     the measured 162 MB/day
+  ----------------------------------------
+  file total                 +340,824,064   over 44.4 h
+  less the index build       +181,645,312   organic
 ```
 
-Two readings of that table:
+**No per-day figure is given here, and that is deliberate.** A 44.4-hour window
+contains a non-integer number of growth bursts and ends before 2026-09-01's, so
+dividing any row by 1.85 days reproduces exactly the pooled artifact §3 refuses.
+An earlier version of this section labelled the 44.4-hour file total "the
+measured 162 MB/day"; over 44.4 hours it is 94.7 MB/day, which is the artifact,
+not the headline. **This section is a composition. §3 is the rate.**
 
-1. **`fair_prices` is the growth.** +117 MB while the whole file grew +162 MB,
-   and it has **no retention rule and is not named in `retention.py` at all**
-   (`backend/store/retention.py:46-55`, the module's own "What this does NOT
-   do", names `odds_snapshots` as deliberately out of scope at `:53` and does
-   not mention `fair_prices`). The only `DELETE FROM` statements in `backend/`
-   are `retention.py:204` (`kalshi_quotes`), `:239` (`unmatched_items`) and
-   `:292` (the legacy table). With
-   `idx_fair_link` + `idx_fair_market_computed` its family is 900 MB, 37% of
-   the file.
-2. **The net rate is held down by `kalshi_quotes` retention, and that is a
-   fragile arrangement.** Retention returned 84 MB of btree to the free list in
-   41 hours; the free list rose 72 MB. `prune-frontier` shows the prune 26
-   minutes behind its own cutoff (frontier 2026-08-29T16:16:40Z, cutoff
-   16:43:10Z, backlog 50,259 rows of 4,825,853) — it is keeping up **today**.
-   If it stops, the measured 162 MB/day becomes something nearer the gross
-   insertion rate with nothing subtracted.
+As shares of the +181,645,312 organic bytes:
 
-**The free list is not drained, and the belief that it was is two days out
-of date.** `docs/measurements/2026-08-28-recorder-silence-is-chronic.md:94-99`
-read 587,354,112 bytes free-listed; the 2026-08-30 reading read 18.9 MB, from
-which it follows that growth thereafter goes straight to the file. That was
-true on 2026-08-30 and is not true now. It stands at **90,931,200 bytes, 22,200
-pages**, and it is revolving: retention refills it, inserts consume it. The
-162 MB/day is already net of that.
+```
+  fair_prices                +64.4%
+  free list                  +39.7%    pages freed and not yet reused
+  quote family               -46.3%    kalshi_quotes + idx_quotes_ticker_time
+  odds family                +13.9%    excluding the new index
+  residual                   +28.4%    two unmeasured fair_prices indexes
+```
+
+Two readings, and the second is the one that could move the clock on its own:
+
+1. **`fair_prices` is the growth.** It is 64.4% of organic bytes by itself, it
+   has **no retention rule**, and with `idx_fair_link` +
+   `idx_fair_market_computed` its family is 899,887,104 bytes — **37.3% of the
+   file**. `backend/store/retention.py` does mention it, at `:43` (*"`fair_prices`
+   is keyed by `link_id`"*), three lines above the "What this does NOT do" list
+   that names `odds_snapshots` as deliberately out of scope at `:53` and does
+   not name `fair_prices` at all. That is worse than an oversight: the table was
+   in the author's hand while the exclusions were being written, and it still
+   got no rule and no exclusion. (`backend/store/retention.py` holds the only
+   `DELETE FROM` statements under `backend/store/` — `:204`, `:239`, `:292` —
+   though not the only ones in `backend/`; none of them touch `fair_prices`.)
+2. **The free list is accumulating, not revolving, and nobody knows which it
+   will do next.** It took 39.7% of the organic bytes in this window: pages
+   freed by `kalshi_quotes` retention that inserts have **not** reused.
+   `backend/store/retention.py:48-52` asserts the opposite behaviour — *"Freed
+   pages are reused by subsequent inserts, so the growth stops even without
+   one"*. If that assertion is right and the list saturates, **the rate falls
+   passively and the fill date moves out, with nobody doing anything.** If the
+   list keeps accumulating, the measured rate is what it is. This measurement
+   cannot tell the two apart at n = 1 window, and it is the largest single
+   uncertainty in the document — larger than the anchor, larger than the choice
+   of series. §9 carries it.
+
+`prune-frontier` shows the prune 26 minutes behind its own cutoff (frontier
+2026-08-29T16:16:40Z, cutoff 16:43:10Z, backlog 50,259 rows of 4,825,853) — it
+is keeping up **today**. The quote family gave back 84,074,496 bytes in this
+window, and that give-back is what holds the net rate down.
+
+**The free list is not drained, which is a two-day-old belief.**
+`docs/measurements/2026-08-28-recorder-silence-is-chronic.md:94-99` read
+587,354,112 bytes free-listed; the 2026-08-30 reading read 18.9 MB, from which
+it follows that growth thereafter goes straight to the file. That was true on
+2026-08-30. It stands at **90,931,200 bytes, 22,200 pages** today.
 
 ## 6. The straight line, and what breaks it
 
@@ -344,86 +449,137 @@ What would move it the other way: a retention rule on `fair_prices`, a
 `VACUUM` (§7), or an extend. None of the three is a code change this lane
 made.
 
-## 7. The repair expires before the volume does
+## 7. The `VACUUM` escape hatch, and why its size is unknown
 
-`fly.live.toml:568-570` records the rule — *"a write extends the WAL first,
-and `VACUUM` needs roughly the whole file free on the same filesystem"* — and
-`backend/store/retention.py:14-16` states a stricter version, *"`VACUUM`
-needs roughly twice the free space it would have by then"*. The `fly.live.toml`
-rule is used below; the stricter one would close the window sooner.
+**The rule, and what supports it.** `fly.live.toml:568-570` records *"a write
+extends the WAL first, and `VACUUM` needs roughly the whole file free on the
+same filesystem"*. `backend/store/retention.py:14-16` records a stricter
+version, *"`VACUUM` needs roughly twice the free space it would have by then"*
+— which read literally means 5.18 GB needed on a 4.888 GiB filesystem, i.e.
+already impossible, so it is not usable as a requirement. **Neither is dated to
+a test.** Two restatements of one belief forbid nothing more than one does, and
+an earlier version of this document cited "recorded twice" as if it were
+corroboration. It is not.
+
+**If the rule holds, the margin is 0.55 days:**
 
 ```
   cockpit.db                    2,413,142,016
   free                          2,592,702,464
-  margin                          179,560,448     = 179.6 MB
+  margin                          179,560,448   = 179.6 MB
 ```
 
-The file grows and the free space shrinks by the same bytes, so the margin
-closes at **twice** the growth rate:
+The file grows and free shrinks by the same bytes, so the margin closes at
+twice the growth rate: `179,560,448 / 2 = 89,780,224 B` = **0.56 days** at
+161.40 MB/day. Against the most generous reading — free ≥ the *compacted* size,
+since the copy is smaller than the original — it is 270,491,648 B, **0.84
+days**. Both fall inside tonight's burst.
+
+**But the temp-file reason for believing the rule is refuted, and this is a
+measurement, not an argument.** `scripts/inspect_live_disk.py --root /tmp`,
+taken live 2026-09-01:
 
 ```
-  179,560,448 / 2 = 89,780,224 B of growth  =  0.55 days at 161.90 MB/day
+  /tmp    total 8,350,298,112   free 7,873,089,536   used 5.71%
+  /data   total 5,248,090,112   free 2,592,702,464   used 50.60%
 ```
 
-Relaxing it as far as it can honestly go — free ≥ the *compacted* size, i.e.
-the file minus its free list, since the copy SQLite writes is smaller than the
-original — the margin is 270,491,648 B, **0.84 days**. That is the most
-generous reading available, not the conservative one.
+**Different totals, so different filesystems.** SQLite's `VACUUM` builds its
+temporary database in the temp directory — `SQLITE_TMPDIR`, then `TMPDIR`, then
+`/var/tmp`, `/usr/tmp`, `/tmp` — and on this box that is 7.87 GB free on a
+filesystem the database does not touch. **On the temp-file mechanism, `/data`
+needs no headroom at all and there is no cliff.**
 
-**Either way it is inside one evening slate.** Tonight's burst is due to start
-at 22:41Z and the last two were 153–155 MiB. `VACUUM` would reclaim 90.9 MB,
-which is 0.56 days of headroom, so it is not a fix either — but it is an
-option that stops existing tomorrow, and an option that expires should be
-named before it does.
+**A different mechanism survives and is untested.** The database is in WAL mode.
+A `VACUUM` rewrites every page in one transaction, and in WAL mode those pages
+go through `/data/cockpit.db-wal` before any checkpoint — so the WAL could
+extend towards the size of the compacted database, ~2.32 GB, on `/data`. That
+would make `fly.live.toml`'s rule right for a reason its author did not give.
+**Nothing here tests it**, and the two mechanisms give opposite answers.
 
-**Not verified here:** whether SQLite would place its `VACUUM` temp file on
-`/data` at all, or on the container's root filesystem via `SQLITE_TMPDIR` /
-`PRAGMA temp_store`. If it goes elsewhere the constraint is different and the
-window is wider. The rule quoted above is this repo's own recorded belief and
-it has not been tested against the deployed configuration. That test is cheap
-and is not this measurement.
+**Not established, and it is the document's own second-most-prominent claim:
+that a `VACUUM` was ever possible on this box.** What would settle it is one
+`flyctl ssh console` invocation reading `PRAGMA temp_store`, `SQLITE_TMPDIR`
+and `TMPDIR` — a query `inspect_live_db.py` does not have and which would need
+a deploy to reach the machine.
 
-## 8. How "0 B/day" was produced, and why the mechanism will do it again
+**And the prize is exactly the size of the margin, which is the whole point.**
+`VACUUM` would reclaim 90,931,200 bytes — **0.56 days** of headroom at the
+measured rate, against a margin of 89,780,224 bytes, also 0.56 days. So even on
+the pessimistic reading the claim reduces to *an option worth thirteen hours of
+runway may expire in thirteen hours.* Worth recording that it is going; not worth a plan.
 
-`fly.live.toml:577` currently states, in a deployed config file, *"measured
-growth 0 B/day with retention deployed"*. It descends from
-`docs/measurements/2026-08-19-the-prune-loses-to-the-writer.md:215-219`: the
-same file size, 1546.4 MB, at **18:47:40Z and 18:59:20Z** — a 17-minute
-window.
+## 8. A second mechanism sufficient to produce "0 B/day"
 
-Map that clock onto the growth curve measured here. 18:00–19:00Z on
-2026-08-31 moved **+406 KiB**, and 18:47–19:04Z lands squarely inside the
-twenty-hour flat zone. **A 17-minute window at 18:47Z reads exactly zero at
-any daily rate whatsoever**, including 162 MB/day and including 365 MB/day.
+`fly.live.toml:577` states, in a deployed config file, *"measured growth
+0 B/day with retention deployed"*, dated 2026-08-20. The nearest reading in the
+record is `docs/measurements/2026-08-19-the-prune-loses-to-the-writer.md:215-219`:
 
-`tasks/archive/lessons-2026-08-31.md:942-949` already caught half of this —
-"a flat file size is not a flat table", the free-list half. The other half is
-new and is the more dangerous one: **the file is flat for most of the day even
-when the free list is not absorbing anything.** The sampling window has to
-span a burst, or the instrument returns zero and says nothing about it. A
-window shorter than 24 hours cannot measure this quantity at all.
+```
+18:47:40Z   cockpit.db 1546.4 MB   cockpit.db-wal 51.6 MB
+18:59:20Z   cockpit.db 1546.4 MB   cockpit.db-wal 51.6 MB   (uptime 95 min)
+```
 
-That is the pattern for `tasks/lessons.md`, and it generalises past disk: a
-quantity driven by the sports calendar must be sampled over a whole calendar
-day, because the quiet interval is longer than any convenient window.
+**That window is 11 minutes 40 seconds.** An earlier version of this section
+called it 17 minutes and quoted an end time of 19:04 that appears nowhere in
+the source — the number was manufactured by this document's own arithmetic.
+`tasks/archive/lessons-2026-08-31.md:942-949` describes what may be the same
+episode as 24 minutes. Three figures for one window; the source's own two
+timestamps are the only ones with a citation.
+
+**The lineage from that reading to the config comment is an inference.** The
+comment is dated 2026-08-20 and the document is 2026-08-19. Nothing shown ties
+them together rather than to some other read on the 20th.
+
+**Two sufficient mechanisms, and this measurement does not separate them.**
+
+1. **Free-list reuse.** The source document states it in the same paragraph:
+   *"the main file is flat because ~25% of it is freelist being reused."* §11
+   shows the free-list backlog was still large in that era, which is the
+   contemporaneous evidence for this one.
+2. **The diurnal flat zone.** In the day measured here, 18:00–19:00Z moved
+   **+406 KiB**, and the file is byte-identical for 21.51 hours around it. A
+   twelve-minute window inside that zone reads zero at any daily rate.
+
+Either alone accounts for the zero. Mechanism 2 is asserted from a shape
+measured **twelve days later**, across an index build, a WAL-checkpoint
+migration and a `fair_prices` table that has since grown 22% — so whether that
+shape held on 2026-08-19 is exactly what is not shown. `tasks/archive/
+lessons-2026-08-31.md:942-949` already carries mechanism 1 as *"a flat file
+size is not a flat table"*.
+
+**What survives all of that, and is the part worth keeping:** a quantity driven
+by the sports calendar must be sampled over a whole calendar day. The quiet
+interval here is longer than any convenient window, so a short sample returns
+zero and says nothing about it — whichever mechanism is doing the flattening.
+That is the pattern for `tasks/lessons.md`.
 
 ## 8b. Counting the tests
 
-Every defensible slice, and whether it is reported above:
+Every defensible slicing choice, whether it was taken, and whether it is
+disclosed above:
 
-| choice | options | taken | reported |
-|---|---|---|---|
-| what counts as the file | `db_kb`; `db_kb + wal_kb` | both | §3, both printed |
-| window | pooled 40.9 h; clean 24 h; pre-drain 24 h; single episode | all four | §3 |
-| anchor within the clean day | 15 hourly starts | all 15 | §3, swept |
-| denominator | all free; less WAL headroom | both | §4 |
+| degree of freedom | options | disclosed |
+|---|---|---|
+| series: `db_kb` / `db_kb + wal_kb` | 2 | **yes** — both printed everywhere |
+| window: clean day / prior day / pooled / per-UTC-day | 4 | **yes** — all four, artifact labelled |
+| anchor hour inside the flat zone | ~14 feasible | **yes** — 15 swept, §3 |
+| denominator: `f_bavail` / `f_bfree` / nominal 5e9 | 3 | **partial** — `f_bavail` and nominal; `f_bfree` never quantified |
+| WAL reserve: none / max / p99 | 3 | **partial** — none and max |
+| `VACUUM` rule: whole-file / compacted / `retention.py`'s | 3 | **yes** — two costed, the third shown to be unusable |
+| index step subtracted from the prior day | 2 | **no** — only the subtracted version is printed |
+| 2026-08-30 `db-sizes` baseline: pre- / post-index | 2 | **now yes** — an earlier version used both silently; §5 |
 
-**Twenty-three numbers, four reported as candidate rates, one chosen — and
-the choice was made before the anchor sweep was run, not after it.** The
-sweep is a robustness check on a headline that was already fixed by the two
-cuts in §2, not a search for the anchor that gave the best number. Nothing
-was computed and dropped. The pooled 105.78 MB/day is reported *because* it
-is the most flattering of the four and would otherwise be the one a later
+Roughly 150 nominal combinations; this document prints 8 rate figures and 5
+clock rows. **Six of eight degrees of freedom are now disclosed. Two of the
+gaps were not choices but errors** — the mixed baseline (§5) and the
+un-normalised 24.075-hour divisor (§3) — and both are recorded rather than
+quietly repaired.
+
+The choice of headline was fixed by the two cuts in §2 **before** the anchor
+sweep was run, so the sweep is a robustness check and not a search. Nothing was
+computed and dropped. The pooled 105.78 MB/day is printed *because* it is the
+most flattering of the four windows and would otherwise be the figure a later
 session re-derived and believed.
 
 ## 9. What this does NOT establish
@@ -432,12 +588,14 @@ session re-derived and believed.
   second day available is contaminated by a deploy, an index build and a WAL
   migration, and it is quoted in §3 rather than averaged in. **A second clean
   day is one day of waiting and would double the evidence.**
-- **It does not attribute the growth to any table.** §5's per-btree
-  differences are taken against another session's `db-sizes` run whose minute
-  is not recorded, over an interval known only to ~±1 hour, and two of the
-  columns (`idx_fair_link`, `idx_fair_market_computed`) were not measured on
-  the earlier date at all. The residual closes to ~25 MB, which is
-  consistent with the reading and does not prove it. **Directional.**
+- **It does not attribute the growth to any table.** §5's baseline is pinned
+  to a 1.93-hour window by this document's own series, which is better than it
+  was, but the interval is still 44.4 ± 1.0 h and two columns
+  (`idx_fair_link`, `idx_fair_market_computed`) were not measured on the
+  earlier date at all. **The residual is not a check**: it is defined as
+  `file total - subtotal` and absorbs those two indexes plus schema overhead,
+  so there is no arrangement of the numbers under which it would fail to
+  close. §5 is a **composition, not a rate, and not a corroboration** of §3.
 - **It does not establish that the in-play window causes the burst.** The
   burst coincides with the MLB slate read off `sweep-log`. Two quantities that
   both move with the evening correlate whatever is driving the writes.
@@ -455,6 +613,29 @@ session re-derived and believed.
   first 708 of those lines carry no storage fields.
 - **A straight line is what was drawn.** §6 says so and names what breaks it.
   No curvature was fitted and n = 1 could not support one.
+- **Whether the free list saturates, which could move the clock on its own.**
+  §5 measures it *accumulating* at 39.7% of organic bytes, while
+  `backend/store/retention.py:48-52` asserts freed pages are reused and "the
+  growth stops even without" a `VACUUM`. If that assertion is right and the
+  list saturates, **the rate falls passively and the date moves out with nobody
+  doing anything.** This is the largest single uncertainty in the document and
+  n = 1 window cannot resolve it. §6's "what would move it the other way" lists
+  three deliberate actions and this is not one of them.
+- **That a `VACUUM` was ever possible on this box.** §7's rule is an untested
+  belief recorded in two comments; its temp-file justification is refuted by
+  the `/tmp` measurement and a WAL-mode justification survives untested. The
+  two give opposite answers.
+- **How large the slate was on the measured day.** Recorded for tonight (14
+  MLB fixtures) and not for 2026-08-31. The rate is per calendar day; the
+  process is per slate; the slate count of the measured window is unknown, so
+  neither §6's nor §7's scaling of it is anchored.
+- **Reproducibility beyond the committed pull.** The 3,904-line series is
+  committed beside this file as
+  `docs/measurements/2026-09-01-loop-rss-samples.jsonl` so every number in §2,
+  §3 and §10 can be re-derived, but **the differencing itself was ad hoc** —
+  there is no harness in the repo and no test pinning any of it. §10 also
+  means the live source file begins truncating around 2026-09-04, after which
+  this window exists only in that committed artifact.
 - **Nothing about whether any of this should be repaired, or how.** This is a
   clock. The choice between an extend, a `fair_prices` retention rule and a
   `VACUUM` is a decision with its own trade-offs and belongs in an ADR.
@@ -481,14 +662,23 @@ since the file began. **The history supports the claim.**
 
 1. The file grows ~377 KB/day at the current 65.0 s mean cadence, so it
    **reaches the cap around 2026-09-04** — three days from now. After that the
-   reach is the newest 8,000 lines, ≈ **6.0 days**.
+   reach is the newest 8,000 lines, ≈ **6.0 days** — and that is a pooled mean, since the flat zones run at ~130 s a
+   sample against ~65 s overall, so the post-truncation reach is longer in
+   quiet periods and shorter across a burst.
 2. **`RSS_LOG_KEEP_LINES` and `RSS_LOG_CAP_BYTES` are inconsistent at the
    current line width, and the trim will never converge.** The docstring
-   assumes ~80 bytes/line; the line gained eleven fields on 2026-08-29/30 and
-   a reconstructed current line is **366 bytes**. `8,000 × 366 = 2,928,000`
-   bytes, which is 1.40x the 2,097,152 cap. So from ~2026-09-04 the file is
-   *always* over the cap: every pass reads ~2.9 MB, splits it, keeps 8,000
-   lines and rewrites ~2.9 MB — ~5.9 MB of I/O per pass, ~7.8 GB/day, on the
+   assumes ~80 bytes/line; the line gained eleven fields on 2026-08-29/30. The
+   width is **observed, not reconstructed**:
+   `(1,107,464 − 708 × 81.1) / 3,196 =` **328.5 bytes** for a post-`db_kb`
+   line, while the newest shape reconstructs at 366 (the gap is that early
+   post-`db_kb` lines omit the `wal_ckpt_*` keys rather than writing them as
+   null). At the conservative end `8,000 × 328.5 = 2,628,352` bytes, **1.25x**
+   the 2,097,152 cap; at the newest width, 1.40x. An earlier version used the
+   366 reconstruction where an observation was in hand, overstating the defect
+   by 11%; **the conclusion holds at either width.** So from ~2026-09-04 the
+   file is *always* over the cap: every pass reads ~2.6 MB, splits it, keeps
+   8,000 lines and rewrites ~2.6 MB — ~5.3 MB of I/O per pass, ~7.0 GB/day, on
+   the
    volume this document is about and against the WAL for the same disk. The
    log stays bounded (the line count converges even though the byte count does
    not), so this is a cost, not a leak. `WALK_LOG_*` has the same shape and is
@@ -499,7 +689,8 @@ carrying.** `tests/test_teardown_is_recorded.py:316-329`
 (`test_the_cap_keeps_the_newest_lines`) fills the log with a **44-byte**
 synthetic line and asserts `len(lines) <= RSS_LOG_KEEP_LINES`. At 44 bytes,
 8,000 lines is 352,000 bytes and comfortably inside the cap, so the assertion
-passes; at the real 366 bytes it is 2.93 MB and the assertion still passes,
+passes; at the observed 328.5 bytes it is 2.63 MB and the assertion still
+passes,
 because **the test asserts a line count and the constant is a byte count.**
 Disabling the trim would fail it — so it is a guard, not decoration — but no
 mutation of the *line width* can fail it. A hand-constructed fixture is what
@@ -541,7 +732,10 @@ The arithmetic both ends descend from, restated in one place:
   operative version — *"~70MB/day against ~3GB free"*, ≈43 days — and the
   measured rate is 2.3x it.
 - **Both divided by the nominal 5,000,000,000** rather than `statvfs` (§1).
-- **`fly.live.toml:577` still says 0 B/day** and §8 shows how.
+- **`fly.live.toml:577` still says 0 B/day.** §8 names a second mechanism
+  sufficient to produce that reading; the source document names a first. This
+  measurement does not separate them, and the config comment is wrong either
+  way.
 - **The repo's free-list readings do not agree with each other.** 712 MB
   (37%) at `tasks/archive/next-2026-08-29.md:103` and 587 MB (31%) at
   `docs/measurements/2026-08-28-recorder-silence-is-chronic.md:94-99`, both at
@@ -560,13 +754,28 @@ September that adds two football codes to the feed.
 Not built here. `db_kb` is on every pass line already, so the threshold is a
 comparison, not a new measurement.
 
+**Every date below is n = 1 day and carries the §4 bracket** — read them as
+±3 days on the method spread alone, and earlier still if NFL widens the slate.
+
 ```
-  db_kb  >  2,444,260 KiB     the VACUUM margin is gone           ~2026-09-02
-                              (15.5 days of headroom still left)
-  db_kb  >  3,500,000 KiB     ~8.8 days of headroom left          ~2026-09-08
-  db_kb  >  4,400,000 KiB     ~3.1 days; extend from a laptop now ~2026-09-14
-  db_kb  >  4,888,520 KiB     free space is zero
+  db_kb  >  2,444,260 KiB     the VACUUM margin is gone, IF §7's     ~2026-09-02
+                              untested rule holds (15.5 d still left)
+  db_kb  >  3,500,000 KiB     ~8.8 days of headroom left             ~2026-09-08
+  db_kb  >  4,400,000 KiB     ~3.1 days; extend from a laptop now    ~2026-09-14
+  db_kb  >  4,708,789 KiB     the 184 MB a burst's WAL needs is      ~2026-09-16
+                              all that is left
+  db_kb  >  4,888,520 KiB     free space is zero, and only if the    ~2026-09-17
+                              WAL is empty at that instant
 ```
+
+The fourth row is the one that matters more than the fifth: §4 reserves
+184.04 MB because the WAL reached 179,731 KiB during the measured burst, so
+`cockpit.db` cannot actually have the last 184 MB. The fifth row is the
+arithmetic limit `(2,413,142,016 + 2,592,702,464) / 1024` and assumes a WAL of
+zero, which no burst leaves.
+
+**This table alarms on `db_kb` only**, so it cannot fire on WAL growth, on the
+free list, or on anything else that lands on `/data`.
 
 The first row is the one worth wiring, because it is the only threshold whose
 *repair* is cheaper before it than after it. The last is arithmetic:
