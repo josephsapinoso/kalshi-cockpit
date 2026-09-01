@@ -701,6 +701,35 @@ async def poll_portfolio_forever(
             now_ms = int(now * 1000)
             try:
                 if last_mirror is None or now - last_mirror >= mirror_interval_s:
+                    # **Which branch ran, in the data.** Both branches write
+                    # `poll_log` rows stamped with this cycle's `now_ms` and
+                    # nothing in them said whether the cycle was a mirror or a
+                    # fast one -- so `lock-attribution`, which groups bursts by
+                    # `DISTINCT polled_ms`, could not tell the two apart. §7 of
+                    # `docs/measurements/2026-09-01-lock-holder-attribution-
+                    # result.md` needs exactly that split: a post-fix burst
+                    # after a MIRROR cycle is explained by the matcher's own
+                    # loop and would not refute ADR 0091, so a forward
+                    # registration cannot state a decision rule until the split
+                    # exists. `endpoint` is free-form TEXT; no schema change.
+                    #
+                    # A branch marker, not a poll attempt: `ok = 1` records
+                    # that the branch was entered, `row_count` is NULL because
+                    # nothing was counted, and no consumer reads
+                    # `endpoint = 'mirror'` -- every existing query filters on
+                    # one of the four endpoint names or on `ok = 0`.
+                    #
+                    # Written BEFORE the mirror and committed immediately, for
+                    # two reasons. A cycle that dies inside `poll_portfolio`
+                    # was still a mirror cycle and is exactly the cycle a burst
+                    # may follow, so an after-marker would go missing where it
+                    # is most needed; and the commit is what keeps this INSERT
+                    # from holding the write lock across the mirror's first
+                    # round trip, which is the rule this module already states.
+                    log_poll_attempt(
+                        conn, now_ms=now_ms, endpoint="mirror", ok=True
+                    )
+                    conn.commit()
                     summary = await poll_portfolio(conn, client, now_ms=now_ms)
                     last_mirror = now
                     logger.info("portfolio mirror: %s", summary)
