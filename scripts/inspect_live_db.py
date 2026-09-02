@@ -108,6 +108,7 @@ import argparse
 import bisect
 import json
 import math
+import os
 import sqlite3
 import sys
 import time
@@ -338,6 +339,10 @@ _SQL_PASS_GAPS = (
     ") SELECT gap_ms, pass_ms AS resumed_ms FROM diffed "
     "WHERE gap_ms > ? ORDER BY gap_ms DESC"
 )
+
+# `--gap-ms` is shared with `visit-freshness`, whose default is a different
+# constant, so the flag defaults to None and each query applies its own.
+_PASS_GAP_DEFAULT_MS = 1_200_000
 
 # **What actually went to the phone, split by kind.**
 #
@@ -3769,12 +3774,13 @@ def _q_pass_gaps(conn: sqlite3.Connection, args) -> list[Section]:
       exist, so an old gap reads as "no failures" whatever its cause. Check
       `failed_ms` coverage before drawing the contrast on a historical window.
     """
+    gap_ms = args.gap_ms if args.gap_ms is not None else _PASS_GAP_DEFAULT_MS
     gaps = _fetch(
         conn,
         _SQL_PASS_GAPS,
-        (args.tail, args.gap_ms),
+        (args.tail, gap_ms),
         title=(
-            f"gaps over {args.gap_ms / 1000:.0f}s in the last {args.tail} "
+            f"gaps over {gap_ms / 1000:.0f}s in the last {args.tail} "
             f"odds_sweep_log rows, widest first"
         ),
         cap=args.limit,
@@ -4500,6 +4506,21 @@ def _parse_at_ms(value: Optional[str]) -> int:
     return int(parsed.timestamp() * 1000)
 
 
+def _fixture_ages_at(
+    conn: sqlite3.Connection, at_ms: int, *, cap: int, title: str
+) -> Section:
+    """The per-fixture consensus ages the window indicator computes at `at_ms`.
+
+    One function, two readers: `window-freshness` prints it, and
+    `visit-freshness` reads it once per visit. A second copy of the SQL would
+    be a second definition of "how old were the prices", which is the drift
+    this file's `_ACTIONABLE_PREDICATE` comment records.
+    """
+    return _fetch(
+        conn, _SQL_FRESHNESS_AT_FIXTURES, {"at": at_ms}, title=title, cap=cap
+    )
+
+
 def _q_window_freshness(conn: sqlite3.Connection, args) -> list[Section]:
     """`fixture_freshness` at `--at`, per fixture and then per book.
 
@@ -4514,12 +4535,11 @@ def _q_window_freshness(conn: sqlite3.Connection, args) -> list[Section]:
       re-crawled it" (2026-08-11 repeat-poll result).
     """
     at_ms = _parse_at_ms(args.at)
-    fixtures = _fetch(
+    fixtures = _fixture_ages_at(
         conn,
-        _SQL_FRESHNESS_AT_FIXTURES,
-        {"at": at_ms},
-        title=f"fixture_freshness at {_iso(at_ms)}: per fixture, freshest first",
+        at_ms,
         cap=args.limit,
+        title=f"fixture_freshness at {_iso(at_ms)}: per fixture, freshest first",
     )
     for col, iso in (
         ("commence_ms", "commence_iso"),
@@ -4592,6 +4612,349 @@ def _q_book_rows(conn: sqlite3.Connection, args) -> list[Section]:
     )
     section = _derive_iso(section, "book_updated_ms", "book_updated_iso")
     return [_derive_iso(section, "fetched_ms", "fetched_iso")]
+
+
+# ---------------------------------------------------------------------------
+# visit-freshness: what the desk showed at each visit, read from the record
+# ---------------------------------------------------------------------------
+#
+# Joe stopped opening the desk and gave one reason: "the prices are stale when
+# I look". Attended odds buys fell 75 -> 5 a day over five days while the
+# 300-credit attention slice sat ~7% used, so the staleness is NOT the slice
+# ceiling. The hypothesis this query exists to test (2026-09-02): attention
+# buys fire only while a page is open; the floor is hourly and only for a
+# sport with a fixture inside twelve hours (`timing.py::desk_wants`); an
+# unpaced first buy waits for the 900s full pass. So a cold open is allowed,
+# by design, to show books up to ~60 minutes old plus up to ~15 minutes of
+# bootstrap latency -- and a man who opens the desk once a day meets that
+# worst case every time.
+#
+# Both halves of the instrument existed and nothing joined them:
+# `desk_attention` holds the visits (append-only, one row per heartbeat,
+# `Nav.tsx` every 60s) and `window-freshness --at` recomputes the consensus
+# age at any instant. Until this query no inspector read `desk_attention`.
+
+#: A gap between heartbeats longer than this ends a visit.
+#:
+#: Copied from `backend/odds/attention.py::DEFAULT_ATTENTION_TTL_MS` -- this
+#: script imports nothing from `backend` (see `_ACTIONABLE_PREDICATE`) -- and
+#: pinned equal by `tests/test_inspect_live_db.py`. It is the code's own
+#: definition of the desk going shut: `is_attended` holds while the newest
+#: stamp is inside the TTL, so a gap past it is an interval in which the loop
+#: itself judged nobody was looking, and the stamp that ends it is a cold
+#: open. Five heartbeat intervals, so an ordinary missed poll does not split a
+#: visit in two.
+_VISIT_GAP_MS = 300_000
+
+#: The limit a consensus is refused as stale past, in seconds.
+#:
+#: `backend/config.py::StalenessConfig.load` reads `MAX_ODDS_AGE_S` with this
+#: default (pinned equal by the tests). The same variable is read here from
+#: the same environment the box runs the loop in, so the limit a visit is
+#: measured against is the one the deployed loop applied.
+_STALE_LIMIT_DEFAULT_S = 900
+_STALE_LIMIT_ENV = "MAX_ODDS_AGE_S"
+
+#: `--since` default: a week, because the question is about a five-day fall.
+_VISIT_SINCE_DEFAULT_DAYS = 7
+
+_SQL_ATTENTION_STAMPS = (
+    "SELECT seen_ms FROM desk_attention WHERE seen_ms >= ? ORDER BY seen_ms"
+)
+
+# `trigger = 'attention'` is the spend a heartbeat causes and the only spend
+# the slice counts (`timing.py::ATTENTION`). A floor or scheduled buy carries
+# NULL and is deliberately not credited to the visit.
+_SQL_FIRST_ATTENTION_BUY = (
+    "SELECT called_ms, sport_key FROM api_credits "
+    "WHERE trigger = 'attention' AND called_ms >= ? AND called_ms <= ? "
+    "ORDER BY called_ms, id LIMIT 1"
+)
+_SQL_ATTENTION_BUYS_IN = (
+    "SELECT COUNT(*) AS n FROM api_credits "
+    "WHERE trigger = 'attention' AND called_ms >= ? AND called_ms <= ?"
+)
+_SQL_REFUSALS_IN = (
+    "SELECT COUNT(*) AS n FROM odds_sweep_log "
+    "WHERE outcome = 'refused' AND pass_ms >= ? AND pass_ms <= ?"
+)
+
+
+def _stale_limit_ms() -> int:
+    """`MAX_ODDS_AGE_S` from the environment, in ms, defaulting as config does."""
+    raw = os.environ.get(_STALE_LIMIT_ENV, "").strip()
+    seconds = int(raw) if raw else _STALE_LIMIT_DEFAULT_S
+    return seconds * 1000
+
+
+def _cluster_visits(stamps: Sequence[int], gap_ms: int) -> list[list[int]]:
+    """Runs of heartbeats with no gap over `gap_ms` between neighbours.
+
+    Strictly over: a gap of exactly the TTL is the last instant at which
+    `is_attended` still answers "open", so it must not open a visit here
+    either. The two definitions have to agree at the boundary or a visit the
+    loop bought for is counted here as two.
+    """
+    visits: list[list[int]] = []
+    for ms in stamps:
+        if visits and ms - visits[-1][-1] <= gap_ms:
+            visits[-1].append(ms)
+        else:
+            visits.append([ms])
+    return visits
+
+
+@dataclass(frozen=True)
+class _AgeReading:
+    """What `_fixture_ages_at` said at one instant, reduced to a row's worth.
+
+    `age_ms` is the **median** fixture age -- half the upcoming slate was at
+    least this old. `age_min_ms` is the freshest fixture, which is what the
+    window indicator's "open until" runs from. `None` throughout when no
+    upcoming fixture was in the record at that instant: nothing to be stale.
+    """
+
+    fixtures: Optional[int]
+    fresh: Optional[int]
+    age_ms: Optional[int]
+    age_min_ms: Optional[int]
+    age_max_ms: Optional[int]
+    sports_upcoming: Optional[str]
+    sports_open: Optional[str]
+
+
+def _read_ages(section: Section, *, limit_ms: int) -> _AgeReading:
+    """Reduce a per-fixture freshness section to one reading.
+
+    A truncated section is a cut population: the query orders by age so the
+    minimum survives the cut, and everything else is unreadable -- `None`, not
+    the count of the rows that happened to fit.
+    """
+    cols = section.columns
+    age_i, sport_i = cols.index("age_ms"), cols.index("sport_key")
+    if not section.rows:
+        return _AgeReading(0, 0, None, None, None, None, None)
+    ages = sorted(int(r[age_i]) for r in section.rows)
+    if section.truncated:
+        return _AgeReading(None, None, None, ages[0], None, None, None)
+    fresh_rows = [r for r in section.rows if int(r[age_i]) <= limit_ms]
+    median = _quantile(ages, 0.5)
+    return _AgeReading(
+        fixtures=len(ages),
+        fresh=len(fresh_rows),
+        age_ms=None if median is None else int(median),
+        age_min_ms=ages[0],
+        age_max_ms=ages[-1],
+        sports_upcoming=",".join(sorted({str(r[sport_i]) for r in section.rows})),
+        sports_open=",".join(sorted({str(r[sport_i]) for r in fresh_rows})),
+    )
+
+
+def _parse_since_ms(value: Optional[str], day_start_hour: int) -> int:
+    if value is None:
+        now_ms = int(time.time() * 1000)
+        return now_ms - _VISIT_SINCE_DEFAULT_DAYS * _MS_PER_DAY
+    try:
+        return _day_bounds(value, day_start_hour)[0]
+    except ValueError as exc:
+        raise ValueError(
+            f"--since must be YYYYMMDD, got {value!r}"
+        ) from exc
+
+
+_VISIT_COLUMNS = (
+    "visit",
+    "start_ms",
+    "end_ms",
+    "duration_s",
+    "heartbeats",
+    "first_fixtures",
+    "first_fresh",
+    "first_age_ms",
+    "first_age_min_ms",
+    "first_age_max_ms",
+    "last_age_ms",
+    "last_fresh",
+    "attention_latency_ms",
+    "first_attention_sport",
+    "attention_buys",
+    "refused_sweeps",
+    "sports_upcoming",
+    "sports_open",
+)
+
+
+def _q_visit_freshness(conn: sqlite3.Connection, args) -> list[Section]:
+    """One row per desk visit: how stale the slate was when it opened.
+
+    A visit is a run of `desk_attention` heartbeats with no gap over
+    `--gap-ms` (default `_VISIT_GAP_MS`, the attention TTL). Per visit:
+
+    - `first_age_ms` / `first_age_min_ms` / `first_age_max_ms`: the median,
+      freshest and stalest upcoming-fixture consensus age at the FIRST stamp,
+      computed by `_fixture_ages_at` -- the same query `window-freshness --at`
+      prints -- pinned at that stamp, not at now. `first_fresh` of
+      `first_fixtures` were inside the staleness limit.
+    - `last_age_ms` / `last_fresh`: the same reading at the LAST stamp, which
+      is what the visit bought itself by staying.
+    - `attention_latency_ms`: ms from the first stamp to the first
+      `api_credits` row with `trigger = 'attention'` inside the visit, `None`
+      when the visit caused no buy at all. "Inside" runs to the last stamp
+      plus the gap, because a buy the last heartbeat triggered can land after
+      it; visits are more than the gap apart, so no buy is counted twice.
+    - `refused_sweeps`: `odds_sweep_log` rows with `outcome = 'refused'` in
+      the same span -- the slice or the daily cap saying no while he looked.
+    - `sports_upcoming` / `sports_open`: sports with an upcoming fixture in
+      the record at the first stamp, and the subset with at least one fixture
+      inside the limit -- i.e. whose window the indicator would have shown
+      open. An empty string is "none open"; `None` is "no upcoming fixture
+      in the record at all", which is a different fact.
+
+    The summary gives the visit count, the median first-stamp age, the share
+    of visits with no attention buy, and the share whose first-stamp median
+    age exceeded the limit (`MAX_ODDS_AGE_S`, read from the environment as
+    `config.py` reads it) beside the sharper share with nothing fresh at all.
+
+    What this does not establish
+    ----------------------------
+    - **n = 1.** One operator, one instance, one week. A share here is a
+      description of Joe's visits, not a rate anything generalises from.
+    - **It is a self-report joined to a record, not a measurement of the
+      report.** "Stale when I look" is his sentence; this says what the record
+      showed at the instants a browser said he was looking. A page open on a
+      second monitor stamps exactly like a page being read
+      (`attention.py`'s own caveat).
+    - **Direction.** "Stale, so he stopped" and "stopped, so it is stale" are
+      both consistent with any row here, because attention buys require an
+      open page: a shorter visit buys fewer sweeps and mechanically makes the
+      NEXT visit's first stamp staler. The table cannot separate cause from
+      consequence; it can only say whether the worst case the design permits
+      is the case he actually met.
+    - **Nothing about why a stamp is old** -- inherited from
+      `window-freshness`: a stale `last_update` cannot separate "the book has
+      not repriced" from "the aggregator has not re-crawled it".
+    - **Only what is still in `odds_snapshots`.** A retrospective age is
+      honest only while the sweeps around the visit have not been pruned;
+      check `prune-frontier` before reading an old week.
+
+    Unreadable is `None`, never `0`: an age with no upcoming fixture, a
+    latency with no buy, a truncated population's count.
+    """
+    gap_ms = args.gap_ms if args.gap_ms is not None else _VISIT_GAP_MS
+    if gap_ms <= 0:
+        raise ValueError(f"--gap-ms must be positive, got {gap_ms}")
+    since_ms = _parse_since_ms(args.since, args.day_start_hour)
+    limit_ms = _stale_limit_ms()
+
+    stamps = [
+        int(r[0]) for r in conn.execute(_SQL_ATTENTION_STAMPS, (since_ms,))
+    ]
+    visits = _cluster_visits(stamps, gap_ms)
+
+    rows: list[tuple[Any, ...]] = []
+    for n, visit in enumerate(visits, start=1):
+        start, end = visit[0], visit[-1]
+        span_end = end + gap_ms
+        first = _read_ages(
+            _fixture_ages_at(conn, start, cap=args.limit, title="first"),
+            limit_ms=limit_ms,
+        )
+        last = _read_ages(
+            _fixture_ages_at(conn, end, cap=args.limit, title="last"),
+            limit_ms=limit_ms,
+        )
+        buy = conn.execute(_SQL_FIRST_ATTENTION_BUY, (start, span_end)).fetchone()
+        buys = conn.execute(_SQL_ATTENTION_BUYS_IN, (start, span_end)).fetchone()
+        refused = conn.execute(_SQL_REFUSALS_IN, (start, span_end)).fetchone()
+        rows.append(
+            (
+                n,
+                start,
+                end,
+                (end - start) // 1000,
+                len(visit),
+                first.fixtures,
+                first.fresh,
+                first.age_ms,
+                first.age_min_ms,
+                first.age_max_ms,
+                last.age_ms,
+                last.fresh,
+                None if buy is None else int(buy[0]) - start,
+                None if buy is None else buy[1],
+                int(buys[0]),
+                int(refused[0]),
+                first.sports_upcoming,
+                first.sports_open,
+            )
+        )
+
+    cap = max(0, args.limit)
+    per_visit = Section(
+        title=(
+            f"desk_attention visits since {_iso(since_ms)} (gap over "
+            f"{gap_ms} ms opens a visit): one row per visit, oldest first"
+        ),
+        columns=_VISIT_COLUMNS,
+        rows=rows[:cap],
+        truncated=len(rows) > cap,
+        cap=cap,
+    )
+    per_visit = _derive_iso(per_visit, "start_ms", "start_iso")
+    per_visit = _derive_iso(per_visit, "end_ms", "end_iso")
+
+    summary_rows: list[tuple[Any, ...]] = [
+        ("visits", len(visits)),
+        ("heartbeats", len(stamps)),
+        ("visit_gap_ms", gap_ms),
+        ("stale_limit_ms", limit_ms),
+    ]
+    if not visits:
+        summary_rows.append(
+            ("note", f"no visits since {_iso(since_ms)}: nothing to summarise")
+        )
+    else:
+        col = {name: i for i, name in enumerate(_VISIT_COLUMNS)}
+        readable = [r for r in rows if r[col["first_age_ms"]] is not None]
+        first_ages = sorted(r[col["first_age_ms"]] for r in readable)
+        first_mins = sorted(r[col["first_age_min_ms"]] for r in readable)
+        latencies = sorted(
+            r[col["attention_latency_ms"]]
+            for r in rows
+            if r[col["attention_latency_ms"]] is not None
+        )
+        no_buy = sum(1 for r in rows if r[col["attention_latency_ms"]] is None)
+        over = sum(1 for r in readable if r[col["first_age_ms"]] > limit_ms)
+        nothing_fresh = sum(1 for r in readable if r[col["first_fresh"]] == 0)
+        n_all, n_read = len(rows), len(readable)
+        summary_rows += [
+            ("visits_with_readable_first_age", n_read),
+            ("median_first_age_ms", _quantile(first_ages, 0.5)),
+            ("median_first_age_min_ms", _quantile(first_mins, 0.5)),
+            ("visits_no_attention_buy", no_buy),
+            ("share_no_attention_buy", round(no_buy / n_all, 3)),
+            ("median_attention_latency_ms", _quantile(latencies, 0.5)),
+            ("visits_first_age_over_limit", over),
+            (
+                "share_first_age_over_limit",
+                None if n_read == 0 else round(over / n_read, 3),
+            ),
+            ("visits_nothing_fresh_at_open", nothing_fresh),
+            (
+                "share_nothing_fresh_at_open",
+                None if n_read == 0 else round(nothing_fresh / n_read, 3),
+            ),
+        ]
+    summary = Section(
+        title="visit-freshness summary (shares are of visits, n = 1 operator)",
+        columns=("measure", "value"),
+        rows=summary_rows,
+    )
+    return [
+        _window_section("visit window", since_ms, None),
+        per_visit,
+        summary,
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -5190,6 +5553,15 @@ QUERIES: dict[str, QueryDef] = {
         "laggard book's stamp age the consensus, or only the window flag?",
         _q_book_rows,
     ),
+    "visit-freshness": QueryDef(
+        "desk_attention heartbeats clustered into visits (--since YYYYMMDD, "
+        "default last 7 days; --gap-ms, default the attention TTL), one row "
+        "each: consensus age at the first and last stamp via the "
+        "window-freshness query, ms to the first attention buy, refused "
+        "sweeps, and which sports' windows were open. Answers: does a cold "
+        "open meet the ~60-min worst case the design permits?",
+        _q_visit_freshness,
+    ),
     "h4-settlement-balance": QueryDef(
         "H4's raw material, four sections and NO join: A settlements since "
         "study start (with market_result), B balance snapshots +/-900s of "
@@ -5356,10 +5728,20 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--gap-ms",
         type=int,
-        default=1_200_000,
+        default=None,
         help=(
             "pass-gaps: report holes wider than this (default 1200000, i.e. "
-            "20 min -- above the 1035s ceiling on a healthy shut-window sleep)"
+            "20 min -- above the 1035s ceiling on a healthy shut-window "
+            "sleep). visit-freshness: a heartbeat gap over this opens a new "
+            f"visit (default {_VISIT_GAP_MS}, the attention TTL)"
+        ),
+    )
+    parser.add_argument(
+        "--since",
+        default=None,
+        help=(
+            "visit-freshness: first budget day to read, as YYYYMMDD "
+            f"(default: the last {_VISIT_SINCE_DEFAULT_DAYS} days)"
         ),
     )
     parser.add_argument(
