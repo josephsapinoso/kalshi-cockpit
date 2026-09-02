@@ -32,7 +32,7 @@ C5 moved between the two, and nothing in it is a P5 verdict.
 > verdict into UNRESOLVED; it cannot manufacture a positive one"* (lines
 > 349-353). **The registration wins.** §3 below says why it should, and the
 > partner's ruling on what happens next is in
-> `docs/adr/DRAFT-p5-forward-lock-terminated-tempo-confounded.md`.
+> `docs/adr/0097-p5-forward-lock-terminated-tempo-confounded.md`.
 
 Every `scripts/inspect_live_db.py:NNNN` citation below is to the **repo copy**
 at this branch's HEAD (`fbede83` and after). It was not diffed against

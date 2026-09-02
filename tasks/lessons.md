@@ -54,6 +54,71 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-02 - When a single look is registered, the look that counts is the FIRST one past the stopping rule
+
+The forward-lock registration says the rate arm gets *"a single look at `E*`,
+no early stopping"*. The first reading past `E* = 160` was taken at 16:26Z
+(`E = 263`) and read `UNRESOLVED — C4/C5`. Two and a half hours later a fresh
+reading was taken "to see whether C4 had moved", it had -- FAIL by 0.44% to
+PASS by 0 KB -- and the result document was drafted on the second reading,
+titled `UNRESOLVED — C5`, with the first reading not mentioned. The skeptic
+caught it. Neither verdict credits anything, so nothing was gained, which is
+exactly why it was easy to do: the flattering direction was invisible because
+both readings were negative.
+
+**Pattern: the registered look is the first reading past the threshold, and
+every later reading is unregistered however innocent its motive. A result
+that titles on a later reading has chosen among looks, and choosing the cleaner
+one is optional stopping in a different hat. If a re-read is taken, name the
+registered one first and the re-read as a re-read.**
+
+## 2026-09-02 - A retention cap on a diagnostic file is a deletion of whatever measurement reads its oldest lines
+
+The RSS log cap was fixed on 2026-09-01 so that it would finally bind -- trim
+to 1 MiB at 2 MiB. Correct, tested, and it would have destroyed the only copy
+of the pre-fix baseline that two registered preconditions (C4, C5) read from
+that file's oldest lines, within a day of shipping. Nobody checked what read
+the file before capping it, because the cap was a hygiene fix and the reader
+was a measurement. The file was at 90.6% of the cap when this was noticed, and
+was copied out with one `sftp get`.
+
+**Pattern: before adding or tightening retention on any file, grep for its
+readers, and treat a registered measurement among them as a hard dependency.
+"It is only a diagnostic" is a statement about the writer; the question is
+who reads it. And a baseline that exists in exactly one place is preserved
+before the trim ships, not after someone remembers it.**
+
+## 2026-09-02 - Before ranking work on a screen, read the instrument that says whether anyone is looking at it
+
+Thirteen frontier tickets about the paint and the labels of the desk were
+ranked, twice, without anyone reading the one number the system already
+records about the desk: attended odds buys per budget day, which is a
+record of how long a page was open. It had fallen from 75 to 5 in five days,
+and the armed hand-bet path had placed zero orders in its life. That number
+reorders the map above every colour decision on it, and the instrument that
+produced it (`credits-day` by trigger) had been in the repo for a week.
+
+**Pattern: a backlog of UI decisions has a precondition -- that the UI is
+used -- and the precondition is measurable here. Read usage before ranking
+paint. If usage has moved by an order of magnitude, the first item is to ask
+the one user why, not to guess from the tickets.**
+
+## 2026-09-02 - A doctrine comment is a claim about the tree; grep before citing it
+
+`globals.css` said `--negative` is the red and *"NOTHING ELSE MAY WEAR IT"*,
+in capitals, and the sentence was written the day the accent split from the
+loss red. A sweep found roughly two dozen sites wearing it for meanings that
+are not a loss -- login errors, every `role="alert"` string, refused ticket
+states, the playbook's `rejected` chip -- and every future colour ruling was
+about to cite the comment as the rule. The deployed rule was "red = stop and
+read this", of which a loss is one case.
+
+**Pattern: a comment that states a rule is a claim with a population, and it
+is verified the same way as any other claim -- enumerate the sites. When the
+code disagrees, record the disagreement in the comment and hand the choice to
+whoever owns the rule; a comment edit that picks a side is a decision made
+without a ticket.**
+
 ## 2026-09-01 - A check that fails in the direction that ends the work gets no audit
 
 One dry run produced two failed checks. **P6** failed expensively -- it voided
@@ -3007,6 +3072,12 @@ its own file, and a session scanning the index for something relevant would
 have missed every lesson written in the last nine days. The titles below are
 the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
+
+### 2026-09-02 — in this file, above
+- When a single look is registered, the look that counts is the FIRST one past the stopping rule
+- A retention cap on a diagnostic file is a deletion of whatever measurement reads its oldest lines
+- Before ranking work on a screen, read the instrument that says whether anyone is looking at it
+- A doctrine comment is a claim about the tree; grep before citing it
 
 ### 2026-09-01 — in this file, above
 - Under `set -e`, a guard downstream of an abort is decoration

@@ -1,4 +1,4 @@
-# DRAFT — P5 terminates at UNRESOLVED — TEMPO-CONFOUNDED, and that is final
+# ADR 0097 — P5 terminates at UNRESOLVED — TEMPO-CONFOUNDED, and that is final
 
 - **Status:** Proposed. Draft in a lane; the ordinal is taken in the merge
   commit, after `git fetch`, per `docs/adr/README.md`.
