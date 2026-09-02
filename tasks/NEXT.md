@@ -275,7 +275,62 @@ reader that **D2 does not cover**, excluded by F5's *argument* rather than by
 absence — and a **drift rate fitted through noise** used to overturn a committed
 argument. Both corrected in the file rather than folded in silently.
 
-### P5 §11 IS BUILT, AND THIS SESSION'S DEPLOYS DAMAGED ITS EXPOSURE
+### P5 IS COMPLETE AS AN INSTRUMENT. VERDICT: **UNRESOLVED — C4/C5**
+
+All six preconditions now compute. Reading of 2026-09-02T16:26Z:
+
+    E    263 fast cycles   (E* = 160 — PAST IT)
+    K    0 bursts          H = 0     E_n = 1.0000
+    C1 PASS   C2 PASS   C3 PASS   C6 PASS
+    C4 FAIL   median wal_kb post-T0 2,699 vs pre-fix q25 2,711
+    C5 FAIL   post-T0 73.92/h vs pre-fix 56.81/h
+    VERDICT   UNRESOLVED - C4/C5
+
+**`E` and `K` would license FIX CONFIRMED and §7 does not.** Zero locked bursts
+across 263 post-`T0` fast cycles is the outcome ADR 0091 predicts; the two
+failed comparability checks are exactly what stops that being read as proof, and
+they are the reason §7 exists.
+
+**Read both failures with their size and direction, because neither is a bare
+"FAIL".**
+
+- **C4 misses by 12 KB — 0.44%.** That is a hair, and it is *not* evidence of a
+  confounded arm so much as evidence that the two windows are near-identical.
+  A future look could flip it either way on noise. Do not treat this as a
+  finding about WAL.
+- **C5 misses at +30.1%, and the direction cuts AGAINST the null.** §7's stated
+  worry is *"fewer passes means fewer collisions regardless of the fix"* — but
+  the post-`T0` arm is **busier**, not quieter, so there was *more* collision
+  opportunity and still no burst. The registered tolerance is two-sided and was
+  implemented two-sided as registered; a reader seeing `C5 FAIL` must not assume
+  the flattering direction. Whether a two-sided tolerance is right here is a
+  question for a successor registration, **not** something to amend now with the
+  figures on screen.
+
+**An earlier claim in this entry was wrong and is corrected here.** A previous
+version said this session's deploy cadence had "damaged the C3 exposure". It did
+not bind: `A_pre` computes to **0.87 h** from 11 of the 13 aged pre-fix bursts —
+the 2.0 h fallback was never needed — and there are **214** fast cycles at age
+≥ `A_pre` against the 30 C3 requires. C3 **PASSES**. The concern was reasonable
+when written and the measurement refuted it.
+
+**Two implementation defects the tests caught, both worth knowing:**
+
+- **`produced_by` absent ≠ `produced_by: null`.** A null is a process's first
+  sample — the restart marker. An absent key is a line predating the field. On
+  the live file the naive `.get(...) is None` counts **752** restarts where
+  there are **44**, seventeen-fold, and in the flattering direction: phantom
+  restarts shorten every process age, lowering `A_pre` and letting more cycles
+  qualify as aged.
+- **Ageing needs evidence of liveness.** Ageing a cycle against the newest
+  preceding restart marker gave cycles past the end of `loop_rss.jsonl` an
+  unbounded age — a process dead an hour ago scoring as one up for hours. A
+  cycle is aged only if a sample at or after it belongs to the same process life.
+
+**Still open on P5:** nothing to build. The verdict moves when C4 and C5 move,
+which is a matter of the workload, not of code.
+
+### ~~P5 §11 IS BUILT, AND THIS SESSION'S DEPLOYS DAMAGED ITS EXPOSURE~~ — superseded by the entry above; C3 passes
 
 `inspect_live_db.py forward-lock` exists, is deployed, and took its first
 reading. Amendment 1 to the registration landed **first and blind** — §10's
