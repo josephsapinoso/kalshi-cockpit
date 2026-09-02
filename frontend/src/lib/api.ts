@@ -116,7 +116,22 @@ export type Recommendation = Partial<DevigMethods> &
   created_ms: number;
   strategy_config_version: number;
   side: string;
+  /**
+   * The YES-side team, on BOTH rows of a market -- `kalshi_markets.
+   * yes_side_team`. On a NO row this is the opponent of the side priced.
+   * `null` on a prop or a total. Never print it as a NO row's name; see
+   * `side_outcome` and `lib/rowSubject.ts` (ticket #6).
+   */
   team: string | null;
+  /**
+   * The team (or "Over"/"Under") this row's OWN side pays on --
+   * `fair_prices.outcome_name` on the row's `fair_price_id`, which the runner
+   * binds per side. Optional: emitted by every route through `_serialise`
+   * since 2026-09-02, so a backend one version behind omits it; `null` when
+   * the route did not join `fair_prices` (the ledger) or the row has none.
+   * Never falls back to `team` on a NO row -- that is the defect.
+   */
+  side_outcome?: string | null;
   event_title: string | null;
   /**
    * The odds feed's sport key for the linked fixture (`baseball_mlb`),
@@ -2431,6 +2446,12 @@ export type MarketDetail = {
   // never share a screen block — their difference IS the measured-negative
   // edge (the fleet-convening identity).
   side?: string;
+  /**
+   * The team this row's own side pays on (`fair_prices.outcome_name`), so
+   * the header can say which side the served row prices. Optional for a
+   * backend one version behind; `null` when the row has no fair price.
+   */
+  side_outcome?: string | null;
   fair_probability?: number | null;
   fair_percent_display?: string | null;
   suppressed_reason?: string | null;

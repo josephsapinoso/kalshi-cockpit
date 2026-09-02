@@ -238,11 +238,34 @@ export default function MarketPage() {
     <main className={`${SHELL_WIDTH} px-4 py-8 sm:px-6 sm:py-12 xl:px-8`}>
       <header className="mb-4">
         <h1 className="display text-3xl sm:text-4xl xl:text-5xl">{matchup}</h1>
-        {detail?.team && (
+        {/* `/api/market/{ticker}` serves the newest row of EITHER side, and
+            this line used to describe the YES contract whichever side that
+            row priced -- true, but unqualified, on a page whose numbers
+            below are the NO side's half the time (ticket #6). The side is
+            now named here, at the top, rather than only in ConsensusPanel
+            further down. `detail.team` is the YES-side team on both rows;
+            `detail.side_outcome` is the team the served row's own side pays
+            on, read from the record rather than derived. */}
+        {detail?.team && detail.side !== "no" && (
           <p className="mt-1 max-w-[65ch] text-sm font-semibold">
             YES = {detail.team}
             <span className="ml-2 font-normal text-muted">
               this contract pays $1 if the {detail.team} win
+              {detail.side === "yes" && (
+                <> &middot; the row below prices the YES side</>
+              )}
+            </span>
+          </p>
+        )}
+        {detail?.team && detail.side === "no" && (
+          <p className="mt-1 max-w-[65ch] text-sm font-semibold">
+            NO on {detail.team}
+            <span className="ml-2 font-normal text-muted">
+              the row below prices the NO side: it pays $1 if the{" "}
+              {detail.team} don&rsquo;t win
+              {detail.side_outcome && (
+                <> &mdash; that is, if the {detail.side_outcome} do</>
+              )}
             </span>
           </p>
         )}

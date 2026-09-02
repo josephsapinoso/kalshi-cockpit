@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { Recommendation } from "@/lib/api";
 import { EDGE_TONE_CLASS, EDGE_TONE_MARK, edgeTone } from "@/lib/api";
 import { glossSentence } from "@/lib/suppressionGloss";
+import { rowSubject } from "@/lib/rowSubject";
 import LeagueTag from "@/components/LeagueTag";
 import ManualTicket from "@/components/ManualTicket";
 
@@ -96,6 +97,10 @@ export default function SlateRow({
    */
   const tone = edgeTone(rec);
   const suspect = tone === "suspect";
+  // The team this row's own side pays on, and how it is bought. `rec.team`
+  // is the YES-side team on both rows of a market, so printing it here named
+  // the opponent on every NO row -- ticket #6; see `lib/rowSubject.ts`.
+  const subject = rowSubject(rec);
 
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3">
@@ -120,8 +125,17 @@ export default function SlateRow({
         href={`/market/${encodeURIComponent(rec.ticker)}`}
         className="min-w-0 font-semibold tracking-tight hover:underline"
       >
-        {rec.team ?? rec.ticker}
+        {subject.name}
       </Link>
+      {/* Which side this row prices, and on which market. Muted, because it
+          is a fact about the row and not a claim about the bet; present on
+          every row, because the two sides of one game sit next to each other
+          here and nothing else on the line tells them apart. */}
+      {subject.how && (
+        <span className="shrink-0 font-mono text-[0.65rem] text-muted">
+          {subject.how}
+        </span>
+      )}
       {/* Fair value as a percentage and the ask as a price, so the two cannot
           be read as the same kind of number. */}
       <span className="tabular text-sm text-muted">

@@ -1116,12 +1116,20 @@ def create_app(
                 ).fetchone()["n"]
             )
             rows = conn.execute(
+                # `f.outcome_name` is the team (or Over/Under) the row's OWN
+                # side pays on -- `runner.py` binds `fair_price_id` per side
+                # -- and it is what `_serialise` emits as `side_outcome`. The
+                # Board was the one slate surface without this join, so its
+                # NO rows carried only `yes_side_team`: the opponent of the
+                # side being priced. Ticket #6.
                 "SELECT r.*, m.title AS market_title, m.yes_side_team, "
-                "e.title AS event_title, e.commence_ms, l.league "
+                "e.title AS event_title, e.commence_ms, l.league, "
+                "f.outcome_name "
                 "FROM recommendations r "
                 "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
                 "LEFT JOIN kalshi_events e ON e.event_ticker = m.event_ticker "
                 "LEFT JOIN event_links l ON l.id = r.link_id "
+                "LEFT JOIN fair_prices f ON f.id = r.fair_price_id "
                 f"WHERE {_BASIS_SQL} >= ? "
                 f"ORDER BY r.suggested_contracts DESC, {_BASIS_SQL} DESC, r.id DESC "
                 "LIMIT ?",
@@ -6380,7 +6388,32 @@ def _serialise(
         "created_ms": row["created_ms"],
         "strategy_config_version": row["strategy_config_version"],
         "side": row["side"],
+        # `team` is the YES-side team on BOTH rows of a market -- that is what
+        # `kalshi_markets.yes_side_team` is -- so on a NO row it names the
+        # opponent of the side being priced. Kept as-is: it is what the
+        # picks block, `betDirection.ts` and the ticket sheet read, and each
+        # of them relies on it meaning exactly that.
         "team": row["yes_side_team"] if "yes_side_team" in row.keys() else None,
+        # **The team (or Over/Under) this row's own side pays on.** Ticket #6:
+        # the Games row printed `team` under a NO row and so named the wrong
+        # side, on 98.9% of tickers with both sides present at once, the
+        # same name on two adjacent rows with different asks. This is
+        # `fair_prices.outcome_name` on the row's own `fair_price_id`, which
+        # `runner.py` binds per side (`side_outcome` there: YES to the
+        # market's outcome, NO to the other one; `tests/test_runner.py`
+        # pins that the two sides resolve to different names). It is read,
+        # never derived: renaming sides inside a route by string
+        # manipulation is refused above (the picks block), because a
+        # derivation that goes wrong produces the *other* team's name, which
+        # looks entirely plausible on screen.
+        #
+        # `None` when the caller did not join `fair_prices` (the ledger) or
+        # the row has no fair price -- never `team`, which on a NO row is the
+        # defect this field exists to end. On a total this is "Over" or
+        # "Under": the row IS about a side of a total, so that is the honest
+        # name, and it is why this is a second field rather than an
+        # overwrite of `team`.
+        "side_outcome": row["outcome_name"] if "outcome_name" in row.keys() else None,
         "event_title": row["event_title"] if "event_title" in row.keys() else None,
         "commence_ms": row["commence_ms"] if "commence_ms" in row.keys() else None,
         "ask_tenths": ask,
