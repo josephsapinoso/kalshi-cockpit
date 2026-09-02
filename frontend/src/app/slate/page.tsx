@@ -14,6 +14,7 @@ import type {
   SlateRowData,
 } from "@/lib/api";
 import { glossSentence } from "@/lib/suppressionGloss";
+import { rowSubject } from "@/lib/rowSubject";
 import {
   anAutomaticBuyIsComing,
   isStaleOddsReason,
@@ -393,6 +394,10 @@ function Row({
   maxQuoteAgeMs: number;
   maxOddsAgeMs: number;
 }) {
+  // The team this row's own side pays on, and how it is bought. `row.team`
+  // is the YES-side team on both rows of a market, so printing it here named
+  // the opponent on every NO row -- ticket #6; see `lib/rowSubject.ts`.
+  const subject = rowSubject(row);
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3 xl:grid xl:grid-cols-[3rem_minmax(0,1fr)_5.5rem_5rem_8rem_6.5rem_11rem_6rem_7rem_6.5rem_2.5rem] xl:gap-x-4 xl:items-baseline">
       <span className="tabular w-12 shrink-0 font-mono text-xs text-muted">
@@ -411,8 +416,17 @@ function Row({
           href={`/market/${encodeURIComponent(row.ticker)}`}
           className="min-w-0 truncate font-semibold tracking-tight hover:underline"
         >
-          {row.team ?? row.ticker}
+          {subject.name}
         </Link>
+        {/* Which side this row prices, inside the name's grid cell for the
+            same reason the league tag is: a twelfth child would shift every
+            xl column after it. Present on every row, because both sides of
+            one game sit next to each other here. */}
+        {subject.how && (
+          <span className="shrink-0 font-mono text-[0.65rem] text-muted">
+            {subject.how}
+          </span>
+        )}
       </span>
       <span className="tabular text-sm text-muted">
         {row.ask_display} <Term k="ask">ask</Term>
