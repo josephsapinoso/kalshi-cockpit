@@ -257,9 +257,28 @@ about NBA/NFL specifically and stays open until a football-season capture.
    (#5, #20) / *nothing there worth betting* (#20) / *I know my game and it
    won't show me a price* (#24) / *I bet elsewhere now*. → Reorders the map
    above any of the three prop answers.
-   **[PLACEHOLDER — main attaches the usage figures: attention credits per
-   budget day and last `attention` row from `credits-day`, last
-   `parlay_lookups` / `manual_orders` timestamps.]**
+   **The usage figures, read from live 2026-09-02 ~19:30Z** — `api_credits`
+   rows with `trigger = 'attention'` per budget day (`inspect_live_db.py
+   credits-day --date YYYYMMDD`, budget day starts 10:00Z), i.e. ten-minute
+   buys made only while a page was open and visible:
+
+       20260827   75   (the slice spent, 4.88 h — CLAUDE.md's measured day)
+       20260829   10
+       20260830   20
+       20260831    6
+       20260901    6
+       20260902    5   (partial, to ~19:30Z)
+
+   `manual-orders-audit`: **0 rows lifetime** on `manual_orders` — the hand-bet
+   path armed 2026-08-26 has never sent an order. `parlay_lookups` was not
+   read. The partner's reading of the same figures, 2026-09-02: a ~15-fold
+   fall in five days on the thinnest sports week of the year; the seasonal
+   confound (fewer upcoming sports → fewer attention rows per visit) is real
+   and does not plausibly cover a factor of fifteen, and the 2026-08-29
+   fall-through change cannot bite at 5 rows/day because the slice is nowhere
+   near spent. **Five days is one observation, not a rate**, and the
+   `fly.live.toml` "0 B/day" lesson applies: a window shorter than the
+   phenomenon's period reads zero and looks like a measurement.
 
 ## 7. What contradicts the ticket's premise
 

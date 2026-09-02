@@ -57,7 +57,21 @@
      recorded cause of ticket #10: identity, commit-money and loss all painted
      one hue, so the loudest thing on the Games screen was the row Joe must not
      bet. Red is now rare on purpose. Making the refusal quieter was the wrong
-     fix; making red scarce is the right one. */
+     fix; making red scarce is the right one.
+
+     THE SENTENCE ABOVE IS NOT WHAT THE CODE DOES, and the gap is recorded here
+     rather than resolved here (2026-09-02). A sweep found --negative worn at
+     roughly two dozen sites for meanings that are not a loss: the login error
+     (login/page.tsx), every `role="alert"` failure string (PassControl,
+     NotTonight, ScoutDesk), ManualTicket's unrecognised-input and refused
+     states, WindowBanner's `alarm` tone, and playbook/page.tsx's `rejected`
+     chip -- the very chip class ticket #10 moved to ochre on the Games row,
+     which did not move here. The rule the deployed screens actually follow
+     is "red = stop and read this", of which a loss is one case. Whether that
+     is the rule, or the sentence above is, belongs to a decision-map ticket
+     (#32 and #33 both turn on it); a comment edit may not choose. Until it
+     is chosen, do not cite this comment as the reason to paint or unpaint
+     anything red -- cite the ticket. */
   --positive: #1a7f52;
   --negative: #aa0000;
   --negative-soft: #f8e6e6;
