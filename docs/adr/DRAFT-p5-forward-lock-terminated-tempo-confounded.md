@@ -3,65 +3,79 @@
 - **Status:** Proposed. Draft in a lane; the ordinal is taken in the merge
   commit, after `git fetch`, per `docs/adr/README.md`.
 - **Date:** 2026-09-02
-- **Ruling by:** the `partner` agent, 2026-09-02, on the 19:01Z reading.
+- **Ruling by:** the `partner` agent, 2026-09-02, on the two readings below.
 - **Related:** ADR 0091 (the defect this study was raised to confirm);
   `docs/measurements/2026-09-01-forward-lock-instrument-registration.md` (P5,
   with Amendment 1); `docs/measurements/2026-09-02-forward-lock-instrument-result.md`
   (the registered result this ADR acts on); ADR 0016 (the habit of computing a
   cost before spending the time); ADR 0038 (a closure is a closure).
 
+Every `scripts/inspect_live_db.py:NNNN` citation is to the repo copy at this
+branch's HEAD, not diffed against `/app/scripts` on the live box.
+
 ## Context
 
 P5 is the pre-registered forward instrument asking whether ADR 0091 closed the
-`database is locked` symptom. It reached its registered exposure on
-2026-09-02 and returned, on the registration's own decision rule:
+`database is locked` symptom. Two readings were taken on 2026-09-02, both past
+the registered `E* = 160`:
 
-    E        294 fast cycles     (E* = 160, reached)
-    K        0 bursts            H = 0        E_n = 1.0000
-    C1-C4    PASS                C6 PASS
-    C5       FAIL   post-T0 79.64/h vs pre-fix 56.81/h, tolerance ±25%
-    VERDICT  UNRESOLVED — TEMPO-CONFOUNDED   (registration §7, line 470)
+    registered look    16:26Z   E = 263   K = 0   H = 0   E_n = 1.0000
+                       C1-C3 PASS   C6 PASS
+                       C4 FAIL   median wal_kb post-T0 2,699 vs pre-fix q25 2,711   (-0.44%)
+                       C5 FAIL   post-T0 73.92/h vs pre-fix 56.81/h                  (+30.1%)
+                       VERDICT   UNRESOLVED — C4/C5
 
-The result file records the reading and the case against the verdict in full.
-This ADR is about a different question, which the registration does not
-answer: **what happens to P5 now.** §10's UNRESOLVED row says *"Open item 1
-stays open, with `E`, `K` and the failed precondition recorded so the next look
-starts from a number rather than from scratch"* (line 585; Amendment 1 A3 left
-it *"Unchanged"*, line 707). Read literally, that keeps taking looks until one
-of them passes C5. The partner ruled on 2026-09-02 that no further look is
-taken and P5 terminates at the verdict above, **final**, rather than at the
-2026-09-15 backstop or at some later reading that happens to pass. Three
-grounds, each checked against the registration's text.
+    unregistered       19:01Z   E = 294   K = 0   H = 0   E_n = 1.0000
+    re-read            C1-C4 PASS   C6 PASS
+                       C4 now 2,711 vs 2,711 — a FAIL by 12 KB became a PASS by 0 KB
+                       C5 FAIL   post-T0 79.64/h vs pre-fix 56.81/h                  (+40.2%)
+                       VERDICT   UNRESOLVED — C5
 
-### Ground (a): the registration has no exit for this state, and that is the outcome the backstop exists to prevent
+§6.2 registers the rate arm as *"a single look at `E*`, no early stopping"*
+(registration lines 386-390), so the 16:26Z reading is P5's one registered
+look and **UNRESOLVED — C4/C5** is its verdict; the result file carries that
+in its title. The 19:01Z reading was taken to see which way the tempo was
+moving and is not a P5 look. **This ADR's title names C5 rather than C4/C5
+because C5 is the precondition that fails at both readings and is the one
+moving away; C4 sat on its own threshold and crossed it on noise.**
 
-§8 defines three ways collection ends (lines 480-500): the primary stop,
-`E* = 160` cumulative fast cycles (482-487); the event stop, `E_n >= 200`
-(492-494); and the wall-clock backstop, which reads in full:
+The result file records the readings and the case against the verdict in
+full. This ADR is about a different question, which the registration does not
+cleanly answer: **what happens to P5 now.** The partner ruled on 2026-09-02
+that no further look is taken and P5 terminates at the verdict above,
+**final**, rather than at the 2026-09-15 backstop or at some later reading
+that happens to pass. Three grounds, each checked against the registration's
+text.
 
-> **Wall-clock backstop: 2026-09-15T00:00Z.** If `E*` is not reached by then,
-> the look is taken at whatever `E` stands at, the verdict is **UNRESOLVED —
-> INSUFFICIENT EXPOSURE**, and `E` is recorded so the next look knows where it
-> started. The backstop exists so collection cannot run until the answer is
-> convenient. (lines 496-500)
+### Ground (a): the registered look has been taken, and §10's "next look" is a phrase, not a licence
 
-**Its condition is "if `E*` is not reached by then." `E*` was reached** —
-`E = 294` on 2026-09-02, thirteen days early. So the backstop's clause never
-fires, its verdict name (INSUFFICIENT EXPOSURE) is the wrong one for this
-state, and nothing else in §8 speaks to a precondition that fails and keeps
-failing. §7 says what a failed C5 *means* — UNRESOLVED — TEMPO-CONFOUNDED
-(line 470) — and §6.3 says how it is *reported* — *"never shortened to
-UNRESOLVED alone"* (lines 418-420). Neither says when to stop reading it.
+§8's primary stop is `E* = 160` cumulative fast cycles (lines 482-487), and
+§6.2 says what happens there: *"Rate arm — a single look at `E*`, no early
+stopping. Its statistic is not a supermartingale under optional stopping and
+may not be peeked at"* (lines 386-390). Collection for the rate arm ended when
+`E` crossed 160, and **exactly one look was licensed** — the first reading
+past it, 16:26Z. The wall-clock backstop (lines 496-500) is conditioned on
+*"If `E*` is not reached by then"*; `E*` was reached thirteen days early, so
+that clause never fires and its verdict name (INSUFFICIENT EXPOSURE) is not
+this state's.
 
-So without a ruling P5 sits UNRESOLVED indefinitely, re-read whenever someone
-wonders, which is precisely the state §8's last sentence names as the thing
-the backstop is for — arriving through a door §8 did not model. The
-registration guarded against "not enough data yet, keep waiting"; it did not
-guard against "enough data, incomparable arms, keep waiting". The second is
-the same hazard with the same cure, and the cure has to be applied by hand
-because the text does not apply it.
+What actually needs a ruling is narrower than a gap in §8. §10's UNRESOLVED
+row says the failed precondition is recorded *"so the next look starts from a
+number rather than from scratch"* (line 585; Amendment 1 A3 left it
+*"Unchanged"*, line 707). Read as an instruction, that phrase is a licence to
+keep reading the rate arm until a precondition happens to pass — a licence
+§6.2 does not grant and expressly refuses. Amendment 1 A6 already named §10 as
+*"the section least protected by pre-registration and the one most likely to
+be wrong"* (lines 758-760). **The conflict is resolved in §6.2's favour:** the
+"next look" §10 imagines would be a second look at a statistic registered for
+one, and the number it "starts from" is recorded in the result file for
+whoever registers a successor — not for P5.
 
-### Ground (b): C5 is moving away, and the arithmetic is structural rather than unlucky
+This ruling therefore does not add a termination the registration lacked. It
+reads the termination the registration already has, over a sentence in its
+least-protected section that could be read the other way.
+
+### Ground (b): C5 is moving away, the arithmetic is structural, and the driver is not established
 
 `scripts/inspect_live_db.py` computes the two tempi at lines 2838-2839:
 
@@ -74,38 +88,76 @@ over a window that grows** with every pass the runner takes, and `pre_tempo`
 is a mean over a **fixed** window ending at `ADR_0091_DEPLOY_MS`
 (2026-08-31T15:29:19Z, line 2383). The registration wrote both that way on
 purpose — *"Passes per hour after `T0`"* against *"the pre-fix figure"* (§7,
-lines 468-470) — and the instrument implements it as registered.
+lines 468-470) — and the instrument implements it as registered; the ±25% is
+two-sided in code (2840-2845) and pinned by
+`tests/test_forward_lock_instrument.py::test_a_doubled_pass_tempo_also_fails_c5`.
 
-Two readings on 2026-09-02:
-
-    16:26Z   22.57 h post-T0   73.92/h   (+30.1%)
+    16:26Z   22.56 h post-T0   73.92/h   (+30.1%)
     19:01Z   25.15 h post-T0   79.64/h   (+40.2%)   ceiling 71.01/h
 
-A cumulative mean rising that fast means the marginal rate in the 2.58 h
-between them was about **130 lines/h — 2.3× the pre-fix tempo**. From where
-the mean stood at 19:01Z, getting back inside the ceiling takes roughly
-fifteen hours at exactly the pre-fix tempo, seven at 40/h, or three of total
-silence — and every hour above 71/h moves those figures out again.
+A cumulative mean rising that fast means the marginal rate in the 2.59 h
+between the readings was about **129.5 lines/h — 2.3× the pre-fix tempo**
+(the derivation reproduces the instrument's printed `n = 2002` to within a
+line). From the 19:01Z state, coming back inside the ceiling takes roughly
+fifteen hours at exactly the pre-fix tempo or seven at 40/h; a silence does
+not move the mean, and the gap that would put it under the ceiling once one
+line breaks it is 3.08 h.
 
-**The driver is what is in season.** The pass tempo follows fixtures and
-attention (CLAUDE.md; ADR 0071 §2.6), NCAAF and NFL enter the feed with no
-config change (`backend/kalshi/discovery.py:237-238`, as ADR 0095 §2 already
-records), and an NFL Sunday is a ~10-hour in-play window against MLB's ~4. The
-pre-fix baseline was measured on a late-August calendar; the post-`T0` arm is
-being measured on a September one, and the calendar is adding sports, not
-removing them.
+**The driver is not established, and one candidate is the fix itself.** A
+`loop_rss.jsonl` line is written once per pass (`run_loop.py:319-321`), so
+lines/hour is set by `Tempo`'s choice of fast or slow interval
+(`backend/scheduler.py:309-345`; `DEFAULT_FAST_INTERVAL_S = 15.0` at line 276;
+`run_forever` sleeps *after* the pass) plus the pass's own duration. Three
+candidates for why it rose, none separated:
+
+1. **More fixtures in the fast window.** The tempo follows fixtures and
+   attention (CLAUDE.md; ADR 0071 §2.6), and NCAAF and NFL enter the feed with
+   no config change (`backend/kalshi/discovery.py:237-238`, as ADR 0095 §2
+   records). An NFL Sunday is — as an estimate, not a measurement — a ~10-hour
+   in-play window against MLB's ~4.
+2. **The 2026-08-29 attention/floor fall-through** (CLAUDE.md's account of the
+   `desk_wants` fix), which made an attended-but-slice-spent sport fall
+   through to the floor instead of being skipped. That changed how often the
+   runner has something to do, one day before the pre-fix window closes.
+3. **ADR 0091's own fix shortening the pass.** The fix removed a write-lock
+   hold across three Kalshi round trips from the poller, and the victim's pass
+   duration includes whatever it waited on. On plausible numbers — a pass span
+   falling from ~25 s to ~10 s on the 15 s fast interval — lines/hour goes
+   from ~57 to ~89, which **brackets the observed 56.81 → 79.64**. If that is
+   the driver, then **the treatment moved the covariate C5 controls for, and
+   no post-fix arm can ever pass C5**: the precondition would be refusing the
+   fix for working.
+
+The separating read is not taken and is named so nobody thinks it was: the
+fast-mode inter-line gap in `loop_rss.jsonl`, split by `kind` across
+`ADR_0091_DEPLOY_MS`, would show whether the fast passes themselves got
+shorter. Per-pass duration is observed in-process
+(`tempo.observe_pass_duration`, `run_loop.py:1363-1368`) but is **not** a
+field on the RSS line, so the read is an inter-line-gap read, not a lookup.
+Whichever candidate it is, the calendar is adding sports rather than removing
+them, and none of the three is a reason to expect the tempo to fall back.
 
 **This is not "unrecoverable," and the ADR does not say so.** The path back is
-a sustained quiet period — a day or more at or below pre-fix tempo — and the
-calendar is not offering one. There is also a second clock, found while
-writing the result file and recorded there in §4: the pre-fix baseline lives
-only in `loop_rss.jsonl`, which now trims from 2 MiB to 1 MiB of newest lines
-(`scripts/run_loop.py:175-176`), and the post-`T0` arm alone already exceeds
-what a trim keeps. When the first trim fires — on the order of a day from the
-19:01Z reading — C4 and C5 become NOT COMPUTED, which the instrument treats as
-not-a-pass (`inspect_live_db.py:2849-2856`). A quiet period after that point
-restores nothing, because there is no longer a baseline in the file to be
-within 25% of.
+a sustained quiet period — on the order of a day at or below pre-fix tempo —
+and the calendar is not offering one. There is a second clock, and it has been
+handled: the pre-fix baseline lives only in `loop_rss.jsonl`, which trims from
+2 MiB to the newest 1 MiB of whole lines (`scripts/run_loop.py:175-176`), and
+**the pre-fix window survives the first trim only if it is itself larger than
+1 MiB**. It is ≤ 2,567 lines ≈ 736 KB — under 1 MiB even at 400 B/line, a
+30-45% margin — so it does not survive. Live `/data/loop_rss.jsonl` measured
+**1,900,412 bytes at ~19:40Z, 90.6% of the cap**, so the trim was hours away
+at the ruling, not the day the first draft of this ADR estimated. After it, C4
+and C5 read NOT COMPUTED on the box, which the instrument treats as not-a-pass
+(`inspect_live_db.py:2849-2856`).
+
+**The baseline was preserved out of the repo**: `flyctl ssh sftp get
+/data/loop_rss.jsonl` → `data/live-snapshots/loop_rss-2026-09-02T19Z.jsonl`
+on the dev machine, 6,066 lines / 1,900,780 bytes, first line
+2026-08-29T18:03Z, with `loop_failures.jsonl` beside it. `data/` is gitignored
+because operator data never enters the repo, so the copy is local to that
+machine. The loss is therefore **avertible and averted for the local copy;
+the deployed instrument still loses it** — a fact about where the diagnostic
+can be run from, not a door closing on the question.
 
 ### Ground (c): nothing consumes the formal verdict, and the strongest evidence is exactly the kind that must not be written as confirmation
 
@@ -117,33 +169,50 @@ the study was still worth the exposure, because answering that *"after seeing
 a result is the contamination this document exists to prevent"* (lines
 724-726).
 
-The result is now seen, and it is the best case: `K = 0` across 294 post-`T0`
-fast cycles, on an arm 40% busier than the one the pre-fix rate was measured
-on, with `P(K = 0 | rate unchanged) ≈ 4 × 10⁻⁵` under the planning `lambda_0`.
-There is no reading of the same instrument that would be *more* favourable to
-ADR 0091 than this one. And the registration forbids crediting it, for reasons
-the result file gives in its §3.2 and this ADR endorses: the tolerance was
-registered two-sided before the data; §9.8 says a verdict does not generalise
-across tempo (lines 569-571); and §6.1 says a precondition *"cannot
-manufacture a positive one"* (lines 349-353).
+The result is now seen, and it is the best case: `K = 0` across 263 and then
+294 post-`T0` fast cycles, on an arm 30-40% busier than the one the pre-fix
+rate was measured on, with `P(K = 0 | rate unchanged)` between 10⁻⁴ and 10⁻⁵
+under the planning `lambda_0`. There is no reading of the same instrument that
+would be *more* favourable to ADR 0091 than this one — subject to the result
+file's own caveats that the journal has written nothing of any kind since
+2026-08-31T11:01Z and that the instrument drops the UNCOUNTABLE class. And
+the registration forbids crediting it, for reasons the result file gives in
+its §3.2 and this ADR endorses: the tolerance was registered two-sided before
+the data; §9.8 says a verdict does not generalise across tempo (lines
+569-571); §6.1 says a precondition *"cannot manufacture a positive one"*
+(lines 349-353); and ground (b)'s third candidate says the covariate may not
+be controllable at all.
 
-Put those together. Further readings can only produce (i) the same verdict
-with a bigger `E`, (ii) NOT COMPUTED once the baseline rolls off, or (iii) a
-FIX CONFIRMED that a later quiet window happens to license — which would be a
-verdict *selected by the calendar*, the optional-stopping shape §6.2 built the
-e-value to avoid on the other arm. None of those is consumed by anything. ADR
-0091 is a real defect fix with or without this study, `badd88e` already made
-the victim loop survive the next lock whatever holds it (Amendment 1 A1), and
-the §0.4 successor was killed on 2026-09-01. The recorded number is recorded.
-There is nothing left for another look to buy.
+Put those together. Further readings can only produce:
+
+- (i) the same verdict with a bigger `E`;
+- (ii) NOT COMPUTED once the baseline rolls off the box;
+- (iii) a FIX CONFIRMED that a later quiet window happens to license — a
+  verdict *selected by the calendar*, the optional-stopping shape §6.2 built
+  the e-value to avoid on the other arm and refused outright on this one; or
+- (iv) **SIGNATURE PERSISTS**, the one verdict that convicts ADR 0091. It is
+  always-valid, declarable at any `E`, tested before C1 and before the `E*`
+  gate (`inspect_live_db.py:2869-2871`), exempt from C5, and two in-band
+  FAST-matched bursts declare it (§6.4). **Terminating P5 forecloses it as a
+  P5 verdict.** That is a real cost and it is named here rather than hidden
+  in "nothing is consumed": the instrument stays deployed as a diagnostic, so
+  a future in-band burst is still *visible* to anyone who runs it, but it
+  will not be a P5 look and may not be written up as one.
+
+None of (i)-(iii) is consumed by anything. ADR 0091 is a real defect fix with
+or without this study, `badd88e` already made the victim loop survive the
+next lock whatever holds it (Amendment 1 A1), and the §0.4 successor was
+killed on 2026-09-01. The recorded number is recorded. (iv) is the price of
+stopping, and it is paid knowingly.
 
 ## Decision
 
-**P5 terminates now, at UNRESOLVED — TEMPO-CONFOUNDED, final.** The 19:01Z
-reading of 2026-09-02 is its last registered look, and
+**P5 terminates now, at UNRESOLVED — TEMPO-CONFOUNDED, final.** The registered
+look is the 16:26Z reading of 2026-09-02 (UNRESOLVED — C4/C5); the 19:01Z
+re-read is evidence for ground (b) and nothing else; and
 `docs/measurements/2026-09-02-forward-lock-instrument-result.md` is the file
-§10 required. No reading taken after it is a P5 look, and none may be quoted
-as one.
+§10 required. No reading taken after 19:01Z is a P5 look, and none may be
+quoted as one.
 
 Four things this ruling is explicit about, because each is the obvious next
 move and each is refused:
@@ -151,10 +220,12 @@ move and each is refused:
 1. **C5's tolerance is NOT amended.** The ±25% two-sided band stands in the
    registration (§7, lines 468-470) and in `C5_TEMPO_TOLERANCE`
    (`inspect_live_db.py:2397`). The observation that a *busier* victim is not
-   the confound §7 feared is a **design note for the next comparability check
-   anyone registers** — a one-sided lower bound may well be the right shape —
-   and it goes into that registration, written blind, not into this one with
-   +40% on the screen. Amending now would make the amendment the finding.
+   the confound §7 feared — and ground (b)'s sharper point that the fix may
+   itself move the covariate — are **design notes for the next comparability
+   check anyone registers**: state which direction of difference is the
+   confound, and whether the treatment can move the covariate. They go into
+   that registration, written blind, not into this one with +40% on the
+   screen. Amending now would make the amendment the finding.
 
 2. **No successor registration is opened.** §0.4's ~84-hour design was *"not
    authorised here"* (line 100) and was killed by the partner on 2026-09-01 on
@@ -175,19 +246,26 @@ move and each is refused:
    the evidence on the table would have credited the fix under any rule chosen
    after the fact, and it refuses the amendment that would have turned that
    evidence into a declaration. Terminating here costs the flattering outcome;
-   continuing would have been the way to reach it. That asymmetry is the
-   whole reason the ruling is safe to make after seeing the data.
+   continuing would have been the way to reach it.
 
-4. **§10's UNRESOLVED row is overridden, and that is an action-table change
-   made after the result — named, not hidden.** Amendment 1 A6 warns that the
-   action table *"keeps rotting while the registration waits"* and is *"the
-   one section that becomes uncorrectable the moment a result is visible"*
-   (lines 750-757). The defence is the same one Amendment 1 gave for itself:
-   the change moves *"only in the direction of claiming less"* (line 748). It
-   kills a look; it credits nothing; it changes no threshold, no population,
-   no statistic and no decision rule. A post-hoc change that removes the
-   possibility of a favourable verdict is the one kind that cannot be
-   selection.
+4. **§10's UNRESOLVED row is read down, after the result, and that is a
+   sighted change to the action table — named, not hidden.** Amendment 1 A6
+   warns that the action table *"keeps rotting while the registration waits"*
+   and *"becomes uncorrectable the moment a result is visible"* (lines
+   750-757). **A6 is right about this change.** Amendment 1's own warrant was
+   blindness — it was written before any post-`T0` burst was read (lines
+   657-662) — and this ruling has no such warrant: it is made with both
+   readings on the screen. The defence is therefore **not** Amendment 1's, and
+   A5's "only in the direction of claiming less" (line 748) is a description
+   of what that amendment did not touch, not a licence for this one. What
+   makes this change survivable is narrower and is argued here rather than
+   borrowed: it kills a look; it credits nothing; it changes no threshold, no
+   population, no statistic and no decision rule; and it removes verdicts in
+   **both** directions — the FIX CONFIRMED a calendar might have licensed
+   *and* the SIGNATURE PERSISTS two in-band bursts would have declared. A
+   sighted change that forecloses the favourable verdict and the unfavourable
+   one alike, while leaving the instrument running so the unfavourable
+   evidence stays visible, is not selection; it is stopping.
 
 ## Consequences
 
@@ -202,6 +280,8 @@ move and each is refused:
   P5 result. If that ever confuses someone, the fix is a one-line note in the
   section title citing this ADR, not a new look.
 - The 2026-09-15 backstop as a date anyone waits for. Its clause never fired.
+- SIGNATURE PERSISTS **as a P5 verdict** — ground (c)(iv). A future in-band
+  burst is a new finding for a new registration, not a late P5 result.
 
 **Kept:**
 
@@ -210,8 +290,10 @@ move and each is refused:
   cycle into MIRROR and FAST, ages a cycle against evidenced process liveness,
   and reads `wal_kb` and tempo out of `loop_rss.jsonl` with the
   `produced_by`-absent-versus-null distinction right. The next lock
-  investigation, if there is one, starts from it. Nothing in it is deleted or
-  disabled by this ADR.
+  investigation, if there is one, starts from it — and from the preserved
+  `data/live-snapshots/loop_rss-2026-09-02T19Z.jsonl`, which is the only copy
+  of the pre-fix baseline that will exist once the box trims. Nothing in the
+  instrument is deleted or disabled by this ADR.
 - **ADR 0091, standing as a real defect fix that is neither credited nor
   refuted on this evidence.** Its own "What this does NOT establish" section
   said *"a fit is not a proof"* and named the retention prune and the
@@ -221,20 +303,21 @@ move and each is refused:
   symptom is closed must cite something other than P5.
 - **The registration, unamended.** Every threshold, the population, the unit,
   the band, the stopping rule and C5's tolerance are as registered. This ADR
-  adds a termination the registration lacked; it changes nothing the
+  reads §10's UNRESOLVED row in §6.2's favour; it changes nothing the
   registration fixed.
-- **The observation about C5's direction**, as a design input to whoever next
-  registers a comparability precondition: state which direction of difference
-  is the confound, and whether the other direction is a refusal or merely a
-  note.
+- **Two design inputs** for whoever next registers a comparability
+  precondition: say which direction of difference is the confound and whether
+  the other direction is a refusal or a note; and ask, before registering,
+  whether the treatment can move the covariate — if it can, the precondition
+  refuses the fix for working.
 
 **What this does not establish:**
 
-- That the `database is locked` symptom is gone. `K = 0` over 25 hours of one
-  tempo, through one failure hook, is a floor on nothing and a proof of
-  nothing.
+- That the `database is locked` symptom is gone. `K = 0` over ~25 hours of one
+  tempo, through one failure hook that has written nothing of any kind since
+  2026-08-31T11:01Z, is a floor on nothing and a proof of nothing.
 - That a quiet week in the calendar would not have passed C5. It might have.
   The ruling is that waiting for it would have been selecting the look by the
   answer, not that the answer would have been wrong.
-- That the tolerance *should* have been one-sided. That is the design note,
-  and it is a note.
+- That the tolerance *should* have been one-sided, or that the fix is what
+  moved the tempo. Both are the design notes, and they are notes.

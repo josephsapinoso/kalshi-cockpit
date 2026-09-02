@@ -465,6 +465,25 @@ class TestC4AndC5Comparability:
         assert rows["C5 victim tempo"][1] == "FAIL"
         assert "/h" in str(rows["C5 victim tempo"][2])
 
+    def test_a_doubled_pass_tempo_also_fails_c5(self, tmp_path):
+        """The tolerance is two-sided as registered (section 7: "within plus or
+        minus 25%"), and the live 2026-09-02 reading failed it in THIS
+        direction -- post-T0 79.64/h against a pre-fix 56.81/h, +40%.
+
+        Mutation observed red: make `c5_ok` one-sided,
+        `(pre_tempo - post_tempo) / pre_tempo <= C5_TEMPO_TOLERANCE`, so only a
+        SLOWER victim fails. The halved-tempo test above stays green under that
+        mutation; this one is what pins the registered shape.
+        """
+        _write_rss(tmp_path, self._rss_with(
+            pre_wal=1000, post_wal=1000, pre_step=60_000, post_step=30_000,
+        ))
+        path, conn = _seed(tmp_path, cycles=self._cycles(), journal=[])
+        rows = _rows(inspector._q_forward_lock(conn, _Args(path)),
+                     "PRECONDITIONS")
+        assert rows["C5 victim tempo"][1] == "FAIL", rows["C5 victim tempo"]
+        assert "tolerance +/-25%" in str(rows["C5 victim tempo"][2])
+
     def test_a_matched_tempo_passes_c5(self, tmp_path):
         _write_rss(tmp_path, self._rss_with(pre_wal=1000, post_wal=1000))
         path, conn = _seed(tmp_path, cycles=self._cycles(), journal=[])
