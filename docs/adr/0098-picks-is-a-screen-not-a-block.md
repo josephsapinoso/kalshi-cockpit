@@ -1,4 +1,4 @@
-# DRAFT — "Picks" is a screen, not a block: amending ADR 0067 §2 and re-scoping §6
+# ADR 0098 — "Picks" is a screen, not a block: amending ADR 0067 §2 and re-scoping §6
 
 **Status:** draft, no ordinal — main assigns the number at merge.
 **Date:** 2026-09-02.
