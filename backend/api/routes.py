@@ -95,6 +95,7 @@ from ..gate import (
 )
 from ..kalshi.candles import parse_chart_candle
 from ..kalshi.orders import OrderPlacer, OrderRefused, OrderRequest
+from ..kalshi.props import MARKET_TYPE_PROP
 from ..kalshi.rest import KalshiRestClient, parse_position_fp
 from ..kalshi.quotes import LiveQuote, LiveQuoteSource, QuoteUnavailable
 from ..live import QuoteHub, sse
@@ -1367,6 +1368,7 @@ def create_app(
                 # proportional to the slate rather than to the record.
                 "SELECT r.*, m.title AS market_title, m.yes_side_team, "
                 "       m.volume_24h, m.open_interest, "
+                "       m.market_type, m.player_name, "
                 "       e.title AS event_title, "
                 "       f.p_multiplicative, f.p_additive, f.p_power, f.p_shin, "
                 "       f.p_conservative, "
@@ -1445,8 +1447,12 @@ def create_app(
         # Grouping key for the picks block below: the odds fixture, which the
         # serialised item deliberately does not carry. Falls back to the event
         # title so an unlinked row still groups with its own game rather than
-        # forming a phantom one per row.
-        picks_source: list[tuple[str, dict]] = []
+        # forming a phantom one per row. The third element is whether the row
+        # is a player prop, read from `kalshi_markets` here because the
+        # serialised item deliberately carries neither `market_type` nor
+        # `player_name` (ticket #7) and the picks block must not learn it from
+        # the ticker string.
+        picks_source: list[tuple[str, dict, bool]] = []
         for row in rows:
             item = _serialise(
                 row,
@@ -1459,7 +1465,11 @@ def create_app(
                 off_basis += 1
                 continue
             picks_source.append(
-                (row["odds_event_id"] or item["event_title"] or item["ticker"], item)
+                (
+                    row["odds_event_id"] or item["event_title"] or item["ticker"],
+                    item,
+                    _is_prop_market(row),
+                )
             )
 
             # Same fact and same refusal as the Board's: the link's sport key,
@@ -1576,10 +1586,26 @@ def create_app(
         # subtraction to the last decimal (the fleet-convening identity), so
         # the two never share a block; `tests/test_slate_picks.py` walks the
         # keys and pins it.
+        #
+        # **A player prop never ranks here** (ticket #23, the bug half). A
+        # prop event inherits its game's `odds_event_id`, so without this a
+        # `KXMLBHIT` 1+ hit row at 0.68 outranks the game's own moneyline
+        # favorite at 0.53 and is printed as the game's likely winner under
+        # the player's name -- `team` on a prop holds "<player>: 1+" (#7).
+        # Replayed over the stored record that happened at 131 of 192
+        # anchor instants in the prop era, in 16 of the 17 games that held
+        # both. Excluded here, server-side, where a client filter cannot
+        # reach; counted by distinct market rather than dropped, on the
+        # same principle as `favorite_unpriced`. The game itself still
+        # ranks off its team rows.
         freshest_yes: dict[str, tuple[str, dict]] = {}
         all_games: set[str] = set()
-        for game_key, item in picks_source:
+        prop_markets_excluded: set[str] = set()
+        for game_key, item, is_prop in picks_source:
             all_games.add(game_key)
+            if is_prop:
+                prop_markets_excluded.add(item["ticker"])
+                continue
             if item["side"] != "yes" or item["fair_probability"] is None:
                 continue
             held = freshest_yes.get(item["ticker"])
@@ -1646,6 +1672,10 @@ def create_app(
             "not_ranked": {
                 "stale_consensus": stale_games,
                 "favorite_unpriced": favorite_unpriced,
+                # Distinct player-prop MARKETS in the window, not games: a
+                # prop's game is still counted above, under whichever of the
+                # two game counts its team rows earn it.
+                "props_excluded": len(prop_markets_excluded),
             },
             "note": (
                 "Chance to win, by the books' consensus — not an edge. The "
@@ -6155,6 +6185,27 @@ def _decode_books_used(raw) -> Optional[list[str]]:
     if not isinstance(decoded, list) or not all(isinstance(b, str) for b in decoded):
         return None
     return decoded
+
+
+def _is_prop_market(row) -> bool:
+    """Whether a joined `recommendations x kalshi_markets` row is a player prop.
+
+    Read from the two RECORDED columns and never from the ticker string:
+    `market_type` is what the runner classified the market as at discovery
+    (`kalshi/props.PROP_SERIES` is the producer, `discovery.py:390-392`), and
+    `player_name` is parsed only when that classification is `prop`
+    (`discovery.py:664-669`), so a non-null player is a prop by construction
+    even if `market_type` were ever missing. `market_type` alone is the
+    primary: a prop whose subtitle could not be read carries `market_type =
+    'prop'` and a NULL player, and must still be excluded.
+
+    A row with neither column -- `/api/ledger` joins no `kalshi_markets` --
+    resolves to "not a prop", which is the honest reading of "not recorded".
+    """
+    keys = row.keys()
+    if "market_type" in keys and row["market_type"] == MARKET_TYPE_PROP:
+        return True
+    return "player_name" in keys and row["player_name"] is not None
 
 
 def _serialise(
