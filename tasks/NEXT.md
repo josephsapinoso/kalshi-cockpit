@@ -195,7 +195,121 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-02 (latest) — one deploy became nine commits, because the instrument was never on the box and then was wrong
+## 2026-09-02 (latest) — the partner ran first; P5 is terminated, #6 is built, and the desk went quiet
+
+**STATE at the time of writing:** `main` = the commit carrying this entry,
+on top of `2fd54c1` (ADR 0097 + result file + lessons), `471c221` (the #6
+merge), `0aaa15e` (CSS doctrine comment + #12 packet figures). **CI was
+green on `fbede83`** at session start and the run on `471c221` was in flight
+when this was written — read `gh run list --limit 3` rather than this line.
+**Live = `3a78fbf`** at session start; the deploy of this session's main
+follows the green run — read `/api/health` `build.git_sha`. Three lane
+worktrees exist under `.claude/worktrees/agent-*` and are merged; delete
+them (`git worktree remove`, then `git branch -d`) if the harness has not.
+Working tree clean; `Dockerfile` / `extend_volume_wizard.sh` were a stat-cache
+phantom (identical blobs, `git add` cleared it).
+
+**The partner was invoked first, as CLAUDE.md step 0 now says.** It ranked,
+it was wrong once and said so itself (it had drafted findings for two agents
+that had not returned — "invented, not read"), and its ranking stood after
+that correction. Every item below is its ranking, executed in three parallel
+worktree lanes plus main.
+
+### The number that reorders the map: the desk went quiet
+
+Attended odds buys per budget day (`credits-day`, rows with
+`trigger = 'attention'` — one row per ten-minute buy while a page is open):
+
+    20260827   75    (CLAUDE.md's measured day; slice spent)
+    20260829   10
+    20260830   20
+    20260831    6
+    20260901    6
+    20260902    5    (to ~19:30Z)
+
+**`manual_orders`: 0 rows, lifetime.** Armed 2026-08-26, never used. The
+partner's reading: ~15-fold in five days, on the thinnest sports week of
+the year, which does not plausibly cover a factor of fifteen. **Five days
+is one observation** — the `fly.live.toml` "0 B/day" lesson applies. The
+call was to **ask Joe, not guess**, before another session ranks paint.
+
+**The interview artifact is refreshed and re-ordered** —
+https://claude.ai/code/artifact/d3d3a506-0100-499e-8b48-d77d7abf0280 —
+led by one question (Q: why did you stop opening it, four options), then #12
+with the corrected facts, then the nine remaining calls. Six tickets it
+listed as open closed on 09-01 and are marked. **It is still waiting on Joe.**
+
+### P5 is TERMINATED — ADR 0097, and the registered look was not the one first quoted
+
+`docs/measurements/2026-09-02-forward-lock-instrument-result.md` is the
+registered result file §10 required and nobody had written. Its verdict is
+**UNRESOLVED — C4/C5** on the **registered** single look — 16:26Z, `E = 263`,
+the first reading past `E* = 160` — and the 19:01Z reading this session
+took (`E = 294`, C4 flipped to PASS by 0 KB, C5 79.64/h vs 56.81/h, +40%)
+is recorded as an unregistered re-read. The first draft titled on the
+re-read; the skeptic caught it (B1 of ten blockers, all applied). Lesson
+written.
+
+**ADR 0097 terminates P5 now, final**, on the partner's ruling: §8's
+backstop is conditioned on `E*` unreached and `E*` was reached, so the
+registration's actual stop is §6.2's single look, already taken; C5 is a
+cumulative mean moving away, **and one candidate driver is ADR 0091's own
+fix shortening the pass**, in which case no post-fix arm can ever pass C5;
+and the RSS log trim shipped 09-01 deletes the pre-fix baseline at the first
+trim — **the file was at 90.6% of the cap at 19:40Z**. C5's tolerance is not
+amended; no successor is opened; SIGNATURE PERSISTS is named as the verdict
+termination forecloses. Nothing is credited. **The instrument stays as a
+diagnostic and is not a P5 look.**
+
+**The baseline was preserved out of the repo** — `data/live-snapshots/
+loop_rss-2026-09-02T19Z.jsonl` (6,066 lines, from 2026-08-29T18:03Z) and
+`loop_failures-*.jsonl` beside it, gitignored, on the dev machine only.
+Journal liveness after `T0` is **not established**: the newest journal line
+of any kind is 2026-08-31T11:01Z. `test_a_doubled_pass_tempo_also_fails_c5`
+now pins the two-sided C5; a one-sided mutation failed it.
+
+### Decision-map ticket #6 is BUILT (Queue C's one unbuilt item)
+
+`/api/board` joins `fair_prices.outcome_name`; `_serialise` emits
+`side_outcome`; `rowSubject.ts` names the row's own side at both live sites
+(`NO on {team}` tag, the opponent as the name) and the market page's header
+is side-aware. Guards verified by disabling: 7 of 8 route tests fail with
+the defect restored. `check_mobile.py` **not run** (needs a live frontend);
+the row is `flex-wrap` and the tag `shrink-0` beside a `truncate` link.
+**#10, #27, #30 were already built**; Queue C is now empty.
+
+### The rest, one line each
+
+- **#12 research packet** merged — `docs/decisions/2026-09-02-ticket-12-
+  research-packet.md`; a prop tap is **14 credits from the 150/day manual
+  reserve**, not the attention slice; ticket comment posted; ticket claimed
+  and left open for Joe.
+- **`globals.css`'s "NOTHING ELSE MAY WEAR IT"** is contradicted by ~two
+  dozen sites; the comment now records that and defers to #32/#33.
+- **#32 demoted, not killed** — the strip is the *only* site that reached
+  for the accent wanting danger; it wears indigo today. One line in the
+  interview.
+- **`odds_snapshots` retention alarm — CLOSED by supersession.** ADR 0095's
+  free-bytes alarm runs every pass (`run_loop.py:1240`) and
+  `tests/test_volume_alarm.py` drives notice/act/escalation with notification
+  rows asserted. A per-table threshold would be weaker.
+
+### Still open
+
+1. **Joe's four, untouched by design:** the interview (Q + ten calls), the
+   void-settlement amendment to ADR 0044, `user_not_found` on shard 3 and
+   his shard allocation.
+2. **The separating read for C5's driver** — inter-line gap in `loop_rss`
+   split by `kind` across `ADR_0091_DEPLOY_MS` — is named in ADR 0097 as a
+   design input and **not taken**. Not urgent; nothing consumes it.
+3. **`check_mobile.py` at 390px on `/slate` and `/board`** after the #6
+   deploy, if a session has the frontend up anyway.
+4. **Frontier after #12:** the partner froze #15, #16, #19, #25, #29, #31,
+   #33 pending Joe. Do not rank paint again until Q is answered.
+
+---
+
+## 2026-09-02 — one deploy became nine commits, because the instrument was never on the box and then was wrong
 
 **STATE, verified at close:** `main` = `8896318`, pushed, **CI green on
 `8896318`**. **Live = `8896318`**, `/api/health` status ok, recorder wrote 14 s
