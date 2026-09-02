@@ -398,6 +398,22 @@ absence from `test_buy_controls.py` `MOUNTS`) and an ADR amending 0067 §2
 (the block becomes a screen) are in the same build. Item 5: `/picks`
 carries the LIMIT-100 truncation sentence.
 
+**#8 + #29 landed — ADR 0098** (`afcad31`, full suite 5,753 passed):
+`/picks` is served (no order route, four empty/absent/unreachable/loading
+states drawn in words, the LIMIT-100 truncation sentence, pinned absent
+from `test_buy_controls.MOUNTS` and inside `test_good_chance_picks`'s
+banned-literal walk); "Picks" in the nav opens it; `/board` is
+**Refusals** in the footer with a blurb naming both kinds of refusal; h1
+"Refusals". Four watched failures. Two deviations flagged for Joe: the
+footer blurb is not byte-identical to the one he said "stands" (it names
+the fee bar, because two rows in three carry no named rule), and `/picks`'s
+h1 is "Picks" not "Likely winners tonight" (#29's one-screen-one-name
+rule is the newer ruling). `HowToRead` stays on `/board`.
+
+**#28 landed** (`4fc1deb`), two hours after it was held: the digest links
+`/picks`, and `tests/test_discord.py` pins every static embed path to a
+served `page.tsx`.
+
 **#23 landed and CLOSED** (`0027df1`): a market with `market_type = 'prop'`
 or a non-null `player_name` never enters the picks block, counted as
 `not_ranked.props_excluded` and rendered as one clause. Watched failure
