@@ -294,18 +294,144 @@ the row is `flex-wrap` and the tag `shrink-0` beside a `truncate` link.
   `tests/test_volume_alarm.py` drives notice/act/escalation with notification
   rows asserted. A per-table threshold would be weaker.
 
+### JOE ANSWERED THE INTERVIEW — 2026-09-02 ~20:30Z, one line
+
+    Q A, 12A, 16A, 15A, 18A, 24A, 33A, 32A, 28A, 29A, 31A
+
+Every recommendation taken. All ten tickets are **closed with the
+resolution recorded on each**, the map's Decisions-so-far carries one line
+per ticket, and the artifact is republished as the answered record.
+**Decided-and-unbuilt is now the whole queue:**
+
+| ticket | build owed | files it touches |
+|---|---|---|
+| #32 | warning strip → ochre | `ManualTicket.tsx:478` |
+| #28 | window-open digest → `/picks` | `discord.py:~280` + its test |
+| #29 | `/board` → "Refusals": h1, footer label, blurb, one commit | `board/page.tsx`, `Footer.tsx`, a test |
+| #33 | `Stat` takes indigo; four chart comps stay ink, comments rewritten | `Stat`, four components |
+| #16 | refusal code stays on the row; prose moves to `/market/[ticker]`, which needs a nav path | `SlateRow.tsx`, `slate/page.tsx`, `market/[ticker]/page.tsx` |
+| #15 | league + kickoff-window sticky bar on each list; `/api/slate` and `/api/parlays` grow filters | `routes.py`, list screens, one bar component |
+| #18 | Gate + Playbook to the footer; search a header affordance | `Nav.tsx`, `Footer.tsx`, the 390px nav test |
+| #24 | ADR 0065 amendment; "price visible" flag conditional; then a link beside the ticket | `MarketSearch.tsx`, market page, an ADR |
+| #12 | props dropped from the brief — a decision; series stay wired until a build removes them | — |
+| #31 | nothing | — |
+
+**Q A — "the prices are stale when I look" — is a HYPOTHESIS to measure,
+not a finding, and the read goes before any build.** Attention rows are
+5/day × 4 credits against a 300-credit slice — 6.7% used — so the
+staleness is not the slice ceiling. **The causal arrow is half-established
+and may not enter the record as fact**: "stale, so I stopped opening it"
+and "stopped opening it, so it is stale" are both consistent with the
+data, and the second is *mechanically true* — attention buys require an
+open page, so a shorter visit directly causes a staler next visit. What
+is structurally true (`timing.py:487,496`, `desk_wants`): the floor is
+hourly and only for a sport with a fixture inside 12 h, and an unpaced
+first buy waits for the 900 s full pass, so **a cold open is allowed by
+design to show books ~60 min old plus up to ~15 min of bootstrap latency,
+and a man who opens the desk once a day sees exactly that worst case every
+time.** Ticket #35 (his) is the known display defect on top.
+
+**The partner's ranking after the answers (2026-09-02 ~21:00Z):**
+
+    R0  `visit-freshness` — a read-only inspector query joining
+        `desk_attention` (visits; nothing reads it today) to
+        `window-freshness --at` (the consensus age the screen would have
+        shown). Per visit: age at first stamp, age at last, ms to the first
+        attention buy, refusals inside. Distinguishes: never bought /
+        bought late (bootstrap) / bought fresh but a laggard book aged the
+        consensus / #35's panel lied. **Do not build #20 until you know
+        which.**
+    1   #32 ochre        2  #23 bug half     3  #28 deep-link (do not
+        announce the digest until R0 lands — faster routing to a stale
+        screen is worse than none)
+    4   #29 rename — CONDITIONAL on a population check: honest only if
+        `/api/board`'s population is refusals
+    5   #20 prototype (R0's findings are its spec)
+    6   #16 → #17        7  #15 → #19        8  #18 last
+    NOT: #24 (an ADR amendment for a convenience link — worst ratio;
+    defer), #33 (paint, last), #25 (leave open).
+
+    Lanes: {#32 + #28}, {#23 + R0}, {#33} are disjoint. `Nav.tsx` and
+    `board/page.tsx` are each wanted by two items and `SlateRow.tsx` /
+    `slate/page.tsx` by two more, so on MAIN, serially: #29 alone, then
+    #16, then #15, then #18. **16A and 15A as separate worktrees WILL
+    conflict.**
+
+    18A condition: the footer link stays labelled **Gate** and the screen
+    keeps its games-against-300 figure. A gate that looks retired is how
+    "the gate will open" gets re-derived as a plan.
+
+**FOUND WHILE STARTING #28/#29: ticket #8's build NEVER LANDED, and both
+depend on it.** #8 (resolved 2026-08-27, ratified by Joe) decided: the nav
+word "Picks" opens a **`/picks` screen with no order route** (the ranked
+list = tonight's price-comparison sheet, `GoodChancePicks`'s population,
+machine-guarded against any profit-readable figure), and `/board` is
+demoted to the footer's "Also served" with a blurb, in-page links struck.
+Today: **no `frontend/src/app/picks` exists, `Nav.tsx:109` sends "Picks"
+to `/board`, and `Footer.tsx` has no `/board` entry.** So #28's deep link
+would 404 and #29's "footer label" has no footer entry to label. The
+2026-09-01 Queue C enumeration named #6/#10/#27/#30 and missed this one.
+**#8 + #29 are one build, on the `Nav.tsx` / `board/page.tsx` /
+`Footer.tsx` lane, and they go before #28.**
+
+The partner's #29 population check, taken on live 2026-09-02 ~22:30Z
+(`recommendations` by `created_ms`, bucketed as `/api/board` does):
+
+    last 30 min   no-edge, unsuppressed 82   suppressed 40   sized 0
+    last 24 h                          2,808          2,284          0
+    lifetime                          33,379         29,774          0
+
+Every row was refused a bet; two-thirds by the fee bar rather than a named
+check. "Refusals" holds **if the blurb names both kinds**, which the build
+is told to do. The NO EDGE chip's own wording is #25 and is not touched.
+
+**#8's resolution is bigger than "a page and a nav flip", and one clause
+would have stalled everything.** Item 4: the empty/absent/unreachable/
+loading states are *"a precondition of the routing change, not a
+follow-up"*, owned by #20, which is still an open prototype ticket. Ruling
+taken here (Joe answered #29 assuming the move; the partner ranked #20
+right after the staleness read): **draw every state minimally and honestly
+now** — a sentence with the payload's own counts, never whitespace, never a
+credit-spending refresh control, never a count chip — and let #20 design
+them. Item 3's pins (`test_good_chance_picks.py` banned-literal walk;
+absence from `test_buy_controls.py` `MOUNTS`) and an ADR amending 0067 §2
+(the block becomes a screen) are in the same build. Item 5: `/picks`
+carries the LIMIT-100 truncation sentence.
+
+**#23 landed and CLOSED** (`0027df1`): a market with `market_type = 'prop'`
+or a non-null `player_name` never enters the picks block, counted as
+`not_ranked.props_excluded` and rendered as one clause. Watched failure
+printed the bug verbatim. `notify/alerts.py:859` can still surface a prop
+on the (unreachable) alert path — noted on the ticket, not built.
+
+**#32 landed** (`4b0aa6c`): the strip is ochre — border, ground **and
+ink** (`text-accent-2`), the lane's call because every other caution
+string is ochre ink; drop the ink class if the intent was ground-only.
+**#28 is NOT built and must not be until `/picks` is served**: the digest
+today links the root, which re-exports `/slate`, which is where the ranked
+list already lives — so the current link works and `/picks` would 404.
+Land #28 in the same commit as, or after, the `/picks` page, with a test
+that every path a Discord embed emits is in `served_routes()` (from
+`tests/test_every_screen_is_reachable.py`). That test is what makes the
+ordering enforced rather than remembered.
+
+Newly unblocked on the map: **#17** (size tier), **#19** (the five-step
+guide), **#20** (the empty night, prototype), **#23** (bug half only: a
+prop must not appear in Likely winners). #25 still open.
+
 ### Still open
 
-1. **Joe's four, untouched by design:** the interview (Q + ten calls), the
-   void-settlement amendment to ADR 0044, `user_not_found` on shard 3 and
-   his shard allocation.
+1. **Joe's three, untouched by design:** the void-settlement amendment to
+   ADR 0044, `user_not_found` on shard 3 and his shard allocation. (The
+   interview is answered — above.)
 2. **The separating read for C5's driver** — inter-line gap in `loop_rss`
    split by `kind` across `ADR_0091_DEPLOY_MS` — is named in ADR 0097 as a
    design input and **not taken**. Not urgent; nothing consumes it.
 3. **`check_mobile.py` at 390px on `/slate` and `/board`** after the #6
    deploy, if a session has the frontend up anyway.
-4. **Frontier after #12:** the partner froze #15, #16, #19, #25, #29, #31,
-   #33 pending Joe. Do not rank paint again until Q is answered.
+4. ~~**Frontier after #12:** the partner froze #15, #16, #19, #25, #29, #31,
+   #33 pending Joe.~~ Answered the same evening — see the table above. The
+   frontier is now #17, #19, #20, #23, #25 (and #21, a conversation).
 
 ---
 
