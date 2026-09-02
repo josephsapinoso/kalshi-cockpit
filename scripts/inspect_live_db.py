@@ -2373,6 +2373,115 @@ def _binom_two_sided(k: int, n: int, p: float) -> float:
     ))
 
 
+#: §2.2's stated deploy of ADR 0091, 2026-08-31T15:29:19Z, as epoch ms. It
+#: bounds the **pre-fix** window that C4 and C5 compare against, and it is the
+#: one external timestamp this registration uses on purpose: `T0` is derived
+#: from the database precisely so the *exposure* boundary needs no release
+#: time, while the pre-fix baseline is a historical window whose edge the
+#: registration fixes in prose. Using any other value would be choosing a
+#: baseline after seeing the data.
+ADR_0091_DEPLOY_MS = 1_788_190_159_000
+
+#: C3's fallback when no pre-fix burst can be aged, in hours. §7 fixes it at
+#: 2.0 -- "the largest round value below the 3.13 h longest observed post-fix
+#: process life, so the precondition is reachable rather than automatically
+#: failing."
+A_PRE_FALLBACK_HOURS = 2.0
+
+#: C3's required aged exposure, in fast cycles. §7: 30 is `1 / lambda_0`, one
+#: pre-fix burst-equivalent of exposure in the aged regime.
+C3_AGED_CYCLES_REQUIRED = 30
+
+#: C4's pre-fix quantile, and C5's tolerance either way.
+C4_PRE_QUANTILE = 0.25
+C5_TEMPO_TOLERANCE = 0.25
+
+
+def _quantile(sorted_values: list[float], q: float) -> Optional[float]:
+    """Nearest-rank quantile. `None` on an empty list, never 0.0."""
+    if not sorted_values:
+        return None
+    if len(sorted_values) == 1:
+        return sorted_values[0]
+    idx = max(0, min(len(sorted_values) - 1,
+                     int(math.ceil(q * len(sorted_values))) - 1))
+    return sorted_values[idx]
+
+
+def _read_rss_samples(db_path: str) -> tuple[list[dict], Optional[str]]:
+    """`loop_rss.jsonl` as dicts in time order, plus a refusal reason.
+
+    **`produced_by` absent and `produced_by: null` are different states and the
+    whole of C3 turns on it.** A `null` is a process's first sample -- the
+    restart marker the file otherwise lacks. An *absent* key is a line written
+    before the field existed (2026-08-29), which says nothing about restarts.
+
+    `entry.get("produced_by") is None` cannot tell them apart, and on the live
+    file it counts **752** restarts where there are **44**. The error is
+    seventeen-fold and it runs the flattering way: phantom restarts shorten
+    every process age, which lowers `A_pre` and lets more cycles qualify as
+    aged, so C3 gets *easier* to pass. This reader keys on presence.
+    """
+    path = loop_rss_path(db_path)
+    try:
+        raw = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        return [], f"{path}: {exc}"
+
+    samples: list[dict] = []
+    for line in raw:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(entry, dict) or not isinstance(entry.get("ms"), int):
+            continue
+        samples.append({
+            "ms": entry["ms"],
+            # Tri-state, deliberately: True = restart, False = not, None =
+            # the field did not exist on this line and cannot be read either way.
+            "restart": (
+                (entry["produced_by"] is None)
+                if "produced_by" in entry else None
+            ),
+            # `None` is "not measured" and `0` is "the WAL is empty". Never
+            # substitute.
+            "wal_kb": entry.get("wal_kb"),
+        })
+    samples.sort(key=lambda s: s["ms"])
+    return samples, None
+
+
+def _process_start_index(samples: list[dict]) -> list[tuple[int, int]]:
+    """`(ms, process_start_ms)` for every sample that can be aged.
+
+    A sample is aged against the newest **true** restart marker at or before
+    it. Samples before the first such marker are dropped rather than aged
+    against the file's first line: an append-only log that spans container
+    lifetimes has no reason to begin at a boot, and assuming it does invents
+    an age.
+    """
+    out: list[tuple[int, int]] = []
+    start: Optional[int] = None
+    for sample in samples:
+        if sample["restart"] is True:
+            start = sample["ms"]
+        if start is not None:
+            out.append((sample["ms"], start))
+    return out
+
+
+def _age_at(aged: list[tuple[int, int]], ms: int) -> Optional[float]:
+    """Process age in hours at `ms`, or `None` if it cannot be attributed."""
+    idx = bisect.bisect_right([a[0] for a in aged], ms) - 1
+    if idx < 0:
+        return None
+    return (ms - aged[idx][1]) / 3_600_000.0
+
+
 #: Section 6.3's band, in seconds. A burst is in-band if its offset from its matched
 #: cycle start lies here. `BUSY_TIMEOUT_MS = 5_000`, so a lock held by the
 #: poller surfaces just past 5 s; the upper edge is the registered one.
@@ -2448,13 +2557,19 @@ def _q_forward_lock(conn: sqlite3.Connection, args) -> list[Section]:
     - **That the poller is the only holder.** Attribution and efficacy are
       different claims; this one is efficacy and takes the attribution result
       as given rather than re-deriving it.
-    - **C3, C4 and C5 are NOT COMPUTED here** -- they need `loop_rss.jsonl`
-      restart markers, `wal_kb` percentiles and pass tempo. Section 6.3 makes FIX
-      CONFIRMED conditional on **every** precondition C1-C6, so while these are
-      uncomputed the best reachable verdict is
-      `UNRESOLVED - C3/C4/C5 NOT COMPUTED`. That is section 11's shortfall clause
-      working as written: the gap is reported, not routed around, and it can
-      never produce a false FIX CONFIRMED.
+    - **C3, C4 and C5 read `loop_rss.jsonl` and can each answer NOT
+      COMPUTED.** An uncomputable precondition is **not** a pass: section 6.3
+      conditions FIX CONFIRMED on every one of C1-C6, and a failed or
+      unevaluable one is reported BY NAME rather than shortened to UNRESOLVED.
+    - **The pre-fix baseline is bounded by ADR 0091's deploy, not by `T0`.**
+      Section 2.2's discarded interval sits between them and belongs to neither arm,
+      so C4's and C5's "pre-fix window" ends at `ADR_0091_DEPLOY_MS`. That is
+      the one external timestamp used here, and deliberately: `T0` is derived
+      from the database so the *exposure* boundary needs no release time, while
+      the pre-fix baseline is a historical window the registration fixes in
+      prose.
+    - **`produced_by` absent and `produced_by: null` are different states**,
+      and C3 turns on the difference. See `_read_rss_samples`.
     - **Anything about the excluded interval** (section 2.2), the ~19 hours between
       ADR 0091's deploy and `T0`. It is descriptive context and may not enter
       either arm.
@@ -2637,6 +2752,109 @@ def _q_forward_lock(conn: sqlite3.Connection, args) -> list[Section]:
                 f"E* RAISED to {e_star} (never lowered)"
             )
 
+    # --- C3, C4, C5: the loop_rss.jsonl preconditions (section 7) -------------------
+    samples, rss_error = _read_rss_samples(args.db)
+    aged = _process_start_index(samples)
+    aged_stamps = [a[0] for a in aged]
+
+    def age_hours(ms: int) -> Optional[float]:
+        """Process age in hours at `ms`, or `None` if it cannot be known.
+
+        **Liveness has to be evidenced, not extrapolated.** The first version
+        aged any timestamp against the newest preceding restart marker, so a
+        cycle after the last `loop_rss` line inherited an age that grew without
+        bound -- a process that died an hour ago scored as one that had been up
+        for hours, and C3 passed on cycles for which there was no evidence the
+        process was running at all.
+
+        A cycle is aged only if some `loop_rss` sample **at or after it**
+        belongs to the same process life. That sample is the evidence.
+        """
+        idx = bisect.bisect_right(aged_stamps, ms) - 1
+        if idx < 0:
+            return None
+        start = aged[idx][1]
+        after = bisect.bisect_left(aged_stamps, ms)
+        if after >= len(aged) or aged[after][1] != start:
+            return None
+        return (ms - start) / 3_600_000.0
+
+    # C3. `A_pre` is the median process age at which the PRE-FIX bursts
+    # occurred. "Pre-fix" is before ADR 0091's deploy, not before `T0` --
+    # section 2.2's discarded interval sits between them and belongs to neither arm.
+    pre_fix_bursts = [f for f in failures if f["ms"] < ADR_0091_DEPLOY_MS]
+    pre_fix_ages = sorted(
+        h for h in (age_hours(f["ms"]) for f in pre_fix_bursts) if h is not None
+    )
+    if pre_fix_ages:
+        a_pre_h = pre_fix_ages[len(pre_fix_ages) // 2]
+        a_pre_why = (
+            f"median of {len(pre_fix_ages)} aged pre-fix bursts "
+            f"(of {len(pre_fix_bursts)} pre-fix)"
+        )
+    else:
+        a_pre_h = A_PRE_FALLBACK_HOURS
+        a_pre_why = (
+            f"FALLBACK {A_PRE_FALLBACK_HOURS} h -- no pre-fix burst could be "
+            "aged (the lines rolled off, or predate `produced_by`)"
+        )
+
+    aged_fast_cycles = [
+        ms for ms in fast_after_t0
+        if (h := age_hours(ms)) is not None and h >= a_pre_h
+    ]
+    c3_ok = len(aged_fast_cycles) >= C3_AGED_CYCLES_REQUIRED
+
+    # C4. Median `wal_kb` post-`T0` against the pre-fix 25th percentile.
+    # A sample with no `wal_kb` is EXCLUDED, never read as 0: "not measured"
+    # and "the WAL is empty" are different states and this file carries both.
+    post_wal = sorted(
+        s["wal_kb"] for s in samples
+        if s["ms"] >= t0 and isinstance(s["wal_kb"], (int, float))
+    )
+    pre_wal = sorted(
+        s["wal_kb"] for s in samples
+        if s["ms"] < ADR_0091_DEPLOY_MS and isinstance(s["wal_kb"], (int, float))
+    )
+    post_wal_median = _quantile(post_wal, 0.5)
+    pre_wal_q25 = _quantile(pre_wal, C4_PRE_QUANTILE)
+    c4_ok = (
+        post_wal_median is not None
+        and pre_wal_q25 is not None
+        and post_wal_median >= pre_wal_q25
+    )
+
+    # C5. Passes per hour, as `loop_rss.jsonl` lines per hour, within +/-25%.
+    def lines_per_hour(lo: Optional[int], hi: Optional[int]) -> Optional[float]:
+        window = [
+            s["ms"] for s in samples
+            if (lo is None or s["ms"] >= lo) and (hi is None or s["ms"] < hi)
+        ]
+        if len(window) < 2:
+            return None
+        span_h = (window[-1] - window[0]) / 3_600_000.0
+        return None if span_h <= 0 else len(window) / span_h
+
+    post_tempo = lines_per_hour(t0, None)
+    pre_tempo = lines_per_hour(None, ADR_0091_DEPLOY_MS)
+    c5_ok = (
+        post_tempo is not None
+        and pre_tempo is not None
+        and pre_tempo > 0
+        and abs(post_tempo - pre_tempo) / pre_tempo <= C5_TEMPO_TOLERANCE
+    )
+
+    # A precondition that could not be evaluated is NOT a pass. Each carries
+    # its own state so a refusal is reported by name, as section 7 requires.
+    def state(ok: bool, computable: bool) -> str:
+        if not computable:
+            return "NOT COMPUTED"
+        return "PASS" if ok else "FAIL"
+
+    c3_computable = bool(aged) and bool(fast_after_t0)
+    c4_computable = post_wal_median is not None and pre_wal_q25 is not None
+    c5_computable = post_tempo is not None and pre_tempo is not None
+
     # --- C1: does poll_log span the window? ----------------------------------
     newest_scored = max((r["ms"] for r in k_bursts), default=None)
     c1_ok = bool(stamps) and stamps[0] <= t0 and (
@@ -2667,12 +2885,29 @@ def _q_forward_lock(conn: sqlite3.Connection, args) -> list[Section]:
             "except SIGNATURE PERSISTS"
         )
     elif k_count == 0 and e_value < FORWARD_LOCK_E_ALARM:
-        verdict = "UNRESOLVED - C3/C4/C5 NOT COMPUTED"
-        why = (
-            "E, K and E_n would license FIX CONFIRMED, but section 6.3 conditions it "
-            "on EVERY precondition C1-C6 and C3/C4/C5 need loop_rss.jsonl. "
-            "Reported, not routed around (section 11's shortfall clause)."
-        )
+        # section 6.3 conditions FIX CONFIRMED on EVERY precondition C1-C6. A
+        # precondition that could not be evaluated is NOT a pass, and a failed
+        # one is named -- "never shortened to UNRESOLVED alone".
+        failed = [
+            name for name, ok, computable in (
+                ("C3", c3_ok, c3_computable),
+                ("C4", c4_ok, c4_computable),
+                ("C5", c5_ok, c5_computable),
+            ) if not (computable and ok)
+        ]
+        if failed:
+            verdict = f"UNRESOLVED - {'/'.join(failed)}"
+            why = (
+                "E, K and E_n would license FIX CONFIRMED; section 7 does not. "
+                "A precondition that is uncomputable is not a pass."
+            )
+        else:
+            verdict = "FIX CONFIRMED ON LIVE EVIDENCE"
+            why = (
+                f"E = {e_count} >= {e_star}, K = 0, E_n < "
+                f"{FORWARD_LOCK_E_ALARM}, and C1-C6 all hold. One-sided exact "
+                f"binomial p = (1 - lambda_0)^E"
+            )
     else:
         verdict = f"UNRESOLVED - E = {e_count} >= E* with K = {k_count} > 0"
         why = "section 6.3's catch-all: reached exposure, but bursts remain"
@@ -2767,13 +3002,22 @@ def _q_forward_lock(conn: sqlite3.Connection, args) -> list[Section]:
              f"MIN={_iso(stamps[0]) if stamps else 'n/a'} <= T0 and "
              f"MAX={_iso(stamps[-1]) if stamps else 'n/a'} >= newest burst"),
             ("C2 T0 exists", "PASS", _iso(t0)),
-            ("C3 restart coverage", "NOT COMPUTED",
-             "needs loop_rss.jsonl restart markers and A_pre; blocks FIX "
-             "CONFIRMED, cannot produce one"),
-            ("C4 WAL comparability", "NOT COMPUTED",
-             "needs median wal_kb post-T0 vs pre-fix 25th percentile"),
-            ("C5 victim tempo", "NOT COMPUTED",
-             "needs loop_rss.jsonl lines/hour, +/- 25%"),
+            ("C3 restart coverage", state(c3_ok, c3_computable),
+             f"A_pre = {a_pre_h:.2f} h ({a_pre_why}); "
+             f"{len(aged_fast_cycles)} fast cycles at age >= A_pre, "
+             f"need {C3_AGED_CYCLES_REQUIRED}"),
+            ("C4 WAL comparability", state(c4_ok, c4_computable),
+             f"median wal_kb post-T0 = "
+             f"{'UNKNOWN' if post_wal_median is None else f'{post_wal_median:.0f}'}"
+             f" vs pre-fix q25 = "
+             f"{'UNKNOWN' if pre_wal_q25 is None else f'{pre_wal_q25:.0f}'}"
+             f"; n={len(post_wal)}/{len(pre_wal)} samples carrying wal_kb"),
+            ("C5 victim tempo", state(c5_ok, c5_computable),
+             f"post-T0 = "
+             f"{'UNKNOWN' if post_tempo is None else f'{post_tempo:.2f}'}/h vs "
+             f"pre-fix = "
+             f"{'UNKNOWN' if pre_tempo is None else f'{pre_tempo:.2f}'}/h; "
+             f"tolerance +/-{int(C5_TEMPO_TOLERANCE * 100)}%"),
             ("C6 lambda_0 supports E*", "PASS", c6_note),
         ],
         cap=cap,

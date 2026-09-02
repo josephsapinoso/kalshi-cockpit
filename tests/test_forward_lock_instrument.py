@@ -29,7 +29,17 @@ from scripts import inspect_live_db as inspector
 
 
 CYCLE_MS = 300_000
-T0_MS = 1_788_000_000_000
+
+#: The fixture's `T0`, derived from the deploy constant rather than picked.
+#:
+#: It must sit **after** `ADR_0091_DEPLOY_MS`, because that is the real
+#: ordering: section 2.2's discarded interval runs from the deploy to the first
+#: mirror marker, ~26 h on live. The first version of this file used a bare
+#: literal that landed *before* the deploy, which silently made the "pre-fix"
+#: window (ms < deploy) swallow the whole post-`T0` exposure -- so C4 and C5
+#: compared a window against itself and could not fail. Three tests caught it.
+DISCARDED_INTERVAL_MS = 26 * 3_600_000
+T0_MS = inspector.ADR_0091_DEPLOY_MS + DISCARDED_INTERVAL_MS
 
 
 class _Args:
@@ -255,43 +265,266 @@ class TestTheEValueAndTheRefusal:
         assert rows["K -- matched cycle >= T0, collapsed"][1] == 1
 
 
-class TestFixConfirmedCannotBeReachedWhileC3C4C5AreUncomputed:
-    """§11's shortfall clause, working as written.
+def _write_rss(tmp_path, samples):
+    """`samples` is [(ms, restart, wal_kb)].
 
-    §6.3 conditions FIX CONFIRMED on **every** precondition C1-C6. C3, C4 and
-    C5 need `loop_rss.jsonl` and are not built, so the best reachable verdict
-    is `UNRESOLVED - C3/C4/C5 NOT COMPUTED`. **The gap is reported, not routed
-    around**, and it cannot produce a false positive.
+    `restart` is True (first sample of a process), False (an ordinary sample),
+    or None meaning **the `produced_by` key is absent entirely** -- a line
+    written before the field existed on 2026-08-29. The three are different
+    states and `_read_rss_samples` must not conflate the last two.
+    """
+    lines = []
+    for ms, restart, wal_kb in samples:
+        entry = {"ms": ms, "kind": "quote", "rss_kb": 1}
+        if restart is not None:
+            entry["produced_by"] = None if restart else "quote"
+        if wal_kb is not None:
+            entry["wal_kb"] = wal_kb
+        lines.append(json.dumps(entry))
+    (tmp_path / "loop_rss.jsonl").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8"
+    )
+
+
+class TestAbsentAndNullProducedByAreDifferentStates:
+    """The defect that would have made C3 easier to pass.
+
+    `produced_by: null` is a process's **first sample** -- the restart marker
+    the append-only file otherwise lacks. An **absent** `produced_by` is a line
+    written before the field existed (2026-08-29) and says nothing about
+    restarts.
+
+    `entry.get("produced_by") is None` cannot tell them apart. On the live file
+    it counts **752** restarts where there are **44** -- seventeen-fold, and in
+    the flattering direction: phantom restarts shorten every process age, which
+    lowers `A_pre` and lets more cycles qualify as aged, so C3 gets *easier*.
     """
 
-    def test_a_perfectly_clean_run_past_e_star_still_refuses(self, tmp_path):
-        cycles = [(T0_MS, True)] + [
-            (T0_MS + i * CYCLE_MS, False) for i in range(1, 200)
-        ]
-        path, conn = _seed(tmp_path, cycles=cycles, journal=[])
-        sections = inspector._q_forward_lock(conn, _Args(path))
-        rows = _rows(sections, "THE REGISTERED TEST")
+    def test_a_missing_key_is_not_read_as_a_restart(self, tmp_path):
+        _write_rss(tmp_path, [
+            (T0_MS + i * 60_000, None, 100) for i in range(10)
+        ])
+        samples, err = inspector._read_rss_samples(str(tmp_path / "cockpit.db"))
+        assert err is None
+        assert len(samples) == 10
+        assert all(s["restart"] is None for s in samples), (
+            "a line with no `produced_by` key must be tri-state None, not False "
+            "and certainly not True"
+        )
+        assert inspector._process_start_index(samples) == [], (
+            "no true restart marker means nothing can be aged; ageing against "
+            "the file's first line would invent an age"
+        )
 
-        assert rows["exposure reached"][1] == "YES"
-        assert rows["K (bursts)"][1] == 0
-        verdict = str(rows["VERDICT"][1])
-        assert verdict == "UNRESOLVED - C3/C4/C5 NOT COMPUTED", verdict
-        assert "FIX CONFIRMED" not in verdict
+    def test_an_explicit_null_is_a_restart(self, tmp_path):
+        _write_rss(tmp_path, [
+            (T0_MS, True, 100),
+            (T0_MS + 60_000, False, 100),
+            (T0_MS + 120_000, False, 100),
+        ])
+        samples, _ = inspector._read_rss_samples(str(tmp_path / "cockpit.db"))
+        assert [s["restart"] for s in samples] == [True, False, False]
+        aged = inspector._process_start_index(samples)
+        assert len(aged) == 3
+        assert all(start == T0_MS for _, start in aged)
 
-    def test_the_uncomputed_preconditions_are_named_not_silently_passed(
-        self, tmp_path
-    ):
-        """A precondition that is absent must not render as one that passed."""
-        cycles = [(T0_MS, True)] + [
-            (T0_MS + i * CYCLE_MS, False) for i in range(1, 200)
+    def test_wal_kb_absent_is_none_and_never_zero(self, tmp_path):
+        """`wal_kb: null` is 'not measured'; `wal_kb: 0` is 'the WAL is
+        empty'. C4 takes percentiles over these and a zero would drag them."""
+        _write_rss(tmp_path, [
+            (T0_MS, True, None),
+            (T0_MS + 60_000, False, 0),
+            (T0_MS + 120_000, False, 500),
+        ])
+        samples, _ = inspector._read_rss_samples(str(tmp_path / "cockpit.db"))
+        assert samples[0]["wal_kb"] is None
+        assert samples[1]["wal_kb"] == 0
+        assert samples[2]["wal_kb"] == 500
+
+
+class TestC3RestartCoverage:
+    """§7's C3: 30 fast cycles at process age >= `A_pre`."""
+
+    def _cycles(self, n=200):
+        return [(T0_MS, True)] + [
+            (T0_MS + i * CYCLE_MS, False) for i in range(1, n)
         ]
-        path, conn = _seed(tmp_path, cycles=cycles, journal=[])
+
+    def test_a_process_that_never_ages_fails_c3(self, tmp_path):
+        """The shape this session created: deploy every twenty minutes and no
+        process life reaches `A_pre`, so `E` climbs while aged exposure does
+        not."""
+        # A restart every 10 minutes across the whole exposure.
+        rss = []
+        for i in range(0, 200):
+            ms = T0_MS + i * 60_000
+            rss.append((ms, i % 10 == 0, 100))
+        _write_rss(tmp_path, rss)
+        path, conn = _seed(tmp_path, cycles=self._cycles(), journal=[])
         rows = _rows(inspector._q_forward_lock(conn, _Args(path)),
                      "PRECONDITIONS")
+        assert rows["C3 restart coverage"][1] == "FAIL", rows["C3 restart coverage"]
+        assert "A_pre" in str(rows["C3 restart coverage"][2])
+
+    def test_one_long_process_life_passes_c3(self, tmp_path):
+        """One boot, then samples for many hours: aged cycles accumulate."""
+        rss = [(T0_MS, True, 100)]
+        rss += [(T0_MS + i * 60_000, False, 100) for i in range(1, 900)]
+        _write_rss(tmp_path, rss)
+        path, conn = _seed(tmp_path, cycles=self._cycles(), journal=[])
+        rows = _rows(inspector._q_forward_lock(conn, _Args(path)),
+                     "PRECONDITIONS")
+        assert rows["C3 restart coverage"][1] == "PASS", rows["C3 restart coverage"]
+
+    def test_a_pre_falls_back_when_no_pre_fix_burst_can_be_aged(self, tmp_path):
+        """§7 fixes the fallback at 2.0 h and says why: the largest round value
+        below the longest observed post-fix life, so C3 is reachable rather
+        than automatically failing."""
+        rss = [(T0_MS, True, 100)]
+        rss += [(T0_MS + i * 60_000, False, 100) for i in range(1, 900)]
+        _write_rss(tmp_path, rss)
+        path, conn = _seed(tmp_path, cycles=self._cycles(), journal=[])
+        rows = _rows(inspector._q_forward_lock(conn, _Args(path)),
+                     "PRECONDITIONS")
+        note = str(rows["C3 restart coverage"][2])
+        assert "FALLBACK 2.0 h" in note, note
+
+
+class TestC4AndC5Comparability:
+    """§7's C4 (WAL) and C5 (victim tempo). Both compare the post-`T0`
+    exposure against the **pre-fix** window, which ends at ADR 0091's deploy --
+    not at `T0`, because §2.2's discarded interval sits between them."""
+
+    def _cycles(self):
+        return [(T0_MS, True)] + [
+            (T0_MS + i * CYCLE_MS, False) for i in range(1, 200)
+        ]
+
+    def _rss_with(self, pre_wal, post_wal, *, pre_step=60_000, post_step=60_000):
+        pre_start = inspector.ADR_0091_DEPLOY_MS - 300 * pre_step
+        rss = [(pre_start, True, pre_wal)]
+        rss += [
+            (pre_start + i * pre_step, False, pre_wal) for i in range(1, 300)
+        ]
+        rss += [(T0_MS, True, post_wal)]
+        rss += [
+            (T0_MS + i * post_step, False, post_wal) for i in range(1, 900)
+        ]
+        return rss
+
+    def test_a_shrunken_wal_fails_c4(self, tmp_path):
+        """Lock duration plausibly grows with WAL size and restarts shrink it,
+        so a post-`T0` WAL well below the pre-fix floor means the arms are not
+        comparable -- the fix would look good for the wrong reason."""
+        _write_rss(tmp_path, self._rss_with(pre_wal=5000, post_wal=10))
+        path, conn = _seed(tmp_path, cycles=self._cycles(), journal=[])
+        rows = _rows(inspector._q_forward_lock(conn, _Args(path)),
+                     "PRECONDITIONS")
+        assert rows["C4 WAL comparability"][1] == "FAIL"
+
+    def test_a_comparable_wal_passes_c4(self, tmp_path):
+        _write_rss(tmp_path, self._rss_with(pre_wal=1000, post_wal=1200))
+        path, conn = _seed(tmp_path, cycles=self._cycles(), journal=[])
+        rows = _rows(inspector._q_forward_lock(conn, _Args(path)),
+                     "PRECONDITIONS")
+        assert rows["C4 WAL comparability"][1] == "PASS"
+
+    def test_samples_without_wal_kb_are_excluded_from_c4_not_read_as_zero(
+        self, tmp_path
+    ):
+        """The live file carries both shapes: 708 of 5,532 lines predate
+        `wal_kb`. Reading an absent field as 0 would drag the post-`T0` median
+        toward zero and fail C4 as WAL-CONFOUNDED for a reason that is an
+        artifact of the file's history rather than the database's state.
+        """
+        pre_start = inspector.ADR_0091_DEPLOY_MS - 300 * 60_000
+        rss = [(pre_start, True, 1000)]
+        rss += [(pre_start + i * 60_000, False, 1000) for i in range(1, 300)]
+        rss += [(T0_MS, True, 1200)]
+        # Half the post-T0 samples carry no `wal_kb` at all. If they were read
+        # as 0 the median would collapse to 0 and C4 would FAIL.
+        rss += [
+            (T0_MS + i * 60_000, False, None if i % 2 else 1200)
+            for i in range(1, 900)
+        ]
+        _write_rss(tmp_path, rss)
+        path, conn = _seed(tmp_path, cycles=self._cycles(), journal=[])
+        row = _rows(inspector._q_forward_lock(conn, _Args(path)),
+                    "PRECONDITIONS")["C4 WAL comparability"]
+        assert row[1] == "PASS", row
+        assert "median wal_kb post-T0 = 1200" in str(row[2]), row[2]
+
+    def test_a_halved_pass_tempo_fails_c5(self, tmp_path):
+        """Fewer passes means fewer collisions regardless of the fix."""
+        _write_rss(tmp_path, self._rss_with(
+            pre_wal=1000, post_wal=1000, pre_step=60_000, post_step=180_000,
+        ))
+        path, conn = _seed(tmp_path, cycles=self._cycles(), journal=[])
+        rows = _rows(inspector._q_forward_lock(conn, _Args(path)),
+                     "PRECONDITIONS")
+        assert rows["C5 victim tempo"][1] == "FAIL"
+        assert "/h" in str(rows["C5 victim tempo"][2])
+
+    def test_a_matched_tempo_passes_c5(self, tmp_path):
+        _write_rss(tmp_path, self._rss_with(pre_wal=1000, post_wal=1000))
+        path, conn = _seed(tmp_path, cycles=self._cycles(), journal=[])
+        rows = _rows(inspector._q_forward_lock(conn, _Args(path)),
+                     "PRECONDITIONS")
+        assert rows["C5 victim tempo"][1] == "PASS"
+
+
+class TestFixConfirmedIsReachableAndGuarded:
+    """§6.3 conditions FIX CONFIRMED on E, K, E_n **and every** precondition."""
+
+    def _cycles(self):
+        return [(T0_MS, True)] + [
+            (T0_MS + i * CYCLE_MS, False) for i in range(1, 200)
+        ]
+
+    def _healthy_rss(self):
+        pre_start = inspector.ADR_0091_DEPLOY_MS - 300 * 60_000
+        rss = [(pre_start, True, 1000)]
+        rss += [(pre_start + i * 60_000, False, 1000) for i in range(1, 300)]
+        rss += [(T0_MS, True, 1100)]
+        rss += [(T0_MS + i * 60_000, False, 1100) for i in range(1, 900)]
+        return rss
+
+    def test_all_conditions_met_reaches_fix_confirmed(self, tmp_path):
+        _write_rss(tmp_path, self._healthy_rss())
+        path, conn = _seed(tmp_path, cycles=self._cycles(), journal=[])
+        rows = _rows(inspector._q_forward_lock(conn, _Args(path)),
+                     "THE REGISTERED TEST")
+        assert str(rows["VERDICT"][1]) == "FIX CONFIRMED ON LIVE EVIDENCE"
+
+    def test_one_failed_precondition_blocks_it_and_is_named(self, tmp_path):
+        """§6.3: a failed precondition is reported by name and *never*
+        shortened to UNRESOLVED alone."""
+        rss = self._healthy_rss()
+        # Break C4 alone: post-T0 WAL far below the pre-fix floor.
+        rss = [
+            (ms, restart, 5 if ms >= T0_MS else wal)
+            for ms, restart, wal in rss
+        ]
+        _write_rss(tmp_path, rss)
+        path, conn = _seed(tmp_path, cycles=self._cycles(), journal=[])
+        rows = _rows(inspector._q_forward_lock(conn, _Args(path)),
+                     "THE REGISTERED TEST")
+        verdict = str(rows["VERDICT"][1])
+        assert verdict == "UNRESOLVED - C4", verdict
+        assert verdict != "UNRESOLVED"
+
+    def test_no_rss_file_makes_all_three_uncomputable_not_passed(self, tmp_path):
+        """An absent instrument is not a passing precondition. This is the
+        state the instrument shipped in before C3/C4/C5 were built, and it must
+        never render as FIX CONFIRMED."""
+        path, conn = _seed(tmp_path, cycles=self._cycles(), journal=[])
+        sections = inspector._q_forward_lock(conn, _Args(path))
+        pre = _rows(sections, "PRECONDITIONS")
         for name in ("C3 restart coverage", "C4 WAL comparability",
                      "C5 victim tempo"):
-            assert rows[name][1] == "NOT COMPUTED", name
-        assert rows["C2 T0 exists"][1] == "PASS"
+            assert pre[name][1] == "NOT COMPUTED", name
+        verdict = str(_rows(sections, "THE REGISTERED TEST")["VERDICT"][1])
+        assert verdict == "UNRESOLVED - C3/C4/C5", verdict
 
 
 class TestC6RaisesEStarAndNeverLowersIt:
