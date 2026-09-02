@@ -473,9 +473,19 @@ function TicketBody({
           `note` says it too, but by then the order has gone. Rendered only
           when the path is armed, so it cannot become wallpaper: while
           `dry_run` is true the line above says the opposite, and a screen
-          that warns about both states warns about neither. */}
+          that warns about both states warns about neither.
+
+          It wears the warning ochre (`accent-2`), ticket #32. The strip IS a
+          caution -- the same class as DRY RUN, EXPIRED and every other "be
+          careful" string in the app -- not a refusal (nothing is stopped)
+          and not a loss (nothing is spent yet). Until 2026-09-02 it wore
+          `accent`, which since ticket #10 is indigo: the Confirm button's
+          own colour directly below it, so the one sentence that says money
+          moves carried no warning weight of its own. Do not repaint it from
+          the palette comment in globals.css -- that comment cites this
+          ticket for this element, not the other way round. */}
       {!market.dry_run && (
-        <p className="max-w-[65ch] rounded-xl border border-accent/50 bg-accent-soft px-3 py-2 text-xs leading-relaxed">
+        <p className="max-w-[65ch] rounded-xl border border-accent-2/50 bg-accent-2-soft px-3 py-2 text-xs leading-relaxed text-accent-2">
           <span className="font-semibold">This spends real money.</span>{" "}
           Confirming sends the order to Kalshi immediately, at the live{" "}
           <Term k="ask">ask</Term>, and this tool has no way to cancel one —

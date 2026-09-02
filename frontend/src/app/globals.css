@@ -44,7 +44,12 @@
 
   /* Warning and refusal. Every "do not trust this" message, and since ticket
      #10 the REJECTED chip too -- a refused row is not a loss, nothing was
-     spent, and the edge number beside it was already ochre. */
+     spent, and the edge number beside it was already ochre. Since ticket #32
+     (2026-09-02) the hand-bet ticket's "This spends real money" strip as
+     well: a caution, not a loss, and no longer the Confirm button's indigo.
+     That strip is the one site this comment may be cited for; which of the
+     other red-wearing sites are cautions is #33's question, not decided
+     here. */
   --accent-2: #7a5c14;
   --accent-2-soft: #f7f0dd;
 
