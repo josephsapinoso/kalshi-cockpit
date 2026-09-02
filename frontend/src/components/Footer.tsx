@@ -90,6 +90,29 @@ const SECONDARY = [
     blurb:
       "Every candidate the engine has recorded, with its factors and suppression reason. The audit trail, not a betting screen.",
   },
+  {
+    // Demoted from the nav 2026-09-02 when the ranked list took the "Picks"
+    // slot (#8, ratified by Joe 2026-08-27; the word is his, #29). This is
+    // the engine's working kept in the open -- every candidate it priced in
+    // its last half-hour, and what stopped each one -- consulted after a
+    // question, not scanned nightly. The footer is the link, deliberately:
+    // #8 struck the in-page link from the foot of Picks because every row
+    // here carries a live hand-bet button, and a next-step affordance under
+    // a favourites list is the chase shape. Its sibling above is the same
+    // subject on the other clock: `/ledger` is the whole record, this is
+    // one window anchored on the recorder's last pass.
+    //
+    // "The reason that stopped it -- a named check, or the fee bar": #9
+    // wrote "the named rule" and recorded the caveat that only the rejected
+    // bucket carries one. Measured on live 2026-09-02, 82 of 122 rows in the
+    // window were refused by the fee bar alone with no rule named, so the
+    // universal reading was false on two rows in three and #9's own
+    // exactness fix is taken.
+    href: "/board",
+    label: "Refusals",
+    blurb:
+      "The candidates the engine priced in its last half-hour of recording, each with the reason that stopped it — a named check, or the fee bar. Nearly all are refused — the ordinary night.",
+  },
 ];
 
 export default function Footer() {

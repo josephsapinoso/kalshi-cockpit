@@ -139,5 +139,12 @@ class TestEveryScreenCanBeArrivedAt:
         this docstring states -- never MORE than the nav -- is the rule the
         assertion now enforces; parity is a deliberate, dated state, and the
         next screen the nav sheds must answer the delete-commit question
-        rather than land here by default."""
+        rather than land here by default.
+
+        `/board` was that next screen, 2026-09-02 (decision-map #8, ratified
+        by Joe; #29 named it "Refusals"). It answered the question: the blurb
+        could be written beside `/ledger`'s -- the same subject on the other
+        clock, one window against the whole record -- so it is worth keeping
+        and not worth the slot the ranked list took. Footer 4, nav 6; the
+        bound is unchanged and the state is recorded here as a decision."""
         assert len(linked_routes(FOOTER)) <= len(linked_routes(NAV))

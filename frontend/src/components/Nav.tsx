@@ -95,7 +95,8 @@ import type { Chip } from "@/lib/windowChip";
 // item still stands on its own: this page is the engine's evidence base,
 // not anyone's ledger, and it should stop reading as one. Route unchanged
 // (`/ledger`, matching `/api/ledger`) -- only the label and the page's own
-// heading move, the same pattern `/board` follows under "Picks".
+// heading move, the same pattern `/board` followed under "Picks" until
+// 2026-09-02 (see the last entry below).
 // **Parlays takes Evidence's slot, 2026-08-24** (Joe asked to promote the
 // parlay link and demote whatever is not day-to-day). Same trade shape as
 // every swap above: the Parlay desk is a screen bets are placed from --
@@ -104,9 +105,18 @@ import type { Chip } from "@/lib/windowChip";
 // interlock, the reason the budget is six), and Playbook stays the link
 // that scrolls at 390px. `/ledger` moves to the footer, exactly as
 // `/estimate` did -- served, linked, and one tap further away.
+// **"Picks" opens the ranked list, 2026-09-02** (decision-map #8, ratified
+// by Joe 2026-08-27; #29 named what it displaced). For two weeks the word
+// opened `/board`, a screen on which nothing has been a pick in the life of
+// the record and every row carried a live hand-bet button. The slot now
+// opens `/picks` -- the "likely winners" block Games already renders, as a
+// screen of its own with no order route on it -- and `/board` goes to the
+// footer as "Refusals", with the sentence that says what it is. A promotion
+// rather than a move: the block stays on Games too. Same six links, same
+// order, so Gate keeps its visible slot at 390px and Playbook still scrolls.
 const LINKS = [
   { href: "/", label: "Games" },
-  { href: "/board", label: "Picks" },
+  { href: "/picks", label: "Picks" },
   { href: "/parlays", label: "Parlays" },
   { href: "/bets", label: "Your bets" },
   // Gate before Playbook, and the order is load-bearing at 390px: the newest
