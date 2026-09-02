@@ -40,6 +40,8 @@ export default function GoodChancePicks({
   if (!picks) return null;
   const { ranked, not_ranked } = picks;
   const skipped = not_ranked.stale_consensus + not_ranked.favorite_unpriced;
+  // Markets, not games — kept out of `skipped`, which sums games.
+  const propsExcluded = not_ranked.props_excluded ?? 0;
   if (ranked.length === 0 && skipped === 0) return null;
   return (
     <section className="mt-8">
@@ -87,7 +89,7 @@ export default function GoodChancePicks({
           ))}
         </ol>
       )}
-      {skipped > 0 && (
+      {(skipped > 0 || propsExcluded > 0) && (
         <p className="mt-2 max-w-prose text-xs leading-snug text-muted">
           {not_ranked.stale_consensus > 0 &&
             `${not_ranked.stale_consensus} game${
@@ -96,7 +98,11 @@ export default function GoodChancePicks({
           {not_ranked.favorite_unpriced > 0 &&
             `${not_ranked.favorite_unpriced} game${
               not_ranked.favorite_unpriced === 1 ? "" : "s"
-            } not ranked: no fresh price on the favorite's side.`}
+            } not ranked: no fresh price on the favorite's side. `}
+          {propsExcluded > 0 &&
+            `${propsExcluded} player prop${
+              propsExcluded === 1 ? "" : "s"
+            } left out: a prop is not a team and never ranks here.`}
         </p>
       )}
       <p className="mt-2 max-w-prose text-xs leading-snug text-muted">

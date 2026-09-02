@@ -37,17 +37,22 @@ def _pick_row(
     odds_age_ms: int = 2_000,
     quote_age_ms: int = 1_000,
     odds_event_id: str | None = None,
+    market_type: str | None = None,
+    player_name: str | None = None,
 ) -> None:
     """One recommendation shaped for the picks block, positioned in time.
 
     Ages are stored at write; the route adds elapsed wall-clock on top, so a
     row's *live* odds age is `odds_age_ms + (now - created_ms)` — staleness in
     these tests is controlled by `created_ms`, exactly as it is in production.
+
+    `market_type` and `player_name` are the two columns the runner writes on
+    a player prop (`runner.py:3322`); both stay NULL on a team market.
     """
     conn.execute(
         "INSERT OR IGNORE INTO kalshi_markets (ticker, first_seen_ms, "
-        "last_seen_ms) VALUES (?, ?, ?)",
-        (ticker, created_ms, created_ms),
+        "last_seen_ms, market_type, player_name) VALUES (?, ?, ?, ?, ?)",
+        (ticker, created_ms, created_ms, market_type, player_name),
     )
     link_id = None
     if odds_event_id is not None:
@@ -179,6 +184,75 @@ class TestWhatDoesNotRankIsCountedByName:
         picks = (await get(app, "/api/slate")).json()["picks"]
         assert picks["ranked"] == []
         assert picks["not_ranked"]["favorite_unpriced"] == 1
+
+
+class TestAPlayerPropNeverRanksAsALikelyWinner:
+    """Ticket #23, the bug half. A prop event inherits its game's
+    `odds_event_id`, so the picks block groups a `KXMLBHIT` 1+ hit row with
+    the game's moneyline and — before the exclusion — ranked whichever had
+    the higher fair. #7 measured that at 131 of 192 anchor instants in the
+    prop era; the numbers below are that shape (a hit prop at ~0.68 against
+    a favorite at ~0.53). A home-run prop cannot reproduce it: its fair never
+    reached 0.26."""
+
+    async def test_the_prop_is_absent_and_the_game_ranks_off_its_team_row(
+        self, build
+    ):
+        base = now_ms() - 60_000
+        app = build(lambda conn: [
+            _pick_row(conn, ticker="KXMLBGAME-26AUG151910SEAHOU-HOU",
+                      created_ms=base, fair=0.530, odds_event_id="game-1"),
+            _pick_row(conn, ticker="KXMLBHIT-26AUG151910SEAHOU-HOUYALVAREZ44-1",
+                      created_ms=base + 1, fair=0.684, odds_event_id="game-1",
+                      market_type="prop", player_name="Yordan Alvarez"),
+        ])
+        picks = (await get(app, "/api/slate")).json()["picks"]
+        assert [p["ticker"] for p in picks["ranked"]] == [
+            "KXMLBGAME-26AUG151910SEAHOU-HOU"
+        ]
+        assert picks["not_ranked"]["props_excluded"] == 1
+        # The game is still a game: it ranked, so it is not counted out.
+        assert picks["not_ranked"]["favorite_unpriced"] == 0
+
+    async def test_a_prop_only_game_has_no_likely_winner(self, build):
+        """With no team row in the window the game has no candidate in the
+        team's own denomination — counted out as `favorite_unpriced`, and
+        the prop counted as excluded; never ranked under the player's
+        name."""
+        base = now_ms() - 60_000
+        app = build(lambda conn: [
+            _pick_row(conn, ticker="KXMLBHIT-26AUG151910SEAHOU-HOUYALVAREZ44-1",
+                      created_ms=base, fair=0.684, odds_event_id="game-1",
+                      market_type="prop", player_name="Yordan Alvarez"),
+        ])
+        picks = (await get(app, "/api/slate")).json()["picks"]
+        assert picks["ranked"] == []
+        assert picks["not_ranked"]["props_excluded"] == 1
+        assert picks["not_ranked"]["favorite_unpriced"] == 1
+
+    async def test_either_recorded_column_alone_marks_a_prop(self, build):
+        """`market_type = 'prop'` with an unreadable subtitle (NULL player)
+        is still a prop; so is a player with no type. Neither branch of the
+        predicate may be the only one that works, and the count is by
+        distinct market — a re-evaluated prop is one market, not two."""
+        base = now_ms() - 60_000
+        app = build(lambda conn: [
+            _pick_row(conn, ticker="KXMLBGAME-26AUG151910SEAHOU-HOU",
+                      created_ms=base, fair=0.530, odds_event_id="game-1"),
+            _pick_row(conn, ticker="KXMLBHIT-TYPE-ONLY", created_ms=base + 1,
+                      fair=0.66, odds_event_id="game-1", market_type="prop"),
+            _pick_row(conn, ticker="KXMLBHIT-PLAYER-ONLY", created_ms=base + 2,
+                      fair=0.65, odds_event_id="game-1",
+                      player_name="Yordan Alvarez"),
+            _pick_row(conn, ticker="KXMLBHIT-PLAYER-ONLY", created_ms=base + 3,
+                      fair=0.64, odds_event_id="game-1",
+                      player_name="Yordan Alvarez"),
+        ])
+        picks = (await get(app, "/api/slate")).json()["picks"]
+        assert [p["ticker"] for p in picks["ranked"]] == [
+            "KXMLBGAME-26AUG151910SEAHOU-HOU"
+        ]
+        assert picks["not_ranked"]["props_excluded"] == 2
 
 
 class TestTheBlockIsHonestAboutWhatItIsNot:

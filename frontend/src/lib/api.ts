@@ -1470,7 +1470,15 @@ export type SlatePicks = {
   ranked: SlatePick[];
   /** Games counted out by name — "no pick" and "no measurement" are
    *  different facts. */
-  not_ranked: { stale_consensus: number; favorite_unpriced: number };
+  not_ranked: {
+    stale_consensus: number;
+    favorite_unpriced: number;
+    /** Distinct player-prop MARKETS in the window, never ranked here
+     *  (ticket #23): a prop shares its game's fixture id and would otherwise
+     *  be printed as the game's likely winner under the player's name.
+     *  Optional for a backend one version behind. */
+    props_excluded?: number;
+  };
   /** The chance≠edge sentence, rendered verbatim so the server and the
    *  screen cannot disagree about what this block claims. */
   note: string;
