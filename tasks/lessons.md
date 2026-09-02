@@ -54,6 +54,40 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-02 - A link to a screen is a claim that the screen exists, and the claim is pinned or it rots
+
+Ticket #28 was answered "deep-link the digest to `/picks`" and #29 "the
+footer label for `/board` is Refusals". Neither `/picks` nor a footer entry
+for `/board` existed: ticket #8 had decided both a week earlier, been
+ratified by Joe, and never been built, and the two later tickets were
+written against the decision rather than the tree. The one-line change
+for #28 would have sent a push notification to a 404 at the freshest
+moment of the night, and the old root link already landed on the screen
+that carried the ranked list -- a working link replaced by a more specific
+broken one.
+
+**Pattern: any string that names a route -- a notification URL, a nav href,
+a redirect -- is a claim about the app tree, and it is pinned by a test that
+walks the tree (`served_routes()`), not by the ticket that asked for it.
+And a decided ticket is a build owed to a queue; when the Queue C sweep
+runs, enumerate EVERY closed decision ticket against the tree, not the ones
+that look unbuilt.** #8 was missed by a sweep that named four others.
+
+## 2026-09-02 - "Restore the guard" with `git checkout` restores the COMMIT, not your edit
+
+Verifying a guard by disabling it: edit the code, run the test, watch it
+fail, restore. The restore was `git checkout -- file`, which put back the
+committed version -- and the fix under test was itself uncommitted, so the
+fix vanished with the mutation and the tree showed only the new test. The
+tests had passed a minute earlier against the fix, so the loss was invisible
+until the diff stat was read.
+
+**Pattern: disable-and-restore must restore to the state you are about to
+commit, not to HEAD. Either commit the fix first and mutate on top, or
+restore by reversing the exact mutation (`sed` back, or `git stash` /
+`git diff` of the fix). Read the diff stat before committing a guard
+verification; a file missing from it is the fix that was reverted.**
+
 ## 2026-09-02 - When a single look is registered, the look that counts is the FIRST one past the stopping rule
 
 The forward-lock registration says the rate arm gets *"a single look at `E*`,
@@ -3074,6 +3108,8 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-09-02 — in this file, above
+- A link to a screen is a claim that the screen exists, and the claim is pinned or it rots
+- "Restore the guard" with `git checkout` restores the COMMIT, not your edit
 - When a single look is registered, the look that counts is the FIRST one past the stopping rule
 - A retention cap on a diagnostic file is a deletion of whatever measurement reads its oldest lines
 - Before ranking work on a screen, read the instrument that says whether anyone is looking at it

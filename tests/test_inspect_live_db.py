@@ -3030,7 +3030,7 @@ def _visit_db(tmp_path) -> Path:
     )
     conn.executemany(
         "INSERT INTO odds_sweep_log (pass_ms, sport_key, outcome, detail)"
-        " VALUES (?, 'baseball_mlb', 'refused', 'attention slice spent')",
+        " VALUES (?, 'baseball_mlb', 'refused', 'daily cap: 700 credits spent -- the ONLY writer of refused; the slice never is')",
         [(VF_T + 50_000,), (VF_T + 10_000_000,)],
     )
     conn.commit()

@@ -4803,7 +4803,17 @@ def _q_visit_freshness(conn: sqlite3.Connection, args) -> list[Section]:
       plus the gap, because a buy the last heartbeat triggered can land after
       it; visits are more than the gap apart, so no buy is counted twice.
     - `refused_sweeps`: `odds_sweep_log` rows with `outcome = 'refused'` in
-      the same span -- the slice or the daily cap saying no while he looked.
+      the same span -- **the daily cap** saying no while he looked, and ONLY
+      the daily cap. `REFUSED` is written in exactly two places, both in
+      `backend/odds/client.py`, both behind `budget.refusal_reason` (the
+      700/day cap). The attention SLICE never produces one: since 2026-08-29
+      a slice-spent sport is demoted to the hourly floor, and its refusal
+      text reaches this log only as `outcome = 'skipped'` when the whole
+      pass fires nothing. So a zero here says nothing about the slice, and
+      the 2026-08-28T04:38Z visit -- the night CLAUDE.md records as "the
+      loop logged its refusal of that exact sweep" -- reads 0. Source any
+      "the slice was not the cause" sentence to `credits-day` by trigger,
+      never to this column. (Skeptic audit, 2026-09-02, B1.)
     - `sports_upcoming` / `sports_open`: sports with an upcoming fixture in
       the record at the first stamp, and the subset with at least one fixture
       inside the limit -- i.e. whose window the indicator would have shown
@@ -4833,9 +4843,40 @@ def _q_visit_freshness(conn: sqlite3.Connection, args) -> list[Section]:
     - **Nothing about why a stamp is old** -- inherited from
       `window-freshness`: a stale `last_update` cannot separate "the book has
       not repriced" from "the aggregator has not re-crawled it".
-    - **Only what is still in `odds_snapshots`.** A retrospective age is
-      honest only while the sweeps around the visit have not been pruned;
-      check `prune-frontier` before reading an old week.
+    - **`first_age_ms` (the MEDIAN fixture) is not rendered on any screen
+      and is not a measure of the feed.** `_fixture_ages_at` applies no
+      commence horizon, so the population is every not-yet-commenced
+      fixture in the record -- NCAAF and MLB fixtures days to weeks out
+      included -- and no screen shows that median: the Slate shows a
+      per-row age and promotes the refresh panel when ANY row is past the
+      limit; `/board`'s banner shows `first_fresh / first_fixtures`, which
+      IS this instrument's population. And an age is a BOOK STAMP
+      (`MIN(COALESCE(book_updated_ms, fetched_ms))`), so one bookmaker whose
+      `last_update` the aggregator has stopped advancing pins the median to
+      wall clock and makes it immune to the feed buying. On the first live
+      read (2026-09-02) `start_ms - first_age_ms` was one constant stamp
+      across 17 of 45 visits, and `last_age_ms - first_age_ms` equalled the
+      visit duration on 30 of 45 -- including a 2.6 h visit with ten
+      attention buys. **Lead with `first_age_min_ms` and `first_fresh`;
+      quote `first_age_ms` only beside that separating check.** The
+      instrument does not record the contributing book or any commence
+      time, so the largest contributor's share cannot be read off the
+      table. (Skeptic audit, 2026-09-02, B2.)
+    - **The latency is attributed by time window, not causally.** A buy
+      already in flight when the page opened is attributed to the visit
+      identically; sub-second latencies (nine of the first 37) are not the
+      documented 5 s wake-poll mechanism. The tail matters and the median
+      hides it.
+    - **The last visit may be right-censored** by the query instant: its
+      duration, heartbeats and last-stamp reading are truncated if the page
+      was still open when the query ran.
+    - **`sports_open` is a freshness fact, not the floor's 12 h test.** The
+      floor's horizon is `DESK_FLOOR_HORIZON_MS` against `min(commences)`,
+      and this instrument records no commence time, so it cannot say whether
+      a no-buy visit was one the floor had correctly declined.
+    - **Retrospective ages are durable.** There is no `DELETE FROM
+      odds_snapshots` anywhere in `backend/`; `retention.prune_quotes` and
+      `prune-frontier` concern `kalshi_quotes`. An old week reads as it was.
 
     Unreadable is `None`, never `0`: an age with no upcoming fixture, a
     latency with no buy, a truncated population's count.

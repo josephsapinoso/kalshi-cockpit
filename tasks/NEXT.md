@@ -197,17 +197,34 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ## 2026-09-02 (latest) — the partner ran first; P5 is terminated, #6 is built, and the desk went quiet
 
-**STATE at the time of writing:** `main` = the commit carrying this entry,
-on top of `2fd54c1` (ADR 0097 + result file + lessons), `471c221` (the #6
-merge), `0aaa15e` (CSS doctrine comment + #12 packet figures). **CI was
-green on `fbede83`** at session start and the run on `471c221` was in flight
-when this was written — read `gh run list --limit 3` rather than this line.
-**Live = `3a78fbf`** at session start; the deploy of this session's main
-follows the green run — read `/api/health` `build.git_sha`. Three lane
-worktrees exist under `.claude/worktrees/agent-*` and are merged; delete
-them (`git worktree remove`, then `git branch -d`) if the harness has not.
-Working tree clean; `Dockerfile` / `extend_volume_wizard.sh` were a stat-cache
-phantom (identical blobs, `git add` cleared it).
+**STATE, verified at close (2026-09-03 ~00:00Z):** **Live = `6242341`**,
+`/api/health` ok, recorder writing, deployed after CI green on that SHA.
+`main` = the commit carrying this entry, which is `6242341` plus a
+docs-and-docstring commit (the visit-freshness measurement, ADR-cited
+docstring corrections, two lessons) — pushed, CI in flight at the time of
+writing; read `gh run list --limit 3`. **Every build from Joe's answers
+that could ship tonight is live: #32, #23, #8, #29, #28, and the
+`visit-freshness` instrument.** No lane worktrees remain; all seven this
+session (A–G) merged and removed. `Dockerfile` / `extend_volume_wizard.sh`
+were a stat-cache phantom (identical blobs, `git add` cleared it). A copy
+of live `loop_rss.jsonl`, `loop_failures.jsonl` and the visit-freshness
+output sits in `data/live-snapshots/` (gitignored) on the dev machine.
+
+**The remaining queue, in the partner's order:** #20 prototype (spec in
+the measurement doc §5), then on main serially #16 → #17, #15 → #19, #18
+last (footer link stays labelled Gate, keeps its 300 figure). #33 last,
+#24 deferred, #25 open. Joe's three: the void-settlement amendment,
+`user_not_found` on shard 3, his shard allocation.
+
+---
+
+*The paragraph below is the entry as first written at ~19:40Z; the state
+line above supersedes it.*
+
+**STATE at the time of first writing:** `main` = the commit carrying this
+entry, on top of `2fd54c1` (ADR 0097 + result file + lessons), `471c221`
+(the #6 merge), `0aaa15e` (CSS doctrine comment + #12 packet figures).
+**Live = `3a78fbf`** at session start.
 
 **The partner was invoked first, as CLAUDE.md step 0 now says.** It ranked,
 it was wrong once and said so itself (it had drafted findings for two agents
@@ -397,6 +414,24 @@ them. Item 3's pins (`test_good_chance_picks.py` banned-literal walk;
 absence from `test_buy_controls.py` `MOUNTS`) and an ADR amending 0067 §2
 (the block becomes a screen) are in the same build. Item 5: `/picks`
 carries the LIMIT-100 truncation sentence.
+
+**R0 IS TAKEN, AUDITED, AND IN THE RECORD** —
+`docs/measurements/2026-09-02-visit-freshness-first-read.md`. 45 visits
+since 08-26. **At a cold open the freshest fixture was a median 14.0 min
+old — just past the 15 min limit — and on 21 of 45 opens (47%) nothing was
+fresh at all.** The feed then bought within a median 3.3 s. 41 of 45 opens
+sit inside the hourly floor's own cadence; the four worse are overnight,
+when the 12 h horizon also declined. **The hypothesis is supported in
+direction: the cold-open design is what he meets.** The slice is not the
+cause — sourced to `credits-day`, NOT to the instrument's `refused_sweeps`
+column, which cannot see a slice refusal (skeptic B1; docstring and test
+fixture corrected, `260 passed`). **The "median fixture 4.8 h old" figure
+was REFUSED** (skeptic B2): no horizon on the population, one frozen book
+stamp pins it on 17 of 45 visits, and it grows by exactly the visit
+duration on 30 of 45 — wall clock, not the feed. Lead with the freshest
+fixture and `first_fresh`. Direction stays untested. **#20's spec is now
+this document's §5.** The docstring correction is on `main` and NOT
+deployed (a docstring; the next deploy carries it).
 
 **#8 + #29 landed — ADR 0098** (`afcad31`, full suite 5,753 passed):
 `/picks` is served (no order route, four empty/absent/unreachable/loading
