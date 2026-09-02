@@ -126,12 +126,23 @@ export default async function BoardPage({
         )}
 
         <header className="mb-8">
-          <h1 className="display text-4xl sm:text-5xl">Board</h1>
+          {/* "Refusals", 2026-09-02 (#29, Joe's word). This was "Board" while
+              the nav called it "Picks" -- two names for one screen, neither
+              of which a beginner could tell from "Games" or "Evidence", on
+              the page whose ordinary content is what the engine would NOT
+              bet. The heading, the footer label and the footer's sentence
+              now agree, and the sentence under the h1 is the footer's own
+              blurb with the two kinds of refusal spelled out: a named check
+              (the REJECTED rows), or the fee bar (the NO EDGE rows, which
+              carry no rule). Measured on live the day of the rename, the
+              second kind was two rows in three. The route stays `/board`
+              -- four test files and the API vocabulary name it. */}
+          <h1 className="display text-4xl sm:text-5xl">Refusals</h1>
           <p className="mt-3 max-w-xl text-lg text-muted">
-            Kalshi priced against <Term k="devig">devigged</Term> sportsbook{" "}
-            <Term k="consensus">consensus</Term>. A bet appears only when the{" "}
-            <Term k="edge">edge</Term> survives <Term k="fee">fees</Term>,
-            freshness, <Term k="depth">depth</Term> and the suspicion checks.
+            The candidates the engine priced in its last half-hour of
+            recording, each with the reason that stopped it &mdash; a named
+            check, or the <Term k="fee">fee</Term> bar it could not clear.
+            Nearly all are refused &mdash; the ordinary night.
           </p>
         </header>
 

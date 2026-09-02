@@ -16,10 +16,20 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend" / "src"
 PICKS = FRONTEND / "components" / "GoodChancePicks.tsx"
 SLATE_PAGE = FRONTEND / "app" / "slate" / "page.tsx"
+#: The block as a screen of its own (decision-map #8, 2026-09-02). Every
+#: chase-surface prohibition on the block applies to the page that hosts it
+#: under the nav word "Picks"; the walk below runs over both.
+PICKS_PAGE = FRONTEND / "app" / "picks" / "page.tsx"
+CHASE_SURFACES = [
+    pytest.param(PICKS, id="GoodChancePicks"),
+    pytest.param(PICKS_PAGE, id="picks-page"),
+]
 
 
 def source(path: Path) -> str:
@@ -48,23 +58,32 @@ class TestTheBlockRendersTheServersSentence:
 
 
 class TestTheBlockIsNotAChaseSurface:
-    def test_no_money_ink(self):
+    """Walked over the block AND the `/picks` page that hosts it (#8
+    amendment 3): a prohibition that held for a block on Games and lapsed the
+    day the block got a nav slot would have lapsed exactly where it matters.
+    Mutation observed red on the page: import `ManualTicket` into
+    `app/picks/page.tsx` -- `test_nothing_here_opens_a_ticket[picks-page]`."""
+
+    @pytest.mark.parametrize("path", CHASE_SURFACES)
+    def test_no_money_ink(self, path):
         """`bg-accent` is reserved for money (ADR 0061); a favorites list
         wearing it would read as a buy button per game."""
-        assert "bg-accent" not in code_only(source(PICKS))
+        assert "bg-accent" not in code_only(source(path))
 
-    def test_nothing_here_opens_a_ticket(self):
+    @pytest.mark.parametrize("path", CHASE_SURFACES)
+    def test_nothing_here_opens_a_ticket(self, path):
         """Entries link to the game's own screen and nowhere else. A ticket
         on a ranked favorites list is the tilt reviewer's chase surface."""
-        text = code_only(source(PICKS))
+        text = code_only(source(path))
         for banned in ("TicketSheet", "TicketTrigger", "ManualTicket",
                        "/api/orders", "/api/manual-orders"):
-            assert banned not in text, f"{banned} appears in the picks block"
+            assert banned not in text, f"{banned} appears in {path.name}"
 
-    def test_no_streak_or_hit_count(self):
+    @pytest.mark.parametrize("path", CHASE_SURFACES)
+    def test_no_streak_or_hit_count(self, path):
         """A "picks that hit" tally is the ego-loaded aggregate the CLV
         ruling banned below n >= 30; this block must never grow one."""
-        text = code_only(source(PICKS)).lower()
+        text = code_only(source(path)).lower()
         for banned in ("hit rate", "hitrate", "streak", "record:"):
             assert banned not in text
 
