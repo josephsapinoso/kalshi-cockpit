@@ -306,3 +306,80 @@ class TestTheWebhookNeverReachesALog:
         assert "xQ2v9LmT4pR7wYzB1nK6sHfJdA0cE8gU3iO5rV7tX9yZ2bN4mQ6pL1kS" not in (
             redact(f"HTTP Request: POST {WEBHOOK} 204")
         )
+
+
+class FakeWindow:
+    """The fields `window_open` reads, and nothing else. Frozen so a test that
+    starts reading a new field fails here, by name, rather than on a fake that
+    happens to carry it."""
+
+    seconds_remaining = 540
+    fixtures_fresh = 3
+    fixtures_upcoming = 7
+    sweeps_remaining_today = 12
+
+
+def _served_static_routes() -> set[str]:
+    """Every `page.tsx` under `frontend/src/app` whose path has no dynamic
+    segment, as the path a browser would ask for. The same walk
+    `tests/test_every_screen_is_reachable.py::served_routes` does; repeated
+    here rather than imported because `tests/` is not a package."""
+    from pathlib import Path
+
+    app = Path(__file__).resolve().parent.parent / "frontend" / "src" / "app"
+    routes = set()
+    for page in app.rglob("page.tsx"):
+        rel = page.parent.relative_to(app).as_posix()
+        if "[" in rel:
+            continue
+        routes.add("/" if rel == "." else f"/{rel}")
+    return routes
+
+
+class TestEveryEmbedLandsOnAServedScreen:
+    """Decision-map ticket #28 (Joe, 2026-09-02): the window-open digest
+    deep-links to `/picks`. The route did not exist when the ticket was
+    answered -- `Nav.tsx` sent the word "Picks" to `/board` until ADR 0098 --
+    so a link written from the ticket alone would have been a 404 delivered
+    to his phone at the freshest moment of the night. This class is what
+    makes the ordering enforced rather than remembered: every static path a
+    Discord embed names must have a `page.tsx` behind it."""
+
+    @respx.mock
+    async def test_the_window_open_digest_lands_on_picks(self, notifier):
+        route = respx.post(API).mock(return_value=httpx.Response(200, json={}))
+        async with notifier as n:
+            assert await n.window_open(window=FakeWindow(), surfaced=0)
+        embed = json.loads(route.calls.last.request.read().decode())["embeds"][0]
+        assert embed["url"] == "https://cockpit.example/picks"
+
+    @respx.mock
+    async def test_the_digest_does_not_land_on_the_root(self, notifier):
+        """The root re-exports the Games slate, which carries the same ranked
+        block -- so the old link worked, and the new one must not be a
+        regression to something that only looks more specific."""
+        route = respx.post(API).mock(return_value=httpx.Response(200, json={}))
+        async with notifier as n:
+            await n.window_open(window=FakeWindow(), surfaced=2)
+        embed = json.loads(route.calls.last.request.read().decode())["embeds"][0]
+        assert embed["url"] != "https://cockpit.example"
+        assert embed["url"] != "https://cockpit.example/"
+
+    @respx.mock
+    async def test_every_static_embed_path_is_a_served_route(self, notifier):
+        """Collects the URL from each embed the notifier can emit with a
+        static destination and checks the path against the app tree. A
+        screen renamed or removed turns this red before a deploy sends a
+        push to a page that is not there."""
+        route = respx.post(API).mock(return_value=httpx.Response(200, json={}))
+        async with notifier as n:
+            await n.window_open(window=FakeWindow(), surfaced=1)
+        urls = [
+            json.loads(call.request.read().decode())["embeds"][0]["url"]
+            for call in route.calls
+        ]
+        assert urls, "no embed was captured"
+        served = _served_static_routes()
+        for url in urls:
+            path = url.removeprefix("https://cockpit.example") or "/"
+            assert path in served, f"{path!r} has no page.tsx behind it; served: {sorted(served)}"

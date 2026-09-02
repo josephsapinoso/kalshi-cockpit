@@ -285,7 +285,19 @@ class DiscordNotifier:
                     f"signal to bet: most windows open onto an empty board, "
                     f"which is the expected result."
                 ),
-                "url": self.config.cockpit_base_url,
+                # `/picks`, not the root — decision-map ticket #28 (Joe,
+                # 2026-09-02). The digest fires exactly when a window opens,
+                # which is the moment the ranked list is freshest, and
+                # `/picks` is the one screen that has content precisely then.
+                # This is permitted under the rule in `opportunity()` above
+                # against deep-linking into a screen that forgets its rows:
+                # `/picks` is a ranked list rebuilt from the same payload on
+                # every load, not a per-row focus the page cannot honour.
+                # The route must exist before this string names it — it did
+                # not until ADR 0098 — and `tests/test_discord.py` pins every
+                # embed path to a served `page.tsx`, so a renamed screen turns
+                # this red rather than sending him to a 404.
+                "url": f"{self.config.cockpit_base_url}/picks",
                 "color": COLOUR_OPPORTUNITY if surfaced else COLOUR_DIGEST,
                 "fields": [
                     _field("Closes in", closes),
