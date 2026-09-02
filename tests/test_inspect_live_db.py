@@ -2946,3 +2946,312 @@ class TestTheCandidateScanCopyDoesNotDrift:
         from scripts.inspect_live_db import _SQL_PARLAY_CANDIDATES
 
         assert _SQL_PARLAY_CANDIDATES == CANDIDATE_SQL
+
+
+# ---------------------------------------------------------------------------
+# visit-freshness
+#
+# What these tests establish: heartbeats cluster into visits at the attention
+# TTL and not one ms short of it; the first-stamp age is read off the record at
+# the stamp and not off the clock; only `trigger = 'attention'` spend inside
+# the visit's span is credited to it; a refusal outside every visit is nobody's;
+# an empty table says "no visits" and prints no share at all.
+#
+# What they do NOT establish: anything about Joe. The fixture is three visits
+# in 1970. The direction question in the query's docstring is not a thing a
+# test can settle.
+# ---------------------------------------------------------------------------
+
+# Everything sits after 1970-01-01T10:00Z, which is where `--since 19700101`
+# starts the window (`_day_bounds`, budget day at 10:00Z).
+VF_T = 100_000_000
+VF_V2 = VF_T + 7_200_000
+VF_V3 = VF_T + 30_000_000
+VF_STALE_MS = 900_000
+
+
+def _visit_db(tmp_path) -> Path:
+    """Three visits, three fixtures, and every kind of spend near them.
+
+    Visit 1 at T: four heartbeats 60s apart. A sweep 600s before it priced all
+    three fixtures, so it opens fresh. An attention buy at T+90s re-sweeps
+    F1; a floor buy (NULL trigger) at T+30s and a 'manual' at T+40s must NOT
+    be the latency. One refusal at T+50s.
+
+    Visit 2 at T+2h: one heartbeat, no attention buy. A floor buy 200s before
+    it re-swept F1, so one of three fixtures is fresh and the median is not.
+
+    Visit 3 at T+30_000s: two heartbeats; an attention buy at +30s re-sweeps F2,
+    and a second attention buy lands 250s AFTER the last heartbeat -- inside
+    the TTL, so it is this visit's. A refusal at T+10_000_000 sits between
+    visits 2 and 3, outside both spans.
+    """
+    path = tmp_path / "cockpit.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+    f1 = ("F1", VF_T + 10 * 3_600_000, "baseball_mlb")
+    f2 = ("F2", VF_T + 12 * 3_600_000, "basketball_wnba")
+    f3 = ("F3", VF_T + 20 * 3_600_000, "baseball_mlb")
+    sweeps = [
+        # (fetched, book_updated, fixture)
+        (VF_T - 600_000, VF_T - 610_000, f1),
+        (VF_T - 600_000, VF_T - 610_000, f2),
+        (VF_T - 600_000, VF_T - 610_000, f3),
+        (VF_T + 90_000, VF_T + 80_000, f1),
+        (VF_V2 - 200_000, VF_V2 - 210_000, f1),
+        (VF_V3 + 30_000, VF_V3 + 25_000, f2),
+    ]
+    conn.executemany(
+        "INSERT INTO odds_snapshots (fetched_ms, book_updated_ms, sport_key,"
+        " odds_event_id, commence_ms, home_team, away_team, bookmaker, market,"
+        " outcome_name, price_decimal)"
+        " VALUES (?, ?, ?, ?, ?, 'H', 'A', 'sharp', 'h2h', 'H', 1.9)",
+        [(f, b, fx[2], fx[0], fx[1]) for f, b, fx in sweeps],
+    )
+    stamps = (
+        [VF_T + i * 60_000 for i in range(4)]
+        + [VF_V2]
+        + [VF_V3, VF_V3 + 60_000]
+    )
+    conn.executemany(
+        "INSERT INTO desk_attention (seen_ms) VALUES (?)", [(s,) for s in stamps]
+    )
+    conn.executemany(
+        "INSERT INTO api_credits (called_ms, endpoint, sport_key, cost, trigger)"
+        " VALUES (?, '/odds', ?, 2, ?)",
+        [
+            (VF_T + 30_000, "baseball_mlb", None),
+            (VF_T + 40_000, "baseball_mlb", "manual"),
+            (VF_T + 90_000, "baseball_mlb", "attention"),
+            (VF_V2 - 200_000, "baseball_mlb", None),
+            (VF_V3 + 30_000, "basketball_wnba", "attention"),
+            (VF_V3 + 60_000 + 250_000, "basketball_wnba", "attention"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO odds_sweep_log (pass_ms, sport_key, outcome, detail)"
+        " VALUES (?, 'baseball_mlb', 'refused', 'attention slice spent')",
+        [(VF_T + 50_000,), (VF_T + 10_000_000,)],
+    )
+    conn.commit()
+    conn.close()
+    return path
+
+
+@pytest.fixture
+def visit_db(tmp_path, monkeypatch) -> Path:
+    """The fixture above, with the staleness limit pinned to the code default.
+
+    `MAX_ODDS_AGE_S` reaches the query from the environment, as it reaches
+    `config.py`; a local `.env` must not be able to move a share here.
+    """
+    monkeypatch.delenv("MAX_ODDS_AGE_S", raising=False)
+    return _visit_db(tmp_path)
+
+
+def _visits(capsys, db: Path, *extra: str) -> list[dict[str, Any]]:
+    payload = _run_json(
+        capsys, ["visit-freshness", "--db", str(db), "--since", "19700101", *extra]
+    )
+    section = _named(payload, "one row per visit")
+    return [dict(zip(section["columns"], row)) for row in section["rows"]]
+
+
+def _summary(capsys, db: Path, *extra: str) -> dict[str, Any]:
+    payload = _run_json(
+        capsys, ["visit-freshness", "--db", str(db), "--since", "19700101", *extra]
+    )
+    section = _named(payload, "summary")
+    return {row[0]: row[1] for row in section["rows"]}
+
+
+class TestHeartbeatsClusterIntoVisitsAtTheAttentionTtl:
+    """A visit ends where `is_attended` would have said the desk shut.
+
+    Mutation: change `<=` to `<` in `_cluster_visits` -- a gap of exactly the
+    TTL then splits a visit the loop bought for as one.
+    """
+
+    def test_the_gap_is_the_attention_ttl_and_the_limit_is_configs(self):
+        from backend.config import StalenessConfig
+        from backend.odds import attention
+        from scripts.inspect_live_db import _STALE_LIMIT_DEFAULT_S, _VISIT_GAP_MS
+
+        assert _VISIT_GAP_MS == attention.DEFAULT_ATTENTION_TTL_MS
+        assert _STALE_LIMIT_DEFAULT_S == StalenessConfig().max_odds_age_s
+
+    def test_three_visits_with_their_heartbeat_counts(self, visit_db, capsys):
+        rows = _visits(capsys, visit_db)
+        assert [(r["visit"], r["heartbeats"]) for r in rows] == [
+            (1, 4),
+            (2, 1),
+            (3, 2),
+        ]
+        assert [r["start_ms"] for r in rows] == [VF_T, VF_V2, VF_V3]
+        assert rows[0]["duration_s"] == 180
+
+    def test_a_gap_of_exactly_the_ttl_does_not_open_a_visit(self):
+        from scripts.inspect_live_db import _VISIT_GAP_MS, _cluster_visits
+
+        gap = _VISIT_GAP_MS
+        assert _cluster_visits([0, gap, 2 * gap + 1], gap) == [[0, gap], [2 * gap + 1]]
+
+    def test_gap_ms_overrides_the_ttl(self, visit_db, capsys):
+        """At 30s, visit 1's four 60s-spaced heartbeats are four visits."""
+        rows = _visits(capsys, visit_db, "--gap-ms", "30000")
+        assert len(rows) == 4 + 1 + 2
+
+    def test_pass_gaps_keeps_its_own_default(self, live_db, capsys):
+        payload = _run_json(capsys, ["pass-gaps", "--db", str(live_db)])
+        assert any("gaps over 1200s" in s["title"] for s in payload["sections"])
+
+
+class TestTheFirstStampAgeIsReadFromTheRecordNotTheClock:
+    """Ages are `stamp - oldest_book_stamp`, pinned at the stamp.
+
+    Mutation: pass `int(time.time() * 1000)` instead of `start` to
+    `_fixture_ages_at` -- every age becomes ~56 years and the fixture is
+    empty, because nothing commences after today.
+    """
+
+    def test_visit_one_opened_610s_after_the_pre_visit_sweep(
+        self, visit_db, capsys
+    ):
+        first = _visits(capsys, visit_db)[0]
+        assert first["first_fixtures"] == 3
+        assert first["first_fresh"] == 3
+        assert first["first_age_ms"] == 610_000
+        assert first["first_age_min_ms"] == 610_000
+        assert first["first_age_max_ms"] == 610_000
+        assert first["sports_upcoming"] == "baseball_mlb,basketball_wnba"
+        assert first["sports_open"] == "baseball_mlb,basketball_wnba"
+
+    def test_the_last_stamp_reading_sees_what_the_visit_bought(
+        self, visit_db, capsys
+    ):
+        """F1 was re-swept at T+90s; at T+180s it is 100s old and fresh."""
+        first = _visits(capsys, visit_db)[0]
+        assert first["last_fresh"] == 3
+        # The median of three ages (100_000, 790_000, 790_000) is 790_000.
+        assert first["last_age_ms"] == 790_000
+
+    def test_a_partly_fresh_slate_has_a_stale_median(self, visit_db, capsys):
+        """Visit 2: F1 210s old, F2 and F3 7810s old. One fresh, median not."""
+        second = _visits(capsys, visit_db)[1]
+        assert second["first_fresh"] == 1
+        assert second["first_age_min_ms"] == 210_000
+        assert second["first_age_ms"] == 7_810_000
+        assert second["sports_open"] == "baseball_mlb"
+
+    def test_no_upcoming_fixture_is_none_not_zero_age(self, tmp_path, capsys):
+        path = tmp_path / "cockpit.db"
+        conn = sqlite3.connect(path)
+        conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+        conn.execute("INSERT INTO desk_attention (seen_ms) VALUES (?)", (VF_T,))
+        conn.commit()
+        conn.close()
+        row = _visits(capsys, path)[0]
+        assert row["first_fixtures"] == 0
+        assert row["first_age_ms"] is None
+        assert row["first_age_min_ms"] is None
+        assert row["sports_upcoming"] is None
+
+
+class TestOnlyAttentionSpendInsideTheVisitIsCredited:
+    """Mutation: drop `trigger = 'attention'` from `_SQL_FIRST_ATTENTION_BUY`
+    -- the floor buy at T+30s becomes visit 1's latency."""
+
+    def test_the_latency_is_to_the_first_attention_buy(self, visit_db, capsys):
+        rows = _visits(capsys, visit_db)
+        assert rows[0]["attention_latency_ms"] == 90_000
+        assert rows[0]["first_attention_sport"] == "baseball_mlb"
+        assert rows[0]["attention_buys"] == 1
+
+    def test_a_visit_with_no_attention_buy_reads_none(self, visit_db, capsys):
+        """The floor buy before visit 2 is neither inside it nor attention."""
+        second = _visits(capsys, visit_db)[1]
+        assert second["attention_latency_ms"] is None
+        assert second["first_attention_sport"] is None
+        assert second["attention_buys"] == 0
+
+    def test_a_buy_inside_the_ttl_after_the_last_heartbeat_is_the_visits(
+        self, visit_db, capsys
+    ):
+        """Mutation: use `end` rather than `end + gap_ms` as the span end."""
+        third = _visits(capsys, visit_db)[2]
+        assert third["attention_latency_ms"] == 30_000
+        assert third["attention_buys"] == 2
+
+    def test_refusals_are_counted_inside_the_visit_only(self, visit_db, capsys):
+        rows = _visits(capsys, visit_db)
+        assert [r["refused_sweeps"] for r in rows] == [1, 0, 0]
+
+
+class TestTheSummaryIsSharesOfVisitsAgainstTheDeployedLimit:
+    def test_the_shares_are_distinct_and_correct(self, visit_db, capsys):
+        s = _summary(capsys, visit_db)
+        assert s["visits"] == 3
+        assert s["heartbeats"] == 7
+        assert s["stale_limit_ms"] == VF_STALE_MS
+        assert s["visits_with_readable_first_age"] == 3
+        # Medians: first ages 610_000, 7_810_000, 30_610_000 -> 7_810_000;
+        # first minimums 210_000, 610_000, 23_010_000 -> 610_000.
+        assert s["median_first_age_ms"] == 7_810_000
+        assert s["median_first_age_min_ms"] == 610_000
+        assert s["visits_no_attention_buy"] == 1
+        assert s["share_no_attention_buy"] == round(1 / 3, 3)
+        assert s["median_attention_latency_ms"] == 30_000
+        assert s["visits_first_age_over_limit"] == 2
+        assert s["share_first_age_over_limit"] == round(2 / 3, 3)
+        assert s["visits_nothing_fresh_at_open"] == 1
+        assert s["share_nothing_fresh_at_open"] == round(1 / 3, 3)
+
+    def test_the_limit_is_read_from_the_environment_as_config_reads_it(
+        self, visit_db, capsys, monkeypatch
+    ):
+        """At a 100s limit, visit 1's 610s open is stale too."""
+        monkeypatch.setenv("MAX_ODDS_AGE_S", "100")
+        s = _summary(capsys, visit_db)
+        assert s["stale_limit_ms"] == 100_000
+        assert s["visits_first_age_over_limit"] == 3
+        assert s["visits_nothing_fresh_at_open"] == 3
+
+    def test_an_empty_table_says_no_visits_and_prints_no_share(
+        self, empty_db, capsys, monkeypatch
+    ):
+        monkeypatch.delenv("MAX_ODDS_AGE_S", raising=False)
+        s = _summary(capsys, empty_db)
+        assert s["visits"] == 0
+        assert "no visits" in s["note"]
+        assert not [k for k in s if k.startswith("share_")]
+        assert not [k for k in s if k.startswith("median_")]
+        assert _visits(capsys, empty_db) == []
+
+    def test_since_excludes_earlier_heartbeats(self, visit_db, capsys):
+        """A window opening after visit 1 leaves two visits."""
+        rows = _visits(capsys, visit_db)
+        assert len(rows) == 3
+        payload = _run_json(
+            capsys,
+            ["visit-freshness", "--db", str(visit_db), "--since", "19700102"],
+        )
+        section = _named(payload, "one row per visit")
+        # 1970-01-02T10:00Z is 122_400_000 ms: after visit 1 and 2, before 3.
+        assert [row[section["columns"].index("start_ms")] for row in section["rows"]] == [
+            VF_V3
+        ]
+
+    def test_a_malformed_since_exits_2(self, visit_db, capsys):
+        rc = main(["visit-freshness", "--db", str(visit_db), "--since", "lastweek"])
+        assert rc == 2
+        assert "lastweek" in capsys.readouterr().err
+
+    def test_window_freshness_still_reads_the_shared_helper(self, tmp_path, capsys):
+        """The refactor left `window-freshness`'s own reading unchanged."""
+        payload = _run_json(
+            capsys,
+            ["window-freshness", "--db", str(_freshness_db(tmp_path)), "--at", "2100000"],
+        )
+        fixtures = _named(payload, "per fixture")
+        by_id = {r[0]: r for r in fixtures["rows"]}
+        assert by_id["F1"][fixtures["columns"].index("age_ms")] == 2_100_000 - 1_090_000
