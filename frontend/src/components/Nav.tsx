@@ -4,16 +4,22 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import ThemeToggle from "./ThemeToggle";
+import MarketSearch from "./MarketSearch";
 import { SHELL_WIDTH } from "@/lib/shell";
 import { fetchWindow, recordAttention } from "@/lib/api";
 import { windowChip } from "@/lib/windowChip";
 import type { Chip } from "@/lib/windowChip";
 
-// Six links, and the count is a budget rather than a coincidence. A seventh
-// does not clip the page -- the row scrolls, which is what `min-w-0
-// overflow-x-auto` below is for -- but it does push the last item out of sight,
-// and the Gate is the screen that says whether money can move. So adding one
-// means removing one.
+// Four links and a search button, since 2026-09-02 (decision-map #18, Joe's
+// option A). The count is a budget rather than a coincidence: the row scrolls
+// rather than clipping the page -- that is what `min-w-0 overflow-x-auto`
+// below is for -- but whatever it scrolls is out of sight, and for the two
+// weeks before #18 the six-link row was ALREADY scrolling. The ticket measured
+// it: at 390px the row's scrollWidth was 424 against a clientWidth of 318,
+// Playbook off-screen at 390 and Gate off at 320, while every sentence in
+// this file that said "Gate keeps its visible slot at 390px" was a comment
+// nobody had measured. The history below is kept as it was written, and
+// every "six" in it describes the row before #18.
 //
 // **`/builder` AND `/rejections` NO LONGER EXIST. Corrected 2026-08-29.**
 // This comment said in four separate places that they were "still served",
@@ -114,16 +120,36 @@ import type { Chip } from "@/lib/windowChip";
 // footer as "Refusals", with the sentence that says what it is. A promotion
 // rather than a move: the block stays on Games too. Same six links, same
 // order, so Gate keeps its visible slot at 390px and Playbook still scrolls.
+// **Gate and Playbook go to the footer and search comes to the header,
+// 2026-09-02** (decision-map #18, Joe's option A; the two are Footer.tsx's
+// first entries and keep their names). The row that stays is the four screens
+// a bet is looked at or read back from on the day: every game, the ranked
+// list, the parlay cards, his own record. Gate is the screen that says
+// whether the ENGINE may move money, and it is read, never acted on -- its
+// number is a games-against-300 count that no plan waits for -- so a tap
+// further away costs nothing that a scrolled-off slot was not already
+// costing. Playbook is reference. What the freed width buys is the search:
+// half the time Joe arrives already knowing his game, and until now the only
+// way to name one was a collapsed line at the foot of the longest page. The
+// search is the button beside the logo below, and it opens the same
+// `MarketSearch` the Games and market screens host -- reached from here, not
+// rebuilt here.
 const LINKS = [
   { href: "/", label: "Games" },
   { href: "/picks", label: "Picks" },
   { href: "/parlays", label: "Parlays" },
   { href: "/bets", label: "Your bets" },
-  // Gate before Playbook, and the order is load-bearing at 390px: the newest
-  // and least urgent page is the one that scrolls off.
-  { href: "/gate", label: "Gate" },
-  { href: "/playbook", label: "Playbook" },
 ];
+
+// Which link a page lights. A market page is a game's own screen, reached
+// from a Games row or a Picks row, and the nav cannot know which -- so it
+// lights Games, the screen that holds every game. Before 2026-09-02 no link
+// lit on `/market/[ticker]` at all. `/slate` is `/` re-exported for bookmarks
+// and lights the same link.
+function lights(href: string, pathname: string): boolean {
+  if (pathname === href) return true;
+  return href === "/" && (pathname === "/slate" || pathname.startsWith("/market/"));
+}
 
 export default function Nav() {
   const pathname = usePathname();
@@ -134,6 +160,29 @@ export default function Nav() {
   // the fetch is cheap and gating it on a media query would put layout state
   // into data state.
   const [chip, setChip] = useState<Chip | null>(null);
+  // The header search. Closed until the button is pressed, and closed again
+  // on every navigation and on Escape: the panel is a layer over whatever
+  // page is open, and a layer that outlives the page it was opened on reads
+  // as part of the next one. While closed nothing is mounted -- the search
+  // is the one control here that can reach a market no screen priced, and
+  // it opens a hand-bet ticket, so it exists on the page only while asked
+  // for. (The Picks screen's "no door to money" rule, #8, is about what the
+  // PAGE renders and is pinned on the page's source; this button asks for a
+  // typed name before anything with a price appears.)
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  useEffect(() => {
+    setSearchOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSearchOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [searchOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -220,23 +269,57 @@ export default function Nav() {
         `overflow-x-auto` gives it somewhere to put the excess. Together they
         mean a sixth link degrades to a scroll instead of clipping the page.
         The tighter mobile padding is what makes all five fit today.
+
+        The search button sits OUTSIDE the scrolling row, beside the logo,
+        for two reasons that are both about the phone. It must never be the
+        thing that scrolls off -- it is the header affordance #18 traded two
+        nav slots for. And its thumb target is a pseudo-element grown past
+        its 36px box to 44px: inside an `overflow-x-auto` row that overhang
+        would become a vertical scrollbar, and outside it it costs the row no
+        height, so the header stays exactly as tall as it was and the sticky
+        filter bar the list screens hang under it is not moved.
       */}
       <nav
         className={`${SHELL_WIDTH} flex items-center justify-between gap-2 px-4 py-4 sm:px-6 xl:px-8`}
       >
-        <Link href="/" className="flex shrink-0 items-center gap-3">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent-fill text-sm font-bold text-white">
-            K
-          </span>
-          <span className="hidden text-sm font-semibold tracking-tight sm:inline">
-            Cockpit
-          </span>
-        </Link>
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+          <Link href="/" className="flex shrink-0 items-center gap-3">
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent-fill text-sm font-bold text-white">
+              K
+            </span>
+            <span className="hidden text-sm font-semibold tracking-tight sm:inline">
+              Cockpit
+            </span>
+          </Link>
+          <button
+            type="button"
+            onClick={() => setSearchOpen((open) => !open)}
+            aria-label="Search markets"
+            aria-expanded={searchOpen}
+            aria-controls="market-search-panel"
+            className={`relative grid h-9 w-9 shrink-0 place-items-center rounded-full border transition-colors before:absolute before:-inset-1 before:content-[''] hover:bg-accent-soft hover:text-foreground ${
+              searchOpen ? "bg-accent-soft text-foreground" : "text-muted"
+            }`}
+          >
+            <svg
+              aria-hidden
+              viewBox="0 0 20 20"
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            >
+              <circle cx="8.5" cy="8.5" r="5.5" />
+              <path d="M13 13l4.5 4.5" />
+            </svg>
+          </button>
+        </div>
 
         {/* State, not navigation, and muted ink at every state on purpose:
             "open" means the recorder's prices are fresh, never that there is
             something to bet, and a green chip here would read as permission.
-            Hidden below xl — the phone's six-link budget is not renegotiated
+            Hidden below xl — the phone's four-link budget is not renegotiated
             by a desktop feature. See lib/windowChip.ts. */}
         {chip !== null && (
           <span className="hidden shrink-0 items-center gap-2 font-mono text-xs text-muted xl:flex">
@@ -255,8 +338,9 @@ export default function Nav() {
             <Link
               key={link.href}
               href={link.href}
+              aria-current={lights(link.href, pathname) ? "page" : undefined}
               className={`shrink-0 rounded-full px-2 py-1.5 text-sm transition-colors hover:bg-accent-soft hover:text-foreground sm:px-3 ${
-                pathname === link.href ? "text-foreground" : "text-muted"
+                lights(link.href, pathname) ? "text-foreground" : "text-muted"
               }`}
             >
               {link.label}
@@ -267,6 +351,21 @@ export default function Nav() {
           </div>
         </div>
       </nav>
+      {/* The panel hangs off the header's bottom edge as a layer, so opening
+          it changes nothing about the header's own height. Its own opaque
+          background matters: the header is transparent until the page is
+          scrolled, and a translucent panel over a slate row would be prices
+          showing through a search box. */}
+      {searchOpen && (
+        <div
+          id="market-search-panel"
+          className="absolute inset-x-0 top-full max-h-[75vh] overflow-y-auto border-b bg-background"
+        >
+          <div className={`${SHELL_WIDTH} px-4 pb-4 sm:px-6 xl:px-8`}>
+            <MarketSearch open heading="Search the venue" />
+          </div>
+        </div>
+      )}
     </header>
   );
 }

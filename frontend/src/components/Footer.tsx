@@ -34,6 +34,23 @@ import { SHELL_WIDTH } from "@/lib/shell";
  * and moving one here to avoid making that call is the failure mode to watch
  * for. Neither of these two is that: one is the fastest diagnostic on the
  * system and the other is a deliberate "don't" calculator.
+ *
+ * **The budget it refers to is four now, not six, and this list is longer
+ * than the nav on purpose -- 2026-09-02, decision-map #18, Joe's option A.**
+ * Six links were measured scrolling at 390px (scrollWidth 424 against 318),
+ * so "a seventh pushes Gate off" had been true of the sixth for two weeks.
+ * Joe moved Gate and Playbook here and gave the header a search button in
+ * their place. The old test rule "never more than the nav" is retired with
+ * that decision; what replaces it is that this list is pinned entry by
+ * entry in `test_every_screen_is_reachable.py`, so the next screen to land
+ * here still has to be written into a test as a decision, with a blurb.
+ *
+ * **Gate is still called Gate here, and still counts games against 300 on
+ * its own page.** Demoting the screen that says whether the engine may
+ * trade is the cost the ticket named and Joe accepted, on one ground: it is
+ * read, never acted on. A footer link that looked retired -- softened,
+ * renamed, its number dropped -- is exactly how "the gate will open" gets
+ * re-derived as a plan by a session that never saw CLAUDE.md say it is not.
  */
 // **The 2026-08-22 every-page review emptied most of this list, on Joe's
 // approval, and each exit is a decision rather than a tidy-up:**
@@ -54,6 +71,25 @@ import { SHELL_WIDTH } from "@/lib/shell";
 // - **`/slate` lost this slot** — a byte-identical re-export of `/`,
 //   kept served for bookmarks; a link to the page you are on is furniture.
 const SECONDARY = [
+  {
+    // Demoted from the nav 2026-09-02 (#18, Joe's option A). The live-trading
+    // interlock's own screen: locked, and the games-against-300 count that
+    // holds it locked. The label and the number are load-bearing -- see the
+    // docstring above -- and the blurb must keep saying it is read, not
+    // acted on, because nothing on this desk waits for it.
+    href: "/gate",
+    label: "Gate",
+    blurb:
+      "Whether the automated engine may trade at all: locked, with the count of actionable games against the 300 the interlock requires. A reading, not a control — nothing here waits for it to open.",
+  },
+  {
+    // Demoted with Gate, same ticket. Reference, read when a threshold
+    // change has split the evidence -- never a screen a bet is placed from.
+    href: "/playbook",
+    label: "Playbook",
+    blurb:
+      "The rules in force when each observation was recorded, and every threshold change that splits the evidence into halves. Reference, not a betting screen.",
+  },
   {
     // The stopped study's record (Amendment 2, stopped without result).
     // The FORM retired 2026-08-22 (ADR 0065): a typed P(YES) becomes the
