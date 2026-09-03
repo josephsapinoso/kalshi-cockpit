@@ -200,12 +200,17 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 **STATE, verified at close:** `main` = the commit carrying this entry, on top
 of `2747b0f` (Lane B merge, ADR 0103), `2a0c3d3` (Lane D merge, ADR 0102),
 `2b99224` (Lane A merge, ADR 0101), `d763d5b` (record correction), `f4c2159`
-(`leagueLabel`). Pushed through `2a0c3d3` with CI in flight at the time of
-writing; `2747b0f` and this entry are pushed after that run finishes (a new
-push cancels the in-flight one). **Live = `01d482b`** at the time of writing;
-the deploy follows CI green on the final SHA — read `gh run list --limit 3`
-and `/api/health` `build.git_sha`, never this sentence. No lane worktrees
-remain; the three merged branches `worktree-agent-*` are deleted.
+(`leagueLabel`). CI green on `2a0c3d3` (run 33799001167) and on `566f67e`
+(run 33799815045). **Live = `566f67e`, deployed by this session after CI
+green** (Deploy run 33800619690); `/api/health` ok, recorder writing,
+`build.git_sha` matches. **Demo = `566f67e` too** (run 33800910874), deployed
+so the three new payload shapes could be read without a session cookie:
+`/api/window` publishes `loop_idle_interval_ms = 900000`, `/api/board` has
+`counts.sized_to_zero` and `slate.reference_bankroll_dollars = 1000.0`,
+`/api/bets` has `sections`, `first_settled_ms` and the served
+`staked_refusal`. Live's `/api/window` is a 401 without the cookie, so it was
+verified on demo and by CI, not read on live. No lane worktrees remain; the
+three merged branches `worktree-agent-*` are deleted.
 
 ### The partner ran first, and both of yesterday's premises were wrong
 
