@@ -195,7 +195,138 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-02 (latest) — the partner ran first; P5 is terminated, #6 is built, and the desk went quiet
+## 2026-09-03 (latest) — the partner reordered the queue around a regression shipped the day before; three lanes landed; Joe answered the second batch
+
+**STATE, verified at close (2026-09-03 ~05:00Z):** `main` = the commit
+carrying this entry, on top of `ded444a` (Lane C merge, ADR 0100),
+`e1be1f8` (Lane B merge, ADR 0099), `1657893` (A16), `cb9e4ab`/`bc774d9`
+(Lane A merge), `2f82096` (the `/picks` watcher). CI green through
+`1657893`; the two lane merges are pushed with this entry — read
+`gh run list --limit 3`. **Live = `6242341`, unchanged all session.** The
+one deploy dispatch this session was blocked by the permission classifier
+(the standing rule is one attempt), so **everything below is undeployed**:
+`gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit`
+is Joe's to run, from a laptop or the Actions tab. No lane worktrees remain.
+
+### The partner ran first and reordered the queue
+
+Given last night's ranking (#20 prototype → #16 → #17 → #15 → #19 → #18)
+it found a regression in yesterday's own build and put it ahead of
+everything: **`/picks` never self-healed.** ADR 0098 made it a real screen
+on 2026-09-02, written fresh from the block it promotes, and `/slate`'s
+`RefreshWhenPriced` — the watcher that re-renders a cold page when the sweep
+its own heartbeat triggered lands — did not come with it. Read against R0
+(21 of 45 cold opens with nothing fresh, the feed then buying at a median
+3.3 s), the screen the nav word "Picks" opens showed "not ranked: the
+consensus is too old to speak" on about half of Joe's opens and held it for
+the whole visit while the answer sat in the database. **That is the literal
+mechanism behind his stated reason for not opening the desk, on the screen
+built the day after he said it.** Fixed in `2f82096`: mounted beneath the
+block, gated on `not_ranked.stale_consensus > 0` (`some`, argued in the
+docstring, where the Slate's gate is `every`) and on `anAutomaticBuyIsComing`;
+five pins in `TestPicksWiresItToo`, gate verified red; ADR 0098 Amendment 1;
+two lessons (a promoted screen inherits the slot's traffic, not the old
+screen's fixes; a self-heal gated on "empty" stops the moment it has
+anything).
+
+**Consequence for #20:** it stays a throwaway `?variant=` prototype on demo,
+and it waits — a share of the "empty nights" it was opened for were a
+missing ten-second poll, and the distribution it designs against is the
+post-fix one. The partner also killed two things before they were proposed:
+the C5 separating read (nothing consumes it) and a faster floor cadence
+(dead on the 18,000/month cap — `fly.live.toml:273` already says the
+monthly cap binds first). Held: #33 (four `Stat` definitions across 20
+sites, to tint a count), #24 (needs its ADR 0065 amendment), #17 and #19
+(they compete for Joe's review attention, the scarce resource).
+
+**The lane-collision claim was half wrong.** `SlateRow.tsx` is `/board`-only;
+`/slate` renders a local `Row()`. #16 and #15 met only in `slate/page.tsx`
+at different hunks, so three worktrees ran in parallel and merged A → B → C
+with one auto-merge and no conflict. `Nav.tsx` was assigned wholly to Lane
+C, including the market-page active state #16's "nav path" clause turned
+out to mean (`/market/[ticker]` is dynamic and already exempted in the
+reachability test).
+
+### What landed
+
+- **#16 (16A, `bc774d9`)** — the Games row and the Refusals row keep the
+  refusal code verbatim with a `why →` link; the sentence lives only on
+  `/market/[ticker]`'s skeptic section, which now scrolls to `#skeptic`
+  after the panel loads. Six guards mutation-verified. `.env.example` now
+  names `RUNNER_INTERVAL_S` / `RUNNER_FAST_INTERVAL_S` (they existed only
+  as entrypoint defaults). `RefusalSummary`'s docstring corrected in
+  `cb9e4ab`.
+- **#15 (15A, `e1be1f8`, ADR 0099)** — `league=<sport_key>` and
+  `within_hours=<1..168>` on `/api/slate` and `/api/parlays`, one parser
+  (`backend/list_filters.py`), unknown values 422, unfiltered payload
+  byte-identical, a `filter` echo with `hidden` when set, nothing reordered
+  and no sort parameter. One sticky `FilterBar` on Games/Picks/Parlays
+  under the nav at its measured 69px. `check_mobile.py --width 390` clean
+  on nine pages. Ten guards verified. Noted: rows tag league from the
+  venue's "Pro Baseball" string while the chip says "MLB" (`LeagueTag`,
+  pre-existing).
+- **#18 (18A, `ded444a`, ADR 0100)** — nav is Games / Picks / Parlays /
+  Your bets plus a header search button opening the existing
+  `MarketSearch` as a layer; Gate and Playbook first in the footer, **Gate
+  still named Gate with the games-against-300 count** (the partner's
+  condition). 390px: 272/272 where six links scrolled 424/318; **320px
+  still scrolls 60px, recorded not fixed.** Ten guards verified. **Tension
+  recorded on the ticket:** the header search is on every page including
+  Picks, so a hand-bet ticket is reachable from the Picks tab again by a
+  typed search; #8's pin is on the page source and holds. Joe's call.
+- **#35 CLOSED** — all four fix commits are ancestors of live; caveat on
+  the ticket that the repaired branch has had ~zero live executions since
+  the slice has not run out since 08-27.
+
+### JOE ANSWERED THE SECOND BATCH — 2026-09-03, one line
+
+    21A, 25C, 29A, 8A, 44A, S3A, SHA
+
+Artifact (answered record):
+https://claude.ai/code/artifact/a2429d26-0fd7-41c4-b4b9-a47b61c340c9
+
+- **21A** (`/bets`): separate combos from single games, an open-now strip
+  never summed with cash, the page states its own first day, a combo reads
+  "unsettled" until the venue settles it. No backfill. **Build owed.**
+- **25C** (Refusals): a third chip, **SIZED TO ZERO**, for rows the gate
+  counts at its $1,000 reference and quarter-Kelly sizes to zero at the
+  observed balance; `population_counts` not forked; the row learns its
+  reference size. **Build owed.** #21 and #25 closed with the spec on each;
+  the map's Decisions-so-far carries a line for each.
+- **29A / 8A**: the shipped footer blurb (names the fee bar) and the
+  "Picks" h1 stand. Noted on both tickets.
+- **44A — BUILT, `1657893`:** a voided settlement counts its fee as a
+  loss and nothing else (markers `NULL`, `''`, `'void'`; anything else
+  still refuses; a void with an unreadable fee still refuses). ADR 0044
+  Amendment 4; registration Amendment 4 / A16. `study_loss_dollars` and
+  the `study-stop` mirror amended together, marker set duplicated and
+  pinned equal, both halves verified red by mutation. The $100 arm, which
+  one voided `KXMVE` combo had made uncomputable since it settled, reads a
+  number on the next deploy.
+- **S3A / SHA — waiting on Joe's hands.** He moves ~$1 into shard 3 and
+  says so; a session then posts ONE baseball contract at 1c,
+  immediate-or-cancel (cost ≤ 1c), and records which error or fill comes
+  back — the falsifying test for "a user materialises on a shard at the
+  first transfer". For shard 0 he names and moves the amount. **Nothing
+  runs until he says the money has landed.**
+
+### Still open, in the partner's order
+
+1. **Deploy** — Joe's dispatch. Five builds and A16 are on `main` and not
+   live.
+2. **Builds owed from tonight's answers:** #21 (`/bets` separations), #25
+   (SIZED TO ZERO chip). Both touch files no lane holds now.
+3. **#20** — throwaway prototype on demo, after a week of opens land on the
+   repaired `/picks`. Spec: the visit-freshness doc §5 plus the post-fix
+   distribution.
+4. **The S3 test and the shard-0 move**, on Joe's word.
+5. Held: #33, #24, #17, #19. Not taken: the C5 separating read (killed).
+6. `LeagueTag`'s "Pro Baseball" vs the chip's "MLB" — one component, no
+   owner yet.
+
+---
+
+## 2026-09-02 — the partner ran first; P5 is terminated, #6 is built, and the desk went quiet
 
 **STATE, verified at close (2026-09-03 ~00:00Z):** **Live = `6242341`**,
 `/api/health` ok, recorder writing, deployed after CI green on that SHA.
