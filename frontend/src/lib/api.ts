@@ -1657,6 +1657,15 @@ export type TonightActivity = {
  * from a browser one. Optional: a deployed backend one version behind omits
  * them, and the clock alone still renders.
  *
+ * - `staked_*` is what Joe asked /bets to say (21A): the money on the
+ *   positions open now, unsigned. **It is refused, in server-rendered words
+ *   (`staked_refusal`), and the words say why** -- the fills mirror does not
+ *   record buy against sell, and a settled position the mirror missed would
+ *   read as still open, so no honest figure exists in the record today. Null,
+ *   never $0.00, until the poller stores what would pin it
+ *   (`backend/bets.py::open_positions`). Optional because a deployed backend
+ *   one version behind omits the keys.
+ *
  * NO live P&L, no mark-to-market, never summed with cash (TonightStrip's
  * unsigned rule). Optional because a deployed backend one version behind
  * omits the key entirely.
@@ -1670,6 +1679,9 @@ export type OpenPositionsBlock = {
   value_as_of_ms: number | null;
   value_age_ms?: number | null;
   value_refusal: string | null;
+  staked_tenths?: number | null;
+  staked_display?: string | null;
+  staked_refusal?: string | null;
 };
 
 export const fetchSlate = (filter: ListFilter = NO_FILTER) =>
@@ -2638,9 +2650,19 @@ export async function fetchScoutOverview(): Promise<ScoutOverview> {
  * refusal, never $0.00 -- and `totals` covers the WHOLE table while `bets`
  * is a window, with `uncomputable` counting what the sum excludes.
  */
+/**
+ * Which kind of bet a settled position was, by ticker (21A). `combo` is the
+ * venue's multi-leg market (`KXMVE*`); everything else is `single`. Decided
+ * server-side by the one prefix check the repo has
+ * (`estimates.classify_ticker`) -- the page groups by this and never
+ * re-derives it from the ticker string.
+ */
+export type BetKind = "single" | "combo";
+
 export type SettledBet = {
   ticker: string;
   event_ticker: string | null;
+  kind: BetKind;
   side: "yes" | "no";
   contracts: number;
   entry_price_tenths: number | null;
@@ -2658,8 +2680,11 @@ export type SettledBet = {
   // (2026-08-22). `clv_refusal_reason` is set only when `clv_tenths` is
   // null: "no_closing_line" (most hand bets -- no discovery row, no matcher
   // link, or the game hasn't been scored yet), "unreadable_close",
-  // "entry_time_unknown", or "entry_after_close". No average or hit rate is
-  // computed anywhere -- per-bet only, until n >= 30.
+  // "entry_time_unknown", or "entry_after_close" -- or "combo_unscorable"
+  // on a combination bet, which has no close to be read (combos are excluded
+  // from discovery) and renders NO CLV words at all rather than "close not
+  // read yet". No average or hit rate is computed anywhere -- per-bet only,
+  // until n >= 30.
   clv_tenths: number | null;
   clv_display: string | null;
   clv_refusal_reason: string | null;
@@ -2667,10 +2692,31 @@ export type SettledBet = {
   close_display: string | null;
 };
 
+/**
+ * One kind's share of the whole record (21A): its count and its net SUM,
+ * over the WHOLE table like `totals`. A sum beside the pooled sum is the
+ * per-group view the measurement rules ask for; a per-kind rate would be the
+ * banned aggregate and is not served.
+ */
+export type BetsSection = {
+  total: number;
+  net_tenths: number;
+  net_display: string;
+  computable: number;
+  uncomputable: number;
+};
+
 export type BetsRecord = {
   bets: SettledBet[];
   total: number;
   returned: number;
+  /** `MIN(settled_ms)` over the mirror, or null when it is empty. The
+   *  record states its own first day from this and from nothing typed into
+   *  the page. */
+  first_settled_ms: number | null;
+  /** Single games and combination bets, each with its own count and sum.
+   *  `single.total + combo.total === total`. */
+  sections: Record<BetKind, BetsSection>;
   totals: {
     net_tenths: number;
     net_display: string;
@@ -2683,12 +2729,17 @@ export type BetsRecord = {
    *  a deployed backend one version behind omits the key. */
   open_positions?: OpenPositionsBlock;
   /**
-   * "CLV scored on N of {total}" — counts only, over the WHOLE table like
-   * `totals`. `refusals` counts the unscored rows by reason so unmeasured
-   * never renders identically to bad. No CLV *value* is ever combined
-   * (the no-aggregate constraint stands until n >= 30).
+   * "CLV scored on N of {denominator}" — counts only, over the WHOLE table
+   * like `totals`, and since 21A over the SINGLE-GAME rows only: a combo has
+   * no close to be scored against, so `population` names the cut and
+   * `denominator` is the singles count. `refusals` counts the unscored
+   * singles by reason so unmeasured never renders identically to bad. No
+   * CLV *value* is ever combined (the no-aggregate constraint stands until
+   * n >= 30).
    */
   clv_coverage?: {
+    population: BetKind;
+    denominator: number;
     scored: number;
     refusals: Record<string, number>;
   };

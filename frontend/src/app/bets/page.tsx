@@ -9,6 +9,9 @@ import Term from "@/components/Term";
 import {
   DISPLAY_TIME_ZONE,
   fetchBets,
+  type BetKind,
+  type BetsRecord,
+  type BetsSection,
   type SettledBet,
 } from "@/lib/api";
 
@@ -24,13 +27,25 @@ export const dynamic = "force-dynamic";
  * - **The net strip covers the whole table**, and says how many rows its sum
  *   excludes. A row that cannot carry the registered formula (a void, an
  *   unreadable price or fee) renders "—", never $0.00.
+ * - **Two kinds, two sections (ticket #21, Joe's 21A, 2026-09-03).** A
+ *   combination bet and a single game are not the same kind of bet, and on
+ *   the live record the combos are the majority. Each section heads itself
+ *   with its own count and its own net sum — the per-group view beside the
+ *   pooled one — and the kind is the server's (`bet.kind`), never re-derived
+ *   here from the ticker string. The combination section renders no CLV
+ *   words at all: a combo has no close to be scored against, and fifty rows
+ *   of "close not read yet" would say the close was late rather than absent.
  * - **This is the mirror, not the account.** Open positions are structurally
- *   absent (a settlement exists only after the venue settles), and anything
- *   settled before the poller existed or while it was down is missing. The
- *   page says so in words rather than presenting itself as complete.
+ *   absent (a settlement exists only after the venue settles — so an
+ *   unsettled combination bet is not here either), and the mirror is not
+ *   complete: the venue's endpoint drops history. The page states its own
+ *   first day from `first_settled_ms` and types no date of its own.
  * - **No opinion.** Nothing here scores, grades, or advises; the estimate
  *   log stays embargoed (the study stopped without result) and this page
- *   never touches it. It is a bank statement, not a report card.
+ *   never touches it. No average, win rate, hit rate, streak or trend line
+ *   anywhere, for either section or the whole, until thirty scored bets
+ *   exist with the per-group view beside them. It is a bank statement, not
+ *   a report card.
  */
 export default async function BetsPage() {
   let record;
@@ -93,17 +108,20 @@ export default async function BetsPage() {
             over {totals.computable} <Term k="settled">settled</Term>
           </span>
         </p>
-        {/* The denominator the per-bet CLV numbers never had (B5): most
-            hand-bet tickers refuse structurally (no discovery row, no
-            close read), and without this line 35 rows saying "close not
-            read yet" and 35 rows saying the bets were bad would read the
-            same at a glance. Counts only — no average, no hit rate. */}
+        {/* The denominator the per-bet CLV numbers never had (B5), and since
+            21A it is the single-game count: a combination bet has no close
+            to be scored against, so counting it among the refusals reported
+            "scored on 1 of 77" for a record in which 50 rows were never
+            scorable. Counts only — no average, no hit rate. */}
         {record.clv_coverage && (
           <p className="mt-2 max-w-[65ch] text-xs text-muted">
             <Term k="clv">CLV</Term> scored on {record.clv_coverage.scored} of{" "}
-            {record.total} — the rest refused (no readable close yet, or no
-            entry time). Unmeasured is not the same as bad; each row below
-            says which it is.
+            {record.clv_coverage.denominator} single-game{" "}
+            {record.clv_coverage.denominator === 1 ? "bet" : "bets"} — the
+            rest refused (no readable close yet, or no entry time). Unmeasured
+            is not the same as bad; each single-game row below says which it
+            is. Combination bets have no close to score against and are not
+            counted here.
           </p>
         )}
         {/* The one-tap lockout, beside the biggest red number in the
@@ -118,12 +136,7 @@ export default async function BetsPage() {
             shown below as &ldquo;—&rdquo;, never counted as $0.00.
           </p>
         )}
-        <p className="mt-2 max-w-[65ch] text-xs text-muted">
-          This is the recorder&rsquo;s mirror, not your account: open positions
-          are not here (a settlement exists only after the venue settles), and
-          anything settled before the recorder started on Aug 18 is missing.
-          Fees are the venue&rsquo;s own, already subtracted.
-        </p>
+        <MirrorNotAccount firstSettledMs={record.first_settled_ms} />
       </div>
 
       {/* What is at risk right now (B3), above the settled list: the settled
@@ -136,7 +149,8 @@ export default async function BetsPage() {
       {/* The record as a picture, above the rows it is made of. A fact --
           what happened to the money -- and deliberately not a verdict: no
           trend line, no hit rate, no CLV series. The 2026-08-21 ruling caps
-          "CLV on his own bets" at per-bet rows until n >= 30. */}
+          "CLV on his own bets" at per-bet rows until n >= 30. Drawn over the
+          whole window, both kinds: the money left one account. */}
       <RecordChart bets={record.bets} />
 
       {/*
@@ -160,18 +174,19 @@ export default async function BetsPage() {
         </p>
       ) : (
         <>
-          <h2 className="mt-10 text-sm font-semibold uppercase tracking-widest text-muted">
-            Settled positions
-          </h2>
-          <ul className="mt-4 divide-y border-t">
-            {record.bets.map((bet, index) => (
-              <BetRow key={`${bet.ticker}-${bet.settled_ms}-${index}`} bet={bet} />
-            ))}
-          </ul>
+          {SECTIONS.map((section) => (
+            <BetSection
+              key={section.kind}
+              section={section}
+              block={record.sections[section.kind]}
+              record={record}
+            />
+          ))}
           {record.returned < record.total && (
             <p className="mt-3 max-w-[65ch] text-xs text-muted">
               Showing the most recent {record.returned} of {record.total} —
-              the net strip above still covers all {record.total}.
+              the net strip and the section counts above still cover all{" "}
+              {record.total}.
             </p>
           )}
         </>
@@ -181,15 +196,130 @@ export default async function BetsPage() {
 }
 
 /**
- * One settled position. The result word and the net are the row's facts;
- * the ticker links to the market screen, which knows how to say what the
- * market was. A refused net renders "—" with the reason class in the words
- * above — never a zero, and never a hidden row.
+ * The two kinds, in reading order: single games first because that is where
+ * CLV lives, combination bets second. The words are the screen's; the kind
+ * itself is the server's.
  */
+const SECTIONS: readonly {
+  kind: BetKind;
+  title: string;
+  one: string;
+  many: string;
+}[] = [
+  { kind: "single", title: "Single games", one: "bet", many: "bets" },
+  {
+    kind: "combo",
+    title: "Combination bets",
+    one: "combo",
+    many: "combos",
+  },
+];
+
+/**
+ * One kind's list under its own heading: the whole-table count and net sum
+ * for that kind, then its rows from the served window. The heading's numbers
+ * are the server's whole-table figures, never a count of the rows below, so
+ * a windowed list cannot wear the label of a claim about the record (the
+ * /api/ledger lesson, applied per section).
+ */
+function BetSection({
+  section,
+  block,
+  record,
+}: {
+  section: (typeof SECTIONS)[number];
+  block: BetsSection;
+  record: BetsRecord;
+}) {
+  const anyShown = record.bets.some((bet) => bet.kind === section.kind);
+  return (
+    <section className="mt-10">
+      <h2 className="text-sm font-semibold uppercase tracking-widest text-muted">
+        {section.kind === "combo" ? (
+          <Term k="parlay">{section.title}</Term>
+        ) : (
+          section.title
+        )}{" "}
+        · <span className="tabular">{block.total}</span>
+      </h2>
+      {/* The section's own sum — a per-group view beside the pooled strip,
+          which the measurement rules ask for. A sum, and only a sum: no
+          rate of any kind may join it. */}
+      {block.total > 0 && (
+        <p className="mt-1 max-w-[65ch] font-mono text-xs text-muted">
+          <Term k="net">net</Term>{" "}
+          <span
+            className={
+              block.net_tenths < 0 ? "text-negative" : "text-positive"
+            }
+          >
+            {block.net_display}
+          </span>{" "}
+          over {block.computable} <Term k="settled">settled</Term>
+          {block.uncomputable > 0
+            ? ` · ${block.uncomputable} excluded as uncomputable`
+            : ""}
+        </p>
+      )}
+      {block.total === 0 ? (
+        <p className="mt-3 max-w-[65ch] text-sm text-muted">
+          No {section.many} have settled in the mirrored record.
+        </p>
+      ) : !anyShown ? (
+        <p className="mt-3 max-w-[65ch] text-sm text-muted">
+          None among the most recent {record.returned} — the count above
+          still covers the whole record.
+        </p>
+      ) : (
+        <ul className="mt-4 divide-y border-t">
+          {record.bets.map((bet, index) =>
+            bet.kind === section.kind ? (
+              <BetRow
+                key={`${bet.ticker}-${bet.settled_ms}-${index}`}
+                bet={bet}
+              />
+            ) : null,
+          )}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The page's completeness sentence, with the record's first day read from
+ * the data. Until 21A this line said "before the recorder started on Aug
+ * 18", typed into the page — and the live mirror's first settlement is a
+ * week earlier than that, because the settlements endpoint carried some
+ * history back when the poller first read it. A date typed here is a claim
+ * the page cannot keep; the server's `MIN(settled_ms)` is one it can.
+ */
+function MirrorNotAccount({
+  firstSettledMs,
+}: {
+  firstSettledMs: number | null;
+}) {
+  return (
+    <p className="mt-2 max-w-[65ch] text-xs text-muted">
+      This is the recorder&rsquo;s mirror, not your account. Open positions
+      are not here (a settlement exists only after the venue settles), so a
+      combination bet that has not settled yet is not here either. The mirror
+      is not complete:{" "}
+      {firstSettledMs !== null
+        ? `its earliest settlement is ${firstDay(firstSettledMs)}, and`
+        : "nothing has been mirrored yet, and"}{" "}
+      the venue&rsquo;s settlements endpoint drops history, so anything it
+      dropped before the recorder read it is missing. Fees are the
+      venue&rsquo;s own, already subtracted.
+    </p>
+  );
+}
+
 /**
  * Words for a refused per-bet CLV, in place of the number. No reason ever
  * substitutes a value -- `bet.clv_display` stays null and this is the only
- * thing rendered instead.
+ * thing rendered instead. `combo_unscorable` has no entry on purpose: a
+ * combination row draws no CLV line at all (see `BetRow`).
  */
 const CLV_REFUSAL_WORDS: Record<string, string> = {
   no_closing_line: "close not read yet",
@@ -198,6 +328,14 @@ const CLV_REFUSAL_WORDS: Record<string, string> = {
   entry_after_close: "entered after close",
 };
 
+/**
+ * One settled position. The result word and the net are the row's facts;
+ * the ticker links to the market screen, which knows how to say what the
+ * market was. A refused net renders "—" with the reason class in the words
+ * above — never a zero, and never a hidden row. The CLV line is drawn for a
+ * single game only: a combination market has no close to be read, and the
+ * absence of a line says so better than any words would.
+ */
 function BetRow({ bet }: { bet: SettledBet }) {
   const settled = new Date(bet.settled_ms).toLocaleString("en-US", {
     timeZone: DISPLAY_TIME_ZONE,
@@ -242,15 +380,17 @@ function BetRow({ bet }: { bet: SettledBet }) {
             {contracts} × {bet.side.toUpperCase()} at{" "}
             {bet.entry_price_display} · settled {settled}
           </span>
-          <span
-            className={`mt-0.5 block text-xs ${
-              bet.clv_tenths !== null && bet.clv_tenths < 0
-                ? "text-negative"
-                : "text-muted"
-            }`}
-          >
-            {clvWords}
-          </span>
+          {bet.kind === "single" && (
+            <span
+              className={`mt-0.5 block text-xs ${
+                bet.clv_tenths !== null && bet.clv_tenths < 0
+                  ? "text-negative"
+                  : "text-muted"
+              }`}
+            >
+              {clvWords}
+            </span>
+          )}
         </span>
         <span className="shrink-0 text-right">
           <span
@@ -271,11 +411,22 @@ function BetRow({ bet }: { bet: SettledBet }) {
   );
 }
 
-/** "Aug 18" — the headline's since-date, in the display zone like every
- *  other human-facing clock here. */
+/** The headline's since-date (month and day), in the display zone like
+ *  every other human-facing clock here. */
 function sinceDate(ms: number): string {
   return new Date(ms).toLocaleDateString("en-US", {
     timeZone: DISPLAY_TIME_ZONE,
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/** The record's first day, with the year: a first day is a claim about
+ *  history and the year is part of it. */
+function firstDay(ms: number): string {
+  return new Date(ms).toLocaleDateString("en-US", {
+    timeZone: DISPLAY_TIME_ZONE,
+    year: "numeric",
     month: "short",
     day: "numeric",
   });

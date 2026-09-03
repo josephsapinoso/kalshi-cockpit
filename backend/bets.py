@@ -27,13 +27,27 @@ uncomputed), and A7's ruling is exactly the line this module walks:
 the Kalshi app already; nothing here may be attributed to logged estimates,
 split into a study win rate, or scoped to the study population.
 
+Two kinds of bet, separated and never averaged (ticket #21, Joe's 21A,
+2026-09-03): a combination market (`KXMVE*`, the venue's parlays) and a single
+game are not the same kind of bet, and on the live record the combos are the
+majority. `bets_record` classifies every row by ticker through
+`estimates.classify_ticker` -- the one `KXMVE` prefix check this repo has,
+reused rather than respelled -- and serves a per-kind section with its own
+count and its own net SUM. A sum is the per-group view the measurement rules
+ask for; **no average, win rate, hit rate, streak or trend is computed for
+either section or for the whole**, and that stays until thirty scored bets
+exist with the per-group view beside them.
+
 What this module does NOT establish
 -----------------------------------
-That the record is complete. It is the poller's mirror: positions settled
-before the poller existed (2026-08-18), or while it was down, are absent,
-and open positions are structurally absent — settlements are written only
-after the venue settles. The screen must say so rather than present the
-mirror as the account.
+That the record is complete. It is the poller's mirror: the settlements
+endpoint drops history, so anything the venue dropped before the poller read
+it is gone, and positions settled while the poller was down are absent. The
+record's own first settlement is served (`first_settled_ms`) so the screen
+can state its first day from the data rather than from a date typed into the
+page. Open positions are structurally absent — settlements are written only
+after the venue settles — which is also why an unsettled combination bet is
+not here at all: it reaches this table only when the venue settles it.
 """
 
 from __future__ import annotations
@@ -46,9 +60,36 @@ from typing import Any, Optional
 from .analysis.clv import DEFAULT_HORIZON_HOURS
 from .analysis.clv import clv_tenths as _clv_tenths
 from .core.prices import format_price
+from .estimates import classify_ticker
 from .odds.timing import day_start_ms
 
 logger = logging.getLogger(__name__)
+
+# The two kinds a settled position can be, by ticker. `combo` is the venue's
+# multi-leg market (`KXMVE*`); everything else -- a moneyline, a spread, a
+# prop, a non-sports market bet by hand -- is `single`. The word is "single"
+# rather than "game" because a hand bet on a non-sports market is not a game
+# and is still one market with one result.
+KIND_SINGLE = "single"
+KIND_COMBO = "combo"
+
+# Why a combination bet carries this reason instead of `no_closing_line`:
+# combos are excluded from discovery (`kalshi/combos.py`; `rest.py` drops
+# `KXMVE` from `/markets`), so no `closing_lines` row can ever exist for one.
+# That is not "the close has not been read yet" -- it is "there is no close
+# to read" -- and the screen must not render fifty rows of the former.
+CLV_REFUSAL_COMBO = "combo_unscorable"
+
+
+def bet_kind(ticker: str) -> str:
+    """`combo` for a multi-leg market, `single` otherwise, from the ticker.
+
+    Delegates to `estimates.classify_ticker` so the `KXMVE` prefix is spelled
+    in exactly one place in this repo; a second prefix check here would be
+    the two-spellings defect CLAUDE.md records under the window banner.
+    """
+    _is_sports, _sport, is_multi_leg = classify_ticker(ticker)
+    return KIND_COMBO if is_multi_leg else KIND_SINGLE
 
 
 # The staleness ceiling for the "tonight" strip: 6x the fills cadence
@@ -58,6 +99,14 @@ logger = logging.getLogger(__name__)
 # 0): "no bets tonight" rendered off a stale mirror is a false negative in
 # the flattering direction, on the one screen whose purpose is to interrupt.
 TONIGHT_STALE_AFTER_MS = 30 * 60 * 1000
+
+# The words served for "staked now" on the open-positions strip, rendered
+# server-side like every other refusal. See `open_positions` for the three
+# reasons no honest figure exists in the mirror today.
+STAKED_NOW_REFUSAL = (
+    "not derivable from the mirror: fills do not record buy against sell, "
+    "and a settled position the mirror missed would read as still open"
+)
 
 
 def format_net_dollars(net_tenths: Optional[int]) -> Optional[str]:
@@ -171,6 +220,27 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
     the product: **no average, no hit rate, no "you beat the close X% of the
     time" anywhere in this module** until n >= 30 with the per-group view
     printed beside it. Nothing here computes one.
+
+    **Two kinds, two sections (21A).** Every row carries `kind`
+    (`bet_kind`), and `sections` carries one block per kind over the WHOLE
+    table -- `total`, `net_tenths`/`net_display`, `computable`,
+    `uncomputable` -- so the screen can head each list with its own count and
+    its own sum. The whole-record `totals` is unchanged and still covers both.
+    A per-kind sum beside the pooled one is the "print the parts beside the
+    aggregate" rule; a per-kind *rate* would be the banned aggregate, and none
+    is computed.
+
+    **`clv_coverage` counts single-game rows only, and says so.** A `KXMVE`
+    ticker cannot have a `closing_lines` partner (combos are excluded from
+    discovery), so counting fifty combos among the refusals would report
+    "scored on 1 of 77" for a record in which 50 rows were never scorable.
+    `population` names the cut and `denominator` is the singles count, so the
+    line reads "scored on N of {singles}". A combo row's
+    `clv_refusal_reason` is `combo_unscorable`, distinct from
+    `no_closing_line`, and is not counted in `refusals`.
+
+    `first_settled_ms` is `MIN(settled_ms)` over the table, `None` when it is
+    empty -- the record's own first day, so the page never has to type one.
     """
     rows = conn.execute(
         "SELECT v.ticker, v.event_ticker, v.market_result, v.settled_ms, v.side, "
@@ -200,27 +270,46 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
     # identically to bad (the recurring zero-that-means-no-measurement).
     clv_scored = 0
     clv_refusals: dict[str, int] = {}
+    # Per-kind blocks over the WHOLE table, same discipline as `totals`.
+    sections: dict[str, dict[str, int]] = {
+        kind: {"total": 0, "net_tenths": 0, "computable": 0, "uncomputable": 0}
+        for kind in (KIND_SINGLE, KIND_COMBO)
+    }
+    first_settled_ms: Optional[int] = None
     for row in rows:
+        kind = bet_kind(row["ticker"])
+        section = sections[kind]
+        section["total"] += 1
+        if first_settled_ms is None or row["settled_ms"] < first_settled_ms:
+            first_settled_ms = row["settled_ms"]
         net = settlement_net_tenths(row)
         won: Optional[bool] = None
         if row["market_result"] in ("yes", "no"):
             won = row["market_result"] == row["side"]
         if net is None:
             uncomputable += 1
+            section["uncomputable"] += 1
         else:
             computable += 1
             net_sum += net
+            section["computable"] += 1
+            section["net_tenths"] += net
             if won:
                 wins += 1
             else:
                 losses += 1
-        clv, clv_refusal_reason = bet_clv(row)
-        if clv is not None:
-            clv_scored += 1
+        if kind == KIND_COMBO:
+            # Structurally unscorable: not a refusal to count among the
+            # singles' refusals, and never rendered as "close not read yet".
+            clv, clv_refusal_reason = None, CLV_REFUSAL_COMBO
         else:
-            clv_refusals[clv_refusal_reason] = (
-                clv_refusals.get(clv_refusal_reason, 0) + 1
-            )
+            clv, clv_refusal_reason = bet_clv(row)
+            if clv is not None:
+                clv_scored += 1
+            else:
+                clv_refusals[clv_refusal_reason] = (
+                    clv_refusals.get(clv_refusal_reason, 0) + 1
+                )
         if len(bets) >= limit:
             continue
         close_mid_tenths: Optional[float] = None
@@ -230,6 +319,7 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
             {
                 "ticker": row["ticker"],
                 "event_ticker": row["event_ticker"],
+                "kind": kind,
                 "side": row["side"],
                 "contracts": row["contracts"],
                 "entry_price_tenths": row["entry_price_tenths"],
@@ -260,10 +350,27 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
         # wear the label of a claim about the record (the /api/ledger lesson).
         "total": len(rows),
         "returned": len(bets),
-        # "CLV scored on N of {total}": the denominator the per-bet numbers
-        # never had. Counts only -- no value of any scored CLV is combined
-        # here (the no-aggregate constraint stands until n >= 30).
+        # The record's own first day. None on an empty table, never 0 -- a
+        # 1970 date is a claim about history the mirror does not have.
+        "first_settled_ms": first_settled_ms,
+        # One block per kind, whole-table, each with its own count and its
+        # own SUM. `sections["single"]["total"] + sections["combo"]["total"]
+        # == total` by construction; the test pins it.
+        "sections": {
+            kind: {
+                **block,
+                "net_display": format_net_dollars(block["net_tenths"]),
+            }
+            for kind, block in sections.items()
+        },
+        # "CLV scored on N of {denominator}": the denominator the per-bet
+        # numbers never had, and since 21A it is the SINGLES count -- a combo
+        # has no close to be scored against, so it is neither scored nor a
+        # refusal. Counts only -- no value of any scored CLV is combined here
+        # (the no-aggregate constraint stands until n >= 30).
         "clv_coverage": {
+            "population": KIND_SINGLE,
+            "denominator": sections[KIND_SINGLE]["total"],
             "scored": clv_scored,
             "refusals": clv_refusals,
         },
@@ -406,6 +513,37 @@ def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
     **NO live P&L, no mark-to-market, and never summed with cash** --
     TonightStrip's unsigned rule. The refusal words are rendered server-side
     (`value_refusal`), matching the display-string convention.
+
+    - **`staked_tenths`/`staked_display`/`staked_refusal`** -- what Joe
+      asked for on /bets (21A): the money he has put on the positions that
+      are open now, unsigned, never summed with cash. **It is refused, in
+      words, and the words say why.** Nothing the mirror carries can produce
+      it honestly:
+
+      * `fills` stores no buy-against-sell. The venue's fill record carries
+        `action` (`buy`/`sell`) and `parse_fill` drops it
+        (`portfolio_poll.py`; the wire fixture shows the field), so
+        `SUM(count * price_tenths)` over fills books an exit as if it were
+        more money committed. `tonight_activity` uses exactly that SUM, and
+        it is honest there only because its question is "what has moved
+        tonight", not "what is at risk now".
+      * "fills on tickers with no settlement row" is not "open". The
+        settlements endpoint drops history (ADR 0044 design point 6) and the
+        poller has been down for stretches, so a position settled but never
+        mirrored would read as open forever; a position bought and sold
+        before settlement has fills and no settlement row and is not open
+        either. The figure is wrong in both directions at once, which is not
+        a bound.
+      * The venue's own per-position figure (`market_exposure_dollars`, in
+        the shape observed 2026-08-30) is not stored: `poll_positions` counts
+        rows and parses none, deliberately, and its unit is unpinned.
+
+      So the field refuses until one of two things is built and pinned: the
+      poller records `action` on fills, or it stores the venue's
+      per-position exposure with its unit measured. Until then `None`, never
+      0 -- "$0.00 staked" beside "Open now: 3 positions" is the false
+      negative in the flattering direction. The refusal is unconditional and
+      carries no clock because there is no read behind it to stamp.
     """
     payload: dict = {
         "count": None,
@@ -416,6 +554,9 @@ def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
         "value_as_of_ms": None,
         "value_age_ms": None,
         "value_refusal": None,
+        "staked_tenths": None,
+        "staked_display": None,
+        "staked_refusal": STAKED_NOW_REFUSAL,
     }
     try:
         count_row = conn.execute(

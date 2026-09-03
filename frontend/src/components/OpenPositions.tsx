@@ -22,6 +22,12 @@ import {
  *   refusal with its reason in `value_refusal`, and those words render —
  *   never $0.00, which would report "nothing at risk" off a number nobody
  *   could read.
+ * - **Staked is what Joe asked for, and it refuses too (21A, 2026-09-03).**
+ *   The money on the open positions is not derivable from the mirror — the
+ *   fills table does not record buy against sell, and a settled position the
+ *   mirror missed would read as still open — so the server sends the reason
+ *   in `staked_refusal` and this renders it. Never $0.00 beside a non-zero
+ *   count. Omitted entirely when the backend predates the field.
  * - **Stale refuses in words**, with the clock kept, so "not read since"
  *   is what appears rather than a silently old figure.
  * - **Each figure wears its own clock** (2026-08-29). The line used to read
@@ -36,7 +42,10 @@ import {
  *   `Date.now()`: a clock invented at render time would be a second lie in
  *   the same place.
  * - **No P&L, no mark-to-market, never summed with cash** — TonightStrip's
- *   unsigned rule. This is commitment, not performance.
+ *   unsigned rule. This is commitment, not performance. The staked figure is
+ *   a sibling of the count, never added to the value, the balance or the net
+ *   strip; `tests/test_bets_sections.py` pins the words this file may not
+ *   contain.
  *
  * `block` is optional: a deployed backend one version behind omits the key,
  * and rendering nothing is correct there (the old state, not a refusal).
@@ -74,24 +83,54 @@ export default function OpenPositions({
   }
 
   return (
-    <p className="text-sm">
-      <span className="font-semibold tabular">
-        Open now: {block.count}{" "}
-        {block.count === 1 ? "position" : "positions"}
-      </span>
-      <span className="text-muted">
-        {counted !== null ? ` (counted ${stampText(counted)})` : ""}
-        {" · "}
-        {block.value_display !== null
-          ? `${block.value_display} at risk`
-          : `value unreadable — ${block.value_refusal ?? "not read"}`}
-        {/* The value's own stamp, never the count's. Omitted entirely when
-            the balance has never been observed — no clock beats a borrowed
-            one on a money figure. */}
-        {valued !== null ? ` (read ${stampText(valued)})` : ""}
-      </span>
-    </p>
+    <div>
+      <p className="text-sm">
+        <span className="font-semibold tabular">
+          Open now: {block.count}{" "}
+          {block.count === 1 ? "position" : "positions"}
+        </span>
+        <span className="text-muted">
+          {counted !== null ? ` (counted ${stampText(counted)})` : ""}
+          {" · "}
+          {block.value_display !== null
+            ? `${block.value_display} at risk`
+            : `value unreadable — ${block.value_refusal ?? "not read"}`}
+          {/* The value's own stamp, never the count's. Omitted entirely when
+              the balance has never been observed — no clock beats a borrowed
+              one on a money figure. */}
+          {valued !== null ? ` (read ${stampText(valued)})` : ""}
+        </span>
+      </p>
+      <StakedNow block={block} />
+    </div>
   );
+}
+
+/**
+ * The money on the open positions, unsigned — or the server's reason it
+ * cannot be said. Renders nothing when the backend predates the field
+ * (the old state, not a refusal). No clock: there is no read behind the
+ * refusal to stamp, and a stamp on the words would imply one.
+ */
+function StakedNow({ block }: { block: OpenPositionsBlock }) {
+  if (typeof block.staked_display === "string") {
+    return (
+      <p className="mt-1 text-xs">
+        <span className="font-semibold tabular">
+          {block.staked_display} staked
+        </span>
+        <span className="text-muted"> on them — your own money in, not a value.</span>
+      </p>
+    );
+  }
+  if (typeof block.staked_refusal === "string") {
+    return (
+      <p className="mt-1 text-xs text-muted">
+        Staked on them: {block.staked_refusal}.
+      </p>
+    );
+  }
+  return null;
 }
 
 /** "7:47 AM, 6h ago" — the clock, and how stale it is. The age is dropped
