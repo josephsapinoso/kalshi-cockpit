@@ -58,6 +58,7 @@ from backend.kalshi.combos import (
     ComboScope, echoed_legs, fetch_collections, lookup_combo,
 )
 from backend.kalshi.orderbook import OrderBook
+from backend.list_filters import ListFilter
 from backend.kalshi.props import norm
 from backend.kalshi.spreads import (
     parse_spread_subtitle,
@@ -2270,10 +2271,32 @@ def build_ladder_payload(
     now_ms: int,
     max_odds_age_ms: int,
     trust_thresholds: Optional[TrustThresholds] = None,
+    list_filter: Optional[ListFilter] = None,
 ) -> dict:
     candidates, excluded = ladder_candidates(
         conn, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms
     )
+    # **The #15 cut, applied to the pool before the cards are built** and
+    # nowhere else: a card is then the same cut of a smaller pool, ordered
+    # exactly as it would be unfiltered. The league is `CandidateLeg.league`,
+    # which `ladder_candidates` reads from `odds_snapshots.sport_key` -- the
+    # vocabulary the parameter names (`backend/list_filters.py`). The
+    # kickoff bound is the leg's own `commence_ms`, the scorer's `MIN` per
+    # fixture; the pool is already pre-game only, so only the upper bound
+    # can bite. Counted, not merely dropped: a ladder that shrank under a
+    # filter without saying so would read as a thin night.
+    hidden = 0
+    if list_filter is not None:
+        kept = []
+        for leg in candidates:
+            if list_filter.league is not None and leg.league != list_filter.league:
+                hidden += 1
+                continue
+            if not list_filter.keeps_kickoff(leg.commence_ms):
+                hidden += 1
+                continue
+            kept.append(leg)
+        candidates = kept
     ladder = build_ladder(
         candidates, max_odds_age_ms=max_odds_age_ms, now_ms=now_ms
     )
@@ -2285,9 +2308,14 @@ def build_ladder_payload(
     selected = [
         leg.kalshi_market_ticker for card in ladder.cards for leg in card.legs
     ]
-    return serialise_ladder(
+    payload = serialise_ladder(
         Ladder(cards=ladder.cards, excluded=merged),
         generated_ms=now_ms,
         facts=leg_facts(conn, selected, now_ms=now_ms),
         trust_thresholds=trust_thresholds,
     )
+    # Absent, not `null`, when no cut was applied: the unfiltered payload
+    # is byte-identical to the pre-#15 one (`tests/test_list_filters.py`).
+    if list_filter is not None:
+        payload["filter"] = list_filter.as_dict(hidden=hidden)
+    return payload
