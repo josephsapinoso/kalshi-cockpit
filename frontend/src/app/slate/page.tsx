@@ -610,8 +610,10 @@ function Row({
  * cost a footer slot to render a projection of this screen. The counts are
  * computed from the rows actually rendered here, which keeps the two views
  * incapable of disagreeing; the caption under each code is the same
- * `glossSentence` the rows use (plain English under the code, never instead
- * of it — ADR 0050). A code this build has no sentence for still renders,
+ * `glossSentence` the game screen uses (plain English under the code, never
+ * instead of it — ADR 0050; since #16 the rows above carry the code and a
+ * `why →` link to that screen, and this disclosure is the one place on the
+ * slate the sentence still renders). A code this build has no sentence for still renders,
  * with its count: the count is the diagnostic, the caption is a courtesy.
  *
  * **The `stale_odds` count carries an exit, not just a caption** (2026-08-22,
