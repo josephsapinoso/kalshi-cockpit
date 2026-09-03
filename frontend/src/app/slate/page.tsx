@@ -1,10 +1,12 @@
 import {
+  ApiError,
   DISPLAY_TIME_ZONE,
   fetchRefreshable,
   fetchSignal,
   fetchSlate,
   fetchWindow,
   formatClock,
+  readListFilter,
 } from "@/lib/api";
 import type {
   ActionableWindow,
@@ -25,6 +27,7 @@ import Link from "next/link";
 
 import CrewBubble from "@/components/CrewBubble";
 import DispersionStrip from "@/components/DispersionStrip";
+import FilterBar from "@/components/FilterBar";
 import ManualTicket from "@/components/ManualTicket";
 import MarketSearch from "@/components/MarketSearch";
 import LeagueTag from "@/components/LeagueTag";
@@ -83,7 +86,15 @@ export const dynamic = "force-dynamic";
  * risk server-side and does not read this route at all.
  */
 
-export default async function SlatePage() {
+export default async function SlatePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ league?: string; within_hours?: string }>;
+}) {
+  // The #15 cut, straight from the URL to the request. Not validated here:
+  // the server is the one validator, and a value it refuses renders its
+  // refusal below rather than the whole list under chips saying it was cut.
+  const filter = readListFilter(await searchParams);
   let data: Slate;
   // Allowed to fail on its own, as on the Board. `beta` is context for the
   // rows and not a precondition of them, and `SignalStrip` renders nothing
@@ -97,11 +108,27 @@ export default async function SlatePage() {
   // words — never a button with an unnamed cost.
   let refreshable: Refreshable | null = null;
   try {
-    data = await fetchSlate();
+    data = await fetchSlate(filter);
     signal = await fetchSignal().catch(() => null);
     actionable = await fetchWindow().catch(() => null);
     refreshable = await fetchRefreshable().catch(() => null);
-  } catch {
+  } catch (error) {
+    // A 422 is the server refusing the cut in the URL -- a different fact
+    // from an unreachable backend, and drawn as one: the bar stays, at its
+    // "show everything" state, so the way out is one tap.
+    if (error instanceof ApiError && error.status === 422) {
+      return (
+        <Shell>
+          <h1 className="text-2xl font-extrabold tracking-tight">Games</h1>
+          <FilterBar pathname="/slate" filter={filter} />
+          <p className="mt-6 max-w-prose text-sm text-accent-2">
+            That cut is not one this desk carries: the league or the window in
+            the address was refused, so nothing is drawn rather than the
+            whole list under a heading that says it was cut.
+          </p>
+        </Shell>
+      );
+    }
     return (
       <Shell>
         <h1 className="text-2xl font-extrabold tracking-tight">Games</h1>
@@ -111,6 +138,7 @@ export default async function SlatePage() {
   }
 
   const { rows, counts, slate } = data;
+  const hidden = data.filter?.hidden ?? 0;
 
   return (
     <Shell>
@@ -130,6 +158,20 @@ export default async function SlatePage() {
           {data.note}
         </p>
       </header>
+
+      {/* The #15 cut: league and kickoff window, under the nav and above
+          everything the cut applies to. The count of what it removed comes
+          from the server's echo, so a two-row list under "MLB" reads as cut
+          rather than as a quiet night. */}
+      <FilterBar
+        pathname="/slate"
+        filter={filter}
+        note={
+          hidden > 0
+            ? `${hidden} ${hidden === 1 ? "row" : "rows"} hidden by this cut.`
+            : null
+        }
+      />
 
       {/* His actual money, where he decides (fleet convening item 5; A7 rules
           this outside the study embargo). **Cash and open positions render

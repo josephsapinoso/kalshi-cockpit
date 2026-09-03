@@ -1,5 +1,12 @@
 import { SHELL_WIDTH } from "@/lib/shell";
-import { fetchParlays, fetchRefreshable, fetchWindow } from "@/lib/api";
+import {
+  ApiError,
+  fetchParlays,
+  fetchRefreshable,
+  fetchWindow,
+  readListFilter,
+} from "@/lib/api";
+import FilterBar from "@/components/FilterBar";
 import ParlayCards from "@/components/ParlayCards";
 import Term from "@/components/Term";
 
@@ -22,17 +29,38 @@ export const dynamic = "force-dynamic";
  * built — the lookup slice adds that comparison; until then the cards say
  * plainly that fair value is not a quote.
  */
-export default async function ParlaysPage() {
+export default async function ParlaysPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ league?: string; within_hours?: string }>;
+}) {
+  // The #15 cut, from the URL to the request unvalidated: the server is the
+  // one validator, and its refusal is drawn below as its own fact.
+  const filter = readListFilter(await searchParams);
   let ladder;
   try {
-    ladder = await fetchParlays();
-  } catch {
+    ladder = await fetchParlays(filter);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 422) {
+      return (
+        <Shell>
+          <h1 className="display text-4xl sm:text-5xl">Parlay desk</h1>
+          <FilterBar pathname="/parlays" filter={filter} />
+          <p className="mt-6 max-w-[65ch] text-sm text-accent-2">
+            That cut is not one this desk carries: the league or the window in
+            the address was refused, so no cards are drawn rather than the
+            whole desk under a heading that says it was cut.
+          </p>
+        </Shell>
+      );
+    }
     return (
       <Shell>
         <p className="max-w-[65ch] text-muted">Backend unreachable.</p>
       </Shell>
     );
   }
+  const hidden = ladder.filter?.hidden ?? 0;
 
   // The timetable, caught to `null` rather than thrown — the slate's pattern
   // at `app/slate/page.tsx`. The ladder is this page's subject and these two
@@ -59,6 +87,20 @@ export default async function ParlaysPage() {
           {ladder.notes.chance}
         </p>
       </header>
+      {/* The #15 cut, on the pool the six cards are built from. The count is
+          candidate sides the cut removed, as the server counts them -- not
+          the engine's own refusals, which `ParlayCards` still lists by
+          reason beneath the cards. A one-game cut builds no card and every
+          card says so in its own words. */}
+      <FilterBar
+        pathname="/parlays"
+        filter={filter}
+        note={
+          hidden > 0
+            ? `${hidden} ${hidden === 1 ? "side" : "sides"} left out of the pool by this cut.`
+            : null
+        }
+      />
       <ParlayCards
         ladder={ladder}
         actionable={actionable}

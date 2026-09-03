@@ -549,16 +549,31 @@ class TestTheBarOffersOnlyWhatTheServerAccepts:
 
     def test_the_window_chips_are_inside_the_servers_range(self):
         source = FILTER_BAR.read_text(encoding="utf-8")
-        match = re.search(r"WINDOW_HOURS\s*=\s*\[([^\]]*)\]", source)
+        # `const WINDOW_HOURS: readonly number[] = [3, 6, 12, 24];` -- the
+        # annotation carries its own brackets, so read past the `=`.
+        match = re.search(r"WINDOW_HOURS[^=]*=\s*\[([^\]]*)\]", source)
         assert match, "no WINDOW_HOURS list in FilterBar.tsx"
         hours = [int(h) for h in re.findall(r"\d+", match.group(1))]
         assert hours, "the bar offers no kickoff windows"
         assert all(1 <= h <= MAX_WITHIN_HOURS for h in hours), hours
 
     def test_the_bar_sends_the_parameters_the_routes_read(self):
-        source = FILTER_BAR.read_text(encoding="utf-8")
-        assert '"league"' in source
-        assert '"within_hours"' in source
+        """One query builder on both ends: the chips' hrefs and the fetch
+        go through `listFilterQuery`, which names the two parameters the
+        routes declare and no third."""
+        api = (FRONTEND / "lib" / "api.ts").read_text(encoding="utf-8")
+        builder = re.search(
+            r"function listFilterQuery\(.*?\n}\n", api, re.S
+        )
+        assert builder, "no listFilterQuery in api.ts"
+        keys = re.findall(r'qs\.set\("([a-z_]+)"', builder.group(0))
+        assert keys == ["league", "within_hours"], keys
+        bar = FILTER_BAR.read_text(encoding="utf-8")
+        assert "listFilterQuery(" in bar
+        assert bar.count("prefetch={false}") >= 2, (
+            "every chip is a Link to a force-dynamic page; prefetching them "
+            "is a dozen /api/slate reads per scroll"
+        )
 
     def test_the_bar_offers_no_cut_on_the_gap(self):
         """ADR 0071 section 2.5, on the control itself: no chip, sort, or
@@ -588,7 +603,10 @@ class TestTheBarOffersOnlyWhatTheServerAccepts:
         lower z-index and an offset it owns, so the nav's own internals can
         change without the bar sliding beneath it."""
         source = FILTER_BAR.read_text(encoding="utf-8")
-        assert "sticky" in source
-        assert "--nav-height" in source
-        z = re.search(r"z-(\d+)", source)
+        # The className that carries `sticky`, not the docstring that quotes
+        # the nav's own `z-50`.
+        sticky = re.search(r'className="([^"]*\bsticky\b[^"]*)"', source)
+        assert sticky, "no sticky element in FilterBar.tsx"
+        z = re.search(r"\bz-(\d+)\b", sticky.group(1))
         assert z and int(z.group(1)) < 50, "the bar must not outrank the nav"
+        assert "--nav-height" in source

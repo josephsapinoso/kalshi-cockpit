@@ -1,8 +1,15 @@
 import { SHELL_WIDTH } from "@/lib/shell";
-import { fetchSlate, fetchWindow, formatAge } from "@/lib/api";
+import {
+  ApiError,
+  fetchSlate,
+  fetchWindow,
+  formatAge,
+  readListFilter,
+} from "@/lib/api";
 import type { ActionableWindow, Slate } from "@/lib/api";
 import { anAutomaticBuyIsComing } from "@/lib/nextOddsWindow";
 
+import FilterBar from "@/components/FilterBar";
 import GoodChancePicks from "@/components/GoodChancePicks";
 import RefreshWhenPriced from "@/components/RefreshWhenPriced";
 import TonightStrip from "@/components/TonightStrip";
@@ -80,16 +87,36 @@ export const dynamic = "force-dynamic";
  * Whether a buy is actually coming is `anAutomaticBuyIsComing`, as on the
  * Slate; past it the watcher says nothing is due rather than polling.
  */
-export default async function PicksPage() {
+export default async function PicksPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ league?: string; within_hours?: string }>;
+}) {
+  // The #15 cut, from the URL to the request unvalidated: the server is the
+  // one validator, and its refusal is drawn below as its own fact.
+  const filter = readListFilter(await searchParams);
   let data: Slate;
   let actionable: ActionableWindow | null = null;
   try {
-    data = await fetchSlate();
+    data = await fetchSlate(filter);
     // Its own catch: the watcher needs a baseline count and nothing else on
     // this page does, so a timetable that will not answer costs the watcher
     // and not the list.
     actionable = await fetchWindow().catch(() => null);
-  } catch {
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 422) {
+      return (
+        <Shell>
+          <h1 className="text-2xl font-extrabold tracking-tight">Picks</h1>
+          <FilterBar pathname="/picks" filter={filter} />
+          <p className="mt-6 max-w-prose text-sm text-accent-2">
+            That cut is not one this desk carries: the league or the window in
+            the address was refused, so nothing is drawn rather than the
+            whole list under a heading that says it was cut.
+          </p>
+        </Shell>
+      );
+    }
     return (
       <Shell>
         <h1 className="text-2xl font-extrabold tracking-tight">Picks</h1>
@@ -130,6 +157,21 @@ export default async function PicksPage() {
           that any of them is worth buying.
         </p>
       </header>
+
+      {/* The #15 cut. The ranked block is built server-side from the same
+          rows the cut applies to, so a league chip here cuts the ranking
+          and nothing on this page can rank a game the cut removed. The
+          hidden count is rows, as the server counts them -- the block's own
+          not-ranked counts are a different fact and keep their own words. */}
+      <FilterBar
+        pathname="/picks"
+        filter={filter}
+        note={
+          (data.filter?.hidden ?? 0) > 0
+            ? `${data.filter!.hidden} ${data.filter!.hidden === 1 ? "row" : "rows"} hidden by this cut.`
+            : null
+        }
+      />
 
       {/* The safety envelope, from the same payload (#8 amendment 2): cash
           and the per-bet cap, and the "Not tonight" control. Cash and open
