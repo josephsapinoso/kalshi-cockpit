@@ -195,7 +195,149 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-03 (latest) — the partner reordered the queue around a regression shipped the day before; three lanes landed; Joe answered the second batch
+## 2026-09-03 (latest, second entry) — the partner found the desk had not gone quiet and the /picks heal was switched off; three lanes landed (ADR 0101–0103); one question and one rotation for Joe
+
+**STATE, verified at close:** `main` = the commit carrying this entry, on top
+of `2747b0f` (Lane B merge, ADR 0103), `2a0c3d3` (Lane D merge, ADR 0102),
+`2b99224` (Lane A merge, ADR 0101), `d763d5b` (record correction), `f4c2159`
+(`leagueLabel`). Pushed through `2a0c3d3` with CI in flight at the time of
+writing; `2747b0f` and this entry are pushed after that run finishes (a new
+push cancels the in-flight one). **Live = `01d482b`** at the time of writing;
+the deploy follows CI green on the final SHA — read `gh run list --limit 3`
+and `/api/health` `build.git_sha`, never this sentence. No lane worktrees
+remain; the three merged branches `worktree-agent-*` are deleted.
+
+### The partner ran first, and both of yesterday's premises were wrong
+
+Given yesterday's queue (#21/#25 builds, #20 waiting, S3 on Joe's word) it
+asked two questions before ranking, dispatched the checks, and one of its own
+proposals died on the way (`RUNNER_INTERVAL_S` as the heal's binder — refuted
+by `run_quote_pass` calling `run_pricing_pass` itself). Both findings are
+recomputed from raw rows in
+`docs/measurements/2026-09-03-desk-dwell-and-the-watcher-off-switch.md`:
+
+1. **"The desk went quiet" measured dwell, not opens.** Attention-tagged
+   buys fire every ten minutes *while a page is open*. Opens per budget day
+   are flat at 5–8; attended minutes ran 2.6 to 324 with no trend; 23 of 65
+   visits since 08-20 are one heartbeat long. The interview's lead question
+   ("why did you stop opening it?") presupposed a behaviour the data does
+   not show and is replaced below. `manual_orders = 0` lifetime is now
+   corroborated on live (`manual-orders-audit`); it had been single-sourced.
+   The `'attention'` trigger tag is also **displaceable by the schedule**
+   (20260830: eight ten-minute baseball buys tagged NULL with no visit in
+   progress), so it is a lower bound, not a dwell meter. CLAUDE.md's "4.9
+   hours a day" is corrected to one observed day.
+2. **Yesterday's `/picks` self-heal was switched off on the opens it exists
+   for.** `RefreshWhenPriced` was gated on `anAutomaticBuyIsComing` computed
+   on the server render, and `LOOP_STALL_MS = 180 s` against a 900 s idle
+   cadence read ordinary idle as a stalled loop. **8 of 26 live opens, all 8
+   with nothing fresh at open, 0 of 11 fresh opens** — 53% of the cold opens
+   lost the watcher while the page's own heartbeat had the buy landing in
+   3–13 s. Fourth instance of "one predicate, two spellings"; promoted to an
+   architectural pattern in `lessons.md`.
+
+Killed: #33 and #24 (held twice; two holds is a decision). Held: #17, #19 —
+**do not open a third interview batch**; he answered two in two days. #20's
+hold is now settled rather than provisional: the heal is fast, so the
+designed empty night is not the dominant case. The faster-floor-cadence kill
+stands (different budget line; the monthly cap binds first).
+
+### What landed — three lanes in `.claude/worktrees/`, merged A → D → B
+
+- **Lane D, ADR 0102 (`2a0c3d3`)** — the watcher decides client-side from
+  fresh `/api/window` facts at every poll (leading edge on mount, 3 s for
+  30 s, then 10 s). `/api/window` publishes `loop_idle_interval_ms`
+  (`RUNNER_INTERVAL_S` as the entrypoint reads it; `None` never `0`); the
+  panel calls the loop stalled only past **two** idle intervals and never on
+  an unknown cadence; the watcher's own stall clock is 180 s of *continuous
+  visibility* with no new look. `slice_spent` watches when the floor's next
+  buy is inside the window; `nothing_to_schedule` is deferred 15 s for the
+  heartbeat to land. Nav's chip poll gains the visibility gate. 37 new tests,
+  nine mutations red. **Recorded, not fixed:** `sweepTone.ts` hardcodes
+  `2 × 900_000` as a second spelling of the same threshold;
+  `ParlayCards.tsx` still passes the now-inert `automaticBuyIsComing` prop.
+- **Lane A, ADR 0101 (`2b99224`)** — #21/21A items 1–3. Rows carry `kind`
+  via `estimates.classify_ticker`; a `sections` block per kind with count
+  and net **sum** (no rate anywhere, pinned); combo rows draw no CLV line and
+  `clv_coverage` counts singles only ("scored on N of 27 single-game bets");
+  `first_settled_ms` served and rendered (live: **2026-08-11**, not the
+  "Aug 18" the page typed). **Item 2, staked-now, is refused in words**:
+  `parse_fill` drops the venue's buy/sell `action`, so a SUM over `fills`
+  books exits as stake, and "fills with no settlement row" mislabels both
+  unmirrored settlements and pre-settlement exits. The ADR names what would
+  pin it (an `action` column on fills, or storing the venue's per-position
+  exposure with its unit measured) — schema work, unowned. **Item 4 is not
+  buildable on `venue_settlements`** (an open combo is structurally absent;
+  it needs `parlay_positions` wiring 21A did not price) — Joe's call.
+- **Lane B, ADR 0103 (`2747b0f`)** — #25/25C. Fifth bucket `sized_to_zero`
+  on `/api/board` (no reason, `suggested_contracts = 0`,
+  `reference_contracts > 0`; NULL reference falls to `no_edge` as the gate
+  does), chip **SIZED TO ZERO** with no tone colour, caption "reference size
+  N at $1,000 · sized to 0 at your balance" with the bankroll served by the
+  slate. `gate.py` byte-identical; `population_counts` not forked; the
+  Board's `sized_to_zero + surfaced + expired` equals the gate's actionable
+  count on the same fixture, pinned. 15 mutations red. At the merge boundary
+  the four-bucket tuples in three tests it did not own were extended to five
+  so `test_observability`'s mixed fixture asserts the new row instead of
+  skipping it.
+- **`leagueLabel` (`f4c2159`)** — Kalshi's competition strings ("Pro
+  Baseball") and the odds feed's sport keys render the same word;
+  `tests/test_league_label.py` pins the frontend map equal to
+  `IN_SCOPE_LEAGUES`.
+
+**Lane mechanics that are new and worth keeping:** the lanes ran as Agent
+worktrees under `.claude/worktrees/`, borrowing main's `.venv` by absolute
+path and main's `frontend/node_modules` through a directory junction (the
+sandbox refused `cmd /c mklink`; Python's `_winapi.CreateJunction` worked).
+**Remove the junction with `os.rmdir` before `git worktree remove --force`**,
+or the removal recurses into main's install. Turbopack `next build` refuses a
+junctioned `node_modules`; `next build --webpack` does not. Lane B was killed
+mid-edit by a rate limit and resumed via `SendMessage` with its context
+intact — a stopped lane is resumable, not lost.
+
+### FOR JOE — one question and one rotation, nothing else
+
+**Rotate the Odds API key.** A subagent read the local `.env` to check config
+precedence and the key's value appeared in its transcript, on this machine.
+Not committed, not pushed, not public — `.env` is gitignored and `git status`
+was clean throughout. CLAUDE.md's rule for the Kalshi key (in a transcript,
+therefore compromised, therefore rotate) applies by analogy; rotation is free
+on The Odds API dashboard and then `flyctl secrets set ODDS_API_KEY=…`. Not
+an emergency; your account, your action. **Standing guard for sessions:**
+establish config from `.env.example` and `fly.*.toml`, never by reading
+`.env`; if local precedence matters, grep the one non-secret key.
+
+**Q2 — answer in your usual one-line format (`Q2B`, etc.):**
+
+    Q2. When you open the desk (about 6x/day, usually for under a minute),
+        what are you checking?
+      A  what I already have on / whether anything settled
+      B  scanning for something to bet
+      C  a specific game I'd already decided to bet
+      D  habit, nothing in particular
+
+It decides whether the desk is a list (A or B) or a lookup (C); #18 shipped a
+four-link nav and a header search on an unanswered guess. The partner's read
+is A and it flagged that as the flattering answer. Ask, don't take the read.
+
+### Still open, in the partner's order
+
+1. **Deploy** — after CI green on the final SHA; `01d482b` is live now.
+2. **S3 test and the shard-0 move** — on Joe's word only. Do not nudge.
+3. **#21 item 4** — back to Joe: wire `parlay_positions` into `/bets`, or
+   descope. And the staked-now pin (fills `action` column or venue exposure
+   with a measured unit) — schema step, unowned.
+4. **#20** — held until a week of live opens land on the repaired watcher
+   (ADR 0102), then the prototype against the post-fix distribution.
+5. **Lane follow-ups, small:** `sweepTone.ts`'s second spelling of the stall
+   threshold should read `loop_idle_interval_ms`; `ParlayCards.tsx`'s inert
+   prop; `HowToRead.tsx` has no gloss for the SIZED TO ZERO chip.
+6. Held: #17, #19. Killed: #33, #24, the C5 separating read, the faster
+   floor cadence.
+
+---
+
+## 2026-09-03 (early) — the partner reordered the queue around a regression shipped the day before; three lanes landed; Joe answered the second batch
 
 **STATE, verified at close (2026-09-03 ~05:00Z):** `main` = the commit
 carrying this entry, on top of `ded444a` (Lane C merge, ADR 0100),
