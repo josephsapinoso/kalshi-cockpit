@@ -358,7 +358,9 @@ is A and it flagged that as the flattering answer. Ask, don't take the read.
 4. **Lane follow-ups, small:** `sweepTone.ts`'s second spelling of the stall
    threshold should read `loop_idle_interval_ms`; `ParlayCards.tsx`'s inert
    prop; `HowToRead.tsx` has no gloss for the SIZED TO ZERO chip.
-5. **Killed on Q2D:** #17, #19, #20 (see above; Joe closes or overrules).
+5. **Killed on Q2D and closed by Joe (2026-09-03, "not planned"):** #17,
+   #19, #20. The map's frontier is now empty of unblocked, unassigned
+   tickets.
    Killed earlier: #33, #24, the C5 separating read, the faster floor
    cadence. **Not opened:** the presence gap — evidence first.
 
