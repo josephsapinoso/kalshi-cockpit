@@ -325,20 +325,42 @@ It decides whether the desk is a list (A or B) or a lookup (C); #18 shipped a
 four-link nav and a header search on an unanswered guess. The partner's read
 is A and it flagged that as the flattering answer. Ask, don't take the read.
 
+### JOE ANSWERED — 2026-09-03, one line: `1. later 2.d`
+
+- **Key rotation: deferred by Joe.** Recorded, not nagged. The standing
+  guard for sessions (config from `.env.example` and `fly.*.toml`, never
+  by reading `.env`) applies regardless.
+- **Q2 = D: habit, nothing in particular.** Neither a list (A/B) nor a
+  lookup (C). The partner's read (A) was wrong, which is why it was asked.
+  **Consequence, in the partner's words:** Joe answered Q2 with D — habit,
+  nothing in particular — so the glance has no job the screens were failing
+  at: **visit frequency is disqualified as a demand signal** (six opens a
+  day is a tic, not engagement; `desk_attention` stays a freshness
+  diagnostic and stops being readable as interest), **#17, #19 and #20 are
+  killed rather than held** (all three were "make the glance better" work
+  justified by an assumed job the glance was doing; a deferred ticket whose
+  premise is dead gets rebuilt at full cost), and **the only gap left worth
+  funding is that the desk is not present at the moment he actually bets**
+  — ADR 0071's job is transparency at the moment of a bet, and D plus
+  `manual_orders = 0` says he bets on Kalshi directly and glances at us
+  separately. A presence problem, not a screen problem; it needs evidence
+  before it needs a lane, and no work is proposed on it here. The three
+  tickets carry the kill as a comment; Joe closes them or overrules.
+  What D does not change: ADR 0101–0103 stood on correctness, not on D.
+
 ### Still open, in the partner's order
 
-1. **Deploy** — after CI green on the final SHA; `01d482b` is live now.
+1. ~~Deploy~~ — done, `566f67e` live and demo.
 2. **S3 test and the shard-0 move** — on Joe's word only. Do not nudge.
 3. **#21 item 4** — back to Joe: wire `parlay_positions` into `/bets`, or
    descope. And the staked-now pin (fills `action` column or venue exposure
    with a measured unit) — schema step, unowned.
-4. **#20** — held until a week of live opens land on the repaired watcher
-   (ADR 0102), then the prototype against the post-fix distribution.
-5. **Lane follow-ups, small:** `sweepTone.ts`'s second spelling of the stall
+4. **Lane follow-ups, small:** `sweepTone.ts`'s second spelling of the stall
    threshold should read `loop_idle_interval_ms`; `ParlayCards.tsx`'s inert
    prop; `HowToRead.tsx` has no gloss for the SIZED TO ZERO chip.
-6. Held: #17, #19. Killed: #33, #24, the C5 separating read, the faster
-   floor cadence.
+5. **Killed on Q2D:** #17, #19, #20 (see above; Joe closes or overrules).
+   Killed earlier: #33, #24, the C5 separating read, the faster floor
+   cadence. **Not opened:** the presence gap — evidence first.
 
 ---
 
