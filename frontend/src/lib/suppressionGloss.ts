@@ -30,6 +30,17 @@
  * directions: a rule with no sentence renders as a bare identifier, which is
  * the state the gloss exists to end, and a sentence naming a rule that no
  * longer exists is a claim about a system that is gone.
+ *
+ * **Where the sentence renders changed on 2026-09-02 (decision-map ticket
+ * #16, Joe's answer 16A).** The Games screen ran ~12,000px at 390px for
+ * eleven games and just under half of that was explanatory prose, so the
+ * per-row caption came OFF `/slate`'s row and the Board's `SlateRow`. The
+ * code stays on the row, verbatim; the sentence lives on the game screen
+ * (`/market/[ticker]`), where `SkepticPanel` already captions every refused
+ * check with the same map, and the row carries a link there — see
+ * `whyRefusedHref`. The cost Joe accepted is one tap to learn why a row was
+ * refused. The disclosure at the foot of `/slate` and the Ledger still
+ * caption in place: the ticket cut the row, not the screen.
  */
 const GLOSS: Record<string, string> = {
   suspicious_edge: "edge too big to believe — treated as a bug, not a bet",
@@ -141,4 +152,24 @@ export function glossSentence(reason: string | null | undefined): string | null 
     .map((g) => g.gloss)
     .filter((g): g is string => g !== null);
   return parts.length > 0 ? parts.join("; ") : null;
+}
+
+/**
+ * The `id` of the game screen's skeptic section — `SkepticPanel.tsx`'s
+ * `<section id>`, named here so the row's link and the panel's anchor are
+ * one string in one place. `tests/test_suppression_gloss.py` reads the panel
+ * source and fails if the two drift apart.
+ */
+export const SKEPTIC_ANCHOR = "skeptic";
+
+/**
+ * Where a row's refusal is explained, now that the row itself does not
+ * (ticket #16, 16A): the game screen, scrolled to the skeptic section, which
+ * captions every refused check with the sentences above.
+ *
+ * `encodeURIComponent` on the ticker for the same reason the name link
+ * beside it does — a ticker is user-facing data on a URL path.
+ */
+export function whyRefusedHref(ticker: string): string {
+  return `/market/${encodeURIComponent(ticker)}#${SKEPTIC_ANCHOR}`;
 }

@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import type { Recommendation } from "@/lib/api";
 import { EDGE_TONE_CLASS, EDGE_TONE_MARK, edgeTone } from "@/lib/api";
-import { glossSentence } from "@/lib/suppressionGloss";
+import { whyRefusedHref } from "@/lib/suppressionGloss";
 import { rowSubject } from "@/lib/rowSubject";
 import LeagueTag from "@/components/LeagueTag";
 import ManualTicket from "@/components/ManualTicket";
@@ -67,9 +67,12 @@ const CHIP: Record<SlateState, { label: string; className: string }> = {
  * they are what `/api/suppression` counts and what a miscalibrated rule shows
  * up as. Translating them here would give the same rule two names.
  *
- * **Since 2026-08-18 a plain-English gloss renders beneath the code, and that
- * argument is why it renders beneath rather than instead.** The code keeps its
- * place and its monospace; the sentence is a caption on it. See
+ * **From 2026-08-18 to 2026-09-02 a plain-English gloss rendered beneath the
+ * code**, and that argument is why it rendered beneath rather than instead.
+ * Ticket #16 (Joe's answer 16A) took the sentence off the row: the code keeps
+ * its place and its monospace, and beside it is a link to the game screen's
+ * skeptic section, where the same sentence captions the same code. One rule,
+ * one name, and the explanation one tap away rather than on every line. See
  * `frontend/src/lib/suppressionGloss.ts`.
  */
 function stateOf(rec: Recommendation, fallback: SlateState): SlateState {
@@ -167,15 +170,20 @@ export default function SlateRow({
               ? `consensus past ${Math.round(oddsLimitMs / 60_000)}m`
               : "no edge after fees"}
         </span>
-        {/* The caption on the code. Muted at every tone, including
-            `suspicious_edge`: the code above already carries the emphasis, and
-            a second bold line beside it would compete with the edge rather
-            than explain it. `null` when the server sent a code this build does
-            not know — the code alone is the honest render there. */}
-        {resolved === "rejected" && glossSentence(rec.suppressed_reason) && (
-          <span className="min-w-0 break-words text-xs leading-snug text-muted">
-            {glossSentence(rec.suppressed_reason)}
-          </span>
+        {/* Where the caption went (ticket #16, 16A). The sentence that used
+            to render here now lives on the game screen's skeptic section, so
+            the row says where rather than what. Muted at every tone,
+            including `suspicious_edge`: the code above already carries the
+            emphasis, and a second loud line beside it would compete with the
+            edge rather than explain it. */}
+        {resolved === "rejected" && (
+          <Link
+            href={whyRefusedHref(rec.ticker)}
+            aria-label="Why this was refused, on the game screen"
+            className="text-xs text-muted underline"
+          >
+            why &rarr;
+          </Link>
         )}
       </span>
       {/* The hand-bet door (ADR 0063), full width beneath the line so it

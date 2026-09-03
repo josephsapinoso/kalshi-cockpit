@@ -13,7 +13,7 @@ import type {
   Slate,
   SlateRowData,
 } from "@/lib/api";
-import { glossSentence } from "@/lib/suppressionGloss";
+import { glossSentence, whyRefusedHref } from "@/lib/suppressionGloss";
 import { rowSubject } from "@/lib/rowSubject";
 import {
   anAutomaticBuyIsComing,
@@ -506,22 +506,29 @@ function Row({
         maxOddsAgeMs={maxOddsAgeMs}
       />
 
+      {/* The code, and where it is explained. The code is the engine's own
+          name for the rule and is what the suppression-count disclosure at
+          the foot of this screen groups by (`/rejections` was deleted
+          2026-08-22 and folded there). Until 2026-09-02 a plain-English
+          sentence rendered under it on every row; decision-map ticket #16
+          (Joe's answer 16A) cut it, because eleven games ran to ~12,000px at
+          390px and just under half of that was prose. The sentence now lives
+          on the game screen's skeptic section, captioning the same code from
+          the same map, and the row carries the link — one tap, which is the
+          cost Joe accepted. `break-words` stays: a composite reason is one
+          unbreakable token and pushed the whole page sideways once. */}
       {row.suppressed_reason && (
-        <span className="w-full break-words font-mono text-xs text-accent-2 xl:col-span-full">
-          {row.suppressed_reason}
-        </span>
-      )}
-
-      {/* Plain English under the code, never instead of it. The code above is
-          the engine's own name for the rule and is what the suppression-count
-          disclosure at the foot of this screen groups by (`/rejections` was
-          deleted 2026-08-22 and folded there); this is a caption on it, for
-          a reader who has not memorised
-          twelve identifiers. Absent when the server sent a code this build
-          does not know — see `frontend/src/lib/suppressionGloss.ts`. */}
-      {glossSentence(row.suppressed_reason) && (
-        <span className="w-full break-words text-xs leading-snug text-muted xl:col-span-full">
-          {glossSentence(row.suppressed_reason)}
+        <span className="flex w-full flex-wrap items-baseline gap-x-2 xl:col-span-full">
+          <span className="min-w-0 break-words font-mono text-xs text-accent-2">
+            {row.suppressed_reason}
+          </span>
+          <Link
+            href={whyRefusedHref(row.ticker)}
+            aria-label="Why this was refused, on the game screen"
+            className="shrink-0 text-xs text-muted underline"
+          >
+            why &rarr;
+          </Link>
         </span>
       )}
 
