@@ -39,9 +39,30 @@ import ManualTicket from "@/components/ManualTicket";
  * grey beside it — the largest apparent edge in the room, painted as the most
  * attractive thing on the page, by the rule that exists to catch it. The tone
  * now comes from `edgeTone`, which reads the suppression state first.
+ *
+ * **SIZED TO ZERO is a fourth state, not a softer NO EDGE** (ticket #25,
+ * Joe's 25C). The gate counts a row actionable at the fixed $1,000 reference
+ * profile — `reference_contracts > 0` with no suppression reason, ADR 0015
+ * §3 — and quarter-Kelly at the observed balance sizes that same row to zero.
+ * Every row the gate has ever counted had this shape, and the Board filed all
+ * of them under NO EDGE, "no edge after fees", two inches below a headline
+ * counting them. The chip names the actual state and the caption says both
+ * halves: the size the record counts, and that your balance buys none. It is
+ * drawn in the foreground ink with a plain border — not `text-positive`,
+ * because a size the gate counts is evidence about the record, not an offer
+ * — and it carries no cost and no buy affordance beyond the hand-bet door
+ * every row already has.
  */
 
-export type SlateState = "expired" | "rejected" | "no-edge";
+export type SlateState = "expired" | "rejected" | "sized-to-zero" | "no-edge";
+
+/**
+ * `$1,000`, from the server's `reference_bankroll_dollars`. One place, so the
+ * page's sentence and the row's caption cannot print two different figures.
+ */
+export function formatBankroll(dollars: number): string {
+  return `$${Math.round(dollars).toLocaleString("en-US")}`;
+}
 
 const CHIP: Record<SlateState, { label: string; className: string }> = {
   expired: {
@@ -54,11 +75,41 @@ const CHIP: Record<SlateState, { label: string; className: string }> = {
     label: "REJECTED",
     className: "border-accent-2/50 bg-accent-2-soft text-accent-2",
   },
+  "sized-to-zero": {
+    // Distinct from NO EDGE and calm: foreground ink on the card ground, a
+    // plain border. No tone colour in either direction -- colour is a claim,
+    // and this row's claim is a fact about two bankrolls, not a verdict.
+    label: "SIZED TO ZERO",
+    className: "border-edge bg-card text-foreground",
+  },
   "no-edge": {
     label: "NO EDGE",
     className: "text-muted",
   },
 };
+
+/**
+ * The SIZED TO ZERO caption, in words. Both halves or the row is a riddle:
+ * "reference size 4 at $1,000" alone reads as a size to buy, "sized to 0"
+ * alone reads as NO EDGE with a different chip.
+ *
+ * `reference_contracts` is `number | null` on the wire and the server only
+ * routes a row here on `> 0`, so the null branch is a belt for a strap the
+ * server already wears — it prints the half that is still true. The bankroll
+ * is required, not optional: it is on every Board payload
+ * (`slate.reference_bankroll_dollars`), and a wordy fallback here would be a
+ * second sentence for a state that cannot occur.
+ */
+export function sizedToZeroCaption(
+  rec: Pick<Recommendation, "reference_contracts">,
+  referenceBankrollDollars: number,
+): string {
+  const reference =
+    rec.reference_contracts !== null && rec.reference_contracts > 0
+      ? `reference size ${rec.reference_contracts} at ${formatBankroll(referenceBankrollDollars)} · `
+      : "";
+  return `${reference}sized to 0 at your balance`;
+}
 
 /**
  * Why this row is not bettable, in the fewest words that are still true.
@@ -84,11 +135,17 @@ export default function SlateRow({
   rec,
   state,
   oddsLimitMs,
+  referenceBankrollDollars,
 }: {
   rec: Recommendation;
   /** What this row is when it carries no suppression reason of its own. */
   state: SlateState;
   oddsLimitMs: number;
+  /**
+   * `board.slate.reference_bankroll_dollars` -- the bankroll the gate sizes
+   * `reference_contracts` at. Read only by the SIZED TO ZERO caption.
+   */
+  referenceBankrollDollars: number;
 }) {
   const resolved = stateOf(rec, state);
   const chip = CHIP[resolved];
@@ -168,7 +225,9 @@ export default function SlateRow({
             ? rec.suppressed_reason
             : resolved === "expired"
               ? `consensus past ${Math.round(oddsLimitMs / 60_000)}m`
-              : "no edge after fees"}
+              : resolved === "sized-to-zero"
+                ? sizedToZeroCaption(rec, referenceBankrollDollars)
+                : "no edge after fees"}
         </span>
         {/* Where the caption went (ticket #16, 16A). The sentence that used
             to render here now lives on the game screen's skeptic section, so
@@ -198,7 +257,9 @@ export default function SlateRow({
           note={
             resolved === "rejected"
               ? "This is your own bet, not the engine's. The refusal above stands, is not reversed by placing this, and this order is recorded apart from it."
-              : "This is your own bet. It is recorded apart from the engine's record and never counts toward the gate."
+              : resolved === "sized-to-zero"
+                ? "This is your own bet. The engine sized this to zero at your balance; placing it does not change that, and the order is recorded apart from the engine's record and never counts toward the gate."
+                : "This is your own bet. It is recorded apart from the engine's record and never counts toward the gate."
           }
         />
       </div>
