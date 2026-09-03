@@ -18,11 +18,23 @@ of the components, so it is asserted against their source: if a future edit
 swaps the code out for the sentence, the argument that permitted the gloss
 stops holding and this goes red.
 
+**Where the sentence renders (ticket #16, Joe's answer 16A, 2026-09-02).**
+The two *row* sites -- the Board's `SlateRow` and `/slate`'s own row -- keep
+the code and no longer carry the sentence; beside the code is a link to the
+game screen's skeptic section, where `SkepticPanel` captions the same code
+from the same map. So the rule for a render site is now: gloss in place, OR
+point at the place that does. The Ledger, the card and the disclosure at the
+foot of `/slate` still gloss in place -- the ticket cut the row, not the
+screen -- and the two row sites are pinned to the *other* branch, so a future
+edit that quietly puts the paragraph back on the row goes red here.
+
 **What this does not establish.** That any sentence is *correct*, that the two
 lines are legible together, or that the layout survives a long composite
 reason. A wrong sentence passes here. The behaviour of the splitting is
 executed by node below rather than read, because a substring assertion passes
-unchanged on a function that is exactly inverted.
+unchanged on a function that is exactly inverted. Nor that the link *lands*:
+the market page's scroll-after-fetch is asserted as source, not driven in a
+browser.
 """
 
 from __future__ import annotations
@@ -43,8 +55,18 @@ GLOSS_TS = REPO / "frontend" / "src" / "lib" / "suppressionGloss.ts"
 SLATE_ROW = REPO / "frontend" / "src" / "components" / "SlateRow.tsx"
 CARD = REPO / "frontend" / "src" / "components" / "OpportunityCard.tsx"
 SLATE_PAGE = REPO / "frontend" / "src" / "app" / "slate" / "page.tsx"
+MARKET_PAGE = REPO / "frontend" / "src" / "app" / "market" / "[ticker]" / "page.tsx"
+SKEPTIC_PANEL = REPO / "frontend" / "src" / "components" / "SkepticPanel.tsx"
 
 NODE = shutil.which("node")
+
+
+def without_comments(source: str) -> str:
+    """The file with its comments removed. A docstring that quotes the old
+    `glossSentence(rec.suppressed_reason)` line to explain its absence must
+    neither satisfy nor break an assertion about what renders."""
+    stripped = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+    return re.sub(r"^\s*//.*$", "", stripped, flags=re.MULTILINE)
 
 
 def check_names() -> set[str]:
@@ -195,20 +217,34 @@ class TestTheGlossIsAdditive:
             r"(?:\?|\{)\s*" + re.escape(receiver) + r"\.suppressed_reason\s*(?:\}|$)",
             re.MULTILINE,
         )
-        without_comments = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
-        without_comments = re.sub(
-            r"^\s*//.*$", "", without_comments, flags=re.MULTILINE
-        )
-        return rendered.search(without_comments) is not None
+        return rendered.search(without_comments(source)) is not None
 
     def test_the_slate_row_still_renders_the_raw_code(self):
+        """The Board's row: the code, and a link to where it is explained.
+
+        Ticket #16 (16A) took the sentence off this row. The code is still
+        the row's content -- it is what `/api/suppression` counts -- and the
+        thing beside it is now a pointer, not a paragraph. Mutation observed
+        red both ways: put `glossSentence(rec.suppressed_reason)` back, or
+        drop the `whyRefusedHref` link.
+        """
         source = SLATE_ROW.read_text(encoding="utf-8")
         assert self._renders_raw_code(source, "rec"), (
-            "SlateRow no longer renders the engine's own code. The gloss was "
-            "permitted because it is a caption on the code, not a replacement "
-            "for it -- one rule, one name, plus an explanation."
+            "SlateRow no longer renders the engine's own code. The link was "
+            "permitted because it sits beside the code, not in place of it -- "
+            "one rule, one name, and the explanation one tap away."
         )
-        assert "glossSentence(rec.suppressed_reason)" in source
+        live = without_comments(source)
+        assert "glossSentence(" not in live, (
+            "SlateRow renders the gloss sentence on the row again. Ticket #16 "
+            "(16A) moved it to the game screen; the row keeps the code and a "
+            "link, and eleven rows of prose is what the ticket was opened for."
+        )
+        assert "whyRefusedHref(rec.ticker)" in live, (
+            "SlateRow dropped the sentence without pointing at where it went. "
+            "A beginner who cannot see why a row was refused cannot learn from "
+            "the refusal -- the ticket's own words."
+        )
 
     def test_the_card_still_renders_the_raw_code(self):
         source = CARD.read_text(encoding="utf-8")
@@ -216,9 +252,28 @@ class TestTheGlossIsAdditive:
         assert "glossSentence(rec.suppressed_reason)" in source
 
     def test_the_slate_page_still_renders_the_raw_code(self):
+        """`/slate`'s own row, the screen the ticket measured. Same shape as
+        the Board's row: code stays, sentence goes, link arrives. The
+        disclosure at the foot of the same file still captions each counted
+        code in place -- `glossSentence(reason)` -- and that is pinned too,
+        because the ticket cut the row, not the screen.
+        """
         source = SLATE_PAGE.read_text(encoding="utf-8")
         assert self._renders_raw_code(source, "row")
-        assert "glossSentence(row.suppressed_reason)" in source
+        live = without_comments(source)
+        assert "glossSentence(row.suppressed_reason)" not in live, (
+            "/slate renders the gloss sentence on every row again -- the "
+            "state ticket #16 was opened to end."
+        )
+        assert "whyRefusedHref(row.ticker)" in live, (
+            "/slate's row dropped the sentence without a link to where it went."
+        )
+        assert "glossSentence(reason)" in live, (
+            "the suppression-count disclosure at the foot of /slate stopped "
+            "captioning its codes. That is outside ticket #16, which cut the "
+            "ROW; a per-code caption once per screen is not the prose it "
+            "measured."
+        )
 
 
 class TestEveryRenderSiteIsGlossed:
@@ -230,8 +285,9 @@ class TestEveryRenderSiteIsGlossed:
     written from the same wrong list would have called complete.
 
     So this asserts the *list* rather than its members: any file that renders
-    the field must also call the gloss. A fourth render site added later fails
-    here instead of shipping a bare identifier.
+    the field must also explain it -- **in place, or by pointing at the game
+    screen that does** (ticket #16, 16A). A fourth render site added later
+    fails here instead of shipping a bare identifier with nowhere to go.
     """
 
     #: Every file under `frontend/src` is scanned; these need no gloss and say
@@ -244,30 +300,49 @@ class TestEveryRenderSiteIsGlossed:
         "components/CrewBubble.tsx": "quotes the code inside a sentence it writes itself",
     }
 
-    def test_every_file_that_renders_the_field_also_glosses_it(self):
+    #: The row sites ticket #16 cut. These must take the *pointer* branch and
+    #: not the in-place one -- listed by name, because the scan below accepts
+    #: either and would call a row that grew its paragraph back complete.
+    POINT_AWAY = {"components/SlateRow.tsx", "app/slate/page.tsx"}
+
+    @staticmethod
+    def _explains(live: str) -> bool:
+        return "glossSentence(" in live or "whyRefusedHref(" in live
+
+    def test_every_file_that_renders_the_field_also_explains_it(self):
         src = REPO / "frontend" / "src"
         offenders = []
         for path in sorted(src.rglob("*.ts*")):
             rel = path.relative_to(src).as_posix()
             if rel in self.EXEMPT:
                 continue
-            source = path.read_text(encoding="utf-8")
-            without_comments = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
-            without_comments = re.sub(
-                r"^\s*//.*$", "", without_comments, flags=re.MULTILINE
-            )
+            live = without_comments(path.read_text(encoding="utf-8"))
             renders = re.search(
                 r"(?:\?|\{)\s*\w+\.suppressed_reason\s*(?:\}|$)",
-                without_comments,
+                live,
                 re.MULTILINE,
             )
-            if renders and "glossSentence(" not in without_comments:
+            if renders and not self._explains(live):
                 offenders.append(rel)
         assert not offenders, (
             "These files render a suppression code with no plain English "
-            f"beside it: {offenders}. Either call glossSentence() there or add "
+            f"beside it and no link to where it is explained: {offenders}. "
+            "Either call glossSentence() there, link whyRefusedHref(), or add "
             "the file to EXEMPT with the reason."
         )
+
+    def test_the_cut_rows_point_away_and_do_not_gloss_in_place(self):
+        """The half the scan cannot see. It accepts either branch, so a row
+        that carried BOTH the link and the sentence would pass it -- and that
+        row is the ~12,000px screen the ticket measured, plus a link."""
+        src = REPO / "frontend" / "src"
+        for rel in sorted(self.POINT_AWAY):
+            live = without_comments((src / rel).read_text(encoding="utf-8"))
+            assert "whyRefusedHref(" in live, f"{rel} does not link to the game screen"
+            in_place = re.search(r"glossSentence\(\s*\w+\.suppressed_reason\s*\)", live)
+            assert not in_place, (
+                f"{rel} glosses the row's own suppressed_reason in place again"
+            )
 
     def test_the_scan_finds_the_sites_it_is_supposed_to_find(self):
         """The anchor. Without it an over-eager regex change makes the scan
@@ -289,12 +364,92 @@ class TestEveryRenderSiteIsGlossed:
         } <= found, found
 
 
+class TestTheProseLivesOnTheGameScreen:
+    """The other end of the link. A row that says "why ->" and lands on a page
+    that does not explain has deleted the provenance, which is the option Joe
+    was offered and did NOT choose (ticket #16: relocated, not deleted).
+
+    Three facts, each its own test because each fails for its own reason: the
+    game screen mounts the skeptic panel; the panel captions refused codes
+    from the same map the rows used to; and the link's fragment is the panel's
+    actual `id`, read from the panel's source rather than assumed.
+    """
+
+    @staticmethod
+    def _anchor() -> str:
+        found = re.search(
+            r'export const SKEPTIC_ANCHOR = "([a-z_-]+)"',
+            GLOSS_TS.read_text(encoding="utf-8"),
+        )
+        assert found, "SKEPTIC_ANCHOR is no longer exported from suppressionGloss.ts"
+        return found.group(1)
+
+    def test_the_market_page_mounts_the_skeptic_panel(self):
+        live = without_comments(MARKET_PAGE.read_text(encoding="utf-8"))
+        assert "<SkepticPanel" in live, (
+            "/market/[ticker] no longer mounts SkepticPanel, so the row's "
+            "'why' link lands on a page with no explanation on it."
+        )
+
+    def test_the_skeptic_panel_captions_from_the_same_map(self):
+        live = without_comments(SKEPTIC_PANEL.read_text(encoding="utf-8"))
+        assert "glossSuppression(" in live, (
+            "SkepticPanel stopped reading suppressionGloss.ts. The row's "
+            "sentence moved here on the promise that it is the SAME sentence."
+        )
+        assert re.search(r"\{\s*gloss\s*\}", live), (
+            "SkepticPanel computes the gloss and renders something else."
+        )
+
+    def test_the_links_fragment_is_the_panels_own_id(self):
+        """Mutation observed red: rename the section's `id` -- the link then
+        points at nothing and the page stays at the top."""
+        anchor = self._anchor()
+        panel = without_comments(SKEPTIC_PANEL.read_text(encoding="utf-8"))
+        assert f'id="{anchor}"' in panel, (
+            f"SkepticPanel has no element with id={anchor!r}, which is where "
+            "whyRefusedHref() sends every refused row."
+        )
+        gloss_ts = GLOSS_TS.read_text(encoding="utf-8")
+        href = gloss_ts.split("function whyRefusedHref", 1)[1]
+        assert "#${SKEPTIC_ANCHOR}" in href, (
+            "whyRefusedHref builds its fragment from something other than "
+            "SKEPTIC_ANCHOR, so the constant this test reads is not the one "
+            "the link uses."
+        )
+
+    def test_the_landing_scrolls_once_the_panel_exists(self):
+        """The panel mounts after `fetchMarketDetail` resolves, and the
+        browser's own fragment scroll fires at navigation -- before there is
+        anything to scroll to. So the page must re-run it when `detail`
+        arrives, and the effect that does so must depend on `detail` and on
+        nothing narrower. Mutation observed red: change the dependency list
+        to `[]`."""
+        live = without_comments(MARKET_PAGE.read_text(encoding="utf-8"))
+        assert "scrollIntoView" in live, (
+            "/market/[ticker] never scrolls to the hash itself, so a 'why' "
+            "link lands at the top of a page that says Loading."
+        )
+        effect_start = live.rfind("useEffect(", 0, live.index("scrollIntoView"))
+        assert effect_start >= 0, "scrollIntoView is not inside a useEffect"
+        effect = live[effect_start:]
+        deps = re.search(r"\}, \[([^\]]*)\]\);", effect)
+        assert deps and deps.group(1).strip() == "detail", (
+            "the hash-scroll effect does not re-run when `detail` arrives, "
+            f"its dependencies are [{deps.group(1) if deps else '?'}]"
+        )
+        assert "location.hash" in effect[: effect.index("scrollIntoView")], (
+            "the effect scrolls to something other than the URL's own hash"
+        )
+
+
 _DRIVER = """
-import { glossSuppression, glossSentence } from "./suppressionGloss.ts";
+import { glossSuppression, glossSentence, whyRefusedHref } from "./suppressionGloss.ts";
 const reason = JSON.parse(process.argv[2]);
 console.log(JSON.stringify({
   codes: glossSuppression(reason),
   sentence: glossSentence(reason),
+  href: whyRefusedHref("KX A/B"),
 }));
 """
 
@@ -387,3 +542,10 @@ class TestTheSplittingIsExecuted:
             got = gloss_of(empty)
             assert got["codes"] == [], empty
             assert got["sentence"] is None, empty
+
+    def test_the_why_link_encodes_the_ticker_and_targets_the_skeptic(self):
+        """Executed, not read: a ticker is user-facing data on a URL path, and
+        the encoding is the one place a substring assertion could pass on a
+        function that forgot it."""
+        got = gloss_of("stale_odds")
+        assert got["href"] == "/market/KX%20A%2FB#skeptic"

@@ -215,6 +215,22 @@ export default function MarketPage() {
     };
   }, [ticker]);
 
+  // **The row's "why" link lands here, and it has to land after the fetch.**
+  // Since ticket #16 (16A) the Games row and the Board row carry the refusal
+  // code and a link to `#skeptic` instead of the sentence; the sentence is
+  // `SkepticPanel`'s caption. That panel mounts only once `detail` arrives,
+  // so the browser's own fragment scroll, which fires at navigation, finds
+  // no element and the reader is left at the top of a page that still says
+  // "Loading". Re-run the scroll ourselves once the target exists. Reads
+  // the hash rather than assuming `#skeptic`, so the five desk anchors in
+  // the nav below land the same way.
+  useEffect(() => {
+    if (!detail || typeof window === "undefined") return;
+    const id = window.location.hash.slice(1);
+    if (!id) return;
+    document.getElementById(id)?.scrollIntoView({ block: "start" });
+  }, [detail]);
+
   // Three header states, drawn apart (2026-08-22 review, A8): this page
   // rendered the literal string "Market" for loading AND for
   // nothing-found, which are opposite claims — one asks for patience, the
