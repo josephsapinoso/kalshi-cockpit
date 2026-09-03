@@ -31,8 +31,17 @@ the inverted claim, so the whole thing passed.
 
 What this module does not do
 ----------------------------
-It gives no opinion on who wins — that is `elo.py`. It supplies P(margin > x)
-given a predicted mean margin, and nothing else.
+It gives no opinion on who wins. It supplies P(margin > x) given a predicted
+mean margin, and nothing else. Until 2026-09-03 this sentence handed the
+win-probability question to `elo.py`, and nothing does: `elo.py` is quarantined
+(`tests/test_has_callers.py`, ADR 0022) with no production caller — imported
+only by `model/backtest.py`, itself imported only by `tests/test_model.py` —
+and `model_probability` is NULL on every recorded row (CLAUDE.md, opening
+section). In the deployed system the only win probability is the devigged
+sportsbook consensus (`core/devig.py`), and it does not feed this module
+either: the one production path in here is `api/routes.py` →
+`core/teaser.find_wong_candidates` → `wong_candidate`, a line-window screen
+that consumes no probability at all.
 
 It also will not pretend a league-wide margin distribution can be slid sideways
 to represent a specific game. See `translation_points` — spikes live at absolute

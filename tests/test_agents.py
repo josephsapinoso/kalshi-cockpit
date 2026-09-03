@@ -80,6 +80,28 @@ class TestConfig:
         monkeypatch.delenv("AGENT_MODEL", raising=False)
         assert AgentConfig.from_env().model == "claude-opus-5"
 
+    def test_the_contract_file_carries_the_code_default(self):
+        """`.env.example` says it keeps the Opus line "only because
+        `backend/agents/base.py`'s DEFAULT_MODEL does, and the two disagreeing
+        would be worse than either." That sentence described an intention with
+        nothing holding it; this holds it. Live pins a different value in
+        `fly.live.toml` on purpose (ADR 0071 section 2.7) and is not read here:
+        the contract is what an operator copies, the deploy file is what one
+        machine runs, and only the first must equal the code.
+        """
+        from pathlib import Path
+
+        from backend.agents.base import DEFAULT_MODEL
+
+        contract = (Path(__file__).resolve().parents[1] / ".env.example").read_text(
+            encoding="utf-8"
+        )
+        lines = [
+            ln for ln in contract.splitlines() if ln.startswith("AGENT_MODEL=")
+        ]
+        assert len(lines) == 1, f"expected one AGENT_MODEL line, found {lines}"
+        assert lines[0] == f"AGENT_MODEL={DEFAULT_MODEL}"
+
 
 class TestSharedCall:
     async def test_the_cache_breakpoint_is_on_the_last_system_block(self):
