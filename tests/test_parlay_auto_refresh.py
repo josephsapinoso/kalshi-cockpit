@@ -73,12 +73,16 @@ class TestItRefreshesOnTheThingThatWasBlockingTheCards:
 
         A sweep that re-priced fixtures which were already fresh changes no
         answer on this page, and re-rendering for it is a flicker with nothing
-        behind it. Mutation observed red: compare against `last_sweep_ms`
-        instead, or use `<` so an unchanged count refreshes.
+        behind it. `refreshedFor` starts at `renderedFresh` and moves only when
+        the page has been refreshed for a higher count, so the same higher
+        count seen twice before the new render lands refreshes once. Mutation
+        observed red: compare against `last_sweep_ms` instead, or use `>=` so
+        an unchanged count refreshes.
         """
-        source = WATCHER.read_text(encoding="utf-8")
-        assert "fresh <= renderedFresh) return" in source
-        assert "last_sweep_ms" not in source
+        code = _code(WATCHER)
+        assert "let refreshedFor = renderedFresh" in code
+        assert "facts.fixtures_fresh > refreshedFor" in code
+        assert "last_sweep_ms" not in code
 
     def test_it_refreshes_in_place_rather_than_reloading(self):
         """`router.refresh()` re-runs the server component without blanking the
@@ -100,11 +104,13 @@ class TestItRefreshesOnTheThingThatWasBlockingTheCards:
 class TestItStopsAndSaysSo:
     def test_the_watch_is_bounded(self):
         """A poller that ran until the tab closed would be a background request
-        loop nobody asked for. Mutation observed red: delete the `GIVE_UP_MS`
-        branch."""
-        source = WATCHER.read_text(encoding="utf-8")
-        assert "GIVE_UP_MS" in source
-        assert "clearInterval" in source
+        loop nobody asked for. The timer is a `setTimeout` chain since the
+        leading edge (2026-09-03), so the bound is the `GIVE_UP_MS` check at
+        the top of every look, and the cleanup clears whatever timer is
+        pending. Mutation observed red: delete the `GIVE_UP_MS` branch."""
+        code = _code(WATCHER)
+        assert "now - startedAt > GIVE_UP_MS" in code
+        assert "clearTimeout(timer)" in code
 
     def test_giving_up_matches_the_attention_ttl(self):
         """**One quantity, one limit, across two languages.**
@@ -251,12 +257,21 @@ class TestPicksWiresItToo:
         assert "renderedFresh={actionable.fixtures_fresh}" in source
         assert "picks !== null" in gate
 
-    def test_it_asks_whether_a_buy_is_coming(self):
-        """Ticket #35's half: watching for a sweep the loop has already
-        refused renders a five-minute disappointment on a quiet night working
-        as designed. Mutation observed red: pass `true`."""
-        source = self._source()
-        assert "automaticBuyIsComing={anAutomaticBuyIsComing(actionable)}" in source
+    def test_it_does_not_answer_the_watchers_question_for_it(self):
+        """Ticket #35's half, moved to where it can be answered truthfully.
+
+        This case used to pin `automaticBuyIsComing={anAutomaticBuyIsComing(
+        actionable)}` on the mount -- the page answering "is a buy coming"
+        from its render's snapshot. The snapshot predates the page's own
+        heartbeat, so on a cold open after a quiet hour it said no (the last
+        look was over the old 180s constant; the idle cadence is 900s) and the
+        watcher switched itself off 0.6s before the buy landed
+        (2026-09-02T13:28Z). The watcher now asks `readWatch` against fresh
+        facts on every poll, and the page hands it the baseline count only.
+        Mutation observed red: pass the prop again."""
+        code = _code(PICKS)
+        assert "automaticBuyIsComing" not in code
+        assert "anAutomaticBuyIsComing" not in code
 
     def test_the_timetable_failing_costs_the_watcher_not_the_list(self):
         """`/api/window` failing must not send the page to the unreachable

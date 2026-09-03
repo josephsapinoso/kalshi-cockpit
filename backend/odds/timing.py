@@ -81,6 +81,7 @@ those need opposite responses. Now it means the first.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Collection, Iterable, Mapping, Optional, Sequence
@@ -494,6 +495,59 @@ DESK_FLOOR_INTERVAL_MS = 3_600_000
 #: nobody will look at for days. Sports out of season drop out on their own,
 #: because `upcoming_fixtures_by_sport` has nothing to offer for them.
 DESK_FLOOR_HORIZON_MS = 12 * 3_600_000
+
+#: The chain runner's full-pass cadence when nothing wakes it, as
+#: `docker/entrypoint.sh` defaults it: `--interval "${RUNNER_INTERVAL_S:-900}"`.
+#:
+#: **A second spelling of a number the entrypoint owns, and pinned as one.**
+#: The API process and the loop run in the same container off the same
+#: environment, so reading `RUNNER_INTERVAL_S` here with the entrypoint's own
+#: default is one source with two readers rather than two sources. A test
+#: reads the `:-900` out of the entrypoint and the `=900` out of
+#: `.env.example` and fails if either drifts from this.
+#:
+#: **Why the screen needs it at all.** Every pass that looks at odds writes
+#: `odds_sweep_log`, and the screen calls the loop stalled when that row is
+#: old. Until 2026-09-03 "old" was a hardcoded 180s in
+#: `frontend/src/lib/nextOddsWindow.ts`, written when the observed cadence
+#: was a pass every ~18s -- but that is the FAST cadence, which runs only
+#: while a window is open. Idle, the loop sleeps `RUNNER_INTERVAL_S` (median
+#: 926.8s full-to-full across 6,066 live passes), so on 8 of 26 measured
+#: cold opens the screen called a sleeping loop a fault and switched off the
+#: watcher that would have shown the buy landing thirteen seconds later. A
+#: stall threshold has to be derived from the cadence it is judging, and the
+#: cadence is a fact the server has and the browser does not.
+ENTRYPOINT_RUNNER_INTERVAL_S = 900
+
+
+def loop_idle_interval_ms_from_env(
+    environ: Optional[Mapping[str, str]] = None,
+) -> Optional[int]:
+    """The loop's idle full-pass interval in ms, read as the entrypoint reads it.
+
+    Unset or blank resolves to the entrypoint's default, because that is what
+    the entrypoint passes the loop in that case -- the two processes agree by
+    construction. Unparseable or non-positive resolves to `None`, never `0`:
+    a screen handed `None` cannot judge a silence and says nothing about
+    stalls, where a `0` would call every look a stall.
+
+    What this does not establish: that the loop is actually running at this
+    interval. A developer who starts `run_loop.py --interval 300` by hand with
+    the variable unset gets an API that believes 900. The error is in the
+    safe direction -- the screen waits longer before calling a fault -- and
+    the deployed path (`docker/entrypoint.sh`) cannot produce it.
+    """
+    env = os.environ if environ is None else environ
+    raw = env.get("RUNNER_INTERVAL_S", "").strip()
+    if raw == "":
+        return ENTRYPOINT_RUNNER_INTERVAL_S * 1000
+    try:
+        seconds = float(raw)
+    except ValueError:
+        return None
+    if seconds <= 0:
+        return None
+    return int(seconds * 1000)
 
 
 def desk_wants(
@@ -1260,6 +1314,24 @@ class ActionableWindow:
     #: again. See `desk_floor_next_want_ms`.
     floor_next_buy_ms: Optional[int] = None
 
+    #: How long the loop sleeps between full passes when nothing wakes it --
+    #: `RUNNER_INTERVAL_S` as `docker/entrypoint.sh` passes it, via
+    #: `loop_idle_interval_ms_from_env`. Published so the screen can judge a
+    #: silence in `last_look_ms` against the cadence that produced it instead
+    #: of against a constant written for a different cadence. `None` means
+    #: the interval could not be read, and a reader given `None` may not call
+    #: the loop stalled on `last_look_ms` alone.
+    #:
+    #: **A stall shorter than this cannot be seen in `last_look_ms`.** A loop
+    #: that wedges mid-window looks, from this field, exactly like a loop that
+    #: is asleep between passes until the idle interval has passed. The
+    #: 2026-08-25 wedge (15.5 min on the fast cadence) is below it. What sees
+    #: that one is the watcher on a page that is open and heartbeating -- the
+    #: heartbeat wakes the loop within seconds, so silence while attended is
+    #: a stall on a much shorter clock. Two predicates, two clocks; this field
+    #: serves the slow one.
+    loop_idle_interval_ms: Optional[int] = None
+
     @property
     def is_open(self) -> bool:
         return self.fixtures_fresh > 0
@@ -1317,6 +1389,7 @@ class ActionableWindow:
             "desk_is_attended": self.desk_is_attended,
             "next_desk_buy_ms": self.next_desk_buy_ms,
             "floor_next_buy_ms": self.floor_next_buy_ms,
+            "loop_idle_interval_ms": self.loop_idle_interval_ms,
             "note": (
                 "Open means odds are fresh enough for a pick to survive the "
                 "staleness check. It does not mean there is anything to bet -- "
@@ -1337,8 +1410,16 @@ def window_status(
     desk_window: Optional[tuple[int, int]] = None,
     attention_ttl_ms: int = attention.DEFAULT_ATTENTION_TTL_MS,
     attention_daily_credits: int = DEFAULT_ATTENTION_DAILY_CREDITS,
+    loop_idle_interval_ms: Optional[int] = None,
 ) -> ActionableWindow:
     """The window, and the next planned sweep, from stored state alone.
+
+    `loop_idle_interval_ms` is passed through untouched -- it is a fact about
+    the process, not about the stored state, and the route reads it from the
+    environment the loop was started from (`loop_idle_interval_ms_from_env`).
+    Defaulting to `None` keeps every existing caller's payload identical
+    except for one new null key, which the reader treats as "cadence
+    unknown" and not as any number.
 
     Shares `plan_sweep_slots` with the runner rather than reimplementing the
     schedule for display. A screen and a control that compute the same thing by
@@ -1511,6 +1592,7 @@ def window_status(
         desk_is_attended=attended,
         next_desk_buy_ms=desk_next,
         floor_next_buy_ms=floor_next,
+        loop_idle_interval_ms=loop_idle_interval_ms,
         first_window_open_ms=first_window_open_of_day(
             conn,
             day_start_ms=start_ms,

@@ -118,6 +118,7 @@ from ..odds.client import prop_market_keys
 from ..odds.timing import (
     DEFAULT_DAY_START_UTC_HOUR,
     SLATE_WINDOW_MS,
+    loop_idle_interval_ms_from_env,
     window_status,
 )
 from ..parlays import (
@@ -1949,6 +1950,13 @@ def create_app(
             # the attention slice after `desk_wants`, so without this the panel
             # would publish a call the loop refuses. Ticket #35.
             attention_daily_credits=odds.attention_daily_credits,
+            # The loop's own idle cadence, read from the environment the
+            # entrypoint started it from. The screen judges a silence in
+            # `last_look_ms` against this rather than against a constant
+            # written for the fast cadence -- which called a sleeping loop
+            # a fault on 8 of 26 measured cold opens and switched off the
+            # self-heal on exactly the opens it exists for.
+            loop_idle_interval_ms=loop_idle_interval_ms_from_env(),
         ).to_dict()
 
     @app.get("/api/market/{ticker}")

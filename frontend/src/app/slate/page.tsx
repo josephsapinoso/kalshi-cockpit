@@ -18,7 +18,6 @@ import type {
 import { glossSentence, whyRefusedHref } from "@/lib/suppressionGloss";
 import { rowSubject } from "@/lib/rowSubject";
 import {
-  anAutomaticBuyIsComing,
   isStaleOddsReason,
   slateIsUnpricedByTheClock,
 } from "@/lib/nextOddsWindow";
@@ -308,6 +307,13 @@ export default async function SlatePage({
         Gated on the whole screen being unpriced, never on `refreshIsUrgent` --
         that predicate is `some` and fires on one stale row, which is a working
         slate the reader is in the middle of. See `slateIsUnpricedByTheClock`.
+
+        The render hands over the baseline count and nothing else. It used to
+        pass `anAutomaticBuyIsComing(actionable)` too, and that answer was
+        computed from a snapshot older than the page's own heartbeat -- so on
+        a cold open after a quiet hour it said no buy was coming and switched
+        the watcher off seconds before the buy landed. The watcher asks
+        `readWatch` against fresh facts on every poll instead.
       */}
       {actionable &&
         slateIsUnpricedByTheClock(
@@ -315,10 +321,7 @@ export default async function SlatePage({
           data.staleness.max_odds_age_s * 1000,
         ) && (
           <div className="mt-8 max-w-[65ch]">
-            <RefreshWhenPriced
-              renderedFresh={actionable.fixtures_fresh}
-              automaticBuyIsComing={anAutomaticBuyIsComing(actionable)}
-            />
+            <RefreshWhenPriced renderedFresh={actionable.fixtures_fresh} />
           </div>
         )}
 

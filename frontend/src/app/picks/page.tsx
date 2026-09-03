@@ -7,7 +7,6 @@ import {
   readListFilter,
 } from "@/lib/api";
 import type { ActionableWindow, Slate } from "@/lib/api";
-import { anAutomaticBuyIsComing } from "@/lib/nextOddsWindow";
 
 import FilterBar from "@/components/FilterBar";
 import GoodChancePicks from "@/components/GoodChancePicks";
@@ -84,8 +83,13 @@ export const dynamic = "force-dynamic";
  * means the recorder's window held no priced game, and a sweep landing
  * raises `fixtures_fresh` before the runner has evaluated anything, so the
  * one refresh the watcher would fire there shows the same empty screen.
- * Whether a buy is actually coming is `anAutomaticBuyIsComing`, as on the
- * Slate; past it the watcher says nothing is due rather than polling.
+ * Whether a buy is actually coming is the watcher's own question, asked of
+ * fresh `/api/window` facts on every poll (`readWatch`). **This page used to
+ * answer it here, from the render's snapshot, and the snapshot was taken
+ * before the page's own heartbeat existed** — so on 8 of 26 measured cold
+ * opens it said no buy was coming and switched the watcher off, thirteen
+ * seconds before the buy that heartbeat triggered landed. The render hands
+ * over the baseline count and nothing else.
  */
 export default async function PicksPage({
   searchParams,
@@ -256,10 +260,7 @@ export default async function PicksPage({
           nothing — the credit-spending controls stay on Games. */}
       {actionable && picks !== null && picks.not_ranked.stale_consensus > 0 && (
         <div className="mt-3 max-w-[65ch]">
-          <RefreshWhenPriced
-            renderedFresh={actionable.fixtures_fresh}
-            automaticBuyIsComing={anAutomaticBuyIsComing(actionable)}
-          />
+          <RefreshWhenPriced renderedFresh={actionable.fixtures_fresh} />
         </div>
       )}
 
