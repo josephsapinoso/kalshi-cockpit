@@ -622,15 +622,87 @@ const BASE =
     ? (process.env.API_ORIGIN ?? "http://127.0.0.1:8000")
     : "");
 
+/**
+ * A non-2xx answer, with its status kept. Every page catches `get` failures
+ * as "backend unreachable"; a 422 on a list cut (#15) is not that, it is
+ * "the backend refused the value in the URL", and a page that cannot tell
+ * the two apart prints the wrong sentence for one of them.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(path: string, status: number) {
+    super(`${path} returned ${status}`);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function get<T>(path: string): Promise<T> {
   // `no-store`: this is live market data. A cached board showing a stale price
   // as fresh is precisely the failure the staleness contract exists to prevent.
   const response = await fetch(`${BASE}${path}`, { cache: "no-store" });
   if (!response.ok) {
-    throw new Error(`${path} returned ${response.status}`);
+    throw new ApiError(path, response.status);
   }
   return response.json() as Promise<T>;
 }
+
+/**
+ * The two cuts a list screen may make (#15, Joe's option A): one league, by
+ * the odds feed's sport key, and a kickoff window in hours. Both are sent as
+ * query parameters the server validates -- `backend/list_filters.py` owns
+ * the vocabulary, refuses an unknown value with a 422, and this file never
+ * pre-validates so that a typo in the URL reaches the one validator rather
+ * than being quietly dropped into "the whole list".
+ *
+ * **No third cut may be added here** without naming which of ADR 0071
+ * section 2.5's two rules it does not break: a gap may be shown, never
+ * ranked or cut by. There is no sort parameter, and there will not be one.
+ */
+export type ListFilter = {
+  league: string | null;
+  /** Sent verbatim: the server, not this file, decides what is an integer. */
+  withinHours: string | null;
+};
+
+export const NO_FILTER: ListFilter = { league: null, withinHours: null };
+
+/** Read the cut out of a page's `searchParams`. Absent is `null`; an empty
+ *  string is a VALUE, and the server refuses it -- see `ListFilter`. */
+export function readListFilter(params: {
+  league?: string | string[];
+  within_hours?: string | string[];
+}): ListFilter {
+  const first = (v: string | string[] | undefined): string | null =>
+    v === undefined ? null : Array.isArray(v) ? (v[0] ?? null) : v;
+  return { league: first(params.league), withinHours: first(params.within_hours) };
+}
+
+/** `?league=...&within_hours=...`, or "" when nothing is cut -- the same
+ *  string on a `Link` and on the fetch, so the URL and the request agree. */
+export function listFilterQuery(filter: ListFilter): string {
+  const qs = new URLSearchParams();
+  if (filter.league !== null) qs.set("league", filter.league);
+  if (filter.withinHours !== null) qs.set("within_hours", filter.withinHours);
+  const s = qs.toString();
+  return s ? `?${s}` : "";
+}
+
+/**
+ * The server's echo of the cut it applied -- present on `/api/slate` and
+ * `/api/parlays` ONLY when a cut was applied; an unfiltered payload is
+ * byte-identical to the pre-#15 one. `hidden` is how many rows (slate) or
+ * candidate legs (ladder) the cut removed, so a short list under a filter
+ * reads as cut rather than as a quiet night. The kickoff bounds are the
+ * server's own milliseconds.
+ */
+export type ListFilterEcho = {
+  league: string | null;
+  within_hours: number | null;
+  kickoff_from_ms: number | null;
+  kickoff_until_ms: number | null;
+  hidden: number;
+};
 
 /** One dbt mart, plus the state it is in. */
 export type Panel = {
@@ -914,9 +986,12 @@ export type ParlayLadder = {
     unquoted: string;
     fee: string;
   };
+  /** The #15 cut, echoed. Absent when the pool was not cut. */
+  filter?: ListFilterEcho;
 };
 
-export const fetchParlays = () => get<ParlayLadder>("/api/parlays");
+export const fetchParlays = (filter: ListFilter = NO_FILTER) =>
+  get<ParlayLadder>(`/api/parlays${listFilterQuery(filter)}`);
 
 /** What "Price on Kalshi" came back with. Strings are server-worded. */
 export type ParlayLookupResult =
@@ -1488,6 +1563,8 @@ export type Slate = {
   /** One flat list in kickoff order. No bucketing by verdict — that is the
    *  point: edge is a column here, not a gate. */
   rows: SlateRowData[];
+  /** The #15 cut, echoed. Absent when the list was not cut. */
+  filter?: ListFilterEcho;
   /** Optional because a deployed backend one version behind omits it. */
   picks?: SlatePicks | null;
   /**
@@ -1595,7 +1672,8 @@ export type OpenPositionsBlock = {
   value_refusal: string | null;
 };
 
-export const fetchSlate = () => get<Slate>("/api/slate");
+export const fetchSlate = (filter: ListFilter = NO_FILTER) =>
+  get<Slate>(`/api/slate${listFilterQuery(filter)}`);
 
 export const fetchHealth = () =>
   get<{

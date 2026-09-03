@@ -95,6 +95,12 @@ from ..gate import (
 )
 from ..kalshi.candles import parse_chart_candle
 from ..kalshi.orders import OrderPlacer, OrderRefused, OrderRequest
+from ..list_filters import (
+    MAX_WITHIN_HOURS,
+    FilterRefused,
+    ListFilter,
+    parse_list_filter,
+)
 from ..kalshi.props import MARKET_TYPE_PROP
 from ..kalshi.rest import KalshiRestClient, parse_position_fp
 from ..kalshi.quotes import LiveQuote, LiveQuoteSource, QuoteUnavailable
@@ -1262,6 +1268,23 @@ def create_app(
     def slate(
         conn=Depends(get_conn),
         limit: int = Query(100, le=500),
+        league: Optional[str] = Query(
+            None,
+            description=(
+                "Cut to one league, by the odds feed's sport key "
+                "(`baseball_mlb`). An unknown key is a 422, never ignored."
+            ),
+        ),
+        within_hours: Optional[int] = Query(
+            None,
+            ge=1,
+            le=MAX_WITHIN_HOURS,
+            description=(
+                "Cut to games kicking off between now and this many hours "
+                "out, on the sportsbook's clock. A row with no known kickoff "
+                "is left out: it cannot say it starts within the window."
+            ),
+        ),
     ) -> dict:
         """The whole slate, with the factors the record already holds.
 
@@ -1307,6 +1330,32 @@ def create_app(
         "tonight".
         """
         now = db.now_ms()
+        # The two list cuts (ticket #15, Joe's option A): league and kickoff
+        # window, parsed once for both this route and `/api/parlays` so the
+        # two lists cannot accept different vocabularies. `None` when neither
+        # parameter is set, and in that case NOTHING below changes -- the
+        # unfiltered payload is byte-identical to the one this route served
+        # before the parameters existed, and `tests/test_list_filters.py`
+        # pins that. An unknown value is a 422, never a silently whole list
+        # under a heading that says it was cut.
+        try:
+            list_filter = parse_list_filter(league, within_hours, now_ms=now)
+        except FilterRefused as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # The cut as SQL, applied BEFORE `LIMIT` so a league that the
+        # unfiltered list's `suggested_contracts DESC, LIMIT 100` would have
+        # dropped is reachable through the filter -- the whole point of a cut
+        # is to reach rows the full list could not fit. Both predicates go
+        # through the row's linked odds fixture: the league is
+        # `odds_snapshots.sport_key` (the ladder's own column, and the one
+        # vocabulary `leagueLabel` renders -- `event_links.league` holds
+        # Kalshi's "Pro Baseball" and is not what the parameter names), and
+        # the kickoff is `MIN(commence_ms)` per fixture, the same definition
+        # the `kickoffs` read below and the sort key use, so a row is never
+        # cut on a different clock from the one it prints. Both are indexed
+        # SEARCHes on `odds_event_id`, one per row in the window -- not the
+        # derived table over every fixture this query was cured of.
+        filter_sql, filter_params = _slate_filter_sql(list_filter)
         anchor_row = conn.execute(
             f"SELECT MAX({_BASIS_SQL}) AS anchor_ms, COUNT(*) AS total "
             "FROM recommendations r"
@@ -1316,14 +1365,29 @@ def create_app(
         since = None if anchor is None else anchor - SLATE_WINDOW_MS
 
         rows, in_window = [], 0
+        # The window's whole population, before any cut. `in_window` below
+        # is the cut population when a filter is set (so `truncated` compares
+        # like with like), and this is what `older_than_window` and the
+        # filter's `hidden` count are measured against.
+        in_window_all = 0
         if since is not None:
-            in_window = int(
+            in_window_all = int(
                 conn.execute(
                     f"SELECT COUNT(*) AS n FROM recommendations r "
                     f"WHERE {_BASIS_SQL} >= ?",
                     (since,),
                 ).fetchone()["n"]
             )
+            in_window = in_window_all
+            if list_filter is not None:
+                in_window = int(
+                    conn.execute(
+                        f"SELECT COUNT(*) AS n FROM recommendations r "
+                        "LEFT JOIN event_links l ON l.id = r.link_id "
+                        f"WHERE {_BASIS_SQL} >= ?{filter_sql}",
+                        (since, *filter_params),
+                    ).fetchone()["n"]
+                )
             rows = conn.execute(
                 # **The kickoff is the sportsbook's clock, never Kalshi's.**
                 # Until 2026-08-29 this selected `e.commence_ms`, which stores
@@ -1380,10 +1444,10 @@ def create_app(
                 "LEFT JOIN kalshi_events e ON e.event_ticker = m.event_ticker "
                 "LEFT JOIN fair_prices f ON f.id = r.fair_price_id "
                 "LEFT JOIN event_links l ON l.id = r.link_id "
-                f"WHERE {_BASIS_SQL} >= ? "
+                f"WHERE {_BASIS_SQL} >= ?{filter_sql} "
                 f"ORDER BY r.suggested_contracts DESC, {_BASIS_SQL} DESC, r.id DESC "
                 "LIMIT ?",
-                (since, limit),
+                (since, *filter_params, limit),
             ).fetchall()
 
         # One `book_quotes_for_event` read per fixture, not per row. A slate has
@@ -1793,7 +1857,7 @@ def create_app(
             conn, now_ms=now
         )
 
-        return {
+        payload = {
             "rows": items,
             "picks": picks,
             "money": money,
@@ -1833,7 +1897,7 @@ def create_app(
                 "truncated": in_window > len(items),
                 "recorded_total": recorded_total,
                 "actionable_total": population_counts(conn, 0)["actionable"],
-                "older_than_window": max(0, recorded_total - in_window),
+                "older_than_window": max(0, recorded_total - in_window_all),
             },
             "drift_window_ms": DRIFT_WINDOW_MS,
             # Read by the screen and printed there. It is the sentence that
@@ -1843,6 +1907,16 @@ def create_app(
                 "They are recorded so they can be, and combined into nothing."
             ),
         }
+        # The cut, echoed, ONLY when one was applied: the key is absent
+        # rather than `null` on the unfiltered read so that payload stays
+        # byte-identical to the pre-#15 one. `hidden` is the window's rows
+        # the cut removed, so a short list under a filter reads as cut
+        # rather than as a quiet night.
+        if list_filter is not None:
+            payload["filter"] = list_filter.as_dict(
+                hidden=max(0, in_window_all - in_window)
+            )
+        return payload
 
     @app.get("/api/window")
     def window(conn=Depends(get_conn)) -> dict:
@@ -2943,8 +3017,33 @@ def create_app(
     # -- parlay desk (ADR 0070) --------------------------------------------
 
     @app.get("/api/parlays")
-    def parlays(conn=Depends(get_conn)) -> dict:
+    def parlays(
+        conn=Depends(get_conn),
+        league: Optional[str] = Query(
+            None,
+            description=(
+                "Cut the candidate pool to one league, by the odds feed's "
+                "sport key (`baseball_mlb`). An unknown key is a 422."
+            ),
+        ),
+        within_hours: Optional[int] = Query(
+            None,
+            ge=1,
+            le=MAX_WITHIN_HOURS,
+            description=(
+                "Cut the candidate pool to games kicking off within this "
+                "many hours, on the sportsbook's clock."
+            ),
+        ),
+    ) -> dict:
         """The ladder: three parlay cards at FAIR value, worded server-side.
+
+        `league` and `within_hours` are the #15 cuts, parsed by the same
+        function `/api/slate` uses. They shrink the candidate pool the six
+        cards are built from and reorder nothing; every card keeps its own
+        cut's ordering, none of which is the consensus-vs-Kalshi gap. The
+        payload carries a `filter` echo, with how many legs the cut removed,
+        only when a cut was applied -- unfiltered stays byte-identical.
 
         A read of the same devigged consensus the slate serves, reshaped into
         the venue's own combination product -- a betting-desk feature (ADR
@@ -2958,10 +3057,15 @@ def create_app(
         reason in `excluded`.
         """
         now = db.now_ms()
+        try:
+            list_filter = parse_list_filter(league, within_hours, now_ms=now)
+        except FilterRefused as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         return build_ladder_payload(
             conn,
             now_ms=now,
             max_odds_age_ms=staleness.max_odds_age_s * 1000,
+            list_filter=list_filter,
             # Built from the configs that already enforce these limits, so the
             # score refuses on the same numbers every other surface does.
             # `thresholds` here is the SuppressionConfig -- deliberately not
@@ -6072,6 +6176,45 @@ def _gate_open(conn, gate: GateConfig) -> bool:
 # the failure `gate.live_ages` and `odds/timing._SERVED_SWEEP` were both written
 # to end.
 _BASIS_SQL = "MAX(r.created_ms, COALESCE(r.last_confirmed_ms, r.created_ms))"
+
+
+def _slate_filter_sql(list_filter: Optional[ListFilter]) -> tuple[str, list]:
+    """The #15 cut as a SQL suffix for `/api/slate`'s two window queries.
+
+    Empty when there is no cut, so the unfiltered statement is the one this
+    route ran before the parameters existed. Both predicates assume the
+    query has `event_links` aliased `l`, and both resolve through the row's
+    linked odds fixture:
+
+    - league: `EXISTS` a snapshot of that fixture under the requested
+      `sport_key`. `odds_snapshots.sport_key` rather than `event_links
+      .league`, because the parameter names the odds feed's key and the link
+      stores Kalshi's competition string (see `backend/list_filters.py`).
+    - kickoff: `MIN(commence_ms)` per fixture, `BETWEEN` the window's bounds.
+      The same definition the route's `kickoffs` read and its sort key use,
+      so the row is cut on the clock it prints. An unlinked row's subquery is
+      `NULL`, and `NULL BETWEEN` is not true -- the refusal, in SQL.
+
+    Each subquery is an indexed SEARCH on `odds_event_id`
+    (`idx_odds_event`), one per row in the window, not a derived table over
+    every fixture in the history.
+    """
+    if list_filter is None:
+        return "", []
+    sql, params = "", []
+    if list_filter.league is not None:
+        sql += (
+            " AND EXISTS (SELECT 1 FROM odds_snapshots o "
+            "WHERE o.odds_event_id = l.odds_event_id AND o.sport_key = ?)"
+        )
+        params.append(list_filter.league)
+    if list_filter.kickoff_until_ms is not None:
+        sql += (
+            " AND (SELECT MIN(o.commence_ms) FROM odds_snapshots o "
+            "WHERE o.odds_event_id = l.odds_event_id) BETWEEN ? AND ?"
+        )
+        params.extend([list_filter.kickoff_from_ms, list_filter.kickoff_until_ms])
+    return sql, params
 
 
 def _live_ages(
