@@ -246,15 +246,15 @@ class TestTheSearchIsAHeaderAffordance:
 
     def test_the_button_is_thumb_sized_at_390_and_outside_the_scrolling_row(self):
         """Every nav control must be hittable with a thumb at 390px. The
-        button's box is the theme toggle's 36px; its target is a pseudo-element
-        grown to 44px, which only works OUTSIDE the `overflow-x-auto` row
-        (inside, the overhang would become a vertical scrollbar). Mutation
-        observed red: drop `before:-inset-1`, or move the button into the row."""
+        button's box is the logo's 32px; its target is a pseudo-element grown
+        to 44px, which only works OUTSIDE the `overflow-x-auto` row (inside,
+        the overhang would become a vertical scrollbar). Mutation observed
+        red: drop `before:-inset-1.5`, or move the button into the row."""
         code = self._nav_code()
         button = code[code.index('aria-label="Search markets"'):]
         button = button[: button.index("</button>")]
-        assert "h-9 w-9" in button
-        assert "before:absolute before:-inset-1" in button
+        assert "h-8 w-8" in button
+        assert "before:absolute before:-inset-1.5" in button
         assert 'aria-expanded={searchOpen}' in button
         row = code.index("overflow-x-auto")
         assert code.index('aria-label="Search markets"') < row, (

@@ -274,15 +274,30 @@ export default function Nav() {
         for two reasons that are both about the phone. It must never be the
         thing that scrolls off -- it is the header affordance #18 traded two
         nav slots for. And its thumb target is a pseudo-element grown past
-        its 36px box to 44px: inside an `overflow-x-auto` row that overhang
+        its 32px box to 44px: inside an `overflow-x-auto` row that overhang
         would become a vertical scrollbar, and outside it it costs the row no
-        height, so the header stays exactly as tall as it was and the sticky
-        filter bar the list screens hang under it is not moved.
+        height, so the header stays exactly as tall as it was (69px, 68 of
+        nav and 1 of border) and the sticky filter bar the list screens hang
+        under it is not moved.
+
+        Measured 2026-09-02 over CDP at 390px (the #18 build, four links):
+        with the six-link row's spacing kept, the four links ended at x=356
+        inside a row whose right edge was 374 -- but the theme toggle at the
+        row's end ran to 398, so the row still scrolled by 24px and the one
+        control past the edge was the toggle. Every base-width gap below is
+        the tight one for that reason (`px-1.5`, `gap-0`, `ml-0.5`, a 32px
+        search tile), widening at `sm:` back to what it was. After:
+        scrollWidth equal to clientWidth with 10px to spare, and nothing past
+        the edge. The theme toggle keeps its 36px: it is the tallest thing in
+        the row, so shrinking it would have moved the header's height, and
+        the fit did not need it. At 320px the row still scrolls -- "Your
+        bets" is cut and the toggle is off -- which the ticket asked to have
+        measured rather than promised; it is recorded here and not fixed here.
       */}
       <nav
-        className={`${SHELL_WIDTH} flex items-center justify-between gap-2 px-4 py-4 sm:px-6 xl:px-8`}
+        className={`${SHELL_WIDTH} flex items-center justify-between gap-1.5 px-4 py-4 sm:gap-2 sm:px-6 xl:px-8`}
       >
-        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
           <Link href="/" className="flex shrink-0 items-center gap-3">
             <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent-fill text-sm font-bold text-white">
               K
@@ -297,7 +312,7 @@ export default function Nav() {
             aria-label="Search markets"
             aria-expanded={searchOpen}
             aria-controls="market-search-panel"
-            className={`relative grid h-9 w-9 shrink-0 place-items-center rounded-full border transition-colors before:absolute before:-inset-1 before:content-[''] hover:bg-accent-soft hover:text-foreground ${
+            className={`relative grid h-8 w-8 shrink-0 place-items-center rounded-full border transition-colors before:absolute before:-inset-1.5 before:content-[''] hover:bg-accent-soft hover:text-foreground ${
               searchOpen ? "bg-accent-soft text-foreground" : "text-muted"
             }`}
           >
@@ -333,20 +348,20 @@ export default function Nav() {
           </span>
         )}
 
-        <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto sm:gap-1">
+        <div className="flex min-w-0 items-center gap-0 overflow-x-auto sm:gap-1">
           {LINKS.map((link) => (
             <Link
               key={link.href}
               href={link.href}
               aria-current={lights(link.href, pathname) ? "page" : undefined}
-              className={`shrink-0 rounded-full px-2 py-1.5 text-sm transition-colors hover:bg-accent-soft hover:text-foreground sm:px-3 ${
+              className={`shrink-0 rounded-full px-1.5 py-1.5 text-sm transition-colors hover:bg-accent-soft hover:text-foreground sm:px-3 ${
                 lights(link.href, pathname) ? "text-foreground" : "text-muted"
               }`}
             >
               {link.label}
             </Link>
           ))}
-          <div className="ml-1 shrink-0 sm:ml-2">
+          <div className="ml-0.5 shrink-0 sm:ml-2">
             <ThemeToggle />
           </div>
         </div>
