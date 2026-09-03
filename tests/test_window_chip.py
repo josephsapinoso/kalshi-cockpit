@@ -136,7 +136,7 @@ class TestTheNavWiring:
             "the chip left muted ink; any state colour here reads as a verdict"
         )
         assert "xl:flex" in chip_span and "hidden" in chip_span, (
-            "the chip must not exist below xl — the phone's six-link budget "
+            "the chip must not exist below xl — the phone's four-link budget "
             "is not renegotiated by a desktop feature"
         )
         for cls in ("text-positive", "text-accent", "bg-positive"):

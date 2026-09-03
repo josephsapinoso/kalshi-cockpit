@@ -116,11 +116,12 @@ class TestTheWordPicksOpensTheRankedList:
         """The demotion is real only if the nav no longer carries it."""
         assert "/board" not in {href for href, _ in nav_links()}
 
-    def test_the_budget_is_still_six_in_the_same_order(self):
-        """A swap, not an addition: Gate keeps its visible slot at 390px and
-        Playbook stays the link that scrolls."""
+    def test_the_nav_is_four_in_the_same_order(self):
+        """A swap, not an addition, was #8's claim; #18 (Joe's option A,
+        2026-09-02) then moved Gate and Playbook to the footer, so the row is
+        the first four of the six #8 left, in the order #8 left them."""
         assert [label for _, label in nav_links()] == [
-            "Games", "Picks", "Parlays", "Your bets", "Gate", "Playbook",
+            "Games", "Picks", "Parlays", "Your bets",
         ]
 
 
@@ -149,7 +150,13 @@ class TestThePageRendersTheSameBlockGamesDoes:
 
 class TestThePageHasNoDoorToMoney:
     """The count that made the promotion safe: from the Picks tab, two
-    navigations to a real-money confirm rather than zero."""
+    navigations to a real-money confirm rather than zero.
+
+    These pin the PAGE's source. Since #18 (2026-09-02) the header on every
+    page carries a search button that opens `MarketSearch`, which can reach a
+    ticket -- closed until tapped, and only after a typed name, which is not
+    an affordance under a favourites list. `test_every_screen_is_reachable`
+    pins that it stays closed by default."""
 
     def test_no_ticket_import_or_mount(self):
         """Mutation observed red: add `import ManualTicket from
