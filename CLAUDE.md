@@ -238,6 +238,24 @@ actually sets, and it was not written down anywhere before this. **An
 "attended hours" figure is still a guess about any particular day**; this is
 one observed day and the burn rate is the part that generalises.
 
+**Re-read 2026-09-03 over nine budget days, and "4.9 hours a day" was that
+one day.** 20260827 is the only day the slice has ever run out. Attended
+minutes per budget day (from `visit-freshness`, heartbeat-to-heartbeat) ran
+**2.6 to 324** with no trend — 76, 47, 324, 127, 11, 223, 9.5, 2.6, 161 for
+20260825 through 20260902 — while opens per day held at 5–8. Attention-tagged
+buys went 75 → 5–20 over the same days, and that fall was read on 2026-09-02
+as *"the desk went quiet"*. It was not: **a counter that emits on a cadence
+while a condition holds measures that condition's duration, not its
+occurrences.** The buys measured dwell. Two further caveats travel with any
+attention figure: `desk_attention` is `(id, seen_ms)` and cannot tell a
+reader from a tab left open (one 2.6-hour "visit" carries most of 20260902);
+and `trigger = 'attention'` is **displaceable by the schedule** — on 20260830
+eight ten-minute-cadence baseball buys between 15:11Z and 17:04Z carry a
+NULL trigger with no visit in progress, because a kickoff-window slot
+satisfied the cadence before the attention branch could. The tag is a lower
+bound on attention-cadence buying, not a dwell meter.
+`docs/measurements/2026-09-03-desk-dwell-and-the-watcher-off-switch.md`.
+
 The attention slice is a **hard ceiling and the reason the design is safe**:
 its worst case is a tab left open and visible around the clock, which is double
 the window it replaces. `Nav.tsx`'s `document.visibilityState` check is what

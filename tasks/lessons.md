@@ -54,6 +54,56 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-03 - A counter that emits on a cadence while a condition holds measures the condition's duration, not its occurrences
+
+Attention-tagged odds buys fell 75 → 5 a day over five days and were read as
+"the desk went quiet" — Joe had stopped opening it. The buy fires every ten
+minutes *while a page is open*, so the count is attended minutes, not visits.
+Visits per day were flat (5–8); dwell swung from 3 minutes to 5 hours with no
+trend. The interview's lead question ("why did you stop opening it?") was
+built on the wrong unit, and the fix for the real behaviour (short opens on a
+screen that did not heal) was already shipped and switched off.
+
+**Pattern: before reading a count as "how often", ask what event increments
+it. A heartbeat, a poll, a cadence buy, a log line per pass — each counts
+time-under-condition, and dividing by days gives dwell, not frequency. Count
+the distinct starts if you want occurrences, and print both when the
+distinction changes the sentence.**
+
+## 2026-09-03 - "One predicate, two spellings" is an architectural fault, not a run of incidents
+
+Four times now the screen has believed a different spelling of a predicate
+than the code that acts on it: `next_call_ms` said a sweep was due while the
+slice check refused it (#35); the panel promised "the hourly floor still
+runs" after the floor was displaced (08-29); "once you stop looking" survived
+the fix of its condition (08-29); and the cold-open watcher was gated on
+`anAutomaticBuyIsComing` computed from a server snapshot taken *before the
+page's own heartbeat existed*, so it asked whether a buy was scheduled using
+facts that predate the thing that schedules the buy (09-03, 8 of 26 live
+opens). Each was fixed as a string.
+
+**Pattern: a predicate the screen renders must be evaluated from the same
+facts, at the same moment, as the action it describes. When a server render
+decides a client behaviour whose cause is the client's own presence, the
+decision is stale by construction and must be re-taken client-side from
+fresh facts. And a threshold that names "normal" (180 s) must be derived
+from the thing's actual cadence (900 s idle), published by the side that
+owns the cadence — never a literal on the reading side.**
+
+## 2026-09-03 - A binder proposed from a remembered lesson is a hypothesis, and it enters the record only after the check
+
+The partner proposed `RUNNER_INTERVAL_S = 900` as what bound the `/picks`
+heal, from a lesson it already knew about the full pass. It dispatched the
+check instead of asserting it; `run_quote_pass` calls `run_pricing_pass`
+itself, the heal completes in 3–13 s, and the real binder was a 180 s stall
+threshold in the frontend. The right finding was bigger than the wrong one.
+
+**Pattern: pattern-matching a symptom to a known lesson produces a candidate,
+not a cause. Name the check that would falsify the candidate and run it
+before the sentence is written anywhere a later session will read it as
+fact. The lessons file is a source of hypotheses, and its authority is
+exactly why an unchecked one is dangerous.**
+
 ## 2026-09-03 - A screen promoted into a slot inherits the slot's traffic, not the old screen's fixes
 
 `/picks` took the nav word "Picks" from `/slate` (ADR 0098). `/slate` mounts
@@ -3139,6 +3189,13 @@ its own file, and a session scanning the index for something relevant would
 have missed every lesson written in the last nine days. The titles below are
 the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
+
+### 2026-09-03 — in this file, above
+- A counter that emits on a cadence while a condition holds measures the condition's duration, not its occurrences
+- "One predicate, two spellings" is an architectural fault, not a run of incidents
+- A binder proposed from a remembered lesson is a hypothesis, and it enters the record only after the check
+- A screen promoted into a slot inherits the slot's traffic, not the old screen's fixes
+- A gate that mounts a self-heal only when the screen is empty stops healing the moment it has anything
 
 ### 2026-09-02 — in this file, above
 - A link to a screen is a claim that the screen exists, and the claim is pinned or it rots
