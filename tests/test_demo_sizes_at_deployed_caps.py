@@ -77,7 +77,7 @@ def demo_env() -> dict:
 # them -- anchor, ages, counts -- not the rows.) Flattened here rather than
 # reaching for `surfaced` alone, so a row that moves between buckets does not
 # quietly fall out of the guard.
-BUCKETS = ("surfaced", "expired", "suppressed", "no_edge")
+BUCKETS = ("surfaced", "expired", "sized_to_zero", "suppressed", "no_edge")
 
 
 def rendered_rows(payload) -> list:

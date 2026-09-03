@@ -2,7 +2,7 @@ import { SHELL_WIDTH } from "@/lib/shell";
 import Link from "next/link";
 import HowToRead from "@/components/HowToRead";
 import LiveBoard from "@/components/LiveBoard";
-import SlateRow, { type SlateState } from "@/components/SlateRow";
+import SlateRow, { formatBankroll, type SlateState } from "@/components/SlateRow";
 import Term from "@/components/Term";
 import { TicketProvider } from "@/components/TicketProvider";
 import WindowBanner from "@/components/WindowBanner";
@@ -88,13 +88,21 @@ export default async function BoardPage({
   /**
    * Everything the engine judged and will not bet, in one list.
    *
-   * Ordered expired → rejected → no-edge, which is decreasing order of "the
-   * machinery found something". `no_edge` and `suppressed` arrive empty unless
-   * the page asked for them, so this collapses to the expired rows alone when
-   * rejected rows are hidden.
+   * Ordered expired → sized-to-zero → rejected → no-edge, which is decreasing
+   * order of "the machinery found something": a sized row whose consensus
+   * aged out, a row the gate counts at its reference bankroll that your
+   * balance buys none of (ticket #25, 25C), a row a named check refused, a
+   * row with no bet at any bankroll. A bucket order, not a ranking — no row
+   * moves within a bucket by its edge. `no_edge`, `sized_to_zero` and
+   * `suppressed` arrive empty unless the page asked for them, so this
+   * collapses to the expired rows alone when rejected rows are hidden.
    */
   const rest: { rec: (typeof board.expired)[number]; state: SlateState }[] = [
     ...board.expired.map((rec) => ({ rec, state: "expired" as SlateState })),
+    ...board.sized_to_zero.map((rec) => ({
+      rec,
+      state: "sized-to-zero" as SlateState,
+    })),
     ...board.suppressed.map((rec) => ({ rec, state: "rejected" as SlateState })),
     ...board.no_edge.map((rec) => ({ rec, state: "no-edge" as SlateState })),
   ];
@@ -102,7 +110,10 @@ export default async function BoardPage({
   /** Rows the server counted and this page asked it not to send. */
   const hidden = showRejected
     ? 0
-    : board.counts.suppressed + board.counts.no_edge;
+    : board.counts.suppressed + board.counts.sized_to_zero + board.counts.no_edge;
+
+  /** The bankroll the gate sizes at, as it prints. Off the server, not typed. */
+  const referenceBankroll = formatBankroll(board.slate.reference_bankroll_dollars);
 
   return (
     <Shell>
@@ -138,11 +149,16 @@ export default async function BoardPage({
               second kind was two rows in three. The route stays `/board`
               -- four test files and the API vocabulary name it. */}
           <h1 className="display text-4xl sm:text-5xl">Refusals</h1>
+          {/* Three kinds of refusal since 25C, not two. The third -- the gate
+              counts it at its reference bankroll and your balance buys none
+              -- is the one every row the gate has ever counted falls under,
+              and it read as the second until the SIZED TO ZERO chip existed. */}
           <p className="mt-3 max-w-xl text-lg text-muted">
             The candidates the engine priced in its last half-hour of
             recording, each with the reason that stopped it &mdash; a named
-            check, or the <Term k="fee">fee</Term> bar it could not clear.
-            Nearly all are refused &mdash; the ordinary night.
+            check, or the <Term k="fee">fee</Term> bar it could not clear; or a
+            balance at which <Term k="kelly">quarter-Kelly</Term> buys no
+            contract. Nearly all are refused &mdash; the ordinary night.
           </p>
         </header>
 
@@ -220,6 +236,10 @@ export default async function BoardPage({
           {priceStale > 0 && <Stat label="Price re-read on order" value={priceStale} />}
           <Stat label="Expired" value={board.counts.expired} />
           <Stat label="Suppressed" value={board.counts.suppressed} />
+          {/* Beside "No edge" because it used to be inside it. The two tiles
+              now split the unrefused, unsized rows on the column the gate
+              reads: counted at the reference bankroll, or not a bet anywhere. */}
+          <Stat label="Sized to zero" value={board.counts.sized_to_zero} />
           <Stat label="No edge" value={board.counts.no_edge} />
           <Link
             href={showRejected ? "/board?rejected=0" : "/board"}
@@ -250,7 +270,13 @@ export default async function BoardPage({
           of {board.slate.recorded_total}{" "}
           {board.slate.recorded_total === 1 ? "decision" : "decisions"} ever
           recorded. The second pair is the whole record rather than this slate,
-          and it is what the gate counts towards opening.
+          and it is what the gate counts towards opening &mdash; sized at its{" "}
+          {referenceBankroll} reference <Term k="bankroll">bankroll</Term>, not
+          at yours. A row it
+          counts there that <Term k="kelly">quarter-Kelly</Term> at your
+          balance buys none of is a{" "}
+          <span className="font-mono text-xs">SIZED TO ZERO</span> row below,
+          and this slate has {board.counts.sized_to_zero} of them.
         </p>
 
         {board.surfaced.length === 0 ? (
@@ -372,6 +398,21 @@ export default async function BoardPage({
                   refreshes.{" "}
                 </>
               )}
+              {board.sized_to_zero.length > 0 && (
+                <>
+                  {/* The third state, said in the same breath as the other
+                      two. The gate counts these at its reference bankroll;
+                      the deposit buys none. Both halves, because either alone
+                      is the misreading this chip exists to end -- a size to
+                      buy, or no edge with a different label. */}
+                  The <span className="font-mono text-xs">SIZED TO ZERO</span>{" "}
+                  rows are counted by the gate at its {referenceBankroll}{" "}
+                  reference bankroll and{" "}
+                  <Term k="kelly">quarter-Kelly</Term> at your balance buys
+                  none of them; a top-up that sizes one to a contract moves it
+                  up on its own.{" "}
+                </>
+              )}
               Suppression and staleness still decide what is bettable; they
               stopped deciding what is visible.
             </p>
@@ -427,6 +468,7 @@ export default async function BoardPage({
                   rec={rec}
                   state={state}
                   oddsLimitMs={board.staleness.max_odds_age_s * 1000}
+                  referenceBankrollDollars={board.slate.reference_bankroll_dollars}
                 />
               ))}
             </div>

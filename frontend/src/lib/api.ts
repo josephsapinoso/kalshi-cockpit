@@ -269,10 +269,25 @@ export type Board = {
    * rows that did not survive are the only content the Board has.
    */
   no_edge: Recommendation[];
+  /**
+   * Counted by the gate, unbuyable at the deposit (ticket #25, Joe's 25C).
+   *
+   * No suppression reason, `reference_contracts > 0` — the gate's own
+   * `actionable` test at the fixed $1,000 reference profile (ADR 0015 §3) —
+   * and `suggested_contracts === 0`, because quarter-Kelly at the observed
+   * balance buys none. Every row the gate has ever counted actionable had
+   * this shape and was filed under `no_edge`, captioned "no edge after fees",
+   * two inches below a headline counting it. Same flag as `suppressed` and
+   * `no_edge`; empty without it. Nothing here is bettable, and a row that
+   * sizes to a contract after a top-up leaves this list for `surfaced` on its
+   * own.
+   */
+  sized_to_zero: Recommendation[];
   counts: {
     surfaced: number;
     expired: number;
     suppressed: number;
+    sized_to_zero: number;
     no_edge: number;
     /** Of `surfaced`, how many show a price older than the quote limit. */
     price_stale?: number;
@@ -328,6 +343,12 @@ export type Board = {
      * database. Nothing else in this payload can reconstruct it.
      */
     actionable_total: number;
+    /**
+     * The bankroll `reference_contracts` and `actionable_total` are sized at
+     * (`REFERENCE_BANKROLL_DOLLARS`, ADR 0015 §3). Read off the server so the
+     * SIZED TO ZERO caption prints the figure the gate uses, not a literal.
+     */
+    reference_bankroll_dollars: number;
     older_than_window: number;
   };
   note: string;

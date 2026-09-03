@@ -38,6 +38,7 @@ from ..analysis.marts import (
 )
 from ..config import (
     POSITION_FRACTION_OF_BANKROLL,
+    REFERENCE_BANKROLL_DOLLARS,
     AppConfig,
     BuildInfo,
     ConfigError,
@@ -1094,6 +1095,18 @@ def create_app(
           written here, so the number on the Board and the number the gate
           admits evidence on cannot drift — they are one predicate.
 
+        **Five buckets since 25C, not four.** The unsized, unrefused rows used
+        to be one bucket, `no_edge`, captioned "no edge after fees" -- and
+        every row the gate has ever counted actionable (51 rows, 15 games at
+        the 2026-09-01 re-audit) sat in it, because the gate counts at the
+        fixed $1,000 reference profile and quarter-Kelly at the observed
+        balance sized each of them to zero. `sized_to_zero` is that
+        population, split out on the same column the gate reads
+        (`reference_contracts > 0`); `no_edge` keeps the rows with no bet at
+        either bankroll. `population_counts` is not forked for it -- the
+        Board buckets downstream of the row, and a test pins that the two
+        counts agree on one fixture so they cannot drift apart silently.
+
         The window is applied twice on purpose. `_BASIS_SQL` restates
         `gate.live_ages`' basis in SQL as a *bound* on what to fetch; the
         decision is then re-made on `freshness_measured_from_ms`, which is
@@ -1144,7 +1157,7 @@ def create_app(
                 (since, limit),
             ).fetchall()
 
-        surfaced, expired, suppressed, no_edge = [], [], [], []
+        surfaced, expired, suppressed, sized_to_zero, no_edge = [], [], [], [], []
         # Rows the SQL window admitted and `live_ages` put back outside it.
         # Counted rather than dropped on the floor: `in_window` is computed from
         # the SQL basis and therefore includes these, so without this number the
@@ -1167,6 +1180,26 @@ def create_app(
                 (surfaced if item["actionable"] else expired).append(item)
             elif row["suppressed_reason"]:
                 suppressed.append(item)
+            elif (row["reference_contracts"] or 0) > 0:
+                # **Counted by the gate, unbuyable at the deposit** -- ticket
+                # #25, Joe's 25C. Nothing refused this row and the strategy
+                # had a bet at the fixed $1,000 reference profile
+                # (`gate.POPULATIONS["actionable"]`, ADR 0015 §3); what is
+                # zero is quarter-Kelly at the *observed* balance. Every row
+                # the gate has ever counted actionable had this shape, and
+                # until this branch existed the Board filed all of them under
+                # `no_edge` -- captioned "no edge after fees" two inches
+                # below a headline counting them. Suppression outranks
+                # sizing (the `elif` above), and a row that sizes to one
+                # contract after a top-up leaves this bucket by the first
+                # branch on its own.
+                #
+                # `or 0`: a NULL `reference_contracts` is a pre-v6 row that
+                # escaped the backfill, and the gate's own predicate puts a
+                # NULL in `no_edge` rather than `actionable`. Same here, for
+                # the same reason -- an unreadable size must not count as a
+                # bet.
+                sized_to_zero.append(item)
             else:
                 no_edge.append(item)
 
@@ -1178,8 +1211,20 @@ def create_app(
         surfaced.sort(key=lambda r: (-r["suggested_contracts"], -r["edge_tenths"]))
         expired.sort(key=lambda r: r["created_ms"], reverse=True)
         suppressed.sort(key=lambda r: r["freshness_measured_from_ms"], reverse=True)
+        # Newest first, like `no_edge` -- and deliberately NOT by
+        # `reference_contracts` or `edge_tenths`. A per-row fact is
+        # transparency; an ordering is a claim (ADR 0071 §2.5), and ranking
+        # these by their reference size would rank them by the edge that
+        # produced it.
+        sized_to_zero.sort(key=lambda r: r["freshness_measured_from_ms"], reverse=True)
         no_edge.sort(key=lambda r: r["freshness_measured_from_ms"], reverse=True)
-        returned = len(surfaced) + len(expired) + len(suppressed) + len(no_edge)
+        returned = (
+            len(surfaced)
+            + len(expired)
+            + len(suppressed)
+            + len(sized_to_zero)
+            + len(no_edge)
+        )
 
         return {
             "surfaced": surfaced,
@@ -1196,11 +1241,23 @@ def create_app(
             # order endpoint re-derives all of it server-side. Suppression and
             # staleness stop governing what is *visible*; they keep governing
             # what is bettable.
+            #
+            # **`no_edge` now means what its caption says.** Since 25C the
+            # rows the gate counts at its reference profile and the deposit
+            # sizes to zero are in `sized_to_zero`, so a row here has
+            # `reference_contracts` of 0 (or NULL) -- the strategy had no
+            # bet at *any* bankroll it sizes for.
             "no_edge": no_edge if include_suppressed else [],
+            # Same flag as `suppressed` and `no_edge`, same reason: it is the
+            # rest of the slate. `suggested_contracts` is 0 on every row here
+            # -- that is the bucket's definition -- so returning it offers
+            # nothing to buy.
+            "sized_to_zero": sized_to_zero if include_suppressed else [],
             "counts": {
                 "surfaced": len(surfaced),
                 "expired": len(expired),
                 "suppressed": len(suppressed),
+                "sized_to_zero": len(sized_to_zero),
                 "no_edge": len(no_edge),
                 # Bettable, but the price on the card is older than the quote
                 # limit and will be re-read at order time. Counted rather than
@@ -1255,6 +1312,12 @@ def create_app(
                 # the finding — and it is not derivable from anything else in
                 # this payload, all of which describes one slate.
                 "actionable_total": population_counts(conn, 0)["actionable"],
+                # The bankroll `reference_contracts` -- and therefore
+                # `actionable_total` -- is sized at. Sent so the SIZED TO ZERO
+                # caption can print the figure the gate actually uses rather
+                # than a `$1,000` typed into the page, which would go on
+                # reading as the reference on the day the constant moved.
+                "reference_bankroll_dollars": REFERENCE_BANKROLL_DOLLARS,
                 "older_than_window": max(0, recorded_total - in_window),
             },
             # An empty Board is the expected state most of the time. Saying so

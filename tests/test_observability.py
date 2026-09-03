@@ -195,7 +195,7 @@ class TestTheTwoSizingsAreSeparatelyVisible:
     ):
         """One serialiser, so the screens cannot describe a row differently."""
         board = (await get(mixed_app, "/api/board?include_suppressed=true")).json()
-        every = board["surfaced"] + board["expired"] + board["suppressed"] + board["no_edge"]
+        every = board["surfaced"] + board["expired"] + board["sized_to_zero"] + board["suppressed"] + board["no_edge"]
         assert every
         assert all("reference_contracts" in r for r in every)
         assert all("clv_horizon_hours" in r for r in every)

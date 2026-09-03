@@ -609,7 +609,7 @@ def _slate_row(
 
 
 def _every_row(board: dict) -> list[dict]:
-    return board["surfaced"] + board["expired"] + board["suppressed"] + board["no_edge"]
+    return board["surfaced"] + board["expired"] + board["sized_to_zero"] + board["suppressed"] + board["no_edge"]
 
 
 class TestTheBoardShowsTheCurrentSlateAndNotTheRecord:
@@ -1064,7 +1064,7 @@ class TestSlate:
         assert body["rows"], "the slate came back empty on the seeded demo"
         # The bucket names the Board uses must not appear: bucketing by verdict
         # is exactly what this screen exists not to do.
-        for bucket in ("surfaced", "expired", "suppressed", "no_edge"):
+        for bucket in ("surfaced", "expired", "sized_to_zero", "suppressed", "no_edge"):
             assert bucket not in body, (
                 f"{bucket!r} is a top-level key, so this route buckets by "
                 f"verdict the way the Board does"
@@ -1093,7 +1093,7 @@ class TestSlate:
 
         board_ids = {
             r["id"]
-            for bucket in ("surfaced", "expired", "suppressed", "no_edge")
+            for bucket in ("surfaced", "expired", "sized_to_zero", "suppressed", "no_edge")
             for r in board[bucket]
         }
         assert {r["id"] for r in slate["rows"]} == board_ids
