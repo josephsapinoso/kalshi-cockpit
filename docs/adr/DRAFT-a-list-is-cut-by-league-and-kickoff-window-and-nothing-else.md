@@ -128,9 +128,11 @@ header region of `/slate`, `/picks` and `/parlays`.
   `force-dynamic`, and a dozen prefetched chips would be a dozen `/api/slate`
   reads — one book query per row each — on every scroll past the bar.
 - **Under the nav.** `Nav.tsx` is `sticky top-0 z-50`; the bar is `sticky
-  z-30` at `top: var(--nav-height, 64px)`. 64px is the nav's height today
-  (`py-4` around a 32px link row). A nav change moves the bar by setting the
-  variable on the shell, not by editing the bar.
+  z-30` at `top: var(--nav-height, 69px)`. 69px is the nav's rendered
+  height, measured in headless Chrome at 390, 768 and 1280px (the first
+  draft assumed 64px from the classes and was 5px short — measure, do not
+  derive). A nav change moves the bar by setting the variable on the shell,
+  not by editing the bar.
 - **One row on a phone.** Below `sm` the chips sit in a closed `<details>`
   whose summary names the current cut ("Showing · MLB · starts within 3h"),
   so the sticky footprint is one row and the cut is never invisible; from

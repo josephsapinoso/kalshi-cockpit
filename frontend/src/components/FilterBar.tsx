@@ -37,8 +37,8 @@ import { leagueLabel } from "@/lib/leagueLabel";
  * tag say the same word.
  *
  * **Under the nav, never over it.** `Nav.tsx` is `sticky top-0 z-50`. This
- * bar sticks at `--nav-height` (a CSS variable the shell may set; 64px is
- * the nav's measured height today: `py-4` around a 32px link row) at
+ * bar sticks at `--nav-height` (a CSS variable the shell may set; 69px is
+ * the nav's height measured in headless Chrome at 390, 768 and 1280px) at
  * `z-30`, so a nav change can move the bar by setting one variable rather
  * than editing this file. Both stack inside the content column, so the bar
  * never reaches wider than the page (`scripts/check_mobile.py` measures
@@ -161,7 +161,7 @@ export default function FilterBar({
     <nav
       aria-label="Cut this list"
       className="sticky z-30 mt-6 border-y border-border bg-background/95 py-2 backdrop-blur-md"
-      style={{ top: "var(--nav-height, 64px)" }}
+      style={{ top: "var(--nav-height, 69px)" }}
     >
       {/* Phone: one row, the current cut in words, chips behind a tap. */}
       <details className="sm:hidden">
