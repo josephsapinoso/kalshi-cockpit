@@ -1,6 +1,6 @@
-# ADR DRAFT — The record corrects its own sentences, and a copy nobody reads is deleted rather than refreshed
+# ADR 0104 — The record corrects its own sentences, and a copy nobody reads is deleted rather than refreshed
 
-**Status:** Draft; ordinal to be taken in the merge commit after `git fetch`, per `docs/adr/README.md`.
+**Status:** Accepted. Ordinal 0104 taken at merge, 2026-09-03, after `git fetch`.
 **Date:** 2026-09-03.
 **Decides:** eight sentences the partner listed as refuted by the record, in
 `start.md`, `.env.example`, `backend/runner.py`, `backend/store/schema.sql`,
