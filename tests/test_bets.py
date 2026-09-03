@@ -9,6 +9,9 @@ own that, and the screen states the gap in words.
 
 from __future__ import annotations
 
+import ast
+import inspect
+
 import httpx
 
 from backend import bets
@@ -22,6 +25,31 @@ from backend.store import db
 DAY_HOUR = 10
 ROLL_MS = 1_786_615_200_000  # 2026-08-09T10:00:00Z, arbitrary but on-hour
 NOW_MS = ROLL_MS + 10 * 3_600_000
+
+# A combination-market ticker in the venue's real shape (one shard of a
+# cross-category KXMVE collection), and two single-market tickers -- a game
+# and a non-sports hand bet -- so "single" is pinned as "not a combo" rather
+# than "a sports game".
+COMBO_TICKER = "KXMVECROSSCATEGORY-SHARD1-S20266AE347C36E7-E497F938E16"
+GAME_TICKER = "KXMLBGAME-26AUG221805STLPHI-PHI"
+HAND_TICKER = "KXTRUMPSAY-26SEP01-TARIFF"
+
+
+def _code_without_docstrings(obj) -> str:
+    """The module's or function's code with every docstring removed, so a
+    prohibition's own explanation cannot trip the grep that enforces it
+    (the `test_crew_bubble` lesson, applied to Python). Comments are already
+    absent from an `ast.unparse`."""
+    tree = ast.parse(inspect.getsource(obj))
+    for node in ast.walk(tree):
+        if isinstance(
+            node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                   ast.ClassDef)
+        ) and node.body and isinstance(node.body[0], ast.Expr) and isinstance(
+            getattr(node.body[0], "value", None), ast.Constant
+        ) and isinstance(node.body[0].value.value, str):
+            node.body = node.body[1:] or [ast.Pass()]
+    return ast.unparse(tree).lower()
 
 
 def _fill(conn, *, ticker="KXT-A", filled_ms=None, count=2.0,
@@ -294,7 +322,12 @@ class TestPerBetCLV:
         _closing_line(conn, observed_ms=500)
         _insert(conn, position_first_seen_ms=100)
         coverage = bets.bets_record(conn)["clv_coverage"]
-        assert set(coverage) == {"scored", "refusals"}
+        # `population`/`denominator` name the cut (21A: singles only) and
+        # are a word and a count, not a value of anything.
+        assert set(coverage) == {"population", "denominator", "scored",
+                                 "refusals"}
+        assert coverage["population"] == "single"
+        assert isinstance(coverage["denominator"], int)
         assert isinstance(coverage["scored"], int)
         assert all(
             isinstance(v, int) for v in coverage["refusals"].values()
@@ -302,13 +335,22 @@ class TestPerBetCLV:
 
     def test_module_computes_no_aggregate_clv(self):
         """The partner's hard constraint, checked at the source: no average,
-        no hit rate, no beat-the-close rate anywhere in this module until
-        n >= 30 with the per-group view beside it."""
-        import inspect
+        no hit rate, no beat-the-close rate, no streak and no trend anywhere
+        in this module until n >= 30 with the per-group view beside it.
 
-        source = inspect.getsource(bets)
-        for banned in ("mean_clv", "avg_clv", "beat_close_rate", "hit_rate"):
-            assert banned not in source, f"{banned} found in backend/bets.py"
+        Widened for 21A, which put a per-KIND sum beside the pooled one --
+        the exact place a per-kind *rate* would be tempting -- and the grep
+        now runs over the code with docstrings stripped, so the module may
+        keep saying "no average" in prose without tripping the guard that
+        enforces it. A sum is allowed; a rate of any spelling is not.
+        """
+        code = _code_without_docstrings(bets)
+        for banned in (
+            "mean_clv", "avg_clv", "beat_close_rate", "hit_rate", "win_rate",
+            "avg(", "mean(", "average", "streak", "trend", "/ computable",
+            "/ total",
+        ):
+            assert banned not in code, f"{banned!r} found in backend/bets.py"
 
 
 class TestTheRoute:
@@ -335,6 +377,11 @@ class TestTheRoute:
         assert payload["bets"][0]["net_tenths"] == 1180
         assert payload["bets"][0]["net_display"] == "+$1.18"
         assert payload["bets"][0]["entry_price_display"] == "40c"
+        # The kind rides on the wire (21A); the page groups by it and never
+        # re-derives it from the ticker string.
+        assert payload["bets"][0]["kind"] == "single"
+        assert payload["sections"]["single"]["total"] == 1
+        assert payload["first_settled_ms"] == 1_000
         assert "bet_estimates" not in response.text
 
     async def test_an_empty_mirror_is_an_empty_list_not_an_error(self, tmp_path):
@@ -347,11 +394,27 @@ class TestTheRoute:
         ) as client:
             response = await client.get("/api/bets")
         assert response.status_code == 200
+        empty_section = {
+            "total": 0,
+            "net_tenths": 0,
+            "net_display": "+$0.00",
+            "computable": 0,
+            "uncomputable": 0,
+        }
         assert response.json() == {
             "bets": [],
             "total": 0,
             "returned": 0,
-            "clv_coverage": {"scored": 0, "refusals": {}},
+            # No settlement, no first day. None -- a 1970 date is a claim
+            # about history the mirror does not have.
+            "first_settled_ms": None,
+            "sections": {"single": empty_section, "combo": empty_section},
+            "clv_coverage": {
+                "population": "single",
+                "denominator": 0,
+                "scored": 0,
+                "refusals": {},
+            },
             "totals": {
                 "net_tenths": 0,
                 "net_display": "+$0.00",
@@ -371,6 +434,11 @@ class TestTheRoute:
                 "value_as_of_ms": None,
                 "value_age_ms": None,
                 "value_refusal": "never observed",
+                # Staked-now is refused unconditionally, with its reason
+                # (21A): nothing in the mirror can produce it honestly.
+                "staked_tenths": None,
+                "staked_display": None,
+                "staked_refusal": bets.STAKED_NOW_REFUSAL,
             },
             "lockout_until_ms": None,
             # No passes recorded is words on the screen, not a 1970 date.
@@ -599,10 +667,11 @@ class TestOpenPositionsRefuseBeforeTheyFlatter:
         assert set(block) == {
             "count", "count_as_of_ms", "count_age_ms", "value_tenths",
             "value_display", "value_as_of_ms", "value_age_ms",
-            "value_refusal",
+            "value_refusal", "staked_tenths", "staked_display",
+            "staked_refusal",
         }
         forbidden = {"total", "net", "pnl", "profit", "loss", "change",
-                     "mark", "unrealised", "unrealized"}
+                     "mark", "unrealised", "unrealized", "balance", "cash"}
         assert not (set(block) & forbidden)
 
     async def test_the_slate_serves_it_beside_money_not_inside(self, tmp_path):
@@ -709,3 +778,175 @@ class TestTheDeskLockout:
         ) as client:
             response = await client.post("/api/desk/lockout")
         assert response.status_code == 401
+
+
+class TestTwoKindsTwoSections:
+    """Ticket #21, Joe's 21A (2026-09-03): combination bets and single games
+    are separated, each with its own count and its own SUM, and nothing is
+    averaged. On the live record the combos are the majority (50 of 77 on
+    the day of the ruling), so a pooled list was mostly parlays wearing a
+    moneyline's CLV column.
+
+    Mutations run, each red and the file restored by reversing the exact
+    edit (2026-09-03):
+    (1) `bet_kind` returned `KIND_SINGLE` unconditionally -- the partition,
+        combo-CLV and denominator tests fail;
+    (2) `clv_coverage["denominator"]` set to `len(rows)` -- the denominator
+        test fails ("scored on 0 of 3" for a record with one single);
+    (3) combos routed through `bet_clv` and counted in `refusals` -- the
+        combo-is-not-a-refusal test fails;
+    (4) `first_settled_ms` forced to None -- the first-day test fails;
+    (5) the per-kind `section[...] += ` lines moved below the `limit`
+        `continue` -- the window test fails.
+    """
+
+    def test_a_kxmve_ticker_is_a_combo_and_everything_else_is_a_single(self):
+        assert bets.bet_kind(COMBO_TICKER) == "combo"
+        assert bets.bet_kind(GAME_TICKER) == "single"
+        # A non-sports hand bet is one market with one result: a single.
+        assert bets.bet_kind(HAND_TICKER) == "single"
+
+    def test_the_prefix_is_spelled_once_in_the_repo(self):
+        """`estimates._MULTI_LEG_PREFIX` is the one `KXMVE` check. A second
+        spelling here is the two-spellings defect CLAUDE.md records under the
+        window banner -- one predicate, two spellings, and the screen
+        believing the wrong one."""
+        code = _code_without_docstrings(bets)
+        assert "kxmve" not in code, "backend/bets.py spells the combo prefix"
+        assert "classify_ticker" in code
+
+    def test_sections_partition_the_table_each_with_its_own_sum(self, tmp_path):
+        conn = db.init_db(tmp_path / "b.db")
+        _insert(conn, ticker=GAME_TICKER, market_result="no", settled_ms=1_000)
+        _insert(conn, ticker=COMBO_TICKER, settled_ms=2_000)           # won
+        _insert(conn, ticker=COMBO_TICKER, market_result="", settled_ms=3_000)
+        record = bets.bets_record(conn)
+        single, combo = record["sections"]["single"], record["sections"]["combo"]
+        assert single == {
+            "total": 1, "net_tenths": -820, "net_display": "-$0.82",
+            "computable": 1, "uncomputable": 0,
+        }
+        assert combo == {
+            "total": 2, "net_tenths": 1180, "net_display": "+$1.18",
+            "computable": 1, "uncomputable": 1,
+        }
+        # The parts sum to the pooled figures -- the pooled strip is
+        # unchanged and the sections are its per-group view.
+        assert single["total"] + combo["total"] == record["total"] == 3
+        assert single["net_tenths"] + combo["net_tenths"] == (
+            record["totals"]["net_tenths"]
+        )
+        assert [b["kind"] for b in record["bets"]] == ["combo", "combo", "single"]
+
+    def test_sections_cover_the_table_not_the_window(self, tmp_path):
+        """`limit=1` returns only the newest row (a combo); the singles
+        section must still count the older single it did not return."""
+        conn = db.init_db(tmp_path / "b.db")
+        _insert(conn, ticker=GAME_TICKER, settled_ms=1_000)
+        _insert(conn, ticker=COMBO_TICKER, settled_ms=2_000)
+        record = bets.bets_record(conn, limit=1)
+        assert record["returned"] == 1
+        assert record["bets"][0]["kind"] == "combo"
+        assert record["sections"]["single"]["total"] == 1
+        assert record["sections"]["single"]["net_tenths"] == 1180
+
+    def test_a_section_carries_counts_and_a_sum_and_no_rate(self, tmp_path):
+        """The standing ruling, at the payload: a per-kind sum is permitted;
+        nothing that divides is. Integers only, and exactly these keys."""
+        conn = db.init_db(tmp_path / "b.db")
+        _insert(conn, ticker=COMBO_TICKER)
+        for section in bets.bets_record(conn)["sections"].values():
+            assert set(section) == {
+                "total", "net_tenths", "net_display", "computable",
+                "uncomputable",
+            }
+            assert all(
+                isinstance(v, int) for k, v in section.items()
+                if k != "net_display"
+            )
+
+    def test_a_combo_row_is_unscorable_not_unscored(self, tmp_path):
+        """A `KXMVE` ticker can never have a `closing_lines` partner (combos
+        are excluded from discovery), so its CLV is neither a value nor a
+        `no_closing_line` refusal -- it carries its own reason and is not
+        counted among the singles' refusals. Fifty rows of "close not read
+        yet" would say the close was late rather than absent."""
+        conn = db.init_db(tmp_path / "b.db")
+        _insert(conn, ticker=COMBO_TICKER, position_first_seen_ms=100)
+        record = bets.bets_record(conn)
+        bet = record["bets"][0]
+        assert bet["clv_tenths"] is None
+        assert bet["clv_display"] is None
+        assert bet["clv_refusal_reason"] == bets.CLV_REFUSAL_COMBO
+        assert record["clv_coverage"]["refusals"] == {}
+        assert record["clv_coverage"]["scored"] == 0
+
+    def test_clv_coverage_is_scored_on_n_of_the_singles(self, tmp_path):
+        """Live on the day of the ruling: "scored on 1 of 77" with 50 of the
+        77 structurally unscorable. The denominator is the singles count and
+        scored + refusals partition exactly that population."""
+        conn = db.init_db(tmp_path / "b.db")
+        _insert(conn, ticker=COMBO_TICKER, settled_ms=1_000)
+        _insert(conn, ticker=COMBO_TICKER, settled_ms=2_000)
+        _insert(conn, ticker=GAME_TICKER, settled_ms=3_000,
+                position_first_seen_ms=100)  # no closing line -> refused
+        coverage = bets.bets_record(conn)["clv_coverage"]
+        assert coverage["population"] == "single"
+        assert coverage["denominator"] == 1
+        assert coverage["refusals"] == {"no_closing_line": 1}
+        assert coverage["scored"] + sum(coverage["refusals"].values()) == (
+            coverage["denominator"]
+        )
+
+    def test_the_record_states_its_own_first_day(self, tmp_path):
+        """`first_settled_ms` is the oldest settlement in the table, so the
+        page types no date. The live mirror's first row is 2026-08-11, a
+        week before the poller existed -- the endpoint carried some history
+        when it was first read -- and the page said "Aug 18" for two weeks."""
+        conn = db.init_db(tmp_path / "b.db")
+        assert bets.bets_record(conn)["first_settled_ms"] is None
+        _insert(conn, settled_ms=3_000)
+        _insert(conn, settled_ms=1_000)
+        _insert(conn, settled_ms=2_000)
+        assert bets.bets_record(conn)["first_settled_ms"] == 1_000
+
+
+class TestStakedNowRefusesInWords:
+    """21A asked the open-positions strip for what is STAKED, not the venue's
+    unpinned value. No honest figure exists in the mirror (see
+    `bets.open_positions`'s docstring for the three reasons), so the field
+    refuses unconditionally with the reason served as words -- never $0.00
+    beside a non-zero count, which would be the false negative in the
+    flattering direction.
+
+    Mutation run, red and restored by reversing the edit (2026-09-03):
+    `staked_tenths` set to the `tonight_activity` SUM over fills -- the
+    refusal test fails, and so does the source guard.
+    """
+
+    def test_staked_is_refused_with_its_reason_beside_a_live_count(
+        self, tmp_path
+    ):
+        conn = db.init_db(tmp_path / "p.db")
+        conn.execute(
+            "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count) "
+            "VALUES (?, 'positions', 1, 3)", (NOW_MS - 60_000,),
+        )
+        _fill(conn, ticker=GAME_TICKER)  # an open-looking fill, on purpose
+        conn.commit()
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+        assert block["count"] == 3
+        assert block["staked_tenths"] is None
+        assert block["staked_display"] is None
+        assert block["staked_refusal"] == bets.STAKED_NOW_REFUSAL
+        assert "buy against sell" in block["staked_refusal"]
+
+    def test_the_refusal_is_not_a_sum_over_fills_in_disguise(self):
+        """`tonight_activity`'s `SUM(count * price_tenths)` measures what has
+        moved since the day roll -- buys and sells alike, settled or not --
+        and is honest only for that question. `open_positions` must not
+        reach for it: the source reads neither `fills` nor `SUM`."""
+        code = _code_without_docstrings(bets.open_positions)
+        assert "fills" not in code
+        assert "sum(" not in code
+        assert "staked_tenths" in code
