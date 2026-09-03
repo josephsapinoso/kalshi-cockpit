@@ -688,14 +688,19 @@ def _clv_evidence(conn, minimum: int) -> tuple[Condition, Condition]:
 def _fee_model_verified(conn) -> Condition:
     """Compare predicted fees against what Kalshi charged, on real fills.
 
-    **This condition has no live producer, and is pinned at `met=False`.**
-    Verified 2026-08-10: `grep "INTO fills"` returns only `tests/`, and
-    `backend/store/orders.py` says so in its own docstring -- *"It does not
-    write `fills`."* ADR 0022 §6 records the same table as 0 rows in all three
-    data-lake partitions. So `total` is always 0, the `total == 0` branch below
-    is the only one that runs in production, and **the MISMATCH branch is
-    unreachable** -- which means the check that would catch a wrong fee formula
-    has never once been able to fire.
+    **This condition has no live producer of the rows it counts, and is pinned
+    at `met=False`.** Until 2026-09-03 this sentence read *"`grep "INTO fills"`
+    returns only `tests/`"*, verified 2026-08-10, with ADR 0022 §6 recording the
+    table as 0 rows in all three data-lake partitions -- and that stopped being
+    true when schema v10 landed: `backend/portfolio_poll.py:482` inserts into
+    `fills` from `/portfolio/fills`, tagged `source = 'venue_hand'`, and
+    `scripts/run_loop.py` runs that poller on live. What is still true is
+    narrower and is what the `source = 'engine'` filter below makes so:
+    `backend/store/orders.py` does not write `fills` (its own docstring --
+    *"It does not write `fills`."*), so no engine-sourced row exists, `total`
+    is 0 in production, the `total == 0` branch below is the only one that
+    runs, and **the MISMATCH branch is unreachable** -- the check that would
+    catch a wrong fee formula has never once been able to fire.
 
     The zero case is handled honestly and is deliberately left alone: it refuses
     to read "no evidence" as a pass, which is correct and is the opposite of the

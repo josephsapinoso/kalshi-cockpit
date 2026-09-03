@@ -2198,8 +2198,16 @@ def _review_and_persist(
     The Skeptic sees only the rows that would be surfaced. That is a cost
     decision as much as a design one -- a live pass builds ~100 rows and nearly
     all of them have no edge, so reviewing the lot would buy a hundred "no"s a
-    pass at 96 passes a day. It also means the bill today is exactly zero calls,
-    because `surfaced` has never been anything but zero.
+    pass at 96 passes a day. **The bill today is zero calls because the default
+    reviewer is `review_retired` (ADR 0062), which refuses every row and makes
+    no request -- not because `surfaced` is zero.** This docstring said the
+    latter until 2026-09-03 and the record refutes it: on 2026-08-16 four prop
+    rows reached this reviewer with `recommendation.surfaced` set, six times
+    each at quote-pass cadence, and the Skeptic made 24 metered Opus calls in
+    4m22s -- the whole daily cap (`agent_calls`; `fly.live.toml:45-54`). The
+    persisted `surfaced` column still read 0 afterwards only because the
+    Skeptic blocked all 24: it is written *after* the spend it was cited as
+    preventing, so a zero there is a receipt, not a brake.
 
     **`surfaced == 0` is not a spend guard, and it was the only one.** See
     `agents/budget.py`. The connection and the clock are both handed down now

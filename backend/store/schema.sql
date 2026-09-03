@@ -1580,7 +1580,13 @@ CREATE TABLE IF NOT EXISTS desk_passes (
 -- the saving is unmeasured. Every "attended hours" figure in the design is a
 -- guess about how long the page is actually open; a table of stamps is the
 -- instrument that answers it, and an UPDATE would destroy the only evidence
--- that could. Pruned by the retention pass like any other log.
+-- that could. **Nothing prunes it.** This line said "pruned by the retention
+-- pass like any other log" until 2026-09-03; `backend/store/retention.py`
+-- deletes from `kalshi_quotes`, `unmatched_items` and the legacy
+-- `unmatched_events` only, and `fair_price_downsample.py` from `fair_prices`.
+-- The table grows one row per heartbeat for the life of the volume -- a
+-- statement of fact, not a request to bound it (that is a behaviour change
+-- with its own decision to make).
 --
 -- One row per heartbeat, so the row count is the measurement. No `session_id`
 -- and no user column: this instance serves one operator (ADR 0071 §1), and a

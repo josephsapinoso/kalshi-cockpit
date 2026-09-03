@@ -69,9 +69,16 @@ logger = logging.getLogger(__name__)
 # desk then refuses -- a `running` row with nothing running.
 STAFF_PAIR_SEARCHES_WORST_CASE = 2 * int(WEB_SEARCH_TOOL["max_uses"])
 
-# One staff scout's brief. The two hard rules are copied from `scout.SYSTEM`
-# verbatim rather than referenced, because a system prompt is the one place a
-# rule must be present to exist at all.
+# One staff scout's brief. The two hard rules are carried in full from
+# `scout.SYSTEM` rather than referenced, because a system prompt is the one
+# place a rule must be present to exist at all. **Not verbatim, and this
+# comment said "verbatim" until 2026-09-03 with nothing checking it**: two
+# words differ on purpose -- "the bet" became "any bet" because a staff scout
+# covers a team, not a wager, and "feed" became "desk". The no-forecast rule
+# and its rationale are pinned equal across every seat that carries them
+# (`scout.SYSTEM`, this template, `MASTER_SYSTEM`, `pro_bettor.SYSTEM`) by
+# `tests/test_desk_prompts_share_the_no_forecast_rule.py`, so the copies can
+# no longer drift silently.
 STAFF_SYSTEM_TEMPLATE = """\
 You are the {team} scout on a betting research desk. You cover the {team} and \
 only the {team} -- your opposite number covers {opponent}, so leave their side \
