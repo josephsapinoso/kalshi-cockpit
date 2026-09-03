@@ -47,11 +47,11 @@ export default function RootLayout({
         </a>
         <Nav />
         <main id="main">{children}</main>
-        {/* Below the content, not in the nav row: `Nav.tsx` spends its six
-            links deliberately and a seventh pushes the Gate off-screen at
-            390px. These two pages were traded away on their merits and were
-            then reachable only by typing a URL, which on a phone is not a
-            route anyone takes. */}
+        {/* Below the content, not in the nav row: `Nav.tsx` spends its four
+            links deliberately (six until decision-map #18, 2026-09-02, when
+            the six were measured already scrolling at 390px). The pages here
+            were traded away on their merits and were once reachable only by
+            typing a URL, which on a phone is not a route anyone takes. */}
         <Footer />
       </body>
     </html>

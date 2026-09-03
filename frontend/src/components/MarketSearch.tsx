@@ -26,9 +26,17 @@
  * A search box is the one control on this product that can reach a market
  * nothing has looked at, which makes it the most useful affordance here and
  * the one least suited to sitting open beside tonight's slate.
+ *
+ * **A third host since 2026-09-02: the header (decision-map #18, Joe's
+ * option A).** `Nav.tsx` mounts this behind a search button, and only while
+ * that button is pressed -- so the "closed by default" above still holds,
+ * one layer up. `open` is what that host passes: the reader has just asked
+ * for the search, so the disclosure arrives open and the input focused
+ * rather than making him tap the summary a second time. The two page hosts
+ * pass nothing and are unchanged.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { DISPLAY_TIME_ZONE, searchManualMarkets, type EstimateMarket } from "@/lib/api";
 import ManualTicket from "@/components/ManualTicket";
@@ -47,9 +55,16 @@ type State =
 
 export default function MarketSearch({
   heading = "Bet a market that isn't listed",
+  open = false,
 }: {
   heading?: string;
+  /** Arrive expanded with the input focused: the header host, where the
+   *  reader has already tapped a button to ask for this. */
+  open?: boolean;
 }) {
+  // Two hosts can be mounted at once (the header panel over a page that
+  // also carries the search), so the label/input pair cannot share a fixed id.
+  const inputId = useId();
   const [query, setQuery] = useState("");
   const [state, setState] = useState<State>({ name: "idle" });
   const [chosen, setChosen] = useState<EstimateMarket | null>(null);
@@ -88,7 +103,10 @@ export default function MarketSearch({
   }, [query, run]);
 
   return (
-    <details className="mt-6 rounded-2xl border border-edge bg-card px-4 py-3 sm:px-6">
+    <details
+      open={open || undefined}
+      className="mt-6 rounded-2xl border border-edge bg-card px-4 py-3 sm:px-6"
+    >
       <summary className="cursor-pointer text-sm font-semibold">
         {heading}
         <span className="ml-2 font-normal text-muted">
@@ -99,13 +117,14 @@ export default function MarketSearch({
 
       <div className="mt-3">
         <label
-          htmlFor="market-search"
+          htmlFor={inputId}
           className="text-xs font-semibold uppercase tracking-widest text-muted"
         >
           Team, player, or ticker
         </label>
         <input
-          id="market-search"
+          id={inputId}
+          autoFocus={open}
           value={query}
           onChange={(event) => {
             setQuery(event.target.value);
