@@ -1,8 +1,10 @@
 import { SHELL_WIDTH } from "@/lib/shell";
-import { fetchSlate, formatAge } from "@/lib/api";
-import type { Slate } from "@/lib/api";
+import { fetchSlate, fetchWindow, formatAge } from "@/lib/api";
+import type { ActionableWindow, Slate } from "@/lib/api";
+import { anAutomaticBuyIsComing } from "@/lib/nextOddsWindow";
 
 import GoodChancePicks from "@/components/GoodChancePicks";
+import RefreshWhenPriced from "@/components/RefreshWhenPriced";
 import TonightStrip from "@/components/TonightStrip";
 
 export const dynamic = "force-dynamic";
@@ -52,11 +54,41 @@ export const dynamic = "force-dynamic";
  * current (the last pass is old), and an unreachable backend each say a
  * different thing, and a page that drew them alike would read "no data" as
  * "nothing worth betting".
+ *
+ * **It heals itself, and for one day it did not.** This is a one-shot
+ * server render, and the screen it took the nav word from (`/slate`) mounts
+ * `RefreshWhenPriced` so that the sweep a cold open triggers — landing a
+ * median 3.3 s after the first heartbeat, per the visit-freshness read of
+ * 2026-09-02 — re-renders the page in place. The watcher did not come with
+ * the promotion. Compose that with the same read's other figure, that on
+ * 21 of 45 cold opens no upcoming fixture was inside the limit, and this
+ * screen rendered "N games not ranked: the consensus is too old to speak"
+ * on half of Joe's opens and held it for as long as he sat there, while the
+ * answer had been in the database since second three. That is the literal
+ * mechanism behind his stated reason for not opening the desk, on the
+ * screen the nav word "Picks" opens, shipped the day after he said it.
+ *
+ * The gate is `not_ranked.stale_consensus > 0` — a game is being withheld
+ * by the clock, so a rising `fixtures_fresh` can change what the list says.
+ * Deliberately `some`, where the Slate gates on the *whole* screen being
+ * unpriced: this list only ever grows under the watcher, and a game
+ * appearing beneath the ones already read is not the reflow that rule
+ * exists to prevent. The empty "nothing ranked" state is NOT gated in: it
+ * means the recorder's window held no priced game, and a sweep landing
+ * raises `fixtures_fresh` before the runner has evaluated anything, so the
+ * one refresh the watcher would fire there shows the same empty screen.
+ * Whether a buy is actually coming is `anAutomaticBuyIsComing`, as on the
+ * Slate; past it the watcher says nothing is due rather than polling.
  */
 export default async function PicksPage() {
   let data: Slate;
+  let actionable: ActionableWindow | null = null;
   try {
     data = await fetchSlate();
+    // Its own catch: the watcher needs a baseline count and nothing else on
+    // this page does, so a timetable that will not answer costs the watcher
+    // and not the list.
+    actionable = await fetchWindow().catch(() => null);
   } catch {
     return (
       <Shell>
@@ -173,6 +205,20 @@ export default async function PicksPage() {
         </section>
       ) : (
         <GoodChancePicks picks={picks} />
+      )}
+
+      {/* The self-heal, beneath the block that names the games it is waiting
+          on. Gated on a game being withheld by the clock and on a timetable
+          to measure against; see the docstring for why `some`, and why the
+          empty state is left out. It polls `/api/window` and spends
+          nothing — the credit-spending controls stay on Games. */}
+      {actionable && picks !== null && picks.not_ranked.stale_consensus > 0 && (
+        <div className="mt-3 max-w-[65ch]">
+          <RefreshWhenPriced
+            renderedFresh={actionable.fixtures_fresh}
+            automaticBuyIsComing={anAutomaticBuyIsComing(actionable)}
+          />
+        </div>
       )}
 
       {/* Where the engine's own reasons live, said in words rather than

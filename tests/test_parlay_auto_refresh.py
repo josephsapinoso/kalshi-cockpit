@@ -35,6 +35,7 @@ REPO = Path(__file__).resolve().parents[1]
 WATCHER = REPO / "frontend" / "src" / "components" / "RefreshWhenPriced.tsx"
 CARDS = REPO / "frontend" / "src" / "components" / "ParlayCards.tsx"
 SLATE = REPO / "frontend" / "src" / "app" / "slate" / "page.tsx"
+PICKS = REPO / "frontend" / "src" / "app" / "picks" / "page.tsx"
 
 
 def _flat(path: Path) -> str:
@@ -195,11 +196,71 @@ class TestTheSlateWiresItToo:
             "function RefusalSummary"
         ), "the watcher moved into the collapsed disclosure"
 
-    def test_the_two_screens_share_one_watcher(self):
-        """One component, two callers -- the same reason `StaleOddsExit` was
+    def test_the_screens_share_one_watcher(self):
+        """One component, three callers -- the same reason `StaleOddsExit` was
         extracted. Two screens wording one behaviour two ways is what this
         repo keeps paying for."""
-        for page in (CARDS, SLATE):
+        for page in (CARDS, SLATE, PICKS):
             assert 'from "@/components/RefreshWhenPriced"' in page.read_text(
                 encoding="utf-8"
             ), page.name
+
+
+class TestPicksWiresItToo:
+    """The screen the nav word "Picks" opens shipped without the watcher.
+
+    `/picks` (ADR 0098, 2026-09-02) took the slot from `/slate`, which mounts
+    `RefreshWhenPriced`; the page was written fresh and the watcher did not
+    come with it. On the visit-freshness read of the same day, 21 of 45 cold
+    opens had no upcoming fixture inside the limit and the feed then bought
+    within a median 3.3 s -- so on half of Joe's opens the new screen rendered
+    "N games not ranked: the consensus is too old to speak" and held it for
+    the whole visit, while the answer had been in the database since second
+    three. His stated reason for not opening the desk, built into the screen
+    the day after he said it.
+
+    The gate is `not_ranked.stale_consensus > 0`: a game is withheld by the
+    clock, so a rising `fixtures_fresh` can change what the list says. It is
+    `some` on purpose where the Slate's is `every`; the page's docstring
+    argues it.
+    """
+
+    def _source(self) -> str:
+        return PICKS.read_text(encoding="utf-8")
+
+    def test_picks_renders_the_watcher(self):
+        """Mutation observed red: remove the mount."""
+        source = self._source()
+        assert 'from "@/components/RefreshWhenPriced"' in source
+        assert "<RefreshWhenPriced" in source
+
+    def test_it_is_gated_on_a_game_being_withheld_by_the_clock(self):
+        """Mutation observed red: gate on `picks !== null` alone -- the
+        watcher then re-renders a complete list for a sweep that changes
+        nothing on it, and polls on the empty night the docstring excludes."""
+        source = self._source()
+        gate = source.split("{actionable &&", 1)[1].split("<RefreshWhenPriced", 1)[0]
+        assert "not_ranked.stale_consensus > 0" in gate
+
+    def test_it_is_not_rendered_without_a_baseline(self):
+        """Its trigger is a count rising above what this render saw; with no
+        timetable the first successful poll would refresh the page for
+        nothing. Mutation observed red: drop `actionable &&`."""
+        source = self._source()
+        gate = source.split("{actionable &&", 1)[1].split("<RefreshWhenPriced", 1)[0]
+        assert "renderedFresh={actionable.fixtures_fresh}" in source
+        assert "picks !== null" in gate
+
+    def test_it_asks_whether_a_buy_is_coming(self):
+        """Ticket #35's half: watching for a sweep the loop has already
+        refused renders a five-minute disappointment on a quiet night working
+        as designed. Mutation observed red: pass `true`."""
+        source = self._source()
+        assert "automaticBuyIsComing={anAutomaticBuyIsComing(actionable)}" in source
+
+    def test_the_timetable_failing_costs_the_watcher_not_the_list(self):
+        """`/api/window` failing must not send the page to the unreachable
+        branch; the list is the content and the watcher is an aid to it.
+        Mutation observed red: `await fetchWindow()` without the catch."""
+        source = _code(PICKS)
+        assert "fetchWindow().catch(() => null)" in source

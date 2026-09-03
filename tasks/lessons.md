@@ -54,6 +54,39 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-03 - A screen promoted into a slot inherits the slot's traffic, not the old screen's fixes
+
+`/picks` took the nav word "Picks" from `/slate` (ADR 0098). `/slate` mounts
+the cold-open self-heal (`RefreshWhenPriced`); `/picks` was written fresh
+from the block it promotes and shipped without it. Every source pin on the
+new page passed, because every pin was about what the page must not carry.
+The measurement that would have caught it had been taken the same day
+(21 of 45 cold opens with nothing fresh, the feed buying 3.3 s later) and
+was read as #20's spec, not as a check on the screen being shipped.
+
+**Pattern: when a screen takes over a slot, diff it against the screen it
+displaced for every mounted behaviour, not only for the content moved.
+The fixes on the old screen were fixes for that slot's traffic, and the
+traffic moves with the word in the nav. And a measurement of the state a
+user meets is a test of the screen they will meet it on -- read it against
+the build in flight before filing it as a spec for a later one.**
+
+## 2026-09-03 - A gate that mounts a self-heal only when the screen is empty stops healing the moment it has anything
+
+`/slate` mounts its watcher only if every row is suppressed and one is
+stale (`slateIsUnpricedByTheClock`, `every`). One unsuppressed row and the
+page stops watching -- so it re-renders exactly when it has nothing to show
+and freezes the moment it has something. The attention/floor perversity of
+2026-08-29 had the same shape: the behaviour meant to help was conditioned
+on the state in which it helps least. Not changed on the Slate here (its
+stated reason, not reflowing a list under a reader, is real); `/picks`
+gates on `some` and says why.
+
+**Pattern: when a helpful behaviour is gated on the screen being empty or
+broken, ask what happens on the partial state. "Only when nothing works"
+is usually a proxy for "only when it is safe to move the page", and the
+two come apart the moment one row succeeds.**
+
 ## 2026-09-02 - A link to a screen is a claim that the screen exists, and the claim is pinned or it rots
 
 Ticket #28 was answered "deep-link the digest to `/picks`" and #29 "the

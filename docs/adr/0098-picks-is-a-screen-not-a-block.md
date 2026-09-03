@@ -81,3 +81,35 @@ refusal machinery on Games, a funnel beside a favourites list at 11pm.
 - **The lede on Games** (#9's first string) and the other four page-top
   sentences. Other lanes own those files.
 - **The NO EDGE chip's semantics on Refusals** — #25.
+
+## Amendment 1 (2026-09-03) — the promoted screen shipped without the self-heal
+
+`/slate` mounts `RefreshWhenPriced`, the watcher that re-renders a cold
+page in place when the sweep its own heartbeat triggered lands; `/picks`
+was written fresh on 2026-09-02 and the watcher did not come with it. The
+page was a one-shot server render. Read against the visit-freshness first
+read of the same day (`docs/measurements/2026-09-02-visit-freshness-first-
+read.md`) — on 21 of 45 cold opens no upcoming fixture was inside the
+limit, and the feed then bought within a median 3.3 s — the screen the nav
+word "Picks" opens rendered "N games not ranked: the consensus is too old
+to speak" on about half of Joe's opens and held it for the whole visit,
+while the answer had been in the database since second three. That is the
+mechanism behind the reason he gave for not opening the desk, built into
+the promoted screen the day after he gave it.
+
+The watcher is now mounted beneath the block, gated on
+`not_ranked.stale_consensus > 0` and on a timetable to measure against, with
+`anAutomaticBuyIsComing` deciding whether to poll at all (#35's half). The
+gate is `some` where the Slate's is `every`, and the page's docstring argues
+why: this list only grows under the watcher, and a game appearing beneath the
+ones already read is not the reflow the Slate's rule prevents. The empty
+"nothing ranked" state is left out on purpose — a sweep raises
+`fixtures_fresh` before the runner has evaluated anything, so the one refresh
+it would trigger shows the same screen. `tests/test_parlay_auto_refresh.py::
+TestPicksWiresItToo` pins the mount, the gate, the baseline and the buy-coming
+question, each verified by mutation.
+
+§4's first bullet stands: #20 still owns the empty night's *design*, and
+should be re-read after this ships — a share of the "empty nights" it was
+opened for were a missing ten-second poll, and the distribution it designs
+against is the post-fix one.
