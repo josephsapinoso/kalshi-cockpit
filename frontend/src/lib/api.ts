@@ -1293,6 +1293,24 @@ export type ActionableWindow = {
    * not make going away a condition of it.
    */
   floor_next_buy_ms: number | null;
+  /**
+   * How long the recording loop sleeps between full passes when nothing
+   * wakes it — `RUNNER_INTERVAL_S` as the entrypoint passes it, 900s on live.
+   *
+   * Published so a silence in `last_look_ms` is judged against the cadence
+   * that produced it. Until 2026-09-03 `nextOddsWindow.ts` called the loop
+   * stalled after a hardcoded 180s, a number written when the observed
+   * cadence was a pass every ~18s — the FAST cadence, which runs only while
+   * a window is open. Idle, the loop sleeps this long, so on 8 of 26
+   * measured cold opens the screen called a sleeping loop a fault and
+   * switched off the self-heal thirteen seconds before the buy it was
+   * waiting for landed.
+   *
+   * `null` means the interval could not be read. A reader given `null` may
+   * not call the loop stalled on `last_look_ms` alone — unknown is not a
+   * number, and least of all is it `0`.
+   */
+  loop_idle_interval_ms: number | null;
   note: string;
 };
 

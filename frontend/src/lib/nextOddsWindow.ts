@@ -47,6 +47,41 @@
  * running at all). So the stall is read BEFORE `due_now`, and the sentence says
  * the recorder has stopped instead of naming a minute.
  *
+ * **"Is the loop alive" and "is a buy coming because this page is open" are
+ * two questions, and for a week this module answered both with one number.**
+ * The stall threshold was a hardcoded 180s, written when the observed cadence
+ * was a pass every ~18s. That is the FAST cadence, which runs only while a
+ * window is open; idle, the loop sleeps `RUNNER_INTERVAL_S` (median 926.8s
+ * full-to-full across 6,066 live passes). So on a cold open after a quiet
+ * hour `last_look_ms` was routinely 180s+ old, this module called the loop
+ * stalled, `anAutomaticBuyIsComing` came back false, and `RefreshWhenPriced`
+ * switched itself off with *"It will not change by itself until you reload
+ * it"* -- while the page's own heartbeat woke the loop within five seconds
+ * and the buy landed a median ~3s after that. Measured on live 2026-09-03: of
+ * 26 visits, 8 opened with the last look over 180s old, all 8 had nothing
+ * fresh at open, and 0 of the 11 opens that DID have fresh fixtures were
+ * called stalled -- 53% of the cold opens lost the watcher, and the watcher
+ * exists for cold opens. The exhibit is 2026-09-02T13:28Z: a 13s visit, buy
+ * at +0.6s, 0 -> 150 fresh fixtures, screen said it would not change.
+ *
+ * The root cause is in `anAutomaticBuyIsComing`'s inputs, not its logic: it
+ * was computed on the SERVER RENDER, from a snapshot taken before the page's
+ * heartbeat existed -- asking whether a buy is scheduled using facts that
+ * predate the thing that schedules the buy. So, since 2026-09-03:
+ *
+ * - `readNextWindow`'s stall branch judges a silence against the loop's OWN
+ *   idle cadence, which `/api/window` now publishes as
+ *   `loop_idle_interval_ms`. A quiet idle loop is never a fault. See
+ *   `LOOP_STALL_IDLE_INTERVALS` for what "stalled" means on that clock, and
+ *   for what it cannot see.
+ * - `readWatch` is the watcher's own predicate, evaluated CLIENT-SIDE on
+ *   fresh facts at every poll. It has a second, much tighter stall test that
+ *   the server render cannot have: a page that is visible is heartbeating,
+ *   a heartbeat wakes the loop within `DEFAULT_WAKE_POLL_S`, and a woken
+ *   pass writes a look -- so silence spanning `WATCHED_STALL_MS` of
+ *   continuous visibility is a real stall, on a clock the 2026-08-25 wedge
+ *   would have tripped at three minutes.
+ *
  * Pure and dependency-free so `tests/test_stale_exit.py` can execute it with
  * node the way `test_refresh_urgency.py` executes the urgency read — a
  * substring assertion cannot tell a branch from its inversion.
@@ -58,21 +93,82 @@
  */
 
 /**
- * How long `odds_sweep_log` may go unwritten before the loop is called stopped.
+ * How many of the loop's own idle intervals `odds_sweep_log` may go unwritten
+ * before the loop is called stopped, on the slow clock.
  *
- * Not the heartbeat's 30 minutes (`.github/workflows/heartbeat.yml`), and the
- * gap is deliberate: that threshold answers "should this wake Joe", this one
- * answers "may this screen promise a price in the next minute". Every pass that
- * looks at odds writes a row whatever it decides, and the observed live cadence
- * is a quote pass every ~18s, so a gap of minutes is already far outside normal
- * operation. Three minutes is ten missed passes -- loose enough that a slow full
- * pass cannot trip it, tight enough that it fires well inside the 15 minutes the
- * desk sat blank on 2026-08-25.
+ * Two, and the two is arithmetic rather than taste. `run_forever` sleeps
+ * `interval * (1 + JITTER)` at worst (JITTER is 0.15 in `scheduler.py`) and
+ * then runs a pass bounded by `DEFAULT_PASS_DEADLINE_S` (600s); the look row
+ * is written inside the pass. So the longest a healthy idle loop can go
+ * between looks is `1.15 * I + 600s`, which at the deployed I = 900s is 1635s
+ * -- inside two intervals (1800s). Silence past two intervals therefore means
+ * at least one whole pass was missed outright, under the worst case the loop
+ * permits itself. `tests/test_watcher_decides_from_fresh_facts.py` pins that
+ * inequality against the Python constants rather than trusting this comment.
+ *
+ * **What this clock cannot see, stated so nobody trusts it for more.** A loop
+ * that wedges mid-window looks, from `last_look_ms` alone, exactly like a
+ * loop asleep between passes until two idle intervals have passed. The
+ * 2026-08-25 wedge (15.5 min) is below that. The tighter clock is
+ * `readWatch`'s: a page that is visible is waking the loop, so silence while
+ * visible is a stall on a three-minute clock. This constant serves the slow
+ * clock, which is the only one a server render has.
  *
  * **This bounds a sentence, never a spend.** Nothing downstream refuses, retries
  * or buys on it; the only consequence of being wrong is which words render.
  */
-export const LOOP_STALL_MS = 180_000;
+export const LOOP_STALL_IDLE_INTERVALS = 2;
+
+/**
+ * How often `Nav.tsx` stamps `desk_attention` while a page is visible. One
+ * spelling, imported there, because `WATCHED_STALL_MS` below is derived from
+ * it and a derivation from a number written twice is a derivation from
+ * whichever copy drifted last.
+ */
+export const HEARTBEAT_INTERVAL_MS = 60_000;
+
+/**
+ * How long a VISIBLE page may go without the loop looking before the watcher
+ * calls the loop stalled -- the fast clock.
+ *
+ * A visible page heartbeats every `HEARTBEAT_INTERVAL_MS`; `ArrivalWatch`
+ * consumes each heartbeat as one wake, `sleep_until` notices within
+ * `DEFAULT_WAKE_POLL_S` (5s), and the woken pass writes a look row after
+ * discovery (~3-15s). So while a page is visible the loop looks at least
+ * once per heartbeat interval plus wake plus discovery -- ~80s -- and up to
+ * ~107s if the heartbeat lands mid-way through a long full pass (measured
+ * 50-87s on 2026-08-19). Three heartbeat intervals is three consecutive wakes
+ * with no look, with ~70s of slack over the worst healthy gap. Sixty seconds
+ * -- the obvious number -- would call a healthy loop stalled whenever the
+ * page's first look happened to land early and the next heartbeat had not
+ * yet fired, which is most of the time.
+ *
+ * **Both clocks are durations, deliberately.** `visible_for_ms` is the
+ * browser's, `now_ms - last_look_ms` is the server's, and comparing a
+ * browser timestamp to a server one would put clock skew into the verdict.
+ * "Silent for at least as long as we have been visibly asking, and we have
+ * been asking for three intervals" needs no shared epoch.
+ */
+export const WATCHED_STALL_MS = 3 * HEARTBEAT_INTERVAL_MS;
+
+/**
+ * How long after a page becomes visible its `/api/window` reads may still
+ * describe the desk WITHOUT this page in it.
+ *
+ * The heartbeat is a POST from `Nav.tsx` on mount; the watcher's first poll
+ * is a GET at the same instant, and the two race. Until the stamp commits,
+ * `desk_is_attended` is false and `next_sweep_ms` is the idle floor's answer
+ * -- which for a fixture 13 hours out is *nothing*, while the page's own
+ * presence will have it bought on the ten-minute cadence within seconds.
+ * That is the server-render defect this module was rebuilt around, and a
+ * client-side poll that took the first answer at face value would repeat it
+ * with fresher facts. So a "nothing is coming" reading is not final while
+ * the facts say nobody is looking and the page has only just started to.
+ * Fifteen seconds is three leading-edge polls -- well past a POST's latency
+ * and short enough that a heartbeat which never lands is reported inside the
+ * visit rather than after it.
+ */
+export const HEARTBEAT_SETTLE_MS = 15_000;
 
 /** The `/api/window` fields the reading needs; structurally satisfied by
  *  `ActionableWindow`. `null` for the whole object means the timetable
@@ -121,6 +217,25 @@ export type NextWindowFacts = {
    * is complete on its own.
    */
   attention_slice_spent_at_ms?: number | null;
+  /**
+   * `window_status().loop_idle_interval_ms`: how long the loop sleeps between
+   * full passes when nothing wakes it (`RUNNER_INTERVAL_S`, 900s on live).
+   *
+   * **The stall branch reads this or does not fire.** A silence can only be
+   * judged against the cadence that produced it; a caller that omits the
+   * field, or a server that could not read the interval, gets no stall
+   * sentence rather than one computed against a guessed number. Unknown is
+   * not `0` and it is not 900 either.
+   */
+  loop_idle_interval_ms?: number | null;
+  /**
+   * `window_status().desk_is_attended`: whether a heartbeat has landed inside
+   * the TTL. Read by `readWatch` to tell facts that predate this page's own
+   * heartbeat from facts that include it -- the difference between "the idle
+   * desk wants nothing" and "the desk you are looking at wants nothing".
+   * Optional so every caller written before it existed reads as it did.
+   */
+  desk_is_attended?: boolean;
 };
 
 export type NextWindowReading =
@@ -184,18 +299,29 @@ export function readNextWindow(
   // conditions were true together for fifteen minutes on 2026-08-25; whichever
   // is checked first is the sentence the reader gets, and only one of them was
   // true. A stalled loop does not serve a due buy.
+  //
+  // **Judged against the loop's own idle cadence, never a constant.** The
+  // constant this replaces was 180s and the idle cadence is 900s, so for a
+  // week every quiet quarter-hour read as a fault (see the module docstring
+  // for the 8-of-26 measurement). With the cadence unknown there is no
+  // judgement to make: `null`/`undefined` here means the caller cannot say
+  // what "too long" is, and a sentence that says "fault" on a guess is the
+  // defect in a new spelling.
+  const stallAfterMs = loopStallAfterMs(facts);
   const lastLook = facts.last_look_ms;
-  if (lastLook !== null && lastLook !== undefined) {
+  if (lastLook !== null && lastLook !== undefined && stallAfterMs !== null) {
     const silentMs = facts.now_ms - lastLook;
-    if (silentMs > LOOP_STALL_MS) {
+    if (silentMs > stallAfterMs) {
       return {
         kind: "loop_stalled",
         sentence:
           "The recording loop has not looked at odds for " +
-          `${Math.floor(silentMs / 60_000)} minutes. It normally looks every ` +
-          "few seconds, so nothing is going to re-buy these lines until it " +
-          "starts again — the prices will keep ageing until then. This is a " +
-          "fault in the tool, not a quiet night.",
+          `${Math.floor(silentMs / 60_000)} minutes. Left alone it looks ` +
+          `about every ${Math.round((facts.loop_idle_interval_ms as number) / 60_000)} ` +
+          "minutes, so at least one whole pass has been missed and nothing " +
+          "is going to re-buy these lines until it starts again — the prices " +
+          "will keep ageing until then. This is a fault in the tool, not a " +
+          "quiet night.",
       };
     }
   }
@@ -279,13 +405,27 @@ export function readNextWindow(
 }
 
 /**
- * Is the scheduler going to buy a price without being asked?
+ * The slow clock's threshold: how long `last_look_ms` may be silent before the
+ * loop is called stopped, or `null` when the cadence is not known.
+ *
+ * `null` for a missing, `null`, or non-positive interval alike. A zero would
+ * make every look a stall and a negative would make none; both are the shape
+ * of "unreadable resolved to a number", which is the one thing this module's
+ * conventions forbid.
+ */
+export function loopStallAfterMs(facts: NextWindowFacts): number | null {
+  const interval = facts.loop_idle_interval_ms;
+  if (interval === null || interval === undefined || interval <= 0) return null;
+  return LOOP_STALL_IDLE_INTERVALS * interval;
+}
+
+/**
+ * Does this SNAPSHOT say the scheduler is going to buy a price without being
+ * asked?
  *
  * **Exported rather than spelled at each call site**, because there are two of
  * them and the whole shape of ticket #35 was one predicate with two spellings
- * that drifted apart. `RefreshWhenPriced` gates its poll on this: watching for
- * a price nobody is going to buy produces a five-minute "no new prices
- * arrived" on a night when nothing was wrong.
+ * that drifted apart.
  *
  * **`due_now` counts and `loop_stalled` does not**, which is the ordering
  * `readNextWindow` already establishes — a buy that is wanted while the
@@ -293,12 +433,201 @@ export function readNextWindow(
  * does not count either: a timetable that would not answer is not evidence a
  * sweep is on its way, and the caller's fallback is to say so rather than to
  * wait on it.
+ *
+ * **This is no longer what `RefreshWhenPriced` gates on, and the reason is
+ * the word "snapshot".** Until 2026-09-03 the pages computed this on the
+ * server render and passed it in, and the watcher returned before setting
+ * any timer when it was false. But the server render happens before the
+ * page's heartbeat exists, so the snapshot answers "would the idle desk buy?"
+ * -- and on a cold open after a quiet hour the answer is no (`last_look_ms`
+ * over the old 180s constant, or a fixture outside the floor's twelve-hour
+ * horizon), while the page's own presence has the loop awake within five
+ * seconds and buying three seconds later. The watcher now asks `readWatch`
+ * against fresh facts on every poll. This function stays for the callers
+ * that still describe a snapshot -- `ParlayCards`' `Freshness` block passes
+ * it, and the prop it feeds is documented there as not decision-bearing.
  */
 export function anAutomaticBuyIsComing(
   facts: NextWindowFacts | null,
 ): boolean {
   const kind = readNextWindow(facts).kind;
   return kind === "due_now" || kind === "scheduled";
+}
+
+/** What the watcher knows about its own situation that the facts do not. */
+export type WatchContext = {
+  /**
+   * How long this page has been CONTINUOUSLY visible, in ms -- reset to zero
+   * every time the tab is hidden, because a hidden tab sends no heartbeats
+   * and a loop nobody is waking is allowed to sleep.
+   */
+  visible_for_ms: number;
+  /**
+   * How long the watcher will keep polling before it gives up, in ms. A buy
+   * due after that is a buy the watcher will never see land, so it is not a
+   * reason to watch.
+   */
+  watch_remaining_ms: number;
+};
+
+export type WatchVerdict =
+  /** Keep polling. A buy is due inside the watch, or the facts are too young
+   *  to say it is not. */
+  | { kind: "watch"; because: "buy_inside_window" | "facts_predate_heartbeat" }
+  /** The loop is not looking. Words, never a minute -- the pass that would
+   *  deliver a price has stopped writing. */
+  | { kind: "loop_stalled"; sentence: string }
+  /**
+   * Nothing is due inside the watch. `next_buy_ms` is the next automatic buy
+   * if one is known (the caller formats it; the sentence is complete without
+   * it), `null` when nothing is scheduled at all.
+   */
+  | {
+      kind: "nothing_due";
+      sentence: string;
+      next_buy_ms: number | null;
+      now_ms: number;
+    };
+
+/**
+ * Should the page keep watching for a price, given FRESH facts and what the
+ * watcher knows about itself?
+ *
+ * **Evaluated client-side, on every poll, and that is the whole repair.** The
+ * predicate it replaces was evaluated once, on the server, from facts older
+ * than the page's own heartbeat (see the module docstring). Two questions are
+ * asked here in order, and they are different questions:
+ *
+ * 1. **Is the loop alive?** Two clocks. The fast one is this function's own:
+ *    a visible page is waking the loop every `HEARTBEAT_INTERVAL_MS`, so a
+ *    silence in `last_look_ms` that spans `WATCHED_STALL_MS` of continuous
+ *    visibility is three wakes with no look -- a stall, on a clock the
+ *    2026-08-25 wedge trips at three minutes. The slow one is
+ *    `readNextWindow`'s, against the idle cadence, for a loop that has been
+ *    dead since before the page opened. Either says stalled, this does.
+ *
+ * 2. **Is a buy coming inside the watch?** From `readNextWindow` over the
+ *    same fresh facts, with the horizon `now + watch_remaining_ms`:
+ *    - `due_now` -- yes.
+ *    - `scheduled` -- yes if `open_ms` is inside the horizon. A buy at +50
+ *      minutes is real and is not a reason to poll for five.
+ *    - `slice_spent` -- yes if `floor_resumes_ms` is inside the horizon. The
+ *      floor buys while the page is open (2026-08-29), so a floor buy due
+ *      in two minutes is a buy this watcher will see land; "the slice is
+ *      spent" used to switch the watcher off regardless, which was the
+ *      off-switch ticket #35's own fix left in place.
+ *    - `budget_spent` -- no. Nothing can buy.
+ *    - `nothing_to_schedule` -- no, ONCE the facts include this page. See
+ *      below.
+ *
+ * **The settle rule.** `desk_is_attended === false` with the page visible for
+ * under `HEARTBEAT_SETTLE_MS` means the facts were read before this page's
+ * heartbeat landed: `next_sweep_ms` is the idle floor's answer and the
+ * attended cadence has not been asked. `desk_wants`' attended branch has no
+ * twelve-hour horizon -- while a page is open every stored fixture is bought
+ * on the ten-minute cadence -- so a fixture 13 hours out reads as "nothing
+ * to schedule" idle and as "due now" attended. A "nothing is coming" verdict
+ * from pre-heartbeat facts is therefore deferred, never taken; the next poll
+ * has the heartbeat in it. `slice_spent` and `budget_spent` are not deferred,
+ * because a heartbeat changes neither. A caller that omits `desk_is_attended`
+ * gets no deferral, which is the reading it got before the field existed.
+ *
+ * The stall test is not deferred either, in the other direction: its clock
+ * only starts counting at `WATCHED_STALL_MS` of visibility, which is long
+ * past the settle window.
+ */
+export function readWatch(
+  facts: NextWindowFacts,
+  ctx: WatchContext,
+): WatchVerdict {
+  const lastLook = facts.last_look_ms;
+  if (
+    lastLook !== null &&
+    lastLook !== undefined &&
+    ctx.visible_for_ms >= WATCHED_STALL_MS &&
+    facts.now_ms - lastLook >= WATCHED_STALL_MS
+  ) {
+    return {
+      kind: "loop_stalled",
+      sentence:
+        "The recording loop has not looked at odds for " +
+        `${Math.floor((facts.now_ms - lastLook) / 60_000)} minutes, and this ` +
+        "page has been open and waking it for " +
+        `${Math.floor(ctx.visible_for_ms / 60_000)} — it should have looked ` +
+        "within seconds of that. Nothing is going to re-buy these lines " +
+        "until it starts again. This is a fault in the tool, not a quiet " +
+        "night.",
+    };
+  }
+  const reading = readNextWindow(facts);
+  if (reading.kind === "loop_stalled") {
+    return { kind: "loop_stalled", sentence: reading.sentence };
+  }
+  const horizonMs = facts.now_ms + ctx.watch_remaining_ms;
+  const factsPredateHeartbeat =
+    facts.desk_is_attended === false && ctx.visible_for_ms < HEARTBEAT_SETTLE_MS;
+  const notWatching =
+    " This page is not watching for one and will not change by itself " +
+    "until you reload it.";
+  switch (reading.kind) {
+    case "due_now":
+      return { kind: "watch", because: "buy_inside_window" };
+    case "scheduled":
+      if (reading.open_ms <= horizonMs) {
+        return { kind: "watch", because: "buy_inside_window" };
+      }
+      if (factsPredateHeartbeat) {
+        return { kind: "watch", because: "facts_predate_heartbeat" };
+      }
+      return {
+        kind: "nothing_due",
+        next_buy_ms: reading.open_ms,
+        now_ms: facts.now_ms,
+        sentence:
+          "No new price is due in the next few minutes — the next automatic " +
+          "buy is later." +
+          notWatching,
+      };
+    case "slice_spent":
+      if (
+        reading.floor_resumes_ms !== null &&
+        reading.floor_resumes_ms <= horizonMs
+      ) {
+        return { kind: "watch", because: "buy_inside_window" };
+      }
+      return {
+        kind: "nothing_due",
+        next_buy_ms: reading.floor_resumes_ms,
+        now_ms: facts.now_ms,
+        sentence: reading.sentence + notWatching,
+      };
+    case "budget_spent":
+      return {
+        kind: "nothing_due",
+        next_buy_ms: null,
+        now_ms: facts.now_ms,
+        sentence: reading.sentence + notWatching,
+      };
+    case "nothing_to_schedule":
+      if (factsPredateHeartbeat) {
+        return { kind: "watch", because: "facts_predate_heartbeat" };
+      }
+      return {
+        kind: "nothing_due",
+        next_buy_ms: null,
+        now_ms: facts.now_ms,
+        sentence:
+          "No upcoming game is stored near enough for the desk to buy a " +
+          "price for." +
+          notWatching,
+      };
+    case "unknown":
+      // Unreachable with non-null facts -- `readNextWindow` returns `unknown`
+      // only for a null argument -- but the union says it can happen, and a
+      // switch that lies to the type-checker is how a new reading slips past
+      // this function unhandled. Not a verdict either way: keep asking.
+      return { kind: "watch", because: "facts_predate_heartbeat" };
+  }
 }
 
 /**

@@ -50,6 +50,7 @@ NODE = shutil.which("node")
 _DRIVER = """
 import {
   readNextWindow,
+  readWatch,
   anAutomaticBuyIsComing,
   isStaleOddsReason,
   slateIsUnpricedByTheClock,
@@ -58,11 +59,13 @@ const args = JSON.parse(process.argv[2]);
 const result =
   args.fn === "read"
     ? readNextWindow(args.facts)
-    : args.fn === "coming"
-      ? anAutomaticBuyIsComing(args.facts)
-      : args.fn === "cold"
-        ? slateIsUnpricedByTheClock(args.rows, args.maxOddsAgeMs)
-        : isStaleOddsReason(args.reason);
+    : args.fn === "watch"
+      ? readWatch(args.facts, args.ctx)
+      : args.fn === "coming"
+        ? anAutomaticBuyIsComing(args.facts)
+        : args.fn === "cold"
+          ? slateIsUnpricedByTheClock(args.rows, args.maxOddsAgeMs)
+          : isStaleOddsReason(args.reason);
 console.log(JSON.stringify(result === undefined ? null : result));
 """
 
@@ -83,6 +86,18 @@ def _run(payload: dict):
         driver.unlink(missing_ok=True)
     assert out.returncode == 0, f"node failed:\n{out.stdout}\n{out.stderr}"
     return json.loads(out.stdout.strip())
+
+
+def _code(path: Path) -> str:
+    """Source with every comment stripped.
+
+    The files under test name the alternatives they rejected -- the retired
+    `automaticBuyIsComing` gate among them -- so an "absent" assertion against
+    the raw text would be satisfied by the comment explaining the absence.
+    """
+    source = path.read_text(encoding="utf-8")
+    source = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
+    return re.sub(r"//[^\n]*", "", source)
 
 
 def read(facts):
@@ -106,6 +121,12 @@ REFUSED_STALE = {"odds_age_now_ms": 1_200_000, "suppressed_reason": "stale_odds"
 REFUSED_OTHER = {"odds_age_now_ms": 60_000, "suppressed_reason": "wide_market"}
 
 
+#: The deployed idle cadence (`RUNNER_INTERVAL_S=900`), as `/api/window`
+#: publishes it. Named so a case that wants the stall branch to be reachable
+#: says so, and a case that omits it is asserting the branch stays shut.
+IDLE_INTERVAL_MS = 900_000
+
+
 def facts(
     now_ms=1_000_000,
     next_sweep_ms=None,
@@ -113,6 +134,8 @@ def facts(
     last_look_ms=None,
     attention_slice_spent=None,
     floor_next_buy_ms=None,
+    loop_idle_interval_ms=None,
+    desk_is_attended=None,
 ):
     """`last_look_ms=None` is the pre-stall default: unknown, never stopped.
 
@@ -122,6 +145,11 @@ def facts(
     `attention_slice_spent=None` is the same shape one layer on, and carries
     the same obligation: every case written before 2026-08-28 relies on the
     slice branch not firing for a caller that never supplied the field.
+
+    `loop_idle_interval_ms=None` is the same shape a third time, 2026-09-03,
+    and this one closes the stall branch rather than opening it: with no
+    cadence to judge a silence against, no silence is a stall. Every stall
+    case now has to say what the cadence is.
     """
     return {
         "now_ms": now_ms,
@@ -130,6 +158,8 @@ def facts(
         "last_look_ms": last_look_ms,
         "attention_slice_spent": attention_slice_spent,
         "floor_next_buy_ms": floor_next_buy_ms,
+        "loop_idle_interval_ms": loop_idle_interval_ms,
+        "desk_is_attended": desk_is_attended,
     }
 
 
@@ -310,6 +340,23 @@ class TestAWantedBuyIsNotAPromisedBuy:
     `next_sweep_ms <= now_ms` held and `due_now` said the next pass would serve
     it "usually within a minute". It did not, and the parlay desk sat blank the
     whole time saying the slate was empty.
+
+    **The threshold these cases used to pin was wrong, and the record of why
+    is the point of the rewrite (2026-09-03).** The stall branch fired at a
+    hardcoded 180s, written when "the observed live cadence" was a pass every
+    ~18s -- the FAST cadence, which runs only while a window is open. Idle,
+    the loop sleeps `RUNNER_INTERVAL_S` = 900s. So a fifteen-minute silence,
+    which the old cases asserted was a stall, is what a healthy loop looks
+    like between two idle passes -- and on 8 of 26 measured cold opens the
+    screen called the sleeping loop a fault and switched off the self-heal.
+    The branch now judges a silence against `loop_idle_interval_ms`, which
+    `/api/window` publishes, and against nothing when that is unknown.
+
+    **What the slow clock therefore cannot see.** The 2026-08-25 wedge itself
+    -- 15.5 minutes -- is below two idle intervals and reads as asleep on this
+    clock. The clock that sees it is `readWatch`'s: a page that is visible is
+    waking the loop every minute, so three minutes of silence while visible is
+    a stall. `tests/test_watcher_decides_from_fresh_facts.py` owns that half.
     """
 
     def test_a_silent_loop_is_read_before_a_due_buy(self):
@@ -321,11 +368,12 @@ class TestAWantedBuyIsNotAPromisedBuy:
             facts(
                 now_ms=10_000_000,
                 next_sweep_ms=10_000_000,
-                last_look_ms=10_000_000 - 15 * 60_000,
+                last_look_ms=10_000_000 - 45 * 60_000,
+                loop_idle_interval_ms=IDLE_INTERVAL_MS,
             )
         )
         assert reading["kind"] == "loop_stalled"
-        assert "15 minutes" in reading["sentence"]
+        assert "45 minutes" in reading["sentence"]
         assert "within a minute" not in reading["sentence"]
 
     def test_a_stall_outranks_a_scheduled_window_too(self):
@@ -335,20 +383,87 @@ class TestAWantedBuyIsNotAPromisedBuy:
             facts(
                 now_ms=10_000_000,
                 next_sweep_ms=13_600_000,
-                last_look_ms=10_000_000 - 15 * 60_000,
+                last_look_ms=10_000_000 - 45 * 60_000,
+                loop_idle_interval_ms=IDLE_INTERVAL_MS,
             )
         )
         assert reading["kind"] == "loop_stalled"
         assert "open_ms" not in reading
 
+    def test_an_idle_gap_of_one_interval_is_not_a_stall(self):
+        """**The exhibit.** Fifteen minutes since the last look is one idle
+        interval -- the loop is asleep, as designed, and a heartbeat will have
+        it looking within five seconds. The old constant called this a fault
+        on 8 of 26 cold opens. Mutation observed red: restore the 180s
+        constant, or drop the interval from the threshold."""
+        reading = read(
+            facts(
+                now_ms=10_000_000,
+                next_sweep_ms=10_000_000,
+                last_look_ms=10_000_000 - 15 * 60_000,
+                loop_idle_interval_ms=IDLE_INTERVAL_MS,
+            )
+        )
+        assert reading["kind"] == "due_now"
+
+    def test_the_threshold_is_two_idle_intervals_not_one(self):
+        """`run_forever` sleeps up to `1.15 * I` and a pass may run to its 600s
+        deadline before the look row lands, so one interval plus a little is
+        still a healthy loop. Two is where at least one whole pass has been
+        missed under the worst case the loop permits itself; the cross-language
+        inequality is pinned in `test_watcher_decides_from_fresh_facts.py`.
+        Mutation observed red: set `LOOP_STALL_IDLE_INTERVALS = 1`."""
+        one_and_a_half = 10_000_000 - int(1.5 * IDLE_INTERVAL_MS)
+        reading = read(
+            facts(
+                now_ms=10_000_000,
+                next_sweep_ms=10_000_000,
+                last_look_ms=one_and_a_half,
+                loop_idle_interval_ms=IDLE_INTERVAL_MS,
+            )
+        )
+        assert reading["kind"] == "due_now"
+
+    def test_an_unknown_cadence_never_reads_as_a_stall(self):
+        """The third field to carry the "omitted means unknown" obligation. A
+        caller that does not know how often the loop looks cannot say a
+        silence is too long, however long it is. Mutation observed red: fall
+        back to any constant when the field is null."""
+        for interval in (None, 0, -1):
+            reading = read(
+                facts(
+                    now_ms=10_000_000,
+                    next_sweep_ms=10_000_000,
+                    last_look_ms=10_000_000 - 6 * 3_600_000,
+                    loop_idle_interval_ms=interval,
+                )
+            )
+            assert reading["kind"] == "due_now", interval
+
+    def test_the_stall_sentence_names_the_cadence_it_judged_against(self):
+        """A reader told "this is a fault" is owed the number that makes it
+        one. The old sentence said "every few seconds", which was the fast
+        cadence stated as the only one."""
+        reading = read(
+            facts(
+                now_ms=10_000_000,
+                next_sweep_ms=10_000_000,
+                last_look_ms=10_000_000 - 45 * 60_000,
+                loop_idle_interval_ms=IDLE_INTERVAL_MS,
+            )
+        )
+        assert "every 15 minutes" in reading["sentence"]
+        assert "few seconds" not in reading["sentence"]
+
     def test_a_loop_that_looked_moments_ago_is_not_stalled(self):
-        """The live cadence is a pass every ~18s. A reading that called that a
+        """The fast cadence is a pass every ~18s. A reading that called that a
         stall would put a fault banner on every healthy screen."""
         reading = read(
             facts(
                 now_ms=10_000_000,
                 next_sweep_ms=10_000_000,
                 last_look_ms=10_000_000 - 20_000,
+                loop_idle_interval_ms=IDLE_INTERVAL_MS,
             )
         )
         assert reading["kind"] == "due_now"
@@ -360,7 +475,12 @@ class TestAWantedBuyIsNotAPromisedBuy:
         (`tasks/lessons.md`). Mutation observed red: treat null as 0 and every
         fresh deploy reports a 56-year stall."""
         reading = read(
-            facts(now_ms=10_000_000, next_sweep_ms=10_000_000, last_look_ms=None)
+            facts(
+                now_ms=10_000_000,
+                next_sweep_ms=10_000_000,
+                last_look_ms=None,
+                loop_idle_interval_ms=IDLE_INTERVAL_MS,
+            )
         )
         assert reading["kind"] == "due_now"
 
@@ -372,7 +492,8 @@ class TestAWantedBuyIsNotAPromisedBuy:
             facts(
                 now_ms=10_000_000,
                 next_sweep_ms=10_000_000,
-                last_look_ms=10_000_000 - 15 * 60_000,
+                last_look_ms=10_000_000 - 45 * 60_000,
+                loop_idle_interval_ms=IDLE_INTERVAL_MS,
             )
         )
         assert not re.search(r"\d{1,2}:\d{2}", reading["sentence"])
@@ -627,13 +748,17 @@ class TestASpentSliceIsNotAQuietNight:
     def test_a_stalled_loop_outranks_the_slice(self):
         """A recorder that has stopped writing is a fault; a spent slice is
         the design working. The fault is the sentence the reader needs, and
-        the 2026-08-25 incident is why order is asserted rather than assumed."""
+        the 2026-08-25 incident is why order is asserted rather than assumed.
+
+        Silence of 400s at a 900s cadence used to be the stall here and is one
+        idle sleep now; the case keeps its claim at two hours."""
         reading = read(
             facts(
-                now_ms=1_000_000,
-                last_look_ms=1_000_000 - 400_000,
+                now_ms=10_000_000,
+                last_look_ms=10_000_000 - 2 * 3_600_000,
                 attention_slice_spent=True,
-                floor_next_buy_ms=6_000_000,
+                floor_next_buy_ms=16_000_000,
+                loop_idle_interval_ms=IDLE_INTERVAL_MS,
             )
         )
         assert reading["kind"] == "loop_stalled"
@@ -670,6 +795,15 @@ class TestTheWatcherAsksWhetherABuyIsPossible:
     minutes, for a sweep the loop had already refused, and would then have
     reported a fault that did not exist. It watched `fixtures_fresh` rising --
     the *evidence* of a buy -- and never asked whether a buy could happen.
+
+    **It asks now, and it asks itself.** The 2026-08-28 fix had the PAGES ask,
+    on the server render, and pass the answer in -- and the server render
+    predates the page's own heartbeat, so the answer described the idle desk
+    and switched the watcher off on 8 of 26 measured cold opens. Since
+    2026-09-03 the watcher asks `readWatch` against fresh facts on every poll;
+    `anAutomaticBuyIsComing` stays as the snapshot reading it always was, and
+    the cases below still hold of a snapshot. What changed is who consumes it.
+    `tests/test_watcher_decides_from_fresh_facts.py` owns `readWatch`.
     """
 
     def test_a_scheduled_or_due_buy_is_coming(self):
@@ -683,12 +817,29 @@ class TestTheWatcherAsksWhetherABuyIsPossible:
 
     def test_a_stalled_loop_is_not_a_coming_buy(self):
         """A buy that is wanted while nothing is running to serve it is not a
-        buy that is coming -- the distinction the 2026-08-25 incident bought."""
+        buy that is coming -- the distinction the 2026-08-25 incident bought.
+        Two hours at a 900s cadence, because 400s -- the silence this case
+        used to call a stall -- is one idle sleep."""
         assert not buy_is_coming(
             facts(
-                now_ms=1_000_000,
-                next_sweep_ms=900_000,
-                last_look_ms=1_000_000 - 400_000,
+                now_ms=10_000_000,
+                next_sweep_ms=9_900_000,
+                last_look_ms=10_000_000 - 2 * 3_600_000,
+                loop_idle_interval_ms=IDLE_INTERVAL_MS,
+            )
+        )
+
+    def test_an_idle_sleep_is_a_coming_buy(self):
+        """The snapshot half of the 8-of-26 defect. A due buy with the last
+        look fifteen minutes old is a due buy: the loop is asleep, and the
+        next pass -- or the heartbeat's wake -- serves it. Mutation observed
+        red: restore the 180s constant."""
+        assert buy_is_coming(
+            facts(
+                now_ms=10_000_000,
+                next_sweep_ms=10_000_000,
+                last_look_ms=10_000_000 - 15 * 60_000,
+                loop_idle_interval_ms=IDLE_INTERVAL_MS,
             )
         )
 
@@ -696,27 +847,32 @@ class TestTheWatcherAsksWhetherABuyIsPossible:
         """A question that could not be asked is not a yes."""
         assert not buy_is_coming(None)
 
-    def test_the_watcher_gates_both_its_poll_and_its_promise(self):
+    def test_the_watcher_decides_from_fresh_facts_not_from_a_prop(self):
         """Source pin: the pure predicate being right proves nothing if the
-        component still sets an interval and still promises a price."""
-        src = (
-            REPO / "frontend" / "src" / "components" / "RefreshWhenPriced.tsx"
-        ).read_text(encoding="utf-8")
-        assert "automaticBuyIsComing" in src
-        # The early return must precede the interval, or the poll runs anyway.
-        gate = src.index("if (!automaticBuyIsComing) return;")
-        assert gate < src.index("setInterval(look, POLL_MS)")
-        # And the promise must not render in the state that cannot keep it.
-        assert "No new price is due to arrive on its own" in src
+        component still gates its poll on the render's snapshot.
 
-    def test_both_callers_pass_the_predicate_rather_than_a_literal(self):
-        """A `true` hardcoded at either call site restores the whole defect."""
-        for path in (SLATE_PAGE, PARLAY_CARDS):
-            src = path.read_text(encoding="utf-8")
-            assert (
-                "automaticBuyIsComing={anAutomaticBuyIsComing(actionable)}"
-                in src
-            ), path
+        The gate that used to sit here -- `if (!automaticBuyIsComing) return;`
+        before the interval -- is the off-switch that fired on the cold opens
+        the watcher exists for. It must be gone, `readWatch` must be what the
+        poll consults, and the false promise must not have come back either.
+        Mutation observed red: reinstate the early return."""
+        code = _code(
+            REPO / "frontend" / "src" / "components" / "RefreshWhenPriced.tsx"
+        )
+        assert "if (!automaticBuyIsComing) return" not in code
+        assert "readWatch(facts" in code
+        assert "No new price is due to arrive on its own" not in code
+
+    def test_the_two_screens_this_lane_owns_pass_only_the_baseline(self):
+        """`/slate` and `/picks` hand the watcher the count the render saw and
+        nothing about whether a buy is coming; that is the watcher's question.
+        `ParlayCards` still passes the snapshot and is documented in the prop
+        as inert -- its own lane drops it. Mutation observed red: pass
+        `automaticBuyIsComing` on either page."""
+        for path in (SLATE_PAGE, REPO / "frontend" / "src" / "app" / "picks" / "page.tsx"):
+            src = _code(path)
+            assert "automaticBuyIsComing" not in src, path
+            assert "renderedFresh={actionable.fixtures_fresh}" in src, path
 
 
 class TestThePanelStatesWhichOfThreeStatesItIsIn:

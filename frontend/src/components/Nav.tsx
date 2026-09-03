@@ -7,6 +7,7 @@ import ThemeToggle from "./ThemeToggle";
 import MarketSearch from "./MarketSearch";
 import { SHELL_WIDTH } from "@/lib/shell";
 import { fetchWindow, recordAttention } from "@/lib/api";
+import { HEARTBEAT_INTERVAL_MS } from "@/lib/nextOddsWindow";
 import { windowChip } from "@/lib/windowChip";
 import type { Chip } from "@/lib/windowChip";
 
@@ -184,9 +185,17 @@ export default function Nav() {
     return () => document.removeEventListener("keydown", onKey);
   }, [searchOpen]);
 
+  // Gated on visibility exactly as the heartbeat below is, and for a weaker
+  // version of the same reason: a backgrounded tab was fetching the timetable
+  // once a minute for a chip nobody could see, for as long as the tab lived.
+  // No credits ride on it -- `/api/window` reads stored state -- so this is a
+  // request loop with no reader, not a spend. It resumes on `visibilitychange`
+  // so the chip is current the moment the tab is, rather than up to a minute
+  // later. Same interval as the heartbeat, imported rather than retyped.
   useEffect(() => {
     let cancelled = false;
-    const load = () =>
+    const load = () => {
+      if (document.visibilityState !== "visible") return;
       fetchWindow()
         .then((w) => {
           if (!cancelled) setChip(windowChip(w));
@@ -194,11 +203,14 @@ export default function Nav() {
         .catch(() => {
           if (!cancelled) setChip(null);
         });
+    };
     load();
-    const timer = setInterval(load, 60_000);
+    const timer = setInterval(load, HEARTBEAT_INTERVAL_MS);
+    document.addEventListener("visibilitychange", load);
     return () => {
       cancelled = true;
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", load);
     };
   }, []);
 
@@ -235,7 +247,7 @@ export default function Nav() {
       void recordAttention().catch(() => {});
     };
     beat();
-    const timer = setInterval(beat, 60_000);
+    const timer = setInterval(beat, HEARTBEAT_INTERVAL_MS);
     document.addEventListener("visibilitychange", beat);
     return () => {
       clearInterval(timer);
