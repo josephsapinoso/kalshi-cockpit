@@ -138,13 +138,38 @@ class TestTheRefusalsAreTriStateAndNeverReadAsNotStopped:
         assert out["money arm fired"] is None
         assert "never stamped open" in out["refusal"]
 
-    def test_a_void_result_refuses_rather_than_inventing_a_payout(self, tmp_path):
-        """A void has no registered payout. Guessing one here would silently
-        amend the stopping rule, which is the one thing a stopping rule may
-        never do."""
+    def test_a_void_counts_its_fee_and_the_mirror_agrees(self, tmp_path):
+        """A16 (2026-09-03): a void contributes its fee as a loss and
+        nothing else. The fee here is 10 tenths -- one cent -- so the arm
+        reads $0.01, computable, not fired, on the row that had disabled
+        it since it settled. Mutation observed red on the mirror alone:
+        restore its old `not in ("yes", "no")` refusal."""
         path = _build(
             tmp_path,
-            [dict(side="yes", contracts=2, entry=400, fee=10, result="void")],
+            [dict(side="yes", contracts=2, entry=400, fee=10, result="")],
+        )
+        conn = db.connect(path)
+        try:
+            expected = estimates.study_loss_dollars(conn)
+        finally:
+            conn.close()
+        assert expected == pytest.approx(0.01)
+
+        out = _read(path)
+        assert out["cumulative realised LOSS ($)"] == pytest.approx(expected)
+        assert out["money arm fired"] is False
+        assert out["refusal"] is None
+
+    def test_an_unregistered_result_refuses_rather_than_inventing_a_payout(
+        self, tmp_path
+    ):
+        """A16 named the venue's void markers; any other value still has no
+        registered payout, and guessing one would silently amend the
+        stopping rule, which is the one thing a stopping rule may never
+        do."""
+        path = _build(
+            tmp_path,
+            [dict(side="yes", contracts=2, entry=400, fee=10, result="scratch")],
         )
         conn = db.connect(path)
         try:
@@ -168,7 +193,7 @@ class TestTheRefusalsAreTriStateAndNeverReadAsNotStopped:
 
         out = _read(path)
         assert out["money arm fired"] is None
-        assert "unreadable entry price or fee" in out["refusal"]
+        assert "unreadable fee" in out["refusal"]
 
     def test_the_refusal_reading_says_it_is_not_an_all_clear(self, tmp_path):
         path = _build(tmp_path, [WIN], open_study=False)
@@ -189,6 +214,14 @@ class TestTheArmFiresAtTheRegisteredCeiling:
         from scripts.inspect_live_db import STUDY_LOSS_CEILING_DOLLARS
 
         assert STUDY_LOSS_CEILING_DOLLARS == estimates.STUDY_LOSS_CEILING_DOLLARS
+
+    def test_the_void_markers_agree(self):
+        """A16's marker set is duplicated for the same no-import reason, and
+        a mirror that tolerated one more or one fewer spelling would report
+        a different arm from the one the code runs."""
+        from scripts.inspect_live_db import VOID_RESULTS
+
+        assert VOID_RESULTS == estimates.VOID_RESULTS
 
     def test_a_loss_at_the_ceiling_fires(self, tmp_path):
         """$100 exactly. The registered predicate is `>=`, so the boundary
@@ -268,12 +301,28 @@ class TestTheRefusalCanBeSizedRatherThanJustNamed:
         assert mix.get("yes") == 2, mix
         assert mix.get("no") == 1, mix
 
+    def test_a_void_is_labelled_as_computable_under_a16(self, tmp_path):
+        """Since A16 the empty string is a void the formula tolerates, and
+        the mix must say so rather than still calling it fatal."""
+        path = _build(
+            tmp_path,
+            [WIN, dict(side="yes", contracts=1, entry=100, fee=1, result="")],
+        )
+        from scripts.inspect_live_db import main
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            main(["study-stop", "--db", str(path)])
+        rendered = buf.getvalue()
+        assert "fee counts as a loss (A16)" in rendered, rendered
+        assert "REFUSES the whole formula" not in rendered, rendered
+
     def test_the_section_says_which_values_break_the_formula(self, tmp_path):
         """A count without that mapping makes the reader re-derive which
         values are fatal, which is where they will guess wrong."""
         path = _build(
             tmp_path,
-            [WIN, dict(side="yes", contracts=1, entry=100, fee=1, result="")],
+            [WIN, dict(side="yes", contracts=1, entry=100, fee=1, result="scratch")],
         )
         from scripts.inspect_live_db import main
 
@@ -328,9 +377,12 @@ class TestTheOffendingRowsAreIdentifiedAndNotJustCounted:
         return json.loads(buf.getvalue())["sections"][2]["rows"]
 
     def test_the_unreadable_row_is_named(self, tmp_path):
+        # `'scratch'`, not `''`: since A16 an empty result is a void the
+        # formula tolerates, and listing it here would cry wolf on the one
+        # live row the amendment was written for.
         path = _build(
             tmp_path,
-            [WIN, dict(side="yes", contracts=3, entry=250, fee=7, result="")],
+            [WIN, dict(side="yes", contracts=3, entry=250, fee=7, result="scratch")],
         )
         rows = self._rows(path)
         assert len(rows) == 1, rows
@@ -342,6 +394,18 @@ class TestTheOffendingRowsAreIdentifiedAndNotJustCounted:
         """If this filled up on healthy rows it would cry wolf on every read,
         and the section would be ignored by the second look."""
         assert self._rows(_build(tmp_path, [WIN, LOSS])) == []
+
+    def test_a_void_with_a_readable_fee_is_not_listed_either(self, tmp_path):
+        """A16: computable, so not a row that disables the formula. Its
+        entry price is irrelevant and must not get it listed."""
+        void = dict(side="yes", contracts=1, entry=None, fee=7, result="")
+        assert self._rows(_build(tmp_path, [WIN, void])) == []
+
+    def test_a_void_with_an_unreadable_fee_is_listed_as_fee(self, tmp_path):
+        void = dict(side="yes", contracts=1, entry=100, fee=None, result="void")
+        rows = self._rows(_build(tmp_path, [WIN, void]))
+        assert len(rows) == 1, rows
+        assert "fee unreadable" in json.dumps(rows[0])
 
     def test_an_unreadable_fee_is_distinguished_from_an_unreadable_result(
         self, tmp_path
@@ -368,7 +432,9 @@ class TestTheOffendingRowsAreIdentifiedAndNotJustCounted:
             "INSERT INTO venue_settlements (ticker, event_ticker, "
             "market_result, settled_ms, side, contracts, entry_price_tenths, "
             "fee_cost_tenths) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            ("KXMVE-ABC", "E", "", START_MS + 9, "yes", 1, 100, 1),
+            # An unreadable fee, not an empty result: since A16 a void with a
+            # readable fee is computable and is not listed here at all.
+            ("KXMVE-ABC", "E", "", START_MS + 9, "yes", 1, 100, None),
         )
         conn.commit()
         conn.close()

@@ -3360,6 +3360,11 @@ def _q_lock_attribution(conn: sqlite3.Connection, args) -> list[Section]:
 #: agree -- the same treatment `FAILURE_LOG_NAME` gets.
 STUDY_LOSS_CEILING_DOLLARS = 100.0
 
+#: The venue's ways of saying "no result" on a settled position -- registration
+#: A16 (2026-09-03). Duplicated from `backend.estimates.VOID_RESULTS` for the
+#: reason above, and pinned equal by the same guard.
+VOID_RESULTS = frozenset({None, "", "void"})
+
 #: `meta` key holding the study's start instant. Absent means never opened.
 STUDY_START_MS_KEY = "calibration_study_start_ms"
 
@@ -3389,10 +3394,14 @@ def _q_study_stop(conn: sqlite3.Connection, args) -> list[Section]:
     "cannot know", never "not stopped":
 
     - the study was never stamped open (no `study_start_ms`);
-    - any study-period row carries a `market_result` that is neither `yes`
-      nor `no` -- a void has no registered payout, and inventing one here
-      would silently amend the stopping rule;
-    - any row has an unreadable entry price or fee.
+    - any study-period row carries a `market_result` outside {yes, no}
+      that is not a registered void marker (`NULL`, `''`, `'void'` --
+      A16, 2026-09-03). A void counts its fee as a loss and nothing
+      else; anything else the venue might write still refuses, because
+      the amendment named the venue's markers rather than licensing a
+      guess;
+    - any row has an unreadable fee, or a decided row an unreadable
+      entry price.
 
     An empty settlement set with the study open is a true $0.00 and not a
     refusal.
@@ -3438,17 +3447,23 @@ def _q_study_stop(conn: sqlite3.Connection, args) -> list[Section]:
         n_rows = len(rows)
         net_tenths = Decimal(0)
         for side, contracts_raw, entry, fee, result in rows:
+            if fee is None:
+                refusal = "a study-period settlement has an unreadable fee"
+                break
+            if result in VOID_RESULTS:
+                # A16: the stake came back and the fee did not.
+                net_tenths -= Decimal(fee)
+                continue
             if result not in ("yes", "no"):
                 refusal = (
                     f"a study-period settlement has market_result "
-                    f"{result!r}, which is neither 'yes' nor 'no' -- a void "
-                    f"has no registered payout"
+                    f"{result!r}, which is neither 'yes' nor 'no' nor a "
+                    f"registered void marker (A16)"
                 )
                 break
-            if entry is None or fee is None:
+            if entry is None:
                 refusal = (
-                    "a study-period settlement has an unreadable entry price "
-                    "or fee"
+                    "a study-period settlement has an unreadable entry price"
                 )
                 break
             try:
@@ -3505,7 +3520,11 @@ def _q_study_stop(conn: sqlite3.Connection, args) -> list[Section]:
                 r[1],
                 "computable"
                 if r[0] in ("yes", "no")
-                else "REFUSES the whole formula",
+                else (
+                    "void: its fee counts as a loss (A16)"
+                    if r[0] in VOID_RESULTS
+                    else "REFUSES the whole formula"
+                ),
             )
             for r in conn.execute(
                 "SELECT market_result, COUNT(*) FROM venue_settlements "
@@ -3530,18 +3549,22 @@ def _q_study_stop(conn: sqlite3.Connection, args) -> list[Section]:
                 r[3],
                 r[4],
                 "NULL" if r[5] is None else f"{r[5]!r}",
-                "entry price unreadable" if r[6] is None else (
-                    "fee unreadable" if r[7] is None else "result unreadable"
+                "fee unreadable" if r[7] is None else (
+                    "entry price unreadable" if r[6] is None
+                    else "result unreadable"
                 ),
             )
             for r in conn.execute(
                 "SELECT id, settled_ms, ticker, side, contracts, "
                 "market_result, entry_price_tenths, fee_cost_tenths "
+                # A16: a void with a readable fee is computable and is not
+                # listed here; a void's entry price is irrelevant.
                 "FROM venue_settlements WHERE settled_ms >= ? "
-                "AND (market_result NOT IN ('yes','no') "
-                "     OR market_result IS NULL "
-                "     OR entry_price_tenths IS NULL "
-                "     OR fee_cost_tenths IS NULL) "
+                "AND (fee_cost_tenths IS NULL "
+                "     OR (market_result IS NOT NULL "
+                "         AND market_result NOT IN ('yes','no','','void')) "
+                "     OR (market_result IN ('yes','no') "
+                "         AND entry_price_tenths IS NULL)) "
                 "ORDER BY settled_ms DESC",
                 (int(start_text),),
             ).fetchall()

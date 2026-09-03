@@ -198,3 +198,59 @@ case). The columns and the scorer stay; they cost nothing.
 
 The seven days start at the **log screen's** ship, not at this commit: until
 then there is nowhere to log a call from.
+
+## Amendment 4 (2026-09-03) — a voided settlement counts its fee as a loss
+
+**Decided by Joe, 2026-09-03 ("44A"), from a two-option batch in which the
+call carried no recommendation because it is a stop rule on his money.**
+Registered as A16 in the registration's Amendment 4, which governs; this
+section records the decision and what code must not break.
+
+### 4a. What was wrong
+
+Design point 5's formula is A2's, verbatim: `sum(payout - cost - fee)` over
+study-period `venue_settlements`, with payout `contracts × $1` on a win and
+`$0` on a loss. `study_loss_dollars` refuses — returns `None`, "cannot know"
+— on any row whose `market_result` is neither `yes` nor `no`, because *"a
+void has no registered payout and inventing one here would silently amend
+the stopping rule."* That sentence was right and the consequence was not
+foreseen: one study-period settlement is a cross-category `KXMVE`
+combination the venue voided, stored with `market_result = ''`, so the arm
+has been **permanently uncomputable** since it settled. Not systematic — the
+other 53 rows compute — but one row is enough forever, because the record
+only grows. The first live read (`study-stop`, 2026-09-01) surfaced it.
+
+### 4b. The decision
+
+A void contributes **its fee, as a loss, and nothing else.** The stake came
+back; the fee left the account. Formally, for a row whose `market_result` is
+a registered void marker: `payout − cost = 0` by definition and the row adds
+`−fee` to the net. This is the conservative direction for a stop rule — it
+fires sooner, never later — and it is what the account balance did.
+
+The alternative, exclusion with the exclusion counted, was offered and
+declined. It is recorded because it was defensible: a void is not an
+outcome, and a figure over settled outcomes only, with "1 void excluded"
+printed beside it, would also have been honest.
+
+### 4c. What is and is not a void
+
+The registered void markers are `NULL`, `''` and `'void'`. The live row is
+`''`; the test fixtures have used `'void'` since A2; the poller passes the
+venue's field through untouched, so `NULL` is the shape an absent field
+takes. **Any other value still refuses.** This amendment teaches the formula
+the venue's ways of saying "no result"; it does not teach it to guess. A
+void with an unreadable fee also still refuses — the fee is the whole
+contribution and cannot be invented either.
+
+### 4d. What this does not change
+
+- The ceiling ($100), the population (study-period settlements), the
+  exclusions (§8), and the embargo (design point 2, as scoped by Amendment 3).
+- The study's terminal state: **STOPPED WITHOUT RESULT** (registration
+  Amendment 2, 2026-08-20). The money arm feeds A7's wallet strip and the
+  `study-stop` inspector; it gates nothing (Amendment 3 §3c deleted the 423).
+  This amendment makes a readout computable; it revives nothing.
+- `study-stop`'s mirror of the formula (`scripts/inspect_live_db.py`) is
+  amended in the same commit and stays pinned to `study_loss_dollars` by
+  `tests/test_study_stop_query.py`, including on the void row.

@@ -682,9 +682,53 @@ class TestStudyLossReader:
         )
         assert study_loss_dollars(conn) is None
 
-    def test_a_void_result_refuses_rather_than_inventing_a_payout(self, conn):
+    def test_a_void_counts_its_fee_as_a_loss_and_nothing_else(self, conn):
+        """A16 (2026-09-03, Joe's call): the stake came back, the fee did
+        not. Two contracts at 45.0c with a 7.0c fee: $0.07 lost -- not
+        $0.97 (a loss), not -$1.03 (a win), and not None. Mutation observed
+        red: drop the `-= fee` branch (returns None), or fall through to
+        the decided-row arithmetic (returns $0.97)."""
         _open_study(conn)
         _seed_settlement(conn, settled_ms=NOW, market_result="void")
+        assert study_loss_dollars(conn) == pytest.approx(0.07)
+
+    def test_every_registered_void_marker_reads_the_same(self, conn):
+        """The live row is `''`, the fixtures say `'void'`, an absent field
+        is `NULL`. One rule, three spellings."""
+        _open_study(conn)
+        for i, marker in enumerate(("", None, "void")):
+            _seed_settlement(
+                conn, settled_ms=NOW + i, market_result=marker,
+                ticker=f"KXMVE-VOID-{i}",
+            )
+        assert study_loss_dollars(conn) == pytest.approx(0.21)
+
+    def test_a_void_with_an_unreadable_fee_still_refuses(self, conn):
+        """The fee is the void's whole contribution and is not invented
+        either."""
+        _open_study(conn)
+        _seed_settlement(
+            conn, settled_ms=NOW, market_result="", fee_cost_tenths=None
+        )
+        assert study_loss_dollars(conn) is None
+
+    def test_a_void_ignores_an_unreadable_entry_price(self, conn):
+        """`payout - cost` is zero by definition on a void, so the entry
+        price is not read. A refusal here would re-disable the arm on the
+        one row A16 exists for."""
+        _open_study(conn)
+        _seed_settlement(
+            conn, settled_ms=NOW, market_result="void", entry_price_tenths=None
+        )
+        assert study_loss_dollars(conn) == pytest.approx(0.07)
+
+    def test_an_unregistered_result_still_refuses_rather_than_guessing(
+        self, conn
+    ):
+        """A16 named the venue's markers; it did not license a guess.
+        Mutation observed red: treat every non-yes/no value as a void."""
+        _open_study(conn)
+        _seed_settlement(conn, settled_ms=NOW, market_result="scratch")
         assert study_loss_dollars(conn) is None
 
     def test_stop_fires_at_the_ceiling_exactly(self, conn):
@@ -711,11 +755,13 @@ class TestStudyLossReader:
 class TestTheMoneyArmOverTheApi:
     """The strip's route is embargo-safe (A7) and the 423 is server-side."""
 
-    def _seed(self, db_path, loss_dollars=None, void=False):
+    def _seed(self, db_path, loss_dollars=None, unreadable=False):
         handle = db.open_db(db_path)
         _open_study(handle)
-        if void:
-            _seed_settlement(handle, settled_ms=NOW, market_result="void")
+        if unreadable:
+            # A void no longer disables the arm (A16); an unreadable entry
+            # price on a decided row still does.
+            _seed_settlement(handle, settled_ms=NOW, entry_price_tenths=None)
         elif loss_dollars is not None:
             # loss = contracts * entry, no fee, side lost. entry 50.0c each:
             # contracts = dollars * 2.
@@ -833,9 +879,9 @@ class TestTheMoneyArmOverTheApi:
         assert "money arm" not in detail
 
     async def test_an_unreadable_record_does_not_lock_joe_out(self, db_path):
-        # A void row makes the loss uncomputable. That must read as unknown,
-        # not as a firing -- and must not refuse the log.
-        self._seed(db_path, void=True)
+        # An unreadable row makes the loss uncomputable. That must read as
+        # unknown, not as a firing -- and must not refuse the log.
+        self._seed(db_path, unreadable=True)
         response = await _request(
             _app(db_path), "POST", "/api/estimates", json=_body(), headers=AUTH
         )

@@ -372,6 +372,15 @@ STUDY_STOPPED_BY_OWNER_MS = 1787263500000
 STUDY_TERMINAL_STATE = "stopped_without_result"
 
 
+#: The venue's ways of saying "no result" on a settled position --
+#: registration A16 (2026-09-03, Joe's call). The live row is `''`; the
+#: fixtures have used `'void'` since A2; `NULL` is what an absent field
+#: becomes because the poller passes `market_result` through untouched.
+#: Any value outside this set and {yes, no} still refuses the whole sum:
+#: this names the venue's markers, it does not license guessing.
+VOID_RESULTS: frozenset = frozenset({None, "", "void"})
+
+
 def study_loss_dollars(conn: sqlite3.Connection) -> Optional[float]:
     """Cumulative net realised loss since study start, in dollars. §5 arm 3.
 
@@ -389,11 +398,21 @@ def study_loss_dollars(conn: sqlite3.Connection) -> Optional[float]:
     attributed to logged bets, split into a win rate, or scoped to the study
     population. It is one number about the wallet, not about the log.
 
+    **A void counts its fee as a loss and nothing else** -- A16, ADR 0044
+    Amendment 4 (2026-09-03), decided by Joe. The stake came back and the
+    fee did not, so a row whose `market_result` is in `VOID_RESULTS` adds
+    `-fee` to the net: `payout - cost` is zero by definition and is not
+    computed. Until that amendment any such row refused the whole sum,
+    because a void has no registered payout and inventing one would have
+    silently amended the stopping rule -- and one voided `KXMVE`
+    combination made the arm permanently uncomputable from the day it
+    settled. The amendment names the venue's markers; it does not guess.
+
     Returns `None` -- refusal, never 0.0 -- when the study has not been
     stamped open, or when ANY study-period settlement row cannot carry the
-    registered formula: an unreadable entry price or fee, or a
-    `market_result` that is neither "yes" nor "no" (a void has no registered
-    payout and inventing one here would silently amend the stopping rule).
+    registered formula: an unreadable fee on any row, an unreadable entry
+    price on a decided row, or a `market_result` outside {yes, no} and
+    outside `VOID_RESULTS`.
     An empty settlement set with the study open is a true $0.00, not a
     refusal. Callers must treat `None` as "cannot know", not "not stopped".
     """
@@ -408,9 +427,16 @@ def study_loss_dollars(conn: sqlite3.Connection) -> Optional[float]:
     net_tenths = Decimal(0)
     for row in rows:
         result = row["market_result"]
+        # The fee is every row's contribution and is never invented.
+        if row["fee_cost_tenths"] is None:
+            return None
+        if result in VOID_RESULTS:
+            # A16: stake returned, fee kept. Entry price irrelevant.
+            net_tenths -= Decimal(row["fee_cost_tenths"])
+            continue
         if result not in ("yes", "no"):
             return None
-        if row["entry_price_tenths"] is None or row["fee_cost_tenths"] is None:
+        if row["entry_price_tenths"] is None:
             return None
         try:
             contracts = Decimal(str(row["contracts"]))

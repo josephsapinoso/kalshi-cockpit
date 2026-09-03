@@ -1452,3 +1452,42 @@ honest, forever unscored.
 Reopening this study is a NEW registration, not a resumption: the
 population cut, the funnel, and the target were all sized for a user who
 has since said plainly he is not ready to feed them.
+
+# Amendment 4 — 2026-09-03
+
+Written after the study's terminal state (Amendment 2, STOPPED WITHOUT
+RESULT). It amends the §5 arm 3 formula as redefined by A2, which still
+serves A7's wallet strip and the `study-stop` inspector. Decided by the
+owner ("44A", 2026-09-03) from a two-option call that carried no
+recommendation, because the rule is on his money.
+
+## A16 — A voided settlement contributes its fee as a loss
+
+A2's formula, `sum(payout - cost - fee)` over study-period settlements,
+defined payout only for `market_result ∈ {yes, no}` and the implementation
+refused the whole sum on any other value, on the ground that a void has no
+registered payout and inventing one would silently amend this rule. One
+study-period settlement — a cross-category `KXMVE` combination the venue
+voided, `market_result = ''` — has therefore made the arm uncomputable since
+it settled. The refusal was correct; this amendment is the registered
+repair.
+
+**Rule.** A row whose `market_result` is a void marker — `NULL`, `''` or
+`'void'` — contributes `−fee_cost` to the net and nothing else: the stake is
+returned, so `payout − cost = 0` by definition, and the fee was paid. A void
+whose `fee_cost` is unreadable still refuses the sum. Any `market_result`
+outside `{yes, no, NULL, '', 'void'}` still refuses the sum: this names the
+venue's ways of saying "no result", it does not license guessing.
+
+**Direction.** Counting the fee moves the cumulative loss towards the
+ceiling and never away from it; the arm can fire sooner under A16 than under
+A2, never later. That is the direction a stop rule may be amended in without
+a fresh look, and no look is being taken — the study is stopped.
+
+**The declined alternative**, recorded because it was defensible: exclude
+the void from the sum and print the exclusion count beside the figure. A
+void is not an outcome, and a figure over outcomes only would also have
+been honest. The owner chose the direction that reads the account.
+
+**What A16 does not touch:** the ceiling, the population, §8's exclusions,
+the embargo as scoped by ADR 0044 Amendment 3, and the terminal state.
