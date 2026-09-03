@@ -202,11 +202,13 @@ carrying this entry, on top of `ded444a` (Lane C merge, ADR 0100),
 `e1be1f8` (Lane B merge, ADR 0099), `1657893` (A16), `cb9e4ab`/`bc774d9`
 (Lane A merge), `2f82096` (the `/picks` watcher). CI green through
 `1657893`; the two lane merges are pushed with this entry — read
-`gh run list --limit 3`. **Live = `6242341`, unchanged all session.** The
-one deploy dispatch this session was blocked by the permission classifier
-(the standing rule is one attempt), so **everything below is undeployed**:
-`gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit`
-is Joe's to run, from a laptop or the Actions tab. No lane worktrees remain.
+`gh run list --limit 3`. **Live = `01d482b` as of 2026-09-03 ~04:45Z** —
+Joe dispatched the Deploy himself after CI went green on that SHA;
+`/api/health` ok, recorder writing, `build.git_sha` matches `origin/main`.
+(The session's own dispatch attempt was blocked by the permission
+classifier; a first "deployed" report turned out to be no run anywhere —
+verify on `gh run list --workflow Deploy` and `flyctl releases`, never on
+the word.) No lane worktrees remain.
 
 ### The partner ran first and reordered the queue
 
@@ -312,8 +314,7 @@ https://claude.ai/code/artifact/a2429d26-0fd7-41c4-b4b9-a47b61c340c9
 
 ### Still open, in the partner's order
 
-1. **Deploy** — Joe's dispatch. Five builds and A16 are on `main` and not
-   live.
+1. ~~Deploy~~ — done, `01d482b` live.
 2. **Builds owed from tonight's answers:** #21 (`/bets` separations), #25
    (SIZED TO ZERO chip). Both touch files no lane holds now.
 3. **#20** — throwaway prototype on demo, after a week of opens land on the
