@@ -863,13 +863,17 @@ class TestTheWatcherAsksWhetherABuyIsPossible:
         assert "readWatch(facts" in code
         assert "No new price is due to arrive on its own" not in code
 
-    def test_the_two_screens_this_lane_owns_pass_only_the_baseline(self):
-        """`/slate` and `/picks` hand the watcher the count the render saw and
-        nothing about whether a buy is coming; that is the watcher's question.
-        `ParlayCards` still passes the snapshot and is documented in the prop
-        as inert -- its own lane drops it. Mutation observed red: pass
-        `automaticBuyIsComing` on either page."""
-        for path in (SLATE_PAGE, REPO / "frontend" / "src" / "app" / "picks" / "page.tsx"):
+    def test_every_screen_passes_only_the_baseline(self):
+        """`/slate`, `/picks` and `ParlayCards` hand the watcher the count the
+        render saw and nothing about whether a buy is coming; that is the
+        watcher's question. `ParlayCards` was the last to stop passing the
+        snapshot (2026-09-03, ADR 0102 Amendment 1). Mutation observed red:
+        pass `automaticBuyIsComing` on any of the three."""
+        for path in (
+            SLATE_PAGE,
+            REPO / "frontend" / "src" / "app" / "picks" / "page.tsx",
+            PARLAY_CARDS,
+        ):
             src = _code(path)
             assert "automaticBuyIsComing" not in src, path
             assert "renderedFresh={actionable.fixtures_fresh}" in src, path

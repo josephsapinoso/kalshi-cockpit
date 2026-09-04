@@ -412,12 +412,14 @@ class TestTheComponentIsWiredToTheNewPredicate:
         assert 'setPhase({ kind: "checking" }); void look();' in code
         assert "setInterval" not in code
 
-    def test_the_deprecated_prop_is_declared_and_never_read(self):
-        """`ParlayCards` still passes `automaticBuyIsComing`, so the type keeps
-        it; nothing in the body may consult it, or the off-switch is back."""
+    def test_the_snapshot_prop_is_gone(self):
+        """The off-switch was a prop computed on the server render. Until
+        2026-09-03 this pinned it "declared once and never read", because
+        `ParlayCards` still passed it; `ParlayCards` stopped the same day
+        (ADR 0102 Amendment 1) and the declaration went with the last caller.
+        Mutation observed red: redeclare `automaticBuyIsComing?: boolean`."""
         code = _code(WATCHER)
-        assert code.count("automaticBuyIsComing") == 1
-        assert "automaticBuyIsComing?: boolean" in code
+        assert "automaticBuyIsComing" not in code
 
     def test_every_terminal_state_has_words(self):
         flat = re.sub(r"\s+", " ", WATCHER.read_text(encoding="utf-8"))
