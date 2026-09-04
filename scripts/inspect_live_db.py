@@ -2022,8 +2022,8 @@ def _q_failure_journal(conn: sqlite3.Connection, args) -> list[Section]:
       evidence for it. Separating them needs the poller's own start and
       finish times, which nothing here reads.
 
-    **Section 3 is the second of those limits closing, and only the
-    second.** Since 2026-09-01 the writer journals its `rollback()` --
+    **Section 3 is the first of those limits closing, and only the
+    first.** Since 2026-09-01 the writer journals its `rollback()` --
     `in_transaction` before it, whether it raised, what it raised -- joined
     to what the row attempt did next. Read `in_transaction` FIRST: a
     rollback with no open transaction is a no-op that always succeeds, so
@@ -5662,10 +5662,15 @@ def render_text(query: str, db_path: str, sections: list[Section]) -> str:
 
 
 def render_json(query: str, db_path: str, sections: list[Section]) -> str:
+    # Server clock. A capture with no stamp made the presence result's E0
+    # rest on file mtime and git chronology (2026-09-04 result doc, §4).
+    now_ms = int(time.time() * 1000)
     return json.dumps(
         {
             "query": query,
             "db": db_path,
+            "generated_at_ms": now_ms,
+            "generated_at": _iso(now_ms),
             "sections": [
                 {
                     "title": s.title,

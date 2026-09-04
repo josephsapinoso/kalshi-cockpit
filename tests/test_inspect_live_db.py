@@ -47,6 +47,7 @@ import argparse
 import json
 import re
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any
 
@@ -3255,3 +3256,34 @@ class TestTheSummaryIsSharesOfVisitsAgainstTheDeployedLimit:
         fixtures = _named(payload, "per fixture")
         by_id = {r[0]: r for r in fixtures["rows"]}
         assert by_id["F1"][fixtures["columns"].index("age_ms")] == 2_100_000 - 1_090_000
+
+
+class TestTheJsonRenderStampsWhenItWasTaken:
+    """`--json` carries the server clock at the top level, so a capture's E0
+    ("taken at or after W_end") can be read off the capture itself. The first
+    presence result had to rest that check on file mtimes and git chronology
+    because the capture carried no stamp (2026-09-04 result doc, §4).
+
+    Mutation: delete the `"generated_at_ms"` / `"generated_at"` keys in
+    `render_json`; or stamp `"generated_at"` from a different clock than
+    `generated_at_ms`.
+    """
+
+    def test_the_two_keys_are_at_the_top_level(self):
+        payload = json.loads(render_json("q", "/data/cockpit.db", [_section([(1,)])]))
+        assert isinstance(payload["generated_at_ms"], int)
+        assert isinstance(payload["generated_at"], str)
+
+    def test_the_iso_stamp_is_the_millisecond_stamp_rendered(self):
+        payload = json.loads(render_json("q", "/data/cockpit.db", [_section([])]))
+        assert _iso(payload["generated_at_ms"]) == payload["generated_at"]
+
+    def test_the_stamp_is_the_clock_at_render_time(self):
+        before = int(time.time() * 1000)
+        payload = json.loads(render_json("q", "/data/cockpit.db", []))
+        after = int(time.time() * 1000)
+        assert before <= payload["generated_at_ms"] <= after
+
+    def test_the_stamp_survives_a_real_query_end_to_end(self, empty_db, capsys):
+        payload = _run_json(capsys, ["sweep-log", "--db", str(empty_db)])
+        assert _iso(payload["generated_at_ms"]) == payload["generated_at"]

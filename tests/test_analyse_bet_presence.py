@@ -242,3 +242,30 @@ class TestOnlyPermittedColumnsAreRead:
     def test_a_truncated_section_is_refused(self):
         with pytest.raises(abp.CaptureError):
             abp.require_not_truncated({"title": "C. fills", "truncated": True, "row_cap": 5000})
+
+
+class TestE0ReadsTheCapturesOwnStampWhenItHasOne:
+    """E0 asks when the capture was taken. The inspector stamps
+    `generated_at_ms` from the server clock since 2026-09-04; before that the
+    analyzer could only read the file's mtime, and the first result (§4) says
+    so as a caveat. The stamp wins when present; mtime is the fallback only.
+
+    Mutation: make `capture_taken_ms` return the mtime unconditionally.
+    """
+
+    def test_a_capture_carrying_generated_at_ms_uses_it(self, tmp_path):
+        p = tmp_path / "fills.json"
+        p.write_text('{"generated_at_ms": 1787700000123, "sections": []}', encoding="utf-8")
+        assert abp.capture_taken_ms(p) == (1_787_700_000_123, "generated_at_ms")
+
+    def test_a_capture_without_the_stamp_falls_back_to_mtime_and_says_so(self, tmp_path):
+        p = tmp_path / "fills.json"
+        p.write_text('{"sections": []}', encoding="utf-8")
+        ms, source = abp.capture_taken_ms(p)
+        assert source == "mtime"
+        assert ms == int(p.stat().st_mtime * 1000)
+
+    def test_a_non_integer_stamp_is_not_trusted(self, tmp_path):
+        p = tmp_path / "fills.json"
+        p.write_text('{"generated_at_ms": "2026-09-04T01:13:20Z", "sections": []}', encoding="utf-8")
+        assert abp.capture_taken_ms(p)[1] == "mtime"

@@ -132,9 +132,23 @@ def require_not_truncated(section: dict[str, Any]) -> None:
         )
 
 
-def capture_taken_ms(path: Path) -> int:
-    """When the capture file was written, from the filesystem. E0."""
-    return int(os.path.getmtime(path) * 1000)
+def capture_taken_ms(path: Path) -> tuple[int, str]:
+    """When the capture was taken, and which clock says so. E0.
+
+    Prefers the capture's own `generated_at_ms` -- the inspector stamps it
+    from the server clock since 2026-09-04 -- and falls back to the file's
+    mtime only when the key is absent. The first result (§4) had to rest E0
+    on mtimes and git chronology because the captures carried no stamp;
+    the returned source string is printed so a reader can see which one
+    E0 stood on.
+    """
+    try:
+        stamp = json.loads(path.read_text(encoding="utf-8")).get("generated_at_ms")
+    except (OSError, ValueError, AttributeError):
+        stamp = None
+    if isinstance(stamp, int) and not isinstance(stamp, bool):
+        return stamp, "generated_at_ms"
+    return int(os.path.getmtime(path) * 1000), "mtime"
 
 
 @dataclass(frozen=True)
@@ -747,7 +761,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         fills = read_fills(args.fills)
         visits, w_start, gap_ms = read_visits(args.visits)
         inputs = read_exclusion_inputs(args.manual, args.combos)
-        captured = [capture_taken_ms(p) for p in (args.fills, args.visits, args.manual, args.combos)]
+        stamps = [
+            (p, *capture_taken_ms(p))
+            for p in (args.fills, args.visits, args.manual, args.combos)
+        ]
+        captured = [ms for _, ms, _ in stamps]
         rep = analyse(
             fills, visits, w_start, inputs,
             w_end=args.w_end_ms, visit_gap_ms=gap_ms, captured_ms=captured,
@@ -755,6 +773,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except CaptureError as e:
         print(f"REFUSED: {e}", file=sys.stderr)
         return 2
+    for p, ms, source in stamps:
+        print(f"E0 capture time  {p.name}: {_iso(ms)}  from {source}")
     print("\n".join(rep.lines))
     return 0
 
