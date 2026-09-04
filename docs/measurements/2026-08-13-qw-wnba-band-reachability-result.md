@@ -180,3 +180,30 @@ used — all inside the $5.00 authorised on 2026-08-10. Expiry **2026-08-31 UTC*
 Placement is Joe's, on his clock, per `docs/JOE-fee-round-three-runbook.md`.
 **The watcher runs at the moment he places, never in advance** — a pre-generated
 sheet is stale quotes wearing a live board's look.
+
+## §9 How to read the query's output — moved from `scripts/inspect_live_db.py`
+
+Relocated 2026-09-03, verbatim, from the trailing comment block of
+`scripts/inspect_live_db.py`, which had grown past the 262,144-byte ceiling at
+which the Read tool refuses a file. The script keeps a one-line version of each
+point and cites this section; nothing below was reworded.
+
+Three things Q-W's own output does not establish, and a reader who takes the
+percentage at face value has misread all three:
+
+1. **`pregame_instants` measures poller uptime, not time.** An instant is one
+   pass, and the loop runs every 15s while the odds window is open and every
+   900s when it is not (`backend/scheduler.py:113-183`), where "open" means
+   *any* league's odds are fresh -- nothing to do with WNBA. So instants
+   arrive in bursts, and a share of them is not a share of the clock.
+   Deduplicate to one look per burst before quoting a percentage.
+2. **The denominator is conditional.** It counts only instants at which a
+   pre-game quote row with a readable event start already existed. A pass at
+   which the series had no pre-game market on the board contributes neither a
+   hit nor a miss, so the figure is "of the looks that could have seen one",
+   not "of the time".
+3. **No lower bound on lead time, by design.** A fixture days away counts
+   toward the share on equal footing with one about to tip, on a book that is
+   thin, wide, and gone by the night the operator trades. `true_start_ms` is
+   emitted per event so this is visible; imposing a bound would be inventing a
+   registered threshold, which this query may not do.
