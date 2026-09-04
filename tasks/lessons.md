@@ -54,6 +54,74 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-04 - A precondition written as the failure of one named mechanism does not fire when a different mechanism fails the same way
+
+The presence registration's C4 said the exclusion was unexecutable "if the
+inspector cannot emit the orders' `kalshi_order_id`s". The inspector emitted
+them perfectly well; what it could not emit was the *fills* side of the join,
+and C4's letter did not fire while its purpose did. The analyzer refused on
+the purpose and the amendment re-worded C4 on the capability ("establish that
+no fill descends from the order, or which fills may").
+
+**Pattern: write a precondition on what must be established, never on the
+route you expect to establish it by. A route-shaped precondition is "one
+predicate, two spellings" inside a single document: the spelling in the rule
+and the spelling in the mechanism drift the first time the mechanism is not
+the one that fails.**
+
+## 2026-09-04 - A date read off a local clock is a different date; every registered instant is UTC
+
+A blind amendment declared four live captures inadmissible because they were
+"taken 2026-09-03, before `W_end`". They were written at 01:13-01:14Z on
+2026-09-04. The author was in America/Los_Angeles, where it was still the
+evening of the 3rd. The registration's own integer for `W_end` had the same
+class of defect in the other direction: `1788652800000` is 09-06, not the
+09-04 the text names five times.
+
+**Pattern: an instant in a registration is an epoch integer or an ISO string
+with a `Z`, and a claim that a read was early or late is checked against the
+file's own UTC write time, never against the day the author remembers it
+being. When a date and its integer disagree, the one that was argued for
+outranks the one transcribed from it — and both get written next to each
+other so the next reader can see them disagree.**
+
+## 2026-09-04 - A fixture set that only ever states the deployed value cannot detect a hardcoded copy of it
+
+Every `sweepTone` fixture implied a 900 s cadence, so `2 * 900_000` and "two
+intervals of the published cadence" were indistinguishable to the whole
+suite, and a hardcoded second spelling of the stall threshold lived beside a
+test file that executed the real function. The mutation that finally
+separated them was a fixture with a cadence that was not 900.
+
+**Pattern: when a value is meant to be a fact read from elsewhere, at least
+one fixture must move it and at least one mutation must restore the literal.
+A test that passes on both the fact and its frozen copy is testing neither.**
+
+## 2026-09-04 - Match a source anchor against the file's own line ending; a normalising reader will tell you it exists when a byte reader cannot find it
+
+Two lanes and the main session each lost a round to the same thing: a patch
+or mutation anchor with `\n` newlines reported "not found" on text visibly
+present, because the file was CRLF and the reader that had displayed it
+(`read_text`, `sed`) had normalised. The diagnostic contradicted the failure
+because the diagnostic used a different instrument.
+
+**Pattern: before concluding an anchor moved, check the line ending of the
+file it is being matched against. Read bytes, detect `\r\n`, match on the
+normalised text, write back in the original convention. And when a check
+disagrees with a failure, suspect the check's instrument before the anchor.**
+
+## 2026-09-04 - The session scratchpad is shared across parallel lanes
+
+Two lanes each wrote a `mutate.py` to the same scratchpad directory within
+minutes of each other; the second overwrote the first mid-run. No damage
+either time, because both scripts pointed at their own worktrees — but the
+failure mode is a lane running another lane's mutation against its own tree
+and reading the result as its own.
+
+**Pattern: anything a lane writes to shared temp space carries a lane-unique
+prefix. A generic filename in a shared directory is a race, and the race is
+silent when it is lost.**
+
 ## 2026-09-03 - A counter that emits on a cadence while a condition holds measures the condition's duration, not its occurrences
 
 Attention-tagged odds buys fell 75 → 5 a day over five days and were read as
