@@ -513,10 +513,17 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
-  /* No accent variant, deliberately. `--accent` is byte-identical to
-     `--negative` in every theme block, so the one number this row emphasised
-     -- "Bettable now", nightly value 0 -- rendered in the loss colour. A
-     count is a fact, not a verdict; it reads in the foreground ink. */
+  /* No accent variant. A count is a fact, not a verdict; it reads in the
+     foreground ink. This comment used to justify that by saying `--accent`
+     was byte-identical to `--negative` in every theme block, so the one
+     number this row emphasised -- "Bettable now", nightly value 0 -- rendered
+     in the loss colour. That has been false since ADR 0081 (commit `7bdcb11`,
+     2026-08-28): `--accent` is indigo, `--negative` is the only red, and
+     `tests/test_palette_contrast.py::TestTheNeutralCountIsNotPaintedAsAVerdict`
+     now forbids the LOSS colour on a Stat rather than the accent. Whether a
+     Stat takes the indigo was ticket #33; Joe chose yes (2026-09-02) and the
+     build was then killed as not earning (NEXT.md, 2026-09-03), so no variant
+     exists and none is implied by this comment. */
   return (
     <div className="pr-6">
       <div className="text-xs font-semibold uppercase tracking-widest text-muted">

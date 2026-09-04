@@ -82,10 +82,22 @@ export default async function BetsPage() {
             </span>
           </p>
         )}
+        {/* Ticket #9's ratified "Your bets" lede (Joe, 2026-08-27), verbatim.
+            "Every bet the desk has SEEN settle" rather than "every bet that
+            has settled": `backend/bets.py` records that rows settled while
+            the poller was down are absent too, not only rows before
+            2026-08-18. "However you placed it" kills the worst misreading --
+            that this scores the desk's picks -- and is literally true, since
+            the only source is `venue_settlements LEFT JOIN closing_lines`.
+            CLV is described, not named, so `tests/test_glossary_coverage.py`'s
+            `\bCLV\b` rule is not triggered here. */}
         <p className="mt-3 max-w-[65ch] text-lg text-muted">
-          Every settled position the recorder has mirrored from your Kalshi
-          account, newest first — the venue&rsquo;s own numbers, read back to
-          you.
+          Your own record, read back from your Kalshi account: every bet the
+          desk has seen <Term k="settled">settle</Term> since it started
+          watching — however you placed it — what each one won or lost after
+          the venue&rsquo;s fees, what they add up to, and, on the ones where
+          it can be checked, whether you paid better than Kalshi&rsquo;s own
+          last price before the game started.
         </p>
       </header>
 

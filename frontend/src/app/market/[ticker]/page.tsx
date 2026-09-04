@@ -377,11 +377,26 @@ export default function MarketPage() {
           off, lockout, cool-off) in words, so mounting it unconditionally is
           honest on every instance.
 
-          `priceAlreadyVisible` is true here and always has been: QuoteStrip
-          prints "Ask $X" near the top of this page whenever the quote is
-          current, so ADR 0065's mask has never held on this screen. The
-          ticket now says so rather than claiming to hide a number the page
-          is showing. */}
+          `priceAlreadyVisible` is passed unconditionally here, and that is
+          a recorded defect, not a design. It is true only when QuoteStrip
+          actually prints a current ask near the top of this page; it is
+          FALSE when `detail` is null (the branch above renders "the recorder
+          never priced this ticker" and mounts no QuoteStrip) and when
+          QuoteStrip refuses a stale ask. In both of those states the ticket
+          announces that ADR 0065's mask does not hold while the page shows
+          no price at all.
+
+          Ticket #24, resolved by Joe 2026-09-02 (option A): a market-search
+          result will reach this screen by a link beside the ticket, and the
+          precondition he accepted is that this flag becomes conditional on
+          QuoteStrip printing a current ask BEFORE that link ships -- via an
+          amendment to ADR 0065, not a quiet edit. Neither the amendment, the
+          conditional flag nor the link is built; the build was killed as not
+          earning (NEXT.md, 2026-09-03). Until it is, do not read this prop
+          as "always true" -- read it as the flag #24 says must change first.
+          An earlier version of this comment argued the opposite ("true here
+          and always has been"); it was written before #24 measured the two
+          states in which it is not. */}
       <ManualTicket ticker={ticker} priceAlreadyVisible />
 
       {/* The calm alternative (ADR 0066): a quiet row below the ticket's

@@ -25,10 +25,16 @@
  * ------
  * None. Every mark is an ink token — `currentColor` for the line, `--muted`
  * for the axis, `--border` for the baseline — exactly as `PriceChart.tsx`
- * does. This repo's `--accent` is the same red as `--negative` in both themes
- * and `tests/test_palette_contrast.py` already forbids a stat wearing it, so a
- * coloured series here would read as a verdict on a number that is not one.
- * Identity comes from position and shape.
+ * does. A coloured series here would read as a verdict on a number that is
+ * not one; identity comes from position and shape. This paragraph used to add
+ * that `--accent` was the same red as `--negative` and that the palette guard
+ * forbade a stat wearing it. Neither is true today: ADR 0081 (commit
+ * `7bdcb11`, 2026-08-28) made `--accent` indigo, `--negative` is the only red,
+ * and `tests/test_palette_contrast.py` now forbids a Stat wearing the LOSS
+ * colour, not the accent. The reason that survives is the first one, and it
+ * is why this chart stays ink: ticket #33 (Joe, 2026-09-02) ruled the four
+ * chart components keep refusing colour because a mark on a chart is a claim.
+ * `tests/test_parlay_difficulty_chart.py` pins the refusal.
  *
  * HONESTY
  * -------
