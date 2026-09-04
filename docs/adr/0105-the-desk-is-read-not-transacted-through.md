@@ -1,7 +1,7 @@
-# ADR DRAFT — The desk is read, not transacted through
+# ADR 0105 — The desk is read, not transacted through
 
-**Status:** Draft. Ordinal taken at merge, after `git fetch`
-(`docs/adr/README.md`). Lane A, 2026-09-04.
+**Status:** Accepted. Ordinal 0105 taken at merge, 2026-09-04, after
+`git fetch` (`docs/adr/README.md`). Lane A.
 **Date:** 2026-09-04.
 **Decides:** an operational finding and the work it stops funding. It is
 **not an amendment to ADR 0071** — that is a purpose ADR settled in Joe's own
