@@ -54,6 +54,23 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-04 - "The largest contributor" is a set until proven a singleton, and `max()` on a dict picks a member silently
+
+A registered leave-one-day-out downgrade said to drop "the largest-contributing
+budget day". Two days tied. `max(per_day, key=per_day.get)` returned the
+earlier one by insertion order, whose removal left the verdict standing; the
+other tied day held 3 of the 8 inside-visit sittings and dropping it did not
+clear. The registered verdict was `UNRESOLVED — CONCENTRATION`, and the first
+run printed `PRESENCE GAP REFUTED` with a leave-one-out line that read as a
+pass. The audit caught it; nothing in the code or the fixtures could have,
+because every fixture had one sitting per day, where the error vanishes.
+
+**Pattern: a rule that names "the largest" of anything must say what happens
+on a tie, and the conservative reading is to apply the rule under every tied
+candidate. In code, never resolve a definite article with `max()` over a
+mapping: take the maximum value, collect every key that attains it, and pin
+the tie in a test whose tied members give different answers.**
+
 ## 2026-09-04 - A precondition written as the failure of one named mechanism does not fire when a different mechanism fails the same way
 
 The presence registration's C4 said the exclusion was unexecutable "if the
