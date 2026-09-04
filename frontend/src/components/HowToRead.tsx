@@ -1,5 +1,5 @@
 /**
- * Four sentences, always on screen.
+ * Five sentences, always on screen.
  *
  * A beginner asked for tooltips and this is the answer instead, for two
  * reasons. There is no hover on a phone, so a tooltip becomes a tap target —
@@ -9,8 +9,19 @@
  * than 50, or that the biggest number on the board is the one being withheld.
  * A definition on hover cannot say either of those.
  *
- * Four, and no more. A permanent block earns its place by being read once and
- * remembered; a wall of them gets scrolled past like a cookie banner.
+ * Five, and no more. A permanent block earns its place by being read once and
+ * remembered; a wall of them gets scrolled past like a cookie banner. The
+ * rule for what earns a bullet: a **decision rule that runs against
+ * instinct**, one per bullet. A chip on a row is an *instance* of a rule, not
+ * a rule, so it is glossed inside the bullet whose rule it instantiates
+ * rather than given one of its own — REJECTED, NO EDGE and SIZED TO ZERO all
+ * live in the held-back bullet, because all three are the same lesson: the
+ * board shows you what it did not bet, and says why.
+ *
+ * This header said "Four, and no more" from the day the fifth bullet (the
+ * swing) was added until 2026-09-03, which is what a cap looks like once it
+ * has become decoration. The count above is pinned by
+ * `tests/test_board_screen.py`, against both the docstring and the list.
  */
 export default function HowToRead() {
   return (
@@ -58,7 +69,15 @@ export default function HowToRead() {
           is larger than the advantage being hunted. Rows marked{" "}
           <span className="font-mono text-xs">REJECTED</span> below say which
           check refused them. A rule that fires constantly is a finding about
-          the rule, which is why they are shown rather than hidden.
+          the rule, which is why they are shown rather than hidden. Two other
+          chips look like refusals and are not.{" "}
+          <span className="font-mono text-xs">NO EDGE</span> means the price is
+          fair once the fee is paid, so there is nothing to buy at any balance.{" "}
+          <span className="font-mono text-xs">SIZED TO ZERO</span> means a
+          sliver of edge survived every check but not your deposit: the gate
+          counts the row as evidence at the fixed reference balance its caption
+          names, while the same sizing rule at your real balance rounds to zero
+          contracts. That is a fact about the balance, not a bet.
         </li>
         <li>
           <span className="font-semibold text-foreground">

@@ -17,7 +17,6 @@ import PriceOnKalshi from "@/components/PriceOnKalshi";
 import RestingBid from "@/components/RestingBid";
 import RestingBids from "@/components/RestingBids";
 import RefreshWhenPriced from "@/components/RefreshWhenPriced";
-import { anAutomaticBuyIsComing } from "@/lib/nextOddsWindow";
 import StaleOddsExit from "@/components/StaleOddsExit";
 import Term from "@/components/Term";
 import TrustNote from "@/components/TrustNote";
@@ -730,12 +729,15 @@ function Freshness({
         `fixtures_fresh` rising above what this render saw, and without a
         baseline its first successful poll would look like a change and refresh
         the page for nothing.
+
+        The baseline is all this render hands over. It used to pass
+        `automaticBuyIsComing={anAutomaticBuyIsComing(actionable)}` too -- the
+        render answering "is a buy coming" from a snapshot older than the
+        page's own heartbeat, which is the off-switch ADR 0102 removed from
+        `/slate` and `/picks`. The watcher asks `readWatch` on every poll.
       */}
       {actionable && (
-        <RefreshWhenPriced
-          renderedFresh={actionable.fixtures_fresh}
-          automaticBuyIsComing={anAutomaticBuyIsComing(actionable)}
-        />
+        <RefreshWhenPriced renderedFresh={actionable.fixtures_fresh} />
       )}
     </section>
   );

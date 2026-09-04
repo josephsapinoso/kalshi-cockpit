@@ -129,14 +129,18 @@ export default function RefreshWhenPriced({
   /** `ActionableWindow.fixtures_fresh` as the server saw it for this render. */
   renderedFresh: number;
   /**
-   * @deprecated Not read. Until 2026-09-03 this was `anAutomaticBuyIsComing`
-   * over the server render's snapshot and it gated the whole watch; the
-   * snapshot predates the page's own heartbeat, so it switched the watcher
-   * off on the cold opens it exists for (see the docstring). The watcher now
-   * decides from fresh facts on every poll. The prop survives in the type so
-   * `ParlayCards`, which still passes it, compiles until its own lane drops
-   * it; `tests/test_watcher_decides_from_fresh_facts.py` pins that nothing in
-   * this file reads it.
+   * @deprecated Not read, and since 2026-09-03 not passed by anyone either.
+   * Until that date this was `anAutomaticBuyIsComing` over the server
+   * render's snapshot and it gated the whole watch; the snapshot predates the
+   * page's own heartbeat, so it switched the watcher off on the cold opens it
+   * exists for (see the docstring). The watcher now decides from fresh facts
+   * on every poll. `/slate` and `/picks` stopped passing it with ADR 0102 and
+   * `ParlayCards` followed the same day (ADR 0102 §5), so the declaration
+   * has no caller left. It survives only because
+   * `tests/test_watcher_decides_from_fresh_facts.py` pins that it is declared
+   * exactly once and never read -- a pin written while `ParlayCards` still
+   * passed it. Delete this prop and that pin together; deleting either alone
+   * leaves a red test or a declaration nobody uses.
    */
   automaticBuyIsComing?: boolean;
 }) {
