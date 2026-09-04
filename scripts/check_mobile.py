@@ -60,6 +60,13 @@ PAGES = [
     # The parlay desk (ADR 0070). Three cards stack to one column below lg;
     # leg rows are truncate + shrink-0 like the picks list they mirror.
     "/parlays",
+    # Added 2026-09-04: three served screens this list never measured. /picks
+    # took the nav word from /slate (ADR 0098); /board is Refusals and carries
+    # HowToRead; /hedge records a held parlay (ADR 0078). Two lanes changed
+    # copy on the first two tonight and the check could not see them.
+    "/picks",
+    "/board",
+    "/hedge",
 ]
 
 # `/market/{ticker}` needs a ticker, so it cannot sit in PAGES as a literal --
