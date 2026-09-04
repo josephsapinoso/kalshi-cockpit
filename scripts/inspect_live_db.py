@@ -13,11 +13,10 @@ reviewable in git before it ran, and a permission pattern matches a command
 prefix -- it cannot see inside the quotes -- so the rule is a convention the
 agent keeps and Joe audits, not something the grant enforces.
 
-Until this file shipped, the live box had no script that could answer a
-question, so the only way to ask one was to smuggle the code in with the
-question. That is the drift this replaces. It is deliberately **one** artefact
-with a **fixed whitelist of named queries**: reviewed once, safe forever,
-because a caller can only choose a name, never supply SQL.
+It is deliberately **one** artefact with a **fixed whitelist of named
+queries**: reviewed once, safe forever, because a caller can only choose a
+name, never supply SQL. (Before it shipped, the only way to ask the box a
+question was to smuggle the code in with the question.)
 
 Two structural properties, not conventions
 ------------------------------------------
@@ -31,31 +30,19 @@ string constant; every number a caller can influence -- the tail length, the
 day boundary, the recommendation pin, the row cap -- is a bound parameter.
 There is no table name, column name, or predicate assembled from input.
 
-**This script reached the deployed machine on 2026-08-13, and not before.**
-Until then it shipped nowhere, and the reason is worth keeping: `Dockerfile:66`
-says `COPY scripts/ ./scripts/`, but `.dockerignore` strips the directory out of
-the build context before the Dockerfile ever sees it, re-including named files
-only. This one was not among them, so **a deploy alone did not put it there** --
-it took an `!scripts/inspect_live_db.py` line as well (`b5419eb`), which is a
-widening of what ships to the machine that holds real money and got its own
-review.
-
-An earlier version of this paragraph said a new query would be usable "from the
-next deploy onward". That was wrong in a way that mattered: it was repeated into
-`tasks/NEXT.md` and `start.md` and used to price a decision, and the fee round's
-Q-W precondition was planned around a deploy that would have shipped an image
-the query still was not in.
-
-**Cite `.dockerignore` and `Dockerfile:66` together or neither**, and do not
-quote a script count here -- the previous count in this paragraph ("two of
-thirty-four") was stale in both halves. `tests/test_has_callers.py` derives what
-the entrypoint needs and asserts the ssh-invoked set by name; read it there
-rather than trusting a number in prose.
-
-Before that date this script **had never read the production database**, and its
-test suite still does not contradict that: the fixture in
-`tests/test_inspect_live_db.py` is a `tmp_path` file built from the schema.
-"Exits 0 on a real database" means a real *schema*, not real rows.
+**Shipping it is two allowlists, not one.** `Dockerfile`'s `COPY scripts/`
+sees only what `.dockerignore` lets into the build context, and that file
+strips `scripts/*` and re-includes named files -- so a deploy alone never put
+this script on the box; it took an `!scripts/inspect_live_db.py` line as
+well (`b5419eb`, 2026-08-13; the history is in `.dockerignore`'s own comment
+block and `docs/measurements/2026-08-13-qw-wnba-band-reachability-result.md`
+§6). The `flyctl` line at the top of this docstring is what keeps it shipped:
+`tests/test_has_callers.py::TestTheSshInvokedScriptsSurviveDockerignore`
+derives the ssh-invoked set from each script naming its own
+`/app/scripts/<name>.py`, so do not reword that line, and do not quote a
+script count here -- read the test. The suite's fixture is a `tmp_path` file
+built from `schema.sql`: "exits 0 on a real database" means a real *schema*,
+not real rows.
 
 What this does not establish
 ----------------------------
@@ -688,9 +675,9 @@ _SQL_MANUAL_CONTRACTS = (
 # **The cluster key is `COALESCE(m.event_ticker, r.ticker)` and it is NOT the
 # gate's key.** ADR 0029 clusters on `odds_event_id` so a prop ladder collapses
 # onto its game; this registration predates that and clusters on the Kalshi
-# event. On the current record the two give **210 and 125** -- a 68% difference
-# -- so a `G` quoted without its key is meaningless. The registered one governs
-# here because it is what the power check was computed against.
+# event -- the two keys differed by 68% on the 2026-08-16 record, so a `G`
+# quoted without its key is meaningless. The registered one governs here
+# because it is what the power check was computed against.
 #
 # **`half_spread_tenths` is the C2 confound, not a nicety.** `edge` and `clv`
 # are both measured against the ask, so the half-spread enters both and induces
@@ -1160,17 +1147,12 @@ def _q_db_sizes(conn: sqlite3.Connection, args) -> list[Section]:
 #
 # **This is a dump, not a measurement, and the distinction is the whole design.**
 # Two open questions need the same rows and disagree about how to slice them:
-#
-# 1. `tasks/NEXT.md`'s free falsification query -- the distribution of
-#    (`edge_tenths` minus the bar it had to clear), split by `market_type`. If
-#    nothing sits near the bar, no funnel change and no deep dive can close the
-#    gap; if a band does, that band names the prospect definition.
-# 2. The separating measurement from
-#    `docs/measurements/2026-08-16-actionable-population-audit-result.md`: split
-#    the unsuppressed population by `anchored_on_sharp` and compare. All three
-#    actionable rows ever written are unanchored, and ADR 0021 measured 423
-#    unanchored rows producing 0 actionable. If unanchored rows are enriched for
-#    positive edge, the "edge" is a fact about which books were admitted.
+# the free falsification query (`edge_tenths` minus the bar it had to clear,
+# by `market_type`) and the separating measurement of
+# `docs/measurements/2026-08-16-actionable-population-audit-result.md` (the
+# unsuppressed population split by `anchored_on_sharp` -- if unanchored rows
+# are enriched for positive edge, the "edge" is a fact about which books were
+# admitted).
 #
 # Both have a decision rule attached, so **neither is computed here**. This
 # emits one row per recommendation with the columns each needs and no
@@ -1359,17 +1341,13 @@ _SQL_CLV_LINES_BY_SERIES = (
 # `KXMLBGAME-26AUG151310CWSDET`), so on the event key each prop ladder on a game
 # forms a cluster of its own.
 #
-# **Read the two columns in the right tense.** `clusters_now` is the key the gate
-# used **until 2026-08-16** -- `COALESCE(m.event_ticker, r.ticker)` -- kept here
-# as the *before* number. `clusters_by_game` is the key the gate uses **now**,
-# `event_links.odds_event_id`, which the prop link deliberately inherits from its
-# game (`match/linker.py` `link_prop_event`). The gap between them is the size of
-# the defect ADR 0029 closed, on this record. It is not a live discrepancy: after
-# that change the gate's own `n_clusters` equals `clusters_by_game`, and this
-# section exists to say by how much that differs from what it used to report.
-#
-# **Do not read a gap as a bug in the gate's arithmetic** -- the arithmetic was
-# always right and the key is what was in question.
+# **Read the two columns in the right tense.** `clusters_now` is the key the
+# gate used **until 2026-08-16** -- `COALESCE(m.event_ticker, r.ticker)` --
+# kept as the *before* number. `clusters_by_game` is the key it uses **now**,
+# `event_links.odds_event_id`, which a prop link inherits from its game
+# (`match/linker.py` `link_prop_event`). The gap is the size of the defect
+# ADR 0029 closed on this record, not a live discrepancy and not a bug in the
+# gate's arithmetic -- the key was what was in question.
 #
 # The population CASE mirrors `gate.POPULATIONS` and is exhaustive in the same
 # order: `suppressed` first, then `reference_contracts > 0`, else `no_edge`
@@ -2003,23 +1981,18 @@ FAILURE_LOG_NAME = "loop_failures.jsonl"
 def _q_failure_journal(conn: sqlite3.Connection, args) -> list[Section]:
     """Every pass failure as the JOURNAL saw it, beside what the TABLE kept.
 
-    The read path for `db.record_loop_failure_durably`'s first layer. Until
-    this query landed the journal had **no reader anywhere in the repo** --
-    written on the hot path since 2026-08-30, consulted by nothing, which is
-    the "built but never called" shape this codebase has now recorded four
-    times.
+    The read path for `db.record_loop_failure_durably`'s first layer -- a
+    journal written on the hot path since 2026-08-30 that, until this query
+    landed, had no reader anywhere in the repo.
 
     Why it is not `pass-gaps` with a different tail
     ----------------------------------------------
     `pass-gaps` reads the `loop_failures` TABLE, and the table is the artifact
-    the journal exists to replace. `record_loop_failure_durably`'s own
-    docstring says why: a pass that dies mid-transaction poisons the shared
-    connection with a stale WAL read snapshot, and every later write on it --
-    including the failure row -- fails instantly with "database is locked".
-    So the one failure class most worth counting is exactly the class the
-    table can be silent about, and a session that answers "have the locks
-    stopped?" from the table is reading an instrument that goes quiet under
-    the condition it measures.
+    the journal exists to replace: a pass that dies mid-transaction poisons
+    the shared connection with a stale WAL snapshot, so the failure row itself
+    fails with "database is locked" (`record_loop_failure_durably`'s own
+    docstring). The one failure class most worth counting is exactly the
+    class the table goes quiet under.
 
     The reading is therefore the PAIR, and section 1 is the whole point: a
     journal line whose `ms` matches no `loop_failures.failed_ms` is a failure
@@ -2032,39 +2005,33 @@ def _q_failure_journal(conn: sqlite3.Connection, args) -> list[Section]:
     the CONNECTION is poisoned and a restart cures it, while "the database
     itself refuses writes" is a different fact.
 
-    **Read section 2 with two limits it cannot state itself**, both added
-    2026-09-01 after an audit found the screen teaching a stronger claim than
-    the data carries:
+    **Read section 2 with two limits it cannot state itself**
+    (`docs/measurements/2026-09-01-the-lock-failure-table-is-a-floor.md`
+    carries the audit that found them):
 
-    - **It samples the wrong moment.** The diagnosis describes the lock state
-      when the RECORD was attempted -- after the pass raised, after the
-      journal append, and after `record_loop_failure_durably`'s `rollback()`.
-      It is not the lock state at the moment the pass failed. On lines
-      written before 2026-09-01 that rollback swallowed `sqlite3.Error` and
-      its outcome was never written down, so "the shared connection was
-      still holding a write lock, and refused the fresh one itself" is NOT
-      excluded by one of those lines. Section 3 carries the observation for
+    - **It samples the wrong moment.** The diagnosis is the lock state when
+      the RECORD was attempted -- after the raise, the journal append and
+      `record_loop_failure_durably`'s `rollback()` -- not at the failure. On
+      lines before 2026-09-01 that rollback swallowed `sqlite3.Error`
+      unrecorded, so "the shared connection still held the write lock" is
+      NOT excluded by one of them. Section 3 carries the observation for
       every line written since.
-    - **It does not name the holder.** Anything holding the write lock past
-      `BUSY_TIMEOUT_MS` produces this reading: the portfolio poller, the API's
-      per-request connections, `maybe_checkpoint`, `store_closing_line`. A
-      `both refused` line is CONSISTENT WITH the poller and is not evidence
-      for it. What would separate them is correlating these stamps against
-      the poller's own start and finish times, which nothing here does.
+    - **It does not name the holder.** The poller, the API's per-request
+      connections, `maybe_checkpoint` and `store_closing_line` all produce
+      this reading; `both refused` is CONSISTENT WITH the poller, not
+      evidence for it. Separating them needs the poller's own start and
+      finish times, which nothing here reads.
 
     **Section 3 is the second of those limits closing, and only the
-    second.** Since 2026-09-01 the writer journals its `rollback()` -- the
-    `in_transaction` state read before it, whether it raised, and what it
-    raised -- joined here to what the row attempt did next. The reading
-    order is `in_transaction` FIRST: a rollback on a connection with no open
-    transaction is a no-op that always succeeds, so `rollback_ok = True` by
-    itself does not distinguish "the poison was cleared" from "there was
-    nothing to clear". It still does not name the holder, and no field here
-    ever will; that needs the poller's own start and finish times.
-
-    A failure written before the field carries no rollback line, so the
-    section reports how many predate it. **An empty section 3 is not "no
-    rollback was attempted"** -- every failure ever journalled attempted one.
+    second.** Since 2026-09-01 the writer journals its `rollback()` --
+    `in_transaction` before it, whether it raised, what it raised -- joined
+    to what the row attempt did next. Read `in_transaction` FIRST: a
+    rollback with no open transaction is a no-op that always succeeds, so
+    `rollback_ok = True` alone does not separate "poison cleared" from
+    "nothing to clear". It still does not name the holder. Lines before the
+    field carry no rollback entry and the section counts them; **an empty
+    section 3 is not "no rollback was attempted"** -- every journalled
+    failure attempted one.
 
     And section 1 is a census, not a rate: its rows are SELECTED by having no
     table row, and `journal_only` is the only outcome that produces one. So
@@ -2073,15 +2040,13 @@ def _q_failure_journal(conn: sqlite3.Connection, args) -> list[Section]:
     recorded on the shared connection, how many on a fresh one, how many on
     neither.
 
-    Section 5 renders the newest traceback one line per row. The traceback is
-    written only here -- stdout retention on the machine is ~10 minutes -- and
-    a table cell cannot hold it, so it gets its own single-column block rather
-    than being summarised into a column nobody can act on.
+    Section 5 renders the newest traceback one line per row: it is written
+    only here (stdout retention on the machine is ~10 minutes) and a table
+    cell cannot hold it.
 
     **A missing file reports itself, and does not report zero rows**, for
-    `walk-log`'s reason: an absent instrument and an instrument saying "no
-    failures" are the two readings this script exists to keep apart, and the
-    second is the more flattering of the two.
+    `walk-log`'s reason: an absent instrument and one saying "no failures"
+    are the two readings this script exists to keep apart.
 
     What this does not establish
     ----------------------------
@@ -2512,39 +2477,30 @@ FORWARD_LOCK_BAND_WIDTH_S = 3.000
 def _q_forward_lock(conn: sqlite3.Connection, args) -> list[Section]:
     """Did ADR 0091 close the `database is locked` symptom, after `T0`?
 
-    Section 11 of `docs/measurements/2026-09-01-forward-lock-instrument-
-    registration.md`, which named three capabilities the instrument lacked and
-    fixed their specification **before** any post-`T0` burst was read. Read
-    that document before quoting anything here; this docstring restates it and
-    does not amend it.
+    Implements §11 of `docs/measurements/2026-09-01-forward-lock-instrument-
+    registration.md`, which fixed three missing capabilities **before** any
+    post-`T0` burst was read. Read it before quoting anything here; this
+    docstring restates it and does not amend it.
 
     Why this is a separate subcommand from `lock-attribution`
     --------------------------------------------------------
-    Section 11 names capabilities, not a location, and putting them here rather than
-    inside `lock-attribution` is deliberate:
-
-    - `lock-attribution` implements a **different, completed** registration
-      (2026-09-01-lock-holder-attribution) whose result is already in the
-      record at `n = 13, k = 13, p = 4.890e-18`. Changing what it prints would
-      break the reproducibility of a recorded measurement.
-    - The two have **different verdict vocabularies**. Attribution answers
-      POLLER IMPLICATED / NOT ESTABLISHED; this answers FIX CONFIRMED /
-      SIGNATURE PERSISTS / MIRROR RESIDUAL / UNRESOLVED. One function printing
-      both would produce a mixture with no column saying which question a line
-      belongs to.
+    `lock-attribution` implements a different, **completed** registration
+    whose result is already in the record (`n = 13, k = 13,
+    p = 4.890e-18`); changing what it prints would break that measurement's
+    reproducibility. And the two verdict vocabularies differ (POLLER
+    IMPLICATED / NOT ESTABLISHED against FIX CONFIRMED / SIGNATURE PERSISTS /
+    MIRROR RESIDUAL / UNRESOLVED), so one function printing both would be a
+    mixture with no column saying which question a line answers.
 
     The three capabilities, and where each lives
     --------------------------------------------
-    1. **The `T0` boundary** (section 2.1): `MIN(polled_ms) WHERE endpoint = 'mirror'`.
-       A durable in-database deploy marker, so the boundary needs no Fly release
-       timestamp -- which is the class of external evidence a refused claim
-       leaned on. `lock-attribution` reads the whole journal and would pool
-       pre- and post-deploy bursts; this refuses to.
-    2. **The MIRROR/FAST split** (section 4): a cycle is MIRROR if any `poll_log` row
-       at its stamp carries `endpoint = 'mirror'`, else FAST. The older query
-       was `SELECT DISTINCT polled_ms` with no `endpoint` join and could not
-       classify a cycle at all.
-    3. **`E`, `E*` and `E_n`** (section 6.3), and the refusal to print a rate verdict
+    1. **`T0`** (§2.1): `MIN(polled_ms) WHERE endpoint = 'mirror'` -- a durable
+       in-database deploy marker, so the boundary needs no Fly release
+       timestamp. `lock-attribution` pools pre- and post-deploy bursts; this
+       refuses to.
+    2. **MIRROR/FAST** (§4): a cycle is MIRROR if any `poll_log` row at its
+       stamp carries `endpoint = 'mirror'`, else FAST.
+    3. **`E`, `E*` and `E_n`** (§6.3), and the refusal to print a rate verdict
        below `E*`.
 
     The one verdict exempt from `E*`
@@ -3057,12 +3013,10 @@ def _q_lock_attribution(conn: sqlite3.Connection, args) -> list[Section]:
 
     The question
     ------------
-    ADR 0091 changed `poll_portfolio_forever`'s fast branch so each step
-    commits before the next network call. Before it, the four steps shared one
-    transaction and the write lock was held across **three Kalshi round
-    trips**, every 300 s. The ADR's argument is a rate -- *"four to five a day
-    fits 288 windows and does not fit two"* -- and a rate is not an
-    attribution. **Nothing had placed one observed failure inside one poller
+    ADR 0091 made `poll_portfolio_forever`'s fast branch commit before each
+    network call; before it the write lock was held across three Kalshi round
+    trips every 300 s. The ADR's argument is a rate, and a rate is not an
+    attribution: **nothing had placed one observed failure inside one poller
     window.** This does.
 
     The join
@@ -3072,16 +3026,13 @@ def _q_lock_attribution(conn: sqlite3.Connection, args) -> list[Section]:
     once at the top of the loop body and handed to every `log_poll_attempt` in
     that cycle, so all of a cycle's rows share one stamp.
 
-    **The cycle's DURATION is recorded nowhere -- `poll_log` carries no
-    duration column -- but its CADENCE is**, and §11 of the forward-lock
-    registration called this sentence out for conflating the two. The gap
-    between consecutive cycle starts is derivable from `polled_ms` alone,
-    is computed as `median_gap_s` a few lines below, and is exactly the
-    quantity that registration calls `C`. What is genuinely missing is how
-    long a cycle *ran*, which is what would let an offset be read as
-    "inside the cycle" rather than "after its start" -- that is the
-    instrument's limit, not a choice, and it is why §7 of this
-    registration allows no exonerating verdict.
+    **`poll_log` records no cycle DURATION, only its CADENCE.** The gap
+    between consecutive cycle starts is `median_gap_s` below -- the forward-
+    lock registration's `C`, whose §11 called an earlier version of this
+    sentence out for conflating the two. How long a cycle *ran* is what would
+    let an offset read as "inside the cycle" rather than "after its start";
+    that is the instrument's limit, and it is why §7 of this registration
+    allows no exonerating verdict.
 
     The unit is the BURST
     ---------------------
@@ -3372,15 +3323,12 @@ STUDY_START_MS_KEY = "calibration_study_start_ms"
 def _q_study_stop(conn: sqlite3.Connection, args) -> list[Section]:
     """Has the $100 money arm fired, and can it be computed at all?
 
-    **Why this exists.** `POST /api/estimates` refuses with 423 and the text
-    *"The study is stopped and logging is closed, permanently"* once
+    **Why this exists.** `POST /api/estimates` refuses with 423 -- *"The
+    study is stopped and logging is closed, permanently"* -- once
     `estimates.study_loss_dollars` reaches the ceiling. Decision-map ticket
-    #11 (resolved 2026-09-01) repurposes that endpoint for a practice log
-    decoupled from the study, and ruled the arm should stop gating it -- but
-    **nothing on the machine could report whether the arm had already
-    fired**, so the first build step was unanswerable without smuggling SQL
-    onto the money box. That is the drift this whole script exists to
-    replace.
+    #11 (resolved 2026-09-01) ruled the arm should stop gating that
+    endpoint, and **nothing on the machine could report whether the arm had
+    already fired** without smuggling SQL onto the money box.
 
     **It mirrors the registered formula verbatim** (A2): `sum(payout - cost -
     fee)` over study-period `venue_settlements`, where payout is
@@ -3406,10 +3354,9 @@ def _q_study_stop(conn: sqlite3.Connection, args) -> list[Section]:
     An empty settlement set with the study open is a true $0.00 and not a
     refusal.
 
-    Why reading this does not breach the ADR 0044 embargo (A7, and the
-    partner's ruling 2026-08-18): §5 forbids aggregates over *the estimate
-    log*. This reads `venue_settlements` -- Joe's own money, which he sees in
-    the Kalshi app regardless -- and touches no estimate row.
+    This does not breach the ADR 0044 embargo (A7; partner's ruling
+    2026-08-18): §5 forbids aggregates over *the estimate log*, and this
+    reads `venue_settlements` -- Joe's own money -- and no estimate row.
 
     What this does not establish
     ----------------------------
@@ -3771,17 +3718,13 @@ def _q_pass_gaps(conn: sqlite3.Connection, args) -> list[Section]:
                                       pass, or the container went away
         failures with no gap          transient, absorbed, record intact
 
-    **The middle line was the whole reading until 2026-08-28, and it had
-    nowhere to go.** Sixteen holes between 08-23 and 08-28 -- 21.5 to 63.3
-    minutes, ~3.4 hours a day since 08-26 -- carried no failures at all, and
-    three sessions in a row wrote each one up as a fresh, unexplained one-off.
-    `run_forever` now bounds a pass with `DEFAULT_PASS_DEADLINE_S`, so from
-    2026-08-28 a hung *await* raises `PassDeadlineExceeded` and lands in the
-    failures half of this output. A gap that still carries no failure row is
-    therefore narrower evidence than it used to be, and more useful: the
-    process was not running, or it was blocked in a synchronous call the
-    deadline cannot interrupt -- a long SQLite read against a 1.9 GB file being
-    the standing candidate.
+    **The middle line is narrower evidence since 2026-08-28, and more
+    useful.** `run_forever` now bounds a pass with `DEFAULT_PASS_DEADLINE_S`,
+    so a hung *await* raises `PassDeadlineExceeded` and lands in the failures
+    half. A gap that still carries no failure row therefore means the process
+    was not running, or was blocked in a synchronous call the deadline cannot
+    interrupt -- a long SQLite read against a 1.9 GB file being the standing
+    candidate. The sixteen unexplained holes that preceded the deadline are
     `docs/measurements/2026-08-28-recorder-silence-is-chronic.md`.
 
     The threshold defaults to 1,200,000 ms -- above the 1,035s ceiling on a
@@ -3922,10 +3865,8 @@ def _q_actionable_audit(conn: sqlite3.Connection, args) -> list[Section]:
     """Every row the strategy would have bet, with its whole provenance.
 
     **This exists because `actionable` stopped being zero on 2026-08-16 and no
-    instrument could show the rows.** `clv-coverage` section D counts the
-    population; nothing printed a member of it. The only other route was
-    `/api/ledger` in an authenticated browser, which is a screenshot, not a
-    record, and cannot be re-run against a later snapshot.
+    instrument could show the rows** -- `clv-coverage` section D counts the
+    population, and `/api/ledger` in a browser is a screenshot, not a record.
 
     Rule 1 of this repo is that a large apparent edge is a bug until proven
     otherwise, so the sections are split by *who computed the number*:
@@ -3997,17 +3938,12 @@ def _q_manual_orders_audit(conn: sqlite3.Connection, args) -> list[Section]:
     `docs/measurements/2026-08-29-preregistration-operator-self-assessment.md`
     fixes, before any result has been seen, which panels on Joe's own record
     may carry a verdict and at what `G`: win rate never (§2.2), P&L not for
-    thousands of bets (§2.1), CLV only descriptively (§6c), calibration only at
-    `G >= 300` (§6a). An inspector that could print any of those would let the
-    decision rule be chosen after the answer -- the single failure that whole
-    registration exists to prevent, on the highest-flattery-risk measurement
-    this project has attempted, because the subject is the operator and he
-    asked for it.
-
-    That file's §0 records that the row count below was **deliberately not
-    obtained** while it was being written, so that no floor in it could be
-    tuned to `n`. This query is what makes the count available afterwards, and
-    it is scoped so that obtaining it cannot also obtain the answer.
+    thousands of bets (§2.1), CLV only descriptively (§6c), calibration only
+    at `G >= 300` (§6a). Its §0 records that the row count below was
+    **deliberately not obtained** while it was written, so no floor could be
+    tuned to `n`; this query makes the count available afterwards and is
+    scoped so that obtaining it cannot also obtain the answer. The comment
+    above `_MANUAL_STATUS_VOCABULARY` says why in full.
 
     Nothing here joins `venue_settlements`, `settlements`, `closing_lines` or
     `fills`, and nothing selects `p_yes_bp`. `tests/test_inspect_live_db.py`
@@ -4827,16 +4763,12 @@ def _q_visit_freshness(conn: sqlite3.Connection, args) -> list[Section]:
       it; visits are more than the gap apart, so no buy is counted twice.
     - `refused_sweeps`: `odds_sweep_log` rows with `outcome = 'refused'` in
       the same span -- **the daily cap** saying no while he looked, and ONLY
-      the daily cap. `REFUSED` is written in exactly two places, both in
-      `backend/odds/client.py`, both behind `budget.refusal_reason` (the
-      700/day cap). The attention SLICE never produces one: since 2026-08-29
-      a slice-spent sport is demoted to the hourly floor, and its refusal
-      text reaches this log only as `outcome = 'skipped'` when the whole
-      pass fires nothing. So a zero here says nothing about the slice, and
-      the 2026-08-28T04:38Z visit -- the night CLAUDE.md records as "the
-      loop logged its refusal of that exact sweep" -- reads 0. Source any
-      "the slice was not the cause" sentence to `credits-day` by trigger,
-      never to this column. (Skeptic audit, 2026-09-02, B1.)
+      the daily cap. `REFUSED` is written only behind `budget.refusal_reason`
+      in `backend/odds/client.py`; a slice-spent sport is demoted to the
+      hourly floor and reaches this log only as `skipped`. So a zero here says
+      nothing about the attention slice: source any "the slice was not the
+      cause" sentence to `credits-day` by trigger, never to this column
+      (`docs/measurements/2026-09-02-visit-freshness-first-read.md` §2, B1).
     - `sports_upcoming` / `sports_open`: sports with an upcoming fixture in
       the record at the first stamp, and the subset with at least one fixture
       inside the limit -- i.e. whose window the indicator would have shown
@@ -4861,35 +4793,25 @@ def _q_visit_freshness(conn: sqlite3.Connection, args) -> list[Section]:
       both consistent with any row here, because attention buys require an
       open page: a shorter visit buys fewer sweeps and mechanically makes the
       NEXT visit's first stamp staler. The table cannot separate cause from
-      consequence; it can only say whether the worst case the design permits
-      is the case he actually met.
+      consequence, only say whether the worst case the design permits is the
+      one he actually met.
     - **Nothing about why a stamp is old** -- inherited from
       `window-freshness`: a stale `last_update` cannot separate "the book has
       not repriced" from "the aggregator has not re-crawled it".
-    - **`first_age_ms` (the MEDIAN fixture) is not rendered on any screen
-      and is not a measure of the feed.** `_fixture_ages_at` applies no
-      commence horizon, so the population is every not-yet-commenced
-      fixture in the record -- NCAAF and MLB fixtures days to weeks out
-      included -- and no screen shows that median: the Slate shows a
-      per-row age and promotes the refresh panel when ANY row is past the
-      limit; `/board`'s banner shows `first_fresh / first_fixtures`, which
-      IS this instrument's population. And an age is a BOOK STAMP
-      (`MIN(COALESCE(book_updated_ms, fetched_ms))`), so one bookmaker whose
-      `last_update` the aggregator has stopped advancing pins the median to
-      wall clock and makes it immune to the feed buying. On the first live
-      read (2026-09-02) `start_ms - first_age_ms` was one constant stamp
-      across 17 of 45 visits, and `last_age_ms - first_age_ms` equalled the
-      visit duration on 30 of 45 -- including a 2.6 h visit with ten
-      attention buys. **Lead with `first_age_min_ms` and `first_fresh`;
-      quote `first_age_ms` only beside that separating check.** The
-      instrument does not record the contributing book or any commence
-      time, so the largest contributor's share cannot be read off the
-      table. (Skeptic audit, 2026-09-02, B2.)
+    - **`first_age_ms` (the MEDIAN fixture) is not a measure of the feed and
+      is rendered on no screen.** `_fixture_ages_at` applies no commence
+      horizon, and an age is a BOOK STAMP, so one bookmaker whose
+      `last_update` has stopped advancing pins the median to wall clock and
+      makes it immune to the feed buying -- which the first live read showed
+      on 17 of 45 visits. **Lead with `first_age_min_ms` and `first_fresh`;
+      quote `first_age_ms` only beside that separating check.** The three
+      demonstrations, and why the largest contributor's share cannot be read
+      off this table, are §3 of
+      `docs/measurements/2026-09-02-visit-freshness-first-read.md` (B2).
     - **The latency is attributed by time window, not causally.** A buy
       already in flight when the page opened is attributed to the visit
-      identically; sub-second latencies (nine of the first 37) are not the
-      documented 5 s wake-poll mechanism. The tail matters and the median
-      hides it.
+      identically, and sub-second latencies are not the documented 5 s
+      wake-poll mechanism. The tail matters and the median hides it.
     - **The last visit may be right-censored** by the query instant: its
       duration, heartbeats and last-stamp reading are truncated if the page
       was still open when the query ran.
@@ -5879,49 +5801,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 # ---------------------------------------------------------------------------
-# This file refused to run until 2026-08-10, because its authoring lane died on
-# a session limit before writing a single test and an unverified reader pointed
-# at `/data/cockpit.db` is exactly what this repo's mutation rule exists for.
-#
-# The refusal is lifted by `tests/test_inspect_live_db.py`, which builds its
-# database by executing `backend/store/schema.sql` verbatim -- so a query naming
-# a column the live box does not have fails locally -- and which observed every
-# guard here go red under a named mutation: `mode=ro` widened to `mode=rwc`; the
-# unknown-query raise softened to `QUERIES.get`; the cap's `+1` truncation probe
-# removed; `>` widened to `>=` at exactly the cap; the `effective == cap` clause
-# dropped so a query's own `-n` reported as truncation; the `0 rows` branch
-# deleted; `_iso(None)` folded to the epoch; and `--pin` opened up. The mutation
-# is written beside each test.
-#
-# What is still NOT established is in that file's docstring, and the shortest
-# version of it is: a green suite says these nine queries are well-formed and
-# their guards fire. It says nothing about what the live database contains.
+# This file refused to run until 2026-08-10: its authoring lane died before a
+# single test existed. `tests/test_inspect_live_db.py` lifts the refusal, and
+# its module docstring names each guard here and the mutation that turned it
+# red; what a green suite does NOT establish -- anything about what the live
+# database contains -- is stated there too.
 #
 # That gap is widest at `kalshi-quotes-band` (Q-W), whose entire purpose is to
-# report what the live database contains. Its tests establish that the band, the
-# hole at 300, the depth column, the 3-hour pre-game offset, both activation
-# bars and the series substitution order behave as registered. They establish
-# NOTHING about WNBA reachability, which is only readable after a deploy.
-#
-# Three things Q-W's own output does not establish, and a reader who takes the
-# percentage at face value has misread all three:
-#
-# 1. **`pregame_instants` measures poller uptime, not time.** An instant is one
-#    pass, and the loop runs every 15s while the odds window is open and every
-#    900s when it is not (`backend/scheduler.py:113-183`), where "open" means
-#    *any* league's odds are fresh -- nothing to do with WNBA. So instants
-#    arrive in bursts, and a share of them is not a share of the clock.
-#    Deduplicate to one look per burst before quoting a percentage.
-# 2. **The denominator is conditional.** It counts only instants at which a
-#    pre-game quote row with a readable event start already existed. A pass at
-#    which the series had no pre-game market on the board contributes neither a
-#    hit nor a miss, so the figure is "of the looks that could have seen one",
-#    not "of the time".
-# 3. **No lower bound on lead time, by design.** A fixture days away counts
-#    toward the share on equal footing with one about to tip, on a book that is
-#    thin, wide, and gone by the night the operator trades. `true_start_ms` is
-#    emitted per event so this is visible; imposing a bound would be inventing a
-#    registered threshold, which this query may not do.
+# report what the live database contains. Three things its output does not
+# establish -- `pregame_instants` measures poller uptime, not time, so
+# deduplicate to one look per burst before quoting a share; the denominator is
+# conditional on a pre-game row existing; and there is no lower bound on lead
+# time, by design -- are spelled out, verbatim from this block, in
+# `docs/measurements/2026-08-13-qw-wnba-band-reachability-result.md` §9.
 # ---------------------------------------------------------------------------
 
 
