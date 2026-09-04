@@ -823,3 +823,415 @@ power tables of §0.3 from the binomial directly and took the planning rate
 from a committed 2026-08-18 document covering 2026-08-10..17 — a period that
 ends **7 days before** `W_start` and can therefore carry no information about
 the in-window outcome.
+
+---
+
+## AMENDMENT 1 — 2026-09-03, written blind, before `K` exists
+
+**Nothing below was decided with a decision statistic visible.** At the time of
+writing, `K5`, `K30`, any distance-to-visit, `p_gap`, `p_perm` and `theta_wall`
+have not been computed by any agent or person. The analyzer's first run reached
+its §2.4 branch and returned before the first distance was taken; the author of
+this amendment has been told the sample-size and precondition facts recorded in
+A.2 below and nothing else. **Looks at the decision statistic so far: zero.**
+
+This amendment settles two things, both of which had to be settled before the
+admissible look: a wrong integer beside a right date (A), and an exclusion that
+cannot be executed by the join it names (B).
+
+---
+
+### A. `W_end`: the integer is a transcription error; the date is authoritative
+
+#### A.1 The correction
+
+§2.2 reads `W_end = 2026-09-04T00:00:00Z    (1788652800000)`. **Those two
+values are not the same instant.**
+
+    1788652800000   =  2026-09-06T00:00:00Z    <- the integer as printed, WRONG
+    1788480000000   =  2026-09-04T00:00:00Z    <- the registered instant
+
+**The date is authoritative and the integer is corrected to `1788480000000`.**
+The rule applied — and it is the rule, not a convenience — is that *a value
+that is argued for outranks a value that is merely transcribed from it*. The
+date is argued for in §8 ("Primary close"), is the instant §2.2's own
+prohibition is written against, and appears as an ISO string at five separate
+places in this file (the opening paragraph, §2.2, §6.3's verbatim decision
+rule, §8 and the Provenance note). The integer appears **once**, in one
+parenthesis, and is derived from the date rather than the date from it. §0.1
+corroborates independently: its planning table records the window length "at
+the §8 close" as `~10 days` from the first heartbeat, which is 9.37 days to
+2026-09-04T00:00:00Z and 11.37 days to 2026-09-06T00:00:00Z.
+
+This is the same shape as the repo's `None`-never-`0` convention: the derived
+artifact yields to the source, and a reader is never asked to guess which of two
+disagreeing values was meant.
+
+The extension date is given its integer here too, so the same error cannot
+recur at the backstop look: **`W_end' = 2026-09-18T00:00:00Z = 1789689600000`**.
+
+#### A.2 What the wrong integer had already produced, stated in full
+
+`scripts/analyse_bet_presence.py` was committed at `d2f51de` before the four
+live reads, with `W_END_MS = 1_788_652_800_000`. It ran once under that
+constant. **Everything it printed before returning is recorded here so that
+nothing seen is left undeclared:**
+
+    S = 12 sittings at SITTING_GAP_MS = 3,600,000 ms
+    D = 7 budget days
+    27 taker fills in window   2 maker   33 UNCLASSIFIABLE (pre-W_start)   0 engine
+    manual_orders real rows 0;  combo_orders real, in window 5
+    VERDICT   UNRESOLVED — EXCLUSION UNEXECUTABLE
+
+No band count, no distance, no p-value: the analyzer's §2.4 branch returns
+before the descriptive block that computes the first distance, so blindness on
+the decision statistic is intact and complete.
+
+The analyzer's constant has since been corrected to `1_788_480_000_000` with
+the reason in a comment. §6.3's verbatim decision rule needs no edit — it
+quotes the date and never the integer. Two consequences of the correction that
+are not cosmetic, recorded before the look because they change an instrument:
+
+- **§5.2's admissible shift set shrinks.** `Adm` is the non-zero day-shifts in
+  `{-14..-1, 1..14}` that keep a shifted sitting inside `[W_start, W_end)`. A
+  9.37-day window admits fewer shifts per sitting than an 11.37-day one, so
+  §5.2's `|Adm| < 4` refusal now bites marginally sooner. The refusal threshold
+  itself is **unchanged at 4** and is not being renegotiated with the window.
+- **The permutation seed and draw count are unchanged** — `random.Random(20260903)`,
+  10,000 draws — so the null is the registered one computed over a corrected
+  support, not a new null.
+
+#### A.3 The read preceded `W_end`, which §2.2 forbids. Recorded, not excused.
+
+The four captures were taken on **2026-09-03**, before the window closed at
+2026-09-04T00:00:00Z. §2.2 says *"No read of the fills population may be taken
+before `W_end`"*, and under either the right instant or the wrong one, that read
+was early. It is written here rather than absorbed, because a registration that
+quietly forgives its own violations is a document, not an instrument.
+
+**Why it did not hand anyone a choice**, argued rather than asserted: the only
+quantities disclosed are `S`, `D`, the class census and the exclusion census.
+§8's extension trigger references `S` and `D` **only**, and §8 fixed the
+consequence of *both* branches — extend once to 2026-09-18, or proceed — before
+either number existed. So seeing `S = 12` and `D = 7` selected nothing that was
+not already selected on 2026-09-03 in advance. No band edge, no threshold, no
+population rule and no stopping decision is available for revision by anyone who
+knows those two integers.
+
+**What it costs, and the repair:** the 2026-09-03 captures are **not admissible
+evidence for the verdict** and are hereby discarded for that purpose. They may
+be quoted only for the sample-size facts already disclosed in A.2. The
+admissible look runs on a **fresh set of the same four captures taken at or
+after 2026-09-04T00:00:00Z**, from the inspector **as currently deployed**, with
+C3's `truncated = false` re-checked on every section used. No deploy, no code
+change on the live box, no credits and no tokens: `inspect_live_db.py` opens
+`mode=ro` and the four subcommands already exist.
+
+**The figures in A.2 are neither a floor nor a ceiling on the registered `S`
+and `D`.** The window will have grown by up to 9.4 hours (which can only add
+sittings) and the exclusion of B below may remove fills (which can only remove
+them). They are a provisional reading and are not to be quoted as the result.
+
+---
+
+### B. §2.4 cannot be executed by the join it names. The substitute, fixed now.
+
+#### B.1 The defect, verified against the code rather than inherited
+
+- `h4-balance-spans` section C is
+  `SELECT id, ticker, filled_ms, count, price_tenths, is_taker, fee_actual,
+  source FROM fills ...` (`scripts/inspect_live_db.py:5165`). **There is no
+  `venue_order_id`.** `grep -c venue_order_id scripts/inspect_live_db.py`
+  returns **0**: no subcommand in the inspector emits that column, so the
+  registered join `fills.venue_order_id = combo_orders.kalshi_order_id` cannot
+  be run against any capture this instrument can produce. The column exists in
+  `backend/store/schema.sql` (`fills.venue_order_id TEXT`, nullable); the read
+  path does not.
+- The **manual half is executable by emptiness**: `manual-orders-audit`
+  section A reports `n_rows = 0`, `real_orders = 0`, lifetime. A rule that
+  excludes nothing from an empty table is executed, not skipped, and §1.1
+  already forbids reading that 0 as a property.
+- The **combo half is not empty**: `combo-bids-tail -n 500` returned **5 rows,
+  the whole table**, all `dry_run = 0`, all `placed_ms` inside the window — 4
+  `cancelled` with `cancel_reason = "the first leg has started"` and 1
+  `resting`.
+
+**C4's letter did not fire and its purpose did.** C4 says the verdict is
+UNRESOLVED — EXCLUSION UNEXECUTABLE if desk-placed orders exist in the window
+*"and the inspector cannot emit their `kalshi_order_id`s"*. The inspector emits
+them perfectly well; what it cannot emit is the **fills side** of the join. The
+analyzer implemented the purpose and refused. **That refusal is ratified as
+correct**, and C4 is re-worded in B.4 so that its letter and its purpose
+coincide from here on. The general lesson, which is the one to carry: *a
+precondition written as the failure of one named mechanism will not fire when a
+different mechanism fails the same way.* Write preconditions on the capability,
+never on the route to it.
+
+#### B.2 The ruling — the exclusion is executed by a substitute route, fixed here
+
+**Route: (a) with (b) as a fixed fallback, under a fixed precedence.** Each
+desk-placed order is cleared by the **venue's own statement** where one exists,
+and by **ticker attribution** where one does not. Neither branch reads a fill's
+timing, a distance, a visit, a price, an outcome, or anything a verdict depends
+on; the set of excluded rows is determined entirely on the *order* side, which
+is what §2.3's exclusion table demands of every rule in it.
+
+**(a) The venue-cleared branch.** `combo_orders.cancel_reduced_by` is written
+only from the venue's reply to `DELETE /portfolio/orders/{id}`
+(`backend/bid_watch.py:89`, `backend/api/routes.py:3358`, both via
+`record_cancel`), and the schema comment names it *"the venue's own word for how
+much of it was still working at that moment."* A cancel that returns
+`reduced_by == count` says the **entire** quantity was still resting when it was
+withdrawn; a resting order that never gave up a contract has never filled, and
+after a full withdrawal it cannot. So **no row of `fills` descends from it**,
+for any window, without reference to any fill.
+
+This is the branch that answers `combo-bids-tail`'s own docstring warning —
+*"not whether a bid is still resting AT THE VENUE... this is what the desk
+believes"*. `status` and `cancelled_ms` are the desk's belief and are used only
+as a guard. `cancel_reduced_by` is the venue's sentence, and it is the load-
+bearing field. A failed cancel writes no row at all: `bid_watch` logs and leaves
+the bid working precisely so the table cannot claim a cancel that did not
+happen.
+
+**(b) The ticker-attributed branch, for orders (a) cannot clear.** For a
+desk-placed order with no venue statement — the one `resting` row, and any
+future partial-fill-then-cancel — a fill descending from it would necessarily
+carry that order's `ticker`. So: **every in-population fill whose `ticker`
+matches one of those orders is excluded and counted.** The exclusion is
+executed conservatively — it removes more than §2.4 would — and the direction
+of that over-exclusion is stated in B.5.
+
+Both branches together satisfy §2.4's stated purpose exactly: *"a fill caused by
+an order the desk itself placed... would make the measurement a tautology."*
+Every desk-placed order is either proved to have caused no fill, or has every
+fill it could have caused removed.
+
+#### B.3 §9.10 is amended: `ticker` is admitted as a join key, and as nothing else
+
+§9.10's allow-list — *"Only `filled_ms`, `source`, `is_taker` and
+`venue_order_id` may enter this analysis or the write-up"* — is amended to add
+**`ticker`**, under four constraints that preserve both of the purposes the
+original serves:
+
+1. **No ticker string is printed** — not by the analyzer, not in the result
+   document, not in any commit message. Counts only. (This also honours the
+   standing ruling that operator data never enters the repo: a ticker names what
+   he bet on.)
+2. **No grouping, bucketing, splitting, ordering or reporting by ticker,
+   series, sport, or any function of a ticker.** §2.3's *"No exclusion on
+   ticker, series, sport, price, size, fee, outcome, or settlement"* **stands
+   unamended** and is not weakened by this.
+3. **The only operation permitted is equality against a set `T` of tickers read
+   from the desk's own order tables** (`combo_orders`, and `manual_orders`
+   section E if it ever becomes non-empty). `T` is derived from the order side
+   and never from `fills`, so no fill can be dropped for how it fell — which is
+   the precise hazard §2.3 was written against ("an exclusion on ticker would
+   let `KXMVE` combos be dropped after they were seen to fall the wrong way").
+4. **§9.10's own purpose is untouched.** It is headed *"Money"*, and the columns
+   it exists to keep out are `price_tenths`, `count` and `fee_actual` on the
+   fills row, which remain forbidden. `fills.ticker` carries no price, no size,
+   no fee, no P&L and no settled outcome. `combo_orders.count` is read on the
+   **order** row, as one side of the `reduced_by == count` identity; it is a
+   quantity of a cancelled bid, never a fill's size, is never printed, and never
+   enters any statistic.
+
+**`venue_order_id` stays on the allow-list** and stays unreadable. §2.4's
+`UNJOINABLE` class (fills with a NULL join key) is therefore **vacuous and is
+withdrawn** — under this instrument every fill is unjoinable by that key, so the
+count would be the whole population and would bound nothing. It is replaced by
+the **RESIDUAL CONTAMINATION BOUND** of B.5, which bounds the same thing from
+the order side, where the information actually is.
+
+#### B.4 C4 is re-worded, on the capability rather than on one route to it
+
+> **C4 — the exclusion is executable.** §2.4. For every desk-placed,
+> non-dry-run order in `manual_orders` or `combo_orders` with
+> `placed_ms < W_end`, the analyzer must establish, by a route registered in
+> this file before the look, **either (i) that no fill descends from it, or
+> (ii) which in-population fills may descend from it, so that they can be
+> dropped and counted.** Emptiness of the table is the trivial case of (i).
+> If any such order can be neither cleared under (i) nor attributed under (ii),
+> the verdict is **UNRESOLVED — EXCLUSION UNEXECUTABLE**. The failure of any
+> *particular* join, query or column is not itself the trigger; the trigger is
+> the absence of any registered route to (i) or (ii).
+
+Note the widened order window: `placed_ms < W_end`, **not** `placed_ms >=
+W_start`. An order placed before the window opened can still fill inside it.
+On the committed record this changes nothing — all 5 combo rows are in-window
+and `manual_orders` is empty lifetime — but the rule as written was narrower
+than the contamination it guards against, and that is fixed here rather than
+after a row appears.
+
+The manual half keeps a route if it ever becomes non-empty:
+`manual-orders-audit` section E (`_SQL_MANUAL_TICKERS`, *"E. rows per ticker,
+largest first, with its share"*) emits the ticker set lifetime and ungrouped by
+window, which is branch (b) over-inclusively — safe in the same direction. If
+that section is absent from a capture and `real_orders > 0`, C4 fires.
+
+#### B.5 The bias directions, stated before the look
+
+- **Branch (b) over-excludes, and the direction is toward the WEAK verdict.**
+  A hand bet Joe placed himself, in the Kalshi app, on the same combination
+  ticker the desk was resting a bid on, is dropped though it belongs in the
+  population. Such a row is one where the desk had minted and displayed that
+  exact combination, so removing it removes a row that leans desk-present.
+  That biases toward **PRESENCE GAP SUPPORTED**, which §1 and §9.1 already
+  record as the weak verdict, and away from the strong one. It also lowers `S`,
+  biasing toward the refusal branch. Both are conservative with respect to the
+  finding that would be worth anything. **The count is reported; if it is 0 the
+  bias is nil**, and the report must say which.
+- **§9.3 is re-based.** Its bound was the `UNJOINABLE` count; it is now the
+  RESIDUAL CONTAMINATION BOUND — the number of desk-placed orders not cleared
+  under (a), together with the number of fills excluded under (b). Its
+  direction (toward REFUTING the gap, if contamination survives) is unchanged,
+  and under this route no contamination survives unless (b) is itself
+  unexecutable, in which case C4 fires instead.
+- **Clock skew (C6) does not reach either branch.** Neither compares a fill
+  clock to a heartbeat clock; (a) compares two integers on one order row and
+  (b) compares two strings.
+
+#### B.6 THE OPERATIONAL RULE THE ANALYZER MUST IMPLEMENT, VERBATIM
+
+> **E0 — captures.** All four captures are taken at or after
+> `W_end = 1788480000000` (2026-09-04T00:00:00Z). Section C of
+> `h4-balance-spans` and the `combo_orders` tail must both report
+> `truncated = false`, and the combo tail's returned row count must be strictly
+> less than its `requested`, so that the tail is the whole table. Otherwise:
+> **UNRESOLVED — EXCLUSION UNEXECUTABLE**.
+>
+> **E1 — the manual half.** If `manual-orders-audit` section A reports
+> `real_orders > 0`, take the ticker set from section E and pass it to E4; if
+> section E is absent, **UNRESOLVED — EXCLUSION UNEXECUTABLE**. If
+> `real_orders = 0`, the manual half contributes no tickers and is executed by
+> emptiness.
+>
+> **E2 — the desk-order set.** `O` = every `combo_orders` row with
+> `dry_run = 0` and `placed_ms < W_end`. Report `|O|`.
+>
+> **E3 — venue clearance.** An order `o` in `O` is **CLEARED-BY-VENUE** iff
+> `o.status = 'cancelled'` **and** `o.cancelled_ms` is not null **and**
+> `o.cancel_reduced_by` is not null **and**
+> `float(o.cancel_reduced_by) == float(o.count)`. Every other `o` joins the
+> residual set `R`. Report `|CLEARED-BY-VENUE|` and `|R|`.
+>
+> **E4 — ticker attribution.** `T` = the set of `o.ticker` for `o` in `R`,
+> plus any tickers from E1. Report `|T|` as an integer; **print no element of
+> `T`**. Every fill with `source = 'venue_hand'`, `filled_ms` in
+> `[W_start, W_end)` and `ticker` in `T` is **EXCLUDED-BY-TICKER**, at both
+> `is_taker` values. Report the excluded count.
+>
+> **E5 — ordering.** E4's exclusion is a **population** rule and is applied
+> **before** sittings are formed, so an excluded fill can neither start a
+> sitting nor bridge two. `S` and `D` are computed on the post-exclusion
+> population, and the §6.2 floor refusal (`S < 8` or `D < 5`) is evaluated
+> **after** E0-E4, not before them. This inverts the order of the two refusal
+> branches as the analyzer first shipped them.
+>
+> **E6 — the bound.** Report `RESIDUAL CONTAMINATION BOUND` = `|R|` orders and
+> the EXCLUDED-BY-TICKER fill count, beside every verdict, in place of the
+> withdrawn `UNJOINABLE` line.
+>
+> **E7 — nothing else changes.** `W_start`, `SITTING_GAP_MS = 3,600,000`,
+> `B5 = 300,000`, `B30 = 1,800,000`, `S_min = 8`, `D_min = 5`, `alpha = 0.005`
+> per test, four tests, the seeded 10,000-draw permutation, the leave-one-day-out
+> downgrade and §6.3's verbatim decision rule are **untouched**.
+
+#### B.7 The routes considered and rejected, with the reason
+
+- **Ticker alone for all five orders (candidate b, unaided).** Rejected as the
+  primary because it over-excludes where a strictly better, venue-sourced proof
+  exists for four of the five. Kept as the fallback exactly where no such proof
+  exists. Using the coarse key when the exact one is available would throw away
+  population for nothing.
+- **A new inspector column and a deploy (candidate c).** Rejected. It puts the
+  admissible look **after a code change to the only instrument permitted against
+  the live box**, authored by someone who has already seen `S`, `D` and the
+  census — the shape this whole document exists to prevent. `inspect_live_db.py`
+  is additionally being edited by another lane as this is written, so the
+  deployed instrument would change identity mid-measurement. And it buys
+  nothing: every column E1-E4 needs is already emitted by the four registered
+  subcommands, so the substitute route requires **no change to the inspector and
+  no deploy**.
+- **Standing on UNRESOLVED — EXCLUSION UNEXECUTABLE (option 1).** Rejected, and
+  the reason is worth stating because it is the branch that looked most
+  disciplined. §8's only extension trigger is `S` and `D`; a refusal for an
+  unexecutable exclusion is not in it, so option 1 does not extend the window —
+  **it closes the question**. That would spend the entire registration on a
+  defect in the analyzer's *reach*, which is repairable blind, at no cost, with
+  no deploy, and without seeing anything. §10 records that UNRESOLVED funds
+  nothing and kills nothing; taking it here would purchase nothing at all.
+  Refusing when a rule cannot be executed is right; refusing when it *can* be
+  executed by a route fixed before the answer exists is not rigour, it is
+  waste.
+
+---
+
+### C. Look accounting, multiplicity, and §8
+
+- **Looks at the decision statistic to date: 0.** The 2026-09-03 run returned
+  at its §2.4 branch, above the line where the first distance is computed.
+- **Looks after the re-run: 1.** §6.2's *"the record is looked at ONCE"* is
+  preserved exactly, and this amendment is the reason it still is: had the
+  analyzer computed distances before refusing, this repair would have been a
+  second look.
+- **The multiplicity is unchanged: four tests, family-wise 0.02, Bonferroni
+  0.005 each.** E0-E6 are preconditions and exclusions. A precondition can only
+  turn a verdict into UNRESOLVED and can never manufacture one, so per §6.1 it
+  adds nothing to the count. No test is added, removed or re-aimed here.
+- **§8 is intact and is not amended.** Its extension trigger still references
+  `S` and `D` only, its one extension is still to `W_end' = 2026-09-18T00:00:00Z`
+  (`1789689600000`), and its terminal branch is unchanged. If the admissible
+  look returns `S < 8` or `D < 5` on the post-exclusion population, the
+  extension fires and `K` is still never computed — so at most one computation
+  of the decision statistic can ever occur.
+- **If the corrected analyzer refuses again for a reason other than `S`/`D`**,
+  that refusal is terminal for this registration. No further repair-and-re-run
+  is authorised here; a third attempt would need a successor registration, and
+  the reason is that repairs made after two refusals are no longer plainly
+  independent of what the refusals revealed.
+
+### D. §8's blind re-check of §10, taken now
+
+§10 was re-read blind on 2026-09-03 with no statistic visible and **stands
+unchanged**: the four branches, what each funds and what each kills, are as
+registered. This amendment does **not** discharge §8's requirement that §10 be
+re-checked immediately before the admissible look, which now falls on a
+different day than the one §10 was written on.
+
+### E. Correction to this amendment, 2026-09-04T01:30Z — the captures were not early
+
+Amendment 1 states in §C and its summary that *"the four captures were taken
+2026-09-03, before `W_end`"* and discards them. That sentence read the date in
+the author's local clock (America/Los_Angeles, where it was still the evening
+of the 3rd). In UTC, which is the clock every timestamp in this registration
+uses, the four capture files were written at:
+
+    h4-balance-spans        2026-09-04T01:13:20Z
+    visit-freshness         2026-09-04T01:14:17Z
+    manual-orders-audit     2026-09-04T01:14:23Z
+    combo-bids-tail         2026-09-04T01:14:28Z
+
+all after `W_end = 2026-09-04T00:00:00Z`. **E0 is satisfied by the existing
+captures**, and they are the admissible set. They are used rather than
+re-taken, because a second pull of the same population would be a second read
+of the record for no gain, and §6.2 prefers exactly one. Nothing else in
+Amendment 1 changes: the ruling on §2.4 (B.2–B.6), the correction of the
+integer (A), and the look accounting (C: zero looks at the decision statistic
+so far, one after the run) all stand. The analyzer now reads each capture
+file's write time and refuses under E0 if any precedes `W_end`, so this check
+is executed rather than asserted.
+
+### E. What Amendment 1 does not repair
+
+- It does not recover the `venue_order_id` join. The exact per-fill attribution
+  §2.4 specified remains impossible with this instrument; what B.2 supplies is
+  a **coarser** exclusion whose error is one-directional and reported.
+- It does not make the 2026-09-03 read not have happened. It discards its
+  captures for the verdict and records what was seen.
+- It does not touch §9's list of what the measurement cannot establish. Every
+  line there — causation, a tab from a reader, off-venue bets, entries from
+  exits, the poller's floor — survives this amendment intact.
+- It does not change the power position. §0.3's tables are computed from `S`
+  and the binomial and are unaffected by which rows the exclusion removes,
+  except through `S` itself, which §6.2's floor already governs.
