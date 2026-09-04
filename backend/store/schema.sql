@@ -1588,10 +1588,15 @@ CREATE TABLE IF NOT EXISTS desk_passes (
 -- statement of fact, not a request to bound it (that is a behaviour change
 -- with its own decision to make).
 --
--- One row per heartbeat, so the row count is the measurement. No `session_id`
--- and no user column: this instance serves one operator (ADR 0071 §1), and a
--- column that is always the same value is a claim about a future that does not
--- exist yet.
+-- One row per heartbeat, emitted on a cadence while a page is visible -- so the
+-- row count measures DWELL, not visits. It read "the row count is the
+-- measurement" until 2026-09-04; that sentence is how a fall in heartbeats was
+-- read as "the desk went quiet" on 2026-09-02 when visits per day were flat
+-- (tasks/lessons.md, 2026-09-03). Count distinct runs of stamps for visits;
+-- `inspect_live_db.py visit-freshness` does. No `session_id` and no user
+-- column: this instance serves one operator (ADR 0071 §1), and a column that
+-- is always the same value is a claim about a future that does not exist yet.
+-- That reasoning does not reach a column that varies, such as the page path.
 CREATE TABLE IF NOT EXISTS desk_attention (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     seen_ms     INTEGER NOT NULL

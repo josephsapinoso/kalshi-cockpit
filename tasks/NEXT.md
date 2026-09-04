@@ -195,7 +195,176 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-03 (latest, second entry) — the partner found the desk had not gone quiet and the /picks heal was switched off; three lanes landed (ADR 0101–0103); one question and one rotation for Joe
+## 2026-09-04 (latest) — six lanes landed (ADR 0104, 0102 Amd 1, the Read-ceiling guard); the presence measurement was registered, taken once, audited, and is UNRESOLVED — CONCENTRATION; the partner killed #11's log form; five questions for Joe
+
+**STATE, verified at close (2026-09-04 ~03:00Z):** `main` = the commit
+carrying this entry, on top of `e8030c1` (Gate h1 + CLAUDE.md presence
+paragraph), `c260d62` (check_mobile pages), `1636c71` (presence result),
+`a61f0d6` (Lane 6 merge). **Live = `a61f0d6`** (Deploy run 33827229995,
+`/api/health` ok, recorder writing), **demo = `a61f0d6`** (run 33827232097).
+CI green on `a61f0d6` (run 33826273516). Everything after `a61f0d6` is
+docs plus three one-line code changes (the Gate h1 word, three pages added
+to `check_mobile`, a schema comment) and **rides the next deploy** — the
+partner's call, not an oversight. No lane worktrees remain. `wc -c`:
+NEXT.md ~220KB (84%), lessons.md ~211KB (81%) — both under the 90% split
+trigger; check before the next entry.
+
+### The partner ran first, twice, and the map was not empty
+
+The frontier query returned zero open tickets and the partner found eleven
+decided-and-unbuilt items behind it (#11, #9, #24, #21, #33, #7, #5, #26, #6,
+#13, #4 — its table is in the archive of this session). It also found
+`start.md`, an orphaned third session-start door telling the next session the
+Scout was tabled while `POST /api/scout/{ticker}` bills Anthropic. **Its
+correction to carry: #33 and #24 were never killed by Joe.** Both are
+CLOSED carrying live build specs; the kill at the previous entry's line ~244
+was the partner's inference, and the record is corrected here. Joe's actual
+kills are #17/#19/#20 (NOT_PLANNED).
+
+### What landed — six lanes in `.claude/worktrees/`, merged 3 → 4 → 5 → 6
+
+- **Lane 3, ADR 0104 (`e2b5f4b`/`a45da2a`)** — `start.md` is a 15-line
+  pointer; six refuted sentences corrected with file:line evidence
+  (`.env.example` billed-path header, `runner.py` "surfaced never non-zero",
+  `schema.sql` "pruned by retention", `gate.py` `grep INTO fills`,
+  `scout_desk.py` "copied verbatim" — the copies already differed,
+  `margins.py` hands win-probability to the never-run `elo.py`); two guards
+  (four desk prompts share the no-forecast rule; `.env.example` carries
+  `base.py`'s `AGENT_MODEL` default). One premise refuted: the contract file
+  already explained the live/default model split.
+- **Lane 4 (`306afc9`)** — Gate lede rewritten from pre-ADR-0038 framing
+  ("has to demonstrate an edge") to #9's ratified string, **no count baked
+  in** (the brief's "2 in its life" was stale; CLAUDE.md's newer figure is 15
+  and the live number renders); the five missing #9 ledes shipped verbatim
+  (Games takes 29A's "a named check, or the fee bar"); #33's four false
+  "`--accent` is byte-identical to `--negative`" comments corrected (the
+  `7bdcb11` message claimed it repaired them; it repaired test docstrings);
+  #24's comment records Joe's decision. 18/18 mutations red.
+- **Lane 5 (`2433c00` + `f794b03`, ADR 0102 Amendment 1)** — `sweepTone`
+  reads `loop_idle_interval_ms` through `loopStallAfterMs` (one spelling);
+  unknown cadence → `warn` on its own branch, never `alarm`, never calm;
+  `WindowBanner` uses the same derived value and prints the cadence. The
+  inert `automaticBuyIsComing` prop removed from `ParlayCards`, then deleted
+  with its pin on main; `test_stale_exit`'s baseline-only guard covers
+  `ParlayCards`. `HowToRead` glosses NO EDGE and SIZED TO ZERO inside the
+  REJECTED bullet, no `$1,000` literal, docstring says five.
+- **Lane 6 (`a61f0d6`)** — `test_session_files_are_readable.py` enumerates
+  every tracked `.py/.ts/.tsx/.sql/.toml/.yml/.md` via `git ls-files`
+  (archive excluded); `backend/api/routes.py` on a **ratchet at 333,958**
+  bytes (fails if it grows, fails if the exemption outlives its reason);
+  `inspect_live_db.py` 263,058 → 255,989 with byte-identical behaviour
+  (36 subcommands, token-stream diff = 9 docstrings; the Q-W caveats moved
+  verbatim to the 2026-08-13 result doc §9). **`routes.py` needs 71,814
+  bytes out** — ten times what the inspector gave up; that is a domain
+  split, not a trim, and it is a per-session tax until then.
+- **`check_mobile` (`c260d62`)** now measures `/picks`, `/board`, `/hedge`;
+  all twelve pages fit 390px on demo at `a61f0d6`. Gate h1 → "Gate"
+  (`e8030c1`, #29).
+
+**Lane mechanics worth keeping:** a rate limit killed Lanes 4, 5 and 6
+mid-work; `SendMessage` resumed 4 and 5 with context intact, 6 had lost its
+worktree and re-created one with `git worktree add`. **The scratchpad is
+shared across lanes** — two lanes overwrote each other's `mutate.py`. **CRLF**:
+`.tsx` and `.md` are CRLF in this checkout; a `\n` anchor reports "not found"
+on text `sed` shows you. **`git checkout -- file` as a mutation restore eats
+uncommitted edits** — copy to scratch and copy back. `flyctl ssh console -C`
+exits 1 with "The handle is invalid" on Windows *after* delivering complete
+output; judge the read by parsing it.
+
+### The presence measurement — registered, taken once, audited, UNRESOLVED
+
+`docs/measurements/2026-09-03-presence-at-the-moment-of-a-bet-registration.md`
+(+ Amendment 1 §A–§F) and `2026-09-04-presence-at-the-moment-of-a-bet-result.md`.
+Question: is the desk open when Joe actually bets on Kalshi? Unit = the
+**sitting** (fills within 60 min), clustered by budget day; bands ±5/±30 min
+from `DEFAULT_ATTENTION_TTL_MS`; gap arm exact binomial, presence arm a
+seeded day-shift permutation holding hour-of-day fixed; four tests at 0.005.
+
+Sequence, because the shape recurs: analyzer committed **before** the reads
+(`d2f51de` 01:13:01Z, first capture 01:13:20Z); first run **refused** above
+the first distance (section C carries no `venue_order_id`); the
+pre-registrar amended **blind** (the `W_end` integer was a typo for 09-06;
+the exclusion executes on the order side — `cancel_reduced_by == count` is
+the venue's own statement nothing filled, a residual order attributes by
+ticker as a join key never printed; C4 re-worded on the capability, not the
+route); its claim that the captures were "taken 09-03, before W_end" read the
+date in local time and is superseded (§F); second run computed the statistic
+**once**; `measurement-skeptic` audited and found the analyzer had broken a
+two-way tie for "the largest-contributing budget day" by dict insertion order,
+**in the flattering direction**.
+
+    S = 12 sittings   D = 7 budget days   27 taker hand fills, 0 through manual_orders
+    B5  K = 8 of 12   p_gap 0.927 (gap arm not cleared)   p_perm 0.0004, k* = 7
+    leave-one-day-out  drop 08-26: 7 of 9, REFUTED   drop 08-28: 5 of 9, p_perm 0.016, UNRESOLVED
+    VERDICT   UNRESOLVED — CONCENTRATION      (§10: nothing funded, nothing killed on it)
+
+Descriptively, and only with the qualifiers: the desk was open at two-thirds
+of his **Kalshi taker** sittings, three times the day-shifted chance rate, in
+3–31-minute visits with the fill 1–9 minutes in (none of the five multi-hour
+tab-left-open visits contains a sitting). The partner's hypothesis as stated
+("essentially never present") is not what the record shows. **Never quote
+`p_perm = 0.0004` without `k* = 7`; never write "the desk is at the moment of
+a bet" alone; "his bets" means his Kalshi bets.** The registration is
+**closed** (§8's trigger is S/D only); a successor needs a tie-break rule
+fixed in advance and ~25 sittings. C5 (`poll_log endpoint='fills'`) was not
+executed and the population is declared a FLOOR; the §10 blind re-check was
+done at ~01:05Z and not written down at the time — recorded after the fact.
+The tie-break fix is pinned (mutation red) and left every number unchanged.
+
+**The number the partner says to carry is not the verdict:** `manual_orders`
+real rows = 0 against 27 taker hand fills with the path armed the whole
+window. **The desk is a read surface, not a transaction surface.** CLAUDE.md
+now carries that paragraph in the partner's permitted wording.
+
+### Killed by the partner, stated plainly
+
+#11's price-free estimate log form (three entry designs, ≤1 row, 0 of 27);
+wiring `/api/estimates/last-scored` to any screen (structurally empty source —
+it stays, with an honest docstring and an absence pin still owed); the C5
+`poll_log endpoint='fills'` subcommand and the seven free-rider census counts
+(registration closed, inspector headroom is 6,155 bytes); `anAutomaticBuyIsComing`
+with `test_stale_exit`'s snapshot class (self-justifying test-only code);
+waiting on any successor presence registration.
+
+### FOR JOE — five questions, one artifact
+
+https://claude.ai/code/artifact/985a3e74-9c1d-4824-bff1-b99be758f13a
+
+    A  close PRs #1 and #2 (opened from your jcabiles account, both superseded)?
+    B  shard-3 test / shard-0 move — parked, this week, or drop?
+    C  Odds API key rotation — now or later?
+    D  #11's estimate log screen is being killed — kill or keep?
+    E  a "which screen" path field on the desk heartbeat (live DB only) — ok or no?
+
+Answer in one line as usual. Nothing here blocks anything.
+
+### Still open, in the partner's order (next session)
+
+1. **`desk_attention` gains a path column** — the cheapest high-leverage
+   instrument on the board; the schema's own "always the same value"
+   reasoning does not reach a column that varies (comment corrected tonight
+   to say so and to say the row count is dwell). Write in the schema comment
+   that stamps are cadence-emitted, so the column is dwell-weighted per
+   screen. Pending Joe's E.
+2. **A short new ADR: "the desk is read, not transacted through."** Not an
+   amendment to 0071 (a purpose ADR settled in Joe's answers); an operational
+   finding.
+3. **`/api/estimates/last-scored`**: honest docstring + grep pin that its
+   absence from the frontend is deliberate (fifth instance of built-and-
+   uncalled). Pending Joe's D.
+4. **`inspect_live_db.py --json` stamps `generated_at`** from the server clock
+   (~200 bytes) so E0 never again rests on file metadata.
+5. **Copy sweep, one commit:** `LeagueTag` docs note; `_q_failure_journal`
+   docstring; delete `anAutomaticBuyIsComing` + snapshot class.
+6. **`routes.py` 333,958 → under 262,144**: a domain split needing a real
+   look, not a late-night one.
+7. Joe-gated, untouched: S3 / shard-0 (B), key rotation (C), #21 item 4
+   (`parlay_positions` count still unread — no subcommand emits it).
+8. Deploy the post-`a61f0d6` commits with the next code change.
+
+---
+
+## 2026-09-03 (second entry) — the partner found the desk had not gone quiet and the /picks heal was switched off; three lanes landed (ADR 0101–0103); one question and one rotation for Joe
 
 **STATE, verified at close:** `main` = the commit carrying this entry, on top
 of `2747b0f` (Lane B merge, ADR 0103), `2a0c3d3` (Lane D merge, ADR 0102),
