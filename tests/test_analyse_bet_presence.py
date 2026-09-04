@@ -175,6 +175,41 @@ class TestTheArms:
         rep = abp.analyse(fills, visits, W_START, inputs(), w_end=W_END)
         assert rep.verdict == "UNRESOLVED — CONCENTRATION"
 
+    def test_a_tie_for_largest_day_drops_every_tied_day_and_downgrades_if_any_flips(self):
+        """The audit's B1 on the 2026-09-04 look: two days tied at 3 sittings,
+        `max(per_day, key=per_day.get)` returned the first by insertion order,
+        and dropping the OTHER tied day did not clear. The registration says
+        "the largest-contributing budget day"; when that is a set, every
+        member is dropped in turn. Mutation observed red: restore the single
+        `max()` tie-break (the fixture is built so the first tied day in
+        insertion order clears and the second does not).
+
+        Built on the gap arm, where the tails are exact. Twelve sittings on
+        eight days; exactly one sitting is desk-present (day 0, 04:00). A
+        visit sits at 04:00 on every day, so the day-shift null lands that
+        sitting in a visit on every draw and the presence arm never clears.
+        Full: K = 1 of 12, p_gap = 0.0032 -> SUPPORTED. Day 0 and day 8 tie
+        at three sittings. Drop day 0 (which holds the present one): 0 of 9,
+        p_gap = 0.0020, still SUPPORTED. Drop day 8: 1 of 9, p_gap = 0.0195,
+        not SUPPORTED -- the verdict flips, and the downgrade must fire. The
+        insertion-order tie-break drops day 0 only and would not see it.
+        """
+        day0 = [W_START + 4 * H, W_START + 6 * H, W_START + 8 * H]
+        day8 = [W_START + 8 * abp.DAY_MS + h * H for h in (5, 7, 9)]
+        singles = [W_START + i * abp.DAY_MS + 12 * H + i * H for i in range(1, 7)]
+        bets = day0 + day8 + singles
+        fills = [hand(ms) for ms in bets]
+        visits = [
+            abp.Visit(W_START + d * abp.DAY_MS + 4 * H - 60_000, W_START + d * abp.DAY_MS + 4 * H + 60_000)
+            for d in range(12)
+        ]
+        rep = abp.analyse(fills, visits, W_START, inputs(), w_end=W_END)
+        text = "\n".join(rep.lines)
+        assert "K = 1 of 12" in text
+        assert "2 days tie for largest" in text
+        assert text.count("leave-one-day-out (drop day") == 2
+        assert rep.verdict == "UNRESOLVED — CONCENTRATION"
+
     def test_every_bet_inside_a_visit_at_the_same_clock_time_is_not_refuted(self):
         """The hour-of-day confound §5.2 exists for: visits at the same clock
         time every day make a day-shifted bet land in one by chance."""

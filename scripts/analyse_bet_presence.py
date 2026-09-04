@@ -667,20 +667,37 @@ def analyse(
 
     verdict = primary_verdict(a5)
 
-    # §3.3 leave-one-day-out on the primary.
-    kept = [ms for ms in first_fills if budget_day(ms) != top_day]
-    loo_note = "leave-one-day-out: not computable (dropping the largest day leaves S = 0)"
-    if kept:
+    # §3.3 leave-one-day-out on the primary. "The largest-contributing budget
+    # day" is a definite article over what may be a set: when several days tie
+    # for the most sittings, every tied day is dropped in turn and the verdict
+    # must survive each. Breaking the tie by dict order (the first version of
+    # this block did) resolves a registered downgrade silently, and on the
+    # 2026-09-04 look it resolved it in the flattering direction — the audit
+    # caught it (measurement-skeptic, B1). Conservative by construction: a
+    # downgrade that fires under any admissible reading fires.
+    top_n = max(per_day.values())
+    tied_days = sorted(d for d, n in per_day.items() if n == top_n)
+    rep.add()
+    if len(tied_days) > 1:
+        rep.add(f"leave-one-day-out: {len(tied_days)} days tie for largest at {top_n} "
+                f"sittings; each is dropped in turn and the verdict must survive all")
+    flipped = False
+    for day in tied_days:
+        kept = [ms for ms in first_fills if budget_day(ms) != day]
+        if not kept:
+            rep.add(f"leave-one-day-out (drop day {day}): not computable, S would be 0")
+            continue
         a5_loo = arm(kept, visits, B5_MS, w_start, w_end)
         loo_verdict = primary_verdict(a5_loo)
-        loo_note = (f"leave-one-day-out (drop day {top_day}, {per_day[top_day]} sittings): "
-                    f"K = {a5_loo.k} of {len(kept)}, p_gap {a5_loo.p_gap:.4f}, "
-                    f"p_perm {a5_loo.perm.p_value if a5_loo.perm.feasible else 'infeasible'} "
-                    f"-> {loo_verdict}")
-        if loo_verdict != verdict and not verdict.startswith("UNRESOLVED"):
-            verdict = "UNRESOLVED — CONCENTRATION"
-    rep.add()
-    rep.add(loo_note)
+        rep.add(f"leave-one-day-out (drop day {day}, {per_day[day]} sittings): "
+                f"K = {a5_loo.k} of {len(kept)}, p_gap {a5_loo.p_gap:.4f}, "
+                f"p_perm {a5_loo.perm.p_value if a5_loo.perm.feasible else 'infeasible'} "
+                f"-> {loo_verdict}")
+        if loo_verdict != verdict:
+            flipped = True
+    if flipped and not verdict.startswith("UNRESOLVED"):
+        verdict = "UNRESOLVED — CONCENTRATION"
+        rep.add("§3.3: the verdict flips when a largest-contributing day is dropped; downgraded.")
 
     # C6 skew downgrade: only when a verdict exists and an edge case decides it.
     if not verdict.startswith("UNRESOLVED") and a5.skew_sensitive > 0:

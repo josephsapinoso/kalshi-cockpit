@@ -903,6 +903,12 @@ are not cosmetic, recorded before the look because they change an instrument:
 
 #### A.3 The read preceded `W_end`, which §2.2 forbids. Recorded, not excused.
 
+**SUPERSEDED by §F below (2026-09-04T01:30Z): the premise of this section is
+false.** The captures were written at 01:13–01:14Z on 2026-09-04 UTC, after
+`W_end`; the "2026-09-03" here was the author's local date. The text is kept as
+written because the reasoning about what a premature read would have cost is
+correct and the discard it orders was never executed. Read §F for what stands.
+
 The four captures were taken on **2026-09-03**, before the window closed at
 2026-09-04T00:00:00Z. §2.2 says *"No read of the fills population may be taken
 before `W_end`"*, and under either the right instant or the wrong one, that read
@@ -1199,7 +1205,10 @@ registered. This amendment does **not** discharge §8's requirement that §10 be
 re-checked immediately before the admissible look, which now falls on a
 different day than the one §10 was written on.
 
-### E. Correction to this amendment, 2026-09-04T01:30Z — the captures were not early
+### F. Correction to this amendment, 2026-09-04T01:30Z — the captures were not early
+
+*(Numbered F because a §E already existed below when this was appended; the
+two carried the same letter until the audit noticed.)*
 
 Amendment 1 states in §C and its summary that *"the four captures were taken
 2026-09-03, before `W_end`"* and discards them. That sentence read the date in
