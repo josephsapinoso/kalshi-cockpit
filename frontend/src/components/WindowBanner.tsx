@@ -6,21 +6,27 @@ import {
   formatUntil,
 } from "@/lib/api";
 import type { Tone } from "@/lib/sweepTone";
-import { LOOK_SILENT_MS, sweepTone } from "@/lib/sweepTone";
+import { loopIsSilent, sweepTone } from "@/lib/sweepTone";
 
 /**
- * `LOOK_SILENT_MS` — how long a `last_look` may be before the loop is presumed
- * stopped — is imported rather than declared here.
+ * Whether the loop is presumed stopped is asked of `loopIsSilent`, never
+ * computed here, and this file contains no number of seconds.
  *
- * Two full passes. `scripts/run_loop.py` defaults `--interval` to 900s and
- * `runner.sweep_odds` writes an `odds_sweep_log` row on *every* full pass —
- * served, skipped, refused or empty — so silence past two intervals is not the
- * loop being quiet, it is the loop being absent. One interval would flap on
- * jitter; two is the smallest gap that cannot be a late pass.
+ * The rule is two of the loop's own idle intervals. `runner.sweep_odds` writes
+ * an `odds_sweep_log` row on *every* full pass — served, skipped, refused or
+ * empty — so silence past two intervals is not the loop being quiet, it is the
+ * loop being absent; one interval would flap on jitter, and two is the smallest
+ * gap that cannot be a late pass (the inequality is pinned in
+ * `tests/test_watcher_decides_from_fresh_facts.py`). The *interval* is the
+ * server's fact, published as `loop_idle_interval_ms`; until 2026-09-03 this
+ * banner's threshold was `2 * 900_000` with the 900 written in by hand, a
+ * second spelling of the refresh panel's rule (ADR 0102 §5, Amendment 1).
  *
- * It lives in `@/lib/sweepTone` with the verdict that uses it because a test has
- * to be able to execute the threshold, not read it. Declaring it twice is how
- * the copy and the tone drift apart.
+ * `loopIsSilent` lives in `@/lib/sweepTone` beside the verdict that uses it
+ * because a test has to be able to execute the predicate, not read it, and
+ * because the headline chosen here and the tone chosen there must be answers
+ * to one question asked once. Declaring it twice is how the copy and the tone
+ * drift apart.
  */
 
 /**
@@ -146,9 +152,14 @@ export default function WindowBanner({
  *   no log at all   `null` — never looked. Amber, and it says "blind", because
  *                   an empty trace read as a dash is the calm-looking version of
  *                   the outage itself.
- *   loop silent     nothing recorded in two full passes. Red: the process is
- *                   gone, and the fresh-looking Board underneath it is a record,
- *                   not a market.
+ *   loop silent     nothing recorded in two of the loop's own idle intervals
+ *                   (`loop_idle_interval_ms`). Red: the process is gone, and
+ *                   the fresh-looking Board underneath it is a record, not a
+ *                   market.
+ *   cadence unknown the server could not read `RUNNER_INTERVAL_S`, so there is
+ *                   no interval to judge the silence against. Amber, never red
+ *                   and never calm: the strip is blind to the one question it
+ *                   is for, and the copy names the variable.
  *   refused         the loop wanted to sweep and something declined it. Amber,
  *                   whether or not a window has opened -- see below.
  *   nothing swept   the loop is alive and has declined every pass since a window
@@ -217,7 +228,9 @@ function SweepTrace({ window: w }: { window: ActionableWindow }) {
   }
 
   const lookAge = w.now_ms - w.last_look_ms;
-  const silent = lookAge > LOOK_SILENT_MS;
+  // `true` / `false` / `null` -- and `null` is its own headline below, not a
+  // fall-through into "the loop looked N ago" as though that settled anything.
+  const silent = loopIsSilent(w);
   // A sweep from before the budget day opened has not been paid for out of
   // today's allowance, so today's two sweeps are both still unspent.
   const sweptThisDay =
@@ -245,10 +258,19 @@ function SweepTrace({ window: w }: { window: ActionableWindow }) {
   const tone: Tone = sweepTone(w);
   const outcome = w.last_look_outcome ?? "unrecorded";
 
-  const headline = silent
-    ? `Nothing has looked at odds in ${formatDuration(lookAge)}. Two full ` +
-      `passes write a row whatever they decide, so this is the recording loop ` +
-      `being stopped — every price below is a record, not an offer.`
+  const headline = silent === true
+    ? `Nothing has looked at odds in ${formatDuration(lookAge)}. Left alone ` +
+      `the loop looks about every ${formatDuration(
+        w.loop_idle_interval_ms as number,
+      )} and writes a row whatever it decides, so a silence past two of those ` +
+      `is the recording loop being stopped — every price below is a record, ` +
+      `not an offer.`
+    : silent === null
+      ? `The loop looked ${formatAge(lookAge)}, and that is all this strip can ` +
+        `say: the server could not read how often the loop is meant to look ` +
+        `(RUNNER_INTERVAL_S), so it cannot tell a loop asleep between passes ` +
+        `from one that has stopped. Amber for the blindness, not for anything ` +
+        `the loop did.`
     : sweptThisDay
       ? `The loop looked ${formatAge(lookAge)} and the day's sweeps have run.`
       : refused

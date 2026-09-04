@@ -412,8 +412,18 @@ export function readNextWindow(
  * make every look a stall and a negative would make none; both are the shape
  * of "unreadable resolved to a number", which is the one thing this module's
  * conventions forbid.
+ *
+ * **The one spelling of the slow clock, and the parameter type is why.** It
+ * takes only the field it reads so that `sweepTone.ts` -- the Board strip's
+ * verdict, which has its own narrower facts type -- can call it rather than
+ * carry `2 * 900_000` as a literal, which it did until 2026-09-03 (ADR 0102
+ * §5, Amendment 1). Two derivations of "how long is too long" is how the
+ * refresh panel and the sweep strip would come to disagree about whether the
+ * same loop is alive.
  */
-export function loopStallAfterMs(facts: NextWindowFacts): number | null {
+export function loopStallAfterMs(
+  facts: Pick<NextWindowFacts, "loop_idle_interval_ms">,
+): number | null {
   const interval = facts.loop_idle_interval_ms;
   if (interval === null || interval === undefined || interval <= 0) return null;
   return LOOP_STALL_IDLE_INTERVALS * interval;
@@ -443,9 +453,20 @@ export function loopStallAfterMs(facts: NextWindowFacts): number | null {
  * over the old 180s constant, or a fixture outside the floor's twelve-hour
  * horizon), while the page's own presence has the loop awake within five
  * seconds and buying three seconds later. The watcher now asks `readWatch`
- * against fresh facts on every poll. This function stays for the callers
- * that still describe a snapshot -- `ParlayCards`' `Freshness` block passes
- * it, and the prop it feeds is documented there as not decision-bearing.
+ * against fresh facts on every poll.
+ *
+ * **Test-only since 2026-09-03, and this sentence is the honest label for
+ * that.** `ParlayCards`' `Freshness` block was the last production caller and
+ * stopped passing it the same day (ADR 0102 §5). No component or page in
+ * `frontend/src` calls it now; its only callers are `tests/test_stale_exit.py`,
+ * which executes it under node as the record of what a snapshot reading is
+ * and is not. By this repo's own rule (`tests/test_has_callers.py`: an
+ * exported symbol whose every caller is a test is a plan, not a feature) the
+ * right end state is deletion, together with that test class; it is kept
+ * here rather than deleted because the test that pins it lives in another
+ * lane's file, and a function with a truthful docstring beats a red suite
+ * nobody asked for. Nothing may start calling it again from a server render:
+ * the defect it would reintroduce is measured in the module docstring.
  */
 export function anAutomaticBuyIsComing(
   facts: NextWindowFacts | null,

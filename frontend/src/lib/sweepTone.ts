@@ -11,6 +11,11 @@
  * run it directly (v24 strips types natively), which is what
  * `tests/test_sweep_tone_predicate.py` does with real recorded states.
  *
+ * Its one import is `./nextOddsWindow`, which is itself dependency-free, so
+ * the pair still runs under node. Node's type stripping does not resolve an
+ * extensionless relative specifier, so the test registers a resolve hook that
+ * appends `.ts`; the shipped source keeps the repo's import convention.
+ *
  * The copy stays in the component. Only the verdict lives here.
  *
  * ## Why the verdict has four branches and not two
@@ -30,16 +35,26 @@
  * So amber now needs a window to have existed. But the naive version of that --
  * "no window open yet, therefore calm" -- introduces a worse bug than it
  * removes, and `refused` is why. See `sweepTone` itself.
+ *
+ * ## Why the silence threshold is derived and not written here
+ *
+ * Until 2026-09-03 this file carried `LOOK_SILENT_MS = 2 * 900_000`: the same
+ * two-idle-intervals rule `nextOddsWindow.ts` applies, reached independently,
+ * with the loop's cadence hardcoded as a second spelling (ADR 0102 §5). The
+ * cadence is a fact the server owns -- `RUNNER_INTERVAL_S` as the entrypoint
+ * reads it, published on `/api/window` as `loop_idle_interval_ms` -- and a
+ * threshold that names "normal" must be derived from that fact by the reader,
+ * never asserted by it. So `loopIsSilent` below calls `loopStallAfterMs`, the
+ * refresh panel's own derivation, and this file contains no number of seconds.
  */
+
+import { loopStallAfterMs } from "./nextOddsWindow";
 
 export type Tone = "calm" | "warn" | "alarm";
 
-/** Two full passes with nothing recorded. The loop is not running. */
-export const LOOK_SILENT_MS = 2 * 900_000;
-
 /**
  * Exactly the fields the verdict depends on — a deliberate subset of
- * `ActionableWindow`, so a test can state a whole world in six numbers and so
+ * `ActionableWindow`, so a test can state a whole world in seven values and so
  * this function cannot quietly start reading something else.
  */
 export type SweepFacts = {
@@ -49,15 +64,72 @@ export type SweepFacts = {
   last_sweep_ms: number | null;
   budget_day_start_ms: number;
   first_window_open_ms: number | null;
+  /**
+   * `window_status().loop_idle_interval_ms`: how long the loop sleeps between
+   * full passes when nothing wakes it. Required here, unlike on
+   * `NextWindowFacts`, so a fixture has to say what it believes about the
+   * cadence rather than inherit a default; `null` is "the server could not
+   * read it", and see `loopIsSilent` for what that resolves to.
+   */
+  loop_idle_interval_ms: number | null;
 };
+
+/**
+ * Is the recording loop gone? `true` when `last_look_ms` is older than two of
+ * the loop's own idle intervals, `false` when it is inside them, and `null`
+ * when the cadence is not known and so no silence can be judged.
+ *
+ * **Shared by the verdict and the copy.** `WindowBanner` chooses its headline
+ * with this and `sweepTone` chooses its tone with it, so the words and the
+ * colour cannot disagree about whether the loop is alive: one predicate, one
+ * spelling, evaluated on the same facts.
+ *
+ * `null` is not folded into either boolean. Folding it into `false` renders
+ * a dead loop calm for as long as the cadence stays unreadable; folding it
+ * into `true` calls every loop dead the moment `RUNNER_INTERVAL_S` is
+ * misconfigured. ADR 0102's rule -- unreadable resolves to a refusal to
+ * claim, not to 180 and not to 900 -- means the caller has to decide what a
+ * refusal to claim looks like on its own surface. `sweepTone` says amber.
+ */
+export function loopIsSilent(
+  w: Pick<SweepFacts, "now_ms" | "last_look_ms" | "loop_idle_interval_ms">,
+): boolean | null {
+  if (w.last_look_ms === null) return null;
+  const stallAfterMs = loopStallAfterMs(w);
+  if (stallAfterMs === null) return null;
+  return w.now_ms - w.last_look_ms > stallAfterMs;
+}
 
 export function sweepTone(w: SweepFacts): Tone {
   // Never looked. Amber and not calm: an empty trace rendered as a dash is the
   // calm-looking version of the outage itself.
   if (w.last_look_ms === null) return "warn";
 
+  const silent = loopIsSilent(w);
+
   // The loop is gone. Louder than anything below it.
-  if (w.now_ms - w.last_look_ms > LOOK_SILENT_MS) return "alarm";
+  if (silent === true) return "alarm";
+
+  // **The cadence is unknown, and that is amber -- never alarm, never calm.**
+  // ADR 0102 forbids calling the loop stalled on a cadence the server could
+  // not read, so `alarm` cannot fire here; that much is the panel's rule
+  // applied to the strip. What the strip adds is that it may not fall through
+  // to `calm` either. Every branch below this one is about *spending*, and a
+  // loop that swept at 20:51 and died at 21:00 would satisfy "the day's sweeps
+  // have run" until tomorrow -- the exact silence this strip exists to make
+  // visible, with the only clause that could see it switched off. So the
+  // liveness test being unavailable is itself the finding: the strip is blind
+  // to the one question it is for, and blind is amber for the same reason
+  // "never looked" is. The component names the cause (`RUNNER_INTERVAL_S`
+  // unreadable) so the amber is a repair instruction rather than a mood.
+  //
+  // Not a silent failure, then, on either side: a dead loop under an unknown
+  // cadence renders amber rather than calm, and a healthy loop under an
+  // unknown cadence renders amber rather than red -- and in both cases the
+  // headline says which fact is missing. On live the entrypoint pins the
+  // variable with a default, so this branch fires only when someone has set
+  // it to something that does not parse.
+  if (silent === null) return "warn";
 
   // The day's sweeps have run. A sweep from before the boundary was not paid
   // for out of today's allowance and does not count.

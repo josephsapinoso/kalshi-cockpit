@@ -190,3 +190,91 @@ visibility handler also calls it); chip guard removed → 1 red; `ValueError →
 visible clause dropped from the fast clock → 13 red, the exhibit among them;
 unknown cadence falling back to 180s → 1 red; `slice_spent` always
 "nothing due" → 1 red.
+
+## Amendment 1 — 2026-09-03: the sweep strip reads the cadence too, and an unknown cadence is amber there
+
+Closes the first two items of §5. Built in Lane 5 on the same day, from the
+same worktree base; nothing in §1–§4 changes.
+
+### A1.1 `sweepTone.ts` no longer carries a number of seconds
+
+`LOOK_SILENT_MS = 2 * 900_000` is deleted. `SweepFacts` gains
+`loop_idle_interval_ms: number | null` (required, unlike the optional field
+on `NextWindowFacts`, so a fixture must state its belief about the cadence
+rather than inherit one), and a new `loopIsSilent(facts): boolean | null`
+derives the threshold by calling `loopStallAfterMs` from `nextOddsWindow.ts`
+— the refresh panel's own derivation, whose parameter type narrowed to
+`Pick<NextWindowFacts, "loop_idle_interval_ms">` so the strip's facts type
+can be passed to it. One rule, one spelling, one multiplier
+(`LOOP_STALL_IDLE_INTERVALS`), on both surfaces. `WindowBanner` asks
+`loopIsSilent(w)` for its headline and `sweepTone(w)` for its tone; it may
+not name the retired constant, a number of seconds, the multiplier, or
+`loopStallAfterMs` itself — the copy and the colour are now answers to one
+question asked once, which is the shape §5 said was missing.
+
+`sweepTone.ts` thereby acquires its first import. Node's type stripping does
+not resolve an extensionless relative specifier, so
+`tests/test_sweep_tone_predicate.py` registers a `module.registerHooks`
+resolve hook that retries `./nextOddsWindow` as `./nextOddsWindow.ts`. The
+hook changes which file a specifier finds and nothing about what the file
+says; the shipped source keeps the repo's import convention rather than
+gaining a `.ts` extension and a `tsconfig` flag for the test's benefit.
+
+### A1.2 On the strip, an unknown cadence is `warn`
+
+§2.1's rule — *with the cadence unknown, no silence is a stall* — is applied:
+`loopIsSilent` returns `null` and the `alarm` branch cannot fire. What §2.1
+did not decide is what the **strip** shows instead, because the panel's
+other readings are about buys, not liveness, and it simply moves on. The
+strip cannot: every branch below its alarm is about *spending*, and a loop
+that swept at 20:51 and died at 21:00 satisfies "the day's sweeps have run"
+until tomorrow. Falling through would render the exact silence the strip
+exists to expose as calm, with the only clause able to see it switched off.
+
+So `sweepTone` returns `warn` on `null`, on its own branch, before the
+spending clauses — by the same reasoning that makes "never looked" amber: a
+liveness guard that cannot judge liveness is blind, and blind is not clear.
+`WindowBanner` names the cause in the headline (`RUNNER_INTERVAL_S` could
+not be read) so the amber is a repair instruction, not a mood. Not a silent
+failure on either side: a dead loop under an unknown cadence is amber rather
+than calm, and a healthy loop under an unknown cadence is amber rather than
+red. On live the entrypoint pins the variable with a default, so the branch
+fires only when someone has set it to something that does not parse.
+
+### A1.3 `ParlayCards` hands over the baseline only
+
+The `Freshness` block no longer passes
+`automaticBuyIsComing={anAutomaticBuyIsComing(actionable)}`, and the import
+is gone. That leaves `anAutomaticBuyIsComing` with **no production caller**;
+its only callers are in `tests/test_stale_exit.py`. It is kept with a
+docstring that says so, rather than deleted, because that test file belongs
+to another lane; by `tests/test_has_callers.py`'s rule the right end state is
+deletion together with that test class. The `@deprecated automaticBuyIsComing`
+prop on `RefreshWhenPriced` likewise has no caller left and survives only
+because `tests/test_watcher_decides_from_fresh_facts.py` pins it declared
+exactly once — the prop's docstring says to delete both together.
+
+### A1.4 Tests and mutations
+
+`tests/test_sweep_tone_predicate.py`: every fixture states
+`loop_idle_interval_ms`; new fixtures for a 300s cadence stopped, a 3600s
+cadence asleep, one sleep late at 900s, and an unknown cadence both healthy
+and 95 minutes silent; source pins that the strip and the banner contain no
+number of seconds and that the banner has words for `null`. Mutations, each
+against the shipped file and each restored by reversing the exact edit:
+literal `2 * 900_000` restored → 9 red (the 900s fixtures unchanged, which is
+why the original fixture set could never have caught it); unknown-cadence
+`warn` branch deleted → 2 red; `null` folded to `false` → 4 red; `null` folded
+to `true` → 5 red; banner recomputing the threshold → 1 red; banner's `null`
+headline removed → 1 red; `LOOP_STALL_IDLE_INTERVALS = 1` → 1 red.
+
+### A1.5 What this does not establish
+
+- That `/board` renders the new headline legibly, or that `formatDuration`
+  of the cadence reads well at every interval. Source pins and one node
+  execution; no browser.
+- That the panel and the strip agree in every state. They share the
+  threshold; the panel's fast clock (`WATCHED_STALL_MS`) has no counterpart
+  on the strip, which is server-rendered and has the slow clock only (§3).
+- Anything about `anAutomaticBuyIsComing`'s correctness. It is unchanged and
+  unused.

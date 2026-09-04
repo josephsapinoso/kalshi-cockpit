@@ -710,8 +710,10 @@ class TestThePhoneReachesAPriceBeforeALesson:
         )
 
     def test_the_copy_was_moved_and_not_rewritten(self):
-        """The reviewer singled the writing out as good. This lane owns the
-        call site, not the component, so the component must be untouched."""
+        """The reviewer singled the writing out as good. The move (2026-08-2x)
+        touched the call site only; the one later edit to the component
+        (2026-09-03, below) grew the held-back bullet and rewrote nothing, so
+        every headline the reviewer read is still there verbatim."""
         component = source(FRONTEND / "components" / "HowToRead.tsx")
         assert "How to read this board" in component
         for phrase in (
@@ -721,6 +723,67 @@ class TestThePhoneReachesAPriceBeforeALesson:
             "The swing is far larger than the edge, every time.",
         ):
             assert phrase in component
+
+
+class TestTheExplainerNamesEveryChipTheBoardDraws:
+    """ADR 0103 gave the Board a SIZED TO ZERO chip and `HowToRead` did not
+    hear about it: its only chip gloss was REJECTED, and a beginner reading
+    the new chip cold had nothing on the page to read it against. Its header
+    also said "Four, and no more" over five bullets -- a cap that had become
+    decoration. Fixed 2026-09-03 by folding the two non-refusal chips into the
+    held-back bullet rather than adding a sixth."""
+
+    COMPONENT = FRONTEND / "components" / "HowToRead.tsx"
+
+    def _bullets(self) -> list[str]:
+        return re.findall(r"<li>(.*?)</li>", source(self.COMPONENT), flags=re.S)
+
+    def test_there_are_five_bullets_and_the_docstring_says_five(self):
+        """Both halves, because the defect was the two disagreeing. Mutation
+        observed red: a sixth `<li>`; and separately, "Four, and no more."
+        restored in the header."""
+        text = source(self.COMPONENT)
+        assert len(self._bullets()) == 5
+        assert "Five, and no more." in text
+        assert "Four, and no more." not in text
+        assert text.lstrip().startswith("/**\n * Five sentences")
+
+    def test_sized_to_zero_and_no_edge_are_glossed_in_the_rejected_bullet(self):
+        """One bullet, three chips: all three are the same lesson (the board
+        shows what it did not bet, and why), so a chip is glossed inside the
+        rule it instantiates rather than given a bullet of its own. Mutation
+        observed red: rename the SIZED TO ZERO gloss."""
+        bullets = self._bullets()
+        held_back = [b for b in bullets if "REJECTED" in b]
+        assert len(held_back) == 1
+        (bullet,) = held_back
+        assert "SIZED TO ZERO" in bullet
+        assert "NO EDGE" in bullet
+        # And nowhere else: a second gloss is a second chance to disagree.
+        others = [b for b in bullets if b != bullet]
+        assert len(others) == 4
+        assert not any("SIZED TO ZERO" in b or "NO EDGE" in b for b in others)
+
+    def test_the_gloss_says_both_halves_of_sized_to_zero(self):
+        """ADR 0103 §2.4: either half alone is the misreading the chip exists
+        to end -- a size to buy, or NO EDGE under a different label. The gloss
+        must say the row is counted (at the reference balance) AND that it
+        sizes to zero contracts at the real one, and must call it evidence
+        rather than a bet."""
+        (bullet,) = [b for b in self._bullets() if "SIZED TO ZERO" in b]
+        flat = re.sub(r"\s+", " ", bullet)
+        assert "reference balance" in flat
+        assert "zero" in flat and "contracts" in flat
+        assert "not a bet" in flat
+
+    def test_the_gloss_does_not_hardcode_the_reference_figure(self):
+        """ADR 0103 §6: the `$1,000` is read off the server
+        (`slate.reference_bankroll_dollars`) so no caption prints a figure the
+        constant has moved away from. `HowToRead` takes no props, so it points
+        at the row's caption instead of printing a number that would go stale
+        the day `REFERENCE_BANKROLL_DOLLARS` changes."""
+        assert "$1,000" not in source(self.COMPONENT)
+        assert "1000" not in source(self.COMPONENT)
 
     def test_the_prose_the_reviewer_kept_is_still_there(self):
         """Two passages were named as genuinely good and stay verbatim: the
