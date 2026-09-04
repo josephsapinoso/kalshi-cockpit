@@ -1,9 +1,9 @@
 """The cold-open watcher decides from fresh facts, on two clocks, not from a
 snapshot older than its own heartbeat.
 
-The defect, measured on live 2026-09-03. `RefreshWhenPriced` was gated on
-`anAutomaticBuyIsComing(actionable)` computed on the SERVER RENDER. That
-reading called the loop stalled when `last_look_ms` was over a hardcoded 180s
+The defect, measured on live 2026-09-03. `RefreshWhenPriced` was gated on a
+snapshot predicate the pages computed on the SERVER RENDER. That reading
+called the loop stalled when `last_look_ms` was over a hardcoded 180s
 -- a number written for the fast cadence (a pass every ~18s while a window is
 open) and applied to the idle one (`RUNNER_INTERVAL_S` = 900s; median 926.8s
 full-to-full across 6,066 live passes). So on a cold open after a quiet hour
@@ -420,6 +420,44 @@ class TestTheComponentIsWiredToTheNewPredicate:
         Mutation observed red: redeclare `automaticBuyIsComing?: boolean`."""
         code = _code(WATCHER)
         assert "automaticBuyIsComing" not in code
+
+    def test_the_retired_snapshot_predicate_is_gone_from_the_repo(self):
+        """The prop above was one half of the off-switch; the exported
+        function the pages called to fill it was the other, and it outlived
+        the repair by a day.
+
+        ADR 0102 Amendment 1 left it exported with a docstring saying it was
+        test-only, because the class that pinned it lived in another lane's
+        file. Deleted 2026-09-04 with that class: an exported symbol whose
+        every caller is a test asserting it still exists is decoration by
+        CLAUDE.md's testing rule, and `tests/test_has_callers.py` says the end
+        state for one is deletion. Pinned over every source and test file
+        rather than over one of them, because one predicate wearing two
+        spellings is the whole shape of ticket #35 -- a name still spelled
+        somewhere is the cheapest way for the server-render answer to come
+        back.
+
+        The name is assembled from its two halves so this pin cannot satisfy
+        itself: a literal here would be found by the search it performs.
+        Joined rather than added, because `+` between two string literals is
+        constant-folded at compile time and the whole name would come back in
+        `tests/__pycache__`, where a plain `grep -rn` over the tree finds it.
+        `docs/`, the ADRs and `tasks/archive` keep the historical spelling on
+        purpose -- the record of a defect is not the defect.
+
+        Mutation observed red: re-add a one-line export of the name to
+        `nextOddsWindow.ts`."""
+        retired = "".join(("an", "AutomaticBuyIsComing"))
+        roots = (REPO / "frontend" / "src", REPO / "tests")
+        offenders = [
+            path.relative_to(REPO).as_posix()
+            for root in roots
+            for path in sorted(root.rglob("*"))
+            if path.is_file()
+            and path.suffix in {".ts", ".tsx", ".py"}
+            and retired in path.read_text(encoding="utf-8", errors="ignore")
+        ]
+        assert offenders == [], offenders
 
     def test_every_terminal_state_has_words(self):
         flat = re.sub(r"\s+", " ", WATCHER.read_text(encoding="utf-8"))

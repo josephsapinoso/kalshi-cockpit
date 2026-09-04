@@ -51,7 +51,6 @@ _DRIVER = """
 import {
   readNextWindow,
   readWatch,
-  anAutomaticBuyIsComing,
   isStaleOddsReason,
   slateIsUnpricedByTheClock,
 } from "./nextOddsWindow.ts";
@@ -61,11 +60,9 @@ const result =
     ? readNextWindow(args.facts)
     : args.fn === "watch"
       ? readWatch(args.facts, args.ctx)
-      : args.fn === "coming"
-        ? anAutomaticBuyIsComing(args.facts)
-        : args.fn === "cold"
-          ? slateIsUnpricedByTheClock(args.rows, args.maxOddsAgeMs)
-          : isStaleOddsReason(args.reason);
+      : args.fn === "cold"
+        ? slateIsUnpricedByTheClock(args.rows, args.maxOddsAgeMs)
+        : isStaleOddsReason(args.reason);
 console.log(JSON.stringify(result === undefined ? null : result));
 """
 
@@ -102,10 +99,6 @@ def _code(path: Path) -> str:
 
 def read(facts):
     return _run({"fn": "read", "facts": facts})
-
-
-def buy_is_coming(facts):
-    return _run({"fn": "coming", "facts": facts})
 
 
 def is_stale(reason):
@@ -789,8 +782,7 @@ class TestASpentSliceIsNotAQuietNight:
             assert not re.search(r"\d", sentence), sentence
 
 
-@requires_node
-class TestTheWatcherAsksWhetherABuyIsPossible:
+class TestEveryScreenHandsTheWatcherTheBaselineAndNothingElse:
     """`RefreshWhenPriced` polled `/api/window` every ten seconds for five
     minutes, for a sweep the loop had already refused, and would then have
     reported a fault that did not exist. It watched `fixtures_fresh` rising --
@@ -800,52 +792,29 @@ class TestTheWatcherAsksWhetherABuyIsPossible:
     on the server render, and pass the answer in -- and the server render
     predates the page's own heartbeat, so the answer described the idle desk
     and switched the watcher off on 8 of 26 measured cold opens. Since
-    2026-09-03 the watcher asks `readWatch` against fresh facts on every poll;
-    `anAutomaticBuyIsComing` stays as the snapshot reading it always was, and
-    the cases below still hold of a snapshot. What changed is who consumes it.
-    `tests/test_watcher_decides_from_fresh_facts.py` owns `readWatch`.
+    2026-09-03 the watcher asks `readWatch` against fresh facts on every poll,
+    and `tests/test_watcher_decides_from_fresh_facts.py` owns that predicate.
+
+    **The snapshot predicate is gone, which is why this class was renamed.**
+    ADR 0102 Amendment 1 took its last production caller out of `ParlayCards`
+    and kept the exported function with a docstring saying it was test-only,
+    because the class that pinned it lived in another lane's file. This is
+    that file, and the five cases that used to head this class were its whole
+    readership: they executed a snapshot reading nothing shipped consumed, so
+    a green run established only that the export still existed. The partner
+    ruled it decoration on 2026-09-04, on CLAUDE.md's own testing rule --
+    every guard is verified by disabling it and watching the test fail; if it
+    stays green it is decoration -- and on `tests/test_has_callers.py`'s rule
+    that an exported symbol whose every caller is a test is a plan, not a
+    feature. Function, driver branch and the five cases were deleted together.
+
+    What survives is the pair of source pins, because they assert something
+    about the SHIPPED screens rather than about a deleted helper: the watcher
+    does not gate its poll on a prop, and no page hands it one. They need no
+    node, so the class no longer asks for it. The retired name's absence from
+    `frontend/src` and `tests/` is pinned in
+    `tests/test_watcher_decides_from_fresh_facts.py`.
     """
-
-    def test_a_scheduled_or_due_buy_is_coming(self):
-        assert buy_is_coming(facts(now_ms=1_000_000, next_sweep_ms=4_600_000))
-        assert buy_is_coming(facts(now_ms=1_000_000, next_sweep_ms=900_000))
-
-    def test_a_spent_slice_is_not_a_coming_buy(self):
-        assert not buy_is_coming(
-            facts(attention_slice_spent=True, floor_next_buy_ms=6_000_000)
-        )
-
-    def test_a_stalled_loop_is_not_a_coming_buy(self):
-        """A buy that is wanted while nothing is running to serve it is not a
-        buy that is coming -- the distinction the 2026-08-25 incident bought.
-        Two hours at a 900s cadence, because 400s -- the silence this case
-        used to call a stall -- is one idle sleep."""
-        assert not buy_is_coming(
-            facts(
-                now_ms=10_000_000,
-                next_sweep_ms=9_900_000,
-                last_look_ms=10_000_000 - 2 * 3_600_000,
-                loop_idle_interval_ms=IDLE_INTERVAL_MS,
-            )
-        )
-
-    def test_an_idle_sleep_is_a_coming_buy(self):
-        """The snapshot half of the 8-of-26 defect. A due buy with the last
-        look fifteen minutes old is a due buy: the loop is asleep, and the
-        next pass -- or the heartbeat's wake -- serves it. Mutation observed
-        red: restore the 180s constant."""
-        assert buy_is_coming(
-            facts(
-                now_ms=10_000_000,
-                next_sweep_ms=10_000_000,
-                last_look_ms=10_000_000 - 15 * 60_000,
-                loop_idle_interval_ms=IDLE_INTERVAL_MS,
-            )
-        )
-
-    def test_an_unreadable_timetable_is_not_a_coming_buy(self):
-        """A question that could not be asked is not a yes."""
-        assert not buy_is_coming(None)
 
     def test_the_watcher_decides_from_fresh_facts_not_from_a_prop(self):
         """Source pin: the pure predicate being right proves nothing if the

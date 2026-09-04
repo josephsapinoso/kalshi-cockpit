@@ -260,18 +260,23 @@ class TestPicksWiresItToo:
     def test_it_does_not_answer_the_watchers_question_for_it(self):
         """Ticket #35's half, moved to where it can be answered truthfully.
 
-        This case used to pin `automaticBuyIsComing={anAutomaticBuyIsComing(
-        actionable)}` on the mount -- the page answering "is a buy coming"
-        from its render's snapshot. The snapshot predates the page's own
-        heartbeat, so on a cold open after a quiet hour it said no (the last
-        look was over the old 180s constant; the idle cadence is 900s) and the
-        watcher switched itself off 0.6s before the buy landed
-        (2026-09-02T13:28Z). The watcher now asks `readWatch` against fresh
-        facts on every poll, and the page hands it the baseline count only.
+        This case used to pin an `automaticBuyIsComing` prop on the mount
+        -- the page answering "is a buy coming" from its render's snapshot.
+        The snapshot predates the page's own heartbeat, so on a cold open
+        after a quiet hour it said no (the last look was over the old 180s
+        constant; the idle cadence is 900s) and the watcher switched itself
+        off 0.6s before the buy landed (2026-09-02T13:28Z). The watcher now
+        asks `readWatch` against fresh facts on every poll, and the page hands
+        it the baseline count only.
+
+        The predicate that filled the prop was deleted on 2026-09-04; the
+        second assertion this case used to carry, naming that function, went
+        with it. Its replacement is repo-wide rather than per-file --
+        `tests/test_watcher_decides_from_fresh_facts.py` pins the name absent
+        from all of `frontend/src` and `tests/`, which covers this page.
         Mutation observed red: pass the prop again."""
         code = _code(PICKS)
         assert "automaticBuyIsComing" not in code
-        assert "anAutomaticBuyIsComing" not in code
 
     def test_the_timetable_failing_costs_the_watcher_not_the_list(self):
         """`/api/window` failing must not send the page to the unreachable
