@@ -111,8 +111,15 @@ detect.
   2026-09-04, filesystem write times corroborated by the git chronology:
   analyzer commit 01:13:01Z, amendment commit 01:30:06Z, run 01:30:12Z).
   Amendment 1 §A.3's claim that the read was early was the author's local date
-  and is superseded by §F. The captures carry no `generated_at`; E0 rests on
-  file metadata and the commit chronology, not on anything tamper-evident.
+  and is superseded by §F. **These four captures carry no `generated_at`, so
+  E0 rests on file metadata and the commit chronology, not on anything
+  tamper-evident.** That is a fact about this look and not about the
+  instrument from here on: `inspect_live_db.py --json` stamps
+  `generated_at_ms` and `generated_at` from the server clock as of
+  2026-09-04, and the analyzer prefers that stamp and prints which clock it
+  used, falling back to the file mtime only when the key is absent. Re-running
+  the analyzer after that change reproduces every figure above and adds only
+  the four provenance lines, each reading `from mtime`.
 
 **§8's blind re-check of §10.** §10 was re-read in full at ~01:05Z on
 2026-09-04, before the analyzer was written and before any capture was taken,
