@@ -455,6 +455,20 @@ his own answers, and recorded in **ADR 0071 — read it before planning**:
   Do not design for hypothetical operators beyond that — ADR 0071 §2.4 takes
   exactly one step in that direction and no more.
 
+**The desk is a read surface, not a transaction surface — measured 2026-09-04.**
+Between 2026-08-25 and 2026-09-04 Joe placed 27 taker hand fills on Kalshi
+across 12 sittings and 7 budget days, and **zero** went through the tool's
+order path, which has been armed since 2026-08-26. At 8 of the 12 sittings a
+`desk_attention` visit was open within ±5 minutes, the fill landing 1–9
+minutes after the visit opened; a day-shifted permutation puts the chance rate
+at 2.60 of 12 (`p_perm = 0.0004`, `k* = 7`). **The registered verdict is
+UNRESOLVED — CONCENTRATION** — 5 of the 8 come from two budget days and the
+finding does not survive dropping one of them — so **nothing is funded and
+nothing is killed on it** (registration §10). The population is Kalshi taker
+hand fills only; his sportsbook bets are invisible to `fills`, which is why
+ADR 0078 exists. The 0-of-27 is a census count, not a test, and needs none.
+`docs/measurements/2026-09-04-presence-at-the-moment-of-a-bet-result.md`.
+
 **The desk now watches what Joe already holds — ADR 0078.** `/hedge` records a
 parlay he placed (a Kalshi combo or a sportsbook slip), reads its legs' live
 Kalshi prices **while the game is running**, and says what hedging the

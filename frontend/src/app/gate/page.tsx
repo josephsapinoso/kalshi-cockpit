@@ -41,7 +41,7 @@ export default async function GatePage() {
   return (
     <Shell>
       <header className="mb-10">
-        <h1 className="display text-4xl sm:text-5xl">Live gate</h1>
+        <h1 className="display text-4xl sm:text-5xl">Gate</h1>
         {/* Ticket #9's ratified Gate lede (Joe, 2026-08-27), verbatim. The
             sentence it replaced -- "the tool has to demonstrate an edge before
             it is allowed to act on one" -- was pre-ADR-0038 framing: the hunt
