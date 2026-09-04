@@ -54,6 +54,32 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-04 - An absence pin that greps for a literal name finds it in `__pycache__`, because CPython folds `"a" + "b"` at compile time
+
+A test pinned that a deleted symbol appears nowhere under `tests/`. It failed
+on a clean tree: the name was still in three `.pyc` files, and not because the
+sources were stale — CPython constant-folds adjacent string literals, so the
+pin's own `"an" + "AutomaticBuyIsComing"` was compiled into the bytecode of
+the file asserting the name's absence. The pin was finding itself.
+
+**Pattern: a guard that searches for a literal must not contain that literal
+in a foldable form. Build the needle at run time (`"".join((...))`), and scope
+the search to source suffixes rather than to a directory. A guard whose first
+finding is itself gets deleted rather than believed.**
+
+## 2026-09-04 - A rate limit is a pause, not a loss: an agent with a worktree resumes with its context
+
+Three lanes died mid-task on a model limit. Two still had their worktrees and
+`SendMessage` resumed both from exactly where they stopped, one of them
+mid-edit with uncommitted work; only the third, which had not yet created a
+worktree, had to start over. Re-running the two from scratch would have
+repeated an hour of reading.
+
+**Pattern: on a killed agent, check `git worktree list` before relaunching.
+If the worktree exists, resume the agent and tell it to read `git status` and
+`git diff` first rather than redoing finished work. Relaunch fresh only when
+there is no tree to come back to.**
+
 ## 2026-09-04 - "The largest contributor" is a set until proven a singleton, and `max()` on a dict picks a member silently
 
 A registered leave-one-day-out downgrade said to drop "the largest-contributing

@@ -338,29 +338,68 @@ https://claude.ai/code/artifact/985a3e74-9c1d-4824-bff1-b99be758f13a
 
 Answer in one line as usual. Nothing here blocks anything.
 
+### CONTINUED, same session (~04:30Z) — items 2, 4 and 5 are done
+
+The session continued past the entry above on Opus after the Fable limit
+stopped three lanes mid-flight; two were resumed from their worktrees with
+`SendMessage` and one was relaunched. **A rate limit is a pause, not a loss**
+— an agent with a worktree resumes with its context intact.
+
+- **ADR 0105 — the desk is read, not transacted through** (item 2, done).
+  Rests on the census (0 of 27), **not** on the presence verdict, and says so
+  in its own §1 so no session can spend an UNRESOLVED. Records the three
+  entry designs and their combined yield of one typed estimate, and names the
+  two things that would overturn it: one real `manual_orders` row, or Joe's
+  answer to question D. Two figures the lane could not verify — which surface
+  wrote that one row, and whether the count is still 1 — are written in as
+  unverified rather than dropped.
+- **`inspect_live_db.py --json` stamps `generated_at_ms` + `generated_at`**
+  from the server clock (item 4, done, **+264 bytes**, headroom now 5,891).
+  `analyse_bet_presence.py` prefers that stamp over the file mtime and prints
+  which clock it used. Re-running the recorded look reproduces **every**
+  figure and adds only four `from mtime` provenance lines; the result doc now
+  says the E0 caveat is about those four captures, not about the instrument.
+  Also fixed: `_q_failure_journal`'s docstring said section 3 was "the second
+  of those limits closing" when it is the first — it contradicted its own
+  paragraph two sentences later.
+- **`anAutomaticBuyIsComing` deleted with its snapshot test class** (item 5,
+  done). The two source pins that lived in that class survive in a renamed
+  one. **The subtlety worth keeping:** an absence pin that greps `tests/` for
+  a literal name finds the name in `__pycache__`, because CPython
+  constant-folds `"an" + "AutomaticBuyIsComing"` into the `.pyc`. The pin
+  builds the name with `"".join((...))` instead, and says why.
+- **`LeagueTag` is closed, not open** — it has rendered through `leagueLabel`
+  since `aef8b5b`; what was missing was the `KALSHI_COMPETITIONS` map, which
+  `f4c2159` added. Item 6 of the 2026-09-03 entry closes with it.
+- **The `routes.py` split is mapped, read-only:**
+  `docs/decisions/2026-09-04-routes-split-map.md`. 45 handlers as closures in
+  one function, `return app` at 5829, one genuinely shared dependency
+  (`_serialise`), no `APIRouter`/`app.state`/`nonlocal`, and **fourteen tests
+  that pin the file by source text or namespace** — including one requiring
+  the `/api/board` and `/api/slate` decorators to stay adjacent in one file.
+  Eight-step order, each step revertable, ratchet deleted last because it
+  self-fails once the file is under the ceiling. **A plan, not a decision.**
+
 ### Still open, in the partner's order (next session)
 
 1. **`desk_attention` gains a path column** — the cheapest high-leverage
    instrument on the board; the schema's own "always the same value"
-   reasoning does not reach a column that varies (comment corrected tonight
-   to say so and to say the row count is dwell). Write in the schema comment
-   that stamps are cadence-emitted, so the column is dwell-weighted per
-   screen. Pending Joe's E.
-2. **A short new ADR: "the desk is read, not transacted through."** Not an
-   amendment to 0071 (a purpose ADR settled in Joe's answers); an operational
-   finding.
-3. **`/api/estimates/last-scored`**: honest docstring + grep pin that its
+   reasoning does not reach a column that varies (comment corrected to say so
+   and to say the row count is dwell). Write in the schema comment that
+   stamps are cadence-emitted, so the column is dwell-weighted per screen.
+   **Pending Joe's E.**
+2. **`/api/estimates/last-scored`**: honest docstring + grep pin that its
    absence from the frontend is deliberate (fifth instance of built-and-
-   uncalled). Pending Joe's D.
-4. **`inspect_live_db.py --json` stamps `generated_at`** from the server clock
-   (~200 bytes) so E0 never again rests on file metadata.
-5. **Copy sweep, one commit:** `LeagueTag` docs note; `_q_failure_journal`
-   docstring; delete `anAutomaticBuyIsComing` + snapshot class.
-6. **`routes.py` 333,958 → under 262,144**: a domain split needing a real
-   look, not a late-night one.
-7. Joe-gated, untouched: S3 / shard-0 (B), key rotation (C), #21 item 4
-   (`parlay_positions` count still unread — no subcommand emits it).
-8. Deploy the post-`a61f0d6` commits with the next code change.
+   uncalled). **Pending Joe's D.**
+3. **`routes.py` 333,958 → under 262,144**: the map is written; the decision
+   to spend a session on it is the partner's. Re-run the pin greps first —
+   the map says so itself, because a pin written after it was taken is not
+   in it.
+4. Joe-gated, untouched: S3 / shard-0 (B), key rotation (C), #21 item 4
+   (`parlay_positions` count still unread — no subcommand emits it; the
+   partner killed building one).
+5. ~~Deploy the post-`a61f0d6` commits~~ — done at the close of this
+   continuation.
 
 ---
 
