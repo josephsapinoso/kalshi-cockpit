@@ -730,11 +730,12 @@ function Freshness({
         baseline its first successful poll would look like a change and refresh
         the page for nothing.
 
-        The baseline is all this render hands over. It used to pass
-        `automaticBuyIsComing={anAutomaticBuyIsComing(actionable)}` too -- the
-        render answering "is a buy coming" from a snapshot older than the
-        page's own heartbeat, which is the off-switch ADR 0102 removed from
-        `/slate` and `/picks`. The watcher asks `readWatch` on every poll.
+        The baseline is all this render hands over. It used to pass an
+        `automaticBuyIsComing` prop too -- the render answering "is a buy
+        coming" from a snapshot older than the page's own heartbeat, which is
+        the off-switch ADR 0102 removed from `/slate` and `/picks`. The
+        watcher asks `readWatch` on every poll; the prop and the snapshot
+        predicate that filled it are both deleted.
       */}
       {actionable && (
         <RefreshWhenPriced renderedFresh={actionable.fixtures_fresh} />

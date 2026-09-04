@@ -34,17 +34,17 @@ import type { WatchVerdict } from "@/lib/nextOddsWindow";
  * when this was drawn".
  *
  * **It decides for itself, from fresh facts, on every poll — and until
- * 2026-09-03 it did not.** The pages computed `anAutomaticBuyIsComing` on the
- * SERVER RENDER and passed it in, and this component returned before setting
- * a timer when it was false. The server render happens before this page's
- * heartbeat exists, so that answer described the idle desk: on a cold open
- * after a quiet hour `last_look_ms` was over the old 180s stall constant (the
- * idle cadence is 900s), the snapshot said "stalled", and the watcher switched
- * itself off with *"It will not change by itself until you reload it"* — 0.6s
- * before the buy its own heartbeat had triggered landed, on the 13-second
- * visit of 2026-09-02T13:28Z. Live, 8 of 26 visits opened that way and all 8
- * were cold; not one open with fresh fixtures was called stalled. The
- * off-switch fired on exactly the opens the watcher exists for.
+ * 2026-09-03 it did not.** The pages computed a snapshot predicate on the
+ * SERVER RENDER and passed the answer in, and this component returned before
+ * setting a timer when it was false. The server render happens before this
+ * page's heartbeat exists, so that answer described the idle desk: on a cold
+ * open after a quiet hour `last_look_ms` was over the old 180s stall
+ * constant (the idle cadence is 900s), the snapshot said "stalled", and the
+ * watcher switched itself off with *"It will not change by itself until you
+ * reload it"* — 0.6s before the buy its own heartbeat had triggered landed,
+ * on the 13-second visit of 2026-09-02T13:28Z. Live, 8 of 26 visits opened
+ * that way and all 8 were cold; not one open with fresh fixtures was called
+ * stalled. The off-switch fired on exactly the opens the watcher exists for.
  *
  * So the only thing the server render hands in now is the baseline count.
  * Whether a buy is coming, and whether the loop is alive, are `readWatch`'s

@@ -54,18 +54,19 @@
  * window is open; idle, the loop sleeps `RUNNER_INTERVAL_S` (median 926.8s
  * full-to-full across 6,066 live passes). So on a cold open after a quiet
  * hour `last_look_ms` was routinely 180s+ old, this module called the loop
- * stalled, `anAutomaticBuyIsComing` came back false, and `RefreshWhenPriced`
- * switched itself off with *"It will not change by itself until you reload
- * it"* -- while the page's own heartbeat woke the loop within five seconds
- * and the buy landed a median ~3s after that. Measured on live 2026-09-03: of
- * 26 visits, 8 opened with the last look over 180s old, all 8 had nothing
- * fresh at open, and 0 of the 11 opens that DID have fresh fixtures were
- * called stalled -- 53% of the cold opens lost the watcher, and the watcher
- * exists for cold opens. The exhibit is 2026-09-02T13:28Z: a 13s visit, buy
- * at +0.6s, 0 -> 150 fresh fixtures, screen said it would not change.
+ * stalled, the snapshot predicate the pages computed from that reading came
+ * back false, and `RefreshWhenPriced` switched itself off with *"It will not
+ * change by itself until you reload it"* -- while the page's own heartbeat
+ * woke the loop within five seconds and the buy landed a median ~3s after
+ * that. Measured on live 2026-09-03: of 26 visits, 8 opened with the last
+ * look over 180s old, all 8 had nothing fresh at open, and 0 of the 11 opens
+ * that DID have fresh fixtures were called stalled -- 53% of the cold opens
+ * lost the watcher, and the watcher exists for cold opens. The exhibit is
+ * 2026-09-02T13:28Z: a 13s visit, buy at +0.6s, 0 -> 150 fresh fixtures,
+ * screen said it would not change.
  *
- * The root cause is in `anAutomaticBuyIsComing`'s inputs, not its logic: it
- * was computed on the SERVER RENDER, from a snapshot taken before the page's
+ * The root cause was in that predicate's inputs, not its logic: it was
+ * computed on the SERVER RENDER, from a snapshot taken before the page's
  * heartbeat existed -- asking whether a buy is scheduled using facts that
  * predate the thing that schedules the buy. So, since 2026-09-03:
  *
@@ -81,6 +82,19 @@
  *   pass writes a look -- so silence spanning `WATCHED_STALL_MS` of
  *   continuous visibility is a real stall, on a clock the 2026-08-25 wedge
  *   would have tripped at three minutes.
+ *
+ * **The snapshot predicate itself was deleted on 2026-09-04**, and the reason
+ * is worth more than the function was. ADR 0102 Amendment 1 left it exported
+ * with a docstring saying it was test-only, because the class that pinned it
+ * lived in another lane's file. That made its only reader a test asserting it
+ * still existed -- decoration by this repo's own testing rule (disable the
+ * guard and watch the test fail; a green run proved only that the export was
+ * still there), and `tests/test_has_callers.py`'s stated end state for an
+ * exported symbol whose every caller is a test. The name is now pinned absent
+ * from `frontend/src` and `tests/` by
+ * `tests/test_watcher_decides_from_fresh_facts.py`, so it cannot come back as
+ * a second spelling of a question `readWatch` already answers -- one
+ * predicate with two spellings being the whole shape of ticket #35.
  *
  * Pure and dependency-free so `tests/test_stale_exit.py` can execute it with
  * node the way `test_refresh_urgency.py` executes the urgency read — a
@@ -427,52 +441,6 @@ export function loopStallAfterMs(
   const interval = facts.loop_idle_interval_ms;
   if (interval === null || interval === undefined || interval <= 0) return null;
   return LOOP_STALL_IDLE_INTERVALS * interval;
-}
-
-/**
- * Does this SNAPSHOT say the scheduler is going to buy a price without being
- * asked?
- *
- * **Exported rather than spelled at each call site**, because there are two of
- * them and the whole shape of ticket #35 was one predicate with two spellings
- * that drifted apart.
- *
- * **`due_now` counts and `loop_stalled` does not**, which is the ordering
- * `readNextWindow` already establishes — a buy that is wanted while the
- * recording loop has stopped writing is not a buy that is coming. `unknown`
- * does not count either: a timetable that would not answer is not evidence a
- * sweep is on its way, and the caller's fallback is to say so rather than to
- * wait on it.
- *
- * **This is no longer what `RefreshWhenPriced` gates on, and the reason is
- * the word "snapshot".** Until 2026-09-03 the pages computed this on the
- * server render and passed it in, and the watcher returned before setting
- * any timer when it was false. But the server render happens before the
- * page's heartbeat exists, so the snapshot answers "would the idle desk buy?"
- * -- and on a cold open after a quiet hour the answer is no (`last_look_ms`
- * over the old 180s constant, or a fixture outside the floor's twelve-hour
- * horizon), while the page's own presence has the loop awake within five
- * seconds and buying three seconds later. The watcher now asks `readWatch`
- * against fresh facts on every poll.
- *
- * **Test-only since 2026-09-03, and this sentence is the honest label for
- * that.** `ParlayCards`' `Freshness` block was the last production caller and
- * stopped passing it the same day (ADR 0102 §5). No component or page in
- * `frontend/src` calls it now; its only callers are `tests/test_stale_exit.py`,
- * which executes it under node as the record of what a snapshot reading is
- * and is not. By this repo's own rule (`tests/test_has_callers.py`: an
- * exported symbol whose every caller is a test is a plan, not a feature) the
- * right end state is deletion, together with that test class; it is kept
- * here rather than deleted because the test that pins it lives in another
- * lane's file, and a function with a truthful docstring beats a red suite
- * nobody asked for. Nothing may start calling it again from a server render:
- * the defect it would reintroduce is measured in the module docstring.
- */
-export function anAutomaticBuyIsComing(
-  facts: NextWindowFacts | null,
-): boolean {
-  const kind = readNextWindow(facts).kind;
-  return kind === "due_now" || kind === "scheduled";
 }
 
 /** What the watcher knows about its own situation that the facts do not. */
