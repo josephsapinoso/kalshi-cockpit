@@ -44,10 +44,16 @@ export default async function PlaybookPage() {
     <Shell>
       <header className="mb-10">
         <h1 className="display text-4xl sm:text-5xl">Playbook</h1>
+        {/* Ticket #9's ratified Playbook lede (Joe, 2026-08-27), verbatim.
+            The sentence it replaced described only the archive half and
+            never mentioned the five steps, which is why the screen read as
+            two unrelated pages. This one names what the guide is ABOUT, not
+            what to do tonight, so it stays true whether or not the steps are
+            ever rewritten (#19, closed by Joe 2026-09-03 as not planned). */}
         <p className="mt-3 max-w-xl text-lg text-muted">
-          The rules that were in force when each observation was recorded. A
-          threshold change splits the evidence into halves that cannot be
-          pooled, so the split is shown rather than summed away.
+          A guide to thinking a bet through before you place it, and under it
+          a dated record of every time this tool&rsquo;s own settings changed
+          — so a change of settings is never mistaken for a change in results.
         </p>
       </header>
 

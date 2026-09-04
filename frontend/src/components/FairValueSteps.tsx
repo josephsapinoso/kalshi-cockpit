@@ -29,9 +29,15 @@ import Term from "@/components/Term";
  * - **A step whose number is missing says so and still draws.** The sequence
  *   is the lesson; a stage silently omitted would teach a pipeline that has
  *   one fewer step than the real one.
- * - **No colour.** `--accent` is the same red as `--negative` in both themes,
- *   so a coloured margin bar would read as a verdict on a market that is
- *   simply priced the way every book prices one.
+ * - **No colour.** A coloured margin bar would read as a verdict on a market
+ *   that is simply priced the way every book prices one. This line used to
+ *   give a second reason — that `--accent` was the same red as `--negative` —
+ *   and that has been false since ADR 0081 (commit `7bdcb11`, 2026-08-28)
+ *   made `--accent` indigo and left `--negative` the only red. The first
+ *   reason is the one that survives, and it is why this chart stays ink:
+ *   ticket #33 (Joe, 2026-09-02) ruled the four chart components keep
+ *   refusing colour because a mark on a chart is a claim, whatever hue the
+ *   accent happens to be. `tests/test_fair_value_steps.py` pins the refusal.
  * - **The margin bar is drawn to scale against the 100% baseline**, so a 2%
  *   book and a 9% book look different. It is never drawn from zero — the
  *   subject is the excess, not the total.

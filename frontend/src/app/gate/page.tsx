@@ -42,10 +42,22 @@ export default async function GatePage() {
     <Shell>
       <header className="mb-10">
         <h1 className="display text-4xl sm:text-5xl">Live gate</h1>
+        {/* Ticket #9's ratified Gate lede (Joe, 2026-08-27), verbatim. The
+            sentence it replaced -- "the tool has to demonstrate an edge before
+            it is allowed to act on one" -- was pre-ADR-0038 framing: the hunt
+            is closed, the edge was measured and it was negative, and nothing
+            here is waiting to be earned. The gate is the live-trading
+            interlock on the engine path and is never lowered (ADR 0038 §3).
+            No count or status figure is baked into this string, on purpose:
+            the live number renders in the Conditions list below, and a
+            figure written here would go stale the next time the runner
+            wrote a row. */}
         <p className="mt-3 max-w-xl text-lg text-muted">
-          Order placement stays locked until the paper record earns it. This is
-          the whole safeguard: the tool has to demonstrate an edge before it is
-          allowed to act on one.
+          The lock on this tool ever placing a bet by itself — which it has
+          never done, and the code that would send an order is switched off
+          behind the lock as well. The bets you place by hand go through a
+          different door with its own limits, and this lock never touches
+          them.
         </p>
       </header>
 
@@ -111,7 +123,9 @@ export default async function GatePage() {
           sends, and two things here can send one. The automated engine never
           has: it is still in dry run — it writes down the order it would have
           placed and sends nothing — and the 300-game count below is the
-          interlock holding it there.
+          interlock holding it there. That count is a reading, not a plan: the
+          interlock is never lowered or bypassed, and nothing on this desk
+          waits for it to open.
         </p>
         <p className="mt-3 text-sm leading-relaxed text-muted">
           The Buy button on a market page is the other, and since 26 August

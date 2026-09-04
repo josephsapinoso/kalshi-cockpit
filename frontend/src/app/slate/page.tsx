@@ -148,9 +148,23 @@ export default async function SlatePage({
             the route alias and the API vocabulary, which readers of code
             meet with the map in hand. */}
         <h1 className="text-2xl font-extrabold tracking-tight">Games</h1>
+        {/* Ticket #9's ratified Games lede (Joe, 2026-08-27). The sentence it
+            replaced -- "Everything on the record for tonight" -- over-claimed
+            twice: the list is capped at 100 rows against ~350 in-window, and
+            the window is the recorder's last half-hour, not tonight. One
+            clause departs from #9's text on a newer ruling: #9 wrote "the
+            named rule behind each one the desk refused", and Joe's 29A
+            ratification (2026-09-03) of the Refusals footer blurb found that
+            two rows in three in the live window were refused by the fee bar
+            with no rule named, so the refusal clause here takes the same
+            "a named check, or the fee bar" shape rather than the universal
+            reading 29A refused. */}
         <p className="mt-2 max-w-prose text-sm text-muted">
-          Everything on the record for tonight — the facts you would transact
-          against, not a verdict.
+          The long list, one line per side of a market the desk priced in its
+          last half-hour of recording: what Kalshi charges for it, how likely
+          the sportsbooks think it is, and the reason behind each one the desk
+          refused — a named check, or the fee bar — with your balance and the
+          caps it sets at the top.
           {/* The sentence that stops every other column reading as a signal.
               Taken from the payload rather than written here, so the server and
               the screen cannot come to disagree about what this page claims. */}{" "}
@@ -1067,9 +1081,14 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
-  /* No accent variant, for the Board's reason: `--accent` is byte-identical
-     to `--negative` in every theme block, so an emphasised count rendered as
-     a loss. A count is a fact, not a verdict. */
+  /* No accent variant, for the Refusals screen's reason: a count is a fact,
+     not a verdict. This comment used to say `--accent` was byte-identical to
+     `--negative` in every theme block, so an emphasised count rendered as a
+     loss; false since ADR 0081 (commit `7bdcb11`, 2026-08-28) made `--accent`
+     indigo. The guard in `tests/test_palette_contrast.py` now forbids the
+     LOSS colour on a Stat, not the accent. Ticket #33 asked whether a Stat
+     takes the indigo; Joe chose yes (2026-09-02) and the build was killed as
+     not earning (NEXT.md, 2026-09-03) -- see `board/page.tsx`'s Stat. */
   return (
     <div>
       <div className="text-xs font-semibold uppercase tracking-widest text-muted">

@@ -80,10 +80,20 @@ export default async function ParlaysPage({
             2026-08-26 and the ladder had grown to six — a number in prose is
             a second definition of `CARD_SHAPES`, kept in sync by memory, and
             memory is what let it go stale. Each card names its own cut.
+
+            Ticket #9's ratified Parlays lede (Joe, 2026-08-27), verbatim,
+            with `ladder.notes.chance` still appended. It adds the fact the
+            old sentence omitted and a novice most needs: a card is enter-only
+            -- no YES bid on 40 of 40 combination books this repo has read
+            (`parlays.py`, ADR 0012 §5) -- so once bought nobody is bidding to
+            buy it back. No availability claim, deliberately (#9 records why).
           */}
-          <Term k="parlay">Parlay</Term> cards from tonight&rsquo;s slate —
-          the same pool of games cut several ways, one pick per game, each
-          shown at its <Term k="fair_value">fair value</Term>.{" "}
+          <Term k="parlay">Parlay</Term> cards cut from tonight&rsquo;s games,
+          one pick per game, shown at the{" "}
+          <Term k="fair_value">fair value</Term> the sportsbooks&rsquo; chances
+          imply rather than at what Kalshi charges — a card pays only if every
+          pick on it wins, and once you own one nobody is bidding to buy it
+          back.{" "}
           {ladder.notes.chance}
         </p>
       </header>
