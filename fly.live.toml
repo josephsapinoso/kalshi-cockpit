@@ -41,6 +41,12 @@
 #     defaults `review=review_surfaced`, and both production callers --
 #     `run_once` and `run_quote_pass` -- go through it. The LLM Skeptic runs on
 #     every pricing pass.
+#     **Struck 2026-09-05.** Every part of that bullet is false: the default is
+#     `review=review_retired` (backend/runner.py:1776, unconditional -- no
+#     client, no request), and `review_surfaced`, `skeptic.py` and
+#     `historian.py` were deleted on 2026-09-05 (ADR 0106). No reviewer runs on
+#     any pricing pass. The bullet stays because the paragraph after it is the
+#     record of what that seam once cost.
 #
 # **The claim that used to live here was refuted by the live table, and the
 # refutation is worth more than the claim.** Until 2026-08-21 this block said
