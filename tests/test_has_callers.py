@@ -1404,7 +1404,7 @@ BILLED_PATH_CALL_SITES: dict[str, str] = {
         "request, and the master is reserved only after a staff note exists. "
         "A refusal makes zero calls."
     ),
-    "backend/api/routes.py": (
+    "backend/api/routers/scout.py": (
         "The desk's caller. `send_scout_desk` requires auth, re-checks "
         "`AgentBudget.refusal_reason` *before* accepting the request (a tap "
         "against an exhausted day answers 429 and spends nothing), and "
