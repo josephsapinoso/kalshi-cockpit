@@ -20,12 +20,17 @@ Two deliberate carve-outs, both named so they can be argued with:
   "reconstructs the pre-split file byte for byte" and the index names which
   archive file to open — and every one is under the ceiling today anyway
   (largest 135,833 bytes). If one ever grows past it, grep still works.
-- `backend/api/routes.py` is on a **ratcheted exemption**: it may shrink and
-  may not grow. The fix is a module split — `create_app` is one function
-  holding ~45 handlers as closures — not a trim, and a split is not a guard's
-  business. The exemption records the size at exemption time and fails on any
-  byte of growth, and it fails again the moment the file is under the ceiling
-  so the exemption cannot outlive its reason.
+- `backend/api/routes.py` **was** on a ratcheted exemption from 2026-09-03 to
+  2026-09-05: it could shrink and could not grow, because the fix was a
+  module split — `create_app` was one function holding ~45 handlers as
+  closures — not a trim, and a split is not a guard's business. The
+  exemption recorded the size at exemption time (333,958), failed on any
+  byte of growth, and was written to fail again the moment the file came
+  under the ceiling so it could not outlive its reason. It did exactly that
+  at step 3 of `docs/decisions/2026-09-04-routes-split-map.md` (250,903
+  bytes) and was removed; the general check covers the file from here on.
+  There is no exemption list any more, deliberately: one existed for exactly
+  one file, and re-adding one is a decision, not an edit.
 
 What it does NOT establish: that the files are *useful*, that the archive is
 complete, or that anything in them is true. It checks one thing — that a file
@@ -43,6 +48,9 @@ check with `READ_TOOL_LIMIT_BYTES` lowered to 250,000 so
 `scripts/inspect_live_db.py` (then 256,349 bytes) tripped it, and again with
 the limit set to 1 so every tracked source file did; the stale-exemption check
 with the exemption re-pointed at this test file, which is under the ceiling.
+Observed red again 2026-09-05, after the exemption was removed: the general
+check with the limit lowered to 250,000 so `backend/api/routes.py` (then
+250,903 bytes) tripped it -- the file the exemption used to hide from it.
 """
 
 from __future__ import annotations
@@ -66,15 +74,6 @@ SOURCE_SUFFIXES = (".py", ".ts", ".tsx", ".sql", ".toml", ".yml", ".md")
 
 # Written to be grepped, never read whole; see the module docstring.
 EXCLUDED_PREFIXES = ("tasks/archive/",)
-
-# path -> size in bytes at exemption time. An exempted file may shrink and may
-# not grow. Do not add to this: an exemption exists only where the fix is a
-# module split rather than a trim, and that has been true of exactly one file.
-RATCHETED_EXEMPTIONS: dict[str, int] = {
-    # 2026-09-03. `create_app` runs from ~line 495 to ~5,859 and holds ~45
-    # route handlers as closures; another lane owns the split.
-    "backend/api/routes.py": 333_958,
-}
 
 
 def tracked_files() -> list[str]:
@@ -135,7 +134,7 @@ class TestTrackedSourceCanBeRead:
         offenders = {
             p: _size(p)
             for p in tracked_source_files()
-            if p not in RATCHETED_EXEMPTIONS and _size(p) >= READ_TOOL_LIMIT_BYTES
+            if _size(p) >= READ_TOOL_LIMIT_BYTES
         }
         assert not offenders, (
             "These tracked source files are at or over the "
@@ -148,36 +147,8 @@ class TestTrackedSourceCanBeRead:
             "that file's comments); for prose, move the historical part into an "
             "existing `docs/` file it can cite by path, or into "
             "`tasks/archive/` if it is a session file. Do not delete content, "
-            "and do not add to RATCHETED_EXEMPTIONS -- that list is for a file "
-            "whose only fix is a module split, and it is meant to hold one."
-        )
-
-    @pytest.mark.parametrize("relative_path", sorted(RATCHETED_EXEMPTIONS))
-    def test_an_exempted_file_has_not_grown(self, relative_path: str) -> None:
-        recorded = RATCHETED_EXEMPTIONS[relative_path]
-        assert relative_path in tracked_files(), (
-            f"{relative_path} is exempted but not tracked; remove the exemption"
-        )
-        size = _size(relative_path)
-        assert size <= recorded, (
-            f"{relative_path} is {size:,} bytes, up from the {recorded:,} recorded "
-            "when it was exempted from the Read-tool ceiling. The exemption exists "
-            "because the fix is a MODULE SPLIT, not a trim, and it is a ratchet: "
-            "the file may shrink and may not grow by a byte. Put the new code in "
-            "a module a session can open, or split this one first. Do not raise "
-            "the recorded number."
-        )
-
-    @pytest.mark.parametrize("relative_path", sorted(RATCHETED_EXEMPTIONS))
-    def test_an_exemption_does_not_outlive_its_reason(self, relative_path: str) -> None:
-        """Once the file is under the ceiling the exemption must go.
-
-        Otherwise the general check never covers it again, and the recorded
-        size becomes a licence to grow back to it.
-        """
-        size = _size(relative_path)
-        assert size >= READ_TOOL_LIMIT_BYTES, (
-            f"{relative_path} is {size:,} bytes -- under the "
-            f"{READ_TOOL_LIMIT_BYTES:,}-byte ceiling. Remove it from "
-            "RATCHETED_EXEMPTIONS so the general guard covers it from here on."
+            "and do not exempt the file: the one ratcheted exemption this guard "
+            "ever carried (routes.py, 2026-09-03 to 2026-09-05) ended in the "
+            "module split it was waiting for, and the module docstring says why "
+            "there is no list to add to."
         )

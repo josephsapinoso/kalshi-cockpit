@@ -1408,7 +1408,7 @@ BILLED_PATH_CALL_SITES: dict[str, str] = {
         "`scout_desk.py` itself was corrected in the same lane and this "
         "allowlist entry was not, because it sat between two lanes' hunks."
     ),
-    "backend/api/routes.py": (
+    "backend/api/routers/scout.py": (
         "The desk's caller. `send_scout_desk` requires auth, re-checks "
         "`AgentBudget.refusal_reason` *before* accepting the request (a tap "
         "against an exhausted day answers 429 and spends nothing), and "
@@ -1581,13 +1581,24 @@ class TestNothingNewCanReachTheBilledPath:
         )
 
         factory = _billed_path_sites("build_client")
+        # `backend/api/routes.py` until 2026-09-05, when the routes split
+        # moved `send_scout_desk` into its own module. Two lanes wrote this
+        # file the same day -- one re-pointed this pin at `routes.py`, the
+        # other emptied `routes.py` of the handler -- and the merge was clean
+        # in git and wrong in fact, because neither lane's diff touched the
+        # other's line. The name is read from the allowlist rather than typed
+        # twice, so the next move breaks one place instead of two.
+        expected = "backend/api/routers/scout.py"
+        assert expected in BILLED_PATH_CALL_SITES, (
+            f"{expected} is not in the allowlist, so this pin is asserting a "
+            f"module the meter no longer claims to cover."
+        )
         assert any(
-            rel == "backend/api/routes.py" and kind == "call"
-            for rel, _, kind in factory
+            rel == expected and kind == "call" for rel, _, kind in factory
         ), (
             f"`build_client` sites were located at {factory}, which does not "
-            f"include the call from backend/api/routes.py that constructs the "
-            f"desk's client. The scanner has stopped seeing the one place the "
+            f"include the call from {expected} that constructs the desk's "
+            f"client. The scanner has stopped seeing the one place the "
             f"billing object is built."
         )
 

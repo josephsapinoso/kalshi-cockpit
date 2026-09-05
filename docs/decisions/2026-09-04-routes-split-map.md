@@ -120,3 +120,99 @@ Run the full suite between steps. Each step is independently revertable.
   for `routes.py`, `from backend.api.routes import` and `monkeypatch.setattr`
   on that namespace. A pin written between this map and the split is not here,
   so **re-run those greps before starting**, not just after.
+
+## Executed — 2026-09-05, steps 1–5 and step 8
+
+**This note supersedes the "nothing here has been executed" line at the top.**
+Steps 1–5 ran on branch `worktree-wf_e0ee5ede-e97-2` off `ef8434b`, one
+commit per step, every handler body moved byte-identical (stdlib `tokenize`
+on both sides, ignoring only NL/NEWLINE/INDENT/DEDENT/COMMENT positions:
+23 + 6 + 19 + 10 + 15 definitions compared, 0 differences). Steps 6 and 7
+were **not** funded and did not run: board, slate, window, market and its
+candles, orders, manual, health and the stream stay in `routes.py`.
+
+| File | Bytes |
+|---|---|
+| `backend/api/routes.py` | **193,733** (was 333,958; 68,411 under the ceiling) |
+| `backend/api/schemas.py` | 12,774 |
+| `backend/api/serialise.py` | 26,493 |
+| `backend/api/routers/__init__.py` | 2,490 |
+| `backend/api/routers/scout.py` | 16,341 |
+| `backend/api/routers/parlays.py` | 18,523 |
+| `backend/api/routers/hedge.py` | 6,754 |
+| `backend/api/routers/odds.py` | 10,247 |
+| `backend/api/routers/status.py` | 21,193 |
+| `backend/api/routers/ledger.py` | 19,045 |
+| `backend/api/routers/estimates.py` | 21,166 |
+
+Where execution departed from the plan, and why:
+
+- **17 models, not 18.** The map's count was the only thing that changed.
+- **Step 8 ran after step 3, not after step 7.** Step 3 alone took
+  `routes.py` to 250,903 bytes — under the ceiling — and the ratchet's
+  `test_an_exemption_does_not_outlive_its_reason` went red there by design.
+  Leaving it red through steps 4 and 5 would have made three commits
+  unrevertable on their own, so the dict, its two parametrised tests and
+  the `not in` clause were removed in their own commit (`ed17dd4`) between
+  steps 3 and 4. The general check now covers the file; observed red with
+  the limit lowered to 250,000.
+- **`tests/test_has_callers.py`'s allowlist is `BILLED_PATH_CALL_SITES`,
+  not `BILLED_PATH_SOURCE`** (that is the string constant for `base.py`).
+  The scout key moved to `backend/api/routers/scout.py`; the only edit in
+  that file.
+- **The one pin the map did not list**:
+  `scripts/dry_run_fair_price_downsample.py`'s `F2_KNOWN_READERS`, consumed
+  by `check_p1()` which greps `backend/` for the literal `fair_prices` and
+  no pytest calls. `serialise.py` (step 2) and `routers/ledger.py` (step 5)
+  were added; `routes.py` stays because the board, slate and market-detail
+  LEFT JOINs are still there. Verified by running the check before and
+  after each entry: `False` naming the new module, then `True`.
+- **A re-export can be spelled right and bound wrong, and nothing goes
+  red.** `routes.py` re-imports `_signal_cache` from `routers/status.py`
+  because `tests/test_clv_signal.py` clears it through the old namespace.
+  Binding a *fresh* dict there instead passed 47 of 47 — every case seeds
+  identical data, so clearing the wrong dict is invisible.
+  `tests/test_routes_reexports.py` is new and pins the identity of every
+  re-exported object; it fails under that mutation.
+- **The `KalshiRestClient` monkeypatch seam** (`test_parlay_lookup.py:240`,
+  `test_combo_bid_routes.py:165`) survives because `parlays.register`
+  receives `combo_api` — the closure `create_app` built, which resolves the
+  name in `routes`' namespace on the first tap — and the router imports
+  neither the class nor `routes`. Verified by making the router build its
+  own client over an `httpx.MockTransport`: 27 of 71 failed.
+- `test_suppression.py:790` turned out to be a presence check, not a count;
+  the `window` occurrence stays and the three in parlays travelled.
+- Imports that only moved handlers used were pruned from `routes.py` after
+  each step. `ruff --isolated --select F401` on the final file lists four:
+  `_decode_books_used`, `_signal_cache`, `_signal_payload` (the deliberate
+  re-exports) and `MANUAL_ORDER_MAX_SPEND_TENTHS` (unused before this
+  work; untouched).
+
+What this note does not establish: that steps 6 and 7 are worth doing.
+`routes.py` is readable now; the remaining 194 KB is the board/slate pair
+one test needs adjacent and the order path one test counts constructions
+in. Both are pin-heavy and neither is needed for the ceiling.
+
+## Steps 6 and 7 are killed, not deferred — 2026-09-05, at the merge
+
+The two unrun steps of the order above — **6, `board`**, and **7, `orders`
+then `manual`** — are closed here rather than carried. The reason is that the
+constraint this map was written against no longer binds.
+
+The map's own first paragraph names it: `routes.py` was 333,958 bytes against
+a 262,144-byte Read ceiling, so **no session could read it**. Steps 1–5 and 8
+took the file to 193,733 — **68,411 bytes of headroom**. Nothing else was ever
+named as a reason to keep cutting: not a test, not a boot path, not a
+deployment limit, and not a second ceiling further down. A split with no
+binding constraint is a diff against fourteen source-text pins for its own
+sake, and both remaining steps are the pin-heavy ones — `test_manual_orders.py`
+counts `OrderPlacer(` constructions inside one file, and
+`test_board_sized_to_zero.py:252` requires the `/api/board` and `/api/slate`
+decorators to stay adjacent in one file.
+
+**What would reopen this**, stated so a future session does not have to guess:
+a named constraint that the remaining ~194 KB actually violates. If one
+appears it will announce itself — a guard going red, a tool refusing the file,
+a handler that has to move for a reason of its own. Until then the board,
+slate, window, market and its candles, the order path, manual, health and the
+stream stay in `routes.py`, and this is a decision rather than a backlog item.

@@ -85,6 +85,17 @@ What went with them, and what was re-pointed rather than deleted:
   `backend/api/routes.py` names it and that file is Lane B's today. Its value
   is still what it says — whether a `lessons` row exists — and its docstring
   now says the table has no writer at all rather than an unwired one.
+
+  > **Corrected at the merge, 2026-09-05.** The reason above expired the hour
+  > it was written: Lane B's split moved that mention to
+  > `backend/api/routers/status.py:398`, so `routes.py` no longer names it.
+  > **The decision is unchanged and the better reason is the one that was not
+  > given** — `historian_has_run` is a field on the `/api/playbook` wire
+  > payload (`playbook.py:246`), read by `frontend/src/lib/api.ts:1987` and
+  > branched on at `playbook/page.tsx:106`. Renaming it is an API change, not
+  > a rename, and nothing about deleting the agent requires one. The lane's
+  > reason was about who owned a file for an afternoon; this one survives the
+  > afternoon.
 - **`tests/test_has_callers.py`**: `apply_verdict` leaves `MUST_HAVE_CALLERS`
   with a comment recording §3; the Historian's `Quarantined` entry is removed;
   the `skeptic.py`/`review.py` entries leave `BILLED_PATH_CALL_SITES`;
