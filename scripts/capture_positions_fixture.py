@@ -124,9 +124,17 @@ EXIT_MEANING: dict[int, str] = {
         "STOP -- no 'market_positions' key. The wire moved; today's "
         "`or []` would have called this 'no open positions'."
     ),
+    # "The per-row shape is still unobserved" until 2026-09-05, which had
+    # been false since 2026-08-30: the shape WAS captured that day and
+    # `tests/test_rest.py::OBSERVED_POSITION_ROW` carries it. ADR 0107 §7
+    # recorded the sentence as stale and left it, on a brief to keep the rest
+    # of the file byte-identical; that reason expired with the brief. The
+    # claim is now about this run, which is the only thing an exit code can
+    # honestly be about.
     EXIT_EMPTY: (
-        "EMPTY -- envelope confirmed, zero rows on both calls. The per-row "
-        "shape is still unobserved; write no parser from this run."
+        "EMPTY -- envelope confirmed, zero rows on both calls. This run "
+        "observed no per-row shape; write no parser from THIS run. The shape "
+        "is known from the 2026-08-30 capture (`OBSERVED_POSITION_ROW`)."
     ),
 }
 
