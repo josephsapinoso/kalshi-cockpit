@@ -334,7 +334,8 @@ class TestTheDailyCeilingBoundsTheDay:
     Mutation, 2026-08-11: `min(state.per_pass_budget, state.remaining_today)`
     -> `state.per_pass_budget`. `test_calls_already_made_today_reduce_the_
     allowance` and `test_a_zero_daily_budget_allows_no_calls_at_all` both
-    went RED. Re-run 2026-09-05 against the re-pointed tests: both RED again.
+    went RED. Re-run 2026-09-05 against the re-pointed tests: both RED again,
+    and `test_the_daily_count_survives_a_fresh_budget_object` with them.
     """
 
     def test_calls_already_made_today_reduce_the_allowance(self, conn):
@@ -547,7 +548,8 @@ class TestEveryCallIsRecorded:
     Mutation, 2026-09-05: `settle` writing `0` for a `None` `blocked`
     (`int(blocked or 0)`). `test_no_verdict_records_NULL_and_never_zero` went
     RED. Mutation: `settle` inserting a fresh row instead of updating --
-    `test_settle_never_adds_a_row` went RED with two rows for one call.
+    `test_settle_never_adds_a_row` went RED with two rows for one call, and
+    `test_a_settled_verdict_writes_one_row_with_its_verdict` with it.
     """
 
     def test_a_settled_verdict_writes_one_row_with_its_verdict(self, conn):

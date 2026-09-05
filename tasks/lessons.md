@@ -54,6 +54,27 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-05 - A "has a caller" check is only as deep as its walk, and a one-level walk is satisfied by a referrer that is itself dead
+
+`skeptic.apply_verdict` sat on `MUST_HAVE_CALLERS` with a consequence string
+naming "a safety layer that can block nothing", and passed all three caller
+tests for fifteen days while nothing on the live machine could reach it. Its
+one production referrer was `review._amend`, called only by
+`review_surfaced`, which nothing had named since ADR 0062 put
+`review_retired` on the pass default. The import closure did not catch it
+either: `review.py` was imported for the retired reviewer, so the module was
+reachable and the function inside it was not. Named, import-reachable, and
+called are three different properties, and the guard measured the first two.
+
+**Pattern: state a guard's depth in its own docstring, and when a symbol's
+consequence string describes the exact failure the guard cannot see, that is
+the moment to add the next level — here, a walk from the deployed entry
+points to the symbol — not a comment. A guard whose blind spot is written
+beside it and not tested for is decoration with a warning label. The
+corollary for deletions: a module can be import-reachable and dead, so
+"nothing imports it" is a sufficient reason to delete and never a necessary
+one.**
+
 ## 2026-09-04 - An absence pin that greps for a literal name finds it in `__pycache__`, because CPython folds `"a" + "b"` at compile time
 
 A test pinned that a deleted symbol appears nowhere under `tests/`. It failed
