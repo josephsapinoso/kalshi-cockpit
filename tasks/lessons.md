@@ -54,6 +54,35 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-05 - A clean merge is a statement about text; two lanes can each be right about a file and wrong about each other
+
+Two lanes edited one test file the same day. Their hunks were five lines
+apart and did not overlap, so `git merge-tree` reported zero conflicts and
+the merge was clean. It was also wrong: one lane had re-pointed an
+anti-vacuity pin at the module it believed called a symbol, while the other
+had already moved that call into a new module. Neither diff touched the
+other's line, so there was nothing for git to notice, and the pin would have
+asserted a call site that no longer existed -- passing or failing for a
+reason unrelated to what it was written to guard.
+
+**Pattern: git conflicts on lines, not on claims. When two lanes touch one
+file, the question is not "do their hunks overlap" but "does either one
+assert something about the other's files". Diff each lane against the other's
+tree, not just against the base.** The three checks that would have caught
+this in seconds: grep each lane's added lines for paths the other lane
+created, renamed or emptied; run the merged tree's own guards rather than
+each lane's; and prefer a pin that reads its target from a shared constant
+over one that types the path twice, so a move breaks one place instead of
+two.
+
+**Corollary, and it is the cheaper half: a reason written about who owns a
+file today expires today.** The same merge turned up three sentences of the
+form "X keeps its name because file Y names it and Y is the other lane's this
+session". Every one was false within the hour. A justification that names a
+lane, a session or an afternoon is a scheduling note wearing a decision's
+clothes -- write the reason that survives the merge, or the next reader
+inherits a decision with no reason at all.
+
 ## 2026-09-05 - A "has a caller" check is only as deep as its walk, and a one-level walk is satisfied by a referrer that is itself dead
 
 `skeptic.apply_verdict` sat on `MUST_HAVE_CALLERS` with a consequence string
@@ -3323,6 +3352,7 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-09-05 — in this file, above
+- A clean merge is a statement about text; two lanes can each be right about a file and wrong about each other
 - A "has a caller" check is only as deep as its walk, and a one-level walk is satisfied by a referrer that is itself dead
 
 ### 2026-09-04 — in this file, above
