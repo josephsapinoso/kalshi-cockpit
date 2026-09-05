@@ -3,7 +3,8 @@
  *
  * Same shape and same reasoning as `/refresh-odds`: the backend's
  * `POST /api/scout/{ticker}` requires `APP_AUTH_TOKEN` because it spends
- * money (three metered Anthropic calls per convening, ADR 0060), and the
+ * money (four metered Anthropic calls per convening -- the staff pair, the
+ * master and the pro-bettor seat; ADR 0060, ADR 0069), and the
  * browser deliberately does not hold that token -- `lib/session.ts` issues a
  * cookie that proves knowledge of it without carrying it. A button tapped on
  * a phone cannot demand a 43-character paste per tap, so the token stays
@@ -11,11 +12,19 @@
  *
  * **What that widens, stated plainly.** Whoever holds the session cookie can
  * now also spend from the Anthropic day: up to `AGENT_MAX_CALLS_PER_DAY` (24)
- * calls, shared with the Skeptic, at roughly a dime's worth of tokens per
- * three-call briefing. The ceiling is enforced server-side by `AgentBudget`
- * against the `agent_calls` table and cannot be raised from the client.
- * **It does not widen toward money on the exchange:** the order path still
- * demands the token itself, and nothing here touches it.
+ * calls -- the desk is the only thing that spends them -- at roughly a dime's
+ * worth of tokens per four-call briefing. The ceiling is enforced server-side
+ * by `AgentBudget` against the `agent_calls` table and cannot be raised from
+ * the client. **It does not widen toward money on the exchange:** the order
+ * path still demands the token itself, and nothing here touches it.
+ *
+ * This comment said "three metered calls" and "shared with the Skeptic" until
+ * 2026-09-05. The pro-bettor seat made a convening four calls (ADR 0069); the
+ * Skeptic's caller was retired by ADR 0062 and the module deleted on
+ * 2026-09-05; and the widening is not hypothetical -- `scout_briefings` on
+ * the live volume held eight `complete` rows that day, ids 1-8, convened
+ * between 2026-08-21 and 2026-08-30 (read over the committed loopback fetcher,
+ * `scripts/fetch_live_route.py /api/scout`).
  *
  * Deliberately at `/scout-desk` rather than under `/api/`, because that
  * prefix belongs to the `next.config.ts` rewrite; `middleware.ts` names this

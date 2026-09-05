@@ -7,7 +7,8 @@ playing at home", and the master "can collect the notes from each of his staff,
 and make more of an expert opinion that would finally serve me at my desk when
 i go into the site."
 
-So one briefing is three calls:
+So one briefing was three calls in that design, and is four as built (this
+line said "three" until 2026-09-05):
 
 - **Two staff scouts, one per team.** Each covers exactly one club: player
   status (injuries, designations, scratches, probable starters), team status
@@ -19,6 +20,9 @@ So one briefing is three calls:
   what the desk could not confirm. He is forbidden to add facts of his own:
   a synthesis that quietly introduces new claims is a third researcher wearing
   an editor's title.
+- **One pro-bettor seat** (`pro_bettor.py`, ADR 0069), reserved only after
+  the master settles. It reads the staff's notes and the master's briefing,
+  adds no facts, and is not required: the convening's `status` ignores it.
 
 **Nobody on the desk outputs a number that could feed a bet.** Not the staff
 (`ScoutReport` has no numeric forecast field -- see `scout.py`), and not the
@@ -40,8 +44,17 @@ notes to read is spend with nothing to synthesise.
 What this module does NOT establish
 -----------------------------------
 That the desk's output is any good, that a briefing moves any decision Joe
-makes, or that three calls is the right shape. It has never run against a real
-slate. It establishes only the contract: metered spend, sourced facts, no
+makes, or that four calls is the right shape. Until 2026-09-05 this paragraph
+also said "three calls" and "it has never run against a real slate"; the first
+was stale since ADR 0069 and the second since 2026-08-21. `scout_briefings` on
+the live volume held **eight rows** on 2026-09-05 -- ids 1-8, every one
+`complete` with a briefing and no refusal reason, requested between
+2026-08-21T14:01:50Z (`KXMLBGAME-26AUG211610ATLMIL-ATL`) and
+2026-08-30T22:06:12Z (`KXWNBAGAME-26AUG30GSPDX-GS`) -- read over the committed
+loopback fetcher (`scripts/fetch_live_route.py /api/scout`). What those eight
+cost in dollars, and whether any of them moved a bet, is not established
+(ADR 0062 §4 closes the invoice question; the ADR named in `review.py` carries
+the read). It establishes only the contract: metered spend, sourced facts, no
 numbers, and honest states for "filed nothing" versus "found nothing".
 """
 

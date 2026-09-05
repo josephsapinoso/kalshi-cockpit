@@ -24,6 +24,17 @@ Three agents:
 All three use structured outputs, so a verdict is a validated object rather
 than prose that has to be parsed. Prose is where an agent's hedging leaks into
 a decision.
+
+**Two of the three are gone; the list above is kept as the design it was.**
+The Skeptic's caller was retired from the pass on 2026-08-21 (ADR 0062) and
+`skeptic.py` deleted on 2026-09-05; `historian.py` was never called by
+anything that runs and was deleted the same day
+(`docs/adr/DRAFT-the-historian-and-the-skeptic-are-deleted-and-the-desk-has-been-convened.md`).
+What bills through this module today is the scout desk only: `scout_desk.py`'s
+staff pair, master and pro-bettor seat (ADR 0060, ADR 0069). The Skeptic token
+table below and the 2026-08-08 prefix measurements above `HOUSE_CONTEXT` name
+the deleted prompts; they are dated records of what was measured, not
+descriptions of what runs.
 """
 
 from __future__ import annotations

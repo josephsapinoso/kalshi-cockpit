@@ -1,6 +1,8 @@
 """The scout desk's routes: who may send it, and what the reader is told.
 
-The POST spends money (three metered Anthropic calls, ADR 0060), so it sits
+The POST spends money (four metered Anthropic calls, ADR 0060 and ADR 0069 --
+this line said "three" until 2026-09-05, by which date the live desk had been
+convened eight times, 2026-08-21 to 2026-08-30), so it sits
 behind `require_auth` like every other spending route, refuses before writing
 anything when the day's budget cannot afford the staff pair, and answers 202
 `accepted` -- never `briefed` -- because the desk takes minutes and the phone

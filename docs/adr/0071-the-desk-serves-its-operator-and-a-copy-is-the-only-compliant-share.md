@@ -298,6 +298,28 @@ Joe declined; do not reopen). The reliable quantities are counts, not bills.
 and so whether any Anthropic money has been spent at all. `scout_briefings`
 on the deployed volume answers it; the local database is not that record.
 
+> **Correction, 2026-09-05** (Lane C; the sentence above is left as written,
+> in the ADR 0104 form). It has been, eight times. Read that day at ~04:15Z
+> over the committed loopback fetcher — `flyctl ssh console -a kalshi-cockpit
+> -C "python /app/scripts/fetch_live_route.py /api/scout"`, HTTP 200 — with
+> `/api/health` reporting `agent_fleet_configured = true`: `scout_briefings`
+> held **eight rows, ids 1–8, every one `status = complete`**, each with a
+> briefing and a null `refusal_reason`. The first was requested at
+> `requested_ms = 1787320910043` = 2026-08-21T14:01:50Z
+> (`KXMLBGAME-26AUG211610ATLMIL-ATL`); the last at `1788127572062` =
+> 2026-08-30T22:06:12Z, completed 22:10:06Z (`KXWNBAGAME-26AUG30GSPDX-GS`).
+> The budget day then in progress (from `1788516000000` = 2026-09-04T10:00Z)
+> showed 0 of 24 calls, 0 of 60 searches, 0 of 500,000 tokens and 0 unmetered.
+> So Anthropic money **has** been spent from the desk — eight convenings,
+> each at least the three calls this ADR priced — on top of the 24 Skeptic
+> calls of 2026-08-16 (ADR 0062 §3). What is still not established: the
+> dollar figure (§4 of ADR 0062 stands; not reopened), `count(agent_calls)`
+> on the volume (no committed instrument emits it; not read), and whether any
+> of the eight briefings moved a bet. The paragraph above was true when
+> written and is corrected here rather than rewritten. Record:
+> `docs/adr/DRAFT-the-historian-and-the-skeptic-are-deleted-and-the-desk-has-been-convened.md`
+> (numbered at merge).
+
 **Not established: whether `ODDS_DAILY_CREDIT_BUDGET = 700` has ever
 bound.** The ~576/day figure is the design arithmetic, not a measurement.
 `api_credits` summed per budget-day on the live volume is the instrument,
