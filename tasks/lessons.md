@@ -54,6 +54,40 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-05 - A deadness grep scoped to the source directories misses the callers that matter most, because the loudest ones live outside them
+
+Seven symbols were audited for deletion by grepping `backend/` and `scripts/`
+and reporting which had no reference but their own definition. Seven came
+back clean and were written up as "real dead code". One of them,
+`runner.reset_walk_alarm`, is called by an **autouse fixture in the repo-root
+`conftest.py`** -- before and after every test in the suite, with the
+fixture's own docstring naming the two tests that fail without it. The grep
+did not miss a subtle reference; it never looked at the file, because
+`conftest.py` sits at the root and the scope was the two source trees.
+
+Two more were wrong for reasons the same scope hid: a function whose only
+callers are operator scripts read as dead from a runner-centric view, and a
+deliberately dormant money guard whose own docstring already recorded that it
+has no caller and why.
+
+**Pattern: scope a deadness grep to `git ls-files`, never to the source
+directories. The high-value callers of production code are disproportionately
+the ones outside `backend/` -- root `conftest.py`, fixtures, operator scripts,
+CI config -- and those are exactly the ones a "where is this used in the app"
+instinct excludes.** Before proposing any deletion, run the search over every
+tracked file and read each hit, and treat a symbol whose docstring explains
+its own callerlessness as documented rather than dead.
+
+**The naming half, which is the durable part: "dead" and
+"production-unreached" are different properties and only one of them licenses
+deletion.** A symbol can be unreachable from the deployed entry point and
+still be load-bearing for the test suite, for an operator script, or as a
+declared hook for a capability that is off today. This repo already has a
+mechanism for the distinction -- `DISPOSITIONS` in
+`tests/test_has_callers.py` -- so the honest output of an audit like this is a
+disposition, not a delete list. Nine candidates went in; three survived, and
+the six that did not were each rejected for a different reason.
+
 ## 2026-09-05 - A clean merge is a statement about text; two lanes can each be right about a file and wrong about each other
 
 Two lanes edited one test file the same day. Their hunks were five lines

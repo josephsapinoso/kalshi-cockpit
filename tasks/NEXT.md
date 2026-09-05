@@ -385,36 +385,155 @@ session on it; do notice if the number moves.
    column exists (ADR 0107 §5). The first *non-empty* snapshot is still owed
    and is the first place the rounding, the sign and the fee question can be
    checked against a known position.
-2. **Lane A2 — the screen for the staked figure.** ADR 0107 §6 names it: this
+2. **How did the parlays Joe picked do against what the desk told him? — Joe
+   asked for this 2026-09-05, and it is two questions, not one.** The first is
+   answerable now; the second is blocked on a record that does not exist.
+   Scoped here before either is taken, because the answer must not choose the
+   population.
+
+   **The blocker, stated first: `parlay_positions` and `parlay_position_legs`
+   are EMPTY on live — 0 rows, read 2026-09-05.** ADR 0078 built `/hedge` to
+   record a ticket Joe holds, and nothing has ever been recorded through it.
+   So "which parlays did Joe pick" has no answer in this database at all, and
+   his sportsbook slips are additionally invisible to `fills` — the same hole
+   CLAUDE.md names for his straight bets. **`manual_orders` is 0 too**, so
+   the order path did not capture them either. Nothing about this item can
+   proceed on Joe's *picks* until picks are recorded.
+
+   **What IS on live, and it is more than expected.** `parlay_lookups` holds
+   **34 taps** spanning 2026-08-22 → 2026-09-05, each carrying what the desk
+   said at the moment of the tap: `fair_joint_conservative` (the card's
+   headline joint), `hold`, `derived_yes_ask_tenths`, and `selected_legs` as
+   JSON "exactly as sent, for reproducibility". Across them: **74 distinct leg
+   tickers, all 74 present in `kalshi_markets`, and 64 of the 74 already
+   carrying a settled `result`.** So the legs' outcomes are recoverable
+   retrospectively without anyone having recorded anything.
+
+       status   book_empty 24   priced 7   error 3
+       card     safe 13  lottery 9  middle 5  longshot 4  agreed 2  soon 1
+       legs     3-leg 20   6-leg 9   4-leg 5
+
+   **Q1 — did the desk's parlay pricing match what happened? Answerable now,
+   and underpowered as a test.** For each lookup, the desk stated a joint
+   probability; the legs have since resolved; the realised all-legs-won
+   indicator is computable. But `n = 7` priced (34 if the leg set is scored
+   regardless of whether the combo could be bought), and at safe/lottery
+   joints the expected count on at least one side is far below the **≥5
+   expected outcomes** CLAUDE.md's first measurement rule requires. **Take it
+   as a census, not a test** — the same standing the "0 of 27" hand-fill count
+   has: list every priced parlay, its stated joint, and how it actually
+   resolved, and let the reader see the whole population. Any *calibration
+   claim* off n = 7 is the thing the measurement rules exist to stop.
+
+   **The 24 `book_empty` rows are a finding on their own and may be the real
+   answer.** 24 of 34 taps found no resting NO bid — the combo could not be
+   bought at any price. Consistent with ADR 0012 §5 and with the standing
+   record that combos are enter-only, and it means **the majority of what the
+   desk "recommended" was unbuyable**, which is a defect in the recommendation
+   independent of whether its probabilities were any good. Improving parlay
+   recommendations plausibly starts here rather than at the pricing.
+
+   **Q2 — Joe's picks vs the desk's recommendation. Blocked, and the fix is a
+   product change, not a measurement.** For this to ever be answerable,
+   `/hedge`'s recording path has to be used, or a lighter capture has to exist
+   that Joe will actually use at the moment he places a slip. That is a
+   question for the partner and for Joe, and it is the *first* step of this
+   item: **there is no point registering Q2 while its population is empty.**
+   A back-fill is possible for Kalshi-listed legs if Joe can reconstruct which
+   parlays he placed — the leg results are already in `kalshi_markets`.
+
+   **Sequence, so the answer cannot pick the population:** the pre-registrar
+   writes Q1's census form (population, the exact `parlay_lookups` predicate,
+   how a `book_empty` row is counted, and what would falsify "the desk's
+   parlay pricing is useful") BEFORE the join is run. Only aggregate counts
+   have been read so far — the status/card/leg-count table above and the
+   64-of-74 result coverage — and **no outcome has been compared to any stated
+   probability.** That is the line this item must not have crossed before
+   registration, and it has not.
+
+3. **Lane A2 — the screen for the staked figure.** ADR 0107 §6 names it: this
    lane touched no `frontend/`. Until it lands the strip shows the served
    string through the existing `staked_display` branch.
-3. ~~**The CI wall-clock question above.**~~ **Answered before this entry was
+4. ~~**The CI wall-clock question above.**~~ **Answered before this entry was
    filed: 314s against a 900s cap.** Nothing owed. The local 17m21s is a
    Windows cost and buys only local iteration speed if fixed.
-4. **ADR 0106 §5.3's newly-unreached symbols** — `AgentBudget.allowance` plus
+5. **ADR 0106 §5.3's newly-unreached symbols** — `AgentBudget.allowance` plus
    `study_stop_fired`, `loop_failures_since`, `prices.cents_to_tenths`,
    `runner.reset_walk_alarm`, `attention.seen_at_least_once_since`,
    `alerts.check_fee`, `discover_from_events`. Real dead code, a *consequence*
    of Lane C, deliberately not chased in the merge that had to stay
    verifiable. `runner._skeptic_context`'s dict — built on every judged row,
    ignored by the only reviewer left — belongs with them.
-5. **ADR 0106 §5.2: no captured Anthropic payload exists in `tests/fixtures/`.**
+
+   **Audited twice on 2026-09-05, and the correct answer is: delete THREE of
+   the nine, not nine. "Real dead code" above is the wrong words.** The
+   accurate property is **production-unreached**, which this repo already has
+   a mechanism for — `DISPOSITIONS`, `tests/test_has_callers.py:1080` — and
+   six of the nine must not be deleted at all:
+
+   - **`runner.reset_walk_alarm` is called on every test in the suite.** An
+     autouse fixture at `conftest.py:155-159` calls it before and after each
+     one, and that fixture's own docstring records which two tests fail
+     without it. Deleting it makes suite results order-dependent.
+   - **`discover_from_events` has four operator call sites** —
+     `measure_series_walk.py:42,72`, `probe_create_order.py:494`,
+     `run_chain.py:92` — and is the control arm of the memory-regression
+     guard on the live streaming walk. The *runner* uses the streaming
+     variant instead (`discovery.py:1016`); that is a narrower fact.
+   - **`alerts.check_fee` is a deliberate arming hook.** Its own docstring
+     (`alerts.py:1142-1153`) already states it has no production caller and
+     why: `ORDERS_ARE_DRY_RUNS = True`, so there is no fill to reconcile and
+     no honest place to call it from. Deleting a dormant money guard because
+     it has never fired is the move to refuse.
+   - **`prices.cents_to_tenths` and `AgentBudget.allowance`** churn ~322
+     lines of tests that guard *live* code, to remove three executable
+     lines. Net-negative.
+   - **`runner._skeptic_context` is live** — called at `runner.py:1705` and
+     `:2156` on every judged row, feeding a reviewer that refuses its output.
+     That is a cost question about the pricing pass, not dead code.
+
+   **What is left, and the reason to take it is not the ~9KB.**
+   `study_stop_fired` (`estimates.py:453`), `loop_failures_since`
+   (`db.py:1827`), `seen_at_least_once_since` (`attention.py:108`) — each is
+   **one predicate with two or three spellings**, where the second spelling is
+   what the screen and the inspector actually use (`GET /api/estimates/stop`
+   re-spells the money-arm comparison inline). `study_stop_fired`'s docstring
+   claims a write-path refusal that has since been removed. A stale duplicate
+   predicate costs a future session a day; the bytes are not the point.
+
+   **The audit error worth carrying: the first pass scoped its grep to
+   `backend/` and `scripts/` and called seven symbols dead.** Root
+   `conftest.py` is in neither, which is how a fixture running before every
+   test in the suite read as having no caller. **Scope a deadness grep to
+   `git ls-files`, never to the source directories** — the callers that
+   matter most are often the ones outside them.
+6. **ADR 0106 §5.2: no captured Anthropic payload exists in `tests/fixtures/`.**
    **Not killable**: `scout.py` survives and has eight live briefings behind
    it, so this is a gap in the *surviving* half, on the one money-spending
    path, against CLAUDE.md's own wire-format convention.
-6. **Three ADR 0107 refusals that must not be upgraded by a later reader**:
+7. **Three ADR 0107 refusals that must not be upgraded by a later reader**:
    the unit of `market_exposure_dollars` is inferred from a suffix pinned on a
    different field and bounded only by a $1-per-contract tripwire; the NO-side
    sign convention is unobserved and refused rather than guessed; "before
    fees" is a label, not a measurement. A known live position settles all
    three.
-7. **Joe-gated, untouched:** the five questions A–E from 2026-09-04 (PRs
+8. **Joe-gated, untouched:** the five questions A–E from 2026-09-04 (PRs
    #1/#2, S3/shard-0, Odds API key rotation, #11's estimate log, the
    `desk_attention` path column) and the 2026-09-03 key rotation. Nothing
    above waits on them.
-8. **Lane worktrees** `.claude/worktrees/wf_e0ee5ede-e97-{1,2,3}` are merged
-   and removable. Use `os.rmdir` on any `node_modules` junction *before*
-   `git worktree remove --force`, or the removal recurses into main's install.
+9. ~~**Lane worktrees** `.claude/worktrees/wf_e0ee5ede-e97-{1,2,3}` are merged
+   and removable.~~ **Mostly done 2026-09-05.** `git worktree list` showed only
+   `main`, so all three were already unregistered; what remained on disk were
+   four husks totalling 241K of build detritus
+   (`agent-a9c07477153a6f0f9`, `agent-af39922dd422145da`, `frontend`,
+   `wf_e0ee5ede-e97-1`). The junction hazard did **not** apply — checked before
+   deleting, via `st_file_attributes & 0x400`: no reparse point among them, all
+   real directories of 1–2 entries. Three were removed and `frontend/
+   node_modules` in main is intact. `wf_e0ee5ede-e97-1` is empty but held open
+   by a live process ("Device or resource busy"); harmless, delete it whenever
+   that process is gone. **Keep the junction rule** — it did not bind here
+   because these were husks, and it will bind on a worktree that was actually
+   built in.
 
 ---
 
