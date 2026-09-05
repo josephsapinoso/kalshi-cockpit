@@ -36,8 +36,12 @@ here reads the live database: every row is synthetic in the observed shape.
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 import sqlite3
+import sys
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -612,3 +616,190 @@ class TestTheInterlockCannotSeeThisRecord:
         fails loudly rather than by convention."""
         source = (ROOT / "backend" / "gate.py").read_text(encoding="utf-8")
         assert "venue_positions" not in source
+
+
+@pytest.fixture(scope="module")
+def capture_script():
+    """`scripts/capture_positions_fixture.py`, imported the way
+    `test_capture_fills_fixture.py` imports its sibling. Importing it reaches
+    no network; only `capture()` does, and every test here stubs the client."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import capture_positions_fixture as module
+
+    return module
+
+
+class _FrozenDatetime(datetime):
+    """`datetime.now()` pinned to an instant the test chooses, advancing one
+    second per call -- so a stamp taken once per run and a stamp taken per
+    write produce different filenames, and the test can tell them apart."""
+
+    _at: datetime
+    _calls: int = 0
+
+    @classmethod
+    def start(cls, at: datetime) -> None:
+        cls._at, cls._calls = at, 0
+
+    @classmethod
+    def now(cls, tz=None):
+        value = cls._at + timedelta(seconds=cls._calls)
+        cls._calls += 1
+        return value if tz is None else value.astimezone(tz)
+
+
+class TestTheCaptureScriptKeepsEveryObservation:
+    """`scripts/capture_positions_fixture.py` wrote two FIXED filenames, and
+    the 2026-09-05 run (exit 4: envelope confirmed, zero rows) overwrote the
+    2026-08-30 capture -- the only observation of the per-row shape this
+    account had produced. Every run now writes its own stamped pair, and a
+    second run leaves the first one's files exactly as they were.
+
+    What this does NOT establish: anything about the venue. The client is a
+    stub returning an envelope built on `OBSERVED_POSITION_ROW`; the JSON the
+    script writes around it is what is under test.
+
+    Mutations run, red and restored byte-identical: `capture_path` returning
+    the old fixed name (the two-runs and the stamped-pair tests red);
+    `run_at` taken once per `_write` call (the shared-stamp assertion red
+    when the clock moves between the two writes); the old `OUT_BARE`
+    constant reinstated (the source pin red).
+    """
+
+    def test_a_filename_carries_the_kind_and_a_utc_second_stamp(
+        self, capture_script
+    ):
+        at = datetime(2026, 9, 5, 4, 12, 33, 500_000, tzinfo=timezone.utc)
+        path = capture_script.capture_path("bare", at)
+        assert path.parent == capture_script.CAPTURES
+        assert path.name == "portfolio_positions_bare_20260905T041233Z.json"
+        assert capture_script.capture_path("count_filter", at).name == (
+            "portfolio_positions_count_filter_20260905T041233Z.json"
+        )
+
+    def test_the_stamp_is_utc_whatever_zone_the_clock_is_in(self, capture_script):
+        """A stamp in local time would sort two captures a day apart into
+        the wrong order across a zone change; UTC is the one ordering."""
+        eastern = timezone(timedelta(hours=-4))
+        local = datetime(2026, 9, 5, 0, 12, 33, tzinfo=eastern)
+        assert capture_script.capture_path("bare", local).name.endswith(
+            "_20260905T041233Z.json"
+        )
+
+    def test_the_captures_directory_is_still_the_gitignored_one(
+        self, capture_script
+    ):
+        """`data/` is ignored wholesale (`.gitignore`); a stamped filename
+        must not have moved the output somewhere a push would publish."""
+        assert capture_script.CAPTURES == ROOT / "data" / "captures"
+        ignored = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+        assert "data/" in ignored
+
+    def _stub_venue(self, capture_script, monkeypatch, tmp_path, envelope):
+        class FakeApi:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def get(self, path, **params):
+                return json.loads(json.dumps(envelope))
+
+        class FakeConfig:
+            @staticmethod
+            def load():
+                return object()
+
+        monkeypatch.setattr(capture_script, "KalshiConfig", FakeConfig)
+        monkeypatch.setattr(
+            capture_script, "KalshiRestClient", lambda config: FakeApi()
+        )
+        monkeypatch.setattr(capture_script, "CAPTURES", tmp_path)
+        monkeypatch.setattr(capture_script, "configure_logging", lambda: None)
+        monkeypatch.setattr(capture_script, "datetime", _FrozenDatetime)
+
+    async def test_a_run_writes_a_stamped_pair_and_the_envelope_verbatim(
+        self, capture_script, tmp_path, monkeypatch
+    ):
+        envelope = {
+            "cursor": "",
+            "event_positions": [],
+            "market_positions": [OBSERVED_POSITION_ROW],
+        }
+        self._stub_venue(capture_script, monkeypatch, tmp_path, envelope)
+        _FrozenDatetime.start(datetime(2026, 8, 30, 2, 1, 5, tzinfo=timezone.utc))
+
+        code = await capture_script.capture()
+
+        assert code == capture_script.EXIT_OK
+        names = sorted(p.name for p in tmp_path.iterdir())
+        assert names == [
+            "portfolio_positions_bare_20260830T020105Z.json",
+            "portfolio_positions_count_filter_20260830T020105Z.json",
+        ], "one stamp per run, taken as the run begins -- not one per write"
+        written = json.loads((tmp_path / names[0]).read_text(encoding="utf-8"))
+        assert written["payload"] == envelope, "verbatim, not redacted"
+        assert written["record_count"] == 1
+        assert written["params"] == {}
+        filtered = json.loads((tmp_path / names[1]).read_text(encoding="utf-8"))
+        assert filtered["params"] == {"count_filter": "position"}
+
+    async def test_a_second_run_leaves_the_first_capture_untouched(
+        self, capture_script, tmp_path, monkeypatch
+    ):
+        """The defect itself: the 2026-09-05 run destroyed the 2026-08-30
+        one. Two runs, the second empty, and the first pair's bytes are
+        exactly what they were."""
+        with_rows = {
+            "cursor": "",
+            "event_positions": [],
+            "market_positions": [OBSERVED_POSITION_ROW],
+        }
+        self._stub_venue(capture_script, monkeypatch, tmp_path, with_rows)
+        _FrozenDatetime.start(datetime(2026, 8, 30, 2, 1, 5, tzinfo=timezone.utc))
+        assert await capture_script.capture() == capture_script.EXIT_OK
+        first = {
+            p.name: p.read_bytes() for p in tmp_path.iterdir()
+        }
+        assert len(first) == 2
+
+        empty = {"cursor": "", "event_positions": [], "market_positions": []}
+        self._stub_venue(capture_script, monkeypatch, tmp_path, empty)
+        _FrozenDatetime.start(datetime(2026, 9, 5, 4, 12, 33, tzinfo=timezone.utc))
+        assert await capture_script.capture() == capture_script.EXIT_EMPTY
+
+        after = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+        assert len(after) == 4
+        for name, content in first.items():
+            assert after[name] == content, f"{name} was rewritten by the next run"
+        assert re.fullmatch(
+            r"portfolio_positions_bare_\d{8}T\d{6}Z\.json",
+            "portfolio_positions_bare_20260905T041233Z.json",
+        )
+        assert "portfolio_positions_bare_20260905T041233Z.json" in after
+
+    def test_no_fixed_capture_filename_survives_in_the_code(self, capture_script):
+        """The docstring may name the old files as history; the code may
+        not. Every `_write` call takes its path from `capture_path`, read
+        off the AST so a multi-line call cannot hide from a line grep."""
+        import ast
+
+        source = Path(capture_script.__file__).read_text(encoding="utf-8")
+        assert "OUT_BARE" not in source
+        assert "OUT_FILTERED" not in source
+        tree = ast.parse(source)
+        writes = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_write"
+        ]
+        assert len(writes) == 2, "one bare write and one filtered write"
+        for call in writes:
+            first = call.args[0]
+            assert (
+                isinstance(first, ast.Call)
+                and isinstance(first.func, ast.Name)
+                and first.func.id == "capture_path"
+            ), ast.unparse(call)
