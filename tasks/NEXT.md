@@ -218,10 +218,12 @@ ordering**: an integrator commit that describes a lane's effect must not land
 before the lane does, because a stopped session leaves the description
 without its subject.
 
-**STATE, verified at close:** `main` = the commit carrying this entry, on top
-of `363d502` (Lane A1 / ADR 0107), `165b5c5` (Lane B / routes split),
-`b154891` (Lane C / ADR 0106), `0087fa1`. **Live and demo are both still
-`ef8434b`** — nothing here is deployed yet. Ordinals were taken at the merge
+**STATE, verified at close:** `main` = `da3614b`, pushed. **CI green**
+(run 33993384750, `Tests + warehouse` 314s). **Live and demo are both
+`da3614b`** — demo run 33993534072, live run 33993654879, both
+`/api/health` ok with the sha matching and the live recorder 59s fresh.
+The merge commits under it: `363d502` (Lane A1 / ADR 0107), `165b5c5`
+(Lane B / routes split), `b154891` (Lane C / ADR 0106), `0087fa1`. Ordinals were taken at the merge
 boundary after `git fetch`, per `docs/adr/README.md`: 0105 was highest on
 `origin/main`, and `SCHEMA_VERSION` was re-read as 32 there before v33 was
 accepted. No `DRAFT-` file remains. All three lane worktrees still exist
@@ -351,26 +353,44 @@ on the first. It does walk the tree, and it is **not** in the fifteen slowest
 `test_has_callers.py` alone was taken under contention with another Python
 process. The pre-existing file is the cost.
 
-CI's cap is 15 minutes (`.github/workflows/ci.yml:50`) and its recent full
-runs were 6–8, against 17m21s here; Linux and a faster filesystem absorb this
-much better than Windows does, so the batch is expected to fit. An
-`lru_cache` on the parse and one hoisted `production_sources()` is the obvious
-fix and is **not** taken here — **read the wall clock on this batch's CI run
-before spending anything on it.**
+**The CI reading was taken and it closes the question.** Run 33993384750 on
+`da3614b`: `Tests + warehouse` **314s against the 900s cap**
+(`.github/workflows/ci.yml:50`), with `Secret scan` 8s and `Frontend` 28s —
+roughly ten minutes of headroom, and in line with the 6–8 minute runs before
+this batch. So the 17m21s is Windows filesystem cost, not a suite that has
+outgrown CI, and **the two new full-tree walks cost CI nothing measurable.**
+An `lru_cache` on the parse and one hoisted `production_sources()` remain the
+obvious fix and are **still not taken**: the only thing they now buy is local
+iteration speed, which is a comfort rather than a constraint. Do not spend a
+session on it; do notice if the number moves.
 
 ### Still open, in order
 
-1. **Push and deploy.** `0087fa1` must **never** go out on its own. One
-   deploy, not two — only Lane A1 carries a migration, it is additive, and
-   `docker/entrypoint.sh:96` runs it on boot. Demo first, then live; pass
-   `-e GIT_SHA=` or `/api/health` reports null. **`venue_positions` is
-   expected to hold zero rows at boot** — the first non-empty snapshot arrives
-   when the poller next runs, and zero is neither success nor failure.
+1. ~~**Push and deploy.**~~ **Done.** Pushed as one batch with `0087fa1`
+   inside it rather than ahead of it; demo then live, one deploy each, the
+   v33 migration running on boot via `docker/entrypoint.sh:96`.
+
+   **The migration was verified on the volume, not inferred from a green
+   deploy** — no inspector subcommand emits `schema_version` or
+   `venue_positions`, so it is a direct read. Both instances:
+   `schema_version = 33`, the `venue_positions` table present, and
+   `poll_log` carrying its `mirrored` column.
+
+   **And the marker earned itself on its first live read.** The three newest
+   `positions` stamps on live are `(ok=1, row_count=0, mirrored=1)` then two
+   with `mirrored = NULL` — the marked one written by the deployed code, the
+   unmarked ones from before it. So `venue_positions` is empty **because the
+   account holds no open positions**, which is a different fact from the
+   mirror having failed, and telling those apart is the entire reason the
+   column exists (ADR 0107 §5). The first *non-empty* snapshot is still owed
+   and is the first place the rounding, the sign and the fee question can be
+   checked against a known position.
 2. **Lane A2 — the screen for the staked figure.** ADR 0107 §6 names it: this
    lane touched no `frontend/`. Until it lands the strip shows the served
    string through the existing `staked_display` branch.
-3. **The CI wall-clock question above.** Read the first CI run on this batch
-   before optimising anything.
+3. ~~**The CI wall-clock question above.**~~ **Answered before this entry was
+   filed: 314s against a 900s cap.** Nothing owed. The local 17m21s is a
+   Windows cost and buys only local iteration speed if fixed.
 4. **ADR 0106 §5.3's newly-unreached symbols** — `AgentBudget.allowance` plus
    `study_stop_fired`, `loop_failures_since`, `prices.cents_to_tenths`,
    `runner.reset_walk_alarm`, `attention.seen_at_least_once_since`,
