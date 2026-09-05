@@ -63,6 +63,7 @@ and counted**, never written half-parsed.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import sqlite3
 import time
@@ -73,7 +74,7 @@ from typing import Any, Optional
 from .core.fees import calculate_fee
 from .core.prices import dollars_to_tenths
 from .kalshi.discovery import parse_ms
-from .kalshi.rest import KalshiRestClient
+from .kalshi.rest import KalshiRestClient, parse_position_fp
 from .store import db as store_db
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,17 @@ logger = logging.getLogger(__name__)
 # The wire values `source` may take here. 'engine' is reserved for the order
 # path and this module must never write it -- see ADR 0043.
 VENUE_SOURCE = "venue_hand"
+
+#: How long a `venue_positions` snapshot is kept. The writer deletes older
+#: rows in the same transaction as the snapshot it just wrote, so the table
+#: bounds itself whether or not the runner's slow pass -- where
+#: `store/retention.py` runs -- is alive; that loop has been observed down
+#: while this one was up. The only production reader (`bets.open_positions`)
+#: takes the newest successful poll, so any window past
+#: `bets.TONIGHT_STALE_AFTER_MS` (30 minutes) serves it; seven days keeps a
+#: week of snapshots to diagnose against, at (positions held) x 288 rows a
+#: day.
+VENUE_POSITIONS_RETENTION_MS = 7 * 24 * 3600 * 1000
 
 
 def _fractional_count(value: Any) -> Optional[float]:
@@ -275,6 +287,103 @@ def parse_portfolio_value_tenths(payload: dict) -> Optional[int]:
     return None
 
 
+@dataclass(frozen=True)
+class ParsedPosition:
+    """One `/portfolio/positions` row: the wire's text verbatim, plus three
+    derived columns that are `None` -- never 0 -- when unreadable.
+
+    Unlike `ParsedFill` and `ParsedSettlement`, `parse_position` never
+    refuses the whole row. The verbatim strings are the record of what the
+    venue said, and they are worth keeping even when a derived value is not
+    computable from them -- the next reader can check the derivation against
+    the source without another capture. What IS refused is the derived
+    figure, and `bets.open_positions` refuses its sum when any row's
+    `exposure_tenths` is `None`, rather than summing the rest.
+    """
+
+    ticker: Optional[str]
+    exchange_index: Optional[int]
+    position_fp: Optional[str]
+    market_exposure_dollars: Optional[str]
+    total_traded_dollars: Optional[str]
+    fees_paid_dollars: Optional[str]
+    realized_pnl_dollars: Optional[str]
+    last_updated_ts: Optional[str]
+    #: REAL quantity, `abs(position_fp)`; the schema's convention for a count.
+    contracts: Optional[float]
+    #: 'yes' | 'no' from the sign of `position_fp`; None at zero or unreadable.
+    side: Optional[str]
+    #: Integer tenths of a cent: EXPOSURE AT COST, from
+    #: `market_exposure_dollars`. Money in, before fees. Not market value.
+    exposure_tenths: Optional[int]
+
+
+def _verbatim(value: Any) -> Optional[str]:
+    """The wire value as text, exactly. A string is itself; anything else
+    is its JSON so an integer, a bool and a nested object all survive
+    unambiguously. `None` stays `None` -- an absent field is not `'null'`."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, default=str)
+
+
+def parse_position(row: dict) -> ParsedPosition:
+    """One `/portfolio/positions` row into the mirror's columns.
+
+    The shape is the one observed on this account 2026-08-30
+    (`tests/test_rest.py::OBSERVED_POSITION_ROW`): `position_fp` a
+    fixed-point string, signed by side; `market_exposure_dollars` and its
+    three siblings six-decimal dollar strings; `last_updated_ts` ISO-8601;
+    `exchange_index` an integer.
+
+    - `contracts`/`side` come through `kalshi.rest.parse_position_fp`
+      (Decimal; never `int()`, which misreads "22.88", never `float`
+      first). The sign is the side per the venue's convention; the
+      magnitude is the count.
+    - `exposure_tenths` comes through `core.prices.dollars_to_tenths`, the
+      wallet's one dollars-to-tenths spelling: `Decimal * 1000`,
+      ROUND_HALF_UP to a whole tenth, so a fractional-contract exposure
+      such as "7.641920" (7641.92 tenths) lands on the tenth grid within
+      +-0.05 tenths. That helper also refuses a negative -- deliberately
+      kept here: whether the venue signs a NO-side exposure has never been
+      observed, and `abs()` would be a guess wearing a number.
+
+    Unreadable resolves to `None`, never 0, per column; the verbatim text is
+    kept either way. This function establishes nothing about fees (whether
+    the exposure includes them is untested) and reads nothing from
+    `event_positions`.
+    """
+    ticker = row.get("ticker")
+    exchange_index = row.get("exchange_index")
+    quantity = parse_position_fp(row.get("position_fp"))
+    if quantity is None:
+        contracts: Optional[float] = None
+        side: Optional[str] = None
+    else:
+        contracts = float(abs(quantity))
+        side = "yes" if quantity > 0 else "no" if quantity < 0 else None
+    return ParsedPosition(
+        ticker=str(ticker) if ticker is not None else None,
+        exchange_index=(
+            exchange_index
+            if isinstance(exchange_index, int)
+            and not isinstance(exchange_index, bool)
+            else None
+        ),
+        position_fp=_verbatim(row.get("position_fp")),
+        market_exposure_dollars=_verbatim(row.get("market_exposure_dollars")),
+        total_traded_dollars=_verbatim(row.get("total_traded_dollars")),
+        fees_paid_dollars=_verbatim(row.get("fees_paid_dollars")),
+        realized_pnl_dollars=_verbatim(row.get("realized_pnl_dollars")),
+        last_updated_ts=_verbatim(row.get("last_updated_ts")),
+        contracts=contracts,
+        side=side,
+        exposure_tenths=dollars_to_tenths(row.get("market_exposure_dollars")),
+    )
+
+
 def log_poll_attempt(
     conn: sqlite3.Connection,
     *,
@@ -283,12 +392,15 @@ def log_poll_attempt(
     ok: bool,
     row_count: Optional[int] = None,
     error: Optional[str] = None,
-) -> None:
-    conn.execute(
+) -> int:
+    """Write the attempt; return the new `poll_log.id`, which a mirror row
+    that came from this attempt must carry (`venue_positions.poll_log_id`)."""
+    cursor = conn.execute(
         "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count, error) "
         "VALUES (?, ?, ?, ?, ?)",
         (now_ms, endpoint, 1 if ok else 0, row_count, error),
     )
+    return int(cursor.lastrowid)
 
 
 async def poll_portfolio(
@@ -337,7 +449,7 @@ async def poll_portfolio(
     summary["fills"] = await poll_fills(conn, client, now_ms=now_ms)
     conn.commit()
 
-    # -- positions: COUNTED, NOT PARSED. Shape never observed. ---------------
+    # -- positions: counted in poll_log AND mirrored (schema v33) -----------
     summary["positions"] = await poll_positions(conn, client, now_ms=now_ms)
     conn.commit()
 
@@ -505,25 +617,37 @@ async def poll_positions(
     *,
     now_ms: int,
 ) -> Any:
-    """The positions count alone, so it can run on the 5-minute cadence too.
+    """The open positions, mirrored: counted in `poll_log` AND stored in
+    `venue_positions`, on the 5-minute cadence.
 
-    **Still COUNTED, NOT PARSED**, and moving the clock changes nothing about
-    that: the count lands in `poll_log.row_count`. The per-row shape WAS
-    captured 2026-08-30 (`scripts/capture_positions_fixture.py`), and what
-    changed here as a result is upstream -- `rest.positions()` now returns
-    the venue's own non-zero cut, so this count stopped including markets
-    already exited.
+    **Until schema v33 this counted and discarded.** The docstring here read
+    *"Still COUNTED, NOT PARSED"* and the loop below it logged a warning that
+    the per-row shape had *"never been captured"*. The shape was captured on
+    2026-08-30 (`scripts/capture_positions_fixture.py`;
+    `tests/test_rest.py::OBSERVED_POSITION_ROW` carries it), so from that day
+    the warning was false and the discard was a choice. `bets.open_positions`
+    meanwhile served "Open now: N" beside an unconditional refusal where the
+    money figure belonged (ADR 0101 section 2.3, third reason). Now every row
+    the venue returns is written through `parse_position`: the wire text
+    verbatim, three derived columns that are NULL when unreadable, all stamped
+    with the `poll_log` row this call just wrote -- so the count and the sum a
+    reader takes from them come from ONE venue read with ONE stamp.
+
+    **`poll_log.row_count` is written exactly as before**, from `len(rows)`,
+    and stays the count the desk serves. A failed call leaves its `poll_log`
+    row and writes nothing to the mirror; the previous snapshot stays the
+    newest. After a successful write, rows older than
+    `VENUE_POSITIONS_RETENTION_MS` are deleted in the same transaction -- the
+    table bounds itself (see the constant for why not `store/retention.py`).
 
     Extracted from `poll_portfolio` (2026-08-29) for the reason `poll_fills`
     and `poll_settlements` were extracted before it: a consumer refuses on a
     stale read, and on the 12-hour mirror alone the refusal is the wrong one.
-    `bets.open_positions` serves "Open now: N positions" from this endpoint's
-    newest successful `poll_log` row, and since 2026-08-26 Joe places real
-    hand bets through `/api/manual-orders` one contract at a time -- so a bet
-    he just placed did not move that count for up to twelve hours. It only
-    ever *looked* fresh because this instance's containers keep restarting
-    and `poll_portfolio_forever`'s first cycle is a full mirror; the freshness
-    was the boot clock, not the poller.
+    Since 2026-08-26 Joe places real hand bets through `/api/manual-orders`
+    one contract at a time, so a bet he just placed did not move the count for
+    up to twelve hours -- and only ever *looked* fresh because this instance's
+    containers keep restarting and `poll_portfolio_forever`'s first cycle is
+    a full mirror; the freshness was the boot clock, not the poller.
 
     **This is not an amendment to the registered cadence, and the
     registration draws the line itself.** A1 sets `fills`, `settlements` and
@@ -533,12 +657,19 @@ async def poll_positions(
     clock*, granting the operational one a 5-minute cadence in those words.
     A7's reason for keeping the two apart is an unbounded number of implicit
     looks at a stopping arm, and it does not reach here: **no registered
-    statistic reads `positions`.** There is nothing in a count for an analysis
-    to look at. `MIRROR_INTERVAL_S` is untouched, and `run_match_pass` --
-    which does write a registered variable (`outcome_win`) -- stays on it.
+    statistic reads `positions` or `venue_positions`.** `MIRROR_INTERVAL_S`
+    is untouched, and `run_match_pass` -- which does write a registered
+    variable (`outcome_win`) -- stays on it.
 
     The caller commits; this function only writes, exactly as `poll_balance`
-    does, so `poll_portfolio` can reuse it inside its own transaction.
+    does, so `poll_portfolio` can reuse it inside its own transaction. The
+    one network `await` is the first statement, before any write, which is
+    the property `tests/test_poller_holds_no_lock_across_io.py` guards in the
+    callers.
+
+    Returns `{"seen", "stored", "exposure_unreadable"}`: rows the venue
+    returned, rows written (always equal -- a row is never refused whole), and
+    rows whose `exposure_tenths` is NULL, which the reader will refuse to sum.
     """
     try:
         rows = await client.positions()
@@ -548,18 +679,43 @@ async def poll_positions(
             error=repr(exc),
         )
         return f"FAILED: {exc}"
-    log_poll_attempt(
+    poll_log_id = log_poll_attempt(
         conn, now_ms=now_ms, endpoint="positions", ok=True,
         row_count=len(rows),
     )
-    if rows:
-        # The first observation of the shape. Capture before parsing.
-        logger.warning(
-            "positions returned %d rows -- the per-row shape has never "
-            "been captured; run scripts/capture_fills_fixture.py-style "
-            "capture before writing a parser", len(rows),
+    unreadable = 0
+    for row in rows:
+        parsed = parse_position(row if isinstance(row, dict) else {})
+        if parsed.exposure_tenths is None:
+            unreadable += 1
+            logger.warning(
+                "positions: exposure at cost did not parse for %r "
+                "(market_exposure_dollars=%r); stored verbatim with the "
+                "derived column NULL, and the staked figure will refuse",
+                parsed.ticker, parsed.market_exposure_dollars,
+            )
+        conn.execute(
+            "INSERT INTO venue_positions "
+            "(poll_log_id, polled_ms, ticker, exchange_index, position_fp, "
+            " market_exposure_dollars, total_traded_dollars, fees_paid_dollars, "
+            " realized_pnl_dollars, last_updated_ts, contracts, side, "
+            " exposure_tenths) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                poll_log_id, now_ms, parsed.ticker, parsed.exchange_index,
+                parsed.position_fp, parsed.market_exposure_dollars,
+                parsed.total_traded_dollars, parsed.fees_paid_dollars,
+                parsed.realized_pnl_dollars, parsed.last_updated_ts,
+                parsed.contracts, parsed.side, parsed.exposure_tenths,
+            ),
         )
-    return {"seen": len(rows)}
+    conn.execute(
+        "DELETE FROM venue_positions WHERE polled_ms < ?",
+        (now_ms - VENUE_POSITIONS_RETENTION_MS,),
+    )
+    return {
+        "seen": len(rows), "stored": len(rows), "exposure_unreadable": unreadable,
+    }
 
 
 async def poll_balance(

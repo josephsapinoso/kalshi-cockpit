@@ -36,14 +36,36 @@ here reads the live database: every row is synthetic in the observed shape.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
+from backend import portfolio_poll
+from backend.portfolio_poll import (
+    VENUE_POSITIONS_RETENTION_MS,
+    parse_position,
+    poll_positions,
+)
 from backend.store import db
+from tests.test_rest import OBSERVED_POSITION_ROW
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class FakeClient:
+    """`positions()` only -- the one endpoint under test here."""
+
+    def __init__(self, positions=None, *, fail: bool = False):
+        self._positions = positions if positions is not None else []
+        self._fail = fail
+
+    async def positions(self):
+        if self._fail:
+            raise RuntimeError("boom positions")
+        return self._positions
 
 
 @pytest.fixture
@@ -138,3 +160,245 @@ class TestTheSchemaCarriesTheMirror:
                 f"VALUES (?, 1, {value})",
                 (poll_id,),
             )
+
+
+class TestTheObservedRowParsesIntoNamedUnits:
+    """Every row here is `OBSERVED_POSITION_ROW` or a one-field variation of
+    it -- the 2026-08-30 capture's field names and types, never a shape
+    invented for the test."""
+
+    def test_the_observed_row_lands_verbatim_with_its_units_named(self):
+        parsed = parse_position(OBSERVED_POSITION_ROW)
+        assert parsed.ticker == "KXMLBGAME-26AUG30TEST-AAA"
+        assert parsed.exchange_index == 1
+        # Verbatim: the wire strings, character for character.
+        assert parsed.position_fp == "22.88"
+        assert parsed.market_exposure_dollars == "7.641920"
+        assert parsed.total_traded_dollars == "7.641920"
+        assert parsed.fees_paid_dollars == "0.070000"
+        assert parsed.realized_pnl_dollars == "0.000000"
+        assert parsed.last_updated_ts == "2026-08-30T02:01:05.541282Z"
+        # Derived: "7.641920" dollars is 7641.92 tenths -> 7642 on the grid.
+        assert parsed.exposure_tenths == 7642
+        assert parsed.contracts == pytest.approx(22.88)
+        assert parsed.side == "yes"
+
+    def test_exposure_rounds_to_the_tenth_grid_half_up(self):
+        """Fractional contracts make sub-tenth exposures real. The rounding
+        is the wallet's one rule (`dollars_to_tenths`, ROUND_HALF_UP), so a
+        half-tenth goes up and the column is within +-0.05 tenths of the
+        exact figure -- never a whole cent off."""
+        exact_half = dict(OBSERVED_POSITION_ROW, market_exposure_dollars="0.000500")
+        assert parse_position(exact_half).exposure_tenths == 1
+        just_under = dict(OBSERVED_POSITION_ROW, market_exposure_dollars="0.000499")
+        assert parse_position(just_under).exposure_tenths == 0
+
+    def test_a_no_side_position_keeps_its_sign_as_the_side(self):
+        """`position_fp` negative is a NO holding per the venue's convention;
+        the magnitude is the count. A parser that dropped the sign would
+        record a short as a long."""
+        short = dict(OBSERVED_POSITION_ROW, position_fp="-3.50")
+        parsed = parse_position(short)
+        assert parsed.side == "no"
+        assert parsed.contracts == pytest.approx(3.5)
+        assert parsed.position_fp == "-3.50"
+
+    def test_the_quantity_is_decimal_never_int(self):
+        """`int("22.88")` raises and `int(22.88)` truncates; the parser goes
+        through `parse_position_fp`, which is Decimal. Pinned by the value a
+        truncation would produce."""
+        assert parse_position(OBSERVED_POSITION_ROW).contracts != 22
+        assert Decimal(str(parse_position(OBSERVED_POSITION_ROW).contracts)) == (
+            Decimal("22.88")
+        )
+
+    @pytest.mark.parametrize(
+        "junk", [None, "", "not money", "nan", "Infinity", True, {"a": 1}]
+    )
+    def test_an_unreadable_exposure_is_none_never_zero(self, junk):
+        parsed = parse_position(
+            dict(OBSERVED_POSITION_ROW, market_exposure_dollars=junk)
+        )
+        assert parsed.exposure_tenths is None
+        # And the rest of the row is untouched by one bad field.
+        assert parsed.ticker == OBSERVED_POSITION_ROW["ticker"]
+        assert parsed.contracts == pytest.approx(22.88)
+
+    def test_a_negative_exposure_is_refused_not_absoluted(self):
+        """Whether the venue signs a NO-side exposure has never been
+        observed. `abs()` would be a guess wearing a number; the column is
+        NULL and the verbatim text keeps the sign for the day it is pinned."""
+        parsed = parse_position(
+            dict(OBSERVED_POSITION_ROW, market_exposure_dollars="-7.641920")
+        )
+        assert parsed.exposure_tenths is None
+        assert parsed.market_exposure_dollars == "-7.641920"
+
+    def test_an_unreadable_quantity_leaves_count_and_side_none(self):
+        parsed = parse_position(dict(OBSERVED_POSITION_ROW, position_fp="lots"))
+        assert parsed.contracts is None
+        assert parsed.side is None
+        assert parsed.position_fp == "lots"
+        # The exposure is its own field and still parses.
+        assert parsed.exposure_tenths == 7642
+
+    def test_a_zero_quantity_has_no_side(self):
+        parsed = parse_position(dict(OBSERVED_POSITION_ROW, position_fp="0.00"))
+        assert parsed.contracts == 0.0
+        assert parsed.side is None
+
+    def test_a_non_string_wire_value_is_kept_as_its_json(self):
+        """Verbatim means the venue's representation survives whatever type
+        it arrives in: an integer, a bool and an object are all recoverable
+        from their JSON, and `None` stays `None` rather than the text 'null'."""
+        parsed = parse_position(
+            dict(OBSERVED_POSITION_ROW, position_fp=3, last_updated_ts=None)
+        )
+        assert parsed.position_fp == "3"
+        assert parsed.contracts == 3.0
+        assert parsed.last_updated_ts is None
+
+    def test_exchange_index_is_an_integer_or_nothing(self):
+        assert parse_position(dict(OBSERVED_POSITION_ROW, exchange_index="1")).exchange_index is None
+        assert parse_position(dict(OBSERVED_POSITION_ROW, exchange_index=True)).exchange_index is None
+        assert parse_position(OBSERVED_POSITION_ROW).exchange_index == 1
+
+
+class TestThePollerStoresWhatItCounts:
+    async def test_a_successful_poll_writes_every_row_under_its_own_stamp(
+        self, conn
+    ):
+        second = dict(OBSERVED_POSITION_ROW, ticker="KXMLBGAME-26AUG30TEST-BBB")
+        summary = await poll_positions(
+            conn, FakeClient([OBSERVED_POSITION_ROW, second]), now_ms=4_242
+        )
+        conn.commit()
+
+        assert summary == {"seen": 2, "stored": 2, "exposure_unreadable": 0}
+        log = conn.execute(
+            "SELECT id, ok, row_count FROM poll_log WHERE endpoint = 'positions'"
+        ).fetchone()
+        assert (log["ok"], log["row_count"]) == (1, 2), (
+            "poll_log.row_count is still written, unchanged, from len(rows)"
+        )
+        rows = conn.execute(
+            "SELECT poll_log_id, polled_ms, ticker, exposure_tenths, "
+            "position_fp, side FROM venue_positions ORDER BY id"
+        ).fetchall()
+        assert [tuple(r) for r in rows] == [
+            (log["id"], 4_242, "KXMLBGAME-26AUG30TEST-AAA", 7642, "22.88", "yes"),
+            (log["id"], 4_242, "KXMLBGAME-26AUG30TEST-BBB", 7642, "22.88", "yes"),
+        ]
+
+    async def test_a_failed_poll_leaves_the_previous_snapshot_as_the_newest(
+        self, conn
+    ):
+        await poll_positions(conn, FakeClient([OBSERVED_POSITION_ROW]), now_ms=1)
+        conn.commit()
+        result = await poll_positions(conn, FakeClient(fail=True), now_ms=2)
+        conn.commit()
+
+        assert str(result).startswith("FAILED:")
+        assert conn.execute(
+            "SELECT COUNT(*) FROM venue_positions"
+        ).fetchone()[0] == 1
+        failed = conn.execute(
+            "SELECT ok, row_count FROM poll_log WHERE polled_ms = 2"
+        ).fetchone()
+        assert (failed["ok"], failed["row_count"]) == (0, None)
+
+    async def test_an_empty_list_is_a_snapshot_with_no_rows_not_no_snapshot(
+        self, conn
+    ):
+        """Zero open positions is a real state (the 2026-09-05 capture found
+        exactly that) and must be distinguishable from a poll that never
+        happened: the `poll_log` row says 0 and the mirror has nothing under
+        it, which the reader serves as count 0 and $0.00."""
+        summary = await poll_positions(conn, FakeClient([]), now_ms=7)
+        conn.commit()
+        assert summary == {"seen": 0, "stored": 0, "exposure_unreadable": 0}
+        assert conn.execute(
+            "SELECT row_count FROM poll_log WHERE endpoint = 'positions'"
+        ).fetchone()[0] == 0
+
+    async def test_an_unreadable_row_is_stored_with_its_text_and_a_null(
+        self, conn, caplog
+    ):
+        """Refuse the figure, keep the record, say so. Never 0."""
+        bad = dict(OBSERVED_POSITION_ROW, market_exposure_dollars="seven")
+        with caplog.at_level(logging.WARNING, logger="backend.portfolio_poll"):
+            summary = await poll_positions(conn, FakeClient([bad]), now_ms=9)
+        conn.commit()
+
+        assert summary == {"seen": 1, "stored": 1, "exposure_unreadable": 1}
+        row = conn.execute(
+            "SELECT market_exposure_dollars, exposure_tenths FROM venue_positions"
+        ).fetchone()
+        assert tuple(row) == ("seven", None)
+        assert any(
+            "did not parse" in rec.getMessage() for rec in caplog.records
+        ), "an unreadable exposure must be logged, not silently NULLed"
+
+    async def test_the_writer_bounds_its_own_table(self, conn):
+        """Rows older than the retention window go in the same transaction as
+        the snapshot that displaces them; the newest snapshot never does."""
+        old = 1_000
+        await poll_positions(conn, FakeClient([OBSERVED_POSITION_ROW]), now_ms=old)
+        conn.commit()
+        inside = old + VENUE_POSITIONS_RETENTION_MS - 1
+        await poll_positions(
+            conn, FakeClient([OBSERVED_POSITION_ROW]), now_ms=inside
+        )
+        conn.commit()
+        assert conn.execute(
+            "SELECT COUNT(*) FROM venue_positions"
+        ).fetchone()[0] == 2, "inside the window nothing is deleted"
+
+        past = old + VENUE_POSITIONS_RETENTION_MS + 1
+        await poll_positions(conn, FakeClient([OBSERVED_POSITION_ROW]), now_ms=past)
+        conn.commit()
+        stamps = [
+            r[0] for r in conn.execute(
+                "SELECT polled_ms FROM venue_positions ORDER BY polled_ms"
+            )
+        ]
+        assert stamps == [inside, past], (
+            "the row past the window is gone; the two inside it stay"
+        )
+
+    async def test_the_poller_writes_but_does_not_commit(self, conn):
+        """The seam `poll_portfolio` and the fast branch depend on: the
+        caller commits, so a positions write is inside the caller's
+        transaction and a rollback takes the mirror rows with the log row."""
+        await poll_positions(conn, FakeClient([OBSERVED_POSITION_ROW]), now_ms=3)
+        conn.rollback()
+        assert conn.execute("SELECT COUNT(*) FROM venue_positions").fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT COUNT(*) FROM poll_log WHERE endpoint = 'positions'"
+        ).fetchone()[0] == 0
+
+    async def test_the_never_captured_warning_is_gone(self, conn, caplog):
+        """Until v33 a successful poll with rows logged *"the per-row shape
+        has never been captured"* -- false since 2026-08-30. Pinned absent
+        over the log AND the source, so the sentence cannot come back as a
+        comment either."""
+        with caplog.at_level(logging.WARNING, logger="backend.portfolio_poll"):
+            await poll_positions(
+                conn, FakeClient([OBSERVED_POSITION_ROW]), now_ms=1
+            )
+        assert not [r for r in caplog.records if "never" in r.getMessage()]
+        source = (ROOT / "backend" / "portfolio_poll.py").read_text(
+            encoding="utf-8"
+        )
+        assert "has never been captured" not in source
+        assert "capture_fills_fixture.py-style" not in source
+
+    def test_the_retention_window_serves_the_only_reader(self):
+        """The reader takes the newest poll and refuses past 30 minutes; the
+        window must exceed that bound or a fresh snapshot could be pruned
+        from under it. Read from the constants, not typed."""
+        from backend.bets import TONIGHT_STALE_AFTER_MS
+
+        assert VENUE_POSITIONS_RETENTION_MS > TONIGHT_STALE_AFTER_MS
+        assert VENUE_POSITIONS_RETENTION_MS == 7 * 24 * 3600 * 1000
+        assert portfolio_poll.VENUE_POSITIONS_RETENTION_MS is VENUE_POSITIONS_RETENTION_MS
