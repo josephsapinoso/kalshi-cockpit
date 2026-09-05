@@ -3322,6 +3322,19 @@ have missed every lesson written in the last nine days. The titles below are
 the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
+### 2026-09-05 — in this file, above
+- A "has a caller" check is only as deep as its walk, and a one-level walk is satisfied by a referrer that is itself dead
+
+### 2026-09-04 — in this file, above
+- An absence pin that greps for a literal name finds it in `__pycache__`, because CPython folds `"a" + "b"` at compile time
+- A rate limit is a pause, not a loss: an agent with a worktree resumes with its context
+- "The largest contributor" is a set until proven a singleton, and `max()` on a dict picks a member silently
+- A precondition written as the failure of one named mechanism does not fire when a different mechanism fails the same way
+- A date read off a local clock is a different date; every registered instant is UTC
+- A fixture set that only ever states the deployed value cannot detect a hardcoded copy of it
+- Match a source anchor against the file's own line ending; a normalising reader will tell you it exists when a byte reader cannot find it
+- The session scratchpad is shared across parallel lanes
+
 ### 2026-09-03 — in this file, above
 - A counter that emits on a cadence while a condition holds measures the condition's duration, not its occurrences
 - "One predicate, two spellings" is an architectural fault, not a run of incidents
