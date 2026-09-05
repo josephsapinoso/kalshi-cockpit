@@ -1,25 +1,37 @@
-"""The Skeptic, connected to the pricing pass.
+"""The review seam in the pricing pass, and the retirement that sits in it.
 
 `backend/agents/*` was the fourth module in this project to be complete, tested
-and invoked by nothing. These are the tests that the *connection* works, which
-is a different claim from the ~40 tests asserting the agents themselves behave.
+and invoked by nothing. These were the tests that the *connection* worked --
+that a surfaced row reached the Skeptic, that its verdict was applied before
+anything was persisted, that a blocked row could never be sold. The Skeptic was
+retired as the pass default on 2026-08-21 (ADR 0062) and deleted on 2026-09-05
+together with `review_surfaced`, the metered caller these tests used to inject
+(`docs/adr/0106-the-historian-and-the-skeptic-are-deleted-and-the-desk-has-been-convened.md`).
+
+What is left to test is the **seam**: `run_pricing_pass` still judges every row,
+hands the surfaced ones to `review`, and persists only afterwards. That shape is
+what stops a surfaced row sitting orderable on disk while something looks at it,
+and it is what `TestTheScheduledSkepticIsRetired` attaches to. The reviewer
+injected here is a stand-in that returns rows blocked or untouched and reaches
+no client; the tests that needed a client -- an API failure, an unbuildable
+prompt, an unconfigured key, the dedicated-thread event loop -- were tests of
+the deleted function and went with it.
 
 What these tests do not establish
 ---------------------------------
-**That this has ever changed an outcome on real money.** The Skeptic runs only
-on rows that would be surfaced, and `surfaced` has been 0 for the life of the
-project, so on the live instance this path has never executed. The slate below
-is built by taking the captured Kalshi and odds payloads the rest of the suite
-uses and nudging **one** number -- the NO bid on one market, which sets the
-derived YES ask -- until the row clears the suppression gauntlet. Every other
-value is the bytes the two APIs actually sent.
+**That any reviewer runs on the deployed instance.** None does. The default is
+`review_retired`, which refuses every surfaced row and calls nothing, and the
+last test class here is what keeps that true. The slate below is built by
+taking the captured Kalshi and odds payloads the rest of the suite uses and
+nudging **one** number -- the NO bid on one market, which sets the derived YES
+ask -- until the row clears the suppression gauntlet. Every other value is the
+bytes the two APIs actually sent. That nudge is stated rather than hidden
+because it is the whole reason a test can exist here at all: without it there
+is no surfaced row anywhere in this repo, and a seam test with nothing to hand
+over is decoration.
 
-That nudge is stated rather than hidden because it is the whole reason a test
-can exist here at all: without it there is no surfaced row anywhere in this
-repo, and a wiring test with nothing to wire is decoration.
-
-Where the "the Skeptic can stop a bet" claim is actually established
--------------------------------------------------------------------
+Where the "a blocked row cannot be sold" claim is actually established
+---------------------------------------------------------------------
 In two links, deliberately not re-walked here as a third test:
 
 1. A blocked row persists with `suppressed_reason` set and
@@ -36,16 +48,13 @@ test asserting the join would be a copy of (2) with one string changed.
 
 from __future__ import annotations
 
-import asyncio
 import copy
 import json
 from pathlib import Path
 
 import pytest
 
-from backend.agents.base import AgentConfig
-from backend.agents.review import ReviewCandidate, ReviewOutcome, review_surfaced
-from backend.agents.skeptic import SkepticVerdict
+from backend.agents.review import ReviewCandidate, ReviewOutcome
 from backend.engine import Recommendation, with_added_suppression
 from backend.kalshi.discovery import discover_from_events
 from backend.odds.client import store_quotes
@@ -164,47 +173,16 @@ def _orderable(conn) -> list[dict]:
     ]
 
 
-def _prompt_kwargs(**overrides) -> dict:
-    """A valid `skeptic.build_prompt` keyword set.
-
-    Spelled out rather than left empty. An empty mapping raises `TypeError`
-    inside `evaluate`, which the isolation guard turns into a `None` verdict --
-    so a test using `{}` would assert the right outcome for entirely the wrong
-    reason, and would keep passing if verdicts stopped being applied at all.
-    """
-    base = dict(
-        ticker="KXTEST-ABC",
-        market_title="Pittsburgh vs New York M Winner?",
-        outcome_name="Pittsburgh Pirates",
-        event_title="Pittsburgh vs New York M",
-        kalshi_ask_cents=51.0,
-        consensus_fair_cents=55.7,
-        edge_cents=2.9,
-        quote_age_s=0.0,
-        odds_age_s=424.3,
-        book_count=3,
-        market_width_points=0.0034,
-        depth_at_ask=120.0,
-        devig_methods={"multiplicative": 0.557, "shin": 0.5579},
-        commence_iso="2026-08-07T17:05:00+00:00",
-        matched_sportsbook_teams=["New York Mets", "Pittsburgh Pirates"],
-    )
-    base.update(overrides)
-    return base
-
-
-def _verdict(kind: str = "defect") -> SkepticVerdict:
-    return SkepticVerdict(
-        verdict=kind,
-        primary_concern="the Kalshi market settles on regulation time.",
-        checks_performed=["compared settlement rules"],
-        recommended_action="reject",
-        confidence=0.8,
-    )
-
-
 class _Reviewer:
-    """A stand-in for `review_surfaced` that records what it was asked."""
+    """A stand-in reviewer that records what the seam handed it.
+
+    `verdict=None` passes every row through untouched -- what an opted-in
+    reviewer with no opinion did. `verdict="defect"` (or `"suspicious"`)
+    blocks every row with the tag the deleted `apply_verdict` used to fold in,
+    restated through `with_added_suppression` exactly as the runner persists
+    it. Nothing here reaches a client: the metered reviewer is deleted, and
+    these tests are about the seam, not the reviewer.
+    """
 
     def __init__(self, verdict=None, on_call=None):
         self._verdict = verdict
@@ -212,17 +190,29 @@ class _Reviewer:
         self.batches: list[list[ReviewCandidate]] = []
 
     def __call__(self, candidates, **kwargs) -> ReviewOutcome:
+        del kwargs  # `conn` and `now`, which a stand-in has no use for
         self.batches.append(list(candidates))
         if self._on_call is not None:
             self._on_call(list(candidates))
-        # `conn` and `now` are forwarded rather than re-supplied: the runner is
-        # what owns both, and a stand-in that invented its own would be testing
-        # a budget the production path never uses.
-        return review_surfaced(
-            candidates,
-            config=AgentConfig(api_key="test-key"),
-            client_factory=lambda config: _StubClient(self._verdict),
-            **kwargs,
+        rows: list[Recommendation] = []
+        blocked = 0
+        for candidate in candidates:
+            if self._verdict in ("defect", "suspicious"):
+                rows.append(
+                    with_added_suppression(
+                        candidate.recommendation,
+                        reason=f"skeptic_{self._verdict}",
+                        problem=(
+                            f"the reviewer calls this {self._verdict}: the "
+                            f"Kalshi market settles on regulation time"
+                        ),
+                    )
+                )
+                blocked += 1
+            else:
+                rows.append(candidate.recommendation)
+        return ReviewOutcome(
+            recommendations=rows, reviewed=len(rows), blocked=blocked
         )
 
     @property
@@ -230,40 +220,16 @@ class _Reviewer:
         return sum(len(b) for b in self.batches)
 
 
-class _StubMessages:
-    def __init__(self, verdict, raises=None):
-        self._verdict = verdict
-        self._raises = raises
-        self.seen = 0
-
-    async def parse(self, **kwargs):
-        self.seen += 1
-        if self._raises is not None:
-            raise self._raises
-        return _StubResponse(self._verdict)
-
-
-class _StubResponse:
-    def __init__(self, verdict):
-        self.parsed_output = verdict
-        self.stop_reason = "end_turn"
-
-
-class _StubClient:
-    def __init__(self, verdict, raises=None):
-        self.messages = _StubMessages(verdict, raises)
-
-
 class TestTheSlateActuallySurfacesSomething:
     """Without this, every test below is vacuously green.
 
-    A wiring test whose fixture surfaces nothing asserts that nothing happened
+    A seam test whose fixture surfaces nothing asserts that nothing happened
     to nothing. Assert the precondition separately so a change that stops the
     row surfacing fails *here*, naming the cause, instead of quietly turning
     four other tests into no-ops.
     """
 
-    def test_exactly_one_candidate_reaches_the_skeptic(self, conn, surfacing_slate):
+    def test_exactly_one_candidate_reaches_the_reviewer(self, conn, surfacing_slate):
         reviewer = _Reviewer()
         counts = run_pricing_pass(conn, surfacing_slate, now=NOW, review=reviewer)
 
@@ -285,8 +251,8 @@ class TestTheSlateActuallySurfacesSomething:
     def test_the_no_edge_rows_are_not_reviewed(self, conn, surfacing_slate):
         """Cost, not correctness -- and it is the larger of the two.
 
-        A live pass builds ~100 rows and nearly all have no edge. Reviewing them
-        all would buy a hundred "no"s a pass at 96 passes a day.
+        A live pass builds ~100 rows and nearly all have no edge. A reviewer
+        handed them all would buy a hundred "no"s a pass at 96 passes a day.
         """
         reviewer = _Reviewer()
         run_pricing_pass(conn, surfacing_slate, now=NOW, review=reviewer)
@@ -296,28 +262,28 @@ class TestTheSlateActuallySurfacesSomething:
 
 
 class TestReviewHappensBeforeAnythingIsPersisted:
-    """The window this restructure exists to close.
+    """The window the two-phase pass exists to close.
 
-    `apply_verdict` folds into `suppressed_reason`. If the row is already on
-    disk when the Skeptic is asked, then for the duration of one Anthropic round
-    trip `POST /api/orders` would find a row with a positive size and no reason
-    and sell it. The endpoint reads the database, so "we have not applied the
-    verdict yet" is not a state it can observe.
+    A reviewer folds into `suppressed_reason`. If the row is already on disk
+    when it is asked, then for the duration of one round trip `POST
+    /api/orders` would find a row with a positive size and no reason and sell
+    it. The endpoint reads the database, so "we have not applied the verdict
+    yet" is not a state it can observe.
     """
 
-    def test_no_orderable_row_exists_while_the_skeptic_is_being_asked(
+    def test_no_orderable_row_exists_while_the_reviewer_is_being_asked(
         self, conn, surfacing_slate
     ):
         observed: list[list[dict]] = []
         reviewer = _Reviewer(
-            verdict=_verdict("defect"),
+            verdict="defect",
             on_call=lambda _candidates: observed.append(_orderable(conn)),
         )
 
         run_pricing_pass(conn, surfacing_slate, now=NOW, review=reviewer)
 
         assert observed == [[]], (
-            "an orderable row was already on disk when the Skeptic was asked "
+            "an orderable row was already on disk when the reviewer was asked "
             f"about it: {observed}"
         )
 
@@ -325,8 +291,7 @@ class TestReviewHappensBeforeAnythingIsPersisted:
         self, conn, surfacing_slate
     ):
         counts = run_pricing_pass(
-            conn, surfacing_slate, now=NOW,
-            review=_Reviewer(verdict=_verdict("defect")),
+            conn, surfacing_slate, now=NOW, review=_Reviewer(verdict="defect"),
         )
 
         assert _orderable(conn) == []
@@ -342,133 +307,21 @@ class TestReviewHappensBeforeAnythingIsPersisted:
         assert "Buy" not in blocked["reason_text"]
         assert "regulation time" in blocked["reason_text"]
 
-    def test_a_plausible_verdict_leaves_the_row_surfaced(self, conn, surfacing_slate):
-        """`plausible` is not approval, and must not read as a change.
+    def test_a_pass_through_verdict_leaves_the_row_surfaced(self, conn, surfacing_slate):
+        """No opinion is not approval, and must not read as a change.
 
-        The Skeptic cannot clear a reason or add a contract. All it can do on a
-        `plausible` verdict is nothing, and "nothing" has to be observable --
+        A reviewer cannot clear a reason or add a contract. All it can do on a
+        no-opinion outcome is nothing, and "nothing" has to be observable --
         otherwise a bug that dropped every verdict would look identical.
         """
         counts = run_pricing_pass(
-            conn, surfacing_slate, now=NOW,
-            review=_Reviewer(verdict=_verdict("plausible")),
+            conn, surfacing_slate, now=NOW, review=_Reviewer(verdict=None),
         )
 
         assert counts.surfaced == 1
         assert counts.skeptic_reviewed == 1
         assert counts.skeptic_blocked == 0
         assert len(_orderable(conn)) == 1
-
-
-class TestASkepticOutageDoesNotStopThePass:
-    """A slate that silently stops being recorded is the worse failure.
-
-    The record is the asset: 300 independent games at ~15 a day is three weeks
-    of unbroken recording, so a day not recording is a day added to the earliest
-    date this project can answer its own question. Losing agent commentary costs
-    nothing by comparison.
-    """
-
-    def test_an_api_failure_records_the_slate_anyway(self, conn, surfacing_slate):
-        def failing(candidates, **kwargs):
-            return review_surfaced(
-                candidates,
-                config=AgentConfig(api_key="test-key"),
-                client_factory=lambda config: _StubClient(
-                    None, raises=RuntimeError("anthropic is down")
-                ),
-                **kwargs,
-            )
-
-        counts = run_pricing_pass(conn, surfacing_slate, now=NOW, review=failing)
-
-        assert counts.recommendations == 4
-        assert counts.surfaced == 1, "no verdict means no opinion, not a refusal"
-        assert counts.skeptic_blocked == 0
-
-    def test_a_prompt_that_cannot_be_built_is_isolated_to_its_own_row(
-        self, conn, surfacing_slate
-    ):
-        """`evaluate` builds its prompt *before* the API call.
-
-        So `structured_call`'s own None-on-failure contract cannot catch this
-        one, and an exception raised inside `asyncio.gather` cancels the batch.
-        Reproduced by handing the candidate a keyword `build_prompt` does not
-        take, which is what a drifted field would look like.
-        """
-        candidate = ReviewCandidate(
-            recommendation=_recommendation(),
-            prompt_kwargs={"not_a_real_field": 1},
-        )
-
-        outcome = review_surfaced(
-            [candidate],
-            conn=conn,
-            config=AgentConfig(api_key="test-key"),
-            client_factory=lambda config: _StubClient(_verdict("defect")),
-        )
-
-        assert outcome.reviewed == 1
-        assert outcome.blocked == 0
-        assert outcome.recommendations[0] is candidate.recommendation
-
-    def test_an_unconfigured_fleet_reviews_nothing_and_refuses_nothing(
-        self, conn, surfacing_slate
-    ):
-        """`review_surfaced` without a key degrades to pass-through.
-
-        This was the scheduled default's behaviour until ADR 0062 retired it;
-        `review_surfaced` is now opt-in only, so the reviewer is injected
-        explicitly here. The degradation itself is unchanged: no key, no
-        calls, rows untouched.
-        """
-        counts = run_pricing_pass(
-            conn, surfacing_slate, now=NOW, review=review_surfaced
-        )
-
-        assert counts.skeptic_reviewed == 0
-        assert counts.skeptic_blocked == 0
-        assert counts.surfaced == 1
-
-
-class TestTheAsyncSeamWorksWhereItIsActuallyCalledFrom:
-    """`asyncio.run` would pass every other test in this file and fail live.
-
-    `run_pricing_pass` is sync, but its production callers -- `run_once` and
-    `run_quote_pass` -- are `async def` and call it directly. So on the deployed
-    instance this executes inside a running event loop, which is the one place
-    `asyncio.run` raises. Every test above calls the pass from sync code and
-    would not have noticed.
-    """
-
-    def test_a_review_runs_from_inside_a_running_event_loop(
-        self, conn, surfacing_slate
-    ):
-        async def as_the_runner_calls_it():
-            return run_pricing_pass(
-                conn, surfacing_slate, now=NOW,
-                review=_Reviewer(verdict=_verdict("defect")),
-            )
-
-        counts = asyncio.run(as_the_runner_calls_it())
-
-        assert counts.skeptic_reviewed == 1
-        assert counts.skeptic_blocked == 1
-        assert _orderable(conn) == []
-
-    def test_the_same_review_runs_from_sync_code(self, conn, surfacing_slate):
-        """The pair matters: one seam has to serve both callers.
-
-        `scripts/run_chain.py` drives a pass without a loop and the scheduler
-        drives one inside a loop. A fix for either case that breaks the other
-        is not a fix.
-        """
-        counts = run_pricing_pass(
-            conn, surfacing_slate, now=NOW,
-            review=_Reviewer(verdict=_verdict("defect")),
-        )
-
-        assert counts.skeptic_blocked == 1
 
 
 def _recommendation(**overrides) -> Recommendation:
@@ -516,8 +369,8 @@ class TestTheRowIsRestatedConsistently:
         assert row.suggested_contracts == 0
         assert row.surfaced is False
         assert row.ev_net_dollars == 0.0
-        # And the fourth: the gate counts `reference_contracts`, so a row the
-        # fleet vetoed must not go on accumulating evidence for a bet the
+        # And the fourth: the gate counts `reference_contracts`, so a row a
+        # reviewer vetoed must not go on accumulating evidence for a bet the
         # strategy declined to make. ADR 0005, arriving through a column that
         # did not exist when it was written.
         assert row.reference_contracts == 0
@@ -546,31 +399,14 @@ class TestTheRowIsRestatedConsistently:
             "(+2.9c after fees)."
         )
 
-    def test_the_agents_verdict_is_never_the_only_thing_standing(self, conn):
-        """A `None` verdict cannot un-suppress a row the checks refused."""
-        already = _recommendation(
-            suppressed_reason="stale_odds", suggested_contracts=0
-        )
-        client = _StubClient(_verdict("plausible"))
-        outcome = review_surfaced(
-            [ReviewCandidate(recommendation=already, prompt_kwargs=_prompt_kwargs())],
-            conn=conn,
-            config=AgentConfig(api_key="test-key"),
-            client_factory=lambda config: client,
-        )
-
-        assert client.messages.seen == 1, "the verdict path must actually have run"
-        assert outcome.recommendations[0].suppressed_reason == "stale_odds"
-        assert outcome.blocked == 0
-
 
 class TestTheReviewedSetAndTheVerdictsCannotDrift:
     """The one failure here that money could reach.
 
     The runner matches verdicts to rows by position. A reviewer returning a
     short list would make `zip` drop the tail silently, and the dropped rows
-    would persist as surfaced having never been reviewed -- the exact state this
-    whole restructure exists to make impossible.
+    would persist as surfaced having never been reviewed -- the exact state the
+    two-phase pass exists to make impossible.
     """
 
     def test_a_short_reply_refuses_the_slate_rather_than_persisting_it(
@@ -591,10 +427,10 @@ class TestHealthSaysWhetherTheFleetIsConfigured:
     """The only way to tell, from a phone, that the Fly secret took effect.
 
     An unconfigured fleet is silent by design -- `AgentConfig.from_env()`
-    returns `None` and every row comes back unreviewed -- and that is also what
-    a working Skeptic looks like on a slate with nothing surfaced, which is
-    every slate so far. So without this field, "the key is set" and "the
-    process can see the key" cannot be told apart from outside.
+    returns `None` and the scout desk refuses to be sent -- and that is also
+    what a configured desk looks like on a day nobody sends it. So without this
+    field, "the key is set" and "the process can see the key" cannot be told
+    apart from outside.
     """
 
     def _health(self, monkeypatch, key):
@@ -631,13 +467,18 @@ class TestHealthSaysWhetherTheFleetIsConfigured:
 class TestTheScheduledSkepticIsRetired:
     """ADR 0062: the pass's default reviewer spends nothing and promotes nothing.
 
-    Verified by disabling: put `review=review_surfaced` back as the
-    `run_pricing_pass` default and the first test fails -- with no key in the
-    test environment that reviewer returns the surfaced row *untouched*, so it
-    persists orderable and the suppression assertion goes red. The distinction
-    matters because "no agent_calls rows" alone cannot separate the two
-    defaults on a keyless machine; what separates them is what the row is
-    allowed to become.
+    Verified by disabling, twice. On 2026-08-21: put `review=review_surfaced`
+    back as the `run_pricing_pass` default and the first test failed -- with no
+    key in the test environment that reviewer returned the surfaced row
+    *untouched*, so it persisted orderable and the suppression assertion went
+    red. On 2026-09-05, with `review_surfaced` deleted: make the default a
+    reviewer that passes every row through (`lambda candidates, *, conn, now:
+    ReviewOutcome(recommendations=[c.recommendation for c in candidates],
+    reviewed=len(candidates))`) and the first test fails the same way --
+    `_orderable(conn)` holds the surfaced row, `skeptic_unreviewed` is
+    nowhere, and `counts.surfaced` is 1. The distinction matters because "no
+    `agent_calls` rows" alone cannot separate the two defaults on a keyless
+    machine; what separates them is what the row is allowed to become.
     """
 
     def test_the_default_pass_refuses_the_surfaced_row_and_spends_nothing(
@@ -686,3 +527,24 @@ class TestTheScheduledSkepticIsRetired:
 
         outcome = review_retired([], conn=None)
         assert outcome == ReviewOutcome(recommendations=[], unreviewed=0)
+
+    def test_no_metered_reviewer_exists_to_opt_back_into(self):
+        """The retirement used to be a default with an alternative one import
+        away. Since 2026-09-05 there is no alternative: the module exports no
+        reviewer but the retired one, and imports nothing that can bill."""
+        import ast
+        from pathlib import Path
+
+        from backend.agents import review
+
+        assert not hasattr(review, "review_surfaced")
+        source = (Path(review.__file__)).read_text("utf-8")
+        imported = {
+            node.module
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.ImportFrom) and node.module
+        }
+        assert not any(m in ("base", "budget", "skeptic") for m in imported), (
+            f"review.py imports {sorted(imported)}; a reviewer that can reach "
+            f"`base.structured_call` is a reviewer that can spend"
+        )

@@ -1978,9 +1978,11 @@ export type Playbook = {
   lessons: Lesson[];
   proposals_awaiting_approval: Lesson[];
   /**
-   * The distinction this screen must not collapse. `lessons` has exactly one
-   * writer and nothing that runs calls it, so an empty list means the agent is
-   * unwired -- not that the record contains nothing worth learning.
+   * The distinction this screen must not collapse. `lessons` has no writer --
+   * its one writer, the Historian, never ran and was deleted on 2026-09-05 --
+   * so an empty list means nothing can write one, not that the record
+   * contains nothing worth learning. The name is historical; the value is
+   * whether a lesson row exists, and on every deployed instance it is false.
    */
   historian_has_run: boolean;
   note: string;

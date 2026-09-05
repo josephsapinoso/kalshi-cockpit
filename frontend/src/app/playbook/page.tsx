@@ -110,11 +110,12 @@ export default async function PlaybookPage() {
           </div>
           <p className="mt-2 text-sm leading-relaxed text-muted">
             This is <em>not</em>{" "}
-            &ldquo;no lessons found&rdquo;. The agent that
-            writes them is built and tested and is called by nothing that runs,
-            so this list would be empty however much the record contained.
-            Saying so is the point: an empty list rendered as a healthy silence
-            over a disconnected wire is worse than no list at all.
+            &ldquo;no lessons found&rdquo;. The agent that wrote them was
+            built, tested, called by nothing that runs, and deleted on
+            2026-09-05 without ever running, so this list would be empty
+            however much the record contained. Saying so is the point: an
+            empty list rendered as a healthy silence over a wire that was
+            never connected is worse than no list at all.
           </p>
         </div>
       ) : (

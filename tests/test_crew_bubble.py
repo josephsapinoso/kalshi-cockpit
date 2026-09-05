@@ -35,10 +35,12 @@ WHAT THESE TESTS DO NOT ESTABLISH
   says it means, every test here still passes.
 - **Nothing about the avatars looking like anything.** They assert the drawings
   are inline and self-contained, not that they are recognisable.
-- **Nothing about the backend agents.** `backend/agents/skeptic.py` and
-  `scout.py` share these names and are a different thing: LLM callers, metered,
-  quarantined where ADR 0022 says so, and guarded by `tests/test_has_callers.py`
-  and `tests/test_agent_budget.py`. Nothing here reaches them.
+- **Nothing about the backend agents.** `backend/agents/scout.py` shares a
+  name with a bubble and is a different thing: the scout desk's schema module,
+  billed only through `scout_desk.py` and guarded by
+  `tests/test_has_callers.py`. (`backend/agents/skeptic.py`, which this bullet
+  also named, was deleted on 2026-09-05; the Skeptic bubble reads suppression
+  codes and never reached it.) Nothing here reaches them.
 """
 
 from __future__ import annotations

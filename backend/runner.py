@@ -1728,11 +1728,23 @@ def _skeptic_context(
     metadata: dict,
     books: BookConsensusInput,
 ) -> dict[str, Any]:
-    """The Skeptic's prompt inputs for one judged row.
+    """The reviewer's prompt inputs for one judged row.
 
     Read off the **recommendation** rather than recomputed from the candidate
-    wherever both could answer: the agent must attack the row that would be
+    wherever both could answer: a reviewer must attack the row that would be
     sold, not a second derivation of it that could differ by a rounding step.
+
+    **The reviewer this was shaped for no longer exists.** The name and the
+    first line said "the Skeptic" until 2026-09-05, when `agents/skeptic.py`
+    was deleted (ADR 0106). The dict is still built and still travels on
+    `ReviewCandidate.context`, and the only reviewer left -- `review_retired`
+    -- ignores it, so this is a payload with no consumer rather than a prompt.
+    The name is left alone deliberately: `PassCounts.skeptic_reviewed` and the
+    `skeptic_*` suppression codes are a *different*, deterministic thing that
+    survives the deletion, and renaming one of the two spellings without the
+    other would make the overlap harder to see rather than easier. Whether the
+    dict is worth building at all is the open question, and it belongs with the
+    other symbols ADR 0106 section 5.3 left unreached.
     """
     index = devig_result.index_of(outcome)
     return {
@@ -1793,8 +1805,10 @@ def run_pricing_pass(
 
     The default reviewer is `review_retired` (ADR 0062): every surfaced row is
     refused as unreviewed and no Anthropic call is made. The two-phase shape
-    stays because `review` is injectable and `review_surfaced` still honours it
-    for a caller that deliberately opts back in.
+    stays because `review` is injectable and it is the attachment point for
+    `TestTheScheduledSkepticIsRetired`. Until 2026-09-05 this sentence said
+    `review_surfaced` still honoured the seam for a caller that opted back in;
+    that function is deleted and no metered reviewer exists in the tree.
 
     Persisting in a second loop is safe for the dedupe in `persist_if_changed`,
     which compares against the most recent stored row for a `(ticker, side)`:

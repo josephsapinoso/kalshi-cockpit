@@ -277,11 +277,13 @@ class TestLessonsKeepTheirThreeStates:
 class TestAnEmptyListIsNotAHealthySilence:
     """The rendering decision this screen exists to protect.
 
-    `lessons` has exactly one writer -- the Historian -- and nothing that runs
-    calls it. So an empty list is a fact about wiring, and showing it as
-    "nothing to report" is a screen reporting a healthy silence over a
-    disconnected wire. Same shape as `analysis/marts.py` refusing to let a
-    missing warehouse read as an empty one.
+    `lessons` has no writer: its one writer, the Historian, was never called
+    by anything that runs and was deleted on 2026-09-05. So an empty list is a
+    fact about the code, and showing it as "nothing to report" is a screen
+    reporting a healthy silence over a wire that was never connected. Same
+    shape as `analysis/marts.py` refusing to let a missing warehouse read as
+    an empty one. The field keeps its historical name (`backend/playbook.py`
+    says why); what it reports is whether a lesson row exists.
     """
 
     def test_no_lessons_says_the_historian_has_not_run(self, conn):
@@ -291,6 +293,9 @@ class TestAnEmptyListIsNotAHealthySilence:
         assert payload["historian_has_run"] is False
 
     def test_one_lesson_flips_it(self, conn):
+        """Inserted by hand, because nothing in the tree inserts one. The
+        flip is what the screen renders on; that no production path can
+        cause it is the module docstring's point, not this test's."""
         add_version(conn, 1, {"a": 1})
         conn.execute(
             "INSERT INTO lessons (created_ms, title, body, sample_size) "

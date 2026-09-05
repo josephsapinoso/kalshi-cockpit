@@ -14,8 +14,12 @@ by nothing.
                            wired up on 2026-08-08 -- `review`, `skeptic` and
                            `base` reach the chain through `runner.py:505`. The
                            other half, `scout` and `historian`, never was, and
-                           is quarantined below rather than left to read as
-                           part of a shipped fleet.
+                           was quarantined below rather than left to read as
+                           part of a shipped fleet. (Since then: the Scout
+                           became the desk's schema module via ADR 0060; the
+                           Skeptic's caller was retired by ADR 0062 and the
+                           Skeptic and the Historian were deleted on
+                           2026-09-05 -- see the ADR named at DISPOSITIONS.)
 
 The failure has no line number. Every file is individually excellent, coverage
 goes up, and the missing thing is the *absence of a call* -- which no reviewer
@@ -97,20 +101,22 @@ looked and had nothing". This file is the cheaper enforcement instead: it cannot
 make the path metered, but it can make the *arrival of an unmetered caller* a
 red test rather than an invoice.
 
-Scout and Historian are permitted, and the permission is derived
----------------------------------------------------------------
-`backend/agents/scout.py` and `backend/agents/historian.py` both call
-`structured_call` today and neither is metered. They are not hand-waved onto the
-allowlist. The allowed set is `BILLED_PATH_CALL_SITES` **plus** the modules that
+The derived permission for an unreachable caller has no member left
+--------------------------------------------------------------------
+Until 2026-09-05 `backend/agents/historian.py` (and before ADR 0060,
+`scout.py`) called `structured_call` unmetered, and was tolerated because the
+allowed set is `BILLED_PATH_CALL_SITES` **plus** the modules that
 `DISPOSITIONS` classifies `QUARANTINED` *and* that `reachable_modules()` cannot
-reach -- computed, both halves, at assertion time. So the permission is exactly
-the ADR 0022 invariant: an unmetered call site is tolerated only while the
-deployed entry points provably cannot get to it. Wire Scout into the chain and
-it stops being unreachable, so it drops out of the allowed set and turns *this*
-test red for spending money, at the same moment it turns
-`test_a_quarantined_module_has_not_been_wired_up_by_the_back_door` red for
-escaping quarantine. Two independent guards, and the money one no longer depends
-on someone remembering to also edit a list here.
+reach -- computed, both halves, at assertion time. That derivation is kept: it
+is the ADR 0022 invariant, an unmetered call site is tolerated only while the
+deployed entry points provably cannot get to it, and wiring such a module in
+turns two independent guards red at once. What changed is that **no module
+exercises it any more**: the Historian was deleted, so every caller of the
+billed path today is on the allowlist with its meter named, and
+`test_every_caller_of_the_billed_path_is_metered` asserts the unmetered set is
+empty rather than equal to a named module. ADR 0040 section 4.1 measured that
+deletion as the loss of this mechanism's only exercise; the ADR at
+DISPOSITIONS says why it was taken anyway.
 
 What this does not establish
 ----------------------------
@@ -330,23 +336,24 @@ MUST_HAVE_CALLERS = [
         "whose product is a tool nobody can use, with no module holding more "
         "than one of them",
     ),
-    (
-        "apply_verdict",
-        "`backend/agents/*` goes back to being ~40 green tests implying a "
-        "safety layer that can block nothing -- the fourth module in this "
-        "project to be complete, tested, and called by nothing",
-    ),
+    # `apply_verdict` was an entry here from 2026-08-08 to 2026-09-05, and
+    # for the last fifteen of those days it passed all three tests above while
+    # being unreachable on the live machine: its only production referrer was
+    # `review._amend`, called only by `review_surfaced`, which nothing called
+    # after ADR 0062. `callers_of` walks one level -- "is the symbol named in a
+    # production file" -- and never asks whether the naming function is itself
+    # reached. Its own consequence string named the failure it could not
+    # catch. `tests/test_reachable_callers.py` asks the next question.
     # `review_surfaced` was an entry here from 2026-08-08 to 2026-08-21, when
     # ADR 0062 retired it as the pass default: a metered LLM re-attacking an
     # edge surface that no longer determines anything was spend against a
     # decision nobody makes (24 Opus calls in 4m22s on 2026-08-16, all
-    # blocked). It is now opt-in only -- kept importable as the one metered
-    # reviewer implementation, exercised by `test_agent_wiring.py` /
-    # `test_agent_budget.py` as an *injected* reviewer -- so by this file's
-    # definition it has no production caller, deliberately. What replaced the
-    # ratchet on it: the entry below on its replacement, and
-    # `TestTheScheduledSkepticIsRetired`, which goes red if the default is
-    # flipped back (mutation-verified 2026-08-21).
+    # blocked). It stayed importable as an opt-in reviewer, exercised only by
+    # tests injecting it, until 2026-09-05, when it was deleted with
+    # `skeptic.py`. What replaced the ratchet on it: the entry below on its
+    # replacement, and `TestTheScheduledSkepticIsRetired`, which goes red if
+    # the default is flipped to any reviewer that passes rows through
+    # (mutation-verified 2026-08-21 and 2026-09-05).
     (
         "review_retired",
         "the pricing pass falls back to whatever reviewer someone wires next "
@@ -412,7 +419,17 @@ def _uses(tree: ast.AST, symbol: str) -> bool:
 
 
 def callers_of(symbol: str) -> list[str]:
-    """Production files that use the symbol, excluding the one that defines it."""
+    """Production files that use the symbol, excluding the one that defines it.
+
+    **One level only.** This reports files that *name* the symbol; it never
+    asks whether the function doing the naming is itself reached from a
+    deployed entry point. `apply_verdict` satisfied every check built on this
+    for fifteen days while its only production referrer sat inside a function
+    nothing called (`review._amend` <- `review_surfaced`, retired by ADR 0062).
+    Import-reachable and called are different properties, and this is the
+    first. `tests/test_reachable_callers.py` walks references from the entry
+    points and asks the second.
+    """
     hits: list[str] = []
     for path in production_sources():
         try:
@@ -1052,11 +1069,14 @@ class Quarantined:
 #
 # ADR 0022 records how this list was arrived at and why nothing here was being
 # wired up or deleted that night. For `scout.py` and `historian.py` that
-# provisional "not tonight" is now a settled "not at all": **ADR 0040** closes
-# ADR 0038's pre-commitment that the quarantined agents be "either wired or
-# deleted", and takes neither. Read it before proposing to delete one -- the
-# deletion was measured, and it costs the only exercise the fail-closed
-# billed-path mechanism at the bottom of this file has ever had.
+# provisional "not tonight" became ADR 0040's settled "not at all" -- and then
+# did not hold: the Scout left quarantine on the owner's word (ADR 0060), and
+# the Historian was deleted on 2026-09-05, overturning ADR 0040 for that one
+# module. ADR 0040 section 4.1 had measured that deletion as the loss of the
+# only exercise the fail-closed billed-path mechanism at the bottom of this
+# file ever had; the deleting ADR --
+# `docs/adr/0106-the-historian-and-the-skeptic-are-deleted-and-the-desk-has-been-convened.md`
+# -- says why that was taken anyway, and what the mechanism now asserts.
 DISPOSITIONS: dict[str, Tool | Quarantined] = {
     # -- Tools ---------------------------------------------------------------
     # `backend/portfolio_poll.py` was here, as a Tool, for exactly one commit
@@ -1130,39 +1150,19 @@ DISPOSITIONS: dict[str, Tool | Quarantined] = {
     # -- Quarantined ---------------------------------------------------------
     # ADR 0040 declared quarantine the *settled* state for Scout and Historian,
     # closing ADR 0038's pre-commitment that they be "either wired or deleted".
-    # **The Scout left quarantine on 2026-08-21 (ADR 0060), the third way ADR
-    # 0040 did not enumerate: revived on the owner's word.** Joe asked for the
-    # desk by name; `backend/agents/scout.py` is now the desk's schema module,
-    # its unmetered solo `research()` was deleted rather than wired, and the
+    # Neither is here now. **The Scout left quarantine on 2026-08-21 (ADR
+    # 0060), the third way ADR 0040 did not enumerate: revived on the owner's
+    # word** -- `backend/agents/scout.py` is the desk's schema module, its
+    # unmetered solo `research()` was deleted rather than wired, and the
     # spending happens only in `backend/agents/scout_desk.py`, metered by
-    # `AgentBudget` -- see BILLED_PATH_CALL_SITES. The Historian remains, now
-    # the only member `_unmetered_but_unreachable()` has.
-    "backend/agents/historian.py": Quarantined(
-        reason="The weekly post-mortem. The last quarantined agent since the "
-               "Scout's ADR 0060 revival; its importer is only "
-               "`scripts/measure_agent_cache_prefix.py`, and "
-               "`review` is called by nothing. It is the ONE writer of the "
-               "`lessons` table, which is why deleting it is not a no-op: "
-               "`backend/playbook.py` is live and reports "
-               "`historian_has_run: false` precisely to keep 'the agent is "
-               "unwired' distinct from 'the record holds no lessons', and "
-               "`frontend/src/app/playbook/page.tsx` renders 'The Historian has "
-               "never run'. Delete the module and the table has no writer at "
-               "all, so that distinction collapses. Pinned by "
-               "`test_no_lessons_says_the_historian_has_not_run`.",
-        revive_if="a post-mortem loop is wanted over the *record* rather than "
-                  "over a strategy -- ADR 0038 makes the record the product, "
-                  "and summarising it is the one Historian job the closure did "
-                  "not retire -- with the spend budgeted first. The previous "
-                  "condition, 'ADR 0021 §8 Option B or F is taken up', is "
-                  "retired because it FIRED and nothing noticed: ADR 0034 took "
-                  "Option F, this module was not reconsidered, and no test went "
-                  "red because `revive_if` is only ever checked for being a "
-                  "non-empty string. ADR 0038 then expired B and F together. "
-                  "See ADR 0040 §3 -- quarantine becoming permanent by decay is "
-                  "the mirror of the failure ADR 0022 §4.1 guarded against.",
-        adr="docs/adr/0040-quarantine-is-the-settled-state-for-scout-and-historian.md",
-    ),
+    # `AgentBudget` (BILLED_PATH_CALL_SITES). **The Historian was deleted on
+    # 2026-09-05**, the second option ADR 0040 had declined: its only importer
+    # was a dockerignored script, `review` was called by nothing, and the
+    # `lessons` table it was the one writer of now has none -- which
+    # `backend/playbook.py` and `frontend/src/app/playbook/page.tsx` say in so
+    # many words, pinned by `test_no_lessons_says_the_historian_has_not_run`.
+    # The class below therefore holds the two model files only, and
+    # `_unmetered_but_unreachable()` has no member.
     "backend/model/elo.py": Quarantined(
         reason="The in-house power-ratings model. CLAUDE.md's opening section "
                "exists because this was twice described as a live second "
@@ -1261,11 +1261,13 @@ class TestEveryOrphanIsAccountedFor:
     def test_a_quarantined_module_has_not_been_wired_up_by_the_back_door(self):
         """Quarantine as a state, not a comment.
 
-        `scout` and `historian` cost money on every pass they run. `elo` is the
-        signal CLAUDE.md has now had to correct the record about twice. None of
-        the three should be able to join the chain because someone added an
-        import while doing something else -- so reaching them turns this red and
-        the decision has to be taken in the open, with an ADR.
+        `elo` is the signal CLAUDE.md has now had to correct the record about
+        twice (`scout` and `historian` were this class's other members until
+        ADR 0060 and 2026-09-05 respectively, and cost money on every pass
+        they would have run). Nothing quarantined should be able to join the
+        chain because someone added an import while doing something else --
+        so reaching one turns this red and the decision has to be taken in
+        the open, with an ADR.
         """
         reachable = reachable_modules()
         escaped = sorted(m for m in DISPOSITIONS if m in reachable)
@@ -1273,9 +1275,9 @@ class TestEveryOrphanIsAccountedFor:
             f"{escaped} are classified as not running and the deployed entry "
             f"points can now reach them. If that is deliberate, move them out "
             f"of DISPOSITIONS and give them entries in MUST_HAVE_CALLERS "
-            f"instead -- and for `scout`/`historian`, budget the Anthropic "
-            f"spend first: the bill is currently zero only because nothing is "
-            f"surfaced."
+            f"instead -- and if the module calls `structured_call`, budget the "
+            f"Anthropic spend first and name the meter in "
+            f"BILLED_PATH_CALL_SITES."
         )
 
     def test_the_dispositions_table_has_no_stale_entries(self):
@@ -1335,8 +1337,11 @@ class TestEveryOrphanIsAccountedFor:
 # The agent-fleet exception that used to live here is closed. It asserted the
 # *current* state -- that `apply_verdict` had no caller -- so that wiring the
 # fleet up would turn this file red and point at the list above. It did, on
-# 2026-08-08, and `apply_verdict` and `review_surfaced` are now entries in
-# MUST_HAVE_CALLERS rather than a documented exception beside it.
+# 2026-08-08, and `apply_verdict` and `review_surfaced` became entries in
+# MUST_HAVE_CALLERS rather than a documented exception beside it. Both are
+# gone again: `review_surfaced` retired 2026-08-21 (ADR 0062), and both
+# deleted 2026-09-05 -- the entries' own comment records how the second one
+# passed here while unreachable.
 
 
 # ---------------------------------------------------------------------------
@@ -1382,27 +1387,26 @@ BILLED_PATH_SOURCE = "backend/agents/base.py"
 # that gets re-blessed without being read. The module is the unit that a human
 # decides about.
 BILLED_PATH_CALL_SITES: dict[str, str] = {
-    "backend/agents/skeptic.py": (
-        "`evaluate` is the one Skeptic call, and it is metered by its caller: "
-        "`review.review_surfaced` reserves one `agent_calls` row per candidate "
-        "before the fan-out starts. This module is downstream of the ceiling, "
-        "not outside it."
-    ),
-    "backend/agents/review.py": (
-        "Holds the meter. `review_surfaced` computes `AgentBudget.allowance` "
-        "before the batch and refuses what it cannot afford with "
-        "`skeptic_unreviewed`, so it is the only place a fan-out width is "
-        "chosen. `build_client` appears here as the `client_factory` default -- "
-        "a reference rather than a call, which is exactly why the scanner below "
-        "counts references too."
-    ),
+    # `backend/agents/skeptic.py` and `backend/agents/review.py` were entries
+    # here until 2026-09-05: the Skeptic's `evaluate` was the one call and
+    # `review.review_surfaced` held the meter around it (and referenced
+    # `build_client` as its `client_factory` default -- the one production
+    # *reference* rather than call, which is why `_billed_path_sites` counts
+    # references). Both are deleted; `review.py` now imports nothing that can
+    # bill, and `test_no_metered_reviewer_exists_to_opt_back_into` in
+    # `test_agent_wiring.py` pins that.
     "backend/agents/scout_desk.py": (
-        "The scout desk (ADR 0060). `convene_desk` makes at most three "
-        "`structured_call`s per convening and every one is metered by "
-        "`AgentBudget` against the same `agent_calls` day as the Skeptic: the "
-        "staff pair is affordability-checked and reserved before the first "
-        "request, and the master is reserved only after a staff note exists. "
-        "A refusal makes zero calls."
+        "The scout desk (ADR 0060). `convene_desk` makes at most four "
+        "`structured_call`s per convening -- the staff pair, the master, and "
+        "the pro-bettor seat (ADR 0069) -- and every one is metered by "
+        "`AgentBudget` against the same `agent_calls` day the Skeptic spent "
+        "from before it was deleted: the staff pair is affordability-checked "
+        "and reserved before the first request, the master is reserved only "
+        "after a staff note exists, and the pro's seat only after the staff. "
+        "A refusal makes zero calls. This line said `three` until 2026-09-05, "
+        "having been written before ADR 0069 added the fourth seat; "
+        "`scout_desk.py` itself was corrected in the same lane and this "
+        "allowlist entry was not, because it sat between two lanes' hunks."
     ),
     "backend/api/routes.py": (
         "The desk's caller. `send_scout_desk` requires auth, re-checks "
@@ -1471,14 +1475,17 @@ def _billed_path_sites(symbol: str) -> list[tuple[str, int, str]]:
 def _unmetered_but_unreachable() -> set[str]:
     """Quarantined modules the deployed entry points cannot reach.
 
-    The derived half of the allowed set. `historian.py` calls
-    `structured_call` and nothing meters it -- tolerable only because
-    ADR 0022 holds it off the chain, and that is a computed property here
-    rather than a sentence: both halves, `QUARANTINED` **and** not in
-    `reachable_modules()`, are evaluated at assertion time. Wiring one up
+    The derived half of the allowed set: a module may hold an unmetered
+    `structured_call` only while both halves hold -- `QUARANTINED` **and** not
+    in `reachable_modules()` -- evaluated at assertion time, so wiring one up
     removes it from this set on the same commit that makes it billable.
-    (`scout.py` was this set's other member for the project's whole life;
-    it left via ADR 0060, and its unmetered `research()` left with it.)
+    **No module exercises it today.** `scout.py` left via ADR 0060 (its
+    unmetered `research()` deleted with it); `historian.py`, the last member,
+    was deleted on 2026-09-05. The set is `elo.py` and `backtest.py`, neither
+    of which calls the billed path. Kept rather than removed because it is
+    the shape a future quarantined caller would be judged by, and the ADR
+    named at DISPOSITIONS records that ADR 0040 counted this emptiness as a
+    cost.
     """
     reachable = reachable_modules()
     return {
@@ -1525,22 +1532,34 @@ class TestNothingNewCanReachTheBilledPath:
         )
         assert not unexpected, (
             f"`{symbol}` reaches Anthropic and is used at {unexpected}, which is "
-            f"not an allowlisted caller. The ceiling from 7b2252d lives in "
-            f"`review.review_surfaced`, not in this function's signature, so a "
-            f"new caller starts **unmetered**: it can spend past "
+            f"not an allowlisted caller. The ceiling lives in the caller "
+            f"(`scout_desk.convene_desk` reserves against `AgentBudget` before "
+            f"its first request), not in this function's signature, so a new "
+            f"caller starts **unmetered**: it can spend past "
             f"AGENT_MAX_CALLS_PER_DAY without `agent_calls` recording a row. "
-            f"Either route it through `review_surfaced`, or add it to "
+            f"Reserve through `AgentBudget` first, and add the module to "
             f"BILLED_PATH_CALL_SITES with the meter that bounds it named."
         )
 
     def test_the_scanner_sees_the_sites_the_audit_found(self):
-        """Anti-vacuity, and the reason `_billed_path_sites` counts references.
+        """Anti-vacuity: the scanner must see the sites that bill today.
 
         An enumeration that enumerates nothing satisfies the test above on any
-        tree at all. Both symbols are pinned, and they are pinned in different
-        *kinds* on purpose: `structured_call` is invoked, `build_client` is
-        handed over as a factory default and never invoked by name anywhere in
-        production. A call-only scanner reports zero sites for the second one.
+        tree at all. Both symbols are pinned to the modules that actually
+        reach them on live: `structured_call` is invoked from the scout desk,
+        `build_client` from the route that starts a convening.
+
+        **The reference-kind branch of `_billed_path_sites` has had no
+        production exemplar since 2026-09-05.** Until then `review.py` handed
+        `build_client` over as a `client_factory` default -- a reference, not
+        a call -- and this test pinned it so a call-only scanner could not
+        pass by finding nothing. That site was deleted with `review_surfaced`.
+        The branch still fires: on 2026-09-05 a scratch `factory = build_client`
+        placed in `backend/agents/budget.py` turned
+        `test_every_call_site_of_the_billed_path_is_allowlisted` RED as
+        `budget.py:N (reference)`, and was reverted. A production reference is
+        not manufactured here to keep the pin; the mutation is the evidence
+        and it is recorded rather than re-run.
         """
         source = ast.parse((ROOT / BILLED_PATH_SOURCE).read_text("utf-8"))
         for symbol in BILLED_PATH:
@@ -1552,24 +1571,24 @@ class TestNothingNewCanReachTheBilledPath:
 
         calls = _billed_path_sites("structured_call")
         assert any(
-            rel == "backend/agents/skeptic.py" and kind == "call"
+            rel == "backend/agents/scout_desk.py" and kind == "call"
             for rel, _, kind in calls
         ), (
             f"`structured_call` sites were located at {calls}, which does not "
-            f"include a call from backend/agents/skeptic.py. The scanner has "
+            f"include a call from backend/agents/scout_desk.py. The scanner has "
             f"stopped seeing the one metered caller, so the allowlist above is "
             f"passing by finding nothing."
         )
 
         factory = _billed_path_sites("build_client")
         assert any(
-            rel == "backend/agents/review.py" and kind == "reference"
+            rel == "backend/api/routes.py" and kind == "call"
             for rel, _, kind in factory
         ), (
             f"`build_client` sites were located at {factory}, which does not "
-            f"include a reference from backend/agents/review.py:245 -- the "
-            f"`client_factory` default. If this scanner ever counts calls only, "
-            f"it finds zero sites for `build_client` and guards nothing."
+            f"include the call from backend/api/routes.py that constructs the "
+            f"desk's client. The scanner has stopped seeing the one place the "
+            f"billing object is built."
         )
 
     def test_the_allowlist_names_modules_that_exist(self):
@@ -1579,38 +1598,42 @@ class TestNothingNewCanReachTheBilledPath:
         for module, reason in BILLED_PATH_CALL_SITES.items():
             assert reason.strip(), f"{module} is allowlisted with no stated meter"
 
-    def test_the_unmetered_callers_are_exactly_the_quarantined_ones(self):
-        """The substance of the scout/historian decision, asserted.
+    def test_every_caller_of_the_billed_path_is_metered(self):
+        """Every module that calls `structured_call` is on the allowlist.
 
-        They are allowed to hold an unmetered `structured_call` **only** while
-        nothing on the instance can reach them. If the derived set ever went
-        empty this whole permission would evaporate silently in the safe
-        direction (the test above would go red), but the dangerous direction is
-        the reverse: a quarantined agent becoming reachable while still counting
-        as permitted. That cannot happen -- `_unmetered_but_unreachable`
-        recomputes reachability -- and this asserts the set is populated by the
-        two modules the audit actually found, so the mechanism is exercised.
+        Until 2026-09-05 this asserted `unmetered == {"backend/agents/
+        historian.py"}` -- the one quarantined, unreachable module the derived
+        permission tolerated -- and then that the set was a subset of
+        `_unmetered_but_unreachable()`. ADR 0040 section 4.1 measured what
+        deleting the Historian would do to it: the equality becomes
+        `set() == set()` and the subset check becomes `set() <= anything`,
+        both true on any tree. That is accurate about *this* test and it is
+        why the second assertion is not kept: a subset check against an empty
+        left-hand side is decoration by this repo's standard.
+
+        What is asserted instead is the tighter statement the deletion made
+        true: there is **no** permitted unmetered caller, so every module that
+        reaches the billed path must be in `BILLED_PATH_CALL_SITES` with its
+        meter named. That is not vacuous -- it is the deny-by-default ratchet
+        `test_every_call_site_of_the_billed_path_is_allowlisted` enforces,
+        restated over modules, and it is exercised by the same mutation: a
+        `structured_call(...)` placed in `backend/agents/budget.py` on
+        2026-09-05 turned both RED (`budget.py` not in the allowlist), and
+        was reverted. `_unmetered_but_unreachable()` stays as the shape a
+        future quarantined caller would be judged by; nothing exercises it
+        today and its docstring says so.
         """
         unmetered = {
             rel for rel, _, _ in _billed_path_sites("structured_call")
             if rel not in BILLED_PATH_CALL_SITES
         }
-        assert unmetered == {
-            "backend/agents/historian.py",
-        }, (
-            f"the unmetered callers of `structured_call` are {sorted(unmetered)}, "
-            f"not the one quarantined agent still parked (the Scout left via "
-            f"ADR 0060, and its `research()` was deleted rather than allowed "
-            f"to stand unmetered). If a module has "
-            f"left this set it should be in BILLED_PATH_CALL_SITES with its "
-            f"meter named; if one has joined, it is spending money with nothing "
-            f"counting."
-        )
-        assert unmetered <= _unmetered_but_unreachable(), (
-            f"{sorted(unmetered - _unmetered_but_unreachable())} call "
-            f"`structured_call` with no meter and are now reachable from a "
-            f"deployed entry point. Anthropic spend has arrived on the instance "
-            f"as a side effect of an import -- see ADR 0022 §4."
+        assert unmetered == set(), (
+            f"{sorted(unmetered)} call `structured_call` and are not in "
+            f"BILLED_PATH_CALL_SITES. Since 2026-09-05 no module is permitted "
+            f"an unmetered call: the last one that was (the Historian) is "
+            f"deleted. Either the module reserves through `AgentBudget` and "
+            f"is added with its meter named, or it is spending money with "
+            f"nothing counting."
         )
 
 

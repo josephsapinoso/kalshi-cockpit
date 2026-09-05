@@ -200,7 +200,7 @@ that is **1.81 against a nominal 86, one game holding 72.7% of the leverage**.
 **It does not run for free, and this paragraph used to say it did.** Corrected
 2026-08-24 (ADR 0071 §1). "The recorder costs nothing" is true of the LLM
 fleet — the runner imports `review_retired`, which refuses every row and calls
-nothing (`backend/agents/review.py:406`) — and **false of the odds feed the
+nothing (`backend/agents/review.py:124`) — and **false of the odds feed the
 recorder was raised to buy**. The claim was written when a sweep cost 2 credits
 under `h2h`; `ODDS_MARKETS = "h2h,spreads"` doubled it on 2026-08-23 and nobody
 revisited the sentence. The recorder is cheap to *decide about*, not free to
