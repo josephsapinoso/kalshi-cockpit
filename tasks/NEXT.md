@@ -203,14 +203,25 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-05 (latest) — ticket #24 built in Joe's own order and deployed; the parlay-performance question is scoped and blocked; the dead-code list goes from nine to three
+## 2026-09-05 (latest) — ticket #24 and Lane A2 both built and deployed; the parlay-performance question is scoped and blocked; the dead-code list goes from nine to three
 
-**STATE, verified at close:** `main` = `dd7533c`, pushed. **CI green**
-(run 33996438411; `Tests + warehouse`, `Secret scan`, `Frontend` all
-success). **Live and demo are both `dd7533c`** — demo run 33996829758, live
-run 33996978320, both `/api/health` ok with the sha matching and the live
-recorder 44s fresh. Under it: `6a1d1e0` (the backlog entry and the audit
-corrections), on `ed95fa6`.
+**STATE, verified at close:** `main` = `39e912b`, pushed. **CI green**
+(run 33998498987; `Tests + warehouse`, `Secret scan`, `Frontend` all
+success). **Live and demo are both `39e912b`** — demo run 33998860888, live
+run 33998949826, both `/api/health` ok with the sha matching and the live
+recorder 42s fresh. Full suite on the final tree: **6,130 passed, 10 xfailed,
+0 failed** (11m56s), `ruff` and `npx tsc --noEmit` clean, `next build` green.
+Under it: `e8f409f` (the #24 records), `dd7533c` (ticket #24), `6a1d1e0` (the
+backlog entry and the audit corrections), on `ed95fa6`.
+
+**Both builds were verified on the deployed artifact, not only in tests** —
+Playwright against demo, in each defect's own state. #24: a market page whose
+quote strip refuses a stale ask now shows the ticket's *masked* wording where
+it used to assert "the price is already on this screen". A2: the strip reads
+"Open positions never read yet — **no positions poll has succeeded yet**",
+where it used to say "the positions mirror is behind" — a claim that is false
+when nothing was ever polled. Demo holds no Kalshi credentials, which is
+exactly what puts it in that refusal state.
 
 ### Ticket #24 — the flag that claimed a price the screen was not showing
 
@@ -273,6 +284,59 @@ rather than asserting on source text, because the defect was a wrong verdict
 and a substring test passes unchanged on an exactly inverted predicate. Five
 mutations, all observed red.
 
+### Lane A2 — the branches that swallowed the server's reason
+
+ADR 0107 put the staked figure on the wire and touched no `frontend/`. Three
+defects on the screen side, all in `OpenPositions.tsx` (`39e912b`):
+
+- **`count === null` printed one hardcoded sentence for four distinct
+  refusals**, and that sentence was *false* in two of them. `backend/bets.py`
+  words them apart deliberately — "no positions poll has succeeded yet" is a
+  different fact from "not read in the last 30 minutes" — and the screen
+  replaced all four with "the positions mirror is behind". Nothing is behind
+  when nothing has ever been polled, and a record the server could not read
+  is not a lagging mirror. **A refusal the server worded carefully and the
+  screen replaced with its own guess is worse than no refusal, because it
+  reads as knowledge.**
+- **`count === 0` returned before `StakedNow`.** What was being swallowed is
+  an **integrity** refusal at a zero count, which is reachable:
+  `STAKED_MIRROR_MISMATCH` fires when the mirror holds rows under a poll that
+  counted none — the table disagreeing with the read that wrote it.
+- **`/slate` printed a bold "$X staked" twice for two different numbers**,
+  seven lines apart: this figure is money on positions open now,
+  TonightStrip's is money committed since the day roll. The muted qualifiers
+  distinguished them; the bold text, which is what the eye takes, did not.
+
+**One thing in the brief was wrong and is corrected here.** The partner's
+framing — the empty-but-fresh `$0.00` is "computed by the server and dropped
+by the client" — treats a redundancy as the defect. "No open positions at the
+venue" already says $0.00, and printing both is noise. The real loss in that
+branch was the *refusal*. The zero is still not printed and that is a
+decision, recorded in the component and pinned by a test.
+
+**The guard renders the component rather than reading it.** Node strips types
+but does not transform JSX, so
+`tests/test_open_positions_renders_every_refusal.py` compiles the real `.tsx`
+with the repo's own `tsc` and renders it through `react-dom/server` at the
+shipped versions. A substring test sees `staked_refusal` in the file and calls
+it covered; it cannot see that the mention sits in a branch the payload never
+reaches — which is the entire defect.
+
+**9 of its 13 tests fail against the pre-fix component.** That is the evidence
+it catches the defect rather than describing the fix, and it is a cheaper
+check than it sounds: `git show HEAD:<file>` into place, run, restore.
+
+**It was made 3x cheaper before landing** — ~34s to ~12s. Every test
+recompiled the same source; `tsc` is ~2.5s a call and eleven of thirteen
+tests render identical bytes. A module-scoped build fixture fixed it. An
+eighth of CI's whole `Tests + warehouse` budget for eleven identical compiles
+is exactly the shape this file already warns about.
+
+Also corrected: `capture_positions_fixture.py`'s `EXIT_EMPTY` said "the
+per-row shape is still unobserved", false since the 2026-08-30 capture. ADR
+0107 §7 recorded it stale and left it under a keep-it-byte-identical brief;
+that brief expired.
+
 ### Joe's parlay question — scoped, and the half he asked about is blocked
 
 Added as Open item 2. **`parlay_positions` and `parlay_position_legs` are 0
@@ -304,19 +368,28 @@ fixture running before every test read as having no caller.**
 
 ### Still open, in order
 
-1. **Lane A2 — the screen for the staked figure.** The partner's read, which
-   corrects this file's earlier citation: A2 is specified in ADR 0107's
-   header, §8 and §9 — **not §6**, which is "The boundary". Concrete defects
-   it must fix: `OpenPositions.tsx` returns at `count === 0` and never
-   reaches `StakedNow`, so the empty-but-fresh `$0.00` — **the state the live
-   account is in today** — is computed by the server and dropped by the
-   client; four of seven server refusal states are unreachable; `/slate`
-   mounts `OpenPositions` and `TonightStrip` seven lines apart, both printing
-   the literal word "staked" for two different numbers. Zero backend work,
-   and it does **not** depend on item 3 below. Two pins it will trip:
-   `tests/test_bets_sections.py:207-209` asserts the literal
-   `"staked_refusal?: string | null;"`, and `:201-205` ban eight substrings
-   in `OpenPositions.tsx`.
+1. ~~**Lane A2 — the screen for the staked figure.**~~ **Done and deployed
+   2026-09-05 (`39e912b`, live + demo).** Three defects fixed in
+   `OpenPositions.tsx`: `count === null` printed **one hardcoded sentence for
+   four distinct server refusals**, and that sentence ("the positions mirror
+   is behind") is *false* for two of them — nothing is behind when nothing was
+   ever polled; `count === 0` returned before `StakedNow`, hiding a reachable
+   **integrity** refusal (`STAKED_MIRROR_MISMATCH` at a zero count = the
+   mirror holds rows under a poll that counted none); and `/slate` printed a
+   bold "$X staked" twice for two different numbers, now disambiguated on the
+   `OpenPositions` side only (TonightStrip's use is the older one, cited by
+   ADR 0107 §3 as the precedent).
+
+   **The $0.00 is deliberately still not printed** at `count === 0`: "No open
+   positions" already says it, and the brief's framing — that the figure was
+   "computed by the server and dropped by the client" — treated a redundancy
+   as the defect. The real loss in that branch was the refusal, not the zero.
+
+   `tests/test_open_positions_renders_every_refusal.py` **renders the
+   component** (tsc → `react-dom/server`) rather than reading it, because a
+   substring test cannot tell a mention in a live branch from one in a dead
+   branch. **9 of its 13 fail against the pre-fix component** — that, not the
+   green run, is the evidence it catches the defect.
 2. **The three duplicate-spelling predicates** — `study_stop_fired`,
    `loop_failures_since`, `seen_at_least_once_since`. The reason is not the
    ~9KB: each is one predicate with two or three spellings, and the second is
