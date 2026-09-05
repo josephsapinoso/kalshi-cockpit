@@ -273,18 +273,43 @@ class TestTheMarketPageRecordsTicket24:
             "true; #24 measured two states in which it is false"
         )
 
-    def test_it_records_the_decision_and_its_precondition(self):
-        """Mutation observed red: delete "#24" from the comment."""
+    def test_it_records_the_decision_and_where_it_landed(self):
+        """Mutation observed red: delete "#24" from the comment.
+
+        **Rewritten 2026-09-05, when #24 was built.** This asserted
+        `"conditional" in text` and "`detail` is null" -- a pin on a comment
+        describing work that had not happened. The repo's own lesson is that
+        copy naming a condition to wait for is falsified by fixing the
+        condition, so the pin and the fix ship together. What it guards now is
+        that the comment still says which ticket this was and which ADR
+        carries it, because the next reader's question is "why is this flag
+        computed" and the answer is not local.
+        """
         text = comments(MARKET)
         assert "#24" in text
-        assert "conditional" in text
         assert "ADR 0065" in text
-        assert "`detail` is null" in text
+        assert "askIsVisible" in text, (
+            "the comment no longer names the function the flag is derived "
+            "from, so a reader cannot find the shared predicate from here"
+        )
 
-    def test_the_prop_is_still_passed(self):
-        """The decision is that the flag CHANGES before a link ships, not that
-        it goes. `tests/test_buy_controls.py` pins the mount; this pins that
-        the comment did not become the edit. Mutation observed red: drop the
-        prop from the `<ManualTicket` mount."""
+    def test_the_prop_is_derived_rather_than_asserted(self):
+        """The decision was that the flag CHANGES before a link ships, not
+        that it goes. It has now changed: it is computed from the quote
+        strip's own verdict.
+
+        Mutation observed red: restore the bare `priceAlreadyVisible` form.
+        The negative half is the one that matters -- a bare prop is how the
+        defect looked, and it must not come back by someone "simplifying" the
+        call site.
+        """
         code = _BLOCK_COMMENT.sub("", MARKET.read_text(encoding="utf-8"))
-        assert re.search(r"<ManualTicket\s+ticker=\{ticker\}\s+priceAlreadyVisible\s*/>", code)
+        assert re.search(
+            r"<ManualTicket\s+ticker=\{ticker\}\s+"
+            r"priceAlreadyVisible=\{askIsVisible\(detail,\s*now\)\}\s*/>",
+            code,
+        ), "the market screen no longer derives the ticket's flag"
+        assert not re.search(r"priceAlreadyVisible\s*/>", code), (
+            "the flag is asserted bare again -- the ticket will claim a price "
+            "is on screen in the three states the strip renders nothing"
+        )

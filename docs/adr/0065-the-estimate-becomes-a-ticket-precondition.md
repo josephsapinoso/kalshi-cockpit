@@ -111,3 +111,65 @@ Decision-map ticket #11, resolved with Joe 2026-09-01. Build:
   aggregate below n >= 30 with the per-group view beside it, and the
   2026-08-29 amendment above governs what the 30 buys: a **display**, never a
   verdict. One call at a time.
+
+**Amended 2026-09-05 — the mask's flag becomes conditional, because on one
+surface it was asserting a price that was not there.**
+
+Decision-map ticket #24, resolved by Joe 2026-09-02 (option A): a
+market-search result reaches the game screen by a link, alongside the ticket
+rather than instead of it. The precondition he named and accepted, in his own
+words — *"Build: the amendment, the conditional flag, then the link"* — is
+this amendment and the change it records. The link ships last, and only after
+the flag is honest.
+
+**What was wrong.** `frontend/src/app/market/[ticker]/page.tsx` passed
+`priceAlreadyVisible` to `ManualTicket` **unconditionally**. §2 above makes
+the mask surface-dependent on purpose, and the flag is how a surface declares
+which case it is; the game screen declared "the ask is above this control" in
+three states where it is not:
+
+- `detail` is null — the page renders *"the recorder never priced this
+  ticker"* and mounts no quote strip at all;
+- the quote strip refuses a stale ask, which it does outright rather than
+  greying, precisely because *"a stale ask on a page with no fresher rows
+  beside it reads as a price, and it is not one"*;
+- the market is finalized, settled, or past its close, where the strip
+  returns nothing.
+
+In each, the ticket told the reader *"The price is already on this screen, so
+that number is anchored by it"* while the screen showed no price. That is the
+inverse of the job ADR 0071 §2.2 assigns this desk, and it said it on the
+surface that sends real IOC orders (`MANUAL_ORDERS_ARE_DRY_RUNS = False` since
+2026-08-26).
+
+**The decision: the flag is derived, not asserted, and one function owns the
+derivation.** `frontend/src/lib/quoteVisibility.ts` exports
+`quoteVisibility(detail, now)` returning `"ask" | "stale" | "absent"` — the
+quote strip's own three outcomes — and `askIsVisible`, which is that value
+being `"ask"`. The strip renders from it and the page passes
+`priceAlreadyVisible={askIsVisible(detail, now)}`. Neither spells the
+predicate itself.
+
+**Sharing the function is the substance of this amendment, not tidiness.**
+This repo has now recorded the same defect shape four times in CLAUDE.md —
+*one predicate with two spellings, and the screen believing the wrong one* —
+and every instance was a second spelling drifting from the first. A fix that
+left the page testing `price_is_current` inline would have been the fifth: it
+would be correct on the day it shipped and would rot the next time the strip's
+refusal grew a condition. The strip is the authority on whether the strip
+shows a price, so it may not be re-derived anywhere.
+
+**§2 is unchanged and this amendment narrows nothing about it.** The estimate
+stays mandatory on every surface, the server still refuses without
+`p_yes_bp`, and the masked wording still stands wherever the ask is genuinely
+hidden. What changes is only that the game screen now tells the truth about
+which of the two cases it is in, moment by moment, instead of asserting one of
+them permanently.
+
+**What this does not decide.** Nothing here changes when a quote counts as
+current — `price_is_current` and `quote_age_now_ms` are the server's
+judgement and this amendment only reads them. Nothing here adds a price to
+the search route: `estimates.search_markets`' SELECT still carries no quote
+column, and the search list is still price-free, which is what keeps §2's
+masking intact on that screen. The link changes where a reader can *go*, not
+what the list shows.

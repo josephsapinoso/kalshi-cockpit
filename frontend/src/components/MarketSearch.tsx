@@ -17,6 +17,25 @@
  * whose first field is still P(YES), and `priceAlreadyVisible` is false
  * because nothing on this list is a price.
  *
+ * **Since 2026-09-05 a row also LINKS to one, and the distinction is the
+ * whole of ticket #24.** Joe's option A: each result carries a link to
+ * `/market/{ticker}` alongside its ticket, not instead of it. The list is
+ * still price-free -- the link changes where a reader can go, never what this
+ * component shows -- so the paragraph above is unchanged rather than merely
+ * still true. What it buys is the arrival case the desk had no door for: the
+ * runner drops every started fixture, so after first pitch this search is the
+ * only way to reach a market at all, and before this the only thing waiting
+ * at the end of it was an order form. ADR 0071 section 2.2 makes price
+ * transparency the job at the moment of a bet; a search that could only sell
+ * was the inverse of it.
+ *
+ * The link ships only because the game screen's `priceAlreadyVisible` became
+ * conditional first (ADR 0065, amended 2026-09-05). That ordering was Joe's
+ * own precondition and it is not ceremony: until that flag was derived,
+ * following this link moved a reader from a screen where the estimate mask
+ * honestly holds to one that announced "the price is already on this screen"
+ * while showing no price.
+ *
  * Combination markets never appear: discovery excludes `KXMVE` from
  * `kalshi_markets` outright, and a combination has no ticker at all until a
  * parlay card mints one. That door is on the parlay desk, with its own
@@ -37,6 +56,7 @@
  */
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import Link from "next/link";
 
 import { DISPLAY_TIME_ZONE, searchManualMarkets, type EstimateMarket } from "@/lib/api";
 import ManualTicket from "@/components/ManualTicket";
@@ -185,9 +205,39 @@ export default function MarketSearch({
                   {closes(market.close_ms)}
                 </span>
               </button>
-              <p className="font-mono text-[11px] text-muted">
-                {market.ticker}
-              </p>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <p className="font-mono text-[11px] text-muted">
+                  {market.ticker}
+                </p>
+                {/* Ticket #24, Joe's option A: a result reaches the game
+                    screen by a link ALONGSIDE the ticket, never instead of
+                    it. `tests/test_buy_controls.py` pins this file as a
+                    surface that must mount `<ManualTicket`, and that pin is
+                    the design: the fastest path from "I found my market" to
+                    "I have bet on it" stays one tap, and this link is the
+                    slower, better-informed path beside it.
+
+                    It ships only because `priceAlreadyVisible` became
+                    conditional first (ADR 0065, amended 2026-09-05). Before
+                    that, sending a reader here moved him from a screen where
+                    the estimate mask honestly holds to one that announced a
+                    price it was not showing.
+
+                    **The label does not promise a price, and that is the same
+                    defect one level up.** It read "See the price and what the
+                    desk knows" for one draft -- while the destination renders
+                    "the recorder never priced this ticker" when there is no
+                    detail row, and refuses the ask outright when it is stale.
+                    A link is a claim about where it goes; only the game
+                    screen knows whether it has a price today, so the label
+                    names the destination and lets it speak. */}
+                <Link
+                  href={`/market/${encodeURIComponent(market.ticker)}`}
+                  className="inline-flex min-h-11 items-center text-[11px] font-semibold underline"
+                >
+                  Open the game screen →
+                </Link>
+              </div>
               {chosen?.ticker === market.ticker && (
                 <ManualTicket
                   ticker={market.ticker}

@@ -60,6 +60,7 @@ import TrustNote from "@/components/TrustNote";
 import { SHELL_WIDTH } from "@/lib/shell";
 import { kalshiMarketUrl } from "@/lib/kalshiLink";
 import { leagueLabel } from "@/lib/leagueLabel";
+import { askIsVisible, quoteVisibility } from "@/lib/quoteVisibility";
 
 const RANGES = [
   { key: "1d", label: "Today" },
@@ -112,17 +113,17 @@ function QuoteStrip({
   now: number;
   kalshiUrl: string;
 }) {
-  const status = (detail.market_status ?? "").toLowerCase();
-  const dead =
-    status === "finalized" ||
-    status === "settled" ||
-    (detail.close_ms !== null && detail.close_ms <= now);
-  if (dead) return null;
+  // The verdict comes from `lib/quoteVisibility`, which the ticket's
+  // `priceAlreadyVisible` flag also reads. Not a tidiness move: this strip is
+  // the authority on whether this strip shows a price, and the page asserting
+  // that separately is the defect ADR 0065's 2026-09-05 amendment fixes.
+  const visibility = quoteVisibility(detail, now);
+  if (visibility === "absent") return null;
 
   const age = detail.quote_age_now_ms;
   // Refused outright, not greyed: a stale ask on a page with no fresher rows
   // beside it reads as a price, and it is not one.
-  if (detail.price_is_current !== true || age === null || age === undefined) {
+  if (visibility === "stale") {
     return (
       <div className="mt-3 rounded-xl border border-dashed border-border-strong px-3 py-2 text-sm text-muted">
         <p className="max-w-[65ch]">
@@ -144,6 +145,13 @@ function QuoteStrip({
       </div>
     );
   }
+  // A type-narrowing step, not a second predicate. `quoteVisibility` returns
+  // "ask" only when the age is a number, but TypeScript cannot see through the
+  // call, so the narrowing has to happen here. If this branch ever renders,
+  // the predicate and this component have diverged -- which is precisely what
+  // the shared module exists to prevent, so it refuses rather than printing an
+  // ask with no age beside it.
+  if (age === null || age === undefined) return null;
   // No size step at any width: the ask never exceeds body size, because a
   // page whose hero is a price says "buy" (the convening's rule for the
   // record).
@@ -377,27 +385,32 @@ export default function MarketPage() {
           off, lockout, cool-off) in words, so mounting it unconditionally is
           honest on every instance.
 
-          `priceAlreadyVisible` is passed unconditionally here, and that is
-          a recorded defect, not a design. It is true only when QuoteStrip
-          actually prints a current ask near the top of this page; it is
-          FALSE when `detail` is null (the branch above renders "the recorder
-          never priced this ticker" and mounts no QuoteStrip) and when
-          QuoteStrip refuses a stale ask. In both of those states the ticket
-          announces that ADR 0065's mask does not hold while the page shows
-          no price at all.
+          `priceAlreadyVisible` is DERIVED, not asserted, and that is ticket
+          #24's precondition discharged (Joe, 2026-09-02, option A; ADR 0065
+          amended 2026-09-05). It was passed unconditionally here until then,
+          which made the ticket announce "the price is already on this screen"
+          in the three states where QuoteStrip prints nothing: `detail` null
+          (the branch above renders "the recorder never priced this ticker"),
+          a refused stale ask, and a market past its close.
 
-          Ticket #24, resolved by Joe 2026-09-02 (option A): a market-search
-          result will reach this screen by a link beside the ticket, and the
-          precondition he accepted is that this flag becomes conditional on
-          QuoteStrip printing a current ask BEFORE that link ships -- via an
-          amendment to ADR 0065, not a quiet edit. Neither the amendment, the
-          conditional flag nor the link is built; the build was killed as not
-          earning (NEXT.md, 2026-09-03). Until it is, do not read this prop
-          as "always true" -- read it as the flag #24 says must change first.
-          An earlier version of this comment argued the opposite ("true here
-          and always has been"); it was written before #24 measured the two
-          states in which it is not. */}
-      <ManualTicket ticker={ticker} priceAlreadyVisible />
+          `askIsVisible` is the SAME function QuoteStrip renders from, and
+          sharing it is the substance rather than the tidiness. Re-testing
+          `price_is_current` here would be correct today and would rot the
+          next time the strip's refusal grows a condition -- the fifth
+          instance of the shape CLAUDE.md already records four times: one
+          predicate with two spellings, and the screen believing the wrong
+          one.
+
+          Two earlier versions of this comment were wrong in opposite
+          directions and both are superseded: one argued the flag was "true
+          here and always has been" (written before #24 measured the states
+          in which it is not), and one said the build "was killed as not
+          earning" -- an inference NEXT.md corrected on 2026-09-04. Joe never
+          killed #24; he resolved it with a build order. */}
+      <ManualTicket
+        ticker={ticker}
+        priceAlreadyVisible={askIsVisible(detail, now)}
+      />
 
       {/* The calm alternative (ADR 0066): a quiet row below the ticket's
           card, deliberately NOT styled as its sibling — passing must read as
