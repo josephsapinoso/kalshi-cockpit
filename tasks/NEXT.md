@@ -203,7 +203,160 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-05 (latest) — the session Joe stopped is picked up: three finished lanes merged (ADR 0106, 0107, the routes split), and the one cross-lane break git could not see
+## 2026-09-05 (latest) — ticket #24 built in Joe's own order and deployed; the parlay-performance question is scoped and blocked; the dead-code list goes from nine to three
+
+**STATE, verified at close:** `main` = `dd7533c`, pushed. **CI green**
+(run 33996438411; `Tests + warehouse`, `Secret scan`, `Frontend` all
+success). **Live and demo are both `dd7533c`** — demo run 33996829758, live
+run 33996978320, both `/api/health` ok with the sha matching and the live
+recorder 44s fresh. Under it: `6a1d1e0` (the backlog entry and the audit
+corrections), on `ed95fa6`.
+
+### Ticket #24 — the flag that claimed a price the screen was not showing
+
+Joe resolved it 2026-09-02 (option A) with the build order in his own words:
+*"Build: the amendment, the conditional flag, then the link."* It had sat
+unbuilt for three days, in the third queue — decided-and-not-yet-built —
+which is exactly the gap the SESSION START box warns about.
+
+**The defect.** `market/[ticker]/page.tsx` passed `priceAlreadyVisible`
+unconditionally, so the hand-bet ticket said *"The price is already on this
+screen, so that number is anchored by it"* in three states where the quote
+strip prints nothing: `detail` null, a refused stale ask, and a market past
+its close. On the surface that sends real IOC orders.
+
+**The fix is a shared predicate, not a second condition.**
+`frontend/src/lib/quoteVisibility.ts` exports `quoteVisibility(detail, now)`
+returning `"ask" | "stale" | "absent"` — the strip's own three outcomes — and
+`askIsVisible`. The strip renders from it; the page passes
+`priceAlreadyVisible={askIsVisible(detail, now)}`. Re-testing
+`price_is_current` on the page would have been correct on the day and rotted
+at the next condition added to the strip: the **fifth** instance of the shape
+CLAUDE.md records four times.
+
+**The link, last.** Each `MarketSearch` result links to `/market/{ticker}`
+alongside its ticket, never instead of it. The list stays price-free, so ADR
+0065's masking on that screen is untouched.
+
+**Verified on the deployed artifact, not just in tests.** A demo market page
+in the stale-ask state renders no `Ask $` line, the strip's refusal *"not a
+price you can transact on"*, and the ticket's **masked** wording — the same
+page that before this commit asserted the price was on screen. That is the
+before/after, taken through Playwright against demo at `dd7533c`.
+
+### Three guards of my own that were decoration, and how each was found
+
+All three were found by mutating, not by reading, and all three are recorded
+in the tests rather than quietly patched:
+
+- `"<ManualTicket" in search` stayed green under a mutation renaming the
+  component `<ManualTicketXX`. **A prefix is a substring of every longer
+  identifier.** `tests/test_buy_controls.py`'s `MOUNTS` check has the same
+  blind spot; left alone rather than widened from a lane that is not its own.
+- The same guard then stayed green a *second* time, for a better reason: the
+  component's own comments name `<ManualTicket` while explaining the design,
+  so it was reading **prose about the mount instead of the mount**. Comments
+  are stripped first now.
+- My link label read *"See the price and what the desk knows"* — while the
+  destination renders "the recorder never priced this ticker" in exactly the
+  states the flag guards. **The same defect one level up.** It says "Open the
+  game screen" and a pin refuses any label promising a price.
+
+**Two pins in `test_tab_ledes.py` guarded the UNBUILT state** — that the
+comment says "conditional", that the prop is passed bare — and were rewritten
+in the same commit. Copy naming a condition to wait for is falsified by fixing
+the condition, so the fix and its pins ship together or the suite asserts the
+defect.
+
+`tests/test_quote_visibility.py` executes the shipped predicate under **node**
+rather than asserting on source text, because the defect was a wrong verdict
+and a substring test passes unchanged on an exactly inverted predicate. Five
+mutations, all observed red.
+
+### Joe's parlay question — scoped, and the half he asked about is blocked
+
+Added as Open item 2. **`parlay_positions` and `parlay_position_legs` are 0
+rows on live**, `manual_orders` is 0, so "which parlays did Joe pick" has no
+population; ADR 0078's `/hedge` has been deployed ten days and never held a
+ticket. What does exist: `parlay_lookups`, **34 taps**, carrying the desk's
+own `fair_joint_conservative`/`hold`/`derived_yes_ask_tenths` and the legs as
+JSON — **74 distinct legs, all 74 in `kalshi_markets`, 64 already settled**.
+So the recommendations are retrospectively scorable; the picks are not.
+
+**24 of the 34 taps were `book_empty`** — the majority of what the desk
+recommended could not be bought at any price. That is a defect in the
+recommendation independent of its probabilities, and it is the more promising
+place to start. `n = 7` priced is below the >=5-expected rule: **census, not
+calibration test.** Only aggregate counts have been read; no outcome has been
+compared to any stated probability, so the pre-registrar can still fix the
+form.
+
+### The dead-code list is three, not nine
+
+Open item 5 corrected in place. Six must not be deleted — `reset_walk_alarm`
+is called by an autouse fixture in root `conftest.py` on **every test in the
+suite**; `discover_from_events` has four operator call sites;
+`alerts.check_fee` is a deliberate arming hook whose docstring says so;
+`cents_to_tenths`/`allowance` churn ~322 lines of live-code tests for three
+executable lines; `_skeptic_context` is called twice per judged row. **The
+first audit scoped its grep to `backend/` and `scripts/`, which is how a
+fixture running before every test read as having no caller.**
+
+### Still open, in order
+
+1. **Lane A2 — the screen for the staked figure.** The partner's read, which
+   corrects this file's earlier citation: A2 is specified in ADR 0107's
+   header, §8 and §9 — **not §6**, which is "The boundary". Concrete defects
+   it must fix: `OpenPositions.tsx` returns at `count === 0` and never
+   reaches `StakedNow`, so the empty-but-fresh `$0.00` — **the state the live
+   account is in today** — is computed by the server and dropped by the
+   client; four of seven server refusal states are unreachable; `/slate`
+   mounts `OpenPositions` and `TonightStrip` seven lines apart, both printing
+   the literal word "staked" for two different numbers. Zero backend work,
+   and it does **not** depend on item 3 below. Two pins it will trip:
+   `tests/test_bets_sections.py:207-209` asserts the literal
+   `"staked_refusal?: string | null;"`, and `:201-205` ban eight substrings
+   in `OpenPositions.tsx`.
+2. **The three duplicate-spelling predicates** — `study_stop_fired`,
+   `loop_failures_since`, `seen_at_least_once_since`. The reason is not the
+   ~9KB: each is one predicate with two or three spellings, and the second is
+   what the screen and inspector use. `GET /api/estimates/stop` re-spells the
+   money-arm comparison inline, and `study_stop_fired`'s docstring claims a
+   write-path refusal that was removed.
+3. **The scout Anthropic fixture** (ADR 0106 §5.2). `scout.py` is live on the
+   billed path with eight briefings behind it. The sharp finding:
+   `parsed_output` is a `@property` walking `content` blocks, and every
+   existing stub sets it **directly on the response object**, bypassing the
+   property — so those tests are decoration. **Do not pay for a capture**;
+   round-trip through the installed SDK's own pydantic models. A real capture
+   is a separate ask.
+4. **Three ADR 0107 refusals that must not be upgraded by a later reader** —
+   the unit of `market_exposure_dollars`, the NO-side sign convention, and
+   "before fees" as a label. **Not a queue item**: it is a trigger on Joe
+   holding a position. Demo holds no Kalshi credentials, so there is no way
+   around it. It already lives correctly in ADR 0107 §8/§9.
+5. **`parlay_positions` on 2026-09-09 — the falsifying check the partner
+   set.** The hedge desk shipped in the MLB/WNBA window; parlays are largely
+   a football product and NFL opens this weekend. If it is still 0 after an
+   NFL opening weekend, the transcribe-it-yourself entry design is refuted —
+   ADR 0078's route becomes a candidate for deletion, not decoration.
+6. **Joe-gated, untouched:** the five questions A–E from 2026-09-04. **D and
+   E gate real items and cost him nothing** — D kills or keeps #11's estimate
+   log screen; E is the "which screen" path field on the desk heartbeat, the
+   instrument for the successor question the presence result licenses. Also
+   the 2026-09-03 key rotation.
+7. **`.claude/worktrees/wf_e0ee5ede-e97-1`** is an empty husk a live process
+   holds open. Delete when that process is gone. The other three were removed
+   2026-09-05; the junction hazard was checked (`st_file_attributes & 0x400`)
+   rather than assumed, and did not apply.
+
+**The decision map is exhausted — 32 of 32 closed, frontier query returns
+zero.** That means the *design* backlog is spent, not the product. The queue
+is this file plus the third queue (decided-and-unbuilt), which just swallowed
+#24 for three days.
+
+---
+## 2026-09-05 — the session Joe stopped is picked up: three finished lanes merged (ADR 0106, 0107, the routes split), and the one cross-lane break git could not see
 
 **READ THIS FIRST if you are wondering why `main` looked wrong.** The
 previous session was the **integrator** over three worktree lanes. All three

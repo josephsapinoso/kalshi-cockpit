@@ -54,6 +54,66 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-05 - A guard that greps for a component name finds the comment explaining the component, and a prefix is a substring of every longer identifier
+
+One pin — "this file still mounts the hand-bet ticket" — was written as
+`"<ManualTicket" in source` and observed **green twice under mutations that
+should have killed it**, for two unrelated reasons.
+
+The first: renaming the mount to `<ManualTicketXX` leaves `<ManualTicket` in
+the file as a prefix, so a substring test cannot see a component being
+replaced by a differently-named one. The second is the more interesting, and
+was only reached after fixing the first: the file's own comments name
+`<ManualTicket` while explaining *why* the link sits beside it, so the guard
+was reading prose about the mount rather than the mount. Both fixes are one
+line — match an element boundary (`<Name[\s/>]`), and strip comments before
+searching — and neither would have been found by reading the test.
+
+**Pattern: a source-text guard must assert on the code with comments removed,
+and must anchor identifiers at their boundaries. Documentation is the most
+likely place for a guard's own needle to appear, because good code explains
+the thing the guard is checking, in the same words.** The corollary is about
+process rather than regex: the second failure was invisible until the first
+was fixed, so **a mutation that goes green is not one finding, it is a
+prompt to mutate again** — keep mutating the same guard until it goes red for
+the reason you intended.
+
+Two related shapes seen the same day, both worth recognising:
+
+- **A mutation applied by `.replace(needle, repl, 1)` can land on a comment**
+  rather than on the code, because the comment usually comes first. The
+  mutation then "applies" (the text changed, the assertion that it changed
+  passes) and proves nothing. Target the mutation at the syntax, including
+  its indentation, not at the bare name.
+- **A guard on the unbuilt state must be rewritten in the commit that builds
+  it.** Two pins asserted that a comment said "conditional" and that a prop
+  was passed bare -- both descriptions of work not yet done. Fixing the defect
+  made the suite assert the defect. This is the same ordering lesson the
+  window-copy fix recorded: copy that names a condition to wait for is
+  falsified by fixing the condition, so the fix and its pins ship together.
+
+## 2026-09-05 - A link is a claim about its destination, and only the destination knows whether it can keep it
+
+A search result was given a link to the game screen, labelled "See the price
+and what the desk knows". The screen it points at renders "the recorder never
+priced this ticker" when there is no detail row, and refuses the ask outright
+when it is stale -- the two states the very same commit had just taught the
+hand-bet ticket to stop lying about. The label reintroduced the defect one
+level up, in the same change that fixed it, and was caught only by asking what
+the destination looks like in its unhappy states.
+
+**Pattern: label a link with where it goes, not with what it will show. The
+linking surface cannot know the destination's state -- that is what makes it a
+different screen -- so any label promising content is a claim the linker is not
+entitled to make.** The tell is a label containing a noun the destination
+renders conditionally: "see the price", "read the verdict", "view your
+balance". Name the place instead and let it speak.
+
+The general form is worth more than the instance: **a fix that removes a false
+claim from one surface should be checked against every surface that points at
+it**, because the claim tends to have been copied outward from the same
+optimism.
+
 ## 2026-09-05 - A deadness grep scoped to the source directories misses the callers that matter most, because the loudest ones live outside them
 
 Seven symbols were audited for deletion by grepping `backend/` and `scripts/`
