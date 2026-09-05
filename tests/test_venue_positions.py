@@ -16,22 +16,31 @@ hand-invented one.
 What this establishes
 ---------------------
 That the table exists on a fresh database and lands on a volume one version
-behind without a migration step; that the venue's strings are stored verbatim
-and the derived columns are NULL -- never 0 -- when a value will not parse;
-that a successful poll writes its full row set under the poll's own stamp and
-the count in `poll_log.row_count` is untouched; that the writer bounds its own
-table; that `bets.open_positions` serves the count and the staked figure from
-ONE read with ONE stamp, refuses on a stale poll with the clock kept, refuses
-rather than partially sums when a row is unreadable, and serves an
-empty-but-fresh snapshot as count 0 and $0.00; that `gate.py` cannot see the
-table; and that the capture script no longer overwrites an observation.
+behind together with the `poll_log.mirrored` marker, which is a column step;
+that the venue's strings are stored verbatim and the derived columns are NULL
+-- never 0 -- when a value will not parse, or when the exposure exceeds $1 a
+contract (the scale tripwire that stands in for a unit nobody has measured);
+that a successful poll writes its full row set under the poll's own stamp,
+marks that poll, and leaves the count in `poll_log.row_count` untouched; that
+the writer bounds its own table; that `bets.open_positions` serves the count
+and the staked figure from ONE read with ONE stamp, selects only a poll that
+KEPT its rows -- so the hand-bet path's bare `poll_log` stamp, a live second
+writer, can neither displace that read nor darken the figure -- refuses on a
+stale poll with the clock kept, refuses rather than partially sums when a row
+is unreadable, and serves an empty-but-fresh snapshot as count 0 and $0.00;
+that `gate.py` cannot see the table; and that the capture script no longer
+overwrites an observation.
 
 What it does NOT establish
 --------------------------
-Whether `market_exposure_dollars` includes fees; anything about
+The unit of `market_exposure_dollars` (the tripwire bounds a scale error; it
+measures nothing); whether the field includes fees; anything about
 `event_positions`; how the venue's `count_filter` treats a row that flips to
-zero mid-session; that the screen renders the figure (lane A2). And nothing
-here reads the live database: every row is synthetic in the observed shape.
+zero mid-session; that the screen renders the figure (lane A2); and that the
+hand-bet route keeps its own rows -- it does not, that edit is `routes.py`'s
+and deferred, and the tests below reproduce its write through the same
+`log_poll_attempt` it calls rather than through the route. Nothing here reads
+the live database: every row is synthetic in the observed shape.
 """
 
 from __future__ import annotations
@@ -50,8 +59,10 @@ import pytest
 from backend import bets, portfolio_poll
 from backend.portfolio_poll import (
     VENUE_POSITIONS_RETENTION_MS,
+    log_poll_attempt,
     parse_position,
     poll_positions,
+    store_positions_snapshot,
 )
 from backend.store import db
 from tests.test_rest import OBSERVED_POSITION_ROW
@@ -79,19 +90,29 @@ def conn(tmp_path):
     c.close()
 
 
-def _poll(conn, *, polled_ms: int, row_count=0, ok: bool = True) -> int:
-    """A `poll_log` row for the positions endpoint; returns its id."""
+def _poll(
+    conn, *, polled_ms: int, row_count=0, ok: bool = True, mirrored=None
+) -> int:
+    """A `poll_log` row for the positions endpoint; returns its id.
+
+    `mirrored` is NULL by default -- the shape of every row written before
+    v33 and of the hand-bet path's stamp -- and 1 only when a test wants the
+    hand-edited shape of a marked poll with rows missing under it."""
     cursor = conn.execute(
-        "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count) "
-        "VALUES (?, 'positions', ?, ?)",
-        (polled_ms, 1 if ok else 0, row_count),
+        "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count, mirrored) "
+        "VALUES (?, 'positions', ?, ?, ?)",
+        (polled_ms, 1 if ok else 0, row_count, mirrored),
     )
     conn.commit()
     return int(cursor.lastrowid)
 
 
+def _columns(conn, table: str) -> set:
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
 class TestTheSchemaCarriesTheMirror:
-    def test_a_fresh_database_has_the_table(self, conn):
+    def test_a_fresh_database_has_the_table_and_the_marker(self, conn):
         names = {
             row[0]
             for row in conn.execute(
@@ -99,20 +120,23 @@ class TestTheSchemaCarriesTheMirror:
             )
         }
         assert "venue_positions" in names
+        assert "mirrored" in _columns(conn, "poll_log")
 
-    def test_the_previous_version_gains_it_without_a_migration_step(
-        self, tmp_path
-    ):
-        """v33 is tableless: `init_db` applies `schema.sql` with `CREATE TABLE
-        IF NOT EXISTS` on every open, so the live volume gains the table on
-        its next boot and no `_MIGRATIONS` entry exists to get wrong. The
-        version is read from `SCHEMA_VERSION` rather than typed, for the
-        reason `test_hedge_positions` records: a hand-written number starts
+    def test_the_previous_version_gains_both_on_its_next_boot(self, tmp_path):
+        """The table needs no step: `init_db` applies `schema.sql` with
+        `CREATE TABLE IF NOT EXISTS` on every open. The marker column does,
+        because `poll_log` already holds rows on the live volume and the file
+        alone would never reach them -- so v33 is a `_MIGRATIONS` entry, and
+        this test winds a database back to the version before it (table
+        dropped, column dropped, stamp decremented) and reopens. The version
+        is read from `SCHEMA_VERSION` rather than typed, for the reason
+        `test_hedge_positions` records: a hand-written number starts
         asserting about a version two steps back the moment another lane
         adds a table."""
         path = tmp_path / "previous.db"
         connection = db.init_db(path)
         connection.execute("DROP TABLE venue_positions")
+        connection.execute("ALTER TABLE poll_log DROP COLUMN mirrored")
         db._set_meta(connection, "schema_version", str(db.SCHEMA_VERSION - 1))
         connection.commit()
         connection.close()
@@ -126,15 +150,41 @@ class TestTheSchemaCarriesTheMirror:
                 )
             }
             assert "venue_positions" in names
+            assert "mirrored" in _columns(reopened, "poll_log")
             assert db.get_meta(reopened, "schema_version") == str(
                 db.SCHEMA_VERSION
             )
         finally:
             reopened.close()
 
-    def test_v33_is_declared_tableless(self):
-        assert 33 in db._TABLELESS_VERSIONS
-        assert 33 not in db._MIGRATIONS
+    def test_v33_is_a_column_step_for_the_marker_not_a_tableless_version(self):
+        """It adds a table AND a column; a version is one kind or the other,
+        and a column on a table holding live rows makes it a step."""
+        assert 33 not in db._TABLELESS_VERSIONS
+        assert db._MIGRATIONS[33].columns == (
+            ("poll_log", "mirrored", "INTEGER CHECK (mirrored IS NULL OR mirrored = 1)"),
+        )
+        assert db._MIGRATIONS[33].statements == ()
+        assert db._MIGRATIONS[33].indexes == ()
+
+    def test_the_marker_has_one_spelling(self, conn):
+        """1 or NULL. A 0 would be a second spelling of "not mirrored" and
+        the reader's `mirrored = 1` would treat it the same -- which is
+        exactly how a second spelling survives unnoticed. The CHECK refuses
+        it at the write."""
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO poll_log (polled_ms, endpoint, ok, mirrored) "
+                "VALUES (1, 'positions', 1, 0)"
+            )
+        conn.execute(
+            "INSERT INTO poll_log (polled_ms, endpoint, ok, mirrored) "
+            "VALUES (1, 'positions', 1, 1)"
+        )
+        conn.execute(
+            "INSERT INTO poll_log (polled_ms, endpoint, ok, mirrored) "
+            "VALUES (1, 'positions', 1, NULL)"
+        )
 
     def test_a_row_must_name_the_poll_it_came_from(self, conn):
         """One stamp: a mirror row that points at no `poll_log` row could be
@@ -238,13 +288,95 @@ class TestTheObservedRowParsesIntoNamedUnits:
         assert parsed.exposure_tenths is None
         assert parsed.market_exposure_dollars == "-7.641920"
 
+    def test_an_exposure_above_a_dollar_a_contract_is_a_scale_error_not_a_stake(
+        self,
+    ):
+        """The unit of `market_exposure_dollars` is inferred from its suffix
+        and has never been measured against a known position. The tripwire
+        that stands in: a contract cannot cost more than $1, so the exposure
+        cannot exceed the contract count in dollars. A cents-with-decimals
+        field on the observed row would read 764.192000 -- 764192 tenths
+        against a ceiling of 22880 -- and without this the strip would
+        render the stake at 100x. Refused to None, never scaled down, the
+        text kept, the reason named."""
+        cents_scaled = dict(
+            OBSERVED_POSITION_ROW, market_exposure_dollars="764.192000"
+        )
+        parsed = parse_position(cents_scaled)
+        assert parsed.exposure_tenths is None
+        assert parsed.market_exposure_dollars == "764.192000"
+        assert parsed.contracts == pytest.approx(22.88)
+        assert "exceeds $1 a contract" in parsed.exposure_refusal
+        assert "22880" in parsed.exposure_refusal, "the ceiling is named"
+        # And the observed row itself is inside the bound, with no reason.
+        assert parse_position(OBSERVED_POSITION_ROW).exposure_refusal is None
+
+    def test_exactly_a_dollar_a_contract_is_inside_the_bound(self):
+        """The bound is `<=`, and both sides go through the same
+        `dollars_to_tenths`, so the two roundings are one rounding: a true
+        $1 a contract lands equal and is not refused. The tripwire catches a
+        scale error; it cannot tell cost from a payout at exactly $1, and
+        does not claim to."""
+        at_the_edge = dict(
+            OBSERVED_POSITION_ROW, market_exposure_dollars="22.880000"
+        )
+        assert parse_position(at_the_edge).exposure_tenths == 22880
+        assert parse_position(at_the_edge).exposure_refusal is None
+        # "22.880100" is 22880.1 tenths and rounds back onto the ceiling;
+        # one whole tenth over is "22.881000" -> 22881 > 22880.
+        one_tenth_over = dict(
+            OBSERVED_POSITION_ROW, market_exposure_dollars="22.881000"
+        )
+        assert parse_position(one_tenth_over).exposure_tenths is None
+        assert parse_position(
+            dict(OBSERVED_POSITION_ROW, market_exposure_dollars="22.880100")
+        ).exposure_tenths == 22880, "sub-tenth over the edge rounds onto it"
+
+    def test_the_ceiling_shares_the_exposures_rounding_at_the_grid_edge(self):
+        """A fractional position of 0.0005 contracts: the ceiling rounds
+        half-up to 1 tenth exactly as an exposure of "0.000500" does, so an
+        exposure equal to the position's worth is not refused by a rounding
+        asymmetry, and one that rounds to 2 tenths is."""
+        tiny = dict(
+            OBSERVED_POSITION_ROW,
+            position_fp="0.0005",
+            market_exposure_dollars="0.000500",
+        )
+        assert parse_position(tiny).exposure_tenths == 1
+        assert parse_position(tiny).exposure_refusal is None
+        over = dict(tiny, market_exposure_dollars="0.001500")
+        assert parse_position(over).exposure_tenths is None
+
+    def test_a_no_side_row_is_bounded_by_its_magnitude(self):
+        """The sign is the side; the bound is on the count, which is the
+        magnitude. A short 3.50 contracts can have cost at most $3.50."""
+        short = dict(
+            OBSERVED_POSITION_ROW,
+            position_fp="-3.50",
+            market_exposure_dollars="3.500000",
+        )
+        assert parse_position(short).exposure_tenths == 3500
+        over = dict(short, market_exposure_dollars="3.501000")
+        assert parse_position(over).exposure_tenths is None
+        assert parse_position(over).side == "no"
+
+    def test_a_plain_parse_failure_names_itself_too(self):
+        parsed = parse_position(
+            dict(OBSERVED_POSITION_ROW, market_exposure_dollars="seven")
+        )
+        assert parsed.exposure_tenths is None
+        assert "did not parse" in parsed.exposure_refusal
+
     def test_an_unreadable_quantity_leaves_count_and_side_none(self):
         parsed = parse_position(dict(OBSERVED_POSITION_ROW, position_fp="lots"))
         assert parsed.contracts is None
         assert parsed.side is None
         assert parsed.position_fp == "lots"
-        # The exposure is its own field and still parses.
+        # The exposure is its own field and still parses. With no readable
+        # quantity there is no ceiling to state, so the tripwire does not
+        # fire -- it bounds a scale error, it does not invent a bound.
         assert parsed.exposure_tenths == 7642
+        assert parsed.exposure_refusal is None
 
     def test_a_zero_quantity_has_no_side(self):
         parsed = parse_position(dict(OBSERVED_POSITION_ROW, position_fp="0.00"))
@@ -342,6 +474,37 @@ class TestThePollerStoresWhatItCounts:
         assert any(
             "did not parse" in rec.getMessage() for rec in caplog.records
         ), "an unreadable exposure must be logged, not silently NULLed"
+
+    async def test_a_scale_tripped_row_is_stored_logged_and_refused_downstream(
+        self, conn, caplog
+    ):
+        """The tripwire's whole path: the writer keeps the text, NULLs the
+        derived column, counts it under `exposure_unreadable`, logs the
+        parser's own reason rather than "did not parse" for a value that
+        parsed fine -- and the reader refuses the sum in words, never 100x."""
+        cents_scaled = dict(
+            OBSERVED_POSITION_ROW, market_exposure_dollars="764.192000"
+        )
+        with caplog.at_level(logging.WARNING, logger="backend.portfolio_poll"):
+            summary = await poll_positions(
+                conn, FakeClient([cents_scaled]), now_ms=NOW_MS - 10_000
+            )
+        conn.commit()
+
+        assert summary == {"seen": 1, "stored": 1, "exposure_unreadable": 1}
+        row = conn.execute(
+            "SELECT market_exposure_dollars, exposure_tenths, contracts "
+            "FROM venue_positions"
+        ).fetchone()
+        assert tuple(row) == ("764.192000", None, pytest.approx(22.88))
+        assert any(
+            "exceeds $1 a contract" in rec.getMessage() for rec in caplog.records
+        ), "the log names the scale tripwire, not a parse failure"
+
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+        assert block["count"] == 1
+        assert block["staked_tenths"] is None
+        assert block["staked_refusal"] == bets.STAKED_ROW_UNREADABLE
 
     async def test_the_writer_bounds_its_own_table(self, conn):
         """Rows older than the retention window go in the same transaction as
@@ -485,20 +648,31 @@ class TestTheReaderServesOneReadWithOneStamp:
         assert block["staked_display"] is None
         assert block["staked_refusal"] == bets.STAKED_ROW_UNREADABLE
 
-    def test_a_poll_row_with_no_mirror_rows_refuses_naming_both_numbers(
+    async def test_a_marked_poll_missing_rows_refuses_naming_both_numbers(
         self, conn
     ):
-        """The shape of a `poll_log` row written before v33: the count is
-        there and the rows are not. Served count, refused money, and the
-        words say 3 and 0 so the mismatch is legible."""
-        _poll(conn, polled_ms=NOW_MS - 10_000, row_count=3)
+        """The mismatch is an integrity refusal now: a poll that says it kept
+        its rows and holds fewer than it counted. Built by deleting one row
+        from under a real snapshot -- the only way to reach it since the
+        marker, because the writer marks and writes in one transaction. The
+        count is served (it is readable and from that read); the money
+        refuses with both numbers so the mismatch is legible."""
+        second = dict(OBSERVED_POSITION_ROW, ticker="KXMLBGAME-26AUG30TEST-BBB")
+        third = dict(OBSERVED_POSITION_ROW, ticker="KXMLBGAME-26AUG30TEST-CCC")
+        await _mirror(
+            conn, [OBSERVED_POSITION_ROW, second, third], at_ms=NOW_MS - 10_000
+        )
+        conn.execute(
+            "DELETE FROM venue_positions WHERE ticker = 'KXMLBGAME-26AUG30TEST-CCC'"
+        )
+        conn.commit()
 
         block = bets.open_positions(conn, now_ms=NOW_MS)
 
         assert block["count"] == 3
         assert block["staked_tenths"] is None
         assert block["staked_refusal"] == bets.STAKED_MIRROR_MISMATCH.format(
-            count=3, rows=0
+            count=3, rows=2
         )
 
     def test_never_polled_refuses_in_words_with_no_clock(self, conn):
@@ -561,9 +735,11 @@ class TestTheReaderServesOneReadWithOneStamp:
         snapshot under a newer poll's stamp whenever the newest poll has no
         rows of its own -- a money figure wearing a clock it did not come
         from, the exact lie `test_open_positions_stamp.py` was written for.
-        Keyed by id, the newer poll's empty mirror is a mismatch, in words."""
+        The newer poll here is MARKED and empty -- a writer that set the mark
+        without the rows -- so the reader must select it; keyed by id, its
+        empty mirror is a mismatch, in words, and never the older 7642."""
         await _mirror(conn, [OBSERVED_POSITION_ROW], at_ms=NOW_MS - 120_000)
-        _poll(conn, polled_ms=NOW_MS - 10_000, row_count=1)  # no rows under it
+        _poll(conn, polled_ms=NOW_MS - 10_000, row_count=1, mirrored=1)
 
         block = bets.open_positions(conn, now_ms=NOW_MS)
 
@@ -606,6 +782,162 @@ class TestTheReaderServesOneReadWithOneStamp:
             "value_refusal", "staked_tenths", "staked_display",
             "staked_refusal",
         }
+
+
+class TestTheMarkerSaysWhichReadKeptItsRows:
+    """`poll_log.mirrored` (v33). `poll_log` has two writers of positions
+    reads: `poll_positions`, which keeps the rows, and
+    `backend/api/routes.py::_stamp_positions_read`, the hand-bet path's own
+    read on every `POST /api/manual-orders`, which logs through the same
+    `log_poll_attempt` with a real `row_count` and keeps nothing. Before the
+    marker the reader took the newest successful positions poll, found the
+    route's stamp with N counted and 0 rows, and refused the money figure for
+    up to five minutes after every hand bet -- silent when nothing was held
+    (0 = 0), firing exactly in the state the figure exists for. An empty
+    snapshot and an unmirrored stamp are both zero rows; only a marker tells
+    them apart.
+
+    The route's write is reproduced here through the same function it calls,
+    with the same arguments, so the interaction is tested without the route:
+    the route is `routes.py`'s and its own fix (keep the rows through
+    `store_positions_snapshot`) was deferred to the integrator.
+
+    Mutations run, red and restored byte-identical: `AND mirrored = 1`
+    removed from the reader's selection -- the bare-stamp test fails with the
+    mismatch refusal it was written to forbid, and the one-stamp-or-none test
+    fails with the stamp's count served; the `UPDATE poll_log SET mirrored`
+    removed from the writer -- every served-figure test in this file fails
+    with `STAKED_NOT_MIRRORED`.
+    """
+
+    def test_log_poll_attempt_never_sets_the_mark(self, conn):
+        """Exactly the route's write: `log_poll_attempt` with the positions
+        endpoint, ok, and a real count. The mark is the snapshot writer's to
+        set, after the rows, so a caller that logs a read has not claimed to
+        have kept anything."""
+        poll_id = log_poll_attempt(
+            conn, now_ms=NOW_MS - 60_000, endpoint="positions", ok=True,
+            row_count=2,
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT mirrored, row_count FROM poll_log WHERE id = ?", (poll_id,)
+        ).fetchone()
+        assert tuple(row) == (None, 2)
+
+    def test_the_snapshot_writer_marks_the_poll_even_when_it_is_empty(
+        self, conn
+    ):
+        """Zero rows kept is a snapshot (the 2026-09-05 state of the live
+        account); zero rows never kept is not. The mark is what separates
+        them, so it must be set on an empty write too."""
+        poll_id = log_poll_attempt(
+            conn, now_ms=NOW_MS - 60_000, endpoint="positions", ok=True,
+            row_count=0,
+        )
+        summary = store_positions_snapshot(
+            conn, poll_log_id=poll_id, now_ms=NOW_MS - 60_000, rows=[]
+        )
+        conn.commit()
+        assert summary == {"seen": 0, "stored": 0, "exposure_unreadable": 0}
+        assert conn.execute(
+            "SELECT mirrored FROM poll_log WHERE id = ?", (poll_id,)
+        ).fetchone()[0] == 1
+
+    async def test_the_hand_bet_paths_bare_stamp_does_not_darken_the_figure(
+        self, conn
+    ):
+        """The finding, reproduced. The poller keeps two rows at T; sixty
+        seconds later the hand-bet route stamps its own read (same function,
+        same endpoint, same count -- pre-order, so the count is the poller's
+        count). Before the marker the reader served "Open now: 2" beside
+        "the poll counted 2 positions and the mirror holds 0 rows". Now it
+        serves the poller's figure under the poller's stamp."""
+        second = dict(OBSERVED_POSITION_ROW, ticker="KXMLBGAME-26AUG30TEST-BBB")
+        await _mirror(conn, [OBSERVED_POSITION_ROW, second], at_ms=NOW_MS - 120_000)
+        log_poll_attempt(
+            conn, now_ms=NOW_MS - 60_000, endpoint="positions", ok=True,
+            row_count=2,
+        )
+        conn.commit()
+
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+
+        assert block["count"] == 2
+        assert block["staked_tenths"] == 2 * EXPOSURE_TENTHS
+        assert block["staked_display"] == "$15.28"
+        assert block["staked_refusal"] is None
+        assert block["count_as_of_ms"] == NOW_MS - 120_000, (
+            "the stamp is the read the rows came from, not the newer bare one"
+        )
+
+    async def test_the_count_and_the_money_wear_one_stamp_or_none(self, conn):
+        """A bare stamp whose count DIFFERS from the poller's (a position
+        settled between the two reads, say) is not served either: serving
+        its 3 beside the poller's $15.28 would be two reads on one line,
+        the divergence `test_open_positions_stamp.py` forbids. The poller's
+        2 and $15.28 are served together, and the 3 waits for the poll that
+        keeps its rows."""
+        second = dict(OBSERVED_POSITION_ROW, ticker="KXMLBGAME-26AUG30TEST-BBB")
+        await _mirror(conn, [OBSERVED_POSITION_ROW, second], at_ms=NOW_MS - 120_000)
+        log_poll_attempt(
+            conn, now_ms=NOW_MS - 60_000, endpoint="positions", ok=True,
+            row_count=3,
+        )
+        conn.commit()
+
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+
+        assert (block["count"], block["staked_tenths"]) == (2, 2 * EXPOSURE_TENTHS)
+        assert block["count_as_of_ms"] == NOW_MS - 120_000
+
+    def test_only_bare_stamps_refuse_as_not_mirrored_with_no_clock(self, conn):
+        """A database whose every positions row is a bare stamp -- the
+        minutes after v33 deploys, or a hand bet before the poller's first
+        cycle. Neither figure is served off a bare row, so there is no clock
+        to serve, and the words say a read was logged without its rows
+        rather than that the venue was never asked."""
+        log_poll_attempt(
+            conn, now_ms=NOW_MS - 60_000, endpoint="positions", ok=True,
+            row_count=2,
+        )
+        conn.commit()
+
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+
+        assert block["count"] is None
+        assert block["count_as_of_ms"] is None
+        assert block["count_age_ms"] is None
+        assert block["staked_tenths"] is None
+        assert block["staked_refusal"] == bets.STAKED_NOT_MIRRORED
+
+    async def test_a_stale_snapshot_is_not_rescued_by_a_fresh_bare_stamp(
+        self, conn
+    ):
+        """The poller has been down 40 minutes; Joe just bet by hand, so the
+        route's stamp is 60 seconds old. The stamp must not make the dead
+        poller's snapshot look fresh: the reader refuses on the SNAPSHOT's
+        clock, which is the honest one."""
+        stale = NOW_MS - bets.TONIGHT_STALE_AFTER_MS - 600_000
+        await _mirror(conn, [OBSERVED_POSITION_ROW], at_ms=stale)
+        log_poll_attempt(
+            conn, now_ms=NOW_MS - 60_000, endpoint="positions", ok=True,
+            row_count=1,
+        )
+        conn.commit()
+
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+
+        assert block["count"] is None
+        assert block["count_as_of_ms"] == stale
+        assert block["staked_refusal"] == bets.STAKED_NOT_READ
+
+    def test_the_reader_selects_on_the_mark_by_name(self):
+        """The source pin behind the executed ones: the selection names the
+        marker, so a future rewrite of the query cannot drop it and pass on
+        a database with no bare stamps in it."""
+        source = (ROOT / "backend" / "bets.py").read_text(encoding="utf-8")
+        assert "AND mirrored = 1" in source
 
 
 class TestTheInterlockCannotSeeThisRecord:

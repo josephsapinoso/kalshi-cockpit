@@ -556,10 +556,14 @@ class TestOpenPositionsRefuseBeforeTheyFlatter:
     """
 
     def _positions_poll(self, conn, *, polled_ms, row_count=3, ok=True):
+        # Marked as having kept its rows (v33): these tests are about the
+        # count's clock, and since the marker the reader serves a count only
+        # off a poll that kept its rows. The rows themselves are not needed
+        # for a staleness test; `test_venue_positions.py` writes real ones.
         conn.execute(
-            "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count) "
-            "VALUES (?, 'positions', ?, ?)",
-            (polled_ms, 1 if ok else 0, row_count),
+            "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count, mirrored) "
+            "VALUES (?, 'positions', ?, ?, ?)",
+            (polled_ms, 1 if ok else 0, row_count, 1 if ok else None),
         )
         conn.commit()
 
@@ -928,13 +932,19 @@ class TestStakedNowIsServedFromTheMirrorAndRefusesInWords:
     source guard fails.
     """
 
-    def test_a_count_with_no_mirror_rows_refuses_with_its_reason(
+    def test_a_bare_positions_stamp_serves_neither_count_nor_money(
         self, tmp_path
     ):
-        """A `poll_log` row with no rows under it is the shape of a poll
-        written before v33 (or of a second writer). The count is served; the
-        money figure is refused in words naming both numbers -- never $0.00
-        beside "Open now: 3 positions"."""
+        """A `poll_log` row with no rows under it and no `mirrored` mark is
+        the shape of a poll written before v33 AND of the hand-bet path's
+        own stamp (`routes.py::_stamp_positions_read`), which is written on
+        every bet. **This test used to assert the count was served off it
+        and the money refused with a mismatch.** That was the defect: "Open
+        now: 3" beside a refusal sentence for five minutes after every hand
+        bet, silent whenever nothing was held. Now the bare row is not
+        selected at all -- neither figure wears its stamp -- and the words
+        say a read was logged without its rows, which is not "never polled".
+        Still never $0.00 beside a count."""
         conn = db.init_db(tmp_path / "p.db")
         conn.execute(
             "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count) "
@@ -943,13 +953,14 @@ class TestStakedNowIsServedFromTheMirrorAndRefusesInWords:
         _fill(conn, ticker=GAME_TICKER)  # an open-looking fill, on purpose
         conn.commit()
         block = bets.open_positions(conn, now_ms=NOW_MS)
-        assert block["count"] == 3
+        assert block["count"] is None
+        assert block["count_as_of_ms"] is None
         assert block["staked_tenths"] is None
         assert block["staked_display"] is None
-        assert block["staked_refusal"] == bets.STAKED_MIRROR_MISMATCH.format(
-            count=3, rows=0
+        assert block["staked_refusal"] == bets.STAKED_NOT_MIRRORED
+        assert block["staked_refusal"] != bets.STAKED_NEVER_POLLED, (
+            "the venue WAS asked; the words must not say it was not"
         )
-        assert "3 positions" in block["staked_refusal"]
 
     def test_the_unconditional_refusal_is_gone_by_name(self):
         """Restoring the old constant would restore the old behaviour one

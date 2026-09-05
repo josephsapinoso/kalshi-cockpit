@@ -1288,13 +1288,34 @@ CREATE INDEX IF NOT EXISTS idx_venue_balance_time
 --
 -- **Snapshot semantics.** Every SUCCESSFUL positions poll writes its full row
 -- set here, stamped with the `poll_log` row it came from (`poll_log_id`) and
--- that row's instant (`polled_ms`). A reader takes the newest successful poll
--- and reads ONLY the rows carrying its id, so the count in
--- `poll_log.row_count` and the money figure summed from these rows come from
--- ONE venue read with ONE stamp -- a shared cadence is not a shared read, and
--- two stamps on one line is the defect `tests/test_open_positions_stamp.py`
--- exists for. A failed poll writes nothing here (its `poll_log` row is the
--- record of the failure) and the previous snapshot stays the newest.
+-- that row's instant (`polled_ms`), and then marks that `poll_log` row
+-- `mirrored = 1` in the same transaction
+-- (`portfolio_poll.store_positions_snapshot`). A reader takes the newest
+-- successful MIRRORED poll and reads ONLY the rows carrying its id, so the
+-- count in `poll_log.row_count` and the money figure summed from these rows
+-- come from ONE venue read with ONE stamp -- a shared cadence is not a shared
+-- read, and two stamps on one line is the defect
+-- `tests/test_open_positions_stamp.py` exists for. A failed poll writes
+-- nothing here (its `poll_log` row is the record of the failure) and the
+-- previous snapshot stays the newest.
+--
+-- **The marker exists because `poll_log` has a second writer, and it is
+-- live.** `backend/api/routes.py::_stamp_positions_read` records the
+-- hand-bet path's own `/portfolio/positions` read (check 10 of
+-- `POST /api/manual-orders`) through the same `log_poll_attempt`, under the
+-- same endpoint name, with a real `row_count` -- and writes no rows here. On
+-- the live machine that row is the newest successful positions poll for up to
+-- five minutes after every hand bet. Without the marker a reader selecting
+-- "the newest successful poll" would find `row_count = N` and zero rows under
+-- it, and refuse the money figure at the one moment ADR 0105 says the desk is
+-- open -- silent when nothing is held (0 = 0), firing only in the state the
+-- figure exists for. An empty snapshot and an unmirrored poll are both zero
+-- rows, so nothing short of a marker separates them. With it, the bare stamp
+-- is simply not selected: the reader serves the poller's last snapshot under
+-- ITS stamp, which is also what the stamp's own count would have said, because
+-- it is taken before the order is sent. The route should write its rows
+-- through `store_positions_snapshot` too; that edit lives in `routes.py` and
+-- was deferred to the integrator (the ADR names the line).
 --
 -- **Retention: rows older than seven days are deleted by the writer itself**,
 -- inside the same transaction as the snapshot it just wrote
@@ -1331,6 +1352,25 @@ CREATE INDEX IF NOT EXISTS idx_venue_balance_time
 --   marks a position to market. A negative or unparseable string leaves it
 --   NULL: whether the venue signs the exposure on a NO-side position has never
 --   been observed, and an `abs()` here would be a guess wearing a number.
+--   **The unit is inferred, not measured.** "Dollars" rests on the `_dollars`
+--   suffix, whose meaning was pinned on a DIFFERENT field -- `balance_dollars`
+--   "20.6583" observed beside `balance` 2065 on 2026-08-18
+--   (`parse_balance_tenths`) -- and on the fills' `*_price_dollars`. This
+--   field's magnitude has never been checked against a known position: the
+--   2026-08-30 capture recorded the envelope and `position_fp`, the committed
+--   fixture carries synthetic values, and the 2026-09-05 capture returned no
+--   rows. `parse_portfolio_value_tenths`, one function above the parser,
+--   refuses an unpinned unit outright; this column does not, and the
+--   difference is stated rather than hidden. What stands in for the
+--   measurement is a tripwire: **a contract cannot cost more than $1, so
+--   `exposure_tenths` may not exceed `contracts` x 1000** (both rounded
+--   half-up onto the tenth grid, so the bound is monotone and cannot trip at
+--   the edge). A row that breaks it is a scale error, not a stake -- a
+--   cents-with-decimals field would put 764192 against 22880 and render the
+--   figure at 100x -- and the parser leaves the column NULL and logs the
+--   reason, so the reader refuses in words instead. The tripwire catches a
+--   scale error; it cannot tell cost from a payout at exactly $1 a contract,
+--   and it does not make the unit measured.
 -- - `contracts` -- REAL, the quantity convention this file states at the top:
 --   `abs(position_fp)` through `kalshi.rest.parse_position_fp` (Decimal, never
 --   `int()`, never `float()` first). Fractional on the wire ("22.88").
@@ -1343,9 +1383,11 @@ CREATE INDEX IF NOT EXISTS idx_venue_balance_time
 -- boundary `manual_orders`, `parlay_positions` and `combo_orders` carry, pinned
 -- the same way (a source assertion over `backend/gate.py`).
 --
--- **What this table does NOT establish:** whether `market_exposure_dollars`
--- includes or excludes fees (the wire carries `fees_paid_dollars` beside it,
--- which suggests exclusion, and nothing here tests it); anything about
+-- **What this table does NOT establish:** the unit of
+-- `market_exposure_dollars` (inferred from a suffix pinned on another field,
+-- bounded by the tripwire above, measured by nothing); whether it includes or
+-- excludes fees (the wire carries `fees_paid_dollars` beside it, which
+-- suggests exclusion, and nothing here tests it); anything about
 -- `event_positions`, the envelope's other list, which is not read; what the
 -- venue's `count_filter=position` does to a row that flips to zero
 -- mid-session. No comments inside the parentheses, deliberately, so a future
@@ -1622,6 +1664,19 @@ CREATE TABLE IF NOT EXISTS poll_log (
     -- empty list" are different states, and an empty list is a legitimate one.
     row_count   INTEGER,
     error       TEXT,
+    -- 1 when this attempt's rows were written to `venue_positions` under this
+    -- id, in the same transaction (v33, `portfolio_poll.store_positions_
+    -- snapshot` sets it after the rows; `log_poll_attempt` never does). NULL
+    -- otherwise: every row from before v33, every failure, every endpoint but
+    -- positions, and any writer that logs a positions read without its rows --
+    -- which `routes.py::_stamp_positions_read` does on every hand bet.
+    -- `bets.open_positions` selects on it, so the count and the money figure
+    -- come from one read that kept its rows, and a bare stamp can neither
+    -- displace that read nor darken the figure. Separate from `row_count`
+    -- because 0 rows kept and 0 rows returned are different states. One
+    -- spelling: 1 or NULL, never 0. The CHECK is column-level, not
+    -- table-level, so the migration tests' `DROP COLUMN` wind-back works.
+    mirrored    INTEGER CHECK (mirrored IS NULL OR mirrored = 1),
     CHECK (ok IN (0, 1))
 );
 CREATE INDEX IF NOT EXISTS idx_poll_log_endpoint_time

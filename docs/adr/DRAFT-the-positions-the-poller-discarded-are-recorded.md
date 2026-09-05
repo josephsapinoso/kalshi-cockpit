@@ -7,9 +7,12 @@ rank-1 item, step 1 of 2 — step 2 (lane A2) is the screen.
 **Decides:** that `/portfolio/positions` rows are mirrored rather than counted
 and discarded (schema v33, `venue_positions`); which number the open-positions
 strip serves as "staked" and why; how the venue's representation is stored;
-that `gate.py` may never read the table; and that a capture run may never
-overwrite the one before it. It closes the third of ADR 0101 §2.3's three
-reasons, and only that one.
+that a `poll_log` positions row carries a `mirrored` mark saying whether its
+rows were kept, because `poll_log` has a second, live writer that keeps none
+(§5); that the unit of `market_exposure_dollars` is inferred and not measured,
+and what stands in for the measurement (§4, §8); that `gate.py` may never read
+the table; and that a capture run may never overwrite the one before it. It
+closes the third of ADR 0101 §2.3's three reasons, and only that one.
 **Sources:** ADR 0101 §2.3 (the unconditional refusal and its three reasons);
 `tests/test_rest.py::OBSERVED_POSITION_ROW` (the per-row shape, captured on the
 production account 2026-08-30 by `scripts/capture_positions_fixture.py`,
@@ -89,9 +92,15 @@ on it, and nothing here touches it.
 
 ## 4. How it is stored
 
-`venue_positions`, schema v33, tableless (`_TABLELESS_VERSIONS` says so): the
-live volume gains the table on its next boot through `CREATE TABLE IF NOT
-EXISTS`, no `_MIGRATIONS` entry, no existing row touched.
+`venue_positions`, schema v33. **The version is a column step, not a tableless
+one, and the first draft of this section said the opposite.** The table needs
+no step — the live volume gains it on its next boot through `CREATE TABLE IF
+NOT EXISTS` — but the review found that the reader also needs a marker on
+`poll_log` (§5), and `poll_log` holds rows on the live volume that the schema
+file alone would never reach. So `_MIGRATIONS[33]` adds `poll_log.mirrored
+INTEGER CHECK (mirrored IS NULL OR mirrored = 1)`: nullable, no default, no
+backfill, metadata-only. NULL is the honest value for every existing row —
+none of them kept its rows. No existing row is otherwise touched.
 
 - **Verbatim TEXT.** `position_fp`, `market_exposure_dollars`,
   `total_traded_dollars`, `fees_paid_dollars`, `realized_pnl_dollars` and
@@ -113,6 +122,32 @@ EXISTS`, no `_MIGRATIONS` entry, no existing row touched.
   — Decimal, never `int()`, which misreads "22.88". `side` is the sign.
   Three CHECKs refuse what a reader would sum wrongly: a negative exposure, a
   negative count, a side that is not yes or no.
+- **The unit of `market_exposure_dollars` is inferred from its suffix, and
+  the first draft of this ADR did not say so.** The review found it. "Dollars"
+  rests on the `_dollars` suffix, whose meaning was pinned on a *different*
+  field — `balance_dollars` "20.6583" observed beside `balance` 2065 on
+  2026-08-18 (`parse_balance_tenths`) — and on the fills' `*_price_dollars`.
+  This field's magnitude has never been read against a known position: ADR
+  0083's write-up of the 2026-08-30 capture records the envelope,
+  `position_fp` and the `count_filter` result and says nothing about it; the
+  committed fixture carries synthetic values; the 2026-09-05 capture returned
+  no rows. The repo's own precedent one function above the parser is to
+  *refuse* an unpinned unit — `parse_portfolio_value_tenths` stores
+  `portfolio_value` only at zero, because "guessing cents by analogy with
+  `balance` is exactly the convenient-column error, one field over." This
+  column makes the analogy that function refuses. The difference is stated in
+  the schema comment, in the parser and here rather than hidden, and what
+  stands in for the measurement is a **tripwire the design lacked: a contract
+  cannot cost more than $1, so `exposure_tenths` may not exceed
+  `abs(position_fp)` in dollars on the same grid.** The ceiling goes through
+  the same `dollars_to_tenths` as the exposure, so the two roundings are one
+  rounding and the bound is monotone — a true $1 a contract lands equal,
+  never above. On the observed row that is 7642 against 22880; a
+  cents-with-decimals field gives 764192 against 22880 and the parser leaves
+  the column NULL with `exposure_refusal` naming the scale error, so the
+  first real row refuses loudly instead of rendering the stake at 100×. The
+  tripwire catches a scale error. It cannot tell cost from a payout at
+  exactly $1 a contract, and it does not make the unit measured (§8).
 - **A negative exposure is refused, not absoluted.** Whether the venue signs
   a NO-side exposure has never been observed; `abs()` would be a guess
   wearing a number. The column is NULL and the verbatim text keeps the sign
@@ -120,10 +155,15 @@ EXISTS`, no `_MIGRATIONS` entry, no existing row touched.
 - **One stamp.** Every row carries `poll_log_id`, the id of the very
   `poll_log` row whose `row_count` is the count, plus that poll's
   `polled_ms`. A FK with `PRAGMA foreign_keys = ON` makes the reference bind.
-- **Snapshot semantics.** Every successful poll writes its full row set. A
-  failed poll writes nothing to the mirror (its `poll_log` row is the record
-  of the failure) and the previous snapshot stays the newest. A reader takes
-  the newest successful poll and reads only the rows carrying its id.
+- **Snapshot semantics.** Every successful poll writes its full row set and
+  then marks its `poll_log` row `mirrored = 1`, in one transaction
+  (`portfolio_poll.store_positions_snapshot`, the seam the poller calls and
+  the hand-bet route is meant to call — §5). A failed poll writes nothing to
+  the mirror (its `poll_log` row is the record of the failure) and the
+  previous snapshot stays the newest. A reader takes the newest successful
+  *marked* poll and reads only the rows carrying its id. An empty snapshot
+  is marked with zero rows under it; an unmarked stamp is zero rows and
+  nothing kept; no count separates those two states, only the mark.
 - **Retention is the writer's own: seven days, deleted in the snapshot's
   transaction.** Not `store/retention.py`, which runs on the runner's slow
   pass — a different loop, observed down while the poller was up — with
@@ -140,7 +180,8 @@ EXISTS`, no `_MIGRATIONS` entry, no existing row touched.
 
 ## 5. How it is read
 
-`bets.open_positions` serves `count` from `poll_log.row_count` as before, and
+`bets.open_positions` serves `count` from `poll_log.row_count` of the newest
+successful poll **that kept its rows** (`mirrored = 1`), and
 `staked_tenths`/`staked_display` as the sum of `exposure_tenths` over the rows
 keyed by that poll's id — **one read, one stamp, `count_as_of_ms`**. There is
 deliberately no `staked_as_of_ms`; a second stamp for the same read would
@@ -148,16 +189,55 @@ invite the divergence `tests/test_open_positions_stamp.py` exists to forbid.
 The payload keys are unchanged, so the frontend contract holds; the component
 already renders `staked_display` whenever the server sends a string.
 
-The unconditional refusal is deleted and its absence pinned by name. Four
+**Why "that kept its rows", and what the first draft got wrong.** The first
+draft selected the newest successful positions poll of any kind, and said the
+mismatch case "has one live occurrence and it is short: in the minutes after
+v33 deploys". That was false, and the review found it. `poll_log` has a
+**second writer of positions rows, and it is live**:
+`backend/api/routes.py::_stamp_positions_read` (defined at line 6138, called
+at 5633 with `row_count=len(position_rows)`) records the hand-bet path's own
+`live_quotes().portfolio_positions()` read — check 10 of `POST
+/api/manual-orders` — through the same `log_poll_attempt` the poller uses,
+under the same endpoint name, by design (its docstring: *"so
+`bets.open_positions` and the registration's gap tripwires read one
+population and not two"*), and writes **no mirror rows**. That path is the
+armed hand-bet route, used 27 times in the ten days before this ADR. Under
+the first draft's reader, its row became the newest successful poll for up to
+five minutes after every hand bet, `row_count` was the real count and the
+mirror held zero rows under that id, and the figure refused with
+`STAKED_MIRROR_MISMATCH` — "Open now: 2" beside a refusal sentence, the exact
+pre-v33 state this lane set out to remove, at the one moment ADR 0105 says the
+desk is open. It was silent whenever Joe held nothing (0 = 0), so it fired
+only in the state the figure exists for. No test covered the interaction.
+
+Two fixes were available. The complete one lives in `routes.py`: the route
+already holds `position_rows`, so `_stamp_positions_read` should keep them
+through `store_positions_snapshot` under the id `log_poll_attempt` now
+returns — one population, one read, one stamp, and the route's read would then
+also feed the money figure. **That edit was deferred to the integrator**
+because `routes.py` is lane B's file this session; §9 names the lines. What
+this lane could do, it did: the reader selects on the mark, so the bare stamp
+is simply not selected. Nothing is lost by that. The route takes its read
+*before* the order is sent, so its count is the poller's last count anyway,
+and the poller's next poll lands inside five minutes. The alternative —
+serving the stamp's count and refusing the money — is the defect. Serving the
+stamp's count beside the poller's money would be two reads on one line, which
+is the divergence the one-stamp rule forbids. So the count and the money wear
+one stamp or none, and `tests/test_venue_positions.py::
+TestTheMarkerSaysWhichReadKeptItsRows` reproduces the route's write through
+the same `log_poll_attempt` it calls and pins the figure served.
+
+The unconditional refusal is deleted and its absence pinned by name. Five
 refusals replace it, each a genuinely unreadable state and none of them "the
 number is zero":
 
 | state | words |
 |---|---|
 | no successful positions poll, ever | `STAKED_NEVER_POLLED` |
-| newest poll older than 30 minutes | `STAKED_NOT_READ`, with `count_as_of_ms` kept so the screen says "since" |
-| mirror rows ≠ `row_count` for that poll | `STAKED_MIRROR_MISMATCH`, naming both numbers — a `poll_log` row from before v33, or a second writer |
-| any row's `exposure_tenths` NULL | `STAKED_ROW_UNREADABLE` — a partial sum is a false low, so the whole figure refuses |
+| a successful poll, but none that kept its rows — every row is from before v33, or is the hand-bet path's stamp | `STAKED_NOT_MIRRORED`, no clock: neither figure is served off a bare row, and the words do not say the venue was never asked when it was |
+| newest marked poll older than 30 minutes | `STAKED_NOT_READ`, with `count_as_of_ms` kept so the screen says "since"; a fresh bare stamp does not rescue a dead poller's snapshot |
+| mirror rows ≠ `row_count` for that marked poll | `STAKED_MIRROR_MISMATCH`, naming both numbers — an integrity refusal now (a hand-edited table, or a writer that set the mark without the rows), no longer how the second writer shows up |
+| any row's `exposure_tenths` NULL | `STAKED_ROW_UNREADABLE` — a partial sum is a false low, so the whole figure refuses; the scale tripwire of §4 lands here |
 
 **An empty-but-fresh snapshot is count 0 and $0.00.** That is not the false
 negative `OpenPositions.tsx` guards against. The guard is about `$0.00` beside
@@ -167,11 +247,14 @@ seconds ago: the venue said it holds nothing, and the count says the same in
 the same breath. The 2026-09-05 capture found the live account in exactly
 this state.
 
-The mismatch case has one live occurrence and it is short: in the minutes
-after v33 deploys, the newest `poll_log` row was written by the pre-v33
-poller and has no mirror rows under it. The count is served, the money
-refuses with "the poll counted N positions and the mirror holds 0 rows for
-it", and the next successful poll clears it.
+What the minutes after v33 deploys look like now: every `poll_log` positions
+row is unmarked, so the strip says `STAKED_NOT_MIRRORED` with no count and no
+clock until the poller's first cycle — seconds, since
+`poll_portfolio_forever`'s first cycle is a full mirror — and then serves both
+figures off that snapshot. The sentence this paragraph replaces described the
+count being served off the unmarked row with the money refusing beside it; that
+is the shape of the defect above, and it is gone in both cases for the same
+reason.
 
 ## 6. The boundary
 
@@ -203,9 +286,21 @@ about the run, not the account, and it is stale by six days.
 
 ## 8. What this does not establish
 
+- **The unit of `market_exposure_dollars`.** Inferred from the `_dollars`
+  suffix, which was measured on `balance_dollars` (2026-08-18) and never on
+  this field. The §4 tripwire bounds a scale error at 100×; it does not
+  measure anything, and it cannot tell cost from a payout at exactly $1 a
+  contract. The first non-empty snapshot against a known position is the
+  measurement, and until it is taken the "staked" figure rests on an
+  analogy the function above the parser refuses to make for
+  `portfolio_value`.
 - **Whether `market_exposure_dollars` includes fees.** `fees_paid_dollars`
   sits beside it on the wire, which suggests exclusion; nothing here tests
   the relation. "Before fees" in §3 is the label, not a measurement.
+- **That the hand-bet route keeps its rows.** It does not, as of this ADR
+  (§5). The reader is immune to its bare stamp; the route's own read still
+  does not feed the money figure, and its docstring's "one population and not
+  two" is half-true until the integrator's edit in §9 lands.
 - **Anything about `event_positions`.** The envelope's other list is not
   read, not stored, and not described.
 - **What the venue's `count_filter=position` does to a row that flips to
@@ -223,8 +318,23 @@ about the run, not the account, and it is stale by six days.
 
 ## 9. What would change it
 
+- **The integrator's edit to `routes.py`, deferred from this lane.** In
+  `_stamp_positions_read` (line 6138): take the rows as an argument, and in
+  `_write` (line 6173), after `log_poll_attempt(...)` at line 6176 returns
+  its id and when `ok` is true, call
+  `store_positions_snapshot(conn, poll_log_id=<that id>, now_ms=now_ms,
+  rows=<the rows>)` before `conn.commit()`; at the call site (line 5633) pass
+  `position_rows`. The failure branch (line 5619) stays as it is — a failed
+  read keeps nothing and is not marked. Then the route's read feeds the money
+  figure, `TestTheMarkerSaysWhichReadKeptItsRows` still passes (a marked
+  stamp with its rows is served, under its own newer clock), and the "one
+  population" sentence in the route's docstring becomes wholly true. This is
+  the complete fix; the marker is what makes the interval before it safe.
 - A NO-side position observed on the live account pins the sign convention
   and decides whether the negative-exposure refusal becomes an `abs()`.
+- A known position whose `market_exposure_dollars` can be checked against a
+  known count and price pins the unit (§8) and decides whether the tripwire
+  stays a tripwire or becomes a measured claim in the schema comment.
 - A known position whose `market_exposure_dollars` can be checked against its
   fills settles the fee question in §8, and the "before fees" label either
   stands or is corrected in the schema comment and here.

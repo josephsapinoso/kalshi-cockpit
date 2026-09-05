@@ -110,22 +110,42 @@ TONIGHT_STALE_AFTER_MS = 30 * 60 * 1000
 # unreadable, so the screen can say which. None of them is "the number is
 # zero"; a refusal is always words, never $0.00.
 STAKED_NEVER_POLLED = "no positions poll has succeeded yet"
+# A positions read HAS been logged and none has kept its rows: every
+# `poll_log` row is from before v33, or is the hand-bet path's own stamp
+# (`routes.py::_stamp_positions_read` logs the read and keeps no rows). The
+# poller's next successful poll is the first one the figure can come from.
+# Neither the count nor the money is served off a bare row -- they wear one
+# stamp or none -- so this is words with no clock, and distinct from
+# "never polled" because it is not true that the venue was never asked.
+STAKED_NOT_MIRRORED = "no positions poll has kept its rows yet"
 # The same 30-minute bound and the same words the value's stale refusal
 # uses: one clock for both figures on this line.
 STAKED_NOT_READ = "not read in the last 30 minutes"
-# The newest successful poll counted N rows and the mirror holds M under its
-# stamp. Happens for exactly one live reason -- a `poll_log` row written
-# before v33 landed, in the minutes after that deploy -- and for one
-# hypothetical one, a second writer. Either way the count and the money
-# figure would come from different reads, and that is refused, not
-# averaged.
+# The newest MIRRORED poll counted N rows and the mirror holds M under its
+# stamp. Since the marker (`poll_log.mirrored`, v33) this is an integrity
+# refusal, not an expected state: the rows and the mark are written in one
+# transaction, and the writer's seven-day prune cannot reach a poll the
+# thirty-minute staleness bound would still serve.
+#
+# **It is no longer how a second writer shows up, and the second writer is
+# live, not hypothetical.** `routes.py::_stamp_positions_read` logs a
+# positions read on every hand bet, with a real `row_count`, and keeps no
+# rows. Before the marker this reader selected that stamp as the newest
+# successful poll, counted N against 0 rows, and refused here for up to five
+# minutes after every bet -- silent when Joe held nothing (0 = 0), firing
+# exactly when he did. The marker keeps that stamp out of the selection, so
+# what reaches this sentence now is a hand-edited table or a writer that set
+# the mark without the rows. Either way the count and the money figure would
+# come from different reads, and that is refused, not averaged.
 STAKED_MIRROR_MISMATCH = (
     "the poll counted {count} positions and the mirror holds {rows} rows "
     "for it; refusing to sum a different read"
 )
-# One row's `exposure_tenths` is NULL (the venue's string did not parse, or
-# was negative on a side whose sign convention is unobserved). A sum over
-# the rest is a false low, so the whole figure refuses.
+# One row's `exposure_tenths` is NULL (the venue's string did not parse, was
+# negative on a side whose sign convention is unobserved, or exceeded $1 a
+# contract -- the scale tripwire in `parse_position`, because the field's
+# unit is inferred from a suffix and never measured). A sum over the rest is
+# a false low, so the whole figure refuses.
 STAKED_ROW_UNREADABLE = (
     "a position's exposure at cost did not parse; refusing to sum the rest"
 )
@@ -495,10 +515,25 @@ def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
     longer matter, because nothing here reads `fills`.
 
     - **`count`** -- `poll_log.row_count` of the newest successful
-      'positions' poll, exactly as before: the number of `market_positions`
-      rows the venue returned under `count_filter=position`, its own
-      non-zero cut (`rest.positions()`), so the count means "open now" rather
-      than "ever traded".
+      'positions' poll **that kept its rows** (`poll_log.mirrored = 1`): the
+      number of `market_positions` rows the venue returned under
+      `count_filter=position`, its own non-zero cut (`rest.positions()`), so
+      the count means "open now" rather than "ever traded". **What changed
+      in the selection, and why.** Until the marker this took the newest
+      successful positions poll of any kind, and `poll_log` has a second
+      writer: `routes.py::_stamp_positions_read` logs the hand-bet path's own
+      positions read on every bet, with a real `row_count`, and keeps no
+      rows. That stamp was the newest poll for up to five minutes after every
+      hand bet, so the count was served off it and the money figure refused
+      with a mismatch -- "Open now: 2" beside a refusal sentence, the exact
+      state this figure exists to replace, at the one moment ADR 0105 says
+      the desk is open, and silent whenever Joe held nothing (0 = 0). Now the
+      bare stamp is simply not selected. Nothing is lost by that: the route
+      takes its read BEFORE the order is sent, so its count is the poller's
+      last count anyway, and the poller's next poll lands inside five minutes.
+      The route should keep its rows through
+      `portfolio_poll.store_positions_snapshot`; that edit is `routes.py`'s
+      and was deferred to the integrator.
     - **`staked_tenths`/`staked_display`/`staked_refusal`** -- the money Joe
       has put on those positions, **at cost**: the venue's own
       `market_exposure_dollars` per row, in integer tenths of a cent
@@ -536,14 +571,17 @@ def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
     the count says the same thing in the same breath. The 2026-09-05 capture
     found exactly this state on the live account.
 
-    **The staked figure refuses in words in four states, each a genuinely
+    **The staked figure refuses in words in five states, each a genuinely
     unreadable one, none of them "the number is zero":** no successful poll
-    (`STAKED_NEVER_POLLED`); the newest one is stale (`STAKED_NOT_READ`); the
-    mirror holds a different number of rows than the poll counted
-    (`STAKED_MIRROR_MISMATCH` -- a `poll_log` row from before v33, or a
-    second writer); any row's `exposure_tenths` is NULL
-    (`STAKED_ROW_UNREADABLE` -- a partial sum is a false low, so the whole
-    figure refuses rather than summing the rest).
+    (`STAKED_NEVER_POLLED`); a successful poll but none that kept its rows
+    (`STAKED_NOT_MIRRORED` -- rows from before v33, or only the hand-bet
+    path's stamp; the count is not served off a bare row either, so the two
+    wear one stamp or none); the newest mirrored one is stale
+    (`STAKED_NOT_READ`); the mirror holds a different number of rows than
+    that poll counted (`STAKED_MIRROR_MISMATCH` -- an integrity failure now,
+    since the marker keeps the second writer out of the selection); any row's
+    `exposure_tenths` is NULL (`STAKED_ROW_UNREADABLE` -- a partial sum is a
+    false low, so the whole figure refuses rather than summing the rest).
 
     `count_age_ms`/`value_age_ms` are each read's age against the SAME
     `now_ms` the staleness bounds use, so the reader never has to subtract a
@@ -554,10 +592,12 @@ def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
     TonightStrip's unsigned rule. Refusal words are rendered server-side,
     matching the display-string convention.
 
-    What this does not establish: whether `market_exposure_dollars` includes
-    fees (the wire carries `fees_paid_dollars` beside it; nothing here tests
-    the relation), and anything about `event_positions`, which the poller
-    does not read.
+    What this does not establish: the unit of `market_exposure_dollars`
+    (inferred from its suffix, bounded by `parse_position`'s $1-a-contract
+    tripwire, measured by nothing -- a first non-empty snapshot against a
+    known position is the measurement); whether it includes fees (the wire
+    carries `fees_paid_dollars` beside it; nothing here tests the relation);
+    and anything about `event_positions`, which the poller does not read.
     """
     payload: dict = {
         "count": None,
@@ -573,11 +613,26 @@ def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
         "staked_refusal": None,
     }
     try:
+        # The newest successful poll THAT KEPT ITS ROWS. `mirrored = 1` is
+        # what keeps the hand-bet path's bare stamp (a real count, no rows)
+        # from being selected here and refusing the figure for five minutes
+        # after every bet -- see the `count` bullet above.
         count_row = conn.execute(
             "SELECT id, polled_ms, row_count FROM poll_log "
-            "WHERE endpoint = 'positions' AND ok = 1 "
+            "WHERE endpoint = 'positions' AND ok = 1 AND mirrored = 1 "
             "ORDER BY polled_ms DESC, id DESC LIMIT 1"
         ).fetchone()
+        # Consulted only to choose words when nothing is mirrored: a read
+        # that kept no rows is not "never polled", and the sentence must not
+        # say the venue was never asked when it was.
+        any_success = (
+            conn.execute(
+                "SELECT 1 FROM poll_log "
+                "WHERE endpoint = 'positions' AND ok = 1 LIMIT 1"
+            ).fetchone()
+            if count_row is None
+            else None
+        )
         value_row = conn.execute(
             "SELECT observed_ms, portfolio_value_tenths "
             "FROM venue_balance_snapshots "
@@ -601,7 +656,10 @@ def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
         return payload
 
     if count_row is None:
-        payload["staked_refusal"] = STAKED_NEVER_POLLED
+        payload["staked_refusal"] = (
+            STAKED_NOT_MIRRORED if any_success is not None
+            else STAKED_NEVER_POLLED
+        )
     else:
         polled_ms = count_row["polled_ms"]
         row_count = count_row["row_count"]

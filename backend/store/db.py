@@ -52,9 +52,13 @@ from ..core.prices import is_valid_price
 #: score to `bet_estimates` -- ticket #11. A column step: the table already
 #: holds a row on the live volume and `schema.sql` alone would never reach it.
 #: v33 (2026-09-05) adds `venue_positions` -- the per-position mirror of
-#: `/portfolio/positions` the poller used to count and discard. A pure new
-#: table, so tableless; the poller writes it from its next successful poll
-#: and no existing row is touched.
+#: `/portfolio/positions` the poller used to count and discard -- and the
+#: `mirrored` marker on `poll_log`. The table is reached by `schema.sql` alone;
+#: the column is a step, because `poll_log` already holds rows on the live
+#: volume and the file alone would never reach them. The poller writes both
+#: from its next successful poll. No existing row is touched, and every
+#: existing row's marker is NULL, which is the truth about it: none of them
+#: kept its rows.
 SCHEMA_VERSION = 33
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
@@ -665,11 +669,47 @@ _QUANTITIES_ARE_REAL_UNDO = (
 #:
 #: - v22 `loop_failures`, v23 `parlay_card_candidates`, v24 the hedge tables,
 #:   v27 `combo_eligible_events`, v29 `manual_order_refusals`,
-#:   v30 `combo_orders`, v33 `venue_positions`.
-_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 33)
+#:   v30 `combo_orders`.
+#:
+#: v33 is NOT here although it adds a table (`venue_positions`): it also adds
+#: a column to `poll_log`, which makes it a step. A version is one or the
+#: other, never both.
+_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # The positions mirror's marker on `poll_log` -- ADR DRAFT-the-positions-
+    # the-poller-discarded-are-recorded. The table itself (`venue_positions`)
+    # needs no step: `schema.sql`'s `CREATE TABLE IF NOT EXISTS` reaches an
+    # existing volume on its next open. The COLUMN does, because `poll_log`
+    # holds rows on the live volume (four endpoints, every five minutes) and
+    # the file alone would never reach them.
+    #
+    # **Nullable, no default, no backfill, and that is the whole meaning.**
+    # `mirrored = 1` says "this attempt's rows were written to
+    # `venue_positions` under this id". NULL is the honest value for every row
+    # written before the marker existed -- none of them kept its rows -- and
+    # for every row the hand-bet path's stamp (`routes.py::
+    # _stamp_positions_read`) writes after it, until the integrator wires that
+    # writer through `store_positions_snapshot`. A default of 0 would be a
+    # second spelling of NULL and the column's CHECK refuses it.
+    #
+    # Metadata-only (`ALTER TABLE ADD COLUMN` does not rewrite the table). No
+    # index: `bets.open_positions` scans under `idx_poll_log_endpoint_time`
+    # and filters the handful of newest rows. Dropping the column is the whole
+    # undo, so `undo_statements` stays empty -- stated so a reader does not
+    # think it was forgotten. The CHECK is column-level, which SQLite permits
+    # in ADD COLUMN and which leaves DROP COLUMN possible for the wind-back
+    # tests; a table-level CHECK naming the column would block both.
+    33: _Migration(
+        columns=(
+            (
+                "poll_log",
+                "mirrored",
+                "INTEGER CHECK (mirrored IS NULL OR mirrored = 1)",
+            ),
+        ),
+    ),
     # Ticket #11: the estimate decouples from the bet. Five columns on
     # `bet_estimates`, all nullable or defaulted, so this is metadata-only --
     # `ALTER TABLE ADD COLUMN` does not rewrite the table, which matters

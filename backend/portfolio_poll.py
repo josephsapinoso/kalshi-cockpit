@@ -316,6 +316,11 @@ class ParsedPosition:
     #: Integer tenths of a cent: EXPOSURE AT COST, from
     #: `market_exposure_dollars`. Money in, before fees. Not market value.
     exposure_tenths: Optional[int]
+    #: Why `exposure_tenths` is None, in words, when it is; None when it is
+    #: not. Not a column -- the verbatim text is the stored diagnostic -- but
+    #: the writer's log line says which refusal fired rather than "did not
+    #: parse" for a value that parsed fine and failed the scale tripwire.
+    exposure_refusal: Optional[str]
 
 
 def _verbatim(value: Any) -> Optional[str]:
@@ -349,11 +354,25 @@ def parse_position(row: dict) -> ParsedPosition:
       +-0.05 tenths. That helper also refuses a negative -- deliberately
       kept here: whether the venue signs a NO-side exposure has never been
       observed, and `abs()` would be a guess wearing a number.
+    - **The unit of `market_exposure_dollars` is inferred from its suffix,
+      not measured**, and the parser says so instead of pretending. The
+      suffix was pinned on `balance_dollars` ("20.6583" beside `balance`
+      2065, 2026-08-18) and on the fills' `*_price_dollars`; this field's
+      magnitude has never been read against a known position. What stands in
+      for the measurement is a tripwire: a contract cannot cost more than
+      $1, so `exposure_tenths` may not exceed `abs(position_fp)` in dollars
+      on the same grid -- the ceiling goes through the SAME
+      `dollars_to_tenths`, so the two roundings are one rounding and the
+      bound is monotone (a true $1 a contract lands equal, never above). A
+      row that breaks it (a cents-with-decimals field would put 764192
+      against a ceiling of 22880) has its `exposure_tenths` set to `None`
+      and its `exposure_refusal` say why. The tripwire catches a scale
+      error; it does not make the unit measured.
 
     Unreadable resolves to `None`, never 0, per column; the verbatim text is
     kept either way. This function establishes nothing about fees (whether
-    the exposure includes them is untested) and reads nothing from
-    `event_positions`.
+    the exposure includes them is untested), nothing about the unit beyond
+    the bound above, and reads nothing from `event_positions`.
     """
     ticker = row.get("ticker")
     exchange_index = row.get("exchange_index")
@@ -364,6 +383,26 @@ def parse_position(row: dict) -> ParsedPosition:
     else:
         contracts = float(abs(quantity))
         side = "yes" if quantity > 0 else "no" if quantity < 0 else None
+    exposure_tenths = dollars_to_tenths(row.get("market_exposure_dollars"))
+    exposure_refusal: Optional[str] = None
+    if exposure_tenths is None:
+        exposure_refusal = (
+            "market_exposure_dollars did not parse as a non-negative "
+            "dollar string"
+        )
+    elif quantity is not None:
+        # `abs(quantity)` in "dollars" is the most a position of that many
+        # contracts can have cost. Through the same helper as the exposure
+        # itself, so the rounding is shared; None (non-finite, absurd) means
+        # no ceiling can be stated and the tripwire does not fire.
+        ceiling_tenths = dollars_to_tenths(abs(quantity))
+        if ceiling_tenths is not None and exposure_tenths > ceiling_tenths:
+            exposure_refusal = (
+                f"market_exposure_dollars exceeds $1 a contract "
+                f"({exposure_tenths} tenths against position_fp {quantity}, "
+                f"ceiling {ceiling_tenths}): a scale error, not a stake"
+            )
+            exposure_tenths = None
     return ParsedPosition(
         ticker=str(ticker) if ticker is not None else None,
         exchange_index=(
@@ -380,7 +419,8 @@ def parse_position(row: dict) -> ParsedPosition:
         last_updated_ts=_verbatim(row.get("last_updated_ts")),
         contracts=contracts,
         side=side,
-        exposure_tenths=dollars_to_tenths(row.get("market_exposure_dollars")),
+        exposure_tenths=exposure_tenths,
+        exposure_refusal=exposure_refusal,
     )
 
 
@@ -670,6 +710,9 @@ async def poll_positions(
     Returns `{"seen", "stored", "exposure_unreadable"}`: rows the venue
     returned, rows written (always equal -- a row is never refused whole), and
     rows whose `exposure_tenths` is NULL, which the reader will refuse to sum.
+    The rows, the `mirrored` mark on the `poll_log` row and the prune are
+    `store_positions_snapshot`'s, so the hand-bet path can keep its own read
+    the same way through one call.
     """
     try:
         rows = await client.positions()
@@ -683,16 +726,61 @@ async def poll_positions(
         conn, now_ms=now_ms, endpoint="positions", ok=True,
         row_count=len(rows),
     )
+    return store_positions_snapshot(
+        conn, poll_log_id=poll_log_id, now_ms=now_ms, rows=rows
+    )
+
+
+def store_positions_snapshot(
+    conn: sqlite3.Connection,
+    *,
+    poll_log_id: int,
+    now_ms: int,
+    rows: list,
+) -> dict:
+    """Keep the rows one successful `/portfolio/positions` read returned,
+    under the `poll_log` row that recorded the read, and mark that row
+    `mirrored = 1` -- all inside the caller's transaction, which the caller
+    commits.
+
+    **This is the seam between "the venue was asked" and "what it said was
+    kept", and it exists as its own function because `poll_log` has two
+    writers of positions reads and only one of them keeps rows.**
+    `poll_positions` above calls this. `backend/api/routes.py::
+    _stamp_positions_read` -- the hand-bet path's own read, check 10 of
+    `POST /api/manual-orders` -- logs through the same `log_poll_attempt`
+    under the same endpoint name with a real `row_count` and, as of
+    2026-09-05, does not call this (that edit is `routes.py`'s and was
+    deferred to the integrator; the ADR names the line). A reader taking "the
+    newest successful positions poll" would find the route's stamp with
+    `row_count = N` and no rows under it for up to five minutes after every
+    hand bet, and refuse the money figure at the one moment the desk is open.
+    The marker set here is what lets `bets.open_positions` select the newest
+    poll that KEPT its rows instead, and it is what keeps an empty snapshot
+    (marked, zero rows -- the state the 2026-09-05 capture found) apart from
+    an unmarked stamp (zero rows, nothing kept), which no count can do.
+
+    Every row goes through `parse_position`: the wire text verbatim, derived
+    columns NULL when unreadable, never a row refused whole; a NULL
+    `exposure_tenths` is logged with the parser's own reason. Rows older than
+    `VENUE_POSITIONS_RETENTION_MS` are deleted afterwards, in the same
+    transaction. `poll_log.row_count` is not touched here: the count is the
+    logger's, the rows are this function's, and the marker is what says they
+    belong to the same read.
+
+    Returns `{"seen", "stored", "exposure_unreadable"}`.
+    """
     unreadable = 0
     for row in rows:
         parsed = parse_position(row if isinstance(row, dict) else {})
         if parsed.exposure_tenths is None:
             unreadable += 1
             logger.warning(
-                "positions: exposure at cost did not parse for %r "
+                "positions: exposure at cost refused for %r -- %s "
                 "(market_exposure_dollars=%r); stored verbatim with the "
                 "derived column NULL, and the staked figure will refuse",
-                parsed.ticker, parsed.market_exposure_dollars,
+                parsed.ticker, parsed.exposure_refusal,
+                parsed.market_exposure_dollars,
             )
         conn.execute(
             "INSERT INTO venue_positions "
@@ -709,6 +797,12 @@ async def poll_positions(
                 parsed.contracts, parsed.side, parsed.exposure_tenths,
             ),
         )
+    # After the rows, never before: the mark means "the rows under this id
+    # are the read", and inside one transaction the order is a statement of
+    # intent rather than a crash-safety measure.
+    conn.execute(
+        "UPDATE poll_log SET mirrored = 1 WHERE id = ?", (poll_log_id,)
+    )
     conn.execute(
         "DELETE FROM venue_positions WHERE polled_ms < ?",
         (now_ms - VENUE_POSITIONS_RETENTION_MS,),

@@ -107,9 +107,12 @@ def _served(tmp_path, *, positions_ms=POSITIONS_MS, balance_ms=BALANCE_MS,
     """The real payload `/api/slate` serves, off a real database."""
     conn = db.init_db(tmp_path / "p.db")
     if positions_ms is not None:
+        # Marked as having kept its rows (schema v33, `poll_log.mirrored`):
+        # since the marker the count is served only off a poll that kept its
+        # rows, and this file is about the count's CLOCK, not its money.
         conn.execute(
-            "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count) "
-            "VALUES (?, 'positions', 1, ?)",
+            "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count, mirrored) "
+            "VALUES (?, 'positions', 1, ?, 1)",
             (positions_ms, row_count),
         )
     if balance_ms is not None:
