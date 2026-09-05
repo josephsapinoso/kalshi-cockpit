@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import pytest
 
-from backend.agents.skeptic import apply_verdict
 from backend.core.suppression import SuppressionConfig, evaluate_suppression
 from backend.store import db
 
@@ -172,26 +171,21 @@ class TestTheCompositeFormatIsWhatTheDocumentAssumed:
         assert "stale_kalshi_quote" in codes
         assert len(codes) > 2, codes
 
-    def test_the_skeptic_appends_to_an_existing_reason_with_a_comma(self):
+    def test_the_skeptic_tags_in_the_record_join_with_the_same_comma(self, conn):
         """A twelfth code family the audit's list of eleven did not carry.
 
-        `skeptic_defect` / `skeptic_suspicious` are appended by `apply_verdict`
-        in the same comma-joined format, so the predicate has to survive them
-        too.
+        `skeptic_defect` / `skeptic_suspicious` were appended by
+        `skeptic.apply_verdict` in the same comma-joined format. That writer
+        was deleted on 2026-09-05, but the 24 rows it wrote on 2026-08-16 are
+        still in the live record (ADR 0062 section 3), so the predicate has to
+        keep surviving them. The two stored shapes, verbatim, and the amended
+        predicate retaining both -- neither is stale.
         """
-        assert apply_verdict(_Blocking("defect"), None) == "skeptic_defect"
-        assert (
-            apply_verdict(_Blocking("suspicious"), "sizing:refused")
-            == "sizing:refused,skeptic_suspicious"
-        )
+        bare = add_row(conn, "skeptic_defect")
+        joined = add_row(conn, "sizing:refused,skeptic_suspicious")
 
-
-class _Blocking:
-    """The two fields `apply_verdict` reads, without an API round trip."""
-
-    def __init__(self, verdict: str):
-        self.verdict = verdict
-        self.blocks_bet = True
+        assert retained(conn, AMENDED_PREDICATE, bare)
+        assert retained(conn, AMENDED_PREDICATE, joined)
 
 
 class TestTheAmendedPredicateExcludesEveryStaleRow:

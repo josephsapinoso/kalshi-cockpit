@@ -14,13 +14,20 @@ different strategies.
 
 Two distinctions this module refuses to collapse
 ------------------------------------------------
-**"Nothing to report" is not "nobody has looked."** `lessons` has exactly one
-writer — the Historian — and the Historian has never been called by anything
-that runs. So an empty lessons list means the agent is unwired, not that the
-record contains no lessons. Reported as `historian_has_run: false`, in the same
-spirit as `analysis/marts.py` refusing to let a missing warehouse read as an
-empty one. A screen showing "no lessons" over an agent that has never run is a
-screen reporting a healthy silence over a disconnected wire.
+**"Nothing to report" is not "nobody has looked."** `lessons` has **no
+writer**. Until 2026-09-05 it had exactly one -- the Historian -- which was
+never called by anything that runs, and which was then deleted
+(`docs/adr/DRAFT-the-historian-and-the-skeptic-are-deleted-and-the-desk-has-been-convened.md`).
+So an empty lessons list is a fact about the code, not about the record: no
+lesson has ever been written and nothing in the tree can write one. Reported
+as `historian_has_run: false`, in the same spirit as `analysis/marts.py`
+refusing to let a missing warehouse read as an empty one. A screen showing "no
+lessons" over a table nothing writes is a screen reporting a healthy silence
+over a wire that was never connected and has now been removed. The field keeps
+its name because `backend/api/routes.py`'s `/api/playbook` docstring names it
+and that file was another lane's on the day the writer was deleted; the value
+is still what it says -- whether a lesson row exists -- and on every deployed
+instance it is `false`.
 
 **A proposal is inert until a human accepts it.** `accepted_by_user` is NULL on
 every Historian proposal by construction. This module reports the count and the
@@ -164,10 +171,12 @@ def config_diff(
 
 
 def lessons(conn, *, limit: int = 50) -> list[dict[str, Any]]:
-    """What the Historian concluded, newest first.
+    """Stored lessons, newest first. On every deployed instance: none.
 
     `sample_size` travels with every row because a lesson without one is an
-    anecdote, and it is the number `validate_proposals` refuses on.
+    anecdote, and it was the number the deleted Historian's `validate_proposals`
+    refused on. The shape is kept so a row, if one is ever written by hand or
+    by a successor, renders the same way.
     """
     rows = conn.execute(
         """
@@ -230,9 +239,10 @@ def read_playbook(conn, *, limit: int = 50) -> dict[str, Any]:
         ),
         "lessons": entries,
         "proposals_awaiting_approval": awaiting,
-        # The distinction the screen must not collapse. `lessons` has one
-        # writer and it has never been called by anything that runs, so an
-        # empty list here is a fact about wiring, not about the record.
+        # The distinction the screen must not collapse. `lessons` has no
+        # writer (the Historian was deleted 2026-09-05, never having been
+        # called), so an empty list here is a fact about the code, not about
+        # the record. The key is historical; see the module docstring.
         "historian_has_run": bool(entries),
         "note": (
             "Every recommendation carries the version it was made under. A "

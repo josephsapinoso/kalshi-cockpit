@@ -15,7 +15,9 @@ Three classes of message, and the third matters most:
 
 - **Opportunities.** Only surfaced ones. A phone notification for every
   suppressed candidate would train you to ignore the channel.
-- **Digests.** Daily summary and the weekly Historian post-mortem.
+- **Digests.** Daily summary. (Until 2026-09-05 this line also promised "the
+  weekly Historian post-mortem"; no such digest was ever sent, and the
+  Historian is deleted.)
 - **Failures.** A dead WebSocket, an exhausted credit budget, or a fee
   mismatch. These are the ones you cannot discover by looking at the Board,
   because a broken feed makes the Board look *calm* — prices simply stop

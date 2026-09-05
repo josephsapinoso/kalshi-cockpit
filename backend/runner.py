@@ -1793,8 +1793,10 @@ def run_pricing_pass(
 
     The default reviewer is `review_retired` (ADR 0062): every surfaced row is
     refused as unreviewed and no Anthropic call is made. The two-phase shape
-    stays because `review` is injectable and `review_surfaced` still honours it
-    for a caller that deliberately opts back in.
+    stays because `review` is injectable and it is the attachment point for
+    `TestTheScheduledSkepticIsRetired`. Until 2026-09-05 this sentence said
+    `review_surfaced` still honoured the seam for a caller that opted back in;
+    that function is deleted and no metered reviewer exists in the tree.
 
     Persisting in a second loop is safe for the dedupe in `persist_if_changed`,
     which compares against the most recent stored row for a `(ticker, side)`:

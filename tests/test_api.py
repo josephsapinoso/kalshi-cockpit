@@ -1576,8 +1576,10 @@ class TestPlaybook:
         )
 
     async def test_it_says_the_historian_has_not_run(self, demo_app):
-        """The demo seeds no lessons, and neither does live: nothing calls the
-        Historian. The payload has to carry that rather than an empty list."""
+        """The demo seeds no lessons, and neither does live: the `lessons`
+        table has no writer (the Historian was deleted 2026-09-05, never
+        having run). The payload has to carry that rather than an empty
+        list."""
         body = (await get(demo_app, "/api/playbook")).json()
         assert body["historian_has_run"] is False
         assert body["lessons"] == []
