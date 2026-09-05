@@ -89,6 +89,10 @@ REGISTRATION = (
 F2_KNOWN_READERS = frozenset(
     {
         "backend/api/routes.py",
+        # `_serialise` and its helpers, moved out of `routes.py` on 2026-09-04
+        # (docs/decisions/2026-09-04-routes-split-map.md, step 2). Reads the
+        # joined `f.` columns off a row; never queries the table itself.
+        "backend/api/serialise.py",
         "backend/store/manual_orders.py",
         "backend/parlays.py",
         # Writers and comment-only mentions, enumerated by F2 so the grep can be
