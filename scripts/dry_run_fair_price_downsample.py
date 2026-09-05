@@ -93,6 +93,11 @@ F2_KNOWN_READERS = frozenset(
         # (docs/decisions/2026-09-04-routes-split-map.md, step 2). Reads the
         # joined `f.` columns off a row; never queries the table itself.
         "backend/api/serialise.py",
+        # `/api/bets` and `/api/ledger`, moved out of `routes.py` in step 5 of
+        # the same map. `/api/ledger` is the one route that joins `fair_prices`
+        # through `recommendations.fair_price_id`; the mentions still in
+        # `routes.py` are the board, slate and market-detail LEFT JOINs.
+        "backend/api/routers/ledger.py",
         "backend/store/manual_orders.py",
         "backend/parlays.py",
         # Writers and comment-only mentions, enumerated by F2 so the grep can be
