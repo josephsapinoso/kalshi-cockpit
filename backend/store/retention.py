@@ -65,6 +65,15 @@ What this does NOT do
   **shipped off**. It is a separate module rather than a fourth prune here
   precisely so that the registered cut and this file's unregistered ones cannot
   be edited as if they were the same kind of thing.
+- **`venue_positions` is bounded by its own writer, not here.**
+  `portfolio_poll.poll_positions` deletes rows older than
+  `VENUE_POSITIONS_RETENTION_MS` in the same transaction as the snapshot it
+  just wrote. Named here so the table is an exclusion rather than an
+  oversight -- the `fair_prices` lesson above -- and kept out of `prune()`
+  because this module runs on the runner's slow pass, a different loop that
+  has been observed down while the poller was up, and its batching and
+  budget are for tables of millions of rows; that one grows by positions
+  held x 288 polls a day.
 - **It does not make the retention window a claim about the record's value.**
   The window is set by what the readers reach, not by how long a quote is
   interesting. If a future reader wants older history, it must raise the

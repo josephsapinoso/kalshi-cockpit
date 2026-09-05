@@ -1270,6 +1270,110 @@ CREATE TABLE IF NOT EXISTS venue_balance_snapshots (
 CREATE INDEX IF NOT EXISTS idx_venue_balance_time
     ON venue_balance_snapshots(observed_ms DESC);
 
+-- ---------------------------------------------------------------------------
+-- The venue's open positions, mirrored (v33, 2026-09-05, ADR DRAFT-the-
+-- positions-the-poller-discarded-are-recorded).
+-- ---------------------------------------------------------------------------
+--
+-- **Until this table existed the poller fetched every open position, counted
+-- them, and threw the rows away.** `portfolio_poll.poll_positions` wrote
+-- `len(rows)` into `poll_log.row_count` and nothing else, so the desk could
+-- say "Open now: 3 positions" and could not say what those three had cost --
+-- `bets.open_positions` served an unconditional refusal where the money
+-- figure belonged (ADR 0101 section 2.3, its third reason). The per-row shape
+-- was captured on the production account on 2026-08-30
+-- (`tests/test_rest.py::OBSERVED_POSITION_ROW`, synthetic values on the
+-- observed field names), which is the ordering rule from `tasks/lessons.md`
+-- satisfied: the parser comes after the capture, never before.
+--
+-- **Snapshot semantics.** Every SUCCESSFUL positions poll writes its full row
+-- set here, stamped with the `poll_log` row it came from (`poll_log_id`) and
+-- that row's instant (`polled_ms`). A reader takes the newest successful poll
+-- and reads ONLY the rows carrying its id, so the count in
+-- `poll_log.row_count` and the money figure summed from these rows come from
+-- ONE venue read with ONE stamp -- a shared cadence is not a shared read, and
+-- two stamps on one line is the defect `tests/test_open_positions_stamp.py`
+-- exists for. A failed poll writes nothing here (its `poll_log` row is the
+-- record of the failure) and the previous snapshot stays the newest.
+--
+-- **Retention: rows older than seven days are deleted by the writer itself**,
+-- inside the same transaction as the snapshot it just wrote
+-- (`portfolio_poll.VENUE_POSITIONS_RETENTION_MS`). Not `store/retention.py`:
+-- that module runs on the runner's slow pass, which is a different loop that
+-- has been observed down while this poller was up, and its batching and time
+-- budget are machinery for tables of millions of rows; this one grows by
+-- (positions held) x 288 polls a day. The only production reader takes the
+-- newest poll only, so any window longer than `bets.TONIGHT_STALE_AFTER_MS`
+-- (30 minutes) serves it; seven days keeps a week of snapshots for diagnosis.
+--
+-- **The venue's representation is stored VERBATIM, as TEXT.** `position_fp`,
+-- `market_exposure_dollars`, `total_traded_dollars`, `fees_paid_dollars`,
+-- `realized_pnl_dollars` and `last_updated_ts` are the wire strings exactly as
+-- received (a non-string is stored as its JSON text). Five parsers in this
+-- repo's history were written against imagined wire formats; the verbatim
+-- column is what lets the next reader check a derived value against the
+-- source without another capture. `exchange_index` is the shard, an integer
+-- on the wire, kept because a cancel or a balance read needs it.
+--
+-- **Derived columns, each with its unit named, each NULL when unreadable --
+-- never 0:**
+--
+-- - `exposure_tenths` -- INTEGER TENTHS OF A CENT, from
+--   `market_exposure_dollars` through `core.prices.dollars_to_tenths`: the
+--   same helper and the same rounding (`Decimal * 1000`, ROUND_HALF_UP to a
+--   whole tenth) the balance and every settlement price use, so the wallet has
+--   one dollars-to-tenths spelling. Fractional contracts make sub-tenth
+--   exposures real ("7.641920" is 7641.92 tenths); the rounding puts that on
+--   the tenth grid, so the column is exact to +-0.05 tenths of a cent per row
+--   and is never off by a whole cent. This is EXPOSURE AT COST -- money in,
+--   before fees (`fees_paid_dollars` is a separate wire field) -- and it is
+--   what the desk calls "staked". It is NOT market value and nothing here
+--   marks a position to market. A negative or unparseable string leaves it
+--   NULL: whether the venue signs the exposure on a NO-side position has never
+--   been observed, and an `abs()` here would be a guess wearing a number.
+-- - `contracts` -- REAL, the quantity convention this file states at the top:
+--   `abs(position_fp)` through `kalshi.rest.parse_position_fp` (Decimal, never
+--   `int()`, never `float()` first). Fractional on the wire ("22.88").
+-- - `side` -- 'yes' | 'no' from the SIGN of `position_fp`, the venue's own
+--   convention (positive is long YES, negative is short); NULL when the
+--   quantity is zero or unreadable.
+--
+-- **`gate.py` may never read this table.** What Joe holds is his discretion,
+-- not evidence, and the live-trading interlock counts neither -- the same
+-- boundary `manual_orders`, `parlay_positions` and `combo_orders` carry, pinned
+-- the same way (a source assertion over `backend/gate.py`).
+--
+-- **What this table does NOT establish:** whether `market_exposure_dollars`
+-- includes or excludes fees (the wire carries `fees_paid_dollars` beside it,
+-- which suggests exclusion, and nothing here tests it); anything about
+-- `event_positions`, the envelope's other list, which is not read; what the
+-- venue's `count_filter=position` does to a row that flips to zero
+-- mid-session. No comments inside the parentheses, deliberately, so a future
+-- `ALTER` is not defeated by one (see `venue_balance_snapshots`).
+CREATE TABLE IF NOT EXISTS venue_positions (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    poll_log_id             INTEGER NOT NULL REFERENCES poll_log(id),
+    polled_ms               INTEGER NOT NULL,
+    ticker                  TEXT,
+    exchange_index          INTEGER,
+    position_fp             TEXT,
+    market_exposure_dollars TEXT,
+    total_traded_dollars    TEXT,
+    fees_paid_dollars       TEXT,
+    realized_pnl_dollars    TEXT,
+    last_updated_ts         TEXT,
+    contracts               REAL,
+    side                    TEXT,
+    exposure_tenths         INTEGER,
+    CHECK (side IS NULL OR side IN ('yes', 'no')),
+    CHECK (contracts IS NULL OR contracts >= 0),
+    CHECK (exposure_tenths IS NULL OR exposure_tenths >= 0)
+);
+CREATE INDEX IF NOT EXISTS idx_venue_positions_poll
+    ON venue_positions(poll_log_id);
+CREATE INDEX IF NOT EXISTS idx_venue_positions_time
+    ON venue_positions(polled_ms);
+
 -- The one field in the whole design that Kalshi cannot supply.
 --
 -- **It cannot be a column on `fills`.** It is written and timestamped *before

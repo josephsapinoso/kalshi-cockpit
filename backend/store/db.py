@@ -51,7 +51,11 @@ from ..core.prices import is_valid_price
 #: v32 (2026-09-01) adds the study/call regime flag and the decoupled call's
 #: score to `bet_estimates` -- ticket #11. A column step: the table already
 #: holds a row on the live volume and `schema.sql` alone would never reach it.
-SCHEMA_VERSION = 32
+#: v33 (2026-09-05) adds `venue_positions` -- the per-position mirror of
+#: `/portfolio/positions` the poller used to count and discard. A pure new
+#: table, so tableless; the poller writes it from its next successful poll
+#: and no existing row is touched.
+SCHEMA_VERSION = 33
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -661,8 +665,8 @@ _QUANTITIES_ARE_REAL_UNDO = (
 #:
 #: - v22 `loop_failures`, v23 `parlay_card_candidates`, v24 the hedge tables,
 #:   v27 `combo_eligible_events`, v29 `manual_order_refusals`,
-#:   v30 `combo_orders`.
-_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30)
+#:   v30 `combo_orders`, v33 `venue_positions`.
+_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 33)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
