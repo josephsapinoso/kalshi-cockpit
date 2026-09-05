@@ -43,7 +43,7 @@ from pathlib import Path
 
 import pytest
 
-from backend import portfolio_poll
+from backend import bets, portfolio_poll
 from backend.portfolio_poll import (
     VENUE_POSITIONS_RETENTION_MS,
     parse_position,
@@ -402,3 +402,213 @@ class TestThePollerStoresWhatItCounts:
         assert VENUE_POSITIONS_RETENTION_MS > TONIGHT_STALE_AFTER_MS
         assert VENUE_POSITIONS_RETENTION_MS == 7 * 24 * 3600 * 1000
         assert portfolio_poll.VENUE_POSITIONS_RETENTION_MS is VENUE_POSITIONS_RETENTION_MS
+
+
+NOW_MS = 1_786_651_200_000  # 2026-08-09T20:00:00Z, arbitrary but on-hour
+EXPOSURE_TENTHS = 7642  # "7.641920" dollars on the tenth grid
+
+
+async def _mirror(conn, rows, *, at_ms: int):
+    """Populate through the REAL writer, so the reader is tested against what
+    the poller actually stores rather than against rows typed to match it."""
+    await poll_positions(conn, FakeClient(rows), now_ms=at_ms)
+    conn.commit()
+
+
+class TestTheReaderServesOneReadWithOneStamp:
+    """`bets.open_positions` after v33: the count is still `poll_log.row_count`
+    and the staked figure is the sum of `exposure_tenths` over the rows
+    stamped with that same poll -- one read, one stamp (`count_as_of_ms`).
+
+    Every refusal is words; a refused figure is `None` and never 0.
+    """
+
+    async def test_a_fresh_snapshot_serves_count_and_staked_together(self, conn):
+        second = dict(OBSERVED_POSITION_ROW, ticker="KXMLBGAME-26AUG30TEST-BBB")
+        await _mirror(conn, [OBSERVED_POSITION_ROW, second], at_ms=NOW_MS - 240_000)
+
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+
+        assert block["count"] == 2
+        assert block["staked_tenths"] == 2 * EXPOSURE_TENTHS
+        assert block["staked_display"] == "$15.28"
+        assert block["staked_refusal"] is None
+        assert block["count_as_of_ms"] == NOW_MS - 240_000
+        assert block["count_age_ms"] == 240_000
+        assert "staked_as_of_ms" not in block, (
+            "one read, one stamp: the staked figure wears count_as_of_ms"
+        )
+
+    async def test_a_stale_snapshot_refuses_both_and_keeps_the_clock(self, conn):
+        stale = NOW_MS - bets.TONIGHT_STALE_AFTER_MS - 60_000
+        await _mirror(conn, [OBSERVED_POSITION_ROW], at_ms=stale)
+
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+
+        assert block["count"] is None
+        assert block["staked_tenths"] is None
+        assert block["staked_display"] is None
+        assert block["staked_refusal"] == bets.STAKED_NOT_READ
+        assert block["count_as_of_ms"] == stale, "the clock stays for 'since'"
+
+    async def test_an_empty_but_fresh_snapshot_is_zero_and_zero(self, conn):
+        """Both from the same successful read seconds ago: the venue said it
+        holds nothing and the count says the same in the same breath. This
+        is not the `$0.00`-beside-a-non-zero-count false negative the
+        component guards against; the count is 0 too."""
+        await _mirror(conn, [], at_ms=NOW_MS - 10_000)
+
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+
+        assert block["count"] == 0
+        assert block["staked_tenths"] == 0
+        assert block["staked_display"] == "$0.00"
+        assert block["staked_refusal"] is None
+
+    async def test_one_unreadable_row_refuses_the_whole_figure_not_a_partial(
+        self, conn
+    ):
+        """A sum over the readable rows is a false low. The count is still
+        served -- it is readable and from the same read -- and the money
+        figure refuses in words. Never the other row's 7642."""
+        bad = dict(OBSERVED_POSITION_ROW, market_exposure_dollars="seven")
+        await _mirror(conn, [OBSERVED_POSITION_ROW, bad], at_ms=NOW_MS - 10_000)
+
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+
+        assert block["count"] == 2
+        assert block["staked_tenths"] is None
+        assert block["staked_display"] is None
+        assert block["staked_refusal"] == bets.STAKED_ROW_UNREADABLE
+
+    def test_a_poll_row_with_no_mirror_rows_refuses_naming_both_numbers(
+        self, conn
+    ):
+        """The shape of a `poll_log` row written before v33: the count is
+        there and the rows are not. Served count, refused money, and the
+        words say 3 and 0 so the mismatch is legible."""
+        _poll(conn, polled_ms=NOW_MS - 10_000, row_count=3)
+
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+
+        assert block["count"] == 3
+        assert block["staked_tenths"] is None
+        assert block["staked_refusal"] == bets.STAKED_MIRROR_MISMATCH.format(
+            count=3, rows=0
+        )
+
+    def test_never_polled_refuses_in_words_with_no_clock(self, conn):
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+        assert block["count"] is None
+        assert block["count_as_of_ms"] is None
+        assert block["staked_tenths"] is None
+        assert block["staked_refusal"] == bets.STAKED_NEVER_POLLED
+
+    def test_a_failed_poll_alone_is_never_polled(self, conn):
+        _poll(conn, polled_ms=NOW_MS - 10_000, row_count=None, ok=False)
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+        assert block["count"] is None
+        assert block["staked_refusal"] == bets.STAKED_NEVER_POLLED
+
+    async def test_a_failed_newer_poll_leaves_the_last_good_snapshot_serving(
+        self, conn
+    ):
+        """The failure leaves its `poll_log` row and no mirror rows; the
+        reader takes the newest SUCCESSFUL poll and its own rows, so count
+        and staked still agree and still wear that poll's stamp."""
+        good = NOW_MS - 300_000
+        await _mirror(conn, [OBSERVED_POSITION_ROW], at_ms=good)
+        await poll_positions(conn, FakeClient(fail=True), now_ms=NOW_MS - 10_000)
+        conn.commit()
+
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+
+        assert block["count"] == 1
+        assert block["staked_tenths"] == EXPOSURE_TENTHS
+        assert block["count_as_of_ms"] == good
+
+    async def test_the_money_comes_from_the_same_poll_as_the_count(self, conn):
+        """Two snapshots, different sizes. The figure must be the newer
+        poll's sum over the newer poll's rows -- never the older rows, never
+        all rows. Pinned by numbers that differ under every wrong join."""
+        cheap = dict(OBSERVED_POSITION_ROW, market_exposure_dollars="1.000000")
+        await _mirror(conn, [cheap], at_ms=NOW_MS - 600_000)
+        await _mirror(
+            conn,
+            [OBSERVED_POSITION_ROW,
+             dict(OBSERVED_POSITION_ROW, ticker="KXMLBGAME-26AUG30TEST-BBB")],
+            at_ms=NOW_MS - 60_000,
+        )
+
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+
+        assert block["count"] == 2
+        assert block["staked_tenths"] == 2 * EXPOSURE_TENTHS
+        assert block["staked_tenths"] != 1000, "not the older snapshot"
+        assert block["staked_tenths"] != 1000 + 2 * EXPOSURE_TENTHS, (
+            "not every row ever mirrored"
+        )
+        assert block["count_as_of_ms"] == NOW_MS - 60_000
+
+    async def test_rows_are_keyed_by_the_poll_id_never_by_the_newest_rows(
+        self, conn
+    ):
+        """A join on "the newest rows in the mirror" would serve an older
+        snapshot under a newer poll's stamp whenever the newest poll has no
+        rows of its own -- a money figure wearing a clock it did not come
+        from, the exact lie `test_open_positions_stamp.py` was written for.
+        Keyed by id, the newer poll's empty mirror is a mismatch, in words."""
+        await _mirror(conn, [OBSERVED_POSITION_ROW], at_ms=NOW_MS - 120_000)
+        _poll(conn, polled_ms=NOW_MS - 10_000, row_count=1)  # no rows under it
+
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+
+        assert block["count_as_of_ms"] == NOW_MS - 10_000
+        assert block["staked_tenths"] is None, (
+            "the older snapshot's 7642 must not be served under the newer stamp"
+        )
+        assert block["staked_refusal"] == bets.STAKED_MIRROR_MISMATCH.format(
+            count=1, rows=0
+        )
+
+    async def test_the_value_keeps_its_own_stamp_and_is_untouched(self, conn):
+        """`value_*` is exactly what it was: its own read, its own clock, its
+        own refusals. A shared cadence is not a shared read."""
+        await _mirror(conn, [OBSERVED_POSITION_ROW], at_ms=NOW_MS - 240_000)
+        conn.execute(
+            "INSERT INTO venue_balance_snapshots "
+            "(observed_ms, balance_tenths, portfolio_value_tenths) "
+            "VALUES (?, 2560, 0)",
+            (NOW_MS - 90_000,),
+        )
+        conn.commit()
+
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+
+        assert block["value_tenths"] == 0
+        assert block["value_display"] == "$0.00"
+        assert block["value_as_of_ms"] == NOW_MS - 90_000
+        assert block["value_as_of_ms"] != block["count_as_of_ms"]
+        assert block["staked_tenths"] == EXPOSURE_TENTHS
+
+    async def test_the_payload_keys_are_the_frontend_contract_unchanged(
+        self, conn
+    ):
+        await _mirror(conn, [OBSERVED_POSITION_ROW], at_ms=NOW_MS - 1_000)
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+        assert set(block) == {
+            "count", "count_as_of_ms", "count_age_ms", "value_tenths",
+            "value_display", "value_as_of_ms", "value_age_ms",
+            "value_refusal", "staked_tenths", "staked_display",
+            "staked_refusal",
+        }
+
+
+class TestTheInterlockCannotSeeThisRecord:
+    def test_gate_never_reads_venue_positions(self):
+        """What Joe holds is his discretion, not evidence. The same boundary
+        `manual_orders`, `parlay_positions` and `combo_orders` carry, pinned
+        the same way: over the source of `backend/gate.py`, so a future join
+        fails loudly rather than by convention."""
+        source = (ROOT / "backend" / "gate.py").read_text(encoding="utf-8")
+        assert "venue_positions" not in source

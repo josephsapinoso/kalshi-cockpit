@@ -434,11 +434,12 @@ class TestTheRoute:
                 "value_as_of_ms": None,
                 "value_age_ms": None,
                 "value_refusal": "never observed",
-                # Staked-now is refused unconditionally, with its reason
-                # (21A): nothing in the mirror can produce it honestly.
+                # Staked-now refuses in words that name the state (21A,
+                # then schema v33): a database that has never polled
+                # positions has no mirror to sum, and says so.
                 "staked_tenths": None,
                 "staked_display": None,
-                "staked_refusal": bets.STAKED_NOW_REFUSAL,
+                "staked_refusal": bets.STAKED_NEVER_POLLED,
             },
             "lockout_until_ms": None,
             # No passes recorded is words on the screen, not a 1970 date.
@@ -911,22 +912,29 @@ class TestTwoKindsTwoSections:
         assert bets.bets_record(conn)["first_settled_ms"] == 1_000
 
 
-class TestStakedNowRefusesInWords:
+class TestStakedNowIsServedFromTheMirrorAndRefusesInWords:
     """21A asked the open-positions strip for what is STAKED, not the venue's
-    unpinned value. No honest figure exists in the mirror (see
-    `bets.open_positions`'s docstring for the three reasons), so the field
-    refuses unconditionally with the reason served as words -- never $0.00
-    beside a non-zero count, which would be the false negative in the
-    flattering direction.
+    unpinned value. **Until schema v33 this class was
+    `TestStakedNowRefusesInWords` and pinned an unconditional refusal**
+    (`STAKED_NOW_REFUSAL`), because the poller counted the venue's position
+    rows and discarded them. `venue_positions` now mirrors them and the
+    figure is served from the rows of the same poll the count comes from;
+    `tests/test_venue_positions.py` carries the served cases. What stays
+    pinned here: the refusal is words and never $0.00 beside a non-zero
+    count, and the source still reaches for neither `fills` nor a SUM.
 
-    Mutation run, red and restored by reversing the edit (2026-09-03):
+    Mutation run, red and restored by reversing the edit (2026-09-05):
     `staked_tenths` set to the `tonight_activity` SUM over fills -- the
-    refusal test fails, and so does the source guard.
+    source guard fails.
     """
 
-    def test_staked_is_refused_with_its_reason_beside_a_live_count(
+    def test_a_count_with_no_mirror_rows_refuses_with_its_reason(
         self, tmp_path
     ):
+        """A `poll_log` row with no rows under it is the shape of a poll
+        written before v33 (or of a second writer). The count is served; the
+        money figure is refused in words naming both numbers -- never $0.00
+        beside "Open now: 3 positions"."""
         conn = db.init_db(tmp_path / "p.db")
         conn.execute(
             "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count) "
@@ -938,15 +946,24 @@ class TestStakedNowRefusesInWords:
         assert block["count"] == 3
         assert block["staked_tenths"] is None
         assert block["staked_display"] is None
-        assert block["staked_refusal"] == bets.STAKED_NOW_REFUSAL
-        assert "buy against sell" in block["staked_refusal"]
+        assert block["staked_refusal"] == bets.STAKED_MIRROR_MISMATCH.format(
+            count=3, rows=0
+        )
+        assert "3 positions" in block["staked_refusal"]
 
-    def test_the_refusal_is_not_a_sum_over_fills_in_disguise(self):
+    def test_the_unconditional_refusal_is_gone_by_name(self):
+        """Restoring the old constant would restore the old behaviour one
+        import at a time; its absence is the pin."""
+        assert not hasattr(bets, "STAKED_NOW_REFUSAL")
+
+    def test_the_figure_is_not_a_sum_over_fills_in_disguise(self):
         """`tonight_activity`'s `SUM(count * price_tenths)` measures what has
         moved since the day roll -- buys and sells alike, settled or not --
         and is honest only for that question. `open_positions` must not
-        reach for it: the source reads neither `fills` nor `SUM`."""
+        reach for it: the source reads neither `fills` nor `SUM`, and it
+        does read the mirror."""
         code = _code_without_docstrings(bets.open_positions)
         assert "fills" not in code
         assert "sum(" not in code
         assert "staked_tenths" in code
+        assert "venue_positions" in code

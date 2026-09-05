@@ -100,13 +100,36 @@ def bet_kind(ticker: str) -> str:
 # the flattering direction, on the one screen whose purpose is to interrupt.
 TONIGHT_STALE_AFTER_MS = 30 * 60 * 1000
 
-# The words served for "staked now" on the open-positions strip, rendered
-# server-side like every other refusal. See `open_positions` for the three
-# reasons no honest figure exists in the mirror today.
-STAKED_NOW_REFUSAL = (
-    "not derivable from the mirror: fills do not record buy against sell, "
-    "and a settled position the mirror missed would read as still open"
+# The words served for "staked now" on the open-positions strip when the
+# mirror cannot produce it, rendered server-side like every other refusal.
+# **Until schema v33 there was one constant here and it was unconditional**
+# (`STAKED_NOW_REFUSAL`, ADR 0101 section 2.3): the poller counted the
+# venue's position rows and discarded them, so no honest figure existed.
+# `venue_positions` now holds the venue's own per-position exposure at cost,
+# and each sentence below names ONE state in which that figure is genuinely
+# unreadable, so the screen can say which. None of them is "the number is
+# zero"; a refusal is always words, never $0.00.
+STAKED_NEVER_POLLED = "no positions poll has succeeded yet"
+# The same 30-minute bound and the same words the value's stale refusal
+# uses: one clock for both figures on this line.
+STAKED_NOT_READ = "not read in the last 30 minutes"
+# The newest successful poll counted N rows and the mirror holds M under its
+# stamp. Happens for exactly one live reason -- a `poll_log` row written
+# before v33 landed, in the minutes after that deploy -- and for one
+# hypothetical one, a second writer. Either way the count and the money
+# figure would come from different reads, and that is refused, not
+# averaged.
+STAKED_MIRROR_MISMATCH = (
+    "the poll counted {count} positions and the mirror holds {rows} rows "
+    "for it; refusing to sum a different read"
 )
+# One row's `exposure_tenths` is NULL (the venue's string did not parse, or
+# was negative on a side whose sign convention is unobserved). A sum over
+# the rest is a false low, so the whole figure refuses.
+STAKED_ROW_UNREADABLE = (
+    "a position's exposure at cost did not parse; refusing to sum the rest"
+)
+STAKED_RECORD_UNREADABLE = "the open-positions record could not be read"
 
 
 def format_net_dollars(net_tenths: Optional[int]) -> Optional[str]:
@@ -457,53 +480,70 @@ def tonight_activity(
 
 
 def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
-    """What is open at the venue right now, from the only two things mirrored.
+    """What is open at the venue right now: a count, the money on it at cost,
+    and the venue's portfolio value -- each refusing in words before it
+    flatters.
 
-    The largest hole the 2026-08-22 review found: Joe could not see what was
-    at risk on any screen. There is **no per-position mirror table** to read
-    -- `portfolio_poll` counts the `/portfolio/positions` rows and refuses to
-    parse them (the per-row shape went unobserved on this account until
-    2026-08-30 -- `scripts/capture_positions_fixture.py` -- and five parsers
-    in this repo's history were written against imagined wire formats). So
-    this serves exactly what the record carries, and says so:
+    **What changed at schema v33, and why the docstring says so.** Until then
+    this paragraph said there was *"no per-position mirror table to read"*
+    and that `poll_positions` *"counts rows and parses none"* -- true, and the
+    third of ADR 0101 section 2.3's reasons the staked figure was refused
+    unconditionally. The per-row shape was captured 2026-08-30
+    (`tests/test_rest.py::OBSERVED_POSITION_ROW`), `venue_positions` now
+    holds every row the poller fetches, and the figure is served from it.
+    The two reasons that named `fills` are unchanged and still true; they no
+    longer matter, because nothing here reads `fills`.
 
     - **`count`** -- `poll_log.row_count` of the newest successful
-      'positions' poll: the number of `market_positions` rows the venue
-      returned, counted and not parsed. Observed 2026-08-30: the bare
-      endpoint DOES include zero-quantity rows for markets already exited
-      (2 bare vs 1 filtered on this account), so until that date this
-      number was inflated. `rest.positions()` now asks the venue for its
-      own non-zero cut (`count_filter=position`), so from the first poll
-      after that deploy the count means "open now" rather than "ever
-      traded" -- still counted, not parsed.
-    - **`value_tenths`/`value_display`** -- the newest snapshot's
-      `portfolio_value_tenths`, the venue's own `portfolio_value` from the
-      balance payload (5-minute cadence). Its unit is pinned only at zero
-      (`parse_portfolio_value_tenths`), so any non-zero value is stored as
-      NULL and refuses here with its reason -- the honest state until a
-      non-empty payload pins the unit. Whether it includes fees is equally
-      unobserved; nothing here claims it.
+      'positions' poll, exactly as before: the number of `market_positions`
+      rows the venue returned under `count_filter=position`, its own
+      non-zero cut (`rest.positions()`), so the count means "open now" rather
+      than "ever traded".
+    - **`staked_tenths`/`staked_display`/`staked_refusal`** -- the money Joe
+      has put on those positions, **at cost**: the venue's own
+      `market_exposure_dollars` per row, in integer tenths of a cent
+      (`venue_positions.exposure_tenths`), added up over the rows stamped
+      with THAT poll. Money in, before fees. It is not market value, nothing
+      marks it to market, and it needs no live quote -- which is why it
+      cannot go stale on its own clock. Unsigned, never summed with cash.
+    - **`value_tenths`/`value_display`/`value_refusal`** -- unchanged: the
+      newest snapshot's `portfolio_value_tenths`, the venue's `portfolio_value`
+      from the balance payload, whose unit is pinned only at zero
+      (`parse_portfolio_value_tenths`) so any non-zero value refuses with its
+      reason.
 
-    **One staleness bound, `TONIGHT_STALE_AFTER_MS`, because since
-    2026-08-29 both producers run on the same 5-minute cadence.**
-    `portfolio_poll.poll_positions` left the 12-hour mirror on that date, so
-    the count's own 26-hour ceiling retired with the clock that justified it.
-    Stale refuses to `None` with the `as_of` kept, so the reader renders "not
-    read since HH:MM" -- never 0, which would report "nothing at risk" off a
-    dead poller, the false negative in the flattering direction.
+    **The count and the staked figure come from ONE read and wear ONE stamp,
+    `count_as_of_ms`.** The staked rows are selected by the `poll_log` id of
+    the very poll whose `row_count` is the count, so the two cannot describe
+    different instants; the payload deliberately has no `staked_as_of_ms`,
+    because a second stamp for the same read would invite the divergence
+    `tests/test_open_positions_stamp.py` exists to forbid. **The value keeps
+    its own stamp** (`value_as_of_ms`): a shared cadence is not a shared read,
+    and a failed positions poll leaves this stamp behind while the balance's
+    moves on -- exactly the divergence a single stamp would hide.
 
-    **Two producers still means two stamps, and that stays true after the
-    clocks converged.** The count comes from `poll_log`; the value from
-    `venue_balance_snapshots`. A shared cadence is not a shared read, and a
-    failed positions poll leaves the count's stamp behind while the balance's
-    moves on -- which is exactly the divergence a single stamp would hide.
-    Until 2026-08-29 the gap was far worse and worth recording: `positions`
-    was polled only on the full mirror, whose first cycle runs at process
-    start and whose next runs twelve hours later, and this instance's
-    containers do not live twelve hours (see
-    `docs/measurements/2026-08-28-recorder-silence-is-chronic.md`) -- so
-    `count_as_of_ms` was in practice the container's boot clock, and the
-    screen stamped a money figure with it.
+    **One staleness bound, `TONIGHT_STALE_AFTER_MS`.** Past it the count AND
+    the staked figure refuse to `None` with `count_as_of_ms` kept, so the
+    reader renders "not read since HH:MM" -- never 0, which would report
+    "nothing at risk" off a dead poller, the false negative in the flattering
+    direction.
+
+    **An empty-but-fresh snapshot is count 0 and $0.00, and that is not the
+    false negative `OpenPositions.tsx` guards against.** That guard is about
+    `$0.00` beside a NON-ZERO count -- a money figure invented while the
+    count says there is money. Here both come from the same successful read
+    of the same endpoint seconds ago: the venue said it holds nothing, and
+    the count says the same thing in the same breath. The 2026-09-05 capture
+    found exactly this state on the live account.
+
+    **The staked figure refuses in words in four states, each a genuinely
+    unreadable one, none of them "the number is zero":** no successful poll
+    (`STAKED_NEVER_POLLED`); the newest one is stale (`STAKED_NOT_READ`); the
+    mirror holds a different number of rows than the poll counted
+    (`STAKED_MIRROR_MISMATCH` -- a `poll_log` row from before v33, or a
+    second writer); any row's `exposure_tenths` is NULL
+    (`STAKED_ROW_UNREADABLE` -- a partial sum is a false low, so the whole
+    figure refuses rather than summing the rest).
 
     `count_age_ms`/`value_age_ms` are each read's age against the SAME
     `now_ms` the staleness bounds use, so the reader never has to subtract a
@@ -511,39 +551,13 @@ def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
     is `None`: an unread figure has no age, and 0 would say "just read".
 
     **NO live P&L, no mark-to-market, and never summed with cash** --
-    TonightStrip's unsigned rule. The refusal words are rendered server-side
-    (`value_refusal`), matching the display-string convention.
+    TonightStrip's unsigned rule. Refusal words are rendered server-side,
+    matching the display-string convention.
 
-    - **`staked_tenths`/`staked_display`/`staked_refusal`** -- what Joe
-      asked for on /bets (21A): the money he has put on the positions that
-      are open now, unsigned, never summed with cash. **It is refused, in
-      words, and the words say why.** Nothing the mirror carries can produce
-      it honestly:
-
-      * `fills` stores no buy-against-sell. The venue's fill record carries
-        `action` (`buy`/`sell`) and `parse_fill` drops it
-        (`portfolio_poll.py`; the wire fixture shows the field), so
-        `SUM(count * price_tenths)` over fills books an exit as if it were
-        more money committed. `tonight_activity` uses exactly that SUM, and
-        it is honest there only because its question is "what has moved
-        tonight", not "what is at risk now".
-      * "fills on tickers with no settlement row" is not "open". The
-        settlements endpoint drops history (ADR 0044 design point 6) and the
-        poller has been down for stretches, so a position settled but never
-        mirrored would read as open forever; a position bought and sold
-        before settlement has fills and no settlement row and is not open
-        either. The figure is wrong in both directions at once, which is not
-        a bound.
-      * The venue's own per-position figure (`market_exposure_dollars`, in
-        the shape observed 2026-08-30) is not stored: `poll_positions` counts
-        rows and parses none, deliberately, and its unit is unpinned.
-
-      So the field refuses until one of two things is built and pinned: the
-      poller records `action` on fills, or it stores the venue's
-      per-position exposure with its unit measured. Until then `None`, never
-      0 -- "$0.00 staked" beside "Open now: 3 positions" is the false
-      negative in the flattering direction. The refusal is unconditional and
-      carries no clock because there is no read behind it to stamp.
+    What this does not establish: whether `market_exposure_dollars` includes
+    fees (the wire carries `fees_paid_dollars` beside it; nothing here tests
+    the relation), and anything about `event_positions`, which the poller
+    does not read.
     """
     payload: dict = {
         "count": None,
@@ -556,31 +570,61 @@ def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
         "value_refusal": None,
         "staked_tenths": None,
         "staked_display": None,
-        "staked_refusal": STAKED_NOW_REFUSAL,
+        "staked_refusal": None,
     }
     try:
         count_row = conn.execute(
-            "SELECT polled_ms, row_count FROM poll_log "
+            "SELECT id, polled_ms, row_count FROM poll_log "
             "WHERE endpoint = 'positions' AND ok = 1 "
-            "ORDER BY polled_ms DESC LIMIT 1"
+            "ORDER BY polled_ms DESC, id DESC LIMIT 1"
         ).fetchone()
         value_row = conn.execute(
             "SELECT observed_ms, portfolio_value_tenths "
             "FROM venue_balance_snapshots "
             "ORDER BY observed_ms DESC, id DESC LIMIT 1"
         ).fetchone()
+        # The rows of THAT poll and no other: keyed by its id, never by
+        # "the newest rows", which after a failed poll would be the same
+        # rows and after a second writer might not be.
+        mirror_rows = (
+            conn.execute(
+                "SELECT exposure_tenths FROM venue_positions "
+                "WHERE poll_log_id = ?",
+                (count_row["id"],),
+            ).fetchall()
+            if count_row is not None
+            else []
+        )
     except Exception:                                       # noqa: BLE001
         logger.exception("could not read the open-positions record")
+        payload["staked_refusal"] = STAKED_RECORD_UNREADABLE
         return payload
 
-    if count_row is not None:
-        payload["count_as_of_ms"] = count_row["polled_ms"]
-        payload["count_age_ms"] = max(0, now_ms - count_row["polled_ms"])
-        if (
-            now_ms - count_row["polled_ms"] <= TONIGHT_STALE_AFTER_MS
-            and count_row["row_count"] is not None
-        ):
-            payload["count"] = int(count_row["row_count"])
+    if count_row is None:
+        payload["staked_refusal"] = STAKED_NEVER_POLLED
+    else:
+        polled_ms = count_row["polled_ms"]
+        row_count = count_row["row_count"]
+        payload["count_as_of_ms"] = polled_ms
+        payload["count_age_ms"] = max(0, now_ms - polled_ms)
+        if now_ms - polled_ms > TONIGHT_STALE_AFTER_MS:
+            payload["staked_refusal"] = STAKED_NOT_READ
+        elif row_count is None:
+            payload["staked_refusal"] = STAKED_RECORD_UNREADABLE
+        else:
+            payload["count"] = int(row_count)
+            if len(mirror_rows) != int(row_count):
+                payload["staked_refusal"] = STAKED_MIRROR_MISMATCH.format(
+                    count=int(row_count), rows=len(mirror_rows)
+                )
+            elif any(r["exposure_tenths"] is None for r in mirror_rows):
+                payload["staked_refusal"] = STAKED_ROW_UNREADABLE
+            else:
+                staked = 0
+                for r in mirror_rows:
+                    staked += int(r["exposure_tenths"])
+                payload["staked_tenths"] = staked
+                payload["staked_display"] = f"${staked / 1000:.2f}"
 
     if value_row is not None:
         payload["value_as_of_ms"] = value_row["observed_ms"]
