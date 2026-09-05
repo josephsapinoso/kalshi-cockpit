@@ -84,7 +84,7 @@ from ..odds.timing import (
     window_status,
 )
 from ..parlays import scouting_facts
-from ..portfolio_poll import log_poll_attempt
+from ..portfolio_poll import log_poll_attempt, store_positions_snapshot
 from ..runner import book_quotes_for_event
 from ..settlement import open_position_dollars
 from ..slate import DRIFT_WINDOW_MS, book_distribution, kalshi_drift
@@ -3433,6 +3433,7 @@ def create_app(
                 now_ms=positions_read_ms,
                 ok=True,
                 row_count=len(position_rows),
+                rows=position_rows,
             )
             for row in position_rows:
                 row_ticker = row.get("ticker") if isinstance(row, dict) else None
@@ -3738,9 +3739,10 @@ async def _stamp_positions_read(
     now_ms: int,
     ok: bool,
     row_count: Optional[int] = None,
+    rows: Optional[list] = None,
     error: Optional[str] = None,
 ) -> None:
-    """Record step 10's live positions read in `poll_log`, or say nothing.
+    """Record step 10's live positions read in `poll_log`, and keep its rows.
 
     The read is real -- `live_quotes().portfolio_positions()` asks the venue --
     so `poll_log`'s own meaning ("the venue was asked and this is what it
@@ -3748,6 +3750,24 @@ async def _stamp_positions_read(
     same `log_poll_attempt` the poller uses, with the same endpoint name, so
     `bets.open_positions` and the registration's gap tripwires read one
     population and not two.
+
+    **That sentence became wholly true on 2026-09-05 and was half-true
+    before** (ADR 0107 sections 5 and 9). `poll_log` has two writers of
+    positions reads. Until this edit only the poller kept the rows it counted,
+    so a reader taking "the newest successful positions poll" would find this
+    route's stamp carrying `row_count = N` with no rows under it, and refuse
+    the money figure for up to five minutes after every hand bet -- at the one
+    moment the desk is open. The rows now go to `store_positions_snapshot`
+    inside the same transaction, which also sets `poll_log.mirrored = 1`, and
+    `bets.open_positions` selects on that marker rather than on recency alone.
+
+    `rows=None` is not the same as `rows=[]`. `None` means the caller is not
+    offering any (a failed read; a caller written before this parameter
+    existed) and nothing is mirrored; `[]` is the venue saying the account
+    holds nothing, which is a real observation and is stored as a marked
+    snapshot with zero rows. That distinction is the whole reason the marker
+    exists -- no count can tell "kept nothing" from "kept, and there was
+    nothing".
 
     **What it does NOT establish**, restated here because a reader who finds
     this row in the table will not have step 10's comment in front of them:
@@ -3760,17 +3780,25 @@ async def _stamp_positions_read(
       supplements `portfolio_poll.poll_positions` and does not substitute for
       it. If the poller stops, the count goes stale exactly as it should.
     - Failures are stamped too, matching the poller's convention: a failure
-      that writes nothing is invisible and reads like a quiet evening.
+      that writes nothing is invisible and reads like a quiet evening. A
+      failed read keeps **nothing** and is left unmarked: the venue answered
+      with an error, so there is no observation to mirror, and marking it
+      would tell the reader rows were kept when none were.
 
     **Never blocks the order.** The stamp is bookkeeping about a read that
     already happened; losing it must not cost Joe a bet, so a write failure
     is logged and swallowed. The order path's own refusals are unaffected --
-    this function is called after the read and never decides anything.
+    this function is called after the read and never decides anything. That
+    now covers the mirror too: if `store_positions_snapshot` raises, the whole
+    write is lost together and the bet still goes through. Losing both is the
+    right failure -- an unmarked stamp is a state `bets.open_positions`
+    already knows how to refuse, while a marked stamp with no rows would be a
+    lie it would believe.
     """
     def _write() -> None:
         conn = db.open_db(db_path)
         try:
-            log_poll_attempt(
+            poll_log_id = log_poll_attempt(
                 conn,
                 now_ms=now_ms,
                 endpoint="positions",
@@ -3778,6 +3806,10 @@ async def _stamp_positions_read(
                 row_count=row_count,
                 error=error,
             )
+            if ok and rows is not None:
+                store_positions_snapshot(
+                    conn, poll_log_id=poll_log_id, now_ms=now_ms, rows=rows
+                )
             conn.commit()
         finally:
             conn.close()

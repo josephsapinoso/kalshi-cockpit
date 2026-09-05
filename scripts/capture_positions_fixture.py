@@ -55,6 +55,13 @@ redacted capture is a hand-constructed payload wearing a capture's name.
 Promotion into `tests/fixtures/` happens in the same commit as the test that
 loads it, once a human has read the field census printed below.
 
+**Every run writes its own pair of files, stamped to the second**
+(`capture_path`): `portfolio_positions_bare_<YYYYMMDDTHHMMSSZ>.json` and
+`portfolio_positions_count_filter_<same stamp>.json`. Until 2026-09-05 the
+names were fixed, and that morning's run -- exit 4, zero rows -- overwrote
+the 2026-08-30 capture, the only observation of the per-row shape this
+account had produced. An observation is never destroyed by the next run.
+
 Exit codes:
 
     0  captured; market_positions non-empty on at least one call
@@ -84,8 +91,26 @@ from backend.logging_setup import configure_logging           # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CAPTURES = ROOT / "data" / "captures"
-OUT_BARE = CAPTURES / "portfolio_positions_bare.json"
-OUT_FILTERED = CAPTURES / "portfolio_positions_count_filter.json"
+
+#: One filename per run, never reused. Until 2026-09-05 the two outputs
+#: were the fixed names `portfolio_positions_bare.json` and
+#: `portfolio_positions_count_filter.json`, and the run taken that morning
+#: (exit 4: envelope confirmed, zero rows) silently overwrote the
+#: 2026-08-30 capture -- the only observation of the per-row shape this
+#: account had ever produced. A capture is an observation; the next run
+#: must not destroy it.
+CAPTURE_STAMP_FORMAT = "%Y%m%dT%H%M%SZ"
+
+
+def capture_path(kind: str, captured_at: datetime) -> Path:
+    """`data/captures/portfolio_positions_<kind>_<YYYYMMDDTHHMMSSZ>.json`.
+
+    The stamp is UTC to the second and both files of one run share it, so
+    a directory listing pairs them. `kind` is 'bare' or 'count_filter'.
+    """
+    stamp = captured_at.astimezone(timezone.utc).strftime(CAPTURE_STAMP_FORMAT)
+    return CAPTURES / f"portfolio_positions_{kind}_{stamp}.json"
+
 
 EXIT_OK = 0
 EXIT_CONFIG = 2
@@ -197,6 +222,9 @@ async def capture() -> int:
         print(f"Cannot reach Kalshi: {exc}", file=sys.stderr)
         return EXIT_CONFIG
 
+    # One stamp for the run, taken as the observation begins, so the two
+    # files it writes pair up in a listing.
+    run_at = datetime.now(timezone.utc)
     async with KalshiRestClient(config) as api:
         # Deliberately NOT `api.positions()` -- that helper hands back the
         # list and swallows a rename; the whole point of a capture is the
@@ -229,7 +257,7 @@ async def capture() -> int:
 
     if bare_rows:
         _describe([r for r in bare_rows if isinstance(r, dict)], "bare")
-    _write(OUT_BARE, "/portfolio/positions", {}, bare)
+    _write(capture_path("bare", run_at), "/portfolio/positions", {}, bare)
 
     print()
     print("=" * 70)
@@ -249,7 +277,7 @@ async def capture() -> int:
                     [r for r in filtered_rows if isinstance(r, dict)], "filtered"
                 )
         _write(
-            OUT_FILTERED,
+            capture_path("count_filter", run_at),
             "/portfolio/positions",
             {"count_filter": "position"},
             filtered,

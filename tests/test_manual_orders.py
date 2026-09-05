@@ -38,6 +38,7 @@ from backend.core.fees import calculate_fee, combo_taker_fee
 from backend.kalshi.orders import OrderRequest
 from backend.kalshi.grid import read_price_grid
 from backend.kalshi.quotes import QuoteUnavailable, parse_market_quote
+from tests.test_rest import OBSERVED_POSITION_ROW
 from backend.store import db
 from backend.store import manual_orders as manual_store
 from backend.store.orders import ExposureCapExceeded
@@ -700,6 +701,134 @@ class TestTheLivePositionsReadIsStamped:
         assert row["ok"] == 0
         assert row["row_count"] is None
         assert "no answer" in row["error"]
+
+    async def test_the_route_keeps_the_rows_it_read_and_marks_the_stamp(
+        self, tmp_path, records_only
+    ):
+        """ADR 0107 section 9, the integrator's edit: the hand-bet path's read
+        feeds the money figure instead of being counted and thrown away.
+
+        `poll_log` has two writers of positions reads and until 2026-09-05
+        only the poller kept rows, so a reader taking the newest successful
+        poll found this route's stamp with `row_count = 1` and nothing under
+        it, and refused the staked figure for up to five minutes after every
+        hand bet. Asserted together on purpose: the row landing in
+        `venue_positions` under THIS stamp's id, and `mirrored = 1` on the
+        stamp -- either alone can pass while the pair is broken."""
+        quotes = StubQuotes(positions=[dict(OBSERVED_POSITION_ROW)])
+        path = _base_db(tmp_path)
+        app = _app(path, quotes=quotes)
+        response = await post(
+            app, "/api/manual-orders", json=_body(), headers=AUTH
+        )
+        assert response.status_code == 200, response.text
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        stamp = conn.execute(
+            "SELECT id, ok, row_count, mirrored FROM poll_log "
+            "WHERE endpoint = 'positions'"
+        ).fetchone()
+        kept = conn.execute(
+            "SELECT poll_log_id, ticker, contracts, side FROM venue_positions"
+        ).fetchall()
+        conn.close()
+        assert (stamp["ok"], stamp["row_count"]) == (1, 1)
+        assert stamp["mirrored"] == 1, (
+            "the stamp must say it kept its rows, or `bets.open_positions` "
+            "cannot tell it apart from the bare stamp this route used to write"
+        )
+        assert [r["poll_log_id"] for r in kept] == [stamp["id"]], (
+            "the mirrored rows must hang off THIS read, not a poller's"
+        )
+        assert kept[0]["ticker"] == OBSERVED_POSITION_ROW["ticker"]
+        assert kept[0]["side"] == "yes"
+
+    async def test_an_empty_account_is_kept_as_marked_and_empty(
+        self, tmp_path, records_only
+    ):
+        """`rows=[]` is the venue saying the account holds nothing -- a real
+        observation, stored as a marked snapshot with zero rows. It is not the
+        same state as a stamp that kept nothing, and no count can tell them
+        apart, which is why the marker rather than a count carries it."""
+        path = _base_db(tmp_path)
+        app = _app(path)  # the default stub holds no positions
+        response = await post(
+            app, "/api/manual-orders", json=_body(), headers=AUTH
+        )
+        assert response.status_code == 200, response.text
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        stamp = conn.execute(
+            "SELECT id, row_count, mirrored FROM poll_log "
+            "WHERE endpoint = 'positions'"
+        ).fetchone()
+        kept = conn.execute("SELECT COUNT(*) FROM venue_positions").fetchone()[0]
+        conn.close()
+        assert stamp["row_count"] == 0
+        assert stamp["mirrored"] == 1
+        assert kept == 0
+
+    async def test_a_failed_read_keeps_nothing_and_is_left_unmarked(
+        self, tmp_path
+    ):
+        """The venue answered with an error, so there is no observation to
+        mirror. Marking it would tell the reader rows were kept when none
+        were -- the one failure `bets.open_positions` could not detect."""
+        quotes = StubQuotes(positions_error=QuoteUnavailable("no answer"))
+        path = _base_db(tmp_path)
+        app = _app(path, quotes=quotes)
+        response = await post(
+            app, "/api/manual-orders", json=_body(), headers=AUTH
+        )
+        assert response.status_code == 503
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        stamp = conn.execute(
+            "SELECT ok, mirrored FROM poll_log WHERE endpoint = 'positions'"
+        ).fetchone()
+        kept = conn.execute("SELECT COUNT(*) FROM venue_positions").fetchone()[0]
+        conn.close()
+        assert stamp["ok"] == 0
+        assert stamp["mirrored"] is None
+        assert kept == 0
+
+    async def test_rows_offered_with_a_failed_read_are_still_refused(
+        self, tmp_path
+    ):
+        """The `ok and` half of the mirror guard, pinned directly because the
+        route cannot reach it.
+
+        On every failure path the route passes no rows at all, so `rows is
+        None` already blocks the write and `ok and` never decides anything --
+        a mutation removing it stays green through the API. That makes it
+        decoration by this repo's standard unless something tests it, and the
+        thing it defends against is a future caller that has rows in hand from
+        a read the venue then failed. Called at the function rather than
+        through the route, which is the only level the branch is reachable
+        from."""
+        from backend.api.routes import _stamp_positions_read
+
+        path = _base_db(tmp_path)
+        await _stamp_positions_read(
+            path,
+            now_ms=int(time.time() * 1000),
+            ok=False,
+            error="the venue said no",
+            rows=[dict(OBSERVED_POSITION_ROW)],
+        )
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        stamp = conn.execute(
+            "SELECT ok, mirrored FROM poll_log WHERE endpoint = 'positions'"
+        ).fetchone()
+        kept = conn.execute("SELECT COUNT(*) FROM venue_positions").fetchone()[0]
+        conn.close()
+        assert stamp["ok"] == 0
+        assert stamp["mirrored"] is None, (
+            "a failed read must not be marked as having kept rows, however "
+            "many rows the caller offers"
+        )
+        assert kept == 0
 
     async def test_a_refusal_before_the_read_stamps_nothing(self, tmp_path):
         """The stamp means 'the venue was asked'. An order refused at an

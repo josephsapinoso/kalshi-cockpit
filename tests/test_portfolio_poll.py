@@ -437,13 +437,28 @@ class TestPollPortfolio:
             "SELECT COUNT(*) FROM poll_log WHERE endpoint = 'positions'"
         ).fetchone()[0] == 0, "poll_positions must not commit on its own"
 
-    async def test_positions_are_counted_never_parsed(self, conn):
-        """The shape has never been observed; a parser would be imagined."""
+    async def test_positions_are_counted_and_mirrored_verbatim(self, conn):
+        """This test used to be `test_positions_are_counted_never_parsed`,
+        docstring *"The shape has never been observed; a parser would be
+        imagined."* The shape was observed on 2026-08-30
+        (`tests/test_rest.py::OBSERVED_POSITION_ROW`) and schema v33 mirrors
+        the rows (`tests/test_venue_positions.py` carries the wire-shape
+        tests). What survives from the old claim: the count in `poll_log`
+        is still `len(rows)`, and a row that will not parse is still never
+        refused whole -- its text is kept and its derived columns are NULL.
+        """
         client = FakeClient(positions=[{"never": "observed"}])
 
         summary = await poll_portfolio(conn, client, now_ms=1)
 
-        assert summary["positions"] == {"seen": 1}
+        assert summary["positions"] == {
+            "seen": 1, "stored": 1, "exposure_unreadable": 1,
+        }
+        mirrored = conn.execute(
+            "SELECT ticker, exposure_tenths, contracts, side "
+            "FROM venue_positions"
+        ).fetchall()
+        assert [tuple(r) for r in mirrored] == [(None, None, None, None)]
 
     async def test_a_mirror_pass_carries_the_matchers_own_summary(self, conn):
         """The wiring guard on `run_match_pass`'s only production call.
