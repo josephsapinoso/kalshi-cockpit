@@ -69,6 +69,46 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-06 - A hand-typed sha is a fabricated sha, and noticing that it looks wrong is not the same as checking it
+
+A deploy was given `-e GIT_SHA=c9739cc7`. The commit was `c9739cc8...`. The
+eighth character was supplied from nowhere -- `git log --oneline` prints seven,
+and one more was added to make it look like a longer prefix. Two live instances
+then served, from `/api/health`, an identifier **matching no object in the
+repository**.
+
+The repo's own session-start ritual is to compare `/api/health`'s `git_sha`
+against `origin/main` before believing anything is deployed. A truncated sha
+still answers that question. A **wrong** one cannot: it does not match, and it
+does not match anything else either, so the check fails with no way to tell a
+bad deploy from a bad string.
+
+**The anomaly was seen and rationalised, which is the part that generalises.**
+The oddity was noticed at the time -- earlier entries quote 40 characters, this
+one had 8 -- and reported as "the short form; it still prefix-matches; not
+worth a redeploy to lengthen a string." Every clause of that was wrong, and it
+was produced *because* the anomaly was noticed: the explanation was reached for
+in order to dismiss the observation. It survived until `gh run list` happened
+to print `headSha` beside it and the eighth character disagreed.
+
+**Pattern one: never hand-type an identifier a command will emit.** Substitute
+the command -- `-e GIT_SHA=$(git rev-parse HEAD)` -- so the value cannot be
+approximated. Anything copied by eye from one representation (short sha, log
+line, screenshot) into a field that will be compared for equality is a
+fabrication waiting to happen, and shas are the worst case because every
+character is equally meaningless to a reader and a wrong one is invisible.
+
+**Pattern two, and it is the reusable half: an explanation produced to dismiss
+an anomaly must be tested, not accepted.** "It is the short form" was a
+hypothesis with a thirty-second check behind it (`git rev-parse`), and the
+check was skipped precisely because the hypothesis felt sufficient. When you
+catch yourself explaining away something that looks off, the explanation is a
+prediction -- verify it. Same family as the entries about a guard that asserts
+the product rather than the producer: a claim that closes an investigation is
+the one most worth opening.
+
+---
+
 ## 2026-09-06 - A section truncated by `head` looks exactly like a section with no rows, because the header prints before the data
 
 A new inspector query prints two sections: what the odds feed BOUGHT, and what
@@ -2601,6 +2641,7 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-09-06 — in this file, above
+- A hand-typed sha is a fabricated sha, and noticing that it looks wrong is not the same as checking it
 - A section truncated by `head` looks exactly like a section with no rows, because the header prints before the data
 - A scripted edit meant to change a few bytes rewrites every line ending in the file, and a normal diff cannot show it
 - A date-triggered falsifying check must be dated from the event's END, and from a looked-up calendar rather than a remembered one

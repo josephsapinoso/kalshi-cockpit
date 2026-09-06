@@ -216,10 +216,32 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ## 2026-09-06 (third entry, latest) — the partner ran first and its top item was not on the list; the credit answer was refused once before it was kept; three lanes landed and the inspector stopped blocking work
 
-**STATE, verified at close:** see the commit carrying this entry. `main` was
-`7c701ae` at open, live and demo both on it, tree clean, no lanes running, and
-the decision map exhausted at 32 of 32 with `#3` the only open issue. Nothing
-was Joe-gated at open and nothing is Joe-gated at close.
+**STATE, verified at close.** `main` was `7c701ae` at open, live and demo both
+on it, tree clean, no lanes running, and the decision map exhausted at 32 of 32
+with `#3` the only open issue. Nothing was Joe-gated at open and nothing is
+Joe-gated at close.
+
+**At close, live and demo both report
+`d1feb712c05a6e56f08283b9304bae9fea4489ae`, which is `main` and `origin/main`
+exactly.** CI green on that commit. Read `/api/health` yourself rather than
+trusting this line.
+
+**They reported a sha that did not exist for about twenty minutes first, and
+the correction is the part worth reading.** The first deploy was given
+`-e GIT_SHA=c9739cc7`, typed from the 7-character short sha `c9739cc` with an
+eighth character supplied from nowhere. The real commit is `c9739cc8...`. So
+both health endpoints served an identifier **matching no object in the
+repository** -- not a truncation, a fabrication, and the failure mode is that a
+later session doing the mandated `/api/health` versus `origin/main` check finds
+a mismatch it cannot resolve, because there is nothing to resolve it to.
+
+Worse than the typo: it was **noticed and explained away**. The anomaly was
+seen -- earlier entries quote 40 characters, this one had 8 -- and written up as
+"the short form, it still prefix-matches, not worth a redeploy". That
+rationalisation was itself the error, and it was only caught because `gh run
+list` printed `headSha` and the eighth character disagreed. Both instances were
+redeployed with `$(git rev-parse HEAD)`. **Never hand-type a sha; substitute the
+command.** Lesson written.
 
 ### The partner was invoked first, and it moved the session off its own list
 
