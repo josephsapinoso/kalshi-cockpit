@@ -222,9 +222,17 @@ with `#3` the only open issue. Nothing was Joe-gated at open and nothing is
 Joe-gated at close.
 
 **At close, live and demo both report
-`d1feb712c05a6e56f08283b9304bae9fea4489ae`, which is `main` and `origin/main`
-exactly.** CI green on that commit. Read `/api/health` yourself rather than
-trusting this line.
+`d1feb712c05a6e56f08283b9304bae9fea4489ae`**, verified by reading each
+endpoint, with CI green on that commit. **`main` is ahead of it and that is
+deliberate, not drift:** every commit after `d1feb71` in this session touches
+only `docs/` and `tasks/`, which never enter the image, so no redeploy was
+taken for them. Read `/api/health` yourself, then read the delta before
+concluding anything -- `git diff --stat d1feb71..origin/main` is the check, and
+a diff confined to `docs/` and `tasks/` means the deployed image is current.
+
+That distinction is worth making once rather than re-deriving: a session that
+treats any sha gap as a stale deploy will redeploy on every documentation
+commit, and one that treats every gap as harmless will miss a real one.
 
 **They reported a sha that did not exist for about twenty minutes first, and
 the correction is the part worth reading.** The first deploy was given
