@@ -69,6 +69,46 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-06 - A date-triggered falsifying check must be dated from the event's END, and from a looked-up calendar rather than a remembered one
+
+The partner set a check: read `parlay_positions` on **2026-09-09**, and if it
+is still 0 "after an NFL opening weekend", ADR 0078's `/hedge` route becomes a
+deletion candidate. It carried through two session entries unquestioned,
+including one written by the session that was about to act on it.
+
+**2026-09-09 is the Wednesday the season opens.** The 2026 opener moved off
+its usual Thursday, and Week 1 does not close until Monday 2026-09-14. A read
+on the 9th would have found 0 before a single NFL game had finished, and the
+rule says a 0 kills the feature -- so the check as written was a scheduled
+deletion of a working route on evidence that could not yet exist. It failed in
+the one direction a falsifying check must never fail: it made refutation
+arrive early and for free.
+
+Two separate errors, and the second is the one that generalises:
+
+- The date was set from the **start** of the window rather than the end. A
+  check whose predicate is "still 0 *after* X" has exactly one correct date:
+  the first day after X finishes.
+- The date was set from a **remembered** calendar. "Opening weekend" is a
+  phrase, not a date, and the league had moved the opener. The same session
+  that acted on it also mis-stated the current day of the week in its own
+  handoff prompt, from the same source: recall standing in for a lookup.
+
+**The pattern: a pre-committed check names an EVENT; the date is derived from
+that event's end, and the derivation is looked up at the moment the check is
+written, not recalled.** Write the event beside the date so a later reader can
+re-derive it -- "2026-09-15, the first morning after NFL Week 1 closes" can be
+checked in thirty seconds and "2026-09-09" cannot. Same family as the
+file:line citations in `CLAUDE.md`, and for the same stated reason: a future
+session can re-check a reference cheaply and cannot re-check an adjective.
+
+The cost of getting this wrong is asymmetric and that is why it earns a
+lesson. A check dated too late merely waits. A check dated too early **fires**,
+and a pre-registered rule is designed to be obeyed without re-litigation --
+which is exactly what stops anyone noticing the date was wrong.
+
+---
+
 ## 2026-09-06 - `assert str(CONSTANT) in text` passes just as happily on a typed digit, so it does not test that the text is sourced
 
 `backend/parlays.py` builds a disclosure sentence from named census constants,
@@ -2482,6 +2522,7 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-09-06 — in this file, above
+- A date-triggered falsifying check must be dated from the event's END, and from a looked-up calendar rather than a remembered one
 - `assert str(CONSTANT) in text` passes just as happily on a typed digit, so it does not test that the text is sourced
 
 ### 2026-09-05 — in this file, above
