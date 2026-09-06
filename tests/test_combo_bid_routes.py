@@ -603,15 +603,54 @@ class TestTheScreenSaysWhichSideOfTheTradeHeIsOn:
     def test_no_user_facing_surface_calls_a_buy_an_offer(self):
         """Pinned across the screen too, not just the wire.
 
-        The card control and the orders panel are where he was actually
-        reading. `parlay-bid-cancel/route.ts` is exempt: its "offer standing"
-        is a comment about a stale order, not text a person sees.
+        **Widened 2026-09-06, because its two named files were deleted.** It
+        used to open `RestingBid.tsx` and `RestingBids.tsx` by name and read
+        them; when those were removed on Joe's instruction the guard did not
+        report that the surfaces were gone, it raised `FileNotFoundError` --
+        a guard keyed to a filename dies with the file instead of adopting
+        what replaced it. It now sweeps every component, so a new screen
+        inherits the rule rather than needing to be added to a list.
+
+        `app/parlay-bid-cancel/route.ts` stays exempt for the original
+        reason and now by construction: its "offer standing" is a comment
+        about a stale order, not text a person sees, and it does not live
+        under `components/`.
+        """
+        root = ROOT / "frontend" / "src" / "components"
+        surfaces = sorted(root.glob("*.tsx"))
+        assert surfaces, "no components found -- the sweep would pass vacuously"
+        for path in surfaces:
+            source = path.read_text(encoding="utf-8")
+            assert "offer standing" not in source, path.name
+            assert "Nobody is offering" not in source, path.name
+
+    def test_the_offer_making_controls_stay_off_the_screen(self):
+        """Joe's instruction, 2026-09-06: no making or finding offers.
+
+        His words were *"I don't want to make offers or find offers in
+        shares"*, and *"get rid of this thing from the site"* against the
+        resting-bids panel. ADR 0084 built both, and its own docstring argued
+        the panel was "the other half of the control that places a bid" --
+        which is exactly why they had to leave together. A future session
+        reading that ADR will find a well-argued case for a screen the owner
+        has since refused, so the refusal is pinned here where the ADR cannot
+        outvote it.
+
+        **The backend is deliberately NOT pinned absent.** The route, the
+        `combo_orders` table and `bid_watch`'s kickoff auto-cancel still run:
+        a bid placed before this change may still be resting at the venue,
+        and the watcher is what withdraws it.
         """
         root = ROOT / "frontend" / "src" / "components"
         for name in ("RestingBid.tsx", "RestingBids.tsx"):
-            source = (root / name).read_text(encoding="utf-8")
-            assert "offer standing" not in source, name
-            assert "Nobody is offering" not in source, name
+            assert not (root / name).exists(), (
+                f"{name} is back. It was removed on Joe's instruction "
+                f"(2026-09-06); re-adding it needs his word, not an ADR's."
+            )
+
+        rendered = (root / "ParlayCards.tsx").read_text(encoding="utf-8")
+        assert "<RestingBid" not in rendered
+        assert "<RestingBids" not in rendered
 
     async def test_the_words_say_where_to_look_for_it(self, build):
         """Joe went looking under Positions and found nothing, reasonably.

@@ -14,8 +14,6 @@ import LeagueTag from "@/components/LeagueTag";
 import ParlayDifficulty from "@/components/ParlayDifficulty";
 import ManualTicket from "@/components/ManualTicket";
 import PriceOnKalshi from "@/components/PriceOnKalshi";
-import RestingBid from "@/components/RestingBid";
-import RestingBids from "@/components/RestingBids";
 import RefreshWhenPriced from "@/components/RefreshWhenPriced";
 import StaleOddsExit from "@/components/StaleOddsExit";
 import Term from "@/components/Term";
@@ -42,6 +40,18 @@ import TrustNote from "@/components/TrustNote";
  * - **`bg-accent-fill` appears exactly once per card** — the "Price on Kalshi"
  *   button in `PriceOnKalshi.tsx`, the screen's one money-adjacent action.
  *   Nothing informational wears red.
+ * - **There is no offer-making control here, by Joe's instruction (2026-09-06).**
+ *   ADR 0084's `RestingBid` ("buy this parlay at your price") and its
+ *   `RestingBids` panel were removed from this screen on his words: *"I don't
+ *   want to make offers or find offers in shares."* The only way to buy a
+ *   combination from the desk is now the taker path — `PriceOnKalshi` reads
+ *   the minted market's book and `ManualTicket` pays the ask. That is the
+ *   narrower product on purpose: when the book is empty there is nothing to
+ *   buy and the screen says so, rather than offering a bid that the record
+ *   says nobody has ever taken. The backend route, the `combo_orders` table
+ *   and `bid_watch`'s kickoff auto-cancel are deliberately LEFT RUNNING —
+ *   a bid placed before this change may still be resting, and deleting the
+ *   watcher would strand it.
  * - **A card that could not be built says why, in words**, in the same slot
  *   it would have rendered — an absent card and an unbuildable card are
  *   different facts.
@@ -66,13 +76,6 @@ export default function ParlayCards({
 }) {
   return (
     <div className="space-y-8">
-      {/*
-        ABOVE the cards, deliberately. A bid already standing in his name is
-        money at risk right now; a card is a thing he might buy. The panel
-        renders nothing at all when there are none, so it costs the cards no
-        space on the ordinary day.
-      */}
-      <RestingBids />
       <div className="grid gap-6 lg:grid-cols-3">
         {ladder.cards.map((card) => (
           <Card key={card.key} card={card} />
@@ -226,7 +229,6 @@ function Card({ card }: { card: ParlayCardData }) {
               </span>
             </summary>
             <PriceOnKalshi card={card} />
-            <RestingBid card={card} />
           </details>
           <LegBuys card={card} />
         </>
