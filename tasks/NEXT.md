@@ -203,9 +203,14 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-05 (latest) — #24, Lane A2, the money-arm predicate, the agent wire fixture and Joe's four answers all built and deployed; the parlay census is registered with one live arm; the inspector now blocks work at 99.3%
+## 2026-09-06 (latest) — the parlay census is TAKEN and ADR 0085 is REFUTED at the moment Joe buys; #24, Lane A2, the money-arm predicate, the agent wire fixture and Joe's four answers are all deployed; the inspector blocks work at 99.3%
 
-**STATE, verified at close:** `main` = `c2976ec`, pushed. **CI green**
+**STATE, verified at close:** `main` = `c546cb7`, pushed, CI green. The
+census commits sit above the deployed code and are **docs, an analyzer and
+tests only** — nothing after `c2976ec` changes what runs, so live and demo are
+correctly still on `c2976ec` and no deploy is owed.
+
+**Earlier in the same session:** `main` was `c2976ec`, pushed. **CI green**
 (run on that sha; earlier in the day, run 34001824759 on `aa25bbf`; `Tests + warehouse`, `Secret scan`, `Frontend` all
 success). **Live and demo are both `c2976ec`** — demo run 34011211303, live
 run 34011294986, with **schema v34 verified on both volumes by direct read**
@@ -293,7 +298,51 @@ mutations, all observed red.
 He was asked four in one line and answered in one line. Three are built and
 deployed at `c2976ec`; A is registered and its one live arm is not yet run.
 
-**A — the parlay census. Registered, and the question he actually asked
+**A — TAKEN 2026-09-06, and it REFUTED a belief this repo ships on three
+screens.** `docs/measurements/2026-09-05-parlay-census-result.md`; instrument
+`scripts/measure_parlay_census.py` committed at `950ad72` **before** the pull;
+extraction gitignored under Joe's fills-data ruling.
+
+```
+H1 (Arm D)   n = 52   k = 51   p_taker = 0.9808
+             exact interval [0.8974, 0.9995]   critical (18, 34) as registered
+             VERDICT: ADR 0085 REFUTED ON THIS POPULATION
+```
+
+**51 of Joe's 52 combination positions were entered as TAKER fills.** No
+downgrade fired: 0% unreadable, largest C-day 15.4%, `G_eff` 10.24 against a
+floor of 10 (clears by 0.24 — attack this first if revisited), no
+leave-one-day-out crossing, strict definition on the same side. Torn-snapshot
+precondition passed exactly.
+
+**Rule 1 caught a bug in the checker before it caught anything about the
+venue.** The first run printed UNRESOLVED on this same data: `arm_d`
+classified by parsing its own verdict sentence, and "ADR 0085 REFUTED ON THIS
+POPULATION" ends in "POPULATION". It bit **only** the refute branch, so no
+test that failed to produce a refutation could see it. Fixed, pinned, re-run
+on the **same** snapshot — the pull is the look.
+
+The three named checks then cleared the venue: `is_taker` discriminates in
+both populations (combos 52/1, singles 7/2, no NULLs); **the one tool-placed
+fill is the single MAKER in the population**, exactly as Amendment 1 predicted
+when it decided blind to keep them in the denominator; every fill in both
+populations is `source = 'venue_hand'`.
+
+**What is refuted is narrow, and the result file says so at length.** The
+2026-08-30 census read the `/markets` LIST summary (`yes_ask 0.0000`,
+`no_bid 1.0000` → derived ask `$0.00`); `lookup_combo` reads the ORDERBOOK.
+Different instruments — the registration's C4 item, resolved by code-reading.
+And the population is **self-selected structurally**: Joe only has a fill where
+a fill was possible, so conditioning on entry succeeding and then measuring how
+often entry succeeded is not a measure of buyability at large. The claim is
+about **the moment he buys**, not about the order book. §12.7 named that before
+the run.
+
+**The money arms carry no verdict and may never be given one** (§8): $60.13
+staked, $3.74 fees, 2 of 51 resolved winners, net −$59.83 (bracketed to
+−$55.49 on the one unresolved row). A bank statement, not a finding.
+
+**A — the parlay census. Registered AND TAKEN. The question he actually asked
 cannot be answered at this `n`.**
 `docs/measurements/2026-09-05-parlay-census-registration.md`. The
 pre-registrar split it into arms and killed the headline before any per-row
@@ -489,6 +538,22 @@ first audit scoped its grep to `backend/` and `scripts/`, which is how a
 fixture running before every test read as having no caller.**
 
 ### Still open, in order
+
+0. **THE CENSUS RESULT NEEDS A PRODUCT DECISION FROM JOE, and it is the only
+   item that changes a live screen.** Three surfaces tell him he probably
+   cannot buy a combination — the parlay card note, the nightly 20:00Z Discord
+   push, and `NOTES["unquoted"]` built from `COMBO_CENSUS_*` in
+   `backend/parlays.py:112-116`. **He bought in 51 times out of 52.** The copy
+   is wrong at the moment he is actually buying, and right about the order book
+   at large, and those are different sentences.
+
+   Owed: an **ADR 0085 amendment** recording both halves, then whatever Joe
+   decides the card should say. **Do not write the copy before he chooses it** —
+   ADR 0071 §2.2 makes price transparency the job, and a sentence that
+   overcorrects to "you can buy this" would be the same error in the other
+   direction, on the surface that spends his money. The previous version of
+   that note said exactly that and was refuted; `tests/test_parlays_api.py`
+   pins "you can buy in" ABSENT, so changing it is a deliberate test edit.
 
 1. ~~**Lane A2 — the screen for the staked figure.**~~ **Done and deployed
    2026-09-05 (`39e912b`, live + demo).** Three defects fixed in
