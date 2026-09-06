@@ -69,6 +69,46 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-06 - A scripted edit meant to change a few bytes rewrites every line ending in the file, and a normal diff cannot show it
+
+A three-line Python helper replaced one string in `backend/api/routes.py`:
+`read_text()`, `.replace(old, new)`, `write_text()`. It changed the two bytes
+it was asked to. It also silently rewrote **all 3,924 line endings in the file
+from LF to CRLF**, because Python's text mode is symmetric: `read_text`
+translates `\r\n` to `\n` on the way in, and `write_text` translates `\n` back
+to the platform's ending on the way out. On Windows that is `\r\n` for every
+line, whether or not the line was touched.
+
+**The corruption is invisible where you would look for it.** `.gitattributes`
+here is `* text=auto`, so git normalises on staging and `git diff --stat`
+reported the honest 31 changed lines with no hint that 3,893 others had been
+rewritten on disk. The only signal was a one-line warning git prints and a
+session scrolls past. What catches it is a tool that reads bytes: `file` names
+the terminators outright, and a `diff` against a copy taken before the edit is
+exact.
+
+This matters beyond tidiness in this repo: a CRLF that reaches the Linux
+container makes `#!/usr/bin/bash\r` fail with "no such file or directory"
+naming a file that plainly exists — the reason `.gitattributes` opens with a
+comment about it.
+
+**The pattern: a scripted edit's blast radius is the whole file, not the
+region you matched.** Any transform that reads a file into a string and writes
+the string back re-encodes everything — line endings, and equally a trailing
+newline, a BOM, or an encoding guess. Do byte-level work for byte-level
+intent: `read_bytes()` / `write_bytes()` with `bytes` patterns, which cannot
+translate anything it was not asked to. And **read the target's endings before
+writing to it** rather than assuming the repo is uniform — `tasks/lessons.md`
+is CRLF in this working tree while `tasks/NEXT.md` is LF, so a helper that
+"works" on one silently rewrites the other.
+
+The same asymmetry is why this is worth a lesson rather than a note: the edit
+that introduces it is the mutation step of *verifying a guard*, which is
+otherwise the most careful thing a session does. Take a copy first, restore
+from the copy rather than re-editing, and `diff` against it.
+
+---
+
 ## 2026-09-06 - A date-triggered falsifying check must be dated from the event's END, and from a looked-up calendar rather than a remembered one
 
 The partner set a check: read `parlay_positions` on **2026-09-09**, and if it
@@ -2522,6 +2562,7 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-09-06 — in this file, above
+- A scripted edit meant to change a few bytes rewrites every line ending in the file, and a normal diff cannot show it
 - A date-triggered falsifying check must be dated from the event's END, and from a looked-up calendar rather than a remembered one
 - `assert str(CONSTANT) in text` passes just as happily on a typed digit, so it does not test that the text is sourced
 

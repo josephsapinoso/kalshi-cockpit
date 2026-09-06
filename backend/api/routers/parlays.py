@@ -31,7 +31,13 @@ from ...core.suppression import SuppressionConfig
 from ...core.teaser import find_wong_candidates
 from ...core.trust import TrustThresholds
 from ...list_filters import MAX_WITHIN_HOURS, FilterRefused, parse_list_filter
-from ...parlays import LookupRefused, build_ladder_payload, price_card_on_kalshi
+from ...parlays import (
+    COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID,
+    COMBO_EXIT_CENSUS_BOOKS_READ,
+    LookupRefused,
+    build_ladder_payload,
+    price_card_on_kalshi,
+)
 from ...store import db
 from ...store.combo_orders import (
     TERMINAL_STATUSES as TERMINAL_COMBO_STATUSES,
@@ -272,14 +278,23 @@ def register(
         says which shard, how much is on it, and where to fix it.
         """
         if not request.combo_acknowledged:
+            # The census numbers are SOURCED from `parlays.COMBO_EXIT_CENSUS_*`
+            # rather than typed. They were the literal digits "40 of 40" until
+            # 2026-09-06 -- the same shape that kept a refuted census sentence
+            # green for eleven days -- and the exit claim they carry is
+            # unchanged, because the 2026-09-06 parlay census measured ENTRY.
+            # Pinned by `test_no_census_number_in_the_bid_refusal_is_typed`,
+            # which reads this source rather than the rendered string.
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "a combination is enter-only: every combination book this "
-                    "repo has read had no YES bid on the other side, 40 of 40, "
-                    "so the only exit is the outcome. The fee model is "
-                    "unverified (ADR 0046). Send `combo_acknowledged` only if "
-                    "that is understood."
+                    f"a combination is enter-only: every combination book this "
+                    f"repo has read had no YES bid on the other side, "
+                    f"{COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID} of "
+                    f"{COMBO_EXIT_CENSUS_BOOKS_READ}, "
+                    f"so the only exit is the outcome. The fee model is "
+                    f"unverified (ADR 0046). Send `combo_acknowledged` only if "
+                    f"that is understood."
                 ),
             )
         try:

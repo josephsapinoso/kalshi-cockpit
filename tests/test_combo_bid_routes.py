@@ -23,7 +23,9 @@ which is the shape the live account returned that day.
 
 from __future__ import annotations
 
+import ast
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -232,8 +234,79 @@ class TestTheDoorIsGuarded:
             _bid(await _legs(app), combo_acknowledged=False), HEADERS,
         )
         assert response.status_code == 422
-        assert "enter-only" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert "enter-only" in detail
+        # The exit census, in its own digits -- asserted against the constants
+        # and never against the literals, for the reason
+        # `backend/parlays.py`'s census block records: a test that pins the
+        # literal keeps a refuted sentence green.
+        #
+        # **The 2026-09-06 parlay census does not touch this claim.** It
+        # refuted the ENTRY half elsewhere (51 of 52 combination positions
+        # were taker fills) and measured nothing about the way out. No
+        # combination book this repo has read has carried a resting YES bid,
+        # so the refusal stays exactly as strong as it is; ADR 0085
+        # Amendment 1 §A1.4 is what forbids softening it.
+        assert str(parlays.COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID) in detail
+        assert str(parlays.COMBO_EXIT_CENSUS_BOOKS_READ) in detail
+        assert "no YES bid" in detail
         assert api.created == [], "nothing may reach the venue"
+
+    def test_no_census_number_in_the_bid_refusal_is_typed_rather_than_sourced(
+        self,
+    ):
+        """The refusal's digits come from the constants, or this is theatre.
+
+        The assertions above read `str(COMBO_EXIT_CENSUS_BOOKS_READ) in
+        detail`, which passes just as happily on a **typed** "40" as on a
+        sourced one -- and a typed "40 of 40" is exactly how the refuted entry
+        sentence survived a green suite for eleven days. This reads the source
+        of the f-string instead and refuses any bare integer in it.
+
+        Follows `tests/test_parlays_api.py::
+        test_no_census_number_in_the_note_is_typed_rather_than_sourced`.
+
+        **The one carve-out is an ADR citation.** "(ADR 0046)" is a permanent
+        document identifier, not a measurement, and it cannot go stale the
+        way a census count can -- so it is stripped before the digit check
+        rather than allowed to disable it. Only `status_code=422` is excluded
+        structurally: the check reads the `detail` expression alone.
+
+        The carve-out matches a section number too ("ADR 0012 §5"), which
+        this string does not carry and its sibling in
+        `tests/test_manual_orders.py` does. Kept identical on purpose: a
+        half-stripped citation leaves an orphan digit, which reads as a typed
+        census number and would force a choice between deleting the citation
+        and turning the guard off.
+
+        Mutation observed red: replace `{COMBO_EXIT_CENSUS_BOOKS_READ}` with a
+        literal `40` in `backend/api/routers/parlays.py`.
+        """
+        source = (
+            ROOT / "backend" / "api" / "routers" / "parlays.py"
+        ).read_text(encoding="utf-8")
+        route = next(
+            node
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "parlay_bid"
+        )
+        detail = next(
+            kw.value
+            for inner in ast.walk(route)
+            if isinstance(inner, ast.Raise) and isinstance(inner.exc, ast.Call)
+            for kw in inner.exc.keywords
+            if kw.arg == "detail"
+            and "enter-only" in ast.unparse(kw.value)
+        )
+        rendered = ast.unparse(detail)
+        # An ADR citation, section number and all -- see the docstring.
+        stripped = re.sub(r"ADR \d+(?:\s*§\s*[\d.]+)?", "ADR", rendered)
+        digits = [ch for ch in stripped if ch.isdigit()]
+        assert not digits, f"a census number is typed in: {rendered}"
+        names = {n.id for n in ast.walk(detail) if isinstance(n, ast.Name)}
+        assert "COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID" in names
+        assert "COMBO_EXIT_CENSUS_BOOKS_READ" in names
 
 
 class TestTheShardIsWhatPaysForIt:

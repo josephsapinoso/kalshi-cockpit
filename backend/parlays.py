@@ -130,6 +130,37 @@ PARLAY_CENSUS_DATE = "2026-09-06"
 PARLAY_CENSUS_POSITIONS = 52
 PARLAY_CENSUS_TAKER_FILLS = 51
 
+#: The EXIT census -- the third population, and the one nothing has ever
+#: falsified. `COMBO_CENSUS_*` reads the list summary, `PARLAY_CENSUS_*` reads
+#: this desk's own fills; these read the **order book itself**, on every
+#: combination book this repo has ever pulled, and ask whether there was a
+#: resting YES bid to sell into.
+#:
+#: 40 books over three runs on two dates -- 20 rows in
+#: `docs/measurements/2026-08-09-combo-e2-book-empty.json`, 9 in
+#: `-combo-e3-list-no-bid.json`, and 11 in
+#: `2026-08-18-combo-book-presence-inseason.json` -- and `yes_dollars` is
+#: empty on all 40 (ADR 0012 s5, CLAUDE.md's combo row).
+#:
+#: **These are constants for the same reason `COMBO_CENSUS_*` are, and the
+#: reason is not hypothetical here either.** The digits "40 of 40" were typed
+#: into `/api/manual/market/{ticker}`'s combo note and into
+#: `/api/parlays/bid`'s 422 -- the exact shape that kept the refuted entry
+#: sentence green for eleven days. The claim they carry is still true; what
+#: was wrong is that a screen could outlive the measurement without CI
+#: noticing. The guards that pin those two sentences to these names read the
+#: producer with `ast`, because `str(40) in text` cannot tell a sourced digit
+#: from a typed one.
+#:
+#: `..._NO_YES_BID` is derived rather than typed so it cannot drift from the
+#: two facts it summarises: the day one book is read with a bid resting on the
+#: YES side, the sentence moves on its own.
+COMBO_EXIT_CENSUS_BOOKS_READ = 40
+COMBO_EXIT_CENSUS_BOOKS_WITH_YES_BID = 0
+COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID = (
+    COMBO_EXIT_CENSUS_BOOKS_READ - COMBO_EXIT_CENSUS_BOOKS_WITH_YES_BID
+)
+
 NOTES: dict[str, str] = {
     "chance": (
         "Chance every leg hits, by the books' consensus — not an edge. A "
