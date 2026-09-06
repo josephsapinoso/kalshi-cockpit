@@ -421,12 +421,63 @@ class TestHonesty:
         assert "unquoted" in notes["unquoted"]
         assert str(parlays.COMBO_CENSUS_OPEN) in notes["unquoted"]
         assert parlays.COMBO_CENSUS_DATE in notes["unquoted"]
-        # The refuted half, pinned absent: the census found the ENTRY side
-        # missing too, so the note may never go back to promising a buy-in.
+        # The SECOND population, ADR 0085 Amendment 1. The resting-book census
+        # was upheld; the "you probably cannot get in" reading of it was
+        # refuted at the moment of entry, 51 of 52 taker fills. Sourced from
+        # the constants for the same reason as the block above.
+        assert str(parlays.PARLAY_CENSUS_TAKER_FILLS) in notes["unquoted"]
+        assert str(parlays.PARLAY_CENSUS_POSITIONS) in notes["unquoted"]
+        assert parlays.PARLAY_CENSUS_DATE in notes["unquoted"]
+        # Both populations are NAMED, not merely counted. A note carrying two
+        # censuses with no words between them is a number salad, and the
+        # reader cannot tell which one describes the bet he is about to place.
+        assert "readable ask" in notes["unquoted"]
+        assert "hitting an offer" in notes["unquoted"]
+        # The exit half survives the amendment untouched: no combination book
+        # this repo has read has ever carried a YES bid, and the census
+        # measured ENTRY. Dropping this sentence would sell a bet with no way
+        # out as a bet with one.
+        assert "hold to settlement" in notes["unquoted"]
+        # The refuted half, pinned absent. The note reports a measured rate
+        # and may never go back to promising a buy-in -- Amendment 1 §A1.4
+        # keeps this forbidden precisely because the entry finding makes the
+        # overcorrection tempting.
         assert "you can buy in" not in notes["unquoted"]
         assert "unverified" in notes["fee"]
         assert "not an edge" in notes["chance"]
         assert "FAIR value" in notes["fair_value"]
+
+    async def test_no_census_number_in_the_note_is_typed_rather_than_sourced(
+        self,
+    ):
+        """The note's digits come from the constants, or the guard is theatre.
+
+        The assertions above read `str(COMBO_CENSUS_OPEN) in note`, which
+        passes just as happily on a **typed** "61" as on a sourced one -- and
+        a typed one is exactly how the refuted "40 of 40" survived a green
+        suite for eleven days. This reads the source of the f-string instead
+        and refuses any bare integer in it.
+
+        Mutation observed red: replace `{PARLAY_CENSUS_TAKER_FILLS}` with a
+        literal `51` in `backend/parlays.py`.
+        """
+        import ast
+
+        source = Path(parlays.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        notes = next(
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "NOTES"
+        )
+        index = notes.keys.index(
+            next(k for k in notes.keys if getattr(k, "value", None) == "unquoted")
+        )
+        rendered = ast.unparse(notes.values[index])
+        digits = [ch for ch in rendered if ch.isdigit()]
+        assert not digits, f"a census number is typed into the note: {rendered}"
 
     async def test_the_headline_carries_its_method_band(self, build):
         app = build(lambda conn: _fresh_slate(conn, n=3))

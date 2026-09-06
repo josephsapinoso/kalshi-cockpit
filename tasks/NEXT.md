@@ -203,7 +203,141 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-06 (latest) — the parlay census is TAKEN and ADR 0085 is REFUTED at the moment Joe buys; #24, Lane A2, the money-arm predicate, the agent wire fixture and Joe's four answers are all deployed; the inspector blocks work at 99.3%
+## 2026-09-06 (second entry, latest) — Joe answered the four open questions; the combo note now carries BOTH censuses, ADR 0085 has Amendment 1, PRs #1/#2 are closed, and the shard-3 test and the key rotation are DROPPED on his word
+
+**STATE, verified at close:** see the commit carrying this entry. This is the
+first entry written after the parlay census, and it spends it: the census
+refuted a sentence on three live screens, Joe chose what replaces it, and the
+copy shipped in the same session as the decision.
+
+### Joe's four answers, 2026-09-06
+
+He was asked four questions in one artifact and answered all four.
+
+    Q0  the combo copy, now that 51 of 52 fills were takers  ->  BOTH HALVES
+    QA  close PRs #1 and #2                                  ->  CLOSE BOTH
+    QB  shard-3 test / shard-0 move                          ->  DROP
+    QC  Odds API key rotation                                ->  DROP
+
+**Q0 was the only one that changes a live screen**, and it was framed with the
+overcorrection named as an option so that choosing against it was a decision
+rather than an omission. He did not take it.
+
+### The combo note carries two populations now, and that is the whole point
+
+`NOTES["unquoted"]` said *"usually you can neither buy in at a quoted price nor
+be bought out"*. Half of that was refuted. It now reads, in this order:
+
+1. **the book at rest** — 0 of 61 open combinations with a readable ask, 0 of
+   the 6 deepest books with anything resting, 2026-08-30. Unchanged, upheld.
+2. **the moment of entry** — 51 of 52 of this desk's combination positions were
+   entered by hitting an offer, 2026-09-06. New, and the refutation.
+3. **the exit** — no combination book read here has ever carried a YES bid, so
+   plan to hold to settlement or hedge a leg. Unchanged, never tested by the
+   census, and the reason the note is not simply deleted.
+
+**One edit moved three surfaces**, because all three render the server's
+sentence verbatim: the parlay card footer (`ParlayCards.tsx:87-91`), the
+"Price on Kalshi" lookup (`PriceOnKalshi.tsx:195-197`) and the 20:00Z Discord
+push footer (`discord.py:414-422`). The footer is 850 characters against
+Discord's 2048 limit, now asserted rather than eyeballed — truncation eats the
+END, which is where the exit warning sits.
+
+**It says "this desk's own combination fills", not "your positions".** The same
+string is served on demo, which holds no fills.
+
+**"You can buy in" is still pinned ABSENT**, and Amendment 1 §A1.4 says why in
+the ADR rather than only in the test: the entry finding makes the
+overcorrection tempting, and that exact sentence is the one this note already
+had to retract once.
+
+### ADR 0085 Amendment 1 — and one struck bullet in the body
+
+`docs/adr/0085-*.md` gains `## Amendment 1 (2026-09-06)`: what the census
+refuted (entry, `n = 52`, `k = 51`, interval [0.8974, 0.9995], registered bound
+`k >= 34`), what it did not (the resting book, every exit claim, ADR 0084's buy
+path), why both are true (list summary vs orderbook — two instruments), and
+Joe's decision with the three rules that replace the struck one.
+
+**The body was edited too, not just appended to.** *"It must not imply a fill
+is likely"* is struck through in place, in *What the card must not do*, with a
+pointer to §A1.4. An amendment that leaves the refuted rule readable as current
+rule is how a reader two months from now re-derives the wrong copy.
+
+### A guard written to catch a hardcoded number could not see a hardcoded number
+
+The existing pin read `assert str(parlays.COMBO_CENSUS_OPEN) in notes[...]`,
+and its comment explains that it exists because the literal `"40 of 40"` once
+kept a refuted sentence green. **It does not do that.** `str(61) in note` is
+identical whether the note interpolated the constant or someone typed `61`.
+
+Verified by mutation: replacing `{PARLAY_CENSUS_TAKER_FILLS} of
+{PARLAY_CENSUS_POSITIONS}` with a literal `51 of 52` left that test **green**.
+`test_no_census_number_in_the_note_is_typed_rather_than_sourced` parses the
+module with `ast`, finds the f-string, and refuses any bare digit in it —
+reading the producer, because the difference exists only before interpolation.
+Lesson written.
+
+**Four mutations, all observed red**, each restored before the next: delete the
+entry sentence; reintroduce "you can buy in"; drop the exit warning; hardcode
+the digits.
+
+### PRs #1 and #2 closed; zero open
+
+Both were opened 2026-08-15 from the jcabiles account and both were genuinely
+superseded, checked rather than assumed: `frontend/package.json` on `main`
+already carries `"next": "16.3.1"`, which was #2's entire change, and #1's
+task-file corrections were overtaken by the 2026-08-17 archive split. Each
+closed with a comment naming what superseded it.
+
+### QB and QC are DROPPED, and dropped is not deferred
+
+- **The shard-3 test and the shard-0 move are dropped.** They had sat on "Joe's
+  word only, do not nudge" since 2026-08-20. `user_not_found` on shard 3 is no
+  longer an open item and does not belong in a future Open list; baseball hand
+  bets stay outside the tool. **Do not resurface this** — it was carried
+  through eleven entries and answered once.
+- **The Odds API key rotation is dropped**, having been "later" on 2026-09-03.
+  The exposure is accepted as immaterial: local transcript only, never
+  committed, `.env` gitignored. **The standing guard for sessions is
+  unaffected and stays**: establish config from `.env.example` and
+  `fly.*.toml`, never by reading `.env`.
+
+Both are recorded as *decisions* rather than deleted, so a session that finds
+the old lines in the archive can see they were answered.
+
+### Still open, in order
+
+0. ~~**THE CENSUS RESULT NEEDS A PRODUCT DECISION FROM JOE.**~~ **Done
+   2026-09-06.** Answered (both halves), amended (ADR 0085 Amendment 1), built
+   and pinned. See above.
+1. **`backend/api/routes.py:3039` and `backend/api/routers/parlays.py:277-283`
+   still say "40 of 40"** — hardcoded digits from the 2026-08-09/18 YES-bid
+   runs, on `/api/manual/quote`'s combo note and the `/api/parlays/bid` 422.
+   Both are **exit** claims, so both are still true and neither is urgent; what
+   is wrong is that they are typed rather than sourced, which is the exact
+   shape `parlays.py` carries a comment block about. A constants pass, its own
+   small lane.
+2. **`scripts/inspect_live_db.py` is at 99.3%** — 1,859 bytes free, and it
+   blocks work. Needs a domain split with its own brief, not another trim.
+3. **`parlay_positions` on 2026-09-09 — the falsifying check the partner set.**
+   Unchanged. If it is still 0 after an NFL opening weekend, ADR 0078's route
+   is a candidate for deletion.
+4. **Three ADR 0107 refusals that must not be upgraded by a later reader** —
+   the unit of `market_exposure_dollars`, the NO-side sign convention, "before
+   fees" as a label. A trigger on Joe holding a position, not a queue item.
+5. **The scout Anthropic fixture (ADR 0106 §5.2)** — narrowed, still open. The
+   report shape was captured 2026-09-06; the refusal shape is still
+   SDK-derived, and a real refusal costs a real billed call.
+6. **`.claude/worktrees/wf_e0ee5ede-e97-1`** — an empty husk a live process
+   holds open. Delete when that process is gone.
+
+**Nothing here is Joe-gated any more.** The five 2026-09-04 questions are all
+answered or dropped, and the decision map is exhausted at 32 of 32.
+
+---
+
+## 2026-09-06 — the parlay census is TAKEN and ADR 0085 is REFUTED at the moment Joe buys; #24, Lane A2, the money-arm predicate, the agent wire fixture and Joe's four answers are all deployed; the inspector blocks work at 99.3%
 
 **STATE, verified at close:** `main` = `c546cb7`, pushed, CI green. The
 census commits sit above the deployed code and are **docs, an analyzer and
@@ -539,8 +673,12 @@ fixture running before every test read as having no caller.**
 
 ### Still open, in order
 
-0. **THE CENSUS RESULT NEEDS A PRODUCT DECISION FROM JOE, and it is the only
-   item that changes a live screen.** Three surfaces tell him he probably
+0. ~~**THE CENSUS RESULT NEEDS A PRODUCT DECISION FROM JOE, and it is the only
+   item that changes a live screen.**~~ **ANSWERED AND BUILT 2026-09-06 — see
+   the entry above.** Joe chose *both halves*; the note now carries the
+   resting-book census, the measured entry rate and the unchanged exit
+   warning, and ADR 0085 has Amendment 1. The rest of this item is kept as the
+   brief that was acted on. Three surfaces tell him he probably
    cannot buy a combination — the parlay card note, the nightly 20:00Z Discord
    push, and `NOTES["unquoted"]` built from `COMBO_CENSUS_*` in
    `backend/parlays.py:112-116`. **He bought in 51 times out of 52.** The copy
@@ -633,11 +771,13 @@ fixture running before every test read as having no caller.**
    a football product and NFL opens this weekend. If it is still 0 after an
    NFL opening weekend, the transcribe-it-yourself entry design is refuted —
    ADR 0078's route becomes a candidate for deletion, not decoration.
-6. **Joe-gated, untouched:** the five questions A–E from 2026-09-04. **D and
-   E gate real items and cost him nothing** — D kills or keeps #11's estimate
-   log screen; E is the "which screen" path field on the desk heartbeat, the
-   instrument for the successor question the presence result licenses. Also
-   the 2026-09-03 key rotation.
+6. ~~**Joe-gated, untouched:** the five questions A–E from 2026-09-04.~~
+   **ALL ANSWERED — nothing is Joe-gated as of 2026-09-06.** A, B, C and D
+   landed 2026-09-05 (see this entry). The two that were still open were
+   answered 2026-09-06 and both were **DROPPED**: the shard-3 test and the
+   shard-0 move, and the Odds API key rotation. Dropped, not deferred — they
+   do not return to a future Open list. The standing guard against reading
+   `.env` is unaffected and stays.
 7. **`.claude/worktrees/wf_e0ee5ede-e97-1`** is an empty husk a live process
    holds open. Delete when that process is gone. The other three were removed
    2026-09-05; the junction hazard was checked (`st_file_attributes & 0x400`)

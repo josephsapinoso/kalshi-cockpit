@@ -862,6 +862,11 @@ class TestTheEmbedRepeatsTheDeskRatherThanRecomputingIt:
         assert NOTES["unquoted"] in embed["footer"]["text"]
         assert NOTES["fee"] in embed["footer"]["text"]
         assert NOTES["chance"] in embed["description"]
+        # Discord truncates a footer past 2048 characters, and it truncates
+        # the END -- where the exit warning sits. ADR 0085 Amendment 1 grew
+        # `unquoted` by a whole sentence, so the headroom stops being obvious
+        # by eye. 850 at the time of writing.
+        assert len(embed["footer"]["text"]) <= 2048, len(embed["footer"]["text"])
 
     async def test_every_number_on_it_is_a_string_the_payload_carried(self):
         """The no-arithmetic rule. Mutation observed red: render the joint as

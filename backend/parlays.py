@@ -115,6 +115,21 @@ COMBO_CENSUS_WITH_ASK = 0
 COMBO_CENSUS_BOOKS_READ = 6
 COMBO_CENSUS_BOOKS_NON_EMPTY = 0
 
+#: The parlay census -- the SECOND population, and the reason this note has
+#: two halves (ADR 0085 Amendment 1,
+#: `docs/measurements/2026-09-05-parlay-census-result.md`).
+#:
+#: `COMBO_CENSUS_*` above describes the order book **at rest**: read from the
+#: `/markets` list summary, which flattens an empty side to a boundary value.
+#: These describe **the moment a bet is entered**: every combination fill this
+#: desk has a record of, and 51 of 52 were takers -- an offer was there to hit.
+#: Both are true and they are not about the same population, so the note names
+#: both and the constants keep them apart. The single non-taker is the one
+#: tool-placed resting bid (ADR 0084).
+PARLAY_CENSUS_DATE = "2026-09-06"
+PARLAY_CENSUS_POSITIONS = 52
+PARLAY_CENSUS_TAKER_FILLS = 51
+
 NOTES: dict[str, str] = {
     "chance": (
         "Chance every leg hits, by the books' consensus — not an edge. A "
@@ -132,15 +147,33 @@ NOTES: dict[str, str] = {
     # resting price, most of the time -- because the census found the ENTRY
     # side missing too. The key is renamed with the sentence so a reader
     # grepping `enter_only` does not land on a note that says "unquoted".
+    #
+    # **Two populations since ADR 0085 Amendment 1 (2026-09-06), and the
+    # sentence carries both because neither one alone is honest.** "Neither
+    # buyable nor sellable" was refuted at the moment of entry: 51 of 52
+    # combination positions on this desk were entered as TAKER fills. It was
+    # upheld for the book at rest, which is what the `/markets` list summary
+    # reads. So the note reports the resting book, then the measured entry
+    # rate with its own date, then the exit -- the half nothing has ever
+    # falsified. It reports a RATE and never promises a fill: "you can buy in"
+    # is pinned absent in `tests/test_parlays_api.py`, deliberately, because
+    # that is the sentence this note already had to retract once.
+    #
+    # It also says "this desk's own combination fills" rather than "your
+    # positions": the same string is served on demo, which holds no fills.
     "unquoted": (
-        f"Kalshi combos are unquoted: on {COMBO_CENSUS_DATE}, "
+        f"Kalshi combos are unquoted at rest: on {COMBO_CENSUS_DATE}, "
         f"{COMBO_CENSUS_WITH_ASK} of the {COMBO_CENSUS_OPEN} open "
         f"combinations carried a readable ask, and "
         f"{COMBO_CENSUS_BOOKS_NON_EMPTY} of the "
         f"{COMBO_CENSUS_BOOKS_READ} deepest books had anything resting on "
-        f"either side. Usually you can neither buy in at a quoted price nor "
-        f"be bought out. A resting bid can still fill -- one combination has "
-        f"ever traded -- but plan to hold to settlement."
+        f"either side. Entry still happens: a {PARLAY_CENSUS_DATE} census of "
+        f"this desk's own combination fills found "
+        f"{PARLAY_CENSUS_TAKER_FILLS} of {PARLAY_CENSUS_POSITIONS} positions "
+        f"were entered by hitting an offer, not by resting a bid. Getting out "
+        f"is the half that has never been seen -- no combination book read "
+        f"here has carried a YES bid -- so plan to hold to settlement or to "
+        f"hedge a leg."
     ),
     "fee": (
         "Kalshi's combo fee model is unverified. Every combo fill ever "

@@ -69,6 +69,36 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-06 - `assert str(CONSTANT) in text` passes just as happily on a typed digit, so it does not test that the text is sourced
+
+`backend/parlays.py` builds a disclosure sentence from named census constants,
+and its guard read `assert str(parlays.COMBO_CENSUS_OPEN) in notes["unquoted"]`.
+The comment above it says why: an earlier version pinned the literal `"40 of
+40"`, the census refuted that count, and the test kept the refuted sentence
+green. Sourcing the assertion from the constant was the fix.
+
+**It does not do what it says.** `str(61) in note` is true whether the note
+interpolated `{COMBO_CENSUS_OPEN}` or someone typed `61` — the two produce
+identical bytes, and the assertion only ever sees the bytes. Verified by
+mutation: replacing `{PARLAY_CENSUS_TAKER_FILLS} of {PARLAY_CENSUS_POSITIONS}`
+with a literal `51 of 52` left that test **green**. The guard that was written
+to stop a hardcoded number cannot see a hardcoded number.
+
+The check that works reads the *source* rather than the output: parse the
+module, find the f-string, and assert it contains no bare digit at all. That
+distinguishes the two spellings because the difference exists only before
+interpolation.
+
+**The pattern: when a guard exists to constrain how a value was PRODUCED, it
+must read the producer.** Any assertion on the product sees only the value, and
+two productions that agree today are indistinguishable to it — which is exactly
+the day the guard is asked to earn its place. Same family as the several
+"asserted the mechanism, not the property" entries below, running the other
+way: here the property was asserted where only the mechanism could tell them
+apart.
+
+---
+
 ## 2026-09-05 - A stub that assigns over a property tests the assignment; the SDK's own parser is the only thing that runs the SDK's parsing
 
 Two test files stubbed an LLM response with `self.parsed_output = parsed` on a
@@ -2451,7 +2481,22 @@ have missed every lesson written in the last nine days. The titles below are
 the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
+### 2026-09-06 — in this file, above
+- `assert str(CONSTANT) in text` passes just as happily on a typed digit, so it does not test that the text is sourced
+
 ### 2026-09-05 — in this file, above
+- A stub that assigns over a property tests the assignment; the SDK's own parser is the only thing that runs the SDK's parsing
+- An error handler ordered after a call that raises is not an ordering, it is dead code with a comment explaining it
+- Audit each item of a list you were handed; "three of X" is a claim about all three
+- Reading the aggregates to scope a measurement is what disqualifies them from being its result
+- A `--` comment inside a CREATE TABLE column list breaks DROP COLUMN, and the failure names a table the change never touched
+- When a guard asserts the mechanism instead of the property, the fix that changes the mechanism looks like a regression
+- Run a new guard against the code before the fix; a green suite proves the test agrees with the fix, not that it would have caught the defect
+- Test at the level the defect lives; a substring test cannot tell a mention in a live branch from a mention in a dead one
+- A test that recompiles identical bytes once per case is a tax on every future run, and the fixture that fixes it is three lines
+- A guard that greps for a component name finds the comment explaining the component, and a prefix is a substring of every longer identifier
+- A link is a claim about its destination, and only the destination knows whether it can keep it
+- A deadness grep scoped to the source directories misses the callers that matter most, because the loudest ones live outside them
 - A clean merge is a statement about text; two lanes can each be right about a file and wrong about each other
 - A "has a caller" check is only as deep as its walk, and a one-level walk is satisfied by a referrer that is itself dead
 
