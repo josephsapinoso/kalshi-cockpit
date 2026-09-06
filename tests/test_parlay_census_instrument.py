@@ -144,3 +144,59 @@ class TestTheInstrumentCannotReachTheVenue:
         assert "immutable=1" not in source.replace(
             "never `immutable=1`", ""
         ).replace('"immutable=1" not in', "")
+
+
+class TestTheVerdictIsNotComparedByParsingItsOwnProse:
+    """The defect the first run found, pinned so it cannot come back.
+
+    `arm_d` compared `verdict.split()[-1]` against "REFUTED"/"UPHELD" to decide
+    whether a leave-one-day-out refit had crossed a boundary. The refute
+    sentence is *"ADR 0085 REFUTED ON THIS POPULATION"*, whose last token is
+    **"POPULATION"** — so the comparison was false for every refuting result,
+    both downgrades fired spuriously, and the printed verdict was UNRESOLVED
+    over a `k` far outside the band.
+
+    It bit only the refute branch: "ADR 0085 UPHELD" ends in "UPHELD" and
+    happened to compare correctly. So the bug was invisible to every test that
+    did not produce a refutation, and it was found by Rule 1's own instruction
+    to check the instrument before believing a large contradiction.
+
+    **Pattern, and the reason this test exists rather than a comment: a verdict
+    compared by parsing its own prose changes meaning when the prose is
+    reworded.** The classification is now a key, and the sentence is a
+    rendering of it.
+    """
+
+    def test_the_refute_sentence_does_not_end_in_its_own_classification(self):
+        """The trap itself, stated as a fact about the string. If a future
+        edit makes the sentence end in "REFUTED", this test still passes and
+        the code is still right — it is the *comparison* that is pinned below,
+        not the wording."""
+        assert "ADR 0085 REFUTED ON THIS POPULATION".split()[-1] == "POPULATION"
+
+    def test_the_code_classifies_by_key_rather_than_by_string_suffix(self):
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "scripts" / "measure_parlay_census.py"
+        ).read_text(encoding="utf-8")
+        code = "\n".join(
+            line for line in source.splitlines()
+            if not line.strip().startswith("#")
+        )
+        assert "verdict.split()" not in code, (
+            "the verdict is being compared by parsing its own sentence again"
+        )
+        assert "_classify(" in code
+
+    def test_a_lopsided_refutation_survives_leave_one_out(self):
+        """The shape of the real result: k far above the boundary, so dropping
+        any one day cannot reach it. Under the defect this returned
+        UNRESOLVED - CONCENTRATION."""
+        from measure_parlay_census import critical_values as cv
+
+        n, k = 52, 51
+        _, refuted_at = cv(n)
+        assert k >= refuted_at
+        # Drop the largest plausible single day (8 of 52, all taker) and the
+        # remainder must still refute.
+        assert (k - 8) >= cv(n - 8)[1]

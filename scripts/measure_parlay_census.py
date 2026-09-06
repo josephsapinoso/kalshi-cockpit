@@ -239,7 +239,13 @@ def arm_d(rows):
         "c_day_clusters": {d: len(v) for d, v in sorted(by_day.items())},
         "largest_cluster_share": (max(sizes) / n) if n and sizes else None,
         "g_eff": round(g_eff(sizes), 3) if sizes else None,
-        "tool_placed_positions": sum(
+        # **Not the registered tool-placed flag.** This counts a non-null
+        # `venue_order_id`, which the venue sets on Joe's app-placed orders
+        # too; the registered flag (Amendment 1, Correction 2) is the join to
+        # `combo_orders.kalshi_order_id`. Kept under an honest name because it
+        # is still worth printing, and renamed because the first run's result
+        # file had to disclose that a reader would take it for the flag.
+        "positions_with_any_venue_order_id": sum(
             1 for r in readable if r["n_fills_with_venue_order"]
         ),
         "source_split": dict(Counter(
@@ -252,13 +258,27 @@ def arm_d(rows):
         out["verdict"] = "REFUSED - COVERAGE"
         return out
 
-    upheld_at, refuted_at = out["critical_values"]
-    if upheld_at is not None and k <= upheld_at:
-        verdict = "ADR 0085 UPHELD"
-    elif refuted_at is not None and k >= refuted_at:
-        verdict = "ADR 0085 REFUTED ON THIS POPULATION"
-    else:
-        verdict = "UNRESOLVED"
+    # **A `key` separate from the sentence.** The first version of this
+    # compared `verdict.split()[-1]`, which is "POPULATION" for the refute
+    # string and therefore never equalled "REFUTED" -- so both downgrades below
+    # fired on every refuting result and printed UNRESOLVED over it. Found on
+    # the first run, by Rule 1's own instruction to check the instrument before
+    # believing a large contradiction. A verdict compared by parsing its own
+    # prose is a verdict that changes when the prose does.
+    def _classify(kk: int, nn: int) -> str:
+        up, ref = critical_values(nn)
+        if up is not None and kk <= up:
+            return "UPHELD"
+        if ref is not None and kk >= ref:
+            return "REFUTED"
+        return "UNRESOLVED"
+
+    key = _classify(k, n)
+    verdict = {
+        "UPHELD": "ADR 0085 UPHELD",
+        "REFUTED": "ADR 0085 REFUTED ON THIS POPULATION",
+        "UNRESOLVED": "UNRESOLVED",
+    }[key]
 
     # Downgrade 2, then 3. Each can only weaken.
     concentrated = (
@@ -266,28 +286,26 @@ def arm_d(rows):
         or (out["g_eff"] or 0) < MIN_G_EFF
     )
     loo_crosses = False
+    loo_detail = {}
     for day, members in by_day.items():
         kept = [r for r in readable if r not in members]
         if not kept:
             continue
         kk = sum(1 for r in kept if int(r["any_fill_taker"]) == 1)
-        nn = len(kept)
-        u2, r2 = critical_values(nn)
-        v = ("UPHELD" if (u2 is not None and kk <= u2)
-             else "REFUTED" if (r2 is not None and kk >= r2) else "UNRESOLVED")
-        if v != verdict.split()[-1] and verdict != "UNRESOLVED":
+        v = _classify(kk, len(kept))
+        loo_detail[day] = {"n": len(kept), "k": kk, "verdict": v}
+        if key != "UNRESOLVED" and v != key:
             loo_crosses = True
+    out["leave_one_day_out"] = loo_detail
     out["leave_one_day_out_crosses"] = loo_crosses
     out["concentrated"] = concentrated
-    if verdict != "UNRESOLVED" and (concentrated or loo_crosses):
+    if key != "UNRESOLVED" and (concentrated or loo_crosses):
         verdict = "UNRESOLVED - CONCENTRATION"
     # §5.3: the two definitions must agree on which side they land.
-    if verdict != "UNRESOLVED" and n:
-        u3, r3 = out["critical_values"]
-        strict_v = ("UPHELD" if (u3 is not None and k_strict <= u3)
-                    else "REFUTED" if (r3 is not None and k_strict >= r3)
-                    else "UNRESOLVED")
-        if strict_v != verdict.split()[-1]:
+    if key != "UNRESOLVED" and n:
+        strict_v = _classify(k_strict, n)
+        out["strict_definition_verdict"] = strict_v
+        if strict_v != key:
             verdict = "UNRESOLVED"
             out["mixed_definition_disagreement"] = True
     out["verdict"] = verdict
