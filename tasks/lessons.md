@@ -160,6 +160,83 @@ every value including the refusals. That one is load-bearing. The unguarded
 inline one, in the route that actually served the number, was the defect.
 Count guards, not spellings.
 
+## 2026-09-05 - Reading the aggregates to scope a measurement is what disqualifies them from being its result
+
+A question was worth registering, so before writing the registration I read
+the record to find out whether it could be answered at all: the row counts,
+the win/loss split, the money staked, the fee total, the status breakdown, the
+join coverage. All of it went into the brief, honestly labelled as already
+seen. The pre-registrar then had to demote **every one of those quantities to
+a transcription with no p-value**, because a threshold applied to a number the
+author already knows is not a threshold. The single finding I had flagged as
+most actionable was in that set and could no longer be tested at all.
+
+The scoping was not wrong to do -- without it the registration would have
+fixed a rule for a population that turned out not to exist. What was wrong was
+the *order*: I read the outcome-bearing columns in the same pass as the
+structural ones, when only the structural ones were needed to decide whether
+the question was answerable.
+
+**Pattern: split the pre-registration reconnaissance in two. What EXISTS --
+table names, column names, row counts, date ranges, join cardinality, null
+coverage -- is safe to read and is what tells you whether a question can be
+asked. What HAPPENED -- outcomes, rates, sums, splits by result -- is the
+measurement, and reading it to decide what to measure spends it.** If you need
+a quantity from the second group to choose a rule, that is a sign the rule
+should be chosen by someone who has not read it.
+
+The corollary is about handing work to a registrar: **everything you put in
+the brief, you have seen.** A brief is a disclosure, not a neutral summary. It
+is better to write "I have not looked at the result column" and be right than
+to paste a helpful table.
+
+## 2026-09-05 - A `--` comment inside a CREATE TABLE column list breaks DROP COLUMN, and the failure names a table the change never touched
+
+A new column arrived with its reasoning as a `--` comment between the other
+columns, inside the parentheses. SQLite reconstructs a table's stored SQL text
+when `ALTER TABLE ... DROP COLUMN` runs, and the comment survived into text
+that no longer parses. **Thirty-three migration wind-back steps went red**,
+including versions written years of commits before this change, with
+`sqlite3.OperationalError: error in table desk_attention after drop column:
+incomplete input`.
+
+**Pattern: prose about a column goes ABOVE the `CREATE TABLE`, never inside
+the parentheses, for any table a migration can drop a column from.** SQLite
+stores the literal CREATE text and re-parses it, so a comment is not
+decoration there -- it is data the engine has to survive. The tell that this
+is what happened is a failure list far wider than the change: a schema file is
+applied on every open, so one unparseable table breaks steps that have nothing
+to do with it.
+
+## 2026-09-05 - When a guard asserts the mechanism instead of the property, the fix that changes the mechanism looks like a regression
+
+Two guards went red for changes that did not violate what they were protecting.
+
+One asserted `"body: {}" in source` to mean *"no client-supplied clock reaches
+the backend"*. The empty body was how that was true, not the rule itself, so
+giving the route a body carrying an inert descriptive field broke the
+assertion while the actual property was untouched. The other pinned that a
+`priceAlreadyVisible` prop was passed bare, as a way of saying the flag was
+unconditional -- and the fix was to make it conditional.
+
+Both are the same shape as the copy lesson already in this file (*"copy that
+names a condition to wait for is falsified by fixing the condition"*), one
+level down: a test can name a condition too.
+
+**Pattern: write the assertion at the level of the property, not the
+implementation that currently satisfies it. "No field named like a timestamp
+appears" survives a body being added; "the body is empty" does not.** When a
+guard goes red for a change that plainly does not violate its docstring, the
+guard is the thing that was wrong -- fix it in the same commit and say so,
+rather than contorting the change to keep a proxy green.
+
+**And strip comments before searching, again.** The corrected version of the
+first guard immediately found `now_ms` and "timestamp" in the route's own
+docstring, which exists precisely to explain that neither value is forwarded.
+That is the second time in one day that a guard read the prose about the
+property instead of the property. Assume every literal you grep for appears in
+the sentence explaining it.
+
 ## 2026-09-05 - Run a new guard against the code before the fix; a green suite proves the test agrees with the fix, not that it would have caught the defect
 
 Thirteen tests were written for a screen defect and all thirteen passed. That

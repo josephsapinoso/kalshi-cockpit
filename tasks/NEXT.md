@@ -203,12 +203,14 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-05 (latest) — #24, Lane A2, the money-arm predicate and the agent wire fixture all built and deployed; the parlay question is scoped and blocked; two briefs were partly wrong and the corrections are the substance
+## 2026-09-05 (latest) — #24, Lane A2, the money-arm predicate, the agent wire fixture and Joe's four answers all built and deployed; the parlay census is registered with one live arm; the inspector now blocks work at 99.3%
 
-**STATE, verified at close:** `main` = `aa25bbf`, pushed. **CI green**
-(run 34001824759; `Tests + warehouse`, `Secret scan`, `Frontend` all
-success). **Live and demo are both `aa25bbf`** — demo run 34002186262, live
-run 34002260298, both `/api/health` ok with the sha matching and the live
+**STATE, verified at close:** `main` = `c2976ec`, pushed. **CI green**
+(run on that sha; earlier in the day, run 34001824759 on `aa25bbf`; `Tests + warehouse`, `Secret scan`, `Frontend` all
+success). **Live and demo are both `c2976ec`** — demo run 34011211303, live
+run 34011294986, with **schema v34 verified on both volumes by direct read**
+(`desk_attention` carrying `path`; live holds 1,041 stamps, 0 with a path yet,
+which is the honest state seconds after a deploy), both `/api/health` ok with the sha matching and the live
 recorder 38s fresh; `GET /api/estimates/stop` re-read on demo after its
 rewrite and still serving the tri-state (`"stopped": null` against a null
 loss). Full suite on the final tree: **6,144 passed, 10 xfailed,
@@ -285,6 +287,124 @@ defect.
 rather than asserting on source text, because the defect was a wrong verdict
 and a substring test passes unchanged on an exactly inverted predicate. Five
 mutations, all observed red.
+
+### Joe's four answers, 2026-09-05 — A yes, B kill, C yes, D yes
+
+He was asked four in one line and answered in one line. Three are built and
+deployed at `c2976ec`; A is registered and its one live arm is not yet run.
+
+**A — the parlay census. Registered, and the question he actually asked
+cannot be answered at this `n`.**
+`docs/measurements/2026-09-05-parlay-census-registration.md`. The
+pre-registrar split it into arms and killed the headline before any per-row
+read:
+
+- **The head-to-head is dead as inference.** 5 parlays where the desk priced
+  the ticket he bought; ±19.5 points against a quantity of magnitude ~5. It
+  would need **475** independent desk-priced parlays, ~3.6 years at the
+  observed rate. Kept as a printed 5-row table, never a finding.
+- **The clustering variable is not computable.** What makes two parlays
+  dependent is a shared leg and `parlay_position_legs` is empty, so `n_eff`
+  is unknown, bounded [1, 52]. That forbids outcome inference more cleanly
+  than the 2-of-51 win count does.
+- **Most of the brief had already been seen, and that disqualified it.** The
+  win split, the money staked, the fees, the `parlay_lookups` status counts
+  and the 5-of-52 coverage all came from aggregates read while scoping. A
+  threshold applied to a number the author knows is not a threshold, so every
+  one is demoted to a transcription with no p-value — **including the
+  `book_empty` arm that had been flagged as the most actionable finding.**
+  See the lesson; the fix is to split reconnaissance into *what exists* and
+  *what happened*.
+
+**The one verdict-bearing test that survives is Arm D: were the 52
+combination fills takers?** ADR 0085, ADR 0012 §5, CLAUDE.md and the memory
+line all assert combinations are unquoted, and Joe's own 52 fills are the
+population that tests it. `k <= 18` upholds, `k >= 34` refutes, `19..33`
+UNRESOLVED, at the expected `n = 52`. **Rule 1 applies to a refutation**: a
+large contradiction of a measured belief is a bug until proven otherwise.
+
+**C4, resolved by code-reading rather than data** (the registrar's own
+ranking put it above everything else in that arm): `parlay_lookups` records 7
+taps as `priced` while the 2026-08-30 census reports 0 of 61 quoted. They read
+**different endpoints**. The census reads the market-list summary
+(`yes_ask_dollars = 0.0000`, `no_bid_dollars = 1.0000` — the derived ask is
+then $0.00); `lookup_combo` reads the orderbook, via `OrderBook.best_no_bid`.
+The list flattens an empty side to a boundary value, which is the derived-ask
+trap this repo already documents. Not a contradiction; two instruments.
+
+**B — #11's estimate log screen is killed (ADR 0094 §11).** The screen was
+never built. What exists is a complete, unreachable write path — `logEstimate`
+→ `/log-estimate` → `POST /api/estimates` → `record_estimate` — with **zero UI
+callers**. Killed on a measurement: 0 of 27 hand fills through the order path,
+`bet_estimates` ≤ 1 row, three entry designs drawn and none used.
+
+**Nothing was deleted and that is the decision.** Joe killed a screen; removing
+a backend route, its proxy, its auth wiring and its embargo-scoped writer is a
+larger change than he made, and the chain carries ADR 0044's embargo
+machinery. `TestTheLogScreenStaysKilled` pins the absence of a UI caller,
+because `logEstimate` reads exactly like a function someone forgot to call.
+ADR 0065's "the form returns" clause is struck.
+
+**C — `desk_attention.path`, schema v34, live and demo verified on the
+volume.** The table was `(id, seen_ms)` and could say the desk was open but
+not what it was open FOR. **Recorded, never acted on**: a test pins that
+`odds/timing.py` cannot see the column at all, which is what makes the
+distinction true rather than merely stated. The route's long-standing refusal
+of a body was about a client-supplied *timestamp* — acted on, and worth
+choosing wrong — and the clock is still the server's. `Nav.tsx` reads the path
+inside the beat, not at mount, or every stamp would report the screen the tab
+was loaded on. `visit-freshness` reports `paths` and `paths_null` per visit;
+`paths_null` counts pre-v34 stamps and is not a zero.
+
+**D — one real Anthropic response, captured, and ADR 0106 §5.2 is CLOSED.**
+`scripts/capture_agent_wire_fixture.py`, one paid call, key never read or
+echoed, body only, gitignored `data/` first and promoted after reading.
+
+**It falsified the model of the wire every stub in this repo carried.** A real
+scout call returns **25 content blocks and exactly one is `text`** — the rest
+are `server_tool_use`, `web_search_tool_result`, `code_execution_tool_result`
+and `thinking` — and the text block is **last**, so `parsed_output` walks past
+twenty-four. The usage block carries a nested `cache_creation`,
+`output_tokens_details.thinking_tokens` and `inference_geo`; the envelope
+carries `container` and `stop_details`. None was guessed.
+
+**It cost 66,131 input and 3,967 output tokens (2,103 thinking) on 6
+searches** — well above the ~$0.08 quoted when the spend was authorised. That
+figure was `base.py`'s *Skeptic* ceiling; its desk arithmetic (~50K in per
+staff scout) is the right one to quote for a scout.
+
+Safe for a public repo, checked before promotion and pinned by two tests: no
+credential, no account identifier, no request headers, and third-party page
+content arrives as `encrypted_content` — the fixture cites sources without
+reproducing them.
+
+### Four things broke, all caught, none shipped
+
+- **A `--` comment inside a `CREATE TABLE` column list broke `DROP COLUMN`.**
+  SQLite re-parses a table's stored SQL, and 33 migration wind-back steps went
+  red naming versions the change never touched. Prose goes above the statement.
+- **A pre-existing test wound back to `SCHEMA_VERSION - 1` while asserting
+  v33's effects**, so it silently retargeted the moment v34 existed. Pinned to
+  32. A relative version is safe only for a claim true of *every* version.
+- **Two guards asserted the mechanism, not the property** (`"body: {}"` for
+  "no clock crosses this boundary"), so both went red for changes that did not
+  violate them. Rewritten at the level of the property.
+- **A corrected guard then read the docstring explaining the property** —
+  second time in one day. Strip comments before searching.
+
+### `scripts/inspect_live_db.py` is at 99.3% and now blocks work
+
+260,285 of 262,144 bytes: **1,859 free**. Two comment blocks moved out
+verbatim this session — the CLV extraction's commentary to Appendix S1a of its
+registration, the prop-rung commentary to its own — buying 3.4 KB, and it is
+still on the line. Comparable subcommands run **2.6 KB to 21.5 KB**, so
+**nothing new fits.**
+
+This stopped being cosmetic: the census registration named
+`_q_parlay_census` in this file as its instrument, and it cannot go there. Joe
+chose (2026-09-05) to amend the registration's instrument location rather than
+make the split the price of admission for the measurement. **The split is
+still owed and needs its own brief** — a domain split, not another trim.
 
 ### Lane A2 — the branches that swallowed the server's reason
 
