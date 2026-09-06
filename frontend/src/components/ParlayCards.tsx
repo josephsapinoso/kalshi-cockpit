@@ -14,6 +14,7 @@ import LeagueTag from "@/components/LeagueTag";
 import ParlayDifficulty from "@/components/ParlayDifficulty";
 import ManualTicket from "@/components/ManualTicket";
 import PriceOnKalshi from "@/components/PriceOnKalshi";
+import RecordParlay from "@/components/RecordParlay";
 import RefreshWhenPriced from "@/components/RefreshWhenPriced";
 import StaleOddsExit from "@/components/StaleOddsExit";
 import Term from "@/components/Term";
@@ -214,23 +215,57 @@ function Card({ card }: { card: ParlayCardData }) {
           {/*
             **Demoted behind a reveal, not removed** (ADR 0085). The buy path
             works and is measured; what changed is that 61 of 61 open
-            combinations had no seller, so leading with it promised an action
-            the venue does not supply. It stays because one combination has
-            traded, so the counterparty is rare rather than impossible.
+            combinations had no seller AT REST, so leading with it promised an
+            action the venue does not always supply.
 
-            The summary states the odds of it being useful before it is
-            opened, so nobody taps through expecting a purchase.
+            **The summary changed on 2026-09-06 and the two censuses are why.**
+            It read "usually nobody is selling", which is the resting book —
+            true, and not the population Joe is in when he taps. The entry
+            census the same week found 51 of 52 of this desk's own combination
+            positions were entered by TAKING an offer, so at the moment of a
+            purchase there was something to take 98% of the time. The old
+            words discouraged the only buy path left on this card, on the
+            strength of the wrong instrument.
+
+            It stays behind a reveal because an empty book is still the
+            expected first answer on a fresh combination, and the copy inside
+            says so.
           */}
           <details className="mt-3 border-t border-border pt-3">
             <summary className="cursor-pointer text-sm font-semibold">
-              Try to buy it on Kalshi
+              Buy it on Kalshi
               <span className="ml-1 font-normal text-muted">
-                — usually nobody is selling
+                — pay the asking price, if there is one
               </span>
             </summary>
             <PriceOnKalshi card={card} />
           </details>
           <LegBuys card={card} />
+          {/*
+            **The other way to own this card, and on his own instruction the
+            first-class one** (2026-09-06). Kalshi is an exchange and may have
+            no seller; a sportsbook always takes the parlay. So the desk
+            offers to RECORD what he paid there rather than pretending it can
+            place it — and the legs, the name and the source arrive filled in,
+            because a form that has to be re-typed from the card above it is
+            one nobody fills.
+
+            The stake and the return are left empty deliberately. Only his
+            book knows what it paid, and a guessed return lands straight in
+            the size of a hedge.
+          */}
+          <RecordParlay
+            summary="I placed this at a sportsbook"
+            blurb="Paid for this parlay at your book? Record it and the desk will price its legs against Kalshi while the games run."
+            prefill={{
+              source: "sportsbook",
+              label: card.title,
+              legs: card.legs.map((leg) => ({
+                label: leg.label,
+                ticker: leg.ticker,
+              })),
+            }}
+          />
         </>
       )}
     </section>

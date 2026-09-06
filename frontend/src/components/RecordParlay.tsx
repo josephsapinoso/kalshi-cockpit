@@ -28,22 +28,57 @@ import Term from "@/components/Term";
  * cents-to-tenths conversion and the odds-range refusal, and it returns its own
  * sentence, which this renders verbatim — one implementation of a money rule,
  * on the side that has to be right.
+ *
+ * **It renders on four screens now, not one, and `prefill` is why (2026-09-06).**
+ * Joe asked to be able to pay for a combination at a sportsbook "from the
+ * betting and parlay pages", having just had the exchange's offer-making
+ * controls removed. A sportsbook bet is placed at the book, so what the desk
+ * can offer is the record of it — and a record that has to be re-typed from a
+ * card already on screen is one nobody keeps. On the parlay desk the legs, the
+ * name and the source arrive filled in from the card he was looking at; on the
+ * other screens the form opens empty, which is what it always did.
+ *
+ * **Prefilled is not submitted.** Every field stays editable and nothing is
+ * sent until he taps. The stake and the return are deliberately NOT guessed
+ * from the card: the desk does not know what his book paid him, and a wrong
+ * return lands directly in the size of a hedge (see the label note above).
  */
-export default function RecordParlay() {
+
+export type RecordParlayPrefill = {
+  source?: "sportsbook" | "kalshi_combo";
+  label?: string;
+  book?: string;
+  legs?: { label: string; ticker: string }[];
+};
+
+const BLANK_LEGS = [
+  { label: "", ticker: "" },
+  { label: "", ticker: "" },
+];
+
+export default function RecordParlay({
+  prefill,
+  summary = "Record a ticket you hold",
+  blurb,
+}: {
+  prefill?: RecordParlayPrefill;
+  summary?: string;
+  blurb?: string;
+} = {}) {
   const router = useRouter();
   const [source, setSource] = useState<"sportsbook" | "kalshi_combo">(
-    "sportsbook",
+    prefill?.source ?? "sportsbook",
   );
-  const [label, setLabel] = useState("");
-  const [book, setBook] = useState("");
+  const [label, setLabel] = useState(prefill?.label ?? "");
+  const [book, setBook] = useState(prefill?.book ?? "");
   const [stake, setStake] = useState("");
   const [payout, setPayout] = useState("");
-  const [legs, setLegs] = useState<{ label: string; ticker: string }[]>([
-    { label: "", ticker: "" },
-    { label: "", ticker: "" },
-  ]);
+  const [legs, setLegs] = useState<{ label: string; ticker: string }[]>(
+    prefill?.legs && prefill.legs.length > 0 ? prefill.legs : BLANK_LEGS,
+  );
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
 
   function setLeg(index: number, field: "label" | "ticker", value: string) {
     setLegs((current) =>
@@ -83,25 +118,29 @@ export default function RecordParlay() {
       setRefused(answer.detail);
       return;
     }
-    setLabel("");
     setStake("");
     setPayout("");
-    setLegs([
-      { label: "", ticker: "" },
-      { label: "", ticker: "" },
-    ]);
+    // **The prefilled fields go back to the prefill, not to blank.** On a
+    // parlay card this form belongs to one card and will still be sitting
+    // under it after the tap; clearing the legs there would leave an empty
+    // form attached to a named card, which reads as if the record failed.
+    setLabel(prefill?.label ?? "");
+    setBook(prefill?.book ?? "");
+    setLegs(prefill?.legs && prefill.legs.length > 0 ? prefill.legs : BLANK_LEGS);
+    setDone(true);
     router.refresh();
   }
 
   return (
-    <details className="mt-8 rounded-lg border border-border p-4">
+    <details className="mt-4 rounded-lg border border-border p-4">
       <summary className="cursor-pointer text-sm font-semibold uppercase tracking-widest">
-        Record a ticket you hold
+        {summary}
       </summary>
       <p className="mt-2 text-xs leading-snug text-muted">
-        The desk cannot see a bet you placed somewhere else. Tell it the stake,
-        the total return and the <Term k="leg">legs</Term>, and it will watch
-        them while the games run.
+        {blurb ??
+          "The desk cannot see a bet you placed somewhere else."}{" "}
+        Tell it the stake, the total return and the <Term k="leg">legs</Term>,
+        and it will watch them while the games run.
       </p>
 
       <form onSubmit={submit} className="mt-3 flex flex-col gap-3">
@@ -210,6 +249,23 @@ export default function RecordParlay() {
 
         {/* The server's own sentence, verbatim. */}
         {refused && <p className="text-xs text-muted">{refused}</p>}
+
+        {/*
+          **Says where it went.** This form used to render only on /hedge, so
+          a successful record was self-evident: the position appeared above it
+          on the same screen. On the parlay desk and the slate there is
+          nothing to see, and a form that empties its money fields and says
+          nothing is indistinguishable from one that failed quietly.
+        */}
+        {done && !refused && (
+          <p className="text-xs text-muted">
+            Recorded.{" "}
+            <a href="/hedge" className="underline">
+              Watch it on the Hedging screen
+            </a>{" "}
+            while the games run.
+          </p>
+        )}
       </form>
     </details>
   );

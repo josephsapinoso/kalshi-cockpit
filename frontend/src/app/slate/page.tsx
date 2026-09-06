@@ -40,6 +40,7 @@ import StaleOddsExit from "@/components/StaleOddsExit";
 import SignalStrip from "@/components/SignalStrip";
 import TonightStrip from "@/components/TonightStrip";
 import TrustNote from "@/components/TrustNote";
+import RecordParlay from "@/components/RecordParlay";
 
 export const dynamic = "force-dynamic";
 
@@ -432,6 +433,22 @@ export default async function SlatePage({
           close, and none of this is that yet.
         </p>
       </footer>
+      {/*
+        **A bet placed somewhere else is invisible to this desk, and Joe asked
+        for it on this screen** (2026-09-06). His sportsbook bets never reach
+        `fills`, which is the hole ADR 0078 exists for and the reason the
+        2026-09-04 census could only count Kalshi taker hand fills. The form
+        was reachable from `/hedge` alone; it is now on the four screens he
+        actually bets from, collapsed, so it costs one line until it is
+        wanted.
+
+        It opens empty here — this screen has no single ticket to fill it
+        from. The parlay desk's copy of it arrives prefilled from the card.
+      */}
+      <RecordParlay
+        summary="Record a bet you placed"
+        blurb="Paid for a bet at a sportsbook, or a combination on Kalshi? The desk cannot see it. Record it and it will price the legs against Kalshi while the games run."
+      />
     </Shell>
   );
 }
