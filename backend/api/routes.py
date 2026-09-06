@@ -83,7 +83,11 @@ from ..odds.timing import (
     loop_idle_interval_ms_from_env,
     window_status,
 )
-from ..parlays import scouting_facts
+from ..parlays import (
+    COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID,
+    COMBO_EXIT_CENSUS_BOOKS_READ,
+    scouting_facts,
+)
 from ..portfolio_poll import log_poll_attempt, store_positions_snapshot
 from ..runner import book_quotes_for_event
 from ..settlement import open_position_dollars
@@ -3036,13 +3040,26 @@ def create_app(
             # server's words. Wording it here rather than in the client keeps
             # the screen and the 422 saying the same thing, and keeps the
             # measurement's own numbers in it.
+            #
+            # **The numbers are SOURCED from the exit census, not typed.**
+            # They read "40 of 40" as literal digits until 2026-09-06, which
+            # is the shape that let a refuted census sentence stay green for
+            # eleven days (`backend/parlays.py`'s census comment block). The
+            # claim itself is unchanged and still holds — the 2026-09-06
+            # parlay census refuted the *entry* half, never this one — so
+            # this is a binding fix, not a correction. The guard is
+            # `tests/test_manual_orders.py::test_no_census_number_in_the_
+            # combo_note_is_typed_rather_than_sourced`, which parses this
+            # module rather than reading the rendered string, because
+            # `str(40) in note` passes just as happily on a typed digit.
             "combo_note": (
-                "Every combination book this repo has ever read had no YES "
-                "bid — 40 of 40, across three runs on two dates. You can "
-                "enter this and you cannot exit it: the only way out is the "
-                "outcome. The fee is priced through a hedged coefficient "
-                "because the measured model undercharges on combos, so the "
-                "cost shown is a ceiling and not a quote."
+                f"Every combination book this repo has ever read had no YES "
+                f"bid — {COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID} of "
+                f"{COMBO_EXIT_CENSUS_BOOKS_READ}, across three runs on two "
+                f"dates. You can enter this and you cannot exit it: the only "
+                f"way out is the outcome. The fee is priced through a hedged "
+                f"coefficient because the measured model undercharges on "
+                f"combos, so the cost shown is a ceiling and not a quote."
                 if _is_combo(quote.ticker)
                 else None
             ),

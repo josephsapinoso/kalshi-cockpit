@@ -28,6 +28,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+import backend.parlays as parlays
 from backend.api.routes import create_app
 from backend.config import (
     AppConfig,
@@ -1114,6 +1115,83 @@ class TestTheManualMarketRead:
         body = response.json()
         assert body["reachable"] is False
         assert body["unreachable_reason"]
+
+    async def test_the_combo_note_carries_the_exit_census_numbers(
+        self, tmp_path
+    ):
+        """The exit half, on the ticket, in the census's own digits.
+
+        Asserted against `parlays.COMBO_EXIT_CENSUS_*` and never against the
+        digits, for the reason `backend/parlays.py`'s census block records:
+        a test that pins the literal keeps a refuted sentence green.
+
+        **This is the entry claim's neighbour and not the entry claim.** The
+        2026-09-06 parlay census refuted "you probably cannot get in" (51 of
+        52 combination positions were taker fills); it measured nothing about
+        the way out, and no combination book this repo has read has ever
+        carried a resting YES bid. So the sentence stays exactly as strong as
+        it is -- ADR 0085 Amendment 1 §A1.4 forbids softening it on the
+        strength of the entry finding.
+        """
+        quotes = StubQuotes(_payload(ticker=COMBO_TICKER))
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        body = (await get(app, f"/api/manual/market/{COMBO_TICKER}")).json()
+        note = body["combo_note"]
+        assert note
+        assert str(parlays.COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID) in note
+        assert str(parlays.COMBO_EXIT_CENSUS_BOOKS_READ) in note
+        assert "no YES" in note
+        # The exit claim itself, in words, so the numbers cannot survive the
+        # sentence they belong to being softened out from under them.
+        assert "cannot exit it" in note
+        # A single market gets no note at all: the caveat is about
+        # combinations, and a caveat everywhere is a caveat nowhere. Its own
+        # app, because `StubQuotes` answers every ticker with the payload it
+        # was handed -- reusing the combo stub would have read the note off a
+        # combination and called it a single market.
+        plain = _app(_base_db(tmp_path, name="single.db"))
+        single = (await get(plain, f"/api/manual/market/{TICKER}")).json()
+        assert single["combo_note"] is None
+
+    def test_no_census_number_in_the_combo_note_is_typed_rather_than_sourced(
+        self,
+    ):
+        """The note's digits come from the constants, or the guard is theatre.
+
+        The assertion above reads `str(COMBO_EXIT_CENSUS_BOOKS_READ) in note`,
+        which passes just as happily on a **typed** "40" as on a sourced one
+        -- and a typed "40 of 40" is exactly how the refuted entry sentence
+        survived a green suite for eleven days. This reads the source of the
+        f-string instead and refuses any bare integer in it.
+
+        Follows `tests/test_parlays_api.py::
+        test_no_census_number_in_the_note_is_typed_rather_than_sourced`.
+
+        Mutation observed red: replace `{COMBO_EXIT_CENSUS_BOOKS_READ}` with a
+        literal `40` in `backend/api/routes.py`.
+        """
+        tree = ast.parse((REPO / "backend" / "api" / "routes.py").read_text(
+            encoding="utf-8"
+        ))
+        note = next(
+            # `<string> if _is_combo(...) else None` -- the string branch is
+            # what reaches the ticket; the condition carries no census number.
+            value.body if isinstance(value, ast.IfExp) else value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Dict)
+            for key, value in zip(node.keys, node.values)
+            if getattr(key, "value", None) == "combo_note"
+        )
+        rendered = ast.unparse(note)
+        digits = [ch for ch in rendered if ch.isdigit()]
+        assert not digits, f"a census number is typed into the note: {rendered}"
+        # And the names are actually the census's, not some other integer
+        # dressed up as one.
+        names = {
+            n.id for n in ast.walk(note) if isinstance(n, ast.Name)
+        }
+        assert "COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID" in names
+        assert "COMBO_EXIT_CENSUS_BOOKS_READ" in names
 
 
 class TestTheRowRecordsWhatTheDeskWasShowing:
