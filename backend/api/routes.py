@@ -3206,18 +3206,33 @@ def create_app(
             refusal_ctx.update(check=4, name="structural_ceilings")
             combo = _is_combo(ticker)
             if combo and not request.combo_acknowledged:
+                # The third of the three sentences carrying the exit census,
+                # and the last one still typed. Sourced from
+                # `parlays.COMBO_EXIT_CENSUS_*` on 2026-09-06 for the reason
+                # the other two were: `str(40) in detail` cannot tell a typed
+                # digit from a sourced one, so the digits could have outlived
+                # the measurement with CI green. The claim does not move --
+                # the 2026-09-06 parlay census measured ENTRY, and no
+                # combination book this repo has read has ever carried a
+                # resting YES bid. This is a real-money refusal path; a
+                # softened exit claim here is the failure ADR 0085
+                # Amendment 1 §A1.4 pins against. Guarded by
+                # `tests/test_manual_orders.py::test_no_census_number_in_the_
+                # combo_acknowledgement_refusal_is_typed_rather_than_sourced`.
                 raise HTTPException(
                     status_code=422,
                     detail=(
-                        "combination (KXMVE) markets need the acknowledgement "
-                        "before this door opens: every combination book this "
-                        "repo has ever read had NO YES BID — 40 of 40, across "
-                        "three runs on two dates — so you can enter and you "
-                        "cannot exit (ADR 0012 §5). The fee model also "
-                        "undercharges on combos (ADR 0046); a hedged coefficient "
-                        "prices this order and it is not a measurement of what "
-                        "Kalshi charges. Send `combo_acknowledged` only if that "
-                        "is the bet you mean to make."
+                        f"combination (KXMVE) markets need the acknowledgement "
+                        f"before this door opens: every combination book this "
+                        f"repo has ever read had NO YES BID — "
+                        f"{COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID} of "
+                        f"{COMBO_EXIT_CENSUS_BOOKS_READ}, across "
+                        f"three runs on two dates — so you can enter and you "
+                        f"cannot exit (ADR 0012 §5). The fee model also "
+                        f"undercharges on combos (ADR 0046); a hedged coefficient "
+                        f"prices this order and it is not a measurement of what "
+                        f"Kalshi charges. Send `combo_acknowledged` only if that "
+                        f"is the bet you mean to make."
                     ),
                 )
             # **The STRUCTURAL ceilings, not the binding one.** What bounds the

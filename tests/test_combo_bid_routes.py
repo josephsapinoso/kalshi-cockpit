@@ -272,6 +272,13 @@ class TestTheDoorIsGuarded:
         rather than allowed to disable it. Only `status_code=422` is excluded
         structurally: the check reads the `detail` expression alone.
 
+        The carve-out matches a section number too ("ADR 0012 §5"), which
+        this string does not carry and its sibling in
+        `tests/test_manual_orders.py` does. Kept identical on purpose: a
+        half-stripped citation leaves an orphan digit, which reads as a typed
+        census number and would force a choice between deleting the citation
+        and turning the guard off.
+
         Mutation observed red: replace `{COMBO_EXIT_CENSUS_BOOKS_READ}` with a
         literal `40` in `backend/api/routers/parlays.py`.
         """
@@ -293,7 +300,8 @@ class TestTheDoorIsGuarded:
             and "enter-only" in ast.unparse(kw.value)
         )
         rendered = ast.unparse(detail)
-        stripped = re.sub(r"ADR \d+", "ADR", rendered)
+        # An ADR citation, section number and all -- see the docstring.
+        stripped = re.sub(r"ADR \d+(?:\s*§\s*[\d.]+)?", "ADR", rendered)
         digits = [ch for ch in stripped if ch.isdigit()]
         assert not digits, f"a census number is typed in: {rendered}"
         names = {n.id for n in ast.walk(detail) if isinstance(n, ast.Name)}

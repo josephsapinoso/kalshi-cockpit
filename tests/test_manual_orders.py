@@ -372,8 +372,82 @@ class TestTheGuardsRefuse:
             json=_body(ticker=COMBO_TICKER), headers=AUTH,
         )
         assert response.status_code == 422
-        assert "enter" in response.json()["detail"]
-        assert "acknowledgement" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert "enter" in detail
+        assert "acknowledgement" in detail
+        # The exit census, in its own digits -- asserted against the constants
+        # and never against the literals. This is the third of the three
+        # sentences that carried a typed "40 of 40"; the reason all three are
+        # sourced now is that a reader grepping the phrase must not find one
+        # authoritative copy and two frozen ones.
+        #
+        # **The 2026-09-06 parlay census does not touch this claim.** It
+        # refuted the ENTRY half (51 of 52 combination positions were taker
+        # fills) and measured nothing about the way out. This is the
+        # real-money route's refusal, so it stays exactly as strong as it is;
+        # ADR 0085 Amendment 1 §A1.4 forbids softening it.
+        assert str(parlays.COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID) in detail
+        assert str(parlays.COMBO_EXIT_CENSUS_BOOKS_READ) in detail
+        assert "NO YES BID" in detail
+        assert "cannot exit" in detail
+
+    def test_no_census_number_in_the_combo_acknowledgement_refusal_is_typed_rather_than_sourced(
+        self,
+    ):
+        """The refusal's digits come from the constants, or this is theatre.
+
+        The assertions above read `str(COMBO_EXIT_CENSUS_BOOKS_READ) in
+        detail`, which passes just as happily on a **typed** "40" as on a
+        sourced one -- and a typed "40 of 40" is exactly how the refuted entry
+        sentence survived a green suite for eleven days. This reads the source
+        of the f-string instead and refuses any bare integer in it.
+
+        Same pattern and same carve-out as
+        `tests/test_combo_bid_routes.py::
+        test_no_census_number_in_the_bid_refusal_is_typed_rather_than_sourced`
+        -- this string carries TWO document identifiers ("ADR 0012 §5" and
+        "ADR 0046"), which are permanent names rather than measurements and
+        cannot go stale the way a census count can, so they are stripped
+        before the digit check rather than allowed to disable it. Only
+        `status_code=422` is excluded structurally: the check reads the
+        `detail` expression alone.
+
+        **The section number is part of the identifier, and the first draft
+        of this test proved it by failing on the `5` of "§5".** The carve-out
+        matches `ADR 0012 §5` whole rather than leaving an orphan digit
+        behind -- a citation half-stripped would have forced a choice between
+        deleting the section reference from a real-money refusal and turning
+        the guard off.
+
+        Mutation observed red: replace `{COMBO_EXIT_CENSUS_BOOKS_READ}` with a
+        literal `40` in `backend/api/routes.py`.
+        """
+        route = next(
+            node
+            for node in ast.walk(ast.parse(
+                (REPO / "backend" / "api" / "routes.py").read_text(
+                    encoding="utf-8"
+                )
+            ))
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "place_manual_order"
+        )
+        detail = next(
+            kw.value
+            for inner in ast.walk(route)
+            if isinstance(inner, ast.Raise) and isinstance(inner.exc, ast.Call)
+            for kw in inner.exc.keywords
+            if kw.arg == "detail"
+            and "need the acknowledgement" in ast.unparse(kw.value)
+        )
+        rendered = ast.unparse(detail)
+        # An ADR citation, section number and all -- see the docstring.
+        stripped = re.sub(r"ADR \d+(?:\s*§\s*[\d.]+)?", "ADR", rendered)
+        digits = [ch for ch in stripped if ch.isdigit()]
+        assert not digits, f"a census number is typed in: {rendered}"
+        names = {n.id for n in ast.walk(detail) if isinstance(n, ast.Name)}
+        assert "COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID" in names
+        assert "COMBO_EXIT_CENSUS_BOOKS_READ" in names
 
     async def test_a_combination_keeps_a_tighter_structural_ceiling(
         self, tmp_path
