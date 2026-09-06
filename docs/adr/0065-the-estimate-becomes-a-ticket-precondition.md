@@ -101,9 +101,12 @@ Decision-map ticket #11, resolved with Joe 2026-09-01. Build:
   judgement.
 - **§3's second bullet is superseded in the narrow sense that matters.** It
   read *"the standalone `/estimate` form retires"* and *"nothing here scores
-  estimates against outcomes or resumes calibration"*. The form returns, as a
-  **price-free** screen reached from the Discord window-open digest, and calls
-  logged there **are** scored — against **Kalshi's close, never the outcome**,
+  estimates against outcomes or resumes calibration"*. ~~The form returns, as a
+  **price-free** screen reached from the Discord window-open digest~~ — **the
+  form does NOT return; killed by Joe 2026-09-05, ADR 0094 §11**, on ADR 0105's
+  0-of-27 and a `bet_estimates` table holding at most one row. §3's bullet
+  therefore stands as written on the form. What survives of this amendment is
+  the scoring rule: calls logged outside the study **are** scored — against **Kalshi's close, never the outcome**,
   which is why this is not a resumption of calibration. The stopped study's own
   log stays terminal: those rows carry `is_study_row = 1` and are neither
   scored nor served (ADR 0044 Amendment 3).

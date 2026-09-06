@@ -638,53 +638,17 @@ _SQL_MANUAL_CONTRACTS = (
 # The CLV signal test's registered extraction.
 # ---------------------------------------------------------------------------
 #
-# **This is §S1 of `docs/measurements/2026-08-09-preregistration-clv-signal-test.md`,
-# as amended, and it is a transcription rather than a design.** Every clause
-# below is fixed in that file. Nothing here chooses a population, a horizon or
-# a cluster key; changing any of them is an amendment to the registration, made
-# in the registration, dated, before the next look.
+# **A transcription of §S1 of
+# `docs/measurements/2026-08-09-preregistration-clv-signal-test.md`, as
+# amended, not a design.** Every clause below is fixed in that file; nothing
+# here chooses a population, a horizon or a cluster key, and changing one is
+# an amendment made in the registration, dated, before the next look.
 #
-# Four amendments are folded in and each is load-bearing:
-#
-# **§A1 — the delimited `instr` predicate.** `suppressed_reason` is a
-# comma-joined composite of *every* check that failed, so the registered
-# `NOT IN ('stale_odds', ...)` matched neither literal on
-# `'stale_odds,wide_market'` and **retained** the row it existed to drop.
-# `instr` and not `LIKE`, because SQLite's `LIKE` treats `_` as a
-# single-character wildcard and every code in this vocabulary contains one --
-# `,staleXodds,` would match. The wrapping commas are required in both
-# directions: without them a future `stale_odds_upstream` is silently excluded.
-#
-# **§A2 — only four codes are excluded**, not "the suppressed ones":
-# `stale_odds`, `stale_kalshi_quote`, `no_commence_time`, `commence_skew`.
-# Every other code is RETAINED, including `too_few_books`, `wide_market`,
-# `edge_within_method_noise` and the `skeptic_*` family. Dropping the rows where
-# the edge estimate is least reliable is a hypothesis about the answer, and
-# `edge_within_method_noise` in particular removes a price-dependent interval
-# from the *interior* of the regressor, which moves leverage to the tails in the
-# flattering direction.
-#
-# **§A2.2 — the price bound `BETWEEN 10 AND 989`.** Without it a row outside
-# Grid A/B's range enters the pooled `beta` and appears in no bucket, so the
-# pooled number and the per-group view are computed on different populations,
-# silently.
-#
-# **§F3 — horizon 0.0 only.** ADR 0011 left two horizons in the record and
-# blending them averages two regimes.
-#
-# **The cluster key is `COALESCE(m.event_ticker, r.ticker)` and it is NOT the
-# gate's key.** ADR 0029 clusters on `odds_event_id` so a prop ladder collapses
-# onto its game; this registration predates that and clusters on the Kalshi
-# event -- the two keys differed by 68% on the 2026-08-16 record, so a `G`
-# quoted without its key is meaningless. The registered one governs here
-# because it is what the power check was computed against.
-#
-# **`half_spread_tenths` is the C2 confound, not a nicety.** `edge` and `clv`
-# are both measured against the ask, so the half-spread enters both and induces
-# a slope with no signal present. It is a *control*, and the mid is used only to
-# recover it -- never as an entry price. Rows where it is NULL are dropped by
-# the harness and counted, never imputed: that count is P1's numerator, and P1
-# refuses the primary analysis below 0.90 coverage.
+# **The clause-by-clause commentary that stood here moved to Appendix S1a of
+# that same document on 2026-09-06**, verbatim -- four folded amendments
+# (§A1 the delimited `instr` predicate, §A2 the four excluded codes, and the
+# rest) with the reasoning for each. It moved because this file crossed the
+# Read-tool ceiling; read it there before changing any predicate below.
 _SQL_CLV_SIGNAL_PULL = (
     "SELECT COALESCE(m.event_ticker, r.ticker) AS cluster_key, "
     "r.id, r.ticker, r.side, r.created_ms, m.market_type, "
@@ -1488,35 +1452,15 @@ _SQL_CLV_LINK_FANOUT = (
 # The prop rung dump, for the one-sided recovery registration.
 #
 # Registered at
-# `docs/measurements/2026-08-16-preregistration-prop-onesided-recovery.md`.
-# §8 of that document is why this emits **rows and not a verdict**: this script
-# is explicitly not a measurement harness, so every quantity the decision rule
-# reads is computed by `scripts/analyze_prop_onesided.py` on a laptop, from
-# this query's `--json`, where the derivation is reviewable beside the rule it
-# feeds.
+# `docs/measurements/2026-08-16-preregistration-prop-onesided-recovery.md`,
+# whose §8 is why this emits **rows and not a verdict**: this script is not a
+# measurement harness, so every quantity the decision rule reads is computed
+# by `scripts/analyze_prop_onesided.py` from this query's `--json`, beside
+# the rule it feeds.
 #
-# One row per rung -- `(event, bookmaker, base_market, feed, player, point)` --
-# with the two sides pivoted into columns. The pivot is a **reshape, not a
-# statistic**: `MAX(CASE ...)` picks the single price for a side that should
-# have exactly one, and `quote_rows` is carried precisely so the analyzer can
-# see when it did not. A rung with `quote_rows > 2` is a book quoting a side
-# twice in one sweep, which §3 excludes as a finding about the store rather
-# than averaging away here.
-#
-# **`price_decimal <= 1.0` is deliberately NOT filtered.** §3 makes that an
-# exclusion that must be *counted*, and a row this query never emits cannot be
-# counted by the thing that applies the rule.
-#
-# `_alternate` is folded onto its primary the way `kalshi/props.base_market`
-# folds it, by exact suffix rather than `LIKE` -- 10 is `len("_alternate")`.
-# The feed itself is kept as `is_alternate` because §4.2 needs the primary and
-# alternate rungs of one book/player/market told apart, and a fold that lost
-# it would destroy the input to the recovery it is meant to enable.
-#
-# `latest` is computed per fixture, so a slate swept at different times still
-# contributes each fixture's own most recent sweep -- the rule
-# `prop_quotes_for_event` follows, and for the same reason: mixing sweeps pairs
-# a fresh price with an old one and calls the disagreement margin.
+# **The rest of the commentary that stood here moved to that document's
+# appendix on 2026-09-06**, verbatim, because this file crossed the Read-tool
+# ceiling. Read it there before changing the query below.
 _SQL_PROP_RUNGS = (
     "WITH prop AS ("
     "  SELECT odds_event_id, bookmaker, market, outcome_name, "
@@ -4617,8 +4561,13 @@ _STALE_LIMIT_ENV = "MAX_ODDS_AGE_S"
 #: `--since` default: a week, because the question is about a five-day fall.
 _VISIT_SINCE_DEFAULT_DAYS = 7
 
+#: `path` is v34 (2026-09-05, question E) and is NULL for every stamp
+#: written before it, which is most of the record. It is descriptive
+#: only -- the loop never reads it -- so it is reported and never used
+#: to cluster, filter or attribute a buy.
 _SQL_ATTENTION_STAMPS = (
-    "SELECT seen_ms FROM desk_attention WHERE seen_ms >= ? ORDER BY seen_ms"
+    "SELECT seen_ms, path FROM desk_attention WHERE seen_ms >= ? "
+    "ORDER BY seen_ms"
 )
 
 # `trigger = 'attention'` is the spend a heartbeat causes and the only spend
@@ -4740,7 +4689,31 @@ _VISIT_COLUMNS = (
     "refused_sweeps",
     "sports_upcoming",
     "sports_open",
+    # Which screens the visit touched, newest-heartbeat-first, and how
+    # many stamps carried no path at all. `paths_null` is not a zero:
+    # it counts stamps from before v34 or from a client that sent none,
+    # and a visit that is all-NULL is unreadable rather than pathless.
+    "paths",
+    "paths_null",
 )
+
+
+def _visit_paths(visit: list[int], path_at: dict) -> str:
+    """The distinct screens a visit touched, most recent first.
+
+    Order is by last heartbeat on that path rather than by count: the
+    question this column answers is "what was he looking at", and a
+    screen left open while he read it accumulates stamps without being
+    the thing he moved to. Empty string when every stamp is NULL --
+    which is unreadable, not "no screen", and `paths_null` beside it
+    says how many.
+    """
+    ordered: list[str] = []
+    for ms in reversed(visit):
+        got = path_at.get(ms)
+        if got and got not in ordered:
+            ordered.append(got)
+    return ", ".join(ordered)
 
 
 def _q_visit_freshness(conn: sqlite3.Connection, args) -> list[Section]:
@@ -4832,9 +4805,14 @@ def _q_visit_freshness(conn: sqlite3.Connection, args) -> list[Section]:
     since_ms = _parse_since_ms(args.since, args.day_start_hour)
     limit_ms = _stale_limit_ms()
 
-    stamps = [
-        int(r[0]) for r in conn.execute(_SQL_ATTENTION_STAMPS, (since_ms,))
+    seen = [
+        (int(r[0]), r[1])
+        for r in conn.execute(_SQL_ATTENTION_STAMPS, (since_ms,))
     ]
+    stamps = [ms for ms, _ in seen]
+    # Clustering is unchanged and still uses the timestamps alone: the
+    # path must not decide where a visit begins or ends.
+    path_at = dict(seen)
     visits = _cluster_visits(stamps, gap_ms)
 
     rows: list[tuple[Any, ...]] = []
@@ -4872,6 +4850,8 @@ def _q_visit_freshness(conn: sqlite3.Connection, args) -> list[Section]:
                 int(refused[0]),
                 first.sports_upcoming,
                 first.sports_open,
+                _visit_paths(visit, path_at),
+                sum(1 for ms in visit if path_at.get(ms) is None),
             )
         )
 

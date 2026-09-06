@@ -36,15 +36,22 @@
  * would be a second, weaker copy of a control that already exists -- and the
  * session gate above already means the caller is Joe.
  *
- * The body is empty on purpose. The stamp's time is the *server's* `now_ms`,
- * never a client-supplied one: a timestamp from the browser is a number a
- * caller chooses, and the only thing it could usefully be chosen to be is the
- * future.
+ * The body carries the path and NOTHING else (v34, 2026-09-05). The stamp's
+ * time is still the *server's* `now_ms`, never a client-supplied one: a
+ * timestamp from the browser is a number a caller chooses, and the only thing
+ * it could usefully be chosen to be is the future.
+ *
+ * This paragraph read "the body is empty on purpose", and the emptiness was
+ * how the real rule happened to be enforced rather than the rule itself. The
+ * rule is that **no clock crosses this boundary**. A path is descriptive: the
+ * backend truncates it, nothing compares it, and `odds/timing.py` cannot see
+ * the column at all, so a caller who lies about it corrupts their own record
+ * and moves no money.
  */
 
 import { backendToken, demoRefusal, relayToBackend } from "@/lib/proxy";
 
-export async function POST() {
+export async function POST(request: Request) {
   const token = backendToken();
   if (!token) {
     // The demo. It holds no credentials and buys no odds, so there is nothing
@@ -52,9 +59,21 @@ export async function POST() {
     return demoRefusal("the desk has no odds feed to wake");
   }
 
+  // The path, and only the path. Read defensively: a body is optional on this
+  // route by design (a client one version behind sends none), so a parse
+  // failure is an empty body rather than an error -- a missed heartbeat must
+  // not become a 500 over a field nothing acts on.
+  let body: { path?: string } = {};
+  try {
+    const sent = await request.json();
+    if (sent && typeof sent.path === "string") body = { path: sent.path };
+  } catch {
+    body = {};
+  }
+
   return relayToBackend(
     "/api/desk/attention",
-    { method: "POST", token, body: {} },
+    { method: "POST", token, body },
     // Deliberately unlike the other handlers' refusals. Nothing the reader
     // did has failed -- a missed heartbeat costs one delayed sweep and the
     // next poll retries in a minute -- so this must not read like a lost

@@ -282,3 +282,51 @@ the only thing that licenses one is an **UNRESOLVED** verdict under Gate B's
 supply and not of the hypothesis. An UNRESOLVED verdict *with* sufficient `n`
 closes the question at REFUSE for practical purposes: the design was given its
 chance and did not clear a bar fixed before the data was seen.
+
+---
+
+## Appendix — the inspector's commentary on this extraction, moved here 2026-09-06
+
+Reproduced **verbatim** from `scripts/inspect_live_db.py`, where it stood
+above the prop-rung query. It moved because that file crossed the
+262,144-byte Read-tool ceiling and the guard's own advice is to move prose
+into a `docs/` file the code can cite by path. Nothing was reworded or
+dropped, and this document was already the authority every clause in it
+points at.
+
+```
+# ---------------------------------------------------------------------------
+# The prop rung dump, for the one-sided recovery registration.
+#
+# Registered at
+# `docs/measurements/2026-08-16-preregistration-prop-onesided-recovery.md`.
+# §8 of that document is why this emits **rows and not a verdict**: this script
+# is explicitly not a measurement harness, so every quantity the decision rule
+# reads is computed by `scripts/analyze_prop_onesided.py` on a laptop, from
+# this query's `--json`, where the derivation is reviewable beside the rule it
+# feeds.
+#
+# One row per rung -- `(event, bookmaker, base_market, feed, player, point)` --
+# with the two sides pivoted into columns. The pivot is a **reshape, not a
+# statistic**: `MAX(CASE ...)` picks the single price for a side that should
+# have exactly one, and `quote_rows` is carried precisely so the analyzer can
+# see when it did not. A rung with `quote_rows > 2` is a book quoting a side
+# twice in one sweep, which §3 excludes as a finding about the store rather
+# than averaging away here.
+#
+# **`price_decimal <= 1.0` is deliberately NOT filtered.** §3 makes that an
+# exclusion that must be *counted*, and a row this query never emits cannot be
+# counted by the thing that applies the rule.
+#
+# `_alternate` is folded onto its primary the way `kalshi/props.base_market`
+# folds it, by exact suffix rather than `LIKE` -- 10 is `len("_alternate")`.
+# The feed itself is kept as `is_alternate` because §4.2 needs the primary and
+# alternate rungs of one book/player/market told apart, and a fold that lost
+# it would destroy the input to the recovery it is meant to enable.
+#
+# `latest` is computed per fixture, so a slate swept at different times still
+# contributes each fixture's own most recent sweep -- the rule
+# `prop_quotes_for_event` follows, and for the same reason: mixing sweeps pairs
+# a fresh price with an old one and calls the disagreement margin.
+```
+

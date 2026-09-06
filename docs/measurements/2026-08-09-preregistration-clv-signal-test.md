@@ -2091,3 +2091,74 @@ open defects       A4 unimplemented; G_eff = 4.26 at nominal G = 311
 sources            docs/measurements/2026-08-25-clv-signal-declaring-look-refused.md
                    docs/measurements/2026-08-16-clv-signal-test-interim-look.md
 ```
+
+---
+
+## Appendix S1a — the extraction's own commentary, moved here 2026-09-06
+
+This block lived as a comment above `_SQL_CLV_SIGNAL_PULL` in
+`scripts/inspect_live_db.py` and is reproduced **verbatim**, comment markers
+and all. It moved because that file crossed the 262,144-byte Read-tool
+ceiling and `tests/test_session_files_are_readable.py` went red; the guard's
+own advice is to move prose into a `docs/` file the code can cite by path,
+which is what happened. Nothing was reworded or dropped.
+
+It belongs here on the merits as well as by size: its first line says it is
+*"a transcription rather than a design"* of §S1 of this document, so this is
+the file that already owned every clause in it. The script now carries a
+pointer to this section.
+
+```
+# ---------------------------------------------------------------------------
+# The CLV signal test's registered extraction.
+# ---------------------------------------------------------------------------
+#
+# **This is §S1 of `docs/measurements/2026-08-09-preregistration-clv-signal-test.md`,
+# as amended, and it is a transcription rather than a design.** Every clause
+# below is fixed in that file. Nothing here chooses a population, a horizon or
+# a cluster key; changing any of them is an amendment to the registration, made
+# in the registration, dated, before the next look.
+#
+# Four amendments are folded in and each is load-bearing:
+#
+# **§A1 — the delimited `instr` predicate.** `suppressed_reason` is a
+# comma-joined composite of *every* check that failed, so the registered
+# `NOT IN ('stale_odds', ...)` matched neither literal on
+# `'stale_odds,wide_market'` and **retained** the row it existed to drop.
+# `instr` and not `LIKE`, because SQLite's `LIKE` treats `_` as a
+# single-character wildcard and every code in this vocabulary contains one --
+# `,staleXodds,` would match. The wrapping commas are required in both
+# directions: without them a future `stale_odds_upstream` is silently excluded.
+#
+# **§A2 — only four codes are excluded**, not "the suppressed ones":
+# `stale_odds`, `stale_kalshi_quote`, `no_commence_time`, `commence_skew`.
+# Every other code is RETAINED, including `too_few_books`, `wide_market`,
+# `edge_within_method_noise` and the `skeptic_*` family. Dropping the rows where
+# the edge estimate is least reliable is a hypothesis about the answer, and
+# `edge_within_method_noise` in particular removes a price-dependent interval
+# from the *interior* of the regressor, which moves leverage to the tails in the
+# flattering direction.
+#
+# **§A2.2 — the price bound `BETWEEN 10 AND 989`.** Without it a row outside
+# Grid A/B's range enters the pooled `beta` and appears in no bucket, so the
+# pooled number and the per-group view are computed on different populations,
+# silently.
+#
+# **§F3 — horizon 0.0 only.** ADR 0011 left two horizons in the record and
+# blending them averages two regimes.
+#
+# **The cluster key is `COALESCE(m.event_ticker, r.ticker)` and it is NOT the
+# gate's key.** ADR 0029 clusters on `odds_event_id` so a prop ladder collapses
+# onto its game; this registration predates that and clusters on the Kalshi
+# event -- the two keys differed by 68% on the 2026-08-16 record, so a `G`
+# quoted without its key is meaningless. The registered one governs here
+# because it is what the power check was computed against.
+#
+# **`half_spread_tenths` is the C2 confound, not a nicety.** `edge` and `clv`
+# are both measured against the ask, so the half-spread enters both and induces
+# a slope with no signal present. It is a *control*, and the mid is used only to
+# recover it -- never as an entry price. Rows where it is NULL are dropped by
+# the harness and counted, never imputed: that count is P1's numerator, and P1
+# refuses the primary analysis below 0.90 coverage.
+```
+

@@ -279,3 +279,57 @@ does not assume they exist:
 - **13** — revisions: both are scored, which is what this commit does by NOT
   filtering `stated_probability_is_revised` out of the scorer. Named because
   the omission is the decision.
+
+---
+
+## 11. The log screen is killed — Joe, 2026-09-05
+
+**The screen this ADR deferred is not being built.** The header says the
+Discord digest link and the log screen "are a later step and are deliberately
+not here". There is no later step: the partner proposed the kill on 2026-09-04
+and Joe confirmed it on 2026-09-05, answering question D of that day's batch
+with one word.
+
+**The reason is a measurement, not a preference.** ADR 0105 read Joe's own
+record: **0 of 27** taker hand fills went through the tool's order path in the
+ten days it was armed, and `bet_estimates` holds **≤1 row** across the study's
+whole life. Three entry designs have now been drawn for this number and none
+has ever been used. The desk is a read surface; a screen whose only job is
+data entry is the thing the record says he does not do. Building a fourth
+design would be the same bet, at the same odds, having read the result.
+
+**What this leaves in the tree, deliberately.** The write path exists end to
+end and is now unreachable by design:
+
+    logEstimate (frontend/src/lib/api.ts)   -- no UI caller
+      -> POST /log-estimate (proxy route)
+      -> POST /api/estimates (backend)
+      -> estimates.record_estimate
+
+**None of it is deleted here, and that is a decision rather than an
+oversight.** Joe killed a *screen*; deleting a backend route, its proxy, its
+auth wiring and its embargo-scoped writer is a larger change than the one he
+made, and this repo's own lesson from 2026-09-05 is that production-unreached
+and dead are different properties. The chain also carries ADR 0044's embargo
+machinery, which is the last thing to remove casually. It stays, recorded as
+unreached.
+
+**What a future session must not do:** wire this up because it looks
+half-finished. It is not half-finished — it is finished and switched off. §5.2
+of ADR 0106 has the general form of this trap; the specific one here is that
+`logEstimate` reads exactly like a function someone forgot to call. Reopening
+needs a new decision from Joe and a reason the 0-of-27 no longer holds.
+
+**What is NOT killed.** `/estimate` keeps serving the *record* — the entries
+already typed, and the revision path that repairs a fat-fingered one. That is
+history, and history is the product. `GET /api/estimates/stop` keeps serving
+the money arm to the wallet strip. The manual ticket's P(YES) precondition
+(ADR 0065 §2) is untouched and is where an estimate is actually captured
+today.
+
+**Consequently ADR 0065's 2026-09-01 amendment overstates one clause.** It
+reads *"The form returns, as a **price-free** screen reached from the Discord
+window-open digest"*. The form does not return. That sentence is superseded by
+this section; the rest of the amendment — that the estimate is no longer only
+a ticket precondition, and that calls logged outside the study are scored
+against Kalshi's close rather than the outcome — stands unchanged.

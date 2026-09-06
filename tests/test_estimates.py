@@ -1095,3 +1095,57 @@ class TestTheStudyRowFlag:
             "SELECT is_study_row FROM bet_estimates ORDER BY id DESC LIMIT 1"
         ).fetchone()
         assert row["is_study_row"] == 1
+
+
+class TestTheLogScreenStaysKilled:
+    """Joe killed #11's estimate log screen on 2026-09-05 (ADR 0094 §11).
+
+    **The write path is intact and unreachable, which is exactly what a
+    half-finished feature looks like.** `logEstimate` reads like a function
+    someone forgot to call. It was not forgotten: three entry designs have been
+    drawn for this number, `bet_estimates` holds at most one row, and ADR 0105
+    measured 0 of 27 hand fills through the tool. This pins the absence so
+    wiring it up takes a decision rather than an afternoon.
+
+    Nothing here forbids the backend route or the client function existing --
+    deleting them is a larger change than the one Joe made, and the chain
+    carries ADR 0044's embargo machinery. What is forbidden is a UI caller.
+    """
+
+    def _sources(self):
+        from pathlib import Path
+
+        src = Path(__file__).resolve().parents[1] / "frontend" / "src"
+        return [
+            p for p in src.rglob("*.tsx")
+        ]
+
+    def test_no_screen_calls_the_estimate_logger(self):
+        """Mutation observed red: call `logEstimate` from any `.tsx`."""
+        # Built at run time so this file's own mention is not the finding --
+        # the 2026-09-04 lesson about a guard that greps for a literal it
+        # contains.
+        needle = "".join(("log", "Estimate"))
+        callers = [
+            p.name for p in self._sources()
+            if needle in p.read_text(encoding="utf-8")
+        ]
+        assert not callers, (
+            f"{callers} call the estimate logger; #11's log screen was killed "
+            "by Joe on 2026-09-05 (ADR 0094 §11) and reopening it needs a new "
+            "decision, not a wiring change"
+        )
+
+    def test_the_kill_is_recorded_where_the_reader_will_look(self):
+        """The ADR that deferred the screen must be the one that says it is
+        dead, because that header is what a future session reads first."""
+        from pathlib import Path
+
+        adr = (
+            Path(__file__).resolve().parents[1] / "docs" / "adr"
+            / "0094-the-estimate-decouples-from-the-bet.md"
+        ).read_text(encoding="utf-8")
+        assert "The log screen is killed" in adr
+        assert "0 of 27" in adr, (
+            "the kill no longer carries the measurement it rests on"
+        )

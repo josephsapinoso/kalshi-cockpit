@@ -242,9 +242,15 @@ export default function Nav() {
   // next tick retries; surfacing it would put an error in the chrome of every
   // page for something the reader cannot act on and did not ask for.
   useEffect(() => {
+    // The path is read at BEAT time, not at mount: this effect has an empty
+    // dependency list on purpose (one interval for the tab's life, never torn
+    // down on navigation), so a path captured in the closure would pin every
+    // later heartbeat to whichever screen happened to be open when the tab
+    // loaded -- which is exactly the wrong answer for a column that exists to
+    // say which screen is being read now.
     const beat = () => {
       if (document.visibilityState !== "visible") return;
-      void recordAttention().catch(() => {});
+      void recordAttention(window.location.pathname).catch(() => {});
     };
     beat();
     const timer = setInterval(beat, HEARTBEAT_INTERVAL_MS);

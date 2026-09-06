@@ -128,16 +128,29 @@ class TestTheSchemaCarriesTheMirror:
         because `poll_log` already holds rows on the live volume and the file
         alone would never reach them -- so v33 is a `_MIGRATIONS` entry, and
         this test winds a database back to the version before it (table
-        dropped, column dropped, stamp decremented) and reopens. The version
-        is read from `SCHEMA_VERSION` rather than typed, for the reason
-        `test_hedge_positions` records: a hand-written number starts
-        asserting about a version two steps back the moment another lane
-        adds a table."""
+        dropped, column dropped, stamp decremented) and reopens.
+
+        **The version is 32, typed, and that is a correction made 2026-09-05.**
+        It read `SCHEMA_VERSION - 1`, citing `test_hedge_positions`' reason
+        for doing the same -- but the two tests make different claims and only
+        one of them survives the relative form. That one asserts a **tableless**
+        version: `CREATE TABLE IF NOT EXISTS` in `schema.sql` reaches an older
+        database on any open, so its claim holds from every prior version and
+        `SCHEMA_VERSION - 1` is as good as any. This one asserts a **column
+        step**: `poll_log.mirrored` exists only because migration 33 runs, and
+        winding back to `SCHEMA_VERSION - 1` stops meaning "before v33" the
+        moment a v34 exists -- which it now does. It went red on that addition,
+        having silently retargeted to a migration whose effects it does not
+        assert.
+
+        So: a test about a specific migration pins that migration's own
+        predecessor. A relative version is only safe for a claim that is true
+        of every version."""
         path = tmp_path / "previous.db"
         connection = db.init_db(path)
         connection.execute("DROP TABLE venue_positions")
         connection.execute("ALTER TABLE poll_log DROP COLUMN mirrored")
-        db._set_meta(connection, "schema_version", str(db.SCHEMA_VERSION - 1))
+        db._set_meta(connection, "schema_version", "32")
         connection.commit()
         connection.close()
 

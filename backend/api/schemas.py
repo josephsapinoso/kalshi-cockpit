@@ -63,6 +63,25 @@ class DeskPassRequest(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=500)
 
 
+class DeskAttentionRequest(BaseModel):
+    """The heartbeat's optional body: which screen was open (v34).
+
+    Every field here is **recorded and never acted on**. The sweep trigger
+    reads `last_seen_ms` and the TTL; nothing in `odds/timing.py` may branch on
+    anything in this model. That is why a body is acceptable on a route whose
+    docstring long argued it should take none -- that argument was about a
+    client-supplied *timestamp*, which is acted on, and the clock is still the
+    server's.
+
+    `max_length` is hygiene on a string that will be read back by a human, not
+    validation: `attention.normalise_path` strips a query string, refuses an
+    empty one to NULL, and truncates. The cap here is the outer bound so an
+    oversized body is refused at the edge rather than silently shortened.
+    """
+
+    path: Optional[str] = Field(default=None, max_length=200)
+
+
 class ManualOrderRequest(BaseModel):
     """What the manual ticket sends (ADR 0063). Everything is re-validated
     server-side; the two numbers the client DOES author — the price ceiling

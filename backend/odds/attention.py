@@ -60,9 +60,54 @@ from typing import Optional
 DEFAULT_ATTENTION_TTL_MS = 300_000
 
 
-def stamp(conn: sqlite3.Connection, *, now_ms: int) -> None:
-    """Record that someone has the desk open."""
-    conn.execute("INSERT INTO desk_attention (seen_ms) VALUES (?)", (now_ms,))
+#: Longest path stored. Our own routes are far shorter; anything longer is a
+#: caller that is not `Nav.tsx`, and a descriptive column is not a place to
+#: keep an unbounded string a client chose.
+MAX_PATH_CHARS = 120
+
+
+def normalise_path(raw: Optional[str]) -> Optional[str]:
+    """The path as it will be stored, or `None` when there is nothing to store.
+
+    **Everything a caller sends is untrusted and none of it is acted on**, so
+    this bounds rather than validates: a path is descriptive, is never compared
+    to anything, and never reaches a spending decision. What it must not do is
+    let an absent value and a present one become the same row.
+
+    - `None`, empty, or whitespace -> `None`. A client that predates the field
+      and one that sent `""` are the same fact -- "no screen recorded" -- and
+      neither is the path `"/"`, which is a real screen.
+    - A query string or fragment is dropped. `?ticker=...` is the row's
+      subject, not the screen, and this column answers "which screen".
+    - Truncated to `MAX_PATH_CHARS`, because the alternative is storing
+      whatever a caller sends.
+    """
+    if raw is None:
+        return None
+    path = raw.strip()
+    for cut in ("?", "#"):
+        if cut in path:
+            path = path.split(cut, 1)[0]
+    path = path.strip()
+    if not path:
+        return None
+    return path[:MAX_PATH_CHARS]
+
+
+def stamp(
+    conn: sqlite3.Connection, *, now_ms: int, path: Optional[str] = None
+) -> None:
+    """Record that someone has the desk open, and which screen they were on.
+
+    `path` defaults to `None` so every existing caller is unchanged and means
+    what it always meant. It is stored and **never read by anything that
+    spends money** -- `decide_sweeps` asks `is_attended`, which asks
+    `last_seen_ms`, which does not select this column.
+    """
+    conn.execute(
+        "INSERT INTO desk_attention (seen_ms, path) VALUES (?, ?)",
+        (now_ms, normalise_path(path)),
+    )
     conn.commit()
 
 

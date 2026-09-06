@@ -1756,9 +1756,22 @@ CREATE TABLE IF NOT EXISTS desk_passes (
 -- column: this instance serves one operator (ADR 0071 §1), and a column that
 -- is always the same value is a claim about a future that does not exist yet.
 -- That reasoning does not reach a column that varies, such as the page path.
+-- `path` (v34, 2026-09-05): which screen was open. Recorded, never acted on --
+-- the sweep trigger reads `last_seen_ms` and the TTL and must never branch on
+-- it. NULL is a client that sent none, which is a different fact from any path
+-- string and is never spelled "" or "/".
+--
+-- **The comment sits ABOVE the statement, not inside the column list, and that
+-- is load-bearing.** SQLite reconstructs a table's stored SQL when
+-- `ALTER TABLE ... DROP COLUMN` runs, and a `--` comment inside the parentheses
+-- survives into text that no longer parses: `tests/test_store.py`'s wind-back
+-- steps failed with "error in table desk_attention after drop column:
+-- incomplete input" until this moved out. Any table a migration step can drop a
+-- column from keeps its prose outside the parentheses.
 CREATE TABLE IF NOT EXISTS desk_attention (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    seen_ms     INTEGER NOT NULL
+    seen_ms     INTEGER NOT NULL,
+    path        TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_desk_attention_seen

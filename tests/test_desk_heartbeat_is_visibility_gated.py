@@ -39,6 +39,8 @@ WHAT THESE TESTS DO NOT ESTABLISH
 
 from __future__ import annotations
 
+import re
+
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -142,9 +144,42 @@ class TestTheRouteIsGatedLikeEveryOtherMutation:
         a number the caller chooses, and the only value worth choosing is a
         future one — which would hold the desk open past its own TTL.
 
-        Mutation observed red: forward a `seen_ms` from the request body.
+        **This asserted `"body: {}" in source` until 2026-09-05, and that was
+        a proxy for the real claim rather than the claim.** The property is
+        "no clock crosses this boundary"; the empty body was merely how that
+        happened to be true while the route carried no body at all. Schema v34
+        gave it one — `path`, recorded and never acted on (ADR 0094 §11's
+        sibling decision, question E) — and the old assertion went red for a
+        change that does not touch a timestamp at all.
+
+        So it now names the fields that must not appear, which is what it
+        always meant. Mutation observed red: forward a `seen_ms` from the
+        request body.
         """
-        source = ROUTE.read_text(encoding="utf-8")
-        assert "body: {}" in source
-        assert "seen_ms" not in source
-        assert "readJsonBody" not in source
+        # Comments stripped first. The route's own docstring names `now_ms`
+        # and "timestamp" while explaining why neither crosses the boundary,
+        # so a raw search finds the prose about the property instead of a
+        # violation of it -- this repo's 2026-09-05 lesson, met again within
+        # the day.
+        source = _code_only(ROUTE.read_text(encoding="utf-8"))
+        for banned in ("seen_ms", "now_ms", "Date.now(", "timestamp"):
+            assert banned not in source, (
+                f"{banned!r} appears in the heartbeat proxy; the stamp's clock "
+                "must be the server's"
+            )
+        # The body that IS forwarded carries the path and nothing else. The
+        # proxy builds it field by field rather than relaying what arrived, so
+        # a client cannot add a key by sending one -- which is what keeps the
+        # banned list above a bound on the whole body and not just on today's
+        # fields.
+        assert "body = { path: sent.path }" in source, (
+            "the heartbeat proxy no longer builds its body from the path "
+            "alone; a relayed body would let a caller add any field"
+        )
+
+
+def _code_only(ts: str) -> str:
+    """TypeScript with `/* */` and `//` comments removed, so a pin on what the
+    code does is neither satisfied nor defeated by prose about what it does."""
+    ts = re.sub(r"/\*.*?\*/", "", ts, flags=re.S)
+    return re.sub(r"//[^\n]*", "", ts)

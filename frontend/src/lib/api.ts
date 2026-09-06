@@ -2521,14 +2521,24 @@ export async function recordPass(
  * reader never made. It throws on a transport failure like any `fetch`, and
  * `Nav.tsx` swallows that deliberately.
  *
- * No body. The stamp's time is the server's `now_ms`; see the route.
+ * **The body carries the path and nothing else** (v34, question E, Joe
+ * 2026-09-05). The stamp's TIME is still the server's `now_ms` and is still
+ * never sent -- that refusal is about a value the server acts on, and a path
+ * is only recorded. `desk_attention` could previously say the desk was open
+ * and not what it was open FOR, so a dwell figure could not be split by
+ * screen.
+ *
+ * `window.location.pathname` deliberately, not `href`: the query string is
+ * the row's subject (a ticker), not the screen, and the server drops it
+ * anyway. Callers pass it in rather than this reading `window` itself, so the
+ * function stays callable from a test and from a non-browser context.
  */
-export async function recordAttention(): Promise<void> {
+export async function recordAttention(path?: string): Promise<void> {
   await fetch(`/desk-attention`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     cache: "no-store",
-    body: "{}",
+    body: JSON.stringify(path ? { path } : {}),
   });
 }
 

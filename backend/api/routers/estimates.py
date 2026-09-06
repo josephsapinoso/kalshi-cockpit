@@ -23,7 +23,12 @@ from ...config import AppConfig, ConfigError, OddsConfig
 from ...kalshi.quotes import QuoteUnavailable
 from ...odds import attention
 from ...store import db
-from ..schemas import DeskPassRequest, EstimateRequest, EstimateRevisionRequest
+from ..schemas import (
+    DeskAttentionRequest,
+    DeskPassRequest,
+    EstimateRequest,
+    EstimateRevisionRequest,
+)
 
 
 def _write_estimate(db_path, **kwargs) -> int:
@@ -235,7 +240,10 @@ def register(
         return {"recorded": True, "id": pass_id}
 
     @app.post("/api/desk/attention", dependencies=[Depends(require_auth)])
-    def record_desk_attention(conn=Depends(get_conn)) -> dict:
+    def record_desk_attention(
+        request: DeskAttentionRequest | None = None,
+        conn=Depends(get_conn),
+    ) -> dict:
         """Someone has the desk open. Auth like every mutation.
 
         **This is the input the odds feed follows** (ADR 0071 §2.6). The fixed
@@ -243,11 +251,25 @@ def register(
         a day whether or not anyone was looking; a stamp here is what now tells
         `decide_sweeps` that the ten-minute cadence is worth paying for.
 
-        **The time is the server's, never the caller's**, and the route takes no
-        body at all rather than an optional one. A client-supplied timestamp is
-        a number the caller chooses, and the only value worth choosing is a
-        future one -- which would hold the desk open past its own TTL. There is
-        nothing a body could carry that this route should trust.
+        **The time is the server's, never the caller's.** A client-supplied
+        timestamp is a number the caller chooses, and the only value worth
+        choosing is a future one -- which would hold the desk open past its own
+        TTL.
+
+        **It now takes an optional body carrying `path`, and that does not
+        weaken the paragraph above** (schema v34, question E, Joe 2026-09-05).
+        This docstring used to end "there is nothing a body could carry that
+        this route should trust", which was a sentence about the *clock*
+        wearing the clothes of a rule about bodies. The distinction that
+        matters is not trusted-vs-untrusted, it is **acted on vs recorded**:
+        the path is stored, truncated on arrival, never compared to anything,
+        and never reaches a spending decision, so an operator who lies about it
+        corrupts their own record and moves no money. A timestamp is acted on,
+        which is why it is still refused.
+
+        `path` is optional and absent means absent: a client one version behind
+        sends nothing and stores NULL, which is a different fact from any path
+        string and is never spelled `""` or `"/"`.
 
         No rate limit, deliberately. The ceiling that matters is the attention
         daily credit slice in `odds/timing.py`, which sits where the money is
@@ -258,7 +280,14 @@ def register(
         del conn  # the write path opens its own handle, below
         write_conn = db.open_db(app_config.db_path)
         try:
-            attention.stamp(write_conn, now_ms=db.now_ms())
+            # `request` is None when the body is absent entirely, which is what
+            # a client one version behind sends. Both that and a body with no
+            # `path` store NULL, and neither is an error.
+            attention.stamp(
+                write_conn,
+                now_ms=db.now_ms(),
+                path=request.path if request is not None else None,
+            )
         finally:
             write_conn.close()
         return {"recorded": True}

@@ -222,3 +222,112 @@ class TestAnArrivalIsAChangeNotAState:
         watch = attention.ArrivalWatch(conn)
         assert attention.is_attended(conn, now_ms=NOW + MIN) is True
         assert watch.arrived() is False
+
+
+class TestThePathIsRecordedAndNeverActedOn:
+    """Question E (Joe, 2026-09-05): `desk_attention.path`, schema v34.
+
+    **The separation IS the design.** A body on this route was refused for
+    years on the argument that a client-supplied value cannot be trusted. That
+    argument is about the *clock* -- a caller who sends a future timestamp
+    holds the desk open past its own TTL. A path is different in the only way
+    that matters: it is recorded and nothing branches on it, so a caller who
+    lies about it corrupts their own record and moves no money.
+
+    These tests are what keeps that true. If the path ever reaches
+    `odds/timing.py`, the untrusted-input argument comes back and the column
+    has to go.
+    """
+
+    def test_the_sweep_trigger_never_reads_the_column(self):
+        """Mutation observed red: add `path` to any SELECT in odds/timing.py.
+
+        A source pin rather than a behavioural one because the claim is about
+        what the module may *see*: a behavioural test can only show that the
+        path did not change one decision, and the claim is that it cannot
+        change any.
+        """
+        from pathlib import Path
+        import re
+
+        timing = (
+            Path(__file__).resolve().parents[1] / "backend" / "odds" / "timing.py"
+        ).read_text(encoding="utf-8")
+        code = re.sub(r"#[^\n]*", "", timing)
+        code = re.sub(r'"""(?:.|\n)*?"""', "", code)
+        assert "path" not in code, (
+            "odds/timing.py names `path` -- the sweep trigger can now see "
+            "which screen was open, which makes a client-supplied string a "
+            "spending input"
+        )
+
+    def test_last_seen_ms_selects_no_path(self):
+        """The one function the trigger reaches the table through."""
+        import inspect
+
+        from backend.odds import attention as att
+
+        assert "path" not in inspect.getsource(att.last_seen_ms)
+
+    def test_a_path_is_stored_and_read_back(self, tmp_path):
+        from backend.odds import attention as att
+        from backend.store import db as store
+
+        conn = store.init_db(tmp_path / "t.db")
+        try:
+            att.stamp(conn, now_ms=1_000, path="/slate")
+            row = conn.execute(
+                "SELECT seen_ms, path FROM desk_attention"
+            ).fetchone()
+            assert row["seen_ms"] == 1_000
+            assert row["path"] == "/slate"
+        finally:
+            conn.close()
+
+    def test_an_absent_path_is_null_and_not_a_screen(self, tmp_path):
+        """A client one version behind stores NULL. `""` and `"/"` are both
+        wrong: the second is a real screen."""
+        from backend.odds import attention as att
+        from backend.store import db as store
+
+        conn = store.init_db(tmp_path / "t.db")
+        try:
+            att.stamp(conn, now_ms=1_000)
+            att.stamp(conn, now_ms=1_001, path="   ")
+            paths = [r["path"] for r in conn.execute(
+                "SELECT path FROM desk_attention ORDER BY seen_ms"
+            )]
+            assert paths == [None, None]
+        finally:
+            conn.close()
+
+    def test_the_query_string_is_dropped(self):
+        """`?ticker=...` is the row's subject, not the screen."""
+        from backend.odds import attention as att
+
+        assert att.normalise_path("/market/KXMLB?x=1") == "/market/KXMLB"
+        assert att.normalise_path("/slate#top") == "/slate"
+
+    def test_a_long_path_is_truncated_rather_than_stored_whole(self):
+        from backend.odds import attention as att
+
+        out = att.normalise_path("/" + "a" * 500)
+        assert len(out) == att.MAX_PATH_CHARS
+
+    def test_the_heartbeat_reads_the_path_at_beat_time(self):
+        """The effect has an empty dependency list and is never torn down on
+        navigation, so a path captured in the closure would pin every later
+        heartbeat to the screen the tab was opened on. Mutation observed red:
+        hoist `window.location.pathname` above `const beat`."""
+        from pathlib import Path
+
+        nav = (
+            Path(__file__).resolve().parents[1]
+            / "frontend" / "src" / "components" / "Nav.tsx"
+        ).read_text(encoding="utf-8")
+        beat = nav[nav.index("const beat = () =>"):]
+        beat = beat[: beat.index("};")]
+        assert "window.location.pathname" in beat, (
+            "the heartbeat no longer reads the path inside the beat, so every "
+            "stamp reports the screen the tab was loaded on"
+        )

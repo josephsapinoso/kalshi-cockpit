@@ -59,7 +59,7 @@ from ..core.prices import is_valid_price
 #: from its next successful poll. No existing row is touched, and every
 #: existing row's marker is NULL, which is the truth about it: none of them
 #: kept its rows.
-SCHEMA_VERSION = 33
+SCHEMA_VERSION = 34
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -678,6 +678,34 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # Which screen was open when the heartbeat landed -- decision-map question
+    # E, approved by Joe 2026-09-05.
+    #
+    # **Recorded, never acted on, and that separation is the whole design.**
+    # `desk_attention` was `(id, seen_ms)` and could not tell a reader from a
+    # tab left open, nor say WHICH page was being read -- so the 2026-09-03
+    # dwell measurement could report that the desk was attended and nothing
+    # about what it was attended FOR. This column answers the second question
+    # only. Nothing in `odds/timing.py` may branch on it: the sweep trigger
+    # reads `last_seen_ms` and the TTL, exactly as before, and
+    # `tests/test_desk_attention.py` pins that the path never reaches a
+    # spending decision.
+    #
+    # **It is a body on a route whose docstring said it takes none, and that
+    # argument survives intact.** The refusal there is specifically about a
+    # client-supplied TIMESTAMP -- "the only value worth choosing is a future
+    # one", which would hold the desk open past its own TTL. A path is
+    # descriptive, is truncated on arrival, and is never compared to anything;
+    # an operator who lies about it corrupts their own record and moves no
+    # money. The server's `now_ms` is still the only clock.
+    #
+    # Nullable with no default and no backfill: NULL means "a client that
+    # predates the field, or one that sent nothing", which is honestly
+    # different from any path string and must not be spelled as "/" or "".
+    # Metadata-only; dropping the column is the whole undo.
+    34: _Migration(
+        columns=(("desk_attention", "path", "TEXT"),),
+    ),
     # The positions mirror's marker on `poll_log` -- ADR DRAFT-the-positions-
     # the-poller-discarded-are-recorded. The table itself (`venue_positions`)
     # needs no step: `schema.sql`'s `CREATE TABLE IF NOT EXISTS` reaches an
