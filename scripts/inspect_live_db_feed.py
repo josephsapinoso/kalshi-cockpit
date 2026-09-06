@@ -1,7 +1,8 @@
 """The odds feed: what it bought, when it swept, and how fresh it was.
 
-Queries: `credits-tail`, `credits-day`, `credits-month`, `sweep-log`,
-`prune-frontier`, `window-freshness`, `book-rows`, `visit-freshness`.
+Queries: `credits-tail`, `credits-day`, `credits-month`, `credits-reset`,
+`credits-by-sport`, `credits-rate`, `sweep-log`, `prune-frontier`,
+`window-freshness`, `book-rows`, `visit-freshness`.
 
 One domain, read in one direction: money out (`api_credits`), passes taken
 (`odds_sweep_log`), rows kept (`kalshi_quotes` and its prune frontier), and
@@ -845,4 +846,306 @@ def _q_visit_freshness(conn: sqlite3.Connection, args) -> list[Section]:
         _window_section("visit window", since_ms, None),
         per_visit,
         summary,
+    ]
+# ---------------------------------------------------------------------------
+# Three queries about the bill that `credits-day` and `credits-month` cannot
+# answer, added 2026-09-06 from a lane that had to run them as ad-hoc SQL.
+# ---------------------------------------------------------------------------
+#
+# **The first one is a correctness gap, not a convenience.** `credits-month`
+# reports MIN/MAX of `remaining_reported` and `used_reported` over the UTC
+# calendar month. The Odds API's billing period is NOT the calendar month, so
+# the window straddles a reset: on 2026-09-05 the query reported a max
+# `used_reported` of 5,016 that had stopped describing the current period,
+# and a reader nearly took it as month-to-date consumption. Nothing on the
+# screen said a reset had happened, because nothing looked.
+#
+# `credits-reset` looks. It is deliberately a SEPARATE query rather than a
+# section bolted onto `credits-month`: the reset is a fact about the account,
+# `credits-month` is a fact about a window, and a reader who wants one is
+# usually not asking the other. What `credits-month` gains is a name to cite
+# when its numbers look wrong.
+
+#: The reset detector's population. `used_reported` is nullable -- a response
+#: whose header we could not read writes NULL -- and a NULL must not be read
+#: as zero, which would manufacture an enormous fake drop on the next row. So
+#: the LAG is taken over readable rows only, and the query says so by naming
+#: the filter in its own column list rather than hiding it in a WHERE.
+#:
+#: **Why the threshold is `> cost` and not `> 0`.** `used_reported` is a
+#: counter the vendor increments; two of our calls in flight at once can come
+#: back with headers in the other order, so a one- or two-credit backwards
+#: step is jitter rather than a reset. A genuine period roll drops the counter
+#: by the whole period's consumption, which is orders of magnitude above any
+#: row's own cost. Bounding at the row's own cost excludes the jitter without
+#: putting a tunable number in the instrument.
+_SQL_CREDITS_RESET = (
+    "WITH readable AS ("
+    "  SELECT id, called_ms, endpoint, sport_key, cost, remaining_reported, "
+    "         used_reported, \"trigger\" "
+    "  FROM api_credits WHERE used_reported IS NOT NULL "
+    "), paired AS ("
+    "  SELECT called_ms, endpoint, sport_key, cost, remaining_reported, "
+    "         used_reported, \"trigger\", "
+    "         LAG(called_ms) OVER w AS prev_called_ms, "
+    "         LAG(used_reported) OVER w AS prev_used_reported, "
+    "         LAG(remaining_reported) OVER w AS prev_remaining_reported "
+    "  FROM readable WINDOW w AS (ORDER BY called_ms, id) "
+    ") SELECT prev_called_ms, called_ms, prev_used_reported, used_reported, "
+    "  prev_used_reported - used_reported AS used_dropped_by, cost, "
+    "  prev_remaining_reported, remaining_reported, "
+    "  remaining_reported - prev_remaining_reported AS remaining_jumped_by, "
+    "  endpoint, sport_key, \"trigger\" "
+    "FROM paired "
+    "WHERE prev_used_reported IS NOT NULL "
+    "  AND prev_used_reported - used_reported > cost "
+    "ORDER BY called_ms DESC"
+)
+
+#: The readable/unreadable split, printed beside the resets.
+#:
+#: Without it a zero-row result is ambiguous in the direction that flatters:
+#: "no reset happened" and "every header in the window was unreadable, so the
+#: detector had nothing to pair" print identically.
+_SQL_CREDITS_RESET_COVERAGE = (
+    "SELECT COUNT(*) AS rows_total, "
+    "SUM(CASE WHEN used_reported IS NULL THEN 1 ELSE 0 END) AS used_null, "
+    "SUM(CASE WHEN remaining_reported IS NULL THEN 1 ELSE 0 END) "
+    "  AS remaining_null, "
+    "MIN(called_ms) AS first_ms, MAX(called_ms) AS last_ms "
+    "FROM api_credits"
+)
+
+#: Budget day x sport, so CLAUDE.md's largest-contributor rule can be met
+#: without dumping every row.
+#:
+#: The day label is computed the same way `--date` is parsed: shift by the
+#: budget day's start hour, then take the UTC calendar date of the shifted
+#: instant. A call at 03:00Z on the 28th falls in budget day 20260827 under
+#: the default 10:00Z boundary, which is the whole point of the boundary.
+_SQL_CREDITS_BY_SPORT = (
+    "SELECT strftime('%Y%m%d', (called_ms - :offset_ms) / 1000, 'unixepoch') "
+    "         AS budget_day, "
+    "       COALESCE(sport_key, '(none)') AS sport_key, "
+    "       COUNT(*) AS calls, SUM(cost) AS cost, "
+    "       MIN(called_ms) AS first_ms, MAX(called_ms) AS last_ms "
+    "FROM api_credits WHERE called_ms >= :since_ms "
+    "GROUP BY budget_day, sport_key "
+    "ORDER BY budget_day DESC, cost DESC"
+)
+
+#: The day totals, with the largest sport NAMED beside them.
+#:
+#: **No share is computed here, deliberately.** `day_cost` and
+#: `top_sport_cost` are printed as two numbers and the reader divides. A ratio
+#: would be a derived quantity, and this module's rule is that derived
+#: quantities belong to an analyzer -- naming the largest contributor and its
+#: absolute cost satisfies CLAUDE.md's rule (the parts are on the screen
+#: beside the aggregate) without printing one.
+_SQL_CREDITS_BY_SPORT_DAYS = (
+    "WITH per AS ("
+    "  SELECT strftime('%Y%m%d', (called_ms - :offset_ms) / 1000, 'unixepoch') "
+    "           AS budget_day, "
+    "         COALESCE(sport_key, '(none)') AS sport_key, "
+    "         COUNT(*) AS calls, SUM(cost) AS cost "
+    "  FROM api_credits WHERE called_ms >= :since_ms "
+    "  GROUP BY budget_day, sport_key "
+    ") SELECT budget_day, SUM(calls) AS day_calls, SUM(cost) AS day_cost, "
+    "  COUNT(*) AS sports, "
+    "  (SELECT p2.sport_key FROM per p2 WHERE p2.budget_day = per.budget_day "
+    "     ORDER BY p2.cost DESC, p2.sport_key LIMIT 1) AS top_sport, "
+    "  (SELECT MAX(p3.cost) FROM per p3 WHERE p3.budget_day = per.budget_day) "
+    "    AS top_sport_cost "
+    "FROM per GROUP BY budget_day ORDER BY budget_day DESC"
+)
+
+#: Calls per clock hour per sport. The cadence ceiling, made visible.
+#:
+#: A ten-minute cadence is six calls an hour and cannot be more; a row at 6
+#: is a sport that spent the whole hour at the cadence, and a row above 6
+#: means something other than the cadence was also buying. Hours with no call
+#: produce no row -- absence of a row is absence of a call, and the coverage
+#: section below is what stops that reading as a quiet hour when it was a
+#: dead recorder.
+_SQL_CREDITS_RATE = (
+    "SELECT strftime('%Y-%m-%dT%H:00Z', called_ms / 1000, 'unixepoch') "
+    "         AS hour_utc, "
+    "       COALESCE(sport_key, '(none)') AS sport_key, "
+    "       COUNT(*) AS calls, SUM(cost) AS cost, "
+    "       MIN(called_ms) AS first_ms, MAX(called_ms) AS last_ms "
+    "FROM api_credits WHERE called_ms >= :since_ms "
+    "GROUP BY hour_utc, sport_key "
+    "ORDER BY hour_utc DESC, calls DESC"
+)
+
+#: The busiest hour each sport ever reached inside the window.
+#:
+#: MAX only. A mean would be a derived quantity over a denominator (hours
+#: with no row) this query cannot see.
+_SQL_CREDITS_RATE_PEAK = (
+    "WITH per AS ("
+    "  SELECT strftime('%Y-%m-%dT%H:00Z', called_ms / 1000, 'unixepoch') "
+    "           AS hour_utc, "
+    "         COALESCE(sport_key, '(none)') AS sport_key, COUNT(*) AS calls "
+    "  FROM api_credits WHERE called_ms >= :since_ms "
+    "  GROUP BY hour_utc, sport_key "
+    ") SELECT sport_key, COUNT(*) AS hours_with_calls, "
+    "  MAX(calls) AS peak_calls_in_an_hour, SUM(calls) AS calls_total "
+    "FROM per GROUP BY sport_key ORDER BY peak_calls_in_an_hour DESC, sport_key"
+)
+
+
+def _credits_window_ms(args) -> int:
+    """`--since` for the credit queries, as epoch ms.
+
+    Shares the flag with `visit-freshness` and therefore its default: the
+    last seven budget days. Spelled as its own function rather than reusing
+    `_parse_since_ms` under a different name so the error message names the
+    query the caller actually ran.
+    """
+    return _parse_since_ms(args.since, args.day_start_hour)
+
+
+def _q_credits_reset(conn: sqlite3.Connection, args) -> list[Section]:
+    """Where `used_reported` went backwards, and what `remaining_reported` did.
+
+    Two sections. Section A is every consecutive pair whose `used_reported`
+    fell by more than the later row's own cost; section B is the coverage that
+    makes an empty section A readable.
+
+    **Reading the pair.** A billing-period roll and a tier purchase both raise
+    `remaining_reported`, and they are told apart by what `used_reported` did:
+
+        used -> ~0, remaining -> the tier      a period roll
+        used unchanged, remaining jumps        credits were bought
+        used falls, remaining unchanged        neither; suspect the header
+
+    What this does not establish
+    ----------------------------
+    - **Nothing about the billing period's boundaries.** It reports the
+      instants either side of a drop. The vendor's period start is not in this
+      database at all, and two consecutive rows can be hours apart, so the
+      drop is located to an interval and never to a moment.
+    - **Nothing about the cause.** The third row of the table above is a
+      residual, not a diagnosis.
+    - **Nothing about drops the recorder never saw.** A reset that happened
+      while no call was made leaves no pair to compare, and a reset inside a
+      run of unreadable headers is invisible for the same reason -- which is
+      what section B's null counts are for.
+    """
+    resets = _fetch(
+        conn,
+        _SQL_CREDITS_RESET,
+        {},
+        title="A. consecutive rows where used_reported fell by more than the "
+              "later row's own cost",
+        cap=args.limit,
+    )
+    resets = _derive_iso(resets, "prev_called_ms", "prev_called_iso")
+    resets = _derive_iso(resets, "called_ms", "called_iso")
+    coverage = _fetch(
+        conn,
+        _SQL_CREDITS_RESET_COVERAGE,
+        {},
+        title="B. coverage -- an empty section A means nothing without this",
+        cap=args.limit,
+    )
+    coverage = _derive_iso(coverage, "first_ms", "first_iso")
+    return [resets, _derive_iso(coverage, "last_ms", "last_iso")]
+
+
+def _q_credits_by_sport(conn: sqlite3.Connection, args) -> list[Section]:
+    """Cost per budget day per sport, and each day's largest contributor.
+
+    Written because CLAUDE.md forbids a pooled number without its parts, and
+    the only way to get the parts was `credits-day` on one day at a time or a
+    dump of every row.
+
+    What this does not establish
+    ----------------------------
+    - **Nothing about refused sweeps.** `api_credits` is written when an HTTP
+      call was made. A day that spent nothing because every sweep was refused
+      looks exactly like a day with no fixtures; `sweep-log` separates them.
+    - **Nothing about which sport CAUSED a day's total.** `sport_key` is the
+      sport a call was made for, not an attribution of the decision to make
+      it: a windowed sport and an attended one buy under the same key.
+    - **No share is printed**, on purpose. Section B carries `day_cost` and
+      `top_sport_cost` side by side; the division is the reader's.
+    """
+    since_ms = _credits_window_ms(args)
+    params = {
+        "since_ms": since_ms,
+        "offset_ms": args.day_start_hour * 3_600_000,
+    }
+    rows = _fetch(
+        conn,
+        _SQL_CREDITS_BY_SPORT,
+        params,
+        title="A. cost per budget day per sport, newest day first",
+        cap=args.limit,
+    )
+    rows = _derive_iso(rows, "first_ms", "first_iso")
+    rows = _derive_iso(rows, "last_ms", "last_iso")
+    days = _fetch(
+        conn,
+        _SQL_CREDITS_BY_SPORT_DAYS,
+        params,
+        title="B. day totals with the largest sport named (no share computed)",
+        cap=args.limit,
+    )
+    return [
+        _window_section(
+            f"credits window (budget day starts {args.day_start_hour:02d}:00Z)",
+            since_ms,
+            None,
+        ),
+        rows,
+        days,
+    ]
+
+
+def _q_credits_rate(conn: sqlite3.Connection, args) -> list[Section]:
+    """Calls per clock hour per sport, and the busiest hour each one reached.
+
+    The cadence ceiling made visible. The attention branch buys on a
+    ten-minute cadence, which is six calls an hour and cannot be more, so a
+    sport sitting at 6 spent the whole hour attended and a sport above 6 had
+    something else buying for it as well.
+
+    Hours are UTC clock hours, NOT budget days: the question is a rate, and a
+    rate measured across a boundary that moves with a flag is not one.
+
+    What this does not establish
+    ----------------------------
+    - **Nothing about hours with no calls.** They produce no row. An absent
+      hour is an absent call and may be a correctly idle floor, a spent
+      slice, or a dead recorder -- `sweep-log` and `pass-gaps` are the two
+      queries that tell those apart.
+    - **Nothing about cost per call.** `cost` is `len(markets) x
+      len(regions)`, so a rate in calls and a rate in credits are different
+      numbers and both are printed rather than one being derived.
+    - **No mean.** The denominator would be hours this query cannot see.
+    """
+    since_ms = _credits_window_ms(args)
+    params = {"since_ms": since_ms}
+    rows = _fetch(
+        conn,
+        _SQL_CREDITS_RATE,
+        params,
+        title="A. calls per UTC hour per sport, newest first",
+        cap=args.limit,
+    )
+    rows = _derive_iso(rows, "first_ms", "first_iso")
+    rows = _derive_iso(rows, "last_ms", "last_iso")
+    peak = _fetch(
+        conn,
+        _SQL_CREDITS_RATE_PEAK,
+        params,
+        title="B. busiest hour reached per sport (6 = the ten-minute cadence)",
+        cap=args.limit,
+    )
+    return [
+        _window_section("credits window", since_ms, None),
+        rows,
+        peak,
     ]

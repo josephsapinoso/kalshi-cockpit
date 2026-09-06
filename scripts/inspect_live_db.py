@@ -213,6 +213,7 @@ from inspect_live_db_decisions import (  # noqa: E402,F401
     _q_clv_signal_pull,
     _q_decision_dump,
     _q_events_for_pull,
+    _q_fair_prices_by_market,
     _q_kalshi_quotes_band,
     _q_prop_bookmakers,
     _q_prop_rungs,
@@ -227,8 +228,11 @@ from inspect_live_db_feed import (  # noqa: E402,F401
     _VISIT_SINCE_DEFAULT_DAYS,
     _cluster_visits,
     _q_book_rows,
+    _q_credits_by_sport,
     _q_credits_day,
     _q_credits_month,
+    _q_credits_rate,
+    _q_credits_reset,
     _q_credits_tail,
     _q_prune_frontier,
     _q_sweep_log,
@@ -301,8 +305,39 @@ QUERIES: dict[str, QueryDef] = {
     ),
     "credits-month": QueryDef(
         "Month-to-date summed cost, and MIN/MAX of remaining_reported and "
-        "used_reported, over the UTC calendar month.",
+        "used_reported, over the UTC calendar month. The vendor's billing "
+        "period is NOT the calendar month, so this window can straddle a "
+        "reset and its MAX then describes a period that has ended -- run "
+        "credits-reset before quoting either extreme.",
         _q_credits_month,
+    ),
+    "credits-reset": QueryDef(
+        "Consecutive api_credits rows where used_reported fell by more than "
+        "the later row's own cost, with what remaining_reported did across "
+        "the same pair -- which is what tells a billing-period roll from a "
+        "tier purchase. Section B is the readable/unreadable split, without "
+        "which an empty section A cannot be read. Exists because "
+        "credits-month reported a max of 5,016 that no longer described the "
+        "current period and nothing on the screen said so.",
+        _q_credits_reset,
+    ),
+    "credits-by-sport": QueryDef(
+        "Cost and call count per budget day per sport_key (--since YYYYMMDD, "
+        "default the last 7 days; --day-start-hour sets the boundary), then "
+        "day totals with the largest sport NAMED beside them. Satisfies "
+        "CLAUDE.md's largest-contributor rule without dumping every row. No "
+        "share is computed: day_cost and top_sport_cost are printed side by "
+        "side and the division is the reader's.",
+        _q_credits_by_sport,
+    ),
+    "credits-rate": QueryDef(
+        "Calls and cost per UTC clock hour per sport (--since), then the "
+        "busiest hour each sport reached. The ten-minute attention cadence "
+        "is six calls an hour and cannot be more, so 6 is a fully attended "
+        "hour and above 6 is something else buying too. Hours with no call "
+        "produce no row; sweep-log and pass-gaps separate an idle floor from "
+        "a dead recorder.",
+        _q_credits_rate,
     ),
     "sweep-log": QueryDef(
         "odds_sweep_log: COUNT and pass_ms range grouped by outcome, then the "
@@ -415,6 +450,18 @@ QUERIES: dict[str, QueryDef] = {
         "fetched_ms range. Answers: does any EU book quote props, or is half "
         "of every 20-credit prop event buying nothing?",
         _q_prop_bookmakers,
+    ),
+    "fair-prices-by-market": QueryDef(
+        "Is a bought input actually consumed at runtime? Section A is what "
+        "was BOUGHT (odds_snapshots by market, per book per outcome), "
+        "section B what was CONSUMED (fair_prices by market, per devigged "
+        "outcome), each with its row count, distinct keys and computed_ms "
+        "range. A market in A and absent from B is a line item with no "
+        "reader -- this is what settled whether the `spreads` half of "
+        "ODDS_MARKETS reaches a decision. Read last_ms, not just the count: "
+        "a large count whose newest row is weeks old is a path that stopped "
+        "running. No ratio between the sections; their row grains differ.",
+        _q_fair_prices_by_market,
     ),
     "prop-rungs": QueryDef(
         "Raw player-prop rungs at the latest sweep per fixture, one row per "
@@ -626,8 +673,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--since",
         default=None,
         help=(
-            "visit-freshness: first budget day to read, as YYYYMMDD "
-            f"(default: the last {_VISIT_SINCE_DEFAULT_DAYS} days)"
+            "visit-freshness, credits-by-sport, credits-rate: first budget "
+            "day to read, as YYYYMMDD (default: the last "
+            f"{_VISIT_SINCE_DEFAULT_DAYS} days)"
         ),
     )
     parser.add_argument(

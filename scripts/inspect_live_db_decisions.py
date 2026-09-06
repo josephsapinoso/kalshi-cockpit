@@ -3,7 +3,7 @@
 Queries: `decision-dump`, `actionable-audit`, `clv-signal-pull`,
 `clv-coverage`, `results-for-pull`, `events-for-pull`,
 `closing-lines-for-pull`, `series`, `prop-bookmakers`, `prop-rungs`,
-`kalshi-quotes-band`.
+`kalshi-quotes-band`, `fair-prices-by-market`.
 
 Everything the strategy wrote down and everything used to judge it. Two
 properties travel with the whole module and neither may be relaxed: these
@@ -1221,3 +1221,95 @@ def _q_kalshi_quotes_band(conn: sqlite3.Connection, args) -> list[Section]:
             "true_start_iso",
         ),
     ]
+# ---------------------------------------------------------------------------
+# fair-prices-by-market: is a bought input actually consumed at runtime?
+# ---------------------------------------------------------------------------
+#
+# **The general form of a question this repo keeps asking one instance at a
+# time.** `ODDS_MARKETS` went from `h2h` to `h2h,spreads` on 2026-08-23 and
+# doubled the per-sweep cost. Nothing on the machine could say whether the
+# second half was read by anything -- the money leaves through
+# `api_credits`, the rows land in `odds_snapshots`, and whether they reach a
+# decision is a question about `fair_prices`, which no inspector query
+# touched. It was settled on 2026-09-05 by ad-hoc SQL over ssh, which is the
+# "smuggle the code in with the question" drift this file exists to replace.
+#
+# The two sections are the point, and neither is the answer on its own: A is
+# what was BOUGHT (`odds_snapshots`, one row per book-outcome we paid for) and
+# B is what was CONSUMED (`fair_prices`, one row per devigged outcome the
+# strategy could act on). A market in A and absent from B is a line item with
+# no reader.
+#
+# **This is a census and not an estimate.** Both sections are exhaustive
+# `COUNT(*)` over a fixed snapshot grouped by one key -- no sample, no null,
+# no standard error -- and no ratio between them is printed. The comparison is
+# made by the reader, with both denominators on the screen.
+
+_SQL_FAIR_PRICES_BY_MARKET = (
+    "SELECT market, COUNT(*) AS rows_n, "
+    "COUNT(DISTINCT link_id) AS links, "
+    "MIN(computed_ms) AS first_ms, MAX(computed_ms) AS last_ms "
+    "FROM fair_prices GROUP BY market ORDER BY rows_n DESC, market"
+)
+
+_SQL_ODDS_SNAPSHOTS_BY_MARKET = (
+    "SELECT market, COUNT(*) AS rows_n, "
+    "COUNT(DISTINCT odds_event_id) AS fixtures, "
+    "COUNT(DISTINCT bookmaker) AS books, "
+    "MIN(fetched_ms) AS first_ms, MAX(fetched_ms) AS last_ms "
+    "FROM odds_snapshots GROUP BY market ORDER BY rows_n DESC, market"
+)
+
+
+def _q_fair_prices_by_market(conn: sqlite3.Connection, args) -> list[Section]:
+    """What the feed bought, beside what the strategy actually consumed.
+
+    Section A is `odds_snapshots` by `market` -- every book-outcome the odds
+    feed was paid for. Section B is `fair_prices` by `market` -- every
+    devigged outcome a recommendation could have been built on. A market
+    present in A and absent from B is an input bought and read by nothing.
+
+    **Read the clocks, not just the counts.** `last_ms` is the answer to "is
+    it consumed *now*": a market with millions of rows whose newest is three
+    weeks old was consumed by a code path that has since stopped running, and
+    a count alone reports that as healthy.
+
+    What this does not establish
+    ----------------------------
+    - **Nothing about cost.** `market` here is the Odds API market key; what
+      a sweep was billed is `api_credits.cost`, and the two are joined by
+      nobody. `credits-by-sport` is the money side.
+    - **Nothing about a market being USEFUL.** A row in `fair_prices` means a
+      fair value was computed, not that it reached a recommendation, not that
+      the recommendation survived suppression, and not that the number was
+      any good. This is a reachability check, and reachability is the
+      weakest of those four claims.
+    - **Nothing about retention.** `odds_snapshots` and `fair_prices` are
+      pruned on different schedules, so `first_ms` is where the surviving
+      record starts and not where the feed started. Do not read a later
+      `first_ms` in one section as a later start.
+    - **No ratio between the sections**, deliberately. They have different
+      row grains -- A is per book per outcome, B is per devigged outcome --
+      so their counts are not comparable and dividing them would invent a
+      quantity neither table supports.
+    """
+    bought = _fetch(
+        conn,
+        _SQL_ODDS_SNAPSHOTS_BY_MARKET,
+        (),
+        title="A. BOUGHT -- odds_snapshots by market (per book, per outcome)",
+        cap=args.limit,
+    )
+    bought = _derive_iso(bought, "first_ms", "first_iso")
+    bought = _derive_iso(bought, "last_ms", "last_iso")
+
+    consumed = _fetch(
+        conn,
+        _SQL_FAIR_PRICES_BY_MARKET,
+        (),
+        title="B. CONSUMED -- fair_prices by market (per devigged outcome)",
+        cap=args.limit,
+    )
+    consumed = _derive_iso(consumed, "first_ms", "first_iso")
+    consumed = _derive_iso(consumed, "last_ms", "last_iso")
+    return [bought, consumed]
