@@ -203,14 +203,16 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-05 (latest) — ticket #24 and Lane A2 both built and deployed; the parlay-performance question is scoped and blocked; the dead-code list goes from nine to three
+## 2026-09-05 (latest) — #24, Lane A2, the money-arm predicate and the agent wire fixture all built and deployed; the parlay question is scoped and blocked; two briefs were partly wrong and the corrections are the substance
 
-**STATE, verified at close:** `main` = `39e912b`, pushed. **CI green**
-(run 33998498987; `Tests + warehouse`, `Secret scan`, `Frontend` all
-success). **Live and demo are both `39e912b`** — demo run 33998860888, live
-run 33998949826, both `/api/health` ok with the sha matching and the live
-recorder 42s fresh. Full suite on the final tree: **6,130 passed, 10 xfailed,
-0 failed** (11m56s), `ruff` and `npx tsc --noEmit` clean, `next build` green.
+**STATE, verified at close:** `main` = `aa25bbf`, pushed. **CI green**
+(run 34001824759; `Tests + warehouse`, `Secret scan`, `Frontend` all
+success). **Live and demo are both `aa25bbf`** — demo run 34002186262, live
+run 34002260298, both `/api/health` ok with the sha matching and the live
+recorder 38s fresh; `GET /api/estimates/stop` re-read on demo after its
+rewrite and still serving the tri-state (`"stopped": null` against a null
+loss). Full suite on the final tree: **6,144 passed, 10 xfailed,
+0 failed** (9m30s), `ruff` and `npx tsc --noEmit` clean, `next build` green.
 Under it: `e8f409f` (the #24 records), `dd7533c` (ticket #24), `6a1d1e0` (the
 backlog entry and the audit corrections), on `ed95fa6`.
 
@@ -390,19 +392,52 @@ fixture running before every test read as having no caller.**
    substring test cannot tell a mention in a live branch from one in a dead
    branch. **9 of its 13 fail against the pre-fix component** — that, not the
    green run, is the evidence it catches the defect.
-2. **The three duplicate-spelling predicates** — `study_stop_fired`,
-   `loop_failures_since`, `seen_at_least_once_since`. The reason is not the
-   ~9KB: each is one predicate with two or three spellings, and the second is
-   what the screen and inspector use. `GET /api/estimates/stop` re-spells the
-   money-arm comparison inline, and `study_stop_fired`'s docstring claims a
-   write-path refusal that was removed.
-3. **The scout Anthropic fixture** (ADR 0106 §5.2). `scout.py` is live on the
-   billed path with eight briefings behind it. The sharp finding:
-   `parsed_output` is a `@property` walking `content` blocks, and every
-   existing stub sets it **directly on the response object**, bypassing the
-   property — so those tests are decoration. **Do not pay for a capture**;
-   round-trip through the installed SDK's own pydantic models. A real capture
-   is a separate ask.
+2. ~~**The three duplicate-spelling predicates.**~~ **Done 2026-09-05
+   (`aa25bbf`, deployed), and ONE of the three was one.** Audited rather than
+   taken on the framing:
+
+   - **`study_stop_fired` was the case.** `GET /api/estimates/stop` spelled
+     `None if loss is None else loss >= STUDY_LOSS_CEILING_DOLLARS` inline
+     while the named function — identical tri-state — ran nowhere, so the
+     registered ceiling had two live spellings and only the anonymous one was
+     served. The route calls it now. Its docstring also claimed the write path
+     still refuses on it, false since ticket #11 (ADR 0044 Amendment 3).
+   - **`loop_failures_since` was not.** No production caller, but it is the
+     reader six assertions use to verify `record_loop_failure`, which is live
+     — production-unreached and load-bearing, `reset_walk_alarm`'s standing.
+     The inspector's read of that table is a DESC tail with no lower bound: a
+     different question.
+   - **`seen_at_least_once_since` was not.** A declared instrument whose
+     docstring says nothing calls it and why, like `alerts.check_fee`. What
+     WAS wrong: it claimed "nobody has measured it", and the dwell read was
+     taken 2026-09-03 by the inspector's `visit-freshness`.
+
+   `inspect_live_db.py`'s third implementation of the money arm is deliberate
+   and pinned equal by `tests/test_study_stop_query.py`; left alone. **A
+   guarded second implementation of a registered formula is a cross-check; an
+   unguarded one is the bug** — that is the line the audit turned on.
+3. **The scout Anthropic fixture (ADR 0106 §5.2) — NARROWED, still open.**
+   `tests/fixtures/anthropic_scout_{report,refusal}.json` now exist, built for
+   zero dollars by `scripts/build_agent_wire_fixture.py`, and
+   `tests/test_agent_wire_format.py` drives them through the SDK's own
+   `Message.model_validate` and `parse_response`. **They are SDK-derived, not
+   captured, so §5.2 stays open** — the SDK's models are our belief about the
+   wire and a fixture generated from them cannot falsify it. A real capture
+   still costs a real call on the billed path; that is the remaining ask.
+
+   **Writing it found a live defect, which is the part to carry.**
+   `base.py`'s refusal branch is **unreachable**: `messages.parse` parses
+   content with no regard for `stop_reason`, so a refusal raises
+   `ValidationError` inside `.parse()` and the `Message` never comes back —
+   the call is billed and its token count dies with it. `ValidationError` is
+   now caught apart from a transport failure (the two differ in the one way
+   the meter cares about); the count is not recoverable without
+   reimplementing the SDK's `output_format` → JSON-schema transformation.
+   The dormant branch is kept and says it is dormant.
+
+   The old stubs could never have found this: both assign
+   `self.parsed_output = parsed` over a **property**, so the SDK's parsing had
+   never run in this repo at all.
 4. **Three ADR 0107 refusals that must not be upgraded by a later reader** —
    the unit of `market_exposure_dollars`, the NO-side sign convention, and
    "before fees" as a label. **Not a queue item**: it is a trigger on Joe

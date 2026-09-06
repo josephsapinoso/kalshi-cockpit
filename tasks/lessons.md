@@ -69,6 +69,97 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-05 - A stub that assigns over a property tests the assignment; the SDK's own parser is the only thing that runs the SDK's parsing
+
+Two test files stubbed an LLM response with `self.parsed_output = parsed` on a
+bare object. `parsed_output` on the real type is a **property** that walks the
+message's content blocks for the first one carrying a parsed value. So the
+property never ran, no content block was ever constructed, and the JSON was
+never validated against our own output model -- the tests asserted that
+production code can read an attribute the test had just set, and would have
+passed against a client library whose parsing was completely broken.
+
+Rebuilding the object the way the library builds it -- validate the wire dict
+into the library's message model, then call the same parse helper the client
+calls -- made three things run for the first time: the library's schema
+validation of the envelope, its parsing of the payload against our model, and
+the property. The first draft of the fixture was then **rejected** for
+omitting a required counter nested two levels into the usage block, which is
+exactly the class of error a hand-written stub carries forever.
+
+**Pattern: when you stub a third-party response, construct it through the
+library's own constructor or parser, never by setting attributes on a fake.
+Anything computed -- a property, a validator, a discriminated union -- is
+precisely what a hand-built stub skips, and it is precisely the part you did
+not write and therefore cannot reason about.** The tell is a stub that assigns
+to a name you never see assigned in the library's own source.
+
+**And a fixture built from the library is not a capture, so say which you
+have.** The library's models are a *belief* about the wire; a fixture derived
+from them cannot falsify that belief, and if the library drifts from the
+service the fixture drifts with it and every test stays green. It is a much
+better stub and it is not evidence about the wire. Record the difference where
+the fixture lives, or the next reader closes the gap on paper.
+
+## 2026-09-05 - An error handler ordered after a call that raises is not an ordering, it is dead code with a comment explaining it
+
+Production code read: call the client's parsing helper inside `try`, then
+check the response's `stop_reason` for a safety refusal "before touching the
+parsed output". The comment described a real hazard and a sensible order. The
+order never happens. The helper parses every content block with no regard for
+`stop_reason`, so a refusal -- whose content deliberately does not match the
+schema -- raises inside the call, is caught by the broad `except` above, and
+the refusal branch below is unreachable. The consequence landed on the meter:
+the request succeeded and was billed, and the token counts live on the
+response object that was never returned, so the row settles with no usage.
+
+It was found by writing a test to what the comment claimed and watching it
+fail.
+
+**Pattern: a guard placed after a fallible call only guards if that call can
+reach it. Before trusting an ordering comment, ask what the preceding line
+does on the input the guard is for -- and when the guard's own input is the
+thing that makes the preceding line throw, the guard is decoration.** The
+fix is not always to move the guard: reproducing the library's request
+transformation to get the object earlier would have been a second
+implementation of the library. Catching the specific exception apart from the
+generic one, and recording what is unrecoverable and why, is the honest floor.
+
+**The corollary about broad excepts.** `except Exception` around a call that
+does two jobs -- transport and parsing -- collapses "we never spent anything"
+and "we spent money and got something unusable" into one log line. Those are
+different facts to anyone counting money. Split the handler by the distinction
+that matters downstream, not by what is convenient to catch.
+
+## 2026-09-05 - Audit each item of a list you were handed; "three of X" is a claim about all three
+
+A brief named three symbols as instances of one defect -- a predicate with a
+second, live spelling -- and recommended acting on all three. Checked
+individually: one was the defect; one was production-unreached but is the
+reader the test suite uses to observe a live writer; one was a declared
+instrument whose own docstring records that nothing calls it and why. Acting
+on the list as given would have deleted or "fixed" two things that were
+already correct, and the wrongness was invisible from the list itself because
+the list was a summary.
+
+The same audit found what the summary had missed: two of the three carried a
+*different* defect -- docstrings asserting states that had since changed --
+which is worth more than the framing that led there.
+
+**Pattern: a list of N instances is N claims. Verify each against the code
+before acting on any, and expect the ones that fail verification to be
+carrying some other defect instead -- whatever made them look like the pattern
+usually is something.** Report which held and which did not, in the record,
+because the next reader inherits the list and not the check.
+
+**And the distinction that keeps recurring: a second implementation is a
+cross-check when it is guarded and a bug when it is not.** The same repo held
+a deliberate third spelling of the same formula -- in a script that imports
+nothing from the package by design, with a test asserting the two agree on
+every value including the refusals. That one is load-bearing. The unguarded
+inline one, in the route that actually served the number, was the defect.
+Count guards, not spellings.
+
 ## 2026-09-05 - Run a new guard against the code before the fix; a green suite proves the test agrees with the fix, not that it would have caught the defect
 
 Thirteen tests were written for a screen defect and all thirteen passed. That
