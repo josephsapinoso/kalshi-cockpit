@@ -37,10 +37,30 @@ complete, or that anything in them is true. It checks one thing — that a file
 a session may be told to read is physically openable.
 
 Size is measured on the working tree, because that is what the Read tool
-opens. `.gitattributes` gives `*.py` `eol=lf`, so the ratchet's recorded size
-is the same on this Windows checkout and on Linux CI; `text=auto` files (the
-`.md` set) check out CRLF on Windows and are therefore *larger* here than in
-CI — Windows is the stricter environment, and it is the one sessions run on.
+opens. `text=auto` files (the `.md` set) check out CRLF on Windows and are
+therefore *larger* here than in CI, so Windows is the stricter environment
+and it is the one sessions run on.
+
+**The `*.py` half of that sentence was wrong, and is corrected here
+(2026-09-06).** It read: "`.gitattributes` gives `*.py` `eol=lf`, so the
+ratchet's recorded size is the same on this Windows checkout and on Linux
+CI." Measured over the 422 tracked `.py` files, **33 of them carry CRLF in
+the working tree** — `scripts/inspect_live_db.py` at 260,285 bytes
+against the 254,479 git stores, a 5,806-byte gap that is 2.2% of the whole
+ceiling. `eol=lf` governs what git *writes at checkout*; it does not govern
+what a script writes afterwards, and `text=auto` normalises on staging so
+the drift never appears in a diff. A scripted edit using Python's text mode
+re-encodes every line ending in the file it touches (see `tasks/lessons.md`,
+2026-09-06), and that residue is what these 33 are.
+
+The conclusion is unchanged and gets *stronger*: Windows is larger for those
+files too, so it remains the strict side and this guard cannot pass here and
+fail in CI. What must not be inferred from the old sentence is the reverse
+reading — that a `.py` size measured on Linux describes what the Read
+tool will open on the machine a session actually runs on. For
+`scripts/inspect_live_db.py` those two numbers were 97.1% and 99.29% of the
+ceiling on the same commit, and only the second decides whether a session
+can read the file.
 
 Mutations observed red (2026-09-03): the ratchet with its recorded size set
 one byte below the file's actual size (333,957 against 333,958); the general
