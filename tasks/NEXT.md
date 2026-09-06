@@ -458,24 +458,47 @@ billed call and three lanes were in flight — and it stays on the list.
    four-sport day, whichever is first. Nothing to do before then.
 3. **The scout Anthropic refusal fixture (ADR 0106 §5.2)** — justified, see the
    premise correction above. Costs one real billed call. Not urgent.
-4. **Three ADR 0107 refusals that must not be upgraded by a later reader** —
+4. **`cryptography` carries an open high-severity dependabot alert, and the
+   assessment matters more than the label. NEW, found at close 2026-09-06 and
+   not previously in any list.** `requirements.txt:9` pins `~=44.0`
+   ("RSA-PSS signing. Not optional, not swappable"); 44.0.3 is installed. The
+   advisory range is `>= 42.0.0, <= 48.0.0` and the **first patched version is
+   49.0.0** — a five-major-version jump on the library that signs every Kalshi
+   request. CVSS is **0**, i.e. unscored.
+
+   **The reachability read, which is why this is not urgent:** the defect is
+   exponential path-building on duplicate self-signed X.509 intermediates.
+   This repo uses `cryptography` for RSA-PSS request signing; TLS certificate
+   validation goes through httpx/OpenSSL, not this library's path builder.
+   **No caller of the affected surface was found.** That is an argument, not a
+   proof, and it is exactly the shape rule 1 says to distrust when it is
+   convenient — so treat it as "probably unreachable, worth ten minutes to
+   confirm", not as closed.
+
+   It is its own lane when taken, with the signing tests as the gate, and it
+   must not be done as a drive-by bump at the end of a session. The live
+   instance holds real money and a broken signature is a total outage.
+
+5. **Three ADR 0107 refusals that must not be upgraded by a later reader** —
    the unit of `market_exposure_dollars`, the NO-side sign convention, "before
    fees" as a label. A trigger on Joe holding a position, not a queue item.
    Unchanged.
-5. **`"40 of 40"` survives in prose in three places** — `api/schemas.py:218`,
+6. **`"40 of 40"` survives in prose in three places** — `api/schemas.py:218`,
    `combo_bids.py:5`, `store/combo_orders.py:6`. All commentary rather than
    rendered copy, so none is urgent; the `schemas.py` one is a Pydantic
    docstring that can surface in OpenAPI, which makes it the only one worth a
    later pass.
-6. **`.claude/worktrees/wf_e0ee5ede-e97-1`** — an empty husk a live process
+7. **`.claude/worktrees/wf_e0ee5ede-e97-1`** — an empty husk a live process
    holds open. Delete when that process is gone. Unchanged.
-7. **Lane B wrote no ADR**, because `docs/` was scoped to Lane A this session.
+8. **Lane B wrote no ADR**, because `docs/` was scoped to Lane A this session.
    Its rationale is in two commit messages, `.dockerignore`'s comment block and
    the test docstrings. An ADR for the inspector split is available on request
    and nobody is blocked without it.
 
 **Nothing is Joe-gated.** Items 1 and 2 are date-triggered; the rest are
-unowned work with no deadline.
+unowned work with no deadline. Item 4 is the only one touching a dependency the
+live signing path needs, and it is the only one that should never be taken as
+the last act of a session.
 
 ---
 
