@@ -798,3 +798,277 @@ One `venue_settlements` row carries `market_result = ''` on 4.34 contracts.
   ADR 0012 §5.
 - **This file is committed before the extraction runs.** A pre-registration that
   is written after the pull is a description of a decision already made.
+
+---
+
+## AMENDMENT 1 — 2026-09-05, the instrument moves out of the inspector
+
+**Written blind.** No per-row data has been read by the author of this
+amendment or by the coordinator who requested it, before or during its writing.
+§0's list of seen aggregates is unchanged and nothing has been added to it. No
+outcome, no taker count, no statistic has been observed.
+
+**Scope: where the instrument lives, and nothing else.** Joe approved this route
+explicitly, choosing it over splitting `scripts/inspect_live_db.py` first.
+
+### A1. What does not change, stated first so it can be checked
+
+**Nothing about the population, the unit, the clustering, the buckets, the
+statistic, the decision rule, the downgrades or the stopping rule moves.**
+§§1–10, §12 and §13 stand exactly as registered. In particular, H1's critical
+values are unchanged and are restated here verbatim so that a reader of this
+amendment alone cannot be told a different number later:
+
+> * **`k <= 18`** — VERDICT: ADR 0085 UPHELD.
+> * **`k >= 34`** — VERDICT: ADR 0085 REFUTED ON THIS POPULATION.
+> * **`19 <= k <= 33`** — VERDICT: UNRESOLVED.
+>
+> at the expected `n = 52`, two-sided against `p = 0.5` at `alpha = 0.05`,
+> exact (Clopper–Pearson), with the three downgrades of §8 applied in order.
+
+Moving the instrument cannot touch any of these, and the reason is structural
+rather than a promise: the decision rule is stated entirely over `n`, `k`, a
+coverage fraction, `G_eff` and a leave-one-day-out refit. **Not one of those
+quantities is a function of which file the code sits in.** §9's one-look rule
+and §4.1's closed window are likewise untouched — the window is closed in the
+past, so no instrument can enlarge it.
+
+### A2. Why the inspector cannot take it — arithmetic, not preference
+
+```
+    scripts/inspect_live_db.py           260,285 bytes
+    READ_TOOL_LIMIT_BYTES                262,144
+    headroom                               1,859
+
+    smallest comparable subcommand:
+      _q_parlay_lookups_tail               2,603
+      _q_study_stop                       12,801
+      _q_visit_freshness                  21,505
+```
+
+Even the smallest comparable subcommand is 1.4× the space available.
+`tests/test_session_files_are_readable.py` covers **every tracked file** with a
+source suffix, enumerated via `git ls-files`, and its own docstring records that
+**"There is no exemption list any more, deliberately: one existed for exactly
+one file, and re-adding one is a decision, not an edit."** So the option of
+carving out an exemption is closed by a prior decision, and a domain split of
+the inspector is separate work with its own brief.
+
+**This is recorded here rather than in a commit message because it is the kind
+of constraint that gets re-derived.** A future session proposing a new
+`_q_*` subcommand should read this paragraph and check the byte count first.
+
+### A3. The replacement instrument
+
+**`scripts/measure_parlay_census.py`** — a standalone analyzer, laptop-side,
+replacing the `_q_parlay_census` subcommand named in §11.1. It carries forward
+every rule §11 imposed:
+
+- **Arm D's verdict-bearing cell prints first**, before any money figure reaches
+  the screen. §11.1's ordering was never about the inspector; it is about what
+  is on screen when the deciding number is read.
+- **`lookup_combo` is never called**, for any ticker, for any reason. §11.3.
+- **Read-only. One look.** The extraction is written to
+  `docs/measurements/data/2026-09-05-parlay-census.json`, as §9 already fixed.
+- **Committed before the pull**, so the analyzer exists in git ahead of the
+  data. Precedent: the presence measurement's analyzer at `d2f51de`
+  (01:13:01Z) against its first capture at 01:13:20Z.
+
+### A4. THE CORRECTION — the capture cannot come from existing subcommands
+
+**This is the part of the coordinator's proposal that does not survive contact
+with the code, and it matters because of what silently drops if it is missed.**
+
+The presence measurement's analyzer ran against four `inspect_live_db.py
+--json` captures and "never opens the live database". Applying that pattern
+here fails: the nearest existing capture, `h4-balance-spans`, emits
+
+```
+    fills:               id, ticker, filled_ms, count, price_tenths,
+                         is_taker, fee_actual, source
+    venue_settlements:   id, ticker, side, contracts, entry_price_tenths,
+                         fee_cost_tenths, market_result, settled_ms
+```
+
+and **five columns this registration already depends on are absent**. Each one
+gates a specific registered rule:
+
+| Missing column | The registered rule it gates |
+|---|---|
+| `fills.venue_order_id` | §4.3 and §7 Arm D — the tool-placed flag |
+| `venue_settlements.is_taker` | §5.3 corroboration, and the drop-on-disagreement rule |
+| `venue_settlements.n_fills_in_position` | §5.2 — `fill_record_partial`, which **gates H1's primary denominator** |
+| `venue_settlements.event_ticker` | §5.4 — C-event clustering |
+| `position_time_source`, `estimate_match_status` | §7 Arm A prints |
+
+**The hazard, named so it cannot happen quietly.** Executing against the
+existing captures would have made those five checks unrunnable, and the
+path of least resistance at execution time is to skip them. Three of them —
+the coverage gate, the fills/settlement disagreement drop, and C-event —
+are precisely the guards protecting H1's denominator and its downgrades. **An
+instrument move that removes them is not an instrument move; it is a change to
+the decision rule wearing an instrument's clothes**, and it is forbidden by A1.
+
+**Registered rule:** if any of the five columns cannot be read at execution
+time, the analyzer **names the column and applies §8's refusal or downgrade**.
+It never silently omits a check, and it never substitutes a default —
+CLAUDE.md's *unreadable resolves to `None`, never `0`*.
+
+### A5. Where the data comes from instead
+
+**`scripts/measure_parlay_census.py` opens a pulled, read-only copy of the live
+database directly, with stdlib `sqlite3`, and owns its own SELECTs.** Those
+SELECTs are not invented at execution time: §4.2 and §7 already fix them
+verbatim, so the analyzer **transcribes** them.
+
+- **Pull route:** `flyctl ssh sftp get`, the route ADR 0097 already used to
+  preserve a baseline out of the repo. **No new box-side code, nothing added to
+  the `.dockerignore` allowlist, and no query executed on the live box.**
+- **It does not compete for the write lock.** Running SQL on the box would
+  contend with the loop's writer — this repo has an ADR (0091) and two
+  measurements about exactly that. A file copy read on a laptop cannot.
+- **Opened `file:<path>?mode=ro`.** Not `immutable=1`: an immutable open ignores
+  WAL state and would silently read a stale page set. The `-wal` and `-shm`
+  files are pulled alongside the `.db` if present, and **the result file records
+  which files were pulled**, because "we pulled the db" and "we pulled the db
+  and its WAL" are different reads and only one of them is current.
+
+**The torn-snapshot precondition, which is a refusal.** Before any statistic is
+computed, the analyzer prints its own row counts, inside the closed window
+`[W_start, W_end)`, for `fills` (KXMVE), `venue_settlements`, `parlay_lookups`
+and `notifications`. These are compared against counts read on the box at
+capture time through **existing** subcommands (`h4-balance-spans`,
+`parlay-lookups-tail`, `notifications`). **The window is closed in the past and
+therefore cannot grow, so the counts must match exactly.** Any mismatch means
+the copy is torn or stale: **the measurement is REFUSED, no verdict is issued,
+and the refusal is written to the result file.** A refusal is a record
+(ADR 0083).
+
+**The pull is the look.** §8.1's one-look rule attaches to it. Re-pulling
+requires an amendment written before the second pull, not after the first
+result is seen.
+
+### A6. Does a standalone file weaken anything the registration relied on?
+
+**No, and the coordinator's specific worry does not apply.** §11.1 chose the
+inspector for two reasons — the house `_q_*` pattern, and the commit ordering —
+and **neither is specific to that file**. The registration never relied on the
+inspector importing nothing from `backend`.
+
+**That property is real but exists for a different reason.**
+`scripts/inspect_live_db.py` is stdlib-only because it runs **on the live box**,
+under the `.dockerignore` allowlist and Joe's ruling that only a committed,
+reviewed script may be run by path. This analyzer runs on a laptop against a
+pulled copy, so that reason does not transfer. And the repo plainly permits the
+alternative: `scripts/analyze_prop_onesided.py` imports
+`backend.core.devig`, `backend.kalshi.props` and `backend.runner`.
+
+**Stdlib-only is nonetheless REQUIRED here, and the reason is upgraded rather
+than inherited.** §11.3 forbids any outward-facing write and says `lookup_combo`
+"must not be called by this measurement at all, for any ticker, for any
+reason". Importing nothing from `backend` makes that **structurally true instead
+of promised**: `lookup_combo` is not reachable, no `httpx` client is
+constructed, no write path to the live database or to Kalshi exists in the
+process. This is the same argument ADR 0078 makes for `core/hedge.py`, where the
+absence of an Anthropic client and of an `api_credits` write is asserted over
+the source rather than trusted.
+
+**It costs nothing.** Nothing in §6 or §7 needs a fee model, a devig, or
+`core/prices`: payout is `contracts * 1000`, fees are the venue's own
+`fee_cost_tenths`, and the buckets are on `price_tenths` as stored. If a future
+step genuinely needs `backend`, that is an amendment, and the amendment must
+say what it needs and why the structural guarantee is worth giving up.
+
+**Registered as checkable:** the module's import block contains no `backend`
+import, and the result file states that it was checked.
+
+### A7. `.dockerignore` — not needed, and the exact rule
+
+**The coordinator is right: no allowlist entry.** The script is laptop-side and
+is never invoked on the box.
+
+**But the rule that decides this is self-reference, not intent**, and it is a
+trap worth writing down. `TestTheSshInvokedScriptsSurviveDockerignore` derives
+the allowlist from each script's **own docstring naming its own absolute path**:
+a docstring containing `/app/scripts/measure_parlay_census.py` would make the
+test demand an allowlist entry. `.dockerignore`'s own comment records that
+`run_signal_test.py`, `analyze_prop_onesided.py` and
+`read_window_gate_observations.py` all contain `/app/scripts/` while naming
+*`inspect_live_db.py`'s* path, and are correctly laptop-side.
+
+So: **the new script's docstring must not self-reference an `/app/scripts/`
+path.** It may name `/app/scripts/inspect_live_db.py` when documenting A5's
+count cross-check, exactly as those three do.
+
+### A8. Tool-placed positions — an ambiguity resolved now, blind
+
+**The original left this open and it must not be decided after the count is
+visible.** §4.3's table flags tool-placed fills as "H1 secondary", while §7's
+Arm D says a tool-placed resting bid "must not be read as evidence for either
+side of H1". Those two sentences can be read as "reported separately" or as
+"excluded from the denominator", and the choice moves `k/n`.
+
+**Resolved: tool-placed positions stay in H1's primary denominator**, counted by
+`any_fill_taker` like every other position, and are additionally reported as a
+separate subset. Reasons, both stated before the count is known:
+
+1. A position Joe entered through the desk is still a combination position Joe
+   entered. §4.2's membership rule is about entry, and it does not have an
+   exception.
+2. **Excluding them would bias toward refuting ADR 0085.** A tool-placed order
+   *rests* (ADR 0084), so it is systematically maker; dropping the maker-heavy
+   subset can only raise `p_taker`. An exclusion whose mechanism correlates with
+   the outcome variable is the thing §4.3 exists to prevent, and it would cut
+   toward the more interesting result.
+
+**And the sentence in §7 is made operative rather than discarded:** a
+**mandatory secondary fit excluding tool-placed positions is printed beside the
+primary, and if the two land on opposite sides of either critical boundary the
+verdict is UNRESOLVED.** So the tool-placed subset cannot by itself decide H1 —
+which is what "must not be read as evidence for either side" was reaching for —
+without an exclusion rule doing it silently. This mirrors §5.3's handling of the
+two taker definitions.
+
+**The join for the flag:** `fills.venue_order_id` against the tool's own record
+of orders it placed, which for combinations is `combo_orders.kalshi_order_id`
+(`combo_orders` also carries `dry_run`, and a `dry_run` order that has a venue
+id would itself be a defect worth naming). This implements the flag §4.3
+already registered; it does not add a new one.
+
+### A9. §11.1 as amended — replacement text
+
+> **11.1 One standalone analyzer, committed before the pull.**
+> `scripts/measure_parlay_census.py`, laptop-side, stdlib-only (A6), reading a
+> pulled read-only copy of the live database (A5). **It is committed before the
+> copy is pulled**, so the queries cannot be adjusted after a first glance.
+> Sections it emits, in this order and no other: integrity preconditions and
+> coverage (A5, A4) → Arm D (primary) → Arm E → Arm C → Arm A → Arm B.
+> **Arm D prints first so that no money figure is on screen when the
+> verdict-bearing cell is read.** Its docstring carries §12 verbatim and does
+> not self-reference an `/app/scripts/` path (A7).
+
+The `_q_parlay_census` subcommand named in the original §11.1 **is withdrawn and
+must not be written**, in this measurement or a successor, until
+`scripts/inspect_live_db.py` has been split.
+
+### A10. Ordering of this amendment's own commits
+
+1. This amendment, committed first.
+2. `scripts/measure_parlay_census.py`, committed second, before any pull.
+3. The pull, then the single run, then
+   `docs/measurements/2026-09-05-parlay-census-result.md`.
+
+If the pull happens before step 2, the measurement is not pre-registered in its
+instrument, and **the first line of the result file must say so.**
+
+### A11. What Amendment 1 does not establish
+
+- It does not make the census powered. §2 stands: Arm B is dead at `n = 5`, the
+  money arms are transcriptions, and Arm D remains the only verdict.
+- It does not verify that the pull route works. If `flyctl ssh sftp get` cannot
+  produce a copy that passes A5's count check, the measurement is refused and
+  a different capture design needs its own amendment — written before the data
+  is seen, like this one.
+- It does not resolve C4 (§7 Arm C), which is still a code-reading question.
+- It does not license reading the live database from the analyzer. The analyzer
+  opens a **copy**; that distinction is the whole of A5.
