@@ -113,14 +113,39 @@ tasks/
 # `inspect_live_db.py`'s path, never their own. They are laptop-side and must
 # stay out.
 #
-# Both classes are now derived, and neither is maintained by hand:
+# And there is now a THIRD class, opened on 2026-09-06 and dangerous for a
+# reason neither of the first two has: **a shipped script's own imports.**
+#
+# `inspect_live_db.py` reached 254,479 bytes -- 97% of the 262,144-byte
+# ceiling at which the Read tool refuses a file outright, silently -- so it
+# was split into an entrypoint plus seven domain modules
+# (`scripts/inspect_live_db_*.py`). Only the entrypoint is invoked by path,
+# so only the entrypoint declares `/app/scripts/inspect_live_db.py` in its
+# docstring, so the ssh derivation above sees only the entrypoint. Ship that
+# one file alone and the box gets an inspector that dies on its first import
+# line -- and the way that surfaces is Joe at an ssh prompt during an
+# incident, which is the moment this tooling exists for.
+#
+# The glob below is deliberately a PATTERN rather than seven names: a new
+# domain module is covered the day it is written. And it is deliberately
+# narrow -- `inspect_live_db_*` and not `inspect_*` -- so it can never widen
+# into the laptop-only tools two lists down.
+#
+# `TestTheInspectorFamilySurvivesDockerignore` derives the requirement from
+# the entrypoint's actual import statements, so the glob is checked rather
+# than trusted, and a module imported under a name this pattern does not
+# match turns red in CI rather than absent on the box.
+#
+# All three classes are now derived, and none is maintained by hand:
 #   - scripts the entrypoint runs      (derived from `docker/entrypoint.sh`)
 #   - scripts the ssh ruling invokes   (derived from each script's own docstring)
+#   - modules a shipped script imports (derived from that script's imports)
 # The `!` lines below remain the mechanism; the tests are what keep them honest.
 scripts/*
 !scripts/run_loop.py
 !scripts/migrate_db.py
 !scripts/inspect_live_db.py
+!scripts/inspect_live_db_*.py
 !scripts/inspect_live_disk.py
 !scripts/inspect_live_proc.py
 !scripts/fetch_live_route.py

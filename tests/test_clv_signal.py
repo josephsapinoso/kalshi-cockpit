@@ -691,17 +691,35 @@ class TestTheExtractionIsTheRegisteredOne:
 
         `scripts/inspect_live_db.py` cannot import this module: it runs as
         `python /app/scripts/...`, which puts `/app/scripts` on `sys.path` and
-        not `/app`, so the import would pass here and fail on the money box
-        (`inspect_live_db.py:350-358`). This is the same arrangement that file
-        already uses for `_ACTIONABLE_PREDICATE`.
+        not `/app`, so the import would pass here and fail on the money box.
+        This is the same arrangement the inspector already uses for
+        `_ACTIONABLE_PREDICATE`, which sits beside this constant in
+        `scripts/inspect_live_db_decisions.py`.
+
+        **Searched across the family rather than named by file.** The
+        inspector was one 254KB module until 2026-09-06 and is now an
+        entrypoint plus seven domain modules; this constant moved to
+        `inspect_live_db_decisions.py` and the next reorganisation may move
+        it again. Requiring EXACTLY ONE definition across the family is the
+        stronger assertion anyway: a second copy would let the two drift
+        while this test kept passing against whichever it found first.
 
         Mutation observed red: change one space in either string.
         """
-        source = (REPO_ROOT / "scripts" / "inspect_live_db.py").read_text(
-            encoding="utf-8"
+        marker = "_SQL_CLV_SIGNAL_PULL = ("
+        family = sorted(
+            (REPO_ROOT / "scripts").glob("inspect_live_db*.py")
         )
+        defining = [p for p in family if marker in p.read_text(encoding="utf-8")]
+        assert len(defining) == 1, (
+            f"expected exactly one inspector module to define "
+            f"{marker!r}, found {[p.name for p in defining]} across "
+            f"{[p.name for p in family]}"
+        )
+
+        source = defining[0].read_text(encoding="utf-8")
         namespace: dict = {}
-        start = source.index("_SQL_CLV_SIGNAL_PULL = (")
+        start = source.index(marker)
         end = source.index("\n)\n", start) + 3
         exec(source[start:end], namespace)  # noqa: S102 - a literal, not input
         assert namespace["_SQL_CLV_SIGNAL_PULL"] == SQL_CLV_SIGNAL_PULL
