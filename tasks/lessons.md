@@ -69,6 +69,45 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-06 - A section truncated by `head` looks exactly like a section with no rows, because the header prints before the data
+
+A new inspector query prints two sections: what the odds feed BOUGHT, and what
+the strategy CONSUMED. Its first live run was piped through `head -30` to keep
+the output small. The pipe cut between the two, so section B rendered its title
+and its column header and then stopped.
+
+That was read as "`fair_prices` is empty on live" -- and acted on, as a
+possible bug in code merged and deployed an hour earlier. A direct count then
+reported **7,680,002 rows**. Re-running without the pipe printed section B in
+full.
+
+The truncation was indistinguishable from the finding because **a table header
+is emitted before the rows it describes**, so "the query returned nothing" and
+"the output was cut here" produce byte-identical prefixes. Every convention
+that makes tabular output readable -- title, rule, column names, then data --
+also makes an empty result and a severed one look the same.
+
+**The tell was present and not read: the trailing `N rows` line.** Section A
+ended with `13 rows`; section B ended with nothing at all. A renderer that
+reports its own row count distinguishes the two cases, and that is the thing to
+look for before believing an empty section.
+
+**The pattern: when a tool's output is truncated by the reader's own pipe, the
+absence it appears to show is the reader's, not the system's.** Before treating
+"nothing came back" as data, confirm the output ended where the *program*
+ended -- a terminal marker, a row count, an exit line -- rather than where the
+pipe did. Same family as the `flyctl ssh` exit-code entry: judge by the output,
+not by the frame around it.
+
+It is worth a lesson rather than a note because of what it nearly caused. The
+false reading contradicted a measurement taken hours earlier by another agent,
+and the reflex was to doubt the measurement. **A contradiction between a fresh
+read and a recorded one is a claim about the instrument at least as often as it
+is a claim about the record**, and the cheap check is to re-take the fresh read
+by a second route before revising anything.
+
+---
+
 ## 2026-09-06 - A scripted edit meant to change a few bytes rewrites every line ending in the file, and a normal diff cannot show it
 
 A three-line Python helper replaced one string in `backend/api/routes.py`:
@@ -2562,6 +2601,7 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-09-06 — in this file, above
+- A section truncated by `head` looks exactly like a section with no rows, because the header prints before the data
 - A scripted edit meant to change a few bytes rewrites every line ending in the file, and a normal diff cannot show it
 - A date-triggered falsifying check must be dated from the event's END, and from a looked-up calendar rather than a remembered one
 - `assert str(CONSTANT) in text` passes just as happily on a typed digit, so it does not test that the text is sourced

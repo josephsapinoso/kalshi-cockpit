@@ -410,3 +410,64 @@ WHERE called_ms >= 1788220800000 AND called_ms < 1788256800000;  -- expect 14 / 
 - **Completeness of `api_credits`.** It counts rows the recorder wrote; an
   unrecorded call is invisible to it. The server's `used_reported` is the
   independent check, and it agrees to one call.
+
+---
+
+## Addendum, 2026-09-06 19:03Z — the spreads finding re-taken on the committed instrument
+
+The audit of this document's first draft raised, as defect 10, that none of its
+readings were reproducible: the commit added one markdown file and no
+instrument, so a mistake in any query was undiscoverable. That is now closed
+for the reading it mattered most for.
+
+`fair-prices-by-market` shipped in the inspector split the same day and was run
+against live from the deployed image, after `c9739cc7` was on the box:
+
+    flyctl ssh console -a kalshi-cockpit \
+      -C "python /app/scripts/inspect_live_db.py fair-prices-by-market"
+
+    B. CONSUMED -- fair_prices by market
+    market              rows_n     links  first_iso                    last_iso
+    h2h                 4,021,226    577  2026-08-07T19:33:27Z         2026-09-06T19:03:37Z
+    spreads             3,578,118    314  2026-08-24T03:30:28Z         2026-09-06T19:03:37Z
+    batter_hits            25,914     17  2026-08-15T19:41:53Z         2026-08-16T19:42:49Z
+    ... 4 further prop markets, all last computed 2026-08-16
+
+**The `spreads` conclusion holds and is now stronger in three ways than when
+this document first made it.** It was taken with a different tool, by a
+different reader, from the deployed image rather than an ad-hoc SQL session;
+the count had grown from 3,558,522 to 3,578,118 in the interval, which is the
+consumption continuing rather than a static table; and `last_iso` is the same
+instant as `h2h`'s, so spreads is devigged on the same pass as the market
+nobody doubts.
+
+**`first_iso` is the corroboration worth keeping.** The earliest `spreads` row
+is 2026-08-24T03:30Z. ADR 0070 re-enabled spreads on 2026-08-23. The table
+starts when the decision says it should, which is not something an ad-hoc
+`COUNT(*)` could have shown.
+
+**And the instrument found the case it was written for, in its first live
+run.** Section A reports `totals` bought -- 41,292 rows across 23 books --
+with `last_ms` of 2026-08-16T22:59Z. Section B has no `totals` row at all. A
+market present in A and absent from B is an input bought and read by nothing,
+which is precisely what `fly.live.toml` claims of `totals` (*"`totals` stay
+off: no consumer"*) and precisely what the same file wrongly claimed of
+`spreads` in the retained 2026-08-16 paragraph this document had to overturn.
+The check that would have settled that paragraph in thirty seconds did not
+exist until today.
+
+**What the addendum does not establish.** Reachability is still the weakest of
+the four claims the subcommand's own docstring separates: a `fair_prices` row
+means a fair value was computed, not that it reached a recommendation, survived
+suppression, or was any good. Nothing here says buying `spreads` is *worth* 2
+credits a sweep -- only that the input is consumed, which is what closes the
+"drop it for free" lever and nothing more.
+
+**One reading trap, recorded because it cost a wrong conclusion for ten
+minutes.** The first run of this command was piped through `head`, which cut
+the output between section A and section B's data rows. Section B rendered its
+title and column header and nothing else, and was briefly read as "`fair_prices`
+is empty on live" -- against a table holding 7,680,002 rows. A truncated
+section looks exactly like an empty one, because the header prints before the
+rows do. Read the trailing `N rows` line: section A's was present, section B's
+was not, and that was the tell.
