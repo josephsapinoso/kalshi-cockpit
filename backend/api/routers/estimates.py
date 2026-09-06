@@ -148,9 +148,15 @@ def register(
             "stopped_by_owner_ms": bet_estimates.STUDY_STOPPED_BY_OWNER_MS,
             "loss_dollars": loss,
             "ceiling_dollars": bet_estimates.STUDY_LOSS_CEILING_DOLLARS,
-            "stopped": None
-            if loss is None
-            else loss >= bet_estimates.STUDY_LOSS_CEILING_DOLLARS,
+            # `study_stop_fired` rather than the comparison spelled out here.
+            # It is the same tri-state -- None when the loss is not
+            # computable, because unknown is not "not stopped" -- and it was
+            # the NAMED spelling while this inline one was the only one that
+            # ran. A decision-bearing threshold with two spellings is one
+            # amendment away from disagreeing with itself, and the registered
+            # ceiling is exactly the kind of number that gets amended
+            # (ADR 0044 §5 arm 3 already has been, by A2).
+            "stopped": bet_estimates.study_stop_fired(conn),
             # The self-lockout's release instant, or null. On this payload
             # rather than a route of its own because the strip that renders
             # the money arm is the strip that renders this -- one fetch, one

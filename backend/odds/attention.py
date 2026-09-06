@@ -109,11 +109,26 @@ def seen_at_least_once_since(conn: sqlite3.Connection, *, since_ms: int) -> int:
     """How many heartbeats landed since `since_ms`.
 
     **The instrument, not a trigger input.** Nothing in the sweep path calls
-    this. It exists so "how many hours a day is the page actually open" can be
-    answered from the record rather than assumed, because the entire saving this
-    design claims rests on that number and nobody has measured it. Summed
-    per budget-day beside `api_credits`, it is what turns the claim into a
-    measurement.
+    this, and nothing in production calls it at all -- that is deliberate and
+    is the same standing `alerts.check_fee` has: a declared hook, recorded as
+    uncalled rather than mistaken for dead. Do not delete it as unreachable
+    without reading the paragraph below.
+
+    **The question it was built for HAS since been answered, by a different
+    instrument.** This docstring said "nobody has measured it"; the dwell read
+    was taken on 2026-09-03 over nine budget days, from the inspector's
+    `visit-freshness` walking heartbeat-to-heartbeat, and found attended
+    minutes per budget day running 2.6 to 324 with no trend
+    (`docs/measurements/2026-09-03-desk-dwell-and-the-watcher-off-switch.md`).
+    The inspector re-spells the SQL because it imports nothing from `backend`.
+
+    **What this function still answers that that one does not** is the count
+    itself -- how many heartbeats landed -- summed per budget-day beside
+    `api_credits`. That is a different statistic from duration, and the
+    distinction is exactly what the 2026-09-03 read turned on: a counter that
+    emits on a cadence while a condition holds measures the condition's
+    DURATION, not its occurrences. A count of heartbeats is only a dwell
+    figure if you already know the cadence never changed.
     """
     row = conn.execute(
         "SELECT COUNT(*) AS n FROM desk_attention WHERE seen_ms >= ?",

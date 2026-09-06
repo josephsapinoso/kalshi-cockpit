@@ -454,9 +454,31 @@ def study_stop_fired(conn: sqlite3.Connection) -> Optional[bool]:
     """Whether the money arm has fired. Tri-state, and the `None` matters.
 
     `True` / `False` only when the loss is computable; `None` when it is not.
-    The write path refuses new estimates only on a computable `True` -- an
-    unreadable record must not lock Joe out of logging, and equally must not
-    be reported as "not stopped".
+    An unreadable record must not be reported as "not stopped".
+
+    **This docstring used to end "the write path refuses new estimates only on
+    a computable `True`", and that has been false since 2026-09-01.**
+    Decision-map ticket #11 (ADR 0044 Amendment 3) took the arm off
+    `POST /api/estimates` entirely: it was a *study* stop condition sitting on
+    the one endpoint that records what Joe thinks, and the only thing it could
+    actually stop was him writing a number down. The reader survives; the
+    power over the write path is gone. `backend/api/routers/estimates.py`
+    carries the full reasoning at the site of the deletion.
+
+    **The one caller is `GET /api/estimates/stop`, and it was not always.**
+    Until 2026-09-05 that route spelled `loss >= STUDY_LOSS_CEILING_DOLLARS`
+    inline and this function -- the named one -- ran nowhere, so the registered
+    ceiling had two spellings and only the anonymous one was live. A
+    decision-bearing threshold with two spellings is one amendment away from
+    disagreeing with itself.
+
+    **`scripts/inspect_live_db.py` is a THIRD implementation and is
+    deliberate, not a defect to fold in.** That script imports nothing from
+    `backend` by design, so it re-spells both the formula and the constant on
+    purpose, and `tests/test_study_stop_query.py` runs the two over the same
+    fixtures and asserts they agree on every value including the refusals. A
+    guarded second implementation of a registered formula is a cross-check;
+    an unguarded one is this bug.
     """
     loss = study_loss_dollars(conn)
     if loss is None:

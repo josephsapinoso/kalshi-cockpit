@@ -239,6 +239,31 @@ payload costs a real call, and which call to capture (a staff scout with
 web-search blocks, or the master) is a decision about the fixture's scope
 that this lane was not asked to take.
 
+**Amended 2026-09-05. The gap is narrowed and NOT closed, and the distinction
+is the whole of it.** `tests/fixtures/anthropic_scout_{report,refusal}.json`
+now exist, built by `scripts/build_agent_wire_fixture.py`, and
+`tests/test_agent_wire_format.py` drives them through the SDK's own
+`Message.model_validate` and `parse_response` — so a payload the SDK would
+reject cannot sit there, the JSON must satisfy `ScoutReport`, and
+`ParsedMessage.parsed_output` runs as the **property** it is.
+
+**They are SDK-derived, not captured, so this section stays open.** The SDK's
+models are our *belief* about the wire; a fixture generated from them cannot
+falsify that belief, and if the SDK drifts from the service these payloads
+drift with it and every test stays green. Only a real capture settles it, and
+it still costs a real call on the billed path.
+
+**What the exercise found, which is why it was worth doing anyway.** Both
+existing stubs assign `self.parsed_output = parsed` onto a bare object —
+over a property that walks `content` — so no test in this repo had ever run
+the SDK's parsing. Writing one revealed that **`base.py`'s refusal branch is
+unreachable**: `messages.parse` parses content with no regard for
+`stop_reason`, so a refusal raises `ValidationError` inside `.parse()` and the
+`Message` never comes back. The call is billed and its token count is lost
+with it. `base.py` now catches that case apart from a transport failure and
+records why the count cannot be recovered without reimplementing the SDK's
+`output_format` → JSON-schema transformation.
+
 **5.3 The walker's first finding on the real tree, not acted on.** With
 `review_surfaced` gone, `AgentBudget.allowance` has **no caller outside
 tests** — the desk gates on `refusal_reason` and reserves directly. The same

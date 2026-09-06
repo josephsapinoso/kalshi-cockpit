@@ -1831,6 +1831,22 @@ def loop_failures_since(
 
     Oldest first because the question this answers is "what happened across
     that gap", and a run of failures reads forwards.
+
+    **No production caller, and it is kept deliberately -- audited
+    2026-09-05.** It is the read side `tests/test_loop_failures_are_recorded.py`
+    uses to verify `record_loop_failure`, which is very much live: six
+    assertions there observe the writer through this function. So it is
+    production-unreached and load-bearing, the same standing
+    `runner.reset_walk_alarm` has, and deleting it as "dead" would replace six
+    readable assertions with raw SQL in a test file about a failure path that
+    has already cost this project two nights.
+
+    **It is NOT a second spelling of the inspector's read**, which a
+    2026-09-05 audit initially suspected. `scripts/inspect_live_db.py:368`
+    selects the same table `ORDER BY failed_ms DESC` with no lower bound --
+    a tail, not a window, and a different question. That script also imports
+    nothing from `backend` by design, so it could not call this even if the
+    query matched.
     """
     return list(
         conn.execute(

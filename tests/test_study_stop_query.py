@@ -456,3 +456,63 @@ class TestTheOffendingRowsAreIdentifiedAndNotJustCounted:
         with contextlib.redirect_stdout(buf):
             main(["study-stop", "--db", str(path)])
         assert "never being opened" in buf.getvalue()
+
+
+class TestTheServedArmIsTheNamedPredicate:
+    """`GET /api/estimates/stop` must not re-spell the registered threshold.
+
+    Until 2026-09-05 the route computed
+    `None if loss is None else loss >= STUDY_LOSS_CEILING_DOLLARS` inline while
+    `estimates.study_stop_fired` -- the named function, with the identical
+    tri-state -- ran nowhere. Two spellings of one decision-bearing threshold,
+    and only the anonymous one was live.
+
+    The inspector's THIRD implementation stays and is not what this guards:
+    that one is deliberate (the script imports nothing from `backend`) and the
+    two classes above pin it equal. A guarded second implementation is a
+    cross-check; an unguarded one is the bug.
+    """
+
+    def test_the_route_calls_study_stop_fired(self):
+        """Mutation observed red: restore the inline comparison."""
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "backend" / "api" / "routers" / "estimates.py"
+        ).read_text(encoding="utf-8")
+        code = _without_comments(source)
+        assert "study_stop_fired(conn)" in code, (
+            "the stop route no longer calls the named predicate"
+        )
+        assert "loss >= bet_estimates.STUDY_LOSS_CEILING_DOLLARS" not in code, (
+            "the route re-spells the registered ceiling inline; the threshold "
+            "has two live spellings again"
+        )
+
+    def test_the_named_predicate_is_tri_state_at_the_boundary(self, tmp_path):
+        """What the route now inherits, asserted on the function itself: the
+        boundary fires, and an uncomputable loss is None rather than False."""
+        import sqlite3
+
+        fired = _build(tmp_path, [
+            dict(side="yes", contracts=250, entry=400, fee=0, result="no")
+        ])
+        with sqlite3.connect(fired) as conn:
+            conn.row_factory = sqlite3.Row
+            assert estimates.study_stop_fired(conn) is True
+
+        under = _build(tmp_path / "under", [
+            dict(side="yes", contracts=249, entry=400, fee=0, result="no")
+        ])
+        with sqlite3.connect(under) as conn:
+            conn.row_factory = sqlite3.Row
+            assert estimates.study_stop_fired(conn) is False
+
+
+def _without_comments(py: str) -> str:
+    """Python source with `#` comments removed, so a pin on what the code does
+    is not satisfied or defeated by prose about what it used to do. The
+    inline comparison this guards against is named in a comment at the very
+    site that replaced it."""
+    import re
+
+    return re.sub(r"#[^\n]*", "", py)

@@ -44,7 +44,10 @@ import os
 from dataclasses import dataclass
 from typing import Any, Optional, Type, TypeVar
 
-from pydantic import BaseModel
+# `ValidationError` is caught around `messages.parse`: the SDK parses a
+# response's content with no regard for `stop_reason`, so a refusal
+# arrives as a pydantic error rather than as a returned Message.
+from pydantic import BaseModel, ValidationError
 
 from ..config import ConfigError
 
@@ -443,6 +446,29 @@ async def structured_call(
 
     try:
         response = await client.messages.parse(**kwargs)
+    except ValidationError:
+        # **The call SUCCEEDED and we were billed for it.** `messages.parse`
+        # runs the SDK's `parse_response` over every text block with no regard
+        # for `stop_reason`, so a response whose content does not match the
+        # schema raises here rather than returning -- a safety refusal (HTTP
+        # 200, `stop_reason: "refusal"`) and a model that emitted malformed
+        # JSON arrive identically, as a pydantic error, with the `Message`
+        # never handed back.
+        #
+        # Logged apart from a transport failure because the two differ in the
+        # one way that matters to the meter: this one spent tokens. **Their
+        # count is unrecoverable through this API shape** -- the usage block
+        # lives on the `Message` the SDK did not return -- so the reserve row
+        # stays and settles with NULL usage, which `agent_calls` already
+        # documents as "a call that happened and said nothing". Recovering it
+        # would mean calling `messages.create` and re-running the SDK's own
+        # `output_format` -> JSON-schema transformation ourselves, which is a
+        # second implementation of the SDK inside this file.
+        logger.exception(
+            "agent output did not match the schema (a refusal, or malformed "
+            "output); the call was billed and its token count is lost"
+        )
+        return StructuredCallOutcome(parsed=None, usage=None)
     except Exception:
         logger.exception("agent call failed; continuing without a verdict")
         return StructuredCallOutcome(parsed=None, usage=None)
@@ -450,7 +476,18 @@ async def structured_call(
     usage = _usage_from(response)
 
     # A safety refusal returns HTTP 200 with stop_reason "refusal" and content
-    # that will not match the schema. Check before touching parsed_output.
+    # that will not match the schema.
+    #
+    # **This branch is currently unreachable and is kept deliberately** -- see
+    # the `ValidationError` handler above, which is where a refusal actually
+    # lands today (verified against anthropic 0.120.2 by
+    # `tests/test_agent_wire_format.py`, which drives a real refusal payload
+    # through `parse_response`). It stays because it costs nothing, because it
+    # is correct the moment the SDK stops parsing content it was told is a
+    # refusal, and because deleting it would delete the only statement in this
+    # file of what a refusal *is*. It is NOT the guard the comment here used
+    # to imply: "check before touching parsed_output" describes an ordering
+    # that never gets the chance to run.
     if getattr(response, "stop_reason", None) == "refusal":
         logger.warning(
             "agent call refused (%s)",
