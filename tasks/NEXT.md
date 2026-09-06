@@ -214,7 +214,242 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-06 (second entry, latest) — Joe answered the four open questions; the combo note now carries BOTH censuses, ADR 0085 has Amendment 1, PRs #1/#2 are closed, and the shard-3 test and the key rotation are DROPPED on his word
+## 2026-09-06 (third entry, latest) — the partner ran first and its top item was not on the list; the credit answer was refused once before it was kept; three lanes landed and the inspector stopped blocking work
+
+**STATE, verified at close:** see the commit carrying this entry. `main` was
+`7c701ae` at open, live and demo both on it, tree clean, no lanes running, and
+the decision map exhausted at 32 of 32 with `#3` the only open issue. Nothing
+was Joe-gated at open and nothing is Joe-gated at close.
+
+### The partner was invoked first, and it moved the session off its own list
+
+Handed the six open items, the free tree and the file sizes. It ranked the
+list, killed two items outright, and put **first a question that was not on
+the list at all**: does the odds-feed credit budget survive NFL Week 1, with
+NFL, NCAAF and MLB overlapping for the first time. That is the shape the
+workflow step exists to produce — the backlog was thin and the partner said
+so, rather than ranking six housekeeping items and calling it a session.
+
+**It also corrected the calendar the session had handed it.** The prompt said
+Saturday of opening weekend. It is Sunday, and the 2026 NFL season had not
+started: the opener moved off Thursday to **Wednesday 2026-09-09**, and Week 1
+runs to Monday 09-14. So there was no NFL slate to build for, and there was a
+three-day deadline instead.
+
+### The falsifying check the partner had set was dated to the wrong end of the weekend
+
+Open item 3 read: read `parlay_positions` on **2026-09-09**, and if it is still
+0 after an NFL opening weekend, ADR 0078's `/hedge` route is a deletion
+candidate. **09-09 is the day the season opens.** A read taken then would have
+found 0 before a single NFL game had finished and called that grounds for
+deleting a working route — refutation arriving early and for free, in the one
+direction a falsifying check must never fail.
+
+Re-dated to **2026-09-15**, the first morning after Week 1 closes, with the
+event named beside the date so a later reader can re-derive it. The superseded
+line in the 2026-09-05 entry is struck through in place rather than left
+readable as current. The correction is the partner's own, found at the top of
+the next session; the lesson is that a date-triggered check is dated from the
+event's **end**, and the derivation is looked up when the check is written
+rather than recalled.
+
+### `NEXT.md` split on a date boundary, as the session's first act
+
+223,790 bytes at open, 85.4%, read **before** writing. Nine entries — three
+2026-09-02, two 2026-09-01, four 2026-08-31 — moved verbatim to
+`archive/next-2026-09-06.md`, leaving 117KB, **44.7%**. Verified by md5: the
+archived bytes below the header hash identically to the bytes removed. Index
+lines moved in the same edit.
+
+Cut deeper than the 90% trigger required, and on a **date boundary** —
+everything 2026-09-02 and earlier — so no single day is split across two files.
+Previous splits did not always manage that and the index is harder to read for
+it.
+
+### Lane A — the credit answer was refused once, and the second document is a bound
+
+**The budget survives NFL Week 1 and nothing needed changing.** But the first
+draft was refused on audit and the reason is the point of the entry.
+
+`measurement-skeptic` returned **OVERSTATED**: right conclusion, reached the
+flattering way. The base period contained **zero NFL calls, zero Sundays and
+zero Mondays** while projecting a Thursday/Sunday/Monday sport — and the one
+Sunday present was partial, correctly excluded from the mean, which removed the
+only relevant cell without the document noticing. Ten of eleven judgment calls
+leaned toward "no action needed". The `564` all-time maximum was used as an
+upper bound across a regime change *and* a sport-count change, twenty lines
+from the document's own four-sport projection of **770**, which exceeds it.
+
+What the rewrite rests on instead is arithmetic that no defect can move:
+
+    1,896 + 700 x 24.265 = 18,882          the paid 20,000 tier cannot be spent
+    (18,000 - 1,896) / 24.265 = 663.7      94.8% of a cap enforced pre-call
+    1,896 + 620 x 24.265 = 16,940          every day at the worst projected peak
+
+The ~13,300 point estimate is withdrawn; a sensitivity table replaces it. The
+better reason not to raise the cap came out of the audit too: the 18,000 to
+20,000 gap is a **reserve for 10x-per-call historical pulls**
+(`fly.live.toml:254-263`), not spare capacity.
+
+**Two findings worth more than the verdict.** The trigger column could not
+support the claim drawn from it — `runner.py:2419` stamps only `MANUAL` and
+`ATTENTION`, so `SCHEDULED`, `REFRESH`, `BOOTSTRAP` and `DESK` all pool into
+NULL — but `odds_sweep_log.detail` separates them cleanly: **kickoff window 319
+(67.0%), hourly floor 107 (22.5%), desk open 50 (10.5%)**, summing to exactly
+September's 476 rows. And the attention slice **never bound**: the highest
+attention-tagged day in September is 112 against 300.
+
+**The `spreads` lever the partner hoped for is closed.** It had reasoned that
+if no Kalshi market can receive a point-spread comparison, dropping `spreads`
+halves every sweep for free. `fair_prices` holds 3.5M `market='spreads'` rows
+computed within a minute of the read, traced to `ParlayCards.tsx` via
+`core/ladder.py:131` `TEAM_MARKETS_ONLY`. The "no consumer" premise is retained
+2026-08-16 history, **overturned eighteen lines above itself** at
+`fly.live.toml:416`. A stale paragraph sitting under its own correction reads
+exactly like a live one.
+
+**The day is not settled and the title says so.** A four-sport day projects
+~770 against a 700 cap, and `timing.py:1835` returns `fire=()` — a breach stops
+the whole feed for the rest of the budget day rather than throttling the sport
+that overspent. Re-read after the first NFL Sunday (2026-09-13/14) or the first
+four-sport budget day, whichever comes first.
+
+### Lane B — the inspector is eight modules, and the split found a third silent failure
+
+`scripts/inspect_live_db.py` was 97% of the ceiling and blocking work. Eight
+files now, cut where the file's own section banners already cut it, largest at
+**22.0%** against a 60% budget the commit enforces. Zero content lines lost, by
+multiset diff.
+
+**The surface is unchanged and the proof is mechanical**: 36 subcommands before
+and after, same names and descriptions, 14 argparse actions with identical
+option strings, `--help` byte-identical at 13,633 bytes, and all 40 (36 plus
+Lane A's four) invoked by path in a subprocess with only `scripts/` on
+`sys.path` — the box's own arrangement.
+
+**The third allowlist failure is the part to remember.** `.dockerignore`'s `!`
+allowlist has failed four times. `test_has_callers.py` derives two halves of it
+— what `entrypoint.sh` runs, and what declares its own
+`/app/scripts/<name>.py` — and **neither derivation can see an import**. Only
+the entrypoint is invoked by path, so only it declares one, so both existing
+guards would have reported a healthy allowlist while seven modules were absent
+from the image. That surfaces as `ModuleNotFoundError` at an ssh prompt during
+an incident, which is when the inspector is wanted.
+
+**One guard was written, found green under its own mutation, and replaced.**
+The NULL test began as "a NULL cannot *manufacture* a drop" and passed with the
+filter removed, because SQL's three-valued logic already gives that away. The
+property the filter buys is the opposite: an unreadable row must not *hide* a
+reset by breaking the pairing across it. Recorded in the docstring rather than
+quietly rewritten.
+
+Lane A's four ad-hoc queries are folded in — `credits-reset`,
+`credits-by-sport`, `credits-rate`, `fair-prices-by-market`. `credits-month`'s
+own description now cites `credits-reset`, so the reading that was nearly
+mis-taken carries its warning at the point of reading: a MIN/MAX over a
+calendar month straddles the billing reset and reports a maximum describing no
+live state.
+
+### Lane C — the exit census is sourced on all three surfaces
+
+Three sentences carried `"40 of 40"` as literals: the combo note, the
+`/api/parlays/bid` 422, and the `/api/manual-orders` acknowledgement 422 on the
+real-money path. All three are **exit** claims and all three are still true —
+the census refuted only entry — so nothing on a screen was wrong. What was
+wrong is the shape `parlays.py` already carries a comment block about.
+
+New `COMBO_EXIT_CENSUS_*` constants, `_NO_YES_BID` derived so the pair cannot
+drift, and the 40 re-counted from the committed artifacts rather than from
+prose: 20 + 9 + 11 rows, none with a non-empty `yes_dollars`. Re-verified
+independently before the merge. Every rendered string byte-identical by sha256
+of the evaluated producer node, with the third site's baseline taken from
+`git show HEAD` so the comparison is against the typed version.
+
+**Three mutations, each observed red — and in every one the rendered-output
+test stayed green while the `ast` guard failed.** That is this morning's lesson
+demonstrated three times in the code that prompted it.
+
+**The third site taught what the first two could not.** Its string carries
+`ADR 0012 §5`, and the `ADR \d+` carve-out stripped the ordinal and left the
+section number, so the guard tripped on an orphan digit from a *citation*.
+Half-stripping a citation forces a choice between deleting a reference from a
+real-money refusal and switching the guard off. The carve-out now spans the
+section, and the sibling guard was brought to the identical pattern: two
+spellings of one rule is how divergence starts.
+
+### The CRLF residue, and a guard docstring that was wrong about it
+
+Lane C's first mutation script used `pathlib.write_text` and silently rewrote
+all of `routes.py` to CRLF. It caught and restored it, and the lesson is
+written. Following that up over the tree found the residue of the same
+mechanism: **33 of 422 tracked `.py` files carry CRLF in the working tree.**
+
+`tests/test_session_files_are_readable.py` explained its own strictness with
+"`.gitattributes` gives `*.py` `eol=lf`, so the ratchet's recorded size is the
+same on this Windows checkout and on Linux CI." **That is false.**
+`scripts/inspect_live_db.py` is 260,285 bytes here against the 254,479 git
+stores — which is why this session and Lane B quoted **99.29% and 97.1% for the
+same commit on the same day**, and only the first is the number that decides
+whether a session can read the file. `eol=lf` governs what git writes at
+checkout, not what a script writes afterwards, and `text=auto` normalises on
+staging so the drift never appears in a diff. Docstring corrected; no assertion
+changed, because the guard is still on the strict side.
+
+**The dangerous case is already guarded and is green.**
+`test_the_tracked_shell_files_are_lf_in_the_working_tree` exists from the
+2026-08-27 crash loop where `entrypoint.sh` reached the image as `bash\r`.
+Checked across all 37 `eol=lf`-governed files: no shell file, Dockerfile or
+entrypoint carries CRLF. Only `backend/store/schema.sql` does, which SQLite
+parses regardless.
+
+### A premise correction the partner asked for and got the wrong way round
+
+It ruled that before buying a billed Anthropic refusal fixture (open item 5),
+someone should check whether `scout.py` has a production caller, citing
+`CLAUDE.md`'s standing note that it "is called by nothing."
+
+**That note is about `review_retired` (`backend/agents/review.py:124`), not
+scout.** Scout has a full live path: `scout_router` registered at
+`routes.py:1851`, `POST /api/scout/{ticker}` to `_run_scout_desk` to
+`scout_desk.convene_desk` (`scout_desk.py:400`), which imports from `scout.py`;
+the frontend calls it from `api.ts:2401` and `app/scout-desk/route.ts`, and live
+health reports `agent_fleet_configured: true`. So by the partner's own rule the
+fixture is justified. It was **not** bought this session — it costs a real
+billed call and three lanes were in flight — and it stays on the list.
+
+### Still open, in order
+
+1. **`parlay_positions` on 2026-09-15** — re-dated this session, see above. If
+   still 0 after NFL Week 1 closes, ADR 0078's route is a deletion candidate.
+2. **The four-sport day is the live credit question and the month is not.** A
+   four-sport budget day projects ~770 against a 700 cap, and a breach is
+   global (`timing.py:1835`, `fire=()`), not a per-sport throttle. Re-read the
+   headroom document after the first NFL Sunday (2026-09-13/14) or the first
+   four-sport day, whichever is first. Nothing to do before then.
+3. **The scout Anthropic refusal fixture (ADR 0106 §5.2)** — justified, see the
+   premise correction above. Costs one real billed call. Not urgent.
+4. **Three ADR 0107 refusals that must not be upgraded by a later reader** —
+   the unit of `market_exposure_dollars`, the NO-side sign convention, "before
+   fees" as a label. A trigger on Joe holding a position, not a queue item.
+   Unchanged.
+5. **`"40 of 40"` survives in prose in three places** — `api/schemas.py:218`,
+   `combo_bids.py:5`, `store/combo_orders.py:6`. All commentary rather than
+   rendered copy, so none is urgent; the `schemas.py` one is a Pydantic
+   docstring that can surface in OpenAPI, which makes it the only one worth a
+   later pass.
+6. **`.claude/worktrees/wf_e0ee5ede-e97-1`** — an empty husk a live process
+   holds open. Delete when that process is gone. Unchanged.
+7. **Lane B wrote no ADR**, because `docs/` was scoped to Lane A this session.
+   Its rationale is in two commit messages, `.dockerignore`'s comment block and
+   the test docstrings. An ADR for the inspector split is available on request
+   and nobody is blocked without it.
+
+**Nothing is Joe-gated.** Items 1 and 2 are date-triggered; the rest are
+unowned work with no deadline.
+
+---
+
+## 2026-09-06 (second entry) — Joe answered the four open questions; the combo note now carries BOTH censuses, ADR 0085 has Amendment 1, PRs #1/#2 are closed, and the shard-3 test and the key rotation are DROPPED on his word
 
 **STATE, verified at close:** see the commit carrying this entry. This is the
 first entry written after the parlay census, and it spends it: the census
