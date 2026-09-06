@@ -69,6 +69,61 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-06 - A guard that substring-matches an element name is green on a renamed element
+
+A new test pinned that four screens still render a control Joe had asked for,
+by asserting `"<RecordParlay" in source` for each file. It was then mutated to
+prove it could fail. The mutation renamed the element to `<RecordParlayX` --
+and the test **passed**, because the old name is a prefix of the new one.
+
+The screen in that state rendered nothing: React treats an unknown capitalised
+element as an undefined component. So the guard reported healthy over exactly
+the failure it existed to catch, and would have gone on doing so for any
+rename, any suffix, any typo that extends rather than shortens the name.
+
+**Pattern: a containment check on an identifier is not an identity check.**
+Any `"<Name" in source`, `"def foo" in source`, `grep NAME` guard passes on
+`NameX`, `fooBar`, `NAME_OLD`. Where a guard asserts that a specific symbol is
+present, assert its **boundary** too -- `re.search(r"<Name(?=[\s/>])", ...)`
+for a JSX tag, `` for an identifier. The failure is silent and it is in the
+flattering direction: the guard says yes.
+
+**And this is why the mutation is not optional.** The rule in `CLAUDE.md` --
+disable the guard and watch it fail -- caught this in one run. What nearly
+defeated it is that the *first* mutation attempt was also badly chosen: a
+lazy `s.replace("<RecordParlay", "<RecordParlayX")` is a plausible-looking
+mutation that happens to be invisible to the very check under test. **A
+mutation that leaves the asserted substring intact tests nothing.** Choose the
+mutation by asking what the guard reads, then breaking that.
+
+---
+
+## 2026-09-06 - `git checkout <file>` restores the INDEX, so it deletes uncommitted work while looking like an undo
+
+Three files were mutated one at a time to prove a new guard could fail, and
+each was "restored" afterwards with `git checkout <path>`. Two of the three
+files had never been committed in that state. `git checkout` reverts to the
+index, not to what was on disk a second earlier, so it silently discarded a
+newly written 10KB component, a patched card and a page edit -- and reported
+`Updated 1 path from the index` for each, which reads like success.
+
+It was caught only because the final re-run of the suite came back **3 failed**
+on a test that had just passed, which is the one signal that could not be
+explained away. Had the mutations been of already-committed files, nothing
+would have been lost and the habit would have survived to do damage later.
+
+**Pattern: never use a VCS command to undo an edit to work the VCS has not
+seen.** A mutation harness must restore from a copy it made itself --
+`cp file bak` before, `cp bak file` after -- because that restores the bytes
+that were actually there. The VCS restores the bytes it knows about, and the
+gap between those two is precisely the work in progress.
+
+The general form: **an undo whose source of truth is not the thing you
+changed is not an undo.** Same family as reading a health endpoint that
+reports a sha somebody typed.
+
+---
+
 ## 2026-09-06 - A hand-typed sha is a fabricated sha, and noticing that it looks wrong is not the same as checking it
 
 A deploy was given `-e GIT_SHA=c9739cc7`. The commit was `c9739cc8...`. The

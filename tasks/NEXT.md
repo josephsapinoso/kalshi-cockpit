@@ -214,7 +214,238 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-06 (third entry, latest) — the partner ran first and its top item was not on the list; the credit answer was refused once before it was kept; three lanes landed and the inspector stopped blocking work
+## 2026-09-06 (fourth entry, latest) — Joe took the offer-making controls off the desk, and what replaces them is a record of a bet placed somewhere else
+
+**STATE, verified at open, not inherited.** `main` was `8f5948a`, tree clean,
+nothing unpushed, `git worktree list` showed only main — no lanes. Live and
+demo both reported `d1feb712c05a6e56f08283b9304bae9fea4489ae`, and
+`git diff --stat d1feb71..HEAD` was `tasks/` only, so the deployed image was
+current. Decision map exhausted: the frontier query returned **zero** open
+sub-issues. CI green on `8f5948a`.
+
+**STATE at close: three commits ahead of the deployed sha, and this time the
+delta is CODE.** The previous entry's rule — a sha gap confined to `docs/` and
+`tasks/` is not drift — does **not** apply here. `frontend/` changed and
+nothing has been deployed.
+
+**Nothing is deployed because `flyctl` is logged out.** `flyctl auth whoami`
+returns `no access token available. Please login with 'flyctl auth login'`,
+with a token still sitting in `~/.fly/config.yml` — so it is expired rather
+than absent, and reading the file tells you nothing. That blocked three
+things beyond the deploy: the live DB inspector, the venue's own view of a
+resting order, and any `credits-day` read. **Joe has to run
+`flyctl auth login` himself**; `!` commands do not run from his phone, so if
+he is out this waits.
+
+### What he asked for, in two messages
+
+> "get rid of this thing from the site: Your buy orders on the exchange …"
+> (pasting the panel, and the cancel that had just failed)
+
+> "id like to be able to pay for the combo on the sports book too from the
+> betting and parlay pages. I don't want to make offers or find offers in
+> shares."
+
+Asked which sense of the second he meant, he answered **both** — buy it
+outright on Kalshi *and* record one paid at a sportsbook — on **all four**
+screens: Games, Picks, Parlays, Your bets.
+
+### ADR 0084 is off the screen, and both halves had to go together
+
+`RestingBid` ("buy this parlay at your price") and the `RestingBids` panel are
+deleted. The panel's own docstring argued it was *"the other half of the
+control that places a bid"* and that an interface which can create a resting
+order and cannot show or withdraw it *"loses money quietly"* — which is
+exactly why keeping either alone was not an option.
+
+**The backend is deliberately still running**: the route, `combo_orders`, and
+`bid_watch`'s kickoff auto-cancel. A bid placed before this change may still
+be resting at the venue and the watcher is what withdraws it. Deleting it
+would strand live money. `tests/test_combo_bid_routes.py` pins the two
+component files **absent**, with the reason in the docstring: a future session
+reading ADR 0084 will find a well-argued case for a screen the owner has since
+refused, and the ADR must not outvote him.
+
+### The 404 he hit, and what it probably means
+
+His cancel returned `404 not_found` from
+`/portfolio/events/orders/{id}?exchange_index=1`. **The shard was already on
+the request**, so the 2026-08-30 defect `rest.py:74-78` documents is not this.
+The likelier reading is that Kalshi had already withdrawn the order — combo
+bids auto-cancel at first kickoff, which the panel's own copy stated.
+
+**The desk could not say so, and that is a real defect left open.**
+`parlays.py:429-436` turns *any* exception from `cancel_order` into
+`"The bid may still be resting; try again or cancel it in the Kalshi app."`
+and does **not** mark the row terminal — so a bid the venue has already killed
+renders as `resting` forever and the cancel fails forever. Unverified against
+the venue, because `flyctl` is logged out. Now open item 9.
+
+### What replaces it: the record of a bet placed elsewhere
+
+`RecordParlay` (ADR 0078) already did the whole job — sportsbook slip or
+Kalshi combo, stake, total return, legs — and lived on `/hedge` alone, which
+is not a screen anyone starts from. It now takes an optional `prefill` plus a
+caller-supplied summary and blurb, and renders on all four screens Joe named.
+
+**On a parlay card it arrives filled in from that card** — legs, name, source.
+A form that has to be re-typed from the card above it is one nobody fills, and
+an unfilled form here means the bet never enters the record at all: sportsbook
+bets do not reach `fills`, which is the hole ADR 0078 exists for and the reason
+the 2026-09-04 census could count only Kalshi taker hand fills.
+
+**The prefill stops short of the stake and the return, and a guard keeps it
+there.** Only his book knows what it paid him, and the equalising hedge is
+exactly that many dollars of contracts — so a guessed return lands directly in
+the size of a real order.
+
+### A label that was reading from the wrong census
+
+The reveal over the Kalshi buy path said *"Try to buy it on Kalshi — usually
+nobody is selling."* That is the **resting book** (61 of 61 with no seller),
+which is not the population he is in when he taps: the entry census the same
+week found **51 of 52** of this desk's combination positions were entered by
+TAKING an offer. With `RestingBid` gone this was the only buy path left on the
+card, and it was being discouraged on the strength of the wrong instrument.
+Now: *"Buy it on Kalshi — pay the asking price, if there is one."* Still behind
+a reveal, because an empty book is still the expected first answer on a fresh
+combination.
+
+### Two lessons, and the second cost real work
+
+**A guard that substring-matches an element name is green on a renamed
+element.** `"<RecordParlay" in source` passes on `<RecordParlayX`, which
+renders nothing. Caught by the mandated mutation — and nearly not caught,
+because the obvious mutation (`replace("<RecordParlay", "<RecordParlayX")`)
+is one the check cannot see. Tightened to `re.compile(r"<RecordParlay(?=[\s/>])")`.
+
+**`git checkout <file>` restores the INDEX, so it deletes uncommitted work
+while printing `Updated 1 path from the index`.** Used to undo three test
+mutations; two of the three files had never been committed in that state, so a
+newly written 10KB component, a patched card and a page edit were discarded.
+Caught only because the confirming re-run came back **3 failed** on a test that
+had just passed. Recovered from the scratchpad patch scripts. **A mutation
+harness restores from a copy it made itself** — `cp` before, `cp` back after.
+Both written to `tasks/lessons.md`.
+
+### Verified
+
+Full suite **6248 passed, 10 xfailed** in 10m16s; ruff clean; `tsc --noEmit`
+clean; `next build` compiled. Every new guard mutated and observed red, then
+green restored.
+
+### The partner ran first, and its top item is not on the list
+
+Invoked before any planning, per workflow step 0, and it returned before Joe's
+errand arrived. Its ranking is carried into the Open list below. Its headline:
+**the list is a builder's list and the building is finished** — the map is
+exhausted, the hunt is closed, and the forcing function this week is that the
+desk **has never seen an NFL slate** (`americanfootball_nfl` has 0 rows in
+`api_credits`, lifetime) with the opener on **Wednesday 2026-09-09**.
+
+It also refuted open item 2 as written — see item 2 below. That refutation
+reaches `CLAUDE.md`, `fly.live.toml` and `timing.py`, and is **not yet
+applied**.
+
+### Still open, in order
+
+1. **Pair the NFL alias file against live Odds API fixture names. Before
+   Wednesday 2026-09-09. ~4 credits, ~30 minutes. NEW — the partner's first
+   rank, and it was on nobody's list.**
+   `backend/match/aliases/americanfootball_nfl.yaml` has five entries and its
+   header documents the **Kalshi** side from a real capture; the Odds API side
+   has never been paired, and there is no NFL Odds API fixture in
+   `tests/fixtures/`. NCAAF got exactly this pass on 2026-08-26. Failure
+   probability is low — 32 teams, best-known names in US sport — but the
+   asymmetry decides it: 4 credits of 700 against the whole Week 1 board
+   rendering unmatched, and it is **unrecoverable after kickoff**. One
+   `/sports/americanfootball_nfl/odds` capture through `link_event`, the shape
+   of `scripts/capture_ncaaf_names.py`. Print the unresolved list; do not
+   summarise it.
+
+   *Discovery needs no config change* — there is no `ODDS_SPORTS` variable;
+   scope comes from the Kalshi `/events` walk through `IN_SCOPE_LEAGUES`
+   (`backend/kalshi/discovery.py:235-242`), which already carries both football
+   keys, and the deployed classifier was run against the committed capture
+   `tests/fixtures/events_nfl_preseason.json` and returned exactly the 16
+   regular-season events, dropping the 16 preseason ones.
+
+2. **Item 2 as it stood is REFUTED, and the correction is bigger than the
+   item.** The `~770` four-sport projection is undecomposed — it appears once
+   in prose with no arithmetic — and its largest term (NFL 288 = 12h x 6 calls
+   x 4) is the **attended** cadence, already capped at 300, so reaching 770 by
+   adding a separate attention term double-counts. The premise is contradicted
+   by the document's own data: **WNBA spent 0 credits across all six September
+   budget days** (MLB 1,116 + NCAAF 724 = 1,840, the exact total), so "four
+   concurrent sports" is not the current premise.
+
+   **The published bound is not a bound.** `fly.live.toml:305-307` prints
+   `worst case ~684/day inside the 700 daily cap`, `timing.py:2060-2065`
+   restates it, and **`CLAUDE.md` carries the same table**. 384 + 300 counts
+   only the desk branch and omits the kickoff-window loop
+   (`timing.py:1943-2028`), which is **67.0% of actual September spend** (319
+   of 476 rows) and is capped by nothing but the 700. Structural demand at four
+   sports is ~2,304/day. **The day is safe by cap alone, not by construction**,
+   and a session reading `CLAUDE.md` currently believes otherwise. Realistic
+   2026-09-13 is ~420–580; observed max under the current design is 508.
+   *Fix the record in all four places; this is a docs lane that touches
+   `CLAUDE.md`, so it needs a tighter review than a docs lane usually gets.*
+
+3. **The global stop is invisible on both surfaces — after Week 1.** If 700
+   binds, `decide_sweeps` returns `fire=()` and every sport stops. The budget
+   day rolls at 10:00Z, so the casualty is **Sunday Night Football and the late
+   MLB slate**. A refused sweep writes no `api_credits` row
+   (`client.py:345-352`), so exhaustion shows in `credits-day` as an *absence*,
+   not a spike — the same silent-refusal-with-no-fall-through shape that took
+   four passes to fix on the attention slice. Post-hoc read exists:
+   `credits-day --date 20260913` plus `sweep-log` filtered on
+   `outcome='refused'`.
+
+4. **`cryptography` — split it in two.** Confirm reachability **now**
+   (read-only, ~20 min, no dependency change); **date the bump to 2026-09-15**,
+   not "later". `requirements.txt:9` pins `~=44.0`; first patched version is
+   **49.0.0**, a five-major jump on the library that signs every Kalshi
+   request. CVSS unscored. The defect is exponential path-building on duplicate
+   self-signed X.509 intermediates; TLS validation goes through httpx/OpenSSL,
+   not this path builder, and no caller of the affected surface has been found
+   — an argument, not a proof. `MANUAL_ORDERS_ARE_DRY_RUNS = False` since
+   2026-08-26, so a signing break stops Joe hand-betting at the moment he wants
+   to. Its own lane, signing tests as the gate, never a drive-by bump at the
+   end of a session.
+
+5. **`parlay_positions` on 2026-09-15** — unchanged, and now better founded:
+   ADR 0085 Amendment 1 landed, so `NOTES["unquoted"]` carries both populations
+   and a 0 on 09-15 measures demand rather than the chilling effect of the old
+   copy. **One correction owed:** the "Owed" section of
+   `docs/measurements/2026-09-05-parlay-census-result.md` still reads as open
+   and is stale — one line, or a future session reopens it.
+
+6. **The cancel cannot report a bid the venue has already killed. NEW, this
+   session.** `parlays.py:429-436` renders every `cancel_order` exception as
+   "may still be resting" and leaves the row non-terminal, so a dead bid is
+   un-cancellable and permanent in the desk's record. Joe hit it. Low priority
+   now that no screen renders the row — but the row is still there, and this
+   is the shape to fix before anything reads `combo_orders` again.
+
+7. **Scout Anthropic refusal fixture (ADR 0106 §5.2)** — justified (scout has
+   a live production path; `CLAUDE.md`'s "called by nothing" note is about
+   `review_retired`). One real billed call. Deferred to the 09-15 batch.
+
+8. **Killed or parked by the partner, recorded so they are not re-derived:**
+   the `"40 of 40"` prose in three files is **not a lane** (two are code
+   comments; the exit claim still stands; `api/schemas.py:218` rides along next
+   time anyone touches it). The `.claude/worktrees/wf_e0ee5ede-e97-1` husk is
+   **not work** — delete opportunistically. The three ADR 0107 refusals are
+   **correctly parked**. Lane B's missing inspector ADR: **write the 20 lines**
+   rather than carry it.
+
+**Joe-gated: one, and it blocks the deploy.** `flyctl auth login`. Everything
+in items 1–8 is unowned work with no gate; item 1 has a hard deadline of
+Wednesday.
+
+---
+
+## 2026-09-06 (third entry) — the partner ran first and its top item was not on the list; the credit answer was refused once before it was kept; three lanes landed and the inspector stopped blocking work
 
 **STATE, verified at close.** `main` was `7c701ae` at open, live and demo both
 on it, tree clean, no lanes running, and the decision map exhausted at 32 of 32
