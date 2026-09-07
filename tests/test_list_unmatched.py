@@ -168,3 +168,141 @@ class TestEmptyIsSaidNotShown:
         captured = capsys.readouterr()
         assert "unmatched items" not in captured.out
         assert "cannot read" in captured.err
+
+
+class TestTheLeagueCutIsEchoedWhereverItCounts:
+    """`--league` narrows the rows; every count that results says so.
+
+    Added 2026-09-07, when the live queue got an instrument for the first time.
+    The queue carries every league at once, so the question asked of it is
+    always about one -- and a cut that is not echoed turns "no rows for this
+    league" into "the queue is empty". Those need opposite responses: the first
+    is a spelling to check, the second is a linker that resolved everything.
+
+    The filter is an exact, case-sensitive match on the competition string as
+    the linker saw it, and it reaches SQL as a bound parameter, never as text.
+    """
+
+    def test_only_the_named_league_is_listed(self, db_path, capsys):
+        seed(db_path, league="Pro Football", identifier="KXNFLGAME-26SEP09NESEA")
+        seed(db_path, league="MLB", identifier="KXMLBGAME-26SEP07LADSFG")
+
+        assert main(["--db", str(db_path), "--league", "Pro Football"]) == 0
+        out = capsys.readouterr().out
+        assert "KXNFLGAME-26SEP09NESEA" in out
+        assert "KXMLBGAME-26SEP07LADSFG" not in out
+        assert "1 unmatched items for league 'Pro Football'" in out
+
+    def test_without_the_flag_every_league_is_listed_as_before(
+        self, db_path, capsys
+    ):
+        """The default is byte-for-byte the reading this script gave before."""
+        seed(db_path, league="Pro Football", identifier="KXNFLGAME-26SEP09NESEA")
+        seed(db_path, league="MLB", identifier="KXMLBGAME-26SEP07LADSFG")
+
+        assert main(["--db", str(db_path)]) == 0
+        out = capsys.readouterr().out
+        assert "KXNFLGAME-26SEP09NESEA" in out
+        assert "KXMLBGAME-26SEP07LADSFG" in out
+        assert "2 unmatched items in" in out
+        assert "for league" not in out
+
+    def test_a_league_with_no_rows_does_not_read_as_an_empty_queue(
+        self, db_path, capsys
+    ):
+        """The one that matters: 250 baseball rows and a typo'd league name
+        must not print the sentence that means the linker resolved everything.
+        """
+        seed(db_path, league="MLB", identifier="KXMLBGAME-26SEP07LADSFG")
+
+        assert main(["--db", str(db_path), "--league", "pro football"]) == 0
+        out = capsys.readouterr().out
+        assert "0 unmatched items for league 'pro football'" in out
+        assert "exact match, not a prefix" in out
+        assert "resolved everything it saw" not in out
+
+    def test_the_match_is_exact_rather_than_a_prefix(self, db_path, capsys):
+        """`Pro Football Preseason` is a different competition, and the
+        pre-flight checked for exactly that string being absent.
+        """
+        seed(
+            db_path,
+            league="Pro Football Preseason",
+            identifier="KXNFLPRE-26AUG14NESEA",
+        )
+
+        assert main(["--db", str(db_path), "--league", "Pro Football"]) == 0
+        out = capsys.readouterr().out
+        assert "KXNFLPRE-26AUG14NESEA" not in out
+        assert "0 unmatched items for league 'Pro Football'" in out
+
+    def test_a_league_name_carrying_sql_is_matched_as_text(
+        self, db_path, capsys
+    ):
+        """Bound parameter, not interpolation. A vacuous pass is impossible
+        here because the control row must survive: if the string were spliced
+        into the WHERE clause, `' OR 1=1 --` would list the MLB row.
+        """
+        seed(db_path, league="MLB", identifier="KXMLBGAME-26SEP07LADSFG")
+
+        assert main(["--db", str(db_path), "--league", "' OR 1=1 --"]) == 0
+        out = capsys.readouterr().out
+        assert "KXMLBGAME-26SEP07LADSFG" not in out
+        assert "0 unmatched items" in out
+
+
+class TestAFixedRowGoesStaleRatherThanDisappearing:
+    """The reading the 2026-09-07 NFL plan got backwards, pinned in a test.
+
+    Nothing sets `resolved = 1` and nothing deletes on success -- `linker.py`
+    only upserts. So a work item that stops failing keeps its row, frozen at
+    the `last_seen_ms` of the last pass that failed on it, until retention
+    prunes it seven days later. The count does not fall when a link lands;
+    `last_seen` stops moving. A plan that watches the count reads a successful
+    fix as a failure for a week.
+    """
+
+    def test_the_count_does_not_fall_when_an_item_stops_being_seen(
+        self, db_path, capsys
+    ):
+        seed(db_path, identifier="FIXED-ONE", times=1)
+        seed(db_path, identifier="STILL-FAILING", times=1)
+
+        # A later pass re-derives only one of them, exactly as the linker does.
+        seed(db_path, ms=NOW + _MS_PER_DAY, identifier="STILL-FAILING", times=1)
+
+        assert main(["--db", str(db_path)]) == 0
+        out = capsys.readouterr().out
+        assert "2 unmatched items in" in out, (
+            "the fixed item's row must survive; if this ever reads 1, "
+            "something now deletes or resolves rows and the staleness "
+            "reading in this script's docstring is obsolete"
+        )
+
+    def test_the_still_failing_item_sorts_above_the_fixed_one(
+        self, db_path, capsys
+    ):
+        """`ORDER BY last_seen_ms DESC` IS the reading, not a presentation
+        choice: it is what puts the live failures where a reader looks first.
+        """
+        seed(db_path, identifier="FIXED-ONE", times=1)
+        seed(db_path, ms=NOW + _MS_PER_DAY, identifier="STILL-FAILING", times=1)
+
+        assert main(["--db", str(db_path)]) == 0
+        out = capsys.readouterr().out
+        assert out.index("STILL-FAILING") < out.index("FIXED-ONE")
+
+    def test_the_two_carry_different_last_seen_stamps(self, db_path, capsys):
+        """Without this the ordering above is unreadable: the reader separates
+        them by the printed stamp, so the stamp has to differ on the page and
+        not merely in the column it is sorted by.
+        """
+        seed(db_path, identifier="FIXED-ONE", times=1)
+        seed(db_path, ms=NOW + _MS_PER_DAY, identifier="STILL-FAILING", times=1)
+
+        assert main(["--db", str(db_path)]) == 0
+        lines = capsys.readouterr().out.splitlines()
+        failing = next(ln for ln in lines if "STILL-FAILING" in ln)
+        fixed = next(ln for ln in lines if "FIXED-ONE" in ln)
+        assert "2026-08-18" in failing
+        assert "2026-08-17" in fixed

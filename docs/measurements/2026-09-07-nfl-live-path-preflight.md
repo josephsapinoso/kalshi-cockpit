@@ -75,15 +75,54 @@ by reason, at 07:21Z:
 | `expected 2 sides, got 19/27/28` | 12 | 30,503 per row | `KXNFLTOTAL` / `KXNFLTEAMTOTAL` ladders; **scope, not a defect** — the feed buys no `totals` (ADR draft, 2026-09-07) |
 
 The previous entry's "32 of 32 `not_carried`, 842,656 sightings" is this first
-row three hours later (845,792). **After the first NFL sweep, expect the first
-row to fall to ~16 or lower (Week 1 cleared; Week 2 depends on the feed's
-listing depth) and the second row to follow on the pass after**, since a
-spread links through its game. The third row will not move and must not be
-read as a failure.
+row three hours later (845,792).
 
-Read it with `scripts/list_unmatched.py`'s query shape grouped by `league,
-reason`; do **not** read `event_links`, which holds only the links that
-succeeded and is truncated by the very tolerance it would be used to measure.
+### CORRECTION, 2026-09-07 15:20Z — the count will not fall, and reading it would have called a success a failure
+
+This section said: *"After the first NFL sweep, expect the first row to fall to
+~16 or lower (Week 1 cleared; Week 2 depends on the feed's listing depth) and
+the second row to follow on the pass after."* **That is wrong, and it is wrong
+in the direction that reads a working link as a broken one.**
+
+Nothing sets `unmatched_items.resolved = 1` — `linker.py` only ever upserts
+(`linker.py:571-587`), moving `last_seen_ms` forward and incrementing
+`seen_count` — and nothing deletes a row on success. The only thing that
+removes one is `retention.DEFAULT_UNMATCHED_RETENTION_MS`, **7 days measured on
+`last_seen_ms`** (`store/retention.py:110`). So when Week 1 links, its 16 rows
+do not go anywhere: they stop being re-derived and sit at a frozen stamp for a
+week.
+
+**The count at 04:00Z will still be 32. That is the success case.** What
+separates the two halves is `last_seen`:
+
+| after a successful first sweep | rows | `last_seen` |
+|---|---|---|
+| Week 1 `KXNFLGAME` — linked | 16 | **frozen** at the last failing pass, ~03:3xZ |
+| Week 2 `KXNFLGAME` — still unlinkable if the feed does not list that far | 16 | **moving**, stamped by the newest pass |
+| `KXNFLSPREAD` | 16 | moving until the game links, then frozen |
+| `KXNFLTOTAL` / `KXNFLTEAMTOTAL` ladders | 12 | moving — scope, not a defect |
+
+So: **read the stamps, never the count.** A count that stays at 32 says
+nothing at all; 32 rows all carrying a *fresh* stamp is the broken-link case.
+
+### Read it with the instrument, which now exists on the box
+
+This section also said to read it *"with `scripts/list_unmatched.py`'s query
+shape"* — which is what happened, as ad-hoc SQL over `flyctl ssh`, because the
+script itself was never in the image. That is the thing
+`scripts/inspect_live_db.py`'s ruling forbids in those words: *"nothing that
+carries its own source in the command line."* Fixed the same day — the script
+now declares its live path, `.dockerignore` re-includes it, and the derivation
+in `TestTheSshInvokedScriptsSurviveDockerignore` makes the pair inseparable:
+
+    flyctl ssh console -a kalshi-cockpit \
+      -C "python /app/scripts/list_unmatched.py --db /data/cockpit.db --league 'Pro Football'"
+
+It orders by `last_seen_ms DESC` and prints both stamps, so the live rows sort
+above the frozen ones and the reading above is the one the output gives.
+
+Do **not** read `event_links`, which holds only the links that succeeded and is
+truncated by the very tolerance it would be used to measure.
 
 ## Also found, not NFL
 

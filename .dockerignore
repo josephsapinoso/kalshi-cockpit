@@ -150,6 +150,14 @@ scripts/*
 !scripts/inspect_live_proc.py
 !scripts/fetch_live_route.py
 !scripts/dry_run_fair_price_downsample.py
+# Added 2026-09-07, and it is the FIFTH failure of this allowlist rather than a
+# new script. `list_unmatched.py` was written for the laptop, and the live
+# `unmatched_items` queue -- the only copy that has ever held real names -- had
+# no instrument on the box at all. The NFL pre-flight read it as ad-hoc SQL over
+# `flyctl ssh` instead, which the inspector's own ruling forbids. The script now
+# declares `/app/scripts/list_unmatched.py`, so the derivation above demands
+# this line; it is not kept by hand any more than the others are.
+!scripts/list_unmatched.py
 
 *.md
 !README.md

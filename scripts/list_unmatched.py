@@ -2,6 +2,21 @@
 
     .venv\\Scripts\\python.exe scripts\\list_unmatched.py [--db data/cockpit.db]
 
+    flyctl ssh console -a kalshi-cockpit \\
+      -C "python /app/scripts/list_unmatched.py --db /data/cockpit.db --league 'Pro Football'"
+
+**Why the second line exists, added 2026-09-07.** This script was written for
+the laptop and left out of the image, so the live queue -- the only copy that
+has ever held real names -- could not be read by it. The 2026-09-07 NFL
+pre-flight needed exactly that reading and took it as ad-hoc SQL over
+`flyctl ssh` instead, which is the thing `scripts/inspect_live_db.py`'s ruling
+forbids in those words: *"nothing that carries its own source in the command
+line"*. Naming the live path here is not documentation. It is what makes
+`tests/test_has_callers.py::TestTheSshInvokedScriptsSurviveDockerignore`
+**demand** the matching `!scripts/list_unmatched.py` line in `.dockerignore`,
+so the file cannot be documented as live-invoked and absent from the image at
+the same time -- the failure that has now happened five times.
+
 `backend/match/linker.py` writes one row per work item the linker could not
 resolve (ADR 0056): what failed (`identifier`, with the team names as seen in
 `detail`), on which side (`kalshi` | `odds`), the league if known, a free-text
@@ -20,10 +35,34 @@ reads. An empty queue prints an explicit "0 unmatched items"; a database that
 cannot be opened or lacks the table refuses with a nonzero exit, because
 "nothing to do" and "could not look" must never print the same thing.
 
+Reading it across a fix: the count does not fall, the clock moves
+------------------------------------------------------------------
+**A row that stops failing is not removed, and this is the reading most likely
+to be got backwards.** Nothing sets `resolved = 1` and nothing deletes on
+success; `linker.py` only ever upserts, moving `last_seen_ms` forward and
+incrementing `seen_count`. So when a link finally lands, its row simply stops
+being re-derived and sits there, frozen, until
+`retention.DEFAULT_UNMATCHED_RETENTION_MS` (**7 days**, measured on
+`last_seen_ms`) prunes it.
+
+So `32 unmatched items` before a fix and `32 unmatched items` an hour after it
+is the **success** case, not a failure to link. What separates them is
+`last_seen`: the rows still failing carry a stamp from the last pass, the rows
+that were fixed carry the stamp of the pass that last failed on them and never
+move again. `ORDER BY last_seen_ms DESC` puts the live ones on top for exactly
+this reason.
+
+This was written down on 2026-09-07 because the plan for the first NFL sweep
+said *"expect the 32 rows to fall to ~16"*. They will not fall for a week.
+
 What this does NOT establish
 ----------------------------
 - **Not that the queue is being worked.** `resolved` is set by no code path;
   rows shown here are open work, and this script only makes them visible.
+- **Not that a stale row was fixed.** A frozen `last_seen` says nobody has
+  re-derived the item, and a link landing is only one reason for that -- the
+  event closing, the series leaving the board, or the linker not running at all
+  produce the same frozen stamp. It narrows the question; it does not close it.
 - **Not the true sighting count.** `seen_count` is exact only from schema v14
   forward; the migration's first value is a floor, and retention trims rows
   whose `last_seen_ms` has aged out, so an item can vanish and later reappear
@@ -69,18 +108,42 @@ def _stamp(ms: int) -> str:
     )
 
 
-def fetch_open_items(conn: sqlite3.Connection) -> tuple[list[dict], int]:
+def fetch_open_items(
+    conn: sqlite3.Connection, league: str | None = None
+) -> tuple[list[dict], int]:
     """The open work items, newest sighting first, plus the resolved count.
 
     Ordered by `last_seen_ms` DESC because the item still being seen is the one
     an alias entry would fix right now; an item no pass has re-derived lately
     may already be gone from the slate.
+
+    `league` is an **exact** match on the competition string as the linker saw
+    it (`'Pro Football'`, not `'nfl'` and not a prefix), and it is a bound
+    parameter -- no caller-supplied text reaches the SQL, the same property
+    `scripts/inspect_live_db.py` holds. `None` is every league, which is what
+    every caller written before this argument existed gets.
+
+    It exists because the live queue carries every league at once and the
+    question asked of it is always about one: a `Pro Football` reading that
+    arrives with several hundred baseball rows around it is a reading nobody
+    takes. **The filter narrows the rows and not the counts' meaning** -- the
+    resolved tally below is deliberately unfiltered, because it answers "is
+    anything setting `resolved` yet?", which is a fact about the code and not
+    about the league.
     """
-    rows = conn.execute(
-        "SELECT side, identifier, league, detail, reason, seen_count, "
-        "first_seen_ms, last_seen_ms FROM unmatched_items "
-        "WHERE resolved = 0 ORDER BY last_seen_ms DESC, id"
-    ).fetchall()
+    if league is None:
+        rows = conn.execute(
+            "SELECT side, identifier, league, detail, reason, seen_count, "
+            "first_seen_ms, last_seen_ms FROM unmatched_items "
+            "WHERE resolved = 0 ORDER BY last_seen_ms DESC, id"
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT side, identifier, league, detail, reason, seen_count, "
+            "first_seen_ms, last_seen_ms FROM unmatched_items "
+            "WHERE resolved = 0 AND league = ? ORDER BY last_seen_ms DESC, id",
+            (league,),
+        ).fetchall()
     resolved = conn.execute(
         "SELECT COUNT(*) FROM unmatched_items WHERE resolved != 0"
     ).fetchone()[0]
@@ -100,10 +163,28 @@ def fetch_open_items(conn: sqlite3.Connection) -> tuple[list[dict], int]:
     return items, resolved
 
 
-def render(items: list[dict], resolved: int, db_path: str) -> str:
-    """The queue as a text table, or an explicit statement that it is empty."""
+def render(
+    items: list[dict], resolved: int, db_path: str, league: str | None = None
+) -> str:
+    """The queue as a text table, or an explicit statement that it is empty.
+
+    **The filter is named in every line that carries a count**, including the
+    empty one, because a cut that is not echoed turns "no rows for this league"
+    into "the queue is empty" -- and those need opposite responses. It is the
+    same rule `/api/slate` follows when it echoes `filter.league` rather than
+    returning a short list that reads as a quiet night.
+    """
+    scope = "" if league is None else f" for league {league!r}"
     tail = f" ({resolved} resolved not shown)" if resolved else ""
     if not items:
+        if league is not None:
+            return (
+                f"0 unmatched items{scope} in {db_path}{tail}\n"
+                "Nothing open under that exact competition string. It is a "
+                "case-sensitive exact match, not a prefix, so check the "
+                "spelling against an unfiltered run before reading this as "
+                "'the linker resolved everything'.\n"
+            )
         return (
             f"0 unmatched items in {db_path}{tail}\n"
             "The linker resolved everything it saw, or has not run against "
@@ -122,19 +203,28 @@ def render(items: list[dict], resolved: int, db_path: str) -> str:
         for item in items
     )
     lines.append("")
-    lines.append(f"{len(items)} unmatched items in {db_path}{tail}")
+    lines.append(f"{len(items)} unmatched items{scope} in {db_path}{tail}")
     return "\n".join(lines) + "\n"
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", default=DEFAULT_DB)
+    parser.add_argument(
+        "--league",
+        default=None,
+        help=(
+            "Exact competition string as the linker saw it, e.g. "
+            "'Pro Football'. Case-sensitive, not a prefix. Omitted means "
+            "every league."
+        ),
+    )
     args = parser.parse_args(argv)
 
     try:
         conn = connect_readonly(args.db)
         try:
-            items, resolved = fetch_open_items(conn)
+            items, resolved = fetch_open_items(conn, args.league)
         finally:
             conn.close()
     except sqlite3.OperationalError as exc:
@@ -144,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"cannot read {args.db}: {exc}", file=sys.stderr)
         return 2
 
-    print(render(items, resolved, args.db), end="")
+    print(render(items, resolved, args.db, args.league), end="")
     return 0
 
 

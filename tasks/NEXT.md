@@ -253,9 +253,12 @@ used. **Do not read "0 NFL fixtures" as a failure before 03:35Z 09-08.**
 commence-time window` **32** rows (all 32 `KXNFLGAME`, Weeks 1 and 2);
 `no linked game event for fixture …` **16** (`KXNFLSPREAD`, links through its
 game); `expected 2 sides, got 19/27/28` **12** (`KXNFLTOTAL`/`TEAMTOTAL`
-ladders — **scope, not a defect**, the feed buys no totals). After the first
-sweep expect 32 → ~16 or lower (Week 2 depends on the feed's listing depth),
-then 16 → ~0 a pass later, and 12 unchanged. Do not read `event_links`.
+ladders — **scope, not a defect**, the feed buys no totals). Do not read
+`event_links`.
+
+**The sentence that stood here — "after the first sweep expect 32 → ~16, then
+16 → ~0" — was WRONG and is corrected below.** It would have read tonight's
+success as a failure. See the CORRECTION section in the measurement doc.
 
 ### Lane B — `failed` and the daily cap were both wearing the quiet's words
 
@@ -318,10 +321,35 @@ at cost 3 keeps Pinnacle. Nothing in `fly.live.toml` moved.
 
 ### Still open, in order
 
-1. **Tonight, ~03:35Z 09-08: confirm the first NFL sweep fired.** `sweep-log`
-   should show a `bootstrap` row for `americanfootball_nfl`; then the
-   `unmatched_items` collapse above. If `Pro Football` still holds 32
-   `no sportsbook fixture` rows at 04:00Z, the link is broken, not the scope.
+1. **Tonight, from ~03:35Z 09-08: confirm the first NFL sweep fired**, and
+   read it the way the two corrections below say, not the way this item said
+   this morning.
+   - `sweep-log` should show a **`served`** row, `sport_key =
+     americanfootball_nfl`, detail beginning `americanfootball_nfl has no
+     stored sportsbook fixtures`. A `skipped` props row lands right behind it
+     and is expected, not a fault. **Do not grep `api_credits` for the string
+     `bootstrap`** — `trigger` is NULL on a bootstrap; only MANUAL and
+     ATTENTION are stamped.
+   - **03:35Z is not a deadline.** `window_status` cannot see a sport with no
+     stored fixture, so its null `next_call_ms` feeds `Tempo.next_wake_ms`
+     (`scripts/run_loop.py:1121`) and the loop may pace itself slowly for the
+     buy it is about to make. A bootstrap at 04:10Z is the design working.
+   - **Read `last_seen`, never the count** — corrected 15:20Z, and the old
+     reading would have called a success a failure. Nothing sets
+     `unmatched_items.resolved` and nothing deletes on a link, so a fixed row
+     goes *stale in place* for the 7 days of
+     `retention.DEFAULT_UNMATCHED_RETENTION_MS`. **`Pro Football` still
+     holding 32 rows at 04:00Z is the SUCCESS case**; the broken-link case is
+     32 rows all carrying a *fresh* stamp. Full table in
+     `docs/measurements/2026-09-07-nfl-live-path-preflight.md` §CORRECTION.
+   - The instrument is shipped as of this session and ordered by
+     `last_seen_ms DESC` so the live rows sort on top:
+
+         flyctl ssh console -a kalshi-cockpit -C "python /app/scripts/list_unmatched.py --db /data/cockpit.db --league 'Pro Football'"
+
+   - **Do not watch the credit ledger.** Tonight is one 4-credit call against
+     a ~366-credit day; 4 credits is invisible. The day that matters is
+     Sunday 09-13 — see item 2.
 2. **`window_status` cannot predict a bootstrap** (lane B residual 1). Pass
    `in_scope` through and mirror the candidate filter; one test driving both
    at a fixture-less sport inside the horizon.
