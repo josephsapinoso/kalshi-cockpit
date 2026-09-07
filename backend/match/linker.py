@@ -52,9 +52,38 @@ ALIAS_DIR = Path(__file__).parent / "aliases"
 #
 # The two-sport agreement is what identifies it. WNBA games run about two hours
 # and MLB about three, so if `occurrence_datetime` were the expected *outcome*
-# time the offsets would differ by an hour; they are identical, which makes it a
-# fixed shift and not a duration. Three hours is the US Eastern-to-Pacific gap,
-# and both zones move together across DST, so it does not vary seasonally.
+# time the offsets would differ by an hour; they agreed, which makes it a shift
+# and not a duration. Three hours is the US Eastern-to-Pacific gap, and both
+# zones move together across DST, so the shift does not vary seasonally.
+#
+# **It is a shift plus noise, not a constant, and this comment said "identical"
+# until 2026-09-06.** Re-measured over the whole live `event_links` record --
+# 2,263 links, three leagues -- the shift is right and the constancy is not:
+#
+#     Pro Baseball        1,872   -3.07 .. -2.98      (mass at -3.00)
+#     NCAA Football         304   -3.50 .. +3.00      (sign flips)
+#     Pro Basketball (W)     87   -3.50 .. -2.00
+#
+# The mass sits at -3.00 exactly, as the 2026-08-07 reading said. What that
+# reading could not see, on 24 same-day pairs, is a tail: six links at -3.50
+# and two NCAAF links at **+3.00**, where Kalshi is *earlier* than the book.
+# Read it as a 3-hour shift plus up to ~30 min of genuine per-fixture
+# disagreement about kickoff, occasionally with the sign reversed.
+#
+# **So the headroom is 30 minutes, not an hour.** `max|skew| = 3.50h` against
+# this 4h tolerance. NFL specifically is the comfortable case -- all 16 Week 1
+# events link at exactly +3.00h (2026-09-06 dry run against the captured
+# slate), because NFL kickoffs are quarter-hour aligned -- but the margin
+# belongs to the tolerance, not to any one league.
+#
+# **Do not widen it on that basis alone.** Widening cannot cause a wrong match
+# (see below) but it does turn more MLB doubleheaders into refusals, and the
+# tail above is 8 links in 2,263. The thing actually worth fixing is what
+# happens WHEN it is exceeded: the refusal is stamped `NOT_CARRIED`, and
+# `runner.py`'s `unmatched_by_sport` docstring calls that half "scope and needs
+# nobody". A whole league failing to link would therefore arrive in the
+# category explicitly marked as needing no attention -- which is the same
+# silent total failure the 2-hour tolerance caused, one layer up.
 #
 # The tolerance was 2 hours, so **every single link failed by an hour** and the
 # whole chain produced zero recommendations from a full live slate.
