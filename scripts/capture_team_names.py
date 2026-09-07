@@ -1,10 +1,30 @@
-"""Capture NCAAF team names from BOTH sides and report what the real linker
-cannot match, so the alias file is written from observation.
+"""Capture team names from BOTH sides and report what the real linker cannot
+match, so an alias file is written from observation rather than from memory.
 
-**Why this exists.** `backend/match/aliases/americanfootball_ncaaf.yaml` does
-not exist, so `load_aliases` returns an empty mapping and NCAAF rests entirely
-on exact + token-prefix matching. `docs/measurements/2026-08-16-nfl-ncaaf-scope-
-and-cost.md` dated that as the first thing to break, ~2026-08-27.
+**One script, two leagues, on purpose.** It was `capture_ncaaf_names.py` until
+2026-09-06, when NFL needed the identical pass before its season opener and
+the choice was to copy 350 lines or to parametrise them. Two spellings of one
+rule is how divergence starts -- the same reasoning that merged the two combo
+copy guards the same week. `--league` selects the series, the sport key and
+the output filenames; nothing else differs.
+
+**Why this exists.** `backend/match/aliases/americanfootball_ncaaf.yaml` did
+not exist, so `load_aliases` returned an empty mapping and NCAAF rested
+entirely on exact + token-prefix matching. `docs/measurements/2026-08-16-nfl-
+ncaaf-scope-and-cost.md` dated that as the first thing to break, ~2026-08-27.
+The NFL file exists but its five entries document the Kalshi side only -- the
+book side has never been paired against a live feed, which is what this run
+is for.
+
+**The NFL run has a hazard NCAAF does not, and it is why the league filter is
+production's own.** `KXNFLGAME` carries preseason AND regular season -- same
+series, same `competition_scope` ("Game"), differing only in
+`product_metadata.competition` (`discovery.py:288-297`). Filtering on the
+series ticker alone would pull preseason fixtures the odds feed does not
+carry and report them as unmatched names, which is a fabricated alias list.
+So every event goes through `classify_series` and is kept only when its
+`sport_key` is the one asked for -- the same call the runner makes, so an
+event this script counts is an event production would have counted.
 
 **The file must not be hand-guessed, and this repo has the receipt.**
 `backend/kalshi/discovery.py:231-234` records that guessing spellings silently
@@ -41,7 +61,8 @@ What this does not establish
   fixtures the sportsbook feed does not carry. A Kalshi event with no fixture
   in the window is OUT OF SCOPE, not unmatched, and the two are counted apart
   -- pooling them is how "NCAAF is broken" gets reported for a game nobody
-  prices.
+  prices. On NFL this class should be near-empty (32 teams, every game
+  carried); if it is not, suspect the league filter before the alias file.
 - **That the alias file is complete.** One capture is one slate. A team playing
   next week is not in it, and the file will need re-deriving.
 - **That an alias would fix any given row.** A pair the resolver refuses may be
@@ -68,6 +89,7 @@ import httpx                                                    # noqa: E402
 from dotenv import load_dotenv                                  # noqa: E402
 
 from backend.kalshi.discovery import (                          # noqa: E402
+    classify_series,
     event_commence_ms,
     parse_ms,
 )
@@ -80,22 +102,29 @@ from backend.match.linker import (                              # noqa: E402
     load_aliases,
 )
 
-logger = logging.getLogger("capture_ncaaf_names")
+logger = logging.getLogger("capture_team_names")
 
 KALSHI_EVENTS = "https://api.elections.kalshi.com/trade-api/v2/events"
-ODDS_EVENTS = "https://api.the-odds-api.com/v4/sports/americanfootball_ncaaf/events"
-SERIES = "KXNCAAFGAME"
-SPORT_KEY = "americanfootball_ncaaf"
+ODDS_EVENTS = "https://api.the-odds-api.com/v4/sports/{sport_key}/events"
+
+#: `--league` -> (Kalshi series ticker, Odds API sport key, fixture prefix).
+#: The sport key is NOT derived from the series ticker: `classify_series`
+#: derives it from `product_metadata.competition` via `IN_SCOPE_LEAGUES`, and
+#: this table only has to name which of those keys the run is asking for.
+LEAGUES: dict[str, tuple[str, str, str]] = {
+    "ncaaf": ("KXNCAAFGAME", "americanfootball_ncaaf", "ncaaf_names"),
+    "nfl": ("KXNFLGAME", "americanfootball_nfl", "nfl_names"),
+}
 
 
-async def kalshi_fixtures(limit: int) -> list[dict]:
-    """Open NCAAF game events with their markets. Unauthenticated by design."""
+async def kalshi_fixtures(limit: int, series: str) -> list[dict]:
+    """Open game events with their markets. Unauthenticated by design."""
     out: list[dict] = []
     cursor = None
     async with httpx.AsyncClient(timeout=30.0) as client:
         while True:
             params: dict[str, object] = {
-                "series_ticker": SERIES,
+                "series_ticker": series,
                 "status": "open",
                 "limit": 200,
                 "with_nested_markets": "true",
@@ -110,7 +139,7 @@ async def kalshi_fixtures(limit: int) -> list[dict]:
                 raise KeyError(
                     f"{KALSHI_EVENTS} returned no 'events' key (got "
                     f"{sorted(body)}). Refusing to report zero fixtures as "
-                    f"'no college football this week'."
+                    f"'no games this week'."
                 )
             out.extend(batch)
             cursor = body.get("cursor")
@@ -118,10 +147,13 @@ async def kalshi_fixtures(limit: int) -> list[dict]:
                 return out[:limit]
 
 
-async def odds_fixtures(api_key: str) -> tuple[list[dict], dict[str, str]]:
-    """Upcoming NCAAF fixtures as the books name them, plus the credit headers."""
+async def odds_fixtures(
+    api_key: str, sport_key: str
+) -> tuple[list[dict], dict[str, str]]:
+    """Upcoming fixtures as the books name them, plus the credit headers."""
+    url = ODDS_EVENTS.format(sport_key=sport_key)
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.get(ODDS_EVENTS, params={"apiKey": api_key})
+        response = await client.get(url, params={"apiKey": api_key})
         headers = {
             key: response.headers.get(key, "")
             for key in ("x-requests-used", "x-requests-remaining", "x-requests-last")
@@ -343,7 +375,13 @@ def main() -> int:
     configure_logging()
     load_dotenv(ROOT / ".env")
 
-    parser = argparse.ArgumentParser(description="Capture NCAAF team names.")
+    parser = argparse.ArgumentParser(description="Capture team names.")
+    parser.add_argument(
+        "--league",
+        choices=sorted(LEAGUES),
+        required=True,
+        help="which league to capture. Required: there is no safe default.",
+    )
     parser.add_argument("--limit", type=int, default=400)
     parser.add_argument("--show", type=int, default=25)
     parser.add_argument(
@@ -369,17 +407,32 @@ def main() -> int:
         logger.error("ODDS_API_KEY is not set; cannot read the book side.")
         return 2
 
-    kalshi = asyncio.run(kalshi_fixtures(args.limit))
-    books, headers = asyncio.run(odds_fixtures(api_key))
+    series, sport_key, prefix = LEAGUES[args.league]
+
+    raw = asyncio.run(kalshi_fixtures(args.limit, series))
+    # **Production's own filter, not a string comparison here.** `KXNFLGAME`
+    # carries preseason and regular season under one series ticker, and the
+    # only thing separating them is `product_metadata.competition`. Counting a
+    # preseason fixture as an unmatched name would invent alias entries for
+    # games the odds feed never carried.
+    kalshi = [e for e in raw if classify_series(e).sport_key == sport_key]
+    dropped = len(raw) - len(kalshi)
+
+    books, headers = asyncio.run(odds_fixtures(api_key, sport_key))
 
     aliases = (
-        load_aliases(SPORT_KEY)
+        load_aliases(sport_key)
         if args.with_aliases
-        else TeamAliases(sport_key=SPORT_KEY)
+        else TeamAliases(sport_key=sport_key)
     )
 
-    print(f"Kalshi {SERIES}: {len(kalshi)} open events")
-    print(f"Odds API {SPORT_KEY}: {len(books)} upcoming fixtures")
+    print(f"Kalshi {series}: {len(kalshi)} open events in scope")
+    if dropped:
+        print(
+            f"  (+{dropped} dropped by classify_series -- wrong competition "
+            f"for {sport_key}, e.g. preseason)"
+        )
+    print(f"Odds API {sport_key}: {len(books)} upcoming fixtures")
     print(f"credit headers: {headers}")
     print(f"aliases: {'file on disk' if args.with_aliases else 'NONE (baseline)'}")
     print()
@@ -395,7 +448,7 @@ def main() -> int:
         # price, size or book field. And this repo is public while Kalshi's
         # Developer Agreement s3.1 limits redistributing API-derived data, so
         # the smallest fixture that still pins the behaviour is the right one.
-        (out / "ncaaf_names_kalshi.json").write_text(
+        (out / f"{prefix}_kalshi.json").write_text(
             json.dumps(
                 {
                     "captured_note": (
@@ -415,7 +468,7 @@ def main() -> int:
             ),
             encoding="utf-8",
         )
-        (out / "ncaaf_names_books.json").write_text(
+        (out / f"{prefix}_books.json").write_text(
             json.dumps(
                 {
                     "captured_note": (
@@ -436,8 +489,8 @@ def main() -> int:
             ),
             encoding="utf-8",
         )
-        print(f"wrote {out / 'ncaaf_names_kalshi.json'}")
-        print(f"wrote {out / 'ncaaf_names_books.json'}")
+        print(f"wrote {out / f'{prefix}_kalshi.json'}")
+        print(f"wrote {out / f'{prefix}_books.json'}")
     return 0
 
 

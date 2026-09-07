@@ -1,7 +1,7 @@
 # NCAA football team-name overrides.
 #
 # See americanfootball_nfl.yaml for the rules. Every entry here was DERIVED,
-# not guessed: `scripts/capture_ncaaf_names.py` reads a live Kalshi slate and a
+# not guessed: `scripts/capture_team_names.py --league ncaaf` reads a live Kalshi slate and a
 # live Odds API fixture list, runs both through the real `link_event`, and
 # prints the fixtures it refused on names beside the in-window book fixture
 # that shares a side. Both spellings below were read off that output.

@@ -8,6 +8,16 @@
 # Keep this file SHORT. A long alias file means the deterministic rule has
 # stopped working and is being papered over one team at a time.
 #
+# DERIVED AND VERIFIED 2026-09-06, before the season opener, against a live
+# Kalshi slate (32 open KXNFLGAME events, preseason excluded by
+# `classify_series`) and a live Odds API fixture list (272 fixtures), both run
+# through the real `link_event` by
+# `scripts/capture_team_names.py --league nfl`. Result: **32 of 32 events link
+# with this file absent**, and all 32 franchises appear on both sides -- a
+# census over teams, not a sample. So every entry below is documentation of
+# the pattern and none of them is required. The capture cost zero odds credits
+# (`x-requests-last: 0`); `/events` carries no odds.
+#
 # Format:  <kalshi name>: <sportsbook name>
 # Both sides are normalised (casefold, accents and punctuation stripped) before
 # comparison, so exact spelling and capitalisation here do not matter.
@@ -24,5 +34,11 @@ teams:
   Los Angeles C: Los Angeles Chargers
 
   # Washington's name has changed twice in recent years and the two sources
-  # have historically lagged each other. This one is a genuine override.
+  # have historically lagged each other, so this one LOOKED load-bearing and
+  # was described here as "a genuine override" until 2026-09-06. It is not:
+  # the baseline run links Washington's fixture with this whole file removed,
+  # because "washington" is a token prefix of "washington commanders" like
+  # every other city here. Kept as documentation of a name that has moved
+  # before and may move again; pinned as non-load-bearing by
+  # `tests/test_nfl_names_resolve.py`.
   Washington: Washington Commanders

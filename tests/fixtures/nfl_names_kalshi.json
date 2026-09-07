@@ -1,0 +1,261 @@
+{
+  "captured_note": "Reduced capture: team names and kickoff only, for alias resolution. No prices, no market payloads.",
+  "events": [
+    {
+      "event_ticker": "KXNFLGAME-26SEP09NESEA",
+      "commence_ms": 1789010400000,
+      "teams": [
+        "Seattle",
+        "New England"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP10SFLAR",
+      "commence_ms": 1789097700000,
+      "teams": [
+        "Los Angeles R",
+        "San Francisco"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP13ATLPIT",
+      "commence_ms": 1789329600000,
+      "teams": [
+        "Pittsburgh",
+        "Atlanta"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP13BALIND",
+      "commence_ms": 1789329600000,
+      "teams": [
+        "Indianapolis",
+        "Baltimore"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP13BUFHOU",
+      "commence_ms": 1789329600000,
+      "teams": [
+        "Houston",
+        "Buffalo"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP13CHICAR",
+      "commence_ms": 1789329600000,
+      "teams": [
+        "Carolina",
+        "Chicago"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP13CLEJAC",
+      "commence_ms": 1789329600000,
+      "teams": [
+        "Jacksonville",
+        "Cleveland"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP13NODET",
+      "commence_ms": 1789329600000,
+      "teams": [
+        "Detroit",
+        "New Orleans"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP13NYJTEN",
+      "commence_ms": 1789329600000,
+      "teams": [
+        "Tennessee",
+        "New York J"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP13TBCIN",
+      "commence_ms": 1789329600000,
+      "teams": [
+        "Cincinnati",
+        "Tampa Bay"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP13ARILAC",
+      "commence_ms": 1789341900000,
+      "teams": [
+        "Los Angeles C",
+        "Arizona"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP13GBMIN",
+      "commence_ms": 1789341900000,
+      "teams": [
+        "Minnesota",
+        "Green Bay"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP13MIALV",
+      "commence_ms": 1789341900000,
+      "teams": [
+        "Las Vegas",
+        "Miami"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP13WASPHI",
+      "commence_ms": 1789341900000,
+      "teams": [
+        "Philadelphia",
+        "Washington"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP13DALNYG",
+      "commence_ms": 1789356000000,
+      "teams": [
+        "New York G",
+        "Dallas"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP14DENKC",
+      "commence_ms": 1789442100000,
+      "teams": [
+        "Kansas City",
+        "Denver"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP17DETBUF",
+      "commence_ms": 1789701300000,
+      "teams": [
+        "Buffalo",
+        "Detroit"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP20CARATL",
+      "commence_ms": 1789934400000,
+      "teams": [
+        "Atlanta",
+        "Carolina"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP20CINHOU",
+      "commence_ms": 1789934400000,
+      "teams": [
+        "Houston",
+        "Cincinnati"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP20CLETB",
+      "commence_ms": 1789934400000,
+      "teams": [
+        "Tampa Bay",
+        "Cleveland"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP20GBNYJ",
+      "commence_ms": 1789934400000,
+      "teams": [
+        "New York J",
+        "Green Bay"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP20MINCHI",
+      "commence_ms": 1789934400000,
+      "teams": [
+        "Chicago",
+        "Minnesota"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP20NOBAL",
+      "commence_ms": 1789934400000,
+      "teams": [
+        "Baltimore",
+        "New Orleans"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP20PHITEN",
+      "commence_ms": 1789934400000,
+      "teams": [
+        "Tennessee",
+        "Philadelphia"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP20PITNE",
+      "commence_ms": 1789934400000,
+      "teams": [
+        "New England",
+        "Pittsburgh"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP20JACDEN",
+      "commence_ms": 1789945500000,
+      "teams": [
+        "Denver",
+        "Jacksonville"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP20LVLAC",
+      "commence_ms": 1789945500000,
+      "teams": [
+        "Los Angeles C",
+        "Las Vegas"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP20MIASF",
+      "commence_ms": 1789946700000,
+      "teams": [
+        "San Francisco",
+        "Miami"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP20SEAARI",
+      "commence_ms": 1789946700000,
+      "teams": [
+        "Arizona",
+        "Seattle"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP20WASDAL",
+      "commence_ms": 1789946700000,
+      "teams": [
+        "Dallas",
+        "Washington"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP20INDKC",
+      "commence_ms": 1789960800000,
+      "teams": [
+        "Kansas City",
+        "Indianapolis"
+      ]
+    },
+    {
+      "event_ticker": "KXNFLGAME-26SEP21NYGLAR",
+      "commence_ms": 1790046900000,
+      "teams": [
+        "Los Angeles R",
+        "New York G"
+      ]
+    }
+  ]
+}

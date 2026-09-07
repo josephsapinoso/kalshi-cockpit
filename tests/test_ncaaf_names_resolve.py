@@ -1,6 +1,6 @@
 """College football fixtures resolve, and every alias entry earns its place.
 
-Captured 2026-08-26 by `scripts/capture_ncaaf_names.py` from a live Kalshi
+Captured 2026-08-26 by `scripts/capture_team_names.py --league ncaaf` from a live Kalshi
 slate (339 `KXNCAAFGAME` events) and a live Odds API fixture list (111
 fixtures), reduced to names and kickoffs. Wire-format tests load captured
 payloads, never hand-constructed ones (CLAUDE.md conventions) -- and the
@@ -188,7 +188,7 @@ class TestTheAliasFileIsLoadBearing:
         assert not decorative, (
             f"these entries change nothing on the captured slate: "
             f"{decorative}. Delete them, or re-derive the file with "
-            f"scripts/capture_ncaaf_names.py -- an entry kept 'just in case' "
+            f"scripts/capture_team_names.py --league ncaaf -- an entry kept 'just in case' "
             f"is how a short file becomes a long one."
         )
 

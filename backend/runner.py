@@ -223,7 +223,7 @@ class PassCounts:
     #:
     #: `name_unresolved` is the actionable half: it means an in-window fixture
     #: already resolves one side, so an alias entry plausibly fixes it. Derive
-    #: the entry with `scripts/capture_ncaaf_names.py`; do not guess it.
+    #: the entry with `scripts/capture_team_names.py`; do not guess it.
     #: `not_carried` is scope and needs nobody.
     unmatched_by_sport: dict = field(default_factory=dict)
     # How many rows the Skeptic was asked about, and how many it refused. Both
