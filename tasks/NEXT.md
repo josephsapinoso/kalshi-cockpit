@@ -223,6 +223,12 @@ NOT on `main`, and that is the first thing to check before deploying.**
     demo     cc8de80   NOT redeployed this session, and that is fine
     main     42e667f   five commits ahead of live, six ahead of demo
 
+**Re-read 2026-09-07 16:26Z, next session:** live is still `763adad` off
+`/api/health` `build.git_sha`, recorder writing (age 81s). `main` has moved on
+to `9a2c1c0` (the demo-row fix, docs only) — **item 2 still ships `9e7e6c7` and
+`ca248d7`; nothing deployable was added.** Live is now six commits behind main,
+not five, and every one of the extra is documentation.
+
 **Verify all three with `/api/health` `build.git_sha` rather than believing
 this table** — the 09-06 entry said "deployed on `7ed20fd`" while live had been
 on `4a6d63e` the whole time, and the partner then ranked a day's work around
@@ -366,6 +372,29 @@ all green this morning are red.
 
 1. **Tonight, from ~03:35Z 09-08: confirm the first NFL sweep fired**, read the
    way the corrections above say and not the way this morning's entry said.
+   - **CHECKED 16:30Z 09-07 AND THE WINDOW HAD NOT OPENED — 11.1 h early.**
+     Not a failure and not a delay: the soonest Kalshi NFL event is
+     `KXNFLGAME-26SEP09NESEA` at commence 2026-09-10 03:20Z, which crosses the
+     48 h bootstrap horizon at **2026-09-08 03:20Z**, and the first full pass
+     after that lands ~03:35Z (~03:37Z with jitter). `sweep-log` at 16:25Z
+     shows no NFL row of any outcome, which is the correct state. **Whoever
+     takes this reading must do it after 03:40Z on 09-08, not before**, and
+     the two things that would otherwise be checked first are now already
+     cleared:
+     - **The baseline re-stamps every pass, shown rather than assumed.** Read
+       again at 16:25Z: 66 rows, same 32/16/16/2 split, `last_seen`
+       `2026-09-07 16:25` on **all 66**, 0 stale — identical to 15:30Z. One
+       baseline could not tell a queue that stamps every pass from one stamped
+       once; two 55 minutes apart can. So a frozen row at 04:00Z is a fixed
+       row, and that inference is now load-bearing rather than hopeful.
+     - **The 700-credit cap cannot eat the observation.** The budget day rolls
+       at 10:00Z, so 03:35Z 09-08 is inside budget day **20260907** — a bound
+       cap would return `fire=()` and the refusal would look, through
+       `list_unmatched.py` alone, exactly like a sweep that fired and failed to
+       link. At 16:30Z the day stood at **60 of 700** across 15 calls, 640 left
+       with ~17.5 h to run, against a 492-credit all-time heaviest day. Not a
+       risk tonight. Re-read `credits-day --date 20260907` before the sweep-log
+       read anyway; it is free and it removes the only silent failure mode.
    - `sweep-log` should show a **`served`** row, `sport_key =
      americanfootball_nfl`, detail beginning `americanfootball_nfl has no
      stored sportsbook fixtures`. A `skipped` props row lands right behind it

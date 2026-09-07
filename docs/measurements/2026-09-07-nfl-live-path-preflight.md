@@ -147,6 +147,43 @@ not read the total as drift in the thing being measured.
 Reading it cost nothing: `flyctl ssh`, a `mode=ro` connection, no
 `api_credits` row.
 
+### Re-taken at 16:25Z, and it has not moved
+
+A second pre-sweep read, 55 minutes after the first and 11.1 hours before the
+earliest the bootstrap can fire. Identical in every cell that decides tonight:
+**66 rows, the same 32 / 16 / 16 / 2 split, `last_seen` = `2026-09-07 16:25`
+on all 66, 0 stale.**
+
+Two agreeing pre-sweep reads are not redundancy. Tonight's reading turns on
+*frozen versus fresh*, and one baseline cannot separate a queue that re-stamps
+every pass from one that merely happened to be stamped at 15:30Z. Two reads
+55 minutes apart, both wholly fresh, establish that it re-stamps every pass —
+the premise the whole reading rests on, and one that was until now assumed
+rather than shown.
+
+The queue's soonest row is `KXNFLGAME-26SEP09NESEA`, the same event check 2
+named as the one that crosses the horizon. Nothing has changed hands.
+
+### The 700-credit day cap cannot eat tonight's observation
+
+Worth checking because it is the one ungated way tonight dies quietly: the
+budget day rolls at 10:00Z, so **03:35Z on 09-08 falls inside budget day
+20260907**, not a fresh one. Were the cap to bind first, `decide_sweeps` would
+return `fire=()` and the bootstrap would be refused with no NFL row to read —
+and the refusal would look, from `list_unmatched.py` alone, exactly like a
+sweep that fired and failed to link.
+
+Read at 16:30Z: **15 calls, 60 of 700 credits**, 640 remaining with ~17.5 h of
+the budget day still to run. The heaviest day this instance has ever recorded
+is 492 (20260827). The cap is not a live risk tonight; it is Sunday 09-13's
+risk, and this read changes nothing about that projection.
+
+The same read dates the attention slice: the day's first `trigger = 'attention'`
+rows are 16:15Z and 16:25Z, both `americanfootball_ncaaf`. The desk was open
+while this was being read. That is **not** evidence about ADR 0111 in either
+direction — NCAAF's kickoff is inside twelve hours, so the tiered rule and the
+deployed rule award it the same ten-minute cadence.
+
 ### And the instrument needed one fix before it was usable
 
 Its first live run returned **75.8 KB for 66 rows** — lines of 1,300 to 2,249
@@ -180,8 +217,11 @@ That is the gate for the lane that fixes it, and it passed.
   what the linker expects; check 5 says the book side has not been seen. The
   272-fixture capture in `tests/fixtures/` linked 16 of 16 against these same
   events, but that was a capture, not the live feed on the day.
-- That the sweep will be **affordable**. It costs 4 credits against a day that
-  has never run four sports; `docs/measurements/2026-09-06-nfl-week-1-credit-headroom.md`
-  carries the projection, and this read adds nothing to it.
+- That the sweep will be **affordable on 09-13**. Tonight's affordability is
+  now established rather than assumed — 60 of 700 at 16:30Z, inside the same
+  budget day the bootstrap fires in — but that is one 4-credit call on a quiet
+  Monday. Sunday is a different day and
+  `docs/measurements/2026-09-06-nfl-week-1-credit-headroom.md` still carries the
+  only projection of it; nothing here moves that number.
 - Anything about `KXNFLTOTAL`. The ladders exist on Kalshi and the desk has no
   fair value for them, and both facts were already known.
