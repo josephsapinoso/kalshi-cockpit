@@ -216,9 +216,21 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ## 2026-09-06 (sixth entry, latest) — the published credit bound was a partial sum, item 3 was half-false, and the largest NFL day-one risk is a failure nobody had timed
 
-**STATE at close.** `main` carries this session's work on top of `4a6d63e`.
-**Live and demo were already on `4a6d63e`** — the previous entry's "deployed on
-`7ed20fd`" was stale, checked via `/api/health` `git_sha` rather than inherited.
+**STATE at close.** `main` = **`9951416`**, pushed, CI green on all four jobs.
+**Live and demo are both deployed and verified on `9951416`** via the
+`deploy.yml` workflow dispatch, `/api/health` read back on each. Live recorder
+writing, `live_quotes_available: true`.
+
+**Verify this with `/api/health` rather than believing it** — the previous
+entry said "deployed on `7ed20fd`" and live had in fact been on `4a6d63e` the
+whole time. That stale sentence was the first thing the partner agent ranked
+work around, so it cost more than a line.
+
+The deploy carries **no behaviour change**: `git diff` over `backend/` and
+`fly.live.toml` is comment-only (checked by filtering `^[+-]\s*#`), and the
+sole executable change is `scripts/inspect_live_db*.py`, which runs on the box
+by ssh. It was shipped so `credits-day`'s new cross-read is *there* on
+2026-09-13, which is the day it was built for.
 Baseline before any edit: **6258 passed / 10 xfailed** (24m30s), matching the
 handoff exactly. Six stale branches deleted with `git branch -d` after
 confirming 0 commits not in `main` each. Decision map still exhausted (0 open
