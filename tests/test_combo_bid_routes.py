@@ -79,9 +79,12 @@ MINTED_MARKET = {
 class FakeApi:
     """The exchange surface the bid path touches, with its shard behaviour."""
 
-    def __init__(self, *, balance=None, exchange_index=1, create=None):
+    def __init__(
+        self, *, balance=None, exchange_index=1, create=None, cancel_raises=None
+    ):
         self._balance = balance if balance is not None else LIVE_BALANCE
         self.shard = exchange_index
+        self.cancel_raises = cancel_raises
         self._create = create or {
             "order_id": "ord-1",
             "fill_count": "0.00",
@@ -114,6 +117,8 @@ class FakeApi:
 
     async def cancel_order(self, order_id, *, exchange_index=None):
         self.cancelled.append((order_id, exchange_index))
+        if self.cancel_raises is not None:
+            raise self.cancel_raises
         return {"order_id": order_id, "reduced_by": "1.00"}
 
 
@@ -408,6 +413,69 @@ class TestTheRecordAndTheCancel:
             "404s an order that is demonstrably resting"
         )
         assert (await _get(app, "/api/parlays/bids")).json()["bids"] == []
+
+    async def test_a_venue_404_on_cancel_is_final_not_maybe_resting(
+        self, build
+    ):
+        """The venue's 404 is the truth, and until 2026-09-06 the route
+        contradicted it.
+
+        Live, on row 2: the bid had filled five days earlier, the venue said
+        `not_found`, and the route said "may still be resting; try again or
+        cancel it in the Kalshi app" -- sending Joe to look for an order that
+        did not exist, and leaving the row for the watcher to retry forever.
+        """
+        from backend.kalshi.rest import KalshiAPIError
+
+        api = FakeApi(cancel_raises=KalshiAPIError(
+            404, "https://api.example/portfolio/events/orders/ord-1",
+            '{"code":"not_found"}',
+        ))
+        app, _, _ = build(api=api)
+        placed = (await _post(
+            app, "/api/parlays/bid", _bid(await _legs(app)), HEADERS
+        )).json()
+
+        gone = await _post(
+            app, f"/api/parlays/bids/{placed['order_row_id']}/cancel",
+            {}, HEADERS,
+        )
+        assert gone.status_code == 200, gone.text
+        body = gone.json()
+        assert body["status"] == "gone_at_venue"
+        assert "no such order resting" in body["words"]
+        assert "may still be resting" not in body["words"]
+        assert "Check Your bets" in body["words"]
+
+        # Terminal: off the working list, and a second cancel is refused as
+        # already-final rather than sent to the venue again.
+        assert (await _get(app, "/api/parlays/bids")).json()["bids"] == []
+        again = await _post(
+            app, f"/api/parlays/bids/{placed['order_row_id']}/cancel",
+            {}, HEADERS,
+        )
+        assert again.status_code == 409
+        assert len(api.cancelled) == 1
+
+    async def test_a_transport_failure_on_cancel_still_says_maybe_resting(
+        self, build
+    ):
+        """The other branch keeps its words: an exception with no status code
+        is a request that may or may not have reached the venue."""
+        api = FakeApi(cancel_raises=RuntimeError("the socket died"))
+        app, _, _ = build(api=api)
+        placed = (await _post(
+            app, "/api/parlays/bid", _bid(await _legs(app)), HEADERS
+        )).json()
+
+        failed = await _post(
+            app, f"/api/parlays/bids/{placed['order_row_id']}/cancel",
+            {}, HEADERS,
+        )
+        assert failed.status_code == 502
+        assert "may still be resting" in failed.json()["detail"]
+        listed = (await _get(app, "/api/parlays/bids")).json()["bids"]
+        assert [b["id"] for b in listed] == [placed["order_row_id"]]
 
     async def test_cancelling_twice_is_refused_rather_than_repeated(
         self, build

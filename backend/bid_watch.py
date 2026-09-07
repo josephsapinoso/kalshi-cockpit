@@ -39,8 +39,13 @@ import asyncio
 import logging
 from typing import Callable, Optional
 
+from .kalshi.rest import KalshiAPIError
 from .store import db
-from .store.combo_orders import due_for_cancel, record_cancel
+from .store.combo_orders import (
+    due_for_cancel,
+    record_cancel,
+    record_gone_at_venue,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +56,21 @@ logger = logging.getLogger(__name__)
 #: observed taking; the cost of checking every second is a wakeup per second on
 #: a box that has OOM-killed itself once.
 BID_WATCH_INTERVAL_S = 60.0
+
+
+def _left_working(row: dict) -> None:
+    """Log a cancel that did not reach a conclusion, and change nothing.
+
+    Left working on purpose. A row that says "cancelled" over an order still
+    resting on Kalshi is the one lie this table must never tell. One function
+    for both the transport failure and the non-404 venue error, so the two
+    cannot drift into saying different things about the same outcome.
+    """
+    logger.exception(
+        "cancelling combo bid %s at its deadline failed; it is left "
+        "working and will be retried on the next pass",
+        row.get("id"),
+    )
 
 
 async def cancel_due_bids(conn, api, *, now_ms: int) -> int:
@@ -76,15 +96,28 @@ async def cancel_due_bids(conn, api, *, now_ms: int) -> int:
             response = await api.cancel_order(
                 order_id, exchange_index=row.get("exchange_index")
             )
-        except Exception:                                        # noqa: BLE001
-            # Left working on purpose. A row that says "cancelled" over an
-            # order still resting on Kalshi is the one lie this table must
-            # never tell.
-            logger.exception(
-                "cancelling combo bid %s at its deadline failed; it is left "
-                "working and will be retried on the next pass",
+        except KalshiAPIError as exc:
+            if exc.status_code != 404:
+                _left_working(row)
+                continue
+            # **404 is an answer, not a failure.** The venue holds no order by
+            # this id: it filled, was cancelled there, or has settled. There
+            # is nothing left to withdraw, and retrying asks the same question
+            # once a minute forever -- which is what happened to row 2 on the
+            # live account from 2026-09-01 22:41Z, over a bid that had FILLED
+            # an hour before its deadline. Terminal, in the venue's words, and
+            # not `cancelled`: nothing was withdrawn and money may have moved.
+            record_gone_at_venue(
+                conn, int(row["id"]), now_ms=now_ms, venue_body=exc.body,
+            )
+            logger.warning(
+                "combo bid %s is gone at the venue (404 on cancel): it filled, "
+                "was cancelled, or has settled. Marked terminal; not retried.",
                 row.get("id"),
             )
+            continue
+        except Exception:                                        # noqa: BLE001
+            _left_working(row)
             continue
         reduced = response.get("reduced_by") if isinstance(response, dict) else None
         try:
