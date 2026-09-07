@@ -69,6 +69,39 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-07 - A screen that names one failure lets every other failure wear the quiet's clothes
+
+`WindowBanner` chose its headline by testing `last_look_outcome === "refused"`
+by name and letting every other outcome fall through to the branch for "the
+loop is alive and declining ... it looks identical to a quiet market from
+here." The vocabulary had five outcomes. `failed` -- the upstream odds API
+answering 4xx/5xx -- was added to it on 2026-08-25 with the sentence "none of
+the other four could say this", and the banner was never taught it. So an
+Odds API 401 on the first NFL slate would have rendered as a quiet market,
+with the true reason in the small print two lines lower.
+
+The global-cap stop was the same shape one layer down: `runner` recorded it as
+`SKIPPED` ("the pass chose not to look") when the vocabulary's own comment
+defines `REFUSED` as "the budget declined -- *we* stopped." The screen's
+`refused` words were right for a spent day and never fired on one.
+
+**Pattern: an if-chain that names the failures it knows and ends in a
+reassuring default classifies every failure it does not know as
+reassurance.** Adding an outcome to the vocabulary is not finished when the
+writer can write it; it is finished when every reader has a branch for it, and
+the test to write is the one that feeds the new outcome to each reader and
+asserts it does not land in the default. The default branch should describe
+the *absence of information*, never a specific benign world -- "nothing
+swept and no reason recorded" is honest; "a quiet market" is a guess dressed
+as a finding.
+
+Corollary: grep for every reader of an enum when a member is added
+(`last_look_outcome` had three: the tone predicate, the banner, the type), and
+count the branches in each. A reader with fewer branches than the enum has
+members has a default that is doing work nobody assigned it.
+
+---
+
 ## 2026-09-06 - Two true docstrings, one false conjunction
 
 `decide_sweeps` said bootstrap is *"capped at ... one attempt per sport per
@@ -2822,7 +2855,16 @@ have missed every lesson written in the last nine days. The titles below are
 the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
+### 2026-09-07 — in this file, above
+- A screen that names one failure lets every other failure wear the quiet's clothes
+
 ### 2026-09-06 — in this file, above
+- Two true docstrings, one false conjunction
+- A caveat loses to the variable name it sits under
+- A test that restates the code's own formula agrees with the code whatever the code says
+- An item written from the shape of a known lesson is a hypothesis, not a finding
+- A guard that substring-matches an element name is green on a renamed element
+- `git checkout <file>` restores the INDEX, so it deletes uncommitted work while looking like an undo
 - A hand-typed sha is a fabricated sha, and noticing that it looks wrong is not the same as checking it
 - A section truncated by `head` looks exactly like a section with no rows, because the header prints before the data
 - A scripted edit meant to change a few bytes rewrites every line ending in the file, and a normal diff cannot show it
