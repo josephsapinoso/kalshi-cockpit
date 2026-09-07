@@ -1704,3 +1704,109 @@ class TestPropSeries:
     def test_base_market_folds_the_alternate_feed_onto_the_primary(self):
         assert base_market("pitcher_strikeouts_alternate") == "pitcher_strikeouts"
         assert base_market("pitcher_strikeouts") == "pitcher_strikeouts"
+
+
+class TestTheCompetitionStringReachesTheOddsFeedKey:
+    """`IN_SCOPE_LEAGUES` is the only link between what Kalshi calls a
+    competition and what the odds vendor calls a sport, and until 2026-09-07
+    **no test asserted either side of it.**
+
+    `test_discovery_keeps_the_regular_season_and_drops_preseason` above checks
+    `{e.league} == {"Pro Football"}` -- the Kalshi half. The only
+    `sport_key ==` assertion in this whole file is MLB's, in
+    `test_every_regular_season_event_carries_the_sport_key`. So a value
+    mistyped here -- `"american_football_nfl"`, `"americanfootball_NFL"`,
+    a stray space -- leaves the entire suite green.
+
+    **What it would break is not visible from Python.** The value is a URL
+    segment: `runner.soonest_by_sport` keys on it, `decide_sweeps` fires on
+    that key, and the request is `/v4/sports/<sport_key>/odds`. A typo does
+    not raise; the vendor returns 404 or an empty list, and the sport simply
+    never gets fixtures -- which reads exactly like a sport that is out of
+    season. That is the same silence `unmatched_items` was built to break, one
+    layer upstream.
+
+    It is worth pinning **today** because tonight is the first NFL sweep this
+    instance has ever taken, and `americanfootball_nfl` is the string it will
+    be taken with.
+
+    What these tests do NOT establish
+    ---------------------------------
+    - **Not that the vendor serves these keys.** That needs the free
+      `/v4/sports` listing and a network call; the 2026-09-07 pre-flight took
+      it by hand and found `americanfootball_nfl` active. These tests pin our
+      side of the contract against a captured payload, which is the half a
+      test can own.
+    """
+
+    #: The map, spelled out. Every value is a vendor URL segment.
+    EXPECTED = {
+        "Pro Baseball": "baseball_mlb",
+        "Pro Football": "americanfootball_nfl",
+        "NCAA Football": "americanfootball_ncaaf",
+        "Pro Basketball (M)": "basketball_nba",
+        "Pro Basketball (W)": "basketball_wnba",
+        "Pro Hockey": "icehockey_nhl",
+    }
+
+    def test_every_in_scope_league_maps_to_the_key_it_is_meant_to(self):
+        """Exact equality, both directions, so an added entry is a deliberate
+        edit here rather than a silent one there."""
+        assert IN_SCOPE_LEAGUES == self.EXPECTED
+
+    def test_no_key_carries_whitespace_or_uppercase(self):
+        """The failure mode a value-by-value diff would still miss on a quick
+        read. These are URL segments; the vendor's are lowercase and
+        underscore-separated, and a trailing space survives every eyeball.
+        """
+        for league, key in IN_SCOPE_LEAGUES.items():
+            assert key == key.strip(), f"{league!r} -> {key!r} has whitespace"
+            assert key == key.lower(), f"{league!r} -> {key!r} is not lowercase"
+            assert " " not in key, f"{league!r} -> {key!r} contains a space"
+            assert key, f"{league!r} maps to an empty key"
+
+    def test_two_leagues_never_share_one_sport_key(self):
+        """`soonest_by_sport` is keyed on `sport_key`, so a duplicate would
+        make one league silently overwrite the other's kickoff."""
+        keys = list(IN_SCOPE_LEAGUES.values())
+        assert len(keys) == len(set(keys)), f"duplicate sport_key in {keys}"
+
+    def test_a_real_nfl_event_carries_the_nfl_sport_key(self):
+        """End to end over a captured payload, not over the map.
+
+        `tests/fixtures/events_nfl_spread.json` is the real
+        `GET /events?series_ticker=KXNFLSPREAD` response for Week 1, and its
+        `product_metadata.competition` is `"Pro Football"` -- the same string
+        `discovery.py:384` reads. This is the one assertion that fails if
+        either half of the link moves: the competition string Kalshi sends, or
+        the key we turn it into.
+        """
+        payload = load_fixture("events_nfl_spread.json")
+
+        events = payload["events"]
+        assert events, "the captured NFL payload is empty"
+
+        for event in events:
+            info = classify_series(event)
+            assert info.league == "Pro Football", event["event_ticker"]
+            assert info.sport_key == "americanfootball_nfl", (
+                event["event_ticker"]
+            )
+
+    def test_the_captured_payload_still_carries_the_competition_string(self):
+        """The guard on the guard.
+
+        If Kalshi ever stops sending `product_metadata.competition`, the test
+        above would pass vacuously on `league is None` -> `sport_key is None`
+        only if that assertion were dropped -- and it would pass *today*
+        against a re-captured payload that had lost the field. Assert the
+        input, so a fixture re-capture that changes the wire is a red test
+        rather than a quiet loss of coverage.
+        """
+        payload = load_fixture("events_nfl_spread.json")
+
+        competitions = {
+            (e.get("product_metadata") or {}).get("competition")
+            for e in payload["events"]
+        }
+        assert competitions == {"Pro Football"}, competitions
