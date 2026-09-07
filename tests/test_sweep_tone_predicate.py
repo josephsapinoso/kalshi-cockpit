@@ -187,6 +187,30 @@ SWEPT_TODAY = {
     "loop_idle_interval_ms": IDLE_INTERVAL_MS,
 }
 
+#: The day the strip could not see until 2026-09-07: sweeps ran normally from
+#: 10:00Z, the daily cap bound at 15:40Z, and every pass since has been refused.
+#:
+#: **`last_sweep_ms` is inside the budget day, and that was the whole problem.**
+#: The "day's sweeps have run" clause sat above the refusal test, matched, and
+#: returned `calm` over a recorder stopped until tomorrow. Every field here is
+#: the benign one except `last_look_outcome`, which is the point.
+SWEPT_THEN_THE_CAP_BOUND = {
+    "now_ms": ms("2026-08-17T21:10:00Z"),
+    "last_look_ms": ms("2026-08-17T21:05:00Z"),
+    "last_look_outcome": "refused",
+    "last_sweep_ms": ms("2026-08-17T20:51:00Z"),
+    "budget_day_start_ms": DAY_START,
+    "first_window_open_ms": FIRST_WINDOW,
+    "loop_idle_interval_ms": IDLE_INTERVAL_MS,
+}
+
+#: The same day with an upstream outage instead of a spent budget. Reachable
+#: for the same reason and hidden by the same clause.
+SWEPT_THEN_THE_FEED_FAILED = {
+    **SWEPT_THEN_THE_CAP_BOUND,
+    "last_look_outcome": "failed",
+}
+
 #: 95 minutes of silence against a 15-minute cadence: past two idle intervals
 #: (`LOOP_STALL_IDLE_INTERVALS * loop_idle_interval_ms` = 1800s), and past the
 #: 1635s worst case a healthy loop permits itself. Not "> 2 x 900s" -- the 900
@@ -458,6 +482,105 @@ class TestAnUpstreamOutageIsNeverCalm:
         rotating a key, not restarting a machine. Keeping the tiers distinct is
         what stops `alarm` from becoming the tone everything wears."""
         assert tone_of(FAILED_BEFORE_THE_WINDOW) != "alarm"
+
+
+class TestASweepEarlierTodayDoesNotOutrankARefusalNow:
+    """The ordering fixed on 2026-09-07, and the day it was hiding.
+
+    `refused` had a branch and could not be reached on the day it mattered
+    most. Sweeps run from 10:00Z, the daily cap binds at 15:40Z, every pass for
+    the next eighteen hours is refused -- and `last_sweep_ms` still sits inside
+    the budget day, so "the day's sweeps have run" matched first and returned
+    `calm`. The strip was quiet over a recorder stopped until tomorrow, with the
+    stop named only in the detail line.
+
+    **The rule the fix encodes: the tone describes the most recent look, not the
+    best thing that happened today.** A sweep at 10:03Z is a fact about the
+    past; a refusal at 15:40Z is a fact about now, and it is the one that
+    changes what Joe should do.
+
+    What these tests do NOT establish
+    ---------------------------------
+    - **Not that the words beside the tone are right.** `WindowBanner` chooses
+      its headline separately; `test_the_banner_has_words_for_an_upstream_
+      failure` and its neighbours own that.
+    - **Not that the backend writes `refused` on an exhausted day.** That is
+      `runner`'s `refused_by_budget` and is pinned in the Python suite. If it
+      regressed, these tests would still pass and the strip would still be
+      quiet -- which is why the two halves are asserted in two places.
+    """
+
+    def test_a_day_whose_cap_bound_after_sweeping_is_not_calm(self):
+        assert tone_of(SWEPT_THEN_THE_CAP_BOUND) == "warn"
+
+    def test_an_outage_after_sweeping_is_not_calm_either(self):
+        assert tone_of(SWEPT_THEN_THE_FEED_FAILED) == "warn"
+
+    def test_it_differs_from_the_calm_swept_day_only_in_the_outcome(self):
+        """The control that makes the two above mean something.
+
+        If any other field differed, the verdict could be coming from the
+        difference rather than from the outcome -- and `SWEPT_TODAY` is the
+        fixture that must stay calm, or the fix has turned into a strip that
+        warns on every normal evening.
+        """
+        differing = {
+            k for k in SWEPT_TODAY
+            if SWEPT_TODAY[k] != SWEPT_THEN_THE_CAP_BOUND[k]
+        }
+        assert differing == {"last_look_outcome"}, differing
+
+    def test_a_normal_swept_day_is_still_calm(self):
+        """The false-positive guard. A hoist that warned here would have traded
+        one silent failure for a strip nobody reads."""
+        assert tone_of(SWEPT_TODAY) == "calm"
+
+    def test_the_refusal_test_precedes_the_swept_today_test_in_the_source(self):
+        """The ordering is the fix, so assert the ordering.
+
+        Both clauses would still be present, and every behavioural test above
+        would still pass, if a later edit put them back the wrong way round --
+        no, it would not, and that is the point of the three tests above. This
+        one exists for the *reader*: it fails with a message naming the
+        ordering, so whoever swaps them learns why rather than debugging a
+        fixture.
+        """
+        source = TONE_TS.read_text("utf-8")
+
+        refusal_at = source.index('w.last_look_outcome === "refused"')
+        swept_at = source.index("w.last_sweep_ms >= w.budget_day_start_ms")
+        assert refusal_at < swept_at, (
+            "the refusal test must run BEFORE the 'day's sweeps have run' "
+            "test; below it, a day whose cap bound after sweeping returns "
+            "calm and the strip goes quiet over a stopped recorder"
+        )
+
+    def test_moving_the_refusal_back_below_restores_the_silence(self, tmp_path):
+        """The mutation, run rather than described.
+
+        Rebuilds the predicate with the refusal clause deleted from its new
+        position and re-inserted after the swept-today clause -- the exact
+        pre-2026-09-07 shape -- and asserts the day goes quiet again.
+        """
+        source = TONE_TS.read_text("utf-8")
+        assert REFUSED_CLAUSE in source, "the clause moved; update this test"
+
+        swept_clause = (
+            "  if (w.last_sweep_ms !== null && "
+            "w.last_sweep_ms >= w.budget_day_start_ms) {\n"
+            '    return "calm";\n  }\n'
+        )
+        assert swept_clause in source, "the swept clause moved; update this test"
+
+        mutated = source.replace(REFUSED_CLAUSE, "", 1)
+        assert REFUSED_CLAUSE not in mutated
+        mutated = mutated.replace(
+            swept_clause, swept_clause + "\n" + REFUSED_CLAUSE, 1
+        )
+
+        assert tone_of(
+            SWEPT_THEN_THE_CAP_BOUND, source=mutated, tmp_path=tmp_path
+        ) == "calm", "the ordering is not what makes the day visible"
 
 
 class TestTheRemainingStatesAreUnchanged:

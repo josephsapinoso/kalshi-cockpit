@@ -369,10 +369,15 @@ all green this morning are red.
    before the 10:00Z roll. ADR 0111 buys back the attention half; the
    **kickoff-window loop is untouched and is the largest term**. Item 5 is
    what makes a bind legible.
-5. **The calm strip after a mid-day cap** (lane B residual 2, previous entry
-   item 7). `sweepTone.ts:168` misses its `refused` branch and reaches `warn`
-   via the generic path, so a budget-exhausted day reads the same tone as a
-   dead recorder. Words and one branch; worth having before 09-13.
+5. ~~**The calm strip after a mid-day cap**~~ **DONE this session, and the
+   diagnosis in the previous entry was not quite the defect.** `sweepTone` did
+   have a `refused` branch; it could not be *reached* on the day it mattered.
+   Sweeps run from 10:00Z, the cap binds at 15:40Z, and `last_sweep_ms` is
+   still inside the budget day — so "the day's sweeps have run" matched first
+   and returned `calm` over a recorder stopped until tomorrow. The refusal test
+   now runs **above** it. The rule: **the tone describes the most recent look,
+   not the best thing that happened today.** Ships in the same deploy as ADR
+   0111 (item 2), not before.
 6. **`window_status` cannot predict a bootstrap** (lane B residual 1) —
    demoted, and the reason is sized: 28 call sites, a new DB reader and two
    guard rewrites. The screen-facing half is folded into item 5.

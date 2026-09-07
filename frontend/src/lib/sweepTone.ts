@@ -131,6 +131,44 @@ export function sweepTone(w: SweepFacts): Tone {
   // it to something that does not parse.
   if (silent === null) return "warn";
 
+  // **A refusal or an upstream failure outranks a sweep that already ran**, and
+  // this ordering IS the branch -- moved above the "day's sweeps have run"
+  // clause on 2026-09-07.
+  //
+  // Until then the two were in the opposite order, and the consequence was a
+  // whole class of day the strip could not see: sweeps run normally from 10:00Z,
+  // the daily cap binds at 15:40Z, and every pass for the next eighteen hours is
+  // refused -- while `last_sweep_ms` still sits inside the budget day, so the
+  // clause below returned `calm` and the `refused` test three paragraphs down
+  // was never reached. The strip said "the day's sweeps have run" over a
+  // recorder that was stopped until tomorrow, with the truth only in the detail
+  // line. That is the same shape as every other defect in this file: a
+  // reassuring branch reached before the branch that knows better.
+  //
+  // The general rule, which is worth more than the case: **the tone describes
+  // the most recent look, not the best thing that happened today.** A sweep at
+  // 10:03Z is a fact about the past; a refusal at 15:40Z is a fact about now,
+  // and it is the one that changes what Joe should do.
+  //
+  // Self-limiting in both directions, which is why it is safe to hoist:
+  //
+  //   - `refused` persists exactly as long as the condition does. Since
+  //     2026-09-07 the runner writes `REFUSED` on *every* pass once
+  //     `remaining == 0`, so an exhausted day stays amber all day -- correct --
+  //     while a single refusal that clears is superseded by the next pass.
+  //   - `failed` is superseded within one pass (~15 min on live), so a
+  //     transient 500 is amber for one cadence and no longer. It is amber at
+  //     all because ADR 0109 backs a failing sport off for 30 minutes: the feed
+  //     is not about to fix itself inside the next pass.
+  //
+  // Every refusal reason is a *ceiling* -- `budget.refusal_reason` returns one
+  // of three, the vendor's remaining, our daily cap, our monthly cap -- so
+  // there is no benign per-pass refusal this could fire on. Checked rather than
+  // assumed.
+  if (w.last_look_outcome === "refused" || w.last_look_outcome === "failed") {
+    return "warn";
+  }
+
   // The day's sweeps have run. A sweep from before the boundary was not paid
   // for out of today's allowance and does not count.
   if (w.last_sweep_ms !== null && w.last_sweep_ms >= w.budget_day_start_ms) {
@@ -165,9 +203,12 @@ export function sweepTone(w: SweepFacts): Tone {
   // `warn` and not `alarm`: `alarm` means the loop itself is gone, and here the
   // loop is alive and being refused by someone else. Same tier as `refused`,
   // for the same reason — we asked and got no odds.
-  if (w.last_look_outcome === "refused" || w.last_look_outcome === "failed") {
-    return "warn";
-  }
+  //
+  // **The clause itself now lives above the "day's sweeps have run" test**, as
+  // of 2026-09-07, and the reasoning for the move is written there. This block
+  // is kept where the argument for the clause was made, because two of the
+  // three paragraphs above are about the *window* ordering rather than the
+  // refusal, and they still hold for the test immediately below.
 
   // Nothing swept, and there was a window in which it could have been. This is
   // the 17-hour shape.
