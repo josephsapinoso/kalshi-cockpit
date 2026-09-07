@@ -90,6 +90,42 @@ _COLUMNS = (
     "seen_count", "first_seen", "last_seen", "reason",
 )
 
+#: Widest a single cell may be before it is elided, in characters.
+#:
+#: **Measured, not chosen for tidiness.** The first live run of this script
+#: returned **75.8 KB for 66 rows** -- 1,300 to 2,249 characters per line, on a
+#: queue whose longest real name is "Las Vegas vs Miami". Every row was padded
+#: to the width of one: `KXNFLTEAMTOTAL`'s `detail` is the whole points ladder
+#: joined by " vs ", 2,100 characters of "LA Rams over 3.5 points scored vs LA
+#: Rams over 7.5 points scored vs ...". A column table takes its width from its
+#: worst cell, so a single pathological row makes the other 65 unreadable.
+#:
+#: 80 costs nothing the queue is for. The rows an alias entry is written from
+#: carry a team pair and fit; the rows that overflow are the ladder rows, which
+#: `docs/measurements/2026-09-07-nfl-live-path-preflight.md` records as **scope
+#: rather than a defect** and which nobody writes an alias for. `--full`
+#: restores the untruncated text for the case that proves this wrong.
+MAX_CELL_CHARS = 80
+
+#: What replaces the tail of an elided cell. Three ASCII dots rather than a
+#: single ellipsis character: this is read over `flyctl ssh` into terminals
+#: whose encoding is not ours to assume, and a mojibake marker in a diagnostic
+#: is worse than a wide one.
+ELISION = "..."
+
+
+def _elide(value: str, *, limit: int = MAX_CELL_CHARS) -> tuple[str, bool]:
+    """`(cell, was_elided)`.
+
+    Returns the flag rather than eliding silently, because the footer counts
+    them. An instrument that quietly drops text teaches its reader to trust a
+    complete-looking row, which is the failure this file's `--league` echo is
+    also written against.
+    """
+    if len(value) <= limit:
+        return value, False
+    return value[: limit - len(ELISION)] + ELISION, True
+
 
 def connect_readonly(db_path: str) -> sqlite3.Connection:
     """A connection that cannot write, enforced by SQLite rather than promised.
@@ -164,7 +200,11 @@ def fetch_open_items(
 
 
 def render(
-    items: list[dict], resolved: int, db_path: str, league: str | None = None
+    items: list[dict],
+    resolved: int,
+    db_path: str,
+    league: str | None = None,
+    full: bool = False,
 ) -> str:
     """The queue as a text table, or an explicit statement that it is empty.
 
@@ -173,6 +213,12 @@ def render(
     into "the queue is empty" -- and those need opposite responses. It is the
     same rule `/api/slate` follows when it echoes `filter.league` rather than
     returning a short list that reads as a quiet night.
+
+    **Cells are elided at `MAX_CELL_CHARS` unless `full`**, and the count of
+    elided cells is printed, for the same reason: a column table takes its
+    width from its worst cell, and the first live run returned 75.8 KB for 66
+    rows because one `KXNFLTEAMTOTAL` ladder was 2,100 characters wide. What is
+    elided is *said* rather than merely done, and `--full` recovers it.
     """
     scope = "" if league is None else f" for league {league!r}"
     tail = f" ({resolved} resolved not shown)" if resolved else ""
@@ -191,8 +237,20 @@ def render(
             "this database.\n"
         )
 
+    elided = 0
+    shown: list[dict] = []
+    for item in items:
+        row = {}
+        for col in _COLUMNS:
+            if full:
+                row[col] = item[col]
+                continue
+            row[col], was_elided = _elide(item[col])
+            elided += was_elided
+        shown.append(row)
+
     widths = {
-        col: max(len(col), *(len(item[col]) for item in items))
+        col: max(len(col), *(len(item[col]) for item in shown))
         for col in _COLUMNS
     }
     full_width = sum(widths.values()) + 2 * (len(_COLUMNS) - 1)
@@ -200,10 +258,15 @@ def render(
     lines = [header, "-" * full_width]
     lines.extend(
         "  ".join(item[col].ljust(widths[col]) for col in _COLUMNS).rstrip()
-        for item in items
+        for item in shown
     )
     lines.append("")
     lines.append(f"{len(items)} unmatched items{scope} in {db_path}{tail}")
+    if elided:
+        lines.append(
+            f"{elided} cell(s) cut to {MAX_CELL_CHARS} chars; --full shows "
+            "them whole"
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -217,6 +280,15 @@ def main(argv: list[str] | None = None) -> int:
             "Exact competition string as the linker saw it, e.g. "
             "'Pro Football'. Case-sensitive, not a prefix. Omitted means "
             "every league."
+        ),
+    )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help=(
+            f"Do not elide cells at {MAX_CELL_CHARS} chars. Needed when a "
+            "long `detail` or `reason` is the thing being read; be aware one "
+            "ladder row is ~2,100 chars and widens every other line."
         ),
     )
     args = parser.parse_args(argv)
@@ -234,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"cannot read {args.db}: {exc}", file=sys.stderr)
         return 2
 
-    print(render(items, resolved, args.db, args.league), end="")
+    print(render(items, resolved, args.db, args.league, args.full), end="")
     return 0
 
 

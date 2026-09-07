@@ -27,7 +27,7 @@ import pytest
 
 from backend.match.linker import record_unmatched
 from backend.store import db
-from scripts.list_unmatched import connect_readonly, main
+from scripts.list_unmatched import ELISION, connect_readonly, main
 
 NOW = 1_787_000_000_000  # 2026-08-17T20:53:20Z
 _MS_PER_DAY = 24 * 60 * 60 * 1000
@@ -306,3 +306,106 @@ class TestAFixedRowGoesStaleRatherThanDisappearing:
         fixed = next(ln for ln in lines if "FIXED-ONE" in ln)
         assert "2026-08-18" in failing
         assert "2026-08-17" in fixed
+
+
+class TestOneWideCellDoesNotWidenEveryRow:
+    """A column table takes its width from its worst cell.
+
+    ADDED 2026-09-07, from the first run of this script against the live queue,
+    which returned **75.8 KB for 66 rows**: lines of 1,300 to 2,249 characters
+    on a queue whose longest real name is "Las Vegas vs Miami". One
+    `KXNFLTEAMTOTAL` row's `detail` is the whole points ladder joined by
+    " vs " -- 2,100 characters of "LA Rams over 3.5 points scored vs LA Rams
+    over 7.5 points scored vs ..." -- and every other row was padded to it.
+
+    That is not cosmetic for an instrument read over `flyctl ssh` at 03:40Z to
+    decide whether a link landed: the reading is the `last_seen` column, and it
+    was 2,000 characters to the right of where anyone would look.
+    """
+
+    LADDER = " vs ".join(
+        f"LA Rams over {n}.5 points scored" for n in range(3, 60)
+    )
+
+    def test_a_wide_cell_is_cut_and_the_row_stays_readable(
+        self, db_path, capsys
+    ):
+        seed(db_path, identifier="KXNFLTEAMTOTAL-26SEP10SFLAR", detail=self.LADDER)
+
+        assert main(["--db", str(db_path)]) == 0
+        out = capsys.readouterr().out
+        assert max(len(ln) for ln in out.splitlines()) < 300, (
+            "one pathological cell is still setting the table width"
+        )
+
+    def test_the_neighbouring_rows_are_not_padded_to_the_wide_one(
+        self, db_path, capsys
+    ):
+        """The actual harm: a short row made unreadable by a long one."""
+        seed(db_path, identifier="KXNFLGAME-26SEP13MIALV", detail="Las Vegas vs Miami")
+        seed(db_path, identifier="KXNFLTEAMTOTAL-26SEP10SFLAR", detail=self.LADDER)
+
+        assert main(["--db", str(db_path)]) == 0
+        line = next(
+            ln for ln in capsys.readouterr().out.splitlines()
+            if "KXNFLGAME-26SEP13MIALV" in ln
+        )
+        assert len(line) < 300
+
+    def test_the_cut_is_counted_rather_than_silent(self, db_path, capsys):
+        """An instrument that quietly drops text teaches its reader to trust a
+        complete-looking row. Same rule as the `--league` echo."""
+        seed(db_path, identifier="KXNFLTEAMTOTAL-26SEP10SFLAR", detail=self.LADDER)
+
+        assert main(["--db", str(db_path)]) == 0
+        out = capsys.readouterr().out
+        assert "1 cell(s) cut to 80 chars" in out
+        assert "--full shows them whole" in out
+
+    def test_an_elided_cell_is_marked_where_it_was_cut(self, db_path, capsys):
+        seed(db_path, identifier="KXNFLTEAMTOTAL-26SEP10SFLAR", detail=self.LADDER)
+
+        assert main(["--db", str(db_path)]) == 0
+        out = capsys.readouterr().out
+        assert ELISION in out
+        assert "LA Rams over 3.5 points scored" in out, (
+            "the head of the cell must survive; a cut that keeps nothing is "
+            "a dropped column"
+        )
+
+    def test_nothing_is_cut_or_announced_when_nothing_is_wide(
+        self, db_path, capsys
+    ):
+        """The vacuity guard. Without it every assertion above passes on a
+        renderer that announces a cut it never made."""
+        seed(db_path, detail="Illinois State vs Ohio State")
+
+        assert main(["--db", str(db_path)]) == 0
+        out = capsys.readouterr().out
+        assert "cut to" not in out
+        assert ELISION not in out
+
+    def test_full_restores_the_whole_cell(self, db_path, capsys):
+        """The escape hatch, and the reason eliding by default is safe."""
+        seed(db_path, identifier="KXNFLTEAMTOTAL-26SEP10SFLAR", detail=self.LADDER)
+
+        assert main(["--db", str(db_path), "--full"]) == 0
+        out = capsys.readouterr().out
+        assert self.LADDER in out
+        assert "cut to" not in out
+
+    def test_the_reading_column_is_not_the_one_pushed_off_the_page(
+        self, db_path, capsys
+    ):
+        """`last_seen` is what a reader came for -- it is how a linked row is
+        told from a failing one -- and `detail` sits to its left. Pin that the
+        stamp lands inside a width a terminal shows.
+        """
+        seed(db_path, identifier="KXNFLTEAMTOTAL-26SEP10SFLAR", detail=self.LADDER)
+
+        assert main(["--db", str(db_path)]) == 0
+        line = next(
+            ln for ln in capsys.readouterr().out.splitlines()
+            if "KXNFLTEAMTOTAL" in ln
+        )
+        assert line.index("2026-08-17") < 250
