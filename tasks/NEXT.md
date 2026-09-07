@@ -214,7 +214,130 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-06 (sixth entry, latest) — the published credit bound was a partial sum, item 3 was half-false, and the largest NFL day-one risk is a failure nobody had timed
+## 2026-09-07 (latest) — the NFL path is pre-flighted and its first sweep is due tonight by construction; a failed look and a spent day get their own words; the watcher stops asking the venue about a bid that filled
+
+**STATE at close.** `main` = the sha in `git log -1`, pushed, CI on it is
+the thing to read (`gh run list --limit 3`). **Live and demo: read
+`/api/health` `build.git_sha` on both** before believing anything about them;
+this entry says what was dispatched, not what is running. Tree clean, four
+lane branches merged and deleted, no worktrees. Decision map still 0 open.
+
+**The partner ran first on verified state** (sha read from `/api/health`,
+not from the previous entry — its lesson) and returned a ranking that
+overturned two of the last entry's items and killed one. Everything below is
+that ranking executed, four lanes: A here, B/D/E in worktrees, disjoint files.
+
+### Lane A — eight zero-credit checks on the NFL path, and the one that is empty is empty on schedule
+
+`docs/measurements/2026-09-07-nfl-live-path-preflight.md`. The feed lists
+`americanfootball_nfl` active (17,896 of 20,000 credits left this month);
+discovery holds **50 open NFL events** for the next nine days (16 `KXNFLGAME`,
+16 `KXNFLSPREAD`, 16 `KXNFLTOTAL`, 2 `KXNFLTEAMTOTAL`) under exactly
+`Pro Football`; `/api/slate?league=americanfootball_nfl` echoes the filter
+with an honest empty set. **`odds_snapshots` has 0 NFL fixtures and
+`api_credits` 0 NFL rows, lifetime — and that is correct today.** Replaying
+`decide_sweeps` read-only on the live DB with the runner's inputs
+reconstructed: NFL's soonest Kalshi event is **67 h out against the 48 h
+bootstrap horizon**. It crosses at **2026-09-08 03:20Z** and the next full
+pass (every 15 min, `allow_bootstrap=True` by default on the ingest path)
+buys it. Nothing else gates it — no failed sweep to back off from, and the
+attention slice does not apply to `BOOTSTRAP`.
+
+**The 4-credit early buy the plan allowed was not available.** The tap route
+refuses a sport with no stored fixture (`routers/odds.py:159-173`), so the
+desk's own spend path cannot bootstrap a new sport, and no side channel was
+used. **Do not read "0 NFL fixtures" as a failure before 03:35Z 09-08.**
+
+**The Wednesday baseline, by reason** (`unmatched_items`, `resolved = 0`,
+`league = 'Pro Football'`, 07:21Z): `no sportsbook fixture within the
+commence-time window` **32** rows (all 32 `KXNFLGAME`, Weeks 1 and 2);
+`no linked game event for fixture …` **16** (`KXNFLSPREAD`, links through its
+game); `expected 2 sides, got 19/27/28` **12** (`KXNFLTOTAL`/`TEAMTOTAL`
+ladders — **scope, not a defect**, the feed buys no totals). After the first
+sweep expect 32 → ~16 or lower (Week 2 depends on the feed's listing depth),
+then 16 → ~0 a pass later, and 12 unchanged. Do not read `event_links`.
+
+### Lane B — `failed` and the daily cap were both wearing the quiet's words
+
+`WindowBanner.tsx` tested `refused` by name and let every other outcome fall
+to *"looks identical to a quiet market from here"* — so an Odds API 401/429
+on Wednesday would have rendered as a quiet market with the truth in the small
+print. And `runner.py` recorded the `remaining == 0` stop as `SKIPPED` while
+`sweeplog.py:78` defines `REFUSED` as "the budget declined — *we* stopped".
+Now: `SweepDecision.refused_by_budget` (True only on that return) → the
+runner writes `REFUSED`; the banner has a `failed` branch by name. **The
+`next_call_ms` agreement test failed on the original code** — at zero credits
+the loop returned `fire=()` while the payload said "now" — fixed in
+`window_status`. Six mutations, all red. `tests/test_inspect_live_db.py`'s
+exhausted-day fixture now describes the new shape (41 refused / 3 skipped).
+
+*Two residuals, recorded:* (1) `window_status` takes no `in_scope`, so on the
+pass the loop bootstraps a fixture-less sport the screen says nothing is
+coming — **that is tonight's NFL sweep**, and the loop buys regardless; small,
+Monday/Tuesday. (2) On a day where sweeps ran and *then* the cap bound,
+`sweptThisDay` is true and the strip is calm with "the day's sweeps have
+run"; only the detail line names the stop. Not a lie; not loud either.
+
+### Lane D — a venue 404 on a combo cancel is an answer, and the watcher had been asking once a minute for six days
+
+Gate passed on the live DB: `combo_orders` row 2 (the 09-01 bid that FILLED
+at 21:40Z and settled) was still `resting`, and `bid_watch` logged `ERROR …
+left working and will be retried on the next pass` at 07:20, 07:21, 07:22Z —
+every minute since 2026-09-01 22:41Z, ~7,700 times. Now
+`STATUS_GONE_AT_VENUE = "gone_at_venue"` is terminal (not `cancelled`: money
+moved); the watcher and the cancel route split `KalshiAPIError` 404 from
+everything else — 404 marks the row and logs once at warning, anything else
+keeps the retry. The three "still working" queries build `NOT IN` from
+`TERMINAL_STATUSES` instead of four hand-typed placeholders. No schema change
+(`status` has no CHECK). Six mutations red. **After deploy, the per-minute
+ERROR line should stop within one minute — check `flyctl logs`.**
+`combo-bids-tail` and `analyse_bet_presence.py` will show the new status as
+unfamiliar text; neither drops the row.
+
+### Lane E — ADR 0110, and dropping `eu` empties the sharp anchor
+
+`docs/adr/0110-the-eu-region-is-the-only-feed-lever-left.md` records the
+props kill, the totals refusal (6 credits a call; 496 × 1.5 > 700), the
+`us`-only lever dated 2026-09-28 with its two preconditions, the five
+`sorted(fixtures)` reasons with their 09-13/09-20 gate and the named non-fix
+(a per-sport reservation, never a sort key), and the `exchange_index` kill.
+**New in it:** `SHARP_BOOKS` (`runner.py:152`) is `{pinnacle, betfair_ex_eu,
+betfair_ex_uk, matchbook}` — none is a `us` book — so `h2h,spreads,totals ×
+us` trades every sharp-anchored fair value (73.0% of the pinned record) for a
+soft consensus. The ADR lists what to measure first, including whether `uk`
+at cost 3 keeps Pinnacle. Nothing in `fly.live.toml` moved.
+
+### Killed this session, so nobody re-derives them
+
+- **`exchange_index` on the manual order path** — the create body carries no
+  shard on either path; `combo_bids` is right *around* the create (shard-scoped
+  balance, shard persisted for the cancel). Real gap on an armed route with 0
+  of 27 real bets, all NFL on shard 0, baseball leaving 09-27. ADR 0110.
+- **`sorted(fixtures)` reordering** — five reasons, ADR 0110; gated.
+- **The 4-credit early NFL buy** — not possible through the tap; not needed.
+
+### Still open, in order
+
+1. **Tonight, ~03:35Z 09-08: confirm the first NFL sweep fired.** `sweep-log`
+   should show a `bootstrap` row for `americanfootball_nfl`; then the
+   `unmatched_items` collapse above. If `Pro Football` still holds 32
+   `no sportsbook fixture` rows at 04:00Z, the link is broken, not the scope.
+2. **`window_status` cannot predict a bootstrap** (lane B residual 1). Pass
+   `in_scope` through and mirror the candidate filter; one test driving both
+   at a fixture-less sport inside the horizon.
+3. **The `eu` lever, 2026-09-28** — ADR 0110's measurements first.
+4. **`parlay_positions` on 2026-09-15**; **`cryptography` bump ~=49.0 on
+   2026-09-15**, gate `tests/test_rest.py::TestSigningContract` etc.
+5. **Scout Anthropic refusal fixture (ADR 0106 §5.2)** — one billed call.
+6. **`combo_orders` reconciliation loop** — still nothing updates a row on
+   fill or settlement; lane D closed only the 404 half. No screen reads it.
+7. The lane B residual 2 (calm strip after a mid-day cap) — words only.
+
+**Joe-gated: nothing.**
+
+---
+
+## 2026-09-06 (sixth entry) — the published credit bound was a partial sum, item 3 was half-false, and the largest NFL day-one risk is a failure nobody had timed
 
 **STATE at close.** `main` = **`9951416`**, pushed, CI green on all four jobs.
 **Live and demo are both deployed and verified on `9951416`** via the

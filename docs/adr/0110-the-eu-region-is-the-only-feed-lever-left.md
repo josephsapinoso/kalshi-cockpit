@@ -1,10 +1,10 @@
-# The `eu` region is the only feed lever left, and it is not to be pulled before 2026-09-28
+# 0110 — The `eu` region is the only feed lever left, and it is not to be pulled before 2026-09-28
 
 **Status:** proposed, 2026-09-07. Written three days before the NFL season
 opens, so that October does not re-derive the three decisions it records.
 
-> Drafted without an ordinal, per `docs/adr/README.md`. The number is taken in
-> the merge commit, after `git fetch`, as the last thing before the push.
+> Numbered 0110 on 2026-09-07 after `git fetch`, as the last thing before the
+> push, per `docs/adr/README.md`; drafted without an ordinal.
 
 ## Context
 
