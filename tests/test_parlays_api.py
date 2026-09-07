@@ -827,7 +827,7 @@ class TestTheDeskIsScopedToTonight:
         legs, excluded = ladder_candidates(conn, now_ms=now)
 
         assert {l.commence_ms for l in legs} == {tonight}
-        assert excluded.get("kickoff_after_tonight", 0) > 0
+        assert excluded.get("kickoff_outside_window", 0) > 0
 
     def test_the_last_game_of_the_night_survives(self, tmp_path):
         """The case a midnight bound would break, asserted directly: a 22:30
@@ -846,7 +846,7 @@ class TestTheDeskIsScopedToTonight:
         # 22:30 kickoff is not the thing that removed them.
         assert legs, "the last game of the night was dropped entirely"
         assert {l.commence_ms for l in legs} == {late}
-        assert "kickoff_after_tonight" not in excluded
+        assert "kickoff_outside_window" not in excluded
 
     def test_the_two_clocks_are_the_same_clock(self):
         """`DESK_TIME_ZONE` scopes the card; `DISPLAY_TIME_ZONE` captions it.
@@ -869,7 +869,7 @@ class TestTheDeskIsScopedToTonight:
             Path(__file__).resolve().parents[1]
             / "frontend" / "src" / "components" / "ParlayCards.tsx"
         ).read_text(encoding="utf-8")
-        assert "kickoff_after_tonight:" in src
+        assert "kickoff_outside_window:" in src
 
 
 class TestTheDeskKnowsWhatKalshiWillCombine:
@@ -1210,3 +1210,126 @@ class TestTheSweetSpotReachesTheWire:
                     c for c in leg["trust"]["checks"] if c["name"] == "scout"
                 )
                 assert scout["state"] == "unknown", scout
+
+
+class TestTheKickoffWindowIsChoosable:
+    """`horizon` moves the pool's upper bound; `within_hours` only narrows it.
+
+    **Why this exists.** On 2026-09-06 at 8pm the live desk held one fixture
+    and every card read "needs 2 fresh games and the slate has 1", while eight
+    Monday fixtures sat in the database carrying 12-31 books of fresh
+    consensus each. Joe asked for the window to become a control rather than a
+    constant. `tonight` stays the DEFAULT, because it is still his rule about
+    parlays finishing out with the evening games -- what changed is that it is
+    a choice.
+
+    **What this does not establish.** That a widened window yields BUYABLE
+    cards. `combo_eligible_events` refuses legs Kalshi will not combine, and
+    it does so independently of this bound -- which is why widening is safe,
+    and also why "the card built" is not "the venue will price it".
+    """
+
+    async def test_tonight_is_the_default(self, build):
+        """Passing nothing selects the same POOL as passing `tonight`.
+
+        The regression this catches is a widened default: every other
+        assertion in this file reads the bare URL, so a default that silently
+        moved would leave them all green while changing what Joe sees.
+
+        **Compared on the legs, not on the payloads.** Two requests are two
+        instants: `quote_age_ms` and the freshness stamps are computed from
+        `now` and differ by the milliseconds between the calls. A
+        byte-equality assertion here fails for a reason that has nothing to
+        do with the window, which is a test that cries wolf about its own
+        clock -- the first version of this one did exactly that.
+        """
+        app = build(_fresh_slate)
+        bare = (await get(app, "/api/parlays")).json()
+        named = (await get(app, "/api/parlays?horizon=tonight")).json()
+
+        assert bare["window"]["key"] == "tonight"
+
+        def legs(body):
+            return {
+                card["key"]: [leg["ticker"] for leg in card["legs"]]
+                for card in body["cards"]
+            }
+
+        def refusals(body):
+            return {c["key"]: c["not_built_reason"] for c in body["cards"]}
+
+        assert legs(bare) == legs(named)
+        assert refusals(bare) == refusals(named)
+        assert bare["excluded"] == named["excluded"]
+
+    async def test_a_wider_window_ends_strictly_later(self, build):
+        app = build(_fresh_slate)
+        ends = []
+        for key in ("tonight", "tomorrow", "48h"):
+            body = (await get(app, f"/api/parlays?horizon={key}")).json()
+            ends.append(body["window"]["ends_ms"])
+        assert ends[0] < ends[1] < ends[2], ends
+
+    async def test_the_payload_carries_the_windows_own_words(self, build):
+        """The screen renders the server's label, never one it derived.
+
+        A locally-guessed label can print "tonight" over tomorrow's numbers,
+        because `not_built_reason` and every exclusion count are relative to
+        the window the server actually used.
+        """
+        app = build(_fresh_slate)
+        body = (await get(app, "/api/parlays?horizon=tomorrow")).json()
+        assert body["window"]["key"] == "tomorrow"
+        assert body["window"]["words"]
+        assert {c["key"] for c in body["window"]["choices"]} == {
+            "tonight",
+            "tomorrow",
+            "48h",
+        }
+
+    async def test_an_unknown_window_is_refused_not_defaulted(self, build):
+        """A typo must not serve tonight's cards under another window's URL.
+
+        Silently defaulting renders as "found nothing", which is the failure
+        this desk already has too much of: an empty screen that reads as a
+        thin night rather than as a bad request.
+        """
+        app = build(_fresh_slate)
+        response = await get(app, "/api/parlays?horizon=next-week")
+        assert response.status_code == 422
+        assert "next-week" in response.json()["detail"]
+
+    def test_a_wider_window_admits_the_game_tonight_refused(self, tmp_path):
+        """The whole point of the control, on a slate that spans the windows.
+
+        **The first version of this test was vacuous and the mutation caught
+        it.** It compared `kickoff_outside_window` counts across two windows
+        on `_fresh_slate`, where every game is tonight -- so both counts were
+        0, the assertion was `0 <= 0`, and inverting the bound comparison in
+        `ladder_candidates` left it green. An assertion needs a fixture that
+        can distinguish the two cases; this one seeds a game in each window.
+
+        Asserted on the LEGS, not on the exclusion counters: a counter can be
+        right while the pool is wrong, and the pool is what builds cards.
+        """
+        conn = store.init_db(tmp_path / "windows.db")
+        now = TestTheDeskIsScopedToTonight.FRIDAY_3PM_PT
+        tonight = now + 4 * 3_600_000            # this evening
+        tomorrow = now + 28 * 3_600_000          # after one rollover
+        seed_game(conn, game="tonight", team="Team A", other="Team B",
+                  p=0.7, computed_ms=now - 30_000, commence_ms=tonight)
+        seed_game(conn, game="tomorrow", team="Team C", other="Team D",
+                  p=0.7, computed_ms=now - 30_000, commence_ms=tomorrow)
+        conn.commit()
+
+        narrow, narrow_excluded = ladder_candidates(
+            conn, now_ms=now, horizon="tonight"
+        )
+        wide, _ = ladder_candidates(conn, now_ms=now, horizon="tomorrow")
+
+        # Vacuity guard: the fixture must actually straddle the boundary, or
+        # everything below passes for the wrong reason.
+        assert narrow_excluded.get("kickoff_outside_window", 0) > 0
+
+        assert {leg.commence_ms for leg in narrow} == {tonight}
+        assert {leg.commence_ms for leg in wide} == {tonight, tomorrow}

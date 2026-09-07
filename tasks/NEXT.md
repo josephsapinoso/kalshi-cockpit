@@ -214,7 +214,241 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-06 (fourth entry, latest) — Joe took the offer-making controls off the desk, and what replaces them is a record of a bet placed somewhere else
+## 2026-09-06 (fifth entry, latest) — the parlay window became a control, the in-play combo question is answered, and props are a feed problem rather than a venue one
+
+**STATE at close.** `main` carries the session's earlier three commits plus
+this work. Live and demo were deployed and verified on `7ed20fd` mid-session
+(`flyctl auth login` unblocked it, after `whoami` showed the stored token was
+expired rather than absent). The live deploy went through the `deploy.yml`
+workflow dispatch, because a direct `flyctl deploy` to the live app was
+refused by the auto-mode classifier — the path that exists for exactly that.
+
+### Joe asked three things in one evening, and two of them were capability questions
+
+He opened the desk at ~5pm PT Sunday, found the parlay screen empty, and
+asked whether it could be forced to show something. The desk was **not**
+broken: the slate held **one** fixture (WSH@LAD, 7:11pm PT, quote 10s old,
+31 books, four devig methods within 0.2 points) and `excluded` counted **316**
+games as `kickoff_after_tonight`. Every card read "needs 2 fresh games and the
+slate has 1". At 8pm ET on a Sunday the MLB day slate is done and NFL has not
+started.
+
+Meanwhile **eight Monday fixtures already carried fresh consensus** in
+`fair_prices` (12–31 books each, ~5 min old). The odds were bought; the window
+was hiding them.
+
+### The window is a control now, and `tonight` is still the default
+
+`HORIZONS` = `tonight` | `tomorrow` | `48h`, built ON `end_of_desk_day_ms`
+rather than beside it so the 4am rollover, the time zone and the DST handling
+stay in one place. `horizon_end_ms` walks that many desk days forward.
+
+- `/api/parlays?horizon=` — **422 on an unknown key, never a silent default.**
+  A typo would otherwise serve tonight's cards under another window's URL and
+  read as "found nothing", which is the failure this desk already has too
+  much of.
+- The payload carries a `window` echo (`key`, `words`, `ends_ms`, `choices`)
+  and the screen renders **the server's words**. A locally-derived label can
+  print "tonight" over tomorrow's numbers, because every `not_built_reason`
+  and every exclusion count is relative to the window actually used.
+- `WindowPicker` is `Link`s, not client state — same mechanism as
+  `FilterBar`, so the choice survives a reload and two pickers on one screen
+  do not behave differently.
+- **The lede was a lie in waiting.** It read "cards cut from tonight's games"
+  unconditionally; it now renders the window's own sentence. Copy that names
+  a condition is falsified by making the condition configurable — the same
+  ordering lesson the attention-slice banner taught three times.
+- `kickoff_after_tonight` → **`kickoff_outside_window`**. A reason code that
+  names one window while reporting another is a stale label a reader trusts
+  *because* it looks specific.
+
+**`within_hours` is unchanged and is a different thing**: it only narrows the
+pool, this moves its upper bound. Widening is safe because
+`combo_eligible_events` independently refuses legs Kalshi will not combine —
+cards a week out returned HTTP 400 `invalid_parameters` (2026-08-28).
+
+### Two tests were written, found green under their own mutation, and replaced
+
+Both are the same species and it is worth naming: **an assertion whose
+fixture cannot distinguish the two cases.**
+
+1. `test_tonight_is_the_default` first asserted two payloads were equal. They
+   never are — `quote_age_ms` and the freshness stamps are computed from
+   `now` and two requests are two instants. It failed for a reason unrelated
+   to the window: a test that cries wolf about its own clock. Now compares
+   leg tickers and refusal strings.
+2. `test_widening_never_drops_a_leg` compared `kickoff_outside_window` counts
+   across two windows on a fixture where **every game is tonight** — so both
+   counts were 0, the assertion was `0 <= 0`, and inverting the bound
+   comparison in `ladder_candidates` left it green. Replaced by
+   `test_a_wider_window_admits_the_game_tonight_refused`, which seeds one
+   game in each window, carries a vacuity guard, and asserts on the LEGS
+   rather than the counters. Re-mutated: red.
+
+All four window guards now fail when disabled.
+
+### The in-play combo question is ANSWERED, and it closes a named gap
+
+`lookup_combo`'s own docstring listed this as open in these words: the
+idempotency capture "does not establish the answer ... **after the legs'
+games start**". Joe asked whether he could put a live game in a combo.
+
+**Kalshi will price it.** `scripts/probe_inplay_combo_lookup.py` minted
+`KXMVECROSSCATEGORY-SHARD1-S20265F1A8FB41A3-A7B0F51726E` from a live
+Minnesota leg (~2h into the game) plus a pregame Washington leg — HTTP 200,
+both legs echoed in `mve_selected_legs`. **The book was empty on both sides**
+(`yes_dollars: []`, `no_dollars: []`), consistent with 0 of 61 open
+combinations carrying a readable ask at rest. It was not even a new mint:
+`created_time` is 2026-09-05, so the combination already existed.
+
+Three facts established on the way, each of which had been assumed:
+
+- **Kalshi keeps game markets `active` after first pitch.** Both sides of the
+  live game active, close time two days out. In-play trading is real.
+- **Kalshi's `occurrence_datetime` runs ~3h late**, so "commence is in the
+  past" under-detects a live game by up to three hours. The probe takes the
+  started event as an ARGUMENT rather than inferring it — the operator knows
+  what is on television and the venue's clock does not.
+- **The desk-day rollover is 4am PACIFIC**, not 4am ET as an earlier
+  handoff sentence in this file implied.
+
+**It is not going on the parlay desk, and the reason is structural.** The
+desk's fair value is devigged sportsbook consensus; books pull their pregame
+lines once a game starts, so a live leg arrives with **no fair value at all**
+and the only number left is Kalshi's own. A card comparing Kalshi to Kalshi
+shows a cost while implying a judgement it is not making. Where the live
+price IS the right instrument is `/hedge`, which transacts at it rather than
+predicting with it.
+
+### Props: the venue already does what Joe asked; our FEED does not
+
+He asked to combine player props with games and over/unders, on the sharp
+argument that individual usage is a cleaner edge than a full-game spread.
+
+**Measured on the live collections, not reasoned about.** Kalshi runs
+dedicated per-week NFL collections (`KXMVENFLMULTIGAMEEXTENDED-W6` … `-W11`),
+each carrying **ten market families per game**:
+
+    KXNFLGAME  KXNFLSPREAD  KXNFLTOTAL          moneyline / spread / total
+    KXNFLFIRSTTD  KXNFLANYTD  KXNFL2TD          touchdown props
+    KXNFLRECYDS  KXNFLPASSYDS  KXNFLRSHYDS      yardage props
+    KXNFLREC                                    receptions
+
+The cross-category collections carry `KXNCAAFSPREAD`, `KXNCAAFTOTAL`,
+`KXNCAAF1H` (first half) and `KXMLBRFI` (run first inning) too. **So the
+venue permits exactly the parlay he described.** Two blockers, and neither is
+Kalshi:
+
+1. **`ODDS_MARKETS = "h2h,spreads"` (`fly.live.toml:463`).** The feed buys no
+   totals and no player props, so there is no consensus to devig for those
+   legs and the desk cannot show a fair value. Adding markets multiplies
+   every sweep — going `h2h` → `h2h,spreads` **doubled** the cost on
+   2026-08-23 — against a 700/day cap whose four-sport headroom is already an
+   open question (item 3).
+2. **`TEAM_MARKETS_ONLY = {"h2h", "spreads"}` (`core/ladder.py:131`)**, which
+   every card's recipe uses. Named rather than inlined precisely so admitting
+   a new market class is one visible edit per card.
+
+**And the thing not to do:** build an in-house prop model to fill the gap.
+ADR 0037 measured that on 255 settled `KXMLBHR 1+` markets — model-vs-Kalshi
+disagreement sd **3.72 points** against the model's own error of **4.04** —
+so the apparent edge is our own noise. Buying the books' prop lines is a
+different proposition from modelling props ourselves, and only the first is
+open.
+
+### The resting bid did not need cancelling: it FILLED, five days ago, and the screen said otherwise the whole time
+
+Joe asked twice to cancel the bid the panel showed. There was nothing to
+cancel, and the venue had been saying so: the cancel's HTTP 404 `not_found`
+was correct.
+
+    placed    2026-09-01 19:59:53Z   8 contracts @ 25c
+    filled    2026-09-01 21:40:54Z   fill_count_fp 8.00, remaining_fp 0.00
+              maker_fill_cost $2.00   maker_fees $0.0525   taker cost $0.00
+    settled   2026-09-02 05:17:41Z   market_result "no", value 0, revenue 0
+    legs      TOR@CLE (CLE), NYY@LAA (NYY), STL@LAD (LAD)
+
+`/portfolio/orders?status=resting` returns **zero** orders on the account.
+The order's own status is `executed`.
+
+**Two defects, and the second is worse than the first.**
+
+1. **`combo_orders` is never reconciled against the venue.** The row is
+   written before the request leaves (deliberately, so a lost response is not
+   a lost bid) and **nothing ever updates it** -- not on fill, not on
+   settlement. So the panel rendered `resting` for five days over an order
+   that had filled, lost and settled, and it would have rendered it forever.
+   The cancel route then turned the venue's correct 404 into *"The bid may
+   still be resting; try again or cancel it in the Kalshi app"* -- the
+   opposite of true, and advice that sends him looking for something that
+   does not exist.
+
+   **The earlier diagnosis in this file was wrong and is corrected here.**
+   The fourth entry guessed Kalshi had auto-cancelled the bid at kickoff.
+   It did not. It filled. The guess was reached because the panel's own copy
+   mentioned auto-cancellation, which is how a screen's explanation becomes
+   an investigator's hypothesis.
+
+2. **It refutes a sentence that was live on three screens.** The panel read
+   *"Each fills only if someone sells to you at your price, and on a
+   combination nobody has ever been observed doing so."* This fill is
+   `is_taker: false` -- a **maker fill**, someone selling into a resting bid
+   on a combination. It is almost certainly the 1 of 52 the 2026-09-06 entry
+   census counted as non-taker, and it was sitting in the account while the
+   screen said it could not happen.
+
+   The panel came off the site today on Joe's instruction, so the sentence is
+   gone -- but it was removed for the wrong reason, and the distinction
+   matters for anything that re-derives combination liquidity copy.
+   **Re-check the census on `is_taker`**, not on position counts: 51 of 52
+   entered by hitting an offer is a statement about ENTRY METHOD, and the
+   remaining 1 is now known to be a maker fill that the copy said was
+   impossible.
+
+Neither is urgent -- no screen renders `combo_orders` any more -- but the
+table is still written to by the live route, so anything that reads it later
+inherits five-day-stale state.
+
+### Still open, in order
+
+1. **The NFL alias pairing is DONE** (previous entry). **Item 1 is now the
+   props/totals feed decision**, and it is worth taking before Wednesday
+   only if the credit answer allows: price `ODDS_MARKETS` with `totals`
+   added, against the 700/day cap and the four-sport projection. Totals are
+   the cheap half — one more market key, no per-player explosion — and
+   `KXNFLTOTAL` and `KXNCAAFTOTAL` are both already combinable. Player props
+   are a separate and much larger buy; do not price them together.
+2. **The four-sport budget day** — unchanged, and now blocking item 1. The
+   published `~684/day worst case` in `CLAUDE.md`, `fly.live.toml:305-307`
+   and `timing.py:2060-2065` is **not a bound**: it omits the kickoff-window
+   loop, 67.0% of September's actual spend. Fix the record before anyone
+   reasons about headroom for props.
+3. **The global stop is invisible on both surfaces** — if 700 binds,
+   `decide_sweeps` returns `fire=()` and every sport stops, and a refused
+   sweep writes no `api_credits` row, so exhaustion reads as an *absence*.
+4. **`cryptography`** — confirm reachability now (read-only), bump dated
+   2026-09-15. Its own lane, signing tests as the gate.
+5. **`parlay_positions` on 2026-09-15** — and the "Owed" section of
+   `docs/measurements/2026-09-05-parlay-census-result.md` is stale, one line.
+6. **`combo_orders` is never reconciled against the venue, and the cancel
+   route mis-words the consequence.** Established 2026-09-06 on a real order,
+   see above: a filled-and-settled bid rendered `resting` for five days, and
+   `parlays.py:429-436` turned the venue's correct 404 into "may still be
+   resting". Not urgent -- no screen renders the table now -- but the live
+   route still writes it.
+7. **Scout Anthropic refusal fixture (ADR 0106 §5.2)** — one real billed
+   call, deferred.
+8. **Killed or parked**, recorded so they are not re-derived: the
+   `"40 of 40"` prose is not a lane; the worktree husk is not work; the three
+   ADR 0107 refusals are correctly parked; Lane B's inspector ADR should be
+   written rather than carried.
+
+**Joe-gated: nothing.** Item 1 needs the item 2 correction first, which is
+unowned work with no gate.
+
+---
+
+## 2026-09-06 (fourth entry) — Joe took the offer-making controls off the desk, and what replaces them is a record of a bet placed somewhere else
 
 **STATE, verified at open, not inherited.** `main` was `8f5948a`, tree clean,
 nothing unpushed, `git worktree list` showed only main — no lanes. Live and

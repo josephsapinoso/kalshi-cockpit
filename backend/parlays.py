@@ -371,6 +371,51 @@ def end_of_desk_day_ms(now_ms: int) -> int:
     return int(rollover.timestamp() * 1000)
 
 
+#: The parlay desk's kickoff windows, longest-name-first for the route's echo.
+#:
+#: **`tonight` is the default and stays the default** -- it is Joe's own rule
+#: ("I'd want to see my parlays finish out by the time the evening games
+#: end"), and a card mixing tonight's game with Saturday's cannot pay out
+#: until Saturday. What changed on 2026-09-06 is that the rule became a
+#: CHOICE rather than a constant: at 8pm on a Sunday the tonight window held
+#: one fixture and every card read "needs 2 fresh games and the slate has 1",
+#: while eight Monday fixtures sat in the database with 12-31 books of fresh
+#: consensus each. A desk that is structurally empty every evening is one
+#: nobody opens in the evening.
+#:
+#: **The venue is the real bound, not this.** Kalshi's combination
+#: collections carry only the imminent slate -- cards built a week out
+#: returned HTTP 400 `invalid_parameters` (measured 2026-08-28), real markets
+#: the venue would not combine. `combo_eligible_events` already refuses those
+#: independently, which is why widening here is safe: a leg Kalshi will not
+#: combine is dropped by the next check whatever this one allows.
+HORIZONS: dict[str, tuple[int, str]] = {
+    # key: (desk days ahead, the words the screen renders)
+    "tonight": (0, "games kicking off before tonight's slate ends"),
+    "tomorrow": (1, "games kicking off before tomorrow night's slate ends"),
+    "48h": (2, "games kicking off in the next two nights"),
+}
+
+DEFAULT_HORIZON = "tonight"
+
+
+def horizon_end_ms(now_ms: int, horizon: str = DEFAULT_HORIZON) -> int:
+    """The kickoff bound for a named window, epoch ms.
+
+    Built ON `end_of_desk_day_ms` rather than beside it: the rollover, the
+    time zone and the DST handling stay in one place, and a window is
+    "that many desk days further on". Reimplementing the 4am arithmetic per
+    window is how the two spellings drift.
+    """
+    days, _ = HORIZONS.get(horizon, HORIZONS[DEFAULT_HORIZON])
+    end = end_of_desk_day_ms(now_ms)
+    if days:
+        end = end_of_desk_day_ms(end + 1)
+        for _ in range(days - 1):
+            end = end_of_desk_day_ms(end + 1)
+    return end
+
+
 #: The candidate scan, as a module constant so an instrument can time and
 #: EXPLAIN **this** statement rather than a copy of it that drifted.
 #: `scripts/inspect_live_db.py parlay-candidates-timing` imports it; a
@@ -462,7 +507,11 @@ CANDIDATE_SQL = """
 
 
 def ladder_candidates(
-    conn, *, now_ms: int, max_odds_age_ms: Optional[int] = None
+    conn,
+    *,
+    now_ms: int,
+    max_odds_age_ms: Optional[int] = None,
+    horizon: str = DEFAULT_HORIZON,
 ) -> tuple[list[CandidateLeg], dict[str, int]]:
     """Every buyable YES side with a fresh-enough-to-consider consensus.
 
@@ -553,7 +602,7 @@ def ladder_candidates(
 
     alias_cache: dict[str, object] = {}
     candidates: list[CandidateLeg] = []
-    tonight_ms = end_of_desk_day_ms(now_ms)
+    window_ms = horizon_end_ms(now_ms, horizon)
     # `None` when the cache is cold or stale, and then nothing is filtered on
     # it -- see `combo_eligible_events`. A parlay desk that hides every game
     # because a background walk failed is worse than one that offers a card
@@ -577,8 +626,12 @@ def ladder_candidates(
         #
         # Counted, never silently dropped: a thin page must be able to say why
         # it is thin.
-        if row["commence_ms"] is not None and row["commence_ms"] > tonight_ms:
-            count("kickoff_after_tonight")
+        if row["commence_ms"] is not None and row["commence_ms"] > window_ms:
+            # **Renamed from `kickoff_after_tonight` on 2026-09-06**, when
+            # the bound stopped always being tonight. A reason code that
+            # names one window while reporting another is the kind of stale
+            # label a reader trusts because it looks specific.
+            count("kickoff_outside_window")
             continue
         # **Kalshi trades far more games than it will combine.** Measured
         # 2026-08-28: all three catch-all collections carry the same 2,365
@@ -2336,9 +2389,13 @@ def build_ladder_payload(
     max_odds_age_ms: int,
     trust_thresholds: Optional[TrustThresholds] = None,
     list_filter: Optional[ListFilter] = None,
+    horizon: str = DEFAULT_HORIZON,
 ) -> dict:
     candidates, excluded = ladder_candidates(
-        conn, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms
+        conn,
+        now_ms=now_ms,
+        max_odds_age_ms=max_odds_age_ms,
+        horizon=horizon,
     )
     # **The #15 cut, applied to the pool before the cards are built** and
     # nowhere else: a card is then the same cut of a smaller pool, ordered
@@ -2349,6 +2406,22 @@ def build_ladder_payload(
     # fixture; the pool is already pre-game only, so only the upper bound
     # can bite. Counted, not merely dropped: a ladder that shrank under a
     # filter without saying so would read as a thin night.
+    # **The window travels with the payload, in the server's own words.**
+    # `not_built_reason` and the exclusion counts are both relative to it,
+    # so a screen that rendered them beside a locally-guessed label could
+    # show "tonight" over tomorrow's numbers. `ends_ms` is included so the
+    # screen can say WHEN rather than only which.
+    days, window_words = HORIZONS.get(horizon, HORIZONS[DEFAULT_HORIZON])
+    window_echo = {
+        "key": horizon if horizon in HORIZONS else DEFAULT_HORIZON,
+        "words": window_words,
+        "ends_ms": horizon_end_ms(now_ms, horizon),
+        "choices": [
+            {"key": key, "words": words}
+            for key, (_, words) in HORIZONS.items()
+        ],
+    }
+
     hidden = 0
     if list_filter is not None:
         kept = []
@@ -2382,4 +2455,5 @@ def build_ladder_payload(
     # is byte-identical to the pre-#15 one (`tests/test_list_filters.py`).
     if list_filter is not None:
         payload["filter"] = list_filter.as_dict(hidden=hidden)
+    payload["window"] = window_echo
     return payload

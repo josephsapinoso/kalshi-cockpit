@@ -5,8 +5,10 @@ import {
   fetchRefreshable,
   fetchWindow,
   readListFilter,
+  type ParlayHorizon,
 } from "@/lib/api";
 import FilterBar from "@/components/FilterBar";
+import WindowPicker from "@/components/WindowPicker";
 import ParlayCards from "@/components/ParlayCards";
 import Term from "@/components/Term";
 
@@ -32,14 +34,24 @@ export const dynamic = "force-dynamic";
 export default async function ParlaysPage({
   searchParams,
 }: {
-  searchParams: Promise<{ league?: string; within_hours?: string }>;
+  searchParams: Promise<{
+    league?: string;
+    within_hours?: string;
+    horizon?: string;
+  }>;
 }) {
+  const params = await searchParams;
   // The #15 cut, from the URL to the request unvalidated: the server is the
   // one validator, and its refusal is drawn below as its own fact.
-  const filter = readListFilter(await searchParams);
+  const filter = readListFilter(params);
+  // **Also unvalidated here, for the same reason.** An unknown window is a
+  // 422 from the server with its own sentence, which the catch below already
+  // renders. Validating client-side would be a second spelling of the list
+  // of windows, and the one that goes stale.
+  const horizon = (params.horizon ?? null) as ParlayHorizon | null;
   let ladder;
   try {
-    ladder = await fetchParlays(filter);
+    ladder = await fetchParlays(filter, horizon);
   } catch (error) {
     if (error instanceof ApiError && error.status === 422) {
       return (
@@ -88,6 +100,21 @@ export default async function ParlaysPage({
             (`parlays.py`, ADR 0012 §5) -- so once bought nobody is bidding to
             buy it back. No availability claim, deliberately (#9 records why).
           */}
+          {/*
+            **This sentence is RATIFIED and is restored here after being
+            edited by mistake (2026-09-06).** The window became a control and
+            "tonight's games" stopped being unconditionally true, so it was
+            rewritten to render the payload's own words --
+            `tests/test_tab_ledes.py` went red, which is exactly what it is
+            for: this is Joe's approved copy (2026-08-27), and changing it is
+            his call, not a side effect of shipping a feature.
+
+            The honest resolution is not to edit it but to say, next to the
+            cards, when it no longer applies -- `WindowPicker` renders that
+            line whenever the window is not tonight. If the wider windows
+            become the common case, the lede needs RE-RATIFYING rather than
+            quietly rewording.
+          */}
           <Term k="parlay">Parlay</Term> cards cut from tonight&rsquo;s games,
           one pick per game, shown at the{" "}
           <Term k="fair_value">fair value</Term> the sportsbooks&rsquo; chances
@@ -111,6 +138,13 @@ export default async function ParlaysPage({
             : null
         }
       />
+      {/*
+        BELOW the cut, not above it. The cut narrows the pool and the window
+        sets its outer bound, so reading top-to-bottom is "which games, then
+        how far ahead" -- and the window's sentence lands immediately above
+        the cards it describes.
+      */}
+      <WindowPicker window={ladder.window} filter={filter} />
       <ParlayCards
         ladder={ladder}
         actionable={actionable}

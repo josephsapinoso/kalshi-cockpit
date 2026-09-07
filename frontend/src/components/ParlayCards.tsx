@@ -802,7 +802,7 @@ const EXCLUSION_WORDS: Record<string, string> = {
   not_a_probability: "sides without a usable chance",
   no_kalshi_market: "sides with no matching Kalshi market",
   market_closed: "sides whose Kalshi market is already closed",
-  kickoff_after_tonight: "games starting after tonight",
+  kickoff_outside_window: "games starting outside the chosen window",
   kalshi_will_not_combine: "games Kalshi trades but will not combine",
 };
 

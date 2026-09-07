@@ -997,8 +997,22 @@ export type ParlayCardData = {
  * which exists only once the combo is built. The four `notes` sentences are
  * the payload's own honesty copy and render verbatim.
  */
+/**
+ * The server's echo of the window it used. Rendered verbatim: every
+ * `not_built_reason` and every exclusion count is relative to THIS window,
+ * so a label the screen derived itself could print "tonight" over
+ * tomorrow's numbers.
+ */
+export type ParlayWindow = {
+  key: ParlayHorizon;
+  words: string;
+  ends_ms: number;
+  choices: { key: ParlayHorizon; words: string }[];
+};
+
 export type ParlayLadder = {
   generated_ms: number;
+  window?: ParlayWindow;
   cards: ParlayCardData[];
   excluded: Record<string, number>;
   notes: {
@@ -1011,8 +1025,30 @@ export type ParlayLadder = {
   filter?: ListFilterEcho;
 };
 
-export const fetchParlays = (filter: ListFilter = NO_FILTER) =>
-  get<ParlayLadder>(`/api/parlays${listFilterQuery(filter)}`);
+/**
+ * The kickoff window the cards are built from (2026-09-06).
+ *
+ * **Not a filter.** `ListFilter` only NARROWS the pool; this moves its upper
+ * bound, which is why it is a separate parameter rather than another field
+ * on the cut. `null` means "say nothing" and the server applies its own
+ * default -- the screen never spells the default itself, so there is one
+ * place it can change.
+ */
+export type ParlayHorizon = "tonight" | "tomorrow" | "48h";
+
+export const fetchParlays = (
+  filter: ListFilter = NO_FILTER,
+  horizon: ParlayHorizon | null = null,
+) => {
+  const cut = listFilterQuery(filter);
+  const query =
+    horizon === null
+      ? cut
+      : cut
+        ? `${cut}&horizon=${horizon}`
+        : `?horizon=${horizon}`;
+  return get<ParlayLadder>(`/api/parlays${query}`);
+};
 
 /** What "Price on Kalshi" came back with. Strings are server-worded. */
 export type ParlayLookupResult =

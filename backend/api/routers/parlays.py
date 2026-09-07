@@ -35,6 +35,8 @@ from ...parlays import (
     COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID,
     COMBO_EXIT_CENSUS_BOOKS_READ,
     LookupRefused,
+    DEFAULT_HORIZON,
+    HORIZONS,
     build_ladder_payload,
     price_card_on_kalshi,
 )
@@ -175,6 +177,15 @@ def register(
                 "many hours, on the sportsbook's clock."
             ),
         ),
+        horizon: str = Query(
+            DEFAULT_HORIZON,
+            description=(
+                "Which kickoff window the cards are built from: `tonight` "
+                "(default), `tomorrow`, or `48h`. Unlike `within_hours`, "
+                "which only NARROWS the pool, this moves its upper bound. "
+                "An unknown key is a 422."
+            ),
+        ),
     ) -> dict:
         """The ladder: three parlay cards at FAIR value, worded server-side.
 
@@ -197,6 +208,18 @@ def register(
         reason in `excluded`.
         """
         now = db.now_ms()
+        # **Refused, not silently defaulted.** A typo in the query string
+        # would otherwise serve tonight's cards under tomorrow's URL, and the
+        # screen would look like it had simply found nothing -- the failure
+        # mode this desk already has too much of.
+        if horizon not in HORIZONS:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"'{horizon}' is not a window this desk carries. "
+                    f"Choose one of: {', '.join(HORIZONS)}."
+                ),
+            )
         try:
             list_filter = parse_list_filter(league, within_hours, now_ms=now)
         except FilterRefused as exc:
@@ -206,6 +229,7 @@ def register(
             now_ms=now,
             max_odds_age_ms=staleness.max_odds_age_s * 1000,
             list_filter=list_filter,
+            horizon=horizon,
             # Built from the configs that already enforce these limits, so the
             # score refuses on the same numbers every other surface does.
             # `thresholds` here is the SuppressionConfig -- deliberately not

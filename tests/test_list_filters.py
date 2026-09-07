@@ -463,7 +463,16 @@ class TestTheLadderPoolIsCutBeforeTheCardsAreBuilt:
         conn = _ladder_conn(tmp_path, FRIDAY_3PM_PT)
         payload = self._payload(conn, FRIDAY_3PM_PT)
         assert "filter" not in payload
-        assert set(payload) == {"generated_ms", "cards", "excluded", "notes"}
+        # `window` joined the payload on 2026-09-06 (the kickoff-window
+        # control). It is present on EVERY response, filtered or not --
+        # unlike `filter`, which appears only when a cut was applied --
+        # because the screen must always be able to say which window it
+        # is showing. Listed here rather than loosened to a subset check:
+        # the point of this assertion is that a new key cannot appear
+        # without someone deciding it should.
+        assert set(payload) == {
+            "generated_ms", "cards", "excluded", "notes", "window",
+        }
         assert _ladder_leagues(payload) == {"baseball_mlb", "basketball_wnba"}
 
     def test_league_removes_the_other_leagues_legs_and_says_so(self, tmp_path):
