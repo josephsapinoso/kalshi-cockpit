@@ -421,6 +421,8 @@ class TestEveryPassSaysWhatItDidAboutOdds:
     async def test_a_pass_that_decides_nothing_still_records_why(
         self, conn, budget, odds_config
     ):
+        """Also the control for the cap test below it: a pass with credits in
+        hand and nothing due is a `skipped`, and must stay one."""
         odds = FakeOdds()
         await self._sweep(conn, budget, odds_config, odds)
 
@@ -433,6 +435,45 @@ class TestEveryPassSaysWhatItDidAboutOdds:
         assert rows[0]["detail"].startswith("no sweep:"), rows[0]["detail"]
         assert rows[0]["quotes_stored"] is None, (
             "0 and 'nothing was attempted' must not share a value"
+        )
+
+    async def test_a_pass_stopped_by_the_daily_cap_is_a_refusal_not_a_skip(
+        self, conn, budget, odds_config
+    ):
+        """The cap binding is the budget declining -- `sweeplog.REFUSED` by
+        its own definition -- and until 2026-09-07 the runner wrote it as
+        `SKIPPED`, "the pass chose not to look".
+
+        The difference is not vocabulary. `WindowBanner` names `refused` and
+        renders "this will not fix itself when the next window opens"; a
+        `skipped` falls through to "alive and declining ... looks identical
+        to a quiet market". So a day the cap stopped at 15:40Z left ONE
+        refused row (the client's, mid-flight) and sixteen hours of skips,
+        and the screen described the state the words were written for as
+        the quiet they were written to rule out.
+
+        A fixture is stored so the planner genuinely has something to sweep:
+        with no fixture the pass would decline for a different reason and
+        this test would be green on the old code. Mutation: `REFUSED if
+        decision.refused_by_budget else SKIPPED` -> `SKIPPED`, or
+        `refused_by_budget=True` dropped from the `remaining == 0` return.
+        """
+        add_fixture(conn)
+        budget.record(
+            called_ms=NOW - HOUR, endpoint="/sports/other/odds",
+            sport_key=None, cost=400,
+        )
+        odds = FakeOdds([a_quote()])
+        await self._sweep(conn, budget, odds_config, odds)
+
+        assert odds.calls == [], "nothing may be bought on a spent day"
+        rows = log_rows(conn)
+        assert [r["outcome"] for r in rows] == [REFUSED], (
+            [(r["outcome"], r["detail"]) for r in rows]
+        )
+        assert "400 of 400 credits" in rows[0]["detail"], rows[0]["detail"]
+        assert rows[0]["sport_key"] is None, (
+            "the cap stops every sport; the row must not name one"
         )
 
     async def test_a_served_sweep_records_what_it_stored(
@@ -522,8 +563,10 @@ class TestTheTraceIsReadBack:
     """
 
     def test_the_window_reports_the_last_time_a_pass_looked(self, conn, budget):
+        # `REFUSED` since 2026-09-07: the cap sentence is the budget declining,
+        # and the runner now records it under the outcome that means that.
         record_sweep_outcome(
-            conn, pass_ms=NOW, outcome=SKIPPED,
+            conn, pass_ms=NOW, outcome=REFUSED,
             detail="no sweep: 400 of 400 credits spent since 10:00Z",
         )
         payload = window_status(
@@ -532,7 +575,7 @@ class TestTheTraceIsReadBack:
         ).to_dict()
 
         assert payload["last_look_ms"] == NOW
-        assert payload["last_look_outcome"] == SKIPPED
+        assert payload["last_look_outcome"] == REFUSED
         assert "400 of 400" in payload["last_look_detail"]
 
     def test_a_database_that_has_never_looked_says_so_rather_than_nothing(
@@ -569,6 +612,78 @@ class TestTheTraceIsReadBack:
         )
         assert window.last_sweep_ms == NOW - 17 * HOUR
         assert window.last_look_ms == NOW
+
+
+class TestTheScreenAndTheLoopAgreeAboutAStoppedPass:
+    """`window_status` is what `/api/window` serves and `WindowBanner` prints;
+    `decide_sweeps` is what the loop does. When the loop will fire nothing,
+    the screen's `next_call_ms` must not promise a call -- ticket #35 was
+    exactly that contradiction, for the attention slice. These pin the two
+    other ways a pass fires nothing: the daily cap and the bootstrap backoff
+    (ADR 0109).
+
+    What this class does NOT establish: the reverse direction for a
+    bootstrap. `window_status` takes no `in_scope` and cannot see a sport
+    that has Kalshi events and no stored fixture, so on a pass where the
+    loop *will* bootstrap, the screen says nothing is coming. That is a
+    pre-existing gap and a different fix; it is named here so the `iff`
+    below is read for what it covers.
+    """
+
+    def _screen(self, conn, budget, *, now_ms=NOW):
+        return window_status(
+            conn, budget=budget, now_ms=now_ms,
+            max_odds_age_ms=MAX_ODDS_AGE_MS, sweep_cost=SWEEP_COST,
+        )
+
+    def _loop(self, conn, budget, *, in_scope=None, now_ms=NOW):
+        return decide_sweeps(
+            conn, in_scope=in_scope or {}, budget=budget, cost=SWEEP_COST,
+            now_ms=now_ms, max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+
+    def test_a_spent_day_promises_no_call_and_fires_none(self, conn, budget):
+        """The control first, so the assertion is not vacuous: with credits
+        the loop fires the fixture's sweep and the screen says when."""
+        add_fixture(conn)
+        assert self._loop(conn, budget).fire, "control: a sweep is wanted"
+        assert self._screen(conn, budget).next_call_ms is not None, (
+            "control: the screen predicts it"
+        )
+
+        budget.record(
+            called_ms=NOW - HOUR, endpoint="/sports/other/odds",
+            sport_key=None, cost=400,
+        )
+        decision = self._loop(conn, budget)
+        assert decision.fire == ()
+        assert decision.refused_by_budget is True
+        assert self._screen(conn, budget).next_call_ms is None, (
+            "the loop will fire nothing today and the screen must not say "
+            "a call is coming"
+        )
+
+    def test_a_held_bootstrap_promises_no_call_and_fires_none(self, conn, budget):
+        """A sport with Kalshi events, no stored fixture, and a failed sweep
+        five minutes ago: the loop holds it for `BOOTSTRAP_RETRY_BACKOFF_MS`
+        (ADR 0109) and the screen has no fixture to plan from."""
+        sport = "americanfootball_nfl"
+        in_scope = {sport: NOW + 2 * HOUR}
+        assert self._loop(conn, budget, in_scope=in_scope).fire, (
+            "control: an unheld bootstrap fires"
+        )
+
+        budget.record(
+            called_ms=NOW - 5 * MIN, endpoint=f"/sports/{sport}/odds",
+            sport_key=sport, cost=SWEEP_COST, http_status=401,
+        )
+        decision = self._loop(conn, budget, in_scope=in_scope)
+        assert decision.fire == ()
+        assert "bootstrap held" in decision.detail, decision.detail
+        assert decision.refused_by_budget is False, (
+            "a hold is a skip, not the budget declining"
+        )
+        assert self._screen(conn, budget).next_call_ms is None
 
 
 class TestTheRecordRefusesAnAmbiguousRow:

@@ -708,19 +708,33 @@ _STOP_DETAIL = (
     "for another 4-credit call"
 )
 _REFUSAL_DETAIL = "700 of 700 credits spent today; a 4-credit call would exceed it"
+#: The morning before the cap bound: passes with credits in hand and nothing
+#: due, which the runner writes as `skipped`. Kept in the fixture because a
+#: stopped day is not ONLY its stop, and the section that groups by reason has
+#: to carry both outcomes to be the reading it claims to be.
+_QUIET_PASSES = 3
+_QUIET_DETAIL = (
+    "no sweep: next slot is baseball_mlb at 20:50Z-21:50Z for 7 game(s) "
+    "from 22:05Z, sweeping 75-15 min before first kickoff"
+)
 
 
 @pytest.fixture
 def exhausted_day_db(live_db) -> Path:
     """`live_db` plus one budget day on which the daily cap bound.
 
-    The shape is the deployed one rather than an invented one, and the
-    asymmetry is the point. `REFUSED` is written only behind
-    `budget.refusal_reason` in `backend/odds/client.py:343-352`, so it appears
-    on the ONE pass that runs out mid-flight. Every later pass that budget day
-    is stopped earlier still -- `decide_sweeps` returns `fire=()` and
-    `backend/runner.py:2393-2396` writes `SKIPPED`, never importing `REFUSED`
-    at all -- so the rest of the day is a long run of skips.
+    The shape is the deployed one rather than an invented one. Two writers
+    put a `refused` on a stopped day: the client, behind
+    `budget.refusal_reason` (`backend/odds/client.py:343-352`), on the ONE
+    pass that runs out mid-flight; and the runner, on every later pass, where
+    `decide_sweeps` returns `fire=()` with `refused_by_budget` set. Until
+    2026-09-07 the runner wrote those as `SKIPPED` -- `sweeplog.py`'s own
+    definition says a skip is "the pass chose not to look" and a refusal is
+    "the budget declined", and the cap binding is the second -- so the day
+    read as one refusal and sixteen hours of skips, and the screen's
+    `refused` words never rendered. The morning before the stop is seeded too,
+    as genuine skips, so the reason-grouped section is asserted to carry both
+    outcomes rather than to have collapsed onto one.
 
     The three rows `live_db` already seeds sit at `pass_ms` 10, 20 and 30,
     which is 1970 and decades outside any budget day this fixture names. They
@@ -729,6 +743,14 @@ def exhausted_day_db(live_db) -> Path:
     """
     start_ms, _end_ms = _bounds()
     conn = sqlite3.connect(live_db)
+    conn.executemany(
+        "INSERT INTO odds_sweep_log (pass_ms, sport_key, outcome, detail) "
+        "VALUES (?, NULL, 'skipped', ?)",
+        [
+            (start_ms + (i + 1) * 900_000, _QUIET_DETAIL)
+            for i in range(_QUIET_PASSES)
+        ],
+    )
     conn.execute(
         "INSERT INTO odds_sweep_log (pass_ms, sport_key, outcome, detail) "
         "VALUES (?, ?, 'refused', ?)",
@@ -736,7 +758,7 @@ def exhausted_day_db(live_db) -> Path:
     )
     conn.executemany(
         "INSERT INTO odds_sweep_log (pass_ms, sport_key, outcome, detail) "
-        "VALUES (?, NULL, 'skipped', ?)",
+        "VALUES (?, NULL, 'refused', ?)",
         [
             (start_ms + 5 * 3_600_000 + (i + 1) * 300_000, _STOP_DETAIL)
             for i in range(_STOPPED_PASSES)
@@ -787,21 +809,30 @@ class TestCreditsDaySaysWhetherTheCapBound:
         by_detail = {row[-1]: row[1] for row in section["rows"]}
         assert by_detail[_STOP_DETAIL] == _STOPPED_PASSES
 
-    def test_the_one_refusal_and_the_long_silence_are_both_reported(
+    def test_the_stop_and_the_quiet_morning_are_both_reported(
         self, exhausted_day_db, capsys
     ):
-        """Filtering on `outcome = 'refused'` finds the moment of exhaustion
-        and misses the rest of the day, which is the read this file's own
-        `visit-freshness` note and `tasks/NEXT.md` both recommended.
+        """The section groups refusals AND skips by reason, and a stopped day
+        holds both: the morning's "nothing due" skips and the afternoon's
+        stop. Since 2026-09-07 the stop is `refused` on every pass (runner and
+        client alike), so a filter on `outcome = 'refused'` no longer misses
+        the stop -- it misses the morning, which is what tells a reader the
+        loop was alive and declining for a reason before it was refused.
 
-        The counts are asserted as a pair and they differ by 39, so a query
-        that dropped `'skipped'` from the `IN` clause cannot stay green.
+        Summed per outcome, because the same outcome now carries two reasons
+        (the client's sentence and the planner's) and a dict comprehension
+        would keep only the last row.
 
         Mutation: `IN ('refused', 'skipped')` -> `= 'refused'`.
         """
         section = self._stops(capsys, exhausted_day_db)
-        by_outcome = {row[0]: row[1] for row in section["rows"]}
-        assert by_outcome == {"refused": 1, "skipped": _STOPPED_PASSES}
+        by_outcome: dict[str, int] = {}
+        for row in section["rows"]:
+            by_outcome[row[0]] = by_outcome.get(row[0], 0) + row[1]
+        assert by_outcome == {
+            "refused": 1 + _STOPPED_PASSES,
+            "skipped": _QUIET_PASSES,
+        }
 
     def test_the_cross_read_is_scoped_to_the_budget_day(
         self, exhausted_day_db, capsys
@@ -814,7 +845,7 @@ class TestCreditsDaySaysWhetherTheCapBound:
         """
         section = self._stops(capsys, exhausted_day_db)
         details = {row[-1] for row in section["rows"]}
-        assert details == {_STOP_DETAIL, _REFUSAL_DETAIL}
+        assert details == {_STOP_DETAIL, _REFUSAL_DETAIL, _QUIET_DETAIL}
         assert "daily ceiling" not in details
         assert "no slate" not in details
 
@@ -841,7 +872,10 @@ class TestCreditsDaySaysWhetherTheCapBound:
         )
         section = _named(payload, "what the passes decided that day")
         by_outcome = {row[0]: row[1] for row in section["rows"]}
-        assert by_outcome == {"refused": 1, "skipped": _STOPPED_PASSES}
+        assert by_outcome == {
+            "refused": 1 + _STOPPED_PASSES,
+            "skipped": _QUIET_PASSES,
+        }
 
     def test_a_quiet_day_and_a_stopped_day_do_not_read_alike(
         self, live_db, capsys

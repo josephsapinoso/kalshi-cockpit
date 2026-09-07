@@ -632,6 +632,43 @@ class TestTheVerdictIsActuallyTheOneOnScreen:
         assert "silent === null" in code
         assert "RUNNER_INTERVAL_S" in code
 
+    def test_the_banner_has_words_for_an_upstream_failure(self):
+        """`sweepTone` has warned on `failed` since v21; the banner's words
+        did not follow. Only `refused` was tested by name, so a `failed` look
+        -- the odds feed answering 401, 429, 5xx -- fell through to the
+        "alive and declining" headline, whose last sentence is that the
+        state "looks identical to a quiet market from here". An upstream
+        outage on an NFL Sunday rendering as a quiet market is the silence
+        this strip exists to refuse.
+
+        Two pins. The `failed` test exists by name, like `refused` -- not as
+        a catch-all on "anything but served", which would describe the next
+        new outcome with this one's words. And its branch sits BEFORE the
+        `windowHasOpened` branch in the headline chain, because the chain is
+        a first-match ternary and a `failed` look on an opened window would
+        otherwise take the quiet-market sentence first.
+
+        Mutations: delete `const failed = ...` and its branch (first
+        assertion); move the `failed` branch below `windowHasOpened` (last).
+        """
+        code = _without_comments(self.BANNER.read_text(encoding="utf-8"))
+        assert 'const failed = w.last_look_outcome === "failed"' in code
+        assert 'const refused = w.last_look_outcome === "refused"' in code
+        failed_branch = code.index(": failed\n")
+        window_branch = code.index(": windowHasOpened\n")
+        assert failed_branch < window_branch, (
+            "the failed headline must be chosen before the window test, or an "
+            "outage after the first window renders as a quiet market"
+        )
+        # The words themselves: the sentence the failure was hiding behind
+        # is not the one a `failed` look now renders. The headline is a chain
+        # of template-literal pieces joined with `+`, so the pieces are
+        # re-joined before a phrase is looked for -- a phrase that happens to
+        # straddle a join would otherwise be invisible to this test.
+        failed_words = re.sub(r"`\s*\+\s*`", "", code[failed_branch:window_branch])
+        assert "looks identical to a quiet market" not in failed_words
+        assert "refused the call upstream" in failed_words
+
     def test_the_server_sends_the_fields_the_predicate_reads(self):
         """The one end that source-reading the frontend cannot cover.
 

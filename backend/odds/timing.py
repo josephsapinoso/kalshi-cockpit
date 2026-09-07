@@ -1627,6 +1627,19 @@ def window_status(
                 else min(next_call_ms, desk_next)
             )
 
+    # `decide_sweeps`' first return, applied here on the same arithmetic: once
+    # the day's remaining credits cannot fund one call it fires nothing and
+    # consults neither timetable, so a time published above would be a call
+    # the loop has already refused -- ticket #35's shape, with the daily cap
+    # in the attention slice's place. Found 2026-09-07 by driving both
+    # functions on one connection at zero credits: the loop returned
+    # `fire=()` and this field said "now". `next_desk_buy_ms` and
+    # `floor_next_buy_ms` are left as they are -- they are the floor's own
+    # timetable, which is a true statement about when it *would* buy, and
+    # `readNextWindow` reads `sweeps_remaining_today` before either of them.
+    if remaining_sweeps == 0:
+        next_call_ms = None
+
     latest = _latest_sweep_row(conn)
     # Not the same question as `latest`, and the difference is the whole point:
     # `latest` is the last sweep that was *served*, this is the last time a pass
@@ -1759,6 +1772,15 @@ class SweepDecision:
     slots_planned: tuple[SweepSlot, ...]
     sweeps_remaining: int
     detail: str
+    #: True only when the day's cap is what stopped this pass -- the
+    #: `remaining == 0` return below. `sweeplog.REFUSED` is defined as "the
+    #: budget declined, *we* stopped", and until 2026-09-07 the runner wrote
+    #: this decision as `SKIPPED` ("the pass chose not to look"), so a stopped
+    #: day was hundreds of skips and the screen's `refused` words never
+    #: rendered. A field rather than a string match on `detail`, because the
+    #: sentence is display copy and a reader keyed on it would break the day
+    #: someone rewords it.
+    refused_by_budget: bool = False
 
 
 def decide_sweeps(
@@ -1931,6 +1953,7 @@ def decide_sweeps(
                 f"spent since {_hhmm(start_ms)}Z, which is not enough for "
                 f"another {cost}-credit call"
             ),
+            refused_by_budget=True,
         )
 
     firing: list[FiringSweep] = []

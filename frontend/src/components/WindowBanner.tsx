@@ -249,6 +249,18 @@ function SweepTrace({ window: w }: { window: ActionableWindow }) {
   // removed. A liveness guard is allowed to be noisy; it is not allowed to be
   // silent.
   const refused = w.last_look_outcome === "refused";
+  // The call went out and the odds feed itself said no -- a 401, a 429, a
+  // 5xx. `sweepTone` has warned on this since v21; the *words* did not, and
+  // the omission was the bug the verdict had already fixed. Until 2026-09-07
+  // only `refused` was named here, so a `failed` look fell through to the
+  // "alive and declining" headline below, whose last sentence is that this
+  // state "looks identical to a quiet market from here". It does not: the
+  // feed answered, and `last_look_detail` carries its status. An upstream
+  // failure on an NFL Sunday rendering as a quiet market is the exact silence
+  // this strip exists to refuse. Tested by name, like `refused`, and never
+  // as "anything that is not served" -- a catch-all here would describe the
+  // next new outcome with the words written for this one.
+  const failed = w.last_look_outcome === "failed";
   const gapMs = w.last_sweep_ms === null ? null : w.last_look_ms - w.last_sweep_ms;
 
   // The verdict comes from `sweepTone`, which a test executes against recorded
@@ -278,6 +290,13 @@ function SweepTrace({ window: w }: { window: ActionableWindow }) {
           `sweep and something declined it. Nothing has swept since the budget ` +
           `day opened at ${formatClock(w.budget_day_start_ms)}, and unlike a ` +
           `quiet morning this will not fix itself when the next window opens.`
+        : failed
+          ? `The loop looked ${formatAge(lookAge)} and the odds feed refused ` +
+            `the call upstream: the request went out and came back an error, ` +
+            `so nothing was bought. Nothing has swept since the budget day ` +
+            `opened at ${formatClock(w.budget_day_start_ms)}. This is not a ` +
+            `quiet market -- the detail below names the status the feed ` +
+            `returned, and the next pass will try again.`
         : windowHasOpened
           ? `The loop is alive and declining: it looked ${formatAge(lookAge)}, ` +
             `and ${
