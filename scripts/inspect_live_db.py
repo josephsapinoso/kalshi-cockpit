@@ -80,11 +80,17 @@ What this does not establish
   also with the plan genuinely being near its ceiling; the row does not say
   which, and this script does not model `CreditBudget` at all. Read
   `backend/odds/budget.py:202-223` for the refusal order and decide there.
-- **Nothing about completeness.** `credits-day` counts the rows that were
-  written. A sweep refused before the request went out writes no `api_credits`
-  row by design (see the `odds_sweep_log` comment in `schema.sql`), so a low
-  count is an absence of *calls*, not evidence of an outage. `sweep-log` is
-  the table that distinguishes those two, which is why it is a separate query.
+- **Nothing about completeness, and `credits-day` now says so itself.** It
+  counts the rows that were written. A sweep refused before the request went
+  out writes no `api_credits` row by design (see the `odds_sweep_log` comment
+  in `schema.sql`), so a low count is an absence of *calls*, not evidence of an
+  outage -- and once the daily cap binds, the planner stops before any call is
+  attempted for any sport, so the day's rows simply stop. That is byte-for-byte
+  what a quiet slate looks like. `credits-day` therefore carries two
+  `odds_sweep_log` sections scoped to the same budget day, which is where the
+  distinction actually lives. `sweep-log` remains a separate query because it
+  is deliberately all-time; it answers a different question and cannot be
+  pointed at one day.
 - **Nothing about correctness of the values.** `remaining_reported` is what
   The Odds API's header said; this script does not reconcile it against our
   own tally. `BudgetState.drift` does that, and it is not computed here.
@@ -300,7 +306,12 @@ QUERIES: dict[str, QueryDef] = {
     ),
     "credits-day": QueryDef(
         "Every api_credits row in one budget day (--date YYYYMMDD, boundary "
-        "--day-start-hour, default 10), plus the row count and summed cost.",
+        "--day-start-hour, default 10), plus the row count and summed cost, "
+        "plus what the passes DECIDED that day from odds_sweep_log -- by "
+        "outcome, and with refusals and skips grouped by the reason they "
+        "name. Answers the question the spend figure provokes: the calls stop "
+        "at 15:40Z; did the daily cap bind, or was there nothing to buy? "
+        "Exhaustion is an absence in api_credits and nowhere else.",
         _q_credits_day,
     ),
     "credits-month": QueryDef(

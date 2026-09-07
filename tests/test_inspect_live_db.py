@@ -692,6 +692,169 @@ class TestTheBudgetDayWindowIsHalfOpen:
         assert "YYYYMMDD" in capsys.readouterr().err
 
 
+#: How many passes the seeded day spends in the stopped state. Any number well
+#: clear of 1 works; it is named so the assertions below read as the comparison
+#: they are -- one refusal against a long silence -- rather than as two magic
+#: numbers that happen to differ.
+_STOPPED_PASSES = 40
+
+#: The sentence `decide_sweeps` writes once `remaining == 0`
+#: (`backend/odds/timing.py:1835-1845`), reproduced in the shape the planner
+#: emits it. Asserted on rather than paraphrased: this string is the whole
+#: reading, and a test that matched only the outcome would stay green if the
+#: detail became empty.
+_STOP_DETAIL = (
+    "no sweep: 700 of 700 credits spent since 10:00Z, which is not enough "
+    "for another 4-credit call"
+)
+_REFUSAL_DETAIL = "700 of 700 credits spent today; a 4-credit call would exceed it"
+
+
+@pytest.fixture
+def exhausted_day_db(live_db) -> Path:
+    """`live_db` plus one budget day on which the daily cap bound.
+
+    The shape is the deployed one rather than an invented one, and the
+    asymmetry is the point. `REFUSED` is written only behind
+    `budget.refusal_reason` in `backend/odds/client.py:343-352`, so it appears
+    on the ONE pass that runs out mid-flight. Every later pass that budget day
+    is stopped earlier still -- `decide_sweeps` returns `fire=()` and
+    `backend/runner.py:2393-2396` writes `SKIPPED`, never importing `REFUSED`
+    at all -- so the rest of the day is a long run of skips.
+
+    The three rows `live_db` already seeds sit at `pass_ms` 10, 20 and 30,
+    which is 1970 and decades outside any budget day this fixture names. They
+    are the out-of-window control, and two of them carry the very outcomes
+    under test, so a query that lost its day scope cannot come back clean.
+    """
+    start_ms, _end_ms = _bounds()
+    conn = sqlite3.connect(live_db)
+    conn.execute(
+        "INSERT INTO odds_sweep_log (pass_ms, sport_key, outcome, detail) "
+        "VALUES (?, ?, 'refused', ?)",
+        (start_ms + 5 * 3_600_000, "baseball_mlb", _REFUSAL_DETAIL),
+    )
+    conn.executemany(
+        "INSERT INTO odds_sweep_log (pass_ms, sport_key, outcome, detail) "
+        "VALUES (?, NULL, 'skipped', ?)",
+        [
+            (start_ms + 5 * 3_600_000 + (i + 1) * 300_000, _STOP_DETAIL)
+            for i in range(_STOPPED_PASSES)
+        ],
+    )
+    conn.commit()
+    conn.close()
+    return live_db
+
+
+class TestCreditsDaySaysWhetherTheCapBound:
+    """Exhaustion of the daily cap is an ABSENCE in `api_credits` and nowhere
+    else, so `credits-day` alone could not tell it from a quiet slate.
+
+    A refused call returns before the HTTP request and writes no `api_credits`
+    row; once `remaining == 0` the planner stops before any call is attempted
+    for any sport. The day's rows simply stop. `odds_sweep_log` holds the
+    answer and this query was not asking it -- `tasks/NEXT.md` carried the gap
+    as "exhaustion reads as an absence, not a spike".
+    """
+
+    def _stops(self, capsys, db) -> dict[str, Any]:
+        return _named(
+            _run_json(
+                capsys,
+                [
+                    "credits-day",
+                    "--db",
+                    str(db),
+                    "--date",
+                    DAY,
+                    "--day-start-hour",
+                    str(DAY_START_HOUR),
+                ],
+            ),
+            "grouped by the reason they name",
+        )
+
+    def test_the_budget_stop_is_named_rather_than_left_as_a_silence(
+        self, exhausted_day_db, capsys
+    ):
+        """The planner's own sentence reaches the reader, with its count.
+
+        Mutation: drop `detail` from `_SQL_SWEEP_LOG_DAY_STOPS`' select list,
+        or drop the section from `_q_credits_day`'s return.
+        """
+        section = self._stops(capsys, exhausted_day_db)
+        by_detail = {row[-1]: row[1] for row in section["rows"]}
+        assert by_detail[_STOP_DETAIL] == _STOPPED_PASSES
+
+    def test_the_one_refusal_and_the_long_silence_are_both_reported(
+        self, exhausted_day_db, capsys
+    ):
+        """Filtering on `outcome = 'refused'` finds the moment of exhaustion
+        and misses the rest of the day, which is the read this file's own
+        `visit-freshness` note and `tasks/NEXT.md` both recommended.
+
+        The counts are asserted as a pair and they differ by 39, so a query
+        that dropped `'skipped'` from the `IN` clause cannot stay green.
+
+        Mutation: `IN ('refused', 'skipped')` -> `= 'refused'`.
+        """
+        section = self._stops(capsys, exhausted_day_db)
+        by_outcome = {row[0]: row[1] for row in section["rows"]}
+        assert by_outcome == {"refused": 1, "skipped": _STOPPED_PASSES}
+
+    def test_the_cross_read_is_scoped_to_the_budget_day(
+        self, exhausted_day_db, capsys
+    ):
+        """`live_db`'s rows at `pass_ms` 10/20/30 are outside every window this
+        file names, and two of them are a `refused` and a `skipped` -- so a
+        lost `WHERE` shows up as their details appearing here.
+
+        Mutation: delete `AND pass_ms >= ? AND pass_ms < ?` (with the binds).
+        """
+        section = self._stops(capsys, exhausted_day_db)
+        details = {row[-1] for row in section["rows"]}
+        assert details == {_STOP_DETAIL, _REFUSAL_DETAIL}
+        assert "daily ceiling" not in details
+        assert "no slate" not in details
+
+    def test_the_outcome_table_counts_the_day_and_not_all_time(
+        self, exhausted_day_db, capsys
+    ):
+        """The by-outcome section is the same question without the reason text.
+
+        `served` is seeded ONLY outside the window, so its absence here is the
+        scoping assertion: the all-time grouping `sweep-log` prints would show
+        it. Mutation: point the section at `_SQL_SWEEP_LOG_GROUPS`.
+        """
+        payload = _run_json(
+            capsys,
+            [
+                "credits-day",
+                "--db",
+                str(exhausted_day_db),
+                "--date",
+                DAY,
+                "--day-start-hour",
+                str(DAY_START_HOUR),
+            ],
+        )
+        section = _named(payload, "what the passes decided that day")
+        by_outcome = {row[0]: row[1] for row in section["rows"]}
+        assert by_outcome == {"refused": 1, "skipped": _STOPPED_PASSES}
+
+    def test_a_quiet_day_and_a_stopped_day_do_not_read_alike(
+        self, live_db, capsys
+    ):
+        """The vacuity guard, and the reason the assertions above mean
+        anything: on the SAME database without the seeded stop, the section is
+        empty. If it were non-empty here too, every test above would pass on a
+        query that ignored its inputs.
+        """
+        section = self._stops(capsys, live_db)
+        assert section["rows"] == []
+
+
 class TestEveryWhitelistedQueryRunsAgainstTheRealSchema:
     """The queries name columns the live database has.
 

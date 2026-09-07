@@ -113,11 +113,21 @@ CLUSTER_MS = 20 * _MS_PER_MIN
 # Sixty rather than more, for two reasons that bound it from opposite sides.
 # `MIN_SLOT_SEPARATION_MS` is two hours, so a wider window than that would let
 # one sport's slots overlap and double-buy the same cluster. And the day is
-# metered: a sixty-minute window at a ten-minute refresh is six calls, so a
-# cluster costs `6 x sweep_cost` rather than `sweep_cost`. That multiplier is
+# metered: a sixty-minute window at a ten-minute refresh is **seven** calls, so
+# a cluster costs `7 x sweep_cost` rather than `sweep_cost`. That multiplier is
 # reserved for explicitly in `decide_sweeps` -- see `projected_total_cost` --
 # because a rolling refresh that is planned as if it were a single call is the
 # same defect the prop tail already caused once.
+#
+# **This said `6 x sweep_cost` until 2026-09-06 and it understated every
+# cluster by one call.** `calls_remaining` is `1 + left // refresh_interval_ms`
+# (see it below): the opening call is the `1`, and a full window contributes
+# `3_600_000 // 600_000 = 6` more. Six is the count of *refreshes*, seven is the
+# count of calls, and it is the second that `projected_total_cost` reserves.
+# The sentence was not merely imprecise -- it is the one a reader sizes a budget
+# day from, and at four credits a call it hid 4 credits per cluster from every
+# projection built on it. Derive this multiplier from `calls_remaining` rather
+# than restating it here; a constant written twice is a constant that drifts.
 DUE_WINDOW_MS = 60 * _MS_PER_MIN
 
 
@@ -2058,11 +2068,30 @@ def decide_sweeps(
     # The floor's cadence is measured from `last_sweep_by_sport`, which counts
     # attention buys too, so a sport can take at most one floor-paced buy an
     # hour however many attended buys preceded it. Four sports x 24 x `cost` is
-    # the ~384/day `fly.live.toml` publishes as the idle floor; the slice is
-    # its own <=300; 684 of the 700 daily cap, which is the worst case that
-    # file already writes down. This raises actual spend *towards* a published
-    # bound and cannot pass it, and `credits_left` below is the hard stop
-    # either way.
+    # the ~384/day `fly.live.toml` publishes as the idle floor, and the slice is
+    # its own <=300.
+    #
+    # **Those two do NOT sum to a worst case, and this comment claimed they did
+    # until 2026-09-06.** It said "684 of the 700 daily cap, which is the worst
+    # case that file already writes down", and `fly.live.toml` and `CLAUDE.md`
+    # carried the same table. 384 + 300 counts the floor and the attention
+    # slice and **omits the kickoff-window loop entirely** -- the third spender,
+    # a few hundred lines below this, whose only gate is `credits_left` and
+    # therefore the 700 itself. That loop was **67.0% of September's actual
+    # spend** (319 of 476 served sweeps). A partial sum presented as a ceiling
+    # is worse than no ceiling, because it invites exactly the reasoning it
+    # cannot support: "we have headroom for another market key".
+    #
+    # The kickoff-window term is not a constant and must be computed per day:
+    # `clusters_that_day x calls_remaining x sweep_cost`, where a full window is
+    # SEVEN calls (see `DUE_WINDOW_MS`) -- 28 credits a cluster at today's
+    # `cost = 4`. An NFL Sunday plans 3 clusters; the season's worst is 4.
+    #
+    # So: **the day is bounded at 700 by the cap, not by construction.**
+    # `credits_left` below is the hard stop and it is the only one. That is a
+    # materially weaker guarantee than a design that cannot reach the cap, and
+    # it is the true one -- when it binds, `decide_sweeps` returns `fire=()`
+    # and every sport stops at once, not just the one that overspent.
     #
     # `desk_window=None` rather than the caller's value, deliberately: this is
     # the timetable for a pass that has just been refused the attended

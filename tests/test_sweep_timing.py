@@ -387,6 +387,33 @@ class TestThePlannerReservesTheWindowItOpens:
             1 + span // REFRESH_MS
         )
 
+    def test_a_full_window_is_seven_calls_and_the_number_is_written_down(self):
+        """The multiplier a budget day is sized from, pinned as a VALUE.
+
+        The test above restates `calls_remaining`'s own formula, so it agrees
+        with the code whatever the code says and cannot catch a wrong number
+        being quoted elsewhere. `DUE_WINDOW_MS`' comment quoted `6 x
+        sweep_cost` from before 2026-08-09 until 2026-09-06, understating every
+        cluster by one call -- six is the count of REFRESHES, seven is the
+        count of CALLS, and `projected_total_cost` reserves the second.
+
+        At four credits a call that is 4 credits per cluster missing from every
+        projection built on the sentence, which is how an NFL Sunday came to be
+        published at ~288 credits when the planner asks for 124.
+
+        So this one names 7. If the window or the refresh cadence is
+        deliberately changed, it fails and the comment gets revisited with it --
+        which is the entire point, because the comment is what people read.
+        """
+        kickoff = NOW + 3 * HOUR
+        [slot] = plan_sweep_slots(
+            {"baseball_mlb": [kickoff]},
+            now_ms=NOW, slots_available=1, max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        assert slot.fire_until_ms - slot.fire_from_ms == DUE_WINDOW_MS
+        assert REFRESH_MS == 600_000
+        assert slot.calls_remaining(slot.fire_from_ms, REFRESH_MS) == 7
+
     def test_a_slot_half_spent_reserves_only_what_it_still_needs(self):
         kickoff = NOW + 3 * HOUR
         [slot] = plan_sweep_slots(

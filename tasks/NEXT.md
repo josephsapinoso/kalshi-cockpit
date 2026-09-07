@@ -214,7 +214,192 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-06 (fifth entry, latest) — the parlay window became a control, the in-play combo question is answered, and props are a feed problem rather than a venue one
+## 2026-09-06 (sixth entry, latest) — the published credit bound was a partial sum, item 3 was half-false, and the largest NFL day-one risk is a failure nobody had timed
+
+**STATE at close.** `main` carries this session's work on top of `4a6d63e`.
+**Live and demo were already on `4a6d63e`** — the previous entry's "deployed on
+`7ed20fd`" was stale, checked via `/api/health` `git_sha` rather than inherited.
+Baseline before any edit: **6258 passed / 10 xfailed** (24m30s), matching the
+handoff exactly. Six stale branches deleted with `git branch -d` after
+confirming 0 commits not in `main` each. Decision map still exhausted (0 open
+sub-issues).
+
+**The partner ran first, and one of its four ranked items was already done.**
+It opened with "deploy `4a6d63e`, everything else is worth less" — reasoned from
+the stale sha in the state I handed it. `/api/health` had already said
+otherwise. **Hand the partner verified state, not handoff prose**; it argues
+well from whatever it is given, including from something false.
+
+### Item 3 was funded as a falsification and most of it did not survive
+
+The claim: *"the global stop is invisible on both surfaces … exhaustion reads as
+an absence."* Verdict: **false on the screen, true on exactly one instrument,
+and the recommended diagnostic was itself the defect.**
+
+- **The screen says so.** `timing.py:1835-1845` builds the string, `runner.py:2393-2396`
+  writes it, `timing.py:1578-1579` carries it as `last_look_detail`, and
+  `WindowBanner.tsx:318` renders it verbatim on `/board`.
+- **The post-hoc read was broken, and this file recommended it.** `REFUSED` is
+  written only behind `budget.refusal_reason` **inside** `fetch_odds`
+  (`client.py:343-352`). Once `remaining == 0` no call is attempted for any
+  sport, and `runner.py:127` **never imports `REFUSED` at all**. So a cap that
+  binds at 15:40Z leaves **one** `refused` row and sixteen hours of `skipped`
+  ones — and `sweep-log --outcome=refused` finds the instant and misses the
+  state. `sweep-log` is also not day-scoped at all.
+- **It also uses the vocabulary against its own definition.** `sweeplog.py:71-88`:
+  *"`REFUSED` means the budget declined — **we** stopped. `SKIPPED` means the
+  pass chose not to look."* The global cap stop is the budget declining.
+
+**Built:** `credits-day --date` gains two `odds_sweep_log` sections on the same
+budget-day window — by outcome, and refusals+skips grouped by **the reason they
+name**, which collapses a stopped day's hundreds of identical rows into one line
+with a count and a span. Five tests, including a vacuity guard; **all four
+guards mutated and all four went red.** Mutation harness restored from a byte
+copy, never `git checkout`.
+`docs/measurements/2026-09-06-the-global-stop-is-not-invisible.md`.
+
+*Left unfixed, recorded:* on a budget-exhausted day `sweepTone.ts:168` misses
+its `refused` branch and reaches `warn` via the generic "nothing swept in an
+open window" path — the same tone as a dead recorder, separated only by the
+detail text.
+
+### Item 2 is fixed in four places, and a TEST was pinning the falsehood
+
+`~684/day worst case` is **not a bound and never was**. 384 (floor) + 300
+(slice) omits the kickoff-window loop, whose only gate is `credits_left` and
+therefore the 700 itself, and which was **67.0% of September's spend**.
+Corrected in `CLAUDE.md` (both places), `fly.live.toml`, `timing.py`.
+
+**`tests/test_desk_follows_attention.py` asserted `worst_case == 684,
+"fly.live.toml's worst-case row"`** — while its own docstring, three paragraphs
+lower, said the slot planner was not counted. Renamed to
+`test_the_two_capped_terms_are_384_and_300_and_are_not_a_worst_case`, and it now
+asserts the thing the old name was missing: one NFL Sunday's window demand (84)
+**exceeds** the 16-credit gap between the sum and the cap, so nobody can read
+that gap as spare capacity.
+
+**The day is safe by the cap, not by construction.** Say it that way.
+
+### A cluster is SEVEN calls, not six
+
+`DUE_WINDOW_MS`' comment said `6 x sweep_cost`. `calls_remaining` is
+`1 + 3_600_000 // 600_000` = **7**; six is the count of *refreshes*, seven the
+count of calls, and `projected_total_cost` reserves the second. It hid 4 credits
+per cluster from every projection built on it. The existing test restated the
+formula (`1 + span // REFRESH_MS`) and so agreed with the code whatever the code
+said; `test_a_full_window_is_seven_calls_and_the_number_is_written_down` now
+pins the literal.
+
+### NFL day one, simulated against the real planner at zero credits
+
+Fed the real 272-fixture capture into the real `plan_sweep_slots` /
+`decide_sweeps`, driven at the deployed 15s tick over a whole budget day.
+
+- **An NFL Sunday plans 3 clusters, not ~12 window-hours.** `cluster_kickoffs`
+  collapses 13 kickoffs into 3 (17:00Z ×8 games, 20:25Z ×4, 00:20Z ×1); the
+  season's worst day is 4. **124 credits unattended, not 288.**
+- **Wednesday 09-09: 72 warm, 76 cold.** Cold start on a *successful* first
+  sweep costs exactly +4 credits — one call.
+- Peak budget day **~486, not ~770**. The old figure double-counted: slot and
+  floor spend are per sport and additive, but the attention slice is a **single
+  global 300/day pool** with no `sport_key` filter, so a fourth sport does not
+  raise it.
+- Calibration that it is not fantasy: simulated split **67.7% window / 32.3%
+  floor** against the live record's **67.0% / 33.0%**.
+- **What loses when the cap binds, and nobody chose it:** floor buys are served
+  **alphabetically by sport key**, so WNBA's drops first, then MLB's; every
+  kickoff-window slot outranks every floor buy. That is `sorted()`, not policy.
+
+`docs/measurements/2026-09-06-nfl-week-1-credit-headroom.md` carries all of this
+as **Amendment 1**.
+
+### Joe's item 1 (props and totals) is REFUTED on arithmetic, not on preference
+
+`sweep_cost = max(1, len(markets) * len(regions))` (`budget.py:66-68`). Live is
+`h2h,spreads` × `us,eu` = **4**. Adding `totals` → 3×2 = **6, +50% on every
+call, every sport, forever**. The largest observed day is 496 (two sports);
+**496 × 1.5 = 744 > the 700 cap** — and when the cap binds every sport stops.
+Buying totals would mean turning the desk off on NFL Sunday. **No correction to
+the published bound changes this**, so item 1 was never gated on item 2.
+
+**Player props: killed outright**, not deferred — per-player keys multiply far
+past 1.5×, and ADR 0037 already refuted the in-house substitute.
+
+**The one lever still open, dated 2026-09-28** (after MLB's regular season ends
+09-27 and Weeks 1–3 supply a measured four-sport day): drop the `eu` region.
+`h2h,spreads,totals` × `us` = **3 credits, cheaper than today's 4.** Refuse it
+this week — it changes the book composition of every fair value three days
+before the largest slate this desk has seen. Owed an ADR.
+
+**And the settled reason not to show a leg we cannot devig**, decided hours
+earlier in the opposite direction: *"a live leg arrives with no fair value at
+all and the only number left is Kalshi's own. A card comparing Kalshi to Kalshi
+shows a cost while implying a judgement it is not making."* A totals leg without
+`totals` in the feed is that object exactly.
+
+### `cryptography` — NOT REACHABLE, and the advisory is scored after all
+
+GHSA-jwv3-5hgf-82ww / **CVE-2026-69249**, affected `>=42.0.0, <=48.0.0`, first
+patched **49.0.0**. Installed 44.0.3.
+
+**Correction to this file's earlier "CVSS is 0, i.e. unscored":** that is the v3
+field. **CVSS v4 is 8.7 (high)**, and the vector's only non-`N` impact is
+`VA:H` — pure availability. It cannot forge a signature or leak a key.
+
+**Reachability: none.** The defect is in `cryptography.x509.verification`'s path
+builder. This repo's only use of the library is RSA-PSS request signing at
+`backend/kalshi/auth.py:126-137` (`load_pem_private_key`, `PSS`, `MGF1`,
+`SHA256`). Repo-wide sweep for `x509|PolicyBuilder|build_server_verifier|…`:
+**zero hits.** Confirmed empirically, not just by grep — importing the whole app
+surface loads 26 `cryptography.*` submodules and **not one `x509` module**. No
+dependency imports it either. TLS is stdlib `ssl`, a different implementation.
+
+**Bump stays dated 2026-09-15**, floor `~=49.0`. Gate:
+`tests/test_rest.py::TestSigningContract` and
+`TestTheQueryStaysOutOfTheSignature`, plus `tests/test_rest.py
+tests/test_exchange_shards.py tests/test_parlay_lookup.py` (each generates a
+real RSA key). **Baseline taken now on 44.0.3: 200 passed in 47s**, so a red
+after the bump is the bump. Watch `Dockerfile:38-39` — 47.0.0 requires OpenSSL
+≥3.0 (bookworm has it). `tests/test_manual_orders.py` and `test_ws_client.py`
+look like gates and are not; both stub the signer out.
+
+### Still open, in order
+
+1. **The failing-bootstrap loop has no bound of its own — the biggest day-one
+   risk, and it is 9× the scheduled NFL load.** Simulated over 09-09 with every
+   NFL call returning 401: **with a page open (60s heartbeat) it spends the
+   whole 700 in 2h54m**, then every sport is dark until 10:00Z. At the 900s idle
+   loop it is 384/day. It is stamped `BOOTSTRAP`, so
+   `attention_credits_spent_today` cannot see it and the 300 slice does not cap
+   it — exactly what `runner.py:3221-3227` says, now with a clock attached.
+   Needs a *new* failure to fire (the key works: 272 fixtures pulled today at
+   zero credits), so low probability, whole-day consequence, opening week.
+   **Do NOT ship the naive fix.** A per-sport per-day attempt cap trades "burns
+   the day" for "gives up early and stays dark after upstream recovers". The
+   right shape is a **backoff** — a minimum interval between failed bootstrap
+   attempts (30 min ⇒ ~192/day worst case and recovery within 30 min). That is a
+   spend-control design decision on the money path and wants an ADR and Joe's
+   eye, not a rushed patch three days out.
+2. **The `eu`-region lever**, dated 2026-09-28 with its two preconditions above.
+   Owed an ADR that also records the props kill so October does not re-derive it.
+3. **`sweepTone` cannot distinguish a spent budget from a dead recorder** — both
+   reach `warn` by the same branch. Small; the words already differ.
+4. **`combo_orders` is never reconciled against the venue**, and
+   `parlays.py:429-436` turns the venue's correct 404 into "may still be
+   resting". No screen renders the table now, but the live route still writes
+   it. The cancel-wording half is ~5 lines and removes a lie from a live route.
+5. **`parlay_positions` on 2026-09-15.** Calendar, not work.
+6. **Scout Anthropic refusal fixture (ADR 0106 §5.2)** — one real billed call.
+7. **Done this session, so not re-derived:** the six stale branches are deleted;
+   the parlay census's "Owed" section is closed (ADR 0085 Amendment 1 landed and
+   Joe removed the card, dissolving the second half); item 3 is closed; item 2
+   is closed; the inspector-split ADR is written and took **0108**.
+
+**Joe-gated: item 1's backoff design**, if it is to ship before Wednesday.
+
+---
+
+## 2026-09-06 (fifth entry) — the parlay window became a control, the in-play combo question is answered, and props are a feed problem rather than a venue one
 
 **STATE at close.** `main` carries the session's earlier three commits plus
 this work. Live and demo were deployed and verified on `7ed20fd` mid-session

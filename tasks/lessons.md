@@ -69,6 +69,101 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-06 - A caveat loses to the variable name it sits under
+
+`test_the_worst_case_day_with_the_fall_through_stays_inside_the_cap` computed
+`384 + 300` and asserted `worst_case == 684, "fly.live.toml's worst-case row"`.
+Its own docstring, three paragraphs further down, said: *"**What this does not
+count**, deliberately: the slot planner and the prop tail, which draw on the
+same 700."*
+
+Both statements were true. The caveat was accurate, deliberate, and written by
+someone who had thought about exactly this. And the number still propagated as
+a worst case into `fly.live.toml`, into `timing.py`'s comment block, and into
+`CLAUDE.md` — where a later session read it, reasoned about "16 credits of
+headroom", and had to be corrected. The omitted term was **67.0% of actual
+spend**: larger than either term that was counted.
+
+**Pattern: when an identifier and its caveat disagree, the identifier wins.**
+A name is read every time the value is used; a docstring is read once, by
+whoever is editing the function. Anyone quoting the number downstream sees only
+the name. So a caveat cannot make a misleading name safe — it can only record
+that someone noticed.
+
+The fix is to rename, not to explain harder. `capped_terms` invites the
+question "what is uncapped?"; `worst_case` closes it. And where a partial sum
+is genuinely worth computing, **assert what it is NOT**: the replacement test
+now also asserts that one NFL Sunday's kickoff-window demand exceeds the gap
+between the sum and the cap, so no reader can treat that gap as spare.
+
+**Corollary for prose that quotes a number from code**: three files quoted 684
+and none of them carried the caveat, because a caveat does not travel with a
+figure. If a number is not safe to quote alone, it is not safe to publish.
+
+---
+
+## 2026-09-06 - A test that restates the code's own formula agrees with the code whatever the code says
+
+`DUE_WINDOW_MS`' comment said *"a sixty-minute window at a ten-minute refresh
+is six calls, so a cluster costs `6 x sweep_cost`"*. It is seven:
+`calls_remaining` is `1 + left // refresh_interval_ms`, the opening call is the
+`1`, and six is the count of *refreshes*. Every projection built on that
+sentence understated each cluster by 4 credits.
+
+The value was under test the whole time:
+
+```python
+span = slot.fire_until_ms - slot.fire_from_ms
+assert slot.calls_remaining(slot.fire_from_ms, REFRESH_MS) == (1 + span // REFRESH_MS)
+```
+
+That assertion re-derives `calls_remaining` from `calls_remaining`. It passes
+on 6, on 7, and on 700. It pins the *shape* of the formula and nothing about
+its magnitude, so it could never contradict a wrong number quoted in a comment
+a hundred lines above it.
+
+**Pattern: an assertion written in terms of the code's own expression tests
+that the expression is stable, not that it is right.** Both forms are worth
+having, but only one of them can catch prose. Where a constant is quoted
+anywhere a human reads — a comment, a deploy file, a budget projection — **pin
+the literal value in a test as well**, and say in the docstring that the test
+exists to make the comment fail with the code.
+
+The tell is that the assertion contains the same operators as the
+implementation. If you can derive the assertion by copy-pasting the function
+body, it is a tautology with a fixture attached.
+
+---
+
+## 2026-09-06 - An item written from the shape of a known lesson is a hypothesis, not a finding
+
+A handoff carried: *"The global stop is invisible on both surfaces — a refused
+sweep writes no `api_credits` row, so exhaustion reads as an absence"*, and
+recommended diagnosing it with `sweep-log` filtered on `outcome='refused'`.
+
+Funded as a falsification before a build. **The first half was false**: the
+planner's refusal string reaches `/api/window` as `last_look_detail` and
+`WindowBanner` renders it verbatim, so the screen says so in words. **The
+recommended instrument was the actual defect**: `REFUSED` is written only
+behind `budget.refusal_reason` inside `fetch_odds`, and once the cap binds no
+call is attempted at all, so the filter finds the one pass that ran out and
+misses the sixteen hours that follow.
+
+The item had been written by pattern-matching onto a real lesson this repo
+already knew — the attention slice's silent-refusal-with-no-fall-through, which
+took four passes to fix. The shape fitted. It *felt* confirmed rather than
+proposed, and the confidence came from the resemblance rather than from a
+reading of the code.
+
+**Pattern: a diagnosis that matches a scar you already have is the one to check
+hardest, not the one to trust.** Recognising the shape tells you where to look;
+it is not evidence about what is there. Write such an item as a question with a
+named check ("does `WindowBanner` print the budget string? read
+`sweepTone.ts`"), not as a finding with a build attached — otherwise the build
+gets funded on a resemblance and the real defect, one function away, stays.
+
+---
+
 ## 2026-09-06 - A guard that substring-matches an element name is green on a renamed element
 
 A new test pinned that four screens still render a control Joe had asked for,

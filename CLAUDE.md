@@ -215,11 +215,36 @@ imminent. **The feed now follows attention over an hourly floor** (ADR 0071
 sport with a fixture inside twelve hours. `ODDS_DESK_WINDOW_UTC` is unset on
 live and still read, so a window can be pinned back on without a code change.
 
-    idle floor only, 4 sports    ~384/day
+    idle floor, 4 sports         ~384/day
     attention, capped            <=300/day   ODDS_ATTENTION_DAILY_CREDITS
-    worst case                   ~684/day    inside the 700 daily cap
+    kickoff windows              UNCAPPED    clusters x 7 calls x 4 credits
+    the only real ceiling         700/day    ODDS_DAILY_CREDIT_BUDGET
 
-**The three rows above are bounds. One of them is now a measurement.** The
+**The third row was missing from this table until 2026-09-06, and its absence
+made the fourth read as slack.** The row here said `worst case ~684/day inside
+the 700 daily cap`; `fly.live.toml` and `timing.py` carried the same figure.
+**684 is not a worst case. It is a partial sum.** 384 + 300 counts the floor
+and the attention slice and omits the kickoff-window loop
+(`timing.py:1943-2028`) — the largest of the three, **67.0% of September's
+actual spend** (319 of 476 served sweeps), whose only gate is `credits_left`
+and therefore the 700 itself.
+
+**So the day is safe by the cap, not by construction**, which is a materially
+weaker guarantee than the one this file used to give. Do not reason about
+"headroom" from the 16-credit gap between 684 and 700: there is no spare 16
+credits, there is a cap that truncates the day. When it binds, `decide_sweeps`
+returns `fire=()` and **every** sport stops until the next 10:00Z boundary —
+bounded to under 24 hours, and not a throttle on the sport that overspent.
+
+The kickoff-window term is per-day rather than constant: a full 60-minute
+window at the 10-minute refresh is **seven** calls (the opening one plus six
+refreshes), so 28 credits a cluster at today's `cost = 4`. An NFL Sunday plans
+**3** clusters, the season's worst 4 — simulated against the real planner and
+the 272-fixture capture, 2026-09-06. `DUE_WINDOW_MS`' own comment said `6 x
+sweep_cost` until that date and understated every cluster by one call;
+`test_a_full_window_is_seven_calls_and_the_number_is_written_down` now pins it.
+
+**The remaining rows are bounds. One of them is a measurement.** The
 instrument is `api_credits` summed per budget-day **by trigger**, which
 separates attention (`'attention'`) from the floor and the schedule (both
 NULL) — `scripts/inspect_live_db.py credits-day --date …`. First read
@@ -277,14 +302,20 @@ Joe is about to bet.
 A sport that is attended-but-slice-spent now falls through to the floor's own
 timetable instead of being skipped, stamped `DESK` so it is neither charged to
 the slice nor refused by it. A windowed sport falls through on identical terms,
-for identical reasons. **The three published bounds above do not move**, and
-that is arithmetic rather than intent: the floor's cadence is measured from
+for identical reasons. **The floor and the slice do not move**, and that is
+arithmetic rather than intent: the floor's cadence is measured from
 `last_sweep_by_sport`, which counts attention buys too, so a sport takes at
 most one floor-paced buy an hour however many attended buys preceded it. The
-~384 and the ≤300 are separately capped and additive, and 684 was always the
-sum. **What changes is that actual spend now reaches towards a bound already
-written down** — the deployed code delivered *less* than that table claimed,
-and the gap was a stale slate rather than a saving.
+~384 and the ≤300 are separately capped and additive. What changes is that
+actual spend reaches further towards those two — the deployed code delivered
+*less* than the table claimed, and the gap was a stale slate rather than a
+saving.
+
+**What this paragraph used to say next was that 684 "was always the sum", and
+that is the sentence the 2026-09-06 correction removes.** It was the sum of
+two of the three spenders. The fall-through described here is genuinely
+neutral on the floor and the slice; it was never neutral on the total, because
+the total was never those two. See the table above.
 
 **Know what the ceiling feels like from the outside, because it has now been
 felt.** The slice ran out at 20:46Z and Joe opened the desk at 04:38Z — 7.9

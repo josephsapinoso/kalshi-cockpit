@@ -203,3 +203,21 @@ the engine, the gate or edge — ADR 0038 is not reopened by this document
 moment of entry while its census stands for the order book at large, and a
 decision from Joe about what the card should say instead. That is a product
 decision, not a measurement, and it is not taken here.
+
+> **SETTLED 2026-09-06. Both halves are discharged and this section is closed.**
+> ADR 0085 carries **Amendment 1**, which records exactly that split: the copy
+> is refuted at the moment of entry, the census stands for the order book at
+> rest, and both figures must be cited together.
+>
+> Joe's decision went further than the amendment anticipated — he took the
+> offer-making controls off the desk entirely, so there is no card left to
+> re-word. He pays the ask or records a bet placed at a book; he does not make
+> offers. The question "what should the card say instead" was dissolved rather
+> than answered.
+>
+> One correction that outlived the card and is the reason this note is worth
+> reading: the panel's sentence — *"on a combination nobody has ever been
+> observed doing so"* — was refuted by a real **maker fill** sitting in the
+> account (2026-09-01, 8 contracts @ 25c, `is_taker: false`). It is almost
+> certainly the 1 of 52 this census counted as non-taker. **Re-derive any
+> combination-liquidity copy from `is_taker`, not from position counts.**

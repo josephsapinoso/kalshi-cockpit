@@ -570,14 +570,28 @@ class TestAttentionAddsToTheFloorRatherThanReplacingIt:
         conn.commit()
         assert attention_credits_spent_today(conn, since_ms=start) == before
 
-    def test_the_worst_case_day_with_the_fall_through_stays_inside_the_cap(
+    def test_the_two_capped_terms_are_384_and_300_and_are_not_a_worst_case(
         self,
     ):
         """**The budget argument, computed from the constants rather than
         quoted from the deploy file.**
 
-        The fall-through raises actual spend towards a bound that is already
-        published and cannot pass it, and the reason is arithmetic:
+        **Renamed 2026-09-06, and the old name was the defect.** This was
+        `test_the_worst_case_day_with_the_fall_through_stays_inside_the_cap`
+        and it asserted `384 + 300 == 684, "fly.live.toml's worst-case row"`.
+        The arithmetic was right and the label was wrong: those are the two
+        terms that HAVE ceilings, not the day's total. The kickoff-window loop
+        is the third spender, it was 67.0% of September's actual spend, and its
+        only gate is `credits_left` -- so 684 never bounded a day and the
+        deploy file no longer publishes it as one.
+
+        The docstring below already carried the caveat, in the "What this does
+        not count" paragraph. It was true and it was three paragraphs beneath a
+        number labelled `worst_case`, which is not where a reader looks. A
+        caveat that contradicts the variable name loses to the variable name.
+
+        The fall-through raises actual spend towards these two ceilings and
+        cannot pass either, and the reason is arithmetic:
 
         - The floor's cadence is measured from `last_sweep_by_sport`, which
           counts attention buys too, so a sport takes **at most one
@@ -593,11 +607,16 @@ class TestAttentionAddsToTheFloorRatherThanReplacingIt:
         credits (`h2h,spreads` x `us,eu`). The two bounds are additive and
         independent, which is what makes the sum a genuine ceiling.
 
-        **What this does not count**, deliberately: the slot planner and the
-        prop tail, which draw on the same 700 and are outside the published
-        table too. They are bounded by `credits_left`, which refuses any desk
-        buy the day cannot afford -- so 700 is enforced by construction
-        whatever this arithmetic says.
+        **What this does not count, and it is the LARGEST term:** the slot
+        planner (the kickoff-window loop) and the prop tail, which draw on the
+        same 700. They are bounded by `credits_left` and by nothing else, so
+        the 700 is enforced by the cap rather than by construction -- and when
+        it binds, `decide_sweeps` returns `fire=()` and every sport stops.
+
+        A cluster's window is 7 calls, so 28 credits at the deployed cost; an
+        NFL Sunday plans 3 clusters. That term alone is comfortably larger than
+        the 16-credit gap between 684 and 700, which is why the gap was never
+        headroom.
 
         Mutation observed red: charge the floor at `refresh_interval_ms`
         instead (24 -> 144 buys a sport) and the worst case is 2,604.
@@ -614,14 +633,25 @@ class TestAttentionAddsToTheFloorRatherThanReplacingIt:
         assert floor_ceiling == 384, "fly.live.toml's idle-floor row"
         assert slice_cap == 300, "fly.live.toml's attention row"
 
-        worst_case = floor_ceiling + slice_cap
-        assert worst_case == 684, "fly.live.toml's worst-case row"
-        assert worst_case <= daily_cap
+        capped_terms = floor_ceiling + slice_cap
+        assert capped_terms == 684
+        assert capped_terms <= daily_cap
         # The tap reserve is a sub-ceiling *inside* the 700 rather than a
         # carve-out from it (`ondemand.DEFAULT_MANUAL_DAILY_CREDITS`), so it is
         # not subtracted here -- but the day cannot fund both in full, and
         # `credits_left` is what refuses the loser.
-        assert worst_case + ondemand.DEFAULT_MANUAL_DAILY_CREDITS > daily_cap
+        assert capped_terms + ondemand.DEFAULT_MANUAL_DAILY_CREDITS > daily_cap
+
+        # **The assertion the old name was missing.** One NFL Sunday's
+        # kickoff-window demand -- three clusters, seven calls each -- already
+        # exceeds what is left between the two capped terms and the cap. So
+        # `capped_terms` cannot be a worst case, and no reader may treat
+        # `daily_cap - capped_terms` as spare capacity for another market key.
+        one_cluster = 7 * sweep
+        assert one_cluster == 28
+        nfl_sunday_windows = 3 * one_cluster
+        assert nfl_sunday_windows == 84
+        assert nfl_sunday_windows > daily_cap - capped_terms
 
     def test_the_day_cap_still_refuses_a_fall_through_it_cannot_afford(
         self, conn

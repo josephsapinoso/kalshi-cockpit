@@ -100,6 +100,44 @@ _SQL_SWEEP_LOG_TAIL = (
     "FROM odds_sweep_log ORDER BY pass_ms DESC, id DESC"
 )
 
+# The same grouping, scoped to one budget day, because `credits-day` alone
+# cannot see the state it is most often opened to diagnose.
+#
+# **Exhaustion of the daily cap is an ABSENCE in `api_credits` and nothing
+# else.** A refused call returns before the HTTP request
+# (`backend/odds/client.py:343-352`), so it writes no `api_credits` row; and
+# once `remaining == 0` the planner stops earlier still --
+# `decide_sweeps` returns `fire=()` (`backend/odds/timing.py:1835-1845`) and no
+# call is attempted for any sport for the rest of the budget day. So the day's
+# rows simply stop, which is byte-for-byte what a quiet slate looks like.
+#
+# `odds_sweep_log` has the answer and `credits-day` was not asking it. The two
+# outcomes that carry a stop are grouped WITH their `detail`, because the detail
+# is the reading: `decide_sweeps` writes "no sweep: 700 of 700 credits spent
+# since 10:00Z, which is not enough for another 4-credit call", and that
+# sentence names the ceiling that bound. Grouping by it collapses the ~200
+# identical rows a stopped day produces into one line with a count and a span.
+#
+# **Both outcomes, and the pair is the point.** `REFUSED` is written only behind
+# `budget.refusal_reason` in `client.py`, so it appears on the ONE pass that
+# runs out mid-flight; every later pass that budget day is `SKIPPED` from
+# `runner.py:2393-2396`, which never imports `REFUSED` at all. Filtering on
+# `outcome = 'refused'` alone -- which is what this file's own `visit-freshness`
+# note and `tasks/NEXT.md` both recommended -- therefore finds the moment of
+# exhaustion and misses the twenty-three hours of it.
+_SQL_SWEEP_LOG_DAY = (
+    "SELECT outcome, COUNT(*) AS n, MIN(pass_ms) AS first_pass_ms, "
+    "MAX(pass_ms) AS last_pass_ms FROM odds_sweep_log "
+    "WHERE pass_ms >= ? AND pass_ms < ? GROUP BY outcome ORDER BY n DESC"
+)
+
+_SQL_SWEEP_LOG_DAY_STOPS = (
+    "SELECT outcome, COUNT(*) AS n, MIN(pass_ms) AS first_pass_ms, "
+    "MAX(pass_ms) AS last_pass_ms, detail FROM odds_sweep_log "
+    "WHERE pass_ms >= ? AND pass_ms < ? AND outcome IN ('refused', 'skipped') "
+    "GROUP BY outcome, detail ORDER BY n DESC, outcome"
+)
+
 
 # The prune's own retention window, duplicated here rather than imported: this
 # script is deliberately stdlib-only so the code that runs against the money box
@@ -186,10 +224,38 @@ def _q_credits_day(conn: sqlite3.Connection, args) -> list[Section]:
         title="api_credits: row count and summed cost for that day",
         cap=args.limit,
     )
+    # The cross-read. Placed AFTER the totals deliberately: the totals are what
+    # the reader came for, and these two sections answer the question the totals
+    # provoke -- "it stops at 15:40Z; did the cap bind, or was there nothing to
+    # buy?" A spend figure and a stop are different facts and the second one
+    # does not live in this table.
+    sweeps = _fetch(
+        conn,
+        _SQL_SWEEP_LOG_DAY,
+        (start_ms, end_ms),
+        title="odds_sweep_log: what the passes decided that day, by outcome",
+        cap=args.limit,
+    )
+    sweeps = _derive_iso(sweeps, "first_pass_ms", "first_pass_iso")
+    sweeps = _derive_iso(sweeps, "last_pass_ms", "last_pass_iso")
+    stops = _fetch(
+        conn,
+        _SQL_SWEEP_LOG_DAY_STOPS,
+        (start_ms, end_ms),
+        title=(
+            "odds_sweep_log: refusals and skips that day, grouped by the "
+            "reason they name"
+        ),
+        cap=args.limit,
+    )
+    stops = _derive_iso(stops, "first_pass_ms", "first_pass_iso")
+    stops = _derive_iso(stops, "last_pass_ms", "last_pass_iso")
     return [
         _window_section("budget day window", start_ms, end_ms),
         _derive_iso(rows, "called_ms", "called_iso"),
         totals,
+        sweeps,
+        stops,
     ]
 
 
@@ -668,6 +734,16 @@ def _q_visit_freshness(conn: sqlite3.Connection, args) -> list[Section]:
       nothing about the attention slice: source any "the slice was not the
       cause" sentence to `credits-day` by trigger, never to this column
       (`docs/measurements/2026-09-02-visit-freshness-first-read.md` §2, B1).
+
+      **And it under-counts the daily cap too, which is a second trap in the
+      same column.** `REFUSED` marks the ONE pass that runs out mid-flight;
+      from the next pass on, `remaining == 0` stops `decide_sweeps` before any
+      call is attempted and `backend/runner.py:2393-2396` writes `SKIPPED` --
+      it does not import `REFUSED` at all. So a cap that bound at 15:40Z leaves
+      a single `refused` row and sixteen hours of `skipped` ones, and a visit
+      during those sixteen hours reads `refused_sweeps = 0` while the feed is
+      entirely stopped. Use `credits-day --date`, which groups both outcomes
+      for the budget day and prints the reason each names.
     - `sports_upcoming` / `sports_open`: sports with an upcoming fixture in
       the record at the first stamp, and the subset with at least one fixture
       inside the limit -- i.e. whose window the indicator would have shown

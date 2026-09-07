@@ -297,19 +297,42 @@ primary_region = "ord"
   # but leaving a value here would keep buying every ten minutes all evening
   # regardless of attention, which is the bill this change exists to cut.
   #
-  # **What replaces the arithmetic above is a ceiling, not an estimate.** Every
-  # "attended hours" figure anyone can offer is a guess about how long the page
-  # is actually open, and this file is not the place to record a guess as a
-  # number. What is knowable:
+  # **What replaces the arithmetic above is NOT a ceiling, and this block said
+  # it was until 2026-09-06.** Every "attended hours" figure anyone can offer is
+  # a guess about how long the page is actually open, and this file is not the
+  # place to record a guess as a number. What is knowable:
   #
-  #   idle floor only, 4 sports          ~384/day    24h x 4 sports x 4 credits
-  #   attention, capped                  <=300/day   ODDS_ATTENTION_DAILY_CREDITS
-  #   worst case                         ~684/day    inside the 700 daily cap
+  #   idle floor, 4 sports        ~384/day    24h x 4 sports x 4 credits
+  #   attention, capped           <=300/day   ODDS_ATTENTION_DAILY_CREDITS
+  #   kickoff windows             UNCAPPED    clusters x 7 calls x 4 credits
+  #   the only real ceiling        700/day    ODDS_DAILY_CREDIT_BUDGET
   #
-  # The old window's 576/day was a floor on spend; this is a ceiling on it. The
-  # actual figure is measured, not predicted: `api_credits` summed per
-  # budget-day by `trigger` separates attention from the floor from the
-  # schedule. Read it a few days after this deploys before believing any saving.
+  # **The third row is the correction and it is the whole point.** This table
+  # read `worst case ~684/day inside the 700 daily cap`, and `timing.py` and
+  # `CLAUDE.md` carried the same figure. 384 + 300 counts the floor and the
+  # attention slice and omits the kickoff-window loop -- the largest of the
+  # three, **67.0% of September's actual spend** (319 of 476 served sweeps),
+  # gated by nothing but `credits_left` and therefore by the 700 itself.
+  #
+  # 684 was a partial sum wearing the word "worst case". That is worse than
+  # publishing nothing, because it is exactly the sentence someone quotes when
+  # asking whether there is headroom for another market key -- and there is no
+  # spare 16 credits a day to spend; there is a cap that truncates the day.
+  #
+  # **So the day is safe by the cap, not by construction.** When the cap binds,
+  # `decide_sweeps` returns `fire=()` and EVERY sport stops until the next
+  # 10:00Z boundary. Bounded to under 24 hours, and not a throttle.
+  #
+  # The kickoff-window term is per-day, not a constant: a full 60-minute window
+  # at the 10-minute refresh is SEVEN calls, so 28 credits a cluster at today's
+  # cost of 4. An NFL Sunday plans 3 clusters (the season's worst is 4).
+  #
+  # The old window's 576/day was a floor on spend. The actual figure is
+  # measured, not predicted -- but NOT from `api_credits` by `trigger`, which
+  # this comment used to recommend and which cannot see it: the planner stamps
+  # only MANUAL and ATTENTION, so the floor, the schedule and the kickoff
+  # windows all pool into NULL. Use `odds_sweep_log.detail`, which separates
+  # them cleanly, via `scripts/inspect_live_db.py credits-day --date`.
   ODDS_DESK_WINDOW_UTC = ""
 
   # The hard ceiling on attention-triggered spend, and the reason the change

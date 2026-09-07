@@ -50,7 +50,7 @@ No point estimate is published. The reader picks the row.
 | 307 | trailing 5 days, largest dropped | 9,345 | under | under |
 | 458 | August's four three-sport days | 13,009 | under | under |
 | 496 | the single largest day in the base | 13,931 | under | under |
-| 620 | top of my own projected NFL-Sunday peak | 16,940 | under | under |
+| 620 | top of my own projected NFL-Sunday peak (withdrawn — see Amendment 1; the simulated peak is ~486) | 16,940 | under | under |
 | **663.7** | **breach threshold for 18,000** | **18,000** | **at** | under |
 | 700 | the daily cap, every remaining day | 18,881 | **over by 881** | under |
 
@@ -254,6 +254,45 @@ NCAAF Sunday floor                                       50-96
 projected peak budget day                               540-620   vs cap 700
 ```
 
+> **AMENDMENT 1, 2026-09-06 (same day). The 288 above is withdrawn: the
+> planner asks for 124.** The block was reasoned from an NCAAF-Saturday analog
+> and an assumed "~12 near-continuous hours". It was then *simulated* — the
+> real `plan_sweep_slots` / `decide_sweeps`, driven at the deployed 15s tick
+> over a whole budget day, fed the real 272-fixture capture
+> (`tests/fixtures/nfl_names_books.json`), at zero credits.
+>
+> **NFL's kickoffs do not produce 12 window-hours; they produce 3.** A window
+> is `DUE_WINDOW_MS` = 60 minutes and slots are separated by
+> `MIN_SLOT_SEPARATION_MS` = 2h per sport, so `cluster_kickoffs` collapses a
+> Week 1 Sunday's 13 kickoffs into **3 clusters** (17:00Z ×8 games, 20:25Z ×4,
+> 00:20Z ×1) — the season's worst day is 4. Everything outside those three
+> hours falls to the hourly floor. The NCAAF analog has ~6 slots precisely
+> because its kickoffs spread across 12h at >2h separation; NFL's are stacked,
+> which is the opposite of what the "more clustered ⇒ comparable or fewer" step
+> above assumed it implied.
+>
+> ```
+> NFL Sunday, simulated   3 clusters x 7 calls x 4  =   84 slot
+>                         + hourly floor                40
+>                                                      ----
+>                         unattended                   124   (ceiling 424 with the slice)
+> NFL Wed 09-09 opener    1 cluster + floor             72   (76 cold; ceiling ~376)
+> ```
+>
+> **A cluster is 7 calls, not 6** — `calls_remaining` is `1 + 3_600_000 //
+> 600_000`; six is the count of refreshes. `DUE_WINDOW_MS`' comment said
+> `6 x sweep_cost` until today and understated every cluster by 4 credits.
+>
+> Two independent checks that the simulator is not fantasising: its unattended
+> Sunday splits **67.7% kickoff-window / 32.3% floor** against the live
+> September record's **67.0% / 33.0%** (§2 of this document), and its slots
+> deliver exactly 6 calls/hour, matching the measured ceiling that no sport
+> ever exceeds 6 in an hour.
+>
+> **The peak row becomes ~486 rather than 540–620**, using the same observed
+> MLB/NCAAF base. Every §0 verdict is unchanged and moves further under its
+> bound.
+
 ### Cold start is unmodelled, and 09-09 is exactly what triggers it
 
 The model above is a **steady-cadence model for an established sport**. NFL on
@@ -273,11 +312,67 @@ document does not model. It is bounded by the daily cap — so the §0 verdict
 still holds — but the 540–620 peak estimate does not account for it and could be
 low on 09-09 specifically.
 
+> **AMENDMENT 1 (cont.), 2026-09-06. "Bounded by the daily cap" is true and it
+> is not reassuring, because nobody had converted it into a duration.**
+>
+> On a **successful** first sweep, cold start costs exactly **+4 credits** —
+> one call. Simulated cold Wednesday 76 vs warm 72; the bootstrap row satisfies
+> `_SERVED_SWEEP` (non-`manual` trigger, `cost > 0`, `http_status = 200`), so
+> `last_sweeps` paces the sport from the next pass on and bound (1) holds. No
+> prop tail: the bootstrap firing carries `slot=None`, and `prop_market_keys()`
+> is five MLB keys, so NFL has no ladder regardless.
+>
+> On a **failing** first sweep, simulated over the 09-09 budget day with every
+> NFL call returning 401:
+>
+> ```
+> heartbeat  60s (page open):  175 calls   700 of 700 credits   10:00Z -> 12:54Z
+> heartbeat 900s (idle loop):   96 calls   384 of 700 credits   10:00Z -> 09:45Z+1
+> ```
+>
+> **With a page open, a failing NFL bootstrap spends the entire daily cap in
+> 2 hours 54 minutes, and then every sport is dark until 10:00Z the next
+> morning.** It is stamped `BOOTSTRAP`, so `attention_credits_spent_today` does
+> not see it and the 300-credit slice does not cap it — which is exactly what
+> `runner.py:3221-3227` says, now with a clock attached.
+>
+> **This is the largest day-one risk by a wide margin**: 700 against the 76 the
+> scheduled NFL load actually costs. It needs a *new* failure to trigger —
+> `scripts/capture_team_names.py` already pulled 272 fixtures from
+> `/v4/sports/americanfootball_nfl/events`, so the sport key and its
+> entitlement are confirmed good, and the failure mode requires a rotated key,
+> a 429, or a plan change. Low probability, whole-day consequence, on the
+> opening week. Carried as an open item rather than fixed here.
+
 ### The risk that is actually open: four concurrent sports
 
 A day carrying NFL + MLB + NCAAF + WNBA projects to roughly **770, above the 700
 cap**. The record has never held more than **three** concurrent sports
 (20260825–20260829), so this is extrapolation past anything observed.
+
+> **AMENDMENT 1 (cont.). The ~770 falls to ~486, and the reason four sports is
+> less alarming than it reads is that the terms compose differently.**
+>
+> - **Slot and floor spend are per sport and additive.** Slots are planned per
+>   sport and `MIN_SLOT_SEPARATION_MS` is per sport, so NFL's clusters do not
+>   displace MLB's. This is the term that grows with sport count.
+> - **The attention slice is a single global 300/day pool** —
+>   `attention_credits_spent_today` has no `sport_key` filter. A fourth sport
+>   does **not** raise it; it makes it reachable sooner and spreads it thinner.
+>   The original ~770 added a per-sport attention term, which double-counts.
+>
+> Observed base + simulated NFL: **Wednesday 09-09 ~292–404** (592 if the slice
+> is emptied); **Sunday 09-13 ~486** (~786 arithmetic ceiling, truncated at
+> 700). Reaching the cap on Sunday requires the attention slice to fill, and
+> the highest attention day in the whole record is **112 of 300** — the slice
+> has never bound, and the one Sunday in the record spent 0 attention credits.
+>
+> **What loses first when the cap binds, which nobody chose:** within a pass
+> the order is taps → bootstrap → slots (chronological by anchor) → floor/desk
+> **alphabetical by sport key**. So `americanfootball_ncaaf` < `..._nfl` <
+> `baseball_mlb` < `basketball_wnba`: WNBA's floor buy is dropped first, then
+> MLB's, and every kickoff-window slot outranks every floor buy. That ordering
+> is `sorted()`, not a policy.
 
 **I am not offering "higher than any day ever recorded" as reassurance, and an
 earlier draft did.** The historical maxima — 564 on 20260824 under the retired
@@ -388,10 +483,21 @@ WHERE called_ms >= 1788220800000 AND called_ms < 1788256800000;  -- expect 14 / 
 ## What this does not establish
 
 - **Anything measured about NFL load.** Zero NFL rows exist in either table. The
-  288-credit Sunday is an inference from an NCAAF Saturday plus an assumed count
+  288-credit Sunday was an inference from an NCAAF Saturday plus an assumed count
   of open window-hours, on a base period containing **no Sundays and no
   Mondays** — the very weekdays NFL is played. The *ceiling* (576/sport/day) is
-  arithmetic and holds; the point estimate is not evidence.
+  arithmetic and holds; the point estimate was not evidence.
+
+  **Amendment 1 replaces the inference with a simulation, which is a different
+  thing from a measurement and is not better than one.** The 124 comes from
+  driving the real planner over a real fixture capture — so it is exact about
+  *what the code will ask for*, and says nothing about what the network will
+  do. Every simulated call succeeds; retries, 429s, partial slates and
+  `fetch_odds` returning `[]` are unmodelled, and any of them re-triggers
+  bootstrap. Only the NFL fixtures are real: MLB and NCAAF were not simulated,
+  so the peak rows add a simulated number to an observed base produced by a
+  different method. One capture, one date; flex scheduling can add a 4th
+  cluster (+28). **The base period still contains no Sundays and no Mondays.**
 - **Cold-start spend.** The `BOOTSTRAP` path (`backend/runner.py:3221-3227`) is
   unmodelled, is not bounded by the attention slice, and retries per heartbeat
   while sweeps fail. 2026-09-09 is exactly the condition that triggers it.
