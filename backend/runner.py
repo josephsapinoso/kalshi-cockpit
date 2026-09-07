@@ -125,7 +125,7 @@ from .odds.client import (
     prop_market_keys,
     store_quotes,
 )
-from .odds.sweeplog import NO_DATA, SERVED, SKIPPED, record_sweep_outcome
+from .odds.sweeplog import NO_DATA, REFUSED, SERVED, SKIPPED, record_sweep_outcome
 from .odds.timing import (
     ATTENTION,
     DEFAULT_DAY_START_UTC_HOUR,
@@ -2415,8 +2415,19 @@ async def fetch_and_store_odds(
     logger.info("sweep decision: %s", decision.detail)
 
     if not decision.fire:
+        # `REFUSED` when the day's cap is what stopped the pass, `SKIPPED` for
+        # every other reason a pass declines. `sweeplog.py` defines the first
+        # as "the budget declined -- we stopped" and the second as "the pass
+        # chose not to look"; until 2026-09-07 both were written as `SKIPPED`,
+        # so a cap that bound at 15:40Z left ONE `refused` row (the client's,
+        # mid-flight) and sixteen hours of skips, and `WindowBanner`'s
+        # `refused` headline -- "this will not fix itself when the next window
+        # opens" -- never rendered on the day it was written for.
         record_sweep_outcome(
-            conn, pass_ms=now, outcome=SKIPPED, detail=decision.detail
+            conn,
+            pass_ms=now,
+            outcome=REFUSED if decision.refused_by_budget else SKIPPED,
+            detail=decision.detail,
         )
 
     sweeps = stored = 0
