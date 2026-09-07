@@ -38,9 +38,13 @@ from backend.bid_watch import (                                   # noqa: E402
     watch_bids_forever,
 )
 from backend.store import db as store                             # noqa: E402
+from backend.kalshi.rest import KalshiAPIError                    # noqa: E402
 from backend.store.combo_orders import (                          # noqa: E402
+    GONE_AT_VENUE_REASON,
     STATUS_CANCELLED,
+    STATUS_GONE_AT_VENUE,
     STATUS_PENDING,
+    STATUS_RESTING,
     record_intent,
     record_outcome,
     working_orders,
@@ -97,6 +101,10 @@ class FakeApi:
                 "Use `async with KalshiRestClient(cfg) as api:`."
             )
         self.calls.append((order_id, exchange_index))
+        if isinstance(self.raises, BaseException):
+            # The venue answered, and the answer was an error with a status
+            # code -- what `KalshiRestClient` raises on a 4xx/5xx.
+            raise self.raises
         if self.raises:
             raise RuntimeError("the venue said no")
         return {"order_id": order_id, "reduced_by": "1.00"}
@@ -198,6 +206,88 @@ class TestAFailedCancelNeverClaimsSuccess:
         rows = working_orders(conn)
         assert len(rows) == 1
         assert rows[0]["status"] == STATUS_PENDING
+
+
+def _status(conn, row_id):
+    row = conn.execute(
+        "SELECT status, cancel_reason, cancel_reduced_by, error_text "
+        "FROM combo_orders WHERE id = ?", (row_id,)
+    ).fetchone()
+    return dict(row)
+
+
+class TestAVenue404IsAnAnswerNotAFailure:
+    """The venue holding no order by that id is final, and is not a cancel.
+
+    Measured on the live account 2026-09-06: row 2 FILLED at 21:40Z on
+    2026-09-01 (maker, 8 contracts), settled the next day, and from its
+    22:41Z deadline onward every cancel the watcher sent drew 404
+    `not_found`. Under the old code that was `except Exception` -- logged as
+    a failure and retried once a minute for five days, over money that had
+    already moved. A 404 has to be told apart from a transport failure, and
+    the row it describes has to stop being "working" without being called
+    "cancelled".
+    """
+
+    def _gone(self):
+        return KalshiAPIError(
+            404, "https://api.example/portfolio/events/orders/ord-1",
+            '{"code":"not_found","message":"order not found"}',
+        )
+
+    async def test_a_404_marks_the_bid_gone_and_it_is_not_retried(self, conn):
+        row_id = _bid(conn)
+        api = FakeApi(raises=self._gone())
+        await api.__aenter__()
+
+        assert await cancel_due_bids(conn, api, now_ms=KICKOFF_MS + 1) == 0
+        assert _status(conn, row_id)["status"] == STATUS_GONE_AT_VENUE
+        assert working_orders(conn) == []
+
+        # The next pass must not ask the venue again. Under the old code this
+        # second call is what ran every minute from 2026-09-01 to 09-06.
+        await cancel_due_bids(conn, api, now_ms=KICKOFF_MS + 60_001)
+        assert len(api.calls) == 1, api.calls
+
+    async def test_the_venue_words_are_kept_and_nothing_is_called_withdrawn(
+        self, conn
+    ):
+        row_id = _bid(conn)
+        api = FakeApi(raises=self._gone())
+        await api.__aenter__()
+        await cancel_due_bids(conn, api, now_ms=KICKOFF_MS + 1)
+
+        row = _status(conn, row_id)
+        assert row["status"] != STATUS_CANCELLED, (
+            "a filled order is not a cancelled one; the status must not say so"
+        )
+        assert row["cancel_reason"] == GONE_AT_VENUE_REASON
+        assert row["cancel_reduced_by"] is None, "nothing was withdrawn"
+        assert "not_found" in row["error_text"], (
+            "the venue's own body is the evidence; keep it on the row"
+        )
+
+    async def test_any_other_venue_error_is_still_left_working_and_retried(
+        self, conn
+    ):
+        """A 500 is the venue failing, not the venue answering.
+
+        Guards the status-code test itself: without it, every
+        `KalshiAPIError` would be read as "gone" and a venue outage would
+        retire live bids.
+        """
+        row_id = _bid(conn)
+        api = FakeApi(raises=KalshiAPIError(
+            503, "https://api.example/portfolio/events/orders/ord-1", "down"
+        ))
+        await api.__aenter__()
+
+        assert await cancel_due_bids(conn, api, now_ms=KICKOFF_MS + 1) == 0
+        assert _status(conn, row_id)["status"] == STATUS_RESTING
+        assert len(working_orders(conn)) == 1
+
+        await cancel_due_bids(conn, api, now_ms=KICKOFF_MS + 60_001)
+        assert len(api.calls) == 2, "a venue outage is retried; a 404 is not"
 
 
 class TestItIsActuallyStarted:

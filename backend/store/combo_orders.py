@@ -100,11 +100,44 @@ STATUS_PARTIALLY_FILLED = "partially_filled"
 STATUS_CANCELLED = "cancelled"
 STATUS_REJECTED = "rejected"
 STATUS_DRY_RUN = "dry_run"
+#: The venue answered a cancel with 404 `not_found`: it holds no order by that
+#: id, so the order is no longer resting. It filled, was cancelled at the
+#: venue, or has settled -- this table cannot say which, and must not guess.
+#:
+#: **Not `cancelled`, deliberately.** Measured 2026-09-06 on the live account:
+#: the bid in row 2 FILLED (maker, 8 contracts) 1h41m after it was placed and
+#: settled the next day, and every cancel the watcher attempted from its
+#: deadline onward drew this 404. Recording that as `cancelled` would be a
+#: false statement about money that changed hands. Recording nothing -- the
+#: behaviour until this status existed -- left the row `resting` and the
+#: watcher retrying it once a minute for five days.
+STATUS_GONE_AT_VENUE = "gone_at_venue"
 
 #: Statuses that can no longer change on their own. Anything outside this set
 #: is still working and still counts against exposure.
 TERMINAL_STATUSES = frozenset(
-    {STATUS_FILLED, STATUS_CANCELLED, STATUS_REJECTED, STATUS_DRY_RUN}
+    {
+        STATUS_FILLED,
+        STATUS_CANCELLED,
+        STATUS_REJECTED,
+        STATUS_DRY_RUN,
+        STATUS_GONE_AT_VENUE,
+    }
+)
+
+#: The SQL for "still working", built from the set above so that adding a
+#: terminal status is one edit. Three queries carried a hand-typed
+#: `NOT IN (?, ?, ?, ?)` with the four statuses spelled out until 2026-09-06;
+#: a fifth status added to the set alone would have left every one of them
+#: still counting the row as exposure.
+_TERMINAL_PARAMS = tuple(sorted(TERMINAL_STATUSES))
+_NOT_TERMINAL_SQL = "status NOT IN (" + ", ".join("?" * len(_TERMINAL_PARAMS)) + ")"
+
+#: The words a 404 on cancel earns. One string, because the watcher and the
+#: route both record it and a screen may one day group on it.
+GONE_AT_VENUE_REASON = (
+    "the venue has no order by this id: it filled, was cancelled, or has "
+    "settled"
 )
 
 
@@ -241,8 +274,8 @@ def open_exposure_tenths(conn) -> int:
     total = 0
     for row in conn.execute(
         "SELECT count, limit_price_tenths, status FROM combo_orders "
-        "WHERE status NOT IN (?, ?, ?, ?)",
-        (STATUS_FILLED, STATUS_CANCELLED, STATUS_REJECTED, STATUS_DRY_RUN),
+        "WHERE " + _NOT_TERMINAL_SQL,
+        _TERMINAL_PARAMS,
     ):
         total += int(row["count"]) * int(row["limit_price_tenths"])
     return total
@@ -330,12 +363,36 @@ def record_cancel(
     conn.commit()
 
 
+def record_gone_at_venue(
+    conn,
+    row_id: int,
+    *,
+    now_ms: int,
+    venue_body: Optional[str],
+    reason: str = GONE_AT_VENUE_REASON,
+) -> None:
+    """The venue 404'd the cancel: mark the row terminal without calling it cancelled.
+
+    `cancelled_ms` records when the desk stopped treating the row as working,
+    which is the moment the venue's answer was recorded -- not a cancel, and
+    the status says so. `cancel_reduced_by` stays NULL: nothing was withdrawn.
+    The venue's own body goes in `error_text`, so a reader can see the 404
+    rather than take this module's word for it.
+    """
+    conn.execute(
+        "UPDATE combo_orders SET status = ?, cancelled_ms = ?, "
+        "cancel_reason = ?, error_text = ? WHERE id = ?",
+        (STATUS_GONE_AT_VENUE, now_ms, reason, venue_body, row_id),
+    )
+    conn.commit()
+
+
 def working_orders(conn, *, now_ms: Optional[int] = None) -> list[dict]:
     """Every bid that is or might still be working, newest first."""
     rows = conn.execute(
-        "SELECT * FROM combo_orders WHERE status NOT IN (?, ?, ?, ?) "
-        "ORDER BY placed_ms DESC",
-        (STATUS_FILLED, STATUS_CANCELLED, STATUS_REJECTED, STATUS_DRY_RUN),
+        "SELECT * FROM combo_orders WHERE " + _NOT_TERMINAL_SQL
+        + " ORDER BY placed_ms DESC",
+        _TERMINAL_PARAMS,
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -354,10 +411,10 @@ def due_for_cancel(conn, *, now_ms: int) -> list[dict]:
     orders nobody asked to retire.
     """
     rows = conn.execute(
-        "SELECT * FROM combo_orders WHERE status NOT IN (?, ?, ?, ?) "
-        "AND cancel_after_ms IS NOT NULL AND cancel_after_ms <= ? "
+        "SELECT * FROM combo_orders WHERE " + _NOT_TERMINAL_SQL
+        + " AND cancel_after_ms IS NOT NULL AND cancel_after_ms <= ? "
         "ORDER BY placed_ms",
-        (STATUS_FILLED, STATUS_CANCELLED, STATUS_REJECTED, STATUS_DRY_RUN, now_ms),
+        (*_TERMINAL_PARAMS, now_ms),
     ).fetchall()
     return [dict(r) for r in rows]
 

@@ -41,10 +41,13 @@ from ...parlays import (
     price_card_on_kalshi,
 )
 from ...store import db
+from ...kalshi.rest import KalshiAPIError
 from ...store.combo_orders import (
+    STATUS_GONE_AT_VENUE,
     TERMINAL_STATUSES as TERMINAL_COMBO_STATUSES,
     ComboOrderRefused,
     record_cancel as record_combo_cancel,
+    record_gone_at_venue as record_combo_gone_at_venue,
     working_orders as working_combo_bids,
 )
 from ..schemas import (
@@ -450,6 +453,31 @@ def register(
                     row["kalshi_order_id"],
                     exchange_index=row["exchange_index"],
                 )
+            except KalshiAPIError as exc:
+                if exc.status_code != 404:
+                    raise HTTPException(
+                        502,
+                        f"the cancel did not go through ({exc}). The bid may "
+                        f"still be resting; try again or cancel it in the "
+                        f"Kalshi app.",
+                    ) from exc
+                # The venue's 404 is correct and final: no order by this id is
+                # resting. Until 2026-09-06 this branch told Joe the bid "may
+                # still be resting" over an order that had filled five days
+                # earlier, and left the row `resting` for the watcher to
+                # retry once a minute. The row is marked terminal in the
+                # venue's words -- not `cancelled`, because nothing was.
+                record_combo_gone_at_venue(
+                    write_conn, bid_id, now_ms=db.now_ms(), venue_body=exc.body,
+                )
+                return {
+                    "status": STATUS_GONE_AT_VENUE,
+                    "reduced_by": None,
+                    "words": (
+                        "Kalshi has no such order resting: it filled, was "
+                        "cancelled, or has settled. Check Your bets."
+                    ),
+                }
             except Exception as exc:                             # noqa: BLE001
                 raise HTTPException(
                     502,

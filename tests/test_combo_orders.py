@@ -37,6 +37,7 @@ from backend.store.combo_orders import (                         # noqa: E402
     COMBO_ORDER_MAX_SPEND_TENTHS,
     STATUS_PENDING,
     STATUS_RESTING,
+    TERMINAL_STATUSES,
     ComboOrderRefused,
     ShardFunds,
     check_affordable,
@@ -45,6 +46,7 @@ from backend.store.combo_orders import (                         # noqa: E402
     open_exposure_tenths,
     read_shard_funds,
     record_cancel,
+    record_gone_at_venue,
     record_intent,
     status_from_response,
     working_orders,
@@ -194,6 +196,37 @@ class TestTheRecordIsWrittenBeforeTheRequestLeaves:
         record_cancel(conn, row_id, now_ms=1, reduced_by=4.0, reason="test")
         assert open_exposure_tenths(conn) == 0
         assert working_orders(conn) == []
+
+    def test_a_row_gone_at_the_venue_stops_counting(self, conn):
+        """404 on cancel: the order is not resting, whatever else it is."""
+        row_id = _place(conn)
+        record_gone_at_venue(conn, row_id, now_ms=1, venue_body="not_found")
+        assert open_exposure_tenths(conn) == 0
+        assert working_orders(conn) == []
+        assert due_for_cancel(conn, now_ms=4_102_444_800_000) == []
+
+    def test_every_terminal_status_is_excluded_by_every_working_query(
+        self, conn
+    ):
+        """The three "still working" queries derive from `TERMINAL_STATUSES`.
+
+        Until 2026-09-06 each carried its own hand-typed `NOT IN (?, ?, ?, ?)`
+        with the four statuses spelled out, so a fifth status added to the set
+        alone would have left every query still counting the row as exposure
+        and still handing it to the watcher. This drives each status through
+        all three.
+        """
+        assert len(TERMINAL_STATUSES) == 5, TERMINAL_STATUSES   # vacuity guard
+        for status in sorted(TERMINAL_STATUSES):
+            row_id = _place(conn, request_body={"client_order_id": status})
+            conn.execute(
+                "UPDATE combo_orders SET status = ? WHERE id = ?",
+                (status, row_id),
+            )
+            conn.commit()
+            assert open_exposure_tenths(conn) == 0, status
+            assert working_orders(conn) == [], status
+            assert due_for_cancel(conn, now_ms=4_102_444_800_000) == [], status
 
     def test_a_dry_run_never_counts_as_exposure(self, conn):
         _place(conn, dry_run=True, request_body={"client_order_id": "cid-dry"})
