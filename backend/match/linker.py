@@ -35,7 +35,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Optional, Sequence
+from typing import Iterable, Mapping, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -647,3 +647,72 @@ def record_link(conn, result: MatchResult, league: str, linked_ms: int) -> int:
             f"insert -- refusing to continue with an unknown link id"
         )
     return int(row["id"])
+
+
+#: Below this many refused events, a league's total failure is not yet
+#: distinguishable from a thin slate. Four is one NFL Sunday afternoon block or
+#: a light midweek MLB card -- small enough to catch a real outage on the day it
+#: starts, large enough that a single postponed fixture cannot trip it.
+MIN_EVENTS_FOR_A_WIPEOUT = 4
+
+
+def leagues_linking_nothing(
+    *,
+    matched_by_sport: Mapping[str, int],
+    unmatched_by_sport: Mapping[str, Mapping[str, int]],
+    candidates_by_sport: Mapping[str, int],
+    min_events: int = MIN_EVENTS_FOR_A_WIPEOUT,
+) -> list[str]:
+    """Leagues whose every event refused `NOT_CARRIED` **while we held book
+    fixtures for them**. One human-readable sentence each; empty is the normal
+    answer.
+
+    **Why this is not just "count `not_carried`".** `runner`'s own
+    `unmatched_by_sport` docstring says of that half: *"`not_carried` is scope
+    and needs nobody."* That is right for its intended case -- Kalshi lists NCAA
+    Division II and the odds feed does not carry it, forever, and no action
+    follows. It is wrong for a **systematic** failure, which lands in the same
+    bucket: when `DEFAULT_COMMENCE_TOLERANCE_MS` was 2 hours against Kalshi's
+    3-hour clock, *every* link failed with exactly this reason and the whole
+    chain produced zero recommendations from a full live slate. A league that
+    stops linking arrives in the category marked as needing no attention.
+
+    **`candidates_by_sport` is the entire discriminator, and without it this
+    function would be a false-alarm generator.** A league we have never bought
+    odds for has no fixtures to match against, so all its events refuse with
+    this reason and *nothing is wrong*. That is not hypothetical: on 2026-09-06,
+    three days before the season opened, `Pro Football` sat at **32 of 32
+    `not_carried` with 842,656 sightings** -- the largest count in the table --
+    purely because `api_credits` held no `americanfootball_nfl` row yet.
+
+    So the claim is narrow and is the one worth making: *we hold book fixtures
+    for this sport, and not one of them matched anything Kalshi lists.* That is
+    a broken link, not scope.
+
+    Deliberately returns sentences rather than logging: the caller decides
+    whether this is a warning, a counter or a line on a screen, and a pure
+    function can be tested without one.
+    """
+    out: list[str] = []
+    for sport in sorted(unmatched_by_sport):
+        kinds = unmatched_by_sport[sport]
+        not_carried = kinds.get(NOT_CARRIED, 0)
+        candidates = candidates_by_sport.get(sport, 0)
+        if (
+            candidates > 0
+            and matched_by_sport.get(sport, 0) == 0
+            and not_carried >= min_events
+            # Every refusal is this one. A league also throwing
+            # `name_unresolved` is a league whose clock is fine and whose alias
+            # file is thin, which is the ordinary work queue.
+            and not_carried == sum(kinds.values())
+        ):
+            out.append(
+                f"{sport}: {not_carried} of {not_carried} events refused as "
+                f"'not carried' while {candidates} sportsbook fixture(s) were "
+                f"held for it -- that is a broken link, not scope. Check the "
+                f"commence-time tolerance against "
+                f"{DEFAULT_COMMENCE_TOLERANCE_MS // 3600000}h before the "
+                f"alias file."
+            )
+    return out

@@ -113,6 +113,7 @@ from .match.linker import (
     link_prop_event,
     load_aliases,
     record_link,
+    leagues_linking_nothing,
     record_unmatched,
     resolve_outcome,
 )
@@ -1308,6 +1309,10 @@ def link_discovered_events(
     # before an event late in the loop could see fixtures an earlier one could
     # not.
     candidate_cache: dict[str, list[MatchCandidate]] = {}
+    # Counted per sport so `leagues_linking_nothing` can tell "this league
+    # linked nothing" from "this league linked most of its slate", which a
+    # refusal count alone cannot say.
+    matched_by_sport: dict[str, int] = {}
     link_started = time.perf_counter()
     candidates_ms = 0.0
     unmatched_ms = 0.0
@@ -1359,6 +1364,9 @@ def link_discovered_events(
             link_id = record_link(conn, result, event.league, now)
             record_ms += (time.perf_counter() - _t) * 1000
             linked[event.event_ticker] = (link_id, result.commence_skew_ms)
+            matched_by_sport[event.sport_key] = (
+                matched_by_sport.get(event.sport_key, 0) + 1
+            )
         else:
             _t = time.perf_counter()
             record_unmatched(
@@ -1411,6 +1419,22 @@ def link_discovered_events(
                     detail=event.title,
                     reason=result.reason or "no_counterpart",
                 )
+
+    # **A league that stopped linking is announced, because nothing else will
+    # announce it.** `unmatched_by_sport`'s own docstring calls `not_carried`
+    # "scope and needs nobody" -- true for Division II, false for a clock drift,
+    # and the 2-hour-tolerance outage produced exactly this shape: every link
+    # refused with that reason and zero recommendations from a full live slate.
+    #
+    # Warned rather than raised. A wipeout is a strong signal and not a certain
+    # one -- a genuinely postponed slate can produce it -- and this pass's job
+    # is to record what it found, not to decide the instance should stop.
+    for sentence in leagues_linking_nothing(
+        matched_by_sport=matched_by_sport,
+        unmatched_by_sport=unmatched_by_sport or {},
+        candidates_by_sport={k: len(v) for k, v in candidate_cache.items()},
+    ):
+        logger.warning("league linked nothing: %s", sentence)
 
     total_ms = (time.perf_counter() - link_started) * 1000
     if candidate_stats is not None:

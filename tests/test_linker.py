@@ -556,3 +556,102 @@ class TestPropEventsInheritTheirGamesLink:
         )
         assert result.matched
         assert result.odds_event_id == "odds_1"
+
+
+class TestALeagueThatStoppedLinkingIsAnnounced:
+    """`not_carried` is the bucket a systematic failure lands in, and the
+    bucket `runner`'s own docstring calls "scope and needs nobody".
+
+    That is right for its intended case -- Kalshi lists NCAA Division II and
+    the odds feed does not carry it, forever, and no action follows. It is
+    wrong for a clock drift: when `DEFAULT_COMMENCE_TOLERANCE_MS` was 2 hours
+    against Kalshi's 3-hour offset, *every* link failed with exactly this
+    reason and the chain produced zero recommendations from a full live slate.
+    """
+
+    def _call(self, **kw):
+        from backend.match.linker import leagues_linking_nothing
+        return leagues_linking_nothing(**kw)
+
+    def test_a_league_with_fixtures_that_links_nothing_is_named(self):
+        """Mutation: drop the `matched_by_sport == 0` condition."""
+        out = self._call(
+            matched_by_sport={},
+            unmatched_by_sport={"americanfootball_nfl": {NOT_CARRIED: 16}},
+            candidates_by_sport={"americanfootball_nfl": 16},
+        )
+        assert len(out) == 1
+        assert "americanfootball_nfl" in out[0]
+        assert "broken link, not scope" in out[0]
+
+    def test_a_league_we_hold_no_fixtures_for_is_NOT_named(self):
+        """**The false-alarm case, and it is not hypothetical.**
+
+        On 2026-09-06, three days before the season opened, `Pro Football` sat
+        at 32 of 32 `not_carried` with 842,656 sightings -- the largest count
+        in the live table -- purely because `api_credits` held no
+        `americanfootball_nfl` row yet. Nothing was wrong. Without
+        `candidates_by_sport` this function would have shouted about it every
+        pass for weeks, and a guard whose first finding is a false one gets
+        deleted.
+
+        Mutation: drop the `candidates > 0` condition.
+        """
+        out = self._call(
+            matched_by_sport={},
+            unmatched_by_sport={"americanfootball_nfl": {NOT_CARRIED: 32}},
+            candidates_by_sport={},          # never bought odds for it
+        )
+        assert out == []
+
+    def test_a_league_that_links_most_of_its_slate_is_not_named(self):
+        """Ordinary thin coverage: NCAAF carries 231 events the books do not.
+
+        Mutation: `matched_by_sport.get(sport, 0) == 0` -> `>= 0`.
+        """
+        out = self._call(
+            matched_by_sport={"americanfootball_ncaaf": 108},
+            unmatched_by_sport={"americanfootball_ncaaf": {NOT_CARRIED: 231}},
+            candidates_by_sport={"americanfootball_ncaaf": 108},
+        )
+        assert out == []
+
+    def test_a_league_also_failing_on_names_is_not_named(self):
+        """A thin alias file is the ordinary work queue, not a broken clock --
+        and the two want opposite responses, which is why the split exists.
+
+        Mutation: drop the `not_carried == sum(kinds.values())` condition.
+        """
+        out = self._call(
+            matched_by_sport={},
+            unmatched_by_sport={
+                "baseball_mlb": {NOT_CARRIED: 8, NAME_UNRESOLVED: 3}
+            },
+            candidates_by_sport={"baseball_mlb": 11},
+        )
+        assert out == []
+
+    def test_a_slate_too_thin_to_judge_is_not_named(self):
+        """Below the floor a wipeout is not distinguishable from a quiet night
+        or one postponement.
+
+        Mutation: `min_events` default -> 1.
+        """
+        out = self._call(
+            matched_by_sport={},
+            unmatched_by_sport={"basketball_wnba": {NOT_CARRIED: 2}},
+            candidates_by_sport={"basketball_wnba": 2},
+        )
+        assert out == []
+
+    def test_the_normal_answer_is_empty(self):
+        """The vacuity guard. Every assertion above except the first checks for
+        an EMPTY list, so a function that returned `[]` unconditionally would
+        pass five of six -- this pins that it can speak at all, and the first
+        test pins what it says.
+        """
+        assert self._call(
+            matched_by_sport={"baseball_mlb": 14},
+            unmatched_by_sport={"baseball_mlb": {NOT_CARRIED: 1}},
+            candidates_by_sport={"baseball_mlb": 15},
+        ) == []

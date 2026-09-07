@@ -61,6 +61,58 @@ class TestTheSubtitleParser:
                 rungs += 1
         assert rungs > 20, "the fixture should carry a real spread population"
 
+    def test_every_nfl_spread_rung_parses_and_the_league_is_a_census(self):
+        """**NFL was inferred safe and is now measured**, three days before the
+        2026 season opened.
+
+        Until 2026-09-06 no NFL spread subtitle existed in any fixture --
+        `events_sports_nested.json` carries MLB, WNBA and CFL spreads and no NFL
+        one -- so `_KNOWN_UNITS` covering NFL rested on the CFL row ("British
+        Columbia Lions wins by over 20.5 points") asserted above. Good evidence;
+        not a measurement.
+
+        The failure it guards is **silent zero supply**, not a crash: an
+        unparsed subtitle returns `None`, the runner counts
+        `dropped_unknown_spread_unit`, NFL contributes no spread legs to the
+        ladder, and `ODDS_MARKETS = "h2h,spreads"` goes on paying the doubled
+        credit for the book side of markets nothing can use.
+
+        Captured by `scripts/capture_nfl_spread_subtitles.py` from the
+        unauthenticated `/events` endpoint (no Odds API credit). The live run
+        read **404 of 404 rungs parsed, unit `points` throughout, across 32
+        distinct teams** -- every franchise, so the team axis is a census rather
+        than a sample.
+
+        Mutation: `_KNOWN_UNITS` -> `r"runs?"`.
+        """
+        payload = json.loads(
+            (FIXTURE.parent / "events_nfl_spread.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        rungs = 0
+        teams: set[str] = set()
+        units: set[str] = set()
+        for event in payload["events"]:
+            assert event["series_ticker"] == "KXNFLSPREAD"
+            for market in event.get("markets") or []:
+                subtitle = market.get("yes_sub_title")
+                parsed = parse_spread_subtitle(subtitle)
+                assert parsed is not None, subtitle
+                team, margin = parsed
+                teams.add(team)
+                units.add(subtitle.rsplit(" ", 1)[-1])
+                # The subtitle and `floor_strike` publish one number twice; a
+                # disagreement means one of them is not what this code thinks.
+                assert margin == pytest.approx(float(market["floor_strike"]))
+                rungs += 1
+        # Vacuity guard: an empty `events` list would satisfy every assertion
+        # in the loop, and the capture is exactly the kind of file that can
+        # arrive empty when a series has not been listed yet.
+        assert rungs > 100, f"only {rungs} rungs -- is the capture populated?"
+        assert units == {"points"}, units
+        assert len(teams) == 32, sorted(teams)
+
     def test_examples_and_refusals(self):
         assert parse_spread_subtitle("St. Louis wins by over 2.5 runs") == (
             "St. Louis", 2.5

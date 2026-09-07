@@ -439,6 +439,31 @@ it matters — it is indistinguishable from the failure. So:
 
 `docs/measurements/2026-09-06-nfl-renders-end-to-end.md`.
 
+**Both follow-ups are now built too.**
+
+- **`KXNFLSPREAD` is measured, not inferred.** `scripts/capture_nfl_spread_subtitles.py`
+  (new, unauthenticated `/events`, zero credits) pulled 16 open events and
+  **404 of 404 rungs parse, unit `points` throughout, across all 32 franchises**
+  -- a census on the team axis. Fixture `tests/fixtures/events_nfl_spread.json`;
+  pinned by `test_every_nfl_spread_rung_parses_and_the_league_is_a_census`,
+  mutated red against `_KNOWN_UNITS = r"runs?"`. The last inference in the NFL
+  path is gone.
+- **A league that stops linking now says so.** `leagues_linking_nothing`
+  (`match/linker.py`) names any league holding book fixtures whose events ALL
+  refused `not_carried` -- a broken link rather than scope. `runner` logs it
+  each pass. **`candidates_by_sport` is the whole discriminator**: without it
+  the guard would have shouted about today's NFL (32 of 32, no odds bought yet)
+  every pass for weeks, and a guard whose first finding is false gets deleted.
+  Six tests, five mutations, all red.
+
+**The `exchange_index` gap is LATENT, not urgent — checked, not assumed.**
+`kalshi/orders.py` sends no shard and the manual (armed, real-money) route does
+use `OrderPlacer`, so the gap is real. It is also **a no-op for NFL**: all 420
+markets in both captured NFL fixtures carry `exchange_index: 0`, and shard 0 is
+what `OrderPlacer` already gets by omission. Baseball on shard 3 would
+misroute, but that shard is unfunded (`user_not_found`, 2026-08-30), so the
+order fails either way. Fix it for correctness whenever; it blocks nothing.
+
 **Two things found that are not about parsing**, neither built: `sorted(fixtures)`
 means football is served and MLB/WNBA starve when credits run short (`sorted()`
 for determinism, not a chosen priority — MLB is the CLV population); and the
