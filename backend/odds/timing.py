@@ -1144,6 +1144,73 @@ def last_sweep_by_sport(conn, *, since_ms: int) -> dict[str, int]:
     return {r["sport_key"]: int(r["last_ms"]) for r in rows}
 
 
+#: How long a sport waits before another bootstrap attempt after one FAILED.
+#:
+#: **The gap this closes is between two true sentences.** `decide_sweeps`'
+#: docstring says bootstrap is "capped at one attempt per sport per budget
+#: day", and `runner`'s says a failing sport "never enters `last_sweeps` and
+#: never starts pacing itself". Both are right, and together they mean the cap
+#: binds only on **success**: the candidate filter is `sport not in
+#: last_sweeps`, `last_sweeps` is built from `_SERVED_SWEEP`, and that requires
+#: `http_status < 400`. So a sport whose sweep keeps erroring stays a candidate
+#: for every pass of the day.
+#:
+#: Simulated over a whole budget day with every call returning 401
+#: (2026-09-06), the only surviving bound was the heartbeat:
+#:
+#:     heartbeat  60s (page open):  175 calls   700 of 700 credits   in 2h54m
+#:     heartbeat 900s (idle loop):   96 calls   384 of 700
+#:
+#: It is stamped `BOOTSTRAP`, so `attention_credits_spent_today` cannot see it
+#: and the 300-credit slice does not cap it. At the daily cap every sport stops
+#: until the next 10:00Z boundary -- so one sport the feed cannot answer for
+#: takes the whole desk down for the rest of the day.
+#:
+#: **Thirty minutes, and the choice is against a hard attempt cap rather than
+#: for a particular number.** A per-day attempt cap bounds the spend and then
+#: gives up: the sport stays dark for the rest of the budget day even after the
+#: upstream recovers, which trades one failure mode for another. A backoff
+#: bounds the spend *and* keeps recovering. At 30 minutes one sport costs at
+#: most 2 attempts an hour -- 8 credits an hour, ~192 a day against the 700 --
+#: and a transient outage clears within half an hour of the upstream healing.
+#:
+#: Deliberately NOT exponential. Exponential backoff's advantage is cheapness
+#: over a long outage, and the flat rate is already affordable; what it costs
+#: is a recovery time that depends on how long the failure has already lasted,
+#: which is the property that makes an outage's end hard to predict from the
+#: outside. A number a reader can hold is worth more here than an optimal one.
+BOOTSTRAP_RETRY_BACKOFF_MS = 30 * 60 * 1000
+
+
+def last_failed_sweep_by_sport(conn, *, since_ms: int) -> dict[str, int]:
+    """`sport_key -> most recent FAILED /odds call`, within the budget day.
+
+    The complement of `last_sweep_by_sport`, and deliberately a separate query
+    rather than a flag on that one: "when did this sport last succeed" and
+    "when did it last fail" are different questions, and a sport can have done
+    both today.
+
+    Keyed on `http_status >= 400` -- the call went out, the credit was charged,
+    and the upstream refused it. A transport failure costs no credits and
+    writes no row (`client.fetch_odds` raises before recording), so it cannot
+    appear here; that is correct, because a call that spent nothing needs no
+    backoff to bound its spend.
+
+    `COALESCE(http_status, 0)` and not a bare comparison: every pre-v21 row has
+    NULL here because the column did not exist, and those rows were served
+    sweeps. The default must therefore be a *success* value, and 0 is below
+    every real status code.
+    """
+    rows = conn.execute(
+        "SELECT sport_key, MAX(called_ms) AS last_ms FROM api_credits "
+        "WHERE called_ms >= ? AND sport_key IS NOT NULL "
+        "AND endpoint LIKE '%/odds' AND COALESCE(http_status, 0) >= 400 "
+        "GROUP BY sport_key",
+        (since_ms,),
+    ).fetchall()
+    return {r["sport_key"]: int(r["last_ms"]) for r in rows}
+
+
 def _latest_sweep_row(conn):
     return conn.execute(
         "SELECT called_ms, sport_key FROM api_credits "
@@ -1752,9 +1819,18 @@ def decide_sweeps(
     all*, so there is nothing to schedule against and nothing can be priced for
     it. Holding out for a good moment would mean recording no evidence for that
     sport at all today, and an empty record is a worse outcome than a
-    badly-timed sweep. Capped at one sport per pass, and at one attempt per
-    sport per budget day: a sport the sportsbook simply does not cover would
-    otherwise bootstrap on every pass and drain the day's credits in an hour.
+    badly-timed sweep. Capped at one sport per pass, at one *successful*
+    attempt per sport per budget day, and — after a failure — at one attempt
+    per `BOOTSTRAP_RETRY_BACKOFF_MS`.
+
+    **That middle clause read "one attempt per sport per budget day" until
+    2026-09-06, and the missing word was load-bearing.** The cap is the
+    candidate filter's `sport not in last_sweeps`; `last_sweeps` is built from
+    `_SERVED_SWEEP`, which requires `http_status < 400`. So it bound on success
+    and not at all on failure, and the hazard named in the very next clause —
+    "would otherwise bootstrap on every pass and drain the day's credits in an
+    hour" — was an accurate description of what still happened, simulated at
+    **700 credits in 2h54m** on the page-open heartbeat. The backoff closes it.
 
     The budget day comes from `budget.day_start_ms`, never recomputed here.
     "How much is left today" and "has this sport already been swept today" must
@@ -1831,6 +1907,9 @@ def decide_sweeps(
     remaining = max(0, state.remaining_today // max(1, cost))
     start_ms = budget.day_start_ms(now_ms)
     last_sweeps = last_sweep_by_sport(conn, since_ms=start_ms)
+    # Read from the same budget-day start as `last_sweeps`, so "has it swept
+    # today" and "has it failed today" can never disagree about which day it is.
+    last_failures = last_failed_sweep_by_sport(conn, since_ms=start_ms)
     fixtures = upcoming_fixtures_by_sport(conn, now_ms=now_ms, horizon_ms=horizon_ms)
     refresh_ms = refresh_interval_ms(max_odds_age_ms)
 
@@ -1929,8 +2008,44 @@ def decide_sweeps(
             # excludes by design.
             and not any(f.sport_key == sport for f in manual_firing)
             and commence - now_ms <= horizon_ms
+            # **The failure half of "one attempt per sport per budget day".**
+            # `sport not in last_sweeps` implements that cap for a sweep that
+            # SUCCEEDED; `last_sweeps` comes from `_SERVED_SWEEP`, which
+            # requires `http_status < 400`, so an erroring sport was never
+            # removed from this list and retried on every pass of the day --
+            # 700 credits in 2h54m at the page-open heartbeat, uncapped by the
+            # attention slice because it is stamped `BOOTSTRAP`. See
+            # `BOOTSTRAP_RETRY_BACKOFF_MS`.
+            and (
+                sport not in last_failures
+                or now_ms - last_failures[sport] >= BOOTSTRAP_RETRY_BACKOFF_MS
+            )
         )
     ) if allow_bootstrap else []
+
+    # **A held sport is named, not silently dropped.** Everything else this
+    # function declines to do ends up in `refused_for_cost` and reaches
+    # `/api/window` as `last_look_detail`; a backoff that said nothing would be
+    # the one refusal with no reader, which is the shape this module has had to
+    # fix four times (see the attention-slice fall-through above). Computed
+    # separately rather than inside the comprehension because a generator that
+    # also appends is a generator whose output depends on when it is consumed.
+    held_for_backoff = (
+        [
+            f"{sport} bootstrap held for "
+            f"{(BOOTSTRAP_RETRY_BACKOFF_MS - (now_ms - failed_ms)) // 60000}min "
+            f"more: its last sweep failed at {_hhmm(failed_ms)}Z and a failing "
+            f"bootstrap is not paced by anything else"
+            for sport, failed_ms in sorted(last_failures.items())
+            if sport not in fixtures
+            and sport not in last_sweeps
+            and sport in in_scope
+            and in_scope[sport] - now_ms <= horizon_ms
+            and now_ms - failed_ms < BOOTSTRAP_RETRY_BACKOFF_MS
+        ]
+        if allow_bootstrap
+        else []
+    )
     if bootstrap_candidates:
         _, sport = bootstrap_candidates[0]
         # No slot, so no props are bought and none is reserved. See
@@ -2241,6 +2356,11 @@ def decide_sweeps(
     # intent at the point a future reader changes the cap -- not because the cap
     # is currently capable of eating a tap.
     firing = [*manual_firing, *firing[:remaining]]
+
+    # The backoff holds ride along with the cost refusals rather than getting
+    # their own branch: both answer "what did this pass decline to buy, and
+    # why", and a reader chasing a thin slate needs them in one sentence.
+    refused_for_cost = [*refused_for_cost, *held_for_backoff]
 
     if firing:
         detail = "; ".join(f"{f.sport_key} ({f.trigger}): {f.detail}" for f in firing)

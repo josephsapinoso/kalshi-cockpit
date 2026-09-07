@@ -69,6 +69,38 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-06 - Two true docstrings, one false conjunction
+
+`decide_sweeps` said bootstrap is *"capped at ... one attempt per sport per
+budget day"*. `runner` said a failing sport *"never enters `last_sweeps` and
+never starts pacing itself"*. Both were accurate, both were written
+deliberately, and both were in files a reader would consult.
+
+Their conjunction is the bug: the cap **is** `sport not in last_sweeps`, and
+`last_sweeps` is built from a predicate requiring `http_status < 400` — so it
+bound on success and not at all on failure. A failing sport retried every pass
+all day: **700 credits in 2h54m**, uncapped by the attention slice because
+bootstrap carries its own trigger.
+
+The tell was sitting in the first docstring's own next clause — *"would
+otherwise bootstrap on every pass and drain the day's credits in an hour"* —
+which was not a description of the hazard avoided but an accurate description
+of what still happened.
+
+**Pattern: a bound stated in one file and undermined in another is invisible to
+every reader of either.** Neither docstring is wrong; no review of either would
+find it. What finds it is asking, of a stated cap, *what predicate implements
+this, and what is that predicate's failure case* — because a cap keyed on a
+success-only signal does not bind on failure, and failure is when a cap
+matters.
+
+Corollary for writing them: when a docstring names a hazard it is preventing,
+state the mechanism, not just the outcome. "Capped at one attempt per day"
+survives the mechanism changing underneath it; "capped by `last_sweeps`, which
+only records successes" would have been self-refuting the day it was written.
+
+---
+
 ## 2026-09-06 - A caveat loses to the variable name it sits under
 
 `test_the_worst_case_day_with_the_fall_through_stays_inside_the_cap` computed

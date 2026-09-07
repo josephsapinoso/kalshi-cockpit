@@ -377,21 +377,14 @@ look like gates and are not; both stub the signer out.
 
 ### Still open, in order
 
-1. **The failing-bootstrap loop has no bound of its own — the biggest day-one
-   risk, and it is 9× the scheduled NFL load.** Simulated over 09-09 with every
-   NFL call returning 401: **with a page open (60s heartbeat) it spends the
-   whole 700 in 2h54m**, then every sport is dark until 10:00Z. At the 900s idle
-   loop it is 384/day. It is stamped `BOOTSTRAP`, so
-   `attention_credits_spent_today` cannot see it and the 300 slice does not cap
-   it — exactly what `runner.py:3221-3227` says, now with a clock attached.
-   Needs a *new* failure to fire (the key works: 272 fixtures pulled today at
-   zero credits), so low probability, whole-day consequence, opening week.
-   **Do NOT ship the naive fix.** A per-sport per-day attempt cap trades "burns
-   the day" for "gives up early and stays dark after upstream recovers". The
-   right shape is a **backoff** — a minimum interval between failed bootstrap
-   attempts (30 min ⇒ ~192/day worst case and recovery within 30 min). That is a
-   spend-control design decision on the money path and wants an ADR and Joe's
-   eye, not a rushed patch three days out.
+1. ~~**The failing-bootstrap loop has no bound of its own.**~~ **CLOSED
+   2026-09-06 — ADR 0109.** A sport whose last sweep failed now waits
+   `BOOTSTRAP_RETRY_BACKOFF_MS` = 30 min, bounding it at **48 attempts / 192
+   credits a day** (measured, not projected) against the 700, and the hold is
+   named in the pass detail so it reaches `/board`. A backoff rather than an
+   attempt cap, because a cap bounds the spend and then gives up — the sport
+   would stay dark for the rest of the budget day after the upstream recovered,
+   which is the wrong trade on a season opener.
 2. **The `eu`-region lever**, dated 2026-09-28 with its two preconditions above.
    Owed an ADR that also records the props kill so October does not re-derive it.
 3. **`sweepTone` cannot distinguish a spent budget from a dead recorder** — both
@@ -407,7 +400,59 @@ look like gates and are not; both stub the signer out.
    Joe removed the card, dissolving the second half); item 3 is closed; item 2
    is closed; the inspector-split ADR is written and took **0108**.
 
-**Joe-gated: item 1's backoff design**, if it is to ship before Wednesday.
+**Joe-gated: nothing.**
+
+---
+
+### Added after the entry above — the NFL end-to-end check and the backoff
+
+Joe asked for both, in that order. Both landed.
+
+**NFL renders end to end, driven rather than inspected.**
+`tests/fixtures/events_nfl_preseason.json` turns out to hold **16 genuine
+`Pro Football` regular-season Week 1 events** beside the 16 preseason ones it is
+named for, so no synthetic Kalshi data was needed: **16/16 discovered, 16/16
+linked** against the 272 real book fixtures, **16/16 priced** through
+`consensus_devig` → derived ask → `settlement_fee`. New York J/G and Los Angeles
+R/C each bound to the right franchise.
+
+**The finding:** `linker.py` claimed the commence offsets "are identical, which
+makes it a fixed shift". That was 24 same-day pairs. Over the whole live
+`event_links` record (2,263 links) the shift is right and the constancy is not —
+mass at −3.00h, a tail at −3.50h, and two NCAAF links at **+3.00h** where Kalshi
+is *earlier* than the book. **max|skew| = 3.50h against a 4h tolerance: 30
+minutes, not the hour NFL alone suggests.** Tolerance NOT widened — widening
+turns more MLB doubleheaders into refusals for a tail of 8 links in 2,263.
+
+**The Wednesday check, with a known baseline.** A tolerance failure is stamped
+`NOT_CARRIED`, which `runner.py` calls "scope and needs nobody" — so a whole
+league failing to link lands in the category marked as needing no attention.
+NFL is in that state *right now*: **32 of 32 `not_carried`, 842,656 sightings**,
+the largest count in the table, because `api_credits` has zero rows for
+`americanfootball_nfl` and the season has not started. Benign, and exactly why
+it matters — it is indistinguishable from the failure. So:
+
+> **After the first NFL sweep on 09-09, `Pro Football`'s window-reason items
+> should collapse from 32 to ~0.** Read `unmatched_items` grouped by league and
+> reason. Do NOT read `event_links` — it contains only links that succeeded, so
+> the skew distribution above is truncated by the very tolerance it measures.
+
+`docs/measurements/2026-09-06-nfl-renders-end-to-end.md`.
+
+**Two things found that are not about parsing**, neither built: `sorted(fixtures)`
+means football is served and MLB/WNBA starve when credits run short (`sorted()`
+for determinism, not a chosen priority — MLB is the CLV population); and the
+single/manual order path sends no `exchange_index` while
+`EXCHANGE_INDEX_{DEFAULT,COMBOS,PARAM}` are imported by `kalshi/orders.py` and
+used exactly once each — the import line. `combo_bids.py` does it correctly.
+
+**A number NOT carried forward:** a sweep put an NFL Sunday at 850–900 credits
+and recommended raising the budget. It stacks separately-capped worst cases —
+the exact error corrected in `CLAUDE.md` this session. The floor assumes four
+sports take 24 hourly buys, but NCAAF has no Sunday slate and **WNBA spent 0
+credits all September**; the slice has never exceeded 112 of 300; and attention
+buys *displace* floor buys. **~486 expected / ~786 ceiling stands. No budget
+change.**
 
 ---
 

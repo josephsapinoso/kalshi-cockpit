@@ -607,6 +607,169 @@ class TestDecidingOnOnePass:
         assert decision.fire == ()
 
 
+class TestAFailingBootstrapCannotDrainTheDay:
+    """The cap above binds on SUCCESS only, and that was the whole bug.
+
+    `test_bootstrap_does_not_repeat_within_the_budget_day` passes because its
+    seeded credit row has a NULL `http_status`, which `_SERVED_SWEEP` reads as
+    200 -- so the sport enters `last_sweeps` and the candidate filter drops it.
+    A row with `http_status = 401` does not, so before
+    `BOOTSTRAP_RETRY_BACKOFF_MS` the sport stayed a candidate on every pass:
+    **700 credits in 2h54m** at the page-open heartbeat, uncapped by the
+    attention slice because a bootstrap is stamped `BOOTSTRAP` and
+    `attention_credits_spent_today` counts only `ATTENTION`.
+    """
+
+    def test_a_failed_bootstrap_does_not_retry_inside_the_backoff(
+        self, conn, budget
+    ):
+        """Mutation: drop the `last_failures` clause from the comprehension."""
+        budget.record(
+            called_ms=NOW - 5 * 60_000, endpoint="/odds", cost=6,
+            sport_key="baseball_mlb", http_status=401,
+        )
+        decision = decide_sweeps(
+            conn,
+            in_scope={"baseball_mlb": NOW + 5 * HOUR},
+            budget=budget, cost=6, now_ms=NOW, max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        assert decision.fire == ()
+
+    def test_it_retries_once_the_backoff_expires(self, conn, budget):
+        """**The property a hard attempt-cap would lose**, and the reason the
+        fix is a backoff rather than a per-day counter: a cap bounds the spend
+        and then leaves the sport dark for the rest of the budget day even
+        after the upstream recovers.
+
+        Mutation: `>=` -> `<=` in the backoff comparison.
+        """
+        budget.record(
+            called_ms=NOW - 31 * 60_000, endpoint="/odds", cost=6,
+            sport_key="baseball_mlb", http_status=503,
+        )
+        decision = decide_sweeps(
+            conn,
+            in_scope={"baseball_mlb": NOW + 5 * HOUR},
+            budget=budget, cost=6, now_ms=NOW, max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        assert [f.trigger for f in decision.fire] == ["bootstrap"]
+
+    def test_a_sport_that_never_failed_still_bootstraps_at_once(
+        self, conn, budget
+    ):
+        """The vacuity guard. Without it every assertion above would pass on a
+        backoff that refused everything, including the ordinary first sweep of
+        a new sport -- which is what the desk does every time a season opens.
+        """
+        decision = decide_sweeps(
+            conn,
+            in_scope={"americanfootball_nfl": NOW + 5 * HOUR},
+            budget=budget, cost=6, now_ms=NOW, max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        assert [f.trigger for f in decision.fire] == ["bootstrap"]
+
+    def test_a_successful_call_is_not_read_as_a_failure(self, conn, budget):
+        """`http_status >= 400` is what makes `last_failures` mean failures.
+
+        **The obvious version of this test could not fail.** It used a sport
+        with no credit row at all, so `last_failures` was empty whether or not
+        the status filter was there -- a fixture that cannot distinguish the
+        two cases, which is `tasks/lessons.md` 2026-09-06 exactly. Dropping the
+        filter left it green.
+
+        The separating case is a call that SUCCEEDED but is not a served sweep.
+        A tap is one: `trigger = 'manual'` is excluded from `_SERVED_SWEEP`, so
+        a tapped sport does not enter `last_sweeps` and is still a bootstrap
+        candidate -- and an unfiltered `last_failures` would hold it for half an
+        hour on the strength of a call that worked.
+
+        Mutation: drop `AND COALESCE(http_status, 0) >= 400` from
+        `last_failed_sweep_by_sport`.
+        """
+        budget.record(
+            called_ms=NOW - 10 * 60_000, endpoint="/odds", cost=6,
+            sport_key="baseball_mlb", trigger="manual", http_status=200,
+        )
+        decision = decide_sweeps(
+            conn,
+            in_scope={"baseball_mlb": NOW + 5 * HOUR},
+            budget=budget, cost=6, now_ms=NOW, max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        assert [f.trigger for f in decision.fire] == ["bootstrap"]
+
+    def test_a_held_sport_is_named_rather_than_silently_dropped(
+        self, conn, budget
+    ):
+        """A refusal with no reader is the shape this module has fixed four
+        times. The string reaches `/api/window` as `last_look_detail` and
+        `WindowBanner` prints it.
+
+        Mutation: drop `held_for_backoff` from the `refused_for_cost` merge.
+        """
+        budget.record(
+            called_ms=NOW - 10 * 60_000, endpoint="/odds", cost=6,
+            sport_key="baseball_mlb", http_status=429,
+        )
+        decision = decide_sweeps(
+            conn,
+            in_scope={"baseball_mlb": NOW + 5 * HOUR},
+            budget=budget, cost=6, now_ms=NOW, max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        assert decision.fire == ()
+        assert "baseball_mlb" in decision.detail
+        assert "held" in decision.detail
+        # The wait is named in minutes, so a reader knows whether to come back.
+        assert "20min" in decision.detail
+
+    def test_a_whole_day_of_failures_stays_far_below_the_daily_cap(self, conn):
+        """**The money assertion, and the one the fix exists for.**
+
+        Drives a full budget day at the page-open heartbeat (60s) with every
+        sweep failing, exactly as the 2026-09-06 simulation did -- which
+        returned 175 calls and the entire 700-credit cap in 2h54m.
+
+        With a 30-minute backoff the day can afford at most one attempt per
+        backoff window: 24h / 30min = 48 attempts, 192 credits at the deployed
+        cost of 4. Asserted as a real bound with headroom, not as the exact
+        count, because the arithmetic that matters is "far below 700".
+        """
+        budget = CreditBudget(conn, daily_budget=700)
+        day_start = budget.day_start_ms(NOW)
+        cost = 4
+        attempts = 0
+        t = day_start
+        while t < day_start + 24 * HOUR:
+            decision = decide_sweeps(
+                conn,
+                in_scope={"americanfootball_nfl": t + 5 * HOUR},
+                budget=budget, cost=cost, now_ms=t,
+                max_odds_age_ms=MAX_ODDS_AGE_MS,
+            )
+            for f in decision.fire:
+                attempts += 1
+                # What `client.fetch_odds` does on a 401: the credit is charged
+                # and the failure is recorded, so the sport never reaches
+                # `last_sweeps`.
+                budget.record(
+                    called_ms=t, endpoint="/odds", cost=cost,
+                    sport_key=f.sport_key, http_status=401,
+                )
+            t += 60_000
+
+        spent = attempts * cost
+        # **The vacuity guard, and it is not decoration here.** Every bound
+        # below is an upper bound, so a backoff that refused the sport outright
+        # would satisfy all of them with `attempts == 0` -- passing loudly
+        # while having broken the desk's ability to open a new season at all.
+        # Measured: exactly 48 and 192.
+        assert attempts >= 24, f"only {attempts} attempts -- is it retrying?"
+        assert attempts <= 48, f"{attempts} attempts in a day"
+        assert spent <= 192
+        # The bound that matters: the day is not consumed, so the other sports
+        # keep buying and `decide_sweeps` never returns `fire=()` for everyone.
+        assert spent < 700 * 0.3
+
+
 class TestTheDeskWindowKeepsTheSlatePriced:
     """Inside the configured desk window, a fixtured sport re-buys on the
     refresh cadence whether or not a kickoff cluster is imminent.
