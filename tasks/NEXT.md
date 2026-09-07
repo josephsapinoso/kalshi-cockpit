@@ -214,7 +214,184 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-07 (latest) — the NFL path is pre-flighted and its first sweep is due tonight by construction; a failed look and a spent day get their own words; the watcher stops asking the venue about a bid that filled
+## 2026-09-07 (latest, second session) — tonight's check had no instrument on the box and the wrong reading written down; attention was paying a live-game cadence for a line two days out
+
+**STATE at close.** `main` = **`4524a56`**, pushed. **Live is deliberately
+NOT on `main`.**
+
+    live + demo    763adad     deployed and verified via /api/health
+    main           4524a56     two commits ahead of what is deployed
+
+**Read that gap before you deploy anything.** The two unshipped commits are
+`9e7e6c7` (ADR 0111, `backend/odds/timing.py`) and `4524a56` (tests only).
+ADR 0111 is held back **on purpose**: it changes `desk_wants`, which runs on
+the same pass as tonight's one-shot NFL bootstrap, and holding it costs
+nothing. **Deploy it after the bootstrap is confirmed, not before.** The test
+commit ships in no image at all — `.dockerignore` excludes `tests/`.
+
+Tree clean, no worktrees, no other lanes. Decision map still 0 open. Full
+local suite **6307 passed / 10 xfailed** (9m31s); CI green on every push.
+
+**The partner ran first**, on state read from `/api/health` and `gh` rather
+than from the previous entry, and its ranking is what was executed. One thing
+it got wrong is recorded in its own report: it nearly killed the Scout refusal
+fixture on a belief that Scout has no caller. `backend/api/routers/scout.py:25`
+imports `agents.scout_desk` and four seats spend real money through it.
+
+### The finding that reordered the day: the check had no instrument
+
+`NEXT.md`'s item 1 was *"read the `unmatched_items` collapse."* There was no
+way to do that. No `unmatched_items` query in `inspect_live_db`'s whitelist, no
+API route serving it, and `ls /app/scripts/` on the live box returns 14 files
+with `list_unmatched.py` not among them. The pre-flight's own 07:21Z number was
+taken as **ad-hoc SQL over `flyctl ssh`** — the thing `inspect_live_db.py`'s
+ruling forbids in those words, *"nothing that carries its own source in the
+command line."*
+
+Shipped (`5275d1c`). The script now declares `/app/scripts/list_unmatched.py`,
+which makes `TestTheSshInvokedScriptsSurviveDockerignore` **demand** the
+`!scripts/list_unmatched.py` line rather than leave it to be remembered — that
+allowlist has failed five times and this is the first addition where the two
+halves cannot be separated. `--league` added: exact, case-sensitive, a bound
+parameter, with the cut echoed in every count line including the empty one.
+
+### And the reading written down would have called tonight's success a failure
+
+This is the more important half. The plan said *"after the first sweep expect
+32 → ~16, then 16 → ~0."* **The count will not fall.** Nothing sets
+`unmatched_items.resolved` and nothing deletes on a link — `linker.py` only
+upserts — so a row that stops failing goes **stale in place** until
+`retention.DEFAULT_UNMATCHED_RETENTION_MS` prunes it **seven days** later on
+`last_seen_ms`.
+
+So **32 rows at 04:00Z is the success case.** The broken-link case is 32 rows
+all carrying a *fresh* stamp. Corrected in the measurement doc (a CORRECTION
+section) and in item 1 below.
+
+### The instrument needed one fix before it was usable, found by running it
+
+Its first live run returned **75.8 KB for 66 rows** — lines of 1,300 to 2,249
+characters. `KXNFLTEAMTOTAL`'s `detail` is the whole points ladder joined by
+" vs ", ~2,100 characters, and a column table takes its width from its worst
+cell. The `last_seen` column — the *only* column tonight's reading uses — was
+two thousand characters right of where anyone looks. Cells are now cut at 80
+with the count of cuts printed and `--full` to recover them. Same read: **17 KB**,
+52 cells cut. `763adad`, deployed and verified.
+
+### THE BASELINE FOR TONIGHT, re-taken through the shipped instrument at 15:30Z
+
+| series | rows | reason | `last_seen` |
+|---|---|---|---|
+| `KXNFLGAME` | **32** | no sportsbook fixture within the commence-time window | 2026-09-07 15:30 |
+| `KXNFLSPREAD` | **16** | no linked game event for fixture … | 2026-09-07 15:30 |
+| `KXNFLTOTAL` | 16 | expected 2 sides, got … | 2026-09-07 15:30 |
+| `KXNFLTEAMTOTAL` | 2 | expected 2 sides, got … | 2026-09-07 15:30 |
+| | **66** | | **0 stale** |
+
+**All 66 carry the same fresh stamp**, which is what makes tonight legible:
+nothing is frozen now, so anything frozen at 04:00Z is something the sweep
+fixed. The total is 66 and not the 60 recorded at 07:21Z — **the growth is
+entirely in the ladder class** (12 → 18), and the two classes tonight is about
+are unchanged. Do not read the total as drift.
+
+### ADR 0111 — attention was paying a live-game cadence for a line 45 hours out
+
+`desk_wants`' attended branch had **no horizon at all**. The floor branch one
+line below had always checked `soonest - now_ms > floor_horizon_ms` and
+skipped; the attended branch gave every sport inside the caller's 48-hour
+window the ten-minute cadence. 24 credits/hour/sport against a 300-credit
+slice: 2 sports = 6.25 attended hours, **3 sports = 4.17**, 4 = 3.13. Measured
+dwell runs 2.6–324 minutes a day and 20260827 spent the whole slice in **4.88
+hours** — so the third sport alone takes the attended budget below a day Joe
+has already had, and the third sport arrives tonight with its kickoff ~45 h
+away.
+
+Now **tiered, not cut**: ten minutes inside twelve hours, the floor's hourly
+rate beyond it, never dropped. The cut was rejected because
+`test_attention_overrides_the_horizon` records the standing rule that a far
+fixture someone is looking at gets priced — Joe bets Sunday's NFL on Friday,
+and cutting would take the desk dark on exactly those rows past the staleness
+gate. **No published credit figure moves**; what changes is how fast the slice
+is consumed inside its own cap.
+
+The partner's better alternative was checked and **is not available**:
+`attention.normalise_path` splits on `?` before storing, so `desk_attention`
+records `/board`, never `/board?league=…`. The record carries which *screen*,
+never which *league*. ADR 0111 records it as the next lever.
+
+### The link between Kalshi and the odds feed had no test on either side
+
+`IN_SCOPE_LEAGUES` turns `"Pro Football"` into the URL segment in
+`/v4/sports/americanfootball_nfl/odds`, and nothing asserted it. The only
+`sport_key ==` assertion in `test_discovery.py` was MLB's. A typo does not
+raise — the vendor 404s and the sport never gets fixtures, which reads exactly
+like a sport being out of season. Five tests now, and three mutants that were
+all green this morning are red.
+
+### Killed / not taken, so nobody re-derives them
+
+- **Capturing an NFL odds wire fixture before tonight.** No NFL odds payload
+  has ever been parsed by any test — the only captured Odds API response is
+  MLB. Deliberately not pre-empted: tonight is a 4-credit test with a 30-minute
+  backoff on failure, which is cheaper than any capture, and a capture run from
+  the laptop spends a credit `api_credits` never records, putting the ledger
+  out by 4 in silence. **Capture AFTER it succeeds**, and write the ledger
+  drift into the measurement doc rather than leaving it silent.
+- **Watching the credit ledger tonight.** Tonight is one 4-credit call against
+  a ~366-credit day. Invisible. Sunday 09-13 is the day that matters.
+
+### Still open, in order
+
+1. **Tonight, from ~03:35Z 09-08: confirm the first NFL sweep fired**, read the
+   way the corrections above say and not the way this morning's entry said.
+   - `sweep-log` should show a **`served`** row, `sport_key =
+     americanfootball_nfl`, detail beginning `americanfootball_nfl has no
+     stored sportsbook fixtures`. A `skipped` props row lands right behind it
+     and is expected. **Do not grep `api_credits` for `bootstrap`** — `trigger`
+     is NULL on a bootstrap; only MANUAL and ATTENTION are stamped.
+   - **03:35Z is not a deadline.** `window_status` cannot see a fixture-less
+     sport, so its null `next_call_ms` feeds `Tempo.next_wake_ms`
+     (`scripts/run_loop.py:1121`) and the loop may pace itself slowly for the
+     buy it is about to make. A bootstrap at 04:10Z is the design working.
+   - **Read `last_seen`, never the count**, against the 15:30Z baseline above:
+
+         flyctl ssh console -a kalshi-cockpit -C "python /app/scripts/list_unmatched.py --db /data/cockpit.db --league 'Pro Football'"
+
+     Expect the Week-1 `KXNFLGAME` rows to stop moving while the rest keep
+     moving. **32 rows still there is success**; 32 rows all fresh is the
+     broken-link case.
+2. **Deploy ADR 0111** (`9e7e6c7`), once item 1 is confirmed. It is on `main`
+   and not on the box; nothing else is holding it.
+3. **Capture the NFL odds wire fixture**, after item 1 succeeds — see above.
+4. **The Sunday 09-13 convergence.** Simulated at ~486 credits base (3 NFL
+   clusters × 7 calls × 4, plus the NFL floor, plus observed MLB+NCAAF), and
+   all three clusters land in one budget day because the 00:20Z nighter is
+   before the 10:00Z roll. ADR 0111 buys back the attention half; the
+   **kickoff-window loop is untouched and is the largest term**. Item 5 is
+   what makes a bind legible.
+5. **The calm strip after a mid-day cap** (lane B residual 2, previous entry
+   item 7). `sweepTone.ts:168` misses its `refused` branch and reaches `warn`
+   via the generic path, so a budget-exhausted day reads the same tone as a
+   dead recorder. Words and one branch; worth having before 09-13.
+6. **`window_status` cannot predict a bootstrap** (lane B residual 1) —
+   demoted, and the reason is sized: 28 call sites, a new DB reader and two
+   guard rewrites. The screen-facing half is folded into item 5.
+7. **The `eu` lever, 2026-09-28** — ADR 0110's measurements first.
+8. **`parlay_positions` on 2026-09-15**; **`cryptography` bump ~=49.0 on
+   2026-09-15**, gate `tests/test_rest.py::TestSigningContract` etc.
+9. **Scout Anthropic refusal fixture (ADR 0106 §5.2)** — one billed call. NOT
+   dead code: `backend/api/routers/scout.py:25` imports `agents.scout_desk`
+   and four seats spend real money through it.
+10. **`combo_orders` reconciliation** — answer *who reads this table* first.
+    If nobody, either delete the write path or wire a filled combo into
+    `/hedge`, which is the only reason it should exist given combos are
+    enter-only in 40 of 40 books. Do not build the loop as previously scoped.
+
+**Joe-gated: nothing.**
+
+---
+
+## 2026-09-07 (earlier session) — the NFL path is pre-flighted and its first sweep is due tonight by construction; a failed look and a spent day get their own words; the watcher stops asking the venue about a bid that filled
 
 **STATE at close.** `main` = the sha in `git log -1`, pushed, CI on it is
 the thing to read (`gh run list --limit 3`). **Live and demo: read

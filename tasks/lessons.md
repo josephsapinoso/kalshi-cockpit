@@ -69,6 +69,105 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-07 - "Expect the count to fall" is a claim about a delete that may not exist
+
+The plan for the first NFL sweep said: *"after the first sweep expect 32 -> ~16,
+then 16 -> ~0."* Both numbers were wrong, and wrong in the direction that reads
+a success as a failure -- for a week, which is how long it would have taken for
+retention to make the sentence true by accident.
+
+Nothing sets `unmatched_items.resolved` and nothing deletes a row when the work
+item stops failing. `linker.py` only ever upserts. So a fixed row does not leave
+the table: it stops being re-derived and sits at a frozen `last_seen_ms` until a
+7-day retention window prunes it. The count after a successful fix is *identical*
+to the count before it.
+
+The observable was never the count. It was the **timestamp**: rows still failing
+carry the newest pass's stamp, rows that were fixed carry the stamp of the last
+pass that failed on them and never move again.
+
+**Pattern: a predicted change in a count is a claim that some code path removes
+rows, and that path has to be named.** Before writing "expect N to fall", find
+the `DELETE`, the `resolved = 1`, or the filter that would drop the row -- and if
+there is none, the count is not the instrument. Ask instead which column *does*
+move, and write the expectation over that.
+
+The tell is available cheaply and was never taken: `resolved` was documented as
+"set by no code path" in the script's own docstring, in `retention.py`'s comment,
+and in the schema. Three files said so and the plan still predicted a fall.
+
+Corollary, because this is the shape that makes it dangerous: **an append-only
+diagnostic table inverts the usual reading.** In a queue that deletes on success,
+a shrinking count is good news. In one that does not, a *stable* count is good
+news and a growing set of fresh stamps is the alarm. Which kind you are looking
+at is a property of the writer, not of the table's name.
+
+---
+
+## 2026-09-07 - An instrument is not verified until it has been run against the real data once
+
+`scripts/list_unmatched.py` had 16 passing tests, a `mode=ro` connection, an
+explicit empty-queue sentence, and a refusal path that exits non-zero on an
+unreadable database. It was careful code. Its first run against the live queue
+returned **75.8 KB for 66 rows**.
+
+One `KXNFLTEAMTOTAL` row's `detail` is the whole points ladder joined by " vs ",
+about 2,100 characters. A column table takes its width from its worst cell, so
+all 66 rows were padded to it -- and the `last_seen` column, the only column the
+reading actually needed, ended up two thousand characters right of where anyone
+looks.
+
+No test could have caught it, because every test seeded a row whose fields were
+the length the test author typed. The defect lives entirely in the *distribution*
+of real values, and the distribution is the one thing a fixture does not carry.
+
+**Pattern: tests establish that an instrument is correct; only a real run
+establishes that it is usable.** Budget one live run before depending on an
+instrument for a timed observation, and treat its output size and shape as part
+of the result. "It passed its tests" and "it can be read at 03:40Z over ssh" are
+different claims.
+
+The fix generalises past this script: when a renderer's layout is derived from
+its data, **one pathological row is a denial-of-service on every other row**.
+Cap the cell, count the caps, and say the count -- eliding silently would have
+traded an unreadable table for a misleadingly complete-looking one, which is
+worse.
+
+---
+
+## 2026-09-07 - The check and the instrument for the check are two deliverables, and only one of them gets planned
+
+The open item said: *"confirm the sweep fired; then the `unmatched_items`
+collapse."* Written by a session that had just read those numbers, so the
+reading was obviously possible. It was not: there is no `unmatched_items` query
+in the inspector's whitelist, no API route serving it, and the script that reads
+it was not in the image. The earlier session had got its numbers by smuggling
+ad-hoc SQL over `flyctl ssh`, which the inspector's own ruling forbids in those
+words -- and the item it wrote inherited the capability without inheriting the
+means.
+
+**Pattern: an item that names a reading must name the command that produces it,
+and that command must be one that exists on the machine the reading happens on.**
+"Check X" is not a plan; `flyctl ssh console -a … -C "…"` is. The gap is
+invisible to the author precisely because they just did it -- by a route the
+next session does not have, or should not take.
+
+Two things make this recur here. A one-off route (ad-hoc SQL, a laptop-side
+script, a browser session) leaves no trace in the plan that it was one-off. And
+a **timed** observation converts the gap from an inconvenience into a miss: the
+instrument has to be built, tested, committed, CI'd and deployed before the
+event, and discovering the gap at the event means not taking it.
+
+Corollary that is worth more than the lesson: the repo already had the fix for
+the *class*. `TestTheSshInvokedScriptsSurviveDockerignore` derives the
+`.dockerignore` allowlist from each script's own documented invocation, so a
+script that declares `/app/scripts/<name>.py` **cannot** be absent from the
+image without CI going red. The right response to "the instrument was missing"
+was not to add the instrument; it was to add it *through the derivation*, so the
+sixth occurrence is impossible rather than merely less likely.
+
+---
+
 ## 2026-09-07 - A screen that names one failure lets every other failure wear the quiet's clothes
 
 `WindowBanner` chose its headline by testing `last_look_outcome === "refused"`

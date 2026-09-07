@@ -100,7 +100,7 @@ separates the two halves is `last_seen`:
 | Week 1 `KXNFLGAME` — linked | 16 | **frozen** at the last failing pass, ~03:3xZ |
 | Week 2 `KXNFLGAME` — still unlinkable if the feed does not list that far | 16 | **moving**, stamped by the newest pass |
 | `KXNFLSPREAD` | 16 | moving until the game links, then frozen |
-| `KXNFLTOTAL` / `KXNFLTEAMTOTAL` ladders | 12 | moving — scope, not a defect |
+| `KXNFLTOTAL` / `KXNFLTEAMTOTAL` ladders | 18 | moving — scope, not a defect |
 
 So: **read the stamps, never the count.** A count that stays at 32 says
 nothing at all; 32 rows all carrying a *fresh* stamp is the broken-link case.
@@ -120,6 +120,45 @@ in `TestTheSshInvokedScriptsSurviveDockerignore` makes the pair inseparable:
 
 It orders by `last_seen_ms DESC` and prints both stamps, so the live rows sort
 above the frozen ones and the reading above is the one the output gives.
+
+### The baseline re-taken through the shipped instrument, 15:30Z
+
+This is the reference for tonight, and it supersedes the 07:21Z table above as
+the thing to compare against — same day, same queue, but read by the tool that
+will read it again at 04:00Z rather than by a different one.
+
+| series | rows | reason | `first_seen` | `last_seen` |
+|---|---|---|---|---|
+| `KXNFLGAME` | **32** | no sportsbook fixture within the commence-time window | 2026-08-20 00:27 | **2026-09-07 15:30** |
+| `KXNFLSPREAD` | **16** | no linked game event for fixture … | 2026-08-24 03:25 | **2026-09-07 15:30** |
+| `KXNFLTOTAL` | **16** | expected 2 sides, got … | 2026-08-25 15:39 | **2026-09-07 15:30** |
+| `KXNFLTEAMTOTAL` | **2** | expected 2 sides, got … | 2026-09-02 20:53 | **2026-09-07 15:30** |
+| | **66** | | | 0 stale |
+
+**Every one of the 66 carries the same fresh `last_seen`.** That is the correct
+pre-sweep state and it is what makes tonight legible: right now *nothing* is
+frozen, so any frozen row at 04:00Z is a row the first NFL sweep fixed.
+
+**The total is 66, not the 60 recorded at 07:21Z, and the growth is entirely in
+the class that does not matter.** The ladder rows went 12 → 18; the two classes
+tonight is about — 32 `KXNFLGAME` and 16 `KXNFLSPREAD` — are **unchanged**. Do
+not read the total as drift in the thing being measured.
+
+Reading it cost nothing: `flyctl ssh`, a `mode=ro` connection, no
+`api_credits` row.
+
+### And the instrument needed one fix before it was usable
+
+Its first live run returned **75.8 KB for 66 rows** — lines of 1,300 to 2,249
+characters. `KXNFLTEAMTOTAL`'s `detail` is the whole points ladder joined by
+" vs ", ~2,100 characters, and a column table takes its width from its worst
+cell, so all 66 rows were padded to it. The `last_seen` column — the *only*
+column the reading above uses — sat two thousand characters right of where
+anyone would look.
+
+Cells are now cut at 80 characters with the count of cuts printed and `--full`
+to recover them. The same read is now **17 KB**, 52 cells cut. Commit
+`763adad`, deployed and verified on live at 15:52Z.
 
 Do **not** read `event_links`, which holds only the links that succeeded and is
 truncated by the very tolerance it would be used to measure.
