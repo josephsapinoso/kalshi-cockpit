@@ -216,18 +216,40 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ## 2026-09-07 (latest, second session) — tonight's check had no instrument on the box and the wrong reading written down; attention was paying a live-game cadence for a line two days out
 
-**STATE at close.** `main` = **`4524a56`**, pushed. **Live is deliberately
-NOT on `main`.**
+**STATE at close.** `main` = **`42e667f`**, pushed. **Live is deliberately
+NOT on `main`, and that is the first thing to check before deploying.**
 
-    live + demo    763adad     deployed and verified via /api/health
-    main           4524a56     two commits ahead of what is deployed
+    live     763adad   read back from /api/health at 16:2xZ; recorder writing
+    demo     cc8de80   NOT redeployed this session, and that is fine
+    main     42e667f   five commits ahead of live, six ahead of demo
 
-**Read that gap before you deploy anything.** The two unshipped commits are
-`9e7e6c7` (ADR 0111, `backend/odds/timing.py`) and `4524a56` (tests only).
+**Verify all three with `/api/health` `build.git_sha` rather than believing
+this table** — the 09-06 entry said "deployed on `7ed20fd`" while live had been
+on `4a6d63e` the whole time, and the partner then ranked a day's work around
+it. **This table got the demo row wrong on its first writing today**, for the
+same reason: it was written from "I deployed" rather than from a read. Only
+live was deployed. Demo answers slowly on a cold start — an empty first `curl`
+is the machine waking, not an outage; retry before concluding anything.
+
+Demo is deliberately left behind: it carries no credentials and no execution
+path, nothing tonight needs it, and deploying it now would ship ADR 0111 to a
+second place and give this table a third sha to keep straight.
+
+The five unshipped commits, and what each would put on the box:
+
+| commit | what it is | ships? |
+|---|---|---|
+| `9e7e6c7` | **ADR 0111**, `backend/odds/timing.py` | **yes — the one being held** |
+| `4524a56` | league→sport-key guard | no, tests only |
+| `a76559d` | session record | no, docs only |
+| `ca248d7` | `sweepTone` ordering + tests | **yes — frontend** |
+| `42e667f` | the 03:37Z derivation | no, docs only |
+
 ADR 0111 is held back **on purpose**: it changes `desk_wants`, which runs on
-the same pass as tonight's one-shot NFL bootstrap, and holding it costs
-nothing. **Deploy it after the bootstrap is confirmed, not before.** The test
-commit ships in no image at all — `.dockerignore` excludes `tests/`.
+the same pass as tonight's one-shot NFL bootstrap. Holding it costs one evening
+of a cadence Joe will not notice; shipping it costs the observation if it is
+wrong. **Deploy after the bootstrap is confirmed, not before** — and note the
+`sweepTone` change rides along in the same deploy, which is fine and is item 5.
 
 Tree clean, no worktrees, no other lanes. Decision map still 0 open. Full
 local suite **6307 passed / 10 xfailed** (9m31s); CI green on every push.
