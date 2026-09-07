@@ -69,6 +69,42 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-07 - "It might be slow" is not a tolerance; find the bound
+
+An advisory agent noted, correctly, that `window_status` cannot see a
+fixture-less sport, so its null `next_call_ms` feeds `Tempo.next_wake_ms` and
+the loop "may pace itself slowly for the buy it is about to make." The
+conclusion drawn from it was *"a bootstrap at 04:10Z is the design working"*,
+and that sentence was written into the open item as an operational tolerance
+before anyone read `Tempo.interval_s`.
+
+It resolves to `slow_interval_s`. On live that is `RUNNER_INTERVAL_S = 900`,
+stretched by at most `JITTER = 0.15`. A bootstrap also needs a *full* pass, and
+`pass_kind` returns `full` every 900s regardless of the sleep. The real bound
+is one full-pass interval: **03:37Z, not 04:10Z** — and the difference is
+thirty-three minutes of not looking for a fault that would by then be real.
+
+**Pattern: a null that means "unknown" is rarely a null that means
+"unbounded".** When widening an alerting threshold because some mechanism
+"might be slow", go and read what the slow path actually returns. Nearly always
+there is a cap, a floor, or a second cadence that bounds it — and the widened
+threshold is then not conservatism, it is a blind spot with a justification
+attached.
+
+The asymmetry is what makes this worth a lesson: a threshold that is too tight
+costs one false alarm and a two-minute check. A threshold that is too loose
+costs the window in which the fault was cheap to find, and it does so silently,
+because nothing fires. **Loosening a threshold is the change that needs the
+evidence, not tightening it.**
+
+Corollary on where this came from: the reasoning was an agent's, it was
+plausible, and it was *directionally* right — the loop genuinely does not
+predict the buy. Directionally right is where this fails, because it survives
+the sniff test that a wrong claim would not. Take the mechanism a helper names
+and check the constant yourself before the number reaches a plan.
+
+---
+
 ## 2026-09-07 - "Expect the count to fall" is a claim about a delete that may not exist
 
 The plan for the first NFL sweep said: *"after the first sweep expect 32 -> ~16,

@@ -349,10 +349,25 @@ all green this morning are red.
      stored sportsbook fixtures`. A `skipped` props row lands right behind it
      and is expected. **Do not grep `api_credits` for `bootstrap`** — `trigger`
      is NULL on a bootstrap; only MANUAL and ATTENTION are stamped.
-   - **03:35Z is not a deadline.** `window_status` cannot see a fixture-less
-     sport, so its null `next_call_ms` feeds `Tempo.next_wake_ms`
-     (`scripts/run_loop.py:1121`) and the loop may pace itself slowly for the
-     buy it is about to make. A bootstrap at 04:10Z is the design working.
+   - **The design bound is ~03:37Z, and it is tighter than it was first
+     written.** It is true that `window_status` cannot see a fixture-less sport
+     and that its null `next_call_ms` feeds `Tempo.next_wake_ms`
+     (`scripts/run_loop.py:1121`) — but a null there is **not** an unbounded
+     sleep. `Tempo.interval_s` returns `slow_interval_s` on `next_wake_ms is
+     None` (`backend/scheduler.py:400`), which is `RUNNER_INTERVAL_S = 900` on
+     live, and `run_forever` stretches it by at most `JITTER = 0.15` → 1,035s.
+     A bootstrap also needs a **full** pass, and `pass_kind` returns `full`
+     every 900s regardless. So: 03:20Z + one full-pass interval = **03:35Z**,
+     +jitter = **~03:37Z**. An earlier draft of this item said "a bootstrap at
+     04:10Z is the design working"; that was over-generous and would have
+     spent half an hour not looking for a real fault.
+   - **So nothing by 04:00Z is a signal — but check the ledger before calling
+     it a failure.** The one thing that legitimately delays it further is a
+     wedged pass, and those are documented and measured: sixteen holes of 21.5
+     to 63.3 minutes between 08-23 and 08-28, ~3.4 hours a day, with no
+     `loop_failures` row for any of them (`backend/scheduler.py:61-71`). Run
+     `pass-gaps` first. A hole spanning 03:20–03:40Z explains the absence and
+     is a known phenomenon, not a broken bootstrap.
    - **Read `last_seen`, never the count**, against the 15:30Z baseline above:
 
          flyctl ssh console -a kalshi-cockpit -C "python /app/scripts/list_unmatched.py --db /data/cockpit.db --league 'Pro Football'"
