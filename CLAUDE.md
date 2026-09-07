@@ -263,6 +263,21 @@ actually sets, and it was not written down anywhere before this. **An
 "attended hours" figure is still a guess about any particular day**; this is
 one observed day and the burn rate is the part that generalises.
 
+**That burn rate is no longer flat per sport — ADR 0111, 2026-09-07.** The
+attended branch of `desk_wants` had **no horizon at all**, so every sport
+inside the caller's 48-hour window took the ten-minute cadence: 24 credits an
+hour each, and 4.17 attended hours at three sports — under the 4.88 already
+observed. It is now **tiered by how soon a sport plays**: ten minutes inside
+twelve hours, the floor's hourly rate beyond it, and **never dropped**, which
+is the half that matters. A cut would have gone dark on Sunday's NFL for the
+two days Joe is actually looking at it. One sport today and two tomorrow costs
+32/hour rather than 72, so the slice funds 9.4 hours instead of 4.2.
+
+**No published figure in this file moves.** The slice is still ≤300, the floor
+still ~384, and both are arithmetic over constants none of which changed. What
+changed is how fast the slice is consumed inside its own cap — and the
+kickoff-window loop, the largest of the three spenders, is untouched.
+
 **Re-read 2026-09-03 over nine budget days, and "4.9 hours a day" was that
 one day.** 20260827 is the only day the slice has ever run out. Attended
 minutes per budget day (from `visit-freshness`, heartbeat-to-heartbeat) ran

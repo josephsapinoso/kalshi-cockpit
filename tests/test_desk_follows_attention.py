@@ -49,6 +49,7 @@ from backend.odds.timing import (
     ATTENTION,
     DEFAULT_ATTENTION_DAILY_CREDITS,
     DESK,
+    DESK_ATTENTION_FAST_HORIZON_MS,
     DESK_FLOOR_HORIZON_MS,
     DESK_FLOOR_INTERVAL_MS,
     _DAY_MS,
@@ -1197,3 +1198,181 @@ class TestTheLoopsCadenceIsUnchangedByTheSliceCheck:
         inside = sleep_with(NOW + 600_000)
         assert inside == pytest.approx(600.0 / (1 + JITTER))
         assert inside < self.SLOW
+
+
+class TestAttentionTiersTheCadenceByHowSoonASportPlays:
+    """A far fixture someone is looking at is priced hourly, not every ten
+    minutes -- and it is never dropped.
+
+    ADDED 2026-09-07, and the arithmetic is the reason rather than tidiness.
+    The attended branch had no horizon at all: every sport inside the caller's
+    48-hour `horizon_ms` re-bought on `refresh_interval_ms`, 24 credits an hour
+    each, off one 300-credit slice. Observed dwell runs 2.6 to 324 minutes a
+    budget day and 20260827 spent the whole slice in 4.88 h, so the arrival of
+    a third sport takes the attended budget below a day Joe has already had.
+
+    NFL enters the 48-hour set at 03:35Z on 2026-09-08 with its kickoff ~45 h
+    away -- a full day of live-game cadence on a line that moves daily, before
+    it can price a single bet.
+
+    **What is NOT being changed**, and the distinction the whole class turns
+    on: `test_attention_overrides_the_horizon` above records the standing rule
+    that "someone looking at a slate wants it priced, and the tool does not
+    get to decide their fixture is too far away to be interesting." That rule
+    is about **whether** a far fixture is priced. It stays priced. This is
+    about what cadence it is priced at, which that rule never spoke to -- and
+    a 12-hour *cut* would be the opposite: Joe bets Sunday's NFL on Friday, and
+    cutting would leave those rows past the staleness gate for two days, the
+    desk going dark on exactly the fixtures he opened it to look at.
+    """
+
+    NEAR = NOW + 6 * HOUR
+    FAR = NOW + 45 * HOUR  # NFL's position at 03:35Z on 2026-09-08
+
+    def test_a_far_sport_is_still_wanted_while_attended(self):
+        """Tiered, not gated. If this ever returns an empty dict the change has
+        become the cut it was written to avoid."""
+        wants = desk_wants(
+            {SPORT: [self.FAR]}, now_ms=NOW, attended=True,
+            last_sweeps={SPORT: NOW - 5 * MIN}, refresh_interval_ms=REFRESH_MS,
+        )
+        assert SPORT in wants
+
+    def test_a_far_sport_gets_the_hourly_cadence_not_the_fast_one(self):
+        wants = desk_wants(
+            {SPORT: [self.FAR]}, now_ms=NOW, attended=True,
+            last_sweeps={SPORT: NOW - 5 * MIN}, refresh_interval_ms=REFRESH_MS,
+        )
+        assert wants == {SPORT: NOW - 5 * MIN + DESK_FLOOR_INTERVAL_MS}
+        assert wants != {SPORT: NOW - 5 * MIN + REFRESH_MS}, (
+            "the far sport is still on the ten-minute cadence"
+        )
+
+    def test_a_near_sport_keeps_the_fast_cadence(self):
+        """The control. Without it the test above passes on a function that
+        demoted everything."""
+        wants = desk_wants(
+            {SPORT: [self.NEAR]}, now_ms=NOW, attended=True,
+            last_sweeps={SPORT: NOW - 5 * MIN}, refresh_interval_ms=REFRESH_MS,
+        )
+        assert wants == {SPORT: NOW - 5 * MIN + REFRESH_MS}
+
+    def test_two_sports_on_one_pass_take_two_different_cadences(self):
+        """The branch is chosen per sport, not per pass -- which is the whole
+        point on a Sunday, when today's slate and next week's are both stored.
+        """
+        wants = desk_wants(
+            {"baseball_mlb": [self.NEAR], "americanfootball_nfl": [self.FAR]},
+            now_ms=NOW, attended=True,
+            last_sweeps={
+                "baseball_mlb": NOW - 5 * MIN,
+                "americanfootball_nfl": NOW - 5 * MIN,
+            },
+            refresh_interval_ms=REFRESH_MS,
+        )
+        assert wants == {
+            "baseball_mlb": NOW - 5 * MIN + REFRESH_MS,
+            "americanfootball_nfl": NOW - 5 * MIN + DESK_FLOOR_INTERVAL_MS,
+        }
+
+    def test_the_boundary_is_inclusive_on_the_fast_side(self):
+        """Exactly at the horizon is fast; one millisecond past it is hourly.
+        Stated because an off-by-one here is a silent 6x on the bill.
+        """
+        at = NOW + DESK_ATTENTION_FAST_HORIZON_MS
+        assert desk_wants(
+            {SPORT: [at]}, now_ms=NOW, attended=True,
+            last_sweeps={SPORT: NOW - 5 * MIN}, refresh_interval_ms=REFRESH_MS,
+        ) == {SPORT: NOW - 5 * MIN + REFRESH_MS}
+        assert desk_wants(
+            {SPORT: [at + 1]}, now_ms=NOW, attended=True,
+            last_sweeps={SPORT: NOW - 5 * MIN}, refresh_interval_ms=REFRESH_MS,
+        ) == {SPORT: NOW - 5 * MIN + DESK_FLOOR_INTERVAL_MS}
+
+    def test_a_sport_playing_soon_and_far_is_read_from_its_soonest(self):
+        """`fixtures` is every stored kickoff for the sport, and a Sunday NFL
+        entry carries both today's and next week's. The tier reads `min()`, so
+        one game today keeps the whole sport fast -- the conservative
+        direction, and the one that matches what a person is looking at.
+        """
+        assert desk_wants(
+            {SPORT: [self.FAR, self.NEAR]}, now_ms=NOW, attended=True,
+            last_sweeps={SPORT: NOW - 5 * MIN}, refresh_interval_ms=REFRESH_MS,
+        ) == {SPORT: NOW - 5 * MIN + REFRESH_MS}
+
+    def test_a_clock_window_is_tiered_on_the_same_terms(self):
+        """`desk_window` shares the branch with attention and must share its
+        arithmetic; an operator pinning a window back on must not re-open the
+        uncapped path this closes.
+        """
+        assert desk_wants(
+            {SPORT: [self.FAR]}, now_ms=NOW, attended=False,
+            last_sweeps={SPORT: NOW - 5 * MIN}, refresh_interval_ms=REFRESH_MS,
+            desk_window=(16, 4),  # NOW is 18:00Z, inside it
+        ) == {SPORT: NOW - 5 * MIN + DESK_FLOOR_INTERVAL_MS}
+
+    def test_an_unswept_far_sport_is_still_wanted_now(self):
+        """The bootstrap branch is measured from `last`, which a far sport does
+        not have on its first day. Unchanged deliberately: the tier paces
+        re-buying, it does not delay a first look.
+        """
+        assert desk_wants(
+            {SPORT: [self.FAR]}, now_ms=NOW, attended=True, last_sweeps={},
+            refresh_interval_ms=REFRESH_MS,
+        ) == {SPORT: NOW}
+
+
+class TestWhatTheTierBuysBackOnTheSlice:
+    """The arithmetic that motivated the tier, asserted rather than described.
+
+    The suite header says these tests establish "nothing about the saving",
+    and that stands for *attended hours*, which is a guess about Joe. It does
+    not stand for credits per hour per sport, which is arithmetic over two
+    constants this module owns -- and the last time a partial sum went
+    unasserted it propagated into `CLAUDE.md` as a worst case and had to be
+    corrected three files later.
+    """
+
+    def _credits_per_hour(self, cadence_ms, sweep_cost=4):
+        return (HOUR // cadence_ms) * sweep_cost
+
+    def test_the_fast_cadence_costs_six_times_the_hourly_one(self):
+        assert self._credits_per_hour(REFRESH_MS) == 24
+        assert self._credits_per_hour(DESK_FLOOR_INTERVAL_MS) == 4
+
+    def test_three_far_sports_no_longer_outrun_an_observed_day(self):
+        """20260827 is the only day the slice has ever run out, at 4.88 h.
+
+        Before the tier, three sports inside 48 h cost 72 credits/h and spent
+        the 300 in 4.17 h -- under a day already observed. With two of the
+        three playing tomorrow rather than today it is 32/h, which no dwell in
+        the nine-day record reaches.
+        """
+        slice_credits = DEFAULT_ATTENTION_DAILY_CREDITS
+        fast = self._credits_per_hour(REFRESH_MS)
+        slow = self._credits_per_hour(DESK_FLOOR_INTERVAL_MS)
+
+        before = slice_credits / (3 * fast)
+        after = slice_credits / (fast + 2 * slow)
+
+        assert round(before, 2) == 4.17
+        assert round(after, 2) == 9.38
+        assert before < 4.88, (
+            "the pre-tier figure no longer sits under the observed 4.88 h day, "
+            "so the reason this change was made has gone; re-derive it"
+        )
+        assert after > 4.88
+
+    def test_the_fast_horizon_and_the_floor_horizon_are_equal_by_value_only(
+        self,
+    ):
+        """They answer different questions and either may move alone. Pinned
+        because reading one as an alias for the other is how a later edit moves
+        both by accident.
+        """
+        source = Path("backend/odds/timing.py").read_text("utf-8")
+
+        assert DESK_ATTENTION_FAST_HORIZON_MS == DESK_FLOOR_HORIZON_MS
+        assert "DESK_ATTENTION_FAST_HORIZON_MS = DESK_FLOOR_HORIZON_MS" not in (
+            source
+        ), "defined by reference; a move to one would silently move the other"

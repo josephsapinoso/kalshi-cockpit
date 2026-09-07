@@ -506,6 +506,43 @@ DESK_FLOOR_INTERVAL_MS = 3_600_000
 #: because `upcoming_fixtures_by_sport` has nothing to offer for them.
 DESK_FLOOR_HORIZON_MS = 12 * 3_600_000
 
+#: How soon a sport must play before **attention** buys it at the fast cadence.
+#:
+#: Beyond this it is still bought while someone is looking -- it drops to
+#: `DESK_FLOOR_INTERVAL_MS`, the floor's own hourly rate. It is never dropped.
+#: That distinction is the whole of this constant: `test_attention_overrides_
+#: the_horizon` records the standing rule that *"someone looking at a slate
+#: wants it priced, and the tool does not get to decide their fixture is too
+#: far away to be interesting"*, and that rule is about **whether** a far
+#: fixture is priced, not about paying a live-game cadence for it.
+#:
+#: **Why it exists, 2026-09-07.** The attended branch had no horizon at all,
+#: so every sport inside the caller's 48-hour `horizon_ms` re-bought every ten
+#: minutes off the one 300-credit attention slice -- 24 credits/hour/sport:
+#:
+#:     2 sports = 48 credits/h -> 6.25 h of attended cadence per day
+#:     3 sports = 72 credits/h -> 4.17 h
+#:     4 sports = 96 credits/h -> 3.13 h
+#:
+#: Observed dwell runs 2.6 to 324 minutes a budget day, and 20260827 spent the
+#: whole slice in 4.88 h. So the third sport alone takes Joe's attended budget
+#: below a day he has already had. NFL enters the 48-hour set at 03:35Z on
+#: 2026-09-08 while its kickoff is ~45 h away -- a full day of fast-cadence
+#: buying for a line that moves on a daily timescale, before it can price a
+#: single bet he could place.
+#:
+#: Tiering rather than cutting is what keeps ADR 0071's job intact: Joe bets
+#: Sunday's NFL on Friday, and a 12-hour cut would leave those rows unpriced
+#: past the staleness gate for two days -- the desk going dark on exactly the
+#: fixtures he opened it to look at. Hourly is 4 credits/h, one sixth of the
+#: cost, and well inside `max_odds_age_s` for a line nobody is transacting on
+#: yet.
+#:
+#: Equal to `DESK_FLOOR_HORIZON_MS` by value and **not by reference**: they
+#: answer different questions (what the floor reaches at all, versus what
+#: attention pays a premium for) and either may move without the other.
+DESK_ATTENTION_FAST_HORIZON_MS = 12 * 3_600_000
+
 #: The chain runner's full-pass cadence when nothing wakes it, as
 #: `docker/entrypoint.sh` defaults it: `--interval "${RUNNER_INTERVAL_S:-900}"`.
 #:
@@ -571,6 +608,7 @@ def desk_wants(
     allow_bootstrap: bool = True,
     floor_interval_ms: int = DESK_FLOOR_INTERVAL_MS,
     floor_horizon_ms: int = DESK_FLOOR_HORIZON_MS,
+    attention_fast_horizon_ms: int = DESK_ATTENTION_FAST_HORIZON_MS,
 ) -> dict[str, int]:
     """`sport_key -> the next instant the desk wants that sport bought`.
 
@@ -589,9 +627,14 @@ def desk_wants(
     Three ways in, checked in this order:
 
     1. **Attended.** A heartbeat landed inside the TTL, so someone has the desk
-       open. Every sport with an upcoming fixture re-buys on the existing
-       `refresh_interval_ms` -- the same cadence the fixed window used, applied
-       only while it is worth paying for.
+       open. Every sport with an upcoming fixture re-buys -- **on
+       `refresh_interval_ms` if it plays inside `attention_fast_horizon_ms`,
+       and on `floor_interval_ms` if it plays later than that.** Never dropped:
+       a far fixture someone is looking at is still priced, hourly, which is
+       the point the tiering turns on. See `DESK_ATTENTION_FAST_HORIZON_MS`
+       for the arithmetic that put it there, and note the branch is chosen by
+       the sport's own kickoff, so two sports on one attended pass can be on
+       two different cadences.
     2. **The clock window, if one is still configured.** `desk_window` is
        retained rather than deleted so an operator can pin a window back on
        without a code change, and because deleting a setting that is live on the
@@ -615,10 +658,24 @@ def desk_wants(
     wants: dict[str, int] = {}
     windowed = desk_is_open(desk_window, now_ms)
     for sport_key, commences in fixtures.items():
+        soonest = min(commences) if commences else None
         if attended or windowed:
-            cadence_ms = refresh_interval_ms
+            # **Tiered, not gated.** A sport playing later than the fast
+            # horizon stays in `wants` -- it simply drops to the floor's hourly
+            # rate rather than paying a live-game cadence a day and a half out.
+            #
+            # `soonest is None` keeps the fast cadence deliberately: it cannot
+            # arise from `upcoming_fixtures_by_sport` (which only creates a key
+            # when it appends a kickoff), so it is an unknown rather than a
+            # far fixture, and an unknown must not be quietly demoted.
+            if (
+                soonest is not None
+                and soonest - now_ms > attention_fast_horizon_ms
+            ):
+                cadence_ms = floor_interval_ms
+            else:
+                cadence_ms = refresh_interval_ms
         else:
-            soonest = min(commences) if commences else None
             if soonest is None or soonest - now_ms > floor_horizon_ms:
                 # Nothing this sport is playing soon enough to pay for. Not
                 # "later" -- there is no scheduled moment at which the desk
