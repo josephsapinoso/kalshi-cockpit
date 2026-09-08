@@ -266,6 +266,94 @@ correct and, as written, could not have been read off `list_unmatched.py` alone.
   vanish seven days after 03:05Z and not before, and a reader who returns to
   this queue mid-week will find them and must read the stamp, not the count.
 
+## Item 3 — the NFL wire fixture, captured 2026-09-08 04:09Z, and the 4 credits it cost
+
+Taken only after the sweep succeeded, for the reason the plan gave: tonight's
+bootstrap was a 4-credit test with a 30-minute backoff, cheaper than any
+pre-emptive capture and a real answer rather than a rehearsal.
+
+`scripts/capture_nfl_odds_fixture.py --confirm-spend-4` →
+`tests/fixtures/odds_nfl_h2h_spreads.json`, 926 KB.
+
+    events    272          the entire NFL regular season in one response
+    books     30           incl. pinnacle, betfair_ex_eu, matchbook
+    markets   h2h, h2h_lay, spreads
+    spreads   -14.5 .. +14.5 over 2,278 outcomes, all half-integer
+    vendor    x-requests-remaining 17584, x-requests-used 2416
+
+**LEDGER DRIFT: +4 credits the `api_credits` table will never show.** The table
+is written by the runner on the live box; this call went from the laptop
+straight to the vendor. Every `credits-day` and `credits-month` read for
+2026-09-08 is therefore 4 low against the vendor's own counter. Recorded here
+rather than left silent, because an unexplained 4-credit gap in a later
+reconciliation is exactly what costs an hour. The vendor headers above are the
+reconciling figures.
+
+**The request shape is live's, not the laptop's, and that distinction nearly
+went the wrong way.** `fly.live.toml` sets `ODDS_MARKETS = "h2h,spreads"`;
+this laptop's `.env` carries `ODDS_MARKETS=h2h`. The first draft of the capture
+script read the environment, which would have bought a **two**-credit payload
+of a request the recorder does not make and pinned a code path nobody runs,
+while looking entirely correct. The shape is now a pinned constant with the
+cost guard asserting it still multiplies to 4.
+
+### What the fixture pins, in `tests/test_odds.py`
+
+Ten tests, in four classes. The two that could not have been written against
+the MLB capture:
+
+- **`TestFootballSpreadsAreNotBaseballSpreads`.** Baseball's run line is a
+  fixed ±1.5, so every existing spread assertion in this repo is an assertion
+  about a constant. Football's handicap runs ±14.5 here and hangs on
+  half-point hooks — a 3 and a 3.5 are different bets. The tests pin that the
+  range is football-sized, that hooks survive the parse, and that every spread
+  market is two-sided and sums to zero.
+- **`TestTheDeployedRequestBuysNoFootballTotals`.** This is the evidence for
+  the "scope, not a defect" sentence about the 16 `KXNFLTOTAL` rows that kept
+  re-stamping tonight. The deployed request does not ask for totals; the
+  response carries none; nothing can link. It is written so that adding
+  `totals` to `ODDS_MARKETS` **fails the test** — which is correct, because at
+  that moment the ladder rows become linkable and the per-sweep cost rises by
+  `len(regions)` at the same time.
+
+### The guards were disabled and watched to fail — and one of them did not
+
+Four mutations against `backend/odds/client.py`:
+
+| # | mutation | result |
+|---|---|---|
+| M1 | `if market_key in EXCLUDED_MARKETS:` → `in ()` | **stayed green** |
+| M2 | round `outcome_point` to an integer | red — hooks test |
+| M3 | `outcome_point=None` | red — hooks test |
+| M4 | add `h2h_lay` to `PRICEABLE_MARKETS` | red — both lay tests |
+
+**M1 is the one worth recording.** It stayed green not because the test is
+decoration but because the mutation was aimed at the wrong line:
+`EXCLUDED_MARKETS` only selects which log message is emitted. The actual gate
+is the `PRICEABLE_MARKETS` **whitelist** one line above
+(`client.py:567`) — an unclassified market is dropped by default, and
+`EXCLUDED_MARKETS` merely distinguishes "dropped on purpose" from "dropped
+with a warning" in the log. M4 aims at the real guard and both lay tests go
+red, the MLB one included.
+
+The lesson generalises past this file: **a mutation that leaves the suite green
+has two readings — the test is decoration, or the mutation missed the guard —
+and they are distinguished by reading the code, not by trying another test.**
+
+### What item 3 does NOT establish
+
+- **That the parser prices football correctly.** These are wire-contract tests
+  — fields present, markets classified, lay prices dropped, spreads two-sided.
+  Nothing here says the resulting consensus is any good, and ADR 0038 already
+  says the consensus signal is negative.
+- **Anything seasonal.** One capture, one day. The response carried all 272
+  regular-season games; that will not be true in December, and
+  `test_the_capture_is_a_real_multi_book_nfl_response` deliberately asserts
+  `>= 100` rather than `== 272` so a mid-season re-capture is not a false alarm.
+- **Anything about Sunday 09-13's credit load.** One sweep returning 272
+  fixtures for 4 credits is a fact about the *response*, not about how many
+  sweeps the kickoff-window loop will plan.
+
 ## Also found, not NFL
 
 `combo_orders` row 2 — the bid placed 2026-09-01 19:59Z that filled at 21:40Z

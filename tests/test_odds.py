@@ -908,3 +908,221 @@ class TestPropFetchingIsPerEventAndMeteredPerEvent:
             "SELECT COUNT(*) AS n FROM odds_sweep_log WHERE outcome = 'refused'"
         ).fetchone()["n"]
         assert refusals >= 1, "the refusal must be recorded, not silent"
+
+
+# ---------------------------------------------------------------------------
+# NFL wire format, against a real captured payload
+#
+# Captured 2026-09-08, hours after the first live NFL sweep bootstrapped at
+# 03:23:58Z. Until then **no NFL odds payload had ever been parsed by any test
+# in this repo** -- the only captured Odds API response was MLB, and every
+# assertion about football was an assertion about baseball's shape.
+#
+# What this section does NOT establish:
+#   - That the parser is correct for football *lines* in any pricing sense.
+#     It pins the wire contract -- fields present, markets classified, lay
+#     prices dropped, spreads two-sided -- and says nothing about whether the
+#     resulting consensus is any good.
+#   - Anything seasonal. This is one capture on one day. The response carried
+#     the whole 272-game regular season, which may not be true in December.
+#   - That `KXNFLTOTAL` will ever link. The opposite: the totals test below
+#     pins *why* it does not.
+# ---------------------------------------------------------------------------
+
+NFL_FIXTURE = Path(__file__).parent / "fixtures" / "odds_nfl_h2h_spreads.json"
+
+
+@pytest.fixture(scope="module")
+def captured_nfl_odds() -> dict:
+    """A verbatim `/v4/sports/americanfootball_nfl/odds` response, us+eu, decimal.
+
+    Captured at the **deployed** request shape (`h2h,spreads`), not this
+    laptop's `.env` shape (`h2h`), because a fixture of a request the recorder
+    never makes pins a code path nobody runs. See
+    `scripts/capture_nfl_odds_fixture.py`.
+    """
+    return json.loads(NFL_FIXTURE.read_text(encoding="utf-8"))
+
+
+class TestTheRealNflWireFormat:
+    """The parser against the bytes the API actually sends for football."""
+
+    def test_the_capture_is_a_real_multi_book_nfl_response(self, captured_nfl_odds):
+        """Guard the fixture itself, so a truncated re-capture fails loudly."""
+        events = captured_nfl_odds["events"]
+        assert len(events) >= 100, "an NFL slate this small is a truncated capture"
+        assert {e["sport_key"] for e in events} == {"americanfootball_nfl"}
+        assert captured_nfl_odds["params"]["oddsFormat"] == "decimal"
+        assert any(len(e["bookmakers"]) >= 20 for e in events)
+
+    def test_the_parser_reads_the_captured_nfl_payload(
+        self, odds_client, captured_nfl_odds
+    ):
+        quotes = odds_client._parse(
+            captured_nfl_odds["events"], sport_key="americanfootball_nfl", fetched_ms=NOW
+        )
+        assert quotes, "the parser produced nothing from a real NFL response"
+
+        # Every field the matcher and the devigger depend on must survive.
+        for q in quotes[:50]:
+            assert q.odds_event_id and q.home_team and q.away_team
+            assert q.commence_ms > 0
+            assert q.bookmaker and q.outcome_name
+            assert q.price_decimal > 1.0
+            assert q.book_updated_ms is not None
+
+    def test_every_market_key_in_the_nfl_capture_is_explicitly_classified(
+        self, captured_nfl_odds
+    ):
+        """The drift test, run on football rather than baseball.
+
+        A market key the vendor sends only for football would have been
+        classified by nobody while the MLB drift test stayed green.
+        """
+        seen = {
+            market["key"]
+            for event in captured_nfl_odds["events"]
+            for book in event["bookmakers"]
+            for market in book["markets"]
+        }
+        assert seen, "no market keys in the NFL capture"
+        unclassified = seen - PRICEABLE_MARKETS - set(EXCLUDED_MARKETS)
+        assert not unclassified, (
+            f"unclassified odds market key(s): {sorted(unclassified)}. Add each "
+            f"to PRICEABLE_MARKETS or EXCLUDED_MARKETS with a reason."
+        )
+
+
+class TestFootballSpreadsAreNotBaseballSpreads:
+    """The shape MLB could not exercise, which is why this fixture was bought.
+
+    Baseball's run line is a fixed +/-1.5 and the MLB capture pins that and
+    nothing else. Football's handicap moves across a wide range and hangs on
+    half-point hooks -- the point where a 3 and a 3.5 are different bets. A
+    parser that quietly dropped `point`, or rounded it, would pass every MLB
+    assertion in this file.
+    """
+
+    def _spread_points(self, captured_nfl_odds) -> list[float]:
+        return [
+            outcome["point"]
+            for event in captured_nfl_odds["events"]
+            for book in event["bookmakers"]
+            for market in book["markets"]
+            if market["key"] == "spreads"
+            for outcome in market["outcomes"]
+            if outcome.get("point") is not None
+        ]
+
+    def test_the_capture_spans_a_football_sized_handicap_range(
+        self, captured_nfl_odds
+    ):
+        """If this ever collapses to +/-1.5 the capture is not football."""
+        points = self._spread_points(captured_nfl_odds)
+        assert len(points) >= 500
+        assert min(points) <= -7.0 and max(points) >= 7.0, (
+            f"handicap range {min(points)} to {max(points)} is too narrow to be "
+            "an NFL slate; a baseball-shaped capture would pass everything else"
+        )
+
+    def test_half_point_hooks_survive_the_parse(self, odds_client, captured_nfl_odds):
+        """A 3 and a 3.5 are different bets. Rounding one to the other is a bug."""
+        quotes = odds_client._parse(
+            captured_nfl_odds["events"], sport_key="americanfootball_nfl", fetched_ms=NOW
+        )
+        spread_points = [
+            q.outcome_point for q in quotes if q.market == "spreads"
+        ]
+        assert spread_points, "no spread quotes survived the parse"
+        assert all(p is not None for p in spread_points), (
+            "a spread quote lost its point in the parse; the handicap IS the bet"
+        )
+        assert any(abs(p * 2) % 2 == 1 for p in spread_points), (
+            "no half-point hooks survived, which means points were rounded"
+        )
+
+    def test_every_spread_market_is_two_sided_and_sums_to_zero(
+        self, captured_nfl_odds
+    ):
+        """The devigger needs both sides; an asymmetric pair is a broken book."""
+        markets = [
+            market
+            for event in captured_nfl_odds["events"]
+            for book in event["bookmakers"]
+            for market in book["markets"]
+            if market["key"] == "spreads"
+        ]
+        assert markets, "no spread markets in the capture"
+        for market in markets:
+            outcomes = market["outcomes"]
+            assert len(outcomes) == 2, f"spread market with {len(outcomes)} sides"
+            assert abs(outcomes[0]["point"] + outcomes[1]["point"]) < 1e-9, (
+                f"spread pair does not sum to zero: {outcomes}"
+            )
+
+
+class TestTheDeployedRequestBuysNoFootballTotals:
+    """Why 16 `KXNFLTOTAL` rows stayed unmatched after the sweep linked.
+
+    On 2026-09-08 the first NFL sweep froze all 32 `KXNFLGAME` and all 16
+    `KXNFLSPREAD` rows in `unmatched_items` and left 16 `KXNFLTOTAL` and 2
+    `KXNFLTEAMTOTAL` re-stamping. That was recorded as "scope, not a defect".
+    This is the evidence for that sentence, and it is here so the claim is
+    falsifiable rather than asserted: the deployed request does not ask for
+    totals, so the response carries none, so nothing can link.
+
+    If `ODDS_MARKETS` ever gains `totals`, this test fails -- which is correct.
+    It is the reminder that the ladder rows become linkable at that moment, and
+    that the credit cost per sweep rises by `len(regions)` at the same time.
+    """
+
+    def test_the_capture_asked_for_no_totals(self, captured_nfl_odds):
+        assert "totals" not in captured_nfl_odds["params"]["markets"], (
+            "the capture requested totals; the deployed shape does not, so this "
+            "fixture no longer represents what the recorder buys"
+        )
+
+    def test_and_therefore_carries_none(self, captured_nfl_odds):
+        totals = [
+            market
+            for event in captured_nfl_odds["events"]
+            for book in event["bookmakers"]
+            for market in book["markets"]
+            if market["key"] in ("totals", "totals_lay")
+        ]
+        assert not totals, (
+            f"{len(totals)} totals market(s) arrived unrequested. The KXNFLTOTAL "
+            "rows may now be linkable; re-read the 2026-09-07 preflight doc."
+        )
+
+
+class TestNflLayPricesNeverReachTheConsensus:
+    """`h2h_lay` arrives unrequested on football too, from the EU exchanges.
+
+    The MLB capture proves the exclusion works on baseball. The exchanges in a
+    football region are not necessarily the same books, and an exclusion that
+    keyed on the book rather than the market would pass there and fail here.
+    """
+
+    def test_the_nfl_capture_really_does_contain_unrequested_lay_prices(
+        self, captured_nfl_odds
+    ):
+        """If this stops being true, the exclusion below proves nothing."""
+        assert "h2h_lay" not in captured_nfl_odds["params"]["markets"]
+        lay_books = {
+            book["key"]
+            for event in captured_nfl_odds["events"]
+            for book in event["bookmakers"]
+            if any(m["key"] == "h2h_lay" for m in book["markets"])
+        }
+        assert lay_books, "no lay prices in the NFL capture"
+
+    def test_nfl_lay_prices_are_dropped(self, odds_client, captured_nfl_odds):
+        quotes = odds_client._parse(
+            captured_nfl_odds["events"], sport_key="americanfootball_nfl", fetched_ms=NOW
+        )
+        assert quotes, "the parser produced nothing"
+        assert not [q for q in quotes if q.market.endswith("_lay")], (
+            "a lay price reached the consensus; it is the price to OFFER a bet, "
+            "not to take one, and averaging it into a fair value is a bug"
+        )

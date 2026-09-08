@@ -415,7 +415,39 @@ all green this morning are red.
    (`.github/workflows/deploy.yml:13-15`) — a dropdown mis-tap on a phone is a
    plausible way to deploy the money instance by accident. Do not paper over
    that by scripting it away.
-3. **Capture the NFL odds wire fixture**, after item 1 succeeds — see above.
+3. ~~**Capture the NFL odds wire fixture**~~ **DONE 2026-09-08 04:09Z.**
+   `scripts/capture_nfl_odds_fixture.py --confirm-spend-4` →
+   `tests/fixtures/odds_nfl_h2h_spreads.json` (926 KB): **272 events** — the
+   whole regular season in one response — 30 books, markets `h2h`/`h2h_lay`/
+   `spreads`, handicaps −14.5 to +14.5 over 2,278 outcomes, all half-integer.
+   Ten tests in `tests/test_odds.py`.
+
+   **LEDGER DRIFT: +4 credits `api_credits` will never show.** The table is
+   written by the runner on the box; this call went laptop→vendor. Every
+   `credits-day`/`credits-month` read for 2026-09-08 is 4 low. Reconciling
+   figures are the vendor headers: `x-requests-remaining 17584`,
+   `x-requests-used 2416`.
+
+   **The shape is live's, not the laptop's, and it nearly went the other way.**
+   `fly.live.toml` sets `ODDS_MARKETS = "h2h,spreads"`; local `.env` has
+   `ODDS_MARKETS=h2h`. Reading the environment would have bought a **two**-credit
+   payload of a request the recorder never makes and pinned a code path nobody
+   runs, while looking correct. Pinned constant + cost guard now.
+
+   **Two tests could not have been written against the MLB capture**: football
+   handicaps are a wide half-point range where baseball's run line is a fixed
+   ±1.5; and `TestTheDeployedRequestBuysNoFootballTotals` is the *evidence* for
+   the "scope, not a defect" reading of tonight's 16 re-stamping `KXNFLTOTAL`
+   rows. It fails if `ODDS_MARKETS` ever gains `totals` — correct, because at
+   that moment those rows become linkable and the per-sweep cost rises by
+   `len(regions)`.
+
+   **One mutation stayed green and the reason is worth carrying.** Disabling
+   `if market_key in EXCLUDED_MARKETS:` changed nothing, because that line only
+   picks the log message — the real gate is the `PRICEABLE_MARKETS` whitelist
+   at `client.py:567`. Aiming at that (M4) turns both lay tests red, the MLB
+   one included. **A green mutation has two readings — decoration, or a missed
+   guard — and only reading the code separates them.**
 4. **The Sunday 09-13 convergence.** Simulated at ~486 credits base (3 NFL
    clusters × 7 calls × 4, plus the NFL floor, plus observed MLB+NCAAF), and
    all three clusters land in one budget day because the 00:20Z nighter is
