@@ -60,6 +60,39 @@ class TestHealth:
         """A public URL must not be mistakable for the real thing."""
         assert (await get(demo_app, "/api/health")).json()["execution_available"] is False
 
+    async def test_it_reports_each_money_paths_dry_run_switch(self, demo_app):
+        """**So "is it armed on live?" is an observation, not an inference.**
+
+        Added 2026-09-08, when the combination bid path was disarmed on Joe's
+        word (ADR 0115) and the obvious next question had no direct answer.
+        All three switches are compile-time constants with no env override --
+        deliberately, so arming is a commit rather than something nudgeable at
+        2am -- which meant the only way to check the running box was to reason
+        about what a deployed sha contained. That is a claim about a commit,
+        not a reading of the process, and this repo keeps a standing lessons
+        entry about verification methods that report health without looking.
+
+        `True` means DRY: the row is recorded and nothing is sent.
+        """
+        from backend.store import combo_orders, manual_orders, orders
+
+        body = (await get(demo_app, "/api/health")).json()
+        switches = body["order_paths_dry_run"]
+
+        # Read THROUGH the modules rather than restating the literals. A test
+        # that hard-codes the expected booleans becomes a second place the
+        # arming state is written down, and the two drift -- which is the
+        # failure `tests/test_combo_bid_routes.py::TestTheSwitch` exists to
+        # prevent for the constant itself. That test owns the VALUE; this one
+        # owns only that the wire reports it faithfully.
+        assert switches["manual_orders"] is manual_orders.MANUAL_ORDERS_ARE_DRY_RUNS
+        assert switches["combo_bids"] is combo_orders.COMBO_ORDERS_ARE_DRY_RUNS
+        assert switches["engine_orders"] is orders.ORDERS_ARE_DRY_RUNS
+
+        # All three keys present, so a path cannot be dropped from the report
+        # by a refactor and leave the reader believing they saw it.
+        assert set(switches) == {"manual_orders", "combo_bids", "engine_orders"}
+
     async def test_it_says_whether_alerting_is_configured(
         self, demo_app, monkeypatch
     ):

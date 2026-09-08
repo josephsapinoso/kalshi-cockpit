@@ -76,7 +76,29 @@ from ..kalshi.rest import EXCHANGE_INDEX_COMBOS
 # `MANUAL_ORDERS_ARE_DRY_RUNS` convention (ADR 0063), for the same reason an
 # environment variable was refused: a switch somebody can nudge at 2am is not
 # a decision with a commit behind it.
-COMBO_ORDERS_ARE_DRY_RUNS = False
+#
+# **DISARMED 2026-09-08, on Joe's word: "disarm the bid path."** The procedure
+# above, followed exactly, in a commit of its own.
+#
+# **Why, and it is not a safety scare.** This endpoint exists to REST AN
+# OFFER, and on 2026-09-06 Joe asked for the offer-making controls to be taken
+# out -- *"I don't want to make offers or find offers in shares"* -- a ruling
+# CLAUDE.md still records as standing. The UI was removed then; the armed
+# real-money endpoint behind it was not, so for two days the desk kept a door
+# open onto a thing its owner had said he did not want. Nothing was resting
+# when this was flipped (all five bids the table has ever held are terminal),
+# so the flip stranded nothing.
+#
+# **What it does NOT do.** The route, the table, the watcher and the cancel
+# path all stay. A dry run still writes the row and still returns the words
+# "Nothing was sent to the exchange", so the path stays rehearsable and the
+# record of intent stays intact -- and re-arming stays one line, which is the
+# whole point of the convention. Deleting it was one of the three options put
+# to him and is not what he chose.
+#
+# The hand-bet TAKER path is untouched and stays armed: he pays the ask there,
+# which is the half of the 2026-09-06 ruling that always stood.
+COMBO_ORDERS_ARE_DRY_RUNS = True
 
 #: The most a single resting bid may commit, in tenths of a cent.
 #:

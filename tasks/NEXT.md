@@ -391,8 +391,9 @@ Verified by disabling: restoring the old bound turns 5 of the 7 new tests red.
    decision itself is untouched and still dated.**
 7. **Scout Anthropic refusal fixture (ADR 0106 §5.2)** — one billed call. NOT
    dead code: `routers/scout.py:25` imports `agents.scout_desk`.
-8. **`combo_orders` — investigated this session; the state is now known and
-   the remaining question is JOE'S.** Facts, all re-read off the instrument:
+8. **`combo_orders` — CLOSED. He said "disarm the bid path" and it is
+   disarmed (ADR 0115).** The findings that produced the question are kept
+   below because the reasoning behind a disarm is what a re-arm has to answer:
 
    - **Nothing is resting.** All five bids `combo_orders` has ever held are
      terminal: four `cancelled` ("the first leg has started"), one
@@ -417,18 +418,20 @@ Verified by disabling: restoring the old bound turns 5 of the 7 new tests red.
      spends money rather than only on `require_auth`'s own test; verified red
      by deleting the demo branch.
 
-   **So the only live question is a contradiction, and it is Joe's:** this
+   **The question that was put to him, and his answer.** This
    endpoint exists to REST OFFERS, and on 2026-09-06 he asked for the
    offer-making controls to be removed — *"I don't want to make offers or find
    offers in shares"* — a ruling CLAUDE.md records as **still standing** as of
    2026-09-08. The UI was removed; the armed real-money endpoint was not.
-   Three options, and **no session should pick one**: disarm
-   (`COMBO_ORDERS_ARE_DRY_RUNS = True`, one line, revertible, which the code's
-   own comment describes as the intended way); remove the route and its
-   client entirely; or leave it armed because he may want it back. Nothing
-   rests, so all three are safe to take now and none gets safer by waiting.
-   `COMBO_ORDER_MAX_SPEND_TENTHS` ($3.00) still binds here — ADR 0112 removed
-   the caps on the hand-bet TAKER path and never reached this one.
+   Three options were put to him — disarm, delete, or leave armed — and he
+   chose **disarm**. Done, one line, in a commit of its own, the procedure the
+   constant's own comment specified. The switch's interlock test went red on
+   the flip exactly as it was written to, and the acknowledgement is in its
+   docstring.
+   `COMBO_ORDER_MAX_SPEND_TENTHS` ($3.00) is deliberately **not** touched: it
+   binds nothing while the path is dry, and it is the ceiling that would apply
+   on re-arming. Raising it while nobody is watching is how a removed cap
+   comes back by accident.
 9. **The decision map's third queue is two items, not nine.** A full audit of
    all 32 closed tickets against the tree finds 23 built, 7 decided as "no
    build", 2 genuine gaps — one of which is item 4 above. The "~9" was carried
@@ -440,10 +443,12 @@ Verified by disabling: restoring the old bound turns 5 of the 7 new tests red.
   money; shard 0 (Default) is at $0.00, so every single-market bet dies at the
   venue. Check 9a now names the pocket and the reallocation link rather than
   letting it read as a broken cockpit.
-- **(B)** `POST /api/parlays/bid` — armed, real-money, zero UI callers, and it
-  rests OFFERS, which he asked to be rid of on 2026-09-06. Disarm, delete, or
-  leave? Item 8. Nothing is resting, so there is no deadline and no risk in
-  either direction; it should simply not drift unanswered.
+- ~~**(B)** `POST /api/parlays/bid`.~~ **ANSWERED: *"disarm the bid path."***
+  `COMBO_ORDERS_ARE_DRY_RUNS = True`, ADR 0115. The route, table, watcher and
+  cancel path all STAY — a dry run still writes the row and still says
+  "Nothing was sent to the exchange" — and **deleting it was one of the three
+  options and is not what he chose.** Do not finish the job by removing it as
+  dead code.
 
 ### The pattern worth carrying (goes to `tasks/lessons.md`)
 

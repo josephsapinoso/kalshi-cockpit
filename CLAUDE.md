@@ -505,7 +505,19 @@ four brakes (ADR 0112), and the ceilings are structural only —
 of ours bounds the size of a hand bet**; what remains is the desk lockout,
 idempotency, the KXMVE acknowledgement, the price ceiling, the depth at the
 ask, the netting guard, the shard collateral check (the **venue's** rule), and
-reserve-then-check. The buy button was still enforcing the removed caps until
+reserve-then-check.
+
+**The OTHER real-money door is now dry, and the distinction matters.**
+`POST /api/parlays/bid` rests a good-till-cancelled OFFER on a combination. It
+was armed 2026-08-30 and **disarmed 2026-09-08 on Joe's word — "disarm the bid
+path"** (ADR 0115), because he asked for the offer-making controls to be
+removed on 2026-09-06 and the endpoint outlived its UI by two days. So: **he
+pays the ask and does not make offers**, and that is now true in code rather
+than only in a ruling. The route, table, watcher and cancel path all stay, a
+dry run still records the intent, and re-arming is one line — **deleting it
+was an option he did not take**, so do not remove it as dead code.
+
+The buy button was still enforcing the removed caps until
 `ADR 0114` — see that ADR before trusting any
 sentence about what the screen allows.
 

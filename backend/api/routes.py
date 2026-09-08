@@ -97,7 +97,9 @@ from ..runner import book_quotes_for_event
 from ..settlement import open_position_dollars
 from ..slate import DRIFT_WINDOW_MS, book_distribution, kalshi_drift
 from ..store import db
+from ..store import combo_orders as combo_store
 from ..store import manual_orders as manual_store
+from ..store import orders as orders_store
 from ..store.manual_orders import (
     COMBO_MAX_CONTRACTS,
     MANUAL_ORDER_MAX_CONTRACTS,
@@ -528,6 +530,25 @@ def create_app(
             "live_trading_enabled": gate.live_trading_enabled,
             # Stated plainly so the demo cannot be mistaken for the real thing.
             "execution_available": not app_config.is_demo and gate.live_trading_enabled,
+            # **The two money doors' switches, readable from outside.** Both
+            # are compile-time constants with no env override -- deliberately,
+            # so arming is a commit rather than something nudgeable at 2am --
+            # which until now made "is it armed on live?" answerable only by
+            # inferring it from a deployed sha. That is an inference about
+            # what a commit contained, not an observation of the running
+            # process, and `tasks/lessons.md` has a standing entry about
+            # verification methods that report health without looking.
+            #
+            # Added 2026-09-08, when the bid path was disarmed on Joe's word
+            # (ADR 0115) and the obvious next question -- "is it actually
+            # disarmed on the box?" -- had no direct answer.
+            #
+            # `True` here means DRY: the row is recorded and nothing is sent.
+            "order_paths_dry_run": {
+                "manual_orders": manual_store.MANUAL_ORDERS_ARE_DRY_RUNS,
+                "combo_bids": combo_store.COMBO_ORDERS_ARE_DRY_RUNS,
+                "engine_orders": orders_store.ORDERS_ARE_DRY_RUNS,
+            },
             # A boolean, never the credential. Setting a Fly secret from a
             # phone has no feedback of its own -- the loop logs `discord=on` at
             # startup and Fly's log tail has usually rolled past it by the time

@@ -521,23 +521,35 @@ class TestTheRecordAndTheCancel:
 
 
 class TestTheSwitch:
-    def test_the_armed_state_is_stated_here_so_a_flip_is_never_silent(self):
-        """The switch is ARMED, on Joe's word, 2026-08-30.
+    def test_the_disarmed_state_is_stated_here_so_a_flip_is_never_silent(self):
+        """The switch is DISARMED, on Joe's word, 2026-09-08:
+        *"disarm the bid path."*
 
-        This test asserted `is True` until the moment it was armed, which is
-        the point of writing it that way: flipping the constant turns this red
-        and the flip has to be acknowledged in the same commit. It is not a
-        rubber stamp on the value -- it is the thing that makes arming a
-        decision somebody made rather than a diff nobody noticed.
+        **The interlock worked and this edit is the proof.** The constant was
+        flipped and this test went red in the same change, exactly as its
+        previous version said it would -- *"flipping the constant turns this
+        red and the flip has to be acknowledged in the same commit"*. It is
+        not a rubber stamp on the value; it is what makes arming or disarming
+        a decision somebody made rather than a diff nobody noticed. The
+        acknowledgement is this docstring.
 
-        Its blocking precondition was verified, not assumed: shard 1 read
-        $21.4100 (up from $0.0100), so a bid on a combination can be paid for.
+        History, because the reason matters more than the value. It was ARMED
+        2026-08-30 on his words *"the exchange is done. arm the switch"*, with
+        its blocking precondition verified rather than assumed (shard 1 read
+        $21.4100, up from $0.0100, so a bid could actually be paid for). It is
+        disarmed now because the endpoint RESTS AN OFFER, and on 2026-09-06 he
+        asked for the offer-making controls to be removed -- the UI went, the
+        armed endpoint behind it did not, and the desk spent two days holding
+        a door open onto something its owner had said he did not want.
 
-        To disarm: set the constant True and change this to `is True`.
+        Nothing was resting when it was flipped: all five bids the table has
+        ever held are terminal. The flip stranded nothing.
+
+        To re-arm: set the constant False and change this to `is False`.
         """
         from backend.store.combo_orders import COMBO_ORDERS_ARE_DRY_RUNS
 
-        assert COMBO_ORDERS_ARE_DRY_RUNS is False
+        assert COMBO_ORDERS_ARE_DRY_RUNS is True
 
     def test_arming_this_door_did_not_arm_the_engine(self):
         """The engine path stays dry, and the interlock stays untouched.
