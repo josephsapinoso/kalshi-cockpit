@@ -1,6 +1,16 @@
 # ADR 0105 — The desk is read, not transacted through
 
-**Status:** Accepted. Ordinal 0105 taken at merge, 2026-09-04, after
+**Status: SUPERSEDED 2026-09-08 by ADR 0113**
+(`0113-the-desk-is-transacted-through-after-all.md`), by the mechanism §5 of
+this document specifies — Joe said so. **Read that one before acting on this
+one.** §3's central decision ("the desk is a read surface") and §6's
+instruction to sessions are withdrawn; **§1's census is NOT withdrawn and is
+not in dispute** — it is still 0 of 27, and 0113 re-reads it as a fact about
+the door rather than about what he wants. §3's two specific kills (ticket
+#11's log form, `/api/estimates/last-scored`) are **not** refunded by 0113
+and remain killed.
+
+Originally accepted. Ordinal 0105 taken at merge, 2026-09-04, after
 `git fetch` (`docs/adr/README.md`). Lane A.
 **Date:** 2026-09-04.
 **Decides:** an operational finding and the work it stops funding. It is

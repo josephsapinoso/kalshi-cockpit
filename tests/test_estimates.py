@@ -1107,6 +1107,18 @@ class TestTheLogScreenStaysKilled:
     measured 0 of 27 hand fills through the tool. This pins the absence so
     wiring it up takes a decision rather than an afternoon.
 
+    **The 0-of-27 no longer carries the weight it did, and this kill does not
+    depend on it. ADR 0105 was superseded 2026-09-08 by ADR 0113** — Joe said
+    he wants to transact through the desk, and ADR 0112 found four brakes plus
+    a missing shard check that a census through that door could not see past.
+    So "he does not type into it" is no longer the reason for anything.
+
+    **This kill survives on ADR 0113 §4's own terms**, which state it: he
+    spoke about PLACING BETS and said nothing about logging an ESTIMATE, and
+    if anything his correction cuts against the form, since the thing he
+    disowned was recording bets rather than making them. Question D is still
+    unanswered and still governs. Do not read the supersede as a refund.
+
     Nothing here forbids the backend route or the client function existing --
     deleting them is a larger change than the one Joe made, and the chain
     carries ADR 0044's embargo machinery. What is forbidden is a UI caller.

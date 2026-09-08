@@ -224,7 +224,205 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-07 (latest, second session) — tonight's check had no instrument on the box and the wrong reading written down; attention was paying a live-game cadence for a line two days out
+## 2026-09-08 — Joe corrected what the desk is FOR at the moment of a bet, and the four things stopping him turned out to be ours
+
+**STATE at close.** `main` = the sha in `git log -1`, pushed; read CI with
+`gh run list --limit 3`. **Live was ON main twice today** and verified both
+times off `/api/health` `build.git_sha`, not off a sentence — but this entry
+was written before its own commit, so **re-read `/api/health` rather than
+believing the table.** The last verified pair was `95fbe16` on both, at which
+point this entry's own commits (ADR 0113 and the NEXT.md entry) were not yet
+made and are docs-only.
+
+    live     95fbe16 at last verify; machine 7812601a239428 UNCHANGED both deploys
+    demo     cc8de80 deliberately behind, untouched today
+
+**Check the machine ID after any deploy.** Every pacing quantity for the odds
+budget is a SQL read against `api_credits` on the mounted volume; a NEW machine
+gets an EMPTY volume and every credit fact inverts silently. It was
+`7812601a239428` before and after both of today's deploys.
+
+Tree clean, no worktrees, decision map still 0 open. Suite **6369 passed / 10
+xfailed** before the last two commits; re-run at the top of the next session
+rather than trusting this number.
+
+### The correction that reordered the whole day
+
+Joe, unprompted, mid-session: **when earlier work said "sportsbook", he meant
+KALSHI'S sportsbook.** He does not want a control for logging bets placed at a
+third-party book. He wants to **place bets on Kalshi through the cockpit
+directly — single markets and combinations both.**
+
+That contradicted ADR 0105 at its premise, and the 2026-09-06 write-up of his
+"both" answer was a misreading. **The offer-making half of that ruling stands**
+— no resting bids, no "shares", pay the ask.
+
+### What was actually stopping him, and none of it was the venue
+
+`manual_orders` had **0 rows of any kind** after 14 days armed. ADR 0105 read
+that as "he does not want to transact here". Five defects say otherwise, all
+found today:
+
+| | |
+|---|---|
+| per-bet cap | **~$2.14** — 10% of a ~$21 balance, while he had been told the cap was $3.00 |
+| daily-loss switch | the **same** ~$2.14, counting losses from bets placed in the Kalshi APP |
+| cool-off | 10 minutes against a measured ~2.3 fills per sitting |
+| order token | 43 characters retyped from scratch on every bet |
+| shard check | **absent entirely** — zero references to `exchange_index` on the path |
+
+**ADR 0112** removes the first four on his word. He was re-asked on two after
+being shown a consequence the first framing omitted, and did not move: that the
+per-bet cap and the daily switch are the SAME number, and that the typed token
+was the **credential**, not merely friction, so a person holding his unlocked
+phone can now bet his money. §4 states the consequence in one sentence and §5
+reserves restoring any of it to Joe. **Do not restore these on your own
+judgement.** The re-pointed tests are *inverted*, not deleted, so a restored
+brake fails loudly.
+
+**What was NOT removed, because he was never asked:** the total-exposure
+ceiling (40% of balance). It is still enforced under the write lock
+(`ExposureCapExceeded`), which is why check 6 was **narrowed rather than
+deleted** — an unobserved balance still refuses on that one ground, or `None`
+reaches the reserve as a ceiling and a live guard silently stops guarding.
+
+### His shard allocation inverted the advice, and the desk could not see it
+
+Read off Kalshi by Joe: **shard 1 (Combos) $22.24, shard 0 (Default) $0.00.**
+
+So **combos are the funded path and single markets are the blocked one** —
+the reverse of what was being said all day. And the manual path had no shard
+awareness, so every single-market bet would have died at the VENUE with a bare
+`insufficient_balance`, which against a $22 account reads as a broken cockpit.
+ADR 0084 solved this for combinations and the reasoning was never carried
+across; `combo_orders.check_affordable`'s own docstring says why — only the
+desk is in a position to say so.
+
+Check 9a now refuses first, naming the shard, the shortfall, the reallocation
+link, and — deliberately — **"This is the venue's rule, not a cap of yours."**
+A refusal he reads as a cap sneaking back is worse than no refusal.
+
+- The shard is read **off the market** (`exchange_index`, new on
+  `DiscoveredMarket`, exposed on `LiveQuote`), never from the ticker prefix:
+  Kalshi calls that field authoritative and says ticker formats move. A test
+  pins `"KXMVE"` ABSENT from the check.
+- Unreadable refuses **both ways**: no `exchange_index` refuses rather than
+  guessing 0 (**0 is a real shard**), and an unparsable balance refuses rather
+  than resolving to spendable. `_exchange_index` rejects a bool explicitly —
+  `True` is an `int` and would become shard **1**, the combinations shard.
+- The balance is read **scoped**. The unscoped call returns the SUM and can pay
+  for nothing: $21.41 total beside $0.01 on the shard that needed it,
+  2026-08-30. That payload is now a test.
+
+### ADR 0113 supersedes 0105, by 0105's own mechanism
+
+§5 named two overturning conditions "and nothing softer"; the second was **"Joe
+saying so."** It fired as written.
+
+**The census is retained, not withdrawn.** Still 0 of 27, still true. Only the
+*inference* is replaced — from "he does not want to" to "the door had something
+wrong with it". A count of zero through a door with five defects measured the
+door. 0105's inference is recorded as **underdetermined, not careless**: the
+five were not enumerated until today.
+
+**Two kills are NOT refunded**, and §4 says so explicitly: ticket #11's
+estimate log form (he spoke about placing bets, not logging estimates;
+question D is still unanswered and still governs) and
+`/api/estimates/last-scored` (its source is structurally empty regardless).
+**Do not read the supersede as a refund.**
+
+**§6 sets a trap worth knowing about:** a future census of 0 may NOT overturn
+0113 unless it first establishes the path was usable across its whole window,
+dated from today's deploy. Otherwise it is the same measurement read the same
+wrong way, twice.
+
+### The combo depth figure on the refusal screen was false three ways
+
+`"the deepest resting bid ever measured here was 18 units, so a larger count
+could not fill"` — shown to Joe inside a 422, citing ADR 0012 §5.
+
+1. **The citation is spurious.** ADR 0012 has no depth figure; its only `18` is
+   the denominator of `same-game 17/18`, a rate it withdraws itself.
+2. **The scope was dropped.** The real source says "the deepest resting order
+   **here** was 18.00 units" — one run of 11 rows. Every copy promoted "here"
+   to "ever measured".
+3. **Repo-wide it is wrong by ~38x.** The committed captures carry resting NO
+   bids of **683, 413, 369, 311, 309, 300**.
+
+**And entry was being reported backwards.** `PriceOnKalshi.tsx` told him to
+"expect it to refuse" off `3 of 20 and 3 of 9` — those are the `volume` counts,
+rows that had ever **traded**. The resting-bid counts are 16/20, 6/9, 11/11:
+**33 of 40**, five books in six, each a hittable offer. The code was fine
+(check 8 reads `depth_at_ask`, the NO-bid depth); only the words were wrong.
+
+**What survives is the exit:** zero resting YES bids over 36 levels on 40/40.
+`tests/test_combo_book_depth_claims.py` pins the arithmetic to the capture
+files. Its phrase guard permits a correction note that quotes what it replaced
+and refuses a fresh assertion — the window reaches **forward** as well as back,
+because a correction often opens with the phrase it is striking.
+
+### The 09-15 `parlay_positions` deletion clause is VACATED
+
+Not deferred — it fires on no date. The entry form **defaults `source` to
+`"sportsbook"`**, the option Joe has now disowned, and the steer runs on seven
+surfaces; `ParlayCards.tsx:257-261` **hard-codes** it. **The number of days a
+neutral choice was shown is 0.** A 0 on 09-15 could not separate "hedging is
+unwanted" from "logging someone else's slip is unwanted".
+
+Splitting by `source` was **rejected** — it fixes which-book and leaves the
+steer. The power check kills it independently: no denominator at all, and
+supplying one gives `G ≈ 9-16`, a one-sided 95% bound of 0.19-0.33.
+
+One verdict-free census is permitted on/after 09-15, usable ONLY as a planning
+`n`. A deletion decision needs a successor registration gated on four
+preconditions, observing `G = 30` sittings or 2026-11-30.
+`docs/measurements/2026-09-08-parlay-positions-check-amendment-registration.md`.
+
+### Still open, in order
+
+1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Sunday 09-13 is
+   the only attended NFL Sunday this month and the one live term of the credit
+   convergence is whether the attention slice binds. After 10:00Z on 09-14:
+   `credits-day --date 20260913`, `sweep-log`, `visit-freshness`, and **split
+   the mechanisms off `odds_sweep_log.detail`, NOT `api_credits.trigger`**,
+   which pools them and is displaceable by the schedule.
+   **Frozen surface:** `backend/odds/{timing,budget,attention,ondemand,client,
+   sweeplog}.py`. **A DEPLOY IS NOT CONTAMINATION** — the pacing quantities are
+   re-read from the mounted volume every pass, verified empirically (the
+   03:44:05Z restart bought zero credits). Logic changes are.
+2. **The first real `manual_orders` row is the finding**, and there is not one
+   yet. When one lands, that is genuinely new: the table has never held a row
+   of any kind. Do not census it before then and do not read a continued 0 as
+   evidence — ADR 0113 §6 forbids exactly that without first showing the path
+   was usable.
+3. **`RecordParlay.tsx:69-70`** still defaults `source` to `"sportsbook"`, and
+   `ParlayCards.tsx:257-261` still hard-codes it. Flip to **no default**, not a
+   flipped one. This is precondition P2 of the successor registration and the
+   clean window opens at its deploy — **do not delay it to protect
+   continuity**, the window is already void.
+4. **ADR 0078's justification needs rewriting even though the feature
+   survives.** "Combos are enter-only, so a leg hedge is the only exit" rests
+   on the entry/exit conflation corrected today. The hedge survives on the
+   EXIT claim, which is untouched.
+5. **`window_status` cannot predict a bootstrap** — FROZEN until 09-14
+   (`timing.py:1536`).
+6. **The `eu` lever, 2026-09-28** — ADR 0110's measurements first. Three of the
+   four are free and takeable now.
+7. **Scout Anthropic refusal fixture (ADR 0106 §5.2)** — one billed call. NOT
+   dead code: `routers/scout.py:25` imports `agents.scout_desk`.
+8. **`combo_orders` reconciliation** — re-scope. `POST /api/parlays/bid` is a
+   **live, armed, real-money endpoint with zero UI callers**. Left dormant
+   deliberately today (a pre-09-06 bid may still rest); decide it once, do not
+   let it drift.
+9. **The decision map is exhausted** — 32 of 32 closed. Its third queue,
+   *decided but never built*, has ~9 live items and belongs to nobody.
+
+**Joe-gated:** whether to remove the 40% total-exposure ceiling (the one brake
+he was never asked about), and whether to fund shard 0 so single markets work.
+
+---
+
+## 2026-09-07 (second session) — tonight's check had no instrument on the box and the wrong reading written down; attention was paying a live-game cadence for a line two days out
 
 **STATE at close.** `main` = **`42e667f`**, pushed. **Live is deliberately
 NOT on `main`, and that is the first thing to check before deploying.**
