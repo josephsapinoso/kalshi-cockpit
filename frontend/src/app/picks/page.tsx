@@ -307,7 +307,7 @@ export default async function PicksPage({
       */}
       <RecordParlay
         summary="Record a bet you placed"
-        blurb="Paid for a bet at a sportsbook, or a combination on Kalshi? The desk cannot see it. Record it and it will price the legs against Kalshi while the games run."
+        blurb="Already paid for a bet the desk cannot see? Record it and it will price the legs against Kalshi while the games run."
       />
     </Shell>
   );

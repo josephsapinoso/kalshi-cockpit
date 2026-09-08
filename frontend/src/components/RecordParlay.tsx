@@ -66,8 +66,22 @@ export default function RecordParlay({
   blurb?: string;
 } = {}) {
   const router = useRouter();
-  const [source, setSource] = useState<"sportsbook" | "kalshi_combo">(
-    prefill?.source ?? "sportsbook",
+  // **NO DEFAULT, 2026-09-08.** This defaulted to `"sportsbook"`, and
+  // `ParlayCards.tsx` hard-coded the same value into its prefill, so the
+  // question "where is it" arrived already answered on every surface. Joe
+  // then disowned that option's premise -- when the earlier work said
+  // "sportsbook" he meant KALSHI'S sportsbook, and he bets through the
+  // cockpit into Kalshi (ADR 0113).
+  //
+  // The fix is **no default, not the other default**. A flipped steer is
+  // still a steer, and the reason this matters beyond taste is measurement:
+  // the 09-15 `parlay_positions` deletion clause was vacated because a
+  // census of the recorded population could not separate "hedging is
+  // unwanted" from "logging someone else's slip is unwanted" -- the number
+  // of days a neutral choice had been shown was 0. This is precondition P2
+  // of the successor registration and the clean window opens at its deploy.
+  const [source, setSource] = useState<"sportsbook" | "kalshi_combo" | "">(
+    prefill?.source ?? "",
   );
   const [label, setLabel] = useState(prefill?.label ?? "");
   const [book, setBook] = useState(prefill?.book ?? "");
@@ -88,6 +102,15 @@ export default function RecordParlay({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    // Belt and braces on the one field that now has no default. The button is
+    // disabled without it, but a form can be submitted by keyboard and the
+    // wire type does not admit "" -- `schemas.py` requires the field with a
+    // two-value pattern, so an empty string would be a 422 the reader cannot
+    // act on. Refusing here says what to do instead.
+    if (source === "") {
+      setRefused("Choose where this ticket is — a Kalshi combo or a sportsbook slip.");
+      return;
+    }
     setBusy(true);
     setRefused(null);
 
@@ -149,12 +172,15 @@ export default function RecordParlay({
           <select
             value={source}
             onChange={(e) =>
-              setSource(e.target.value as "sportsbook" | "kalshi_combo")
+              setSource(e.target.value as "sportsbook" | "kalshi_combo" | "")
             }
             className="min-h-9 rounded border border-border bg-transparent px-2 text-sm"
           >
-            <option value="sportsbook">A sportsbook slip</option>
+            {/* The empty option is selectable rather than merely initial, so
+                a mis-tap can be undone without reloading the form. */}
+            <option value="">Choose one</option>
             <option value="kalshi_combo">A Kalshi combo</option>
+            <option value="sportsbook">A sportsbook slip</option>
           </select>
         </label>
 
@@ -241,7 +267,7 @@ export default function RecordParlay({
 
         <button
           type="submit"
-          disabled={busy}
+          disabled={busy || source === ""}
           className="min-h-11 rounded border border-border px-4 text-sm font-semibold uppercase tracking-wide disabled:opacity-50"
         >
           {busy ? "recording…" : "record it"}

@@ -94,7 +94,26 @@ class TestTheParlayCardFillsItIn:
         assert "prefill={{" in source
         assert "card.legs.map((leg)" in source
         assert "label: card.title" in source
-        assert 'source: "sportsbook"' in source
+
+        # **Inverted 2026-09-08.** This required the prefill to carry
+        # `source: "sportsbook"`. Joe disowned that option's premise -- when
+        # the earlier work said "sportsbook" he meant KALSHI'S sportsbook
+        # (ADR 0113) -- and the hard-coded value is precondition P2 of the
+        # successor registration for the `parlay_positions` census. The
+        # 09-15 clause was vacated because the number of days a NEUTRAL
+        # choice had been shown was 0, and a steer left in the prefill keeps
+        # it at 0.
+        #
+        # Asserted over the PREFILL BLOCK, not the file: the comment above
+        # the control quotes the removed line to say what it replaced, and a
+        # guard that refused the quotation would forbid explaining the fix.
+        # Same allowance `tests/test_combo_book_depth_claims.py` makes.
+        start = source.index("prefill={{")
+        block = source[start : source.index("}}", start)]
+        assert "source:" not in block, (
+            "the parlay card is steering `source` again. No default, not the "
+            "other default -- a flipped steer is still a steer."
+        )
 
     def test_the_prefill_stops_short_of_the_money(self, sources):
         """The two fields the desk must not guess.
@@ -120,3 +139,61 @@ class TestTheParlayCardFillsItIn:
                 f"know what a sportsbook paid, and a guessed return lands in "
                 f"the size of a hedge."
             )
+
+
+class TestTheSourceQuestionIsNotAnsweredForHim:
+    """**Precondition P2 of the successor registration.** Added 2026-09-08.
+
+    The `parlay_positions` deletion clause dated 2026-09-15 was VACATED rather
+    than deferred, and the reason was this form: it defaulted `source` to
+    `"sportsbook"` and `ParlayCards.tsx` hard-coded the same value into its
+    prefill, so **the number of days on which a neutral choice had been shown
+    was 0.** A census taken against that form could not separate "hedging is
+    unwanted" from "logging someone else's slip is unwanted", because only one
+    of the two was ever offered as the resting answer.
+
+    Joe then disowned the option's premise outright: when the earlier work
+    said "sportsbook" he meant KALSHI'S sportsbook, and he bets through the
+    cockpit into Kalshi (ADR 0113).
+
+    **The fix is no default, not the other default.** A flipped steer is still
+    a steer and would void the window for the same reason. The clean window
+    opens at this code's deploy, so a silent regression here does not merely
+    break a preference -- it restarts the clock on a measurement that has
+    already been thrown away once.
+    """
+
+    def test_the_form_starts_with_no_source_chosen(self):
+        form = (COMPONENTS / "RecordParlay.tsx").read_text(encoding="utf-8")
+        start = form.index("const [source, setSource]")
+        block = form[start : form.index(";", start)]
+        assert 'prefill?.source ?? ""' in block, block
+        for steer in ('?? "sportsbook"', '?? "kalshi_combo"'):
+            assert steer not in block, (
+                f"{steer} is back in the initial state. No default, not the "
+                f"other default."
+            )
+
+    def test_the_empty_choice_is_offered_in_the_dropdown(self):
+        """It must be selectable, not merely the initial value.
+
+        A `<select>` whose only unchosen state is unreachable turns a mis-tap
+        into a wrong recorded row, and the row is what the census reads.
+        """
+        form = (COMPONENTS / "RecordParlay.tsx").read_text(encoding="utf-8")
+        assert '<option value="">' in form
+
+    def test_an_unanswered_source_cannot_be_recorded(self):
+        """Both halves: the button is disabled AND the submit refuses.
+
+        The button alone is not enough -- a form can be submitted from the
+        keyboard -- and `schemas.py` requires the field against a two-value
+        pattern, so an empty string reaches the server as a 422 the reader
+        cannot act on. The client says what to do instead.
+        """
+        form = " ".join(
+            (COMPONENTS / "RecordParlay.tsx").read_text(encoding="utf-8").split()
+        )
+        assert 'disabled={busy || source === ""}' in form
+        assert 'if (source === "")' in form
+        assert "Choose where this ticket is" in form

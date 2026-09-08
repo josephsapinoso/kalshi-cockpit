@@ -588,3 +588,60 @@ precondition-gated, and the earliest legitimate deletion read is
 `G = 30` sittings after the P2 deploy — 25 to 43 days at the measured rate —
 with a hard backstop of 2026-11-30 that returns UNDERPOWERED rather than a
 finding.
+
+
+---
+
+## Appendix A — P2's code has landed (2026-09-08, same day)
+
+**This is a status note on a precondition, not an amendment.** Nothing in the
+registration above is changed by it: no statistic, no cut, no decision rule and
+no stopping rule moves. It is here because P4 dates the window from *"the
+deploy that lands P2"*, and a future session needs to know the code exists
+without re-deriving which commit it was in.
+
+**All seven surfaces of §2's table are addressed:**
+
+| § 2 row | what it was | what it is |
+|---|---|---|
+| the form's default | `useState(prefill?.source ?? "sportsbook")` | `?? ""` — no default, not a flipped one |
+| the select | `"A sportsbook slip"` first | `<option value="">Choose one</option>` first and **selected**; neither real option is preselected |
+| `/parlays` | `summary="I placed this at a sportsbook"` + hard-coded `source: "sportsbook"` | `summary="Record a ticket you already hold"`, and the prefill carries no `source` at all |
+| `/bets`, `/picks`, `/slate` | blurb *"Paid for a bet at a sportsbook, or a combination on Kalshi?"* | *"Already paid for a bet the desk cannot see?"* — names neither venue |
+| `/hedge` | no prefill → the default | no prefill → no default |
+
+**The blurb was deliberately not reordered.** Putting Kalshi first was the
+first attempt and was reverted within the same change: §7 rejects flipping the
+default because *"that is the same defect mirrored"*, and the identical
+argument applies to a sentence that names two venues in an order. The neutral
+form names neither.
+
+**Submission is refused rather than defaulted.** The button is disabled while
+`source === ""` and `submit` returns early with *"Choose where this ticket is
+— a Kalshi combo or a sportsbook slip."* Both halves are needed: a form can be
+sent from the keyboard, and `schemas.py` requires the field against a
+two-value pattern, so an empty string would reach the server as a 422 the
+reader cannot act on.
+
+**What is guarded.** `tests/test_recording_a_bet_is_reachable.py` gained
+`TestTheSourceQuestionIsNotAnsweredForHim` (three assertions) and its existing
+`test_the_card_hands_over_its_own_legs` was **inverted** — it had been
+*requiring* `source: "sportsbook"` in the prefill, so the steer was pinned in
+place by the suite and would have survived any attempt to remove it. All four
+verified red by restoring the steer.
+
+The prefill assertion reads the `prefill={{…}}` block rather than the file,
+because the comment above the control quotes the removed line to say what it
+replaced; a guard refusing the quotation would forbid explaining the fix.
+
+**The window is NOT open yet and no date is recorded here.** P4 requires the
+timestamp to be looked up from the deploy that ships this code, not recalled
+or predicted. At the time of writing the code is committed and not yet
+deployed. **Whoever deploys it records the deploy timestamp here**, and the
+window opens then.
+
+**P1 and P3 are still open** and P2 does not advance either. P1 needs an
+accepted ADR recording the entry design; ADR 0113 records that Joe wants to
+place singles and combinations through the cockpit, which is the *correction*
+that motivated P1, not the design document P1 asks for. P3's denominator
+script does not exist.

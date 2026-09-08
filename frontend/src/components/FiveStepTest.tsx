@@ -30,15 +30,14 @@ const STEPS: Step[] = [
     name: "Write your number before you look.",
     body: (
       <>
-        Open Log, tap the market, and type your{" "}
+        Find the market from Games, open its buy ticket, and type your{" "}
         <Term k="p_yes">P(YES)</Term> &mdash; your honest percent chance that
-        market ends YES &mdash; before you open Kalshi. Not after. Not
-        &ldquo;I&rsquo;ll remember what I thought.&rdquo; The moment you see
-        the <Term k="ask">ask</Term>, your number quietly becomes the
-        ask&rsquo;s number; that pull is called anchoring and it happens to
-        everyone, which is exactly why the form asks whether you had already
-        opened Kalshi and records your answer either way. Answer that one
-        honestly: a &ldquo;yes&rdquo; still counts, it just gets labelled.
+        market ends YES &mdash; before you look at the price. Not after. Not
+        &ldquo;I&rsquo;ll remember what I thought.&rdquo; The ticket keeps the{" "}
+        <Term k="ask">ask</Term> hidden until you have typed it, and that is
+        the whole point of the ordering: the moment you see the ask, your
+        number quietly becomes the ask&rsquo;s number. That pull is called
+        anchoring and it happens to everyone.
         This is the one habit that converts your betting from an evening out
         into evidence.
       </>

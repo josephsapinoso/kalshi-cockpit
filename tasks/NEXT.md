@@ -320,14 +320,19 @@ Verified by disabling: restoring the old bound turns 5 of the 7 new tests red.
    `visit-freshness`, and split the mechanisms off `odds_sweep_log.detail`,
    **NOT** `api_credits.trigger`. A deploy is not contamination; logic changes
    are.
-2. **`RecordParlay.tsx:69-70`** still defaults `source` to `"sportsbook"` and
-   `ParlayCards.tsx:257-261` still hard-codes it. Flip to **no default**, not
-   a flipped one. Precondition P2 of the successor registration; the clean
-   window opens at its deploy. Smaller than previously billed — two files, no
-   migration, no backend change (`schemas.py:301` already requires the field,
-   `schema.sql` has a `CHECK` with no `DEFAULT`). **Risk to name: there is no
-   frontend test framework in this repo**, so nothing catches a regression
-   here automatically.
+2. ~~`RecordParlay.tsx` defaults `source`.~~ **DONE, same session.** No
+   default, not a flipped one: the initial state is `""`, `<option value="">
+   Choose one</option>` is selectable rather than merely initial, the submit
+   button is disabled without a choice AND `submit` refuses one (a form can be
+   sent from the keyboard, and `""` reaches the server as a 422 he cannot act
+   on). `ParlayCards.tsx` no longer hard-codes the value and its copy no
+   longer calls a book slip the first-class path. **Precondition P2 is met and
+   the clean window opens at this deploy.**
+   **The "no frontend test framework" risk was real and is now covered** —
+   `tests/test_recording_a_bet_is_reachable.py` reads the source text, and one
+   of its existing assertions had been *requiring* the steer (`assert 'source:
+   "sportsbook"' in source`). Four guards now, all verified red by restoring
+   the steer.
 3. **The combo entry/exit conflation is still in four ADRs.** `0073:163-164`
    states it as fact — *"3 of 20 and 3 of 9 rows … it is rarely live"* — when
    the true resting-NO-bid rate is 16/20 and 6/9, **33 of 40, five books in
@@ -337,10 +342,13 @@ Verified by disabling: restoring the old bound turns 5 of the 7 new tests red.
    `PINNED` list covers five files and no ADR**, so the false claim can sit in
    four documents with CI green. Extend `PINNED` to `docs/adr/` — that is the
    part that earns the work.
-4. **`FiveStepTest.tsx:33-34`** still says *"Open Log, tap the market, and type
-   your P(YES)"*. The Log tab was retired 2026-08-21. Joe killed ticket #19's
-   *redesign*; that kill was about the redesign's premise, not about the dead
-   instruction, and nothing picked it up. Ten minutes.
+4. ~~`FiveStepTest.tsx` names the retired Log tab.~~ **DONE, same session.**
+   Now: *"Find the market from Games, open its buy ticket, and type your
+   P(YES) before you look at the price"* — which is the path that exists, and
+   the ticket really does mask the ask until the estimate is typed. The
+   sentence about a form asking whether he had already opened Kalshi went with
+   it: no such question exists. `ManualTicket.tsx:274` handles the anchored
+   case by SAYING the number is anchored and recording it anyway.
 5. **`window_status` cannot predict a bootstrap** — FROZEN until 09-14
    (`timing.py:1536`).
 6. **The `eu` lever, 2026-09-28** — ADR 0110's measurements first; three of the

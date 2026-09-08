@@ -242,23 +242,29 @@ function Card({ card }: { card: ParlayCardData }) {
           </details>
           <LegBuys card={card} />
           {/*
-            **The other way to own this card, and on his own instruction the
-            first-class one** (2026-09-06). Kalshi is an exchange and may have
-            no seller; a sportsbook always takes the parlay. So the desk
-            offers to RECORD what he paid there rather than pretending it can
-            place it — and the legs, the name and the source arrive filled in,
-            because a form that has to be re-typed from the card above it is
-            one nobody fills.
+            **The steer is removed, 2026-09-08.** This block used to call a
+            sportsbook slip "on his own instruction the first-class one"
+            (2026-09-06) and hard-code `source: "sportsbook"` into the
+            prefill. That was a misreading of his "both" answer, and he
+            corrected it himself: when the earlier work said "sportsbook" he
+            meant KALSHI'S sportsbook. He bets through the cockpit into
+            Kalshi, singles and combinations both. ADR 0113.
 
-            The stake and the return are left empty deliberately. Only his
-            book knows what it paid, and a guessed return lands straight in
-            the size of a hedge.
+            So the form arrives with the legs and the name filled in and
+            **no source chosen**. Not the other default -- none. A recorded
+            position is still allowed to be a book slip, because he may hold
+            one; what is not allowed is the desk answering the question for
+            him, which is what made the 09-15 census unreadable (the number
+            of days a neutral choice had been shown was 0).
+
+            The stake and the return are left empty deliberately. Only the
+            place he paid knows what it paid, and a guessed return lands
+            straight in the size of a hedge.
           */}
           <RecordParlay
-            summary="I placed this at a sportsbook"
-            blurb="Paid for this parlay at your book? Record it and the desk will price its legs against Kalshi while the games run."
+            summary="Record a ticket you already hold"
+            blurb="Already paid for this parlay? Record it and the desk will price its legs against Kalshi while the games run."
             prefill={{
-              source: "sportsbook",
               label: card.title,
               legs: card.legs.map((leg) => ({
                 label: leg.label,
