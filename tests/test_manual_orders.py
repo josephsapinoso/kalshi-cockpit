@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import ast
 import re
+import json
 import sqlite3
 import time
 from pathlib import Path
@@ -335,8 +336,23 @@ class TestTheHappyPathRunsDry:
 
 
 class TestTheGuardsRefuse:
-    async def test_a_second_order_hits_the_cooloff(self, tmp_path, records_only):
-        """Mutation observed red: the cool-off check dropped from the route."""
+    async def test_a_second_order_no_longer_hits_a_cooloff(
+        self, tmp_path, records_only
+    ):
+        """**Inverted 2026-09-08 on Joe's instruction, not to make it pass.**
+
+        This asserted 423 and "resting" on the second order inside ten
+        minutes. He removed the cool-off
+        (`docs/adr/0112-the-caps-come-off-the-hand-bet-path.md` §1, answer
+        3), having first been told what it would cost him: he averages ~2.3
+        fills per sitting, so this brake fired on most sittings rather than
+        rare ones.
+
+        The assertion is kept and reversed rather than deleted, because the
+        thing worth pinning is that back-to-back betting WORKS -- a deletion
+        would leave nothing to fail if a future session restored the brake,
+        and ADR §5 says restoring it needs Joe.
+        """
         path = _base_db(tmp_path)
         app = _app(path)
         first = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
@@ -345,8 +361,28 @@ class TestTheGuardsRefuse:
             app, "/api/manual-orders",
             json=_body(idempotency_key="test-key-00000002"), headers=AUTH,
         )
-        assert second.status_code == 423
-        assert "resting" in second.json()["detail"]
+        assert second.status_code == 200, second.json()
+        # And the response must not promise a rest that will not happen: the
+        # screen gates its buy control on this field.
+        assert second.json()["cooloff_until_ms"] is None
+
+    async def test_the_estimate_route_reports_no_cooloff_either(
+        self, tmp_path, records_only
+    ):
+        """The half a server-side removal alone would have missed.
+
+        `ManualTicket.tsx:183` refuses client-side on `market.cooloff_until_ms`.
+        Removing the brake in the route and leaving the estimate populating
+        this field would have left the screen enforcing a rule the server had
+        dropped -- the "one predicate with two spellings" failure this repo has
+        now hit three times.
+        """
+        app = _app(_base_db(tmp_path))
+        response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
+        assert response.status_code == 200
+        estimate = await get(app, f"/api/manual/market/{TICKER}", headers=AUTH)
+        assert estimate.status_code == 200, estimate.json()
+        assert estimate.json()["cooloff_until_ms"] is None
 
     async def test_the_desk_lockout_locks_this_door_too(self, tmp_path):
         path = _base_db(tmp_path)
@@ -525,45 +561,61 @@ class TestTheGuardsRefuse:
         assert response.status_code == 200, response.json()
         assert response.json()["ticker"] == COMBO_TICKER
 
-    async def test_the_combo_fee_hedge_is_what_the_cap_is_checked_against(
-        self, tmp_path
+    async def test_the_combo_fee_hedge_still_prices_the_worst_case(
+        self, tmp_path, records_only
     ):
         """ADR 0073: a combo's worst case runs through `combo_taker_fee`,
         not `calculate_fee`.
 
-        Pinned on the CAP rather than on the displayed cost, and the reason
-        is a defect this test caught in its first draft: the two fees differ
-        by $0.0002 at one contract, and `worst_case_cost_display` is rounded
-        to cents, so a display assertion stayed GREEN with the hedge removed
-        — a test of a guard that could not see the guard.
+        **Re-pointed 2026-09-08, and the re-pointing was forced rather than
+        chosen.** This pinned the hedge through the PER-BET CAP -- a bankroll
+        picked so the cap fell strictly between the two fee models, admitting
+        one and refusing the other. Joe removed that cap
+        (`docs/adr/0112-the-caps-come-off-the-hand-bet-path.md` §1), which
+        removed the only observable this test had.
 
-        The bankroll is chosen so the per-bet cap ($0.4675) falls strictly
-        between the two answers: $0.4674 through the deployed model, which
-        would be admitted, and $0.4676 through the hedge, which is refused.
-        Mutation observed red: price the combo through `calculate_fee`."""
-        stake = 450 / 1000
-        hedged = combo_taker_fee(450, 1)
-        plain = calculate_fee(450, 1)
+        Its own first draft already recorded why the obvious substitute does
+        not work: the models differ by $0.0002 at one contract and
+        `worst_case_cost_display` is rounded to cents, so a display assertion
+        at one contract stays GREEN with the hedge removed -- a test of a
+        guard that cannot see the guard.
+
+        The fix is size, not a softer assertion. At `COMBO_MAX_CONTRACTS` the
+        two models differ by ~$0.05, which survives rounding to cents, and the
+        removal of the cap is exactly what makes an order that large reachable
+        here. The guard is pinned harder than before: the displayed figure must
+        equal the hedged answer and must NOT equal the plain one.
+        """
+        contracts = manual_store.COMBO_MAX_CONTRACTS
+        stake = contracts * 450 / 1000
+        hedged = combo_taker_fee(450, contracts)
+        plain = calculate_fee(450, contracts)
         assert hedged is not None and plain is not None
-        cap = 0.4675
-        assert stake + plain <= cap < stake + hedged, (
-            "the bankroll no longer separates the two fee models; this test "
-            "cannot see the guard it exists to pin"
+        assert f"${stake + plain:.2f}" != f"${stake + hedged:.2f}", (
+            "at this size the two fee models round to the same cents; this "
+            "test cannot see the guard it exists to pin"
         )
-        quotes = StubQuotes(_payload(ticker=COMBO_TICKER))
-        app = _app(
-            _base_db(tmp_path, balance_tenths=4675), quotes=quotes
-        )
+        quotes = StubQuotes(_payload(ticker=COMBO_TICKER, yes_ask_size=1000.0))
+        app = _app(_base_db(tmp_path, balance_tenths=5_000_000), quotes=quotes)
         response = await post(
             app, "/api/manual-orders",
-            json=_body(ticker=COMBO_TICKER, combo_acknowledged=True),
+            json=_body(
+                ticker=COMBO_TICKER,
+                contracts=contracts,
+                combo_acknowledged=True,
+            ),
             headers=AUTH,
         )
-        assert response.status_code == 422
-        assert "per-bet cap" in response.json()["detail"]
+        assert response.status_code == 200, response.json()
+        display = response.json()["worst_case_cost_display"]
+        assert display == f"${stake + hedged:.2f}", display
+        assert display != f"${stake + plain:.2f}", (
+            "the combo was priced through calculate_fee, which undercharged "
+            "four of the eight combo fills on the record (ADR 0073)"
+        )
 
-    async def test_the_spend_ceiling_binds_before_anything_is_bought(
-        self, tmp_path
+    async def test_the_spend_ceiling_no_longer_binds(
+        self, tmp_path, records_only
     ):
         """**Re-pointed 2026-08-26: the ceiling is money, not contracts.**
 
@@ -579,18 +631,31 @@ class TestTheGuardsRefuse:
         is actually denominated in. The balance here is large enough that the
         balance-derived cap does not bind first, so the spend cap is the one
         under test.
+
+        **Re-pointed again 2026-09-08, and this time the property does NOT
+        survive: it was removed on purpose.** Joe: "remove the cap. i will
+        decide." Both money ceilings are gone -- the $3.00 spend cap and the
+        balance-derived one -- see
+        `docs/adr/0112-the-caps-come-off-the-hand-bet-path.md` §1 and §4.
+
+        The assertion is inverted rather than deleted so that a restored cap
+        fails loudly. A deleted test would let a future session put the brake
+        back silently, and ADR §5 reserves that to Joe.
         """
-        # $3,000 balance -> $300 per-bet cap, far above the $3 spend cap, so
-        # the spend cap is what refuses. Without this the test would pass for
-        # the wrong reason.
+        # $3,000 balance. This order costs ~$9 -- comfortably over BOTH the
+        # old $3.00 spend cap and, at a smaller balance, the derived one. It
+        # must now go through.
         app = _app(_base_db(tmp_path, balance_tenths=3_000_000))
         response = await post(
             app, "/api/manual-orders", json=_body(contracts=20), headers=AUTH,
         )
-        assert response.status_code == 422
-        detail = response.json()["detail"]
-        assert "cap this path is set to" in detail, detail
-        assert "$3.00" in detail, detail
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert body["contracts"] == 20
+        # And no refusal may name either dead ceiling.
+        rendered = json.dumps(body)
+        assert "cap this path is set to" not in rendered
+        assert "per-bet cap" not in rendered
 
     async def test_the_structural_contract_ceiling_still_exists(self, tmp_path):
         """Money is the binding bound; this is the backstop.
@@ -609,7 +674,22 @@ class TestTheGuardsRefuse:
         detail = response.json()["detail"]
         assert "structural ceiling" in detail, detail
 
-    async def test_a_stale_mirror_refuses_rather_than_assuming_no_losses(self, tmp_path):
+    async def test_a_stale_mirror_no_longer_refuses_now_that_nothing_acts_on_it(
+        self, tmp_path, records_only
+    ):
+        """**Inverted 2026-09-08, and the ADR 0064 rule it tested is intact.**
+
+        This refused when today's realised P&L could not be read, on the rule
+        that "cannot read the losses" must never resolve to "no losses". That
+        refusal existed to protect the daily-loss KILL SWITCH -- its own
+        message said so, "so the daily-loss switch cannot be applied". Joe
+        removed the switch, so the refusal guarded nothing and would have
+        blocked a bet on the strength of a bound that no longer exists.
+
+        **What ADR 0064 forbids is still forbidden, and is pinned below:** the
+        unreadable figure is reported as `None`, never coerced to `0.0`, which
+        would render as "no losses today" on a screen he reads.
+        """
         path = tmp_path / "stale.db"
         conn = db.init_db(path)
         now = int(time.time() * 1000)
@@ -621,8 +701,8 @@ class TestTheGuardsRefuse:
         conn.close()
         app = _app(path)
         response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
-        assert response.status_code == 422
-        assert "mirror" in response.json()["detail"]
+        assert response.status_code == 200, response.json()
+        assert response.json()["venue_daily_pnl_dollars"] is None
 
     async def test_an_unobserved_balance_refuses_every_cap(self, tmp_path):
         path = tmp_path / "nobal.db"
@@ -655,18 +735,51 @@ class TestTheGuardsRefuse:
         assert response.status_code == 422
         assert "rest at the ask" in response.json()["detail"]
 
-    async def test_the_per_bet_cap_binds_on_the_worst_case(self, tmp_path):
-        """$4 balance -> $0.40 per-bet cap; one contract at 45c is $0.4674
-        fee-inclusive. Reached at one contract deliberately: the size
-        ceiling would otherwise refuse a larger order first, and a guard
-        standing behind a stricter guard is decoration (ADR 0018's own
-        argument)."""
+    async def test_the_per_bet_cap_no_longer_binds_on_the_worst_case(
+        self, tmp_path, records_only
+    ):
+        """**Inverted 2026-09-08. This is the headline of Joe's instruction.**
+
+        It asserted a $4 balance produced a $0.40 per-bet cap that refused one
+        contract at 45c ($0.4674 fee-inclusive). He removed that ceiling in
+        those words -- "remove the cap. i will decide" -- and reaffirmed it
+        after being shown that the daily-loss switch was the same number and
+        would close the desk on his first losing bet over it. See
+        `docs/adr/0112-the-caps-come-off-the-hand-bet-path.md` §1, §4.
+
+        The same setup is kept exactly, and only the expectation is reversed,
+        so this test still exercises the arithmetic that used to bind: a
+        balance so small the old cap was $0.40, against an order worth more
+        than that. **A bet over the old cap must now go through.**
+        """
         app = _app(_base_db(tmp_path, balance_tenths=4000))
         response = await post(
             app, "/api/manual-orders", json=_body(), headers=AUTH,
         )
+        assert response.status_code == 200, response.json()
+        assert "per-bet cap" not in json.dumps(response.json())
+
+    async def test_the_exposure_ceiling_is_the_one_he_did_not_remove(self, tmp_path):
+        """The narrowing, pinned. Check 6 was gutted, not deleted.
+
+        The per-bet cap and the daily-loss line stopped gating this route, but
+        `max_exposure_dollars` is still ENFORCED under the write lock at check
+        11 (`ExposureCapExceeded`). So its precondition has to survive: an
+        unobserved balance must still refuse, or `None` reaches the reserve as
+        an exposure ceiling and a live guard silently stops guarding.
+
+        Joe was never asked about total exposure and did not remove it.
+        """
+        path = tmp_path / "no-balance.db"
+        conn = db.init_db(path)
+        conn.commit()
+        conn.close()
+        app = _app(path)
+        response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
         assert response.status_code == 422
-        assert "per-bet cap" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert "exposure" in detail.lower(), detail
+        assert "never been observed" in detail, detail
 
     async def test_holding_the_ticker_refuses_the_buy(self, tmp_path):
         """Kalshi nets; a buy that closes a position must not book an open.
@@ -1603,13 +1716,64 @@ class TestTheTicketAsksBeforeItShows:
             "estimate is typed, the reveal ordering is decoration"
         )
 
-    def test_the_confirm_is_gated_on_the_typed_token(self):
+    def test_the_typed_token_is_gone_and_the_order_goes_through_the_proxy(self):
+        """**Inverted 2026-09-08 on Joe's instruction.**
+
+        This asserted the confirm was gated on `token.trim().length > 0` — a
+        43-character bearer token retyped from scratch on every order. He
+        removed it (`docs/adr/0112-the-caps-come-off-the-hand-bet-path.md`
+        §1, answer 3) after being told the part the first framing left out:
+        the typed act was the CREDENTIAL, not merely friction, so after this
+        a person holding his unlocked phone can bet his money.
+
+        **What is pinned instead is that auth did not simply vanish.** The
+        order must post to the same-origin `/manual-order` route handler,
+        which proves session by cookie and adds the bearer server-side — the
+        pattern `/parlay-bid` already used. If a future change makes the
+        browser hold a token again, or posts straight at the backend without
+        one, this fails.
+        """
         source = self.TICKET.read_text(encoding="utf-8")
         gate = source.index("const canConfirm")
         block = source[gate:source.index("return (", gate)]
-        assert "token.trim().length > 0" in block, (
-            "the confirm no longer requires the typed order token"
+        assert "token" not in block, (
+            "the confirm is gated on a token again; Joe removed the typed act"
         )
+        # No token state, no token input, anywhere in the ticket.
+        assert "setToken" not in source
+        assert 'type="password"' not in source
+
+        api = (REPO / "frontend" / "src" / "lib" / "api.ts").read_text(
+            encoding="utf-8"
+        )
+        start = api.index("export async function placeManualOrder")
+        body = api[start:start + 2000]
+        assert '"/manual-order"' in body or "`/manual-order`" in body, (
+            "the hand bet must go through the server-side proxy route"
+        )
+        assert "Authorization" not in body, (
+            "the browser is holding a bearer token again"
+        )
+
+    def test_the_proxy_route_exists_and_is_named_in_the_middleware(self):
+        """Without the middleware entry an unauthenticated POST gets an HTML
+        login redirect, which `fetch` reads as success — on the one route that
+        spends real money with only a cookie in front of it."""
+        route = REPO / "frontend" / "src" / "app" / "manual-order" / "route.ts"
+        assert route.exists(), "the hand bet's server-side proxy is missing"
+        source = route.read_text(encoding="utf-8")
+        assert "backendToken()" in source
+        assert '"/api/manual-orders"' in source
+        middleware = (REPO / "frontend" / "src" / "middleware.ts").read_text(
+            encoding="utf-8"
+        )
+        # The closing bracket must be searched FROM the set, not from the top
+        # of the file: an earlier `]);` made this slice empty and the
+        # assertion vacuous in its first draft.
+        start = middleware.index("JSON_ROUTE_HANDLERS")
+        json_routes = middleware[start : middleware.index("]);", start)]
+        assert "/refresh-odds" in json_routes, "the slice missed the set"
+        assert '"/manual-order"' in json_routes
 
 
 class TestARefusalIsARecord:

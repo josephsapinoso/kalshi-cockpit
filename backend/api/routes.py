@@ -3024,7 +3024,26 @@ def create_app(
                     None if risk_now is None else risk_now.max_exposure_dollars
                 ),
             },
-            "cooloff_until_ms": manual_store.cooloff_until_ms(conn, now_ms=now),
+            # Always `None` since 2026-09-08. The cool-off was removed on
+            # Joe's word (0112-the-caps-come-off-the-hand-bet-path §1), and
+            # this field is what `ManualTicket.tsx` gates the buy control on
+            # client-side. Leaving it populated would have kept the brake
+            # working on the screen while the server no longer enforced it --
+            # the exact "one predicate with two spellings" failure this repo
+            # has hit three times. The KEY stays so the wire shape and the
+            # frontend type do not churn; only the answer changes.
+            "cooloff_until_ms": None,
+            # **The counter Joe kept when he removed the switch.** Answer 4 of
+            # the 2026-09-08 interview: the desk still counts his Kalshi
+            # losses, including the ones he places in the venue's own app,
+            # because `venue_settlements` sees both. Nothing refuses on it —
+            # it is shown, which is the job ADR 0071 names. `None` means the
+            # venue mirror is stale or unpolled and is rendered as unknown,
+            # never as zero: "cannot read the losses" must not read as "no
+            # losses" even when nothing acts on the answer (ADR 0064).
+            "venue_daily_pnl_dollars": bets_module.venue_daily_realised_pnl_dollars(
+                conn, now_ms=now, day_start_hour=odds.budget_day_start_utc_hour
+            ),
             "lockout_until_ms": bet_estimates.lockout_until(conn, now_ms=now),
             "dry_run": manual_store.MANUAL_ORDERS_ARE_DRY_RUNS,
             # The path's own size ceiling, served rather than mirrored: a
@@ -3186,19 +3205,26 @@ def create_app(
                     ),
                 )
 
-            # 3.
-            refusal_ctx.update(check=3, name="cooloff")
-            cooloff_release = manual_store.cooloff_until_ms(conn, now_ms=now)
-            if cooloff_release is not None:
-                raise HTTPException(
-                    status_code=423,
-                    detail=(
-                        f"The buy control is resting after your last order. It "
-                        f"unlocks in {max(0, cooloff_release - now) // 1000}s. "
-                        f"No override — the cool-off is the safeguard, not a "
-                        f"suggestion."
-                    ),
-                )
+            # 3. REMOVED 2026-09-08 on Joe's word --
+            # `docs/adr/0112-the-caps-come-off-the-hand-bet-path.md` §1,
+            # answer 3 ("none"). The 10-minute cool-off between completed
+            # purchases is gone. He was told first what it would cost him: he
+            # averages ~2.3 fills per sitting, so it was a brake that would
+            # have fired on most sittings rather than a rare one.
+            #
+            # `manual_store.cooloff_until_ms` is deliberately NOT deleted. It
+            # is a pure read over `manual_orders` with its own tests, it is
+            # what a future session would have to rebuild to restore this, and
+            # ADR §5 says restoring it needs Joe rather than a session's
+            # judgement. An uncalled reader is cheap; a rebuilt brake he did
+            # not ask for is not. `test_manual_orders.py` pins it uncalled
+            # from this route so "built but never called" stays deliberate
+            # here rather than becoming another instance of the pattern.
+            #
+            # The check NUMBERS below are unchanged. Renumbering would have
+            # silently re-pointed every `manual_order_refusals.check` row
+            # already on the live box, and the durable refusal record is
+            # read by `inspect_live_db`; check 3 simply no longer occurs.
 
             ticker = request.ticker.strip().upper()
 
@@ -3288,49 +3314,58 @@ def create_app(
                     ),
                 )
 
-            # 5.
-            refusal_ctx.update(check=5, name="daily_loss_switch")
+            # 5. THE COUNTER STAYS; THE SWITCH IS REMOVED. Joe's answers 2 and
+            # 4 together, 2026-09-08 --
+            # `docs/adr/0112-the-caps-come-off-the-hand-bet-path.md` §1. He
+            # removed the daily-loss KILL SWITCH and, in the same interview,
+            # kept the desk counting his Kalshi losses including the ones he
+            # places in the venue's own app. Those are not in tension: the
+            # figure is information, and ADR 0071 makes information this
+            # product's job. So the read stays and no longer refuses.
+            #
+            # It also no longer refuses when it cannot be read. That refusal
+            # (ADR 0064, "'cannot read the losses' must never resolve to 'no
+            # losses'") existed to protect the switch, and its own words say
+            # so -- "so the daily-loss switch cannot be applied". With no
+            # switch it guards nothing, and keeping it would refuse a bet Joe
+            # has asked nothing to refuse. ADR 0064's rule is untouched
+            # everywhere it still governs a decision; `None` still means
+            # unreadable here and is never coerced to 0.
+            refusal_ctx.update(check=5, name="daily_loss_counter")
             daily_pnl = bets_module.venue_daily_realised_pnl_dollars(
                 conn, now_ms=now, day_start_hour=odds.budget_day_start_utc_hour
             )
-            if daily_pnl is None:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        "today's realised P&L cannot be read (the venue mirror "
-                        "is stale or unpolled), so the daily-loss switch cannot "
-                        "be applied. Refusing — 'cannot read the losses' must "
-                        "never resolve to 'no losses' (ADR 0064)."
-                    ),
-                )
 
-            # 6.
-            refusal_ctx.update(check=6, name="derived_caps")
+            # 6. NARROWED, not removed, and the narrowing is the careful part.
+            # This refused unless all three derived caps were available. Two of
+            # the three no longer bound anything (the per-bet cap at check 9
+            # and the daily-loss line at check 5), so requiring them would
+            # refuse a bet on a precondition for a brake that no longer exists.
+            #
+            # **The exposure cap is different and stays.** Joe was never asked
+            # about it and did not remove it, and it is still ENFORCED --
+            # `_write_manual_intent` raises `ExposureCapExceeded` under the
+            # write lock at check 11, using this very number. So its
+            # precondition survives on its own terms: an unobserved balance
+            # still refuses, because otherwise `None` would reach the reserve
+            # as an exposure ceiling and the guard would silently stop
+            # guarding. That is ADR 0045's rule where it still governs a
+            # decision, and CLAUDE.md's: unreadable resolves to a refusal,
+            # never to a permissive default.
+            refusal_ctx.update(check=6, name="derived_exposure_cap")
             risk_now = risk
             if risk.underived:
                 risk_now = risk.with_observed_balance(db.latest_balance_tenths(conn))
-            if (
-                risk_now is None
-                or risk_now.max_position_dollars is None
-                or risk_now.max_exposure_dollars is None
-                or risk_now.max_daily_loss_dollars is None
-            ):
+            if risk_now is None or risk_now.max_exposure_dollars is None:
                 raise HTTPException(
                     status_code=422,
                     detail=(
-                        "the account balance has never been observed, so no cap "
-                        "can be derived. Refusing — 'cannot determine the "
-                        "bankroll' must never resolve to a typed default."
-                    ),
-                )
-            if daily_pnl <= -abs(risk_now.max_daily_loss_dollars):
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        f"the daily-loss switch has fired: ${daily_pnl:.2f} "
-                        f"realised today against a "
-                        f"${risk_now.max_daily_loss_dollars:.2f} line. No more "
-                        f"buys today, through this door."
+                        "the account balance has never been observed, so the "
+                        "total-exposure ceiling cannot be derived. Refusing — "
+                        "'cannot determine the bankroll' must never resolve to "
+                        "a typed default. Your per-bet cap and daily-loss "
+                        "switch are gone by your own instruction; this is the "
+                        "one ceiling you did not remove."
                     ),
                 )
 
@@ -3403,40 +3438,28 @@ def create_app(
                 )
             except OrderRefused as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
+            # **THE PER-BET CAP IS REMOVED.** Joe, 2026-09-08: "remove the cap.
+            # i will decide." Both ceilings go, because both were caps on the
+            # size of his bet and he was answering about both -- 10% of the
+            # observed balance (ADR 0045) and `MANUAL_ORDER_MAX_SPEND_TENTHS`.
+            # See `docs/adr/0112-the-caps-come-off-the-hand-bet-path.md`, and
+            # §4 of it in particular: after this the cockpit will not stop him
+            # at any size his Kalshi collateral can pay for. That is the
+            # intended outcome and restoring it needs Joe, not a session.
+            #
+            # `worst_case` is still computed and still recorded, because the
+            # number is the transparency ADR 0071 asks for even when nothing
+            # acts on it -- and because a future census of what he actually
+            # bet is unreadable without it.
+            #
+            # The unreadable-fee refusal went with the cap rather than
+            # surviving it. Its own message said why it existed: "so its
+            # worst-case cost cannot be checked against your per-bet cap."
+            # With no cap it guarded nothing, and it would have refused a bet
+            # on the strength of a bound that no longer exists. `None` is
+            # still `None` here and is never read as zero -- it is recorded
+            # as unknown, which is the honest value.
             worst_case = _manual_worst_case_dollars(order, combo=combo)
-            if worst_case is None:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        "the fee on this order could not be computed, so its "
-                        "worst-case cost cannot be checked against your per-bet "
-                        "cap. Refusing — an unreadable fee must never resolve to "
-                        "no fee."
-                    ),
-                )
-            # **The binding check, and it names WHICH bound it hit.** Two
-            # independent ceilings -- 10% of the observed balance (ADR 0045) and
-            # the spend cap -- and the tighter wins. "$3 cap" and "your balance
-            # only supports $0.54" are different problems with different remedies,
-            # and a refusal that does not say which one sends the reader to fix
-            # the wrong thing.
-            cap_dollars, binding = _manual_cap_dollars(risk_now)
-            if worst_case > cap_dollars:
-                reason = (
-                    f"the ${max_spend_dollars():.2f} cap this path is set to"
-                    if binding == "spend"
-                    else (
-                        f"the ${cap_dollars:.2f} per-bet cap derived from your "
-                        f"balance (10% of it, never a number you type)"
-                    )
-                )
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        f"{request.contracts} contracts at {format_price(ask)} "
-                        f"costs at most ${worst_case:.2f}, over {reason}."
-                    ),
-                )
 
             # 10. A LIVE positions read, not the 12-hour mirror. The per-row
             refusal_ctx.update(check=10, name="netting_guard")
@@ -3647,10 +3670,24 @@ def create_app(
             # "at most", never "costs $X": MLB's k is half the coefficient
             # charged, so the point figure would overstate — and never a
             # payout figure, which would assume untested H4 (ADR 0027).
-            "worst_case_cost_display": f"${worst_case:.2f}",
+            # `None` since 2026-09-08: the cap that used to refuse an
+            # unreadable fee is gone (check 9), so this can now legitimately
+            # be unknown and must say so rather than crash on the format or
+            # print "$0.00", which would read as a free bet.
+            "worst_case_cost_display": (
+                "unknown — the fee on this order could not be computed"
+                if worst_case is None
+                else f"${worst_case:.2f}"
+            ),
             "kalshi_order_id": outcome.kalshi_order_id,
             "error_text": outcome.error_text,
-            "cooloff_until_ms": submitted_ms + manual_store.COOLOFF_MS,
+            # `None`, not a future timestamp: nothing rests after this order
+            # any more, and a screen told to unlock at a time is a screen that
+            # locks until then.
+            "cooloff_until_ms": None,
+            # Read at check 5 and carried here rather than discarded: the
+            # switch is gone, the counting is not.
+            "venue_daily_pnl_dollars": daily_pnl,
             "note": (
                 "Dry run — the manual path is not armed. Arming is a code "
                 "change (ADR 0063); the C0 probe it waited on was taken "

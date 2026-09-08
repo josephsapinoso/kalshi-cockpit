@@ -57,6 +57,12 @@ const JSON_ROUTE_HANDLERS = new Set([
   // set and fall through to the HTML login redirect a fetch reads as success.
   "/parlay-bid",
   "/parlay-bid-cancel",
+  // The hand bet. Spends real money, and since 2026-09-08 the session cookie
+  // is the only credential in front of it (the typed bearer token was removed
+  // on Joe's word) -- so this entry is what stands between an unauthenticated
+  // POST and a JSON 401 rather than an HTML redirect a `fetch` reads as
+  // success.
+  "/manual-order",
   "/desk-attention",
   "/hedge-position",
   "/hedge-resolve",

@@ -65,6 +65,16 @@ TOKEN_HANDLERS = (
     # path with the one that commits money is how that happens.
     "parlay-bid",
     "parlay-bid-cancel",
+    # ADR 0112 -- the hand bet, added 2026-09-08. **This one spends too, and
+    # it is the most exposed handler in the list**: Joe removed the typed
+    # bearer token that used to sit in front of `/api/manual-orders`, so a
+    # session cookie is now the only credential between a signed-in browser
+    # and a real immediate-or-cancel order at whatever size his collateral
+    # covers (the per-bet cap and daily-loss switch went in the same change).
+    # Every assertion below therefore matters more here than anywhere else --
+    # particularly the JSON-401 gating, since an HTML login redirect is read
+    # by `fetch` as success.
+    "manual-order",
 )
 
 

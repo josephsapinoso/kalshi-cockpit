@@ -42,9 +42,19 @@
  * keyboard on desktop — Enter advances step 1's form, Escape closes the
  * ticket, the confirm is an explicit button and never an implicit submit.
  *
- * The bearer token lives in component state only — same rule as
- * `TicketProvider`: a session cookie must never place a bet, and the typed
- * act is the strongest anti-impulse guard in the product.
+ * **The typed bearer token was REMOVED 2026-09-08 on Joe's instruction**
+ * (`docs/adr/0112-the-caps-come-off-the-hand-bet-path.md` §1, answer 3). This
+ * block used to read: "a session cookie must never place a bet, and the typed
+ * act is the strongest anti-impulse guard in the product." Both halves were
+ * true, and he was shown the first one — that the 43 characters were the
+ * credential and not merely friction, so that after this a person holding his
+ * unlocked phone can bet his money — before he chose removal a second time.
+ *
+ * The order now posts to the same-origin `/manual-order` route handler, which
+ * proves session by cookie and adds the bearer server-side. That is the
+ * pattern `/parlay-bid` and `/refresh-odds` already used; the manual ticket
+ * was the outlier, and the asymmetry was drift rather than a decision. Auth at
+ * the API is unchanged — `require_auth` still guards every mutating route.
  */
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
@@ -114,7 +124,7 @@ export default function ManualTicket({
   const [side, setSide] = useState<"yes" | "no">("yes");
   const [contracts, setContracts] = useState(1);
   const [maxPriceTenths, setMaxPriceTenths] = useState<number | null>(null);
-  const [token, setToken] = useState("");
+
   // ADR 0073's acknowledgement, per opened ticket. Cleared on close with
   // everything else: it is consent to one order, not a preference.
   const [comboOk, setComboOk] = useState(false);
@@ -124,7 +134,6 @@ export default function ManualTicket({
   // Several of these can share a screen, so every id is instance-scoped.
   const uid = useId();
   const estimateId = `manual-p-yes-${uid}`;
-  const tokenId = `manual-token-${uid}`;
 
   useEffect(() => {
     if (phase.name === "estimate") estimateInput.current?.focus();
@@ -134,7 +143,6 @@ export default function ManualTicket({
     setPhase({ name: "closed" });
     setPercent("");
     setPYesBp(null);
-    setToken("");
     setComboOk(false);
     setIntentKey(null);
   }, []);
@@ -180,13 +188,16 @@ export default function ManualTicket({
       });
       return;
     }
-    if (market.cooloff_until_ms !== null && market.cooloff_until_ms > now) {
-      setPhase({
-        name: "blocked",
-        words: `The buy control is resting after your last order and unlocks at ${releaseClock(market.cooloff_until_ms)}. No override.`,
-      });
-      return;
-    }
+    // The cool-off gate was removed here 2026-09-08 along with the server's
+    // (`docs/adr/0112-the-caps-come-off-the-hand-bet-path.md` §1, answer 3).
+    // Both halves went in the same change deliberately: a screen still
+    // enforcing a rule the route had dropped is the "one predicate with two
+    // spellings" failure this repo has hit three times, and here it would have
+    // been worse than usual, because the copy promised an unlock time that
+    // nothing would ever produce. `/api/manual/market` now always answers
+    // `cooloff_until_ms: null`, pinned by
+    // `test_the_estimate_route_reports_no_cooloff_either`. The DESK LOCKOUT
+    // above is untouched — Joe removed the cool-off, not the lockout.
     const defaultSide: "yes" | "no" =
       market.sides.yes.ask_tenths !== null ? "yes" : "no";
     setSide(defaultSide);
@@ -202,8 +213,7 @@ export default function ManualTicket({
     if (
       pYesBp === null ||
       maxPriceTenths === null ||
-      intentKey === null ||
-      token.trim().length === 0
+      intentKey === null
     ) {
       return;
     }
@@ -218,7 +228,6 @@ export default function ManualTicket({
         idempotency_key: intentKey,
         combo_acknowledged: market.is_combo ? comboOk : false,
       },
-      token.trim(),
     );
     if (result.ok) {
       setPhase({ name: "placed", placed: result.value });
@@ -341,9 +350,6 @@ export default function ManualTicket({
           setContracts={setContracts}
           maxPriceTenths={maxPriceTenths}
           setMaxPriceTenths={setMaxPriceTenths}
-          token={token}
-          setToken={setToken}
-          tokenId={tokenId}
           comboOk={comboOk}
           setComboOk={setComboOk}
           note={note}
@@ -388,9 +394,6 @@ function TicketBody({
   setContracts,
   maxPriceTenths,
   setMaxPriceTenths,
-  token,
-  setToken,
-  tokenId,
   comboOk,
   setComboOk,
   note,
@@ -404,9 +407,6 @@ function TicketBody({
   setContracts: (n: number) => void;
   maxPriceTenths: number | null;
   setMaxPriceTenths: (n: number | null) => void;
-  token: string;
-  setToken: (t: string) => void;
-  tokenId: string;
   comboOk: boolean;
   setComboOk: (ok: boolean) => void;
   note?: string;
@@ -427,8 +427,7 @@ function TicketBody({
     maxPriceTenths !== null &&
     contracts >= 1 &&
     (ceiling === null || contracts <= ceiling) &&
-    (!market.is_combo || comboOk) &&
-    token.trim().length > 0;
+    (!market.is_combo || comboOk);
 
   return (
     <div className="mt-3 space-y-4">
@@ -555,27 +554,6 @@ function TicketBody({
           </p>
         </div>
       )}
-
-      <div>
-        <label
-          htmlFor={tokenId}
-          className="text-xs font-semibold uppercase tracking-widest text-muted"
-        >
-          Order token
-        </label>
-        <input
-          id={tokenId}
-          type="password"
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
-          autoComplete="off"
-          className="mt-1 w-full max-w-xs rounded-xl border bg-background px-3 py-2 text-sm"
-        />
-        <p className="mt-1 max-w-[65ch] text-xs text-muted">
-          Typed each time, held in memory only. The session cookie can read
-          this cockpit; it can never place a bet.
-        </p>
-      </div>
 
       <button
         onClick={onConfirm}

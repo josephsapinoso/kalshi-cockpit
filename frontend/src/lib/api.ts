@@ -2945,16 +2945,18 @@ export async function placeManualOrder(
     /** Required on a combination ticker; the route 422s without it. */
     combo_acknowledged?: boolean;
   },
-  token: string,
 ): Promise<ManualOrderResult> {
   let response: Response;
   try {
-    response = await fetch(`${BASE}/api/manual-orders`, {
+    // **No token parameter since 2026-09-08.** This posts to the same-origin
+    // `/manual-order` route handler, which proves session by cookie and adds
+    // the bearer server-side -- the pattern `/parlay-bid` and `/refresh-odds`
+    // already used. The browser deliberately holds no bearer token
+    // (`lib/session.ts`), and Joe removed the typed one
+    // (`docs/adr/0112-the-caps-come-off-the-hand-bet-path.md` §1).
+    response = await fetch(`/manual-order`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { "Content-Type": "application/json" },
       cache: "no-store",
       body: JSON.stringify(body),
     });
