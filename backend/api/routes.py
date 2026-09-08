@@ -102,7 +102,6 @@ from ..store.manual_orders import (
     COMBO_MAX_CONTRACTS,
     MANUAL_ORDER_MAX_CONTRACTS,
     MANUAL_ORDER_MAX_SPEND_TENTHS,
-    max_spend_dollars,
 )
 from ..store.orders import (
     DuplicateOrder,
@@ -2877,59 +2876,92 @@ def create_app(
             return None
         return stake + max(sent, asked)
 
-    def _manual_cap_dollars(risk_now) -> tuple[float, str]:
-        """The binding per-bet ceiling, and WHICH of the two produced it.
-
-        Two independent bounds and the tighter wins:
-
-        - the **balance-derived** cap, 10% of the observed Kalshi balance
-          (ADR 0045) -- never typed, and it moves on its own as the balance
-          does;
-        - the **spend cap**, the operator's own stated range.
-
-        Naming the binding one is not decoration. "$3 cap" and "your balance
-        only supports $0.54" are different problems with different remedies,
-        and the second one already has an answer on the screen
-        (`deposit_for_50c_display`). A refusal that does not say which bound
-        it hit sends the reader to fix the wrong thing.
-        """
-        spend = max_spend_dollars()
-        balance = risk_now.max_position_dollars
-        if balance is None or balance <= spend:
-            return (balance if balance is not None else 0.0, "balance")
-        return (spend, "spend")
-
-
     def _manual_authorised_count(
-        cap_dollars: float,
         *,
         ticker: str,
         side: str,
         ask_tenths: int,
         price_grid,
-        hard_cap: int = MANUAL_ORDER_MAX_CONTRACTS,
-    ) -> int:
-        """The largest count whose fee-inclusive worst case fits the per-bet
-        cap. Counted by construction rather than divided, because the fee
-        rounds up on the whole order and a division would overstate by up to
-        one contract in exactly the direction a cap must not err.
+        depth: Optional[float],
+        shard_available_tenths: Optional[int],
+    ) -> tuple[Optional[int], str]:
+        """The largest count the POST route would actually accept, and WHICH
+        constraint produced it.
 
-        `hard_cap` defaults to the path's own ceiling (ADR 0063: "first at a
-        1-contract ceiling, raised only when observed `fee_actual` matches
-        `fee_predicted` on real fills"), so the loop can never authorise a
-        size the route would then refuse. Combination tickets are bounded to
-        one contract on top of that, and priced through the hedged combo fee
-        rather than `calculate_fee` -- ADR 0073, and ADR 0046's tripwire is
-        why: on a combo the deployed model is known wrong in the optimistic
-        direction, and a cap checked against an understated cost is not a
-        cap.
+        **Rewritten 2026-09-08, and the rewrite is a bug fix on the money
+        path.** This used to answer a different question: the largest count
+        whose fee-inclusive worst case fit `_manual_cap_dollars`, which was
+        `min($3.00 spend cap, 10% of the observed balance)`. Joe removed both
+        of those by name (ADR 0112 and its Amendment 1) and the POST route
+        obeyed the same day -- but this number is what `ManualTicket.tsx`
+        disables the confirm button above, so **the brake he removed was still
+        on the button.** On a 90c market `$3.00` is three contracts. The
+        server would have taken two hundred.
+
+        That is this repo's named failure -- *one predicate with two
+        spellings, and the screen believing the wrong one* -- running in the
+        direction it had not run before: the screen kept braking after the
+        server stopped. The previous three instances were a screen that
+        promised buying which was not happening; this one refused betting that
+        was permitted, on the one path that spends real money.
+
+        So the count is now built from the constraints the POST route actually
+        applies to SIZE, and from nothing else:
+
+        - **check 4**, the structural ceiling for this ticker class --
+          `COMBO_MAX_CONTRACTS` on a combination, `MANUAL_ORDER_MAX_CONTRACTS`
+          otherwise. Structural, not a bet ceiling.
+        - **check 8**, the depth resting at the ask. An IOC for more than the
+          book holds part-fills at best.
+        - **check 9a**, what the market's own exchange shard can pay for.
+          The VENUE's rule, not a cap of ours.
+        - the price grid, via `OrderRequest` refusing an off-grid count.
+
+        **What is deliberately NOT here: any ceiling of ours on the size of
+        the bet.** There is none left. If one reappears in this function it
+        is a restored brake and ADR 0112 §5 reserves that to Joe.
+
+        Unreadable resolves to `None` and the caller refuses, never to a
+        permissive default: an unreadable shard balance means POST would 502,
+        so the ticket must not offer a count it cannot honour. `None` depth
+        is `0` here for the same reason check 8 reads it that way.
         """
         combo = _is_combo(ticker)
-        ceiling = min(hard_cap, COMBO_MAX_CONTRACTS if combo else hard_cap)
-        authorised = 0
-        for count in range(1, ceiling + 1):
+        ceiling = COMBO_MAX_CONTRACTS if combo else MANUAL_ORDER_MAX_CONTRACTS
+        binding = "structural"
+
+        if shard_available_tenths is None:
+            return (None, "shard_unreadable")
+
+        # Depth is the count the book will actually fill. `None` means the
+        # side is unquoted, which check 8 refuses as zero rather than reading
+        # as "unlimited".
+        depth_count = 0 if depth is None else int(depth)
+        if depth_count < ceiling:
+            ceiling, binding = depth_count, "depth"
+
+        # Collateral, on the shard this market settles on. Check 9a compares
+        # `count * limit_price_tenths` -- price only, no fee, because that is
+        # what Kalshi holds as collateral -- so this mirrors it exactly rather
+        # than being conservative by a fee it would not charge. A display that
+        # is stricter than the route is the bug being fixed here.
+        if ask_tenths > 0:
+            affordable = shard_available_tenths // ask_tenths
+            if affordable < ceiling:
+                ceiling, binding = affordable, "shard"
+
+        if ceiling <= 0:
+            return (0, binding)
+
+        # The grid still has the last word: a count that cannot be expressed
+        # as an order is not authorised, whatever the three bounds above say.
+        # Walked down from the ceiling rather than up from 1, because the
+        # bounds have already done the work and the old loop's job was to
+        # find where a MONEY cap bit -- which is exactly what no longer
+        # exists.
+        for count in range(ceiling, 0, -1):
             try:
-                candidate = OrderRequest(
+                OrderRequest(
                     ticker=ticker,
                     side=side,
                     action="buy",
@@ -2938,12 +2970,9 @@ def create_app(
                     price_grid=price_grid,
                 )
             except OrderRefused:
-                break
-            worst = _manual_worst_case_dollars(candidate, combo=combo)
-            if worst is None or worst > cap_dollars:
-                break
-            authorised = count
-        return authorised
+                continue
+            return (count, binding if count == ceiling else "price_grid")
+        return (0, "price_grid")
 
     @app.get("/api/manual/market/{ticker}")
     async def manual_market(ticker: str, conn=Depends(get_conn)) -> dict:
@@ -2977,35 +3006,70 @@ def create_app(
         if risk.underived:
             risk_now = risk.with_observed_balance(db.latest_balance_tenths(conn))
 
+        # **The shard's own balance, read once for both sides.** Check 9a of
+        # the POST route refuses on this and it is the VENUE's rule, so the
+        # ticket has to know it or the screen will offer a count the route
+        # then refuses. It is read here rather than per side because the
+        # collateral is the market's, not the side's.
+        #
+        # An unreadable shard is NOT resolved to a spendable one: `None`
+        # travels into the count as a refusal, exactly as POST 502s on it.
+        # A failed call is the same unknown as an unparsable payload, so it
+        # is caught rather than allowed to 503 a read-only screen -- the
+        # ticket still renders, with the ask, the depth and a stated reason
+        # the count is missing.
+        shard_available_tenths = None
+        shard_index = quote.exchange_index
+        if shard_index is not None:
+            try:
+                shard_payload = await live_quotes().shard_balance(
+                    exchange_index=shard_index
+                )
+            except (QuoteUnavailable, ConfigError):
+                shard_payload = None
+            if shard_payload is not None:
+                shard_available_tenths = read_shard_funds(
+                    shard_payload, exchange_index=shard_index
+                ).available_tenths
+
         sides = {}
         for side in ("yes", "no"):
             ask = _tradeable_ask(quote.ask_tenths(side))
             depth = quote.depth_at_ask(side)
             authorised = None
-            if (
-                ask is not None
-                and quote.price_grid is not None
-                and risk_now is not None
-                and risk_now.max_position_dollars is not None
-            ):
-                cap_dollars, _binding = _manual_cap_dollars(risk_now)
-                authorised = _manual_authorised_count(
-                    cap_dollars,
+            binding = "no_ask"
+            if ask is not None and quote.price_grid is not None:
+                authorised, binding = _manual_authorised_count(
                     ticker=quote.ticker,
                     side=side,
                     ask_tenths=ask,
                     price_grid=quote.price_grid,
+                    depth=depth,
+                    shard_available_tenths=shard_available_tenths,
                 )
-                if depth is not None:
-                    authorised = min(authorised, int(depth))
+            elif ask is not None:
+                binding = "no_price_grid"
             sides[side] = {
                 "ask_tenths": ask,
                 "ask_display": None if ask is None else format_price(ask),
                 "depth_at_ask": depth,
                 # "of N authorised" — the server's ceiling, never a client
-                # sum. None means it could not be derived (no balance, no
-                # grid, no ask), which the ticket renders as a refusal.
+                # sum. `None` means it could not be derived, which the ticket
+                # renders as a refusal.
+                #
+                # **No ceiling of ours is in this number any more** (ADR 0112
+                # Amendment 1). It is the structural ceiling, the depth at the
+                # ask and what the market's shard can pay for -- the three
+                # bounds the POST route applies to size -- so the button and
+                # the route agree by construction rather than by coincidence.
                 "authorised_contracts": authorised,
+                # WHICH of them produced it. `_manual_cap_dollars` carried the
+                # same virtue for the caps it replaced and its docstring said
+                # why: "a refusal that does not say which bound it hit sends
+                # the reader to fix the wrong thing." A depth ceiling and a
+                # collateral ceiling have completely different remedies -- wait
+                # for the book, or move money between shards.
+                "authorised_binding": binding,
             }
 
         return {
@@ -3301,8 +3365,10 @@ def create_app(
                         f"combination book this tool has read has ever carried a "
                         f"resting YES bid (40 of 40), so a combination is easy "
                         f"to enter and may be impossible to exit at size. "
-                        f"What bounds the BET is the ${max_spend_dollars():.2f} "
-                        f"spend cap, checked below."
+                        f"Nothing below bounds the SIZE of your bet except "
+                        f"the depth resting at the ask and what your exchange "
+                        f"shard can pay for — the venue's rule, not a cap of "
+                        f"ours."
                     ),
                 )
             if request.contracts > MANUAL_ORDER_MAX_CONTRACTS:
@@ -3311,10 +3377,10 @@ def create_app(
                     detail=(
                         f"this path is capped at {MANUAL_ORDER_MAX_CONTRACTS} "
                         f"contracts, against an order for {request.contracts}. "
-                        f"That is a structural ceiling, not the bet size: what "
-                        f"bounds the bet is the ${max_spend_dollars():.2f} spend "
-                        f"cap and the cap derived from your balance, whichever is "
-                        f"tighter."
+                        f"That is a structural ceiling, not the bet size: "
+                        f"no ceiling of ours bounds the bet at all any more. "
+                        f"What is left is the depth resting at the ask and "
+                        f"what your exchange shard can pay for."
                     ),
                 )
 

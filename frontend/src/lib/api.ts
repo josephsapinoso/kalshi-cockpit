@@ -2860,6 +2860,27 @@ export type ManualMarketSide = {
   ask_display: string | null;
   depth_at_ask: number | null;
   authorised_contracts: number | null;
+  /**
+   * WHICH bound produced `authorised_contracts`, so the ticket can name it.
+   *
+   * No ceiling of the desk's own is in that number since 2026-09-08 (ADR 0112
+   * Amendment 1) -- it is the structural ceiling, the depth resting at the ask
+   * and what the market's exchange shard can pay for, which are the three
+   * bounds `POST /api/manual-orders` applies to size.
+   *
+   * The distinction is not decoration: waiting for the book to thicken and
+   * moving money between Kalshi shards are different remedies, and a screen
+   * that does not say which one it hit sends the reader to fix the wrong
+   * thing.
+   */
+  authorised_binding:
+    | "structural"
+    | "depth"
+    | "shard"
+    | "price_grid"
+    | "shard_unreadable"
+    | "no_ask"
+    | "no_price_grid";
 };
 
 export type ManualMarket = {

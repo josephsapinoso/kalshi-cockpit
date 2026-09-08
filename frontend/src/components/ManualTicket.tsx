@@ -414,13 +414,33 @@ function TicketBody({
   onConfirm: () => void;
 }) {
   const facts = market.sides[side];
-  // Two ceilings, and the smaller wins: what your bankroll authorises, and
-  // what this path is armed for. The server serves the second so the client
-  // cannot hold a stale copy of a constant that exists to be raised.
+  // Two ceilings, and the smaller wins: what the server authorises for this
+  // side, and what this path is armed for. The server serves the second so
+  // the client cannot hold a stale copy of a constant that exists to be
+  // raised.
+  //
+  // **`authorised_contracts` no longer carries a cap of ours** (ADR 0112
+  // Amendment 1). Until 2026-09-08 it was `min($3.00 spend cap, 10% of the
+  // observed balance)`, and this line disabled Confirm above it -- so a brake
+  // Joe had removed by name went on being enforced on the button while the
+  // route accepted two hundred times as much. It is now the structural
+  // ceiling, the depth at the ask and the shard's collateral, which are the
+  // three bounds the route itself applies.
   const ceiling =
     facts.authorised_contracts === null
       ? null
       : Math.min(facts.authorised_contracts, market.max_contracts);
+  // Plain words for the bound that produced it. Joe has asked to be taught
+  // the terms rather than handed them, so each says what to DO about it --
+  // the remedies genuinely differ, and the old copy called every one of them
+  // "your per-bet cap", which is now the one thing none of them is.
+  const boundReason: Record<string, string> = {
+    depth: "that is all that is resting at the ask right now",
+    shard: "that is what this market's Kalshi wallet can pay for",
+    structural: "that is this path's built-in ceiling, not a limit on the bet",
+    price_grid: "the price grid will not express a larger order",
+  };
+  const boundWhy = boundReason[facts.authorised_binding] ?? null;
   const canConfirm =
     !sending &&
     facts.ask_tenths !== null &&
@@ -460,9 +480,14 @@ function TicketBody({
       <p className="max-w-[65ch] text-xs text-muted">
         <Term k="depth">Depth</Term>:{" "}
         {facts.depth_at_ask === null ? "—" : Math.round(facts.depth_at_ask)} at
-        the <Term k="ask">ask</Term> · your per-bet cap authorises{" "}
-        {ceiling === null ? "— (cap underivable)" : `${ceiling}`}{" "}
+        the <Term k="ask">ask</Term> · you can buy{" "}
+        {ceiling === null
+          ? facts.authorised_binding === "shard_unreadable"
+            ? "— (your Kalshi wallet could not be read)"
+            : "—"
+          : `${ceiling}`}{" "}
         <Term k="contract">{ceiling === 1 ? "contract" : "contracts"}</Term>
+        {ceiling !== null && boundWhy !== null && ` — ${boundWhy}`}
         {market.dry_run &&
           " · this path runs DRY — the order is recorded, not sent"}
       </p>
@@ -675,8 +700,8 @@ function DollarAmount({
           {capped && ceiling !== null && (
             <>
               {" "}
-              Capped at {ceiling} — your per-bet cap, not your typed amount,
-              set the size.
+              Trimmed to {ceiling} — the book or your Kalshi wallet, not your
+              typed amount, set the size. No cap of the desk's is involved.
             </>
           )}
         </p>

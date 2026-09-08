@@ -224,6 +224,159 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-08 (second session) — the table took its first two rows, and the brake Joe removed was still on the button
+
+**STATE at close.** `main` = the sha in `git log -1`, pushed; read CI with
+`gh run list --limit 3`. **Live was verified on `ebbb809` off `/api/health`
+`build.git_sha`**, machine `7812601a239428` **unchanged** across the deploy —
+check that after any deploy, because a new machine gets an empty volume and
+every credit fact inverts silently. This entry was written before its own
+commit, so re-read `/api/health` rather than believing the table.
+
+    live     ebbb809 verified 20:2xZ; recorder writing, age 46s
+    demo     cc8de80 deliberately behind, untouched
+
+Tree clean at close, no worktrees. Suite **6369 → see `gh run list`** (the
+count moved; seven tests added, none removed).
+
+### THE FINDING: `manual_orders` is no longer empty
+
+Read off the live box with `inspect_live_db.py manual-orders-audit`, which is
+structure-and-counts only by design:
+
+    n_rows 2   real_orders 2   dry_runs 0   with_kalshi_order_id 2
+    distinct_tickers 2         status: filled 2
+    19:41:07Z and 19:42:07Z, 2026-09-08
+    3 contracts and 4 contracts
+    both KXMVE combinations, both on shard 1
+    manual_order_refusals: 0 rows
+
+**The table had never held a row of any kind in the 14 days it was armed.**
+NEXT.md's previous entry named this as the thing that would be genuinely new,
+and it happened within hours of ADR 0112 removing the four brakes and check 9a
+naming the shard. **Item 2 of the previous Open list is struck.**
+
+**ADR 0113's inference fired as written.** It replaced "he does not want to
+transact here" with "the door had something wrong with it", and predicted that
+fixing the door was what to try. Two fills and zero refusals, the same evening.
+**Do not over-read it**: `n = 2`, one sitting, one evening. It is a census
+count, not a test, and needs none — the interesting property is that the
+number stopped being zero, which is a fact about the door and not an estimate
+of anything.
+
+**Both are on shard 1, which is the funded pocket** ($22.24 against $0.00 on
+shard 0). So he bet the path his money was already in, which is exactly what
+check 9a exists to tell him. **Whether to fund shard 0 is still Joe-gated and
+still unanswered** — and note it is now a real constraint rather than a
+hypothetical: singles remain unbuyable until he moves money.
+
+### The brake he removed was still on the buy button
+
+Found while checking whether ADR 0112's "no ceiling of ours bounds a hand bet"
+was actually true on the deployed box. It was true of the route and **false of
+the screen.**
+
+`GET /api/manual/market/{ticker}` served `authorised_contracts` from
+`min($3.00 spend cap, 10% of the observed balance)` — both removed by name —
+and `ManualTicket.tsx` disables Confirm above that number. **On a 90c market it
+authorised 3 contracts against a route that would take 250.**
+
+Three consequences from the one root, and the second is the ugly one:
+
+1. Two 422s on the money path said *"what bounds the BET is the $3.00 spend
+   cap, checked below."* Nothing was checked below.
+2. `authorised_contracts` was `None` when the balance had never been observed
+   — rendered as a refusal. **`ebbb809` made POST accept that state, so this
+   session's own earlier commit WIDENED the mismatch** it was part of closing.
+3. The ticket called every bound *"your per-bet cap"*, by then the one thing
+   none of them was.
+
+**This is the repo's named failure a fourth time — one predicate with two
+spellings — and the first time it ran this direction.** The three earlier
+instances were a screen promising buying that was not happening. This one
+refused betting that was permitted, on the only path that spends real money.
+
+Fixed: the count is now the structural ceiling, the depth at the ask and what
+the market's shard can pay for — the three bounds the POST route applies to
+size, so the two agree by construction rather than by hand. `authorised_binding`
+is new on the wire and the ticket says which one bit, in plain words, because
+waiting for the book and moving money between shards are different remedies.
+`ADR 0114`; take the ordinal in the merge
+commit after `git fetch`.
+
+**Two tests had preserved the error rather than catching it** — one asserted
+`"spend cap"` PRESENT in the combination refusal, one asserted `"your per-bet
+cap, not your typed amount"` present in the ticket. Both green every day the
+copy was false; the same shape `backend/parlays.py:105-111` records about
+`"40 of 40"`. Both re-pointed to pin the dead phrase absent, neither deleted.
+Verified by disabling: restoring the old bound turns 5 of the 7 new tests red.
+
+### Still open, in order
+
+1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Unchanged, and
+   nothing this session went near it. Frozen surface:
+   `backend/odds/{timing,budget,attention,ondemand,client,sweeplog}.py`. After
+   10:00Z on 09-14: `credits-day --date 20260913`, `sweep-log`,
+   `visit-freshness`, and split the mechanisms off `odds_sweep_log.detail`,
+   **NOT** `api_credits.trigger`. A deploy is not contamination; logic changes
+   are.
+2. **`RecordParlay.tsx:69-70`** still defaults `source` to `"sportsbook"` and
+   `ParlayCards.tsx:257-261` still hard-codes it. Flip to **no default**, not
+   a flipped one. Precondition P2 of the successor registration; the clean
+   window opens at its deploy. Smaller than previously billed — two files, no
+   migration, no backend change (`schemas.py:301` already requires the field,
+   `schema.sql` has a `CHECK` with no `DEFAULT`). **Risk to name: there is no
+   frontend test framework in this repo**, so nothing catches a regression
+   here automatically.
+3. **The combo entry/exit conflation is still in four ADRs.** `0073:163-164`
+   states it as fact — *"3 of 20 and 3 of 9 rows … it is rarely live"* — when
+   the true resting-NO-bid rate is 16/20 and 6/9, **33 of 40, five books in
+   six**. `0070:99-100` and `0075:41,112` carry the struck "18 units". ADR
+   0078 needs one amendment sentence; its conclusion is untouched because it
+   rests purely on the EXIT finding. **And `tests/test_combo_book_depth_claims.py`'s
+   `PINNED` list covers five files and no ADR**, so the false claim can sit in
+   four documents with CI green. Extend `PINNED` to `docs/adr/` — that is the
+   part that earns the work.
+4. **`FiveStepTest.tsx:33-34`** still says *"Open Log, tap the market, and type
+   your P(YES)"*. The Log tab was retired 2026-08-21. Joe killed ticket #19's
+   *redesign*; that kill was about the redesign's premise, not about the dead
+   instruction, and nothing picked it up. Ten minutes.
+5. **`window_status` cannot predict a bootstrap** — FROZEN until 09-14
+   (`timing.py:1536`).
+6. **The `eu` lever, 2026-09-28** — ADR 0110's measurements first; three of the
+   four are free and takeable now.
+7. **Scout Anthropic refusal fixture (ADR 0106 §5.2)** — one billed call. NOT
+   dead code: `routers/scout.py:25` imports `agents.scout_desk`.
+8. **`combo_orders` reconciliation** — `POST /api/parlays/bid` is a live,
+   armed, real-money endpoint with zero UI callers, and it still applies
+   `COMBO_ORDER_MAX_SPEND_TENTHS` ($3.00). That cap is on the **dormant maker
+   path**, not on the hand-bet taker path, so ADR 0112 did not reach it and
+   this session did not either. Decide it once; do not let it drift.
+9. **The decision map's third queue is two items, not nine.** A full audit of
+   all 32 closed tickets against the tree finds 23 built, 7 decided as "no
+   build", 2 genuine gaps — one of which is item 4 above. The "~9" was carried
+   forward without re-measuring.
+
+**Joe-gated:** whether to fund shard 0 so single markets work.
+
+### The pattern worth carrying (goes to `tasks/lessons.md`)
+
+The previous entry's Open list had **two** items stale in the same way. Item 2
+said "there is not one yet" about a thing that happened an hour later; item 9
+said "~9 live items" about a queue drained to two. Neither was wrong when
+first written; both were copied into a new entry without being re-read off the
+instrument.
+
+**A count or a "not yet" copied forward into a new session entry is an
+assertion about the present tense made from a past reading.** This file already
+learned it about lane tables — *"a hand-typed lane state asserts the present
+tense and starts rotting the second it is saved"* — and the Open list was
+exempt by nothing but habit. Every numeric or negative claim in a `Still open`
+list should carry the command that produced it, or be re-run when the entry is
+written.
+
+---
+
 ## 2026-09-08 — Joe corrected what the desk is FOR at the moment of a bet, and the four things stopping him turned out to be ours
 
 **STATE at close.** `main` = the sha in `git log -1`, pushed; read CI with

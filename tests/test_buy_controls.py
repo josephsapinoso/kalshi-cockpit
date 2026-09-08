@@ -226,11 +226,29 @@ class TestTheAmountIsTypedInDollars:
             "\r\n", "\n"
         ) or "the smallest bet here is" in " ".join(ticket.split())
 
-    def test_the_per_bet_cap_names_itself_when_it_binds(self):
-        """$100 typed against a small cap must not silently buy less — the
-        line says the cap set the size, not the typed amount."""
-        ticket = source("components/ManualTicket.tsx")
-        assert "your per-bet cap, not your typed amount" in ticket
+    def test_whatever_trimmed_the_size_names_itself(self):
+        """$100 typed against a thinner bound must not silently buy less —
+        the line says what set the size, and it was not the typed amount.
+
+        **Re-pointed 2026-09-08 (ADR 0112 Amendment 1), claim unchanged.** It
+        required the words "your per-bet cap", which is now the one thing that
+        never sets the size: Joe removed that cap by name and the route
+        stopped applying it. The property worth pinning was never the cap --
+        it is that a silently trimmed order says what trimmed it, because the
+        remedies differ (wait for the book, or move money between Kalshi
+        shards).
+        """
+        ticket = " ".join(source("components/ManualTicket.tsx").split())
+        assert "not your typed amount" in ticket
+        assert "the book or your Kalshi wallet" in ticket
+        # And the dead cap may not come back to this line. The RENDERED
+        # sentence is pinned, not the bare phrase: the comment above the
+        # ceiling quotes "your per-bet cap" to say what it replaced, and a
+        # guard that refused the quotation would forbid explaining the fix.
+        # Same allowance `tests/test_combo_book_depth_claims.py` makes, for
+        # the same reason -- a correction often opens with the words it is
+        # striking.
+        assert "your per-bet cap, not your typed amount" not in ticket
 
     def test_the_confirm_button_carries_the_dollar_cost(self):
         ticket = source("components/ManualTicket.tsx")

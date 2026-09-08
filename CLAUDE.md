@@ -489,8 +489,27 @@ never placed an order at all.
 **The hand-bet path is armed, and that is not the same door.** Since 2026-08-26
 `MANUAL_ORDERS_ARE_DRY_RUNS = False` (`backend/store/manual_orders.py`) and
 `MANUAL_ORDERS_ENABLED = "true"` on live, so `POST /api/manual-orders` sends
-real immediate-or-cancel orders — one contract at a time, at Joe's own tap, with
-his own typed estimate and order token. ADR 0063 built it as a **separate**
+real immediate-or-cancel orders at Joe's own tap, with his own typed estimate.
+
+**It has been used. `manual_orders` held 0 rows of any kind for 14 days and
+now holds 2** — both real, both `filled`, 3 and 4 contracts, two KXMVE
+combinations on shard 1, 2026-09-08 19:41Z and 19:42Z, with **zero** rows ever
+written to `manual_order_refusals`. That is a census count and not a test
+(`n = 2`, one sitting), but it ends the state ADR 0105 reasoned from and it
+fired ADR 0113's prediction within hours of the brakes coming off.
+
+**"One contract at a time, with his own typed order token" was true until
+2026-09-08 and is now false in both halves.** The token is gone with the other
+four brakes (ADR 0112), and the ceilings are structural only —
+`MANUAL_ORDER_MAX_CONTRACTS = 500`, `COMBO_MAX_CONTRACTS = 250`. **No ceiling
+of ours bounds the size of a hand bet**; what remains is the desk lockout,
+idempotency, the KXMVE acknowledgement, the price ceiling, the depth at the
+ask, the netting guard, the shard collateral check (the **venue's** rule), and
+reserve-then-check. The buy button was still enforcing the removed caps until
+`ADR 0114` — see that ADR before trusting any
+sentence about what the screen allows.
+
+ADR 0063 built it as a **separate**
 route, table and constant precisely so this sentence stays true: **`gate.py`
 never reads `manual_orders`**, so a hand bet cannot move the live-trading
 interlock's 300-game counter, and arming it did not arm the engine. Anything

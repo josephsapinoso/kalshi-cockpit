@@ -569,8 +569,21 @@ class TestTheGuardsRefuse:
         # And it must not have regained the fill bound it could never support.
         assert "could not fill" not in detail, detail
         assert "18 units" not in detail, detail
-        # The money bound is the one that actually stops him; it stays named.
-        assert "spend cap" in detail, detail
+        # **Inverted 2026-09-08, and it is the third claim this one assertion
+        # has pinned.** It required the refusal to name the "$3.00 spend cap"
+        # as the real bound. Joe removed that cap (ADR 0112) and the route
+        # stopped applying it the same day, so the sentence became a promise
+        # of a brake that is not there -- on the message a real-money refusal
+        # hands him. A test asserting the stale phrase PRESENT is what kept it
+        # shipping, which is the failure `backend/parlays.py:105-111` records
+        # about "40 of 40": the binding preserved the error instead of
+        # catching it.
+        #
+        # So the phrase is now pinned ABSENT, and what must be named instead
+        # is what actually binds: the book and the venue's collateral.
+        assert "spend cap" not in detail, detail
+        assert "shard" in detail, detail
+        assert "depth" in detail, detail
 
     async def test_a_combination_is_bounded_tighter_than_a_single_market(self):
         """The two structural ceilings are not the same number, on purpose."""
@@ -2110,3 +2123,147 @@ class TestTheDeskNamesTheShardBeforeTheVenueRefuses:
         assert "KXMVE" not in block, (
             "the shard is being inferred from the ticker prefix"
         )
+
+
+class TestTheButtonAgreesWithTheRoute:
+    """**The brake Joe removed was still on the button.** Added 2026-09-08.
+
+    `ManualTicket.tsx` disables Confirm above `authorised_contracts`, and that
+    number was built from `min($3.00 spend cap, 10% of the observed balance)`.
+    Joe removed both by name (ADR 0112 and its Amendment 1) and the POST route
+    obeyed the same day. The read did not. So the cockpit went on refusing at
+    roughly six contracts while the route would have taken two hundred -- on
+    the one path that spends real money.
+
+    This is the repo's named failure, *one predicate with two spellings and
+    the screen believing the wrong one*, running the other way round. The
+    three earlier instances were a screen promising buying that was not
+    happening; this one refused betting that was permitted.
+
+    What the count must equal now is what the POST route applies to SIZE and
+    nothing else: the structural ceiling (check 4), the depth at the ask
+    (check 8) and what the market's shard can pay for (check 9a).
+    """
+
+    async def test_no_removed_cap_is_left_in_the_count(self, tmp_path):
+        """The regression itself, at the size that exposes it.
+
+        A $50 shard against a 45c ask is 111 contracts of collateral. The
+        removed caps would have answered 6 -- `$3.00 / 0.45` -- and that is
+        the number the button used to enforce. Verified red by restoring the
+        old bound: `authorised = min(authorised, int(3.00 / 0.45))` returns 6
+        and this fails.
+        """
+        app = _app(_base_db(tmp_path))
+        body = (await get(app, f"/api/manual/market/{TICKER}")).json()
+        yes = body["sides"]["yes"]
+        assert yes["ask_tenths"] == 450
+        assert yes["authorised_contracts"] == 111, yes
+        assert yes["authorised_binding"] == "shard", yes
+        # The specific dead numbers, named so a reintroduction is legible in
+        # the failure rather than merely being "not 111".
+        assert yes["authorised_contracts"] != 6, "the $3.00 spend cap is back"
+
+    async def test_collateral_binds_and_says_so(self, tmp_path):
+        """A thin shard is the bound, and the field names which one.
+
+        `_manual_cap_dollars` carried this virtue for the caps it replaced and
+        its docstring said why: a refusal that does not say which bound it hit
+        sends the reader to fix the wrong thing. Waiting for the book and
+        moving money between shards are different remedies.
+        """
+        quotes = StubQuotes(shard_tenths=4_500)
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        body = (await get(app, f"/api/manual/market/{TICKER}")).json()
+        assert body["sides"]["yes"]["authorised_contracts"] == 10
+        assert body["sides"]["yes"]["authorised_binding"] == "shard"
+
+    async def test_an_unreadable_shard_refuses_rather_than_authorising(
+        self, tmp_path
+    ):
+        """Unreadable resolves to a refusal, never to a spendable default.
+
+        POST 502s on this (check 9a), so a ticket that offered a count here
+        would offer one the route cannot honour. `None` is what the screen
+        renders as a refusal.
+        """
+        quotes = StubQuotes(balance_payload={"balance_breakdown": "not a list"})
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        body = (await get(app, f"/api/manual/market/{TICKER}")).json()
+        assert body["sides"]["yes"]["authorised_contracts"] is None
+        assert body["sides"]["yes"]["authorised_binding"] == "shard_unreadable"
+
+    async def test_a_market_with_no_shard_refuses_rather_than_guessing_zero(
+        self, tmp_path
+    ):
+        """`0` is a real shard, so an absent `exchange_index` is unknown.
+
+        Same rule the POST route applies at check 9a, and the same reason: a
+        guessed shard is how a "payable" order dies at the venue after he has
+        typed a price and confirmed.
+        """
+        quotes = StubQuotes(_payload(exchange_index=None))
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        body = (await get(app, f"/api/manual/market/{TICKER}")).json()
+        assert body["sides"]["yes"]["authorised_contracts"] is None
+        assert body["sides"]["yes"]["authorised_binding"] == "shard_unreadable"
+
+    async def test_an_unobserved_balance_no_longer_empties_the_ticket(
+        self, tmp_path
+    ):
+        """The read had the same precondition the POST route shed.
+
+        Until 2026-09-08 this returned `None` whenever the account balance had
+        never been observed, because every ceiling derived from it. `ebbb809`
+        made POST accept exactly that state, which left the screen refusing
+        what the server permits -- the mismatch WIDENED by the fix that was
+        supposed to close it. The shard's own balance is what pays for a bet
+        and it is read from the venue, not from `latest_balance_tenths`.
+        """
+        path = tmp_path / "nobal-read.db"
+        conn = db.init_db(path)
+        conn.close()
+        app = _app(path)
+        body = (await get(app, f"/api/manual/market/{TICKER}")).json()
+        assert body["caps"]["derived"] is False
+        assert body["sides"]["yes"]["authorised_contracts"] == 111
+
+    async def test_the_count_is_never_more_than_the_route_would_take(
+        self, tmp_path, records_only
+    ):
+        """The agreement property, driven through both surfaces.
+
+        This is the assertion that would have caught the original defect from
+        either direction, and it is the reason the two are computed from the
+        same three bounds rather than merely reconciled once by hand.
+        """
+        quotes = StubQuotes(shard_tenths=4_500)
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        body = (await get(app, f"/api/manual/market/{TICKER}")).json()
+        authorised = body["sides"]["yes"]["authorised_contracts"]
+
+        ok = await post(
+            app, "/api/manual-orders",
+            json=_body(contracts=authorised), headers=AUTH,
+        )
+        assert ok.status_code == 200, ok.json()
+
+        over = await post(
+            app, "/api/manual-orders",
+            json=_body(contracts=authorised + 1, idempotency_key="k-00000002"),
+            headers=AUTH,
+        )
+        assert over.status_code == 422, over.json()
+        assert "shard" in over.json()["detail"]
+
+    async def test_depth_binds_when_it_is_the_thinnest_bound(self, tmp_path):
+        """An IOC for more than the book holds part-fills at best (check 8)."""
+        quotes = StubQuotes(_payload(yes_ask_size=7.0))
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        body = (await get(app, f"/api/manual/market/{TICKER}")).json()
+        assert body["sides"]["yes"]["authorised_contracts"] == 7
+        assert body["sides"]["yes"]["authorised_binding"] == "depth"
+        # The OTHER side is untouched by that book change and is still bound
+        # by collateral, which is what makes this a depth test rather than a
+        # test that any thin number propagates everywhere.
+        assert body["sides"]["no"]["authorised_binding"] == "shard"

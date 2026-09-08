@@ -84,6 +84,84 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-08 - Removing a brake server-side leaves it on the screen, and that direction of the mismatch is invisible
+
+Every prior instance of this repo's "one predicate with two spellings" defect
+ran the same way: a screen that promised buying which was not happening. So the
+habit that grew around it was to check whether the screen **over**-promises.
+
+The fourth instance ran the other way. Joe removed every ceiling on a hand bet
+and `POST /api/manual-orders` obeyed the same day; `GET /api/manual/market/`
+went on serving `authorised_contracts` from `min($3.00 spend cap, 10% of the
+observed balance)`, and the buy button disabled Confirm above it. **The screen
+kept braking after the server stopped** — 3 contracts offered against a route
+that would take 250 — for thirteen days, on the only path that spends real
+money.
+
+**A removal is a two-sided change and only one side announces itself.** When a
+server-side guard is deleted, the deletion is visible in the diff, the tests
+and the ADR. The client-side *consumer* of that guard's output changes
+nothing, compiles fine, and keeps enforcing the dead rule with no diff to
+review. Nothing goes red, because the number it reads still exists — it has
+merely stopped meaning what it meant.
+
+So: **when you remove a bound, grep for who READS the number it produced**, not
+only for who raised the exception. The exception has a name and is easy to
+find; the derived quantity is usually an integer on a wire with a neutral name
+like `authorised_contracts`, and the thing gating on it is in another language
+in another directory.
+
+And the failure is silent in the direction that matters least to a test suite
+and most to the user: an over-restrictive screen throws no error, logs nothing,
+and looks exactly like a working product. The only symptom is a person who
+cannot do the thing he was told he could.
+
+**Corollary, from the same session:** the fix that removed the *last* ceiling
+(`ebbb809`, the exposure cap) made the server accept an unobserved balance
+while the read still returned `None` for it — so the mismatch was *widened by
+a commit that was part of closing it*. A partial removal is a moment of
+maximum divergence between the two spellings, not a step toward agreement.
+Ship the consumer in the same commit as the guard, or the screen lies in the
+interval — the same ordering rule `CLAUDE.md` already records for copy that
+names a condition to wait for.
+
+---
+
+## 2026-09-08 - A count or a "not yet" copied into a new session entry is a present-tense claim from a past reading
+
+Two items in one Open list were stale in the same way, and neither was wrong
+when it was first written.
+
+Item 2 said *"the first real `manual_orders` row is the finding, and there is
+not one yet"*. Two rows landed about an hour later. Item 9 said the decision
+map's third queue had *"~9 live items"*; an audit of all 32 closed tickets
+against the tree found 23 built, 7 decided as no-build, and **2** genuine gaps.
+The "~9" had been carried forward from an earlier entry that counted eleven,
+across sessions that built almost all of them.
+
+This file already learned the general form about lane tables — *"a hand-typed
+lane state asserts the present tense and starts rotting the second it is
+saved"* — but the `Still open` list was exempt from it by nothing but habit,
+because it reads like a to-do list rather than like a measurement.
+
+**It is a measurement.** "There is not one yet" is a claim about a table right
+now. "~9 items" is a count. Both were true at some past instant and are
+asserted in the present tense by being copied into a fresh, freshly-dated
+entry — which is exactly the move that launders a stale reading into a current
+one.
+
+**So every numeric or negative claim in a handoff carries the command that
+produced it, or gets re-run when the entry is written.** `n_rows 2` beside
+`inspect_live_db.py manual-orders-audit` survives being read a week later,
+because a reader can tell what it was and re-take it. "There is not one yet"
+cannot be re-taken, cannot be dated by inspection, and is believed.
+
+The cheap version of the discipline: when writing a `Still open` list, a claim
+you cannot cite a command for is one you should either re-derive or write as
+"as of <date>, unverified since".
+
+---
+
 ## 2026-09-08 - A consumer that restates a predicate is not covered by the test that pins it
 
 A script computing NFL credit demand published **116** where the answer was
@@ -1161,6 +1239,8 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-09-08 — in this file, above
+- Removing a brake server-side leaves it on the screen, and that direction of the mismatch is invisible
+- A count or a "not yet" copied into a new session entry is a present-tense claim from a past reading
 - A consumer that restates a predicate is not covered by the test that pins it
 - A mechanism that relabels spend is not a saving
 - A mutation that stays green has two readings, and only the code tells you which
