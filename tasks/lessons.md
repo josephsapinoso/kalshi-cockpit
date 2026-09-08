@@ -69,6 +69,67 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-08 - A mutation that stays green has two readings, and only the code tells you which
+
+The rule in `CLAUDE.md` is "every guard is verified by disabling it and
+watching the test fail. If it stays green, it's decoration." That rule is
+right and it is also **incomplete**, in a way that would have deleted a working
+guard.
+
+Verifying a new lay-price test, the obvious line was disabled:
+
+    if market_key in EXCLUDED_MARKETS:   ->   if market_key in ():
+
+The suite stayed green. Read literally, the rule says the test is decoration
+and should go. It is not. `EXCLUDED_MARKETS` only chooses **which log message
+is emitted**; the actual gate is the `PRICEABLE_MARKETS` whitelist one line
+above, where anything unclassified is dropped by default. Adding `h2h_lay` to
+that whitelist instead turned two tests red immediately -- the new NFL one and
+the MLB one that had stood for a month.
+
+So: **a green mutation means either the test is decoration or the mutation
+missed the guard.** Those are different conclusions with opposite actions
+(delete the test / re-aim the mutation), and nothing in the green result
+distinguishes them. Only reading the code does.
+
+The tell, in hindsight, is that the disabled line sat inside a branch that had
+*already decided to `continue`*. A guard that is genuinely load-bearing is on
+the path to the outcome; a line that only shapes a log message is downstream of
+the decision. **Before concluding "decoration", check that the line you
+disabled is actually what makes the difference** -- a name containing
+EXCLUDED, DENY, FORBIDDEN or SKIP is a strong hint and not evidence.
+
+Corollary worth its own sentence: a whitelist and a denylist that both mention
+the same key are not two guards. The whitelist is the guard. The denylist is
+documentation with an `if` in front of it.
+
+## 2026-09-08 - A capture script that reads the environment captures the laptop, not the deployment
+
+A script was written to buy one NFL odds payload and commit it as a wire
+fixture. The first draft read the request shape from the environment, with
+live's values as defaults -- which reads as careful, and is the opposite.
+
+`fly.live.toml` sets `ODDS_MARKETS = "h2h,spreads"`. This laptop's `.env`
+carries `ODDS_MARKETS=h2h`, the older narrower shape. Loading `.env` for the
+credential -- which the script must do -- would have picked that up too, bought
+a **two**-credit payload instead of four, and produced a fixture of a request
+**the recorder never makes**. Every test written against it would have passed,
+and would have pinned a code path nobody runs.
+
+The general shape: **a fixture's value comes entirely from being the bytes
+production actually sees, so any parameter of the request must be pinned to
+production's value, never inherited from wherever the capture happens to run.**
+Config that is correctly environment-driven at runtime is exactly the config
+that must be frozen at capture time, and those two facts feel contradictory
+right up until a fixture is wrong.
+
+What made it visible was a cost guard: the confirm flag names the price
+(`--confirm-spend-4`) and the script refuses if the shape does not multiply to
+it. That was written to stop *over*-spending. It caught an *under*-spend, which
+is the more dangerous direction, because overspending announces itself on the
+bill and underspending announces itself never. **Name the expected cost in the
+flag; a shape that silently costs less is silently testing something else.**
+
 ## 2026-09-07 - "It might be slow" is not a tolerance; find the bound
 
 An advisory agent noted, correctly, that `window_status` cannot see a
