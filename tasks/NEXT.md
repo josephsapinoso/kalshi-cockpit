@@ -448,12 +448,60 @@ all green this morning are red.
    at `client.py:567`. Aiming at that (M4) turns both lay tests red, the MLB
    one included. **A green mutation has two readings — decoration, or a missed
    guard — and only reading the code separates them.**
-4. **The Sunday 09-13 convergence.** Simulated at ~486 credits base (3 NFL
-   clusters × 7 calls × 4, plus the NFL floor, plus observed MLB+NCAAF), and
-   all three clusters land in one budget day because the 00:20Z nighter is
-   before the 10:00Z roll. ADR 0111 buys back the attention half; the
-   **kickoff-window loop is untouched and is the largest term**. Item 5 is
-   what makes a bind legible.
+4. ~~**The Sunday 09-13 convergence.**~~ **TAKEN 2026-09-08, zero credits.**
+   `docs/measurements/2026-09-08-nfl-sunday-credit-convergence.md`.
+
+   **The convergence is real and cheap: the 00:20Z nighter's cluster costs 28
+   credits of 700, ~4%.** NFL's whole scheduled demand for 09-13 is **124**
+   (3 clusters, 21 window + 10 floor calls) — which **reproduces** the 124
+   already published on 2026-09-06 rather than replacing it. Against every
+   observed non-NFL day (180–496), `base + 124` lands 304–620. **Scheduled
+   demand alone does not bind.**
+
+   **What can bind is an attended Sunday, and the sub-caps are not budgeted to
+   fit:** scheduled base 304 + NFL 124 + attention slice 300 + tap reserve 150
+   = **878 against a 700 cap**, drawn first-come-first-served with **no
+   reservation between spenders** (`budget.py:218` is a flat
+   `remaining_today < cost`). **The day cap is load-bearing, not slack** — and
+   that half is a code fact, independent of every projection.
+
+   **Do not repeat the two errors this took.** (1) The first figure was **116**,
+   from restating `SweepSlot.is_due` as `fire_from <= now < fire_until` when
+   production's is `<=` on both ends — the strict `<` drops the seventh call of
+   every window. The script printed `7 calls per full window` eight lines above
+   a body producing six. **A consumer that restates a predicate is not covered
+   by the test that pins the predicate**, and a new derivation disagreeing with
+   a published number must halt rather than publish. (2) It planned once at day
+   start where `decide_sweeps` replans every pass, hiding six 5-cluster days;
+   the season worst is **~152–156**, not 140. `tests/test_simulate_nfl_sunday_
+   credits.py` pins both, verified by mutation.
+
+   **"Displacement makes the ceiling loose" is false and was believed here.**
+   A displaced attention buy is *relabelled* NULL, not removed, and leaves the
+   slice unspent to fund a later hour — so under the premise that matters
+   (slice exhausted) it saves **zero**. General form: a mechanism that relabels
+   spend is not a saving.
+
+   **Binding is two states, not one.** Partial refusal comes first — slots
+   reserve their tails and the floor loop runs **alphabetically**
+   (`timing.py:2322`), so NCAAF/NFL are served before MLB and **WNBA dies
+   first**; the slate degrades. The full stop (`fire=()`, everything silent to
+   10:00Z) needs `remaining == 0` and the earlier refusals are what prevent
+   reaching it.
+
+   **The base is NOT a Sunday base and the prior doc's limitation is NOT
+   retired** — an earlier draft of this item claimed both. 2026-09-07 is Labor
+   Day, so 20260906/07 are the only NCAAF Sunday+Monday slate of the year; the
+   Sunday-with-NFL cell is still **n = 0**; and six of the seven base days
+   predate ADR 0111. Worse, the comfortable central estimate used a Sunday with
+   32 attention credits — an *unattended* day — to project the day Joe is most
+   likely to watch all afternoon.
+
+   **Still open, and it is now the only live term:** whether the slice actually
+   gets spent on 09-13. After 10:00Z on 09-14 run `credits-day --date 20260913`,
+   `sweep-log` and `visit-freshness`, and split the mechanisms off
+   `odds_sweep_log.detail` rather than `api_credits.trigger`, which pools them
+   and is displaceable.
 5. ~~**The calm strip after a mid-day cap**~~ **DONE this session, and the
    diagnosis in the previous entry was not quite the defect.** `sweepTone` did
    have a `refused` branch; it could not be *reached* on the day it mattered.
