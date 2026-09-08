@@ -69,6 +69,76 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-08 - A consumer that restates a predicate is not covered by the test that pins it
+
+A script computing NFL credit demand published **116** where the answer was
+**124**. It had reimplemented the due-window check as
+
+    fire_from_ms <= now < fire_until_ms
+
+against production's `SweepSlot.is_due`, which is `<=` on **both** ends. The
+strict `<` drops the last refresh of every window: six calls counted where seven
+are made.
+
+`tests/test_sweep_timing.py::test_a_full_window_is_seven_calls_and_the_number_is
+_written_down` exists **precisely** to stop a six being quoted, and it was green
+the whole time. It guards the planner. The defect was in a consumer that
+declined to call the planner's own predicate and wrote its own instead. **A test
+that pins a rule protects the code that calls the rule, and nothing else.** The
+fix is not a better test of `is_due`; it is calling `is_due`.
+
+The tell was printed and not read. The script's banner derived
+`7 calls per full window` from the constants and printed it eight lines above a
+body reporting 18 window calls across 3 clusters. **When a program prints both a
+derived quantity and a counted one, they are an assertion — make it one**, or
+accept that nobody reads across.
+
+**The second half is the one that would have caught it without any of the
+above.** 124 was already in this repo, twice: in a measurement doc's amendment
+and in that test's docstring. The new derivation contradicted both and was
+written up without noticing. So: **a derivation that disagrees with a published
+number must halt.** Not "investigate later" and not a footnote — reproducing a
+figure is evidence, and silently replacing one destroys the record's ability to
+tell drift from error. Grep the repo for the number before publishing it.
+
+Related, from the same audit: the same script planned **once** at day start
+where the production loop replans every pass. That is the general failure of
+simulating a loop with a snapshot — state the loop recomputes must be
+recomputed, or the simulation answers a question about a frozen world. It hid
+six 5-cluster days out of 57.
+
+## 2026-09-08 - A mechanism that relabels spend is not a saving
+
+A credit ceiling was computed at 878 against a 700 cap, and the first instinct
+was to call it loose because "attention is displaced by the schedule" — a real,
+documented mechanism: when a kickoff-window slot satisfies the refresh cadence
+first, the buy is recorded with a NULL trigger instead of `ATTENTION`.
+
+That mechanism does not save a credit. Trace what it touches:
+
+- The call happens either way, and it was **already counted** in the schedule's
+  term. Displacement changes which term *claims* it, not whether it is made.
+- The attention sub-cap counts only `ATTENTION`-stamped rows. So a displaced
+  buy leaves the slice **unspent** — free to fund a different call in a later
+  hour.
+- Therefore under the only premise where the ceiling matters — the slice
+  running out — displacement moves **exactly zero** off the total. It can even
+  move the total up, by deferring slice consumption into hours that would
+  otherwise have been quiet.
+
+The pattern: **when a sub-cap is denominated in a label rather than in the
+resource, a mechanism that changes labels changes what the sub-cap permits, not
+what the resource spends.** Before crediting any such mechanism with headroom,
+ask which of the two it caps. The same question applies to every quota this
+repo keeps by `trigger`, and `trigger` is already known to be displaceable.
+
+Corollary worth stating separately, because it is where the error entered:
+**"this bound is loose" is a claim and needs its own derivation.** It was
+asserted from the direction of the mechanism (displacement reduces attention,
+attention is in the sum, so the sum is over-counted) without tracing the
+accounting. Loose in which term, by how much, under what premise — or say the
+bound is a bound.
+
 ## 2026-09-08 - A mutation that stays green has two readings, and only the code tells you which
 
 The rule in `CLAUDE.md` is "every guard is verified by disabling it and
