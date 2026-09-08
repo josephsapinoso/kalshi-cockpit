@@ -382,7 +382,7 @@ quadrant this instance can reach has now answered:
 |---|---|---|
 | Consensus vs Kalshi's close | `beta = -0.141` | ADR 0021, 0034 |
 | In-house model vs Kalshi's price | our error > the disagreement | ADR 0036, 0037 |
-| `KXMVE` combos | **enter-only**: no YES bid on 40/40 books ever read, ≤18 units deep | ADR 0012 §5, E2/E3, 2026-08-18 |
+| `KXMVE` combos | **exit-only problem**: no YES bid on 40/40 books ever read (entry: 33/40 had a resting NO bid) | ADR 0012 §5, E2/E3, 2026-08-18 |
 | Speed / stale-quote pick-off | edge lives at ~400ms | predecessor |
 | Cost headroom | a **discount, not a signal** | ADR 0027, 0028 |
 
@@ -412,7 +412,30 @@ empty on 40/40 combination books this repo has ever read**, across three runs
 on two dates. The list ask is the complement of a resting NO bid, not a quoted
 offer. You can enter and you cannot exit. That, plus a combo fee model ADR 0012
 §5 records as unverified, is why the quadrant still supplies no edge — an
-enter-only market ≤18 units deep has nothing to multiply.
+enter-only market has nothing to multiply.
+
+**"≤18 units deep" was struck from that sentence on 2026-09-08, and the
+conclusion above is unaffected.** The figure was wrong three ways. Its
+citation to ADR 0012 §5 was spurious — that ADR's only `18` is the denominator
+of `same-game 17/18`, a rate it withdraws itself. Its real source
+(`docs/measurements/2026-08-18-combo-book-presence-inseason-result.md`) says
+"the deepest resting order **here** was 18.00 units", scoped by that "here" to
+one run of 11 rows, and every copy downstream dropped the word and promoted it
+to "ever measured". And repo-wide it is wrong by ~38x: the committed captures
+carry resting NO bids of **683, 413, 369, 311, 309 and 300** units.
+
+**The entry rate was also being reported backwards, and this is the part that
+reaches a screen.** `33 of those same 40 rows carried a resting NO bid` — 16
+of 20 in E2, 6 of 9 in E3, 11 of 11 on 2026-08-18 — and a resting NO bid *is*
+the ask you buy at. The `3 of 20 / 3 of 9` that circulated as the resting-bid
+rate is the `volume` column: rows that had ever **traded**, a different and
+much rarer thing. `PriceOnKalshi.tsx` told Joe to "expect it to refuse" on
+that conflation while five books in six were quoted.
+
+**What survives is the exit, and it is untouched:** zero resting YES bids over
+36 levels on 40 of 40 books. A combination is easy to open and may be
+impossible to close at size. That — not a depth of 18 — is why combination
+orders are held to a tighter ceiling, and it is why ADR 0078's hedge exists.
 
 That last row is why this is a closure and not a pause: **a cost advantage
 multiplies an edge, it cannot create one**, and no quadrant supplied one to

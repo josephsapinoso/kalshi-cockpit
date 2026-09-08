@@ -463,9 +463,18 @@ class TestTheGuardsRefuse:
 
         So the money bound moved to `MANUAL_ORDER_MAX_SPEND_TENTHS` and what
         survives here is a structural ceiling, tighter for combinations than
-        for single markets: the deepest resting bid ever measured on a
-        combination book was 18 units (ADR 0012 §5), so a far larger count
-        could not fill anyway.
+        for single markets.
+
+        **Its stated reason was false and was replaced 2026-09-08; the cap and
+        this assertion are unchanged.** The reason used to be "the deepest
+        resting bid ever measured on a combination book was 18 units (ADR 0012
+        §5), so a far larger count could not fill anyway." ADR 0012 carries no
+        such figure, the real source scoped it to a single 11-row run with the
+        word "here", and the committed captures reach 683 units. The ceiling
+        now rests on the exit instead, which is measured and unrefuted: zero
+        resting YES bids on 40 of 40 combination books. Easy to open, possibly
+        impossible to close. See `test_the_combo_depth_claims_match_the
+        _committed_captures`.
         """
         app = _app(_base_db(tmp_path, balance_tenths=3_000_000))
         response = await post(
@@ -479,8 +488,21 @@ class TestTheGuardsRefuse:
         )
         assert response.status_code == 422
         detail = response.json()["detail"]
-        assert "enter-only" in detail, detail
-        assert "could not fill" in detail, detail
+        # **Re-pointed 2026-09-08, and deliberately made STRONGER rather than
+        # looser.** This used to assert the tokens "enter-only" and "could not
+        # fill". The second was a false claim (see
+        # `tests/test_combo_book_depth_claims.py`) and the first is jargon Joe
+        # has asked not to be handed undefined. What the refusal must now carry
+        # is the substance: which side of the book is missing, over how many
+        # observations, and that the risk is the EXIT rather than the entry.
+        assert "resting YES bid" in detail, detail
+        assert "40 of 40" in detail, detail
+        assert "exit" in detail, detail
+        # And it must not have regained the fill bound it could never support.
+        assert "could not fill" not in detail, detail
+        assert "18 units" not in detail, detail
+        # The money bound is the one that actually stops him; it stays named.
+        assert "spend cap" in detail, detail
 
     async def test_a_combination_is_bounded_tighter_than_a_single_market(self):
         """The two structural ceilings are not the same number, on purpose."""

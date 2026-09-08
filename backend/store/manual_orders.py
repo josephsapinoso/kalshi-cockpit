@@ -134,10 +134,23 @@ MANUAL_ORDER_MAX_SPEND_TENTHS = 3_000  # $3.00 -- the top of his stated range
 # book on its own) even when the money is small.
 MANUAL_ORDER_MAX_CONTRACTS = 500
 
-# Combination (`KXMVE`) markets keep a tighter structural ceiling. The book is
-# enter-only on every combination this repo has ever read (ADR 0012 §5) and
-# the deepest resting bid ever measured was 18 units, so a count far past that
-# could not fill anyway and would only be an order the venue rejects in parts.
+# Combination (`KXMVE`) markets keep a tighter structural ceiling, and the
+# reason changed on 2026-09-08 while the number did not.
+#
+# It used to read "the deepest resting bid ever measured was 18 units, so a
+# count far past that could not fill anyway". That was a scope loss: the source
+# (`docs/measurements/2026-08-18-combo-book-presence-inseason-result.md`) says
+# "the deepest resting order **here** was 18.00 units" about ONE run of 11
+# rows, and the citation to ADR 0012 §5 was spurious — that ADR's only "18" is
+# the denominator of `same-game 17/18`, a rate it withdraws itself. Repo-wide
+# the committed captures carry resting NO bids of 683, 413, 369, 311, 309 and
+# 300 units, so entry depth is ~38x what this comment claimed.
+#
+# The ceiling stays at 250 because what justifies it is the EXIT, which is
+# measured and unrefuted: `yes_dollars` is empty on 40/40 combination books
+# ever read (36 levels, zero resting YES bids). A large combination position
+# is easy to open and may be impossible to close. The count is not the binding
+# constraint in any case — the spend cap is.
 COMBO_MAX_CONTRACTS = 250
 
 # The combination prefix, and the ONE predicate that reads it.

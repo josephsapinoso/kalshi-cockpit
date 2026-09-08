@@ -51,11 +51,27 @@ import Term from "@/components/Term";
  * buy there, which the existing words already say better than a disabled
  * button would.
  *
- * **Expect it to refuse.** Every combination book this repo has read had no
- * YES bid — 40 of 40 — so the depth check kills nearly every combo order.
- * The control exists because the exceptions are real (3 of 20 and 3 of 9
- * rows on 2026-08-09 carried a resting bid, the deepest 18 units at 13c),
- * not because they are common.
+ * **This block said "expect it to refuse" and had the book backwards.
+ * Corrected 2026-09-08 against the committed captures.**
+ *
+ * What is true, and is the only thing 40-of-40 establishes: no combination
+ * book this repo has read has ever carried a resting **YES** bid. That is the
+ * EXIT. It says nothing about getting in.
+ *
+ * Entry is the opposite of what this comment claimed. **33 of those same 40
+ * rows carried a resting NO bid** (16 of 20 in E2, 6 of 9 in E3, 11 of 11 in
+ * the 2026-08-18 run) — and a resting NO bid IS the ask you buy at, by the
+ * derived-ask identity. Depths run to 683 units. The old text got 3-of-20 and
+ * 3-of-9 from the `volume` column and reported it as the resting-bid rate;
+ * those are the rows that had ever TRADED, a different and much rarer thing.
+ * The "deepest 18 units at 13c" was attributed to 2026-08-09 and did not come
+ * from it: it is the 2026-08-18 run's within-run maximum, and 2026-08-09's own
+ * captures reach 413 and 683.
+ *
+ * So the depth check does not kill nearly every combo order, and a screen
+ * telling Joe to expect refusal was steering him off a book that was quoted
+ * five times in six. It renders only on `status === "priced"`; when the book
+ * is genuinely empty the existing words already say so.
  */
 export default function PriceOnKalshi({ card }: { card: ParlayCardData }) {
   const [state, setState] = useState<

@@ -3238,18 +3238,39 @@ def create_app(
             # **The STRUCTURAL ceilings, not the binding one.** What bounds the
             # bet is money (check 9); these stop a market priced at a tenth of a
             # cent turning a few dollars into a count that moves a thin book on
-            # its own. A combination is held tighter because the deepest resting
-            # bid this repo has ever measured on one was 18 units (ADR 0012 §5),
-            # so a far larger count could not fill anyway.
+            # its own.
+            #
+            # **The reason this ceiling used to give was false, corrected
+            # 2026-09-08.** It said "the deepest resting bid this repo has ever
+            # measured on one was 18 units (ADR 0012 §5), so a far larger count
+            # could not fill anyway." Three things were wrong with that. (1) ADR
+            # 0012 carries no such figure; its only "18" is the denominator of
+            # `same-game 17/18`, a rate the ADR itself withdraws. (2) The real
+            # source is
+            # `docs/measurements/2026-08-18-combo-book-presence-inseason-result.md`,
+            # which says "the deepest resting order **here** was 18.00 units" —
+            # scoped by that "here" to one run of 11 rows. Every copy downstream
+            # dropped the word and promoted it to "ever measured". (3) Repo-wide
+            # it is wrong by ~38x: the committed captures carry resting NO bids
+            # of 683, 413, 369, 311, 309 and 300 units (E3 and E2, 2026-08-09),
+            # and the NO bid is the side whose complement is the ask you buy at.
+            #
+            # So the count ceiling no longer claims a fill bound it cannot
+            # support. What survives — and is the true, load-bearing claim — is
+            # the EXIT: `yes_dollars` is empty on 40/40 books ever read, 36
+            # levels, zero resting YES bids. That is why a combination is held
+            # tighter than a single market. It is not that you cannot get in.
             if combo and request.contracts > COMBO_MAX_CONTRACTS:
                 raise HTTPException(
                     status_code=422,
                     detail=(
                         f"a combination order is capped at "
                         f"{COMBO_MAX_CONTRACTS} contracts on this path, against "
-                        f"an order for {request.contracts}. Combination books are "
-                        f"enter-only and the deepest resting bid ever measured "
-                        f"here was 18 units, so a larger count could not fill. "
+                        f"an order for {request.contracts}. The cap is a "
+                        f"structural ceiling, not a measured fill limit: no "
+                        f"combination book this tool has read has ever carried a "
+                        f"resting YES bid (40 of 40), so a combination is easy "
+                        f"to enter and may be impossible to exit at size. "
                         f"What bounds the BET is the ${max_spend_dollars():.2f} "
                         f"spend cap, checked below."
                     ),

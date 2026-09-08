@@ -330,8 +330,14 @@ def _with_no_bid(price_dollars: str, size: str) -> dict:
 
 
 #: A populated combo book: one resting NO bid at $0.985 (98.5c = 985 tenths),
-#: 18 units — the deepest resting order the combo record has ever seen, E2's
-#: shape, in the captured envelope.
+#: 18 units, in E2's shape inside the captured envelope.
+#:
+#: **18 is kept as a deliberately THIN book, and the comment claiming it was
+#: "the deepest resting order the combo record has ever seen" was struck
+#: 2026-09-08 as false.** 18.00 is the deepest in ONE run (2026-08-18, 11
+#: rows); the record reaches 683 (E3) and 413 (E2), both 2026-08-09. The
+#: fixture is still useful precisely because it is thin — it exercises the
+#: depth cap — but it is not the record's maximum and must not be cited as one.
 POPULATED_BOOK = _with_no_bid("0.9850", "18.00")
 
 #: The same book with depth far exceeding any preset stake, so the depth cap
