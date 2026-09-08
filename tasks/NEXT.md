@@ -370,64 +370,51 @@ all green this morning are red.
 
 ### Still open, in order
 
-1. **Tonight, from ~03:35Z 09-08: confirm the first NFL sweep fired**, read the
-   way the corrections above say and not the way this morning's entry said.
-   - **CHECKED 16:30Z 09-07 AND THE WINDOW HAD NOT OPENED — 11.1 h early.**
-     Not a failure and not a delay: the soonest Kalshi NFL event is
-     `KXNFLGAME-26SEP09NESEA` at commence 2026-09-10 03:20Z, which crosses the
-     48 h bootstrap horizon at **2026-09-08 03:20Z**, and the first full pass
-     after that lands ~03:35Z (~03:37Z with jitter). `sweep-log` at 16:25Z
-     shows no NFL row of any outcome, which is the correct state. **Whoever
-     takes this reading must do it after 03:40Z on 09-08, not before**, and
-     the two things that would otherwise be checked first are now already
-     cleared:
-     - **The baseline re-stamps every pass, shown rather than assumed.** Read
-       again at 16:25Z: 66 rows, same 32/16/16/2 split, `last_seen`
-       `2026-09-07 16:25` on **all 66**, 0 stale — identical to 15:30Z. One
-       baseline could not tell a queue that stamps every pass from one stamped
-       once; two 55 minutes apart can. So a frozen row at 04:00Z is a fixed
-       row, and that inference is now load-bearing rather than hopeful.
-     - **The 700-credit cap cannot eat the observation.** The budget day rolls
-       at 10:00Z, so 03:35Z 09-08 is inside budget day **20260907** — a bound
-       cap would return `fire=()` and the refusal would look, through
-       `list_unmatched.py` alone, exactly like a sweep that fired and failed to
-       link. At 16:30Z the day stood at **60 of 700** across 15 calls, 640 left
-       with ~17.5 h to run, against a 492-credit all-time heaviest day. Not a
-       risk tonight. Re-read `credits-day --date 20260907` before the sweep-log
-       read anyway; it is free and it removes the only silent failure mode.
-   - `sweep-log` should show a **`served`** row, `sport_key =
-     americanfootball_nfl`, detail beginning `americanfootball_nfl has no
-     stored sportsbook fixtures`. A `skipped` props row lands right behind it
-     and is expected. **Do not grep `api_credits` for `bootstrap`** — `trigger`
-     is NULL on a bootstrap; only MANUAL and ATTENTION are stamped.
-   - **The design bound is ~03:37Z, and it is tighter than it was first
-     written.** It is true that `window_status` cannot see a fixture-less sport
-     and that its null `next_call_ms` feeds `Tempo.next_wake_ms`
-     (`scripts/run_loop.py:1121`) — but a null there is **not** an unbounded
-     sleep. `Tempo.interval_s` returns `slow_interval_s` on `next_wake_ms is
-     None` (`backend/scheduler.py:400`), which is `RUNNER_INTERVAL_S = 900` on
-     live, and `run_forever` stretches it by at most `JITTER = 0.15` → 1,035s.
-     A bootstrap also needs a **full** pass, and `pass_kind` returns `full`
-     every 900s regardless. So: 03:20Z + one full-pass interval = **03:35Z**,
-     +jitter = **~03:37Z**. An earlier draft of this item said "a bootstrap at
-     04:10Z is the design working"; that was over-generous and would have
-     spent half an hour not looking for a real fault.
-   - **So nothing by 04:00Z is a signal — but check the ledger before calling
-     it a failure.** The one thing that legitimately delays it further is a
-     wedged pass, and those are documented and measured: sixteen holes of 21.5
-     to 63.3 minutes between 08-23 and 08-28, ~3.4 hours a day, with no
-     `loop_failures` row for any of them (`backend/scheduler.py:61-71`). Run
-     `pass-gaps` first. A hole spanning 03:20–03:40Z explains the absence and
-     is a known phenomenon, not a broken bootstrap.
-   - **Read `last_seen`, never the count**, against the 15:30Z baseline above:
+1. ~~**Tonight, from ~03:35Z 09-08: confirm the first NFL sweep fired**~~
+   **DONE 2026-09-08 03:41Z. IT FIRED AND BOTH CLASSES LINKED.**
 
-         flyctl ssh console -a kalshi-cockpit -C "python /app/scripts/list_unmatched.py --db /data/cockpit.db --league 'Pro Football'"
+   `api_credits` carries one `/sports/americanfootball_nfl/odds` row at
+   **03:23:58.664Z**, cost 4, `trigger` NULL — a bootstrap, 3.9 minutes after
+   the 03:20Z horizon crossing and inside the ~03:37Z bound. It is the newest
+   `served` row in `odds_sweep_log`, with the expected props `skipped` row on
+   the same pass.
 
-     Expect the Week-1 `KXNFLGAME` rows to stop moving while the rest keep
-     moving. **32 rows still there is success**; 32 rows all fresh is the
-     broken-link case.
-2. **Deploy ADR 0111** (`9e7e6c7`), once item 1 is confirmed. It is on `main`
-   and not on the box; nothing else is holding it.
+   **Read on `last_seen`, and the count did not move — 66 rows, as designed.**
+
+   | series | frozen @ 03:05 | fresh @ 03:39 | reading |
+   |---|---|---|---|
+   | `KXNFLGAME` | **32** | 0 | **linked** |
+   | `KXNFLSPREAD` | **16** | 0 | **linked** |
+   | `KXNFLTOTAL` | 0 | 16 | still failing, by scope |
+   | `KXNFLTEAMTOTAL` | 0 | 2 | same |
+
+   03:05 is the last pass before the sweep. The partition is exact — every row
+   predicted to link is frozen, every row predicted to keep failing is fresh,
+   and none falls on the wrong side. Budget day 20260907 closed at **300 of
+   700** across 75 calls.
+
+   **The two 09-07 baselines are what make this readable.** One baseline could
+   not have separated "the sweep fixed 48 rows" from "the queue stops stamping
+   at night"; the 16:25Z re-read established it re-stamps every pass. Full
+   result and its four *does-not-establish* caveats:
+   `docs/measurements/2026-09-07-nfl-live-path-preflight.md`.
+
+   **The 48 frozen rows are stale, not resolved.** They disappear seven days
+   after 03:05Z. Anyone returning to this queue mid-week must read the stamp,
+   not the count — the same trap this item was rewritten to avoid.
+2. ~~**Deploy ADR 0111** (`9e7e6c7`)~~ **DONE 2026-09-08 03:43Z**, immediately
+   after item 1 confirmed, carrying `ca248d7` (`sweepTone`) in the same deploy
+   as planned. **The command in the previous entry was wrong and would not
+   run**: the workflow's inputs are `instance` and `confirm_live`, not
+   `target`. `gh workflow run deploy.yml -f target=live` returns HTTP 422. The
+   working form, and the one to write down:
+
+       gh workflow run deploy.yml -f instance=live -f confirm_live=kalshi-cockpit
+
+   `confirm_live` is a **typed** app name rather than a checkbox, deliberately
+   (`.github/workflows/deploy.yml:13-15`) — a dropdown mis-tap on a phone is a
+   plausible way to deploy the money instance by accident. Do not paper over
+   that by scripting it away.
 3. **Capture the NFL odds wire fixture**, after item 1 succeeds — see above.
 4. **The Sunday 09-13 convergence.** Simulated at ~486 credits base (3 NFL
    clusters × 7 calls × 4, plus the NFL floor, plus observed MLB+NCAAF), and

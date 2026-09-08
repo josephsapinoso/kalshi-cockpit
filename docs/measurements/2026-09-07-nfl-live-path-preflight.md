@@ -200,6 +200,72 @@ to recover them. The same read is now **17 KB**, 52 cells cut. Commit
 Do **not** read `event_links`, which holds only the links that succeeded and is
 truncated by the very tolerance it would be used to measure.
 
+## THE RESULT — the first NFL sweep fired at 03:23:58Z and both classes linked
+
+Taken 2026-09-08 03:41–03:45Z through the instruments named above, on the
+corrected reading rather than the one the pre-flight first wrote down.
+
+**The buy.** `api_credits` carries one row for
+`/sports/americanfootball_nfl/odds` at **2026-09-08T03:23:58.664Z**, `cost = 4`,
+`markets = h2h,spreads`, `regions = us,eu`, **`trigger` NULL** — which is what a
+bootstrap looks like and is why the grep for the string `bootstrap` was
+forbidden. It is the newest `served` row in `odds_sweep_log` at that same
+`pass_ms`, and the expected `skipped` props row landed on the same pass:
+*"scheduled prop buying is off for americanfootball_nfl, so this window buys
+team lines only."*
+
+**It fired 3.9 minutes after the horizon crossing, inside the predicted bound.**
+Predicted 03:20Z + one full-pass interval = ~03:35Z, ~03:37Z with jitter; actual
+03:23:58Z. The pass that caught it came sooner than the 900 s worst case, which
+is the interval being a ceiling rather than a period — the loop had a pass due
+anyway. Nothing about the design is different from what was derived; the
+derivation bounded it and the bound held.
+
+**The link, read the way the correction says.** `unmatched_items` for
+`Pro Football` is **still 66 rows** — the count did not move and was never going
+to, because nothing sets `resolved` and nothing deletes on a link. What moved is
+`last_seen`:
+
+| series | frozen @ 03:05 | still fresh @ 03:39 | reading |
+|---|---|---|---|
+| `KXNFLGAME` | **32** | 0 | **linked** — stopped failing |
+| `KXNFLSPREAD` | **16** | 0 | **linked** — inherits its game's link |
+| `KXNFLTOTAL` | 0 | 16 | still failing, by scope — the feed buys no totals |
+| `KXNFLTEAMTOTAL` | 0 | 2 | same |
+| | **48** | **18** | |
+
+03:05 is the last pass **before** the 03:23:58Z sweep. All 48 rows this
+observation was about froze there; the 18 ladder rows kept re-stamping through
+03:39. That is the success signature stated in advance, and it is the exact
+partition: the two classes predicted to link are wholly frozen, the class
+predicted to keep failing is wholly fresh, and no row falls on the wrong side.
+
+**Why the two 09-07 baselines were worth taking.** Had only the 15:30Z baseline
+existed, "48 rows frozen" would have been consistent with a queue that simply
+stops stamping at night. The 16:25Z re-read established that it re-stamps every
+pass, so a freeze is a fix. That inference is the whole reading and it now rests
+on an observation rather than an assumption.
+
+**Cost.** Budget day 20260907 closed at **300 of 700** across 75 calls. The
+bootstrap's 4 credits were never near the cap; the 16:30Z headroom check was
+correct and, as written, could not have been read off `list_unmatched.py` alone.
+
+### What this does NOT establish
+
+- **That the linked fixtures produce usable prices.** The link is
+  Kalshi-event-to-sportsbook-fixture. Whether the books quote both sides, and
+  whether `devig.py` finds enough of them to reach a fair value, is the next
+  question and is not answered by an `unmatched_items` freeze.
+- **Anything about Sunday 09-13.** This is one 4-credit bootstrap on a day that
+  spent 300 of 700. The kickoff-window loop — the largest of the three spenders
+  and the one with no cap but the day's — did not run for NFL tonight.
+- **That `KXNFLTOTAL` will ever link.** It is out of scope by construction, not
+  pending. The 18 fresh rows are the designed state and will keep re-stamping
+  until `DEFAULT_UNMATCHED_RETENTION_MS` prunes on `last_seen_ms`.
+- **That the 48 frozen rows are gone.** They are stale, not resolved. They
+  vanish seven days after 03:05Z and not before, and a reader who returns to
+  this queue mid-week will find them and must read the stamp, not the count.
+
 ## Also found, not NFL
 
 `combo_orders` row 2 — the bid placed 2026-09-01 19:59Z that filled at 21:40Z
