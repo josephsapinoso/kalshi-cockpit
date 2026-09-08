@@ -3341,39 +3341,29 @@ def create_app(
             )
 
             # 6. NARROWED, not removed, and the narrowing is the careful part.
-            # This refused unless all three derived caps were available. Two of
-            # the three no longer bound anything (the per-bet cap at check 9
-            # and the daily-loss line at check 5), so requiring them would
-            # refuse a bet on a precondition for a brake that no longer exists.
+            # This refused unless all three derived caps were available.
+            # **All three are now gone** -- the per-bet cap (check 9) and the
+            # daily-loss line (check 5) on 2026-09-08 under ADR 0112, and the
+            # total-exposure ceiling later the same day under its Amendment 1,
+            # when Joe removed the one brake he had not previously been asked
+            # about: "remove the exposure ceiling too."
             #
-            # **The exposure cap is different and stays.** Joe was never asked
-            # about it and did not remove it, and it is still ENFORCED --
-            # `_write_manual_intent` raises `ExposureCapExceeded` under the
-            # write lock at check 11, using this very number. So its
-            # precondition survives on its own terms: an unobserved balance
-            # still refuses, because otherwise `None` would reach the reserve
-            # as an exposure ceiling and the guard would silently stop
-            # guarding. That is ADR 0045's rule where it still governs a
-            # decision, and CLAUDE.md's: unreadable resolves to a refusal,
-            # never to a permissive default.
-            refusal_ctx.update(check=6, name="derived_exposure_cap")
+            # So check 6 REFUSES NOTHING and is kept only to derive `risk_now`,
+            # which the recorded row still carries. A bet placed with no brake
+            # should stay legible later as "this was N times the ceiling that
+            # used to exist", and that is impossible if the ceiling is never
+            # computed. An unobserved balance no longer refuses: there is no
+            # longer a guard whose precondition it was, and refusing on a
+            # precondition for nothing is how a removed cap comes back by
+            # accident.
+            #
+            # `orders.reserve_order` still caps the ENGINE. Same scoping as
+            # ADR 0112 §3.
+            refusal_ctx.update(check=6, name="derived_caps_for_the_record")
             risk_now = risk
             if risk.underived:
                 risk_now = risk.with_observed_balance(db.latest_balance_tenths(conn))
-            if risk_now is None or risk_now.max_exposure_dollars is None:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        "the account balance has never been observed, so the "
-                        "total-exposure ceiling cannot be derived. Refusing — "
-                        "'cannot determine the bankroll' must never resolve to "
-                        "a typed default. Your per-bet cap and daily-loss "
-                        "switch are gone by your own instruction; this is the "
-                        "one ceiling you did not remove."
-                    ),
-                )
 
-            # 7.
             refusal_ctx.update(check=7, name="live_quote_and_ceiling")
             try:
                 quote = await live_quotes().fetch(ticker, observed_ms=now)
@@ -3688,7 +3678,6 @@ def create_app(
                 order,
                 dry_run=placer.dry_run,
                 submitted_ms=submitted_ms,
-                max_exposure_dollars=risk_now.max_exposure_dollars,
                 max_price_tenths=request.max_price_tenths,
                 p_yes_bp=request.p_yes_bp,
                 idempotency_key=request.idempotency_key,
@@ -3705,8 +3694,10 @@ def create_app(
                 ) from exc
             stored["replayed"] = True
             return stored
-        except ExposureCapExceeded as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # The `ExposureCapExceeded` branch was removed 2026-09-08 with the cap
+        # itself (ADR 0112 Amendment 1). `reserve_manual_order` cannot raise it
+        # any more; `orders.reserve_order` still can, and `/api/orders` still
+        # catches it.
         except Exception as exc:                        # noqa: BLE001
             raise HTTPException(
                 status_code=503,

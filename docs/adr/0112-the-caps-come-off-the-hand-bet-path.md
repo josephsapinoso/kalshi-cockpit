@@ -23,6 +23,7 @@ not move.
 | 1 | The per-bet ceiling, ~$2.14 (10% of a ~$21 balance) | **Remove it. "i will decide."** |
 | 2 | The daily-loss kill switch, also ~$2.14 | **Remove it too** |
 | 3 | Which brakes to keep — typed code, 10-minute cool-off | **"none"** |
+| 3b | The total-exposure ceiling, 40% of balance (asked separately, later the same day) | **"remove the exposure ceiling too"** |
 | 4 | Should the loss counter still see his in-app Kalshi bets | **Yes, keep counting** |
 
 Answer 4 survives answers 1–2 and is not contradicted by them. The **counter**
@@ -52,6 +53,38 @@ money, because they would have to produce 43 characters they do not have.
 After this change, being logged in is enough. He chose removal knowing that.
 
 ## 3. What is NOT changed, and why the scope stops here
+
+**AMENDMENT 1, 2026-09-08 (same day): the exposure ceiling went too.** The
+paragraph below and §1's table were written while the total-exposure ceiling
+(40% of the observed balance) still stood, and this document said so twice --
+it was the one brake Joe had not been asked about, so it was deliberately left
+alone rather than swept up in an instruction that did not reach it.
+
+He was then asked, and answered: **"remove the exposure ceiling too."**
+
+So the class is now empty. `reserve_manual_order` no longer takes
+`max_exposure_dollars` and can no longer raise `ExposureCapExceeded`; check 6
+refuses nothing and survives only to derive the figure the recorded row still
+carries, so a bet stays legible later as "this was N times the ceiling that
+used to exist"; and an unobserved balance no longer refuses, because refusing
+on a precondition for a guard that no longer exists is how a removed cap comes
+back by accident.
+
+**Two things did NOT go with it, and both are about reading rather than
+capping.** `current_manual_exposure_dollars` is still computed, because the
+figure is what the desk reports about the position he is building. And an
+exposure that cannot be READ still rolls the transaction back:
+"cannot determine the budget must never resolve to unlimited" is a rule about
+an unreadable value, not about a ceiling, and an unreadable total means a
+broken write whatever bounds apply. `tests/test_manual_orders.py::
+TestTheReserveIsAtomic` was re-pointed onto that surviving refusal rather than
+deleted, so the insert-then-check-under-BEGIN-IMMEDIATE guarantee is still
+pinned.
+
+**`orders.reserve_order` still caps the ENGINE**, on §3's scoping below.
+
+Everything else in this document stands as written, including §4's sentence
+and §5's reservation -- which now covers five brakes rather than four.
 
 **The engine's caps are untouched.** `core.sizing.size_position` still refuses
 an underived `RiskConfig`, and ADR 0045's derivation still governs it. Joe was

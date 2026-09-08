@@ -742,7 +742,19 @@ class TestTheGuardsRefuse:
         assert response.status_code == 200, response.json()
         assert response.json()["venue_daily_pnl_dollars"] is None
 
-    async def test_an_unobserved_balance_refuses_every_cap(self, tmp_path):
+    async def test_an_unobserved_balance_no_longer_refuses(
+        self, tmp_path, records_only
+    ):
+        """**Inverted 2026-09-08 (ADR 0112 Amendment 1).**
+
+        Every cap this precondition existed for is gone -- the per-bet cap and
+        daily-loss line under ADR 0112, and the total-exposure ceiling when Joe
+        removed the last brake: "remove the exposure ceiling too."
+
+        Refusing on a precondition for nothing is how a removed cap comes back
+        by accident, so it does not refuse. The bet must go through with the
+        balance never observed.
+        """
         path = tmp_path / "nobal.db"
         conn = db.init_db(path)
         now = int(time.time() * 1000)
@@ -754,8 +766,7 @@ class TestTheGuardsRefuse:
         conn.close()
         app = _app(path)
         response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
-        assert response.status_code == 422
-        assert "balance" in response.json()["detail"]
+        assert response.status_code == 200, response.json()
 
     async def test_an_ask_above_the_ceiling_is_refused_never_repriced(self, tmp_path):
         app = _app(_base_db(tmp_path))
@@ -797,16 +808,25 @@ class TestTheGuardsRefuse:
         assert response.status_code == 200, response.json()
         assert "per-bet cap" not in json.dumps(response.json())
 
-    async def test_the_exposure_ceiling_is_the_one_he_did_not_remove(self, tmp_path):
-        """The narrowing, pinned. Check 6 was gutted, not deleted.
+    async def test_no_ceiling_of_ours_bounds_a_hand_bet_any_more(
+        self, tmp_path, records_only
+    ):
+        """**Written and then inverted the same day, which is the point.**
 
-        The per-bet cap and the daily-loss line stopped gating this route, but
-        `max_exposure_dollars` is still ENFORCED under the write lock at check
-        11 (`ExposureCapExceeded`). So its precondition has to survive: an
-        unobserved balance must still refuse, or `None` reaches the reserve as
-        an exposure ceiling and a live guard silently stops guarding.
+        Hours earlier this pinned the OPPOSITE: the total-exposure ceiling as
+        "the one he did not remove", surviving ADR 0112 precisely because he
+        had not been asked about it. He was then asked, and said: "remove the
+        exposure ceiling too." ADR 0112 Amendment 1.
 
-        Joe was never asked about total exposure and did not remove it.
+        So the whole class is gone -- per-bet cap, daily-loss switch,
+        cool-off, exposure ceiling. This asserts the class is empty rather
+        than asserting any one removal, because that is the property ADR 0112
+        §5 reserves to Joe and the one a future session is most likely to
+        breach by restoring "just one".
+
+        A balance that has NEVER been observed is used deliberately: it is the
+        state in which every derived ceiling is `None`, and under the old rules
+        it refused outright.
         """
         path = tmp_path / "no-balance.db"
         conn = db.init_db(path)
@@ -814,10 +834,12 @@ class TestTheGuardsRefuse:
         conn.close()
         app = _app(path)
         response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
-        assert response.status_code == 422
-        detail = response.json()["detail"]
-        assert "exposure" in detail.lower(), detail
-        assert "never been observed" in detail, detail
+        assert response.status_code == 200, response.json()
+        rendered = json.dumps(response.json())
+        for dead in ("per-bet cap", "exposure ceiling", "daily-loss switch",
+                     "cap this path is set to"):
+            assert dead not in rendered, f"{dead!r} came back: {rendered}"
+        assert response.json()["cooloff_until_ms"] is None
 
     async def test_holding_the_ticker_refuses_the_buy(self, tmp_path):
         """Kalshi nets; a buy that closes a position must not book an open.
@@ -1096,7 +1118,22 @@ class TestTheLivePositionsReadIsStamped:
 
 
 class TestTheReserveIsAtomic:
-    def test_the_exposure_cap_rolls_the_row_back(self, tmp_path):
+    def test_an_unreadable_exposure_rolls_the_row_back(self, tmp_path, monkeypatch):
+        """**Re-pointed 2026-09-08, and the atomicity guarantee is unchanged.**
+
+        This drove the rollback through the EXPOSURE CAP, which Joe removed
+        (ADR 0112 Amendment 1). The insert-then-check-under-BEGIN-IMMEDIATE
+        shape is not gone with it: one refusal still stands inside the
+        transaction, and it is the one that must -- an exposure figure that
+        cannot be READ.
+
+        That is not a cap and did not go with the caps. "Cannot determine the
+        budget must never resolve to unlimited" is a rule about reading; an
+        unreadable total means a broken write, whatever ceiling does or does
+        not apply to it. If this ever leaves a row behind, a half-written
+        intent survives a failure and the desk's record of what it sent is
+        wrong.
+        """
         path = _base_db(tmp_path)
         conn = db.open_db(path)
         grid = read_price_grid(_payload()["market"])
@@ -1105,10 +1142,14 @@ class TestTheReserveIsAtomic:
             limit_price_tenths=450, price_grid=grid,
             time_in_force="immediate_or_cancel",
         )
-        with pytest.raises(ExposureCapExceeded):
+        monkeypatch.setattr(
+            manual_store, "current_manual_exposure_dollars",
+            lambda *a, **k: None,
+        )
+        with pytest.raises(manual_store.OrderNotRecorded):
             manual_store.reserve_manual_order(
                 conn, order, dry_run=True, submitted_ms=1,
-                max_exposure_dollars=0.50, max_price_tenths=700,
+                max_price_tenths=700,
                 p_yes_bp=7000, idempotency_key="k-00000001",
             )
         count = conn.execute("SELECT COUNT(*) FROM manual_orders").fetchone()[0]

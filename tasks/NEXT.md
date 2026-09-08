@@ -280,11 +280,25 @@ reserves restoring any of it to Joe. **Do not restore these on your own
 judgement.** The re-pointed tests are *inverted*, not deleted, so a restored
 brake fails loudly.
 
-**What was NOT removed, because he was never asked:** the total-exposure
-ceiling (40% of balance). It is still enforced under the write lock
-(`ExposureCapExceeded`), which is why check 6 was **narrowed rather than
-deleted** — an unobserved balance still refuses on that one ground, or `None`
-reaches the reserve as a ceiling and a live guard silently stops guarding.
+**The total-exposure ceiling (40% of balance) went too, later the same day.**
+It was left standing for a few hours precisely because he had not been asked
+about it, then he was asked: *"remove the exposure ceiling too."* **ADR 0112
+Amendment 1.** `reserve_manual_order` no longer takes `max_exposure_dollars`
+and cannot raise `ExposureCapExceeded`; check 6 refuses nothing and survives
+only to derive the figure the recorded row carries; an unobserved balance no
+longer refuses, because refusing on a precondition for a guard that no longer
+exists is how a removed cap comes back by accident.
+
+**So no ceiling of ours bounds a hand bet at all.** What remains is the desk
+lockout, idempotency, the KXMVE acknowledgement, the price ceiling, depth at
+the ask, the netting guard, the shard collateral check (the VENUE's rule), the
+structural contract ceilings, and reserve-then-check. `orders.reserve_order`
+still caps the ENGINE — same scoping as ADR 0112 §3.
+
+**Two things did NOT go with it and are about reading, not capping:**
+`current_manual_exposure_dollars` is still computed and reported, and an
+exposure that cannot be READ still rolls the transaction back. The atomicity
+test was re-pointed onto that surviving refusal rather than deleted.
 
 ### His shard allocation inverted the advice, and the desk could not see it
 
@@ -417,8 +431,9 @@ preconditions, observing `G = 30` sittings or 2026-11-30.
 9. **The decision map is exhausted** — 32 of 32 closed. Its third queue,
    *decided but never built*, has ~9 live items and belongs to nobody.
 
-**Joe-gated:** whether to remove the 40% total-exposure ceiling (the one brake
-he was never asked about), and whether to fund shard 0 so single markets work.
+**Joe-gated:** whether to fund shard 0 so single markets work. (The exposure
+ceiling question was asked and answered the same day — removed. Nothing else
+is waiting on him.)
 
 ---
 

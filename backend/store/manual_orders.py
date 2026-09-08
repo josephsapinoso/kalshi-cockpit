@@ -54,7 +54,6 @@ from ..core.prices import probability_to_tenths
 from ..kalshi.orders import OrderOutcome, OrderRequest, canonical_body_json
 from .orders import (
     DuplicateOrder,
-    ExposureCapExceeded,
     OrderNotRecorded,
     TERMINAL_STATUSES,
     exposure_contribution,
@@ -75,15 +74,34 @@ logger = logging.getLogger(__name__)
 # ADR 0018's second barrier, a REST client on the placer, was wired in
 # `b2f2d14` rather than left for this commit to remember.
 #
-# **This is the line that spends money.** From here `POST /api/manual-orders`
-# sends a real immediate-or-cancel order to the exchange. What still bounds it,
-# all server-side and none of it waivable from a client: MANUAL_ORDERS_ENABLED
-# plus `instance_mode == "live"`, the desk lockout, the ten-minute cool-off,
-# the daily-loss switch over the venue's own settlement record, caps derived
-# from the observed balance and never typed, the price ceiling refused rather
-# than re-priced, the depth check, the netting refusal on any existing
-# position, MANUAL_ORDER_MAX_CONTRACTS below, and the reserve-then-check write
-# that records the intent BEFORE the request leaves.
+# **This is the line that spends money, and since 2026-09-08 very little
+# stands behind it.** From here `POST /api/manual-orders` sends a real
+# immediate-or-cancel order to the exchange.
+#
+# **This list previously named four brakes that no longer exist** -- the
+# ten-minute cool-off, the daily-loss switch, the caps derived from the
+# observed balance, and (in a companion note) the typed order token. Joe
+# removed all four on 2026-09-08, and the exposure ceiling with them: ADR 0112
+# and its Amendment 1. A stale list of guarantees on the line that spends money
+# is worse than no list, so it is corrected here rather than left to be
+# discovered at a refusal that never comes.
+#
+# What actually bounds a real order now, all server-side and none of it
+# waivable from a client:
+#
+#   - MANUAL_ORDERS_ENABLED plus `instance_mode == "live"`
+#   - the desk lockout (NOT removed -- he took the cool-off, not this)
+#   - the idempotency key, so two taps are one order
+#   - the KXMVE acknowledgement on a combination
+#   - the price ceiling, refused rather than re-priced
+#   - the depth check at the ask
+#   - the netting refusal on any existing venue position
+#   - the shard collateral check, which is the VENUE's rule and not a cap
+#   - MANUAL_ORDER_MAX_CONTRACTS / COMBO_MAX_CONTRACTS, structural only
+#   - reserve-then-check, which records the intent BEFORE the request leaves
+#
+# **No ceiling on the size of a bet or on a day's losses remains.** That is
+# the intended state (ADR 0112 §4) and restoring any of it needs Joe (§5).
 #
 # The engine's path is untouched and stays dry: `ORDERS_ARE_DRY_RUNS` is still
 # True, `gate.py` still never reads this table, and nothing here moves the
@@ -514,7 +532,6 @@ def reserve_manual_order(
     *,
     dry_run: bool,
     submitted_ms: int,
-    max_exposure_dollars: float,
     max_price_tenths: int,
     p_yes_bp: int,
     idempotency_key: Optional[str] = None,
@@ -579,15 +596,22 @@ def reserve_manual_order(
                 f"budget' must never resolve to 'unlimited'."
             )
 
-        if exposure > max_exposure_dollars:
-            conn.execute("ROLLBACK")
-            raise ExposureCapExceeded(
-                f"recording this order would take open manual exposure to "
-                f"${exposure:.2f} against a ${max_exposure_dollars:.2f} cap. "
-                f"Nothing was sent and the row was rolled back.",
-                exposure_after=exposure,
-                cap=max_exposure_dollars,
-            )
+        # **THE EXPOSURE CEILING IS REMOVED FROM THIS PATH, 2026-09-08.**
+        # Joe: "remove the exposure ceiling too" -- the last of the five
+        # brakes, and the one ADR 0112 had explicitly left standing because he
+        # had not been asked about it. ADR 0112 Amendment 1.
+        #
+        # `exposure` is still COMPUTED and the `None` branch above still rolls
+        # back, and both are deliberate. The figure is what the desk reports
+        # about the position he is building, which ADR 0071 makes its job; and
+        # "cannot determine the budget must never resolve to unlimited" is a
+        # rule about reading, not about capping -- an unreadable total is a
+        # broken write, not a permitted one, whatever ceiling does or does not
+        # apply to it.
+        #
+        # **`orders.reserve_order` is UNTOUCHED and still caps the engine.**
+        # Same scoping as ADR 0112 §3: Joe was answering about betting by
+        # hand. The engine has never placed an order and is gated besides.
 
         try:
             conn.execute("COMMIT")
