@@ -158,12 +158,35 @@ in this coefficient costs a fraction of a cent instead of scaling with size.
 
 **Expect the control to refuse, and the screen says why rather than a log.**
 `yes_dollars` is empty on **40 of 40** combination books this repo has ever
-read, across three runs on two dates, so the depth check kills nearly every
-combo order — and the one combo probed through this door returned depth 0.0 on
-both sides. Combos with a resting NO bid do exist (3 of 20 and 3 of 9 rows on
-2026-08-09, deepest 18 units at 13c), so the control is not dead; it is rarely
-live. The acknowledgement's words are the measurement's: *you can enter this
-and you cannot exit it.*
+read, across three runs on two dates. The acknowledgement's words are the
+measurement's: *you can enter this and you cannot exit it.*
+
+**CORRECTION, 2026-09-08. The sentence that stood here was false and it is
+the reason this note exists.** It read:
+
+> Combos with a resting NO bid do exist (3 of 20 and 3 of 9 rows on
+> 2026-08-09, deepest 18 units at 13c), so the control is not dead; it is
+> rarely live.
+
+Three errors, and the middle one reached a screen:
+
+1. **`3 of 20` and `3 of 9` are the `volume` counts** — rows that had ever
+   *traded*. The resting-NO-bid counts in those same captures are **16 of 20
+   and 6 of 9**, plus 11 of 11 on 2026-08-18: **33 of 40 books**, five in six.
+2. So *"it is rarely live"* is backwards. **A resting NO bid IS the ask you
+   buy at**, and it was present on five books in six. `PriceOnKalshi.tsx` told
+   Joe to "expect it to refuse" on this conflation until 2026-09-08.
+3. **The `18 units` figure is wrong repo-wide by ~38x** and its citation to
+   ADR 0012 §5 was spurious — that ADR has no depth figure; its only `18` is
+   the denominator of `same-game 17/18`, a rate it withdraws itself. The real
+   source scopes it with the word *"here"* to one 11-row run. The committed
+   captures carry resting NO bids of **683, 413, 369, 311, 309 and 300** units.
+
+**The decision this ADR makes is unchanged**, because it never rested on the
+entry side. A combination is bounded rather than refused on account of the
+**exit**: zero resting YES bids over 36 levels on 40 of 40 books. You can get
+in; you may not be able to get out at size. `tests/test_combo_book_depth_claims.py`
+pins the arithmetic to the capture files.
 
 **`combo_acknowledged` is a request field, not a checkbox.** It defaults to
 False, so a client that has never heard of combinations refuses them rather

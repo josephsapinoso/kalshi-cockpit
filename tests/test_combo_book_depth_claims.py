@@ -147,13 +147,33 @@ class TestTheCapturesSayWhatTheProseSaysTheySay:
 
 #: Files that carried the struck claim. Prose may be rewritten; what may not
 #: come back is a repo-wide depth bound of 18 units.
+#:
+#: **EVERY ADR is pinned, added 2026-09-08, and the omission is why this list
+#: needed extending at all.** The guard shipped on 2026-09-08 covering five
+#: named files -- and the claim it exists to catch was, at that moment, still
+#: asserted as fact in FOUR documents it did not read. `0073` stated *"3 of 20
+#: and 3 of 9 rows ... it is rarely live"* about a resting-NO-bid rate that is
+#: really 33 of 40, in the very ADR that decided how the buy control behaves
+#: on a combination; `0070` and `0075` carried the struck depth figure. All
+#: four could have sat there indefinitely with CI green.
+#:
+#: That is this repo's recurring shape -- a bound relaxed and the next one
+#: binding in silence -- except here it was a guard whose scope stopped just
+#: short of where the defect actually lived. **A guard that reads the code but
+#: not the decisions is half a guard**, because an ADR is what the next
+#: session reads to decide whether to re-litigate something.
+#:
+#: The directory is globbed rather than listed, so a NEW ADR is covered the
+#: day it is written. A list would have to be remembered.
 PINNED = [
     Path("backend") / "api" / "routes.py",
     Path("backend") / "store" / "manual_orders.py",
     Path("frontend") / "src" / "components" / "PriceOnKalshi.tsx",
     Path("CLAUDE.md"),
     Path("README.md"),
-]
+] + sorted(
+    p.relative_to(REPO) for p in (REPO / "docs" / "adr").glob("*.md")
+)
 
 
 #: A guard that simply forbids a string also forbids the record of why it was
@@ -182,6 +202,20 @@ STRIKE_MARKERS = (
 STRIKE_WINDOW_BEFORE = 700
 STRIKE_WINDOW_AFTER = 250
 
+#: **A limitation this guard has and cannot remove, stated rather than
+#: discovered later.** Because a marker within the window licenses the phrase,
+#: the ONE place a struck claim can quietly come back is immediately beside
+#: its own correction note -- the reintroduction inherits the shield. Verified
+#: 2026-09-08: re-inserting the struck depth phrase into ADR 0070's corrected
+#: paragraph left the suite green; planting it in an ADR with no note failed
+#: as intended.
+#:
+#: This is the accepted cost of keeping wrong text verbatim, not a defect to
+#: fix by narrowing the window -- a backward-only window already failed on
+#: CLAUDE.md's real shape. What it means in practice: **when editing a
+#: paragraph that already carries a correction note, the note does not check
+#: your work.** Read what the note says the claim IS before adding to it.
+
 
 def unstruck_occurrences(text: str, phrase: str) -> list[int]:
     """Offsets where `phrase` appears with no strike marker near it."""
@@ -205,6 +239,19 @@ FORBIDDEN = (
     "the deepest resting order the combo record has ever seen",
     "so a larger count could not fill",
     "so a far larger count",
+    # **The OTHER half of the 2026-09-08 defect, added the same day the ADRs
+    # were corrected.** The depth figure and the entry/exit conflation shipped
+    # together and only the depth figure was guarded, so `0073` went on
+    # asserting that a resting NO bid is rare -- in the ADR that decided how
+    # the buy control behaves on a combination -- with CI green.
+    #
+    # `3 of 20` and `3 of 9` are the counts of books that had ever TRADED. The
+    # resting-NO-bid counts are 16 of 20, 6 of 9 and 11 of 11: 33 of 40, and a
+    # resting NO bid IS the ask you buy at. Reporting the volume figure as the
+    # liquidity figure is what told Joe to "expect it to refuse" while five
+    # books in six were quoted.
+    "it is rarely live",
+    "3 of 20 and 3 of 9",
 )
 
 

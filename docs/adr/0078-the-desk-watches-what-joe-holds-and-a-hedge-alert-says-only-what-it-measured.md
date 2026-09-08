@@ -42,6 +42,25 @@ nobody is bidding to buy you out. Plan to hold to settlement."* If Joe buys a
 card off `/parlays`, **hedging a leg market is the only exit that exists.** The
 desk currently sells a position and offers no way out of it.
 
+**AMENDMENT, 2026-09-08 — this justification was audited and survives, which
+is why the note is here rather than a rewrite.** On that date a conflation of
+the combination book's ENTRY and EXIT sides was found and corrected across
+CLAUDE.md, `PriceOnKalshi.tsx` and ADRs 0070, 0073 and 0075: a resting **NO**
+bid is the ask you buy at and was present on **33 of 40** books, while the
+figure `18 units` had been promoted out of one 11-row run and was wrong
+repo-wide by ~38x.
+
+**None of that touches the sentence above**, because it never claimed entry
+was hard. It says *"you can buy in, but nobody is bidding to buy you out"* —
+entry and exit named separately and each correctly. The load-bearing half is
+the exit: `yes_dollars` empty over 36 levels on **40 of 40** books, which no
+run has ever falsified.
+
+Recorded because a reader who meets the corrections in the other four
+documents will reasonably ask whether this one moved. It did not, and a
+justification that survives an audit should say so — otherwise the next
+session re-audits it.
+
 ## Decision 2 — the alert states the arithmetic and refuses the timing question
 
 Two questions look like one and are not.

@@ -38,8 +38,22 @@ other money quantity in the risk path.
 A market priced at a tenth of a cent turns $3 into thirty thousand contracts,
 and a count that large is a different kind of order — it moves a thin book on
 its own — even when the money is small. Combinations are held tighter because
-the deepest resting bid this repo has ever measured on one was **18 units**
-(ADR 0012 §5), so a far larger count could not fill anyway.
+a combination is **enter-only**: `yes_dollars` is empty on 40 of 40 books this
+repo has read, over 36 levels, so there is no offer to sell into and a large
+position may be impossible to close.
+
+**CORRECTION, 2026-09-08.** The reason given here used to be:
+
+> the deepest resting bid this repo has ever measured on one was **18 units**
+> (ADR 0012 §5), so a far larger count could not fill anyway
+
+Every clause of that was false. The citation is spurious (ADR 0012 has no
+depth figure). The `18` is one 11-row run's maximum, scoped by the word
+*"here"* in its own source and promoted to "ever measured" by every copy
+downstream. And repo-wide it is wrong by ~38x: the committed captures carry
+resting NO bids of 683, 413, 369, 311, 309 and 300 units, so a far larger
+count could very often fill. **The tighter ceiling stays** — on the exit,
+which is the claim nothing has falsified.
 
 **Two independent bounds, and the tighter wins.** The balance-derived per-bet
 cap (ADR 0045: 10% of the observed Kalshi balance, never typed) is unchanged
@@ -108,9 +122,11 @@ instrument. **Re-read after the first five fills.**
 - **Making the cap configurable.** A constant, for the reason the dry-run
   switch is one: raising it should be a decision with a commit behind it, not
   an environment variable somebody can nudge.
-- **A single ceiling for combinations and single markets.** §2 — the
-  measured depth on a combination book is 18 units; the two are not the same
-  kind of order.
+- **A single ceiling for combinations and single markets.** §2 — a
+  combination is enter-only and may be impossible to exit at size; the two
+  are not the same kind of order. (**Corrected 2026-09-08**: this read *"the
+  measured depth on a combination book is 18 units"*, which was false — see
+  §2's correction note. The rejection stands on the exit.)
 - **Widening the cap to match the balance.** The two bounds answer different
   questions: one is risk, one is the owner's own stated appetite. Collapsing
   them would mean a larger balance silently raises the bet size, which is

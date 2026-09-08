@@ -84,6 +84,48 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-08 - A guard that reads the code but not the decisions is half a guard
+
+A false claim about combination liquidity was corrected across the code and a
+guard was shipped the same day to keep it corrected: five pinned files, a
+forbidden-phrase list, a strike-marker allowance so a correction note may quote
+what it replaced. Good guard.
+
+**At the moment it shipped, the claim it existed to catch was still asserted as
+fact in four ADRs it did not read** — including the one that decided how the
+buy control behaves on a combination. All four could have sat there
+indefinitely with CI green, and an ADR is precisely what the next session reads
+to decide whether a question is settled.
+
+Two separate mistakes, and the second is the more instructive:
+
+**The scope stopped at the code.** Pinning is chosen file by file, and the
+files that come to mind are the ones you just edited. Decision records are
+where a wrong claim does the most damage per byte — they are cited *instead of*
+re-measuring — and they are the least likely to be on a list assembled while
+fixing a screen. Glob the directory rather than listing it, so a new document
+is covered the day it is written.
+
+**Only half the defect was guarded.** The depth figure and the entry/exit
+conflation shipped in the same sentences and were corrected in the same pass,
+but only the depth phrases entered `FORBIDDEN`. The unguarded half was the one
+that had reached a screen. When a correction fixes two claims, both go in the
+guard, or the guard certifies a document that is still wrong.
+
+**The general form:** after writing a guard, ask *where else does this claim
+live?* and answer it by searching the repo for the claim rather than by
+recalling what you edited. The list of files you touched is a record of where
+you already looked -- it is the worst possible source for where you have not.
+
+**And state a guard's blind spot in the guard.** This one's strike-marker
+window licenses the phrase near a correction note, so the one place a struck
+claim can quietly return is beside its own correction — verified: re-inserting
+the phrase into the corrected paragraph left the suite green. That is an
+accepted cost, not a bug, but a cost nobody has written down is indistinguishable
+from a cost nobody knows about.
+
+---
+
 ## 2026-09-08 - Removing a brake server-side leaves it on the screen, and that direction of the mismatch is invisible
 
 Every prior instance of this repo's "one predicate with two spellings" defect
@@ -1239,6 +1281,7 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-09-08 — in this file, above
+- A guard that reads the code but not the decisions is half a guard
 - Removing a brake server-side leaves it on the screen, and that direction of the mismatch is invisible
 - A count or a "not yet" copied into a new session entry is a present-tense claim from a past reading
 - A consumer that restates a predicate is not covered by the test that pins it

@@ -97,9 +97,17 @@ The fair joint is what the sportsbook consensus implies, filtered through
 a deliberately conservative per-leg floor. Whether Kalshi sells a card
 below fair value is answered per card, per tap, by the lookup — and the
 measured base rates are not encouraging: combos are enter-only on 40 of 40
-books ever read, ≤18 units deep, with an unidentified fee schedule. The
+books ever read, with an unidentified fee schedule. The
 desk shows the comparison honestly and lets Joe decide; it does not
 recommend, size, or claim.
+
+**CORRECTION, 2026-09-08:** the phrase *"≤18 units deep"* was struck from
+that sentence. It was wrong repo-wide by ~38x — the committed captures carry
+resting NO bids of 683, 413, 369, 311, 309 and 300 units — and it descends
+from a figure whose source scopes it with the word *"here"* to a single
+11-row run. **The conclusion is untouched**, because it rests on
+"enter-only", which is the EXIT claim: zero resting YES bids on 40 of 40
+books. Depth on the entry side was never the reason.
 
 ## Addendum, 2026-08-26 — the stake presets were somebody else's bet
 

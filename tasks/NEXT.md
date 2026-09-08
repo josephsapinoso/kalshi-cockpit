@@ -333,15 +333,26 @@ Verified by disabling: restoring the old bound turns 5 of the 7 new tests red.
    of its existing assertions had been *requiring* the steer (`assert 'source:
    "sportsbook"' in source`). Four guards now, all verified red by restoring
    the steer.
-3. **The combo entry/exit conflation is still in four ADRs.** `0073:163-164`
-   states it as fact — *"3 of 20 and 3 of 9 rows … it is rarely live"* — when
-   the true resting-NO-bid rate is 16/20 and 6/9, **33 of 40, five books in
-   six**. `0070:99-100` and `0075:41,112` carry the struck "18 units". ADR
-   0078 needs one amendment sentence; its conclusion is untouched because it
-   rests purely on the EXIT finding. **And `tests/test_combo_book_depth_claims.py`'s
-   `PINNED` list covers five files and no ADR**, so the false claim can sit in
-   four documents with CI green. Extend `PINNED` to `docs/adr/` — that is the
-   part that earns the work.
+3. ~~The combo entry/exit conflation is still in four ADRs.~~ **DONE, same
+   session.** `0073`, `0070` and `0075` (two places) carry correction notes
+   quoting what they replaced; **none of their decisions moved**, because
+   every one rested on the EXIT claim and only the entry reasoning was wrong.
+   `0078` got an amendment saying it was audited and *survives* — its
+   sentence named entry and exit separately and got both right — recorded so
+   the next session does not re-audit it.
+   **The guard now reads the decisions, not just the code.** `PINNED` globs
+   `docs/adr/*.md`, so a new ADR is covered the day it is written, and
+   `FORBIDDEN` gained the conflation itself (`"it is rarely live"`,
+   `"3 of 20 and 3 of 9"`) — previously only the depth figure was guarded, so
+   the half that reached a screen was unguarded. 132 tests. Both verified by
+   planting the claim in an unmarked ADR.
+   **One limitation found and written into the guard rather than left to be
+   discovered:** a correction note's strike marker shields its own paragraph,
+   so the one place a struck claim can quietly return is beside its own
+   correction. Re-inserting the depth phrase into ADR 0070's corrected
+   paragraph left the suite green. That is the accepted cost of keeping wrong
+   text verbatim; narrowing the window already failed on CLAUDE.md's real
+   shape.
 4. ~~`FiveStepTest.tsx` names the retired Log tab.~~ **DONE, same session.**
    Now: *"Find the market from Games, open its buy ticket, and type your
    P(YES) before you look at the price"* — which is the path that exists, and
