@@ -224,18 +224,30 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-08 (second session) — the table took its first two rows, and the brake Joe removed was still on the button
+## 2026-09-08 (second session) — the table took its first two rows, the brake Joe removed was still on the button, and the bid path is disarmed
 
-**STATE at close.** `main` = **`a13e6b8`**, pushed, CI green. **Live is on
-`a13e6b8`, verified off `/api/health` `build.git_sha` at 21:33Z**, machine
-`7812601a239428` **unchanged** across every deploy today — check that after any
-deploy, because a new machine gets an empty volume and every credit fact
-inverts silently. Re-read `/api/health` rather than believing this table.
+**STATE at close.** `main` = **`789b86a`**, pushed. **Live is on `789b86a`**,
+machine `7812601a239428` **unchanged** across every deploy today — check that
+after any deploy, because a new machine gets an empty volume and every credit
+fact inverts silently. Re-read `/api/health` rather than believing this table.
 
-    live     a13e6b8 verified 21:33Z; recorder writing, age 41s; mode live
+    live     789b86a verified 23:0xZ; recorder writing; mode live
     demo     cc8de80 deliberately behind, untouched today
 
-Four commits landed and **all four are deployed**:
+**The live verification is now a READING, not an inference** — new this
+session and the reason it matters is in ADR 0115. `/api/health` reports
+`order_paths_dry_run` for all three money doors, so "is it armed on the box?"
+no longer means reasoning about what a deployed sha contained:
+
+    manual_orders   false   ARMED  — he pays the ask
+    combo_bids      true    DRY    — disarmed on his word, ADR 0115
+    engine_orders   true    DRY    — always has been
+
+The field was **absent** on the previous build, so its presence is itself
+proof the new image is serving rather than a cached answer. Use that trick on
+any future switch.
+
+Six commits landed and **all six are deployed**:
 
 | sha | what |
 |---|---|
@@ -243,10 +255,13 @@ Four commits landed and **all four are deployed**:
 | `68cabc4` | the buy button agrees with the route (ADR 0114) |
 | `272f328` | the `source` steer removed from seven surfaces (P2) |
 | `a13e6b8` | four ADRs corrected; the depth guard now reads `docs/adr/` |
+| `ac016fe` | the bid path's state established; an under-guarding audit retracted |
+| `789b86a` | **the bid path is DISARMED** (ADR 0115); the switches reach `/api/health` |
 
-Tree clean at close, no worktrees. Suite **6495 passed / 10 xfailed** — the
-jump from 6369 is mostly the depth guard's parametrize now globbing every ADR,
-plus 14 hand-written tests.
+Tree clean at close, no worktrees. Suite **6498 passed / 10 xfailed** as of
+`ac016fe`; the last two commits added tests and removed none — **re-run it
+rather than quoting this number**, which is the lesson this very session
+wrote down.
 
 ### THE FINDING: `manual_orders` is no longer empty
 
@@ -322,6 +337,12 @@ Verified by disabling: restoring the old bound turns 5 of the 7 new tests red.
 
 ### Still open, in order
 
+**Read the numbers here as dated, not current.** Every negative or numeric
+claim below either carries the command that produced it or should be re-run
+before it is believed — this session wrote that lesson after finding two
+stale ones in the previous entry's list, and the list is not exempt from its
+own rule.
+
 1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Unchanged, and
    nothing this session went near it. Frozen surface:
    `backend/odds/{timing,budget,attention,ondemand,client,sweeplog}.py`. After
@@ -335,8 +356,9 @@ Verified by disabling: restoring the old bound turns 5 of the 7 new tests red.
    button is disabled without a choice AND `submit` refuses one (a form can be
    sent from the keyboard, and `""` reaches the server as a 422 he cannot act
    on). `ParlayCards.tsx` no longer hard-codes the value and its copy no
-   longer calls a book slip the first-class path. **Precondition P2 is met and
-   the clean window opens at this deploy.**
+   longer calls a book slip the first-class path. **Precondition P2 is met**,
+   and the window it gates is open — timestamp below, not "at this deploy",
+   because by the time anyone reads this there will have been several.
    **The "no frontend test framework" risk was real and is now covered** —
    `tests/test_recording_a_bet_is_reachable.py` reads the source text, and one
    of its existing assertions had been *requiring* the steer (`assert 'source:
@@ -436,6 +458,27 @@ Verified by disabling: restoring the old bound turns 5 of the 7 new tests red.
    all 32 closed tickets against the tree finds 23 built, 7 decided as "no
    build", 2 genuine gaps — one of which is item 4 above. The "~9" was carried
    forward without re-measuring.
+
+### What a next session should actually pick up
+
+**Most of the list above is now frozen or closed, so read this before
+planning.** Items 2, 3, 4 and 8 closed this session; 1 and 5 are frozen until
+10:00Z on 2026-09-14 and must not be touched before then; 6 needs no build;
+9 is exhausted. That leaves, in order:
+
+1. **Nothing, deliberately, until 09-14** if the odds work is what you would
+   have reached for. Sunday 09-13 is the only attended NFL Sunday this month
+   and the freeze is what makes it a measurement.
+2. **Item 7**, the Scout Anthropic refusal fixture — one **billed** call, so
+   it needs Joe's yes under [[approved-actions]]; it is not covered by the
+   standing combo-lookup authorisation.
+3. **The first `manual_orders` census is NOT due.** Two rows on one evening is
+   the finding; a third row is not a new one. ADR 0113 §6 forbids reading a
+   count here without first showing the path was usable across the whole
+   window, and the window is two days old.
+4. **If nothing above applies, ask the partner rather than inventing work.**
+   The backlog is genuinely short right now, and that is a fact about the
+   project rather than a gap to fill.
 
 **Joe-gated, two questions, both stated fully in the items above:**
 
