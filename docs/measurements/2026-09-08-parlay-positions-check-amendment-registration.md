@@ -634,11 +634,23 @@ The prefill assertion reads the `prefill={{…}}` block rather than the file,
 because the comment above the control quotes the removed line to say what it
 replaced; a guard refusing the quotation would forbid explaining the fix.
 
-**The window is NOT open yet and no date is recorded here.** P4 requires the
-timestamp to be looked up from the deploy that ships this code, not recalled
-or predicted. At the time of writing the code is committed and not yet
-deployed. **Whoever deploys it records the deploy timestamp here**, and the
-window opens then.
+**THE WINDOW IS OPEN. It opened at `2026-09-08T21:33:05Z`.**
+
+P4 requires the timestamp to be looked up from the deploy that ships the code
+rather than recalled or predicted, so it is:
+
+    deploy run   34281066870        gh run view 34281066870 --json updatedAt
+    head sha     a13e6b8
+    finished     2026-09-08T21:33:05Z
+    verified     /api/health build.git_sha == a13e6b8, machine 7812601a239428
+
+The machine id is recorded beside it because a NEW machine gets an empty
+volume, and a census of a table on a fresh volume would read zero for a reason
+that has nothing to do with the question. It is unchanged across this deploy.
+
+The paragraph this replaces said the window was not yet open and instructed
+whoever deployed to fill the timestamp in. That happened in the same session,
+which is the only reason this is a lookup and not a reconstruction.
 
 **P1 and P3 are still open** and P2 does not advance either. P1 needs an
 accepted ADR recording the entry design; ADR 0113 records that Joe wants to

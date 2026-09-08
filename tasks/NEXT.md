@@ -226,18 +226,27 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ## 2026-09-08 (second session) — the table took its first two rows, and the brake Joe removed was still on the button
 
-**STATE at close.** `main` = the sha in `git log -1`, pushed; read CI with
-`gh run list --limit 3`. **Live was verified on `ebbb809` off `/api/health`
-`build.git_sha`**, machine `7812601a239428` **unchanged** across the deploy —
-check that after any deploy, because a new machine gets an empty volume and
-every credit fact inverts silently. This entry was written before its own
-commit, so re-read `/api/health` rather than believing the table.
+**STATE at close.** `main` = **`a13e6b8`**, pushed, CI green. **Live is on
+`a13e6b8`, verified off `/api/health` `build.git_sha` at 21:33Z**, machine
+`7812601a239428` **unchanged** across every deploy today — check that after any
+deploy, because a new machine gets an empty volume and every credit fact
+inverts silently. Re-read `/api/health` rather than believing this table.
 
-    live     ebbb809 verified 20:2xZ; recorder writing, age 46s
-    demo     cc8de80 deliberately behind, untouched
+    live     a13e6b8 verified 21:33Z; recorder writing, age 41s; mode live
+    demo     cc8de80 deliberately behind, untouched today
 
-Tree clean at close, no worktrees. Suite **6369 → see `gh run list`** (the
-count moved; seven tests added, none removed).
+Four commits landed and **all four are deployed**:
+
+| sha | what |
+|---|---|
+| `ebbb809` | the exposure ceiling comes off the hand-bet path (ADR 0112 Amd 1) |
+| `68cabc4` | the buy button agrees with the route (ADR 0114) |
+| `272f328` | the `source` steer removed from seven surfaces (P2) |
+| `a13e6b8` | four ADRs corrected; the depth guard now reads `docs/adr/` |
+
+Tree clean at close, no worktrees. Suite **6495 passed / 10 xfailed** — the
+jump from 6369 is mostly the depth guard's parametrize now globbing every ADR,
+plus 14 hand-written tests.
 
 ### THE FINDING: `manual_orders` is no longer empty
 
@@ -333,6 +342,13 @@ Verified by disabling: restoring the old bound turns 5 of the 7 new tests red.
    of its existing assertions had been *requiring* the steer (`assert 'source:
    "sportsbook"' in source`). Four guards now, all verified red by restoring
    the steer.
+   **THE CLEAN WINDOW IS OPEN. It opened `2026-09-08T21:33:05Z`** — looked up
+   from deploy run `34281066870`, per P4, and recorded in the registration's
+   Appendix A with the machine id beside it. **Do not census before P1 and P3
+   also hold**: P1 needs an accepted ADR recording the entry design (ADR 0113
+   is the correction that motivated P1, not the design document it asks for)
+   and P3's denominator script does not exist. Earliest legitimate deletion
+   read is `G = 30` sittings after this timestamp, backstop 2026-11-30.
 3. ~~The combo entry/exit conflation is still in four ADRs.~~ **DONE, same
    session.** `0073`, `0070` and `0075` (two places) carry correction notes
    quoting what they replaced; **none of their decisions moved**, because
