@@ -220,6 +220,42 @@ It is killed anyway, on three facts:
 Record the finding; do not build it. If the manual route is ever used on a
 non-zero shard, this section is where the work starts.
 
+**THE TRIGGER FIRED, AND THE WORK IS DONE — 2026-09-08, later the same
+week.** This section named its own overturning condition in one sentence and
+the condition occurred: `manual_orders` took its **first two rows ever**, both
+real, both `filled`, and **both on shard 1** — `KXMVECROSSCATEGORY-SHARD1-…`,
+the exact case this deferral said was unreachable.
+
+Two of the three killing facts are now spent:
+
+- *"The route has placed 0 of 27 real bets in eleven days"* — no longer true.
+  It is the same stale-negative shape `tasks/lessons.md` records for
+  2026-09-08: a count copied forward asserts the present tense from a past
+  reading. The 0 was honest when written and had a fourteen-day shelf life.
+- *"All 420 markets in both captured NFL fixtures carry `exchange_index: 0`"*
+  remains true and remains irrelevant to what happened, because what he bet
+  was a **combination**, and combinations live on shard 1. The capture was of
+  the wrong population to bound the risk — NFL single markets, when the
+  reachable case was always the combination path.
+
+**The remaining fact still holds:** baseball's shard 3 is unfunded and
+baseball leaves scope 2026-09-27. That was never the load-bearing one.
+
+**And the work was built independently, hours before this note.** `POST
+/api/manual-orders` check 9a now reads `exchange_index` **off the market**
+(`quote.exchange_index`, new on `DiscoveredMarket` and exposed on
+`LiveQuote`), calls `shard_balance(exchange_index=…)` scoped rather than
+pooled, and refuses by naming the shard, the shortfall and the reallocation
+link. An unreadable shard refuses rather than guessing 0, because 0 is a real
+shard. That is exactly what `rest.py:636-650` warned about and what this
+section deferred.
+
+So: the gap this ADR chose not to close is closed, the reasoning for deferring
+it is recorded as **honest-but-expired**, and nothing here needs building. The
+lesson is the ADR's own construction — a deferral that names its trigger in a
+falsifiable sentence gets resolved by a later session in ten minutes, and one
+that says "not worth it for now" does not.
+
 ## Consequences
 
 - `ODDS_MARKETS` and `ODDS_REGIONS` do not change before 2026-09-28, and

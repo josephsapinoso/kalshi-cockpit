@@ -84,6 +84,49 @@ writing an entry, not after.
 
 ---
 
+## 2026-09-08 - "This route has no guard" is a claim about the whole dependency chain, not about the route body
+
+An audit of `POST /api/parlays/bid` — armed, real money — found no `is_demo`
+check anywhere in the handler and concluded the public instance was kept off
+the order path only by the accident of having no credentials. That is
+CLAUDE.md's named nightmare (*"a public URL must not be one config bug away
+from the order path"*), so a guard was written.
+
+**It was redundant.** `require_auth` refuses on `app_config.is_demo` before it
+ever looks at a token, and the route carries
+`dependencies=[Depends(require_auth)]`. Every mutating route was already
+closed on the demo, structurally. The finding was produced by reading the
+handler body and the module, and by grepping the route's own file for
+`is_demo` — none of which can see a guard that arrives through a dependency,
+a decorator, a middleware, or a base class.
+
+**The tell was available and was not used:** the sibling path's guard was
+found by grepping for its *symbol* (`_manual_reachable`), and the same search
+for how THIS route is protected was never run. Asymmetry between two similar
+paths is a hypothesis, not a finding — and the cheapest test of it is to make
+the request and read the response, which is what eventually produced the
+correction here, as a failing assertion on a string the guard did not write.
+
+**So: before reporting a missing guard, execute the path.** A refusal you have
+actually seen beats any amount of reading, and a guard's absence from the code
+you looked at is not its absence from the system. Where an audit says
+"unguarded", the write-up should name the request it made and the response it
+got, not the greps it ran.
+
+The corollary is about scope, not just method. A negative claim of the form
+"nothing enforces X" quantifies over the whole program; the evidence gathered
+was about one file. **A universal claim needs either an execution or a search
+over the enforcement mechanism, not over the place you expected to find it.**
+
+What survived the correction was worth keeping: the property (`the demo cannot
+rest a bid`) is now pinned on the endpoint that spends money, rather than only
+on the test for `require_auth`. Verified by deleting the demo branch and
+watching three tests go red. A wrong diagnosis can still leave a right test
+behind — but it must be re-attributed honestly, or the next reader inherits
+the wrong reason.
+
+---
+
 ## 2026-09-08 - A guard that reads the code but not the decisions is half a guard
 
 A false claim about combination liquidity was corrected across the code and a
@@ -1281,6 +1324,7 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-09-08 — in this file, above
+- "This route has no guard" is a claim about the whole dependency chain, not about the route body
 - A guard that reads the code but not the decisions is half a guard
 - Removing a brake server-side leaves it on the screen, and that direction of the mismatch is invisible
 - A count or a "not yet" copied into a new session entry is a present-tense claim from a past reading

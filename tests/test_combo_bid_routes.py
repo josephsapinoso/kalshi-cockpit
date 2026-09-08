@@ -124,7 +124,7 @@ class FakeApi:
 
 @pytest.fixture
 def build(tmp_path, monkeypatch):
-    def _build(*, api=None, dry_run=False):
+    def _build(*, api=None, dry_run=False, mode="live"):
         path = tmp_path / "bids.db"
         conn = store.init_db(path)
         base = now_ms() - 30_000
@@ -176,7 +176,7 @@ def build(tmp_path, monkeypatch):
         monkeypatch.setenv("KALSHI_PRIVATE_KEY_PATH", str(_pem(tmp_path)))
 
         config = AppConfig(
-            db_path=path, auth_token="secret-token", instance_mode="live",
+            db_path=path, auth_token="secret-token", instance_mode=mode,
         )
         return create_app(config), fake, path
     return _build
@@ -733,3 +733,81 @@ class TestTheScreenSaysWhichSideOfTheTradeHeIsOn:
         )).json()
 
         assert "Orders, not Positions" in body["words"]
+
+
+class TestTheDemoCannotRestABid:
+    """**The public instance is off this order path by its MODE, not by an
+    absent secret** — pinned 2026-09-08, after an audit that got it wrong.
+
+    `POST /api/parlays/bid` places a REAL good-till-cancelled bid
+    (`COMBO_ORDERS_ARE_DRY_RUNS = False`, armed 2026-08-30 on Joe's word) and
+    has no `is_demo` check of its own. That looked like the failure CLAUDE.md's
+    security section names — *"a public URL must not be one config bug away
+    from the order path"* — and a guard was written for it.
+
+    **It was redundant and the guard is not here.** `require_auth` refuses on
+    `app_config.is_demo` before it even looks at a token, and this route
+    carries `dependencies=[Depends(require_auth)]`, so every mutating route
+    including this one is closed on the demo *structurally*. The instance's
+    missing credentials are a second line, not the first.
+
+    So the arming discipline here is equivalent to the hand-bet path's, not
+    weaker: both need the mode AND a deliberate switch. The manual path spells
+    its switch `MANUAL_ORDERS_ENABLED`; this one spells it
+    `COMBO_ORDERS_ARE_DRY_RUNS`, a constant rather than an env var, and
+    `combo_orders.py` gives the reason in its own words — *"a switch somebody
+    can nudge at 2am is not a decision with a commit behind it."*
+
+    What survives the correction is this test. The property is real and worth
+    holding whichever layer provides it; pinning it here means a future change
+    to `require_auth`'s demo branch fails on the endpoint that spends money,
+    rather than only on whatever test covers `require_auth`.
+    """
+
+    async def test_the_demo_refuses_before_anything_is_sent(self, build):
+        app, fake, _path = build(mode="demo")
+        response = await _post(
+            app, "/api/parlays/bid",
+            {
+                "card_key": "safe",
+                "legs": [{"event_ticker": "E", "market_ticker": "M"}],
+                "price_tenths": 250,
+                "stake_cents": 200,
+                "combo_acknowledged": True,
+            },
+            {"Authorization": "Bearer secret-token"},
+        )
+        assert response.status_code == 403, response.json()
+        assert "demo" in response.json()["detail"].lower()
+
+    async def test_the_refusal_does_not_depend_on_the_acknowledgement(
+        self, build
+    ):
+        """403 on the mode, never 422 on the acknowledgement.
+
+        If the mode check sat below the acknowledgement, an operator sending
+        `combo_acknowledged: true` would pass straight through it — and that
+        is precisely the request that commits money.
+        """
+        app, _fake, _path = build(mode="demo")
+        response = await _post(
+            app, "/api/parlays/bid",
+            {
+                "card_key": "safe",
+                "legs": [{"event_ticker": "E", "market_ticker": "M"}],
+                "price_tenths": 250,
+                "stake_cents": 200,
+                "combo_acknowledged": False,
+            },
+            {"Authorization": "Bearer secret-token"},
+        )
+        assert response.status_code == 403, response.json()
+
+    async def test_the_cancel_route_is_closed_on_the_demo_too(self, build):
+        """The pair, because a half-closed path is the interesting bug."""
+        app, _fake, _path = build(mode="demo")
+        response = await _post(
+            app, "/api/parlays/bids/1/cancel", {},
+            {"Authorization": "Bearer secret-token"},
+        )
+        assert response.status_code == 403, response.json()

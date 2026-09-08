@@ -379,20 +379,71 @@ Verified by disabling: restoring the old bound turns 5 of the 7 new tests red.
 5. **`window_status` cannot predict a bootstrap** — FROZEN until 09-14
    (`timing.py:1536`).
 6. **The `eu` lever, 2026-09-28** — ADR 0110's measurements first; three of the
-   four are free and takeable now.
+   four are free and takeable now. **Its `exchange_index` deferral is closed,
+   2026-09-08.** That section named its own overturning condition — *"if the
+   manual route is ever used on a non-zero shard, this section is where the
+   work starts"* — and the condition fired: both of tonight's first-ever
+   `manual_orders` rows are on **shard 1**. Two of its three killing facts are
+   spent (the "0 of 27 real bets" is the stale-negative shape; the 420-market
+   `exchange_index: 0` capture was of NFL SINGLES when the reachable case was
+   always combinations), and the work was built independently hours earlier as
+   check 9a. The ADR carries the correction. **Nothing to build; the `eu`
+   decision itself is untouched and still dated.**
 7. **Scout Anthropic refusal fixture (ADR 0106 §5.2)** — one billed call. NOT
    dead code: `routers/scout.py:25` imports `agents.scout_desk`.
-8. **`combo_orders` reconciliation** — `POST /api/parlays/bid` is a live,
-   armed, real-money endpoint with zero UI callers, and it still applies
-   `COMBO_ORDER_MAX_SPEND_TENTHS` ($3.00). That cap is on the **dormant maker
-   path**, not on the hand-bet taker path, so ADR 0112 did not reach it and
-   this session did not either. Decide it once; do not let it drift.
+8. **`combo_orders` — investigated this session; the state is now known and
+   the remaining question is JOE'S.** Facts, all re-read off the instrument:
+
+   - **Nothing is resting.** All five bids `combo_orders` has ever held are
+     terminal: four `cancelled` ("the first leg has started"), one
+     `gone_at_venue` (id 2, placed 09-01, resolved 09-07 — the venue had no
+     order by that id, so it filled, was cancelled or settled; the desk does
+     not know which and cannot without account data). **The previous entry's
+     "a pre-09-06 bid may still rest" is resolved: none does.**
+   - **Zero UI callers, confirmed.** No `.tsx` imports `placeComboBid`,
+     `cancelComboBid` or `listComboBids`. The `api.ts` helpers, the
+     `/parlay-bid` proxy route and its middleware entry all still exist.
+   - **It is armed**: `COMBO_ORDERS_ARE_DRY_RUNS = False` since 2026-08-30,
+     on Joe's own words *"the exchange is done. arm the switch."*
+   - **It is NOT under-guarded, and an audit that said so was wrong.** The
+     route has no `is_demo` check of its own, which looked like CLAUDE.md's
+     "one config bug from the order path". It is not: `require_auth` refuses
+     on `is_demo` before reading a token and the route depends on it. The
+     arming discipline is *equivalent* to the hand-bet path's — mode plus a
+     deliberate switch — the switch just being a constant rather than an env
+     var, which `combo_orders.py` argues for in its own words. **A guard was
+     written for this and reverted.** What survives is
+     `TestTheDemoCannotRestABid`, which pins the property on the endpoint that
+     spends money rather than only on `require_auth`'s own test; verified red
+     by deleting the demo branch.
+
+   **So the only live question is a contradiction, and it is Joe's:** this
+   endpoint exists to REST OFFERS, and on 2026-09-06 he asked for the
+   offer-making controls to be removed — *"I don't want to make offers or find
+   offers in shares"* — a ruling CLAUDE.md records as **still standing** as of
+   2026-09-08. The UI was removed; the armed real-money endpoint was not.
+   Three options, and **no session should pick one**: disarm
+   (`COMBO_ORDERS_ARE_DRY_RUNS = True`, one line, revertible, which the code's
+   own comment describes as the intended way); remove the route and its
+   client entirely; or leave it armed because he may want it back. Nothing
+   rests, so all three are safe to take now and none gets safer by waiting.
+   `COMBO_ORDER_MAX_SPEND_TENTHS` ($3.00) still binds here — ADR 0112 removed
+   the caps on the hand-bet TAKER path and never reached this one.
 9. **The decision map's third queue is two items, not nine.** A full audit of
    all 32 closed tickets against the tree finds 23 built, 7 decided as "no
    build", 2 genuine gaps — one of which is item 4 above. The "~9" was carried
    forward without re-measuring.
 
-**Joe-gated:** whether to fund shard 0 so single markets work.
+**Joe-gated, two questions, both stated fully in the items above:**
+
+- **(A)** Fund shard 0 so single-market bets work? Shard 1 (Combos) holds the
+  money; shard 0 (Default) is at $0.00, so every single-market bet dies at the
+  venue. Check 9a now names the pocket and the reallocation link rather than
+  letting it read as a broken cockpit.
+- **(B)** `POST /api/parlays/bid` — armed, real-money, zero UI callers, and it
+  rests OFFERS, which he asked to be rid of on 2026-09-06. Disarm, delete, or
+  leave? Item 8. Nothing is resting, so there is no deadline and no risk in
+  either direction; it should simply not drift unanswered.
 
 ### The pattern worth carrying (goes to `tasks/lessons.md`)
 
