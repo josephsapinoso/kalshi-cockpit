@@ -52,10 +52,16 @@ AUTH = {"Authorization": "Bearer secret-token"}
 
 
 def _payload(*, ticker=TICKER, yes_bid_tenths=350, no_bid_tenths=550,
-             yes_ask_size=500.0, price_ranges=True):
+             yes_ask_size=500.0, price_ranges=True, exchange_index=0):
     market = {
         "ticker": ticker,
         "status": "active",
+        # The shard this market settles on. Kalshi sends it on every market
+        # row (observed: 0 on `KXNFLGAME-*`, 1 on `KXMVE*`), and the order
+        # path refuses without it, so a stub that omitted it would make every
+        # test exercise the unreadable-shard branch instead of the real one.
+        # Pass `exchange_index=None` to reach that branch deliberately.
+        **({} if exchange_index is None else {"exchange_index": exchange_index}),
         "yes_bid_dollars": f"{yes_bid_tenths / 1000:.4f}",
         "no_bid_dollars": f"{no_bid_tenths / 1000:.4f}",
         "yes_ask_size_fp": f"{yes_ask_size:.2f}",
@@ -73,16 +79,42 @@ class StubQuotes:
     """fetch + portfolio_positions, both scriptable."""
 
     def __init__(self, payload=None, *, positions=None, positions_error=None,
-                 fetch_error=None):
+                 fetch_error=None, shard_tenths=50000, balance_error=None,
+                 balance_payload=None):
         self._payload = payload if payload is not None else _payload()
         self._positions = positions if positions is not None else []
         self._positions_error = positions_error
         self._fetch_error = fetch_error
+        # Funded by default and generously, so a test about something else
+        # never fails on collateral. The shard-specific tests set it.
+        self._shard_tenths = shard_tenths
+        self._balance_error = balance_error
+        self._balance_payload = balance_payload
 
     async def fetch(self, ticker, *, observed_ms):
         if self._fetch_error is not None:
             raise self._fetch_error
         return parse_market_quote(self._payload, observed_ms=observed_ms)
+
+    async def shard_balance(self, *, exchange_index: int):
+        """`/portfolio/balance?exchange_index=N`, in the venue's own shape.
+
+        `balance_breakdown` rows carry `balance` as a 4dp dollar STRING, which
+        is what `read_shard_funds` parses; building the stub any other way
+        would pin a shape Kalshi does not send.
+        """
+        if self._balance_error is not None:
+            raise self._balance_error
+        if self._balance_payload is not None:
+            return self._balance_payload
+        return {
+            "balance_breakdown": [
+                {
+                    "exchange_index": exchange_index,
+                    "balance": f"{self._shard_tenths / 1000:.4f}",
+                }
+            ]
+        }
 
     async def portfolio_positions(self):
         if self._positions_error is not None:
@@ -595,7 +627,13 @@ class TestTheGuardsRefuse:
             "at this size the two fee models round to the same cents; this "
             "test cannot see the guard it exists to pin"
         )
-        quotes = StubQuotes(_payload(ticker=COMBO_TICKER, yes_ask_size=1000.0))
+        # Shard 1 funded well past the $112.50 this order costs: the point of
+        # this test is the FEE MODEL, and a collateral refusal would make it
+        # pass for the wrong reason.
+        quotes = StubQuotes(
+            _payload(ticker=COMBO_TICKER, yes_ask_size=1000.0, exchange_index=1),
+            shard_tenths=500_000,
+        )
         app = _app(_base_db(tmp_path, balance_tenths=5_000_000), quotes=quotes)
         response = await post(
             app, "/api/manual-orders",
@@ -1907,3 +1945,127 @@ class TestARefusalIsARecord:
         source = (REPO / "backend" / "gate.py").read_text(encoding="utf-8")
         assert "manual_order_refusals" not in source
         assert "refusal" not in source.lower()
+
+
+class TestTheDeskNamesTheShardBeforeTheVenueRefuses:
+    """Check 9a, added 2026-09-08 from Joe's own allocation.
+
+    He read his balances off Kalshi mid-session: **shard 1 (Combos) $22.24,
+    shard 0 (Default) $0.00**. Every single-market bet draws on shard 0, so
+    each one would have been refused by the VENUE with a bare
+    `insufficient_balance` -- which against a $22 account reads as a broken
+    cockpit rather than as "your money is in the other pocket". The
+    combination path solved this in ADR 0084 and the reasoning was never
+    carried across.
+
+    **This is not a reinstated brake.** ADR 0112 removed the desk's own
+    ceilings; this refuses only what Kalshi was always going to refuse, one
+    round trip earlier and in words naming the fix. Nothing here bounds a bet
+    the venue would have accepted.
+
+    WHAT THIS DOES NOT ESTABLISH
+    ----------------------------
+    - Nothing about whether the venue then accepts the order. Collateral is
+      one of its preconditions, not all of them; shard 3 is separately blocked
+      by an undocumented `user_not_found` and this check cannot see that.
+    - Nothing about the balance being current. It is read live at order time,
+      but a fill elsewhere between the read and the send is not excluded.
+    """
+
+    async def test_joes_actual_split_refuses_a_single_and_names_the_pocket(
+        self, tmp_path
+    ):
+        """The exact configuration he is in right now."""
+        quotes = StubQuotes(_payload(exchange_index=0), shard_tenths=0)
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert "exchange shard 0" in detail, detail
+        assert "$0.00" in detail, detail
+        # The remedy, and that this is the venue's rule rather than ours.
+        assert "kalshi.com/account/exchange-indexes" in detail, detail
+        assert "not a cap of yours" in detail, detail
+        assert "Nothing was sent" in detail, detail
+
+    async def test_the_funded_combo_shard_goes_through(
+        self, tmp_path, records_only
+    ):
+        """The other half of his split: shard 1 holds $22.24 and combos are
+        the path that actually works today."""
+        quotes = StubQuotes(
+            _payload(ticker=COMBO_TICKER, exchange_index=1), shard_tenths=22_240
+        )
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        response = await post(
+            app, "/api/manual-orders",
+            json=_body(ticker=COMBO_TICKER, combo_acknowledged=True),
+            headers=AUTH,
+        )
+        assert response.status_code == 200, response.json()
+
+    async def test_the_total_across_shards_cannot_pay_for_it(self, tmp_path):
+        """The defect the unscoped balance would reintroduce.
+
+        Measured 2026-08-30: the account read $21.41 in total while the
+        combinations shard held $0.01 and a 2c order was refused. A payload
+        carrying a fat total and a thin row for THIS shard must refuse.
+        """
+        quotes = StubQuotes(
+            _payload(exchange_index=0),
+            balance_payload={
+                "balance": "21.4120",
+                "balance_breakdown": [
+                    {"exchange_index": 0, "balance": "0.0100"},
+                    {"exchange_index": 1, "balance": "21.4020"},
+                ],
+            },
+        )
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
+        assert response.status_code == 422
+        assert "$0.01" in response.json()["detail"]
+
+    async def test_an_unreadable_shard_refuses_and_never_assumes_zero(
+        self, tmp_path
+    ):
+        """A market that does not say which shard it settles on.
+
+        Refusing beats guessing 0: 0 is a real shard, and a wrong guess sends
+        an order the venue was always going to reject after he has typed a
+        price and confirmed.
+        """
+        quotes = StubQuotes(_payload(exchange_index=None))
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert "which exchange shard" in detail, detail
+        assert "Nothing was sent" in detail, detail
+
+    async def test_an_unreadable_balance_refuses_rather_than_spending(
+        self, tmp_path
+    ):
+        """`None` is not zero and is not "fine": an unparsed payload must not
+        resolve to a spendable balance in either direction."""
+        quotes = StubQuotes(
+            _payload(exchange_index=0), balance_payload={"nothing": "useful"}
+        )
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
+        assert response.status_code == 502
+        assert "could not be read" in response.json()["detail"]
+
+    async def test_the_shard_is_read_off_the_market_not_the_ticker_prefix(self):
+        """Kalshi's docs call `exchange_index` the authoritative source of
+        truth and say ticker formats move. A prefix heuristic would be a
+        second definition that silently rots."""
+        source = (REPO / "backend" / "api" / "routes.py").read_text(
+            encoding="utf-8"
+        )
+        start = source.index('name="shard_collateral"')
+        block = source[start:start + 1200]
+        assert "quote.exchange_index" in block
+        assert "KXMVE" not in block, (
+            "the shard is being inferred from the ticker prefix"
+        )

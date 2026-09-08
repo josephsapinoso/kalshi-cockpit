@@ -114,6 +114,17 @@ class LiveQuote:
         return self.market.status == TRADEABLE_STATUS
 
     @property
+    def exchange_index(self):
+        """Which Kalshi shard this market's collateral must sit on.
+
+        Read from the same payload as the book, for the reason every other
+        property here is: a shard cached at recommendation time is exactly as
+        stale as the price beside it. `None` means unreadable and the order
+        path refuses -- it must never default to 0, because 0 is a real shard.
+        """
+        return self.market.exchange_index
+
+    @property
     def price_grid(self):
         """Which limit prices this market accepts right now, or None.
 
@@ -332,6 +343,32 @@ class LiveQuoteSource:
                 raise
             raise QuoteUnavailable(
                 f"could not read open positions: {exc}"
+            ) from exc
+
+    async def shard_balance(self, *, exchange_index: int) -> dict:
+        """The `/portfolio/balance` payload, scoped to one exchange shard.
+
+        **Scoped on purpose.** The unscoped call returns the SUM across
+        shards and cannot decide whether any single order is payable: on
+        2026-08-30 the account read $21.41 in total while the combinations
+        shard held $0.01, and a 2c order was refused `insufficient_balance`
+        by the venue. `balance_breakdown` comes back either way, so the
+        caller parses that rather than the top-level figure.
+
+        Same client and error discipline as `fetch` and
+        `portfolio_positions`: transport and API failures become
+        `QuoteUnavailable`, `ConfigError` passes through so "no credentials"
+        stays distinguishable from "no answer".
+        """
+        api = self._api()
+        try:
+            return await api.balance(exchange_index=exchange_index)
+        except Exception as exc:                        # noqa: BLE001
+            if isinstance(exc, ConfigError):
+                raise
+            raise QuoteUnavailable(
+                f"could not read the balance on exchange shard "
+                f"{exchange_index}: {exc}"
             ) from exc
 
     async def history(

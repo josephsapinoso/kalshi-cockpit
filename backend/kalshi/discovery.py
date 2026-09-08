@@ -528,6 +528,25 @@ class DiscoveredMarket:
     # at 50c and never fill. See `kalshi/grid.py`.
     price_grid: Optional[PriceGrid] = None
 
+    # **Which exchange shard this market's collateral lives on.** Kalshi runs
+    # several matching engines and money does NOT follow an order between
+    # them: "programmatic traders must preallocate collateral on a given
+    # exchange shard before order placement." A `/portfolio/balance` with no
+    # argument returns the SUM across shards, so the total can never decide
+    # whether an order is payable -- measured 2026-08-30, the account read
+    # $21.41 while the combinations shard held $0.01 and a 2c order was
+    # refused `insufficient_balance`.
+    #
+    # Read off the MARKET because Kalshi's docs call this field the
+    # authoritative source of truth and say ticker formats move. Never infer
+    # it from the prefix. Observed 0 on `KXNFLGAME-*` and 1 on `KXMVE*` in
+    # the committed fixtures.
+    #
+    # `None` means unreadable, and the order path refuses rather than
+    # defaulting to 0 -- guessing the shard is how a payable-looking order
+    # gets rejected by the venue after Joe has typed a price and confirmed.
+    exchange_index: Optional[int] = None
+
     # Kalshi's own settled outcome, `None` while it is not known. See
     # `read_market_result` for why `None` and `"no"` must not be confused.
     #
@@ -637,6 +656,19 @@ def read_market_result(market: dict) -> Optional[str]:
     return result
 
 
+def _exchange_index(market: dict) -> Optional[int]:
+    """The market's own shard, or `None` when the field is absent or unusable.
+
+    A bool is rejected explicitly: `True` is an `int` in Python and would
+    silently become shard 1, which is the combinations shard and the one place
+    a wrong answer costs money.
+    """
+    raw = market.get("exchange_index")
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        return None
+    return raw if raw >= 0 else None
+
+
 def build_market(
     market: dict,
     *,
@@ -692,6 +724,7 @@ def build_market(
         no_ask_size=parse_quantity(market.get("yes_bid_size_fp")),
         price_grid=read_price_grid(market),
         player_name=parsed_player[0] if parsed_player else None,
+        exchange_index=_exchange_index(market),
     )
 
 

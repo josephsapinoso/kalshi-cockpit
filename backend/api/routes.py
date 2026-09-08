@@ -71,6 +71,10 @@ from ..list_filters import (
 )
 from ..kalshi.rest import KalshiRestClient, parse_position_fp
 from ..kalshi.quotes import LiveQuote, LiveQuoteSource, QuoteUnavailable
+# The shard reader is shared with the combination path rather than
+# reimplemented: one parser for `balance_breakdown`, one place to be
+# wrong about the venue's field names.
+from ..store.combo_orders import read_shard_funds
 from ..live import QuoteHub, sse
 from ..logging_setup import configure_logging
 from ..agents.base import AgentConfig
@@ -3438,6 +3442,75 @@ def create_app(
                 )
             except OrderRefused as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+            # 9a. **WHICH POCKET THE MONEY IS IN.** Added 2026-09-08, after
+            # Joe read his own allocation off Kalshi: shard 1 (Combos)
+            # $22.24, shard 0 (Default) $0.00. Every single-market bet draws
+            # on shard 0 and would have been refused by the VENUE with a bare
+            # `insufficient_balance` -- which, against a $22 account, reads as
+            # a broken cockpit rather than as "your money is in the other
+            # pocket". The combination path solved this in ADR 0084 and the
+            # reasoning was never carried across; `combo_orders.check_
+            # affordable`'s docstring says it outright: only the desk is in a
+            # position to say so.
+            #
+            # **This is not a brake and does not reinstate one.** ADR 0112
+            # removed the desk's own ceilings; this refuses only what the
+            # venue was always going to refuse, one round trip earlier and in
+            # words that name the fix. Nothing here bounds a bet Kalshi would
+            # have accepted.
+            #
+            # The shard is read off the MARKET (`quote.exchange_index`), never
+            # inferred from the ticker prefix: Kalshi's docs call that field
+            # the authoritative source of truth and say ticker formats move.
+            # Unreadable refuses rather than defaulting to 0 -- 0 is a real
+            # shard, and guessing it is how a "payable" order dies at the
+            # venue after he has typed a price and confirmed.
+            refusal_ctx.update(check=9, name="shard_collateral")
+            shard = quote.exchange_index
+            if shard is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "this market does not say which exchange shard it "
+                        "settles on, so the desk cannot tell whether you have "
+                        "the collateral for it. Refusing rather than guessing "
+                        "— Kalshi keeps money per shard and will not move it "
+                        "for an order. Nothing was sent."
+                    ),
+                )
+            try:
+                shard_payload = await live_quotes().shard_balance(
+                    exchange_index=shard
+                )
+            except QuoteUnavailable as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            funds = read_shard_funds(shard_payload, exchange_index=shard)
+            if not funds.is_readable:
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        f"the balance on exchange shard {shard} could not be "
+                        f"read, so the desk cannot tell whether this bet is "
+                        f"payable. Refusing — an unreadable balance must "
+                        f"never resolve to a spendable one. Nothing was sent."
+                    ),
+                )
+            cost_tenths = order.count * order.limit_price_tenths
+            if funds.available_tenths < cost_tenths:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"this bet needs ${cost_tenths / 1000:.2f} on exchange "
+                        f"shard {shard}, which holds "
+                        f"${funds.available_tenths / 1000:.2f}. Kalshi keeps "
+                        f"collateral per shard and will not move it for an "
+                        f"order, so it has to be allocated there first "
+                        f"(kalshi.com/account/exchange-indexes). This is the "
+                        f"venue's rule, not a cap of yours. Nothing was sent."
+                    ),
+                )
+
             # **THE PER-BET CAP IS REMOVED.** Joe, 2026-09-08: "remove the cap.
             # i will decide." Both ceilings go, because both were caps on the
             # size of his bet and he was answering about both -- 10% of the
