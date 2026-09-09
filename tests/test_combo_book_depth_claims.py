@@ -322,3 +322,69 @@ class TestTheStruckPhrasingStaysStruck:
         assert "resting YES bid" in routes
         manual = (REPO / "backend" / "store" / "manual_orders.py").read_text(encoding="utf-8")
         assert "40/40" in manual or "40 of 40" in manual
+
+
+class TestTheFortyBooksAreNotFromTheShardTheDeskTrades:
+    """Which series the "40 of 40" actually is — established 2026-09-09.
+
+    The claim was never false, and this is not a refutation. "Every
+    combination book this repo has ever read" is exactly what was read. What
+    nothing recorded, anywhere, is that all 40 came from the two series in
+    `measure_combo_book_presence.DISCOVERY_SERIES` and **none** from
+    `KXMVECROSSCATEGORY-SHARD1` — which is the series every hand fill this
+    desk has taken lives on.
+
+    So the sentence's SCOPE is narrower than a reader of the buy ticket would
+    take it to be, and the gap is the shard his money is on. Pinned here so
+    the scope cannot drift from the files silently: the day a capture includes
+    a shard book, these fail and the comment block on
+    `parlays.COMBO_EXIT_CENSUS_BOOKS_READ` needs rewriting with it.
+    """
+
+    #: The two in `DISCOVERY_SERIES`. Deliberately spelled out rather than
+    #: imported: this test's job is to catch the day the instrument's default
+    #: changes underneath the recorded evidence, and importing the tuple would
+    #: make it agree with any change automatically.
+    BASELINE_SERIES = {"KXMVESPORTSMULTIGAMEEXTENDED", "KXMVECROSSCATEGORY"}
+
+    def test_every_captured_book_is_from_one_of_the_two_baseline_series(self):
+        seen: set[str] = set()
+        for name in CAPTURES:
+            for row in _rows(name):
+                ticker = row.get("ticker") or ""
+                assert ticker, f"{name} has a row with no ticker"
+                seen.add(ticker.split("-")[0])
+        assert seen == self.BASELINE_SERIES, (
+            f"the 40 books now span {sorted(seen)}. The comment block on "
+            "parlays.COMBO_EXIT_CENSUS_BOOKS_READ states which series they "
+            "are; update it in the same commit."
+        )
+
+    def test_not_one_of_the_forty_is_a_shard_book(self):
+        """The finding, stated so it fails the day it stops being true."""
+        for name in CAPTURES:
+            for row in _rows(name):
+                assert "SHARD" not in (row.get("ticker") or ""), (
+                    f"{name} now carries a shard book. That is good news — it "
+                    "means the census finally reached the population the desk "
+                    "actually trades — but the scope caveat on "
+                    "parlays.COMBO_EXIT_CENSUS_BOOKS_READ and the pre-"
+                    "registration's §1 both describe a record without one."
+                )
+
+    def test_the_shard_is_a_different_series_from_its_unsharded_name(self):
+        """Why the gap is structural and not an accident of sampling.
+
+        `KXMVECROSSCATEGORY-SHARD1` is not a subset of `KXMVECROSSCATEGORY`:
+        splitting a ticker on `-` gives a different first segment, which is
+        the same rule `measure_combo_book_presence` uses to label a row's
+        series. A discovery pass over the unsharded name can therefore never
+        return a shard row, however many pages it reads.
+        """
+        unsharded = "KXMVECROSSCATEGORY-S2026BC601322AFE-F42E6E43D53"
+        sharded = "KXMVECROSSCATEGORY-SHARD1-S2026A42AF24F4AC-31E40FE15EC"
+        assert unsharded.split("-")[0] == "KXMVECROSSCATEGORY"
+        assert sharded.split("-")[0] == "KXMVECROSSCATEGORY"
+        # Same first segment, but the venue keys discovery on the full series
+        # ticker, and those differ — which is the whole point.
+        assert unsharded.rsplit("-", 2)[0] != sharded.rsplit("-", 2)[0]

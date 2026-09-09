@@ -155,6 +155,27 @@ PARLAY_CENSUS_TAKER_FILLS = 51
 #: `..._NO_YES_BID` is derived rather than typed so it cannot drift from the
 #: two facts it summarises: the day one book is read with a bid resting on the
 #: YES side, the sentence moves on its own.
+#:
+#: **WHICH SERIES THESE 40 ARE, established 2026-09-09 and not previously
+#: written down anywhere.** All 40 came from `KXMVESPORTSMULTIGAMEEXTENDED`
+#: and `KXMVECROSSCATEGORY` -- the two in `measure_combo_book_presence`'s
+#: `DISCOVERY_SERIES`. Re-read from the three JSONs above: E2 is 20/20 the
+#: first series, E3 is 5 + 4, and 2026-08-18 is 11/11 the second.
+#: **`SHARD1` tickers number zero in all three.**
+#:
+#: `KXMVECROSSCATEGORY-SHARD1` is a SEPARATE series -- `series_ticker=
+#: KXMVECROSSCATEGORY` returns only non-shard tickers, the row sets are
+#: disjoint, and the shard carried 1,000 open rows to the other two's 37 and
+#: 24 when probed. **Every hand fill this desk has taken is
+#: `KXMVECROSSCATEGORY-SHARD1-*`** (`manual_orders`, `fills`), so these 40
+#: books describe a population Joe does not trade.
+#:
+#: That does not make the sentence they carry false -- "every combination book
+#: this repo has ever read" is exactly what was read. It makes its SCOPE
+#: narrower than a reader of the buy ticket would take it to be, and the gap
+#: is the shard his money is on. Registered for measurement on 2026-09-13
+#: (`docs/measurements/2026-09-09-preregistration-combo-exit-nfl-sunday.md`
+#: §1); until that runs, do not let any new copy imply the shard was read.
 COMBO_EXIT_CENSUS_BOOKS_READ = 40
 COMBO_EXIT_CENSUS_BOOKS_WITH_YES_BID = 0
 COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID = (
