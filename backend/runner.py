@@ -906,6 +906,63 @@ def spread_quotes_for_event(
     return lines
 
 
+#: The exact columns `write_fair_price`'s INSERT names, in order. **The single
+#: source of truth**: the INSERT statement below is built by joining this
+#: tuple, and the identity/payload split just under it is COMPUTED from it
+#: rather than hand-typed alongside it. A hand-typed second list can silently
+#: drop a column -- that is the only way this change can corrupt the record
+#: (ADR 0133): a dropped column stops being compared, so a real change in it
+#: would be written as a silent confirm-in-place instead of a new row.
+#: `TestTheComparisonKeyCannotDriftFromTheInsert` in
+#: `tests/test_fair_price_dedupe.py` pins that the two can never disagree.
+_FAIR_PRICE_INSERT_COLUMNS: tuple[str, ...] = (
+    "computed_ms", "link_id", "market", "outcome_name",
+    "outcome_description", "outcome_point", "p_multiplicative", "p_additive",
+    "p_power", "p_shin", "p_conservative", "overround", "market_width",
+    "book_count", "books_used", "anchored_on_sharp", "oldest_book_age_ms",
+)
+
+#: The row's identity -- what makes two rows "the same rung" for dedupe.
+#: **Five columns, not four.** `outcome_description` is load-bearing: on a
+#: prop, `outcome_name` is only `"Over"` or `"Under"`, so two different
+#: players priced at the same line (same `outcome_point`) in the same game
+#: share every OTHER column. Without it in the identity, the lookup below
+#: would find one player's row while pricing the other's, compare a real
+#: change (the description itself differs) and do one of two wrong things:
+#: confirm the wrong row's freshness, or -- once it noticed the mismatch --
+#: insert correctly but never dedupe the pair, since the fetched "existing"
+#: row would forever belong to whichever player was priced most recently.
+#: Exactly the partition `backend/parlays.py`'s `CANDIDATE_SQL` already uses
+#: (`PARTITION BY f.link_id, f.market, f.outcome_name, f.outcome_description,
+#: f.outcome_point`) and the registered row identity in
+#: `docs/measurements/2026-09-01-preregistration-fair-prices-downsample.md`
+#: (D4). `outcome_description` and `outcome_point` are both nullable (NULL on
+#: every team-market row), so the lookup below compares both with `IS`, never
+#: `=` -- `tests/test_fair_price_dedupe.py` disables the `IS` handling and
+#: watches moneyline dedupe go to zero.
+_FAIR_PRICE_KEY_COLUMNS: tuple[str, ...] = (
+    "link_id", "market", "outcome_name", "outcome_description", "outcome_point",
+)
+
+#: Frozen at first appearance and never part of "did the payload change":
+#: `computed_ms` because it names the identity's first-seen instant,
+#: `oldest_book_age_ms` because a confirmation moves its OWN pass's freshness
+#: into `confirmed_oldest_book_age_ms` instead (ADR 0133) -- an unconditional
+#: `computed_ms`/`oldest_book_age_ms` update on every pass is the exact defect
+#: this whole change removes.
+_FAIR_PRICE_FROZEN_COLUMNS: frozenset[str] = frozenset(
+    {"computed_ms", "oldest_book_age_ms"}
+)
+
+#: What actually decides INSERT vs. UPDATE-to-confirm: every INSERT column
+#: that is neither identity nor frozen. COMPUTED from
+#: `_FAIR_PRICE_INSERT_COLUMNS`, never hand-typed -- see the comment there.
+_FAIR_PRICE_PAYLOAD_COLUMNS: tuple[str, ...] = tuple(
+    c for c in _FAIR_PRICE_INSERT_COLUMNS
+    if c not in _FAIR_PRICE_KEY_COLUMNS and c not in _FAIR_PRICE_FROZEN_COLUMNS
+)
+
+
 def write_fair_price(
     conn,
     *,
@@ -919,7 +976,7 @@ def write_fair_price(
     outcome_points: Optional[dict[str, float]] = None,
     oldest_book_age_ms: Optional[int] = None,
 ) -> dict[str, int]:
-    """Persist one `fair_prices` row per outcome. Returns outcome -> row id.
+    """Persist or CONFIRM one `fair_prices` row per outcome. outcome -> row id.
 
     One row per outcome rather than one per market, because the conservative
     probability is *per side*: it is the lowest across methods for the side
@@ -945,6 +1002,24 @@ def write_fair_price(
     that must not be written, not one written at NULL beside a sibling that
     has one. Mutually exclusive with `outcome_point` by construction: props
     share one line, spreads never do.
+
+    **Dedupe, since ADR 0133.** This used to INSERT unconditionally, every
+    pass, whether or not the consensus had moved -- measured on live at
+    99.6-99.75% of consecutive passes writing a byte-for-byte identical
+    payload, and `fair_prices` at 47.5% of the database. For each outcome this
+    now looks up the most recent existing row sharing its identity
+    (`_FAIR_PRICE_KEY_COLUMNS`); if every payload column
+    (`_FAIR_PRICE_PAYLOAD_COLUMNS`) matches, it UPDATEs that row's
+    `confirmed_ms` / `confirmed_oldest_book_age_ms` and returns the EXISTING
+    id, rather than inserting a new row. `computed_ms` and
+    `oldest_book_age_ms` are excluded from the comparison on purpose: they are
+    what freezes, not what is compared.
+
+    **What this costs, and it is real.** A pass that writes no row leaves no
+    trace of which odds instant the runner consumed at that moment --
+    `docs/measurements/2026-08-10-sharp-anchoring-census.py` and ADR 0021 §8's
+    anchoring rate both read that trail, and confirmation does not reconstruct
+    it after the fact. See ADR 0133 §"What this forecloses".
     """
     if outcome_points is not None:
         if outcome_point is not None:
@@ -976,27 +1051,69 @@ def write_fair_price(
         )
     book_count = metadata["book_count"]
 
+    insert_sql = (
+        "INSERT INTO fair_prices (" + ", ".join(_FAIR_PRICE_INSERT_COLUMNS) + ") "
+        "VALUES (" + ", ".join("?" for _ in _FAIR_PRICE_INSERT_COLUMNS) + ")"
+    )
+    # **`IS`, not `=`, on every key column -- derived, not hand-picked per
+    # column.** `outcome_description` and `outcome_point` are NULL on every
+    # team-market row, and `col = ?` never matches a bound NULL in SQL; `IS`
+    # behaves identically to `=` on the non-nullable key columns (`link_id`,
+    # `market`, `outcome_name`) and correctly as NULL-safe equality on the
+    # nullable two, so one operator serves the whole key with no per-column
+    # branching to drift.
+    lookup_sql = (
+        "SELECT id, " + ", ".join(_FAIR_PRICE_PAYLOAD_COLUMNS) + " "
+        "FROM fair_prices WHERE "
+        + " AND ".join(f"{column} IS ?" for column in _FAIR_PRICE_KEY_COLUMNS)
+        + " ORDER BY computed_ms DESC, id DESC LIMIT 1"
+    )
+
     for index, outcome in enumerate(devig_result.outcomes):
+        point = (
+            outcome_points[outcome] if outcome_points is not None
+            else outcome_point
+        )
+        values = {
+            "computed_ms": computed_ms,
+            "link_id": link_id,
+            "market": market,
+            "outcome_name": outcome,
+            "outcome_description": outcome_description,
+            "outcome_point": point,
+            "p_multiplicative": methods["multiplicative"][index],
+            "p_additive": methods["additive"][index],
+            "p_power": methods["power"][index],
+            "p_shin": methods["shin"][index],
+            "p_conservative": devig_result.conservative_probability(outcome),
+            "overround": devig_result.overround,
+            "market_width": metadata.get("market_width"),
+            "book_count": book_count,
+            "books_used": json.dumps(metadata.get("books_used", [])),
+            "anchored_on_sharp": 1 if metadata.get("anchored_on_sharp") else 0,
+            "oldest_book_age_ms": oldest_book_age_ms,
+        }
+
+        existing = conn.execute(
+            lookup_sql,
+            tuple(values[column] for column in _FAIR_PRICE_KEY_COLUMNS),
+        ).fetchone()
+
+        if existing is not None and all(
+            existing[column] == values[column]
+            for column in _FAIR_PRICE_PAYLOAD_COLUMNS
+        ):
+            conn.execute(
+                "UPDATE fair_prices SET confirmed_ms = ?, "
+                "confirmed_oldest_book_age_ms = ? WHERE id = ?",
+                (computed_ms, oldest_book_age_ms, int(existing["id"])),
+            )
+            ids[outcome] = int(existing["id"])
+            continue
+
         cursor = conn.execute(
-            "INSERT INTO fair_prices (computed_ms, link_id, market, outcome_name, "
-            "outcome_description, outcome_point, p_multiplicative, p_additive, "
-            "p_power, p_shin, p_conservative, overround, market_width, "
-            "book_count, books_used, anchored_on_sharp, oldest_book_age_ms) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                computed_ms, link_id, market, outcome,
-                outcome_description,
-                outcome_points[outcome] if outcome_points is not None
-                else outcome_point,
-                methods["multiplicative"][index], methods["additive"][index],
-                methods["power"][index], methods["shin"][index],
-                devig_result.conservative_probability(outcome),
-                devig_result.overround, metadata.get("market_width"),
-                book_count,
-                json.dumps(metadata.get("books_used", [])),
-                1 if metadata.get("anchored_on_sharp") else 0,
-                oldest_book_age_ms,
-            ),
+            insert_sql,
+            tuple(values[column] for column in _FAIR_PRICE_INSERT_COLUMNS),
         )
         ids[outcome] = int(cursor.lastrowid)
     conn.commit()

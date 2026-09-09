@@ -285,13 +285,34 @@ def _prop_rungs(markets) -> dict[tuple[str, float], object]:
 def _live_age_ms(row, *, now_ms: int) -> Optional[int]:
     """The consensus's LIVE age: time since devig plus its stalest input.
 
-    `None` when `oldest_book_age_ms` was never recorded (pre-v20 row) — the
+    **Two pairs, since ADR 0133 — a CONFIRMED pair and a FROZEN one, and the
+    COALESCE picks whichever is fresher.** `write_fair_price` no longer
+    inserts a new row every pass that re-derives an unchanged consensus; it
+    UPDATEs `confirmed_ms` / `confirmed_oldest_book_age_ms` on the existing
+    row instead, and leaves `computed_ms` / `oldest_book_age_ms` frozen at
+    first appearance. Both members of EITHER pair are always stamped at the
+    same instant, which is what makes each one individually telescope
+    correctly; mixing a frozen `computed_ms` with a live-refreshed
+    `oldest_book_age_ms` (or the reverse) either starves the freshness gate
+    the moment a price stops moving, or double-counts elapsed time. Both
+    rejected designs, and the measurements that killed each, are in ADR 0133.
+
+    `None` when NEITHER pair's age half was ever recorded (pre-v20 row) — the
     age is unmeasurable and the ladder refuses the leg, never ages it zero.
+    A NULL `confirmed_ms`/`confirmed_oldest_book_age_ms` means "never
+    re-confirmed" (every row predating v36, and any row whose payload has
+    only ever appeared once since), which is exactly what COALESCE's fallback
+    to the frozen pair says.
     """
-    oldest = row["oldest_book_age_ms"]
+    basis_ms = row["confirmed_ms"]
+    if basis_ms is None:
+        basis_ms = row["computed_ms"]
+    oldest = row["confirmed_oldest_book_age_ms"]
+    if oldest is None:
+        oldest = row["oldest_book_age_ms"]
     if oldest is None:
         return None
-    return (now_ms - row["computed_ms"]) + oldest
+    return (now_ms - basis_ms) + oldest
 
 
 #: The two team markets, and the five MLB prop keys a leg may come from.
@@ -355,6 +376,34 @@ _CANDIDATE_SCAN_FLOOR_MULTIPLE = 8
 #: is what the multiple gives at the deployed `MAX_ODDS_AGE_S` of 900s --
 #: stated so a `None` caller cannot silently scan a single millisecond.
 _CANDIDATE_SCAN_MIN_MS = 2 * 3_600_000
+
+#: **ADR 0133 broke the invariant this whole floor was built on.** The
+#: multiple above assumed `computed_ms` tracks freshness -- true only while
+#: `write_fair_price` re-inserted every pass, so an old `computed_ms` meant a
+#: genuinely old (and downstream-refused) row. Since dedupe, `computed_ms`
+#: freezes at first appearance and a row's LIVE freshness comes from
+#: `confirmed_ms` instead (see `_live_age_ms`), which this query's WHERE
+#: clause cannot see -- it has to stay a predicate on `computed_ms` alone, so
+#: `idx_fair_market_computed` (`market, computed_ms DESC`) keeps serving it as
+#: a seek (`tests/test_ladder_query_is_indexed.py`), not a COALESCE.
+#:
+#: So a row can now be confirmed-fresh every pass for as long as a game stays
+#: on the desk while carrying a `computed_ms` from whenever that price FIRST
+#: appeared -- which can be days before kickoff. `ladder_candidates` never
+#: bounds `o.commence_ms` by any card horizon (that cut happens in Python,
+#: after this query, in `HORIZONS`/`window_ms` below), so the real ceiling is
+#: how far ahead a game can already be on the desk: ADR 0099 measured "kickoffs
+#: from three hours to eight days out" on live and caps `within_hours` at 168
+#: (7 days). Nine days, one day of margin past the observed eight.
+#:
+#: Combined with the multiple via `max()`, never replacing it: the multiple
+#: still answers "how wide must the scan be relative to the freshness rule"
+#: for a row that has NEVER been confirmed (falls back to `computed_ms`
+#: alone), and this answers "how old can a CONFIRMED row's `computed_ms` be".
+#: Both floors are cheap to be generous with now -- dedupe cuts the table
+#: this query scans by the same ~99.7% the duplication measurement found, so
+#: widening this floor is nearly free where narrowing it used to cost 25s.
+_CANDIDATE_SCAN_DEDUPE_FLOOR_MS = 9 * 24 * 3_600_000
 
 
 #: The clock the desk is read on. **Must equal `DISPLAY_TIME_ZONE` in
@@ -466,7 +515,8 @@ CANDIDATE_SQL = """
         SELECT computed_ms, market, outcome_name, outcome_point,
                outcome_description,
                p_multiplicative, p_additive, p_power, p_shin,
-               p_conservative, oldest_book_age_ms, link_id,
+               p_conservative, oldest_book_age_ms,
+               confirmed_ms, confirmed_oldest_book_age_ms, link_id,
                market_width, book_count, books_used, anchored_on_sharp,
                kalshi_event_ticker, odds_event_id,
                commence_ms, home_team, away_team, sport_key,
@@ -475,7 +525,12 @@ CANDIDATE_SQL = """
         SELECT f.computed_ms, f.market, f.outcome_name, f.outcome_point,
                f.outcome_description,
                f.p_multiplicative, f.p_additive, f.p_power, f.p_shin,
-               f.p_conservative, f.oldest_book_age_ms, f.link_id,
+               f.p_conservative, f.oldest_book_age_ms,
+               -- **ADR 0133.** `_live_age_ms` COALESCEs each of these onto
+               -- the frozen pair beside it -- NULL means "never
+               -- re-confirmed", true of every row before v36 and of a row
+               -- whose payload has only ever appeared once since.
+               f.confirmed_ms, f.confirmed_oldest_book_age_ms, f.link_id,
                f.market_width, f.book_count, f.books_used, f.anchored_on_sharp,
                l.kalshi_event_ticker, l.odds_event_id,
                o.commence_ms, o.home_team, o.away_team, o.sport_key,
@@ -568,10 +623,17 @@ def ladder_candidates(
     `max_odds_age_ms` is not a filter here — it only widens the scan floor so
     the query can never be tighter than the freshness rule the caller will
     apply. Pass the same value you pass `build_ladder`.
+
+    The floor is now the max of THREE terms, not two, since ADR 0133's
+    `fair_prices` dedupe (see `_CANDIDATE_SCAN_DEDUPE_FLOOR_MS`): the
+    multiple-of-`max_odds_age_ms` term still bounds an unconfirmed row, and
+    the dedupe term bounds a confirmed one, whose `computed_ms` no longer
+    says anything about its live freshness.
     """
     horizon_ms = max(
         _CANDIDATE_SCAN_FLOOR_MULTIPLE * (max_odds_age_ms or 0),
         _CANDIDATE_SCAN_MIN_MS,
+        _CANDIDATE_SCAN_DEDUPE_FLOOR_MS,
     )
     rows = conn.execute(
         CANDIDATE_SQL, (now_ms - horizon_ms, now_ms)

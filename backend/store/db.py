@@ -65,7 +65,15 @@ from ..core.prices import is_valid_price
 #: §2). A REBUILD, not a column step: SQLite cannot relax a NOT NULL or a
 #: table-level CHECK in place. The rows already written keep their real typed
 #: values -- nothing is deleted, backfilled, zeroed or rewritten.
-SCHEMA_VERSION = 35
+#: v36 (2026-09-09) adds `fair_prices.confirmed_ms` and
+#: `.confirmed_oldest_book_age_ms` (ADR 0133) -- deduplication for a table an
+#: unconditional INSERT was growing every ~15-20s regardless of whether the
+#: consensus had changed (measured 99.6-99.75% UNCHANGED across three live
+#: windows; the table was 47.5% of a 5.07 GB database). A column step: both
+#: are nullable with no default and no backfill, so every existing row reads
+#: as "never re-confirmed" and falls back to its own `computed_ms` pair,
+#: which is the truth about it.
+SCHEMA_VERSION = 36
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -816,6 +824,40 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # Dedupe for `fair_prices` -- ADR 0133. `write_fair_price` used to INSERT
+    # unconditionally, every pass, whether or not the payload had changed
+    # since the last one for this (link_id, market, outcome_name,
+    # outcome_point). Measured on live: 99.6-99.75% of consecutive pairs were
+    # byte-for-byte UNCHANGED across three windows, and the table plus its two
+    # indexes were 47.5% of a 5.07 GB database.
+    #
+    # **`computed_ms` and `oldest_book_age_ms` now freeze at first appearance
+    # and these two columns move instead.** A pass that re-derives an
+    # identical payload UPDATEs `confirmed_ms` / `confirmed_oldest_book_age_ms`
+    # on the existing row rather than inserting a new one. Both are stamped at
+    # the same instant so the pair stays internally consistent -- freezing
+    # only one half (or overwriting `oldest_book_age_ms` alone) either starves
+    # the freshness gate or double-counts elapsed time; see ADR 0133 for the
+    # two rejected designs and the measurement that killed each.
+    #
+    # Nullable, no default, no backfill: NULL means "never re-confirmed",
+    # which is true of every row on the live volume today and of any row
+    # whose payload has only ever appeared once since. `_live_age_ms` in
+    # `backend/parlays.py` COALESCEs to the frozen pair -- never to zero.
+    # Metadata-only (`ALTER TABLE ADD COLUMN` does not rewrite the table); no
+    # new index, since both readers of `fair_prices.computed_ms` already seek
+    # on `idx_fair_market_computed` / `idx_fair_link` and neither column is
+    # queried on.
+    36: _Migration(
+        columns=(
+            ("fair_prices", "confirmed_ms", "INTEGER"),
+            (
+                "fair_prices",
+                "confirmed_oldest_book_age_ms",
+                "INTEGER",
+            ),
+        ),
+    ),
     # The ticket stops asking for a probability -- Joe, 2026-09-09, in his own
     # words: "what is even the point of the (p)yes score entry? I don't need
     # it. it just gets in the way." `manual_orders.p_yes_bp` becomes nullable

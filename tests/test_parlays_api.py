@@ -50,6 +50,8 @@ def seed_game(
     oldest_book_age_ms: int | None = 5_000,
     commence_ms: int | None = None,
     market_status: str = "active",
+    confirmed_ms: int | None = None,
+    confirmed_oldest_book_age_ms: int | None = None,
 ) -> None:
     """One linked game: a Kalshi moneyline market for `team`, an odds fixture,
     and a YES-side h2h fair row. Team names are spelled identically on both
@@ -109,12 +111,13 @@ def seed_game(
             "INSERT INTO fair_prices (computed_ms, link_id, market, "
             "outcome_name, p_multiplicative, p_additive, p_power, p_shin, "
             "p_conservative, book_count, books_used, anchored_on_sharp, "
-            "oldest_book_age_ms) "
-            "VALUES (?, ?, 'h2h', ?, ?, ?, ?, ?, ?, 3, '[]', 1, ?)",
+            "oldest_book_age_ms, confirmed_ms, confirmed_oldest_book_age_ms) "
+            "VALUES (?, ?, 'h2h', ?, ?, ?, ?, ?, ?, 3, '[]', 1, ?, ?, ?)",
             (
                 computed_ms, link_id, outcome,
                 prob + 0.02, prob + 0.01, prob + 0.015, prob + 0.005,
-                prob, oldest_book_age_ms,
+                prob, oldest_book_age_ms, confirmed_ms,
+                confirmed_oldest_book_age_ms,
             ),
         )
 
@@ -385,6 +388,67 @@ class TestRefusals:
         safe = next(c for c in body["cards"] if c["key"] == "safe")
         assert all(l["team"] != "Team Done" for l in safe["legs"])
         assert body["excluded"]["market_closed"] >= 1
+
+
+class TestAConfirmedRowSurvivesAnOldComputedMs:
+    """ADR 0133. `write_fair_price` no longer inserts a fresh row on every
+    pass, so a row can be confirmed-fresh for days while `computed_ms` still
+    names whenever the price FIRST appeared. The scan floor has to be wide
+    enough to still read that row, and `_live_age_ms` has to read the
+    confirmation, not the frozen pair, once one exists.
+    """
+
+    async def test_an_old_computed_ms_with_a_fresh_confirmation_is_not_stale(
+        self, build
+    ):
+        """Five days old by `computed_ms` -- past both the OLD 8x-multiple
+        floor (2 hours at the deployed `MAX_ODDS_AGE_S`) and the
+        pre-ADR-0133 staleness limit -- but confirmed 20s ago. Must still be
+        offered, not counted `stale_consensus` and not silently dropped from
+        the SQL scan floor either."""
+        five_days_ago = now_ms() - 5 * 24 * 3_600_000
+
+        def seed(conn):
+            _fresh_slate(conn, n=2)
+            seed_game(
+                conn, game="old-but-confirmed", team="Team OldConfirmed",
+                other="Team X", p=0.9,
+                computed_ms=five_days_ago, oldest_book_age_ms=999_999_999,
+                confirmed_ms=now_ms() - 20_000,
+                confirmed_oldest_book_age_ms=5_000,
+            )
+
+        app = build(seed)
+        body = (await get(app, "/api/parlays")).json()
+        safe = next(c for c in body["cards"] if c["key"] == "safe")
+        assert any(l["team"] == "Team OldConfirmed" for l in safe["legs"]), (
+            "a confirmed-fresh row with an old computed_ms was dropped -- "
+            "either the scan floor excluded it or _live_age_ms is still "
+            "reading the frozen pair instead of the confirmation"
+        )
+        assert body["excluded"].get("stale_consensus", 0) == 0
+
+    async def test_an_old_computed_ms_with_no_confirmation_is_still_stale(
+        self, build
+    ):
+        """The control: without a confirmation, an old `computed_ms` is
+        exactly as stale as it always was. Confirmation is what buys
+        freshness, not merely being inside the wider scan floor."""
+        five_days_ago = now_ms() - 5 * 24 * 3_600_000
+
+        def seed(conn):
+            _fresh_slate(conn, n=2)
+            seed_game(
+                conn, game="old-unconfirmed", team="Team OldUnconfirmed",
+                other="Team X", p=0.9,
+                computed_ms=five_days_ago, oldest_book_age_ms=5_000,
+            )
+
+        app = build(seed)
+        body = (await get(app, "/api/parlays")).json()
+        safe = next(c for c in body["cards"] if c["key"] == "safe")
+        assert all(l["team"] != "Team OldUnconfirmed" for l in safe["legs"])
+        assert body["excluded"]["stale_consensus"] >= 1
 
 
 class TestHonesty:
@@ -1029,6 +1093,41 @@ class TestTheDeskKnowsWhatKalshiWillCombine:
         assert "kalshi_will_not_combine:" in src
 
 
+class TestLiveAgeUsesTheFresherOfTheTwoPairs:
+    """`_live_age_ms`, direct -- ADR 0133's COALESCE, unit-tested apart from
+    the SQL and the API so the four states (never confirmed / confirmed /
+    pre-v20 / half-written) are each one line rather than a seeded row."""
+
+    def test_a_never_confirmed_row_falls_back_to_the_frozen_pair(self):
+        from backend.parlays import _live_age_ms
+
+        row = {
+            "computed_ms": 1_000, "oldest_book_age_ms": 200,
+            "confirmed_ms": None, "confirmed_oldest_book_age_ms": None,
+        }
+        assert _live_age_ms(row, now_ms=5_000) == (5_000 - 1_000) + 200
+
+    def test_a_confirmed_row_uses_the_confirmation_not_the_frozen_pair(self):
+        from backend.parlays import _live_age_ms
+
+        row = {
+            # Old and huge on purpose: if the frozen pair leaked through this
+            # would be off by orders of magnitude, not by a rounding error.
+            "computed_ms": 1_000, "oldest_book_age_ms": 999_999_999,
+            "confirmed_ms": 4_000, "confirmed_oldest_book_age_ms": 50,
+        }
+        assert _live_age_ms(row, now_ms=5_000) == (5_000 - 4_000) + 50
+
+    def test_a_pre_v20_row_with_no_age_at_all_is_unmeasurable(self):
+        from backend.parlays import _live_age_ms
+
+        row = {
+            "computed_ms": 1_000, "oldest_book_age_ms": None,
+            "confirmed_ms": None, "confirmed_oldest_book_age_ms": None,
+        }
+        assert _live_age_ms(row, now_ms=5_000) is None
+
+
 class TestTheScanIsNeverTighterThanTheFreshnessRule:
     """The candidate scan's floor is derived from `max_odds_age_ms`, not set
     beside it.
@@ -1076,6 +1175,47 @@ class TestTheScanIsNeverTighterThanTheFreshnessRule:
         from backend.parlays import _CANDIDATE_SCAN_FLOOR_MULTIPLE
 
         assert _CANDIDATE_SCAN_FLOOR_MULTIPLE > 1
+
+
+class TestTheDedupeFloorCoversAConfirmedRowsComputedMs:
+    """ADR 0133 broke the invariant `TestTheScanIsNeverTighterThanTheFreshnessRule`
+    checks: `computed_ms` no longer tracks freshness once a row can be
+    confirmed instead of re-inserted, so the multiple-of-`max_odds_age_ms`
+    floor alone can no longer promise every fresh row is scanned. This checks
+    the THIRD term that makes the promise hold again.
+    """
+
+    def test_the_dedupe_floor_is_combined_with_the_multiple_via_max(self):
+        from backend.parlays import (
+            _CANDIDATE_SCAN_DEDUPE_FLOOR_MS,
+            _CANDIDATE_SCAN_FLOOR_MULTIPLE,
+            _CANDIDATE_SCAN_MIN_MS,
+        )
+
+        # The deployed freshness rule (900s) times the multiple is nowhere
+        # near what a game tracked days ahead needs -- the dedupe floor must
+        # be the one actually winning the max() for any plausible deployed
+        # value, or it is decoration.
+        for max_age_ms in (0, 900_000, 3_600_000, 7_200_000):
+            multiple_floor = max(
+                _CANDIDATE_SCAN_FLOOR_MULTIPLE * max_age_ms, _CANDIDATE_SCAN_MIN_MS
+            )
+            assert _CANDIDATE_SCAN_DEDUPE_FLOOR_MS > multiple_floor, (
+                "the dedupe floor is not actually the binding term at "
+                f"max_odds_age_ms={max_age_ms}"
+            )
+
+    def test_the_dedupe_floor_covers_the_observed_eight_day_tracking_window(
+        self,
+    ):
+        """ADR 0099 measured kickoffs surfacing three hours to eight days
+        out and caps `within_hours` at 168 (7 days). A row for such a game
+        can carry a `computed_ms` up to that far in the past and still be
+        confirmed-fresh every pass since."""
+        from backend.parlays import _CANDIDATE_SCAN_DEDUPE_FLOOR_MS
+
+        eight_days_ms = 8 * 24 * 3_600_000
+        assert _CANDIDATE_SCAN_DEDUPE_FLOOR_MS > eight_days_ms
 
 
 class TestThePriceToBeatIsServedAndIsBreakEven:
