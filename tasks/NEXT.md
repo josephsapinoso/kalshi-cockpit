@@ -124,18 +124,26 @@ the channel diagnostic (A17.6/A17.11).
 **STATE at close.** `main` = **`6c25c22`**, pushed, **CI green**
 (`34369960258`, 8m48s). Session started at `579fadd`, clean.
 
-**A DEPLOY IS OWED AND WAS NOT TAKEN — this is the one thing to action.**
-Live and demo are still on **`5664e24`**. That was correct at session start
-(`5c09221` and `579fadd` were docs and `.claude/agents/*` only) and **is no
-longer correct**: `6c25c22` changes `POST /api/manual-orders`, so the fix
-below does nothing for Joe until it ships, and **Sunday 09-13 is when he buys
-combinations**. It was left for him because it lands on the armed money path
-and no session should ship that unasked. See **(B)** in the Joe-gated list.
+**DEPLOYED on Joe's word ("deploy it"), and verified.** Live is on
+**`8755de6`**, machine `7812601a239428` — **unchanged, so no volume was
+replaced and no credit fact inverted.** Via `.github/workflows/deploy.yml`
+(`34373441693`), which is the only way either instance ships.
 
-**Read `/api/health` rather than believing any of this.** At session start it
-said `manual_orders` **false (ARMED)**, `combo_bids` true, `engine_orders`
-true, `live_quotes_available` true, recorder writing 145s ago, 0 undelivered
-notifications in 24h.
+**Verified IN THE RUNNING CONTAINER, not from the deploy output:**
+`routes._record_combo_position`, `parlays.priced_lookup_for`,
+`legs_for_position`, `leg_details_for`, `ws.FIRST_SEQ_MAX_PLAUSIBLE = 10000` —
+**and that check 13 is actually wired into `create_app`'s source**, which is
+the `alerter_factory` lesson (instance five of built-but-never-called) applied
+at deploy time rather than discovered a session later.
+
+Money doors re-read off `/api/health` after the deploy, **unchanged**:
+`manual_orders` **false (ARMED)**, `combo_bids` true, `engine_orders` true,
+`live_quotes_available` true, recorder writing 53s ago, 0 undelivered
+notifications in 24h. `/api/hedge` answers 401 behind the session cookie as
+before. **Demo was not deployed** and stays on `5664e24`; nothing here
+concerns it.
+
+`main` and live are now the same commit.
 
 **Nothing this session touched the odds path** (frozen to 10:00Z 2026-09-14),
 the gate, the hand-bet ceilings, or the disarmed bid path. No deploy, no
@@ -317,11 +325,12 @@ capture or the scan denominator is lost.
   cannot see `KXMVENFLSINGLEGAME`, so the primary arm reaches NFL only through
   cross-game legs. A `scripts/`-only change before **2026-09-13 00:00Z** would
   add it. Worth it?
-- **(B)** **Deploy `6c25c22` to live?** It changes `POST /api/manual-orders`
-  on the armed path — a combination he buys records its own hedge position.
-  It adds no ceiling and no brake, changes nothing about what gets bought or
-  at what price, and cannot fail a purchase. Undeployed it does nothing, and
-  Sunday is the day it matters. CI is green.
+- ~~**(B)** Deploy to live?~~ **ANSWERED YES 2026-09-09 and DONE.** Live is on
+  `8755de6`, verified in the container. **Still unobserved: the wiring firing
+  on a real fill.** Nothing has bought a combination through the desk since it
+  shipped, so the first real exercise is Sunday — and the thing to check that
+  day is that a fill leaves a `parlay_positions` row, not that the route
+  returned 200.
 
 **These letters are new this session.** The previous session's B, C and D are
 answered, done and closed — **check `git log --oneline -1 -- <the file a
