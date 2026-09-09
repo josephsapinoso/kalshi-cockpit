@@ -35,9 +35,13 @@ from backend.kalshi.rest import (  # noqa: E402
     MalformedOrderbookResponse,
 )
 from measure_combo_book_presence import (  # noqa: E402
+    DISCOVERY_SERIES,
     ECHO_TOLERANCE,
     GRID_TOL,
+    EmptySeriesRequested,
     Row,
+    collect,
+    to_json,
     book_is_empty,
     book_signature,
     derived_yes_ask,
@@ -436,3 +440,121 @@ class TestWilsonSpeaksHonestlyAtSmallN:
 
     def test_n_zero_is_total_ignorance_not_a_rate(self):
         assert wilson(0, 0) == (0.0, 1.0)
+
+
+class TestTheArmIsRecordedNotInferred:
+    """`--series` is what makes a capture Arm C of the 2026-09-13
+    registration rather than Arm A, and that registration forbids pooling the
+    two. So the file has to say which it is.
+
+    Added 2026-09-09 with the flag itself. `KXMVENFLSINGLEGAME` and
+    `KXMVENFLMULTIGAMEEXTENDED` have never had a book read in this record, so
+    Arm C has no baseline at all -- which is exactly why a reader must never
+    be able to mistake its rows for the 40-book census.
+    """
+
+    def test_the_default_series_are_still_the_two_the_baseline_used(self):
+        """Arm A's comparability lives or dies on this tuple.
+
+        Every book in the 40-row census came from these two. Adding the NFL
+        series here instead of passing them by flag would silently redefine
+        what the primary arm measures, on the one day it matters.
+        """
+        assert DISCOVERY_SERIES == (
+            "KXMVESPORTSMULTIGAMEEXTENDED", "KXMVECROSSCATEGORY",
+        )
+
+    def test_a_default_run_says_so_in_its_own_output(self):
+        run = to_json([], 0)
+        assert run["series_read"] == list(DISCOVERY_SERIES)
+        assert run["default_series"] is True
+
+    def test_a_flagged_run_names_the_series_it_read(self):
+        arm_c = ("KXMVENFLSINGLEGAME", "KXMVENFLMULTIGAMEEXTENDED")
+        run = to_json([], 0, series_tickers=arm_c)
+        assert run["series_read"] == list(arm_c)
+        assert run["default_series"] is False
+
+    def test_the_row_series_field_cannot_do_this_job(self):
+        """Why `series_read` exists at all, stated as a test.
+
+        `rows[].series` records what was FOUND. An arm that returned nothing
+        eligible has no rows, so it leaves no evidence of having been asked
+        for -- and a thin Arm C file would be indistinguishable from a thin
+        Arm A file by that field alone.
+        """
+        arm_c = ("KXMVENFLSINGLEGAME",)
+        empty_default = to_json([], 0)
+        empty_arm_c = to_json([], 0, series_tickers=arm_c)
+        assert empty_default["rows"] == empty_arm_c["rows"] == []
+        assert empty_default["series_read"] != empty_arm_c["series_read"]
+
+
+class TestANamedSeriesThatReadsNothingAbortsTheRun:
+    """The one failure that would look exactly like a finding.
+
+    A mistyped or out-of-season series ticker returns an empty `/markets` page
+    rather than an error. "No books" is the answer this instrument exists to
+    produce, so arriving at it by never having asked the question is worse
+    than crashing.
+    """
+
+    class _Reader:
+        def __init__(self, pages):
+            self._pages = pages
+            self.calls = 0
+            self.asked: list[str] = []
+
+        async def markets_page(self, series):
+            self.asked.append(series)
+            self.calls += 1
+            return list(self._pages.get(series, []))
+
+    async def test_a_flagged_series_with_no_open_rows_refuses(self):
+        reader = self._Reader({})
+        with pytest.raises(EmptySeriesRequested) as exc:
+            await collect(
+                reader, max_books=5, depth=10, capture=None,
+                series_tickers=("KXMVENFLSINGLEGAM",),   # typo, one char short
+                require_non_empty=True,
+            )
+        # The message has to name the series and the fix, not just fail.
+        assert "KXMVENFLSINGLEGAM" in str(exc.value)
+        assert "spelling" in str(exc.value)
+
+    async def test_it_names_every_empty_series_not_just_the_first(self):
+        reader = self._Reader({"KXMVENFLSINGLEGAME": []})
+        with pytest.raises(EmptySeriesRequested) as exc:
+            await collect(
+                reader, max_books=5, depth=10, capture=None,
+                series_tickers=("KXMVENFLSINGLEGAME", "KXMVENFLMULTIGAMEEXTENDED"),
+                require_non_empty=True,
+            )
+        assert "KXMVENFLSINGLEGAME" in str(exc.value)
+        assert "KXMVENFLMULTIGAMEEXTENDED" in str(exc.value)
+
+    async def test_an_empty_DEFAULT_series_is_a_calendar_fact_and_does_not_refuse(self):
+        """The asymmetry is deliberate. Nobody typed the default series, so an
+        empty page there is the calendar -- exactly what it was on 2026-08-09,
+        when six of the eight MVE series returned zero rows. Refusing on it
+        would break every ordinary run out of season."""
+        reader = self._Reader({})
+        rows = await collect(
+            reader, max_books=5, depth=10, capture=None,
+            series_tickers=DISCOVERY_SERIES,
+            require_non_empty=False,
+        )
+        assert rows == []
+        assert reader.asked == list(DISCOVERY_SERIES)
+
+    async def test_the_flagged_series_are_the_ones_actually_requested(self):
+        """A flag that is accepted and then ignored is the worst outcome: the
+        run would report Arm C in its stamp while reading Arm A's population."""
+        reader = self._Reader({"KXMVENFLSINGLEGAME": [{"ticker": "X"}]})
+        await collect(
+            reader, max_books=5, depth=10, capture=None,
+            series_tickers=("KXMVENFLSINGLEGAME",),
+            require_non_empty=True,
+        )
+        assert reader.asked == ["KXMVENFLSINGLEGAME"]
+        assert "KXMVECROSSCATEGORY" not in reader.asked

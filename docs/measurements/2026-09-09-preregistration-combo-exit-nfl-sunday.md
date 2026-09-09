@@ -97,6 +97,41 @@ screens say "every" and "never". This document tests exactly the sentence the
 screens carry and does not test, and may not be reported as testing, any
 stronger claim about the venue, the product, or other calendars.
 
+### FOUND 2026-09-09, AFTER THIS DOCUMENT WAS WRITTEN AND BEFORE ANY DATA — the baseline never read the shard Joe trades
+
+Established by probing the public `/markets` endpoint while wiring Arm C's
+flag, and by re-reading this repo's own three recorded runs:
+
+    KXMVESPORTSMULTIGAMEEXTENDED     37 open rows      in DISCOVERY_SERIES
+    KXMVECROSSCATEGORY               24 open rows      in DISCOVERY_SERIES
+    KXMVECROSSCATEGORY-SHARD1      1000 open rows      NOT in DISCOVERY_SERIES
+    KXMVENFLSINGLEGAME                0 open rows      Arm C (series exists, HTTP 200)
+    KXMVENFLMULTIGAMEEXTENDED         0 open rows      Arm C (series exists, HTTP 200)
+
+`series_ticker=KXMVECROSSCATEGORY` returns **only** non-shard tickers; the
+shard is a separate series and the two row sets are disjoint. And in all three
+recorded runs — 20 rows on 2026-08-09 (E2), 9 rows (E3), 11 rows on 2026-08-18
+— **`SHARD1` tickers number zero.**
+
+**Every one of Joe's ~50 real combination fills is `KXMVECROSSCATEGORY-SHARD1-*`.**
+
+So the sentence "no combination book read here has carried a YES bid", which
+gates the warning shown before **every** combination tap and underwrites
+ADR 0073's ceiling and ADR 0078's hedge, was measured on a population he does
+not trade. That does not make the sentence false. It makes its *scope* narrower
+than the screens imply, and the gap is exactly the shard where his money is.
+
+A shard arm is runnable: of 1,000 open `KXMVECROSSCATEGORY-SHARD1` rows on a
+midweek probe, all 1,000 carry `mve_selected_legs` and **13 carry a readable
+ask** — eligible under this document's unmodified §2 rule. (A 1.3% quote rate,
+consistent with combinations being unquoted at rest.)
+
+**No arm is added here.** Adding one is a decision, it needs its own capture
+budget, and this document's own §2 forbids changing the population after the
+fact. It is recorded now, before the data, so that whatever is decided is
+decided in front of the question rather than behind the answer — and so a
+future reader cannot mistake the 0-of-40 for a fact about shard 1.
+
 ## 2. The population, and the exclusions
 
 **Arm A — primary, and the only arm that carries the verdict.** The two series

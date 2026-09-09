@@ -78,7 +78,8 @@ Sampling -- CHANGED AFTER E2 RAN. See "What changed, and why" below.
 --------------------------------------------------------------------
 One `/markets?series_ticker=...&status=open&limit=1000` per series in
 `DISCOVERY_SERIES` (newest-first, no paging -- CLAUDE.md forbids walking
-`/markets` blind), then a **round-robin across the series** of eligible rows
+`/markets` blind), or per series named with `--series`, then a **round-robin
+across the series** of eligible rows
 optionally restricted to `--max-legs`, then one batched read of every leg of
 those rows, then one orderbook read each, then one batched re-read of the same
 combinations' list quotes.
@@ -122,6 +123,32 @@ that gets quietly edited afterwards stops meaning anything.
 
 Neither fix makes E2's recorded rates wrong. They make them rates about a
 population that is not the one anybody wanted to know about.
+
+`--series`, and why the default is not moved
+--------------------------------------------
+Added 2026-09-09 for Arm C of
+`docs/measurements/2026-09-09-preregistration-combo-exit-nfl-sunday.md`, which
+reads `KXMVENFLSINGLEGAME` and `KXMVENFLMULTIGAMEEXTENDED` -- two series **no
+run in this record has ever read a book for.**
+
+`DISCOVERY_SERIES` itself is deliberately unchanged. Every book in the 40-row
+census came from the two series in it, and comparability to that baseline is
+the entire point of Arm A; moving the default would silently redefine what the
+primary arm measures on the day it matters. So the new series arrive by flag,
+and the arm is a property of the invocation rather than of the file.
+
+Two consequences, both of which exist because the registration forbids pooling
+the arms:
+
+- The JSON records `series_read` and `default_series`. `rows[].series` cannot
+  do this job -- it records what was *found*, so a series that returned nothing
+  eligible leaves no evidence it was ever asked for, and an Arm C file with a
+  thin result would read as an Arm A file.
+- A series named with `--series` that returns **no open rows aborts the run**
+  (`EmptySeriesRequested`). A mistyped or out-of-season ticker returns an empty
+  page rather than an error, and "no books" is the answer this instrument
+  exists to produce -- arriving at it by never having asked the question is the
+  one failure that would look exactly like a finding.
 
 E3 -- added after E2, pre-registered before it ran
 --------------------------------------------------
@@ -218,7 +245,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from itertools import zip_longest
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT))
@@ -517,6 +544,22 @@ def round_robin(pages: list[list[dict]]) -> list[dict]:
     return out
 
 
+class EmptySeriesRequested(RuntimeError):
+    """A series named on the command line returned no open rows at all.
+
+    **Loud on purpose.** A mistyped or out-of-season series ticker returns an
+    empty `/markets` page rather than an error, and an empty page reaching
+    `round_robin` is indistinguishable downstream from a series that was read
+    and had nothing eligible. The run would then report "no books" -- which is
+    the answer this instrument exists to produce, arrived at by never having
+    asked the question.
+
+    Only raised for series named with `--series`. A default-series page that
+    comes back empty is a fact about the calendar and is left alone, exactly as
+    it was on 2026-08-09.
+    """
+
+
 async def collect(
     reader: PublicReader,
     *,
@@ -524,12 +567,24 @@ async def collect(
     depth: int,
     capture: Optional[Path],
     max_legs: Optional[int] = None,
+    series_tickers: Sequence[str] = DISCOVERY_SERIES,
+    require_non_empty: bool = False,
 ) -> list[Row]:
     pages: list[list[dict]] = []
-    for series in DISCOVERY_SERIES:
+    empty: list[str] = []
+    for series in series_tickers:
         rows = await reader.markets_page(series)
         logger.info("%s: %d open rows", series, len(rows))
+        if not rows:
+            empty.append(series)
         pages.append(rows)
+    if require_non_empty and empty:
+        raise EmptySeriesRequested(
+            "no open rows for " + ", ".join(empty) + " — refusing to report a "
+            "book-presence rate for a series that was never read. Check the "
+            "ticker spelling, or that the series has open markets right now. "
+            "An empty page and an empty book are different findings."
+        )
     page = round_robin(pages)
 
     now_ms = int(time.time() * 1000)
@@ -568,7 +623,7 @@ async def collect(
 
     logger.info(
         "chose %d eligible combinations across %d series: %s",
-        len(chosen), len(DISCOVERY_SERIES),
+        len(chosen), len(series_tickers),
         dict(Counter(r.series for r in chosen)),
     )
     if not chosen:
@@ -927,11 +982,26 @@ def report(rows: list[Row], calls: int) -> None:
     print(f"{'=' * 78}\n")
 
 
-def to_json(rows: list[Row], calls: int) -> dict:
+def to_json(
+    rows: list[Row],
+    calls: int,
+    *,
+    series_tickers: Sequence[str] = DISCOVERY_SERIES,
+) -> dict:
     return {
         "api_calls": calls,
         "echo_tolerance": ECHO_TOLERANCE,
         "grid_tol": GRID_TOL,
+        # Which series this capture actually read, and whether that is the
+        # default set. Written because the 2026-09-13 registration defines its
+        # arms BY the series read and forbids pooling them: without this, an
+        # Arm C file and an Arm A file are indistinguishable, and the
+        # prohibition becomes unenforceable the moment anyone reads the
+        # directory instead of the filenames. `rows[].series` alone cannot
+        # substitute -- it records what was *found*, so a series that returned
+        # nothing eligible leaves no trace of having been asked for.
+        "series_read": list(series_tickers),
+        "default_series": tuple(series_tickers) == DISCOVERY_SERIES,
         "rows": [
             {
                 "ticker": r.ticker,
@@ -986,6 +1056,17 @@ def main() -> int:
              "the only way a rate from this harness can be about that "
              "population. Default: no restriction, as E2 ran.",
     )
+    parser.add_argument(
+        "--series", action="append", default=None, metavar="TICKER",
+        help="MVE series to discover from, repeatable. Default: the two in "
+             "DISCOVERY_SERIES, which is what every run in the record used "
+             "and what Arm A of the 2026-09-13 registration requires. Pass "
+             "KXMVENFLSINGLEGAME and KXMVENFLMULTIGAMEEXTENDED for Arm C, "
+             "whose result is REPORTED SEPARATELY and never pooled with the "
+             "baseline 40 — the JSON stamps which series were read so the two "
+             "cannot be confused after the fact. A named series with no open "
+             "rows aborts the run rather than reporting an empty rate.",
+    )
     parser.add_argument("--depth", type=int, default=10)
     parser.add_argument("--json", type=Path, default=None)
     parser.add_argument(
@@ -997,21 +1078,47 @@ def main() -> int:
 
     configure_logging(level=logging.DEBUG if args.verbose else logging.INFO)
 
+    # `--series` overriding the default is what makes a capture Arm C rather
+    # than Arm A, so the two are kept apart here and stamped into the output
+    # below. The registration forbids pooling them, and the only reliable way
+    # to honour that later is for the file to say which one it is.
+    series_tickers = tuple(args.series) if args.series else DISCOVERY_SERIES
+    default_series = series_tickers == DISCOVERY_SERIES
+
     async def go() -> tuple[list[Row], int]:
         async with httpx.AsyncClient(timeout=30.0) as client:
             reader = PublicReader(client)
             rows = await collect(
                 reader, max_books=args.max_books, depth=args.depth,
                 capture=args.capture, max_legs=args.max_legs,
+                series_tickers=series_tickers,
+                require_non_empty=not default_series,
             )
             return rows, reader.calls
 
-    rows, calls = asyncio.run(go())
+    try:
+        rows, calls = asyncio.run(go())
+    except EmptySeriesRequested as exc:
+        # Not a traceback: this is an operator error with a fix in the message,
+        # and it must not be mistaken for the instrument breaking.
+        print(f"REFUSED: {exc}")
+        return 2
+
     report(rows, calls)
+    if not default_series:
+        print(
+            "\nNON-DEFAULT SERIES: "
+            + ", ".join(series_tickers)
+            + "\nThis is a SEPARATE ARM. Its rate has no baseline in the "
+            "record and must not be pooled with the 40-book census.\n"
+        )
 
     if args.json:
         args.json.write_text(
-            json.dumps(to_json(rows, calls), indent=2), encoding="utf-8"
+            json.dumps(
+                to_json(rows, calls, series_tickers=series_tickers), indent=2
+            ),
+            encoding="utf-8",
         )
         print(f"wrote {args.json}")
 
