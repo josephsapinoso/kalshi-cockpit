@@ -155,10 +155,45 @@ deserves its own decision rather than being smuggled into a security patch.
   fact inverted.
 - The three money doors are unchanged: `manual_orders` armed,
   `combo_bids` dry, `engine_orders` dry. Nothing here touches arming.
-- `_next/image` remains outside the auth matcher. **The patch fixes the
-  vulnerable code; it does not fix the exemption.** Whether the optimizer
-  should be behind auth, or disabled outright given the app has zero image
-  usage, is a separate decision and is left open. Disabling it via
-  `images: { unoptimized: true }` would remove this class of exposure
-  permanently rather than one advisory at a time.
 - The `cryptography` pin question is open.
+
+---
+
+## Amendment 1 — 2026-09-09, same session: the optimizer is turned off
+
+The decision above patched the vulnerable code and left the structural
+condition in place. That is the shape this repo has a rule about: relax one
+bound and the next one binds in silence. `/_next/image` was still the single
+route on a public URL, in front of a live order path and a Kalshi private
+key, that is **exempt from auth by design**. This endpoint family has carried
+multiple advisories; the next one would have reached us the same way.
+
+**`frontend/next.config.ts` now sets `images: { unoptimized: true }`.** With
+it, `next/image` serves its `src` unchanged and the optimizer route is not
+mounted.
+
+**The cost is zero, which is why this is cheap rather than brave — and the
+"zero" was checked, because it is the answer that makes the change free.**
+A first pass claimed one real `next/image` import in
+`components/CrewAvatar.tsx`. Reading the file settles it: `CrewAvatar` draws
+inline SVG and its line 4 is a comment saying it deliberately avoids the
+pipeline. Grepping `frontend/src` for `next/image` and `<Image` returns
+exactly two matches in the whole frontend — that comment, and the matcher
+string in `middleware.ts:160`. Zero usages. `public/` holds only
+`robots.txt`.
+
+**This does not remove the exemption, and that matters for whoever re-enables
+the optimizer.** `middleware.ts:160` still excludes `_next/image` from the
+auth matcher. Turning `unoptimized` back off restores the exposed endpoint
+*and* its exemption in one line. The config comment says so at the point of
+change, which is the only place a future reader will be looking.
+
+**What this amendment does not claim.** It does not claim the optimizer was
+exploited, and it does not claim `unoptimized: true` hardens anything else —
+it removes one route. It is not a substitute for keeping `next` current.
+
+Verified: `npx tsc --noEmit` clean, `npm run build` green, and the resolved
+`required-server-files.json` reports `"unoptimized": true`. Reading the
+config back is not the check, though — the check is the response, and it was
+taken from an unauthenticated client against the deployed instance after the
+deploy.
