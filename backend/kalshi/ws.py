@@ -29,6 +29,17 @@ over: nothing is raised, and recovery is a whole-connection reconnect rather
 than a per-ticker resubscribe. `_resync_all`'s docstring holds the reasoning,
 and the per-ticker helper it rejects was deleted (ADR 0119).
 
+**The bootstrap frame was the one gap in the gap detector.** `_check_sequence`
+had no way to doubt the *first* `seq` on a connection (`_last_seq is None`),
+so a corrupt one there was trusted at any value and parked as the cursor.
+Every legitimate frame afterwards then satisfied `seq <= _last_seq` — the
+*reorder* branch, which drops silently and touches neither invalidation nor
+resync — so the feed died forever with no error, `_last_message_ms` still
+ticking on every arriving (and dropped) frame. `FIRST_SEQ_MAX_PLAUSIBLE`
+bounds it (ADR 0122 "what this does not decide", closed 2026-09-09). This
+corrupts the display path, never the fill: `live_quotes().fetch` is a fresh
+REST call independent of this socket (`backend/kalshi/quotes.py`).
+
 Subscriptions are one command per ticker. Kalshi accepts a `market_tickers`
 array; this sends them individually because the per-ticker subscription id is
 what links an ack back to its market — the registry `_sids` is built from it,
@@ -82,6 +93,38 @@ def _now_ms() -> int:
 # frame need not. Kept beside `_check_sequence` and `_handle`, which both branch
 # on the same two names.
 _SEQUENCED_DATA_FRAMES = ("orderbook_snapshot", "orderbook_delta")
+
+# Bound on the first `seq` accepted on a fresh connection (`_last_seq is None`,
+# set by `_connect_and_consume` on every connect/reconnect). Before this bound
+# existed there was nothing to compare the first frame against, so it was
+# trusted at any value and parked as the new cursor -- see `_check_sequence`'s
+# docstring for what that let through silently.
+#
+# A new connection restarts the sequence near 1: `seq` is per-connection
+# (confirmed by `tests/fixtures/ws_orderbook_stream.json`, where the first
+# data frame is `seq=1`, right after the one seq-less `subscribed` ack). Before
+# the first market-data frame arrives, only the per-ticker subscribe acks can
+# have consumed a sequence number -- at most one each (`ok`; the very first
+# ack, `subscribed`, carries none, `_check_sequence`) -- so the true first seq
+# is bounded by the ticker count on this connection. This project subscribes
+# every ticker it is watching on one connection (`backend/live.py`); a
+# personal desk following a handful of concurrent games has never been
+# observed subscribing more than the low dozens. 10,000 is two-plus orders of
+# magnitude above any plausible subscription count, the same
+# margin-of-orders-of-magnitude logic `orderbook.py` uses for
+# `MAX_PLAUSIBLE_QUANTITY`, while still catching a corrupt value (a
+# mis-decoded int, a wraparound) that lands far outside it.
+FIRST_SEQ_MAX_PLAUSIBLE = 10_000
+
+# A forward gap past this size is far beyond anything real packet loss on this
+# feed produces (the 269-frame capture above never lost more than a handful of
+# frames between two consecutive ones) and is logged as corruption rather than
+# ordinary loss. The *response* is identical either way -- invalidate every
+# book, ask for a resync -- because both are already safe: `_connect_and_consume`
+# calls `_resync_all` synchronously, before the next `ws.recv()`, so no frame is
+# ever read against a poisoned cursor in between. This constant changes only
+# what gets logged, not what happens.
+MAX_PLAUSIBLE_GAP = 100_000
 
 
 class KalshiWebSocket:
@@ -382,6 +425,24 @@ class KalshiWebSocket:
         to `subscribed` alone -- an unknown control frame that Kalshi adds
         later would then force a reconnect every time it arrived, and a
         reconnect loop is a worse failure than an unrecognised ack.
+
+        **The first seq on a connection is bounded, not trusted blind.** Until
+        2026-09-09 there was nothing to compare it against (`_last_seq is
+        None` on every fresh connection), so it was accepted whatever its
+        value and parked as the new cursor. One corrupt or wildly large seq
+        there and every legitimate frame afterwards satisfies
+        `seq <= self._last_seq` -- the *reorder* branch below, not the gap
+        branch -- so each is dropped as a duplicate, silently, forever: no
+        invalidation, no resync. And because `_connect_and_consume` stamps
+        `_last_message_ms` on every raw frame *received*, not on frames
+        actually applied, the receive-timeout never fires either -- the
+        dropped frames still arrive on schedule. The result is silent
+        permanent staleness with no error anywhere. This is the one case
+        `_resync_all`'s "the ordinary gap case self-heals" does not cover,
+        because there is no ordinary gap here at all, just a cursor set once
+        from an unchecked value. `FIRST_SEQ_MAX_PLAUSIBLE` bounds it: past the
+        bound the frame is refused the same way a seq-less data frame is --
+        invalidate every book, ask for a resync -- rather than accepted.
         """
         seq = message.get("seq")
         if seq is None:
@@ -402,7 +463,25 @@ class KalshiWebSocket:
                 return False
             return True
 
-        if self._last_seq is not None and seq != self._last_seq + 1:
+        if self._last_seq is None:
+            if seq > FIRST_SEQ_MAX_PLAUSIBLE:
+                logger.error(
+                    "first seq on a fresh connection was %s, above the "
+                    "plausible bootstrap bound of %s -- refusing to trust it "
+                    "blind. Invalidating every book and forcing a resync "
+                    "rather than parking the cursor on a value that would "
+                    "silently drop every legitimate frame after it as a "
+                    "duplicate.",
+                    seq, FIRST_SEQ_MAX_PLAUSIBLE,
+                )
+                for book in self.books.values():
+                    book.invalid = True
+                self._pending_resync = True
+                return False
+            self._last_seq = seq
+            return True
+
+        if seq != self._last_seq + 1:
             if seq <= self._last_seq:
                 # Duplicate or reorder rather than loss. Dropping it is correct;
                 # applying it would double-count a delta.
@@ -412,7 +491,13 @@ class KalshiWebSocket:
                 return False
 
             gap = SequenceGap(self._last_seq + 1, seq, tuple(self.books))
-            logger.warning("%s", gap)
+            if seq - self._last_seq > MAX_PLAUSIBLE_GAP:
+                logger.error(
+                    "implausible forward jump, treating as corruption not "
+                    "ordinary loss: %s", gap,
+                )
+            else:
+                logger.warning("%s", gap)
             for book in self.books.values():
                 book.invalid = True
             self._pending_resync = True

@@ -251,6 +251,16 @@ measurement was wrong in a way that flattered the result.
   results by chance.
 - **Every harness states what it does not establish**, in its module docstring.
 
+The helpers that would automate the "re-run at a second horizon" and "the
+parts agree" rules above — `clv.horizons_agree` and `validate.summarise` —
+exist but are reached by nothing (ADR 0120's reachability walk: every
+referrer is a test or `backend/model/backtest.py`, itself reached by
+nothing). Mitigated, not fixed: the `beta` fits that settled the signal ran
+through `analysis/clv_signal.py` and `analysis/signal_test.py`, which *are*
+reached, and the signal is settled negative. The two rules above are still
+the standard a human analysis is held to — they just have no running
+enforcement today.
+
 ## Conventions
 
 - **Money is integer tenths of a cent** (`core/prices.py`), never float

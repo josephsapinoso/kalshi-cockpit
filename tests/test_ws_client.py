@@ -36,7 +36,12 @@ from pathlib import Path
 import pytest
 
 from backend.config import KalshiConfig
-from backend.kalshi.ws import KalshiWebSocket, ResyncRequired
+from backend.kalshi.ws import (
+    FIRST_SEQ_MAX_PLAUSIBLE,
+    MAX_PLAUSIBLE_GAP,
+    KalshiWebSocket,
+    ResyncRequired,
+)
 
 TICKERS = ["KXMLBGAME-A", "KXMLBGAME-B", "KXMLBGAME-C"]
 
@@ -253,15 +258,59 @@ class TestCheckSequence:
         assert ws._check_sequence(delta_frame("KXMLBGAME-A", 42)) is True
         assert ws._last_seq == 42
 
-    def test_the_first_frame_on_a_connection_is_accepted_whatever_its_seq(self, ws):
+    def test_the_first_frame_on_a_connection_is_accepted_when_plausible(self, ws):
         """The sequence is per-connection and `_connect_and_consume` clears the
-        cursor, so there is nothing for the first frame to be measured against.
-        Comparing it to zero would report a gap on every single reconnect."""
+        cursor, so there is nothing for the first frame to be measured against
+        except a plausibility bound. Comparing it to zero (i.e. requiring
+        seq==1) would report a gap on every single reconnect, since acks
+        before the first market-data frame already consume a few numbers."""
         assert ws._last_seq is None
-        assert ws._check_sequence(delta_frame("KXMLBGAME-A", 8_675_309)) is True
-        assert ws._last_seq == 8_675_309
+        assert ws._check_sequence(delta_frame("KXMLBGAME-A", 5)) is True
+        assert ws._last_seq == 5
         assert not ws._pending_resync
         assert not any(b.invalid for b in ws.books.values())
+
+    def test_a_first_seq_exactly_at_the_bound_is_accepted(self, ws):
+        assert ws._check_sequence(
+            delta_frame("KXMLBGAME-A", FIRST_SEQ_MAX_PLAUSIBLE)
+        ) is True
+        assert ws._last_seq == FIRST_SEQ_MAX_PLAUSIBLE
+
+    def test_an_implausible_first_seq_is_refused_not_trusted_blind(self, ws):
+        """Before this bound existed, this accepted 8,675,309 and parked the
+        cursor there -- poisoning every legitimate frame afterwards, which
+        would then satisfy `seq <= _last_seq` (the reorder branch, not the
+        gap branch) and be dropped silently forever: no invalidation, no
+        resync, no error anywhere."""
+        assert ws._last_seq is None
+        assert ws._check_sequence(delta_frame("KXMLBGAME-A", 8_675_309)) is False
+        assert ws._last_seq is None
+
+    def test_a_first_seq_one_past_the_bound_is_refused(self, ws):
+        assert ws._check_sequence(
+            delta_frame("KXMLBGAME-A", FIRST_SEQ_MAX_PLAUSIBLE + 1)
+        ) is False
+        assert ws._last_seq is None
+
+    def test_an_implausible_first_seq_invalidates_every_book(self, ws):
+        """Same consequence as an ordinary gap -- a corrupt bootstrap cannot
+        be trusted any more than a mid-stream one."""
+        ws._check_sequence(delta_frame("KXMLBGAME-A", 8_675_309))
+        assert all(b.invalid for b in ws.books.values())
+        assert not ws.quotable_books(max_age_ms=60_000)
+
+    def test_an_implausible_first_seq_asks_for_a_resync(self, ws):
+        ws._check_sequence(delta_frame("KXMLBGAME-A", 8_675_309))
+        assert ws._pending_resync
+
+    def test_a_legitimate_frame_after_a_refused_bootstrap_still_bootstraps(self, ws):
+        """The refused frame must not poison the cursor. On the reconnected
+        connection `_resync_all` produces, `_last_seq` is `None` again, so the
+        next real frame is judged as a fresh bootstrap, not a second
+        corruption stacked on the first."""
+        ws._check_sequence(delta_frame("KXMLBGAME-A", 8_675_309))
+        ws._last_seq = None  # what `_connect_and_consume` does on reconnect
+        assert ws._check_sequence(delta_frame("KXMLBGAME-A", 1)) is True
 
     # -- the gap branch ----------------------------------------------------
 
@@ -302,6 +351,30 @@ class TestCheckSequence:
         with caplog.at_level(logging.WARNING, logger="backend.kalshi.ws"):
             assert ws._check_sequence(delta_frame("KXMLBGAME-A", 9)) is False
         assert "expected 3 got 9" in caplog.text
+
+    def test_a_small_gap_is_logged_as_a_gap_not_corruption(self, ws, caplog):
+        ws._last_seq = 2
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.ws"):
+            ws._check_sequence(delta_frame("KXMLBGAME-A", 9))
+        assert "corruption" not in caplog.text
+
+    def test_an_implausible_forward_gap_is_still_invalidated_and_resynced(self, ws):
+        """The response is identical to an ordinary gap -- both are already
+        safe, because `_connect_and_consume` calls `_resync_all` before the
+        next frame is ever read. Only the log classification changes."""
+        ws._last_seq = 2
+        seq = 2 + MAX_PLAUSIBLE_GAP + 1
+        assert ws._check_sequence(delta_frame("KXMLBGAME-A", seq)) is False
+        assert all(b.invalid for b in ws.books.values())
+        assert ws._pending_resync
+        assert ws._last_seq == seq
+
+    def test_an_implausible_forward_gap_is_logged_as_corruption(self, ws, caplog):
+        ws._last_seq = 2
+        seq = 2 + MAX_PLAUSIBLE_GAP + 1
+        with caplog.at_level(logging.ERROR, logger="backend.kalshi.ws"):
+            ws._check_sequence(delta_frame("KXMLBGAME-A", seq))
+        assert "corruption" in caplog.text
 
     # -- the duplicate / reorder branch ------------------------------------
 

@@ -119,6 +119,195 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-09 (third session) — the desk armed the entry and never armed the exit, on the one path where he spends real money
+
+**STATE at close.** `main` = **`579fadd`** at session start, clean. Live and
+demo are on **`5664e24`** and that is correct — `5c09221` and `579fadd` are
+docs and `.claude/agents/*` only, so nothing was owed a deploy. **Read
+`/api/health` rather than believing this.** At session start it said
+`manual_orders` **false (ARMED)**, `combo_bids` true, `engine_orders` true,
+`live_quotes_available` true, recorder writing 145s ago, 0 undelivered
+notifications in 24h.
+
+**Nothing this session touched the odds path** (frozen to 10:00Z 2026-09-14),
+the gate, the hand-bet ceilings, or the disarmed bid path. No deploy, no
+dependency bump, no billed Anthropic call. Everything money-touching was
+**read-only**: five `sqlite3 mode=ro` replays over `flyctl ssh`.
+
+Three ADRs: **0125**, **0126**, **0127**. Four lanes ran in parallel.
+
+Also checked at session start and worth keeping in the routine: **zero open
+Dependabot alerts** (still blind to `cryptography`, which is 50.0.1 on the
+box), and **the decisions queue is empty** — the only open issue in the repo
+is the map itself, #3, every sub-issue closed.
+
+### THE HEADLINE: `/hedge` had never heard of the positions it exists to exit
+
+A `KXMVE` combination is **enter-only** — zero resting YES bids over 36 levels,
+40 of 40 books. ADR 0078 and CLAUDE.md both say `/hedge` is *the only exit an
+enter-only combination has*. `/hedge` watches `parlay_positions`.
+
+**`POST /api/manual-orders` wrote zero rows to `parlay_positions`.** The only
+writer was `POST /api/hedge/positions`, a separate tap on a separate screen Joe
+had to remember. Read off live:
+
+    manual_orders     3 rows, all real (dry_run = 0), all shard-1 combos
+    parlay_positions  0 rows
+    venue_positions   both filled combos, 2026-09-08 19:41Z until they settled
+
+So for the entire life of both real positions, the exit screen did not know
+they existed. **Not on any queue.** The partner found it, and ranked it above
+everything that was on one.
+
+**They have since settled, and that was established rather than assumed:**
+`poll_log` id 20337 at 15:00Z reports `positions` `ok` with `row_count = 0`, so
+the rows stopped because the positions closed and *not* because the poller
+stopped. Silence-read-as-health, checked by reflex.
+
+**Fixed, ADR 0125.** A filled combination now writes its own position row,
+linked by `combo_ticker` + `parlay_lookup_id`. Both columns already existed in
+`schema.sql`, were already accepted by the hedge route, and were **sent by
+nobody**. Nothing had to be designed — `_record_lookup` had to stop throwing
+away four fields (`side`, `label`, `league`, `commence_ms`) that were already
+on the `CandidateLeg`.
+
+Guarded against inventing a holding: dry runs, unfilled orders and
+`unrecognised_response` record nothing; a part-fill is watched at the size the
+**venue** reports, not the size requested; a partial leg list is refused
+outright rather than watched as if the missing leg could not lose; and when the
+fill lands but the position cannot be built, **the screen says so** rather than
+going quiet. Bookkeeping can never fail a purchase that already spent money.
+
+### The other three lanes
+
+- **The websocket bootstrap frame is bounded — ADR 0126.** `_check_sequence`
+  trusted the *first* `seq` on a connection at any value, then dropped every
+  legitimate frame after it: silently, books still `valid`, receive-timeout
+  still satisfied. **A test had enshrined this as intended behaviour**
+  (`..._accepted_whatever_its_seq`, asserting `seq = 8_675_309` is fine). Now
+  bounded at 10,000 with the boundary tested both sides. It corrupts the
+  screen, never a fill — `live_quotes().fetch` is an independent REST call.
+- **Arming the bid path now fails loudly — ADR 0127.** `KalshiRestClient.orders`
+  is read by nothing, which is fine only while nothing rests. That is the
+  `check_fee` argument exactly, and it expired in silence last time. So: not
+  wired; instead a test that goes **red the day `COMBO_ORDERS_ARE_DRY_RUNS`
+  flips** without a reconciler. A state converted into a trigger.
+- **CLAUDE.md now admits two Measurement rules have no running
+  implementation** (`clv.horizons_agree`, `validate.summarise` — ADR 0120).
+  Not wired, deliberately; the signal is settled negative.
+
+### Verified by disabling, because that is the only thing that counts
+
+Six mutations against lane A. **Two found real weaknesses rather than
+confirming the tests**, which is the whole reason for doing it:
+
+    1  fill guard removed          1 red -> tests strengthened -> 3 red
+    2  priced-only filter removed  1 red
+    3  partial leg list allowed    1 red
+    4  requested size not filled   1 red
+    5  silent degradation          1 red
+    6  leg detail not persisted    GREEN -> new end-to-end test -> red
+
+**Mutation 6 was decoration**: nothing proved `_record_lookup` actually writes
+the fields, only that `leg_details_for` computes them. **Mutation 1 exposed two
+tests passing for the wrong reason** — a zero-size position is refused
+downstream by the table's own CHECK, so "no row appeared" was true regardless
+of the guard. Both now assert the distinguishing consequence instead.
+
+Lane B reported 4 red and 1 red on its two mutations. Lane C went red on the
+flag flip and green on restore.
+
+`ruff` clean. **527 tests pass** across every suite the four lanes touch.
+
+### REGISTERED, AND IT NEEDS JOE BEFORE SUNDAY
+
+`docs/measurements/2026-09-09-preregistration-combo-exit-nfl-sunday.md`.
+
+`COMBO_EXIT_CENSUS_BOOKS_READ = 40` is the evidence behind the warning Joe
+reads before **every combo tap**, and `combos.py` still says in its own words
+that it *"measures the calendar at least as much as the product"*. Sunday
+**2026-09-13** is the first attended NFL regular-season Sunday and the next
+chance is a week out — so it is registered now, before the data, rather than
+sliced after it.
+
+**Three things the registrar corrected or decided, which need reading:**
+
+1. **The baseline is not all 2026-08-09.** It is 20 + 9 on 08-09 and **11 on
+   2026-08-18**, in-season MLB/WNBA and 78% tennis by leg. The genuinely open
+   clause is **NBA and NFL regular season**, not "in season".
+2. **The design is powered in one direction only, and that is fixed in
+   writing.** A universal claim dies to `k = 1`, so falsification needs no `n`;
+   confirmation is unreachable at any plausible `n` (95% Wilson at `k = 0` is
+   27.8% at `n = 10`, 6.0% pooled with the prior 40; under 5% needs 73 books).
+   **The null may not be written up as confirmation**, and the word
+   "structurally" is forbidden.
+3. **`n` inflation was the live trap and it is closed.** Five captures × 40
+   rows is not `n = 200`; the denominator is distinct tickers and `G_eff` is a
+   required field.
+
+**(A) JOE-GATED, and it is the only one:** the primary arm reaches NFL only
+through *cross-game* legs — `DISCOVERY_SERIES` cannot see
+`KXMVENFLSINGLEGAME` at all. Reading NFL single-game books on Sunday needs a
+`scripts/`-only change landed before **2026-09-13 00:00Z**. Worth it or not?
+
+**Operational, whoever runs it:** do **not** open the cockpit UI to take the
+captures — a page-open registers attention and would contaminate the dwell
+measurement the odds freeze exists to protect. Redirect stdout to a file per
+capture or the scan denominator is lost.
+
+### The partner killed three things, so nobody carries them again
+
+- **The combo-aware fee model (old item 5) — ruled NO and CLOSED.** The premise
+  was wrong about what is deployed: the armed path already calls
+  `combo_taker_fee` at `COMBO_TAKER_COEFFICIENT = 0.071`, not `calculate_fee`
+  at 0.070, and 0.071 covers all 8 observed charges where 0.070 undercharges 4.
+  The residual is $0.000030 on a $0.0159 fee — 0.19%, inside ADR 0046's own
+  band — while `TAKER_COEFFICIENT` is *deliberately* held at ~2× on MLB. And
+  `n = 8`. **Replaced with a trigger:** reopen when the fee alarm fires on a
+  combo fill, or at `n >= 30` with mean headroom under 0.071 turning negative
+  in any single series. The alarm can pull this itself now.
+- **Wiring `clv.horizons_agree` / `validate.summarise`** — a CLAUDE.md accuracy
+  fix instead, done.
+- **Wiring `KalshiRestClient.orders`** — a tripwire instead, done (ADR 0127).
+- **The collections-cache rotation worry** — checked before raising:
+  `invalidate_collections_cache` *is* called (`parlays.py:2172`), so a rotation
+  self-heals on the second tap. Nuisance, not defect.
+
+### Still open, in order
+
+1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Unchanged and
+   untouched this session. Frozen surface:
+   `backend/odds/{timing,budget,attention,ondemand,client,sweeplog}.py` plus
+   the `window_status` bootstrap question (`timing.py:1536`). A deploy is not
+   contamination; logic changes are.
+2. **The Sunday capture — answer (A) above, then run it 09-13.** The
+   registration is written; nothing has been captured.
+3. **One `pip-audit` ignore remains and it is NOT a deferred fix.** `pyarrow`
+   `GHSA-rgxp-2hwp-jwgg`, a known-bad match: the flaw needs an Arrow **IPC
+   file** read with pre-buffering and this repo only writes Parquet.
+   **Re-evaluate if anything starts reading `.arrow` or `.feather`** — that is
+   the trigger. Also recorded, not blocking: pytest 8.4.2 / `PYSEC-2026-1845`,
+   dev-only, deliberately outside the gate.
+4. **The absent consensus column on every combo record.** `manual_orders`
+   writes `consensus_absent_reason = 'combo_ticker'` for **100% of the bets
+   placed through the tool**, while `parlay_lookups.hold` holds the desk's own
+   headline number for the same ticket (0.170, 0.063, 0.209 on his three live
+   lookups) and `PriceOnKalshi` renders it one component above. Whether that is
+   honesty or a hole is a craft question — the partner assigned it to
+   `sharp-bettor` and it was not reached this session. ADR 0125 "what this does
+   not decide".
+5. **ADR 0046's combo tripwire is live on the committed record** — the fixture
+   fill is charged $0.00003 above the flat coefficient. Nothing in production
+   consumes it. **Now covered by the trigger above rather than open work.**
+6. **Nothing reconciles a combination's settlement.** `resolve_from_venue`
+   settles leg markets; whether a minted `KXMVE` ticker settles its position
+   automatically is unobserved. Surfaced by ADR 0125, not acted on.
+
+**Joe-gated:** **(A)** only — the NFL single-game arm for Sunday, above. B, C
+and D from the previous session are answered, done and closed; **check
+`git log --oneline -1 -- <the file a letter names>` before re-asking one**, the
+letters restart every session and a stale one reads as current.
+
 ## 2026-09-09 (second session) — the audit file is closed after 33 days, the money-path signer finally has a real test, and the fee alarm was wired the day its own excuse expired
 
 **STATE at close.** `main` = **`f7607b6`** at session start, clean; this

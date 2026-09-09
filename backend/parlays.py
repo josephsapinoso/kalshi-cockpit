@@ -1868,11 +1868,132 @@ def _combinable_events(collections) -> set[str]:
     }
 
 
+def leg_details_for(selected: Sequence[CandidateLeg]) -> dict[tuple[str, str], dict]:
+    """What a `parlay_positions` row needs about a leg, keyed by its tickers.
+
+    Everything here is already on the `CandidateLeg` at lookup time and was
+    being dropped on the floor. It is carried into `selected_legs` so that a
+    combination bought through the desk can be recorded as a position without
+    a second lookup call -- see `_record_lookup`.
+
+    `side` is `"yes"` and is **structural, not a guess**: `CandidateLeg` is
+    "one buyable YES side" by its own definition, and `echoed_legs(...,
+    side="yes")` is what this repo puts on the wire to Kalshi. A combination
+    leg has no other side to be on.
+    """
+    return {
+        (leg.kalshi_event_ticker, leg.kalshi_market_ticker): {
+            "side": "yes",
+            "label": leg.label,
+            "league": leg.league,
+            "commence_ms": leg.commence_ms,
+        }
+        for leg in selected
+    }
+
+
+class PositionLegs(NamedTuple):
+    """Legs ready for `hedge.record_position`, and how good they are.
+
+    `labels_are_tickers` is the honest flag: on a lookup written before
+    2026-09-09 the label is absent, and the market ticker stands in for it.
+    A ticker truly names the leg, so this is degradation rather than a wrong
+    answer -- but the difference has to reach the position's note, because a
+    screen showing `KXNFLGAME-26SEP13DETGB-DET` where it should say "Detroit
+    to win" is a screen that looks broken.
+    """
+
+    legs: list[dict]
+    labels_are_tickers: bool
+
+
+def legs_for_position(selected_legs_json: Optional[str]) -> Optional[PositionLegs]:
+    """Turn a `parlay_lookups.selected_legs` blob into position legs.
+
+    `None` when the blob is missing, unparseable or empty -- **never a
+    partial list and never an empty one**. `record_position` refuses a
+    position with no legs, and a combination recorded with some of its legs
+    would be watched by `/hedge` as if the missing ones could not lose.
+    Unreadable resolves to `None`, never to a shorter list.
+    """
+    if not selected_legs_json:
+        return None
+    try:
+        raw = json.loads(selected_legs_json)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(raw, list) or not raw:
+        return None
+
+    legs: list[dict] = []
+    degraded = False
+    for entry in raw:
+        if not isinstance(entry, dict):
+            return None
+        market_ticker = entry.get("market_ticker")
+        if not market_ticker:
+            return None
+        label = entry.get("label")
+        if not label:
+            label = market_ticker
+            degraded = True
+        legs.append({
+            "ticker": market_ticker,
+            "event_ticker": entry.get("event_ticker"),
+            # Absent only on a pre-2026-09-09 row. `"yes"` is structural for
+            # a combination leg (see `leg_details_for`), so filling it in is
+            # restating the definition rather than assuming a side.
+            "side": entry.get("side") or "yes",
+            "label": label,
+            "league": entry.get("league"),
+            "commence_ms": entry.get("commence_ms"),
+        })
+    return PositionLegs(legs=legs, labels_are_tickers=degraded)
+
+
+def priced_lookup_for(conn, minted_ticker: str):
+    """The `priced` lookup that minted `minted_ticker`, most recent first.
+
+    `priced` only, and that is the point: a minted ticker is **not unique**
+    in this table. A card can be looked up repeatedly and re-mint the same
+    market -- rows 39 and 40 on the live instance share one
+    `minted_market_ticker` -- and the outcomes that are not `priced` carry no
+    ask, no hold and (before 2026-09-09) no leg detail. Only a priced row
+    describes a market Joe could buy.
+
+    Returns `None` when nothing matches, which the caller must treat as "the
+    position cannot be built", never as "the position has no legs".
+    """
+    return conn.execute(
+        "SELECT id, selected_legs, card_key, derived_yes_ask_tenths, hold "
+        "FROM parlay_lookups "
+        "WHERE minted_market_ticker = ? AND status = 'priced' "
+        "ORDER BY requested_ms DESC, id DESC LIMIT 1",
+        (minted_ticker,),
+    ).fetchone()
+
+
 def _record_lookup(conn, *, now_ms, card_key, stake_cents, legs, status,
                    collection_ticker=None, minted=None, no_bid_tenths=None,
                    ask_tenths=None, depth=None, fair_joint=None, hold=None,
-                   error=None, collection_unverified=False) -> None:
-    """Every lookup is recorded, every outcome -- it minted a real market."""
+                   error=None, collection_unverified=False,
+                   leg_details=None) -> None:
+    """Every lookup is recorded, every outcome -- it minted a real market.
+
+    `selected_legs` carries the two tickers **in the order that went on the
+    wire**, plus, since 2026-09-09, each leg's side, label, league and
+    commence time when the caller has them (`leg_details`).
+
+    The four extra fields exist for one reason: a `KXMVE` combination is
+    enter-only, `/hedge` is the only exit it has, and `hedge.record_position`
+    refuses a leg with no `side` and no `label`. Until this row carried them,
+    a combination bought through the desk could not be turned into a watched
+    position without asking Kalshi again for facts the desk already had.
+
+    Absent on the 37 rows written before that date, and the reader must cope
+    rather than invent them -- see `legs_for_position`.
+    """
+    details = leg_details or {}
     conn.execute(
         "INSERT INTO parlay_lookups (requested_ms, card_key, stake_cents, "
         "selected_legs, collection_ticker, status, minted_market_ticker, "
@@ -1882,7 +2003,8 @@ def _record_lookup(conn, *, now_ms, card_key, stake_cents, legs, status,
         (
             now_ms, card_key, stake_cents,
             json.dumps([
-                {"event_ticker": e, "market_ticker": m} for e, m in legs
+                {"event_ticker": e, "market_ticker": m, **details.get((e, m), {})}
+                for e, m in legs
             ]),
             collection_ticker, status, minted, no_bid_tenths, ask_tenths,
             depth, fair_joint, hold, error,
@@ -2316,6 +2438,11 @@ async def price_card_on_kalshi(
         no_bid_tenths=best_no_bid, ask_tenths=ask_tenths, depth=depth,
         fair_joint=joint.conservative, hold=valuation.hold,
         collection_unverified=unverified,
+        # Only on `priced`. This is the one outcome that leaves a ticker Joe
+        # can actually buy, so it is the only one whose legs a position row
+        # will ever be built from; carrying them on a refusal would be
+        # recording detail about a market nobody can enter.
+        leg_details=leg_details_for(selected),
     )
 
     return {

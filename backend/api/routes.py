@@ -87,6 +87,8 @@ from ..odds.timing import (
     loop_idle_interval_ms_from_env,
     window_status,
 )
+from .. import hedge as held_parlays
+from .. import parlays
 from ..parlays import (
     COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID,
     COMBO_EXIT_CENSUS_BOOKS_READ,
@@ -3807,6 +3809,56 @@ def create_app(
                 row_id, ticker, outcome.status,
             )
 
+        # 13. THE EXIT, WIRED TO THE ENTRY. A combination is enter-only, so
+        # `/hedge` is the only way out of one -- and it watches
+        # `parlay_positions`, which this path never wrote. Two real
+        # combination fills landed on 2026-09-08 and that table was empty for
+        # the entire life of both positions.
+        #
+        # Only on a real fill of a real order: a dry run bought nothing, and
+        # `fill_count` is the quantity the VENUE says is held rather than the
+        # quantity asked for, so a part-filled IOC is watched at its true
+        # size. `unrecognised_response` deliberately records nothing -- the
+        # quantity is unknown there, and a position invented at the requested
+        # size would be a fabricated holding in the one table whose job is to
+        # tell him what he owns.
+        position_id = None
+        position_note = None
+        filled = outcome.fill_count
+        if combo and not outcome.dry_run and filled is not None and filled > 0:
+            try:
+                position_id = await run_in_threadpool(
+                    _record_combo_position,
+                    app_config.db_path,
+                    ticker=ticker,
+                    contracts=int(filled),
+                    fill_price_tenths=order.fill_price_tenths,
+                    now_ms=db.now_ms(),
+                    placed_ms=submitted_ms,
+                )
+            except Exception:                           # noqa: BLE001
+                # Never into the order path: the money is already spent and a
+                # bookkeeping failure must not report the purchase as failed.
+                logger.exception(
+                    "manual order row %d filled on combo %s and its hedge "
+                    "position could not be recorded.", row_id, ticker,
+                )
+            if position_id is None:
+                # Said out loud, on the screen. Silence here is the exact
+                # failure being fixed -- he would believe the desk was
+                # watching a position it had never heard of.
+                position_note = (
+                    "This combination is NOT being watched for a hedge — its "
+                    "legs could not be recovered, so record it by hand on "
+                    "/hedge. A combination is enter-only; the hedge is its "
+                    "only exit."
+                )
+            else:
+                position_note = (
+                    "Recorded on /hedge as position "
+                    f"{position_id} — its legs are being watched for a hedge."
+                )
+
         body = {
             "status": outcome.status,
             "dry_run": outcome.dry_run,
@@ -3839,6 +3891,13 @@ def create_app(
             # Read at check 5 and carried here rather than discarded: the
             # switch is gone, the counting is not.
             "venue_daily_pnl_dollars": daily_pnl,
+            # `None` on anything that is not a filled live combination.
+            # `hedge_position_id` is None WITH a note when the fill happened
+            # and the position could not be built -- the two must stay
+            # separable, because "not a combo" and "a combo nothing is
+            # watching" are opposite facts and only one of them is a problem.
+            "hedge_position_id": position_id,
+            "hedge_position_note": position_note,
             "note": (
                 "Dry run — the manual path is not armed. Arming is a code "
                 "change (ADR 0063); the C0 probe it waited on was taken "
@@ -4086,6 +4145,77 @@ def _write_manual_response(db_path, row_id: int, body: dict) -> None:
     try:
         manual_store.record_response(
             conn, row_id, json.dumps(body, sort_keys=True)
+        )
+    finally:
+        conn.close()
+
+
+def _record_combo_position(
+    db_path,
+    *,
+    ticker: str,
+    contracts: int,
+    fill_price_tenths: int,
+    now_ms: int,
+    placed_ms: int,
+) -> Optional[int]:
+    """Put a combination bought through the desk under `/hedge`'s watch.
+
+    **The exit, wired to the entry.** A `KXMVE` combination is enter-only --
+    `yes_dollars` empty on 40 of 40 books this repo has read, zero resting
+    YES bids over 36 levels (ADR 0012 §5) -- so hedging a leg is the only way
+    out of one, and `/hedge` can only watch what `parlay_positions` holds.
+    Until 2026-09-09 the only writer of that table was `POST
+    /api/hedge/positions`, a separate tap on a separate screen: the desk
+    armed the entry and left the exit to Joe's memory. On 2026-09-08 it took
+    two real combination fills and `parlay_positions` was empty for the whole
+    life of both positions.
+
+    Returns the new position id, or `None` when the position could not be
+    built honestly. **`None` is never an error the caller may hide**: it
+    means the money moved and nothing is watching it, which is exactly the
+    state this function exists to end, so the caller says so on the screen.
+
+    Nothing here may raise into the order path. The order is already placed
+    and the money is already spent; a bookkeeping failure must not turn a
+    successful purchase into a 500 that tells Joe nothing happened.
+    """
+    conn = db.open_db(db_path)
+    try:
+        lookup = parlays.priced_lookup_for(conn, ticker)
+        if lookup is None:
+            return None
+        parsed = parlays.legs_for_position(lookup["selected_legs"])
+        if parsed is None:
+            return None
+        # Stake is what he paid; return is what the venue pays a winning
+        # contract, $1.00 each. Both in tenths of a cent, integer, per
+        # CLAUDE.md -- and `return > stake` holds by construction because a
+        # price is 1..999 tenths, which is what the table's CHECK requires.
+        stake_tenths = contracts * fill_price_tenths
+        return_tenths = contracts * 1000
+        note = (
+            "Recorded automatically from the hand-bet path: a combination is "
+            "enter-only, so this is the only exit it has."
+        )
+        if parsed.labels_are_tickers:
+            note += (
+                " Leg names are market tickers -- this combination was priced "
+                "before the desk began recording leg labels, and inventing "
+                "them was refused."
+            )
+        return held_parlays.record_position(
+            conn,
+            now_ms=now_ms,
+            source="kalshi_combo",
+            label=lookup["card_key"] or ticker,
+            stake_tenths=stake_tenths,
+            return_tenths=return_tenths,
+            legs=parsed.legs,
+            placed_ms=placed_ms,
+            combo_ticker=ticker,
+            parlay_lookup_id=int(lookup["id"]),
+            note=note,
         )
     finally:
         conn.close()

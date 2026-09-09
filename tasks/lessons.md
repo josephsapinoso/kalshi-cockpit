@@ -16,6 +16,86 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-09 - A test can enshrine the defect as intended behaviour, and then the guard's absence is *documented* rather than merely missing
+
+`_check_sequence` trusted the first `seq` on a websocket connection at any
+value, parked it as the cursor, and thereby dropped every legitimate frame
+afterwards - silently, with no invalidation, no resync, and the receive-timeout
+still satisfied because `_last_message_ms` is stamped before the frame is
+judged. Silent permanent staleness, which is the worst failure this feed has.
+
+**A test asserted that this was correct.**
+`test_the_first_frame_on_a_connection_is_accepted_whatever_its_seq` passed
+`seq = 8_675_309`, asserted it was accepted, and asserted the cursor moved
+there. Green, named confidently, and pointing exactly the wrong way.
+
+This is worse than an untested guard and it fails differently. An untested
+guard is a gap: someone eventually notices nothing covers the case. A test that
+pins the defect **answers the question before it is asked** - a session
+checking "is the bootstrap frame handled?" finds a test whose name says yes,
+and stops. The repo's own instruments then report health over the hole, which
+is [[verification-methods-that-lie]] arriving through the test suite instead of
+through a CLI.
+
+**How it happens, and it is not carelessness.** The test was written from the
+implementation rather than from a claim about the world. "The first frame is
+accepted whatever its seq" is a true description of what the code does; it was
+never a decision anybody made. Naming tests after the claim they make is this
+repo's convention precisely because a name like that has to be *argued for* -
+and nobody would argue for "whatever its seq" out loud.
+
+**So: when a test's name is a restatement of the code's behaviour rather than a
+claim about the world, treat it as unreviewed.** The tell is that you can
+derive the name by reading the implementation. A real claim has a reason you
+could put in a sentence beginning "because" - and if the sentence comes out as
+"because that is what it does", there is nothing under it.
+
+The corollary is about what to do on finding one: **invert it, do not delete
+it.** The replacement here tests the bound from both sides - exactly at it
+accepts, one past refuses - so the next reader can see that the boundary was
+chosen rather than inherited. A deleted test leaves no evidence the question
+was ever settled. See [[built-but-never-called]] for the sibling case where the
+missing thing is a caller rather than a claim.
+
+## 2026-09-09 - Arming an entry without arming its exit is a whole class of defect, and the linkage columns are usually already there
+
+`POST /api/manual-orders` bought `KXMVE` combinations with real money and wrote
+zero rows to `parlay_positions`. A combination is enter-only, `/hedge` is the
+only exit it has, and `/hedge` watches that table - so on 2026-09-08 two real
+positions existed for their entire life with the exit screen never having heard
+of them.
+
+**The parts were all built.** `parlay_positions.combo_ticker` and
+`.parlay_lookup_id` were in `schema.sql`, accepted by the hedge route, and sent
+by nobody. The legs were in `parlay_lookups`. Every field
+`hedge.record_position` needed was on the `CandidateLeg` at lookup time and was
+being dropped at the moment of persistence. Nothing had to be designed; four
+fields had to stop being thrown away.
+
+**That is the shape to look for.** Not "is this feature built" but **"is the
+inverse of this action built, and does anything connect them?"** Entry and
+exit, open and close, subscribe and unsubscribe, arm and reconcile, record and
+resolve. Each pair tends to be built by a different session for a different
+screen, and the join between them is the part nobody owns. Grepping for a
+column's writers is the cheap version of the check: a column that `schema.sql`
+declares, a route accepts, and no client sends is a join that was designed and
+never completed.
+
+**The related trap, which cost a test rewrite here.** Two tests asserting "no
+position was recorded" passed under a mutation that removed the guard entirely
+- because a zero-size position is refused *downstream* by the table's own
+CHECK. They were green for a reason unrelated to the thing they named. A guard
+verified by "the bad state did not appear" is weak whenever anything else also
+prevents that state; assert the *distinguishing* consequence instead. Here that
+was the user-facing note: with the guard, an unfilled order says nothing; with
+it removed, it falsely warns that a combination he never bought is unwatched.
+
+And the general rule that fell out: **when a fill cannot be recorded, say so on
+the screen.** Silence after money moves reads as success. The failure branch
+that quietly does nothing is the same defect in miniature - which is why
+"could not record this" and "there was nothing to record" must be
+distinguishable in the response, never both `null`.
+
 ## 2026-09-09 - Re-verify a question before asking it, not just a task before doing it - and never `Write` to a path without checking what is there
 
 Two errors in one action, and they compound: a billed Anthropic call was spent

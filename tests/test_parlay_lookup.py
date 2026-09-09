@@ -595,6 +595,44 @@ class TestPricing:
                     walk(value)
         walk(body)
 
+    async def test_a_priced_row_records_what_a_hedge_position_will_need(
+        self, build
+    ):
+        """`selected_legs` carries side, label, league and commence time.
+
+        Not decoration and not for display: a `KXMVE` combination is
+        enter-only, `/hedge` is its only exit, and `hedge.record_position`
+        refuses a leg with no `side` and no `label`. Until this row carried
+        them (2026-09-09) a combination bought through the desk could not be
+        turned into a watched position without asking Kalshi again for facts
+        the desk already had at lookup time and threw away.
+
+        Driven end to end through the route on purpose. Asserting
+        `leg_details_for` alone passes happily while `_record_lookup` drops
+        the fields on the floor -- which is exactly what a mutation of that
+        line proved on 2026-09-09.
+        """
+        app, _, path = build(book_payload=POPULATED_BOOK)
+        legs = await _served_legs(app)
+        body = (await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )).json()
+        assert body["status"] == "priced"
+
+        recorded = json.loads(_lookup_rows(path)[0]["selected_legs"])
+        assert recorded, "a priced lookup recorded no legs at all"
+        for leg in recorded:
+            # Structural: `CandidateLeg` is one buyable YES side, and
+            # `echoed_legs(..., side="yes")` is what goes on the wire.
+            assert leg["side"] == "yes"
+            assert leg["label"], "a leg with no name cannot be hedged by hand"
+            # The label must be the readable one, never the ticker echoed
+            # into the slot that is supposed to hold prose.
+            assert leg["label"] != leg["market_ticker"]
+            assert leg["league"]
+            assert isinstance(leg["commence_ms"], int)
+
 
 class TestThePayoutCannotExceedTheBook:
     """2026-08-24 code review, finding 4 — CLAUDE.md rule 1 on a payout.
