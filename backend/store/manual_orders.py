@@ -21,11 +21,13 @@ WHAT THIS MODULE DOES NOT ESTABLISH
   what the desk was showing; `beta = -0.141` says agreement with that
   consensus is not evidence of correctness, and ADR 0071 forbids ranking by
   it. The snapshot is a per-row fact, not a score.
-- Nothing about coverage. A snapshot is absent far more often than it is
-  present -- every combination, every ticker the runner never priced -- and
-  `consensus_absent_reason` counts the absences rather than explaining them
-  away. Any later measurement must print the covered fraction beside any
-  number derived from these columns.
+- Nothing about coverage. A snapshot is absent whenever the runner never
+  priced the ticker, and on a combination whenever no `priced`
+  `parlay_lookups` row minted it; `consensus_absent_reason` counts the
+  absences rather than explaining them away. Any later measurement must print
+  the covered fraction beside any number derived from these columns. **The
+  four combination rows carrying `combo_ticker` are not comparable to the
+  rows written since** -- on those the desk never looked, on these it did.
 
 **`MANUAL_ORDERS_ARE_DRY_RUNS` IS FALSE.** Armed 2026-08-26 by code change
 (ADR 0073), after ADR 0063's blocking prerequisite P2 was discharged -- the
@@ -52,6 +54,15 @@ from typing import Any, Optional
 
 from ..core.prices import probability_to_tenths
 from ..kalshi.orders import OrderOutcome, OrderRequest, canonical_body_json
+# The combination's consensus, read through the SAME query that the order
+# route already runs to wire up `/hedge` (`routes._record_combo_position`).
+# A store module reaching up to `backend.parlays` is the wrong direction and
+# it is the lesser wrong: the alternative is a second SELECT over
+# `parlay_lookups` with its own "most recent priced row" rule, and two
+# matchers that must agree is the failure `_read_consensus` was written to
+# avoid. `backend.parlays` imports `backend.store.db` and nothing else from
+# this package, so the direction is one-way and there is no cycle.
+from ..parlays import priced_lookup_for
 from .orders import (
     DuplicateOrder,
     OrderNotRecorded,
@@ -271,10 +282,6 @@ def current_manual_exposure_dollars(
 # a message that varies by ticker cannot be grouped. Each value below is a
 # different fact about the record and they must not be collapsed:
 #
-#   combo_ticker           there IS no devigged consensus. Discovery drops the
-#                          KXMVE prefix, so no `kalshi_markets` row exists, so
-#                          no recommendation and no fair price can. Expected,
-#                          and the dominant case on a parlay night.
 #   no_priced_row          the runner never priced this (ticker, side). An
 #                          unlinked event, a market type it does not cover, or
 #                          a bet taken on something no pass ever reached.
@@ -286,12 +293,43 @@ def current_manual_exposure_dollars(
 #                          is the only value that means "we had a bug", and it
 #                          is recorded rather than swallowed so it can be seen.
 #
+# A combination has its OWN three, because its consensus comes from a
+# different table and "we could not find it there" is a different fact from
+# "we could not find it in `recommendations`":
+#
+#   combo_no_priced_lookup      no `priced` `parlay_lookups` row minted this
+#                               ticker. He bought a combination the desk did
+#                               not price -- built in the Kalshi app, or
+#                               priced on a run whose row is gone.
+#   combo_side_not_priced       the bet is on the combination's NO side. The
+#                               lookup prices YES only (`derived_yes_ask`),
+#                               and `1 - joint` is NOT the conservative devig
+#                               for NO: worst-of-four is conservative in the
+#                               direction it was taken, so complementing it
+#                               would turn rule 2 inside out and hand the
+#                               record an optimistic number. Refused.
+#   combo_unreadable_fair_value the lookup's `fair_joint_conservative` is
+#                               absent or outside [0, 1]. Same refusal, same
+#                               reason, as its single-market twin above.
+#
+# **`combo_ticker` is HISTORICAL and nothing writes it any more.** It meant
+# "this is a combination, so we did not try", and it was written on 4 of 4
+# real combination bets while `parlay_lookups.fair_joint_conservative` held
+# the very number the buy ticket had shown him one component above the button.
+# The constant stays so the four rows that carry it keep their meaning, and so
+# a reader can tell those rows apart from the ones written since: a
+# `combo_ticker` row is one where the desk never looked, and no later row can
+# be. A reason code that means two things is a NULL with extra steps.
+#
 # There is deliberately no reason for "the fair value is present but the
 # `fair_prices` row behind it is gone". That is thin provenance, not an
 # absence: the value is still the one the desk showed, and it is written with
 # `consensus_book_count` NULL. Calling it absent would discard a real
 # observation to tidy up a NULL.
 ABSENT_COMBO = "combo_ticker"
+ABSENT_COMBO_NO_PRICED_LOOKUP = "combo_no_priced_lookup"
+ABSENT_COMBO_SIDE_NOT_PRICED = "combo_side_not_priced"
+ABSENT_COMBO_UNREADABLE_FAIR_VALUE = "combo_unreadable_fair_value"
 ABSENT_NO_PRICED_ROW = "no_priced_row"
 ABSENT_UNREADABLE_FAIR_VALUE = "unreadable_fair_value"
 ABSENT_LOOKUP_FAILED = "lookup_failed"
@@ -382,6 +420,71 @@ def _rounded_tenths(value: Any) -> Optional[int]:
     return int(round(number))
 
 
+def _int_or_none(value: Any) -> Optional[int]:
+    return None if value is None else int(value)
+
+
+def _read_combo_consensus(
+    conn: sqlite3.Connection, *, ticker: str, side: str
+) -> ConsensusSnapshot:
+    """The devigged joint the combination was priced against, frozen.
+
+    **A combination HAS a consensus and the desk computed it.** It is not in
+    `recommendations` and never will be -- `kalshi/discovery.JUNK_PREFIX`
+    drops the KXMVE prefix, so no `kalshi_markets` row exists for one -- but
+    `parlays.price_card_on_kalshi` writes `fair_joint_conservative` on the
+    `priced` lookup that minted the ticker, and that number is the joint of
+    each leg's `p_conservative`: the same worst-of-four devig off the same
+    sportsbook feed that `consensus_fair_tenths` carries for a single. It is
+    on the screen at the tap (`PriceOnKalshi.tsx`, "Fair value ... hold ..."),
+    one component above the buy button.
+
+    **The fair VALUE is copied, not the lookup's `hold`.** Hold is
+    `1 - fair x offered_decimal` -- a ratio against the ask as it stood when
+    the card was priced, which is not necessarily the ask he paid. This row
+    already carries the ask he paid (`limit_price_tenths`, the derived ask at
+    the tap), so fair value plus that price gives the hold *on the bet that
+    happened*, while the lookup keeps the hold on the quote he was shown.
+    Freezing the shown ratio here would be a stale denominator wearing a money
+    row's clothes. And the value copied is `fair_joint_conservative` itself,
+    never a fair value reconstructed by dividing a ratio back out.
+
+    `computed_ms` is the lookup's `requested_ms`: when the joint was computed,
+    which is the same instant `fair_prices.computed_ms` names for a single.
+    `submitted_ms - computed_ms` is therefore staleness on both paths.
+
+    `edge_tenths` stays NULL, and not for want of a candidate. It is the
+    desk's FEE-NET edge; the parlay path computes a fee-FREE hold. Putting a
+    gross number in a column whose name promises a net one is the failure this
+    repo repeats, and a combination's fee is a ceiling rather than a quote
+    (ADR 0027/0028), so there is nothing honest to net it against yet.
+
+    The provenance columns stay NULL on purpose too. `book_count`,
+    `anchored_on_sharp`, `fair_price_id` and `link_id` are per-LEG on a
+    combination and there is no single value; picking one (the minimum? the
+    first?) would be a new decision, and NULL already means "not known".
+
+    **The joint is not unique to the ticker and the most recent priced row
+    wins.** `priced_lookup_for` says why: a card can be looked up repeatedly
+    and re-mint the same market, and only a `priced` row carries an ask.
+    """
+    if side != "yes":
+        return _absent(ABSENT_COMBO_SIDE_NOT_PRICED)
+
+    row = priced_lookup_for(conn, ticker)
+    if row is None:
+        return _absent(ABSENT_COMBO_NO_PRICED_LOOKUP)
+
+    fair_tenths = _fair_tenths(row["fair_joint_conservative"])
+    if fair_tenths is None:
+        return _absent(ABSENT_COMBO_UNREADABLE_FAIR_VALUE)
+
+    return ConsensusSnapshot(
+        fair_tenths=fair_tenths,
+        computed_ms=_int_or_none(row["requested_ms"]),
+    )
+
+
 def _read_consensus(
     conn: sqlite3.Connection, *, ticker: str, side: str
 ) -> ConsensusSnapshot:
@@ -390,6 +493,11 @@ def _read_consensus(
     **May raise. `consensus_snapshot` is the one callers use.** Split in two
     on purpose: the refusal has to be provable by making this function throw,
     and a single function that catches its own exceptions cannot be made to.
+
+    A combination goes to `_read_combo_consensus` and everything below this
+    line is about a single market. The branch is not "there is no consensus":
+    it is "the consensus for a combination lives in `parlay_lookups`, because
+    discovery drops the KXMVE prefix and no `recommendations` row can exist".
 
     The source is `recommendations` joined to `fair_prices`, which is
     *literally what the Slate row rendered* -- `/api/slate` selects the same
@@ -411,7 +519,7 @@ def _read_consensus(
     session's opinion into the record permanently and irreversibly.
     """
     if is_combo_ticker(ticker):
-        return _absent(ABSENT_COMBO)
+        return _read_combo_consensus(conn, ticker=ticker, side=side)
 
     row = conn.execute(
         "SELECT r.fair_probability, r.edge_tenths, r.fair_price_id, "
@@ -428,9 +536,6 @@ def _read_consensus(
     fair_tenths = _fair_tenths(row["fair_probability"])
     if fair_tenths is None:
         return _absent(ABSENT_UNREADABLE_FAIR_VALUE)
-
-    def _int_or_none(value: Any) -> Optional[int]:
-        return None if value is None else int(value)
 
     return ConsensusSnapshot(
         fair_tenths=fair_tenths,

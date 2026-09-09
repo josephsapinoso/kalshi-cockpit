@@ -237,6 +237,66 @@ def _seed_consensus(
     return int(fair), int(link)
 
 
+#: The live shape of `parlay_lookups` id=41, the most recent real combination
+#: bet: a 0.33862 conservative joint against a 410-tenth derived ask, holding
+#: 17.4%. Used rather than round numbers so the arithmetic below is checked
+#: against a row the venue and the desk actually produced.
+LIVE_LOOKUP_FAIR_JOINT = 0.33862
+LIVE_LOOKUP_ASK_TENTHS = 410
+LIVE_LOOKUP_HOLD = 1.0 - LIVE_LOOKUP_FAIR_JOINT * (1000.0 / LIVE_LOOKUP_ASK_TENTHS)
+
+
+def _seed_parlay_lookup(
+    path,
+    *,
+    minted=COMBO_TICKER,
+    status="priced",
+    fair_joint=LIVE_LOOKUP_FAIR_JOINT,
+    ask_tenths=LIVE_LOOKUP_ASK_TENTHS,
+    hold=LIVE_LOOKUP_HOLD,
+    requested_ms=1_700_000_002_000,
+    card_key="safe",
+):
+    """A `parlay_lookups` row, the way `parlays._record_lookup` writes one.
+
+    This is the combination's consensus: `fair_joint_conservative` is the
+    joint of each leg's `p_conservative`, and it is what the buy ticket
+    renders as "Fair value ... hold ..." one component above the button.
+
+    Returns the row id.
+    """
+    conn = db.open_db(path)
+    try:
+        row_id = conn.execute(
+            "INSERT INTO parlay_lookups (requested_ms, card_key, stake_cents, "
+            "selected_legs, collection_ticker, status, minted_market_ticker, "
+            "book_no_bid_tenths, derived_yes_ask_tenths, book_depth, "
+            "fair_joint_conservative, hold, collection_unverified) "
+            "VALUES (?, ?, 100, ?, 'KXMVECROSSCATEGORY0-SHARD1', ?, ?, ?, ?, "
+            "        3.0, ?, ?, 0)",
+            (
+                requested_ms,
+                card_key,
+                json.dumps([
+                    {"event_ticker": "E1", "market_ticker": "LEG-A",
+                     "side": "yes", "label": "A to win"},
+                    {"event_ticker": "E2", "market_ticker": "LEG-B",
+                     "side": "yes", "label": "B to win"},
+                ]),
+                status,
+                minted,
+                None if ask_tenths is None else 1000 - ask_tenths,
+                ask_tenths,
+                fair_joint,
+                hold,
+            ),
+        ).lastrowid
+        conn.commit()
+    finally:
+        conn.close()
+    return int(row_id)
+
+
 def _manual_row(path):
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
@@ -1629,21 +1689,33 @@ class TestTheRowRecordsWhatTheDeskWasShowing:
             manual_store.ConsensusSnapshot(fair_tenths=551, absent_reason="x")
 
 
-class TestACombinationHasNoConsensusAndSaysSo:
-    """`KXMVE` has no devigged consensus and never can.
+class TestACombinationCarriesTheConsensusTheDeskComputed:
+    """A `KXMVE` combination HAS a devigged consensus, and now records it.
 
+    This class used to be `TestACombinationHasNoConsensusAndSaysSo` and it
+    asserted the defect. The true half of that name is still true --
     `kalshi/discovery.JUNK_PREFIX` drops the prefix, so no `kalshi_markets`
-    row exists, so no `recommendations` or `fair_prices` row can. Zero would
-    read as "the sportsbooks say this is worth nothing", which on a money row
-    is a lie rather than a gap.
+    row and no `recommendations` row can ever exist for a combination -- but
+    the conclusion drawn from it was wrong. `parlays.price_card_on_kalshi`
+    writes `parlay_lookups.fair_joint_conservative`, the joint of each leg's
+    `p_conservative` off the same worst-of-four devig, and `PriceOnKalshi.tsx`
+    renders it one component above the buy button. Four real combination bets
+    were placed against a number on the screen and recorded as though no such
+    number existed.
+
+    The tests are inverted rather than deleted (`tasks/lessons.md`,
+    2026-09-09): a deleted test leaves no evidence the question was settled.
+    Zero is still never written -- an unreadable joint refuses, exactly as an
+    unreadable `fair_probability` does.
     """
 
-    async def test_every_snapshot_column_is_null_never_zero(
+    async def test_a_combination_records_the_fair_value_the_screen_showed(
         self, tmp_path, records_only
     ):
-        """Mutation observed red: delete the `is_combo_ticker` branch from
-        `_read_consensus`."""
+        """Mutation observed red: restore `return _absent(ABSENT_COMBO)` in
+        `_read_consensus`'s combination branch."""
         path = _base_db(tmp_path)
+        _seed_parlay_lookup(path)
         app = _app(path, quotes=StubQuotes(_payload(ticker=COMBO_TICKER)))
         body = _body(
             ticker=COMBO_TICKER, combo_acknowledged=True, max_price_tenths=700
@@ -1652,36 +1724,227 @@ class TestACombinationHasNoConsensusAndSaysSo:
         assert response.status_code == 200, response.text
 
         row = _manual_row(path)
+        # 0.33862 -> 339 tenths of a cent. Integer, on the same 0-1000 scale
+        # as `limit_price_tenths` -- never float dollars, and never the ratio.
+        assert row["consensus_fair_tenths"] == 339
+        assert isinstance(row["consensus_fair_tenths"], int)
+        assert row["consensus_computed_ms"] == 1_700_000_002_000
+        assert row["consensus_absent_reason"] is None
+
+    async def test_the_recorded_fair_value_reproduces_the_hold_he_was_shown(
+        self, tmp_path, records_only
+    ):
+        """The claim is that this is the SAME number, not a parallel one.
+
+        `hold = 1 - fair x offered_decimal`, so the fair value written here,
+        put back against the ask the lookup was priced at, has to return the
+        hold `parlay_lookups` stored -- to within the tenth of a cent that
+        rounding to the money scale costs. If it did not, the row would be
+        recording some other quantity under a name that promises this one.
+
+        Mutation observed red: source `fair_tenths` from `row["hold"]`
+        instead of `row["fair_joint_conservative"]`.
+        """
+        path = _base_db(tmp_path)
+        _seed_parlay_lookup(path)
+        app = _app(path, quotes=StubQuotes(_payload(ticker=COMBO_TICKER)))
+        body = _body(
+            ticker=COMBO_TICKER, combo_acknowledged=True, max_price_tenths=700
+        )
+        assert (
+            await post(app, "/api/manual-orders", json=body, headers=AUTH)
+        ).status_code == 200
+
+        fair_tenths = _manual_row(path)["consensus_fair_tenths"]
+        reconstructed = 1.0 - fair_tenths / LIVE_LOOKUP_ASK_TENTHS
+        assert abs(reconstructed - LIVE_LOOKUP_HOLD) < 0.0025, (
+            f"the recorded fair value implies a hold of {reconstructed:.4f}, "
+            f"but the desk showed {LIVE_LOOKUP_HOLD:.4f}"
+        )
+
+    async def test_a_combination_the_desk_never_priced_records_that_and_not_zero(
+        self, tmp_path, records_only
+    ):
+        """He can buy a combination built in the Kalshi app.
+
+        There is then no `priced` lookup, no fair value, and the row says
+        which absence it was -- `combo_no_priced_lookup`, never a zero and
+        never `combo_ticker`, which meant "we did not look".
+        """
+        path = _base_db(tmp_path)
+        app = _app(path, quotes=StubQuotes(_payload(ticker=COMBO_TICKER)))
+        body = _body(
+            ticker=COMBO_TICKER, combo_acknowledged=True, max_price_tenths=700
+        )
+        assert (
+            await post(app, "/api/manual-orders", json=body, headers=AUTH)
+        ).status_code == 200
+
+        row = _manual_row(path)
         for column in SNAPSHOT_COLUMNS:
             assert row[column] is None, f"{column} is {row[column]!r}, not NULL"
             assert row[column] != 0
-        assert row["consensus_absent_reason"] == manual_store.ABSENT_COMBO
-
-    def test_the_combo_branch_refuses_before_it_reads_anything(self):
-        """The NULLs above are over-determined, so this isolates the branch.
-
-        A combination has no `recommendations` row either -- the same
-        `JUNK_PREFIX` that stops it -- so the route-level test would still see
-        NULLs with the combo branch removed, and it does: deleting the branch
-        turns `combo_ticker` into `no_priced_row` and nothing else. This one
-        hands `_read_consensus` a connection that raises on any query, so a
-        combination that reached the database at all would go red.
-
-        Mutation observed red: delete the `is_combo_ticker` branch --
-        sqlite3.ProgrammingError instead of a snapshot.
-        """
-        class NeverQueried:
-            def execute(self, *args, **kwargs):
-                raise AssertionError(
-                    "a combination reached the database; there is nothing "
-                    "there for it to find"
-                )
-
-        snapshot = manual_store._read_consensus(
-            NeverQueried(), ticker=COMBO_TICKER, side="yes"
+        assert (
+            row["consensus_absent_reason"]
+            == manual_store.ABSENT_COMBO_NO_PRICED_LOOKUP
         )
-        assert snapshot.absent_reason == manual_store.ABSENT_COMBO
+
+    async def test_an_unpriced_lookup_is_not_mistaken_for_a_priced_one(
+        self, tmp_path, records_only
+    ):
+        """A `book_empty` lookup carries a joint but no ask and no hold.
+
+        It minted the ticker and it computed the fair value, so a query that
+        dropped `status = 'priced'` would find it -- and would record a
+        consensus for a market nobody was offering to sell. `priced_lookup_for`
+        is the one that decides, and this pins that the combination branch
+        goes through it.
+
+        Mutation observed red: drop `AND status = 'priced'` from
+        `parlays.priced_lookup_for`.
+        """
+        path = _base_db(tmp_path)
+        _seed_parlay_lookup(
+            path, status="book_empty", ask_tenths=None, hold=None,
+        )
+        app = _app(path, quotes=StubQuotes(_payload(ticker=COMBO_TICKER)))
+        body = _body(
+            ticker=COMBO_TICKER, combo_acknowledged=True, max_price_tenths=700
+        )
+        assert (
+            await post(app, "/api/manual-orders", json=body, headers=AUTH)
+        ).status_code == 200
+
+        row = _manual_row(path)
+        assert row["consensus_fair_tenths"] is None
+        assert (
+            row["consensus_absent_reason"]
+            == manual_store.ABSENT_COMBO_NO_PRICED_LOOKUP
+        )
+
+    async def test_the_freshest_priced_lookup_wins(self, tmp_path, records_only):
+        """Rows 39 and 40 on live share one `minted_market_ticker`.
+
+        A card can be looked up repeatedly and re-mint the same market, so the
+        joint is not unique to the ticker and the most recent priced row is
+        the one he was looking at.
+
+        Mutation observed red: `ORDER BY requested_ms ASC` in
+        `parlays.priced_lookup_for`.
+        """
+        path = _base_db(tmp_path)
+        _seed_parlay_lookup(path, fair_joint=0.200, requested_ms=1_000)
+        _seed_parlay_lookup(path, fair_joint=0.700, requested_ms=2_000)
+        app = _app(path, quotes=StubQuotes(_payload(ticker=COMBO_TICKER)))
+        body = _body(
+            ticker=COMBO_TICKER, combo_acknowledged=True, max_price_tenths=700
+        )
+        assert (
+            await post(app, "/api/manual-orders", json=body, headers=AUTH)
+        ).status_code == 200
+        assert _manual_row(path)["consensus_fair_tenths"] == 700
+
+    async def test_a_no_side_combination_refuses_rather_than_complementing(
+        self, tmp_path, records_only
+    ):
+        """`1 - joint` is not the conservative devig for the NO side.
+
+        Worst-of-four is conservative in the direction it was taken, so its
+        complement is ANTI-conservative -- rule 2 inside out, and an
+        optimistic number on a money row. The lookup prices YES only; a NO bet
+        records the absence and names it.
+
+        Mutation observed red: drop the `side != "yes"` branch -- the NO row
+        then records 339, the YES fair value, for a bet on the other side.
+        """
+        path = _base_db(tmp_path)
+        _seed_parlay_lookup(path)
+        app = _app(path, quotes=StubQuotes(_payload(ticker=COMBO_TICKER)))
+        body = _body(
+            ticker=COMBO_TICKER, side="no", combo_acknowledged=True,
+            max_price_tenths=700,
+        )
+        assert (
+            await post(app, "/api/manual-orders", json=body, headers=AUTH)
+        ).status_code == 200
+
+        row = _manual_row(path)
+        assert row["side"] == "no"
+        assert row["consensus_fair_tenths"] is None
+        assert (
+            row["consensus_absent_reason"]
+            == manual_store.ABSENT_COMBO_SIDE_NOT_PRICED
+        )
+
+    def test_an_unreadable_joint_refuses_rather_than_clamping(self):
+        """Same guard as its single-market twin, on the combination's source.
+
+        `probability_to_tenths` clamps, so a joint of 1.5 would be written as
+        1000 tenths -- a settled outcome recorded as a live consensus.
+
+        Mutation observed red: return `probability_to_tenths(...)` from
+        `_read_combo_consensus` without going through `_fair_tenths`.
+        """
+        class OneRow:
+            def __init__(self, row):
+                self._row = row
+
+            def execute(self, *args, **kwargs):
+                return self
+
+            def fetchone(self):
+                return self._row
+
+        snapshot = manual_store._read_combo_consensus(
+            OneRow({"fair_joint_conservative": 1.5, "requested_ms": 1}),
+            ticker=COMBO_TICKER, side="yes",
+        )
         assert snapshot.fair_tenths is None
+        assert (
+            snapshot.absent_reason
+            == manual_store.ABSENT_COMBO_UNREADABLE_FAIR_VALUE
+        )
+
+    def test_combo_ticker_is_a_closed_historical_set(self):
+        """The reason code stops meaning two things.
+
+        `combo_ticker` meant "this is a combination, we did not try", and it
+        is the value on all four real combination bets. Every combination row
+        written from here on says what the desk FOUND -- a fair value, or one
+        of the three combination absences. If any code path could still write
+        `combo_ticker`, the four historical rows would be indistinguishable
+        from new ones and the column would be a NULL with extra steps.
+
+        Read off the AST rather than the text, so the constant may still be
+        DEFINED and explained in prose -- which it is, and must be, because
+        the rows carrying it have to keep their meaning.
+
+        Mutation observed red: put `_absent(ABSENT_COMBO)` back in
+        `_read_consensus`.
+        """
+        source = (
+            REPO / "backend" / "store" / "manual_orders.py"
+        ).read_text(encoding="utf-8")
+        writes = [
+            node
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_absent"
+            and any(
+                isinstance(arg, ast.Name) and arg.id == "ABSENT_COMBO"
+                for arg in node.args
+            )
+        ]
+        assert writes == [], (
+            "something still writes consensus_absent_reason = 'combo_ticker'; "
+            "that value means 'the desk never looked' and no row written "
+            "since the combination consensus landed can honestly say so"
+        )
+        assert manual_store.ABSENT_COMBO == "combo_ticker", (
+            "the historical value was renamed; the four live rows carrying it "
+            "would stop being interpretable"
+        )
 
     def test_the_route_and_the_store_share_one_combo_predicate(self):
         """Two spellings of one boundary is the failure this repo repeats.
