@@ -137,7 +137,13 @@ record; `docs/history/claude-md-2026-09-08.md` is the old spine verbatim.
 2. Everything in the entry below is unchanged and still the live brief; its
    `Still open` list is the queue. Item 1 there (the odds-path freeze to
    2026-09-14) is the one with a date on it.
-3. Not decided (ADR 0116 §what this does not decide): whether the session
+3. **Effort dial for subagents.** Joe wants the partner to use Sonnet and
+   lower effort where the job is lookup-shaped (rule now in
+   `.claude/agents/partner.md`). The Agent tool has no effort parameter;
+   confirm the frontmatter key that sets effort per agent definition (a
+   `claude-code-guide` query was in flight when the session closed) and set
+   it low on the read-only agents.
+4. Not decided (ADR 0116 §what this does not decide): whether the session
    index below should split; whether `tasks/audit-2026-08-07.md`'s six open
    items are still open; whether ADRs and measurements carry the same
    inline-correction sediment.

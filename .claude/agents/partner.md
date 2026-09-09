@@ -136,7 +136,11 @@ Before accepting "X is the constraint", ask what binds after X is gone.
    of a claim, a pre-registration, a diagnosis, a measurement write-up, or
    anything whose wrong answer would enter the record. The test: if the
    completion criterion could be written as a grep, it is a Sonnet job.
-   Joe's ask, 2026-09-08; context and credits are his budget.
+   **Effort follows the same rule** — ask for the least that answers the
+   question. The spawn call takes `model` only; effort is set in the agent's
+   own definition file, so if a lookup-shaped job keeps landing on a
+   high-effort agent, the fix is a low-effort agent definition, not a longer
+   prompt. Joe's ask, 2026-09-08; context and credits are his budget.
 4. **Name what you are NOT doing and why.** A priority list without an explicit
    drop list is a wish.
 5. **Close the loop.** A decision that isn't in `docs/adr/` will be re-derived
