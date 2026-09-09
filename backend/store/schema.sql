@@ -578,6 +578,30 @@ CREATE TABLE IF NOT EXISTS fair_prices (
     -- column: the wind-back test DROPs migrated columns, and SQLite cannot
     -- drop a comment-preceded final column without leaving a dangling comma.
     oldest_book_age_ms  INTEGER,
+    -- v36 (ADR 0133): CONFIRMATION, not a second freshness rule. Before this,
+    -- `write_fair_price` inserted a fresh row every pass -- 900s and 15s
+    -- passes both call it -- even when the payload was byte-for-byte
+    -- unchanged (measured 99.6-99.75% UNCHANGED across three live windows).
+    -- `computed_ms` + `oldest_book_age_ms` above now FREEZE at first
+    -- appearance and are never touched again; a pass that re-derives an
+    -- identical payload UPDATEs these two instead of inserting. Both are
+    -- stamped at the same instant, which is what keeps the pair internally
+    -- consistent (see `_live_age_ms`) -- the failure a single frozen or a
+    -- single overwritten column would each produce is worked through in
+    -- ADR 0133, not repeated here.
+    --
+    -- Same naming precedent as `kalshi_quotes.confirmed_ms` (ADR 0055): a
+    -- bare `confirmed_*` name, not `recommendations.last_confirmed_*`'s
+    -- prefixed one, because this table already distinguishes the frozen
+    -- member by name (`computed_ms`) the way `kalshi_quotes` distinguishes
+    -- it as `observed_ms` -- there is only one "confirmed" quantity per
+    -- column here, never a "first" and a "last" spelling of the same word.
+    --
+    -- NULL means "never re-confirmed": every row written before v36, and
+    -- every row since whose payload has only ever appeared once. A reader
+    -- must COALESCE to the frozen pair, never to zero.
+    confirmed_ms                    INTEGER,
+    confirmed_oldest_book_age_ms    INTEGER,
     anchored_on_sharp   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_fair_link ON fair_prices(link_id, computed_ms DESC);

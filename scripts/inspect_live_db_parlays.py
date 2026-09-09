@@ -50,7 +50,8 @@ _SQL_PARLAY_CANDIDATES = """
         SELECT computed_ms, market, outcome_name, outcome_point,
                outcome_description,
                p_multiplicative, p_additive, p_power, p_shin,
-               p_conservative, oldest_book_age_ms, link_id,
+               p_conservative, oldest_book_age_ms,
+               confirmed_ms, confirmed_oldest_book_age_ms, link_id,
                market_width, book_count, books_used, anchored_on_sharp,
                kalshi_event_ticker, odds_event_id,
                commence_ms, home_team, away_team, sport_key,
@@ -59,7 +60,12 @@ _SQL_PARLAY_CANDIDATES = """
         SELECT f.computed_ms, f.market, f.outcome_name, f.outcome_point,
                f.outcome_description,
                f.p_multiplicative, f.p_additive, f.p_power, f.p_shin,
-               f.p_conservative, f.oldest_book_age_ms, f.link_id,
+               f.p_conservative, f.oldest_book_age_ms,
+               -- **ADR 0133.** `_live_age_ms` COALESCEs each of these onto
+               -- the frozen pair beside it -- NULL means "never
+               -- re-confirmed", true of every row before v36 and of a row
+               -- whose payload has only ever appeared once since.
+               f.confirmed_ms, f.confirmed_oldest_book_age_ms, f.link_id,
                f.market_width, f.book_count, f.books_used, f.anchored_on_sharp,
                l.kalshi_event_ticker, l.odds_event_id,
                o.commence_ms, o.home_team, o.away_team, o.sport_key,
