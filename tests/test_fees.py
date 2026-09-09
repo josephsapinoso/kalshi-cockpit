@@ -188,9 +188,10 @@ def _model_a_raw(coefficient: Decimal, price_tenths: int, contracts: int) -> Dec
 class TestModelARoundingIsCeilingNotNearest:
     """Anchors chosen where the candidate rounding rules *disagree*.
 
-    The break-even bar in CLAUDE.md (52.00% taker, not the 51.75% the published
-    coefficient alone gives) is a consequence of this rounding rule, so the rule
-    needs a test that can distinguish it from the alternatives. The at-the-money
+    The applied break-even bar (51.75% taker, per CLAUDE.md and ADR 0028; the
+    52.00% this docstring once quoted was the retired fee hedge) is a
+    consequence of this rounding rule, so the rule needs a test that can
+    distinguish it from the alternatives. The at-the-money
     anchor above cannot: 1.75 is exactly on a cent boundary.
 
     This is `tasks/lessons.md` 2026-08-07 ("Four audits, one failure shape"):

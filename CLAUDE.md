@@ -1,597 +1,225 @@
 # CLAUDE.md
 
 Spine for this repo. Deliberately short — detail lives in `.claude/skills/`,
-loaded only when working in that area. At session start read, in this order:
-`tasks/NEXT.md` (current state), `tasks/todo.md` (build log), then
-`tasks/lessons.md`.
+`docs/adr/` and `docs/measurements/`, loaded only when working in that area.
+At session start read `tasks/NEXT.md` (current state, front door) then
+`tasks/lessons.md` (patterns), in that order. Both fit in one read, and
+`tests/test_session_files_are_readable.py` fails if either crosses the Read
+tool's 262,144-byte ceiling. Add to the top; move the bottom **verbatim** into
+`tasks/archive/{next,lessons}-YYYY-MM-DD.md` rather than shortening it.
 
-**All three are now small enough to read in full, and that is a guard, not a
-promise.** As of 2026-08-17 `NEXT.md` and `lessons.md` were 456KB and 427KB —
-both past the 262,144-byte ceiling at which the Read tool refuses a file
-outright, so the instruction above had been impossible to obey and sessions
-were silently reading only the head. The history was moved, **verbatim and
-byte-for-byte**, into `tasks/archive/{next,lessons}-YYYY-MM-DD.md`; nothing was
-summarised or deleted. `tasks/lessons.md` is now the newest lessons plus a
-**pattern index** naming every lesson and its archive file — open the archive
-file when a line sounds relevant. `tests/test_session_files_are_readable.py`
-fails if either file crosses back over the limit. Add to the top; move the
-bottom into the dated archive file rather than shortening it.
+The spine as it stood before the 2026-09-08 cut, with every correction trail,
+is `docs/history/claude-md-2026-09-08.md` (ADR 0116). What follows is the
+corrected fact and where it came from, not how it got corrected.
 
 ## What this is
 
 A cockpit for betting sports on Kalshi. It compares Kalshi's prices against
-devigged sportsbook consensus, surfaces opportunities where that consensus says
-Kalshi is mispriced by more than the fee, and records everything so the edge can
-be *measured* rather than assumed.
+devigged sportsbook consensus, surfaces where that consensus says Kalshi is
+mispriced by more than the fee, and records everything so the edge can be
+*measured* rather than assumed. It runs hosted on Fly.io, is used from a phone
+and a desktop equally, and is a public portfolio repo.
 
-**There is one signal, not two.** Until 2026-08-10 this paragraph described a
-second, in-house power-ratings model and said the tool surfaces where *both
-agree*. That has never run. `backend/model/elo.py` is imported only by
-`backend/model/backtest.py`, which is imported only by `tests/test_model.py` —
-no production caller, on either instance. `model_probability` is `NULL` on every
-row (`runner.py:684` does not pass it; `engine.py:58` defaults it to `None`),
-and while `/api/ledger`'s `SELECT *` and one dbt staging view fetch the column,
-both drop it: no suppression rule, sizing calculation, EV computation, gate
-condition or API response consumes it. **Any claim that two signals must "agree"
-describes a design, not the deployed system.**
+**There is one signal, not two.** The in-house power-ratings model has never
+run: `backend/model/elo.py` is imported only by `backend/model/backtest.py`,
+which is imported only by `tests/test_model.py`. `model_probability` is `NULL`
+on every row (`runner.py:1698` and `:2143` build `Candidate` without it;
+`engine.py:58` defaults it to `None`) and nothing consumes it. A second signal
+was documented as a *conjunction* — "where both agree" — and a conjunction can
+only remove rows, so its absence explains nothing. Blending a model probability
+into `fair_probability` would be a new decision needing its own ADR.
 
-The file:line citations are deliberate. This belief has now been wrong twice in
-the same direction, and a future session can re-check a line number in thirty
-seconds but cannot re-check an adjective.
+**Three quantities circulate as `actionable` and they are not the same
+number.** Say which one you mean: (1) the gate predicate's **row** count
+(`r.suppressed_reason IS NULL AND r.reference_contracts > 0`, `backend/gate.py:330`),
+(2) the Gate screen's **game** count, which the 300-game floor is measured
+against, (3) `slate.actionable_total`, a lifetime row count served to the
+slate. Re-audited 2026-09-01: 51 rows across 15 games, two WNBA games carrying
+41% of the rows, `suggested_contracts = 0` on all 51, every `reason_text`
+ending "No edge." Treat 15 against a floor of 300 as *unseparated from zero*;
+the predicate carries no multiplicity correction while the runner re-evaluates
+~100 candidates every 900s. Quote the game count, never the row count.
+Do not count actionable rows with `clv-coverage` — it filters on
+`clv_scored_ms IS NOT NULL` and actionable rows are written before commence;
+`/api/gate` has the right number. Still unrun: split the unsuppressed
+population by `anchored_on_sharp` (a sharp anchor selects at most three books,
+`backend/core/devig.py:289`) and report the `edge_tenths > 0` rate in each,
+clustered per game. `docs/measurements/2026-09-01-actionable-population-reaudit.md`.
 
-**Do not read this as a reprieve, and the reason is arithmetic rather than
-judgement.** As documented, the second signal was a *conjunction* — "where both
-agree". A conjunction only ever removes rows from the surfaced set; it cannot
-add one. Adding an AND-gate to a set that is already empty leaves it empty, so
-the missing half **cannot** explain `actionable = 0` away. A different design
-— blending a model probability into `fair_probability` to move the edge — could
-shift rows either way, but that is a new decision, not the completion of an
-existing one, and it would need its own ADR.
+## The signal is measured and negative
 
-**`actionable` is no longer 0.** It genuinely was on 2026-08-10; it stopped
-being 0 five days later. Re-audited **2026-09-01** on the gate's own predicate
-(`r.suppressed_reason IS NULL AND r.reference_contracts > 0`, `gate.py:330`,
-byte-identical in the instrument): **51 rows across 15 distinct games**, the
-first still 2026-08-15T19:52:14Z and the newest 2026-08-31T22:13:59Z, and
-**`suggested_contracts = 0` on every one of the 51** — evidence at the fixed
-reference profile only (ADR 0015 §3), unbuyable at the deployed bankroll and
-never rendered as a card. Every `reason_text` in the population ends "No edge."
-
-**Three quantities circulate under this word and they are not the same
-number** — the defect decision-map ticket #14 was opened for. (1) this audit's
-**row** count, 51; (2) the Gate screen's **game** count, 15, which is what the
-300-game floor is measured against; (3) `slate.actionable_total`, a lifetime
-row count served to the slate. Say which one you mean or the sentence is
-unreadable.
-
-**The parts do not agree and the pooled number hides it: two WNBA games carry
-21 of the 51 rows — 41%**, the largest single game 21.6%. A row count moves
-with how often the recorder re-evaluated one market, so **quote the game
-count.**
-
-**The verdict is unchanged and rests on the reasons that survive: 15 games
-against the registered floor of 300, and the actionable predicate still
-carries no multiplicity correction** while the runner re-evaluates ~100
-candidates every 900s against a growing record. Treat 15 as *unseparated from
-zero*, not as a result. No edit to the actionable predicate or to `devig.py`
-in the interval — the count grew because the recorder kept running.
-
-**The sharp-anchoring question is still open and was not taken here either.**
-The 2026-08-23 audit found 4 of its 11 rows sharp-anchored where an earlier
-version of this paragraph had claimed none; sharp anchoring was 73.0% of the
-pinned record (ADR 0021 §8, 1,141 of 1,564), so that was *under*-representation
-rather than a new phenomenon, and a sharp anchor selects **at most three
-books** (`devig.py:289`, `selected = sharp or usable`) — a thinner fair value,
-not a better one. The separating measurement the 2026-08-16 audit named still
-has not been run: split the **unsuppressed** population by `anchored_on_sharp`
-and report the `edge_tenths > 0` rate in each, clustered per game.
-
-See `docs/measurements/2026-09-01-actionable-population-reaudit.md`, and
-`2026-08-23-actionable-population-reaudit.md` for the previous figure.
-
-Anything above or below claiming the count is 0 is **repetition of a
-2026-08-10 measurement, not a measurement**. The intervening reads used
-`clv-coverage`, which filters on `clv_scored_ms IS NOT NULL` while an
-actionable row is written before commence — the class was outside the
-denominator. `/api/gate` had the right number the whole time. See
-`docs/measurements/2026-08-16-actionable-population-audit-result.md`.
-
-What the 2026-08-10 correction changes is the *description*: the record must not
-be written up as "the documented strategy produced zero actionable rows",
-because that sentence credits a two-signal system that never existed. It is
-**the
-consensus-only strategy** that produced zero.
-
-It runs hosted on Fly.io (not a laptop), is used from a phone, and is intended
-to become a public portfolio repo.
-
-## The consensus-only signal has been measured, and it is negative
-
-**Read this before planning anything.** On 2026-08-16 `beta` — the CLV
-pass-through coefficient, the project's registered decision-bearing statistic —
-was computed for the first time:
+`beta` — the CLV pass-through coefficient, the registered decision-bearing
+statistic — has been computed twice:
 
 ```
-beta_hat  -0.1412   se_cluster 0.0478   G = 199
-always-valid interval  [-0.3342, +0.0517]
-VERDICT   UNRESOLVED   (the registered floor is G = 300)
+2026-08-16  beta_hat -0.1412  se_cluster 0.0478  G = 199
+            always-valid interval [-0.3342, +0.0517]
+2026-08-25  beta_hat -0.0756  se_cluster 0.0246  G = 216   (modal config version only)
+            always-valid interval [-0.1728, +0.0216]
+VERDICT     UNRESOLVED
 ```
 
-Both arms agree (moneyline −0.082, prop −0.519) and every interval computed lies
-entirely below the registered NO-SIGNAL threshold of 0.40.
-`docs/measurements/2026-08-16-clv-signal-test-interim-look.md`.
+Every interval lies entirely below the registered NO-SIGNAL threshold of 0.40
+and both arms (moneyline, prop) are negative. **The primary runs on the modal
+`strategy_config_version` only** (registration §P4); a pooled `G = 311` fit
+was refused as a declaring look on 2026-08-25 and `build_report` now applies
+§P4 itself. **`G_eff` is a required field on every fit**: `G = 311` is 4.26
+effective clusters, WNBA is 95.6% of the leverage, and 93.9% of it sits in
+`too_few_books`/`no_market_width` rows whose `edge_tenths` runs to −718 — rows
+rule 1 says are bugs, not edges.
 
-**Re-taken 2026-08-25. The verdict is still UNRESOLVED, and the reason it is
-still UNRESOLVED is not the reason above.** The live screen displayed
-`NO SIGNAL, 311 of 300 games` on 2026-08-24 and called itself a declaring look.
-It was audited before it entered this file and **refused**. The registered
-primary is:
+**UNRESOLVED is the formal verdict and may not be reported as "no signal."**
+The registered floor is **G = 713** (Amendment 2, 2026-08-29) and that look has
+not been taken. **It is not coming**: at the measured concentration `G_eff = 713`
+needs ~52,000 nominal games against a stopping rule that ends 2027-02-15. No
+roadmap may depend on the look or wait for it. Reopening the question needs a
+successor registration with an `edge_tenths` exclusion fixed in advance. **For
+planning, treat the signal as settled negative.**
 
-```
-beta_hat  -0.0756   se_cluster 0.0246   G = 216   (modal config version only)
-always-valid interval  [-0.1728, +0.0216]
-VERDICT   UNRESOLVED   (84 clusters below the registered floor of 300)
-```
-
-`G = 311` was the fit **pooled across four `strategy_config_version`s**, which
-§P4 and §7 of the registration forbid as the primary in those words: *"the
-primary analysis runs on the modal version only"*, *"`G` counts only those
-games"*. That rule existed in code as an opt-in parameter defaulting to off,
-and no production caller set it. Fixed 2026-08-25 — `build_report` applies §P4
-itself and the pooled fit is carried without a verdict.
-
-**Three more things the audit established, and the third is the one to carry:**
-
-1. ~~§A4's leave-one-group-out downgrade is **not implemented**.~~ **Closed
-   2026-08-29** — `leave_one_group_out` executes in code, and `downgrades` is a
-   required argument rather than defaulting to empty, because a default would
-   have kept every caller working and left the guard as absent as it was.
-2. ~~`sd(clv_tenths) = 30.15` crosses the power check's own amendment trigger
-   and the amendment is unwritten.~~ **Written 2026-08-29 (Amendment 2). The
-   floor is now G = 713, and see below — it is worse than a bigger number.**
-3. **`G = 311` is 4.26 effective clusters.** Two games carry half the leverage
-   on `beta`; one WNBA game carries 43.8%; WNBA is 95.6% of it.
-   `too_few_books`/`no_market_width` rows are 13.5% of the record and **93.9%
-   of the leverage**, and inside that group `edge_tenths` runs −718 to +373 —
-   a fair value of ~8c against an 82c ask, off fewer than two books. **Rule 1
-   says those are bugs, not edges.** `sd(edge)` is 40.98 with them and 10.90
-   without, so the apparent resolving power (MDE 0.078 against the
-   registration's feared 0.42) is bought entirely from rows rule 1 refuses.
-
-`docs/measurements/2026-08-25-clv-signal-declaring-look-refused.md` carries all
-eight defects and what would have to happen for a declaration to count.
-
-**UNRESOLVED is the formal verdict and may not be reported as "no signal."** The
-registration forbids declaring below **G = 713** — raised from 300 on
-2026-08-29 by Amendment 2, under the power check's own trigger — and **that
-look has still not been taken**. The 2026-08-24 screen did not take it; it
-declared on the wrong population, against a floor that had already been
-disqualified.
-
-**For planning, treat it as settled, and Amendment 2 makes that stronger
-rather than weaker.** Every interval computed at either look lies entirely
-below the 0.40 threshold and both arms are negative.
-
-**The declaring look is not coming, and this sentence replaces one that said
-it would.** This paragraph used to read *"the recorder keeps running and the
-look happens on its own"*. That is false. Three things, in ascending order of
-how much they matter:
-
-- The gap is not ~84 clusters. Against the raised floor it is **497**.
-- **At G = 300 the design could never have resolved the 0.40 threshold it
-  tests.** Its MDE there is 0.6283 — the registration printed that cell itself
-  on 2026-08-09 and nobody read across the row.
-- **Nominal G may be the wrong unit entirely.** At the measured `G_eff` the
-  slope MDE is ~32, about eighty times the threshold. Holding the observed
-  concentration ratio fixed, `G_eff = 713` needs roughly **52,052 nominal
-  games** — about eleven years, against a stopping rule that ends 2027-02-15.
-  Raising a nominal floor does not repair a 4.26-effective-cluster design.
-
-So no roadmap may depend on the look, and no roadmap may *wait* for it either.
-The way out, if the question is ever worth reopening, is a successor
-registration with an `edge_tenths` exclusion fixed in advance — this one never
-contemplated a regressor running to −717.97 tenths. What may *not* be written
-is that the declaring look has happened.
-
-**`G_eff` is now a required field on every fit**, so a cluster count cannot be
-read without its effective count beside it. On the repo's own committed data
-that is **1.81 against a nominal 86, one game holding 72.7% of the leverage**.
-
-**It does not run for free, and this paragraph used to say it did.** Corrected
-2026-08-24 (ADR 0071 §1). "The recorder costs nothing" is true of the LLM
-fleet — the runner imports `review_retired`, which refuses every row and calls
-nothing (`backend/agents/review.py:124`) — and **false of the odds feed the
-recorder was raised to buy**. The claim was written when a sweep cost 2 credits
-under `h2h`; `ODDS_MARKETS = "h2h,spreads"` doubled it on 2026-08-23 and nobody
-revisited the sentence. The recorder is cheap to *decide about*, not free to
-run.
-
-**What it costs changed on 2026-08-25, and the number is now a ceiling rather
-than a figure.** The fixed `ODDS_DESK_WINDOW_UTC` bought ~576 credits/day
-(~17,300/month) whether or not anyone was looking — and would have been
-~1,152/day at four sports, past the whole 20,000 tier, which NCAAF and NFL made
-imminent. **The feed now follows attention over an hourly floor** (ADR 0071
-§2.6): the ten-minute cadence while a page is open, hourly otherwise for a
-sport with a fixture inside twelve hours. `ODDS_DESK_WINDOW_UTC` is unset on
-live and still read, so a window can be pinned back on without a code change.
-
-    idle floor, 4 sports         ~384/day
-    attention, capped            <=300/day   ODDS_ATTENTION_DAILY_CREDITS
-    kickoff windows              UNCAPPED    clusters x 7 calls x 4 credits
-    the only real ceiling         700/day    ODDS_DAILY_CREDIT_BUDGET
-
-**The third row was missing from this table until 2026-09-06, and its absence
-made the fourth read as slack.** The row here said `worst case ~684/day inside
-the 700 daily cap`; `fly.live.toml` and `timing.py` carried the same figure.
-**684 is not a worst case. It is a partial sum.** 384 + 300 counts the floor
-and the attention slice and omits the kickoff-window loop
-(`timing.py:1943-2028`) — the largest of the three, **67.0% of September's
-actual spend** (319 of 476 served sweeps), whose only gate is `credits_left`
-and therefore the 700 itself.
-
-**So the day is safe by the cap, not by construction**, which is a materially
-weaker guarantee than the one this file used to give. Do not reason about
-"headroom" from the 16-credit gap between 684 and 700: there is no spare 16
-credits, there is a cap that truncates the day. When it binds, `decide_sweeps`
-returns `fire=()` and **every** sport stops until the next 10:00Z boundary —
-bounded to under 24 hours, and not a throttle on the sport that overspent.
-
-The kickoff-window term is per-day rather than constant: a full 60-minute
-window at the 10-minute refresh is **seven** calls (the opening one plus six
-refreshes), so 28 credits a cluster at today's `cost = 4`. An NFL Sunday plans
-**3** clusters, the season's worst 4 — simulated against the real planner and
-the 272-fixture capture, 2026-09-06. `DUE_WINDOW_MS`' own comment said `6 x
-sweep_cost` until that date and understated every cluster by one call;
-`test_a_full_window_is_seven_calls_and_the_number_is_written_down` now pins it.
-
-**The remaining rows are bounds. One of them is a measurement.** The
-instrument is `api_credits` summed per budget-day **by trigger**, which
-separates attention (`'attention'`) from the floor and the schedule (both
-NULL) — `scripts/inspect_live_db.py credits-day --date …`. First read
-2026-08-25 with the floor alone running; **first read with attention actually
-running on 2026-08-28, budget day 20260827:**
-
-    attention          75 calls   300 credits   15:53Z-20:46Z   4.88 h
-    floor + schedule   48 calls   192 credits   10:13Z-01:42Z
-    taps                0 calls     0 credits   (150 reserved)
-    total             123 calls   492 of 700
-
-**The slice buys 4.9 hours of attention a day, at 61 credits/hour** — three
-sports each on a ~10-minute cadence, all drawing on one slice (median gap
-between calls 3.6 min, no gap over 20). That is the number the ceiling
-actually sets, and it was not written down anywhere before this. **An
-"attended hours" figure is still a guess about any particular day**; this is
-one observed day and the burn rate is the part that generalises.
-
-**That burn rate is no longer flat per sport — ADR 0111, 2026-09-07.** The
-attended branch of `desk_wants` had **no horizon at all**, so every sport
-inside the caller's 48-hour window took the ten-minute cadence: 24 credits an
-hour each, and 4.17 attended hours at three sports — under the 4.88 already
-observed. It is now **tiered by how soon a sport plays**: ten minutes inside
-twelve hours, the floor's hourly rate beyond it, and **never dropped**, which
-is the half that matters. A cut would have gone dark on Sunday's NFL for the
-two days Joe is actually looking at it. One sport today and two tomorrow costs
-32/hour rather than 72, so the slice funds 9.4 hours instead of 4.2.
-
-**No published figure in this file moves.** The slice is still ≤300, the floor
-still ~384, and both are arithmetic over constants none of which changed. What
-changed is how fast the slice is consumed inside its own cap — and the
-kickoff-window loop, the largest of the three spenders, is untouched.
-
-**Re-read 2026-09-03 over nine budget days, and "4.9 hours a day" was that
-one day.** 20260827 is the only day the slice has ever run out. Attended
-minutes per budget day (from `visit-freshness`, heartbeat-to-heartbeat) ran
-**2.6 to 324** with no trend — 76, 47, 324, 127, 11, 223, 9.5, 2.6, 161 for
-20260825 through 20260902 — while opens per day held at 5–8. Attention-tagged
-buys went 75 → 5–20 over the same days, and that fall was read on 2026-09-02
-as *"the desk went quiet"*. It was not: **a counter that emits on a cadence
-while a condition holds measures that condition's duration, not its
-occurrences.** The buys measured dwell. Two further caveats travel with any
-attention figure: `desk_attention` is `(id, seen_ms)` and cannot tell a
-reader from a tab left open (one 2.6-hour "visit" carries most of 20260902);
-and `trigger = 'attention'` is **displaceable by the schedule** — on 20260830
-eight ten-minute-cadence baseball buys between 15:11Z and 17:04Z carry a
-NULL trigger with no visit in progress, because a kickoff-window slot
-satisfied the cadence before the attention branch could. The tag is a lower
-bound on attention-cadence buying, not a dwell meter.
-`docs/measurements/2026-09-03-desk-dwell-and-the-watcher-off-switch.md`.
-
-The attention slice is a **hard ceiling and the reason the design is safe**:
-its worst case is a tab left open and visible around the clock, which is double
-the window it replaces. `Nav.tsx`'s `document.visibilityState` check is what
-should prevent that; the slice is what does. The hourly floor is deliberately
-not charged to it, so past the slice the slate stops re-buying every ten
-minutes and keeps buying every hour — a ceiling, not an off switch.
-
-**That sentence left a condition out for one day, and it was close to
-perverse. Fixed 2026-08-29; the record of the defect stays, because the shape
-recurs.** Attention *replaced* the floor rather than adding to it: `desk_wants`
-branches on `attended or windowed` and hands every upcoming sport the
-ten-minute cadence, the slice check refused each one, and the refusal was a
-`continue` with **no fall-through to the hourly cadence**. So past the slice,
-**keeping the page open was what suppressed the buying, and closing it was what
-let the floor resume** — five minutes later, at `DEFAULT_ATTENTION_TTL_MS`.
-Looking at the desk made it staler than not looking at it, at the one moment
-Joe is about to bet.
-
-A sport that is attended-but-slice-spent now falls through to the floor's own
-timetable instead of being skipped, stamped `DESK` so it is neither charged to
-the slice nor refused by it. A windowed sport falls through on identical terms,
-for identical reasons. **The floor and the slice do not move**, and that is
-arithmetic rather than intent: the floor's cadence is measured from
-`last_sweep_by_sport`, which counts attention buys too, so a sport takes at
-most one floor-paced buy an hour however many attended buys preceded it. The
-~384 and the ≤300 are separately capped and additive. What changes is that
-actual spend reaches further towards those two — the deployed code delivered
-*less* than the table claimed, and the gap was a stale slate rather than a
-saving.
-
-**What this paragraph used to say next was that 684 "was always the sum", and
-that is the sentence the 2026-09-06 correction removes.** It was the sum of
-two of the three spenders. The fall-through described here is genuinely
-neutral on the floor and the slice; it was never neutral on the total, because
-the total was never those two. See the table above.
-
-**Know what the ceiling feels like from the outside, because it has now been
-felt.** The slice ran out at 20:46Z and Joe opened the desk at 04:38Z — 7.9
-hours into a silence the design intends — to books 198 minutes old, on a night
-when the floor was *also* correctly idle (its rule is a fixture inside twelve
-hours; the next kickoff was ~13.7 h out). Both paths off, both right. **The
-desk did not say so**, and the refresh panel said *"the next scheduled sweep
-is now"* while the loop was refusing that exact sweep, because `next_call_ms`
-was computed from `firing_for_slot` and the slice check sat after it. Ticket
-#35. Do not read a stale slate as a broken recorder: check `sweep-log` for a
-refusal before diagnosing anything.
-
-**It says so now, and the fix took three passes at one lie before the fourth
-pass removed what the lie was about.** `window_status` applies the slice
-itself, so past it the desk stopped contributing the ten-minute answer to
-`next_call_ms` (2026-08-28); `readNextWindow` gained a `slice_spent` reading so
-the resulting null is not rendered as *"no kickoff is near enough"*
-(2026-08-28); and the loop's own refusal string stopped promising *"the hourly
-floor still runs"* in the pass where the floor was displaced by the very
-attention that caused the refusal (2026-08-29 morning) — that string is not a
-log line only, it reaches `/api/window` as `last_look_detail` and
-`WindowBanner` prints it on `/board`. The shape all three share: **one
-predicate with two spellings, and the screen believing the wrong one.**
-
-The fall-through then made the floor run in that state, so the sentence those
-three passes converged on — *"the slow hourly buy resumes once you stop
-looking"* — became a **reassurance that had outlived its condition**, which is
-worse than the silence it was written to explain: a reader who acts on it
-closes a screen he wanted open and buys nothing by it. All three surfaces were
-corrected in the same commit, and `test_no_screen_still_tells_him_that_closing
-_the_page_buys_more` pins the phrase absent on every one of them. **The lesson
-is the ordering, not the string**: copy that names a condition to wait for is
-falsified by fixing the condition, so the fix and the copy ship together or the
-screen lies in the interval.
+`docs/measurements/2026-08-16-clv-signal-test-interim-look.md`,
+`2026-08-25-clv-signal-declaring-look-refused.md`.
 
 **The gate stays exactly where it is.** It is the live-trading interlock, it is
 never lowered or bypassed, and "the gate will open" is not a step in any plan —
 its 300 counts *actionable* games and the record has 2 in its whole life, both
 soft-book fallbacks.
 
-**~~What this frees.~~ That opinion was produced, and it is spent. The hunt is
-closed — ADR 0038.** The paragraph here used to say "work that produces an
-opinion is now the critical path". It was acted on: four registered measurements
-in one day (ADR 0036, ADR 0037) built the opinion and refuted it, on the ground
-that **our own model's error exceeds its disagreement with Kalshi**. Every
-quadrant this instance can reach has now answered:
+## The hunt is closed — ADR 0038
+
+Every quadrant this instance can reach has answered:
 
 | quadrant | verdict | where |
 |---|---|---|
 | Consensus vs Kalshi's close | `beta = -0.141` | ADR 0021, 0034 |
 | In-house model vs Kalshi's price | our error > the disagreement | ADR 0036, 0037 |
-| `KXMVE` combos | **exit-only problem**: no YES bid on 40/40 books ever read (entry: 33/40 had a resting NO bid) | ADR 0012 §5, E2/E3, 2026-08-18 |
+| `KXMVE` combos | **exit-only problem** — see below | ADR 0012 §5, E2/E3 |
 | Speed / stale-quote pick-off | edge lives at ~400ms | predecessor |
 | Cost headroom | a **discount, not a signal** | ADR 0027, 0028 |
 
-**The combo row's reason was wrong, and the correction is recorded because the
-conclusion is unchanged and that is exactly when a wrong reason survives.** This
-row read *"zero volume, zero open interest"* until 2026-08-18. The script it
-descends from (`scripts/analyse_combo_domination.py:71`) says these markets
-"**mostly** carry zero volume and zero open interest"; the hedge was dropped
-somewhere between the script and this file. And the hardened version was already
-contradicted by this repo's own committed artifacts — non-zero `volume_fp` on
-3 of 20 rows in `docs/measurements/2026-08-09-combo-e2-book-empty.json` and 3 of
-9 in `-combo-e3-list-no-bid.json`, both produced by
-`scripts/measure_combo_book_presence.py` on 2026-08-09. Roughly a fifth of
-quoted combination markets have traded, in every run taken, and no run has
-enough independent rows to narrow that.
+**A cost advantage multiplies an edge, it cannot create one**, and no quadrant
+supplied one to multiply. `backend/analysis/signal_test.py` is signal-agnostic
+and would validate a new signal on the same clock, but no new hunting line is
+open. A proposal to reopen must name which row it overturns, and with what
+measurement. This bounds what the **tool** may claim; it reaches nothing Joe
+does by hand.
 
-**Do not read this as an in-season effect.** A 2026-08-18 run returned 2 of 11
-and was briefly written up as one; Fisher two-sided against the 2026-08-09 runs
-gives **p = 1.0**, its 11 rows collapse to about two independent groups by
-shared legs, and it was 78% tennis — while MLB and WNBA were *already* in
-season on 2026-08-09. The only sports absent from the original 2026-08-06
-capture were NBA and NFL, so **`backend/kalshi/combos.py`'s calendar caveat is
-untouched** and remains open.
+**Combinations are enter-only.** `yes_dollars` is empty on 40 of 40 KXMVE books
+this repo has read (three runs, two dates, pinned by
+`tests/test_combo_book_depth_claims.py`); 33 of those 40 carried a resting NO
+bid, and a resting NO bid *is* the ask you buy at. Zero resting YES bids over
+36 levels: you can enter and may not be able to exit at size, which is why
+combination orders are held to a tighter ceiling and why ADR 0078's hedge
+exists. About a fifth of quoted combos have ever traded; the sample cannot
+narrow that, and `backend/kalshi/combos.py`'s calendar caveat (no NBA/NFL in
+the captures) is still open.
 
-What replaces the reason is stronger than what it replaces: **`yes_dollars` is
-empty on 40/40 combination books this repo has ever read**, across three runs
-on two dates. The list ask is the complement of a resting NO bid, not a quoted
-offer. You can enter and you cannot exit. That, plus a combo fee model ADR 0012
-§5 records as unverified, is why the quadrant still supplies no edge — an
-enter-only market has nothing to multiply.
+**The cost bars.** Kalshi's advantage is cost, not information: prices are
+accurate to ~2c and sports is the most bot-contested corner of the venue.
 
-**"≤18 units deep" was struck from that sentence on 2026-09-08, and the
-conclusion above is unaffected.** The figure was wrong three ways. Its
-citation to ADR 0012 §5 was spurious — that ADR's only `18` is the denominator
-of `same-game 17/18`, a rate it withdraws itself. Its real source
-(`docs/measurements/2026-08-18-combo-book-presence-inseason-result.md`) says
-"the deepest resting order **here** was 18.00 units", scoped by that "here" to
-one run of 11 rows, and every copy downstream dropped the word and promoted it
-to "ever measured". And repo-wide it is wrong by ~38x: the committed captures
-carry resting NO bids of **683, 413, 369, 311, 309 and 300** units.
+    50.88%   true taker bar on baseball (nine fills pin k to (0.03497, 0.03501])
+    51.75%   applied — TAKER_COEFFICIENT stays 0.070 because which attribute
+             carries the split (sport, series, liquidity tier) is unresolved and
+             every k = 0.035 observation sits inside four days
+    50.44%   maker, at size
+    52.38%   a sportsbook
 
-**The entry rate was also being reported backwards, and this is the part that
-reaches a screen.** `33 of those same 40 rows carried a resting NO bid` — 16
-of 20 in E2, 6 of 9 in E3, 11 of 11 on 2026-08-18 — and a resting NO bid *is*
-the ask you buy at. The `3 of 20 / 3 of 9` that circulated as the resting-bid
-rate is the `volume` column: rows that had ever **traded**, a different and
-much rarer thing. `PriceOnKalshi.tsx` told Joe to "expect it to refuse" on
-that conflation while five books in six were quoted.
+Headroom against a sportsbook is **0.63 points, and that is an upper bound**:
+both bars run through `settlement_fee()`, which asserts there is no settlement
+charge (H4), and H4 is untested. ADR 0027, 0028.
 
-**What survives is the exit, and it is untouched:** zero resting YES bids over
-36 levels on 40 of 40 books. A combination is easy to open and may be
-impossible to close at size. That — not a depth of 18 — is why combination
-orders are held to a tighter ceiling, and it is why ADR 0078's hedge exists.
+## What the recorder costs
 
-That last row is why this is a closure and not a pause: **a cost advantage
-multiplies an edge, it cannot create one**, and no quadrant supplied one to
-multiply. `backend/analysis/signal_test.py` remains signal-agnostic and would
-validate a new signal on the same clock — but **no new hunting line is opened
-here.** A proposal to reopen must name which row above it overturns, and with
-what measurement. The recorder keeps running — at the odds-feed cost corrected
-above, not for free.
+The LLM fleet is free — the runner imports `review_retired`
+(`backend/agents/review.py:124`), which refuses every row. **The odds feed is
+not.** It follows attention over an hourly floor (ADR 0071 §2.6): ten-minute
+cadence while a page is open, hourly otherwise for a sport with a fixture
+inside twelve hours, and the attended cadence is tiered by horizon
+(ADR 0111 — ten minutes inside twelve hours, hourly beyond, never dropped).
 
-**The premise, stated honestly:** Kalshi's advantage is cost, not information.
-Prices are accurate to ~2c and sports is the most bot-contested corner of the
-venue. The venue lowers the break-even bar from 52.38% to **51.75%** (taker)
-or 50.44% (maker, at size). It does not clear that bar.
+    idle floor, 4 sports         ~384/day
+    attention, capped            <=300/day   ODDS_ATTENTION_DAILY_CREDITS
+    kickoff windows              UNCAPPED    clusters x 7 calls x 4 credits
+    the only real ceiling         700/day    ODDS_DAILY_CREDIT_BUDGET
 
-**This number has now moved twice, and the history is load-bearing.** It was
-51.75%, corrected to 52.00% on 2026-08-10, and put back to 51.75% on 2026-08-14.
-The correction was not wrong: `calculate_fee` genuinely charged the conservative
-maximum across candidate models, so the applied bar genuinely was higher. **That
-maximum has since been measured and the model it hedged against is refuted** —
-Model B matches 0 of 11 real taker fills. Retiring it returns the applied bar to
-what the published coefficient gives. Headroom is **0.63 points**, not 0.38.
-See `docs/adr/0028-the-fee-hedge-is-retired-and-the-grid-is-deci-cent.md`.
+**The day is safe by the cap, not by construction.** The kickoff-window loop
+(its only gate is `credits_left`, `backend/odds/timing.py:2381`) was 67% of
+September's spend. When the 700 binds, `decide_sweeps` returns `fire=()` and
+**every** sport stops until the next 10:00Z boundary. A full 60-minute window
+is **seven** calls (28 credits a cluster); an NFL Sunday plans 3 clusters, the
+season's worst 4 (`tests/test_sweep_timing.py` pins the seven).
 
-**The bar the code applies still overstates the measured one, deliberately.**
-Nine baseball fills pin `k` to `(0.03497, 0.03501]` — half the coefficient the
-code charges — which would put the bar at **50.88%**. `TAKER_COEFFICIENT` stays
-at 0.070 because *which* attribute carries that split is unresolved (sport,
-series, and a per-market liquidity tier all fit identically) and every
-observation of `k = 0.035` lies inside **four days**, on a venue whose schedule
-demonstrably changed within the preceding six months. So: **50.88% true on
-baseball, 51.75% applied, 52.38% at a sportsbook.**
+The slice is a **ceiling, not an off switch**: past it a sport falls through to
+the floor's hourly timetable, stamped `DESK`, and floor and slice are
+separately capped and additive. Its worst case is a tab left open all day.
+`trigger = 'attention'` in `api_credits` is a **lower bound** on attention
+buying (a kickoff slot can satisfy the cadence first), and a counter that emits
+on a cadence while a condition holds measures the condition's **duration**, not
+its occurrences — attention buys measure dwell. Instruments:
+`scripts/inspect_live_db.py credits-day`, `visit-freshness`, `sweep-log`.
 
-**And 0.63 is an upper bound, not a point figure.** Both bars are computed
-through `settlement_fee()`, a rename of `calculate_fee` asserting *"Settlement
-is not a trade, so there is exactly one fee"*. That is H4, and **H4 is still
-untested**. Settlement `fee_cost` matching the summed fill fees on 4 positions
-is consistent with there being no settlement charge *and* with the field being
-entry-only — separating them needs the account balance. A sportsbook's 52.38%
-has no settlement fee to omit and Kalshi may, so the omission subtracts from the
-0.63 and nothing subtracts from the 52.38. The gap to the 50.88% bar is robust;
-the headroom is not. See
-`docs/adr/0027-the-cost-headroom-is-an-upper-bound-pending-h4.md`.
+**Do not read a stale slate as a broken recorder: check `sweep-log` for a
+refusal before diagnosing anything.** And copy that names a condition to wait
+for is falsified by fixing the condition, so the fix and the copy ship
+together or the screen lies in the interval
+(`test_no_screen_still_tells_him_that_closing_the_page_buys_more`).
+`docs/measurements/2026-09-03-desk-dwell-and-the-watcher-off-switch.md`.
 
-This tool existed to find out whether an edge is there — not to assume one. **It
-found out. The answer was no, and the record of how is the product** (ADR 0038).
-This is a statement about what the **tool** may claim, and it reaches nothing
-Joe does by hand: the gate guards `OrderPlacer` on the *engine* path, and
-`ORDERS_ARE_DRY_RUNS = True` (`backend/store/orders.py:129`) means that path has
-never placed an order at all.
+## What is armed and what is not
 
-**The hand-bet path is armed, and that is not the same door.** Since 2026-08-26
-`MANUAL_ORDERS_ARE_DRY_RUNS = False` (`backend/store/manual_orders.py`) and
-`MANUAL_ORDERS_ENABLED = "true"` on live, so `POST /api/manual-orders` sends
-real immediate-or-cancel orders at Joe's own tap, with his own typed estimate.
+- **Engine path: dry.** `ORDERS_ARE_DRY_RUNS = True` (`backend/store/orders.py:129`).
+  The gate guards `OrderPlacer` on this path and it has never placed an order.
+- **Hand-bet path: armed, and used.** `MANUAL_ORDERS_ARE_DRY_RUNS = False`
+  (`backend/store/manual_orders.py`) since 2026-08-26; `POST /api/manual-orders`
+  sends real immediate-or-cancel orders at Joe's tap with his own typed
+  estimate. First two real fills 2026-09-08 (KXMVE combos, shard 1, ADR 0113).
+  The five brakes are gone (ADR 0112) and **no ceiling of ours bounds a hand
+  bet**; what remains is the desk lockout, idempotency, the KXMVE
+  acknowledgement, the price ceiling, depth at the ask, the netting guard, the
+  shard collateral check (the venue's rule) and reserve-then-check. The buy
+  button agrees with the route as of ADR 0114.
+- **Bid path: disarmed.** `POST /api/parlays/bid` rests an offer; it was
+  disarmed 2026-09-08 on Joe's word (ADR 0115) because he pays the ask and
+  does not make offers. Route, table, watcher and cancel path stay and a dry
+  run records the intent; re-arming is one line. **Do not remove it as dead
+  code.**
+- **`backend/gate.py` never reads `manual_orders`, `parlay_positions` or
+  `parlay_position_legs`** (ADR 0063), so a hand bet cannot move the interlock
+  and arming the hand path did not arm the engine. Do not cite ADR 0018 for
+  this; it decides that arming is a code change, nothing about discretion.
 
-**It has been used. `manual_orders` held 0 rows of any kind for 14 days and
-now holds 2** — both real, both `filled`, 3 and 4 contracts, two KXMVE
-combinations on shard 1, 2026-09-08 19:41Z and 19:42Z, with **zero** rows ever
-written to `manual_order_refusals`. That is a census count and not a test
-(`n = 2`, one sitting), but it ends the state ADR 0105 reasoned from and it
-fired ADR 0113's prediction within hours of the brakes coming off.
+## What it is for — ADR 0071
 
-**"One contract at a time, with his own typed order token" was true until
-2026-09-08 and is now false in both halves.** The token is gone with the other
-four brakes (ADR 0112), and the ceilings are structural only —
-`MANUAL_ORDER_MAX_CONTRACTS = 500`, `COMBO_MAX_CONTRACTS = 250`. **No ceiling
-of ours bounds the size of a hand bet**; what remains is the desk lockout,
-idempotency, the KXMVE acknowledgement, the price ceiling, the depth at the
-ask, the netting guard, the shard collateral check (the **venue's** rule), and
-reserve-then-check.
-
-**The OTHER real-money door is now dry, and the distinction matters.**
-`POST /api/parlays/bid` rests a good-till-cancelled OFFER on a combination. It
-was armed 2026-08-30 and **disarmed 2026-09-08 on Joe's word — "disarm the bid
-path"** (ADR 0115), because he asked for the offer-making controls to be
-removed on 2026-09-06 and the endpoint outlived its UI by two days. So: **he
-pays the ask and does not make offers**, and that is now true in code rather
-than only in a ruling. The route, table, watcher and cancel path all stay, a
-dry run still records the intent, and re-arming is one line — **deleting it
-was an option he did not take**, so do not remove it as dead code.
-
-The buy button was still enforcing the removed caps until
-`ADR 0114` — see that ADR before trusting any
-sentence about what the screen allows.
-
-ADR 0063 built it as a **separate**
-route, table and constant precisely so this sentence stays true: **`gate.py`
-never reads `manual_orders`**, so a hand bet cannot move the live-trading
-interlock's 300-game counter, and arming it did not arm the engine. Anything
-claiming "the tool has never placed an order" without that distinction is
-describing the state before 2026-08-26. See ADR 0073.
-**Do not cite ADR 0018 for this** — it decides that arming is a code change, not
-anything about Joe's discretion; see ADR 0038's sourcing correction.
-
-## What it is for now that the hunt is closed — ADR 0071
-
-ADR 0038 closed the hunt and said nothing about what the tool is *for*
-afterwards, so every session re-derived it. Settled with Joe 2026-08-24, in
-his own answers, and recorded in **ADR 0071 — read it before planning**:
+Settled with Joe 2026-08-24, in his own answers. Read the ADR before planning.
 
 - **A personal betting desk first**, a portfolio repo second, a hunting
-  instrument not at all. Joe bets by hand whether or not this exists; the
-  desk informs and records bets that are happening anyway. It does not
-  manufacture action and does not abstain on his behalf.
+  instrument not at all. Joe bets by hand whether or not this exists; the desk
+  informs and records bets that are happening anyway. It does not manufacture
+  action and does not abstain on his behalf.
 - **Its job at the moment of a bet is price transparency** — what Kalshi
-  charges against what the sharp consensus says it is worth. Chosen by him
-  over "brake the bad bets" and over "just keep a clean record".
+  charges against what the sharp consensus says it is worth.
 - **A per-row fact is transparency; an ordering is a claim.** The
   consensus-vs-Kalshi gap may be *shown* on a row and must never be *ranked
-  by*: `beta = -0.141` means ranking by it puts the least trustworthy rows
-  at the top of the screen. This is the live application of ADR 0038, not an
-  exception to it.
-- **Sharing means someone runs their own copy.** Kalshi's Developer
-  Agreement §3.1 forbids sharing API-derived data with third parties without
-  prior written authorization, so a hosted instance friends can visit is
-  non-compliant; their own instance on their own key is the permitted case.
-  Do not design for hypothetical operators beyond that — ADR 0071 §2.4 takes
-  exactly one step in that direction and no more.
+  by*: `beta = -0.141` means ranking by it puts the least trustworthy rows at
+  the top.
+- **Sharing means someone runs their own copy.** Kalshi's Developer Agreement
+  §3.1 forbids sharing API-derived data with third parties, so a hosted
+  instance friends can visit is non-compliant. Do not design for hypothetical
+  operators beyond ADR 0071 §2.4.
 
-**The desk is a read surface, not a transaction surface — measured 2026-09-04.**
-Between 2026-08-25 and 2026-09-04 Joe placed 27 taker hand fills on Kalshi
-across 12 sittings and 7 budget days, and **zero** went through the tool's
-order path, which has been armed since 2026-08-26. At 8 of the 12 sittings a
-`desk_attention` visit was open within ±5 minutes, the fill landing 1–9
-minutes after the visit opened; a day-shifted permutation puts the chance rate
-at 2.60 of 12 (`p_perm = 0.0004`, `k* = 7`). **The registered verdict is
-UNRESOLVED — CONCENTRATION** — 5 of the 8 come from two budget days and the
-finding does not survive dropping one of them — so **nothing is funded and
-nothing is killed on it** (registration §10). The population is Kalshi taker
-hand fills only; his sportsbook bets are invisible to `fills`, which is why
-ADR 0078 exists. The 0-of-27 is a census count, not a test, and needs none.
-`docs/measurements/2026-09-04-presence-at-the-moment-of-a-bet-result.md`.
+Between 2026-08-25 and 2026-09-04, 0 of Joe's 27 Kalshi taker fills went
+through the tool's armed order path, and his presence on the desk at the
+moment of a bet measured UNRESOLVED — CONCENTRATION, which funds nothing and
+kills nothing (`docs/measurements/2026-09-04-presence-at-the-moment-of-a-bet-result.md`).
+The first two fills through the tool landed 2026-09-08.
 
-**The desk now watches what Joe already holds — ADR 0078.** `/hedge` records a
-parlay he placed (a Kalshi combo or a sportsbook slip), reads its legs' live
-Kalshi prices **while the game is running**, and says what hedging the
-endangered one would do. It is the same job ADR 0071 names — price transparency
-at the moment of a bet — pointed at a bet that already exists, and it closes a
-hole the parlay desk opened: **combos are enter-only in 40 of 40 books this repo
-has read, so a hedge on a leg market is the only exit that exists.**
-
-Three properties to know before touching it:
-
-- **No model, no tokens, no credits.** Kalshi's live in-play price already
-  carries the score and the inning, and it is the price the hedge transacts at,
-  so nothing is fitted. No Anthropic client and no `api_credits` write is
-  reachable from `core/hedge.py`, `hedge.py` or `hedge_watch.py` — asserted over
-  the source with docstrings stripped.
-- **It touches no evidence and no interlock.** No `recommendations` row is
-  written, so `runner`'s `dropped_game_started` drop and ADR 0006's guard are
-  untouched; `gate.py` may never read `parlay_positions` or
-  `parlay_position_legs`, the same boundary `manual_orders` has.
-- **A lock is arithmetic; the timing is not.** With one leg live and the rest
-  won, the figure is exact and is pushed to the phone. With several legs live
-  there is no figure, the screen says so, and nothing is pushed. Neither claims
-  the price will get worse if he waits.
+**`/hedge` watches what Joe already holds — ADR 0078.** It records a parlay he
+placed, reads its legs' live Kalshi prices while the game runs, and says what
+hedging the endangered leg would do — the only exit an enter-only combo has.
+No model, no tokens, no credits (asserted over the source of `core/hedge.py`,
+`hedge.py`, `hedge_watch.py`); no `recommendations` row and no gate read. With
+one leg live the lock is exact and is pushed to the phone; with several there
+is no figure and the screen says so. Neither claims the price will get worse
+if he waits.
 
 ## The three rules everything else follows from
 
@@ -652,11 +280,12 @@ a package from the root. Group with `class Test<Behaviour>`, and name tests
 after the claim they make (`test_maker_is_one_quarter_of_taker`).
 
 **Every guard is verified by disabling it and watching the test fail.** If it
-stays green, it's decoration. Never weaken an assertion to make a test pass.
+stays green, it's decoration — or the mutation missed the guard; run it against
+the pre-fix code too. Never weaken an assertion to make a test pass.
 
 ## Security
 
-This repo is intended to go public and the live instance holds real money.
+This repo is public and the live instance holds real money.
 
 - The Kalshi private key is a Fly secret. Never read, echo, log, or commit it.
   If it ever appears in a transcript, it is compromised — rotate it.
@@ -703,11 +332,7 @@ build steps. See `backend/kalshi/combos.py` and `tasks/lessons.md`.
 
 0. **Invoke the `partner` agent at session start, before planning anything.**
    It owns what gets worked on, in what order, and by whom; this session
-   executes and Joe oversees. **Until 2026-09-01 this file did not mention
-   the partner at all** — zero grep hits — and `tasks/NEXT.md`'s SESSION
-   START box did not name it either, so no session ever invoked it and every
-   session re-derived its own priorities from a 140KB file. Joe asked why,
-   which is how it was found. Give it the state (what is open, what landed,
+   executes and Joe oversees. Give it the state (what is open, what landed,
    what is blocked) and ask for a ranked list plus which items can run as
    parallel lanes. **Skip it only for a single-item errand Joe named
    himself.**
