@@ -58,8 +58,11 @@ What this does NOT do
   `:43` of this docstring, three lines above this list, so it was in the
   author's hand while the exclusions were being written and still got neither a
   rule nor an exclusion. It reached **646,230,016 bytes** and ~64% of the
-  volume's organic growth
-  (`docs/measurements/2026-09-01-the-volume-clock.md`). A rule for it now
+  volume's organic growth **as read on 2026-09-01**
+  (`docs/measurements/2026-09-01-the-volume-clock.md`); **re-read 2026-09-09 it
+  is 1,705,545,728 bytes, 2.64x that, and its family is 47.5% of the whole
+  file** — the figure above is a dated observation and not a current size, which
+  is how it came to read as present tense for eight days. A rule for it now
   exists in `backend/store/fair_price_downsample.py`, registered in
   `docs/measurements/2026-09-01-preregistration-fair-prices-downsample.md` and
   **shipped off**. It is a separate module rather than a fourth prune here

@@ -2,12 +2,48 @@
 
 Why this exists
 ---------------
-`fair_prices` is **646,230,016 bytes** and has **no retention rule**. With
-`idx_fair_link` and `idx_fair_market_computed` its family is 899,887,104 bytes
--- **37.3% of the whole database file** -- and it took **64.4%** of the organic
-growth in the volume clock's 44.4-hour composition window, about **103.9 MB/day**
-at the headline rate if that share holds
-(`docs/measurements/2026-09-01-the-volume-clock.md`, section 5).
+`fair_prices` has **no retention rule**, and every figure below carries the
+instant it was read, because the first version of this docstring carried one
+that went stale by 2.6x in eight days while reading as current.
+
+**Read 2026-09-09 ~19:49Z** (`db-sizes` on live, machine `7812601a239428`):
+
+    fair_prices                 1,705,545,728
+    idx_fair_link                 365,211,648
+    idx_fair_market_computed      339,197,952
+    family                      2,409,955,328   47.5% of the 5,070,802,944 file
+
+**Read 2026-09-01 ~16:30Z** (`docs/measurements/2026-09-01-the-volume-clock.md`,
+section 5), which is what this docstring used to assert as present tense:
+
+    fair_prices                   646,230,016
+    family                        899,887,104   37.3% of the 2,413,142,016 file
+
+So over the 8.138 days between those two reads the table grew **130.2 MB/day**
+and its family **185.6 MB/day**, taking **56.8%** of file growth against the
+64.4% the volume clock projected -- the share held roughly, and the *rate* did
+not.
+
+**The rate is the part that was wrong, and it was wrong in the direction that
+flatters.** The volume clock's headline was **160.23 MB/day on the file alone**.
+Realised over those 8.138 days: **326.6 MB/day**, 2.0x the measured figure. A
+projection taken over a 44.4-hour window was treated as a rate; it was a
+snapshot of one window's composition.
+
+Two consequences, both of which change decisions rather than description:
+
+- **The byte figure this rule is registered against is understated.** The
+  registration reasoned about a 646 MB table. It is 1.71 GB, and the deletable
+  fraction scales with it.
+- **Headroom is measured in weeks, not indefinitely.** The volume was extended
+  10 -> 20 GB on 2026-09-09 (Joe's decision, taken because a VACUUM did not fit
+  in the 4.7 GB then free). At the realised rate the 14 GiB now free is about
+  **46 days**. Extending bought time to decide; it did not remove the question.
+
+`retention.py` mentions the table once, at `:43`, three lines above a "What this
+does NOT do" list that names `odds_snapshots` as deliberately out of scope and
+does not name `fair_prices` at all. The table was in the author's hand while the
+exclusions were being written and still got neither a rule nor an exclusion.
 
 `retention.py` mentions the table once, at `:43`, three lines above a "What this
 does NOT do" list that names `odds_snapshots` as deliberately out of scope and
@@ -163,6 +199,21 @@ CLOSING_LINE_HORIZONS_HOURS: tuple[float, ...] = (
 #: rather than a live `dbstat` read: the estimator was defined before any row
 #: was counted, and a figure that moves with the table would let the same
 #: eligible fraction produce a different verdict on a different day.
+#:
+#: **DO NOT UPDATE THIS NUMBER TO MATCH THE LIVE TABLE.** On 2026-09-09 the
+#: family measured 2,409,955,328 bytes -- 2.68x this -- and changing the
+#: constant to follow it is precisely the contamination the pre-registration
+#: exists to prevent: it would re-scale every byte verdict after the rows were
+#: seen. Raising it requires an amendment to the registration, not an edit here.
+#:
+#: What the divergence *does* mean, and it is a real consequence rather than a
+#: bookkeeping note: `estimated_bytes_freed` is now a **floor**. It multiplies
+#: an eligible fraction by a family 2.68x smaller than the one that exists, so
+#: a dry run reporting "this frees N bytes" is understating by roughly that
+#: factor. A verdict of "not worth arming" computed against this constant is
+#: therefore safe to trust; a verdict of "worth arming" would only get
+#: stronger. Amendment owed either way -- see the module docstring for both
+#: dated reads and the realised growth rate.
 FAIR_PRICE_FAMILY_BYTES = 899_887_104
 
 #: The arming threshold, section 6: 2.00 days of runway at the headline
