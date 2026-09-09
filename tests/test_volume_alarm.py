@@ -26,6 +26,7 @@ What these tests do NOT establish
 from __future__ import annotations
 
 import inspect
+import re
 from datetime import datetime, timezone
 
 import pytest
@@ -38,6 +39,7 @@ from backend.notify.alerts import (
     FAILURE_VOLUME_CRITICAL,
     FAILURE_VOLUME_NOTICE,
     VOLUME_TIER_ALERTS,
+    _volume_tier_alerts,
 )
 from backend.store import db, volume
 
@@ -127,32 +129,60 @@ class TestUnreadableIsNotZero:
 
 
 class TestEachThresholdIsTheNumberOfDaysItClaims:
-    """The comments beside the constants are the justification; pin them.
-
-    Measured rate 161.40 MB/day, `n = 1 day`
-    (`docs/measurements/2026-09-01-the-volume-clock.md` section 3).
+    """A threshold's headroom is the threshold over the configured rate, net
+    figure minus the WAL reserve first. Pinned against the arithmetic, not
+    against a hand-typed number, so a future rate correction does not require
+    editing this file to stay green -- see `TestHeadroomDerivesFromOneConfiguredRate`
+    for the guard that a correction actually *does* flow through everywhere.
     """
 
-    def test_notice_is_about_ten_days_raw_and_nine_net_of_the_wal_reserve(self):
+    def test_notice_headroom_equals_the_threshold_over_the_configured_rate(self):
         r = reading(volume.NOTICE_FREE_BYTES)
-        assert round(r.days_of_headroom, 2) == 9.91
-        assert round(r.days_of_headroom_net_of_wal, 2) == 8.77
+        rate = volume.CURRENT_GROWTH_RATE.bytes_per_day
+        assert r.days_of_headroom == pytest.approx(volume.NOTICE_FREE_BYTES / rate)
+        assert r.days_of_headroom_net_of_wal == pytest.approx(
+            (volume.NOTICE_FREE_BYTES - volume.WAL_RESERVE_BYTES) / rate
+        )
 
-    def test_act_is_about_five_days_raw_and_under_four_net_of_the_wal_reserve(self):
+    def test_act_headroom_equals_the_threshold_over_the_configured_rate(self):
         r = reading(volume.ACT_FREE_BYTES)
-        assert round(r.days_of_headroom, 2) == 4.96
-        assert round(r.days_of_headroom_net_of_wal, 2) == 3.82
+        rate = volume.CURRENT_GROWTH_RATE.bytes_per_day
+        assert r.days_of_headroom == pytest.approx(volume.ACT_FREE_BYTES / rate)
+        assert r.days_of_headroom_net_of_wal == pytest.approx(
+            (volume.ACT_FREE_BYTES - volume.WAL_RESERVE_BYTES) / rate
+        )
 
-    def test_critical_leaves_about_one_burst_night_once_the_wal_is_reserved(self):
+    def test_critical_headroom_equals_the_threshold_over_the_configured_rate(self):
         r = reading(volume.CRITICAL_FREE_BYTES)
-        assert round(r.days_of_headroom, 2) == 2.48
-        assert round(r.days_of_headroom_net_of_wal, 2) == 1.34
+        rate = volume.CURRENT_GROWTH_RATE.bytes_per_day
+        assert r.days_of_headroom == pytest.approx(volume.CRITICAL_FREE_BYTES / rate)
+        assert r.days_of_headroom_net_of_wal == pytest.approx(
+            (volume.CRITICAL_FREE_BYTES - volume.WAL_RESERVE_BYTES) / rate
+        )
 
-    def test_the_live_reading_of_2026_09_01_is_still_above_every_tier(self):
-        """2,592,702,464 bytes free is 16.06 days and alarms nothing yet."""
+    def test_the_current_rate_is_the_2026_09_09_measurement_not_the_2026_09_01_one(self):
+        """Pins the *value* the module ships with today, so a silent revert to
+        the superseded 161.40 MB/day floor -- or a typo in the correction --
+        is caught even though the arithmetic tests above would stay green at
+        any rate.
+
+        326.6 MB/day, measured 2026-09-09 over `n = 8.138 days` on the live
+        volume's `db_kb + wal_kb` footprint: 2.0x the 2026-09-01 `n = 1` floor
+        of 161.40 MB/day.
+        """
+        rate = volume.CURRENT_GROWTH_RATE
+        assert rate.bytes_per_day == pytest.approx(326_600_000)
+        assert rate.measured_on == "2026-09-09"
+        assert rate.window_days == pytest.approx(8.138)
+
+    def test_the_live_reading_of_2026_09_01_is_above_every_tier(self):
+        """2,592,702,464 bytes free classifies OK regardless of the rate --
+        `classify` compares free bytes to a byte threshold and never reads the
+        growth rate at all."""
         r = reading(2_592_702_464)
         assert volume.classify(r.free_bytes) == volume.TIER_OK
-        assert round(r.days_of_headroom, 2) == 16.06
+        rate = volume.CURRENT_GROWTH_RATE.bytes_per_day
+        assert r.days_of_headroom == pytest.approx(2_592_702_464 / rate)
 
     def test_the_wal_reserve_is_the_largest_wal_the_record_has_seen(self):
         """179,731 KiB at 2026-08-31T23:30:14Z, inside the measured burst."""
@@ -166,6 +196,102 @@ class TestEachThresholdIsTheNumberOfDaysItClaims:
         assert thresholds == sorted(thresholds)
         for tier, _ in volume.TIERS:
             assert tier in volume.TIER_SEVERITY
+
+
+class TestHeadroomDerivesFromOneConfiguredRate:
+    """The class this defect needed. `REFERENCE_GROWTH_BYTES_PER_DAY` was
+    measured once (`n = 1 day`, 2026-09-01) and every days-of-headroom figure
+    -- in `VolumeReading`, in the tier comments, in the Discord copy -- was
+    typed against it by hand. Re-measured 2026-09-09 (`n = 8.138 days`) the
+    rate was 2.0x that floor, and NOTICE's stated "leaves about a week"
+    overstated the true headroom by roughly a factor of two, on the one alert
+    whose entire job is telling someone away from a laptop how long they have.
+    The byte thresholds fired exactly where they always fired; only the
+    English lied, silently, in the reassuring direction.
+
+    Every test below is run at a *second*, synthetic rate as well as the
+    configured one, so the claim is "this holds at any growth rate" rather
+    than "this holds at the rate I happened to compute it against" -- the
+    tell this repo's testing convention names for a test whose body only ever
+    constructs one member of the class it claims to generalise over.
+    """
+
+    ALT_RATE = volume.GrowthRate(
+        bytes_per_day=142_000_000.0,
+        measured_on="2026-09-20",
+        window_days=5.0,
+        note="synthetic -- the write-dedupe's projected post-landing rate",
+    )
+
+    @pytest.mark.parametrize("rate", [volume.CURRENT_GROWTH_RATE, ALT_RATE])
+    def test_tier_headroom_days_matches_threshold_over_rate_net_of_wal(self, rate):
+        headroom = volume.tier_headroom_days(rate)
+        for tier, threshold in volume.TIERS:
+            raw, net = headroom[tier]
+            assert raw == pytest.approx(threshold / rate.bytes_per_day)
+            assert net == pytest.approx(
+                (threshold - volume.WAL_RESERVE_BYTES) / rate.bytes_per_day
+            )
+
+    @pytest.mark.parametrize("rate", [volume.CURRENT_GROWTH_RATE, ALT_RATE])
+    def test_volumereading_headroom_agrees_with_tier_headroom_days_at_the_boundary(
+        self, rate, monkeypatch
+    ):
+        """`VolumeReading.days_of_headroom` reads the *module* constant, so
+        this pins it equal to `tier_headroom_days()` computed at the same
+        rate rather than asserting two independently-typed numbers agree by
+        coincidence."""
+        monkeypatch.setattr(volume, "CURRENT_GROWTH_RATE", rate)
+        for tier, threshold in volume.TIERS:
+            r = reading(threshold)
+            raw, net = volume.tier_headroom_days(rate)[tier]
+            assert r.days_of_headroom == pytest.approx(raw)
+            assert r.days_of_headroom_net_of_wal == pytest.approx(net)
+
+    DURATION_RE = re.compile(r"(\d+(?:\.\d+)?)\s*days")
+
+    @pytest.mark.parametrize("rate", [volume.CURRENT_GROWTH_RATE, ALT_RATE])
+    def test_every_duration_in_the_tier_guidance_matches_what_the_rate_delivers(
+        self, rate
+    ):
+        """The guard the ticket asked for: a duration named in the alert copy
+        that the byte threshold cannot actually deliver at the configured
+        rate is exactly the 2x-optimistic defect this module was rebuilt to
+        remove. `notice`'s comment used to read "about a week" while the
+        threshold delivered 4.9 days -- this fails on that gap directly by
+        recomputing the true figure and diffing it against every number the
+        copy states, rather than trusting the copy told the truth.
+        """
+        headroom = volume.tier_headroom_days(rate)
+        for tier, (_, guidance) in _volume_tier_alerts(rate).items():
+            raw, net = headroom[tier]
+            durations = [float(m.group(1)) for m in self.DURATION_RE.finditer(guidance)]
+            assert durations, f"{tier} guidance states no duration to check"
+            for stated in durations:
+                assert stated == pytest.approx(raw, abs=0.06) or stated == pytest.approx(
+                    net, abs=0.06
+                ), (
+                    f"{tier} guidance states {stated} days at rate "
+                    f"{rate.bytes_per_day / 1_000_000:.1f} MB/day, but the "
+                    f"threshold delivers {raw:.2f} raw / {net:.2f} net"
+                )
+
+    def test_correcting_the_rate_changes_the_guidance_text_without_touching_it(self):
+        """Proves the copy is *derived*, not generated once and pasted in: two
+        different rates must not produce the same sentence.
+        """
+        default_notice = _volume_tier_alerts(volume.CURRENT_GROWTH_RATE)[
+            volume.TIER_NOTICE
+        ][1]
+        alt_notice = _volume_tier_alerts(self.ALT_RATE)[volume.TIER_NOTICE][1]
+        assert default_notice != alt_notice
+
+    def test_volume_tier_alerts_is_built_from_the_configured_rate_at_import(self):
+        """`VOLUME_TIER_ALERTS`, the module-level constant `check_volume`
+        actually reads, must be exactly what calling the builder against
+        today's `CURRENT_GROWTH_RATE` produces -- not a second, independently
+        maintained copy of the same text."""
+        assert VOLUME_TIER_ALERTS == _volume_tier_alerts(volume.CURRENT_GROWTH_RATE)
 
 
 class TestClassifyPutsEachReadingInOneTier:

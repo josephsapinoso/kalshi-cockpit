@@ -11,22 +11,37 @@ nothing on this box can fix it, so the only thing worth building is the thing
 that tells someone in time.
 
 `docs/measurements/2026-09-01-the-volume-clock.md` puts the fill at about
-2026-09-17, at 161.40 MB/day against 2,592,702,464 bytes free.
+2026-09-17, at 161.40 MB/day against 2,592,702,464 bytes free. That was
+`n = 1 day` -- one 24-hour window, one MLB evening slate, one growth burst --
+and §6 of that document says the line is a **floor rather than a centre**:
+NCAAF and NFL enter the feed with no config change
+(`backend/kalshi/discovery.py:237-238`), and an NFL Sunday is a ~10-hour
+in-play window against MLB's ~4.
 
-**It fires on free bytes, never on that date, and the reason is the date's own
-caveat.** The rate is `n = 1 day` -- one 24-hour window, one MLB evening slate,
-one growth burst -- and §6 of that document says the line is a **floor rather
-than a centre**: NCAAF and NFL enter the feed with no config change
-(`backend/kalshi/discovery.py:237-238`), and an NFL Sunday is a ~10-hour in-play
-window against MLB's ~4. A projected date built on that rate inherits every one
-of its unknowns. Free bytes inherit none of them: `statvfs` is a measurement of
+**That rate has already been superseded once, which is the reason this module
+now has exactly one place to correct it rather than several.** Re-measured
+2026-09-09 over `n = 8.138 days` on the live volume, the realised rate was
+326.6 MB/day -- 2.0x the 2026-08-01 floor. `CURRENT_GROWTH_RATE` below is that
+number, carrying its own measurement date and `n` so a future reader does not
+have to trust a bare float. **When it next moves -- the `fair_prices`
+write-dedupe landing in another lane is expected to cut it to roughly
+142 MB/day by removing ~99.7% of that table's rows -- correcting it here is
+the whole fix.** Every days-of-headroom figure this module computes and every
+duration `notify/alerts.py` puts in front of Joe is derived from this one
+constant at import time; none of them are typed twice.
+`tests/test_volume_alarm.py::TestHeadroomDerivesFromOneConfiguredRate` pins
+that derivation and fails if a duration is ever hand-typed back in instead.
+
+**It fires on free bytes, never on a projected date, and the reason is the
+rate's own caveat.** A projected date built on the rate inherits every one of
+its unknowns. Free bytes inherit none of them: `statvfs` is a measurement of
 the present, and the threshold is a comparison rather than a model.
 
 The rate is still used, but only in one direction: to *express* a threshold in
 days so the choice of number can be argued with. If the rate is wrong the
-thresholds still fire at the free-byte level they name; only the sentence
-"about nine days" is wrong, and it is wrong in the direction of firing too
-early, because the measured rate is a floor.
+thresholds still fire at the free-byte level they name; only the stated
+duration is wrong, and correcting `CURRENT_GROWTH_RATE` is what fixes it
+everywhere it is quoted.
 
 What this does NOT establish
 ----------------------------
@@ -37,7 +52,8 @@ What this does NOT establish
   threshold below is quoted twice for that reason: once on raw free space and
   once net of that reserve.
 - **It does not measure a rate.** One `statvfs` is a level. The days-of-headroom
-  figures are that level divided by a rate measured elsewhere, on one day.
+  figures are that level divided by `CURRENT_GROWTH_RATE`, which is measured
+  elsewhere and only configured here.
 - **It says nothing about what to delete.** It reports; it never deletes, and
   nothing here is wired to anything that does. An automatic deletion fired by a
   disk alarm is a guard that goes off at the worst possible moment -- see
@@ -57,13 +73,49 @@ logger = logging.getLogger(__name__)
 #: The live volume's mount point (`fly.live.toml:556`).
 DEFAULT_ROOT = "/data"
 
-#: The measured growth rate, 2026-09-01, on the `db_kb + wal_kb` footprint over
-#: one clean 24-hour window. **`n = 1 day.`** Decimal MB, matching the source
-#: document: 161.40 MB/day.
+
+@dataclass(frozen=True)
+class GrowthRate:
+    """A growth-rate measurement, carrying the provenance that makes it
+    arguable rather than a bare float.
+
+    **This is the shape a correction takes.** `bytes_per_day` alone is a
+    number nobody can audit; `measured_on` and `window_days` are what let a
+    future reader ask "how many nights was that" before trusting it -- the
+    same question §6 of the volume clock asks of the 2026-09-01 figure this
+    one superseded.
+    """
+
+    bytes_per_day: float
+    measured_on: str
+    window_days: float
+    note: str
+
+
+#: The rate the module's whole day-of-headroom arithmetic runs on, and the
+#: **one place** to correct it. Every duration this module computes, and every
+#: duration `notify/alerts.py`'s volume-tier guidance states, is derived from
+#: this constant at import time -- see `tier_headroom_days()` below and
+#: `alerts._volume_tier_alerts()`. Changing the number here is the whole fix;
+#: nothing else needs to change and nothing else should be hand-edited to
+#: match it.
 #:
-#: Used only to translate a byte threshold into a number of days for the comment
-#: beside it and for the alert copy. Nothing branches on it.
-REFERENCE_GROWTH_BYTES_PER_DAY = 161_400_000
+#: Measured 2026-09-09 on the live volume's `db_kb + wal_kb` footprint over
+#: `n = 8.138 days`: 326.6 MB/day, 2.0x the 2026-08-01 `n = 1` floor of
+#: 161.40 MB/day (`docs/measurements/2026-09-01-the-volume-clock.md`), which
+#: this supersedes. Expected to move again -- another lane's `fair_prices`
+#: write-dedupe is projected to cut realised growth to roughly 142 MB/day by
+#: removing ~99.7% of that table's rows -- and when it does, this is the only
+#: line that needs editing.
+CURRENT_GROWTH_RATE = GrowthRate(
+    bytes_per_day=326_600_000.0,
+    measured_on="2026-09-09",
+    window_days=8.138,
+    note=(
+        "db_kb + wal_kb footprint, realised growth on the live volume; "
+        "supersedes the 2026-09-01 n=1 measurement of 161.40 MB/day."
+    ),
+)
 
 #: The largest WAL this record has ever seen: 179,731 KiB at
 #: 2026-08-31T23:30:14Z, inside the measured burst, on a `TRUNCATE` checkpoint
@@ -77,35 +129,40 @@ TIER_NOTICE = "notice"
 TIER_ACT = "act"
 TIER_CRITICAL = "critical"
 
-#: 9.91 days of raw headroom at the reference rate; **8.77 days** once
-#: `WAL_RESERVE_BYTES` is taken out.
-#:
 #: Chosen so the alarm reaches a person who is *away*. The repair is a laptop
 #: command, so the useful question is not "how long until it breaks" but "how
-#: long until someone is next in front of a laptop", and a week plus a day and a
-#: half of slack is the honest answer to that. It is also the tier that fires
-#: **early if the rate doubles**: NCAAF and NFL enter the feed on the sports
-#: calendar rather than on a deploy, and a doubled rate reaches this level in
-#: half the nominal time while still leaving four days.
+#: long until someone is next in front of a laptop". It is also the tier that
+#: fires **early if the rate doubles**: NCAAF and NFL enter the feed on the
+#: sports calendar rather than on a deploy.
+#:
+#: **The exact days-of-headroom this threshold buys are not restated here.**
+#: They move every time `CURRENT_GROWTH_RATE` is corrected, and a number typed
+#: beside this constant would go stale silently the next time that happens --
+#: which is the defect this module was rebuilt to remove. Call
+#: `tier_headroom_days()[TIER_NOTICE]` for the current `(raw, net)` figure, or
+#: read the value `notify/alerts.py` puts in front of Joe, which is the same
+#: computation.
 NOTICE_FREE_BYTES = 1_600_000_000
 
-#: 4.96 days raw; **3.82 days** net of the WAL reserve.
-#:
 #: Below this the straight line stops being a comfort. §6 of the volume clock
 #: names two ways the rate rises inside a five-day span and none by which it
 #: falls before the fill date -- MLB's regular season ends after every date in
-#: the table, and the postseason follows it. Five days is about one football
-#: weekend plus the working days either side of it, so this is the last tier at
-#: which "extend it when convenient" is still a true sentence.
+#: the table, and the postseason follows it.
+#:
+#: See `tier_headroom_days()[TIER_ACT]` for the current days-of-headroom this
+#: threshold buys; not restated here for the reason given beside
+#: `NOTICE_FREE_BYTES`.
 ACT_FREE_BYTES = 800_000_000
 
-#: 2.48 days raw; **1.34 days** net of the WAL reserve -- which is to say, one
-#: burst night of actual runway.
-#:
-#: Four hours of in-play carried 99.51% of the measured day, the largest single
-#: hour 34.90% (53.88 MiB). At this level a single evening slate can take the
-#: rest, and the reserve is what stands between the last write and a hard down.
+#: Four hours of in-play carried 99.51% of the measured 2026-09-01 burst day,
+#: the largest single hour 34.90% (53.88 MiB) -- a fact about how bursty a
+#: slate is, not about the configured rate, so it does not go stale when the
+#: rate is corrected. At this level a single evening slate can take the rest,
+#: and the reserve is what stands between the last write and a hard down.
 #: This is the tier that means: stop what you are doing and extend the volume.
+#:
+#: See `tier_headroom_days()[TIER_CRITICAL]` for the current days-of-headroom
+#: this threshold buys.
 CRITICAL_FREE_BYTES = 400_000_000
 
 #: Descending, because `classify` walks it and returns the first match. Kept as
@@ -120,6 +177,35 @@ TIERS: tuple[tuple[str, int], ...] = (
 #: Loudest first. The alerter uses this to decide which single tier to send when
 #: several are crossed at once.
 TIER_SEVERITY = (TIER_CRITICAL, TIER_ACT, TIER_NOTICE, TIER_OK)
+
+
+def tier_headroom_days(
+    rate: GrowthRate = CURRENT_GROWTH_RATE,
+) -> dict[str, tuple[float, float]]:
+    """`{tier: (raw_days, net_of_wal_days)}` at `rate`, defaulting to the
+    configured `CURRENT_GROWTH_RATE`.
+
+    **This is the single source of every duration anyone states about the
+    volume alarm.** `notify/alerts.py` builds its Discord copy by calling this
+    -- not by having its own opinion of how many days a tier buys -- so a
+    correction to `rate` reaches the phone without a second edit. The
+    docstrings beside `NOTICE_FREE_BYTES`, `ACT_FREE_BYTES` and
+    `CRITICAL_FREE_BYTES` point here rather than hand-typing a figure for the
+    same reason.
+
+    Takes `rate` as a parameter, rather than only reading the module constant,
+    so the arithmetic itself -- "a threshold's headroom is the threshold
+    divided by the rate, net figure minus the WAL reserve first" -- can be
+    exercised at a rate other than today's and shown to hold generally. See
+    `tests/test_volume_alarm.py::TestHeadroomDerivesFromOneConfiguredRate`.
+    """
+    return {
+        tier: (
+            threshold / rate.bytes_per_day,
+            (threshold - WAL_RESERVE_BYTES) / rate.bytes_per_day,
+        )
+        for tier, threshold in TIERS
+    }
 
 
 @dataclass(frozen=True)
@@ -150,13 +236,15 @@ class VolumeReading:
 
     @property
     def days_of_headroom(self) -> float:
-        """Free bytes at the reference rate. **`n = 1 day`, and a floor.**"""
-        return self.free_bytes / REFERENCE_GROWTH_BYTES_PER_DAY
+        """Free bytes at `CURRENT_GROWTH_RATE`. Moves when that constant does."""
+        return self.free_bytes / CURRENT_GROWTH_RATE.bytes_per_day
 
     @property
     def days_of_headroom_net_of_wal(self) -> float:
         """The same, less the largest WAL the record has seen. Can be negative."""
-        return (self.free_bytes - WAL_RESERVE_BYTES) / REFERENCE_GROWTH_BYTES_PER_DAY
+        return (
+            (self.free_bytes - WAL_RESERVE_BYTES) / CURRENT_GROWTH_RATE.bytes_per_day
+        )
 
     def as_dict(self) -> dict:
         return {
