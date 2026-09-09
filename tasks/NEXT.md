@@ -321,10 +321,35 @@ capture or the scan denominator is lost.
 
 **Joe-gated — two, and both have a Sunday deadline:**
 
-- **(A)** The NFL single-game arm for the census, above. `DISCOVERY_SERIES`
-  cannot see `KXMVENFLSINGLEGAME`, so the primary arm reaches NFL only through
-  cross-game legs. A `scripts/`-only change before **2026-09-13 00:00Z** would
-  add it. Worth it?
+- ~~**(A)** The NFL single-game arm for the census?~~ **ANSWERED YES
+  2026-09-09 and DONE.** `--series` on
+  `scripts/measure_combo_book_presence.py`, repeatable, `scripts/`-only.
+  `DISCOVERY_SERIES` is deliberately **not** moved — every book in the 40-row
+  census came from those two and Arm A's comparability depends on it. The JSON
+  now stamps `series_read` / `default_series`, and a named series returning no
+  open rows **aborts** rather than reporting an empty rate. Both NFL series
+  return HTTP 200 on `/series` with 0 open rows midweek, so the tickers are
+  right and their availability on the day is the thing Arm C tests.
+
+- **(C) NEW, and it outranks Arm C — does Sunday also read shard 1?**
+  Probing to confirm the Arm C tickers turned up something bigger.
+  **`KXMVECROSSCATEGORY-SHARD1` is a separate series with 1,000 open rows and
+  is not in `DISCOVERY_SERIES`**; `series_ticker=KXMVECROSSCATEGORY` returns
+  only non-shard tickers. Across all three recorded runs (20 + 9 + 11 rows),
+  **`SHARD1` tickers number zero** — and **every one of Joe's ~50 real
+  combination fills is `KXMVECROSSCATEGORY-SHARD1-*`**.
+
+  So "no combination book read here has carried a YES bid" — the sentence
+  gating the warning before every combo tap, and underwriting ADR 0073's
+  ceiling and ADR 0078's hedge — was measured on a population he does not
+  trade. Not false; **narrower in scope than the screens imply, and the gap is
+  exactly where his money is.**
+
+  Runnable: 13 of 1,000 midweek shard rows are eligible under the unmodified
+  §2 rule, and the `--series` flag already does it with no further code. It
+  needs a **registration amendment before 2026-09-13**, because adding an arm
+  after the data is the move the registration forbids by name. Recorded in the
+  registration's §1 before any data. **Add a shard arm to Sunday?**
 - ~~**(B)** Deploy to live?~~ **ANSWERED YES 2026-09-09 and DONE.** Live is on
   `8755de6`, verified in the container. **Still unobserved: the wiring firing
   on a real fill.** Nothing has bought a combination through the desk since it
