@@ -268,6 +268,26 @@ taker rate. All 7 taker MLB rows sit at 0.035 as expected.
 **Still unobserved: the alarm firing.** Nothing has made it fire against a
 live fill, and by design nothing should until the schedule moves.
 
+### Live is on `5664e24` and the signer was proved against the exchange
+
+Deployed 2026-09-09 on Joe's word, machine `7812601a239428` (unchanged, no
+volume replaced). **Verified in the running container, not from the deploy
+output:** `cryptography` **50.0.1**, where the identical read returned
+**44.0.3** minutes earlier, on OpenSSL **4.0.2**.
+
+**Then Kalshi was made the judge.** One authenticated read-only
+`GET /portfolio/balance` on shards 0 and 1, from inside the container, using
+the app's own credentials borrowed off its child process: **the signature was
+accepted on both.** That is the check nothing in this repo can perform, because
+every test signs and verifies inside our own process -- only the exchange can
+say the wire bytes are still right. No order, no write, no key printed.
+
+Money doors re-read after the deploy, unchanged: `manual_orders` **false
+(ARMED)**, `combo_bids` true, `engine_orders` true. Recorder writing.
+
+**So the six `cryptography` advisories are closed ON THE BOX, not just in the
+repo.** `main` and live are the same commit.
+
 ### Joe answered B, C and D on 2026-09-09 and all three are closed
 
 **(D) The four stale remote branches are DELETED.** `origin` now carries only

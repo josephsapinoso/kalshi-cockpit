@@ -107,11 +107,24 @@ by making the target version correct.
   advisory established as unreachable here. It touches no money path and has
   its own owner; not smuggled in behind a security bump, which is the mistake
   ADR 0117 explicitly refused to make in the other direction.
-- **Whether the deployed instance runs this yet.** The pin is a repo change;
-  live still runs the image built from the previous one until a deploy. Read
-  the version out of the container, not the deploy output — that is how the
-  `next`/`sharp` fixes were confirmed (ADR 0117) and it is the only check that
-  has ever been trusted here.
+- ~~Whether the deployed instance runs this yet.~~ **DEPLOYED AND VERIFIED
+  THE SAME DAY.** Live is `5664e24` on machine `7812601a239428` (unchanged,
+  no volume replaced). Read out of the RUNNING CONTAINER rather than from
+  the deploy output: **`cryptography` 50.0.1**, where the identical read
+  returned **44.0.3** minutes earlier, on **OpenSSL 4.0.2** -- which also
+  retires `GHSA-537c-gmf6-5ccf`, the statically linked OpenSSL.
+
+  **And the exchange was made the judge.** One authenticated, read-only
+  `GET /portfolio/balance` on shards 0 and 1, from inside the container,
+  with the app's own credentials: **the signature was accepted on both.**
+  That is the check nothing in this repo can perform -- every test signs
+  and verifies inside our own process, so only Kalshi can say the wire
+  bytes are still right. No order, no write; the private key was never
+  printed or copied, only borrowed from the child process Fly injects it
+  into (the `flyctl ssh` shell does not carry it, and neither does pid 1).
+
+  Money doors re-read after the deploy and unchanged: `manual_orders`
+  false (ARMED), `combo_bids` true, `engine_orders` true.
 - **Anything about `cryptography`'s other APIs.** This repo uses exactly
   `load_pem_private_key` and `sign(PSS(MGF1(SHA256)))`. Six of the seven
   advisories were in X.509, PKCS#7 and EC paths this code never touches, which
