@@ -500,20 +500,6 @@ class TestTheReadRoutes:
         assert len(payload["estimates"]) == 1
         assert set(payload["estimates"][0]) == SAFE_KEYS
 
-    async def test_market_search_finds_by_title_and_serves_no_price(self, db_path):
-        response = await _request(
-            _app(db_path), "GET", "/api/estimates/markets", params={"q": "Seattle"}
-        )
-        payload = response.json()
-        assert [m["ticker"] for m in payload["markets"]] == [TICKER]
-        _assert_embargo_holds(payload)
-
-    async def test_a_one_character_query_returns_nothing(self, db_path):
-        response = await _request(
-            _app(db_path), "GET", "/api/estimates/markets", params={"q": "S"}
-        )
-        assert response.json() == {"markets": []}
-
 
 class TestRevisingOverTheApi:
     async def test_the_flow(self, db_path):

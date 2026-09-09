@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException
 from starlette.concurrency import run_in_threadpool
 
 from ... import estimates as bet_estimates
@@ -64,28 +64,22 @@ def register(
     get_conn,
     require_auth,
 ) -> None:
-    """Attach the ten estimate and desk handlers to `app`, in their original
-    order."""
+    """Attach the nine estimate and desk handlers to `app`, in their original
+    order.
+
+    Was ten until 2026-09-09: `/api/estimates/markets` deleted, see below.
+    """
 
     # -- the calibration bet log (registration 2026-08-17, as amended) -------
 
-    @app.get("/api/estimates/markets")
-    def estimate_market_search(
-        q: str = Query(default="", max_length=80), conn=Depends(get_conn)
-    ) -> dict:
-        """The one-tap picker's search. Serves no prices, by construction.
-
-        `search_markets` selects no quote column, so this route cannot leak
-        the number the anchoring tripwires exist to measure.
-        """
-        query = q.strip()
-        if len(query) < 2:
-            return {"markets": []}
-        return {
-            "markets": bet_estimates.search_markets(
-                conn, query, now_ms=db.now_ms()
-            )
-        }
+    # `/api/estimates/markets` was deleted 2026-09-09. It was a second route
+    # over `bet_estimates.search_markets` -- the exact query `/api/manual/search`
+    # (`backend/api/routes.py`) already serves, and reaches: `MarketSearch.tsx`
+    # calls `searchManualMarkets`, and nothing frontend called this one. Its
+    # only referrers were `tests/test_estimates.py`, deleted with it. Two
+    # routes over one function with only one reached is how a masking fix
+    # gets applied to the reached one and silently missed on this one --
+    # see `docs/adr/DRAFT-the-last-scored-call-gets-a-caller.md` section 3.
 
     @app.get("/api/estimates/recent")
     def estimate_recent(conn=Depends(get_conn)) -> dict:
