@@ -92,6 +92,9 @@ from .. import parlays
 from ..parlays import (
     COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID,
     COMBO_EXIT_CENSUS_BOOKS_READ,
+    COMBO_EXIT_CENSUS_SERIES,
+    COMBO_EXIT_CENSUS_SHARD_BOOKS_READ,
+    COMBO_EXIT_CENSUS_SHARD_SERIES,
     scouting_facts,
 )
 from ..portfolio_poll import log_poll_attempt, store_positions_snapshot
@@ -3162,14 +3165,32 @@ def create_app(
             # combo_note_is_typed_rather_than_sourced`, which parses this
             # module rather than reading the rendered string, because
             # `str(40) in note` passes just as happily on a typed digit.
+            # The SCOPE clause is required by the 2026-09-13 registration
+            # §12.4 and lands before that run rather than after it. The
+            # sentence above it is true and correctly sourced; what was wrong
+            # is the scope a reader supplies while tapping a shard-1
+            # combination, which those 40 books contain zero of. No sourcing
+            # guard could catch it -- not a digit is wrong -- and waiting for
+            # the measurement would leave the screen making an unscoped claim
+            # during the run that scopes it.
+            #
+            # It says what was read and what was not, and stops. It must not
+            # imply the shard WAS measured, and equally must not imply it is
+            # DIFFERENT: nothing has been measured there either way, and
+            # §11.3 forbids the screens hinting in either direction.
             "combo_note": (
                 f"Every combination book this repo has ever read had no YES "
                 f"bid — {COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID} of "
                 f"{COMBO_EXIT_CENSUS_BOOKS_READ}, across three runs on two "
-                f"dates. You can enter this and you cannot exit it: the only "
-                f"way out is the outcome. The fee is priced through a hedged "
-                f"coefficient because the measured model undercharges on "
-                f"combos, so the cost shown is a ceiling and not a quote."
+                f"dates. All of them were "
+                f"{' and '.join(COMBO_EXIT_CENSUS_SERIES)}; "
+                f"{COMBO_EXIT_CENSUS_SHARD_BOOKS_READ} were on "
+                f"{COMBO_EXIT_CENSUS_SHARD_SERIES}, so nothing is known "
+                f"either way about that shard. You can enter this and you "
+                f"cannot exit it: the only way out is the outcome. The fee is "
+                f"priced through a hedged coefficient because the measured "
+                f"model undercharges on combos, so the cost shown is a "
+                f"ceiling and not a quote."
                 if _is_combo(quote.ticker)
                 else None
             ),

@@ -182,6 +182,26 @@ COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID = (
     COMBO_EXIT_CENSUS_BOOKS_READ - COMBO_EXIT_CENSUS_BOOKS_WITH_YES_BID
 )
 
+#: The two series all 40 books came from, and the one they did not.
+#:
+#: **Constants rather than literals in the copy for a reason the guard forces:**
+#: `test_no_census_number_in_the_combo_note_is_typed_rather_than_sourced` and
+#: its sibling on the bid route refuse ANY bare integer in those strings, and
+#: `KXMVECROSSCATEGORY-SHARD1` carries a `1`. Sourcing the name is therefore
+#: not decoration -- typing it would either trip the guard or force someone to
+#: weaken it, and weakening it is how "40 of 40" survived eleven days after the
+#: entry half was refuted.
+#:
+#: `..._SHARD_BOOKS_READ` is the number that makes the scope sentence true and
+#: is the one to change: the day a shard book is read, it moves and the copy
+#: moves with it. It is **not** a claim that the shard is different -- nothing
+#: has been measured there, and the registration (§11.3) forbids the screens
+#: implying either direction. Registered for 2026-09-13 as Arm D, which is the
+#: PRIMARY arm of that run.
+COMBO_EXIT_CENSUS_SERIES = ("KXMVESPORTSMULTIGAMEEXTENDED", "KXMVECROSSCATEGORY")
+COMBO_EXIT_CENSUS_SHARD_SERIES = "KXMVECROSSCATEGORY-SHARD1"
+COMBO_EXIT_CENSUS_SHARD_BOOKS_READ = 0
+
 NOTES: dict[str, str] = {
     "chance": (
         "Chance every leg hits, by the books' consensus — not an edge. A "

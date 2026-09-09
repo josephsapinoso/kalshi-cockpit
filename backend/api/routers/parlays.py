@@ -34,6 +34,9 @@ from ...list_filters import MAX_WITHIN_HOURS, FilterRefused, parse_list_filter
 from ...parlays import (
     COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID,
     COMBO_EXIT_CENSUS_BOOKS_READ,
+    COMBO_EXIT_CENSUS_SERIES,
+    COMBO_EXIT_CENSUS_SHARD_BOOKS_READ,
+    COMBO_EXIT_CENSUS_SHARD_SERIES,
     LookupRefused,
     DEFAULT_HORIZON,
     HORIZONS,
@@ -312,6 +315,12 @@ def register(
             # unchanged, because the 2026-09-06 parlay census measured ENTRY.
             # Pinned by `test_no_census_number_in_the_bid_refusal_is_typed`,
             # which reads this source rather than the rendered string.
+            # The scope clause is the same fix as the buy ticket's
+            # `combo_note`, landed on BOTH surfaces in one commit and for the
+            # reason the registration gives (§12.4): correcting one and not
+            # the other reproduces the original defect on the surface nobody
+            # looks at. Sourced, never typed -- `SHARD1` carries a digit and
+            # the guard below refuses bare integers.
             raise HTTPException(
                 status_code=422,
                 detail=(
@@ -319,7 +328,11 @@ def register(
                     f"repo has read had no YES bid on the other side, "
                     f"{COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID} of "
                     f"{COMBO_EXIT_CENSUS_BOOKS_READ}, "
-                    f"so the only exit is the outcome. The fee model is "
+                    f"so the only exit is the outcome. All of those books were "
+                    f"{' and '.join(COMBO_EXIT_CENSUS_SERIES)}; "
+                    f"{COMBO_EXIT_CENSUS_SHARD_BOOKS_READ} were on "
+                    f"{COMBO_EXIT_CENSUS_SHARD_SERIES}, so nothing is known "
+                    f"either way about that shard. The fee model is "
                     f"unverified (ADR 0046). Send `combo_acknowledged` only if "
                     f"that is understood."
                 ),

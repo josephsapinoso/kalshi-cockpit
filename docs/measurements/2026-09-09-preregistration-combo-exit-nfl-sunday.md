@@ -18,6 +18,21 @@ fixed here so a null has somewhere to be written).
 evidence about edge), ADR 0012 §5's combo fee model (still unverified), ADR
 0015 (the gate's floor), or anything under `backend/odds/` (§8).
 
+> **AMENDMENT 1, 2026-09-09 — a fourth arm, on the shard Joe actually trades,
+> and it takes the headline.** Recorded the same day this document was
+> registered, still four days before the run, and **before any book is read**.
+> It adds **Arm D** (`KXMVECROSSCATEGORY-SHARD1`) and moves the headline of the
+> result document to it. It does **not** edit §2's Arm A, §5's multiplicity
+> count, §6's rules for Arm A, or §7's clock — all four stand exactly as
+> written. Full text is **§11**, at the end; the reason it exists is §1's
+> `FOUND 2026-09-09` block. **Nothing above this line has been changed.**
+>
+> **AMENDMENT 2, 2026-09-09 (same day, still before any data)** fixes Arm
+> D's population to the one literal series that exists, records the
+> newest-first truncation and its sampling consequence, and rules on the
+> scope correction §11.10 held open. It is **§12**.
+
+
 ---
 
 ## 0. The power check, which comes before everything else
@@ -125,6 +140,14 @@ A shard arm is runnable: of 1,000 open `KXMVECROSSCATEGORY-SHARD1` rows on a
 midweek probe, all 1,000 carry `mve_selected_legs` and **13 carry a readable
 ask** — eligible under this document's unmodified §2 rule. (A 1.3% quote rate,
 consistent with combinations being unquoted at rest.)
+
+> **SUPERSEDED THE SAME DAY, still before any data — see §11.** The paragraph
+> below said *"No arm is added here"*, and that was true when written: it was
+> written to record the finding without letting the finder choose the response.
+> Joe then approved a shard arm, and **Amendment 1 adds Arm D and makes it the
+> primary arm.** The paragraph is kept rather than edited, because the whole
+> point of the sentence was that the decision was taken separately from the
+> discovery, and deleting it would erase the evidence that it was.
 
 **No arm is added here.** Adding one is a decision, it needs its own capture
 budget, and this document's own §2 forbids changing the population after the
@@ -428,3 +451,446 @@ answer. The five JSON artifacts and five stdout logs are committed beside it
 even in the ABORTED-THIN branch, because a thin day is itself a fact about the
 product on an NFL Sunday and is the kind of result that otherwise never gets
 written down.
+
+---
+
+## 11. Amendment 1 — Arm D, the shard arm
+
+**Written 2026-09-09, after §1's `FOUND 2026-09-09` block and before any book is
+read on or after this date.** Approved by Joe. Read §1's finding first; it is
+not repeated here.
+
+Nothing in §§0–10 is edited. Where this amendment and the original text differ,
+the difference is stated below rather than made by deletion, so the
+pre-amendment state stays readable and so a later reader can see which
+population the document was written against and which one it ended up leading
+with.
+
+### 11.1 Identity, and the rank — the tension is real and is resolved, not split
+
+**Arm D reads `KXMVECROSSCATEGORY-SHARD1`, the series every one of Joe's ~50
+real combination fills sits in, and which no run in this repo's record has ever
+read a single book from.**
+
+**Arm D is the primary arm. It takes the headline of the result document. Arm A
+is demoted to the comparison arm.**
+
+The tension is genuine, so here is the argument rather than a hedge. Arm A is
+the only arm comparable to the 0-of-40 baseline; Arm D is the only arm whose
+population is the one the warning is *applied* to. Both cannot lead. Arm D
+leads for one reason, and it is decided by §0's own arithmetic rather than by
+which population feels more important:
+
+> **Arm A's unique contribution — comparability to 0 of 40 — is a contribution
+> to the branch that §0 already proved cannot conclude anything.** The
+> confirming direction is unfixable at any reachable `n`; the rate comparison is
+> therefore ornamental. Arm A's *falsifying* power is not unique to it: one
+> resting YES level anywhere kills the universal sentence, and Arm D can supply
+> that just as well. So Arm A brings a unique-but-unusable contribution and a
+> usable-but-shared one, while Arm D brings the usable one **on the population
+> that determines whether the sentence is about Joe's money at all.**
+
+Stated as a rule so it can be applied again: **the headline goes to the arm
+whose population the claim is applied to, not to the arm whose population the
+claim was historically measured on.**
+
+**What this demotion does and does not do.** Arm A runs exactly as registered in
+§2, at the slots in §7, under the decision rules in §6, and it remains the
+**only** arm carrying the S2 entry-rate comparison (§5), because it is the only
+one with a baseline. It is reported second. If the two arms disagree, both are
+printed, neither is reconciled, and the disagreement is itself the result.
+
+**Co-primary was available and is refused.** Two headlines is two chances to
+pick the better one afterwards, which is the thing this document exists to
+prevent.
+
+### 11.2 Population, eligibility and selection
+
+One series: `KXMVECROSSCATEGORY-SHARD1`, supplied by the instrument's new
+repeatable `--series` flag. `DISCOVERY_SERIES` is **deliberately unmoved**, so
+Arm A's population cannot shift underneath it.
+
+**Eligibility is §2's rule, unmodified and not relaxed:** non-empty
+`mve_selected_legs` and a readable `yes_ask` by `readable_quote` (`0 < ask < 1`).
+A `0.0000` ask is not an ask. The midweek probe scores 13 of 1,000 open rows
+eligible under exactly this predicate.
+
+**Selection:** the first eligible rows in the series page's own order, up to the
+cap. Single series, so `round_robin` is a no-op here; this is stated because a
+one-series arm and a two-series arm are not selected identically and the
+difference should not be discovered later.
+
+**One page, never paginated** — `limit=1000`, and CLAUDE.md forbids walking
+`/markets`. §11.9 records what the truncation costs.
+
+**Exclusions are §2's, unchanged**, including the one that matters most: a
+malformed orderbook envelope **aborts the row and is reported separately, never
+counted as "no YES bid."**
+
+### 11.3 Baseline — there is none, and that is a constraint not a gap
+
+Arm D has the same structure as Arm C: **no prior observation exists on this
+series**, so there is no rate to compare against.
+
+**Permitted:** falsifying the universal claim (one resting YES level suffices,
+and needs no baseline); reporting a first-ever proportion `k/n` on shard 1 with
+a 95% Wilson interval; reporting depth against §4's three fixed thresholds.
+
+**Forbidden, and these are named now because each is a sentence somebody would
+otherwise write:**
+
+- Any difference-of-proportions test, Fisher or otherwise, **against the 40**.
+  The two populations differ in series, in selection rule and in calendar
+  simultaneously; a difference would be confounded three ways and attributable
+  to none of them.
+- Any claim that shard 1 is *"the same as"* or *"different from"* the non-shard
+  population. Arms A and D are two censuses, not a treatment and a control.
+- Any statement that shard 1 is *"more"* or *"less"* liquid than anything.
+
+### 11.4 Pooling
+
+**Never pooled with the 40, and never pooled with Arms A, B or C** — the same
+terms already applied to Arms B and C in §2. Every rate, every interval and
+every `G_eff` is computed within an arm. The JSON's `series_read` and
+`default_series` stamps must be carried into the result document so a book can
+always be attributed to its arm after the fact; a table row without its series
+is not reportable.
+
+**One thing legitimately does pool, and only one.** `COMBO_EXIT_CENSUS_BOOKS_READ`
+is a **count of books read**, not a rate, and a shard-1 book is a combination
+book this repo has read — so the count may grow across arms. To keep that from
+quietly re-creating the scope error §1 found, the result document must propose
+**separate constants** in `backend/parlays.py`:
+
+    COMBO_EXIT_CENSUS_SHARD1_BOOKS_READ
+    COMBO_EXIT_CENSUS_SHARD1_BOOKS_WITH_YES_BID
+
+sourced, never typed, per the guard that already parses that module with `ast`.
+A single census total that cannot say which series it came from is the shape
+that produced this amendment.
+
+### 11.5 `n`, fixed now, and what happens if Sunday is thinner
+
+**`--max-books 25`.** Justified against the midweek observation of 13 eligible:
+the cap is set at roughly twice it, so it is **not expected to bind**. That is
+the point — a cap that binds converts a census into a truncation and hides the
+pool size, which is the quantity §5's S3 exists to record. 25 is also the value
+the 2026-08-18 run used, so the instrument is being driven at a setting it has
+been driven at before.
+
+**Denominator and clustering are §3's, unchanged and required:** `n_rows`,
+`n_books` (**distinct tickers pooled across slots** — a ticker seen at all five
+slots is one book, reported as a five-point series), and `G_eff` on the leg-set
+cluster key. **`G_eff` remains a required field**; a shard-1 rate quoted without
+it is incomplete.
+
+**If Sunday yields fewer than expected:**
+
+| pooled distinct shard-1 books | what Arm D may say |
+|---|---|
+| ≥ 10 | everything in §11.7, including the null branch |
+| 1–9 | **ABORTED-THIN for every purpose except the falsifying branch.** The counts and the Wilson interval are printed and flagged UNINFORMATIVE; no rate is quoted in prose, no screen text changes, no scope narrows. A resting YES level found in these books still falsifies the universal claim — that branch needs no `n` and is unaffected. |
+| 0 eligible rows | the instrument aborts the capture by design (§11.6). Recorded as such. **Zero eligible is a real result about the product on an NFL Sunday** and is reported, not retried. |
+
+The floor of 10 is §6's floor, adopted unchanged rather than re-chosen for this
+arm, because re-choosing a floor for a new arm is exactly where a floor gets
+picked to be clearable.
+
+### 11.6 Slots and call budget
+
+**Arm D runs at all five slots in §7 — C1 15:30Z, C2 17:30Z, C3 20:00Z, C4
+23:30Z, C5 2026-09-14 00:45Z — and at no others.** Not a subset: the falsifying
+branch is a union over time, a resting bid may exist for minutes, and dropping
+slots strictly reduces the probability of catching the one event this design is
+powered for. The marginal cost is zero Odds credits and a rounding error of
+unmetered Kalshi calls.
+
+**Arm D is a SEPARATE invocation from Arm A at each slot, and this is
+load-bearing.** A series named with `--series` that returns no open rows
+**aborts the run**. Folding shard 1 into Arm A's invocation would let a shard
+with an empty page destroy Arm A's capture for that slot. Two commands per slot:
+
+    .venv\Scripts\python.exe scripts\measure_combo_book_presence.py \
+        --series KXMVECROSSCATEGORY-SHARD1 --max-books 25 --depth 10 \
+        --json docs/measurements/2026-09-13-combo-exit-shard1-cN.json \
+        > docs/measurements/2026-09-13-combo-exit-shard1-cN.txt 2>&1
+
+run **after** §7's Arm A command at the same slot, within 10 minutes of it.
+stdout is captured for the same reason as Arm A: `to_json` drops the scan
+denominator, and S3 does not exist without it.
+
+**Budget.** One series page, so `1 + 1 + N + 1` calls; at `N = 25` that is **28
+per capture, 140 across the five slots**. Day total with Arm A: ≤ 220 + 140 =
+**≤ 360 unmetered Kalshi calls**, rate-limited at 0.15s — under a minute of wire
+time. **Zero Odds API credits** (§8's confirmation is unchanged: the harness
+imports nothing under `backend.odds`, and credits are written only at
+`backend/odds/budget.py:276`). Read-only; no order, no bid, no lookup.
+
+**§5's multiplicity count is unchanged, and that is a claim, not an oversight.**
+Arm D adds **no inferential test**: it has no baseline, so no S2; and the
+primary is an observation rather than a significance test, so it consumes no
+alpha. The ten cells and the single pooled Fisher test at α = 0.01 stand exactly
+as registered.
+
+### 11.7 The decision rule for Arm D
+
+> **If any capture records at least one level on `yes_dollars` for a parsed
+> shard-1 book (`EXIT_ANY`), the sentence "no combination book read here has
+> carried a YES bid" is false on the population Joe actually trades — the
+> strongest available falsification — and the buy ticket's `combo_note`, the
+> bid route's 422 and `tests/test_combo_book_depth_claims.py` change to a rate
+> that names its series; ADR 0078's framing of a leg hedge as "the only exit an
+> enter-only combo has" is reopened in a new ADR if `EXIT_PRACTICAL` (≥ 10
+> contracts at one price) is also met, and `COMBO_MAX_CONTRACTS` moves only
+> under `EXIT_AT_CEILING` (≥ 250 at one price), exactly as §6 already rules.
+> If zero YES levels are recorded across all five slots and at least 10 distinct
+> shard-1 books were read, that is NOT confirmation (§0): the only licensed
+> change is the scope the screens currently lack — the note names the series it
+> was measured on, and the two new shard constants in §11.4 record the shard
+> census separately. Below 10 distinct books, Arm D is ABORTED-THIN and nothing
+> changes.**
+
+The consequences in both directions, so the measurement is decision-relevant in
+each:
+
+| Arm D result | built | killed |
+|---|---|---|
+| `EXIT_ANY` on shard 1 | the note becomes a rate naming its series; a repeat-slot depth series becomes registrable | the universal sentence, **on the population it is actually shown against** |
+| `EXIT_PRACTICAL` | a new ADR reopens ADR 0078's "only exit" framing | that framing |
+| `EXIT_AT_CEILING` | a new ADR re-argues `COMBO_MAX_CONTRACTS` from first principles | the stated reason for the 250 ceiling |
+| zero YES, `n ≥ 10` | the screens gain a scope clause and a shard-specific denominator | **nothing.** No quantifier strengthens, no "structurally", no "confirmed" |
+| `n < 10` | nothing | nothing |
+
+**Recorded against interest, as §6 already records for Arm A:** the binding
+constraint on the hand-bet path is `MANUAL_ORDER_MAX_SPEND_TENTHS` ($3.00), not
+`COMBO_MAX_CONTRACTS`, so even the ceiling branch changes little in practice.
+Arm D's value is the sentence Joe reads, not the ceiling.
+
+### 11.8 A correction owed today, whatever Sunday returns
+
+**Judgement: yes, one is owed, and it should land before the first capture.**
+
+The buy ticket says *"Every combination book this repo has ever read had no YES
+bid — 40 of 40, across three runs on two dates."* That sentence is **true** and
+its scope is **silently wrong for its reader**: the reader is about to tap a
+`KXMVECROSSCATEGORY-SHARD1` combination, and the 40 contain zero shard-1 books.
+A true sentence a reader will apply to a population it never measured is the
+`justifications decay toward reassurance` pattern, and it is worse here because
+the number is sourced correctly — the sourcing guard cannot catch a scope error.
+
+This is **available today and does not depend on the capture**, which is exactly
+why it must not wait for it: if Sunday comes back ABORTED-THIN, the correction
+would never land at all.
+
+- **What changes:** the note gains a clause naming the series measured, or
+  saying plainly that no shard-1 book has been read.
+- **How:** through `backend/parlays.COMBO_EXIT_CENSUS_*` and the constants
+  proposed in §11.4 — **sourced, never typed digits** — with
+  `tests/test_manual_orders.py` and `tests/test_combo_bid_routes.py` updated to
+  pin the scope clause the same way they pin the count.
+- **Deadline:** before C1 at 15:30Z on 2026-09-13, so the screen is not making
+  an unscoped claim while the measurement that scopes it is running.
+- **This registration does not authorise it.** It changes real-money screen
+  text; it needs Joe's or the partner's word, and §11.10 lists it as the one
+  item requiring confirmation.
+
+### 11.9 What Arm D cannot establish
+
+Everything in §9 applies unchanged. In addition:
+
+- **One shard.** `SHARD1` only. Kalshi shards collateral per exchange and other
+  shards exist and are unread here; nothing licenses a sentence about "the
+  shards" or about `KXMVE` generally.
+- **A truncated page, so the pool figures are lower bounds.** `limit=1000` is
+  the page limit, not the population: the series was **truncated, not
+  exhausted**, so "1,000 open rows" is a floor and the midweek "13 eligible of
+  1,000" is a rate over a truncated page, **not over the series**. Sunday's
+  equivalent inherits the same truncation and must be reported as a lower bound
+  with the word "truncated" in the table.
+- **One calendar day**, and the mirror-image caveat in §9 applies with full
+  force: this generalises to NFL regular season, September, Sunday, around
+  kickoff, on shard 1 — and to nothing else.
+- **Nothing about Joe's own positions.** Arm D reads whichever shard-1
+  combinations happen to carry an ask; it does not read the tickers he holds,
+  and a resting bid on one combination is not an exit for another. Whether a
+  position he holds can be closed remains `/hedge`'s question (ADR 0078).
+- **The mechanism stays unidentified**, exactly as in §9: a null cannot separate
+  *"the product does not permit a resting YES order"* from *"nobody wanted to
+  sell today"*, and no result here licenses a sentence beginning
+  "structurally".
+- **Zero eligible rows would not mean zero combinations.** Eligibility requires
+  a readable ask, and the midweek rate was 1.3%; an empty Arm D says the shard
+  was unquoted at rest at that instant, which is a claim about quoting, not
+  about the exit.
+
+### 11.10 What this amendment does not change, and what needs a word first
+
+**Unchanged, explicitly:** §0's power arithmetic and its prohibition on
+reporting a null as confirmation; §2's Arm A population, eligibility and
+selection; §3's unit and clustering; §4's three depth thresholds; §5's
+statistic and multiplicity count; §6's rules as they apply to Arm A; §7's clock
+and stopping rule; §8's cost, safety and non-interference terms; §9's
+limitations; §10's result path — which stays a **single** document at
+`docs/measurements/2026-09-13-combo-exit-nfl-sunday-result.md`, now leading with
+Arm D and reporting Arm A second.
+
+**Needs Joe's or the partner's word before Sunday:**
+
+1. **§11.8's scope clause on the buy ticket** — real-money screen text, owed
+   regardless of the capture, deadline 15:30Z 2026-09-13.
+2. **Arms B and C.** §1's probe found `KXMVENFLSINGLEGAME` and
+   `KXMVENFLMULTIGAMEEXTENDED` at **0 open rows midweek**; under the
+   instrument's own rule a `--series` with no open rows aborts, so Arm C would
+   abort unless the series populate on the day. It stays registered as written
+   and is simply expected to abort; that expectation is recorded here so an
+   abort is not later read as a failure.
+
+**Nobody running these captures may open the cockpit UI**, per §8: a page-open
+registers attention and contaminates the concurrent dwell measurement the odds
+freeze exists to protect. Arm D adds two more shell invocations and no browser.
+
+---
+
+## 12. Amendment 2 — Arm D's population is one literal series, and §11.8 is ruled on
+
+**Written 2026-09-09, after Amendment 1 and still before any book is read on or
+after this date.** It closes the one thing Amendment 1 left loose — the exact
+series Arm D reads — and answers the question §11.10 held open. §§0–10 and
+Amendment 1 are not edited; the differences are stated here.
+
+### 12.1 The enumeration, and the population named literally
+
+Probed midweek, **2026-09-09**, against `/series/{ticker}` for existence and
+`/markets?series_ticker=...&status=open&limit=1000` for open rows:
+
+    KXMVECROSSCATEGORY-SHARD1              200   1000 open rows   EXISTS
+    KXMVECROSSCATEGORY-SHARD2              404      0            does not exist
+    KXMVECROSSCATEGORY-SHARD3              404      0            does not exist
+    KXMVESPORTSMULTIGAMEEXTENDED-SHARD1    404      0            does not exist
+    KXMVENFLSINGLEGAME-SHARD1              404      0            does not exist
+
+**Arm D's population is the literal ticker `KXMVECROSSCATEGORY-SHARD1`, and
+nothing else.** Neither baseline series has a shard sibling and neither does
+Arm C's.
+
+**It may not be defined as "the shard variants of `DISCOVERY_SERIES`", and the
+prohibition is the point.** A family definition would silently change the
+population the day Kalshi mints a second shard — the population would be chosen
+by the venue's calendar rather than by this document. So:
+
+> **If a shard series that returned 404 on 2026-09-09 exists on 2026-09-13, it
+> is NOT read. Arm D reads the one literal ticker above. Adding a series is a
+> new registration, not a judgement call made on the morning of the run.**
+
+**404 is today's answer, not a permanent one.** Kalshi mints series; a shard 2
+existing next month would not contradict this table. The enumeration is recorded
+with its date so a later reader can tell *"we checked and there was one"* from
+*"we only thought of one"* — those are different states and only the first is
+evidence.
+
+### 12.2 Provenance — this was a gap between two lists in the same repo
+
+`scripts/measure_combo_correlation.py:156` already lists
+`KXMVECROSSCATEGORY-SHARD1` among **eight** MVE series. The book-presence
+instrument — the one that produced all 40 baseline books — reads
+`DISCOVERY_SERIES` (`scripts/measure_combo_leg_echo.py:120`), which has **two**
+and never included the shard.
+
+So §1's finding is **not an unknown venue fact and never was**. The shard was
+known to this codebase, written down in it, and simply never reached the list
+the census instrument reads. That is worth saying plainly because the two
+framings license different follow-ups: an unknown venue fact invites more
+probing, while a gap between two lists in one repo invites checking whether any
+*other* instrument's series list disagrees with its neighbours'.
+
+The series provenance of the existing 40 is now recorded at
+`backend/parlays.py:164-170` and pinned by tests (injecting a shard book into a
+capture turns three red). **The constant layer is therefore done; what remains
+of §11.8 is the two user-facing strings, and 12.4 rules on them.**
+
+### 12.3 The 1,000 rows are a truncated page — and the sampling consequence
+
+`limit=1000` is the page cap and the page **came back full**. Therefore:
+
+- The open shard-1 population is **≥ 1,000 and its true size is unmeasured.**
+  "1,000 open rows" is a floor and must be written with the word *truncated*
+  beside it every time it appears.
+- **13 of 1,000 eligible is a rate over the newest 1,000 rows, not over the
+  series.** `markets_page` reads newest-first.
+
+**The consequence for Arm D is a selection property, and it is registered now
+rather than discovered in the write-up.** Arm D selects the first eligible rows
+in page order from a newest-first, truncated page: it therefore samples the
+**newest slice of shard 1**, not a random sample of it. Newly minted
+combinations are a plausibly different population from ones that have been open
+for weeks — plausibly *less* likely to carry a resting order, which is the
+direction that would flatter a null.
+
+Two things follow, both fixed here:
+
+1. **S4, a new descriptive secondary:** the age distribution of the selected
+   rows — min, median and max of `now − created_time` — reported per capture and
+   pooled. The harness already parses `created_time` into `Row.created_ms`, so
+   this needs **no code change**. It is **descriptive only and non-inferential**,
+   so §5's multiplicity count is again unchanged.
+2. **The null branch's sentence is constrained in advance.** If Arm D returns
+   zero YES levels, the licensed sentence is *"no resting YES bid on the newest
+   N shard-1 combinations carrying a readable ask, read at five slots on
+   2026-09-13"* — with "newest" and the age range in the sentence itself, in the
+   result document's **headline**, not in a footnote. A null over the newest
+   slice may not be written as a null over shard 1.
+
+This does not change Arm D's cap: 25 remains roughly twice the 13 observed
+eligible in the newest 1,000, so it is still not expected to bind (§11.5).
+
+### 12.4 Ruling on §11.8 — the scope correction is owed, and it ships before C1
+
+**Verdict: yes. It is owed, it is not conditional on Sunday, and it should land
+before C1 at 15:30Z on 2026-09-13.**
+
+The reasoning is not a preference. The buy ticket's sentence — *"Every
+combination book this repo has ever read had no YES bid — 40 of 40, across three
+runs on two dates"* — is **true**, is **correctly sourced**, and is **read by
+someone who is at that moment tapping a `KXMVECROSSCATEGORY-SHARD1`
+combination**, which is a population those 40 books contain **zero** of. A
+sourcing guard cannot catch that, because nothing about the digits is wrong;
+only the scope a reader will supply is. Waiting for Sunday would mean the screen
+makes an unscoped claim *during* the measurement that scopes it, and would mean
+the correction never lands at all in the ABORTED-THIN branch — which is
+precisely how a caveat gets selected for being survivable.
+
+Requirements on the change, fixed here so it cannot drift:
+
+- **It must name the series the 40 were measured on, or say plainly that no
+  shard-1 book has been read.** Either is acceptable; a sentence that leaves the
+  reader to infer scope is not.
+- **It must not imply the shard was measured**, and it must not imply the shard
+  is *different* either — nothing has been measured there yet, and §11.3 forbids
+  both comparisons.
+- **Sourced, never typed**, through `backend/parlays.COMBO_EXIT_CENSUS_*` and
+  the constants in §11.4, per the `ast`-parsing guard that already exists.
+- **Pinned by a test that fails when the scope clause is removed**, verified by
+  removing it and watching the test go red — not by watching it stay green.
+- **Both surfaces**: the buy ticket's `combo_note` (`backend/api/routes.py`) and
+  the bid route's 422 (`backend/api/routers/parlays.py`). Correcting one and not
+  the other reproduces the original defect on the surface nobody looked at.
+
+**Scope of this ruling, stated exactly.** It is a registrar's ruling on a
+factual scope error in copy, and the change alters **no behaviour** — no
+ceiling, no route logic, no order path. It is not, and cannot be, authorisation
+for anything money-touching. Because the string sits on a real-money surface,
+**show Joe the diff** rather than asking him to decide whether a true-but-
+unscoped sentence should be scoped.
+
+### 12.5 What Amendment 2 does not change
+
+Arm D's rank as primary (§11.1), its eligibility rule (§11.2), its `n` and floor
+(§11.5), its five slots and 140-call budget (§11.6), its decision rule (§11.7),
+§0's prohibition on reporting a null as confirmation, §5's multiplicity count,
+§7's clock and stopping rule, and §8's cost and non-interference terms. The
+result path stays the single document named in §10.
+
+**§11.9's truncation bullet is superseded by 12.3 and by nothing else** — it
+said "truncated, not exhausted", which stands; 12.3 adds the newest-first
+selection consequence it did not name, and that addition is the reason this
+amendment exists rather than a correction of it.
