@@ -19,7 +19,7 @@ on:
         # The default is a sentinel, and it is the one input here that gets
         # one. `workflow_dispatch` applies the declared default whenever an
         # input does not arrive -- and the GitHub mobile *app* is recorded in
-        # `tasks/PHONE.md` as dropping inputs, which is how a live deploy once
+        # `tasks/archive/phone-2026-08-09.md` as dropping inputs, which is how a live deploy once
         # ran with an empty `confirm_live`.
         #
         # For Deploy that failed loudly, because its guard had nothing safe to

@@ -281,7 +281,7 @@ def report(summary: dict[str, dict]) -> list[str]:
         print("Game markets may only be listed close to game time.")
 
     print("\nScope call: leagues without tradeable game markets drop. Record the")
-    print("decision in docs/adr/ and tasks/todo.md rather than leaving it implicit.")
+    print("decision in docs/adr/ and tasks/NEXT.md rather than leaving it implicit.")
     return game_series
 
 

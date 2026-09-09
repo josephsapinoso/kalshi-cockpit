@@ -3,86 +3,37 @@
 Dated, one lesson per entry. Written when something was got wrong, or when a
 correction arrived. Reviewed at session start.
 
-Two rules for this file, inherited from the previous project because they are
-what made it useful rather than decorative:
-
 - **Write the pattern, not the incident.** "PR #42 broke staging" ages out;
   "unreadable must never resolve to zero" doesn't.
 - **A lesson earns its place by preventing a repeat.** If it would not have
   changed what someone did, it is a note, not a lesson.
-
-A third rule, added 2026-08-17 for the reason the first lesson below records:
-
-- **This file is an index plus the newest entries; the lessons themselves live
-  in `tasks/archive/lessons-YYYY-MM-DD.md`.** Nothing has been distilled,
-  reworded or dropped — the archive reconstructs the pre-split file byte for
-  byte. Write new lessons here, at the top, and move them into the dated
-  archive file when this one approaches the size budget.
-- **The size budget is 262,144 bytes**, enforced by
-  `tests/test_session_files_are_readable.py`. It is the point at which the Read
-  tool refuses the file outright, which is how "read this at session start"
-  became an instruction no session could obey.
-
-**Split 2026-09-08, at 209,373 bytes — 79.9%, under the trigger and on
-Joe's instruction rather than on the rule.** Everything 2026-09-04 and
-earlier — 77 lessons across eight dates — moved to
-`archive/lessons-2026-09-08.md`, verbatim, leaving **98KB, 37.5%**. Their
-index headers were repointed from "in this file, above" to the archive
-link in the same edit, because an index that still claims a moved lesson
-is here is worse than no index.
-
-**The same pass found the index was already 8 lessons short** — all four
-2026-09-08 entries and four of the five 2026-09-07 ones had bodies and no
-index lines. 2026-09-06 and 2026-09-05 were complete, so the gap is recent
-and came from prepending a lesson without touching the index. **Writing
-the lesson is half the work; the index is what makes it findable after the
-next split**, and a lesson nobody can find gets learned twice.
-
-**Split 2026-08-29, at 243,030 bytes — 92.7% of the ceiling, not past it.**
-The nine 2026-08-17 entries still living here moved to
-`archive/lessons-2026-08-29.md`, verbatim, leaving ~214KB — under 82%. That
-file is named for the day of the split rather than the day of the lessons,
-because `archive/lessons-2026-08-17.md` already exists and holds four *other*
-entries from that date; one name must not point at two files. The index below
-therefore carries two 2026-08-17 sections, one per file.
-
-**Split 2026-09-05, at 229,412 bytes — 87.5%.** Every 2026-08-27 and
-2026-08-26 lesson moved to `archive/lessons-2026-09-05.md`, verbatim, leaving
-161KB — **61.5%**. Taken at 87.5% rather than at the 90% trigger, and on the
-same reasoning the 2026-08-31 split records: clearing to just-under-the-line
-buys one more split rather than several, and this file gained three lessons in
-one session.
-
-**The split was proved rather than assumed.** The archive's content was
-reassembled with the two index lines restored and the result measured at
-**229,412 bytes — the pre-split size exactly**. A split is a claim that
-nothing was lost, and that claim is cheap to check and expensive to be wrong
-about; the index lines moved in the same edit, because moving entries without
-moving their index is a data loss with a table of contents.
-
-
-**Split 2026-08-31, at 230,266 bytes — 87.8%.** The **fifty** lessons from
-2026-08-25 back to 2026-08-18 moved to `archive/lessons-2026-08-31.md`,
-verbatim, leaving 136KB — **52%**. A deeper cut than the last one on purpose:
-this file was split twice in three days, and clearing to just-under-the-line
-buys one more split rather than several.
-
-**The index was updated in the same edit, and that is the load-bearing half.**
-Seven `### DATE — in this file, above` markers became links to the new archive.
-The header below this one already records why: an index that says "every lesson
-ever written" while pointing at the wrong place makes the file lie about
-itself, and a session scanning it for something relevant misses exactly the
-lessons it was looking for. **Moving entries without moving their index lines
-is not a split, it is a data loss with a table of contents.**
-
-**This split was taken on the rule, not on the alarm.** Waiting for
-`tests/test_session_files_are_readable.py` to go red is the wrong trigger: the
-test guards the *file*, and what breaks first is the instruction at the top of
-it — a session that cannot read the whole file reads the head and silently
-believes it has the state. **Split at ~90%, not at 100%.** Read `wc -c` before
-writing an entry, not after.
+- **This file is the newest lessons plus an index; the rest live in
+  `tasks/archive/lessons-YYYY-MM-DD.md`, verbatim.** The budget is 262,144
+  bytes (`tests/test_session_files_are_readable.py`). Split at ~90%, checked
+  with `wc -c` before writing; cut on a date boundary; name the archive for the
+  split date; move the index lines in the same edit; verify by md5. Every
+  split so far: `tasks/archive/lessons-split-log.md`.
 
 ---
+
+## 2026-09-08 - A spine that records its own corrections inline grows without bound, and the corrected fact is the only part a session needs
+
+`CLAUDE.md` reached 44KB, and 61% of it was one section narrating how each
+of its facts had been wrong before — "this paragraph used to say", struck
+defects, dated audits, a correction of a correction. Every trail was honest
+and every one had a home already (an ADR, a `docs/measurements/` file, a
+`timing.py` comment block). What a session needs from a spine is the
+corrected fact and a citation; the trail is for the reader who doubts the
+fact, and that reader can open the citation.
+
+**The pattern:** when a correction lands in an always-loaded file, write the
+corrected sentence and the pointer, and put the *how it was wrong* where the
+pointer goes. If the file has no such destination, `docs/history/` is one.
+Inline trails feel safe because deleting feels risky; the cost is paid on
+every turn by every session, and it is the same cost that made `NEXT.md` and
+this file unreadable at 456KB. The strike-marker test
+(`tests/test_combo_book_depth_claims.py`) is the one caveat: a forbidden phrase
+and the marker that licenses it leave together or the guard goes red.
 
 ## 2026-09-08 - "This route has no guard" is a claim about the whole dependency chain, not about the route body
 
@@ -350,6 +301,8 @@ EXCLUDED, DENY, FORBIDDEN or SKIP is a strong hint and not evidence.
 Corollary worth its own sentence: a whitelist and a denylist that both mention
 the same key are not two guards. The whitelist is the guard. The denylist is
 documentation with an `if` in front of it.
+
+**Merged 2026-09-08 with its corollary:** run a new guard against the code *before* the fix as well. A green suite after the fix proves the test agrees with the fix, not that it would have caught the defect.
 
 ## 2026-09-08 - A capture script that reads the environment captures the laptop, not the deployment
 
@@ -644,35 +597,6 @@ body, it is a tautology with a fixture attached.
 
 ---
 
-## 2026-09-06 - An item written from the shape of a known lesson is a hypothesis, not a finding
-
-A handoff carried: *"The global stop is invisible on both surfaces — a refused
-sweep writes no `api_credits` row, so exhaustion reads as an absence"*, and
-recommended diagnosing it with `sweep-log` filtered on `outcome='refused'`.
-
-Funded as a falsification before a build. **The first half was false**: the
-planner's refusal string reaches `/api/window` as `last_look_detail` and
-`WindowBanner` renders it verbatim, so the screen says so in words. **The
-recommended instrument was the actual defect**: `REFUSED` is written only
-behind `budget.refusal_reason` inside `fetch_odds`, and once the cap binds no
-call is attempted at all, so the filter finds the one pass that ran out and
-misses the sixteen hours that follow.
-
-The item had been written by pattern-matching onto a real lesson this repo
-already knew — the attention slice's silent-refusal-with-no-fall-through, which
-took four passes to fix. The shape fitted. It *felt* confirmed rather than
-proposed, and the confidence came from the resemblance rather than from a
-reading of the code.
-
-**Pattern: a diagnosis that matches a scar you already have is the one to check
-hardest, not the one to trust.** Recognising the shape tells you where to look;
-it is not evidence about what is there. Write such an item as a question with a
-named check ("does `WindowBanner` print the budget string? read
-`sweepTone.ts`"), not as a finding with a build attached — otherwise the build
-gets funded on a resemblance and the real defect, one function away, stays.
-
----
-
 ## 2026-09-06 - A guard that substring-matches an element name is green on a renamed element
 
 A new test pinned that four screens still render a control Joe had asked for,
@@ -702,31 +626,7 @@ mutation by asking what the guard reads, then breaking that.
 
 ---
 
-## 2026-09-06 - `git checkout <file>` restores the INDEX, so it deletes uncommitted work while looking like an undo
-
-Three files were mutated one at a time to prove a new guard could fail, and
-each was "restored" afterwards with `git checkout <path>`. Two of the three
-files had never been committed in that state. `git checkout` reverts to the
-index, not to what was on disk a second earlier, so it silently discarded a
-newly written 10KB component, a patched card and a page edit -- and reported
-`Updated 1 path from the index` for each, which reads like success.
-
-It was caught only because the final re-run of the suite came back **3 failed**
-on a test that had just passed, which is the one signal that could not be
-explained away. Had the mutations been of already-committed files, nothing
-would have been lost and the habit would have survived to do damage later.
-
-**Pattern: never use a VCS command to undo an edit to work the VCS has not
-seen.** A mutation harness must restore from a copy it made itself --
-`cp file bak` before, `cp bak file` after -- because that restores the bytes
-that were actually there. The VCS restores the bytes it knows about, and the
-gap between those two is precisely the work in progress.
-
-The general form: **an undo whose source of truth is not the thing you
-changed is not an undo.** Same family as reading a health endpoint that
-reports a sha somebody typed.
-
----
+**Merged 2026-09-08 with the 2026-09-05 lesson on the same defect** (`<ManualTicket` surviving as a prefix of `<ManualTicketX`, and the needle found in the comment that explains the component): anchor the identifier boundary, and strip comments before matching, or the guard is green on exactly the rename it exists to catch.
 
 ## 2026-09-06 - A hand-typed sha is a fabricated sha, and noticing that it looks wrong is not the same as checking it
 
@@ -884,36 +784,6 @@ The cost of getting this wrong is asymmetric and that is why it earns a
 lesson. A check dated too late merely waits. A check dated too early **fires**,
 and a pre-registered rule is designed to be obeyed without re-litigation --
 which is exactly what stops anyone noticing the date was wrong.
-
----
-
-## 2026-09-06 - `assert str(CONSTANT) in text` passes just as happily on a typed digit, so it does not test that the text is sourced
-
-`backend/parlays.py` builds a disclosure sentence from named census constants,
-and its guard read `assert str(parlays.COMBO_CENSUS_OPEN) in notes["unquoted"]`.
-The comment above it says why: an earlier version pinned the literal `"40 of
-40"`, the census refuted that count, and the test kept the refuted sentence
-green. Sourcing the assertion from the constant was the fix.
-
-**It does not do what it says.** `str(61) in note` is true whether the note
-interpolated `{COMBO_CENSUS_OPEN}` or someone typed `61` — the two produce
-identical bytes, and the assertion only ever sees the bytes. Verified by
-mutation: replacing `{PARLAY_CENSUS_TAKER_FILLS} of {PARLAY_CENSUS_POSITIONS}`
-with a literal `51 of 52` left that test **green**. The guard that was written
-to stop a hardcoded number cannot see a hardcoded number.
-
-The check that works reads the *source* rather than the output: parse the
-module, find the f-string, and assert it contains no bare digit at all. That
-distinguishes the two spellings because the difference exists only before
-interpolation.
-
-**The pattern: when a guard exists to constrain how a value was PRODUCED, it
-must read the producer.** Any assertion on the product sees only the value, and
-two productions that agree today are indistinguishable to it — which is exactly
-the day the guard is asked to earn its place. Same family as the several
-"asserted the mechanism, not the property" entries below, running the other
-way: here the property was asserted where only the mechanism could tell them
-apart.
 
 ---
 
@@ -1085,26 +955,7 @@ That is the second time in one day that a guard read the prose about the
 property instead of the property. Assume every literal you grep for appears in
 the sentence explaining it.
 
-## 2026-09-05 - Run a new guard against the code before the fix; a green suite proves the test agrees with the fix, not that it would have caught the defect
-
-Thirteen tests were written for a screen defect and all thirteen passed. That
-established nothing on its own: a test written after a fix, by the person who
-wrote the fix, tends to assert the shape of the fix. The check that mattered
-took thirty seconds -- `git show HEAD:<file>` into place, run, restore -- and
-**9 of the 13 failed**, which is the actual evidence. The 4 that passed were
-the states already correct before the change, and knowing which 4 those are is
-itself worth having: it says exactly how much of the file the new suite
-defends.
-
-**Pattern: for any guard written alongside a fix, run it against the
-pre-fix code and record how many go red. A guard that passes on the broken
-version is describing the implementation, not the requirement.** Mutation
-testing is the same idea applied to one clause; this is it applied to the
-whole change, and it is cheaper, because the "mutant" already exists in git.
-
-The corollary about ordering: this is why writing the test first is usually
-cheaper than justifying it afterwards -- but when the test comes second, the
-pre-fix run is the substitute, and it is not optional.
+**Merged 2026-09-08 with an instance:** `assert str(CONSTANT) in text` passes just as happily on a typed digit, so it does not test that the text is sourced from the constant. A guard on production copy must read the producer, not the number.
 
 ## 2026-09-05 - Test at the level the defect lives; a substring test cannot tell a mention in a live branch from a mention in a dead one
 
@@ -1135,62 +986,6 @@ what is convenient to assert. If the bug is reachability, the test must
 execute; if it is wording, text will do.** A stub is legitimate at this level
 only when it replaces something that is not under test -- here a constant and
 a type -- and never the component whose branches are the claim.
-
-## 2026-09-05 - A test that recompiles identical bytes once per case is a tax on every future run, and the fixture that fixes it is three lines
-
-A new file cost 34 seconds, of which roughly 30 were `tsc` compiling the same
-unmodified source eleven times, once per test case. On a suite whose CI job
-has a 900-second cap and currently uses 314, that is an eighth of the budget
-bought for nothing. A module-scoped fixture that compiles once and hands out
-the build directory took it to 12 seconds; the two cases that need a *mutated*
-source still get their own build, which is the only variation that ever
-existed.
-
-**Pattern: when a test's setup is a pure function of files that do not change
-between cases, it belongs in a fixture scoped to the widest thing that is
-still constant -- and the time to notice is before the file lands, because
-afterwards it is someone else's mystery slowdown.** This repo has already paid
-for the lesson once, with a test spending 71 seconds on a 200,000-sample
-copula to assert a dictionary length. Read `--durations` on any new file that
-shells out.
-
-## 2026-09-05 - A guard that greps for a component name finds the comment explaining the component, and a prefix is a substring of every longer identifier
-
-One pin — "this file still mounts the hand-bet ticket" — was written as
-`"<ManualTicket" in source` and observed **green twice under mutations that
-should have killed it**, for two unrelated reasons.
-
-The first: renaming the mount to `<ManualTicketXX` leaves `<ManualTicket` in
-the file as a prefix, so a substring test cannot see a component being
-replaced by a differently-named one. The second is the more interesting, and
-was only reached after fixing the first: the file's own comments name
-`<ManualTicket` while explaining *why* the link sits beside it, so the guard
-was reading prose about the mount rather than the mount. Both fixes are one
-line — match an element boundary (`<Name[\s/>]`), and strip comments before
-searching — and neither would have been found by reading the test.
-
-**Pattern: a source-text guard must assert on the code with comments removed,
-and must anchor identifiers at their boundaries. Documentation is the most
-likely place for a guard's own needle to appear, because good code explains
-the thing the guard is checking, in the same words.** The corollary is about
-process rather than regex: the second failure was invisible until the first
-was fixed, so **a mutation that goes green is not one finding, it is a
-prompt to mutate again** — keep mutating the same guard until it goes red for
-the reason you intended.
-
-Two related shapes seen the same day, both worth recognising:
-
-- **A mutation applied by `.replace(needle, repl, 1)` can land on a comment**
-  rather than on the code, because the comment usually comes first. The
-  mutation then "applies" (the text changed, the assertion that it changed
-  passes) and proves nothing. Target the mutation at the syntax, including
-  its indentation, not at the bare name.
-- **A guard on the unbuilt state must be rewritten in the commit that builds
-  it.** Two pins asserted that a comment said "conditional" and that a prop
-  was passed bare -- both descriptions of work not yet done. Fixing the defect
-  made the suite assert the defect. This is the same ordering lesson the
-  window-copy fix recorded: copy that names a condition to wait for is
-  falsified by fixing the condition, so the fix and its pins ship together.
 
 ## 2026-09-05 - A link is a claim about its destination, and only the destination knows whether it can keep it
 
@@ -1248,6 +1043,8 @@ mechanism for the distinction -- `DISPOSITIONS` in
 disposition, not a delete list. Nine candidates went in; three survived, and
 the six that did not were each rejected for a different reason.
 
+**Merged 2026-09-08 with the depth half:** named, import-reachable and called are three properties, and a one-level "has a caller" walk is satisfied by a referrer that is itself dead. State a guard's walk depth.
+
 ## 2026-09-05 - A clean merge is a statement about text; two lanes can each be right about a file and wrong about each other
 
 Two lanes edited one test file the same day. Their hunks were five lines
@@ -1277,53 +1074,16 @@ lane, a session or an afternoon is a scheduling note wearing a decision's
 clothes -- write the reason that survives the merge, or the next reader
 inherits a decision with no reason at all.
 
-## 2026-09-05 - A "has a caller" check is only as deep as its walk, and a one-level walk is satisfied by a referrer that is itself dead
-
-`skeptic.apply_verdict` sat on `MUST_HAVE_CALLERS` with a consequence string
-naming "a safety layer that can block nothing", and passed all three caller
-tests for fifteen days while nothing on the live machine could reach it. Its
-one production referrer was `review._amend`, called only by
-`review_surfaced`, which nothing had named since ADR 0062 put
-`review_retired` on the pass default. The import closure did not catch it
-either: `review.py` was imported for the retired reviewer, so the module was
-reachable and the function inside it was not. Named, import-reachable, and
-called are three different properties, and the guard measured the first two.
-
-**Pattern: state a guard's depth in its own docstring, and when a symbol's
-consequence string describes the exact failure the guard cannot see, that is
-the moment to add the next level — here, a walk from the deployed entry
-points to the symbol — not a comment. A guard whose blind spot is written
-beside it and not tested for is decoration with a warning label. The
-corollary for deletions: a module can be import-reachable and dead, so
-"nothing imports it" is a sufficient reason to delete and never a necessary
-one.**
-
----
-
 # The pattern index
 
 Every lesson ever written, newest date first, one line each. The full text of
 each is in the linked archive file, unchanged; the sections marked *in this
-file, above* are the ones not yet archived.
-
-**Regenerated again 2026-08-31, and the same way for the same reason.** The
-newest section here was 2026-08-26 listing eight lines, while the file above it
-held **64** unarchived lessons across six dates -- so "every lesson ever
-written" was false of its own file for the second time, and a session scanning
-for something relevant would have missed everything written in the last five
-days. **An index that is not regenerated in the same edit as the entry is stale
-by one entry immediately and by dozens within a week.** Regenerate it from the
-headings rather than appending by hand; the headings are the source.
-
-**Regenerated 2026-08-26.** This index had listed the five entries of
-2026-08-17 as "in this file, above" and stopped there, while 61 later lessons
-sat unindexed above it — so the line "every lesson ever written" was false of
-its own file, and a session scanning the index for something relevant would
-have missed every lesson written in the last nine days. The titles below are
-the lessons' own headings, taken verbatim; keep it that way, so regenerating it
-is a script and not a judgement.
+file, above* are the ones not yet archived. Regenerate it from the headings in
+the same edit as the entry — an index that is not is stale by one entry
+immediately and by dozens within a week.
 
 ### 2026-09-08 — in this file, above
+- A spine that records its own corrections inline grows without bound, and the corrected fact is the only part a session needs
 - "This route has no guard" is a claim about the whole dependency chain, not about the route body
 - A guard that reads the code but not the decisions is half a guard
 - Removing a brake server-side leaves it on the screen, and that direction of the mismatch is invisible
@@ -1344,14 +1104,11 @@ is a script and not a judgement.
 - Two true docstrings, one false conjunction
 - A caveat loses to the variable name it sits under
 - A test that restates the code's own formula agrees with the code whatever the code says
-- An item written from the shape of a known lesson is a hypothesis, not a finding
 - A guard that substring-matches an element name is green on a renamed element
-- `git checkout <file>` restores the INDEX, so it deletes uncommitted work while looking like an undo
 - A hand-typed sha is a fabricated sha, and noticing that it looks wrong is not the same as checking it
 - A section truncated by `head` looks exactly like a section with no rows, because the header prints before the data
 - A scripted edit meant to change a few bytes rewrites every line ending in the file, and a normal diff cannot show it
 - A date-triggered falsifying check must be dated from the event's END, and from a looked-up calendar rather than a remembered one
-- `assert str(CONSTANT) in text` passes just as happily on a typed digit, so it does not test that the text is sourced
 
 ### 2026-09-05 — in this file, above
 - A stub that assigns over a property tests the assignment; the SDK's own parser is the only thing that runs the SDK's parsing
@@ -1360,13 +1117,18 @@ is a script and not a judgement.
 - Reading the aggregates to scope a measurement is what disqualifies them from being its result
 - A `--` comment inside a CREATE TABLE column list breaks DROP COLUMN, and the failure names a table the change never touched
 - When a guard asserts the mechanism instead of the property, the fix that changes the mechanism looks like a regression
-- Run a new guard against the code before the fix; a green suite proves the test agrees with the fix, not that it would have caught the defect
 - Test at the level the defect lives; a substring test cannot tell a mention in a live branch from a mention in a dead one
-- A test that recompiles identical bytes once per case is a tax on every future run, and the fixture that fixes it is three lines
-- A guard that greps for a component name finds the comment explaining the component, and a prefix is a substring of every longer identifier
 - A link is a claim about its destination, and only the destination knows whether it can keep it
 - A deadness grep scoped to the source directories misses the callers that matter most, because the loudest ones live outside them
 - A clean merge is a statement about text; two lanes can each be right about a file and wrong about each other
+
+### Removed as duplicates 2026-09-08 — [`archive/lessons-2026-09-08-dedup.md`](archive/lessons-2026-09-08-dedup.md)
+- An item written from the shape of a known lesson is a hypothesis, not a finding
+- `git checkout <file>` restores the INDEX, so it deletes uncommitted work while looking like an undo
+- `assert str(CONSTANT) in text` passes just as happily on a typed digit, so it does not test that the text is sourced
+- Run a new guard against the code before the fix; a green suite proves the test agrees with the fix, not that it would have caught the defect
+- A test that recompiles identical bytes once per case is a tax on every future run, and the fixture that fixes it is three lines
+- A guard that greps for a component name finds the comment explaining the component, and a prefix is a substring of every longer identifier
 - A "has a caller" check is only as deep as its walk, and a one-level walk is satisfied by a referrer that is itself dead
 
 ### 2026-09-04 — [`archive/lessons-2026-09-08.md`](archive/lessons-2026-09-08.md)

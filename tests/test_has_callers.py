@@ -1,7 +1,7 @@
 """Every module on the critical path must be reachable from something that runs.
 
 This project has now shipped the same defect three times: a module written to
-completion, tested thoroughly, recorded as done in `tasks/todo.md`, and called
+completion, tested thoroughly, recorded as done in the build log (now `tasks/archive/todo-2026-08-09.md`), and called
 by nothing.
 
     analysis/clv.py        ~40 tests. Nothing ever called `score_recommendations`,

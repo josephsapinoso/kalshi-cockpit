@@ -2,7 +2,7 @@
 
 The session-start instruction lives in **`CLAUDE.md`** (the "Workflow" section)
 and the current state lives in **`tasks/NEXT.md`**. Read those, in that order,
-then `tasks/todo.md` and `tasks/lessons.md`.
+then `tasks/lessons.md`.
 
 This file used to be a third copy of that instruction. It was last maintained
 on 2026-08-15 (`dafefaf`) and nothing linked to it afterwards — zero references

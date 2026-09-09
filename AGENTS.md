@@ -3,8 +3,8 @@
 **Read [`CLAUDE.md`](CLAUDE.md). It is the spine, and this file is a pointer to
 it rather than a second copy of it.**
 
-Then read `tasks/NEXT.md`, `tasks/todo.md` and `tasks/lessons.md`, in that
-order, exactly as `CLAUDE.md` says. All three fit in one read; their history
+Then read `tasks/NEXT.md` and `tasks/lessons.md`, in that
+order, exactly as `CLAUDE.md` says. Both fit in one read; their history
 lives verbatim in `tasks/archive/`.
 
 ## Why this file is nine lines instead of two hundred
