@@ -111,31 +111,75 @@ FAILURE_KINDS = (
     FAILURE_VOLUME_CRITICAL,
 )
 
-#: Tier -> (failure kind, what to do about it). The guidance is per-tier because
-#: the *urgency* differs even though the repair does not: every tier ends in the
-#: same `fly volumes extend`, and saying so at the notice tier is what makes the
-#: critical tier believable when it arrives.
-VOLUME_TIER_ALERTS: dict[str, tuple[str, str]] = {
-    volume.TIER_NOTICE: (
-        FAILURE_VOLUME_NOTICE,
-        "Nothing is broken and nothing needs doing today. This is the tier "
-        "that assumes you are away from a laptop: it leaves about a week "
-        "before the next one.",
-    ),
-    volume.TIER_ACT: (
-        FAILURE_VOLUME_ACT,
-        "Extend it the next time you are at a laptop, and do not let a "
-        "weekend pass. The measured rate is a floor rather than a centre — "
-        "NCAAF and NFL widen the feed with no config change, and an NFL "
-        "Sunday is a ~10-hour in-play window against MLB's ~4.",
-    ),
-    volume.TIER_CRITICAL: (
-        FAILURE_VOLUME_CRITICAL,
-        "Stop and do this now. Four hours of in-play carried 99.51% of the "
-        "measured day and the largest single hour took 53.9 MiB, so one "
-        "evening slate can take what is left.",
-    ),
-}
+
+def _volume_tier_alerts(
+    rate: volume.GrowthRate = volume.CURRENT_GROWTH_RATE,
+) -> dict[str, tuple[str, str]]:
+    """Tier -> (failure kind, what to do about it), built from `rate`.
+
+    **The guidance text used to hand-type its own day count** -- "leaves about
+    a week", "do not let a weekend pass" -- against a rate measured once, on
+    2026-09-01, over a single 24-hour window. Re-measured 2026-09-09 over
+    8.138 days, the realised rate was 2.0x that floor, which made "about a
+    week" state roughly double the true NOTICE-tier headroom on the one alert
+    whose entire job is telling someone away from a laptop how much time they
+    have. The byte thresholds still fired exactly where they always fired;
+    only the English was wrong, silently, in the reassuring direction.
+
+    So the day counts here are **computed from `volume.tier_headroom_days()`
+    at call time**, not typed. `CURRENT_GROWTH_RATE` is the one place to
+    correct the rate -- see its docstring -- and this function is what carries
+    that correction into the copy Joe actually reads. Called once at import
+    time to build `VOLUME_TIER_ALERTS` below; also callable with an alternate
+    `rate` so a test can show the guidance text actually depends on it rather
+    than having been generated once and pasted in.
+
+    The guidance is per-tier because the *urgency* differs even though the
+    repair does not: every tier ends in the same `fly volumes extend`, and
+    saying so at the notice tier is what makes the critical tier believable
+    when it arrives.
+    """
+    headroom = volume.tier_headroom_days(rate)
+    notice_raw, notice_net = headroom[volume.TIER_NOTICE]
+    act_raw, act_net = headroom[volume.TIER_ACT]
+    crit_raw, crit_net = headroom[volume.TIER_CRITICAL]
+    rate_mb_day = rate.bytes_per_day / 1_000_000
+    return {
+        volume.TIER_NOTICE: (
+            FAILURE_VOLUME_NOTICE,
+            "Nothing is broken and nothing needs doing today. This is the "
+            "tier that assumes you are away from a laptop: at the configured "
+            f"growth rate ({rate_mb_day:.1f} MB/day) it leaves about "
+            f"{notice_net:.1f} days net of the WAL reserve ({notice_raw:.1f} "
+            "days raw) before the next tier.",
+        ),
+        volume.TIER_ACT: (
+            FAILURE_VOLUME_ACT,
+            "Extend it the next time you are at a laptop. At the configured "
+            f"rate ({rate_mb_day:.1f} MB/day) this tier leaves about "
+            f"{act_net:.1f} days net of the WAL reserve ({act_raw:.1f} days "
+            "raw) — treat that as an upper bound, not a schedule: the rate "
+            "is a floor rather than a centre, NCAAF and NFL widen the feed "
+            "with no config change, and an NFL Sunday is a ~10-hour in-play "
+            "window against MLB's ~4.",
+        ),
+        volume.TIER_CRITICAL: (
+            FAILURE_VOLUME_CRITICAL,
+            "Stop and do this now. At the configured rate "
+            f"({rate_mb_day:.1f} MB/day) this tier leaves about "
+            f"{crit_net:.1f} days net of the WAL reserve ({crit_raw:.1f} "
+            "days raw) — and that is an average: four hours of in-play "
+            "carried 99.51% of the measured 2026-09-01 burst day and the "
+            "largest single hour took 53.9 MiB, so one evening slate can "
+            "take what is left in far less time than that.",
+        ),
+    }
+
+
+#: Tier -> (failure kind, what to do about it). Built once at import time from
+#: `volume.CURRENT_GROWTH_RATE` — see `_volume_tier_alerts` for why the day
+#: counts in the guidance text are computed rather than typed.
+VOLUME_TIER_ALERTS: dict[str, tuple[str, str]] = _volume_tier_alerts()
 
 
 #: How many **change-alert** pushes one budget day may carry, across all rungs.
@@ -1196,10 +1240,12 @@ class Alerter:
         *is* the intervention, and there is nothing to do but say so early.
 
         **It fires on the reading, never on a projected date**, and the reason
-        is the projection's own `n = 1`. See `backend/store/volume.py`; the
-        thresholds are byte levels with their days-of-headroom written beside
-        them, so if the rate is wrong the tier still fires where it says it
-        does and only the English is off.
+        is that any rate is a projection with its own unknowns. The tiers are
+        byte levels (`backend/store/volume.py`); the days-of-headroom the
+        guidance text states are computed from `volume.CURRENT_GROWTH_RATE`
+        at import time (`_volume_tier_alerts`), not typed by hand, so if that
+        rate is corrected the tier still fires at the same free-byte level and
+        the stated duration corrects itself with it.
 
         **`reading is None` means the volume could not be read, and that is
         neither healthy nor critical.** It returns `None` -- no claim -- and
