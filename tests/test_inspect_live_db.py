@@ -3673,3 +3673,23 @@ class TestTheGapQueryCannotServeTheRegisteredStatistic:
         text = QUERIES["combo-position-gaps"].description
         assert "no verdict" in text.lower()
         assert "registration" in text.lower()
+
+    def test_every_printed_section_title_carries_the_disclaimer(
+        self, capsys, gaps_db
+    ):
+        """The disclaimer travels with the OUTPUT, not just the source.
+
+        A future reader finds the artifact -- a pasted capture, a file, a
+        screenshot in a handoff -- and not the module that produced it. A
+        docstring that disclaims a registration protects the person reading
+        the code, who is not the person at risk. Required by Amendment 1
+        A1.5 of the 2026-09-08 parlay-positions registration.
+        """
+        payload = _run_json(
+            capsys, ["combo-position-gaps", "--db", str(gaps_db), "--date", DAY]
+        )
+        assert payload["sections"], "no sections to check"
+        for section in payload["sections"]:
+            title = section["title"].lower()
+            assert "no verdict" in title, section["title"]
+            assert "section 8 read" in title, section["title"]

@@ -431,7 +431,9 @@ def _q_combo_position_gaps(conn: sqlite3.Connection, args) -> list[Section]:
         conn, _SQL_COMBO_POSITION_GAPS, (),
         title=(
             "manual_orders: real combination fills with NO parlay_positions "
-            "row -- /hedge cannot see these"
+            "row -- /hedge cannot see these "
+            "[operational only: carries NO verdict on the 2026-09-08 "
+            "parlay-positions registration and is NOT its section 8 read]"
         ),
         cap=args.limit,
     )
@@ -442,7 +444,9 @@ def _q_combo_position_gaps(conn: sqlite3.Connection, args) -> list[Section]:
         conn, _SQL_COMBO_ORDERS_UNRESOLVED, (),
         title=(
             "manual_orders: real combination orders whose fate is UNKNOWN "
-            "(unrecognised_response) -- check the Kalshi app, not this table"
+            "(unrecognised_response) -- check the Kalshi app, not this table "
+            "[operational only: carries NO verdict on the 2026-09-08 "
+            "parlay-positions registration and is NOT its section 8 read]"
         ),
         cap=args.limit,
     )
