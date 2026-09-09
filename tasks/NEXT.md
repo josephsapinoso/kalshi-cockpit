@@ -121,18 +121,26 @@ the channel diagnostic (A17.6/A17.11).
 
 ## 2026-09-09 (third session) — the desk armed the entry and never armed the exit, on the one path where he spends real money
 
-**STATE at close.** `main` = **`579fadd`** at session start, clean. Live and
-demo are on **`5664e24`** and that is correct — `5c09221` and `579fadd` are
-docs and `.claude/agents/*` only, so nothing was owed a deploy. **Read
-`/api/health` rather than believing this.** At session start it said
-`manual_orders` **false (ARMED)**, `combo_bids` true, `engine_orders` true,
-`live_quotes_available` true, recorder writing 145s ago, 0 undelivered
+**STATE at close.** `main` = **`6c25c22`**, pushed, **CI green**
+(`34369960258`, 8m48s). Session started at `579fadd`, clean.
+
+**A DEPLOY IS OWED AND WAS NOT TAKEN — this is the one thing to action.**
+Live and demo are still on **`5664e24`**. That was correct at session start
+(`5c09221` and `579fadd` were docs and `.claude/agents/*` only) and **is no
+longer correct**: `6c25c22` changes `POST /api/manual-orders`, so the fix
+below does nothing for Joe until it ships, and **Sunday 09-13 is when he buys
+combinations**. It was left for him because it lands on the armed money path
+and no session should ship that unasked. See **(B)** in the Joe-gated list.
+
+**Read `/api/health` rather than believing any of this.** At session start it
+said `manual_orders` **false (ARMED)**, `combo_bids` true, `engine_orders`
+true, `live_quotes_available` true, recorder writing 145s ago, 0 undelivered
 notifications in 24h.
 
 **Nothing this session touched the odds path** (frozen to 10:00Z 2026-09-14),
 the gate, the hand-bet ceilings, or the disarmed bid path. No deploy, no
-dependency bump, no billed Anthropic call. Everything money-touching was
-**read-only**: five `sqlite3 mode=ro` replays over `flyctl ssh`.
+dependency bump, no billed Anthropic call. Everything touching the live box
+was **read-only**: five `sqlite3 mode=ro` replays over `flyctl ssh`.
 
 Three ADRs: **0125**, **0126**, **0127**. Four lanes ran in parallel.
 
@@ -303,10 +311,22 @@ capture or the scan denominator is lost.
    settles leg markets; whether a minted `KXMVE` ticker settles its position
    automatically is unobserved. Surfaced by ADR 0125, not acted on.
 
-**Joe-gated:** **(A)** only — the NFL single-game arm for Sunday, above. B, C
-and D from the previous session are answered, done and closed; **check
-`git log --oneline -1 -- <the file a letter names>` before re-asking one**, the
-letters restart every session and a stale one reads as current.
+**Joe-gated — two, and both have a Sunday deadline:**
+
+- **(A)** The NFL single-game arm for the census, above. `DISCOVERY_SERIES`
+  cannot see `KXMVENFLSINGLEGAME`, so the primary arm reaches NFL only through
+  cross-game legs. A `scripts/`-only change before **2026-09-13 00:00Z** would
+  add it. Worth it?
+- **(B)** **Deploy `6c25c22` to live?** It changes `POST /api/manual-orders`
+  on the armed path — a combination he buys records its own hedge position.
+  It adds no ceiling and no brake, changes nothing about what gets bought or
+  at what price, and cannot fail a purchase. Undeployed it does nothing, and
+  Sunday is the day it matters. CI is green.
+
+**These letters are new this session.** The previous session's B, C and D are
+answered, done and closed — **check `git log --oneline -1 -- <the file a
+letter names>` before re-asking one**, because the letters restart every
+session and a stale one reads as current.
 
 ## 2026-09-09 (second session) — the audit file is closed after 33 days, the money-path signer finally has a real test, and the fee alarm was wired the day its own excuse expired
 
