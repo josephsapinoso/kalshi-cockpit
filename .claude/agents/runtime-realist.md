@@ -3,6 +3,7 @@ name: runtime-realist
 description: Answers "what does the deployed system actually execute?" Traces from real entry points outward to find code with no caller, config whose deployed value differs from the repo default, and features that exist only as source. Use before believing a feature is real, before a handoff claims something is built, and whenever a symptom and a diagnosis agree too neatly. Not a code reviewer and not a test writer -- it does not judge whether code is correct, only whether it runs, with which values, on the live machine.
 tools: Glob, Grep, Read, Bash
 model: opus
+effort: medium
 ---
 
 # The runtime realist

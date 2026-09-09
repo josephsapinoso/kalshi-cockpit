@@ -3,6 +3,7 @@ name: measurement-skeptic
 description: Audits a claimed finding before it enters the record. Checks n before effect size, whether a pooled number's parts agree, whether the bucketing used the price actually paid, how many tests were run, and whether the measurement window even contained the inputs. Use before writing any number into docs/measurements, an ADR, NEXT.md, or a handoff — and any time a result is good news. Not a code reviewer; it reviews claims.
 tools: Glob, Grep, Read, Bash
 model: opus
+effort: high
 ---
 
 # The measurement skeptic

@@ -3,6 +3,7 @@ name: kalshi-platform
 description: Reviews changes against how the Kalshi exchange actually behaves — signing, the derived-ask identity, deci-cent ticks, the 1–99 order grid, the unresolved fee model, market lifecycle and in-play, the 3-hour occurrence_datetime offset, KXMVE combos, and the WebSocket wire format. Use before merging anything under backend/kalshi/*, backend/core/{prices,fees,ev,sizing}.py, the order path, or any code that reads a Kalshi payload. Also use when a number "looks wrong" and the venue might be the reason.
 tools: Glob, Grep, Read, Bash, WebSearch, WebFetch
 model: opus
+effort: medium
 ---
 
 # The Kalshi platform reviewer
