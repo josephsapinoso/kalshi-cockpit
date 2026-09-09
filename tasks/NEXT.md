@@ -119,6 +119,172 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-09 (second session) — the audit file is closed after 33 days, the money-path signer finally has a real test, and the fee alarm was wired the day its own excuse expired
+
+**STATE at close.** `main` = **`f7607b6`** at session start, clean; this
+session's work is one commit on top. Live and demo are on **`69ba254`** and
+that is correct — `f7607b6` was docs-only, so nothing was owed a deploy.
+**Nothing this session touched the odds path** (frozen to 10:00Z 2026-09-14),
+the gate, the hand-bet ceilings, or the disarmed bid path. No deploy, no
+dependency bump, no billed Anthropic call, nothing money-touching.
+
+Read `/api/health` rather than believing this. At session start it said
+`manual_orders` **false (ARMED)**, `combo_bids` true, `engine_orders` true,
+`live_quotes_available` true.
+
+Six ADRs: **0118**–0123, plus **Amendment 2 to 0117**.
+
+### The headline: an alarm whose written excuse had expired
+
+`Alerter.check_fee` compares a real fill's charged fee against `core/fees.py`.
+**It had no caller from the day it was written**, and its docstring justified
+that: no order had ever been placed, so there was no fill to reconcile.
+
+**That stopped being true on 2026-09-08**, when the hand-bet path took real
+fills. So fills existed and nothing compared their fee to anything, silently —
+while `TAKER_COEFFICIENT` is knowingly held at 0.070 against nine observations
+pinning k near 0.035. The alarm that would notice the schedule moving under
+the armed money path was the one not wired.
+
+It is wired now, in the fill-ingest path, and **no schema change was needed**:
+`fills.fee_actual` was already the venue's ground truth. It is **one-sided —
+it fires only when Kalshi charges MORE than predicted** — and that is the
+decision, not an oversight: a two-sided test fires on every MLB hand fill
+forever *by policy* (ADR 0058 keeps the flat coefficient while the venue
+charges half), and an alarm that must be muted on day one is worse than none.
+An undercharge is the event that matters — it means every EV figure is
+optimistic. Silent on the entire observed record. ADR 0123.
+
+**Three things fell out of it, and each is its own small finding:**
+
+- `scripts/run_loop.py:1048` now passes the `alerter_factory`. Without that one
+  line the reconciliation would have run and reached nobody — **instance five
+  of "built but never called", in the same session that wrote an ADR about
+  instances one to four.**
+- The alert copy rendered `${predicted:.2f}`, turning a real
+  $0.0142-vs-$0.0162 divergence into "predicted $0.01, charged $0.02" — the
+  direction and the size deleted from a message whose subject is "stop the
+  line". Now `.4f`.
+- Enrolling `reconcile_fill_fees` in `IO_CALLS` immediately found a real
+  ordering defect: the alarm shares the poller's connection, so
+  `Alerter._claim`'s INSERT sat between it and `await poll_positions(...)`, a
+  Kalshi round trip, with no commit between. `_claim` commits internally, which
+  is exactly why it was invisible.
+
+### `tasks/audit-2026-08-07.md` is CLOSED — all six, after 33 days
+
+It stays **in place**, not archived: ADR 0116 says so because two registrations
+and ADR 0003 cite it by item number. It now carries a dated all-closed header.
+
+| item | verdict |
+|---|---|
+| 5 deci-cent asks | CLOSED — and it never needed the live order it was "blocked on" |
+| 23 marts headline | CLOSED — ADR 0118 |
+| 25 order path | CLOSED (prior session) |
+| 27 vacuous skips | CLOSED — the regression used to produce a **green** run |
+| 33 agent fleet | CLOSED **by deletion**, not by wiring — ADR 0106 removed it |
+| 34 `ws.py` tests | CLOSED — and closing it found a live defect, ADR 0122 |
+
+**Three of the six were stale toward MORE work than existed.** 5 was recorded
+as blocked on a live order it no longer needs; 33 as needing a cost decision
+for code that had been deleted; 34 as untested for symbols two test files
+already cover. **An open-items list decays toward overstating the backlog**,
+because closing an item needs someone to notice and nothing notices. Re-check
+before planning against a list older than a few weeks.
+
+### The rest, in one line each
+
+- **The money-path signer has a real test.** `KalshiAuth._sign` authenticates
+  real orders and its only coverage asserted the header was *truthy*. Now 23
+  round-trip tests: **17 mutations of the signer, each turning them red, where
+  the old test caught 1 of 17.** Plus a guard the module's own docstring asks
+  for and the code never had — a non-RSA key now refuses at load with a named
+  message instead of dying later inside `.sign()` looking like bad credentials.
+- **`_resubscribe` deleted — and it was never instance five.** It was the
+  *rejected branch* of a decision written three lines away in `_resync_all`'s
+  docstring. Reconnect is handled two independent ways with four staleness
+  catchers between a dead socket and the screen. ADR 0119.
+- **A data frame with no `seq` is now a gap, not an exemption.** Writing the
+  `_check_sequence` tests found the exemption was type-blind: an
+  `orderbook_delta` without a `seq` would have passed the integrity check *and*
+  been applied — a silently wrong orderbook, through the one branch that skips
+  the check. ADR 0122.
+- **`pip-audit` runs blocking in CI.** Dependabot showed one advisory; this
+  shows **seven**. Green at rest via seven per-ID ignores, each commented, each
+  a record of an open decision — and red on anything new. Pinned by a test so
+  the list cannot grow quietly. ADR 0121.
+- **The unreached-definition walk was read for the first time since 09-05** and
+  all 55 entries triaged. ADR 0120.
+
+### THE ONE THING TO TELL JOE
+
+**The `cryptography` bump is 44 → 50, not 44 → 49 — six majors, not five.**
+`GHSA-g6cj-pr64-35w5` (a PKCS#7 decrypt oracle) was introduced at 44.0.0 and is
+not fixed until 50.0.0, so stopping at 49.0.0 clears alert #15 and leaves that
+one standing. Everything written before today says five majors and 49.0.0.
+ADR 0117 Amendment 2 corrects it. **It is now much safer to take**, because the
+signing test that should sit in front of it exists.
+
+### Still open, in order
+
+1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Unchanged and
+   untouched this session. Frozen surface:
+   `backend/odds/{timing,budget,attention,ondemand,client,sweeplog}.py` plus
+   the `window_status` bootstrap question (`timing.py:1536`). Sunday 09-13 is
+   the only attended NFL Sunday this month and the freeze is what makes it a
+   measurement. A deploy is not contamination; logic changes are.
+2. **The `cryptography` bump — Joe-gated, and the ask has changed shape.**
+   44 → **50**, six majors across the RSA-PSS request signer. Do NOT take it
+   as a chore. What it needs is Joe at a screen while a live signing test runs;
+   `tests/test_auth_signature_roundtrip.py` is that test now. The monitoring
+   half is DONE (ADR 0121) so nothing is un-watched while this waits.
+3. **Two open advisories that are NOT the bump.** `pip-audit`'s seven ignores
+   include one **verified false positive** (`GHSA-m2h6-j472-rp4c`, excluded by
+   version range at 44.0.3 — re-evaluate the moment the pin reaches 45.x) and
+   one **unreachable** (`pyarrow` `GHSA-rgxp-2hwp-jwgg` needs an Arrow IPC file
+   read; this repo only writes Parquet — re-evaluate if anything starts reading
+   `.arrow`/`.feather`). Also recorded: one dev-only finding, pytest 8.4.2 /
+   `PYSEC-2026-1845`, fixed in 9.0.3.
+4. **The gap branch parks `_last_seq` at an unbounded observed `seq`.** One
+   corrupt or wildly large `seq` and every legitimate frame afterwards looks
+   like a reorder and is dropped **silently**. The reconnect saves it in
+   practice (it resets `_last_seq = None`), so it is latent, not live. There is
+   no plausibility bound on gap size. ADR 0122 "what this does not decide".
+5. **ADR 0046's combo tripwire is live on the committed record.** The combo
+   fill in `tests/fixtures/portfolio_fills_redacted.json` is charged $0.00003
+   *above* what the deployed flat coefficient predicts. Nothing in production
+   consumes that today. **A partner decision about a combo-aware fee model, not
+   a patch.**
+6. **Scout Anthropic refusal fixture (ADR 0106 §5.2)** — one **billed** call,
+   Joe-gated, still unanswered. **Do not pre-build the harness**; a module with
+   no caller is this repo's now-five-times-caught pattern.
+7. **What the reachability walk found and nobody has acted on** (ADR 0120): the
+   CLV validation layer (`clv.horizons_agree`, `validate.summarise`) runs from
+   nothing, so two CLAUDE.md measurement rules have no running implementation —
+   mitigated, because the beta fits went through code that *is* reached and the
+   signal is settled negative. `KalshiRestClient.orders` is read by nothing, so
+   nothing reconciles against the venue's own view of resting orders — inert
+   while the bid path is disarmed, a silent gap the day it is re-armed.
+
+**Killed this session, so nobody carries them again:**
+
+- ~~The `_next/image` middleware exemption.~~ The optimizer is off, so the
+  exemption is unreachable code behind a disabled endpoint and ADR 0117 already
+  records that re-enabling restores both in one line. The config comment is
+  enough.
+- ~~The `eu` lever.~~ It said "nothing to build" for eight sessions. Gone.
+
+**Joe-gated:**
+
+- **(B)** Authorise the one billed Anthropic call for the Scout refusal
+  fixture? Not covered by the standing combo-lookup authorisation. **Still
+  unanswered.**
+- **(C)** New. When you are next at a screen: watch a live signing test, then
+  approve `cryptography` 44 → **50**. Six majors on the code that signs real
+  orders. Yes/no.
+
+---
+
 ## 2026-09-09 — two critical unauthenticated RCEs were live on the public box and are now patched; the effort dial is set; the month-old audit is down to two real items
 
 **STATE at close.** `main` = **`69ba254`**, pushed. **Live and demo are both

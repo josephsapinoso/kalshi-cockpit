@@ -1045,7 +1045,23 @@ async def main() -> int:
         # task continues; the registration's gap tripwires read poll_log, so
         # the loop surviving is what makes its own failures measurable.
         portfolio_task = asyncio.create_task(
-            poll_portfolio_forever(args.db, kalshi),
+            poll_portfolio_forever(
+                args.db,
+                kalshi,
+                # The fee-mismatch alarm's only caller. Without this the
+                # reconciliation runs and can reach nobody, which is this
+                # repo's four-times-caught defect: complete, tested code that
+                # nothing calls. `check_fee` sat uncalled from the day it was
+                # written until 2026-09-09 (ADR 0120) on the grounds that no
+                # order had ever been placed -- true until the hand-bet path
+                # was armed and real fills landed on 2026-09-08.
+                #
+                # A factory for the same reason the hedge watcher below takes
+                # one: an `Alerter` binds a connection, and the poller owns
+                # the only one it may use. A concurrent task on the loop's own
+                # handle would interleave two transactions.
+                alerter_factory=lambda poll_conn: Alerter(poll_conn, discord),
+            ),
             name="portfolio-poll",
         )
 

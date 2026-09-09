@@ -152,7 +152,33 @@ def headline_verdicts(dashboards: dict[str, Any]) -> list[str]:
     single row that says how many tests produced the findings below it, and
     reading any per-bucket result without it is how ten cells and one
     two-sigma hit becomes "we found something".
+
+    **A missing required mart suppresses every headline, not just its own.**
+    Until 2026-09-09 this function walked `MARTS` and appended each `ok`
+    panel's verdict without ever consulting `missing_required_marts`, so a
+    warehouse built with `mart_clv_by_bucket` and nothing else headlined a
+    per-bucket finding with the multiple-comparisons qualifier *absent* --
+    the exact error the qualifier exists to prevent, and rule 1 of the three
+    (a large apparent edge is a bug until proven otherwise). Suppression
+    rather than a warning is deliberate: a warning beside a number is read
+    past, and there is no way to qualify a finding with a mart that was not
+    built.
+
+    Silence here does not become "nothing to report", which is the failure
+    this module's docstring is otherwise about. `missing_required_marts`
+    travels in the same payload and `frontend/src/app/dashboards/page.tsx:79`
+    renders a "Findings withheld" banner off it, so the reader is told the
+    difference between withheld and absent. That banner is what makes the
+    empty list safe -- if it is ever removed, this suppression has to be
+    reconsidered with it.
+
+    Only *required* marts suppress. An absent `mart_suppression_audit` is a
+    complete warehouse for the purpose of reading a verdict, and suppressing
+    on it would teach the reader that an empty headline list is normal.
     """
+    if dashboards.get("missing_required_marts"):
+        return []
+
     ordered: list[str] = []
     for name in MARTS:
         panel = dashboards["panels"].get(name, {})

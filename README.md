@@ -187,7 +187,7 @@ the predecessor project:
 |---|---|
 | Renamed API field emptied every order book, silently, for a year — while 305 synthetic tests passed | Wire-format tests load **captured** payloads; a missing levels field raises, naming what it looked for |
 | The same bug reproduced here: hand-written tests described a format the exchange does not send | A 269-frame capture replayed through the parser: **0 of 257 book frames parsed.** Capture the payload *before* writing the parser |
-| Dropped frames corrupted books permanently with no resync | Sequence-gap detection → book unquotable → automatic resubscribe |
+| Dropped frames corrupted books permanently with no resync | Sequence-gap detection → every book unquotable → automatic **reconnect**. A gap identifies the connection, not the market, and a reconnect is the one recovery route already exercised on every backoff |
 | Ping/pong healthy while data silently stopped for 16 minutes | Application-level receive timeout. TCP liveness ≠ data flow |
 | Clamping an out-of-range price turned an API rejection into a live buy at 99c | Clamp what you trust; **refuse** what you're validating |
 | A text matcher hit 0.56% and its hits were *wrong* — "who wins" paired against "over/under 3.5 goals" | Names resolve **within one candidate fixture**, not a global roster; the match must be a bijection; a doubleheader refuses |

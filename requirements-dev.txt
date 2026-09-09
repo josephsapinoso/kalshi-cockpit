@@ -7,3 +7,6 @@ freezegun~=1.5            # staleness and time-horizon tests
 respx~=0.22               # httpx mocking, for API clients without a live network
 dbt-duckdb~=1.9           # warehouse models + tests
 ruff~=0.9
+pip-audit~=2.10           # CI's independent vulnerability gate. Dependabot is
+                          # permanently blind to cryptography on this repo, so
+                          # this is the check that sees it -- see ci.yml.

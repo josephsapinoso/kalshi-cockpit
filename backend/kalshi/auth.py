@@ -116,6 +116,16 @@ class KalshiAuth:
         Checks existence and readability separately so the failure message says
         which one went wrong -- a permissions problem and a missing file look
         identical from a stack trace otherwise.
+
+        **And it checks the key TYPE, for the reason in the module docstring
+        above.** This is RSA-PSS, not ED25519, and the old repo's README
+        claimed ED25519 for most of its life. An ED25519 or EC key loads here
+        perfectly happily -- the return annotation is a claim, not a check --
+        and then dies much later inside `.sign()` with a padding `TypeError`,
+        at a call site that has nothing to do with key material. The docstring
+        already names this as the expensive failure: it "looks like bad
+        credentials". Refusing at load time turns an afternoon into one line.
+        Added 2026-09-09.
         """
         if not path.exists():
             raise FileNotFoundError(f"Private key file not found: {path}")
@@ -123,7 +133,15 @@ class KalshiAuth:
             raise PermissionError(f"Cannot read private key file: {path}")
 
         with open(path, "rb") as f:
-            return serialization.load_pem_private_key(f.read(), password=None)
+            key = serialization.load_pem_private_key(f.read(), password=None)
+
+        if not isinstance(key, rsa.RSAPrivateKey):
+            raise TypeError(
+                f"Private key at {path} is {type(key).__name__}, not an RSA key. "
+                f"Kalshi signs with RSA-PSS; an ED25519 or EC key will fail "
+                f"authentication with errors that look like bad credentials."
+            )
+        return key
 
     def _sign(self, message: str) -> str:
         """Sign a message using RSA-PSS, MGF1(SHA-256), max salt length."""

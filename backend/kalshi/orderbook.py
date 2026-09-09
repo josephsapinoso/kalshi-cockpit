@@ -12,9 +12,15 @@ empty book must come from an empty book, never from a rename.
 **Silent corruption from dropped frames.** Kalshi's `orderbook_delta` carries a
 `seq`; the previous project had no `seq` handling anywhere. A dropped or
 reordered frame corrupts the book permanently — no error, no resync, and the
-prices simply drift from reality. Here a gap raises `SequenceGap`, and the
-caller's only correct response is to discard the book and re-snapshot. Do not
-attempt to patch forward across a gap.
+prices simply drift from reality. Here a gap is detected and the book is
+discarded and re-snapshotted; `SequenceGap` carries the detail. **Do not
+attempt to patch forward across a gap.**
+
+*Corrected 2026-09-09:* this said "a gap raises `SequenceGap`". The class
+exists and is constructed, but `ws.py`'s `_check_sequence` **logs** it and
+flags a resync rather than raising, and recovery is a whole-connection
+reconnect. The rule the paragraph is actually about -- never patch forward --
+is unchanged.
 
 Prices are integer tenths of a cent throughout. Quantities are floats — Kalshi
 sends fractional sizes.
@@ -328,8 +334,27 @@ class OrderBook:
         """Whether this book may be used to price a bet.
 
         False when invalidated by a gap, never populated, or stale. All three
-        are refusals, not warnings — the order endpoint checks this
-        independently of whatever the UI decided to render.
+        are refusals, not warnings.
+
+        **This method has no production caller, and the sentence that used to
+        be here claimed one.** It said "the order endpoint checks this
+        independently of whatever the UI decided to render" — the endpoint
+        does check independently, but not through here. Its only referrer is
+        `KalshiWebSocket.quotable_books`, which is itself called by nothing.
+
+        The protection is real and is spelled differently in two live places:
+        `backend/live.py:293` reads `book.invalid` directly for the gap half,
+        and staleness is enforced from stored quote ages via `StalenessConfig`
+        (`backend/config.py:651-667`), with `MAX_KALSHI_QUOTE_AGE_S = "30"`
+        deployed at `fly.live.toml:539` and `backend/gate.py:830` refusing
+        past it. So the order path is guarded; this is not the guard.
+
+        Left in place rather than deleted because the three-way refusal is the
+        clearest statement of the rule in the tree. **Do not restore the claim
+        of a caller** — a docstring asserting a call chain that does not exist
+        is exactly the mechanism behind four earlier "built but never called"
+        findings, and it is the reason this one was nearly miscounted as a
+        fifth. Audited 2026-09-09.
         """
         if self.invalid or self.updated_ms is None:
             return False

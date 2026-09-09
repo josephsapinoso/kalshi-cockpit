@@ -1145,12 +1145,37 @@ class Alerter:
         fee model is wrong on every fill, and one alert saying "stop the line"
         is the whole message.
 
-        **This one still has no production caller, and that is recorded rather
-        than hidden.** `ORDERS_ARE_DRY_RUNS = True` (`store/orders.py:129`)
-        means this instance has never placed an order, so there is no fill to
-        reconcile and no honest place to call it from. It is here so the
-        reconciliation path has one obvious hook when arming happens. The other
-        two on this class were wired the same day; this one could not be.
+        **This one still has no production caller, and as of 2026-09-09 the
+        reason written here had expired.** It said `ORDERS_ARE_DRY_RUNS = True`
+        (`store/orders.py:129`) means this instance has never placed an order,
+        so there is no fill to reconcile. That is still true of the *engine*
+        path — and it stopped being true of the desk. The hand-bet path is
+        armed (`MANUAL_ORDERS_ARE_DRY_RUNS = False`,
+        `backend/store/manual_orders.py`), and real fills landed 2026-09-08
+        (ADR 0113). **So fills exist now and nothing compares their charged fee
+        to `core/fees.py`.**
+
+        This is not left as a hook any more; it is an open gap, and it is
+        carried in `tasks/NEXT.md` rather than only here. It matters because
+        `TAKER_COEFFICIENT` is knowingly held at 0.070 while nine observations
+        pin k near 0.035 (ADR 0028) — the alarm that would notice the schedule
+        moving under the armed path is the one not wired.
+
+        **The charged fee IS already stored, and not where you would look
+        first.** `manual_orders` does not hold it: `OrderOutcome`
+        parses Kalshi's `average_fee_paid` at order time
+        (`backend/kalshi/orders.py:566`) and `record_outcome`
+        (`backend/store/manual_orders.py:628-649`) drops it, and
+        `response_body_json` is a dict this repo constructs, not the venue's
+        reply. Ground truth is `fills.fee_actual`
+        (`backend/store/schema.sql:878`, "ground truth from Kalshi"),
+        written by `backend/portfolio_poll.py:245` from `/portfolio/fills`
+        with `source = 'venue_hand'` for a hand bet. It joins to the order row
+        on `kalshi_order_id = fills.venue_order_id`.
+
+        So wiring this needs **no schema change** — it needs a caller that
+        computes the prediction for a fill and compares. Audited 2026-09-09,
+        ADR 0120.
         """
         return await self._failure(
             FAILURE_FEE_MISMATCH,

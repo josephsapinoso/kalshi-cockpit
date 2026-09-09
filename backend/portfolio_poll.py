@@ -45,10 +45,16 @@ What this does NOT establish
 - **That the mirror is complete.** A position opened and closed entirely
   between polls, on an endpoint that drops history, is gone. The poll cadence
   bounds that window; it cannot close it.
-- **Anything about the fee model.** `fee_predicted` is populated (the column
-  is NOT NULL, and a real `fee_actual` beside a prediction is the comparison
-  H4 and `core/fees.py` are waiting for) but nothing here evaluates the match.
-  That analysis is off-gate by ADR 0043 and belongs to its own harness.
+- **That the fee model is right.** Since 2026-09-09 this module *does* compare
+  the two -- `reconcile_fill_fees` alerts through `Alerter.check_fee` when a
+  charge exceeds the prediction -- but the test is one-sided by design, so
+  silence means "the venue did not charge more than this repo promises", NOT
+  "the model is correct". It is knowingly 2.00x high on baseball (ADR 0058
+  keeps the flat coefficient off the record-writing path) and refuted on
+  combinations (ADR 0046), where a deliberate ceiling stands in for a model.
+  Nothing here is a fit, and the comparison stays **off-gate**: ADR 0043's
+  `source = 'engine'` filter means no `venue_hand` row can move the
+  interlock in either direction, and this changes none of that.
 - **Which estimate a position matches.** Matching is analysis (§7.3 of the
   registration), runs on read, and is deliberately not done at ingest: a
   matcher inside the poller would bake today's matching rule into the stored
@@ -71,7 +77,11 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
-from .core.fees import calculate_fee
+from .core.fees import (
+    FEE_MATCH_TOLERANCE_DOLLARS,
+    calculate_fee,
+    combo_taker_fee,
+)
 from .core.prices import dollars_to_tenths
 from .kalshi.discovery import parse_ms
 from .kalshi.rest import KalshiRestClient, parse_position_fp
@@ -258,6 +268,261 @@ def _fee_dollars(value: Any) -> Optional[float]:
     if not as_decimal.is_finite() or as_decimal < 0:
         return None
     return float(as_decimal)
+
+
+# ---------------------------------------------------------------------------
+# Fee reconciliation: what the venue charged against what this repo predicts.
+#
+# **Every number in this section is DOLLARS, and that is the one thing most
+# likely to be wrong here.** The repo's convention is integer tenths of a cent
+# everywhere in the risk path (`core/prices.py`), and the fee is the documented
+# exception: `parse_fill` keeps `fee_cost` in dollars because `fills.fee_actual`
+# is the column `gate._fee_model_verified` compares in dollars,
+# `core.fees.calculate_fee` returns dollars, and `Alerter.check_fee` renders
+# `${predicted:.2f}`. Three dollar figures, no conversion anywhere. So every
+# name below spells `_dollars`, because a tenths value passed into this
+# comparison would be 1000x too large and would read as a mismatch on every
+# fill rather than as a unit error.
+# ---------------------------------------------------------------------------
+
+#: A fill whose charge exceeds the prediction by more than this is a mismatch.
+#: `core.fees.FEE_MATCH_TOLERANCE_DOLLARS` (1e-9), not a number chosen here --
+#: the gate's own mismatch test uses it (`gate.py`,
+#: `ABS(fee_actual - fee_predicted) > ?`), and two spellings of "the fee model
+#: is wrong" would drift apart. It is float noise only and the constant's own
+#: comment says why: both sides land on `FEE_GRID_DOLLARS` ($0.0001, measured,
+#: and combos have been observed on a grid finer still), so a correct model
+#: matches a charge exactly and the only thing to absorb is the round trip
+#: through SQLite's REAL and Python's float. A tolerance wide enough to forgive
+#: a rounding disagreement would forgive a 10% error on a one-contract fill,
+#: where the fee is largest as a share of the stake.
+FEE_UNDERCHARGE_TOLERANCE_DOLLARS = FEE_MATCH_TOLERANCE_DOLLARS
+
+
+@dataclass(frozen=True)
+class FeePrediction:
+    """What this repo says a fill should have been charged, in dollars.
+
+    `dollars` is `None` -- refusal, never 0 -- whenever no model in this repo
+    claims to price the fill, and `refusal` then says which one in words. A
+    zero prediction against a real charge would fire the alarm on exactly the
+    rows nothing can predict.
+    """
+
+    dollars: Optional[float]
+    model: Optional[str]
+    refusal: Optional[str]
+
+
+@dataclass(frozen=True)
+class FeeReconciliation:
+    """One mirrored fill beside the fee this repo predicted for it, in dollars.
+
+    `predicted_dollars` is a **ceiling**, not a point estimate -- see
+    `predict_fill_fee` -- so `undercharge_dollars` is the signed amount by
+    which the venue exceeded what this repo is willing to promise. Negative is
+    the normal, designed state.
+    """
+
+    kalshi_fill_id: str
+    ticker: str
+    model: str
+    predicted_dollars: float
+    actual_dollars: float
+
+    @property
+    def undercharge_dollars(self) -> float:
+        return self.actual_dollars - self.predicted_dollars
+
+    @property
+    def is_mismatch(self) -> bool:
+        return self.undercharge_dollars > FEE_UNDERCHARGE_TOLERANCE_DOLLARS
+
+
+def predict_fill_fee(parsed: ParsedFill) -> FeePrediction:
+    """The fee this repo predicts for one fill, in dollars. Never a guess.
+
+    **Two functions, because the armed path prices two instruments.** A
+    combination (`KXMVE*`) is priced by `core.fees.combo_taker_fee` -- the
+    ADR 0073 hedge, `COMBO_TAKER_COEFFICIENT = 0.071` -- because that is the
+    function the manual order path itself charges a combo order with
+    (`api/routes.py`), and because `calculate_fee`'s model is *refuted* on
+    combos (ADR 0046: every one of the 8 observed combo fills was charged
+    strictly above `0.070 * C * P * (1-P)`). Everything else is priced by
+    `core.fees.calculate_fee`, which returns `_model_a` alone -- the measured
+    model, `ceil(k * C * P * (1-P))` onto $0.0001 per order. `_model_b` and
+    `_model_a_pre_july_2026` are refuted and retained as evidence, and their
+    own docstrings forbid pricing with them; `fee_candidates` says in words it
+    is not for pricing.
+
+    **No `fee_multiplier`.** ADR 0058 confines the venue's per-series field to
+    record-writing callers, and `poll_fills` already writes
+    `fills.fee_predicted` without it -- so on a non-baseball fill this
+    reproduces the stored prediction exactly, and on a baseball one it
+    overstates by exactly 2.00x, knowingly. That asymmetry is why the alarm
+    below is one-sided.
+
+    Refusals, each `None` with a reason rather than a number:
+
+    - **A maker fill on a combination.** `combo_taker_fee` has no maker branch
+      because no maker combo fill has ever been observed and ADR 0073 permits
+      taker IOC buys only. Substituting the single-market maker coefficient
+      would be a coefficient with no observation behind it.
+    - **An untradeable price.** `calculate_fee` returns `None` at 0 or 1000
+      tenths for the reason its docstring gives at length: a zero fee
+      manufactures an edge.
+    """
+    from .estimates import classify_ticker  # deferred: `estimates` imports us
+
+    _is_sports, _sport, is_multi_leg = classify_ticker(parsed.ticker)
+    if is_multi_leg:
+        if not parsed.is_taker:
+            return FeePrediction(
+                dollars=None,
+                model=None,
+                refusal=(
+                    "a maker fill on a combination: no maker combo fill has "
+                    "ever been observed and ADR 0073 permits taker IOC buys "
+                    "only, so this repo has no coefficient to predict with"
+                ),
+            )
+        dollars = combo_taker_fee(parsed.price_tenths, parsed.count)
+        model = "combo_taker_ceiling_0071"
+    else:
+        dollars = calculate_fee(
+            price_tenths=parsed.price_tenths,
+            contracts=parsed.count,
+            maker=not parsed.is_taker,
+        )
+        model = "model_a_deci"
+    if dollars is None:
+        return FeePrediction(
+            dollars=None,
+            model=None,
+            refusal=(
+                f"no fee is defined at price_tenths={parsed.price_tenths}: "
+                f"0 and 1000 are settled outcomes, not quotes"
+            ),
+        )
+    return FeePrediction(dollars=dollars, model=model, refusal=None)
+
+
+def reconcile_fill(parsed: ParsedFill) -> Optional[FeeReconciliation]:
+    """One fill against the model, or `None` when it cannot be reconciled.
+
+    **A missing `fee_actual` refuses; it never reads as $0.00.** `parse_fill`
+    resolves an absent or unreadable `fee_cost` to `None`, and a `None` read as
+    zero against a positive prediction is a mismatch on every unpolled fill --
+    the alarm would fire loudest exactly where it knows least. Same rule as
+    everywhere else in this module: unreadable resolves to `None`, never `0`,
+    and the caller refuses rather than substitutes.
+    """
+    if parsed.fee_actual is None:
+        logger.warning(
+            "fee reconciliation refused for fill %s (%s): the venue's "
+            "fee_cost was absent or unreadable, and an unreadable charge is "
+            "not a zero charge",
+            parsed.kalshi_fill_id, parsed.ticker,
+        )
+        return None
+    prediction = predict_fill_fee(parsed)
+    if prediction.dollars is None or prediction.model is None:
+        logger.warning(
+            "fee reconciliation refused for fill %s (%s): %s",
+            parsed.kalshi_fill_id, parsed.ticker, prediction.refusal,
+        )
+        return None
+    return FeeReconciliation(
+        kalshi_fill_id=parsed.kalshi_fill_id,
+        ticker=parsed.ticker,
+        model=prediction.model,
+        predicted_dollars=prediction.dollars,
+        actual_dollars=parsed.fee_actual,
+    )
+
+
+async def reconcile_fill_fees(
+    alerter: Any,
+    checks: list,
+    *,
+    now_ms: int,
+) -> dict:
+    """Alert once when the venue charged MORE than this repo promised.
+
+    **This is the caller `Alerter.check_fee` did not have.** Its docstring
+    justified having none by `ORDERS_ARE_DRY_RUNS = True`; that is still true
+    of the engine path and stopped being true of the desk on 2026-08-26, and
+    real hand-bet fills landed 2026-09-08 (ADR 0113). Fills exist, `fee_actual`
+    is the venue's ground truth beside them, and until now nothing compared
+    the two.
+
+    **The test is one-sided -- `actual > predicted` -- and that is the whole
+    design, not a weakened guard.** `calculate_fee`'s stated property on every
+    path that is not record-writing is *never under, overstating by a known
+    factor*: ADR 0058 keeps the flat 0.070 coefficient on baseball where the
+    venue charges 0.035, so a two-sided test fires on **every** MLB hand fill,
+    forever, by deliberate policy -- e.g. fill `R` of the 2026-08-14
+    attribution (`KXMLBGAME` 1 @ 52c) was charged $0.0088 against a $0.0175
+    prediction. An alarm that fires by construction on a known and accepted
+    state is an alarm that gets muted, and a muted alarm is worse than none.
+    What the one-sided test keeps is the event that actually matters: an
+    **undercharge** means the schedule moved against us, the never-undercharge
+    property is broken, and every EV figure in the system is optimistic by an
+    unknown amount. That is the stop-the-line message the notifier already
+    carries.
+
+    On the whole observed record this is silent, and that is checked rather
+    than hoped: `KXWNBAGAME` 1 @ 28c was charged $0.0142 against a $0.0142
+    prediction (equal), the baseball rows are overstated 2.00x, and the
+    combination fills sit under the ADR 0073 ceiling ($0.015930 charged
+    against $0.0162). It is *not* silent under the flat coefficient on that
+    same combo row -- $0.0159 predicted against $0.015930 charged is an
+    undercharge -- which is why `predict_fill_fee` prices a combo with the
+    ceiling the order path itself uses.
+
+    **One alert, not one per fill.** `check_fee` is keyed per *day* in the
+    `notifications` table ("a wrong fee model is wrong on every fill, and one
+    alert saying 'stop the line' is the whole message"), so this calls it at
+    most once per pass, with the largest undercharge -- and the day key does
+    the rest across passes. Every mismatch is logged at ERROR regardless, so
+    the count is never hidden by the dedupe.
+
+    **Never runs inside the write transaction.** The alert performs a Discord
+    round trip and `Alerter._claim` commits; both callers therefore commit the
+    mirror before awaiting this, which is the rule
+    `tests/test_poller_holds_no_lock_across_io.py` exists to keep.
+
+    Absorbed like every other optional path here: alerting must never take
+    down the loop that is recording evidence.
+    """
+    result = {"checked": len(checks), "mismatched": 0, "alerted": None}
+    mismatched = [c for c in checks if c.is_mismatch]
+    result["mismatched"] = len(mismatched)
+    for check in mismatched:
+        logger.error(
+            "FEE MISMATCH on fill %s (%s): Kalshi charged $%.6f against a "
+            "$%.6f prediction from %s -- an UNDERCHARGE of $%.6f, so the "
+            "never-undercharge property of core/fees.py is broken",
+            check.kalshi_fill_id, check.ticker, check.actual_dollars,
+            check.predicted_dollars, check.model, check.undercharge_dollars,
+        )
+    if alerter is None or not mismatched:
+        return result
+    worst = max(mismatched, key=lambda c: c.undercharge_dollars)
+    try:
+        result["alerted"] = await alerter.check_fee(
+            now_ms=now_ms,
+            ticker=worst.ticker,
+            # Dollars on both sides. See the unit note at the top of this
+            # section: `fee_actual` is dollars, `calculate_fee` returns
+            # dollars, and the notifier prints them as dollars.
+            predicted=worst.predicted_dollars,
+            actual=worst.actual_dollars,
+        )
+    except Exception as exc:  # noqa: BLE001 -- alerting never blinds the mirror
+        logger.exception("fee mismatch alert failed: %s", exc)
+        result["alerted"] = f"FAILED: {exc}"
+    return result
 
 
 def parse_balance_tenths(payload: dict) -> Optional[int]:
@@ -448,6 +713,7 @@ async def poll_portfolio(
     client: KalshiRestClient,
     *,
     now_ms: int,
+    alerter: Any = None,
 ) -> dict[str, Any]:
     """One pass over all four endpoints. Every attempt leaves a `poll_log` row.
 
@@ -486,7 +752,30 @@ async def poll_portfolio(
     conn.commit()
 
     # -- fills: source='venue_hand', never 'engine' (ADR 0043) ---------------
-    summary["fills"] = await poll_fills(conn, client, now_ms=now_ms)
+    fee_checks: list = []
+    summary["fills"] = await poll_fills(
+        conn, client, now_ms=now_ms, fee_checks=fee_checks
+    )
+    conn.commit()
+    # After that commit, never before: this awaits a Discord round trip and
+    # `Alerter._claim` commits, so it may not run with the mirror's write lock
+    # held. See `reconcile_fill_fees`.
+    summary["fee_reconciliation"] = await reconcile_fill_fees(
+        alerter, fee_checks, now_ms=now_ms
+    )
+    # And a commit AFTER it too, not only before. `reconcile_fill_fees`
+    # is handed this same connection through `alerter_factory`, and
+    # `Alerter._claim` INSERTs into `notifications` on it -- so the call
+    # is a writer from this function's point of view even though the
+    # write happens a layer down. `_claim` commits internally, which is
+    # why this was invisible; the next statement is `await
+    # poll_positions(...)`, a Kalshi round trip, and the invariant is that
+    # no network await runs with a write unaccounted for.
+    #
+    # Found by enrolling `reconcile_fill_fees` in
+    # `tests/test_poller_holds_no_lock_across_io.py`'s IO_CALLS on
+    # 2026-09-09. The guard is a list, not a sweep, so it could only find
+    # this once the name was added.
     conn.commit()
 
     # -- positions: counted in poll_log AND mirrored (schema v33) -----------
@@ -591,6 +880,7 @@ async def poll_fills(
     client: KalshiRestClient,
     *,
     now_ms: int,
+    fee_checks: Optional[list] = None,
 ) -> Any:
     """The fills alone, so they can run on the 5-minute cadence too.
 
@@ -610,6 +900,19 @@ async def poll_fills(
     The caller commits; this function only writes, exactly as
     `poll_balance` does, so `poll_portfolio` can reuse it in its own
     transaction.
+
+    **`fee_checks` is an out-parameter, and it is one on purpose.** When a list
+    is given, every fill this call *newly stored* and could reconcile is
+    appended to it as a `FeeReconciliation`; the caller then awaits
+    `reconcile_fill_fees` **after committing**. It is not a return value
+    because the returned dict is what the loop logs, and it is not an `await`
+    in here because the alert is a Discord round trip and this function is
+    holding SQLite's write lock -- the exact shape ADR 0091 removed and
+    `tests/test_poller_holds_no_lock_across_io.py` pins. Newly stored rows
+    only (`cursor.rowcount > 0`): the mirror re-reads the same 200 fills every
+    five minutes, and reconciling them all again would make the alarm's
+    workload proportional to the venue's retention rather than to what
+    happened.
     """
     try:
         rows = await client.fills(limit=200)
@@ -645,6 +948,10 @@ async def poll_fills(
             ),
         )
         written += cursor.rowcount
+        if fee_checks is not None and cursor.rowcount > 0:
+            check = reconcile_fill(parsed)
+            if check is not None:
+                fee_checks.append(check)
     log_poll_attempt(
         conn, now_ms=now_ms, endpoint="fills", ok=True, row_count=len(rows)
     )
@@ -920,6 +1227,7 @@ async def poll_portfolio_forever(
     *,
     mirror_interval_s: float = MIRROR_INTERVAL_S,
     balance_interval_s: float = BALANCE_INTERVAL_S,
+    alerter_factory: Optional[Any] = None,
     sleep=asyncio.sleep,
     clock=time.time,
     max_cycles: Optional[int] = None,
@@ -947,10 +1255,29 @@ async def poll_portfolio_forever(
     process is what WAL is for, and every connection already carries the busy
     timeout.
 
+    **`alerter_factory` is a factory rather than an `Alerter`, for the reason
+    `hedge_watch.watch_hedges_forever` takes one** (`scripts/run_loop.py`
+    passes it `lambda watch_conn: Alerter(watch_conn, discord)`): an `Alerter`
+    binds a connection, and this task owns the only connection it may use --
+    the loop's own connection is used sequentially by its pass, and a
+    concurrent task on that handle would interleave two transactions. Given
+    `None`, every fee mismatch is still computed and logged at ERROR; nothing
+    reaches a phone.
+
+    **It is unwired in production as this lands**, and that is a lane boundary
+    rather than a decision: `scripts/run_loop.py` constructs the `Alerter` and
+    starts this task, and the session that wrote this could not edit it. One
+    line there -- `poll_portfolio_forever(args.db, kalshi,
+    alerter_factory=lambda poll_conn: Alerter(poll_conn, discord))` -- is what
+    puts the alarm on the phone. Until that line exists this is the
+    "built but never called" pattern `tasks/lessons.md` records, deliberately
+    and with the remedy named.
+
     `sleep`, `clock` and `max_cycles` exist for tests. Production callers pass
     none of them.
     """
     conn = store_db.connect(db_path)
+    alerter = alerter_factory(conn) if alerter_factory is not None else None
     try:
         last_mirror: Optional[float] = None
         cycles = 0
@@ -989,7 +1316,9 @@ async def poll_portfolio_forever(
                         conn, now_ms=now_ms, endpoint="mirror", ok=True
                     )
                     conn.commit()
-                    summary = await poll_portfolio(conn, client, now_ms=now_ms)
+                    summary = await poll_portfolio(
+                        conn, client, now_ms=now_ms, alerter=alerter
+                    )
                     last_mirror = now
                     logger.info("portfolio mirror: %s", summary)
                 else:
@@ -1021,7 +1350,10 @@ async def poll_portfolio_forever(
                     # mirror and refuses when it is older than 30 minutes, so
                     # on the 12-hour clock alone the order path would be
                     # refused nearly all day -- see `poll_settlements`.
-                    fills_result = await poll_fills(conn, client, now_ms=now_ms)
+                    fee_checks: list = []
+                    fills_result = await poll_fills(
+                        conn, client, now_ms=now_ms, fee_checks=fee_checks
+                    )
                     conn.commit()
                     settle_result = await poll_settlements(
                         conn, client, now_ms=now_ms
@@ -1037,10 +1369,18 @@ async def poll_portfolio_forever(
                         conn, client, now_ms=now_ms
                     )
                     conn.commit()
+                    # After every commit in this branch, never between them:
+                    # the alert is a Discord round trip and this loop may not
+                    # hold SQLite's write lock across one. See
+                    # `reconcile_fill_fees`.
+                    fee_result = await reconcile_fill_fees(
+                        alerter, fee_checks, now_ms=now_ms
+                    )
                     logger.debug(
                         "balance snapshot: %s; fills: %s; settlements: %s; "
-                        "positions: %s",
+                        "positions: %s; fees: %s",
                         result, fills_result, settle_result, positions_result,
+                        fee_result,
                     )
             except asyncio.CancelledError:
                 raise

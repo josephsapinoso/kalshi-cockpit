@@ -16,14 +16,23 @@ exit, no alert, no supervisor. Here exhausting the retries raises
 `FeedDied`, and `on_feed_down` fires so a caller can alert. A dead feed must be
 loud, because every downstream price silently freezes at its last value.
 
-**Dropped frames corrupted books permanently.** No `seq` handling existed. Here
-a `SequenceGap` triggers an automatic unsubscribe/resubscribe for that one
-ticker, which yields a fresh snapshot. The book is unusable in between and
-`is_quotable` says so.
+**Dropped frames corrupted books permanently.** No `seq` handling existed.
+Here `_check_sequence` detects the discontinuity, **logs** a `SequenceGap`
+(it does not raise one), invalidates **every** book on the connection and sets
+`_pending_resync`; `_resync_all` then reconnects, which re-snapshots
+everything. The books are unusable in between and refuse to price rather than
+returning a stale number.
+
+*Corrected 2026-09-09.* This paragraph used to say a gap "triggers an
+automatic unsubscribe/resubscribe for that one ticker". That was wrong twice
+over: nothing is raised, and recovery is a whole-connection reconnect rather
+than a per-ticker resubscribe. `_resync_all`'s docstring holds the reasoning,
+and the per-ticker helper it rejects was deleted (ADR 0119).
 
 Subscriptions are one command per ticker. Kalshi accepts a `market_tickers`
-array; this sends them individually because a per-ticker subscription id is
-what makes per-ticker resubscription possible after a gap.
+array; this sends them individually because the per-ticker subscription id is
+what links an ack back to its market — the registry `_sids` is built from it,
+and a shared id would make an ack unattributable.
 """
 
 from __future__ import annotations
@@ -67,6 +76,12 @@ class FeedDied(RuntimeError):
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
+
+
+# Frame types that carry orderbook content. These MUST carry a `seq`; a control
+# frame need not. Kept beside `_check_sequence` and `_handle`, which both branch
+# on the same two names.
+_SEQUENCED_DATA_FRAMES = ("orderbook_snapshot", "orderbook_delta")
 
 
 class KalshiWebSocket:
@@ -266,18 +281,6 @@ class KalshiWebSocket:
             }
         )
 
-    async def _resubscribe(self, ticker: str) -> None:
-        """Drop and re-add one ticker to force a fresh snapshot after a gap."""
-        sid = self._ticker_sids.pop(ticker, None)
-        if sid is not None:
-            self._sids.pop(sid, None)
-            try:
-                await self._send({"cmd": "unsubscribe", "params": {"sids": [sid]}})
-            except (ConnectionClosed, OSError):
-                raise  # let run() reconnect; a partial resubscribe is worse
-        self.books[ticker] = OrderBook(ticker)
-        await self._subscribe(ticker)
-
     async def _handle(self, raw: str) -> None:
         try:
             message = json.loads(raw)
@@ -356,12 +359,47 @@ class KalshiWebSocket:
         -- in the capture they consume sequence numbers alongside book frames, so
         skipping them would manufacture gaps that are not there.
 
-        On a gap, every book on this connection is invalidated and re-subscribed.
-        A gap identifies the connection, never the market, so invalidating only
-        one book would leave the others quietly wrong.
+        On a gap, every book on this connection is invalidated and the consume
+        loop is asked to resync. A gap identifies the connection, never the
+        market, so invalidating only one book would leave the others quietly
+        wrong. Note it is **logged, not raised** -- recovery runs through the
+        `_pending_resync` flag that `_connect_and_consume` reads.
+
+        **A frame with no `seq` is exempt, but a DATA frame never is.** In the
+        269-frame capture, `subscribed` is the only frame type lacking a `seq`
+        and it arrives before seq 1, which is why the exemption exists. Until
+        2026-09-09 it was written as "no `seq` -> accept", type-blind, and that
+        is a hole with the worst shape this file has: if an `orderbook_delta`
+        ever arrived without a `seq` -- a field rename on Kalshi's side, which
+        is precisely the failure `orderbook.py` was rewritten to catch -- it
+        would pass the integrity check *and* be applied, because `_apply`
+        forwards `seq=None` and `apply_delta` only records a `seq` that is not
+        None. The result is a silently wrong book, with no error anywhere.
+
+        So the exemption is scoped to non-data frames. A data frame with no
+        `seq` is treated as a gap: the book cannot be trusted, and a reconnect
+        that re-snapshots is the safe answer. It is deliberately *not* scoped
+        to `subscribed` alone -- an unknown control frame that Kalshi adds
+        later would then force a reconnect every time it arrived, and a
+        reconnect loop is a worse failure than an unrecognised ack.
         """
         seq = message.get("seq")
         if seq is None:
+            if message.get("type") in _SEQUENCED_DATA_FRAMES:
+                gap = SequenceGap(
+                    (self._last_seq + 1) if self._last_seq is not None else 0,
+                    -1,
+                    tuple(self.books),
+                )
+                logger.error(
+                    "%s frame carried no seq -- treating as a gap: %s",
+                    message.get("type"),
+                    gap,
+                )
+                for book in self.books.values():
+                    book.invalid = True
+                self._pending_resync = True
+                return False
             return True
 
         if self._last_seq is not None and seq != self._last_seq + 1:
@@ -394,6 +432,14 @@ class KalshiWebSocket:
         unobserved behaviour is how a resync path comes to exist without ever
         working; a reconnect is the one route already exercised on every
         backoff, and it is guaranteed to re-snapshot.
+
+        A per-ticker `_resubscribe` helper -- unsubscribe by sid, drop the
+        book, subscribe again -- was written for this and is the branch this
+        docstring rejects. It sat here unreferenced by anything, production or
+        test, and was deleted 2026-09-09 once the reconnect path was traced
+        end to end. **Do not rebuild it without first observing what Kalshi
+        answers a redundant subscribe with**, which is the one fact its
+        correctness turns on and the one nobody has.
         """
         self._pending_resync = False
         for book in self.books.values():

@@ -13,6 +13,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
+import yaml
 
 from backend.analysis.marts import (
     MARTS,
@@ -105,16 +106,56 @@ class TestHeadlines:
         for name in MARTS:
             assert any(f"verdict for {name}" in h for h in headlines)
 
-    def test_unavailable_panels_contribute_no_headline(self, tmp_path):
+    def test_a_missing_required_mart_suppresses_every_headline(self, tmp_path):
+        """Not just its own headline -- all of them.
+
+        This test used to assert the opposite. It built a warehouse holding
+        only `mart_clv_by_bucket` and asserted that its per-bucket verdict
+        headlined the dashboard anyway, with `mart_multiple_comparisons`
+        absent from the warehouse entirely. That is a per-bucket finding
+        published without the count of tests behind it, which is the one
+        thing the multiple-comparisons mart exists to prevent, and the test
+        enshrined it rather than catching it.
+        """
         path = tmp_path / "w.duckdb"
         conn = duckdb.connect(str(path))
         conn.execute(
             "create table mart_clv_by_bucket as select 1 as n, 'only one' as verdict"
         )
         conn.close()
-        assert headline_verdicts(read_dashboards(path)) == [
-            "mart_clv_by_bucket: only one"
-        ]
+
+        dashboards = read_dashboards(path)
+        assert "mart_multiple_comparisons" in dashboards["missing_required_marts"]
+        assert headline_verdicts(dashboards) == []
+
+    def test_a_missing_OPTIONAL_mart_suppresses_nothing(self, tmp_path):
+        """Otherwise the guard is over-broad and the dashboard never speaks.
+
+        Only the marts marked required in `MARTS` qualify the others. A
+        warehouse missing `mart_suppression_audit` is complete for the purpose
+        of reading a verdict, and suppressing on it would train the reader to
+        treat an empty headline list as normal -- which is how the suppression
+        above stops meaning anything.
+        """
+        path = tmp_path / "w.duckdb"
+        conn = duckdb.connect(str(path))
+        for name, required in MARTS.items():
+            if not required:
+                continue
+            conn.execute(
+                f"create table {name} as select 1 as n, "
+                f"'verdict for {name}' as verdict"
+            )
+        conn.close()
+
+        dashboards = read_dashboards(path)
+        assert dashboards["missing_required_marts"] == []
+        assert dashboards["panels"]["mart_suppression_audit"]["status"] == "unavailable"
+
+        headlines = headline_verdicts(dashboards)
+        assert headlines, "every required mart is present; there is nothing to withhold"
+        assert headlines[0].startswith("mart_multiple_comparisons")
+        assert not any("mart_suppression_audit" in h for h in headlines)
 
 
 class TestTheDashboardCannotRenderAnUncensoredResult:
@@ -299,3 +340,122 @@ class TestMartLogicIsCoveredSomewhere:
         names = {p.name for p in tests_dir.glob("*.sql")}
         assert len(names) >= 5, f"only {len(names)} mart tests remain: {names}"
         assert "assert_every_significance_mart_is_counted.sql" in names
+
+
+class TestThePipAuditIgnoreListIsPinned:
+    """`pip-audit` in CI is the only thing watching this repo's shipped
+    dependencies, because dependabot is permanently blind to `cryptography`
+    here -- the dependency graph holds no resolved version for the package
+    (both SBOM entries carry an empty `versionInfo`), and an advisory cannot
+    match a node with no version. A stale alert self-corrects; a package with
+    no version never matches an advisory again.
+
+    That step is green only because it names seven advisory IDs to ignore, and
+    a green step whose ignore list can grow silently is not a guard at all --
+    it is the "always red" failure from this file's own CI header wearing the
+    opposite disguise. So the exact set is pinned here. Adding an eighth
+    ignore now means editing this test, which spells out what is being
+    silenced, and that makes it a deliberate act rather than the easy way out
+    of a red build at an awkward hour.
+
+    This class lives in `test_marts.py` because `test_ci_runs_dbt_build` above
+    is the one existing test that reads `.github/workflows/ci.yml`, and a
+    second harness for the same file would be one more thing to keep in sync.
+
+    What this does not establish: nothing here checks that the ignored
+    advisories are still the right ones to ignore, or that their stated fix
+    versions are current. It pins the *set*, so a change to it has to be
+    argued for. Whether an entry still deserves its place is a judgement call
+    that belongs to whoever next reads the comments in `ci.yml`.
+    """
+
+    WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "ci.yml"
+
+    # Every advisory outstanding against `requirements.txt` on 2026-09-08.
+    # `ci.yml` carries the full record beside each flag: what it is, what
+    # fixes it, whether the code path is reachable here, and why it is
+    # deferred. The one-liners below are only enough to recognise an entry.
+    EXPECTED_IGNORES = {
+        # cryptography, RSA-PSS order-signing path. Deferred: the bump is
+        # 44 -> 50, six majors under the signer, and wants a live signing
+        # test in front of a human.
+        "GHSA-jwv3-5hgf-82ww",  # exponential cert-path building; dependabot alert #15
+        "GHSA-m959-cc7f-wv43",  # DNS name constraints not checked against peer name
+        "GHSA-r6ph-v2qm-q3c2",  # EC public-key loading
+        "GHSA-g6cj-pr64-35w5",  # PKCS#7 decrypt padding oracle; sets the 50.0.0 target
+        "GHSA-537c-gmf6-5ccf",  # the OpenSSL statically linked into the wheels
+        # Known-bad match: GitHub's reviewed record says introduced 45.0.0 and
+        # the pin is 44.0.3. It fires only because the mirrored PYSEC record
+        # lost the lower bound and says `introduced: 0`.
+        "GHSA-m2h6-j472-rp4c",
+        # pyarrow, SQLite -> Parquet publish, no money path. Known-bad match:
+        # the flaw needs an Arrow IPC *file* read and nothing here ever reads
+        # one -- the only pyarrow call touching a file is `pq.write_table`.
+        "GHSA-rgxp-2hwp-jwgg",
+    }
+
+    def _audit_step(self):
+        workflow = yaml.safe_load(self.WORKFLOW.read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["test"]["steps"]
+        matches = [
+            s for s in steps if "pip-audit" in (s.get("name") or "")
+        ]
+        assert len(matches) == 1, (
+            "expected exactly one pip-audit step in the test job, found "
+            f"{len(matches)} -- the dependency gate has been moved, renamed "
+            "or duplicated"
+        )
+        return steps, matches[0]
+
+    def test_the_ignore_list_is_exactly_these_seven(self):
+        _, step = self._audit_step()
+        found = set(re.findall(r"--ignore-vuln\s+([A-Za-z0-9-]+)", step["run"]))
+        assert found == self.EXPECTED_IGNORES, (
+            "the pip-audit ignore list changed.\n"
+            f"  added:   {sorted(found - self.EXPECTED_IGNORES)}\n"
+            f"  removed: {sorted(self.EXPECTED_IGNORES - found)}\n"
+            "An addition silences a real advisory on a dependency that ships "
+            "to an instance holding real money: record it in ci.yml beside "
+            "the flag, with what it is, what fixes it and why it is deferred, "
+            "then add it here. A removal should mean the bump landed -- which "
+            "is the good case, and still deliberate."
+        )
+
+    def test_the_audit_step_cannot_be_made_non_blocking(self):
+        """A guard that cannot fail is not a guard. The ignore list is a
+        record of named exceptions; `continue-on-error` would be a blanket
+        one, and would turn the whole step into decoration."""
+        _, step = self._audit_step()
+        assert "continue-on-error" not in step, (
+            "the pip-audit step no longer fails the build"
+        )
+        assert "|| true" not in step["run"]
+        assert "--strict" in step["run"], (
+            "--strict is what makes an unresolvable dependency red rather "
+            "than silently skipped -- which is the exact blindness "
+            "dependabot is stuck in for cryptography on this repo"
+        )
+
+    def test_it_audits_the_file_that_actually_ships(self):
+        """`requirements.txt` is the ship/no-ship boundary: the Dockerfile
+        installs it alone, so it is the only file whose contents reach the
+        live instance. Auditing `requirements-dev.txt` instead would drag in
+        every shipping finding anyway (it opens with `-r requirements.txt`)
+        with nothing marking which rows are exposure."""
+        _, step = self._audit_step()
+        assert "-r requirements.txt" in step["run"]
+        dockerfile = (
+            Path(__file__).parents[1] / "Dockerfile"
+        ).read_text(encoding="utf-8")
+        assert "pip install --no-cache-dir -r requirements.txt" in dockerfile, (
+            "the Dockerfile no longer installs requirements.txt alone, so "
+            "that file may no longer be the ship/no-ship boundary this step "
+            "assumes"
+        )
+
+    def test_the_audit_runs_before_the_suite(self):
+        """Cheap and early, so a vulnerable dependency fails in about a minute
+        rather than after the 15-minute cap."""
+        steps, step = self._audit_step()
+        names = [s.get("name") or s.get("uses") or "" for s in steps]
+        assert names.index(step["name"]) < names.index("Tests")

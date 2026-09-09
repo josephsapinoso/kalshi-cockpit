@@ -87,14 +87,23 @@ GUARDED = {
     MATCHER: ("ensure_estimate_markets_known", "run_match_pass"),
 }
 
-#: Bare-name calls that perform network I/O. Each is a Kalshi round trip, and
-#: each must be preceded by a commit if anything was written.
+#: Bare-name calls that perform network I/O. Each is a Kalshi round trip -- or,
+#: in one case, a Discord one -- and each must be preceded by a commit if
+#: anything was written.
+#:
+#: **This is a list, not a sweep, and that is its weakness.** A new awaited
+#: network call is invisible here until someone adds the name, so the guard
+#: cannot catch the case it most needs to. `reconcile_fill_fees` was added
+#: 2026-09-09 the day it was written, on exactly that reasoning: it performs a
+#: Discord round trip inside the poller. If you add an awaited call that talks
+#: to anything off this box, add it here in the same commit.
 IO_CALLS = (
     "poll_balance",
     "poll_fills",
     "poll_settlements",
     "poll_positions",
     "poll_portfolio",
+    "reconcile_fill_fees",
     "run_match_pass",
     "ensure_estimate_markets_known",
 )

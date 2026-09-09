@@ -61,6 +61,187 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
 
+      # An INDEPENDENT vulnerability check, and "independent" is the whole
+      # point of it. GitHub's dependabot is **permanently blind to
+      # `cryptography` on this repo** -- a monitoring failure, not a stale
+      # reading. The dependency graph holds no resolved version for the
+      # package: the SBOM carries two `cryptography` entries and both have an
+      # empty `versionInfo`, and an advisory cannot match a node with no
+      # version. So alert #15 reports `fixed` while `requirements.txt` still
+      # pins `cryptography~=44.0`, resolving to 44.0.3, squarely inside the
+      # range GHSA-jwv3-5hgf-82ww names. A stale alert self-corrects on the
+      # next scan; a package with no resolved version **never matches an
+      # advisory again**, including advisories not yet published. The
+      # session-start dependabot query in `tasks/NEXT.md` therefore cannot
+      # catch the next one, and this step is the only thing that closes the
+      # hole.
+      #
+      # **It audits `requirements.txt`, and that file is the ship/no-ship
+      # boundary.** The Dockerfile's stage 2 installs `requirements.txt`
+      # alone, so it is the only file whose contents reach the live instance
+      # holding real money. Dev/test dependencies are deliberately OUT: they
+      # do not ship, so a finding there cannot reach the live instance, and
+      # `requirements-dev.txt` begins with `-r requirements.txt`, which means
+      # auditing it re-reports every shipping finding with nothing in the
+      # output marking which is which. Naming the shipped file here is how a
+      # reader tells the two apart -- anything this step reports is exposure.
+      # Check dev deps by hand with `pip-audit -r requirements-dev.txt` and
+      # read only the rows this step does not already show. The one dev-only
+      # finding on 2026-09-08 was pytest 8.4.2, PYSEC-2026-1845, fixed 9.0.3.
+      #
+      # Placed before the lint and the suite so a vulnerable dependency fails
+      # in about a minute rather than after the 15-minute cap.
+      #
+      # `--strict` fails the audit if dependency *collection* fails on any
+      # dependency, instead of skipping it quietly. That is precisely the
+      # failure mode dependabot is sitting in -- a package nothing can resolve
+      # is a package no advisory can ever match -- so it has to be red here,
+      # not silent. There is no `continue-on-error` and no `|| true`: a guard
+      # that cannot fail is not a guard.
+      #
+      # --------------------------------------------------------------------
+      # THE IGNORE LIST BELOW IS A RECORD OF OPEN DECISIONS, NOT A
+      # SUPPRESSION. Read this before adding to it.
+      # --------------------------------------------------------------------
+      # Every advisory outstanding on 2026-09-08 is listed individually, by
+      # ID, with what it is, what fixes it, and why it is not fixed today.
+      # That resolves a real tension between two rules, both load-bearing:
+      #
+      #   "A guard that cannot fail is not a guard" -- so nothing here touches
+      #   the exit code, and `--strict` stays.
+      #
+      #   "A check that is always red is not a check" -- this file's own
+      #   header, paid for with 36 consecutive red pushes where nobody could
+      #   tell the run that found a real key from the ones that found a
+      #   comment about one. A step committed red on push one recreates
+      #   exactly that, and a red-at-rest gate teaches people to ignore the
+      #   gate. That is the worse failure of the two.
+      #
+      # A per-ID list is green at rest and red on anything NEW, which is the
+      # entire reason this step exists. None of these seven is made worse by
+      # being listed -- they are unfixed today either way, and no step at all
+      # is strictly less safe.
+      #
+      # RULES FOR THIS LIST. Never a wildcard, never a severity floor, never
+      # an unexplained ID. An entry is DELETED the moment its bump lands; it
+      # must not outlive the decision it records. Adding an eighth entry also
+      # means editing `TestThePipAuditIgnoreListIsPinned` in
+      # `tests/test_marts.py`, which names out loud everything being silenced
+      # -- so growing this list is a deliberate act rather than the easy way
+      # out of a red build at an awkward hour.
+      #
+      # TWO KINDS OF ENTRY, and they are not the same thing:
+      #   DEFERRED FIX      the advisory applies to this pin and we have
+      #                     chosen not to bump yet.
+      #   KNOWN-BAD MATCH   the advisory cannot affect this deployment at all
+      #                     -- the version range excludes the pin, or the
+      #                     vulnerable code path does not exist here.
+      # Each entry also records call-path reachability. For a DEFERRED FIX
+      # that is context for how urgent the bump is; it is NOT a reason to
+      # reclassify the entry, because the installed version really is
+      # vulnerable and future code can reach what today's code does not.
+      #
+      # WHICH PATH EACH ONE IS ON, because a reader hitting a red build at 2am
+      # needs this in front of them. Six are `cryptography`, which signs
+      # real-money orders by RSA-PSS -- that is why the bump is Joe-gated and
+      # wants a live signing test in front of a human. One is `pyarrow`, used
+      # only by the SQLite -> Parquet publish step, which touches no money
+      # path at all: a different decision with a different owner.
+      #
+      # **THE CRYPTOGRAPHY BUMP IS 44 -> 50, NOT 44 -> 49.**
+      # GHSA-g6cj-pr64-35w5 was introduced at 44.0.0 and is not fixed until
+      # 50.0.0, so stopping at 49.0.0 clears alert #15 and leaves the PKCS#7
+      # padding oracle standing. Anything written elsewhere that says "five
+      # majors" or that 49.0.0 clears this is out of date.
+      - name: Audit shipped dependencies (pip-audit)
+        run: |
+          set -euo pipefail
+
+          IGNORE=()
+
+          # ---- cryptography: the RSA-PSS order-signing path ---------------
+          # This repo's ONLY use of the library is `backend/kalshi/auth.py`:
+          # `load_pem_private_key` plus `sign(PSS(MGF1(SHA256)))`. It does no
+          # X.509 chain verification, no PKCS#7, and loads no EC public keys.
+
+          # GHSA-jwv3-5hgf-82ww (PYSEC-2026-3553, CVE-2026-69249)
+          # DEFERRED FIX. Duplicate self-signed intermediates in an invalid
+          # certificate chain make path building blow up exponentially.
+          # Affects 42.0.0 through <= 48.0.0; fixed 49.0.0. This is dependabot
+          # alert #15 -- the advisory this whole step was built for.
+          # Reachability: we never verify a chain, so not reached today.
+          IGNORE+=(--ignore-vuln GHSA-jwv3-5hgf-82ww)
+
+          # GHSA-m959-cc7f-wv43 (PYSEC-2026-35, CVE-2026-34073)
+          # DEFERRED FIX. DNS name constraints were checked only against SANs
+          # inside child certificates and not against the peer name presented
+          # at each validation, letting a constrained CA be escaped.
+          # Affects everything below 46.0.6; fixed 46.0.6.
+          # Reachability: name-constraint checking is not on our path.
+          IGNORE+=(--ignore-vuln GHSA-m959-cc7f-wv43)
+
+          # GHSA-r6ph-v2qm-q3c2 (PYSEC-2026-2141, CVE-2026-26007)
+          # DEFERRED FIX. Elliptic-curve public-key loading
+          # (`EllipticCurvePublicNumbers.public_key()`, `load_der_public_key`)
+          # mishandles certain inputs. Below 46.0.5; fixed 46.0.5.
+          # Reachability: we load one RSA *private* key and no EC key at all.
+          IGNORE+=(--ignore-vuln GHSA-r6ph-v2qm-q3c2)
+
+          # GHSA-g6cj-pr64-35w5 (PYSEC-2026-3552, CVE-2026-69247)
+          # DEFERRED FIX, and this is the entry that sets the bump target.
+          # `pkcs7_decrypt_der` / `_pem` / `_smime` reported the outcome of
+          # decrypting a RecipientInfo's encryptedKey in distinguishable ways,
+          # one of them disclosing the exact length recovered from the RSA
+          # operation -- a padding oracle. Introduced 44.0.0, fixed 50.0.0.
+          # It is why clearing cryptography means going to 50, not 49.
+          # Reachability: we never call the PKCS#7 decrypt helpers.
+          IGNORE+=(--ignore-vuln GHSA-g6cj-pr64-35w5)
+
+          # GHSA-537c-gmf6-5ccf (no aliases)
+          # DEFERRED FIX. Not a flaw in the Python code: cryptography's wheels
+          # bundle a statically linked OpenSSL, and wheels before 48.0.1 ship
+          # a vulnerable copy. Affects 0.5.0 through < 48.0.1; fixed 48.0.1.
+          # Reachability: this is the one with the broadest surface, since the
+          # bundled OpenSSL underlies every primitive we do call. Subsumed by
+          # the 44 -> 50 bump.
+          IGNORE+=(--ignore-vuln GHSA-537c-gmf6-5ccf)
+
+          # GHSA-m2h6-j472-rp4c (PYSEC-2026-3554, CVE-2026-69248)
+          # KNOWN-BAD MATCH -- this advisory does not apply to 44.0.3, and it
+          # is listed for a different reason from the five above.
+          # The flaw: the verifier accepts a leaf wildcard DNS SAN
+          # (`*.example.com`) against an intermediate constrained to
+          # `foo.example.com`, escaping permittedSubtrees. GitHub's reviewed
+          # record says introduced **45.0.0**, fixed 49.0.0, and enumerates 19
+          # affected versions, none of them 44.x. The pin is 44.0.3, so it is
+          # below the introduced boundary.
+          # It fires only because the mirrored PYSEC record lost that lower
+          # bound -- it records `introduced: 0` and enumerates 156 versions
+          # including 44.0.0 and 44.0.1 -- and pip-audit takes the union.
+          # RE-EVALUATE THE MOMENT THE PIN REACHES 45.x: at that point this
+          # stops being a bad match and becomes a real DEFERRED FIX.
+          IGNORE+=(--ignore-vuln GHSA-m2h6-j472-rp4c)
+
+          # ---- pyarrow: the SQLite -> Parquet publish step, no money path --
+
+          # GHSA-rgxp-2hwp-jwgg (PYSEC-2026-113, CVE-2026-25087)
+          # KNOWN-BAD MATCH -- unreachable here. Use-after-free in Apache
+          # Arrow C++ when reading an Arrow **IPC file** (explicitly not an
+          # IPC stream) with pre-buffering enabled, where the file holds
+          # variadic buffers. Affects 15.0.0 through 23.0.0; fixed 23.0.1.
+          # The version range does match the 19.0.1 pin, but the code path
+          # does not exist in this repo: the only pyarrow call that touches a
+          # file is `pq.write_table` in `backend/store/publish.py`, a Parquet
+          # *write*, and a tree-wide search for `pyarrow.ipc`, `feather`,
+          # `RecordBatchFileReader`, `RecordBatchStreamReader`, `open_file`,
+          # `open_stream` and `pre_buffer` returns nothing. Nothing here ever
+          # reads an Arrow IPC file.
+          # RE-EVALUATE if anything starts reading `.arrow` or `.feather`.
+          IGNORE+=(--ignore-vuln GHSA-rgxp-2hwp-jwgg)
+
+          pip-audit -r requirements.txt --strict --progress-spinner off \
+            "${IGNORE[@]}"
+
       # ruff.toml selects only pyflakes + pycodestyle's error classes (59
       # rules), minus the four rule codes that already have violations this
       # lane cannot fix (see ruff.toml for the count and tasks/inbox/ci.md for

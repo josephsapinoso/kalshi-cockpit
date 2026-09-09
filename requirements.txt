@@ -24,7 +24,8 @@ pyarrow~=19.0             # SQLite -> Parquet publish step
 duckdb~=1.1               # analytics engine over the Parquet lake
 
 # --- Agents ------------------------------------------------------------------
-anthropic~=0.49           # Scout / Skeptic / Historian
+anthropic~=0.49           # Scout, and the pro-bettor desk it convenes.
+                          # The Skeptic and the Historian were deleted (ADR 0106).
 
 # --- Alerting ----------------------------------------------------------------
 discord.py~=2.4

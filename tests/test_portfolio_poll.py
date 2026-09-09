@@ -27,7 +27,9 @@ from pathlib import Path
 
 import pytest
 
+from backend.core.fees import FEE_MATCH_TOLERANCE_DOLLARS, calculate_fee
 from backend.gate import _fee_model_verified
+from backend.notify.alerts import Alerter
 from backend.portfolio_poll import (
     ParsedFill,
     ParsedSettlement,
@@ -38,6 +40,8 @@ from backend.portfolio_poll import (
     poll_portfolio,
     poll_portfolio_forever,
     poll_positions,
+    predict_fill_fee,
+    reconcile_fill,
 )
 from backend.store import db
 
@@ -584,9 +588,9 @@ class TestPollPortfolioForever:
         real_mirror = module.poll_portfolio
         mirrors = {"n": 0}
 
-        async def counting_mirror(conn, client, *, now_ms):
+        async def counting_mirror(conn, client, *, now_ms, **kwargs):
             mirrors["n"] += 1
-            return await real_mirror(conn, client, now_ms=now_ms)
+            return await real_mirror(conn, client, now_ms=now_ms, **kwargs)
 
         monkeypatch.setattr(module, "poll_portfolio", counting_mirror)
 
@@ -948,3 +952,361 @@ class TestTheRedactedFixturesParseInFull:
                 assert row[key].startswith("00000000-0000-4000-8000-"), row[key]
             assert "REDACTED" in row["ticker"], row["ticker"]
             assert row["subaccount_number"] == 0
+
+
+# ---------------------------------------------------------------------------
+# The fee alarm at the fill-ingest path.
+#
+# **What these establish:** that a fill whose charge matches the prediction is
+# silent; that a charge above it alerts; that the boundary is
+# `core.fees.FEE_MATCH_TOLERANCE_DOLLARS` and not a number chosen here; that an
+# absent `fee_actual` refuses instead of reading as $0.00; that the per-day
+# alert key is not defeated by many fills or many polls; that the two numbers
+# handed to `Alerter.check_fee` are DOLLARS; and that the combination branch
+# exists because the flat coefficient would otherwise fire on a real combo
+# fill this repo has on disk.
+#
+# **What they do NOT establish.** Nothing about whether `core/fees.py` is
+# *correct* -- the test is one-sided, so every "silent" case here is consistent
+# with a prediction that is far too high, and on baseball it demonstrably is
+# (2.00x, by ADR 0058 policy). Nothing about combinations beyond the eight
+# fills of ADR 0046: the ceiling is a hedge above what has been seen, not a
+# bound on what Kalshi charges, and no combo fill at a mid price has ever been
+# observed. Nothing about delivery -- the notifier here is a recorder, and
+# whether Discord accepts the embed is `test_discord.py`'s question. Nothing
+# about delivery beyond the call: `scripts/run_loop.py:1048` now passes
+# `alerter_factory=lambda poll_conn: Alerter(poll_conn, discord)`, so the alarm
+# has a production caller -- but whether Discord accepts the embed is
+# `test_discord.py`'s question, and whether the deployed loop is running is the
+# live box's.
+# ---------------------------------------------------------------------------
+
+# The 2026-08-14 fee-rate attribution, cells W and R
+# (`docs/measurements/2026-08-14-fee-rate-attribution-round-three-result.md`),
+# plus one combination fill from `tests/fixtures/portfolio_fills_redacted.json`.
+# Real charges, so no expected value below is a number this test invented.
+#
+#   W   KXWNBAGAME   1 @ 28c   charged $0.014200   calculate_fee $0.0142  equal
+#   R   KXMLBGAME    1 @ 52c   charged $0.008800   calculate_fee $0.0175  2.00x
+#   C   KXMVE   227.27 @ 0.1c  charged $0.015930   combo ceiling  $0.0162
+#                                                  flat 0.070     $0.0159 UNDER
+WNBA_TICKER = "KXWNBAGAME-26AUG14DALIND-DAL"
+WNBA_CHARGE = "0.014200"
+WNBA_PREDICTION = 0.0142
+MLB_TICKER = "KXMLBGAME-26AUG141810MIACIN-CIN"
+COMBO_TICKER = "KXMVECROSSCATEGORY-REDACTED000"
+FEE_DAY_ONE_MS = 1_787_100_000_000
+FEE_DAY_TWO_MS = FEE_DAY_ONE_MS + 26 * 3_600_000
+
+
+def wnba_fill(**overrides) -> dict:
+    """Cell W: the one observed fill `calculate_fee` predicts exactly."""
+    row = dict(
+        fill_id="w-0001",
+        trade_id="w-0001",
+        order_id="w-order",
+        ticker=WNBA_TICKER,
+        market_ticker=WNBA_TICKER,
+        count_fp="1.00",
+        yes_price_dollars="0.2800",
+        no_price_dollars="0.7200",
+        fee_cost=WNBA_CHARGE,
+        is_taker=True,
+    )
+    row.update(overrides)
+    return fill_row(**row)
+
+
+class RecordingNotifier:
+    """Records what would have been pushed. Delivery is `test_discord.py`'s."""
+
+    enabled = True
+
+    def __init__(self):
+        self.fee_calls = []
+
+    async def fee_mismatch(self, ticker, predicted, actual):
+        self.fee_calls.append((ticker, predicted, actual))
+        return True
+
+
+@pytest.fixture
+def notifier():
+    return RecordingNotifier()
+
+
+@pytest.fixture
+def alerter(conn, notifier):
+    """The real `Alerter` on the real `notifications` table.
+
+    A fake alerter would let the per-day key be asserted against a
+    re-implementation of it, which is how a dedupe test stays green while the
+    real one is broken. `Alerter._claim` is what is under test in
+    `test_many_mismatching_fills_send_one_alert_for_the_day`.
+    """
+    return Alerter(conn, notifier)
+
+
+class TestWhatCountsAsAFeeMismatch:
+    """The predicate alone, on real charges, with no poller around it."""
+
+    def test_a_charge_equal_to_the_prediction_is_not_a_mismatch(self):
+        check = reconcile_fill(parse_fill(wnba_fill()))
+
+        assert check is not None
+        assert check.predicted_dollars == WNBA_PREDICTION
+        assert check.actual_dollars == WNBA_PREDICTION
+        assert not check.is_mismatch
+
+    def test_a_charge_inside_the_tolerance_is_not_a_mismatch(self):
+        """Float dust off SQLite's REAL, not a business allowance."""
+        check = reconcile_fill(parse_fill(wnba_fill(fee_cost="0.0142000005")))
+
+        assert check is not None
+        assert 0 < check.undercharge_dollars < FEE_MATCH_TOLERANCE_DOLLARS
+        assert not check.is_mismatch
+
+    def test_a_charge_one_grid_step_past_the_tolerance_is_a_mismatch(self):
+        """$0.00001 is the finest grid any Kalshi charge has been observed on
+        (ADR 0046's combo rows), so it is the smallest real disagreement -- and
+        it is seven orders of magnitude above the tolerance."""
+        check = reconcile_fill(parse_fill(wnba_fill(fee_cost="0.014210")))
+
+        assert check is not None
+        assert check.is_mismatch
+
+    def test_the_known_two_times_overstatement_on_baseball_stays_silent(self):
+        """Cell R: charged $0.0088 against a $0.0175 prediction.
+
+        ADR 0058 keeps the flat 0.070 coefficient on every path that is not
+        record-writing while MLB is charged at 0.035, so a two-sided test would
+        fire on every baseball hand bet forever -- an alarm that must be muted,
+        which is worse than no alarm.
+        """
+        check = reconcile_fill(parse_fill(wnba_fill(
+            ticker=MLB_TICKER, market_ticker=MLB_TICKER,
+            yes_price_dollars="0.5200", no_price_dollars="0.4800",
+            fee_cost="0.008800",
+        )))
+
+        assert check is not None
+        assert (check.predicted_dollars, check.actual_dollars) == (0.0175, 0.0088)
+        assert not check.is_mismatch, "overstating is the designed direction"
+
+    def test_a_combination_is_priced_by_the_ceiling_the_order_path_uses(self):
+        """And the flat coefficient would have cried wolf on this exact row.
+
+        The fill is from `portfolio_fills_redacted.json`: 227.27 contracts at
+        0.1c, charged $0.015930. `calculate_fee` at 0.070 predicts $0.0159 --
+        an undercharge of $0.00003, a true mismatch against a model ADR 0046
+        already refutes for combos. `combo_taker_fee` (ADR 0073, k = 0.071)
+        predicts $0.0162 and is silent.
+        """
+        combo = parse_fill(wnba_fill(
+            ticker=COMBO_TICKER, market_ticker=COMBO_TICKER,
+            count_fp="227.27",
+            yes_price_dollars="0.0010", no_price_dollars="0.9990",
+            fee_cost="0.015930",
+        ))
+        flat = calculate_fee(price_tenths=combo.price_tenths,
+                             contracts=combo.count, maker=False)
+
+        check = reconcile_fill(combo)
+
+        assert flat < combo.fee_actual, (
+            "the premise of the combo branch has changed: the flat coefficient "
+            "no longer undercharges this observed fill"
+        )
+        assert check is not None
+        assert check.model == "combo_taker_ceiling_0071"
+        assert check.predicted_dollars == 0.0162
+        assert not check.is_mismatch
+
+    def test_a_maker_combination_fill_is_refused_rather_than_guessed(self):
+        """No maker combo fill has ever been observed and ADR 0073 permits
+        taker IOC buys only, so there is no coefficient to predict with."""
+        prediction = predict_fill_fee(parse_fill(wnba_fill(
+            ticker=COMBO_TICKER, market_ticker=COMBO_TICKER, is_taker=False,
+        )))
+
+        assert prediction.dollars is None, "never 0, never the single-market rate"
+        assert "maker" in prediction.refusal
+
+    def test_an_untradeable_price_refuses_rather_than_pricing_at_zero(self):
+        """`calculate_fee` returns None at 0 tenths; a 0.0 prediction against a
+        real charge would be a mismatch manufactured out of a settled price."""
+        assert reconcile_fill(parse_fill(wnba_fill(
+            yes_price_dollars="0.0000", no_price_dollars="1.0000",
+        ))) is None
+
+
+class TestTheFeeAlarmAtIngest:
+    """The alarm as the poller runs it: a real `Alerter`, a real DB."""
+
+    async def test_a_fill_that_matches_the_prediction_does_not_alert(
+        self, conn, alerter, notifier
+    ):
+        client = FakeClient(fills=[wnba_fill()])
+
+        summary = await poll_portfolio(
+            conn, client, now_ms=FEE_DAY_ONE_MS, alerter=alerter
+        )
+
+        assert summary["fee_reconciliation"] == {
+            "checked": 1, "mismatched": 0, "alerted": None,
+        }
+        assert notifier.fee_calls == []
+
+    async def test_a_fill_charged_above_the_prediction_alerts(
+        self, conn, alerter, notifier
+    ):
+        """The schedule moving against us: cell W's fill at k = 0.08."""
+        client = FakeClient(fills=[wnba_fill(fee_cost="0.016128")])
+
+        summary = await poll_portfolio(
+            conn, client, now_ms=FEE_DAY_ONE_MS, alerter=alerter
+        )
+
+        assert summary["fee_reconciliation"]["mismatched"] == 1
+        assert summary["fee_reconciliation"]["alerted"] is True
+        assert len(notifier.fee_calls) == 1
+        assert notifier.fee_calls[0][0] == WNBA_TICKER
+
+    async def test_the_alert_carries_dollars_and_not_tenths(
+        self, conn, alerter, notifier
+    ):
+        """`fills.fee_actual` is dollars and `calculate_fee` returns dollars.
+
+        A tenths-of-a-cent value at this call site would be 1000x too large and
+        would render as `$14.20` on the phone against a $0.28 stake.
+        """
+        client = FakeClient(fills=[wnba_fill(fee_cost="0.016128")])
+
+        await poll_portfolio(conn, client, now_ms=FEE_DAY_ONE_MS, alerter=alerter)
+
+        _ticker, predicted, actual = notifier.fee_calls[0]
+        assert predicted == pytest.approx(WNBA_PREDICTION)
+        assert actual == pytest.approx(0.016128)
+
+    async def test_a_missing_fee_actual_refuses_rather_than_alerting(
+        self, conn, alerter, notifier
+    ):
+        """Unreadable resolves to None, never 0. A $0.00 charge read against a
+        positive prediction would alert on every fill the venue has not
+        reported a fee for."""
+        client = FakeClient(fills=[wnba_fill(fee_cost=None)])
+
+        summary = await poll_portfolio(
+            conn, client, now_ms=FEE_DAY_ONE_MS, alerter=alerter
+        )
+
+        assert conn.execute(
+            "SELECT fee_actual FROM fills"
+        ).fetchone()["fee_actual"] is None, "the fill itself is still recorded"
+        assert summary["fee_reconciliation"]["checked"] == 0
+        assert notifier.fee_calls == []
+
+    async def test_many_mismatching_fills_send_one_alert_for_the_day(
+        self, conn, alerter, notifier
+    ):
+        """`check_fee` is keyed per day on purpose: a wrong fee model is wrong
+        on every fill, and one alert saying stop-the-line is the whole message.
+        Three fills in one poll, then a fourth in a later poll the same day."""
+        client = FakeClient(fills=[
+            wnba_fill(fill_id=f"w-{i}", trade_id=f"w-{i}", fee_cost="0.016128")
+            for i in range(3)
+        ])
+        await poll_portfolio(conn, client, now_ms=FEE_DAY_ONE_MS, alerter=alerter)
+
+        later = FakeClient(fills=[
+            wnba_fill(fill_id="w-9", trade_id="w-9", fee_cost="0.016128")
+        ])
+        await poll_portfolio(
+            conn, later, now_ms=FEE_DAY_ONE_MS + 3_600_000, alerter=alerter
+        )
+
+        assert len(notifier.fee_calls) == 1, "one alert, not one per fill"
+        assert conn.execute(
+            "SELECT COUNT(*) AS n FROM notifications WHERE kind = 'failure'"
+        ).fetchone()["n"] == 1
+
+    async def test_a_new_day_can_alert_again(self, conn, alerter, notifier):
+        """The dedupe is a day key, not a permanent mute: an unfixed model is
+        worth saying again tomorrow."""
+        client = FakeClient(fills=[wnba_fill(fee_cost="0.016128")])
+        await poll_portfolio(conn, client, now_ms=FEE_DAY_ONE_MS, alerter=alerter)
+
+        tomorrow = FakeClient(fills=[
+            wnba_fill(fill_id="w-2", trade_id="w-2", fee_cost="0.016128")
+        ])
+        await poll_portfolio(conn, tomorrow, now_ms=FEE_DAY_TWO_MS, alerter=alerter)
+
+        assert len(notifier.fee_calls) == 2
+
+    async def test_only_newly_stored_fills_are_reconciled(
+        self, conn, alerter, notifier
+    ):
+        """The venue returns the same 200 fills every five minutes. Re-checking
+        them would make the alarm's workload a function of Kalshi's retention
+        rather than of what happened, and would re-alert every day for as long
+        as a bad fill stayed in the window."""
+        client = FakeClient(fills=[wnba_fill(fee_cost="0.016128")])
+        await poll_portfolio(conn, client, now_ms=FEE_DAY_ONE_MS, alerter=alerter)
+
+        second = await poll_portfolio(
+            conn, client, now_ms=FEE_DAY_TWO_MS, alerter=alerter
+        )
+
+        assert second["fills"]["new"] == 0
+        assert second["fee_reconciliation"]["checked"] == 0
+        assert len(notifier.fee_calls) == 1
+
+    async def test_without_an_alerter_the_mirror_still_records_the_fill(self, conn):
+        """Alerting is optional infrastructure; the record is not."""
+        client = FakeClient(fills=[wnba_fill(fee_cost="0.016128")])
+
+        summary = await poll_portfolio(conn, client, now_ms=FEE_DAY_ONE_MS)
+
+        assert summary["fills"]["new"] == 1
+        assert summary["fee_reconciliation"]["mismatched"] == 1
+        assert summary["fee_reconciliation"]["alerted"] is None
+
+    async def test_an_alerter_that_explodes_does_not_take_down_the_poll(self, conn):
+        class Exploding:
+            async def check_fee(self, **_kwargs):
+                raise RuntimeError("discord is on fire")
+
+        client = FakeClient(fills=[wnba_fill(fee_cost="0.016128")])
+
+        summary = await poll_portfolio(
+            conn, client, now_ms=FEE_DAY_ONE_MS, alerter=Exploding()
+        )
+
+        assert summary["fills"]["new"] == 1
+        assert "FAILED" in summary["fee_reconciliation"]["alerted"]
+
+    async def test_the_loop_builds_its_alerter_on_its_own_connection(
+        self, tmp_path, notifier
+    ):
+        """`poll_portfolio_forever` takes a FACTORY, like the hedge watcher: an
+        `Alerter` binds a connection and this task owns the only one it may
+        use."""
+        db_path = tmp_path / "loop.db"
+        db.init_db(db_path).close()
+        client = FakeClient(fills=[wnba_fill(fee_cost="0.016128")])
+        built = []
+
+        def factory(poll_conn):
+            built.append(poll_conn)
+            return Alerter(poll_conn, notifier)
+
+        async def no_sleep(_seconds):
+            return None
+
+        await poll_portfolio_forever(
+            db_path, client, alerter_factory=factory,
+            sleep=no_sleep, clock=lambda: FEE_DAY_ONE_MS / 1000, max_cycles=1,
+        )
+
+        assert len(built) == 1, "one alerter, on the poller's own connection"
+        assert len(notifier.fee_calls) == 1

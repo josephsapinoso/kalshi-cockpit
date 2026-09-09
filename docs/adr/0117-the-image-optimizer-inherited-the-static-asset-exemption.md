@@ -233,3 +233,39 @@ Verified: `npx tsc --noEmit` clean, `npm run build` green, and the resolved
 config back is not the check, though — the check is the response, and it was
 taken from an unauthenticated client against the deployed instance after the
 deploy.
+
+---
+
+## Amendment 2 — 2026-09-09: the `cryptography` bump is 44 → 50, not 44 → 49, and an independent check now exists
+
+Two corrections to the record above, both found by installing `pip-audit`
+against `requirements.txt` (ADR 0121) rather than by reading GitHub.
+
+**1. "Fix in 49.0.0" and "five majors" are wrong, and understate the change.**
+That is true of alert #15's advisory alone (GHSA-jwv3-5hgf-82ww =
+PYSEC-2026-3553 = CVE-2026-69249, `introduced 42.0.0, fixed 49.0.0`). But an
+independent audit of the same pin reports **seven advisories across two
+shipping packages**, and among them `PYSEC-2026-3552` / GHSA-g6cj-pr64-35w5 /
+CVE-2026-69247 — a PKCS#7 decrypt oracle — was **introduced at 44.0.0 and is
+not fixed until 50.0.0**.
+
+So going to 49.0.0 clears the alert this ADR was written about and leaves that
+one standing. **Clearing `cryptography` means 44 → 50: six majors across the
+RSA-PSS request signer**, not five. Everywhere this ADR says 49.0.0 or five
+majors, read 50.0.0 and six.
+
+This does not change the decision — the bump is still deferred to a moment
+with a live signing test in front of a human — but it changes its size, and a
+deferred decision recorded at the wrong size is how it gets taken casually
+later. There is now such a test: `tests/test_auth_signature_roundtrip.py`
+verifies the signature by round-trip against 17 mutations of the signer, where
+the previous coverage asserted only that the header was non-empty and survived
+16 of the 17.
+
+**2. The blind spot named in this ADR is now covered by something that is not
+dependabot.** The finding above — that GitHub's dependency graph holds no
+resolved version for `cryptography`, so no advisory can ever match it again —
+was never going to be fixed by watching alerts more carefully. A blocking
+`pip-audit` step against `requirements.txt` runs in CI as of ADR 0121, and it
+is what surfaced correction 1. Notably, the advisory this ADR is about is one
+of seven; the other six were invisible to every instrument this project had.

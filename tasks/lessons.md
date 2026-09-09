@@ -16,6 +16,130 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-09 - A justification decays into a lie, and the one most likely to is the one that explains why something is safe to leave undone
+
+`Alerter.check_fee` compares a real fill's charged fee against `core/fees.py`.
+It had no caller, and unlike most such cases it said why, clearly and
+correctly:
+
+> `ORDERS_ARE_DRY_RUNS = True` means this instance has never placed an order,
+> so there is no fill to reconcile and no honest place to call it from.
+
+That was true when written and it is **the best version of this mistake** - the
+absence was deliberate, reasoned and documented, which is exactly what this
+repo asks for. It still ended with fills going unreconciled in silence, because
+on 2026-09-08 the hand-bet path was armed and real fills landed. **The
+condition the excuse rested on changed, and the excuse did not.**
+
+**The pattern: a comment that asserts a fact about the world is a claim with a
+shelf life, and nothing expires it.** Code that is wrong gets a failing test.
+Prose that has gone stale gets read and believed. Three separate instances
+turned up in one session, all in the same direction - all reassuring:
+
+- `check_fee`: "no order has ever been placed" - false for 40 hours.
+- `OrderBook.is_quotable`: "the order endpoint checks this independently" - the
+  endpoint does check independently, but **not through here**; the method has
+  no production caller at all.
+- `ws.py`'s header: a sequence gap "triggers an automatic
+  unsubscribe/resubscribe for that one ticker" - wrong twice over, and the
+  helper it described had just been deleted.
+
+Each would have sent a reader looking in the wrong place, and the `is_quotable`
+one nearly caused a real guard to be recorded as missing.
+
+**So, two habits:**
+
+1. **When you write a justification for leaving something undone, write down
+   the condition that would end it** - not just the current state. "No order
+   has ever been placed" is a state; "wire this the day any order path is
+   armed" is a trigger. The second survives contact with the future.
+2. **When you touch code near a claim, check the claim.** It costs one grep and
+   it is the only mechanism that exists - there is no test for prose. The
+   correction belongs at the point of the claim, dated, saying what it used to
+   say; deleting the wrong sentence silently means the next reader cannot tell
+   a corrected comment from one nobody ever checked.
+
+The corollary is about which direction to distrust. All three of these erred
+toward *reassurance* - "this is fine", "this is covered", "this is handled". A
+stale comment claiming something is broken gets investigated and fixed. A stale
+comment claiming something is safe gets believed and closes the question. See
+[[verification-methods-that-lie]] and [[built-but-never-called]].
+
+## 2026-09-09 - A helper with no caller may be the *losing side of a decision*, not an unrun feature, and only the neighbouring docstring tells them apart
+
+This repo has caught four cases of "built but never called" - a complete,
+tested module invoked by nothing, manufacturing the belief that a feature
+exists. `KalshiWebSocket._resubscribe` was logged as the fifth, and it was
+not one.
+
+Grep found it the same way it found the other four: no caller in production,
+none in tests, none via `getattr`, string dispatch or config. On that evidence
+the two cases are indistinguishable, and both readings were available -
+"delete the tidy-up" or "a dropped socket silently stops delivering prices".
+The second was the one that mattered, because stale prices with no error is
+the worst failure the feed has.
+
+**What settled it was three lines away, in prose.** `_resync_all`'s docstring
+says it reconnects *rather than* re-subscribing, deliberately, because whether
+Kalshi answers a redundant subscribe with a fresh snapshot **has not been
+observed**. So `_resubscribe` was the branch that docstring rejects, left in
+the file after the decision went the other way. It was not a feature that
+never ran; it was an argument that lost.
+
+**The distinction, and it changes what you do:**
+
+- **A module with no caller** is a capability the system believes it has and
+  does not. Wire it or delete it, and either way something is wrong today.
+- **A helper with no caller** may be a rejected alternative. Deleting it is
+  right, but only after moving *why* it was rejected into the code that
+  survived - otherwise the next session rebuilds it, having lost the one fact
+  its correctness turns on.
+
+So: **before acting on a no-caller finding, read the docstrings and comments
+of its neighbours, not just its own.** A grep tells you nothing is calling it.
+It cannot tell you whether that is a gap or a verdict.
+
+The corollary is about how the finding was reached at all. Both of this
+repo's caller-checks (`tests/test_has_callers.py`, `tests/test_reachable_callers.py`)
+are **opt-in by symbol list**; the second explicitly declines to assert that
+its unreached set is dead, because a walk that over-approximates reachability
+cannot also be the authority on death. Instance five reached today not through
+a gap in the greps but through a gap in **what is enrolled**. See
+[[built-but-never-called]].
+
+## 2026-09-09 - A test that `skip`s on missing input cannot tell a legitimately absent case from the regression it exists to catch
+
+`tests/test_discovery.py` existed to catch a real historical bug: the
+classifier dropping every spread and total. Two of its tests began
+
+    if not priced:
+        pytest.skip("fixture has no spread/total events in scope")
+
+Simulating that exact bug - filtering every spread and total out of the
+capture - produced **94 passed, 3 skipped, exit 0**. The file went green in
+precisely the state it was built to detect, and the run *looked* healthy;
+"skipped" is not a colour anyone reads as alarming.
+
+**The error is treating a committed fixture as a runtime condition.** Whether
+`tests/fixtures/events_sports_nested.json` contains spread events is a
+**fact** - it is checked in, it does not change between runs, and it holds 6
+spread and 6 total events that survive discovery. An empty result is therefore
+always the code changing, never the input. Branching on it hands the
+implementation a way to satisfy the test by producing nothing.
+
+**So assert the precondition instead of skipping on it**, in its own named
+test whose whole job is that the fixture still holds what the tests below
+need - the pattern `tests/test_marts.py` already uses with the comment
+*"Otherwise every assertion below passes vacuously."* After the change, the
+same mutation gives **5 failed, 0 skipped**.
+
+**The general rule: a `skip` is only legitimate when its condition is a
+property of the *environment*, not of the thing under test.** "No credentials
+on this machine" and "the capture file was never downloaded" are environment.
+"The code under test produced nothing" is the result, and a test that skips on
+its own result cannot fail. When you write `skip`, say out loud which of the
+two it is; if it is the second, it is an `assert`.
+
 ## 2026-09-09 - `flyctl ssh console` starts a shell that does NOT carry the app's Fly secrets; the credentials live on the app's own child process
 
 Reading a Kalshi balance off the live box by importing the desk's own code

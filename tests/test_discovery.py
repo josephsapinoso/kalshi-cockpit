@@ -90,6 +90,20 @@ def prop_events(prop_capture):
     ]
 
 
+MARKET_TYPE_BY_SERIES = {
+    "KXMLBGAME": "moneyline",
+    "KXMLBSPREAD": "spread",
+    "KXMLBTOTAL": "total",
+    "KXWNBAGAME": "moneyline",
+}
+"""The series `test_market_type_comes_from_the_series_suffix` classifies.
+
+Module-level so the test that checks the fixture still carries them reads the
+same list the parametrisation does -- adding a series here without re-capturing
+the fixture is then a red test, not a silent skip.
+"""
+
+
 def _leagues_in(events):
     return {
         ((e.get("product_metadata") or {}).get("competition") or "").strip()
@@ -118,14 +132,29 @@ class TestSeriesClassification:
                 return
         pytest.fail("fixture has no KXNBA futures event")
 
+    def test_the_fixture_carries_every_series_the_next_test_classifies(
+        self, events
+    ):
+        """Otherwise the parametrisation below passes vacuously.
+
+        The capture is committed and does not change on its own, so whether it
+        holds a `KXMLBSPREAD` event is a fact -- checkable once, here -- and not
+        a runtime condition for each case to branch on. A `skip` at the bottom
+        of that loop cannot tell "this capture never had one" from "the thing
+        under test stopped producing them", and the second is the regression
+        this file exists to catch: spreads and totals vanishing wholesale is
+        precisely the bug `TestMetadataDrift` was written for.
+        """
+        present = {(e.get("series_ticker") or "") for e in events}
+        missing = sorted(set(MARKET_TYPE_BY_SERIES) - present)
+        assert not missing, (
+            f"events_sports_nested.json no longer carries {missing}. "
+            f"Re-capture the fixture, or drop the series from "
+            f"MARKET_TYPE_BY_SERIES on purpose -- do not skip past it."
+        )
+
     @pytest.mark.parametrize(
-        "series,expected_type",
-        [
-            ("KXMLBGAME", "moneyline"),
-            ("KXMLBSPREAD", "spread"),
-            ("KXMLBTOTAL", "total"),
-            ("KXWNBAGAME", "moneyline"),
-        ],
+        "series,expected_type", sorted(MARKET_TYPE_BY_SERIES.items())
     )
     def test_market_type_comes_from_the_series_suffix(
         self, events, series, expected_type
@@ -134,7 +163,7 @@ class TestSeriesClassification:
             if (event.get("series_ticker") or "") == series:
                 assert classify_series(event).market_type == expected_type
                 return
-        pytest.skip(f"fixture has no {series} event")
+        pytest.fail(f"fixture has no {series} event")
 
     def test_scope_is_read_from_metadata_not_inferred(self):
         """`competition_scope` is authoritative; the suffix is only a fallback."""
@@ -926,13 +955,53 @@ class TestDiscovery:
         assert all(e.sport_key for e in discovered)
         assert not any(e.series_ticker == "KXMLSGAME" for e in discovered)
 
+    def test_an_out_of_scope_league_is_dropped_even_on_a_market_type_we_price(
+        self, discovered, events
+    ):
+        """The league decides, not the market type.
+
+        `KXMLSGAME` above is excluded on two counts at once -- out-of-scope
+        league *and* a market type nobody asked about -- so it cannot show
+        which rule did the work. `KXCFLSPREAD` separates them: spread is a
+        type discovery prices for MLB and the WNBA, so if this event survives,
+        scope is being decided by the suffix rather than the league.
+        """
+        assert any(e.get("series_ticker") == "KXCFLSPREAD" for e in events), (
+            "fixture no longer carries KXCFLSPREAD; this test proves nothing"
+        )
+        assert not any(e.series_ticker == "KXCFLSPREAD" for e in discovered)
+
     def test_futures_are_excluded(self, discovered):
         assert not any(e.series_ticker in {"KXNBA", "KXNFLMVP"} for e in discovered)
 
+    def test_discovery_still_prices_spreads_and_totals_at_all(self, discovered):
+        """Otherwise the line assertion below passes vacuously.
+
+        This is the one the audit named. Skipping when `priced` came back empty
+        made the file green in exactly the state it was built to detect -- the
+        classifier dropping every spread and total, which it really did once
+        (see `TestMetadataDrift`). The fixture is committed: 6 spread events and
+        6 total events survive discovery, so an empty list is the code changing,
+        never the input.
+        """
+        types = collections.Counter(e.market_type for e in discovered)
+        assert types["spread"], (
+            "no spread event survived discovery -- the fixture carries "
+            "KXMLBSPREAD and KXWNBASPREAD, so this is the classifier, "
+            "not the capture"
+        )
+        assert types["total"], (
+            "no total event survived discovery -- the fixture carries "
+            "KXMLBTOTAL and KXWNBATOTAL, so this is the classifier, "
+            "not the capture"
+        )
+
     def test_spread_and_total_markets_carry_their_line(self, discovered):
         priced = [e for e in discovered if e.market_type in ("spread", "total")]
-        if not priced:
-            pytest.skip("fixture has no spread/total events in scope")
+        assert priced, (
+            "no spread or total event survived discovery; "
+            "see test_discovery_still_prices_spreads_and_totals_at_all"
+        )
         for event in priced:
             assert all(m.strike is not None for m in event.markets), (
                 "a spread or total without a line cannot be matched to a book"
