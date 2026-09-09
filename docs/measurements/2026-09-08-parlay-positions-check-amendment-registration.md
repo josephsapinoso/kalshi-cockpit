@@ -1097,3 +1097,67 @@ the gap for `manual_orders` id=4 on the next run. That is the intended
 behaviour of a reconciler and it is **not** an interaction with `R` — the
 query emits no `parlay_positions` row and A1.2's exclusions are what keep that
 row out of the statistic.
+
+---
+
+## A1.10 The write happened — the factual line A1.2.3 requires
+
+**`parlay_positions.id = 1`, `created_ms = 1788976165253`
+(2026-09-09T17:49:25.253Z).** Until this line existed the row was identified in
+A1.2.1 only by description; it is now identified by id.
+
+Written by `scripts/backfill_orphan_combo_position.py`, committed at `d349872`
+**before** it ran, per A1.2.3's requirement that the exact arguments live in
+git rather than in a transcript. Executed against `/data/cockpit.db` on machine
+`7812601a239428` — a `--dry-run` first, which printed the same figures and
+wrote nothing, then `--commit`.
+
+The values, all derived and none typed:
+
+    lookup_id        41          (parlay_lookups, status 'priced')
+    label            'safe'      (lookup.card_key)
+    stake_tenths     1640        (4 contracts x 410 tenths)
+    return_tenths    4000        (4 contracts x $1.00)
+    legs             3           LAABOS-BOS, COLNYY-NYY, CINLAD-LAD, all 'yes'
+
+`stake_tenths = 1640` equals `venue_positions.exposure_tenths` for this ticker,
+read independently from the venue's own poll — the cross-check that the row
+describes the position actually held.
+
+**`legs_for_position` reported `labels_are_tickers = True`.** The leg names in
+this row are market tickers rather than team names, because the combination was
+priced before the desk began recording leg labels. That is ADR 0125's honest
+degradation and inventing names was refused; it is recorded here so a reader of
+`/hedge` does not mistake it for a rendering fault.
+
+**Both exclusions stand and are restated because this line is where a future
+reader lands:** this row is excluded from `R`, and the sitting containing the
+`manual_orders` id=4 fill is excluded from `G`. The second is the load-bearing
+one — writing the row removed Joe's occasion to record it himself, and leaving
+that sitting in the denominator would bias `R/G` downward, toward killing the
+form.
+
+### A1.10.1 What the reconciler found, and one thing it got wrong first
+
+The 2026-09-09 read logged in A1.1 returned **three** rows, not one, and its
+`exposure` column called all three `OPEN AT VENUE -- UNWATCHED`. Two of them —
+`manual_orders` id=1 and id=2 — settled on 2026-09-08.
+
+The query had asked for the newest `venue_positions` row **bearing that
+ticker**. But that table is an append-only poll record: a held position is
+rewritten every cycle and a settled one is simply not written again. The
+absence is the event, and the last present row therefore reports whatever was
+true when the position last existed. Silence read as exposure, inside the one
+column written to catch silence read as health.
+
+Corrected at `55990c5` to ask whether the ticker appears in the most recent
+**successful** `positions` poll, with `ok = 1` load-bearing and separately
+tested: taking a failed call as the baseline would make every open position
+absent from it and report the lot as closed, turning an outage into an
+all-clear. The corrected read returns **one** genuinely open unwatched
+position, id=4, and two settled — which agrees with the independent `poll_log`
+evidence already on the record that the 09-08 pair closed.
+
+**This is recorded rather than quietly fixed** because the first reading was
+taken against live and is what A1.1 logs. Anyone re-reading A1.1's census must
+use the corrected instrument.
