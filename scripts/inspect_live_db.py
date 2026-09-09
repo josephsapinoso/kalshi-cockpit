@@ -286,6 +286,7 @@ from inspect_live_db_money import (  # noqa: E402,F401
 from inspect_live_db_parlays import (  # noqa: E402,F401
     _SQL_PARLAY_CANDIDATES,
     _q_combo_bids_tail,
+    _q_combo_position_gaps,
     _q_parlay_candidates_timing,
     _q_parlay_lookups_tail,
 )
@@ -529,6 +530,22 @@ QUERIES: dict[str, QueryDef] = {
         "a given combination market exists on the exchange. No P&L, no "
         "outcome, no verdict.",
         _q_parlay_lookups_tail,
+    ),
+    "combo-position-gaps": QueryDef(
+        "Combinations bought with REAL money that no `parlay_positions` row "
+        "watches, so `/hedge` -- the only exit an enter-only combination has "
+        "-- cannot see them. Both money-spending statuses (`filled` and "
+        "`partially_filled`), with the latest venue poll beside each so an "
+        "OPEN one is separable from history, and `unrecognised_response` "
+        "orders listed SEPARATELY because those may or may not have spent "
+        "anything. The detector for a write that is designed to fail "
+        "silently: ADR 0125's writer is wrapped in a bare `except` so that "
+        "bookkeeping can never fail a purchase, which means nothing raises "
+        "when it does fail. Emits NO parlay_positions row, no count of them "
+        "and no rate -- the table appears only inside a NOT EXISTS. Carries "
+        "no verdict on the 2026-09-08 parlay-positions registration and is "
+        "NOT its §8 read. Answers: is a live position unwatched right now?",
+        _q_combo_position_gaps,
     ),
     "combo-bids-tail": QueryDef(
         "The last N resting bids the desk placed on a combination (-n, "

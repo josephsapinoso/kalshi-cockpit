@@ -316,3 +316,135 @@ def _q_combo_bids_tail(conn: sqlite3.Connection, args) -> list[Section]:
     ):
         tail = _derive_iso(tail, col, iso)
     return [tail]
+
+
+# ---------------------------------------------------------------------------
+# Combinations the desk bought and nothing is watching (ADR 0125).
+# ---------------------------------------------------------------------------
+#
+# **The detector for a write that is designed to fail silently.**
+# `_record_combo_position` runs inside a `try/except Exception` that swallows
+# every failure and logs it (`backend/api/routes.py`, "Never into the order
+# path"). That is the correct design -- bookkeeping must never turn a purchase
+# that already spent money into a 500 -- but it means the row that puts a
+# combination under `/hedge`'s watch can fail to appear and nothing raises.
+# A walk of `manual_orders` against `parlay_positions` is the only detector
+# that failure mode has.
+#
+# It also catches the gap this query was written for: a fill that landed
+# BEFORE the wiring deployed. `manual_orders` id=4 filled 2026-09-09 15:11:56Z
+# and the wiring deployed 15:56:45Z, so a live position existed with the exit
+# screen never having heard of it. That is not a defect in the wiring; it is
+# the class of thing only a reconciler finds.
+#
+# **Both money-spending statuses, not just `filled`.** `partially_filled`
+# bought contracts too, and ADR 0125 watches a part-fill at the size the VENUE
+# reports rather than the size requested. A reconciler that looked only at
+# `filled` would report health over a real half-position.
+#
+# `unrecognised_response` is reported SEPARATELY and is not counted as a gap:
+# the route's own note says such an order MAY have been placed. "We do not
+# know whether money moved" and "money moved and nothing is watching it" are
+# different states, and collapsing them would let the uncertain one hide
+# inside the certain one.
+#
+# **What this emits from `parlay_positions`: nothing.** The table appears only
+# inside a `NOT EXISTS`, so every row this query prints is a row for which the
+# position does NOT exist. It cannot print a position, a count of positions,
+# or a rate over them.
+_SQL_COMBO_POSITION_GAPS = (
+    "SELECT m.id AS manual_order_id, m.submitted_ms, m.ticker, "
+    "       m.count AS contracts_ordered, m.status, "
+    "       (SELECT v.contracts FROM venue_positions v "
+    "         WHERE v.ticker = m.ticker ORDER BY v.id DESC LIMIT 1) "
+    "         AS venue_contracts_latest, "
+    "       (SELECT v.polled_ms FROM venue_positions v "
+    "         WHERE v.ticker = m.ticker ORDER BY v.id DESC LIMIT 1) "
+    "         AS venue_polled_ms, "
+    "       CASE WHEN NOT EXISTS (SELECT 1 FROM venue_positions v "
+    "                              WHERE v.ticker = m.ticker) "
+    "            THEN 'never seen at venue' "
+    "            WHEN (SELECT v.contracts FROM venue_positions v "
+    "                   WHERE v.ticker = m.ticker ORDER BY v.id DESC LIMIT 1) "
+    "                 > 0 "
+    "            THEN 'OPEN AT VENUE -- UNWATCHED' "
+    "            ELSE 'closed at venue' END AS exposure "
+    "FROM manual_orders m "
+    "WHERE m.ticker LIKE 'KXMVE%' "
+    "  AND m.dry_run = 0 "
+    "  AND m.status IN ('filled', 'partially_filled') "
+    "  AND NOT EXISTS (SELECT 1 FROM parlay_positions p "
+    "                   WHERE p.combo_ticker = m.ticker) "
+    "ORDER BY m.submitted_ms DESC"
+)
+
+# The orders that spent money only MAYBE. Same shape, no `NOT EXISTS`: an
+# `unrecognised_response` is unresolved regardless of what any table holds,
+# and the answer is at the venue rather than here.
+_SQL_COMBO_ORDERS_UNRESOLVED = (
+    "SELECT m.id AS manual_order_id, m.submitted_ms, m.ticker, "
+    "       m.count AS contracts_ordered, m.status, m.error_text, "
+    "       (SELECT v.contracts FROM venue_positions v "
+    "         WHERE v.ticker = m.ticker ORDER BY v.id DESC LIMIT 1) "
+    "         AS venue_contracts_latest "
+    "FROM manual_orders m "
+    "WHERE m.ticker LIKE 'KXMVE%' "
+    "  AND m.dry_run = 0 "
+    "  AND m.status = 'unrecognised_response' "
+    "ORDER BY m.submitted_ms DESC"
+)
+
+
+def _q_combo_position_gaps(conn: sqlite3.Connection, args) -> list[Section]:
+    """Combinations bought with real money that no `parlay_positions` row watches.
+
+    A `KXMVE` combination is enter-only -- `yes_dollars` empty on 40 of 40
+    books this repo has read -- so hedging a leg is the only exit it has, and
+    `/hedge` can only watch what `parlay_positions` holds. A row here is a
+    position with no exit screen. `exposure = OPEN AT VENUE -- UNWATCHED` is
+    the operational alarm; the others are history.
+
+    What this does not establish
+    ----------------------------
+    - **Not the registered adoption statistic, and it cannot be turned into
+      it.** `docs/measurements/2026-09-08-parlay-positions-check-amendment-registration.md`
+      measures `R / G` over *sittings*, where `R` counts sittings in which a
+      `parlay_positions` row with `source = 'kalshi_combo'` was created. This
+      query emits no `parlay_positions` row, no count of them and no
+      denominator of sittings. It reports the complement -- orders with no
+      position -- and reports it per order, not per sitting. **It carries no
+      verdict on that registration and may not be cited in one.** The §8 read
+      is a single read on or after 2026-09-15 by that registration's own
+      script; this is not it and must never be recorded as it.
+    - **Not that a listed position is still open.** `venue_contracts_latest`
+      is the last poll this database saw, and `venue_polled_ms` says when.
+      Kalshi is the authority; this is what the desk last learned.
+    - **Not that an absent row means the write failed.** A fill that predates
+      the ADR 0125 deploy never had a writer at all, which is a gap in the
+      calendar rather than a fault in the code. The `submitted_ms` is what
+      separates the two, and only a human holding the deploy time can do it.
+    - **Nothing about profit, outcome or whether any bet was a good idea.**
+      No P&L, no settlement, no CLV, no typed estimate. Prices and clocks
+      only, on the same terms as every other query in this module.
+    """
+    gaps = _fetch(
+        conn, _SQL_COMBO_POSITION_GAPS, (),
+        title=(
+            "manual_orders: real combination fills with NO parlay_positions "
+            "row -- /hedge cannot see these"
+        ),
+        cap=args.limit,
+    )
+    gaps = _derive_iso(gaps, "submitted_ms", "submitted_iso")
+    gaps = _derive_iso(gaps, "venue_polled_ms", "venue_polled_iso")
+
+    unresolved = _fetch(
+        conn, _SQL_COMBO_ORDERS_UNRESOLVED, (),
+        title=(
+            "manual_orders: real combination orders whose fate is UNKNOWN "
+            "(unrecognised_response) -- check the Kalshi app, not this table"
+        ),
+        cap=args.limit,
+    )
+    unresolved = _derive_iso(unresolved, "submitted_ms", "submitted_iso")
+    return [gaps, unresolved]

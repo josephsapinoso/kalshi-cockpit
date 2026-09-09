@@ -3484,3 +3484,192 @@ class TestTheJsonRenderStampsWhenItWasTaken:
     def test_the_stamp_survives_a_real_query_end_to_end(self, empty_db, capsys):
         payload = _run_json(capsys, ["sweep-log", "--db", str(empty_db)])
         assert _iso(payload["generated_at_ms"]) == payload["generated_at"]
+
+
+# Two combination tickers, so a watched one and an unwatched one can be
+# distinguished by which appears rather than by how many do.
+_GAP_TICKER = "KXMVECROSSCATEGORY-SHARD1-UNWATCHED"
+_WATCHED_TICKER = "KXMVECROSSCATEGORY-SHARD1-WATCHED"
+_PART_TICKER = "KXMVECROSSCATEGORY-SHARD1-PARTIAL"
+_UNKNOWN_TICKER = "KXMVECROSSCATEGORY-SHARD1-UNKNOWN"
+
+
+def _manual_order(ticker: str, status: str, dry_run: int, order_id: int):
+    """One `manual_orders` row, required columns only."""
+    return (
+        order_id, f"cid-{order_id}", order_id * 1000, ticker, "yes", "buy",
+        4, 410, 3390, status, "{}", dry_run,
+    )
+
+
+@pytest.fixture
+def gaps_db(live_db) -> Path:
+    """Real fills with and without a `parlay_positions` row to watch them.
+
+    Deliberately shaped so that every predicate in the query has a row that
+    only it removes: a dry run, an unfilled order, a single-market ticker, a
+    part-fill, an order whose fate is unknown, and one combination that IS
+    watched. A query that dropped any one predicate changes which tickers
+    come back, not merely how many.
+    """
+    conn = sqlite3.connect(live_db)
+    conn.executemany(
+        "INSERT INTO manual_orders (id, client_order_id, submitted_ms, ticker,"
+        " side, action, count, max_price_tenths, p_yes_bp, status,"
+        " request_body_json, dry_run) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        [
+            _manual_order(_GAP_TICKER, "filled", 0, 1),
+            _manual_order(_WATCHED_TICKER, "filled", 0, 2),
+            _manual_order(_PART_TICKER, "partially_filled", 0, 3),
+            _manual_order(_UNKNOWN_TICKER, "unrecognised_response", 0, 4),
+            # Removed by `dry_run = 0`: no money moved, nothing to watch.
+            _manual_order("KXMVECROSSCATEGORY-SHARD1-DRY", "filled", 1, 5),
+            # Removed by the status filter: an unfilled order bought nothing.
+            _manual_order("KXMVECROSSCATEGORY-SHARD1-NOFILL", "unfilled", 0, 6),
+            # Removed by the KXMVE prefix: a single is not enter-only and has
+            # an ordinary exit, so it needs no position row.
+            _manual_order("KXMLBGAME-26SEP091905COLNYY-NYY", "filled", 0, 7),
+        ],
+    )
+    conn.execute(
+        "INSERT INTO parlay_positions (created_ms, source, label, stake_tenths,"
+        " return_tenths, status, combo_ticker)"
+        " VALUES (?,?,?,?,?,?,?)",
+        (1, "kalshi_combo", "watched", 1640, 4000, "open", _WATCHED_TICKER),
+    )
+    conn.execute(
+        "INSERT INTO poll_log (id, polled_ms, endpoint, ok, row_count)"
+        " VALUES (1, 1, 'positions', 1, 2)"
+    )
+    conn.executemany(
+        "INSERT INTO venue_positions (poll_log_id, polled_ms, ticker,"
+        " contracts, side, exposure_tenths) VALUES (?,?,?,?,?,?)",
+        [
+            (1, 5000, _GAP_TICKER, 4.0, "yes", 1640),
+            (1, 5000, _PART_TICKER, 2.0, "yes", 820),
+        ],
+    )
+    conn.commit()
+    conn.close()
+    return live_db
+
+
+class TestAnUnwatchedCombinationIsFound:
+    """`combo-position-gaps` names combinations `/hedge` cannot see.
+
+    A `KXMVE` combination is enter-only, so hedging a leg is its only exit and
+    `/hedge` can only watch what `parlay_positions` holds. ADR 0125 wired the
+    write, but it is wrapped in a bare `except` so that bookkeeping can never
+    fail a purchase -- which means the write can fail and nothing raises. This
+    query is the only detector that failure mode has.
+
+    Mutations, each changing WHICH tickers come back:
+    - drop `NOT EXISTS` -> the watched ticker appears
+    - drop `partially_filled` from the IN -> the part-fill vanishes
+    - drop `dry_run = 0` -> the dry run appears
+    - drop the `KXMVE` prefix -> the single appears
+    """
+
+    def _gap_tickers(self, capsys, gaps_db) -> set:
+        payload = _run_json(
+            capsys, ["combo-position-gaps", "--db", str(gaps_db), "--date", DAY]
+        )
+        section = _named(payload, "NO parlay_positions row")
+        idx = section["columns"].index("ticker")
+        return {row[idx] for row in section["rows"]}
+
+    def test_a_real_fill_with_no_position_row_is_reported(self, capsys, gaps_db):
+        assert _GAP_TICKER in self._gap_tickers(capsys, gaps_db)
+
+    def test_a_combination_already_watched_is_not_reported(self, capsys, gaps_db):
+        """The distinguishing consequence, not merely a smaller count.
+
+        Asserted as absence of a specific ticker rather than as a row count,
+        because a count assertion passes for any reason that removes a row --
+        and this repo has already been caught by two tests that were green
+        because a downstream CHECK, not the guard under test, prevented the
+        state they named.
+        """
+        assert _WATCHED_TICKER not in self._gap_tickers(capsys, gaps_db)
+
+    def test_a_part_fill_is_reported_because_it_spent_money(self, capsys, gaps_db):
+        """`partially_filled` bought contracts and needs an exit like any fill.
+
+        A reconciler that looked only at `filled` would report health over a
+        real half-position, which is the failure this whole query exists to
+        prevent -- in miniature and one status along.
+        """
+        assert _PART_TICKER in self._gap_tickers(capsys, gaps_db)
+
+    def test_a_dry_run_and_an_unfilled_order_are_not_positions(
+        self, capsys, gaps_db
+    ):
+        found = self._gap_tickers(capsys, gaps_db)
+        assert "KXMVECROSSCATEGORY-SHARD1-DRY" not in found
+        assert "KXMVECROSSCATEGORY-SHARD1-NOFILL" not in found
+
+    def test_a_single_market_bet_is_not_a_combination(self, capsys, gaps_db):
+        found = self._gap_tickers(capsys, gaps_db)
+        assert "KXMLBGAME-26SEP091905COLNYY-NYY" not in found
+
+    def test_an_open_venue_position_is_flagged_as_unwatched_exposure(
+        self, capsys, gaps_db
+    ):
+        """The operational alarm: money at the venue, no exit screen.
+
+        `exposure` is what separates a live problem from history, so it is
+        asserted on the row rather than left to whoever reads the output.
+        """
+        payload = _run_json(
+            capsys, ["combo-position-gaps", "--db", str(gaps_db), "--date", DAY]
+        )
+        section = _named(payload, "NO parlay_positions row")
+        t = section["columns"].index("ticker")
+        e = section["columns"].index("exposure")
+        by_ticker = {row[t]: row[e] for row in section["rows"]}
+        assert by_ticker[_GAP_TICKER] == "OPEN AT VENUE -- UNWATCHED"
+
+    def test_an_unknown_fate_is_reported_apart_from_the_gaps(
+        self, capsys, gaps_db
+    ):
+        """`unrecognised_response` MAY have spent money; that is a third state.
+
+        Collapsing it into the gap list would let "we do not know whether
+        money moved" hide inside "money moved and nothing is watching it".
+        The route's own note tells Joe to check the Kalshi app, and this
+        query must not answer a question only the venue can.
+        """
+        assert _UNKNOWN_TICKER not in self._gap_tickers(capsys, gaps_db)
+        payload = _run_json(
+            capsys, ["combo-position-gaps", "--db", str(gaps_db), "--date", DAY]
+        )
+        unknown = _named(payload, "UNKNOWN")
+        idx = unknown["columns"].index("ticker")
+        assert {row[idx] for row in unknown["rows"]} == {_UNKNOWN_TICKER}
+
+
+class TestTheGapQueryCannotServeTheRegisteredStatistic:
+    """It emits no `parlay_positions` content, so it cannot carry that verdict.
+
+    `docs/measurements/2026-09-08-parlay-positions-check-amendment-registration.md`
+    measures `R / G` over sittings, where `R` counts sittings in which a
+    `parlay_positions` row with `source = 'kalshi_combo'` was created. This
+    query reports the complement, per order, and the table appears only
+    inside a `NOT EXISTS`. The test pins that so a later convenience column
+    cannot quietly turn an operational instrument into an interim look.
+    """
+
+    def test_no_section_emits_a_parlay_positions_column(self, capsys, gaps_db):
+        payload = _run_json(
+            capsys, ["combo-position-gaps", "--db", str(gaps_db), "--date", DAY]
+        )
+        for section in payload["sections"]:
+            for column in section["columns"]:
+                assert "source" != column, section["title"]
+                assert "position_id" != column, section["title"]
+                assert not column.startswith("parlay_position"), section["title"]
+
+    def test_the_description_disclaims_the_registration(self):
+        text = QUERIES["combo-position-gaps"].description
+        assert "no verdict" in text.lower()
+        assert "registration" in text.lower()
