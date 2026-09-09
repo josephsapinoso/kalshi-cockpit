@@ -21,6 +21,23 @@ inspected, counted, aged or sized in the course of writing this document.**
 >
 > See [Amendment 1](#amendment-1--2026-09-01--p6-could-not-pass-on-live-and-the-deciding-run-was-voided-by-it).
 
+> **AMENDMENT 2, 2026-09-09 — three records, no change to the rule.**
+> **`FAIR_PRICE_FAMILY_BYTES` stays pinned at 899,887,104** even though the live
+> family is now 2,409,955,328 — 2.68x it. Raising a constant the estimator
+> multiplies, after the eligible fraction has been seen, is the contamination
+> this document exists to prevent, and the verdict is invariant under the
+> correction either way (§B2). **Arming is CLOSED**, and it was closed by §6's
+> own NOT WORTH ARMING branch on the deciding run, not by anybody's later
+> judgement — **no arming ADR is owed and none will be written** (§B3). And a
+> **non-destructive alternative was measured**: consecutive `fair_prices` rows
+> for one key are value-identical **99.7%** of the time, on three windows of one
+> MLB day. It is an **observation with no registered threshold**, it authorises
+> nothing, and §B6 says the six things it does not establish (§B4, §B7).
+>
+> **Nothing in §§1–9, S1, P1–P6b or any threshold moves** (§B8).
+>
+> See [Amendment 2](#amendment-2--2026-09-09--the-family-constant-stays-pinned-arming-is-closed-and-a-non-destructive-option-was-measured).
+
 ---
 
 ## Why this is pre-registered at all, when it is not a statistical estimate
@@ -1135,7 +1152,7 @@ must appear there in full.
 | Result destination | `docs/measurements/2026-09-XX-fair-prices-downsample-dry-run-result.md`, **written either way** |
 | Verdict of the power check | **READY** — census resolves exactly; the free-list coefficient is unmeasurable and is carried as §9.4/§9.5 rather than absorbed into the number |
 | Known in advance | **87.5% of the growth remaining before 2026-09-17 is too recent for this rule to reach.** This is a bound on long-run growth, not a rescue for the September deadline. |
-| Amendments | **1**, dated 2026-09-01, below. Written **after** the deciding run and **blind** to its substantive results; §A8 is the argument, §A9 the ruling. It amends **P6 only** and adds **P6b**. |
+| Amendments | **2**. **Amendment 1**, 2026-09-01: written **after** the deciding run and **blind** to its substantive results; §A8 is the argument, §A9 the ruling; it amends **P6 only** and adds **P6b**. **Amendment 2**, 2026-09-09: records only — `FAIR_PRICE_FAMILY_BYTES` **stays pinned** (§B2), arming is **CLOSED** by §6's own verdict and no ADR is owed (§B3), and a measured non-destructive alternative is recorded as an **observation that registers no test** (§B4, §B7). It changes no prerequisite, condition, threshold or query (§B8). |
 
 ---
 
@@ -1676,4 +1693,737 @@ ruling             the deciding run is SALVAGEABLE under the four conditions of
 written            after the deciding run, blind to its substantive results
 general defect     a prerequisite validated only against a fixture with no
                    concurrent writer, then relied on against a live one
+```
+
+---
+
+# Amendment 2 — 2026-09-09 — the family constant stays pinned, arming is closed, and a non-destructive option was measured
+
+**Status: this is an amendment. It changes no prerequisite, no condition, no
+threshold and no query.** §§1–5 stand, **§6 stands byte-for-byte**, §7's
+stopping rule and 2026-09-14 expiry stand, §8's destination stands, §9's caveats
+stand, S1 stands, and P1–P6b stand as Amendment 1 left them. §B8 states the
+blast radius section by section, as §A10 did.
+
+It does three things, all of them recording rather than deciding:
+
+1. It rules on `FAIR_PRICE_FAMILY_BYTES`, which the live table has outgrown by
+   2.68x. **The ruling is that it stays pinned** (§B2), and the ruling is
+   argued rather than asserted, because the opposite ruling is the more natural
+   one and is wrong.
+2. It records that **arming is closed**, that it was closed by §6's own decision
+   rule on the deciding run rather than by anybody's later judgement, and that
+   the "separate ADR with a named human" §6 names **is not owed and will not be
+   written** (§B3). It names the one measured condition that would reopen it.
+3. It records a **new measured fact about how `fair_prices` grows** — consecutive
+   rows for the same key are value-identical 99.7% of the time — together with
+   the six things it does not establish (§B4, §B6). It **registers no test, and
+   authorises no change**: §B7 says what a successor registration would have to
+   fix in advance before any byte figure derived from it may be quoted.
+
+**Provenance, stated because this document's habit is to state it.** The
+2026-09-09 `db-sizes` read and the three-window duplication scan were taken by a
+session other than this one, read-only against live, and are reproduced here
+with their instruments named. This author verified the *source* claims
+independently — the constant and its comment, the reachability of `run`, the
+`enabled`-before-`dry_run` ordering, the unconditional `INSERT`, the two callers
+of `run_pricing_pass`, the 15-second fast cadence — and did **not** take the
+live reads. Every figure below carries which of the two it is.
+
+---
+
+## B1. What this amendment is answering, in one line each
+
+| owed | answer | where |
+|---|---|---|
+| `FAIR_PRICE_FAMILY_BYTES` is 2.68x stale | **stays pinned.** Superseded as a description of the table; unchanged as the registered estimator's input | §B2 |
+| the arming ADR §6 contemplates | **not owed.** §6 returned NOT WORTH ARMING on the deciding run; arming was never ELIGIBLE TO PROPOSE | §B3 |
+| a non-destructive option nobody had measured | **recorded, not registered.** 99.7% of consecutive rows carry no change, on one day | §B4, §B7 |
+
+---
+
+## B2. `FAIR_PRICE_FAMILY_BYTES` — the ruling is that it stays pinned
+
+### B2.1 The two dated reads, and the arithmetic between them
+
+Registered (§5, F1), `db-sizes` on live 2026-09-01T~16:40Z:
+
+```
+  fair_prices                 646,230,016
+  idx_fair_link               133,218,304
+  idx_fair_market_computed    120,438,784
+  family                      899,887,104     37.29% of a 2,413,142,016 file
+```
+
+Read 2026-09-09T~19:49Z, `db-sizes` on live, machine `7812601a239428`
+(reproduced from `backend/store/fair_price_downsample.py`'s docstring, which
+carries the same pair):
+
+```
+  fair_prices               1,705,545,728
+  idx_fair_link               365,211,648
+  idx_fair_market_computed    339,197,952
+  family                    2,409,955,328     47.53% of a 5,070,802,944 file
+```
+
+Over the 8.138 days between them:
+
+```
+  family      +1,510,068,224 B   =  185.6 MB/day   ratio 2.678x
+  table       +1,059,315,712 B   =  130.2 MB/day   ratio 2.639x
+  file        +2,657,660,928 B   =  326.6 MB/day   ratio 2.101x
+  family share of file growth                        56.82%
+```
+
+Two things in that block are worth naming rather than leaving in the numbers.
+
+**The rate, not the share, is what was wrong.** §9.3 warned that the volume
+clock's 64.4% was *"a share of that window's 181,645,312 organic bytes"* and not
+a rate. The share held to within eight points (56.82% realised against 64.4%
+projected). The **file rate** did not: 326.6 MB/day realised against the
+161.40 MB/day the threshold in §6 is denominated in — **2.02x**. §9.6 registered
+that the clock was `n = 1` day and that its rate was *"a floor rather than a
+centre."* It was a floor, and by a factor of two.
+
+**The two indexes grew faster than the table** (2.741x and 2.816x against
+2.639x), so the family-to-table ratio moved from 1.3925 to 1.4130 in eight days.
+That is a small movement and it is recorded for one reason: §5's estimator rests
+on *"bytes per row are uniform across the table and both indexes"*, an
+assumption §9.2 says nothing here tests. A composition that moves 1.5% in eight
+days is not evidence against the assumption, but it is evidence that the thing
+the assumption fixes is not itself fixed.
+
+### B2.2 Why raising the constant is the contamination and not the correction
+
+The natural reading of a stale constant is that it should be brought current.
+Here it should not, and the reason is the reason this document exists.
+
+`estimated_freed_bytes` is `eligible_row_fraction * FAIR_PRICE_FAMILY_BYTES`
+(§5). The fraction has now been measured — 4.00% on the deciding run
+(`docs/measurements/2026-09-01-fair-prices-downsample-dry-run-result.md` §5).
+**Raising the constant after the fraction is on the screen re-scales a verdict
+computed from rows that have already been inspected.** It is the same move as
+lowering `RETENTION_DAYS` until the number clears, arriving through the other
+factor of the same product, and §6 forbids that move by name. That the
+re-scaling would push *toward* the threshold rather than away from it is what
+makes it worth forbidding rather than what makes it harmless.
+
+The code comment at `backend/store/fair_price_downsample.py:203-216` already
+says this, and says it correctly:
+
+> **DO NOT UPDATE THIS NUMBER TO MATCH THE LIVE TABLE.** [...] changing the
+> constant to follow it is precisely the contamination the pre-registration
+> exists to prevent: it would re-scale every byte verdict after the rows were
+> seen. Raising it requires an amendment to the registration, not an edit here.
+
+**This is that amendment, and its ruling is DO NOT RAISE.** The comment's
+closing line — *"Amendment owed either way"* — is discharged here. The debt was
+to write the ruling down, not to change the number.
+
+### B2.3 The invariance check, which is what makes the ruling cheap
+
+A pin is only defensible if it cannot be hiding a different verdict. It is not
+hiding one, and the check is arithmetic:
+
+```
+  threshold                                 322,800,000 B
+  family, 2026-09-09                      2,409,955,328 B
+  eligible fraction that would clear it           13.394%
+  eligible fraction measured, deciding run          4.005%   (151,642 / 3,786,454)
+  multiple required                                 3.344x
+```
+
+At the 2026-09-09 family and the measured fraction, the naive re-scale is
+**96,513,891 B — 29.9% of the threshold**, against the pinned constant's
+36,039,175 B and 11.2%. The verdict is `NOT WORTH ARMING` under both. **The
+correction does not reach the verdict**, and the direction of the pin's error
+is the safe one: §5's estimator computed against a family 2.68x too small is a
+**floor**, and a floor that fails a threshold fails it a fortiori. The code
+comment states this consequence too, and it is correct as stated.
+
+The 13.394% figure is the useful artifact of this section. It is a **falsifiable
+bar, fixed here in advance of any further look**: for the byte conjunct of §1a
+to clear at a family of that size, the eligible fraction would have to be more
+than three and a third times what it measured. §B3.5 uses it.
+
+### B2.4 What the constant now is, stated so a future reader is not confused by it
+
+- As **a description of the live `fair_prices` family**, `899_887_104` is
+  **superseded**. It described 2026-09-01. It does not describe today, and
+  anyone quoting it as a current table size is quoting an eight-day-old number.
+  The two dated reads in §B2.1 are what a description should cite.
+- As **the registered input to §5's estimator**, it is **unchanged and stays
+  unchanged.** It is not a measurement of the table; it is a constant fixed
+  before the rows were seen, and its whole function is that the same eligible
+  fraction cannot produce a different verdict on a different day.
+- **Any future measurement of this table registers its own family figure with
+  its own date.** It does not raise this one. A constant that is raised once has
+  established that it can be raised.
+
+### B2.5 No code changes, and one that is now forbidden rather than merely discouraged
+
+This amendment edits no file but this one. It converts the comment's *"Raising
+it requires an amendment"* from a procedure into a **completed decision**: the
+amendment has been written and it declines. A future session proposing to raise
+`FAIR_PRICE_FAMILY_BYTES` is proposing to overturn §B2.2 and §B2.3, and owes an
+amendment that says which of the two it disputes.
+
+---
+
+## B3. Arming is CLOSED — and §6 closed it, not this amendment
+
+### B3.1 The ground, which was already on the record
+
+§6 has four branches. The deciding run took the third:
+
+```
+  VERDICT                 NOT WORTH ARMING
+  estimated_freed_bytes   36,039,175 B  against 322,800,000 B    FAIL  (11.2%)
+  T-MECH                  98.68%        against 90.00%           PASS
+```
+
+`docs/measurements/2026-09-01-fair-prices-downsample-dry-run-result.md`. §6's
+own words for that branch: *"The rule is not deployed at `RETENTION_DAYS = 14`
+and **not at any other value either**."* §8's consequence table for it: *"
+`fair_prices` retention is **closed as an approach**."*
+
+**So there is no arming ADR to write, and there never was one owed.** §6 says an
+arming ADR is authorised by a verdict of ELIGIBLE TO PROPOSE ARMING and by
+nothing else. That verdict was not returned. This section exists because a
+reader who meets §6's arming language before meeting the result file can
+reasonably infer a pending decision, and a pending decision that nobody has
+killed gets re-derived in October.
+
+**This amendment is not the decision.** The decision was the deciding run's, and
+recording it here is bookkeeping. That distinction matters: an amendment that
+re-decided a closed verdict on fresh grounds would be deciding after the fact,
+which is the failure this document was written against. §B3.3's grounds are
+therefore recorded as **corroboration of a closed verdict, and are not load-
+bearing.**
+
+### B3.2 The retraction: arming was never a week of engineering, and cost was never the reason
+
+Recorded because a wrong reason for a right decision is a liability — it invites
+re-opening the moment the wrong reason is falsified.
+
+The claim that arming would take a week of engineering was made and **has been
+retracted by its author.** It is false, and the source says so:
+
+- `fair_price_downsample.run` **is reachable on the live loop.**
+  `backend/runner.py:3168` calls it; `run_once` contains that call;
+  `scripts/run_loop.py:1458` passes `downsample=downsample_config`, loaded at
+  `scripts/run_loop.py:811`.
+- It refuses at `backend/store/fair_price_downsample.py:672` —
+  `if not getattr(config, "enabled", False): return 0` — because
+  `FAIR_PRICE_DOWNSAMPLE_ENABLED` defaults to `False`
+  (`backend/config.py:979`) and `fly.live.toml` sets none of the three
+  variables.
+- **Arming is an environment change, not a build.** Two of the three flags must
+  both move — `enabled=true` **and** `dry_run=false` — which
+  `backend/config.py:965-970` records as a deliberate asymmetry rather than an
+  accident.
+
+Two details that sharpen it, verified here rather than taken on trust:
+
+1. **The `enabled` check sits before the `dry_run` branch**, at `:672` against
+   `:675`. So the live loop has never executed the dry read either — not the
+   `DELETE`, not the `plan()`. Every dry-run figure this registration has ever
+   quoted came from `scripts/dry_run_fair_price_downsample.py`, run by hand
+   against a `mode=ro` connection. The loop has never planned.
+2. **Even armed, it would run at most once per full pass and only outside a
+   bettable window.** `backend/runner.py:3152-3169` puts the call inside the
+   same `window_open()` guard as `retention.prune`, and `run_loop.py` passes the
+   config on the **full-pass** branch only — the quote-pass branch at
+   `run_loop.py:1460` onward does not receive it.
+
+**None of this is an argument for arming.** It is the removal of a false
+argument against it, so that the real one stands alone.
+
+### B3.3 The supplementary grounds — corroboration, explicitly not the ground
+
+Recorded so that a future session weighing a re-open sees what it is weighing
+against. Each is checkable; none of them decided anything.
+
+- **The whole prize is small against the headroom already bought.** Deleting the
+  **entire** `fair_prices` family — 2,409,955,328 B, which no rule here proposes
+  and D6 forbids outright — buys `2,409,955,328 / 326,573,222 = 7.38 days` at the
+  realised file rate. The volume was extended 5 GB → 10 GB on 2026-09-01 and
+  10 GB → 20 GB on 2026-09-09, and the module docstring puts the ~14 GiB now
+  free at about 46 days. **Destroying the largest table in the database in its
+  entirety extends the runway by roughly a sixth.** The registered rule reaches
+  4.00% of it.
+- **And 7.38 days is an upper bound twice over.** It assumes freed bytes become
+  filesystem bytes at 1:1, which §9.4 says they may not: freed pages go to a
+  free list and *"only `VACUUM` gives space back to the OS"*
+  (`backend/store/retention.py:48-52`). And §9.5's revolution coefficient in
+  `[0, 1]` multiplies it, unmeasurable by this design. The honest statement is
+  `7.38 days x c`, `c` unknown.
+- **Irreversibility against an estimator known to be a floor.** §9.1 is the
+  permanent cost — the intra-day series is gone for rows past the window, and
+  the sharp-anchoring census that produced ADR 0021 §8's 73.0% could not be
+  re-run. Paying a permanent cost on a number whose own comment calls it an
+  understatement is a bad trade in both directions of the understatement.
+- **A non-destructive option now exists and did not on 2026-09-01** (§B4). It
+  deletes nothing, forecloses no historical question, and reaches the growth
+  rate rather than the backlog — which §3 of the power check identified as the
+  binding constraint before any of this was measured.
+
+### B3.4 The module stays in the tree, disabled and unarmed
+
+**`backend/store/fair_price_downsample.py` is not dead code and is not to be
+removed.** Four reasons, in descending order of how expensive the mistake would
+be:
+
+1. It carries `REGISTERED_DELETABLE_SQL`, which
+   `tests/test_fair_price_downsample.py::test_the_sql_is_section_s1_of_the_registration_byte_for_byte`
+   pins to **the last fenced `sql` block in this file.** Deleting the module
+   deletes the only mechanical link between S1 and any executable artifact.
+   This registration would stop being pinned to anything.
+2. It is **reached** (§B3.2) and refuses on its own config. That is the
+   registered shipped state — §6: *"The rule ships behind
+   `FAIR_PRICE_DOWNSAMPLE_ENABLED`, defaulting to `false`"* — not an accident of
+   wiring, and `tests/test_has_callers.py` classifies it accordingly.
+3. Its docstring carries the two dated byte reads of §B2.1 and the realised
+   growth rate. It is where the next session that asks "what is this table
+   doing" will look.
+4. `tests/test_volume_alarm.py` and `tests/test_fair_price_downsample.py` assert
+   that `backend/store/volume.py` cannot reach it — the §6 prohibition on
+   self-arming from a disk threshold. Removing the module removes the thing
+   those guards guard.
+
+**This is the same posture the bid path is held in** (ADR 0115): present,
+disarmed, one line from re-arming, and explicitly not removable as dead code.
+
+### B3.5 What would have to change to reopen it — one measured condition, fixed here
+
+Not a mood, not a disk alarm, not a busier month. **A successor registration**,
+because §7 has already spent this one: the deciding run was taken 2026-09-01,
+later looks are *"monitoring, not evidence"*, and the registration expires
+2026-09-14 regardless. There is no route to a second deciding number under this
+document.
+
+That successor would have to carry, fixed before it looks:
+
+- **An eligible fraction at or above 13.394%** at a family of 2,409,955,328 B,
+  or the equivalent product against whatever family it registers with its own
+  date (§B2.3). Measured: 4.005%. It needs 3.344x.
+- **A reason the age distribution moved**, stated as a mechanism and not as a
+  number. The deciding run's finding was that **95.66% of the table is younger
+  than 14 days** and that this *"is the part of this run that generalises."*
+  Nothing reopens on the byte figure alone while that holds.
+- **An answer to §9.5's coefficient**, or an explicit acceptance that the prize
+  is `estimate x c` with `c` unmeasured.
+- **An argument against the non-destructive option** (§B4), which did not exist
+  when this document was written and now has to be beaten rather than ignored.
+
+---
+
+## B4. The new fact: consecutive `fair_prices` rows are value-identical 99.7% of the time — measured on one day
+
+**This section records a measurement. It registers nothing, decides nothing and
+authorises nothing** (§B7).
+
+### B4.1 The mechanism, verified in source
+
+`write_fair_price` (`backend/runner.py:909`) ends in an **unconditional
+`INSERT`, one row per outcome, every call** — `backend/runner.py:980-1000`, a
+17-column `INSERT INTO fair_prices` with no prior read of the last row and no
+comparison against it. There is no skip path.
+
+`run_pricing_pass` (`backend/runner.py:1804`) is reached from **both** pass
+types: `backend/runner.py:3175`, the 900 s full pass, and
+`backend/runner.py:3343`, the quote pass. `backend/scheduler.py:276` sets
+`DEFAULT_FAST_INTERVAL_S = 15.0`. So while an actionable window is open the
+consensus is re-derived and re-inserted every ~15–20 s.
+
+**The inputs cannot have moved on most of those passes.** `MAX_ODDS_AGE_S = 900`
+(`fly.live.toml:538`) is the age at which the consensus behind a row is refused,
+and the odds feed's floor is a ten-minute cadence with an hourly idle floor
+(ADR 0071 §2.6, ADR 0111). A row is re-derived roughly forty times between two
+possible movements of the thing it is derived from.
+
+**The repo already holds the change-only pattern, one table over.**
+`backend/engine.py:496-500` skips a `recommendations` row identical to the most
+recent row for that `(ticker, side)`, on an evidence argument — *"A Ledger where
+98% of rows are the same row is unreadable"* — and is careful that the rule is
+**consecutive, not global**, so a price that moves 47 → 48 → 47 records three
+times. `fair_prices` is the half of that pair that never got it. That asymmetry
+is the finding's context and it is checkable in ten seconds.
+
+### B4.2 The three windows
+
+Read-only against live, 2026-09-09, by the lane named in the preamble. Key =
+`(link_id, market, outcome_name, outcome_point)`; payload = the 11 value
+columns; `computed_ms` and `oldest_book_age_ms` excluded (§B4.5). A
+*transition* is one consecutive pair within a key.
+
+| window | ends | span | passes | passes/h | transitions | UNCHANGED |
+|---|---|---|---|---|---|---|
+| A | 0.3 h ago | 3.98 h | 414 | 104.0 | 199,506 | **99.73%** |
+| B | 4.2 h ago | 5.15 h | 420 | 81.6 | 199,504 | **99.61%** |
+| C | 22.3 h ago | 2.01 h | 392 | 195.0 | 199,488 | **99.75%** |
+
+Within these three windows the figure is a **census, not a sample**: every
+consecutive pair was enumerated. It has no standard error, for the same reason
+§5 gives for `eligible_row_fraction`, and printing one beside it would invent a
+sampling process that does not exist. Its uncertainty is entirely in
+generalisation (§B6), not in estimation.
+
+**The pooled cadence figure does not describe any of the three windows, and the
+per-window column is printed above for that reason.** The reported day figure is
+**72.3 passes/hour**, p50 gap 21.2 s, ~1,735 distinct `computed_ms` per day
+against **96** for the full pass alone — 18.1x. But the windows run at 81.6,
+104.0 and 195.0 passes/hour: 72.3/h is a **day average across idle hours at the
+900 s cadence**, not a window rate, and the two must not be substituted for each
+other. The 2.4x spread across three windows on one day is itself the most
+useful thing in the table about how variable this is.
+
+### B4.3 The parts, and the concentration
+
+**Per-group.** `h2h` and `spreads` agree to 2 d.p. inside every window. That
+satisfies the repo's *"a pooled number is not a finding until the parts agree"*
+for the market split, and only for that split. It is a **within-day** check: it
+cannot separate a market effect from a day effect, because there is one day.
+
+**Concentration.** The largest single key holds 1.3–2.6% of all changes, so the
+change mass is not concentrated in one market the way two WNBA games once
+carried 41% of an actionable population. **Read `n` before that effect size**:
+at 99.73% unchanged over 199,506 transitions, window A holds roughly **539
+changes**, so "the largest key holds 2.6%" is on the order of **fourteen
+events**. That is enough to rule out gross concentration and not enough to rule
+out a moderate one.
+
+**The other tail.** 344 of 494 keys — 69.6% — changed **zero** times across
+window A. So the unchanged mass is not one quiet market dragging an average
+down; most keys contributed no change at all.
+
+**Cluster count: not reported, and therefore no inferential claim.** §3 fixes
+the cluster for any inferential claim about this table as **`link_id`**, and 494
+keys are not 494 clusters — one game contributes an h2h pair plus every spread
+rung. The number of distinct `link_id`s in these windows was not taken, so no
+`G` exists and none may be constructed later from the key count. **That is
+exactly the `n` inflation §3 was written to block, and this measurement is one
+step from committing it.**
+
+### B4.4 The key differs from §4's registered identity by one column
+
+The scan's key is `(link_id, market, outcome_name, outcome_point)`. §4's D4
+identity — copied byte-for-byte from `backend/parlays.py:356-357` (F6) — is
+`(link_id, market, outcome_name, outcome_description, outcome_point)`.
+**`outcome_description` is missing from the scan's key.**
+
+§4 says what dropping it does: *"which is `NULL` on team markets and
+load-bearing on props, where it carries the player. Dropping it from the
+identity would collapse every player on one prop market into one series."*
+
+**The direction of the resulting error runs against the finding, not toward
+it.** `outcome_description` is one of the 11 payload columns, so two rows for
+different players in one interleaved series compare as **CHANGED**. The scan
+therefore counts transitions that a correctly-keyed scan would not, and 99.7% is
+a **floor** with respect to this discrepancy. The magnitude is unknown: the prop
+share of these windows was not reported, and on an MLB slate it could be
+anything from zero to most of the rows.
+
+**Any implementation derived from this uses §4's identity, not the scan's key.**
+The scan's key is adequate for an observation whose error is signed the safe
+way. It is not adequate for a rule.
+
+### B4.5 The two excluded columns, and why one of them needs its justification stated as a mechanism
+
+`computed_ms` and `oldest_book_age_ms` were excluded from the payload. The
+second exclusion was made with the reason *"including it would find zero
+duplicates"*, and **an exclusion justified by the result it prevents is the
+shape this document exists to refuse** (§2). It survives, but only because a
+mechanism can be stated for it that is independent of the outcome:
+
+- `oldest_book_age_ms` is *"the consensus's own input freshness at
+  `computed_ms`"* (`backend/runner.py:936-939`, ADR 0070). Holding the odds
+  input fixed, it **increments with wall-clock on every pass by construction**.
+  It is a clock reading carried on the row, not a property of the consensus, so
+  it cannot be equal across two passes and its inequality carries no information
+  about whether the consensus moved.
+- **The repo has already made this exact ruling once**, on the table that does
+  have change-only insertion. `backend/engine.py:502-505`: *"A candidate whose
+  only change is ageing odds — surfaced at 60 s, suppressed at 900 s — records
+  once, not twice. The transition is reconstructable from `created_ms` and the
+  staleness limits."*
+
+**And the reconstructability claim is weaker here than there, which must be said
+now rather than discovered later.** For `fair_prices`, `oldest_book_age_ms` is
+reconstructable only against `odds_snapshots.fetched_ms` — the join
+`docs/measurements/2026-08-10-sharp-anchoring-census.py:177-191` performs. That
+table has **no retention rule** and is named *"deliberately out of scope rather
+than forgotten"* (`backend/store/retention.py:53-55`, and §2 here). So the
+reconstruction is contingent on another table's continuing lack of a rule, which
+is not a guarantee. **A change-only insert on `fair_prices` would discard a
+measured column whose recovery depends on a table nobody has promised to keep.**
+
+---
+
+## B5. Why the non-destructive option dominates — the one argument, and its limit
+
+Stated as an argument about SQLite's page allocation, because that is what it
+is, and it is **not measured here**:
+
+> A downsample's prize is **freed pages**, and §9.5's revolution coefficient in
+> `[0, 1]` multiplies it — *"If the coefficient is 0, the rule buys zero days
+> however large the eligible set is."* A dedupe's prize is **bytes never
+> written**. A page that is never allocated does not enter the free list, so it
+> does not need the list to revolve in order to count.
+
+That is why "delete nothing" is not merely safer here but reaches a different
+quantity. It is also the whole of the argument — **and it is an argument about
+the slope, not the level.** §B6 puts the limits on it.
+
+**The §9.5 contradiction is noted and not resolved.** §9.5 records that the free
+list was *measured* accumulating at **39.7% of organic bytes**, while
+`backend/store/retention.py:48-52` *asserts* that freed pages *are* reused so
+*"the growth stops even without"* a `VACUUM`. **The measurement and the
+assertion disagree, on the record, and `n = 1` window cannot separate them.**
+Nothing in this amendment separates them either, and a reported
+`auto_vacuum = 0` on the live database (read 2026-09-09 by the same lane; not
+independently verified here) is consistent with both — it establishes that only
+a `VACUUM` returns bytes to the filesystem, which neither side disputes, and
+says nothing about whether the freed pages revolve inside the file.
+
+---
+
+## B6. What this amendment does NOT establish
+
+Drafted in the same posture as §9: written to survive being read by someone
+looking for the caveat that was left out.
+
+### B6.1 The 99.7% is one day, and the cluster is the day
+
+Three windows totalling **11.1 hours on 2026-09-09**, an **MLB slate**. Three
+windows are **not three independent samples.** They share the slate, the fixture
+set, the book set, the odds cadence, the deployed config and the weather. The
+clustering variable is the **day**, and **`G = 1`**. Every agreement reported in
+§B4.3 is a within-day agreement.
+
+This is the same defect §9.6 registered against the volume clock — *"Every date
+in the volume clock's §4 table is one 24-hour window, one MLB slate, one
+instrument"* — and §B2.1 shows what it cost there: a rate that was a floor by a
+factor of two. **The recurrence is the point.** A second day is the cheapest
+improvement available to anyone who wants this figure to mean more, exactly as
+it was for the clock.
+
+### B6.2 It does not establish the rate on an NFL Sunday, which is the case that differs most
+
+The quantity being measured is *how often the consensus moves between two
+15-second passes*, and the window profile is the input that most directly drives
+it. An NFL Sunday plans **3 kickoff clusters, the season's worst 4**, each a
+60-minute window of seven calls (CLAUDE.md; `tests/test_sweep_timing.py` pins
+the seven). That is a different arrival process for the odds, a different
+concurrency of open windows, and a different market mix.
+
+**Nothing here bounds the figure on that day in either direction**, and a
+successor registration that samples only MLB days has chosen its population
+after seeing which population was convenient.
+
+### B6.3 It does not establish that a dedupe reclaims a single existing byte
+
+It reclaims none. A dedupe **deletes nothing**, so it produces no freed page and
+touches no row already written. `fair_prices` was 1,705,545,728 B on 2026-09-09
+and would still be 1,705,545,728 B the instant after a dedupe shipped.
+
+**It changes the slope, not the level**, and only from the moment it ships. Any
+sentence of the form "this would save N bytes" is a statement about a future
+interval and must name the interval.
+
+### B6.4 It does not establish a byte figure at all, and none may be quoted from it
+
+Two model steps separate the measured row rate from any byte claim, and neither
+has been taken:
+
+1. **Row rate to byte rate.** 99.7% is a share of *rows*. Converting it to a
+   share of *bytes* inherits §5's *"bytes per row are uniform across the table
+   and both indexes"* assumption, which §9.2 says nothing tests, and §B2.1 shows
+   the family composition moving 1.5% in eight days.
+2. **Window rate to day rate.** The measurement is over in-play windows at
+   82–195 passes/hour. The day contains idle hours at the 900 s cadence. A day
+   figure requires the window/idle mix, which is not reported here.
+
+**No byte figure derived from this measurement may be quoted anywhere until a
+successor registration fixes both steps in advance.** That includes the arming
+question in §B3: the dedupe's dominance there rests on it deleting nothing and
+foreclosing nothing, not on it being larger.
+
+### B6.5 It does not establish that a dedupe is safe, and it forecloses the same question §9.1 names
+
+**The symmetry, stated because the tidy version of this finding omits it.** §9.1
+is the downsample's permanent cost: for rows older than the window, the
+intra-day series is gone, and
+`docs/measurements/2026-08-10-sharp-anchoring-census.py:177-191` — which walks
+every `h2h` row and matches each `computed_ms` to the odds instant it consumed,
+and which produced ADR 0021 §8's 73.0% — could not be re-run.
+
+**A change-only insert forecloses the same class of question prospectively.** A
+pass that writes no row leaves no trace, so from the day it ships the record no
+longer says *which fetch instants the runner consumed*, only *when the answer
+changed*. That is 99.7% of the evidence that census reads, going forward. The
+downsample destroys it backwards; a dedupe declines to record it forwards.
+**Neither is free, and a proposal that presents the dedupe as costless has
+omitted this.**
+
+Also unestablished: which production readers of `fair_prices` (F2) depend on
+row *cadence* rather than row *content*, and whether the parlay desk's
+`CANDIDATE_SQL` behaves identically against a sparser series. F2 enumerated
+readers for a **deletion** rule. It has not been re-run against a **write-rate**
+change, and P1 does not cover that question.
+
+### B6.6 It does not reopen anything §6 closed
+
+The downsample verdict is `NOT WORTH ARMING` and this amendment leaves it there.
+A better alternative existing is not evidence that the closed option was
+mis-judged, and §B3.3's grounds are corroboration rather than re-decision.
+
+---
+
+## B7. This is an observation, not a registered test — what a successor must fix in advance
+
+**No threshold was named before the 99.7% was computed.** There is therefore no
+decision rule it can satisfy, and it cannot arm, authorise or fund anything.
+Written down plainly because a measured number with no registered threshold is
+the exact input that acquires one after the fact.
+
+A successor registration — its own file under `docs/measurements/`, dated,
+committed **before** the run — would have to fix at minimum:
+
+1. **The claim, one-sided and falsifiable**, as a statement about a *slope*:
+   e.g. "the daily `fair_prices` byte growth under change-only insertion is at
+   most X% of the observed rate", with X named first.
+2. **The identity**, which is §4's, `outcome_description` included (§B4.4).
+3. **The payload column set**, enumerated, with an explicit ruling on
+   `computed_ms` and `oldest_book_age_ms` and the reconstructability argument of
+   §B4.5 stated as a mechanism.
+4. **The unit and the cluster: the day**, with the number of days and the
+   requirement that **at least one is an NFL Sunday** fixed in advance, and the
+   per-`link_id` view printed beside every aggregate.
+5. **The stopping rule**: a date or a day count, not "when it looks stable."
+6. **The multiplicity**: markets x windows x days is a cell count, and it should
+   be computed before the run rather than after.
+7. **The prospective §9.1 cost** (§B6.5), accepted explicitly by a named human,
+   because it is the same class of irreversible information loss this document
+   refused to grant the downsample — it merely arrives through a different door.
+8. **The negative branch's destination**, fixed before the run.
+
+Until that exists, the correct status of the dedupe is: **a measured property of
+one day, an argued structural advantage over the downsample, and an unbuilt,
+unregistered, unauthorised change.**
+
+---
+
+## B8. Blast radius — what this amendment does not change
+
+Exhaustive by section, in the form §A10 used:
+
+- **§§1–5** — both conjuncts of §1, the population, the units, the census-not-a-
+  sample rule, the `link_id` cluster, D1–D6, `RETENTION_DAYS = 14`, the
+  sensitivity set `{7, 21, 28, 60}`, and **§5's `estimated_freed_bytes` formula
+  including the constant `899,887,104`** (§B2).
+- **§6 — byte-for-byte, not one character**, for both of §A10's reasons: a
+  post-hoc amendment must not reach the rule it is judged by, and
+  `scripts/dry_run_fair_price_downsample.py::_section()` reproduces §6 and §9
+  **verbatim into every run's output**, so editing either would change the text
+  printed beside figures already published.
+- **§7** — the stopping rule, the "first dry-run" wording, the **2026-09-14**
+  expiry, the ENOSPC void. §B3.5 relies on §7 rather than moving it.
+- **§8** — the falsification list and the single result destination, which has
+  been written.
+- **§9 — 9.1 through 9.7, verbatim.** §B6 is additional and subordinate; where
+  §B5 touches §9.5 it records the contradiction and resolves nothing.
+- **The power check** — including §3's timing arithmetic, which the deciding run
+  sharpened to a measured 95.66%.
+- **S1** — unchanged. **This amendment adds no fenced `sql` block, deliberately**:
+  `test_the_sql_is_section_s1_of_the_registration_byte_for_byte` compares the
+  module against the **last** fenced `sql` block in this file, and an amendment
+  that added one would silently become the registered query.
+- **P1–P6, P6b** — as Amendment 1 left them.
+- **Arming** — still not authorised, and now **closed** (§B3). Nothing here
+  permits a single row to be deleted, and §6's prohibition on wiring
+  `backend/store/volume.py` to the deletion path stands.
+- **`backend/gate.py`** — untouched. A different number for a different
+  decision.
+- **No code.** This amendment edits no file but this one. It authorises no edit
+  to `FAIR_PRICE_FAMILY_BYTES` (it forbids one), no edit to the harness, no
+  environment change on live, and no dedupe.
+
+**One thing outside this document is flagged and not owned here.**
+`fly.live.toml:660-661` reasons from the 161.40 MB/day figure that *"the 10GB
+volume runs to roughly mid-November"*. The realised file rate is 326.6 MB/day
+(§B2.1), 2.02x that. The comment's arithmetic is superseded by the same
+correction that supersedes the family constant. **That is a note, not an edit
+and not a task**; whoever next touches that block owns it.
+
+---
+
+## B9. Registration record for this amendment
+
+```
+amendment          2
+date               2026-09-09
+changes            nothing in sections 1-9, S1, P1-P6b, or the thresholds
+records            three things: a byte ruling, a closure, and an observation
+
+FAIR_PRICE_FAMILY_BYTES
+  registered       899,887,104   (family, live 2026-09-01T~16:40Z)
+  live now         2,409,955,328 (family, live 2026-09-09T~19:49Z, 2.678x)
+  ruling           STAYS PINNED. Superseded as a description of the table;
+                   unchanged as the estimator's input. Raising it re-scales a
+                   verdict computed after the rows were seen.
+  invariance       verdict is NOT WORTH ARMING under both. At the 2026-09-09
+                   family the eligible fraction would have to reach 13.394%;
+                   measured 4.005%; multiple required 3.344x.
+  direction        the pinned value makes the estimator a FLOOR, so a FAIL
+                   against the threshold fails a fortiori
+  discharges       the "amendment owed" note at
+                   backend/store/fair_price_downsample.py:203-216
+
+ARMING
+  status           CLOSED, by section 6's own NOT WORTH ARMING branch on the
+                   deciding run -- not by this amendment
+  figure           36,039,175 B against 322,800,000 B, 11.2%; T-MECH 98.68% PASS
+  ADR owed         NONE. Section 6 authorises an arming ADR only on a verdict of
+                   ELIGIBLE TO PROPOSE ARMING, which was not returned.
+  retracted        "arming is a week of engineering" is FALSE. `run` is reached
+                   at runner.py:3168 <- run_once <- run_loop.py:1458 and refuses
+                   at fair_price_downsample.py:672 on an env default. Cost was
+                   never the reason and may not be cited as one.
+  also verified    the `enabled` check precedes the `dry_run` branch, so the
+                   live loop has never executed the dry read either
+  module           STAYS IN THE TREE, disabled and unarmed. Not dead code: it
+                   carries the SQL that section S1 is pinned to by test.
+  reopens only on  a successor registration (section 7 has spent this one) with
+                   an eligible fraction >= 13.394% and a stated mechanism for
+                   why the age distribution moved
+
+DEDUPE OBSERVATION
+  mechanism        write_fair_price (runner.py:909) ends in an unconditional
+                   INSERT per outcome; run_pricing_pass is reached from the
+                   900s full pass AND the 15s quote pass (scheduler.py:276)
+  windows          A 3.98h 99.73% | B 5.15h 99.61% | C 2.01h 99.75% UNCHANGED
+  per-group        h2h and spreads agree to 2dp in every window (within-day)
+  concentration    largest key 1.3-2.6% of changes; that is ~14 events in
+                   window A, enough to rule out gross concentration only
+  zero-change keys 344 of 494 in window A
+  cadence          72.3 passes/h is a DAY average; the windows run 82-195/h
+  cluster          the DAY. G = 1. No inferential claim is available.
+  key defect       omits outcome_description, which section 4 requires; the
+                   error is signed AGAINST the finding, so 99.7% is a floor
+  status           OBSERVATION. No threshold was fixed before it was computed,
+                   so it registers no test and authorises nothing.
+  does not show    the NFL-Sunday rate; any reclaimed byte (slope, not level);
+                   any byte figure at all without two unfixed model steps; that
+                   a dedupe is safe -- it forecloses section 9.1's question
+                   PROSPECTIVELY, which the tidy version of this finding omits
+  unresolved       section 9.5's contradiction stands: measured accumulating at
+                   39.7% of organic bytes vs retention.py:48-52's assertion that
+                   freed pages are reused. n = 1 window cannot separate them.
+
+provenance         the 2026-09-09 db-sizes read and the three-window scan were
+                   taken by another session, read-only on live. The source
+                   claims -- the constant, the reachability, the check ordering,
+                   the unconditional INSERT, the two callers, the 15s cadence --
+                   were verified here directly.
 ```
