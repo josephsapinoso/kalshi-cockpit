@@ -225,6 +225,49 @@ one standing. Everything written before today says five majors and 49.0.0.
 ADR 0117 Amendment 2 corrects it. **It is now much safer to take**, because the
 signing test that should sit in front of it exists.
 
+### Deployed and verified, after the entry above was written
+
+**Live is on `3bee615`**, machine `7812601a239428` (unchanged -- no volume
+replaced). Money doors unchanged off `/api/health`: `manual_orders` **false
+(ARMED)**, `combo_bids` true, `engine_orders` true. Verified **in the running
+container**, not from the deploy output: the `alerter_factory` at
+`run_loop.py:1063`, `reconcile_fill_fees`, `_SEQUENCED_DATA_FRAMES`, and the
+RSA key-type refusal. `run_loop.py` is up and a full mirror cycle ran 1.5 min
+after the deploy, all five endpoints ok.
+
+**Then the shipped reconciliation was replayed over the stored hand fills**
+(`scripts/replay_fee_reconciliation.py`, committed and read-only):
+`docs/measurements/2026-09-09-fee-alarm-replayed-over-every-hand-fill.md`.
+
+    window 2026-08-10 .. 2026-09-08, 21 days, 97 fills, 97 distinct orders
+    0 of 22 informative rows would have alerted
+
+**The denominator is 22, not 96, and the first draft of that document said
+96.** 74 rows cannot fire at all: combos are priced by a ceiling that exceeds
+every observed charge by construction, MLB carries ADR 0058's deliberate
+2.00x. `measurement-skeptic` caught it, along with a claim that was simply
+**wrong** -- "no fill has ever been charged more than the model predicts",
+which is false because `calculate_fee` was not the model used on 64.6% of the
+rows and its never-under property is *refuted* on combos (`core/fees.py:91`).
+The document now carries a "what the first draft got wrong" section; read that
+before quoting any number from it.
+
+**The finding that is actually new** is independent of the alarm: on 21 taker
+fills across 8 non-baseball series, the charge equals `ceil(0.070*C*P*(1-P))`
+on the $0.0001 grid **exactly** -- an out-of-sample replication of k = 0.070,
+and confirmation that a correct model matches a charge exactly rather than
+approximately. Combinations carry only +1.4% mean headroom, an order of
+magnitude less than anything else: if the ADR 0073 ceiling is ever crossed it
+gets crossed there.
+
+**Chased and closed, so nobody re-finds it:** the one `KXMLBGAME` row whose
+charge matched its prediction looked like a counterexample to the baseball
+0.035 split. It is a **maker** fill at k = 0.0177, about a quarter of the
+taker rate. All 7 taker MLB rows sit at 0.035 as expected.
+
+**Still unobserved: the alarm firing.** Nothing has made it fire against a
+live fill, and by design nothing should until the schedule moves.
+
 ### Still open, in order
 
 1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Unchanged and
