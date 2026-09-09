@@ -16,6 +16,56 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-09 - Re-verify a question before asking it, not just a task before doing it - and never `Write` to a path without checking what is there
+
+Two errors in one action, and they compound: a billed Anthropic call was spent
+re-capturing a fixture that had been captured four days earlier, and the script
+that captures it was overwritten in the process.
+
+**Error one: the question was stale, not the answer.** `tasks/NEXT.md` carried
+*"(B) Authorise the one billed Anthropic call for the Scout fixture? Still
+unanswered."* It had been answered on 2026-09-05 and done: the fixture, the
+script and a test class driving it all landed in commit `c2976ec`, whose
+message reads *"Joe's answers B, C and D."* Joe was asked again, said yes
+again, and the second call reproduced the first result exactly.
+
+The mechanism that hid it is worth naming: **lettered question batches are
+reused every session.** `(B)` in one session and `(B)` in the next are
+different questions with the same label, so a stale entry does not look stale -
+it looks like the current batch. A dated item announces its own age; a lettered
+one does not.
+
+**And the same session had already written the rule it broke.** Hours earlier
+it audited a month-old open-items file, found three of six items stale in the
+direction of *more work than exists*, and wrote: *"an open-items list decays
+toward overstating the backlog, because closing an item requires someone to
+notice, and nothing notices. Re-check before planning against a list older than
+a few weeks."* Then it planned against the Joe-gated list two paragraphs below
+without re-checking it.
+
+**So the rule generalises further than it was written.** It is not "audit files
+decay". It is: **every list of open things decays, including the one you are
+about to act on, including the part of it that asks another person for
+something.** Verifying a task before doing it is habitual; verifying a
+*question* before asking it is not, and a question costs someone else's time
+and sometimes their money. The check here was one `git log -- <path>`.
+
+**Error two: `Write` to a path that already existed.** The capture script was
+tracked, and a better version - it had a spend guard, a costed docstring and an
+explicit "no loop, no retry" argument. Writing the file reported "updated", not
+"created", and that word was the only warning. `git checkout` restored it, so
+nothing was lost, but only because it was committed.
+
+**Before `Write` to any path you did not create in this session, check whether
+something is there** - `git ls-files <path>`, or read it. The Edit tool refuses
+to touch a file it has not read; `Write` does not, and that asymmetry is the
+whole trap. The habit that catches it: if you believe a file is new, prove it
+before overwriting it, because the failure is silent and destroys the better
+version of exactly the thing you were about to build.
+
+Related: [[built-but-never-called]] for the sibling pattern (a claim that a
+module has no caller decays the same way, and a grep settles it).
+
 ## 2026-09-09 - A justification decays into a lie, and the one most likely to is the one that explains why something is safe to leave undone
 
 `Alerter.check_fee` compares a real fill's charged fee against `core/fees.py`.

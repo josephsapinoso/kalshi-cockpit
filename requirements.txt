@@ -6,7 +6,19 @@
 # reproducibility actually matters.
 
 # --- Kalshi + HTTP -----------------------------------------------------------
-cryptography~=44.0        # RSA-PSS signing. Not optional, not swappable.
+cryptography~=50.0        # RSA-PSS signing. Not optional, not swappable.
+                          # 44 -> 50 on 2026-09-09, six majors, on Joe's
+                          # explicit yes and with him at a screen. It
+                          # clears SEVEN advisories, not the one dependabot
+                          # showed: alert #15's is fixed at 49.0.0, but
+                          # GHSA-g6cj-pr64-35w5 (PKCS#7 decrypt oracle,
+                          # introduced 44.0.0) needs 50.0.0, so stopping at
+                          # 49 would have left it standing. ADR 0124.
+                          # Verified by signing under 44 and verifying that
+                          # signature under 50 -- the wire format Kalshi
+                          # sees is unchanged, which no unit test can show
+                          # because each signs and verifies within one
+                          # version.
 httpx~=0.28               # async REST client
 websockets~=14.1          # orderbook_delta feed
 

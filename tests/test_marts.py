@@ -371,26 +371,22 @@ class TestThePipAuditIgnoreListIsPinned:
 
     WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "ci.yml"
 
-    # Every advisory outstanding against `requirements.txt` on 2026-09-08.
-    # `ci.yml` carries the full record beside each flag: what it is, what
-    # fixes it, whether the code path is reachable here, and why it is
-    # deferred. The one-liners below are only enough to recognise an entry.
+    # Every advisory outstanding against `requirements.txt`.
+    #
+    # **This was SEVEN entries on 2026-09-08 and is ONE on 2026-09-09.** Six of
+    # them were `cryptography`, and they are gone because the pin went 44 -> 50
+    # (ADR 0124), not because anything was silenced: `pip-audit` against
+    # `requirements.txt` with no ignores at all now reports exactly the entry
+    # below. The list is meant to shrink that way -- an ignore is deleted the
+    # moment its bump lands, and this test going red is how that gets noticed.
+    #
+    # `ci.yml` carries the full record beside the flag: what it is, what fixes
+    # it, and whether the code path is reachable here.
     EXPECTED_IGNORES = {
-        # cryptography, RSA-PSS order-signing path. Deferred: the bump is
-        # 44 -> 50, six majors under the signer, and wants a live signing
-        # test in front of a human.
-        "GHSA-jwv3-5hgf-82ww",  # exponential cert-path building; dependabot alert #15
-        "GHSA-m959-cc7f-wv43",  # DNS name constraints not checked against peer name
-        "GHSA-r6ph-v2qm-q3c2",  # EC public-key loading
-        "GHSA-g6cj-pr64-35w5",  # PKCS#7 decrypt padding oracle; sets the 50.0.0 target
-        "GHSA-537c-gmf6-5ccf",  # the OpenSSL statically linked into the wheels
-        # Known-bad match: GitHub's reviewed record says introduced 45.0.0 and
-        # the pin is 44.0.3. It fires only because the mirrored PYSEC record
-        # lost the lower bound and says `introduced: 0`.
-        "GHSA-m2h6-j472-rp4c",
-        # pyarrow, SQLite -> Parquet publish, no money path. Known-bad match:
-        # the flaw needs an Arrow IPC *file* read and nothing here ever reads
-        # one -- the only pyarrow call touching a file is `pq.write_table`.
+        # pyarrow, SQLite -> Parquet publish, no money path. Known-bad match
+        # rather than a deferred fix: the flaw needs an Arrow IPC *file* read
+        # and nothing here ever reads one -- the only pyarrow call touching a
+        # file is `pq.write_table`.
         "GHSA-rgxp-2hwp-jwgg",
     }
 
@@ -407,7 +403,7 @@ class TestThePipAuditIgnoreListIsPinned:
         )
         return steps, matches[0]
 
-    def test_the_ignore_list_is_exactly_these_seven(self):
+    def test_the_ignore_list_is_exactly_what_is_recorded(self):
         _, step = self._audit_step()
         found = set(re.findall(r"--ignore-vuln\s+([A-Za-z0-9-]+)", step["run"]))
         assert found == self.EXPECTED_IGNORES, (

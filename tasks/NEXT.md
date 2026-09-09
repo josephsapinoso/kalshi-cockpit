@@ -268,6 +268,39 @@ taker rate. All 7 taker MLB rows sit at 0.035 as expected.
 **Still unobserved: the alarm firing.** Nothing has made it fire against a
 live fill, and by design nothing should until the schedule moves.
 
+### Joe answered B, C and D on 2026-09-09 and all three are closed
+
+**(D) The four stale remote branches are DELETED.** `origin` now carries only
+`main`. The one named `fix/frontend-vulnerabilities` held `next` 16.3.1 -- the
+version with the two critical unauthenticated RCEs -- on a public repo, under a
+name that said the opposite of its contents.
+
+**(C) `cryptography` is 44.0.3 -> 50.0.1. ADR 0124.** Six majors under the
+RSA-PSS order signer, done with Joe at a screen as he required.
+
+**The check that mattered was not the test suite**, because every test in this
+repo signs and verifies inside one version and so cannot see the library
+changing what it puts on the wire -- which is the failure that would reach
+Kalshi as a 401 indistinguishable from bad credentials. So: sign under 44.0.3,
+upgrade, verify **that same signature** under 50.0.1. It verifies; a fresh
+50.0.1 signature verifies; a *different* message is still rejected, which is
+what makes the first two mean anything. The throwaway key is generated in the
+check; the real key was never read.
+
+**The ignore list went from seven entries to one, by deletion not
+suppression.** `pip-audit -r requirements.txt --strict` with **no ignores at
+all** now reports exactly one finding: `pyarrow` `GHSA-rgxp-2hwp-jwgg`, the
+verified-unreachable one. `TestThePipAuditIgnoreListIsPinned` went red on the
+change by name before it was updated, which is the whole reason the list is
+pinned.
+
+**(B) SHOULD NEVER HAVE BEEN ASKED. It was already done on 2026-09-05.** See
+item 6 below. Asking it cost a billed Anthropic call that reproduced the
+existing capture exactly, and writing the "new" script overwrote the tracked
+one (restored from `c2976ec`, unchanged). `TestNothingNewCanReachTheBilledPath`
+caught the overwrite independently -- an unallowlisted `build_client` call site
+-- which is the billed-path guard doing precisely its job.
+
 ### Still open, in order
 
 1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Unchanged and
@@ -276,18 +309,24 @@ live fill, and by design nothing should until the schedule moves.
    the `window_status` bootstrap question (`timing.py:1536`). Sunday 09-13 is
    the only attended NFL Sunday this month and the freeze is what makes it a
    measurement. A deploy is not contamination; logic changes are.
-2. **The `cryptography` bump — Joe-gated, and the ask has changed shape.**
-   44 → **50**, six majors across the RSA-PSS request signer. Do NOT take it
-   as a chore. What it needs is Joe at a screen while a live signing test runs;
-   `tests/test_auth_signature_roundtrip.py` is that test now. The monitoring
-   half is DONE (ADR 0121) so nothing is un-watched while this waits.
-3. **Two open advisories that are NOT the bump.** `pip-audit`'s seven ignores
-   include one **verified false positive** (`GHSA-m2h6-j472-rp4c`, excluded by
-   version range at 44.0.3 — re-evaluate the moment the pin reaches 45.x) and
-   one **unreachable** (`pyarrow` `GHSA-rgxp-2hwp-jwgg` needs an Arrow IPC file
-   read; this repo only writes Parquet — re-evaluate if anything starts reading
-   `.arrow`/`.feather`). Also recorded: one dev-only finding, pytest 8.4.2 /
-   `PYSEC-2026-1845`, fixed in 9.0.3.
+2. ~~**The `cryptography` bump.**~~ **DONE 2026-09-09, 44 -> 50. ADR 0124.**
+   Verified by cross-version signature check, not by the suite alone.
+3. **One `pip-audit` ignore remains, and it is NOT a deferred fix.** It was
+   seven on 2026-09-08. Six were `cryptography` and went with the bump; the
+   seventh, `GHSA-m2h6-j472-rp4c`, was a false positive at 44.0.3 and is moot
+   at 50.0.1 anyway.
+
+   What is left is `pyarrow` `GHSA-rgxp-2hwp-jwgg`, a **known-bad match**: the
+   flaw needs an Arrow **IPC file** read with pre-buffering and this repo only
+   ever writes Parquet (`pq.write_table`, `backend/store/publish.py`).
+   **Re-evaluate if anything starts reading `.arrow` or `.feather`** — that is
+   the trigger, and it is the only thing that would turn this into a real
+   deferred fix. The `pyarrow` 19 -> 23 bump itself is four majors on the
+   publish path, touches no money path, and has not been asked for.
+
+   Also recorded, not blocking: one **dev-only** finding, pytest 8.4.2 /
+   `PYSEC-2026-1845`, fixed in 9.0.3. Dev dependencies are deliberately outside
+   the gate (they do not ship), so this will never turn CI red on its own.
 4. **The gap branch parks `_last_seq` at an unbounded observed `seq`.** One
    corrupt or wildly large `seq` and every legitimate frame afterwards looks
    like a reorder and is dropped **silently**. The reconnect saves it in
@@ -298,9 +337,21 @@ live fill, and by design nothing should until the schedule moves.
    *above* what the deployed flat coefficient predicts. Nothing in production
    consumes that today. **A partner decision about a combo-aware fee model, not
    a patch.**
-6. **Scout Anthropic refusal fixture (ADR 0106 §5.2)** — one **billed** call,
-   Joe-gated, still unanswered. **Do not pre-build the harness**; a module with
-   no caller is this repo's now-five-times-caught pattern.
+6. ~~**Scout Anthropic refusal fixture (ADR 0106 §5.2)**~~ **ALREADY DONE ON
+   2026-09-05 — this entry was STALE and it cost a billed call to find out.**
+   `tests/fixtures/anthropic_scout_captured.json` and
+   `scripts/capture_agent_wire_fixture.py` landed in commit `c2976ec`, titled
+   *"Joe's answers B, C and D: … one real Anthropic response is captured"*, and
+   `tests/test_agent_wire_format.py::TestTheCapturedPayloadIsTheRealWire` has
+   been driving it since. §5.2 is closed.
+
+   **Read this before trusting any other line in the Joe-gated list.** On
+   2026-09-09 a session re-asked (B), got a yes, and spent a second call that
+   reproduced the 2026-09-05 result exactly — 25 content blocks there, 11 here,
+   the same structural finding. Nothing was learned. The same session had just
+   written *"an open-items list decays toward overstating the backlog; re-check
+   before planning against a list older than a few weeks"* about the audit file,
+   and did not apply it to the list two paragraphs below.
 7. **What the reachability walk found and nobody has acted on** (ADR 0120): the
    CLV validation layer (`clv.horizons_agree`, `validate.summarise`) runs from
    nothing, so two CLAUDE.md measurement rules have no running implementation —
@@ -331,8 +382,7 @@ live fill, and by design nothing should until the schedule moves.
    prunes a `NEXT.md` that ADR 0116 has since cut differently. The two at
    `0 ahead` carry nothing unique and are free deletes.
 
-   **NOT deleted -- Joe's call, they are his branches on his public repo.** The
-   ask is one line: delete all four, or keep any. Nothing depends on them.
+   **DELETED 2026-09-09 on Joe's yes.** `origin` now carries only `main`.
 
 **Killed this session, so nobody carries them again:**
 
@@ -344,15 +394,15 @@ live fill, and by design nothing should until the schedule moves.
 
 **Joe-gated:**
 
-- **(B)** Authorise the one billed Anthropic call for the Scout refusal
-  fixture? Not covered by the standing combo-lookup authorisation. **Still
-  unanswered.**
-- **(C)** New. When you are next at a screen: watch a live signing test, then
-  approve `cryptography` 44 → **50**. Six majors on the code that signs real
-  orders. Yes/no.
-- **(D)** New. Delete the four stale remote branches in item 8? The one called
-  `fix/frontend-vulnerabilities` contains the *vulnerable* `next` version on a
-  public repo. Yes/no.
+- ~~**(B)** Authorise the one billed Anthropic call for the Scout fixture?~~
+  **WITHDRAWN — it was answered and done on 2026-09-05** (`c2976ec`). See item
+  6. **The lettering is reused every session**, so a stale `(B)` reads as
+  current; check what a letter refers to before asking it again.
+- ~~**(C)** approve `cryptography` 44 → 50?~~ **ANSWERED YES 2026-09-09 and
+  DONE, with him at a screen as he required.** 50.0.1, verified by signing
+  under 44 and verifying that signature under 50. ADR 0124.
+- ~~**(D)** delete the four stale remote branches?~~ **ANSWERED YES 2026-09-09
+  and DONE.** `origin` now carries only `main`.
 
 ---
 

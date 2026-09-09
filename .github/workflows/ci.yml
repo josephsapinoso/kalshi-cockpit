@@ -148,94 +148,38 @@ jobs:
       # only by the SQLite -> Parquet publish step, which touches no money
       # path at all: a different decision with a different owner.
       #
-      # **THE CRYPTOGRAPHY BUMP IS 44 -> 50, NOT 44 -> 49.**
-      # GHSA-g6cj-pr64-35w5 was introduced at 44.0.0 and is not fixed until
-      # 50.0.0, so stopping at 49.0.0 clears alert #15 and leaves the PKCS#7
-      # padding oracle standing. Anything written elsewhere that says "five
-      # majors" or that 49.0.0 clears this is out of date.
+      # **THE CRYPTOGRAPHY BUMP IS DONE -- 44 -> 50, on 2026-09-09.**
+      # It had to be 50 and not 49: GHSA-g6cj-pr64-35w5 was introduced at
+      # 44.0.0 and is not fixed until 50.0.0, so stopping at 49.0.0 would have
+      # cleared dependabot alert #15 and left the PKCS#7 padding oracle
+      # standing. **This step is what found that**, on its first run, against
+      # an instrument that could see only one of the seven. ADR 0124.
       - name: Audit shipped dependencies (pip-audit)
         run: |
           set -euo pipefail
 
           IGNORE=()
 
-          # ---- cryptography: the RSA-PSS order-signing path ---------------
-          # This repo's ONLY use of the library is `backend/kalshi/auth.py`:
-          # `load_pem_private_key` plus `sign(PSS(MGF1(SHA256)))`. It does no
-          # X.509 chain verification, no PKCS#7, and loads no EC public keys.
-
-          # GHSA-jwv3-5hgf-82ww (PYSEC-2026-3553, CVE-2026-69249)
-          # DEFERRED FIX. Duplicate self-signed intermediates in an invalid
-          # certificate chain make path building blow up exponentially.
-          # Affects 42.0.0 through <= 48.0.0; fixed 49.0.0. This is dependabot
-          # alert #15 -- the advisory this whole step was built for.
-          # Reachability: we never verify a chain, so not reached today.
-          IGNORE+=(--ignore-vuln GHSA-jwv3-5hgf-82ww)
-
-          # GHSA-m959-cc7f-wv43 (PYSEC-2026-35, CVE-2026-34073)
-          # DEFERRED FIX. DNS name constraints were checked only against SANs
-          # inside child certificates and not against the peer name presented
-          # at each validation, letting a constrained CA be escaped.
-          # Affects everything below 46.0.6; fixed 46.0.6.
-          # Reachability: name-constraint checking is not on our path.
-          IGNORE+=(--ignore-vuln GHSA-m959-cc7f-wv43)
-
-          # GHSA-r6ph-v2qm-q3c2 (PYSEC-2026-2141, CVE-2026-26007)
-          # DEFERRED FIX. Elliptic-curve public-key loading
-          # (`EllipticCurvePublicNumbers.public_key()`, `load_der_public_key`)
-          # mishandles certain inputs. Below 46.0.5; fixed 46.0.5.
-          # Reachability: we load one RSA *private* key and no EC key at all.
-          IGNORE+=(--ignore-vuln GHSA-r6ph-v2qm-q3c2)
-
-          # GHSA-g6cj-pr64-35w5 (PYSEC-2026-3552, CVE-2026-69247)
-          # DEFERRED FIX, and this is the entry that sets the bump target.
-          # `pkcs7_decrypt_der` / `_pem` / `_smime` reported the outcome of
-          # decrypting a RecipientInfo's encryptedKey in distinguishable ways,
-          # one of them disclosing the exact length recovered from the RSA
-          # operation -- a padding oracle. Introduced 44.0.0, fixed 50.0.0.
-          # It is why clearing cryptography means going to 50, not 49.
-          # Reachability: we never call the PKCS#7 decrypt helpers.
-          IGNORE+=(--ignore-vuln GHSA-g6cj-pr64-35w5)
-
-          # GHSA-537c-gmf6-5ccf (no aliases)
-          # DEFERRED FIX. Not a flaw in the Python code: cryptography's wheels
-          # bundle a statically linked OpenSSL, and wheels before 48.0.1 ship
-          # a vulnerable copy. Affects 0.5.0 through < 48.0.1; fixed 48.0.1.
-          # Reachability: this is the one with the broadest surface, since the
-          # bundled OpenSSL underlies every primitive we do call. Subsumed by
-          # the 44 -> 50 bump.
-          IGNORE+=(--ignore-vuln GHSA-537c-gmf6-5ccf)
-
-          # GHSA-m2h6-j472-rp4c (PYSEC-2026-3554, CVE-2026-69248)
-          # KNOWN-BAD MATCH -- this advisory does not apply to 44.0.3, and it
-          # is listed for a different reason from the five above.
-          # The flaw: the verifier accepts a leaf wildcard DNS SAN
-          # (`*.example.com`) against an intermediate constrained to
-          # `foo.example.com`, escaping permittedSubtrees. GitHub's reviewed
-          # record says introduced **45.0.0**, fixed 49.0.0, and enumerates 19
-          # affected versions, none of them 44.x. The pin is 44.0.3, so it is
-          # below the introduced boundary.
-          # It fires only because the mirrored PYSEC record lost that lower
-          # bound -- it records `introduced: 0` and enumerates 156 versions
-          # including 44.0.0 and 44.0.1 -- and pip-audit takes the union.
-          # RE-EVALUATE THE MOMENT THE PIN REACHES 45.x: at that point this
-          # stops being a bad match and becomes a real DEFERRED FIX.
-          IGNORE+=(--ignore-vuln GHSA-m2h6-j472-rp4c)
-
-          # ---- pyarrow: the SQLite -> Parquet publish step, no money path --
-
+          # ---- ONE ENTRY. It was seven until 2026-09-09. ---------------
+          #
+          # The six cryptography advisories are GONE, not silenced: the pin
+          # went 44 -> 50 on Joe's explicit yes (ADR 0124), and `pip-audit`
+          # against `requirements.txt` with NO ignores at all now reports
+          # exactly the one entry below. Deleting an ignore the moment its
+          # bump lands is the rule this list was written under, and this is
+          # that rule being kept.
+          #
           # GHSA-rgxp-2hwp-jwgg (PYSEC-2026-113, CVE-2026-25087)
-          # KNOWN-BAD MATCH -- unreachable here. Use-after-free in Apache
-          # Arrow C++ when reading an Arrow **IPC file** (explicitly not an
-          # IPC stream) with pre-buffering enabled, where the file holds
-          # variadic buffers. Affects 15.0.0 through 23.0.0; fixed 23.0.1.
-          # The version range does match the 19.0.1 pin, but the code path
-          # does not exist in this repo: the only pyarrow call that touches a
-          # file is `pq.write_table` in `backend/store/publish.py`, a Parquet
+          # KNOWN-BAD MATCH -- unreachable here, NOT a deferred fix.
+          # Use-after-free in Apache Arrow C++ reading an Arrow **IPC file**
+          # (explicitly not an IPC stream) with pre-buffering, where the
+          # file holds variadic buffers. Affects 15.0.0 through 23.0.0;
+          # fixed 23.0.1. The range does match the 19.0.1 pin, but the code
+          # path does not exist here: the only pyarrow call touching a file
+          # is `pq.write_table` in `backend/store/publish.py`, a Parquet
           # *write*, and a tree-wide search for `pyarrow.ipc`, `feather`,
           # `RecordBatchFileReader`, `RecordBatchStreamReader`, `open_file`,
-          # `open_stream` and `pre_buffer` returns nothing. Nothing here ever
-          # reads an Arrow IPC file.
+          # `open_stream` and `pre_buffer` returns nothing outside `.venv`.
           # RE-EVALUATE if anything starts reading `.arrow` or `.feather`.
           IGNORE+=(--ignore-vuln GHSA-rgxp-2hwp-jwgg)
 
