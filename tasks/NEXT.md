@@ -119,6 +119,232 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-09 (fourth session) — a live bet was invisible to the only screen that could exit it, and the wiring that fixed that killed the question a registration was asking
+
+**Found by checking the one thing the last session shipped and never observed
+working.** Not by planning, not from a queue. The reconciler that found it did
+not exist at session start, and the second thing it found was a defect in
+itself.
+
+**STATE at close.** `main` = **`2126dde`**, pushed, **CI green**. Live is on
+**`2126dde`** too — `main` and live are the same commit, machine
+`7812601a239428` **unchanged across the deploy**, so no volume was replaced and
+nothing was recreated from empty. Demo untouched.
+
+Four ADRs: **0128** (Sunday's slot runner), **0129** (a combination records the
+consensus), **0130** (what the manual hedge form is for), **0131** (the ticket
+stops asking for a probability). **Amendments 1 and 2** to the parlay-positions
+registration. Five lanes ran in parallel worktrees.
+
+### THE HEADLINE: a real position, bought with real money, that `/hedge` had never heard of
+
+`manual_orders` **id=4**: filled **2026-09-09 15:11:56Z**, `dry_run = 0`, 4
+contracts at 41c — **$1.64 staked against a $4.00 return**, three MLB legs
+(BOS 18:45Z, NYY 19:05Z, LAD 22:10Z). `parlay_positions` held **zero rows**.
+
+A `KXMVE` combination is enter-only and `/hedge` is its only exit, so for hours
+a live position existed that the exit screen could not see.
+
+**ADR 0125 was not at fault and this is the load-bearing fact.** The wiring
+that makes a filled combination write its own position row deployed at
+**15:56:45Z** — 45 minutes *after* the fill. An orphan created in the gap.
+
+Fixed: `parlay_positions` **id=1**, `created_ms` 1788976165253, written by
+`scripts/backfill_orphan_combo_position.py` — **committed before it ran**, per
+the amendment, so the exact arguments are in git rather than in a transcript.
+`/hedge` was then confirmed rendering it end to end: three legs priced live at
+66% / 69% / 72%, state `derisk`, correctly saying a hedge on one leg locks
+nothing while three are live.
+
+### The reconciler, and the defect it had on its first live run
+
+`scripts/inspect_live_db.py combo-position-gaps` — **the only detector for a
+write that is designed to fail silently.** `_record_combo_position` runs inside
+a bare `except` so bookkeeping can never fail a purchase that already spent
+money; that is correct and it stays, and its consequence is that the write can
+fail with nothing raised, nothing logged to a screen, and no test covering the
+live path.
+
+**Its first live run reported three positions `OPEN AT VENUE -- UNWATCHED`.
+Two had settled the day before.** It asked for the newest `venue_positions` row
+*bearing each ticker* — but that table is an append-only poll record: a held
+position is rewritten every cycle and a settled one simply stops being written.
+**The absence is the event**, and the last present row reports whatever was true
+when the position last existed. Silence read as exposure, inside the one column
+written to catch silence read as health. Nine tests were green over it because
+every fixture described a position that was still open.
+
+Now asks membership of the most recent **successful** `positions` poll.
+`ok = 1` is load-bearing and separately tested: taking a failed call as the
+baseline makes every open position absent from it and reports the lot as
+closed — an outage rendered as an all-clear.
+
+### The registration the fix killed — Amendments 1 and 2
+
+**The window is VOID; the registration survives.** §5's subject is Joe and its
+verb is *records*. Since ADR 0125 deployed, a successful desk fill increments
+`R` **mechanically**, and §8 makes `R >= 1` decisive on its own — so the check
+now returns NOT REFUTED the moment the wiring works, carrying no information
+about the form it was written to judge. **A question that cannot come back
+negative is not a question.** Clean stretch: 18h 24m, `G` between 0 and 1.
+
+P3 was **independently fatal** — its denominator script still does not exist
+while the window has been open since 2026-09-08T21:33:05Z, and the "before"
+clause exists precisely so the denominator cannot be tuned once the outcome is
+visible. **The window could not have carried a verdict even had ADR 0125 never
+shipped.**
+
+**Joe killed the adoption successor** (Amendment 2). All three §8 branches are
+marked VOID and unreachable with reasons; **2026-11-30 is not a date on which
+anything happens and no calendar may carry it.** The deletion question is
+**CLOSED, not deferred** — reopening needs a decision from Joe with a stated
+reason, not a measurement. The arithmetic that justified the kill: `G = 30` by
+the backstop needed 0.39 unwired sittings/day for 76 days against a measured
+0.7–1.2/day from all sources, i.e. it was powered **only if a third to half of
+his combination bets stayed outside the cockpit** — the branch where ADR 0113's
+intent fails.
+
+**Joe also dropped the provenance column**, and the registrar conceded its own
+prior ruling rather than defending it: provenance never enters the hedge
+arithmetic; a label does not fix a wrong stake, only annotates one; and A1.3.3
+had **over-read the `resolved_source` precedent** — that column separates
+evidence about an outcome the reader cannot re-derive, while a stake is a number
+its writer knows he typed. What is given up, permanently: a hand-written and a
+wiring-written row are now indistinguishable. **A2.7.4 binds harder than P3's
+"before" clause** — a denominator can be rebuilt from `fills`, but **authorship
+leaves no raw material**, so a column added later recovers attribution for
+nothing written before it.
+
+### The P(YES) field is gone — ADR 0131, superseding ADR 0065 §2
+
+Joe: *"what is even the point of the (p)yes score entry? I don't need it. it
+just gets in the way."*
+
+**ADR 0065 already contained the argument.** Its §1 records that the red-team
+position — *an unscored form is a speed bump a user learns to type through* —
+lost on **one factual premise**: that `bet_clv()` had just given the number a
+consumer on `/bets`. `backend/bets.py` never read `p_yes_bp`. Nothing did.
+
+The masking went with it. Anchoring protection only buys something if the number
+is later scored; protecting the integrity of a number nobody reads is cost with
+no product.
+
+**Schema v34 → v35, deployed and verified in the container** against a baseline
+read taken before the deploy: `schema_version` 34 → **35**, `p_yes_bp NOT NULL`
+→ **nullable**, and the four real values **`67, 2600, 33, 3390` identical**.
+The column and the rows survive — deleting history to remove a form is a bigger
+change than the one he asked for — and **NULL means "not asked", never 0**; a
+zero would read as "he thought this had no chance", which on a money row is a
+lie.
+
+**Rehearsed in the container before the deploy, on those same four rows**:
+forward, replayed, and reversed, with the old shape first proved to refuse NULL
+so the migration had real work to do. A full DB copy was impossible (see the new
+open item on volume space), so the rehearsal built the v34 shape from the
+migration's own undo helper.
+
+### Verified by disabling — 30 mutations across five lanes, and two were not decoration
+
+    Lane A reconciler   4 mutations, 4 red   (+2 more on the exposure fix)
+    Lane B slot runner  1 mutation,  3 red
+    Lane C consensus    9 mutations, 9 red
+    Lane E P(YES)      15 mutations, 15 red — one GREEN first
+    the disclaimer      1 mutation,  1 red
+
+**Lane E's green mutation is the finding.** The replay test for `INSERT OR
+IGNORE` wound the version stamp back after a **completed** migration; by then
+the temp table is gone, so a plain `INSERT` has nothing to collide with. The
+state `OR IGNORE` exists for is a crash **between** the copy and the drop, and
+no test reached it. A create-copy-drop-rename rebuild has several crash points
+needing different guards, so *"run it twice"* tests the cheapest one.
+
+### Also answered, closed, or corrected
+
+- **NEXT.md item 6 is ANSWERED: a combination's settlement DOES reconcile.**
+  `venue_settlements` carries **62 `KXMVE` rows of 90**, including both
+  2026-09-08 combos with contracts, entry price and fee. Both **won**
+  (`market_result = 'yes'`, entered at 37.5c and 23.8c). **n = 2 — that is
+  plumbing confirmed and two bets landing, and it is not evidence of edge.**
+- **Item 4 is DONE (ADR 0129).** A combination now records the consensus the
+  desk computed and showed him, sourced from `priced_lookup_for`. Two judgement
+  calls worth keeping: a **NO-side** combination is refused rather than
+  complemented (worst-of-four is conservative in the direction taken, so
+  `1 − joint` is anti-conservative and would invert rule 2 on a money row), and
+  `hold` is **not** copied — it is a ratio against the ask at *lookup* while the
+  row already carries the ask *paid*. `'combo_ticker'` is now a **closed
+  historical set** with an AST test proving nothing writes it.
+- **`.claude/agents/partner.md` was carrying a false fact** — it told every
+  session that `scout.py` and the Historian were called by nothing. Scout is
+  wired to `POST /api/scout/{ticker}`; the Historian was deleted by ADR 0106.
+  The partner found this in its own brief and said so.
+- **A dead duplicate route deleted**: `GET /api/estimates/markets` over the same
+  `search_markets` that `/api/manual/search` serves and the picker calls.
+- **Lane D′'s "last scored call" card is PARKED on a branch, deliberately not
+  merged.** `bet_estimates` holds exactly **one** row and it is
+  `is_study_row = 1`, which `last_scored_call` must exclude — so the card would
+  render empty forever. The premise it was assigned on was stale: ADR 0094 §11
+  killed the log screen on Joe's word 2026-09-05.
+
+### Still open, in order
+
+1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Untouched this
+   session. Frozen: `backend/odds/{timing,budget,attention,ondemand,client,sweeplog}.py`
+   plus the `window_status` bootstrap question. A deploy is not contamination;
+   logic changes are. **Note the freeze protects the credit-convergence
+   readout** (`docs/measurements/2026-09-08-nfl-sunday-credit-convergence.md`),
+   not a "dwell measurement" — the registrar found that phrase has no referent
+   in any registration.
+2. **SUNDAY 2026-09-13 — a scheduled run, and it now has a runner.**
+   `scripts/run_combo_exit_capture.py --slot c3` emits both registered
+   invocations, Arm A then Arm D, and **refuses with a non-zero exit naming the
+   blocking file** if any target output exists. Five slots
+   (C1 15:30Z, C2 17:30Z, C3 20:00Z, C4 23:30Z, C5 00:45Z 09-14), no sixth
+   capture, no slot moved beyond 30 minutes. **Arm C has no per-slot command in
+   the registration at all** — Lane B checked and did not invent one; both NFL
+   series returned 0 open rows midweek and a named `--series` with no rows
+   aborts by design. **Nobody opens the cockpit UI to run any of it.** A null is
+   not confirmation; the word "structurally" is forbidden.
+3. **`/data/cockpit.db` is 5.07 GB and the volume has 4.7 GB free — 51% full,
+   and nothing watches it.** NEW. v35 was safe because `manual_orders` has four
+   rows, but a create-copy-drop-rename rebuild of any **large** table needs more
+   free space than exists. It also made a full-copy migration rehearsal
+   impossible this session. No instrument reports this; `db-sizes` would if
+   someone ran it.
+4. **`is_taker = None` on the settled `KXMVE` rows.** NEW. The fee-alarm trigger
+   the partner set last session (reopen the combo fee model when the alarm fires
+   on a combo fill, or at `n >= 30`) may be **unable to fire** if takerness is
+   unknown on exactly the rows it would judge. Not chased.
+5. **One `pip-audit` ignore remains and it is NOT a deferred fix.** `pyarrow`
+   `GHSA-rgxp-2hwp-jwgg`: the flaw needs an Arrow **IPC file** read with
+   pre-buffering and this repo only writes Parquet. **Trigger: anything starts
+   reading `.arrow` or `.feather`.** Also recorded, not blocking: pytest 8.4.2 /
+   `PYSEC-2026-1845`, dev-only, deliberately outside the gate.
+6. **A stale justification in `scripts/backfill_orphan_combo_position.py`** was
+   fixed this session (it cited the provenance column as pending). Nothing
+   pinned it, so nothing would have gone red. Recorded because it is the
+   `justifications-decay-toward-reassurance` pattern arriving in a file written
+   the same day as the lesson.
+
+**Joe-gated: NOTHING.** Everything asked this session was answered within the
+session: the orphan write, killing the adoption successor, dropping the
+provenance column, and removing the P(YES) field.
+
+### Lessons written
+
+Four, all pattern-level: an append-only record reports the last state it saw
+forever after that state ends; a decision that turned on a **named consumer**
+must be re-opened when the consumer is never built, and nothing notices; a
+replay test can pass through the crash point its guard is for; and a guard that
+pins an ADR's **slug** breaks at the exact moment the ADR becomes citable — pin
+the ordinal.
+
+**And one about my own procedure.** Four lanes each ran their own files green
+and I ran targeted suites on top; CI then failed twice on things **no lane could
+see from inside its own worktree** — a written-down subcommand surface, and the
+ADR numbering rule. Running the full suite before pushing a multi-lane merge is
+not optional. A watcher polling `--limit 1` also reported the *Deploy* run's
+result as CI's; filter by name.
+
 ## 2026-09-09 (third session) — the desk armed the entry and never armed the exit; and the census behind every combo warning had never read the shard he trades
 
 **Two findings, both about the combination path, both found by looking rather
