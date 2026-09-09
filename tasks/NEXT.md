@@ -46,8 +46,11 @@ sat on the public money box until a routine push happened to trigger a rescan:
 *before* the rescan that push triggers, so it describes the previous state.
 Mine said "1 high" while the truth a second later was two criticals and a
 high. And **do not trust an alert's own `state`**: alert #15 reports `fixed`
-while `requirements.txt:9` still pins a version inside its vulnerable range.
-Verify a fix by reading the version out of the running container.
+while `requirements.txt:9` still pins a version inside its vulnerable range,
+because GitHub's dependency graph lost the package's resolved version.
+**This query is therefore known-incomplete — it cannot see `cryptography` at
+all.** Verify a fix by reading the version out of the running container, and
+see open item 3 below.
 
 **Two things to know before planning. CLAUDE.md is current on both:**
 
@@ -235,11 +238,27 @@ otherwise.**
    excludes `_next/image` from the auth matcher, so re-enabling the optimizer
    restores the exposed endpoint *and* its exemption in one line. The config
    comment says so at the point of change.
-3. **The `cryptography` pin.** `~=44.0` is inside a live advisory's vulnerable
-   range and GitHub wrongly reports it fixed. The fix is 49.0.0, five majors
-   up, on the RSA-PSS path that signs real-money orders and which
-   `requirements.txt` marks "not optional, not swappable". Needs its own
-   decision. **Do not bump it as a chore.**
+3. **The `cryptography` pin, and a blind spot in the instrument.** `~=44.0`
+   (installed 44.0.3) is inside a live advisory's vulnerable range
+   (`>= 42.0.0, <= 48.0.0`, fixed in 49.0.0), and GitHub reports the alert
+   **fixed**. Chased and settled 2026-09-09: `requirements.txt:9` is the only
+   manifest naming it, `Dockerfile:37-39` installs from that file alone, #15
+   is the only alert for the advisory, and the advisory has not changed since
+   09-04. **The cause is that GitHub's dependency graph holds no resolved
+   version for the package** — the SBOM carries two `cryptography` entries and
+   both have an empty `versionInfo`. An advisory cannot match a node with no
+   version.
+   **So this is a monitoring failure, not a stale reading, and it is the worse
+   of the two.** A stale alert self-corrects on the next scan; a package with
+   no resolved version never matches an advisory again. `cryptography` is now
+   **invisible to dependabot on this repo**, including for advisories not yet
+   published — so the alerts query in the SESSION START box above will not
+   catch the next one. Two separate pieces of work: fix the graph resolution
+   (or add an independent check such as `pip-audit` in CI), and decide the
+   bump. **Do not bump it as a chore** — 49.0.0 is five majors up on the
+   RSA-PSS request signer, which `requirements.txt` marks "not optional, not
+   swappable", and it is a change to take with a live signing test in front of
+   you. ADR 0117.
 4. **`tasks/audit-2026-08-07.md` cannot be archived — two items are live.**
    Re-checked all six this session; 5, 27, 33 and 34 are FIXED with
    citations. The two that survive:

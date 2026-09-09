@@ -132,12 +132,48 @@ Alert #15 (`cryptography`, high) was marked **fixed** by the same rescan, at
 vulnerable range is `>= 42.0.0, <= 48.0.0` with the fix in 49.0.0. The pin is
 inside the vulnerable range and nothing about it changed in that push.
 
-GitHub says fixed. The pin says otherwise. **This ADR does not resolve the
-contradiction and does not treat "fixed" as true.** It is recorded because it
-bears directly on the other three: if dependabot's state is unreliable here,
-its state on #16, #17 and #18 is not self-certifying either — and the fix for
+GitHub says fixed. The pin says otherwise. It is recorded because it bears
+directly on the other three: if dependabot's state is unreliable here, its
+state on #16, #17 and #18 is not self-certifying either — and the fix for
 those was verified by reading the versions out of the running container
 rather than by believing the alert closed.
+
+### Resolved, same session, and the answer is worse than a stale alert
+
+The contradiction was chased and settled:
+
+- `requirements.txt:9` is the **only** manifest in the repo declaring
+  `cryptography`. There is no `pyproject.toml`, `setup.py`, `setup.cfg`,
+  `Pipfile` or constraints file, and `requirements-dev.txt` does not name it.
+- `Dockerfile:37-39` copies `requirements.txt` and runs `pip install -r` on
+  it with no separate constraints file, so the image's version is determined
+  by that pin alone.
+- #15 is the **only** alert ever raised for GHSA-jwv3-5hgf-82ww. No duplicate
+  supersedes it.
+- The advisory itself did not change: `updated_at` is 2026-09-04, four days
+  before the flip, and the range is still `>= 42.0.0, <= 48.0.0` with the fix
+  at 49.0.0.
+- **GitHub's dependency graph carries no resolved version for the package.**
+  The SBOM holds two `cryptography` entries and **both have an empty
+  `versionInfo`** — a bare `pkg:pypi/cryptography` purl with no version
+  qualifier at all.
+
+So the alert did not close because the package was upgraded. It closed
+because the graph re-resolution **lost the version**, and an advisory cannot
+match a package node that has no version to compare against.
+
+**This is a monitoring failure, not a stale reading, and it is the more
+dangerous of the two.** A stale alert corrects itself on the next scan. A
+package with no resolved version will never match an advisory again, so
+`cryptography` is now invisible to dependabot on this repo — including for
+advisories not yet published. The alerts query added to
+`tasks/NEXT.md`'s session-start box **will not catch a future cryptography
+issue**, and anyone relying on it should know that.
+
+Not fixed here. Bumping five majors on the RSA-PSS request signer is a change
+taken with a live signing test in front of you. What this ADR establishes is
+that the instrument is blind for this one package, which is the fact a future
+session would otherwise have to rediscover.
 
 Bumping `cryptography` five majors is not undertaken here. It is the RSA-PSS
 signing path that authenticates real-money orders, `requirements.txt` marks
