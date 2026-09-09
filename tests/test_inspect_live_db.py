@@ -3492,6 +3492,9 @@ _GAP_TICKER = "KXMVECROSSCATEGORY-SHARD1-UNWATCHED"
 _WATCHED_TICKER = "KXMVECROSSCATEGORY-SHARD1-WATCHED"
 _PART_TICKER = "KXMVECROSSCATEGORY-SHARD1-PARTIAL"
 _UNKNOWN_TICKER = "KXMVECROSSCATEGORY-SHARD1-UNKNOWN"
+# Held on an earlier poll and absent from the latest one: that IS how a
+# position settles at this venue. Reproduces live manual_orders id=1 and 2.
+_SETTLED_TICKER = "KXMVECROSSCATEGORY-SHARD1-SETTLED"
 
 
 def _manual_order(ticker: str, status: str, dry_run: int, order_id: int):
@@ -3522,6 +3525,7 @@ def gaps_db(live_db) -> Path:
             _manual_order(_WATCHED_TICKER, "filled", 0, 2),
             _manual_order(_PART_TICKER, "partially_filled", 0, 3),
             _manual_order(_UNKNOWN_TICKER, "unrecognised_response", 0, 4),
+            _manual_order(_SETTLED_TICKER, "filled", 0, 8),
             # Removed by `dry_run = 0`: no money moved, nothing to watch.
             _manual_order("KXMVECROSSCATEGORY-SHARD1-DRY", "filled", 1, 5),
             # Removed by the status filter: an unfilled order bought nothing.
@@ -3537,9 +3541,19 @@ def gaps_db(live_db) -> Path:
         " VALUES (?,?,?,?,?,?,?)",
         (1, "kalshi_combo", "watched", 1640, 4000, "open", _WATCHED_TICKER),
     )
-    conn.execute(
+    # Two successful `positions` polls. The settled ticker is in the first and
+    # absent from the second, which is the ONLY signal this venue gives that a
+    # position closed -- it stops being written, it is never marked closed.
+    conn.executemany(
         "INSERT INTO poll_log (id, polled_ms, endpoint, ok, row_count)"
-        " VALUES (1, 1, 'positions', 1, 2)"
+        " VALUES (?,?,?,?,?)",
+        [
+            (1, 5000, "positions", 1, 3),
+            (2, 9000, "positions", 1, 2),
+            # A LATER poll that FAILED. It must not be treated as the latest:
+            # a failed call is not evidence that a position went away.
+            (3, 9500, "positions", 0, None),
+        ],
     )
     conn.executemany(
         "INSERT INTO venue_positions (poll_log_id, polled_ms, ticker,"
@@ -3547,6 +3561,9 @@ def gaps_db(live_db) -> Path:
         [
             (1, 5000, _GAP_TICKER, 4.0, "yes", 1640),
             (1, 5000, _PART_TICKER, 2.0, "yes", 820),
+            (1, 5000, _SETTLED_TICKER, 3.0, "yes", 1230),
+            (2, 9000, _GAP_TICKER, 4.0, "yes", 1640),
+            (2, 9000, _PART_TICKER, 2.0, "yes", 820),
         ],
     )
     conn.commit()
@@ -3612,6 +3629,15 @@ class TestAnUnwatchedCombinationIsFound:
         found = self._gap_tickers(capsys, gaps_db)
         assert "KXMLBGAME-26SEP091905COLNYY-NYY" not in found
 
+    def _exposure(self, capsys, gaps_db) -> dict:
+        payload = _run_json(
+            capsys, ["combo-position-gaps", "--db", str(gaps_db), "--date", DAY]
+        )
+        section = _named(payload, "NO parlay_positions row")
+        t = section["columns"].index("ticker")
+        e = section["columns"].index("exposure")
+        return {row[t]: row[e] for row in section["rows"]}
+
     def test_an_open_venue_position_is_flagged_as_unwatched_exposure(
         self, capsys, gaps_db
     ):
@@ -3620,14 +3646,43 @@ class TestAnUnwatchedCombinationIsFound:
         `exposure` is what separates a live problem from history, so it is
         asserted on the row rather than left to whoever reads the output.
         """
-        payload = _run_json(
-            capsys, ["combo-position-gaps", "--db", str(gaps_db), "--date", DAY]
+        assert self._exposure(capsys, gaps_db)[_GAP_TICKER] == (
+            "OPEN AT VENUE -- UNWATCHED"
         )
-        section = _named(payload, "NO parlay_positions row")
-        t = section["columns"].index("ticker")
-        e = section["columns"].index("exposure")
-        by_ticker = {row[t]: row[e] for row in section["rows"]}
-        assert by_ticker[_GAP_TICKER] == "OPEN AT VENUE -- UNWATCHED"
+
+    def test_a_position_absent_from_the_latest_poll_is_not_called_open(
+        self, capsys, gaps_db
+    ):
+        """A position closes by VANISHING, and the first version missed it.
+
+        `venue_positions` is append-only: a held position reappears every
+        cycle and a settled one simply stops being written. Reading the newest
+        row *for that ticker* therefore reports whatever was true the last
+        time it existed, so two positions that settled on 2026-09-08 were
+        reported live as `OPEN AT VENUE -- UNWATCHED`.
+
+        That is silence read as exposure, inside the one column written to
+        catch silence read as health -- so it is pinned here rather than
+        merely fixed. The claim: membership of the latest successful poll is
+        what "open" means.
+        """
+        assert self._exposure(capsys, gaps_db)[_SETTLED_TICKER] == (
+            "gone from the latest positions poll -- closed"
+        )
+
+    def test_a_failed_poll_is_not_evidence_a_position_went_away(
+        self, capsys, gaps_db
+    ):
+        """`ok = 0` must not become the baseline every ticker is missing from.
+
+        The newest `positions` row in `poll_log` is a FAILED call. If the
+        query took it as the latest, every open position would be absent from
+        it and every one would read as closed -- turning an outage into an
+        all-clear, which is the same defect one level up.
+        """
+        assert self._exposure(capsys, gaps_db)[_GAP_TICKER] == (
+            "OPEN AT VENUE -- UNWATCHED"
+        )
 
     def test_an_unknown_fate_is_reported_apart_from_the_gaps(
         self, capsys, gaps_db

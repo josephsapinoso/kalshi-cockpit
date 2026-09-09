@@ -348,6 +348,19 @@ def _q_combo_bids_tail(conn: sqlite3.Connection, args) -> list[Section]:
 # different states, and collapsing them would let the uncertain one hide
 # inside the certain one.
 #
+# **A position closes by VANISHING, so `exposure` asks the latest poll.**
+# `venue_positions` is an append-only poll record: while a position is held it
+# reappears every cycle, and when it settles it simply stops being written.
+# Reading the newest row FOR THAT TICKER therefore reports whatever was true
+# the last time it existed -- which for a settled position is "4 contracts,
+# open". The first version of this query did exactly that and called two
+# positions that settled on 2026-09-08 `OPEN AT VENUE -- UNWATCHED`, which is
+# silence read as exposure, in a column written to detect silence read as
+# health. So the test is membership of the most recent SUCCESSFUL `positions`
+# poll, not the most recent row bearing the ticker. `contracts_when_last_seen`
+# is named for what it is, and `venue_polled_ms` says when: neither is evidence
+# of a holding now.
+#
 # **What this emits from `parlay_positions`: nothing.** The table appears only
 # inside a `NOT EXISTS`, so every row this query prints is a row for which the
 # position does NOT exist. It cannot print a position, a count of positions,
@@ -357,18 +370,25 @@ _SQL_COMBO_POSITION_GAPS = (
     "       m.count AS contracts_ordered, m.status, "
     "       (SELECT v.contracts FROM venue_positions v "
     "         WHERE v.ticker = m.ticker ORDER BY v.id DESC LIMIT 1) "
-    "         AS venue_contracts_latest, "
+    "         AS contracts_when_last_seen, "
     "       (SELECT v.polled_ms FROM venue_positions v "
     "         WHERE v.ticker = m.ticker ORDER BY v.id DESC LIMIT 1) "
     "         AS venue_polled_ms, "
-    "       CASE WHEN NOT EXISTS (SELECT 1 FROM venue_positions v "
+    "       CASE WHEN (SELECT MAX(id) FROM poll_log "
+    "                   WHERE endpoint = 'positions' AND ok = 1) IS NULL "
+    "            THEN 'no successful positions poll -- unknown' "
+    "            WHEN NOT EXISTS (SELECT 1 FROM venue_positions v "
     "                              WHERE v.ticker = m.ticker) "
     "            THEN 'never seen at venue' "
-    "            WHEN (SELECT v.contracts FROM venue_positions v "
-    "                   WHERE v.ticker = m.ticker ORDER BY v.id DESC LIMIT 1) "
-    "                 > 0 "
+    "            WHEN EXISTS (SELECT 1 FROM venue_positions v "
+    "                          WHERE v.ticker = m.ticker "
+    "                            AND v.poll_log_id = (SELECT MAX(id) "
+    "                                FROM poll_log WHERE endpoint = 'positions' "
+    "                                  AND ok = 1) "
+    "                            AND v.contracts > 0) "
     "            THEN 'OPEN AT VENUE -- UNWATCHED' "
-    "            ELSE 'closed at venue' END AS exposure "
+    "            ELSE 'gone from the latest positions poll -- closed' "
+    "       END AS exposure "
     "FROM manual_orders m "
     "WHERE m.ticker LIKE 'KXMVE%' "
     "  AND m.dry_run = 0 "
@@ -438,7 +458,7 @@ def _q_combo_position_gaps(conn: sqlite3.Connection, args) -> list[Section]:
         cap=args.limit,
     )
     gaps = _derive_iso(gaps, "submitted_ms", "submitted_iso")
-    gaps = _derive_iso(gaps, "venue_polled_ms", "venue_polled_iso")
+    gaps = _derive_iso(gaps, "venue_polled_ms", "venue_last_seen_iso")
 
     unresolved = _fetch(
         conn, _SQL_COMBO_ORDERS_UNRESOLVED, (),
