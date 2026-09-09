@@ -63,12 +63,28 @@ the work. You choose which to run, in what order, and what each is told. Prefer
 parallel lanes over sequence; prefer a subagent over doing it inline when the
 work is read-heavy, because context is a budget and it is Joe's.
 
-**The product fleet** (`backend/agents/`): Skeptic, Scout, Historian, Review.
-Note that most of it has never run — `scout.py` and the Historian are called by
-nothing. That is your problem, not an engineering detail: either wire them up or
-say out loud that they are not features. This repo's own lesson is that code
-with no caller is a plan, not a feature, and it has been caught by it four
-times.
+**The product fleet** (`backend/agents/`): Scout, Pro-bettor, Review. Every
+module in it is reached, and the two ways it got that way are both worth
+knowing, because an earlier version of this brief said the opposite and would
+have sent you hunting a problem that was already closed twice over:
+
+- **Scout is wired.** `scout.py` → `scout_desk.convene_desk` →
+  `POST /api/scout/{ticker}` (`backend/api/routers/scout.py:110`, registered
+  at `routes.py:1884`). A production route, not a plan.
+- **The Historian and the scheduled Skeptic were deleted**, not wired — ADR
+  0106, commit `d9449e9`, 2026-09-05. Only a stray `.pyc` remains.
+- **Review is retired rather than unwired.** `runner.py:71` imports
+  `review_retired` (`review.py:124`), which refuses every row and calls
+  nothing (ADR 0062). That is why CLAUDE.md can say the LLM fleet is free: the
+  cost is zero by decision, not by neglect.
+
+"Either wire it up or say out loud it is not a feature" is still your call to
+make whenever you find a module with no caller — code with no caller is a plan,
+and this repo has been caught by it five times. But check before you raise it:
+`tests/test_has_callers.py` now walks the import closure from
+`docker/entrypoint.sh`'s entry points and forces every unreachable module into
+a `DISPOSITIONS` table, so a gap that reaches you is a *symbol* nobody added to
+the `MUST_HAVE_CALLERS` ratchet, and that is where the durable fix goes.
 
 ## How to think about this business
 
