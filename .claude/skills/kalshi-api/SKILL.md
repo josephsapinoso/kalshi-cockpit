@@ -91,9 +91,8 @@ call site can accidentally treat a mid as a tradeable price.
 
 Three consequences that bite:
 
-1. **Every EV calculation must buy at the derived ask, never the mid.**
-   Bucketing on the mid while transacting at the ask is how the previous
-   project produced a `+25.4 point` "edge" that lost $4.92 a market.
+1. **Every EV calculation must buy at the derived ask, never the mid**
+   (CLAUDE.md, Measurement rules, carries the +25.4-point anecdote).
 2. **"yes_ask staleness" is really "no_bid staleness."** The derived level
    inherits `last_updated` from the underlying bid, so one stale level produces
    *two* stale signals.
@@ -101,18 +100,10 @@ Three consequences that bite:
 
 ## Prices are not whole cents
 
-Roughly a quarter of tradeable markets use `deci_cent` or `tapered_deci_cent`
-tick structures. The API quotes prices as dollar strings like `"0.2400"`.
-
-Canonical internal unit is **integer tenths of a cent**, 0..1000
-(`backend/core/prices.py`). Validated on 152 live order book levels across five
-markets spanning both tick structures: zero prices off the tenths grid,
-observed range 1..962.
-
-- Parse with `Decimal` and an explicit `ROUND_HALF_UP`. `int(float(s) * 1000)`
-  happens to be correct for all 999 current values — that is luck, not a
-  guarantee, and it would break silently if Kalshi widened to 5 decimals.
-- **Quantities are floats, not ints.** 42 of 152 sampled levels were fractional.
+The API quotes dollar strings like `"0.2400"`; ~25% of markets tick in
+deci-cents. Canonical unit is integer tenths of a cent, 0..1000 — the parsing
+rule, the 152-level validation and the float-quantity caveat are the module
+docstring of `backend/core/prices.py`.
 
 ## Market discovery — never paginate `/markets`
 
@@ -268,33 +259,29 @@ Returns `yes_bid`/`yes_ask` open/high/low/close per period. **This is the only
 way to read a past Kalshi quote**, which makes it the foundation of
 closing-line value.
 
-Read at a fixed horizon before close, not from `last_price`: the last trade in
-a settled market usually happens *after* the outcome is effectively known, so
-`last_price` has already converged and any "edge" measured against it is
-convergence, not signal. Re-run at a second horizon — if the result moves, it
-was convergence.
+Read at a fixed horizon before close, never from `last_price` (CLAUDE.md,
+Measurement rules: the convenient column is contaminated).
 
 ## Fees
 
 Formula and provenance are documented at length in `backend/core/fees.py`.
 Short version:
 
-- Kalshi's official PDF returns **HTTP 429** to automated fetches. It did when
-  the previous project was written and it still does.
-- Secondary sources now **disagree**: single `0.07` coefficient rounded up per
-  *order*, versus a ~`0.06` sports multiplier rounded to nearest cent per
-  *contract*. Neither dominates; they differ by 14% at 50c and reverse at 20c.
-- `calculate_fee` returns the **maximum** across candidates. Understating a fee
-  makes a losing bet look profitable and corrupts the measurement record;
-  overstating one only costs a marginal bet.
-- **A bet held to settlement pays ONE fee.** Trading pays two. This is the
-  venue's actual advantage.
+- Kalshi's official PDF returns **HTTP 429** to automated fetches.
+- **The fee hedge is retired (ADR 0028, 2026-08-14).** `calculate_fee` used to
+  return the maximum across candidate models; the alternative (Model B) matched
+  0 of 11 real taker fills, so `settlement_fee()` now charges the single
+  published coefficient, `TAKER_COEFFICIENT = 0.070`. Nine baseball fills pin
+  `k` to half that; the coefficient stays at 0.070 because which attribute
+  carries the split is unresolved (ADR 0027).
+- **A bet held to settlement pays ONE fee — asserted, not tested.** That is
+  H4, and it is still open; the account balance is what separates "no
+  settlement charge" from "the field is entry-only".
 - Fees peak at 50c and are symmetric, so in percentage terms **cheap contracts
   are the most expensive**.
 
-Resolve it with real fills: `/portfolio/fills` reports the fee actually
-charged. Store `fee_predicted` beside `fee_actual` and treat any mismatch as
-stop-the-line.
+`/portfolio/fills` reports the fee actually charged. `fee_predicted` sits
+beside `fee_actual` and a mismatch is stop-the-line.
 
 ## Endpoints in use
 
@@ -324,8 +311,6 @@ local UTC offset. Integers cannot be wrong in that way.
 
 - `KALSHI_API_KEY` — the key **id**, not a secret blob
 - `KALSHI_PRIVATE_KEY_PATH` — path to the RSA `.pem`, kept **outside** the repo
-- `.env`, `*.pem`, `*.key` are gitignored from the first commit
 
-**Never read, echo, log, or write the private key.** If it is ever pasted into
-a transcript, treat it as compromised and rotate it. `verify_auth.py` prints
-pass/fail only — never key material.
+Handling rules are CLAUDE.md, Security. `verify_auth.py` prints pass/fail
+only — never key material.

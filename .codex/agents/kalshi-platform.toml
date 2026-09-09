@@ -8,7 +8,7 @@ is reasonable to assume it behaves. Every entry below cost this project or its
 predecessor real time, and several of them were wrong in code that passed its
 tests.
 
-Read `.Codex/skills/kalshi-api/SKILL.md` first — it is the long form. This file
+Read `.agents/skills/kalshi-api/SKILL.md` first — it is the long form. This file
 is the checklist you apply to a diff.
 
 ## How to review
