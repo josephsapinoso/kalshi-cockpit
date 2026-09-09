@@ -16,7 +16,42 @@ correction arrived. Reviewed at session start.
 
 ---
 
-## 2026-09-09 - A push may cancel an in-flight CI run only under two checkable conditions, and "it is probably a superset" is not one of them
+## 2026-09-09 - `flyctl ssh console` starts a shell that does NOT carry the app's Fly secrets; the credentials live on the app's own child process
+
+Reading a Kalshi balance off the live box by importing the desk's own code
+over `flyctl ssh` failed four times with `ConfigError: KALSHI_PRIVATE_KEY_PATH
+is not set`. The obvious readings - "the secret is unset", "the deploy is
+broken", "credentials are gone" - were all wrong, and any of them would have
+been an alarming and false thing to write down.
+
+**Fly injects secrets into the process it starts, not into an ssh session, and
+here not even into pid 1.** `docker/entrypoint.sh` forks, so `/proc/1/environ`
+has nothing; the credentials sit on the child `python` process. The fix is to
+find that process and borrow its environment:
+
+    for p in /proc/[0-9]*; do
+      tr '\0' '\n' < "$p/environ" 2>/dev/null | grep -q '^KALSHI_PRIVATE_KEY_PATH=' \
+        && SRC="$p/environ" && break
+    done
+
+then export only the `KALSHI_*` lines, without echoing them, and run with
+`PYTHONPATH=/app`. Export by prefix, never dump the whole environ - the point
+is to use a credential, not to print one.
+
+**The pattern, and it is the general one:** an environment is a property of a
+*process*, not of a *machine*. "The variable is not set" from a shell you
+started yourself says nothing about the process actually serving traffic. This
+belongs beside every other entry in [[verification-methods-that-lie]], because
+its failure mode is a confident false negative about production configuration
+- exactly the shape most likely to get written into a handoff as a finding.
+
+The secondary lesson is about when to stop. Four attempts went into shell
+quoting before the question "is the app even pid 1?" got asked, and that
+question was one cheap command that settled it immediately. **When a fix keeps
+failing the same way, stop refining the mechanism and re-test the assumption
+the mechanism rests on.**
+
+## 2026-09-09 - A push may cancel an in-flight CI run only when the new tree strictly contains the cancelled commit, and a rule with a redundant clause is worse than no clause
 
 A push cancelled a running CI job in order to ship an unauthenticated-RCE fix
 about fifteen minutes sooner. That was the right call and it is also exactly

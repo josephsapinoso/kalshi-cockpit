@@ -330,13 +330,30 @@ otherwise.**
   measurements is a multi-session sweep to remove the one thing those files
   exist to carry.
 
-**Joe-gated, two questions:**
+**Joe-gated:**
 
-- **(A)** Fund shard 0? Shard 1 (Combos) holds $22.24, shard 0 (Default) is at
-  $0.00, so every single-market hand bet dies at the venue. Unanswered since
-  09-08.
+- ~~**(A)** Fund shard 0?~~ **ANSWERED AND DONE — Joe funded shard 0 with
+  $5.00, 2026-09-09.** Verified off the live box through the desk's own
+  `LiveQuoteSource.shard_balance`, not taken on report:
+
+      shard 0  Default (singles)   $5.0020   portfolio_value $0.00
+      shard 1  Combos              $14.1714  portfolio_value $5.88
+      shard 2, 3                   $0.0000
+
+  **Single-market hand bets are now payable at the venue**, which was the
+  whole blocker — check 9a's refusal on shard 0 should stop firing. **Nobody
+  has yet placed one**, so that the refusal is gone is an inference from the
+  balance, not an observation; the first single fill is what would confirm it.
+  $5.00 is a real ceiling: at 50c a contract it is ten contracts, and **the
+  binding limit on a single is now depth at the ask or this collateral, not
+  any cap of ours.**
+  Do not reconcile shard 1 against the old $22.24 figure without care — cash
+  plus position value is $20.05 now, and the difference could be fills, fees,
+  or a different basis in the older reading. **Not established, and not a
+  P&L.**
 - **(B)** Authorise the one billed Anthropic call for the Scout refusal
-  fixture? Not covered by the standing combo-lookup authorisation.
+  fixture? Not covered by the standing combo-lookup authorisation. **Still
+  unanswered.**
 
 ---
 
