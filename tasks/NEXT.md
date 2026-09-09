@@ -266,6 +266,31 @@ signing test that should sit in front of it exists.
    nothing reconciles against the venue's own view of resting orders — inert
    while the bid path is disarmed, a silent gap the day it is re-armed.
 
+8. **Four stale remote branches, and one of them is actively misleading.**
+   Found in the CI log of this session's own push, not by looking for them --
+   nothing lists remote branches at session start and the lane board reads
+   worktrees and local branches.
+
+       fix/frontend-vulnerabilities   1 ahead,  794 behind
+       docs/audit-stale-todo-items    2 ahead,  794 behind
+       lane/frontend-wip              0 ahead, 1107 behind
+       parlay_props                   0 ahead,  374 behind
+
+   **`fix/frontend-vulnerabilities` is the one that matters.** Its single
+   commit is *"deps: upgrade next to 16.3.1, clearing four vulnerable
+   packages"* -- and **16.3.1 is the version carrying the two critical
+   unauthenticated RCEs** that ADR 0117 patched by going to 16.3.3. So on a
+   public repo there is a branch whose name says it fixes vulnerabilities and
+   whose content reintroduces them. Anyone reading branch names would take it
+   the wrong way round.
+
+   The other two with commits are superseded: `docs/audit-stale-todo-items`
+   prunes a `NEXT.md` that ADR 0116 has since cut differently. The two at
+   `0 ahead` carry nothing unique and are free deletes.
+
+   **NOT deleted -- Joe's call, they are his branches on his public repo.** The
+   ask is one line: delete all four, or keep any. Nothing depends on them.
+
 **Killed this session, so nobody carries them again:**
 
 - ~~The `_next/image` middleware exemption.~~ The optimizer is off, so the
@@ -282,6 +307,9 @@ signing test that should sit in front of it exists.
 - **(C)** New. When you are next at a screen: watch a live signing test, then
   approve `cryptography` 44 → **50**. Six majors on the code that signs real
   orders. Yes/no.
+- **(D)** New. Delete the four stale remote branches in item 8? The one called
+  `fix/frontend-vulnerabilities` contains the *vulnerable* `next` version on a
+  public repo. Yes/no.
 
 ---
 
