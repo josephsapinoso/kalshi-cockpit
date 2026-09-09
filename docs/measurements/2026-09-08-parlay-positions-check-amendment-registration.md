@@ -657,3 +657,443 @@ accepted ADR recording the entry design; ADR 0113 records that Joe wants to
 place singles and combinations through the cockpit, which is the *correction*
 that motivated P1, not the design document P1 asks for. P3's denominator
 script does not exist.
+
+
+---
+
+# AMENDMENT 1, 2026-09-09 — the wiring changed the estimand, and the window is void
+
+**Written 2026-09-09, before the write it authorises and before any count is
+taken over the window it closes.** It is appended to this file rather than
+replacing anything in it, per §10's rule that a voiding is recorded as an
+appended amendment and not by editing the record away. **Nothing above this
+line has been changed.** Appendix A's timestamps stand exactly as written.
+
+It rules on four questions put by the executing session and it does four
+things: it authorises one hand write under a pre-declared exclusion (A1.2), it
+**voids the observation window opened at `2026-09-08T21:33:05Z`** (A1.3), it
+records that P3 was violated independently of that (A1.4), and it permits a
+named operational read that is not the §8 census (A1.5).
+
+**What it does not touch.** §8's vacating of the deletion clause stands in
+full and is not weakened by anything here — no session may delete, disable,
+unlink or stop deploying `/hedge`, `backend/api/routers/hedge.py`,
+`backend/core/hedge.py`, the hedge watcher, `parlay_positions` or
+`parlay_position_legs` on the strength of any count, and voiding the window
+makes that *more* binding rather than less. Nothing here is evidence about
+edge; ADR 0038 is untouched; `gate.py` still may not read either table
+(ADR 0078 §4); nothing under `backend/odds/` is implicated.
+
+## A1.1 The facts that forced it, dated and sourced
+
+1. **A real combination filled inside the window.** `manual_orders` id=4,
+   `dry_run = 0`, 4 contracts at 41c ($1.64), three MLB legs (BOS 18:45Z,
+   NYY 19:05Z, LAD 22:10Z), filled **2026-09-09T15:11:56Z**. Open on the venue
+   at 17:15Z.
+2. **ADR 0125 deployed at 2026-09-09T15:56:45Z**, 45 minutes after that fill.
+   It wires `_record_combo_position` (`backend/api/routes.py:4174`) into the
+   hand-bet path so that a filled non-dry-run combination writes its own
+   `parlay_positions` row with `source = "kalshi_combo"`
+   (`backend/api/routes.py:4231`).
+3. **The fill is therefore an orphan by 45 minutes**: `parlay_positions` holds
+   no row for it, and the deployed code would have written one had the fill
+   landed later. It is a gap artifact, not a failure of the wiring.
+4. **`parlay_positions` was read on live on 2026-09-09 and holds 0 rows.**
+   That read is recorded here as an interim census under §8's *"a session that
+   wants to peek may peek; it may not decide"*. It carried no verdict, set no
+   threshold, chose no boundary and selected no population. It is logged
+   because an unrecorded look is the thing that rots, not because it changed
+   anything. See A1.6 for what it does to the 2026-09-15 census.
+5. **The writers of the outcome table are exactly two**, asserted over source
+   on this date: one `INSERT INTO parlay_positions` at `backend/hedge.py:334`,
+   reached from `backend/api/routers/hedge.py:73` (`POST /api/hedge/positions`)
+   and from `backend/api/routes.py:4228` (the hand-bet path). §6's statistic
+   cannot be fed by any third surface, so there is no escape hatch by choosing
+   a different route.
+
+## A1.2 RULING 1 — the orphan row MAY be written, under a pre-declared exclusion
+
+**Permitted.** The authority is §12's provenance clause, which was fixed in
+advance and reads: *"The successor must establish provenance per row before
+counting it toward `R`; a row whose provenance cannot be established is
+excluded, and that exclusion rule is fixed here rather than at read time."*
+
+A row written by an agent session is not an act of recording by Joe. Its
+provenance is establishable **if and only if it is declared before it exists**,
+which is what this section does. The exclusion turns on *authorship*, which is
+independent of the outcome's value; it does not turn on what the count is.
+
+### A1.2.1 The row, identified before it is written
+
+Named by facts known now, because the row id is not knowable until after the
+write:
+
+- the `parlay_positions` row created from `manual_orders` id=4,
+- `source = 'kalshi_combo'`, `parlay_lookup_id = 41`,
+- `combo_ticker` = the minted `KXMVE` ticker **as transcribed from
+  `manual_orders` id=4**, never typed from memory,
+- `stake_tenths = 1640`, `return_tenths = 4000`,
+- `created_ms` between the commit of this amendment and 2026-09-10T00:00:00Z.
+
+### A1.2.2 Both exclusions, and why the second one is the necessary one
+
+- **The row is excluded from `R`.** It is not Joe recording anything.
+- **The sitting containing `manual_orders` id=4's fill is excluded from `G`.**
+  This is the exclusion that actually matters and it must not be dropped as
+  fussiness. Writing the row puts the position on `/hedge`, which removes Joe's
+  occasion to record it himself. Leaving the sitting in the denominator while
+  the intervention has destroyed its chance of contributing to the numerator
+  would bias `R/G` **downward** — toward REFUTED, toward killing the form.
+  The exclusion is outcome-independent (it fires on "an agent intervened in
+  this sitting", known before any count) and it costs one unit against a floor
+  of 30.
+- This exclusion **survives the voiding in A1.3** and is stated separately from
+  it on purpose. The fill at 15:11:56Z sits in the pre-ADR-0125 stretch of the
+  window, which is the only stretch a future session could argue is salvageable.
+  If anyone makes that argument, this sitting is still out.
+
+### A1.2.3 The form of the write
+
+- **No figure may be hand-composed.** No hand-written `INSERT`. The write runs
+  through a **committed** one-shot script that calls
+  `parlays.priced_lookup_for`, `parlays.legs_for_position` and
+  `hedge.record_position` with every value derived from `manual_orders` id=4
+  and `parlay_lookups` id=41 — the same values `_record_combo_position` would
+  have derived. It is committed before it runs, so the exact arguments are in
+  git rather than in a transcript.
+- **`legs_for_position` returning `None` aborts the write.** A partial leg list
+  is refused outright (ADR 0125), and this amendment does not relax that.
+- **One field is deliberately overridden, and it is the provenance marker.**
+  `_record_combo_position` writes the note *"Recorded automatically from the
+  hand-bet path"*, which would be **false** for this row. The note must instead
+  read, in substance and with these facts present:
+
+  > Recorded by hand on 2026-09-09 by an agent session under Amendment 1 of
+  > docs/measurements/2026-09-08-parlay-positions-check-amendment-registration.md,
+  > replaying ADR 0125's `_record_combo_position` against manual_orders id=4,
+  > which filled at 15:11:56Z — 45 minutes before that wiring deployed at
+  > 15:56:45Z. This is NOT an act of recording by Joe. Excluded from R, and
+  > its sitting excluded from G, by that amendment.
+
+- **After the write**, the resulting `parlay_positions.id` and its `created_ms`
+  are appended to this amendment as a one-line factual note. Not optional: the
+  identification in A1.2.1 is by description until that line exists.
+- **This ruling authorises nothing money-touching.** It moves no money, reaches
+  no venue, and writes a table `gate.py` may never read. Whether the live write
+  is *permitted to execute* is a permission-system and operator question and
+  this amendment does not answer it or license working around it.
+
+### A1.2.4 What the write buys, stated without inflation
+
+Three legs pending means ADR 0078 gives no figure and says so. The screen
+becomes load-bearing only once two legs have resolved and one is live —
+roughly **22:15Z to 01:10Z** on 2026-09-09. The exposure is a **$1.64 stake
+against a $4.00 return**, and the hedge it would inform is a fraction of that.
+
+**The write is permitted because §12 pre-registered the exclusion that makes it
+harmless, not because the cost of blindness is large.** It is not large. Had
+the exclusion not been fixed in advance, the correct ruling would have been to
+take the blindness.
+
+## A1.3 RULING 2 — the estimand is superseded and the window is VOID
+
+**The registration is not void; its observation window is.** §7's voiding
+trigger is *"If P1's ADR removes the manual form entirely"*, and ADR 0125 did
+not remove it — its Consequences say in terms that *"`POST
+/api/hedge/positions` and `RecordParlay.tsx` stay"*. So this document stands,
+§8's vacated deletion clause stands, and §12's caveats stand. What dies is the
+window and the primary claim's measurability in its present wording.
+
+### A1.3.1 Why the claim as written can no longer come back negative
+
+§5's primary claim has **Joe** as its subject and **records** as its verb.
+Since `2026-09-09T15:56:45Z`, a qualifying sitting containing a successful
+combination fill through the desk increments `R` **mechanically, with no act by
+Joe at all**. Under §8's decision rule, `R >= 1` is decisive on its own and
+returns NOT REFUTED. So from the deploy forward the registration returns NOT
+REFUTED as soon as the wiring works — a verdict fully determined by the
+instrument and carrying no information about the thing being measured.
+
+A question that cannot come back negative is not a question. The claim is
+**superseded**, not merely confounded, and no re-cut of this window fixes it —
+the same reasoning §4 already used to reject re-cutting.
+
+### A1.3.2 The window is pooled across two instruments, by §11's own logic
+
+§11.3 says the P2 flip restarts the clock because *"any behavioural reading
+taken across the flip pools two different instruments and is uninterpretable"*.
+ADR 0125 is a larger instrument change than the flip: it does not change the
+steer, it changes the outcome-generating process. The window ran clean for
+**18 hours 24 minutes** (2026-09-08T21:33:05Z to 2026-09-09T15:56:45Z), which
+at §3.3's measured 0.7–1.2 sittings/day is `G` between 0 and 1. There is
+nothing there to preserve.
+
+**Ruled: the window opened at `2026-09-08T21:33:05Z` is closed and void as of
+`2026-09-09T15:56:45Z`. No count taken over it may be cited for any purpose.
+P4's clock is reset and a new window may not open until A1.4's preconditions
+hold.**
+
+### A1.3.3 The successor's estimand, re-scoped — and the schema consequence
+
+A successor is recoverable, but only with a redefined population and an
+enforced provenance column. Both are fixed here so they cannot be chosen later.
+
+**The population becomes the *unwired* sitting.** A sitting qualifies if it
+contains at least one Kalshi taker fill on a `KXMVE` combination ticker **for
+which no filled, non-dry-run `manual_orders` row exists** — i.e. a combination
+Joe holds that the desk did not buy for him and therefore did not wire. The
+predicate is computed from **`fills` and `manual_orders` only**. It does
+**not** reference `parlay_positions`. This is load-bearing: the obvious
+denominator — "sittings whose fill produced no row" — reads the outcome table,
+and an inclusion rule that touches the dependent variable is the finding rather
+than a rule about the population.
+
+**Provenance must become a column, and `note` will not do.** The wiring's
+distinguishing sentence lives in free text, and `POST /api/hedge/positions`
+accepts `note`, `combo_ticker` and `parlay_lookup_id` straight from the request
+(`backend/api/schemas.py:308-310`). A manual row can therefore be made
+byte-identical to a wired one. Text is not a discriminator.
+
+What is owed, if a successor is to be measurable at all, is a column on
+`parlay_positions` — shape suggested, not mandated:
+
+    entry_path TEXT NOT NULL
+        CHECK (entry_path IN ('manual_form', 'hand_bet_wiring', 'unknown'))
+
+with three properties, each of which has a precedent in this repo:
+
+- **Set by the writer, never accepted from the request.** The precedent is
+  `parlay_position_legs.resolved_source`, whose route comment already says a
+  client that could claim `venue` *"would erase the distinction the moment
+  somebody found it convenient"*. Same defect, same fix, same file.
+- **Pre-column rows take `'unknown'`, and `'unknown'` is never counted toward
+  `R`** — it is excluded by §12's provenance clause. Unreadable resolves to
+  `None`, never to a guess.
+- **Pinned by a test verified red** by having the manual route claim
+  `'hand_bet_wiring'`.
+
+**Lane C should be told this before it touches `schema.sql`.** Without the
+column the re-scoped claim is unmeasurable, and adding it later cannot recover
+provenance for rows already written.
+
+**No successor window opens on the strength of this section.** A1.4 gates it.
+
+## A1.4 RULING 3 — P3 was violated independently; P1 is not satisfied
+
+### A1.4.1 P3's violation is fatal to the window, not a recordable deviation
+
+§7 P3 says the denominator script *"must be written and committed **before**
+the window opens, not after the count is wanted"*, and the script does not
+exist (Appendix A, `:659`). That is a precondition, not a preference, and its
+stated purpose — the denominator rule cannot be tuned once the outcome is
+visible — is defeated exactly by writing it afterwards.
+
+**Stated so it cannot be missed: the window was already unable to carry a
+verdict before ADR 0125 shipped.** A future session that repairs only the
+estimand problem and reopens the same window would be reopening a window that
+independently breaches P3. Both defects must be cured.
+
+### A1.4.2 Reusing another registration's constant is sufficient for the gap and for nothing else
+
+`scripts/analyse_bet_presence.py:56` (`SITTING_GAP_MS = 3_600_000`) and `:378`
+(`sittings()`) were committed for a different registration, for a different
+question, before this one was asked. That is a **strong** form of
+pre-commitment for the parameter they carry: the gap could not have been chosen
+to flatter this outcome. **The gap and the run-forming algorithm are
+satisfied**, and P3's script **should import them rather than copy them** — a
+copy can drift, and the import makes the shared provenance visible.
+
+**Everything else P3 needs is uncommitted, and each choice moves `G`:**
+
+- the qualification predicate — which fills count: `is_taker = 1`, and *which
+  literal `KXMVE` series*. The sibling registration
+  (`2026-09-09-preregistration-combo-exit-nfl-sunday.md`, Amendment 2) spent an
+  entire amendment on exactly this scope error. P3 must name the literal
+  series predicate rather than "a `KXMVE` ticker";
+- the boundary rule for a sitting straddling the window's open;
+- the attribution instant for a sitting (`sittings()` times it at the first
+  fill; that must be stated, not inherited by accident);
+- the de-duplication rule for several fills of one `manual_orders` row —
+  a part-filled IOC is one purchase, not several;
+- the exclusion of demo-instance and session-test fills;
+- the unwired predicate of A1.3.3.
+
+**Ruled: P3 needs its own committed script. It may import
+`analyse_bet_presence.SITTING_GAP_MS` and `sittings`; it may not inherit
+anything else by reference.**
+
+### A1.4.3 P1 is not satisfied, and what is owed is narrower than a full entry-design ADR
+
+- **ADR 0113** records Joe's correction, which is the motivation for P1 rather
+  than the design P1 asks for. This document already said so at `:657`.
+- **ADR 0114** decides that the buy button agrees with the order route. It says
+  nothing about entry into `parlay_positions`.
+- **ADR 0125** genuinely decides part of it — *"Buying a combination through
+  the desk is now sufficient to have it watched. No second tap"* — and it
+  decides that the manual form survives. That is partial satisfaction.
+
+What none of the three settles is **what the manual form is now for**: the
+residual population of holdings the wiring cannot reach. That set is (i) combos
+bought in the Kalshi app rather than through the desk, (ii) sportsbook slips,
+which §8 makes permanently unmeasurable at any `n`, and (iii) wiring failures —
+`_record_combo_position` returning `None` or raising into the swallowing
+`except` at `backend/api/routes.py:3850-3866`.
+
+**Ruled: P1 is owed, and what it owes is a decision on that residual
+population — whether the desk intends to serve it or drop it.** P1 and P3 are
+now the same question from two sides: until the residual population is decided,
+P3 cannot define its denominator.
+
+## A1.5 RULING 4 — the reconciler is permitted, under a declared name
+
+**Permitted, and it would have been permitted even had A1.3 not voided the
+window.** §8's governing sentence is *"A session that wants to peek may peek;
+it may not decide"*, and §8 handles the always-valid hazard **by construction
+rather than by a boundary**: the stopping point is defined on `G`, computed
+from `fills`, independent of the outcome. An extra look therefore cannot move
+the threshold, and the formal multiplicity cost of this read is **zero**.
+
+The operational case is stronger than the measurement case is weak.
+`_record_combo_position` runs inside a `try/except Exception` that swallows
+every failure by design (`backend/api/routes.py:3850-3866`) — correct, since
+bookkeeping must never fail a purchase that has already spent money — which
+means the write can fail **silently**. A silent failure leaves Joe holding an
+unwatched enter-only position. This walk is the only detector that failure mode
+has, and a real-money operational blind spot outranks a measurement concern
+that is nil.
+
+**Declared here so it can never be mistaken for the §8 read:**
+
+- **Name and scope.** A committed read-only subcommand of
+  `scripts/inspect_live_db.py`, declared here **before** it is pointed at live.
+  It walks filled non-dry-run `manual_orders` combination rows and lists those
+  with no `parlay_positions` row.
+- **It reports a join gap, per order. It may not report a rate.** Forbidden
+  outputs, named so the discipline is checkable rather than intended:
+  no `COUNT(*)` of `parlay_positions`, no `GROUP BY source`, no `R`, no `G`, no
+  sitting grouping, no proportion, no interval, no per-day figure.
+- **Its module docstring carries the harness rule's paragraph**, naming that it
+  is not the §8 census, that it carries no verdict on `R/G`, and that a gap it
+  reports is not evidence about adoption.
+- **Every invocation prints a line saying so** in its own output. A future
+  reader finds the disclaimer in the artifact, not only in the source.
+- **Ordering.** It is the correct instrument for A1.2 as well: commit this
+  amendment, commit the reconciler, run it against live, then write the orphan.
+  Discovering the orphan set by walking beats asserting it from memory.
+
+## A1.6 The successor's power, computed now rather than after
+
+Applied to A1.3.3's re-scoped population, because a re-scope that cannot reach
+its own floor should be killed rather than registered.
+
+§8's floor is `G = 30` with a hard backstop of **2026-11-30**. A window
+reopened on, say, 2026-09-15 has **76 days**, so it needs a sustained
+**0.39 unwired qualifying sittings per day**. §3.3's measured total is
+**0.7–1.2 qualifying sittings/day**, all sources. So the successor reaches its
+floor only if **roughly a third to more than half of Joe's combination sittings
+stay outside the cockpit** for the whole window.
+
+**That is the branch in which ADR 0113's stated intent fails.** The successor is
+powered only when the desk is not doing the thing it was just built to do, and
+underpowered exactly when it works. **No direction is predicted here and none
+may be read into this.** The arithmetic is stated so that P1's ADR makes its
+choice knowing it: if the desk intends to capture combination buying, the
+successor should be **killed**, not re-scoped, and the manual form kept on the
+`/hedge` argument (§9.2 — the route is the exit, the form is entry for a record
+of one) rather than on an adoption count it can never earn.
+
+**Recommendation, for P1's ADR to accept or reject: KILL the adoption
+successor; keep the form.** Not decided here — P1 decides — but registered here
+so the decision is not made silently by a window that quietly never fills.
+
+### A1.6.1 The 2026-09-15 census is discharged, not skipped
+
+§8's census had exactly one permitted use: *"a planning value for `n` in the
+successor registration's power check"*. Under A1.3.3 the successor's `n` is a
+count of unwired sittings from `fills` and `manual_orders`, not a count of
+`parlay_positions` rows, so that use has lapsed. §10 nonetheless owes the
+document, because a promised destination that goes unwritten is the failure
+mode §10 exists to prevent.
+
+**`docs/measurements/2026-09-15-parlay-positions-census.md` is still written on
+or after 2026-09-15.** It records A1.1's `0` and the 2026-09-09 look that
+produced it, records that its planning purpose lapsed and why, carries the
+sentence *"this is a census and carries no verdict"* in its first paragraph,
+and stops there.
+
+## A1.7 What this amendment does not change
+
+§8's vacating of the deletion clause; §12's caveat list, every item of which
+still holds; §6's estimator and its prohibition on `sqrt(p(1-p)/G)`; §3's power
+arithmetic; §4's rejection of the `source` re-cut; §7 P2, which is satisfied and
+deployed (Appendix A); Appendix A's deploy timestamps, run id, head sha and
+machine id; ADR 0125, which is correct and is not criticised here — it fixed a
+real hole in the exit path and the measurement was collateral.
+
+## A1.8 What this amendment does not establish
+
+- **That the wiring works.** It has written zero rows. A1.1's `0` is consistent
+  with a correct wiring that has had no post-deploy fill and with a wiring that
+  fails silently every time; A1.5's reconciler is what separates them, and it
+  has not been run.
+- **That hedging is wanted, or unwanted.** Unchanged from §12: every version of
+  this check measures entry, and entry is a prerequisite for demand rather than
+  a measurement of it.
+- **That the orphan write is representative of anything.** It is one row, in one
+  sitting, both excluded. It is bookkeeping, not evidence, and it may not appear
+  in any sentence about adoption.
+- **That `G = 30` is reachable.** A1.6 gives the arithmetic and predicts no
+  direction. If the realised unwired rate is far from the planning value, the
+  floor is not re-fitted after the fact.
+- **Anything about edge, `beta`, the gate's 300-game floor, the 0.63-point cost
+  headroom, the 51.75% bar or `recommendations`.**
+
+**This amendment is not in force until it is committed.** The A1.2 write must
+not be executed before the commit that lands this text — an authorisation that
+exists only in a session transcript has not been registered, which is the same
+defect §9.1 records against the original check.
+
+## A1.9 Status note — A1.5's reconciler already exists in the working tree
+
+**A status note on a condition, not a new ruling.** Nothing in A1.1–A1.8 moves.
+Recorded because A1.5 declares the instrument and a future reader needs to know
+it was checked against the declaration rather than assumed to comply.
+
+`scripts/inspect_live_db_parlays.py` (uncommitted at the time of this
+amendment, alongside a `scripts/inspect_live_db.py` subcommand registration and
+`tests/test_inspect_live_db.py`) carries `_SQL_COMBO_POSITION_GAPS` and
+`_q_combo_position_gaps`. Audited against A1.5's four conditions:
+
+| A1.5 condition | status |
+|---|---|
+| reports a join gap per order, no rate | **met.** `parlay_positions` appears only inside `NOT EXISTS`; no `COUNT(*)`, no `GROUP BY source`, no proportion, no sitting grouping |
+| module docstring carries the harness paragraph | **met**, and it names the §8 read explicitly: *"this is not it and must never be recorded as it"* |
+| committed before it is pointed at live | **NOT met** — it is uncommitted. A1.5 requires the commit first |
+| every invocation says so in its own output | **NOT met** — the disclaimer is in the docstring only. The two `_fetch` titles do not carry it |
+
+**Two things are owed before it runs against live**, and both are small:
+
+1. Commit it.
+2. Carry the disclaimer into the printed output, not only the source — one line
+   on the gaps section's title or a preamble line above it, saying it is not
+   the §8 read and carries no verdict on `R / G`. The reason is A1.5's own: a
+   future reader finds the artifact, not the module.
+
+Three design choices in it are **better than A1.5 asked for** and are recorded
+so a later edit does not undo them as surplus:
+
+- it includes `partially_filled`, not only `filled` — a part-fill bought
+  contracts, and ADR 0125 watches a part-fill at the venue's size;
+- it reports `unrecognised_response` **separately and does not count it as a
+  gap**. *"We do not know whether money moved"* and *"money moved and nothing
+  is watching it"* are different states and collapsing them would hide the
+  uncertain one inside the certain one;
+- it joins `venue_positions` so `OPEN AT VENUE -- UNWATCHED` separates the
+  operational alarm from closed history.
+
+**It matches on `p.combo_ticker = m.ticker`.** That is the correct key and it
+is worth naming: it does not match on `source`, so a row A1.2 writes will close
+the gap for `manual_orders` id=4 on the next run. That is the intended
+behaviour of a reconciler and it is **not** an interaction with `R` — the
+query emits no `parlay_positions` row and A1.2's exclusions are what keep that
+row out of the statistic.
