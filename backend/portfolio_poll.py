@@ -815,6 +815,72 @@ async def poll_portfolio(
     return summary
 
 
+def backfill_settlement_taker(conn: sqlite3.Connection) -> dict:
+    """Write `venue_settlements.is_taker` from the position's own fills.
+
+    **The column had no writer.** The INSERT below names ten columns and
+    `is_taker` is not one of them; `estimate_match.refine_first_seen` upgrades
+    `position_first_seen_ms`, `position_time_source` and `n_fills_in_position`
+    from a join against `fills` -- which carries `is_taker NOT NULL` from the
+    venue's own boolean -- and skips this one. Measured on the live instance
+    2026-09-09: `is_taker` is NULL on 90 of 90 rows, while 62 of 62 `KXMVE`
+    settlement tickers have a matching fill. `backend/bets.py` selects and
+    surfaces the column, so the `/bets` screen has been showing "unknown" for
+    a fact the database next door has always held.
+
+    **Mixed positions resolve to NULL, not to a majority.** A ticker whose
+    fills disagree has no single maker/taker answer, and inventing one is the
+    substitution this repo forbids -- unreadable resolves to `None`, never to
+    a convenient value. Such a row is counted in `mixed` and left NULL, so a
+    later reader sees "not known" rather than a guess. Idempotent: only rows
+    still NULL are considered, so it costs one indexed-free scan of a table in
+    the low hundreds and re-running changes nothing.
+
+    **No `source` filter, deliberately.** `refine_first_seen` restricts to
+    `source = 'venue_hand'`; a position filled partly by the engine and partly
+    by hand is still one position, and dropping half its fills would answer
+    the maker/taker question from a subset. On the live record the two cuts
+    are the same set -- all 102 fills are `venue_hand`, the engine path being
+    dry -- so this differs only in the case where the difference matters.
+
+    Pure SQLite, no network: safe to run inside the caller's transaction, and
+    it holds no lock across I/O.
+    """
+    rows = conn.execute(
+        """
+        SELECT s.id, f.n_taker, f.n_maker
+        FROM venue_settlements s
+        JOIN (
+            SELECT ticker,
+                   SUM(CASE WHEN is_taker = 1 THEN 1 ELSE 0 END) AS n_taker,
+                   SUM(CASE WHEN is_taker = 0 THEN 1 ELSE 0 END) AS n_maker
+            FROM fills GROUP BY ticker
+        ) f ON f.ticker = s.ticker
+        WHERE s.is_taker IS NULL
+        """
+    ).fetchall()
+    written = mixed = 0
+    for row in rows:
+        if row["n_taker"] and row["n_maker"]:
+            mixed += 1
+            logger.warning(
+                "settlement id=%s has both maker and taker fills; is_taker "
+                "stays NULL rather than picking one",
+                row["id"],
+            )
+            continue
+        if not row["n_taker"] and not row["n_maker"]:
+            # Unreachable while `fills.is_taker` is NOT NULL, but a refusal
+            # here is cheaper than a wrong 0 if that ever changes.
+            continue
+        conn.execute(
+            "UPDATE venue_settlements SET is_taker = ? WHERE id = ?",
+            (1 if row["n_taker"] else 0, row["id"]),
+        )
+        written += 1
+    return {"written": written, "mixed": mixed}
+
+
 async def poll_settlements(
     conn: sqlite3.Connection,
     client: KalshiRestClient,
@@ -868,11 +934,18 @@ async def poll_settlements(
             ),
         )
         written += cursor.rowcount
+    # After the INSERTs, not before: a settlement written this pass can have
+    # its fills already mirrored (`poll_fills` runs first on the fast branch),
+    # and a row whose fill arrives later is picked up by a subsequent pass
+    # because this only ever looks at rows still NULL.
+    taker = backfill_settlement_taker(conn)
     log_poll_attempt(
         conn, now_ms=now_ms, endpoint="settlements", ok=True,
         row_count=len(rows),
     )
-    return {"seen": len(rows), "new": written, "refused": refused}
+    return {"seen": len(rows), "new": written, "refused": refused,
+            "taker_backfilled": taker["written"],
+            "taker_mixed": taker["mixed"]}
 
 
 async def poll_fills(

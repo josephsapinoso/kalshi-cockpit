@@ -37,8 +37,10 @@ from backend.portfolio_poll import (
     parse_fill,
     parse_portfolio_value_tenths,
     parse_settlement,
+    backfill_settlement_taker,
     poll_portfolio,
     poll_portfolio_forever,
+    poll_settlements,
     poll_positions,
     predict_fill_fee,
     reconcile_fill,
@@ -284,7 +286,8 @@ class TestPollPortfolio:
 
         summary = await poll_portfolio(conn, client, now_ms=1_787_100_000_000)
 
-        assert summary["settlements"] == {"seen": 1, "new": 1, "refused": 0}
+        assert summary["settlements"] == {"seen": 1, "new": 1, "refused": 0,
+                                          "taker_backfilled": 0, "taker_mixed": 0}
         assert summary["fills"] == {"seen": 1, "new": 1, "refused": 0}
         assert summary["balance"] == {"balance_tenths": 20658}
         log = {
@@ -337,7 +340,8 @@ class TestPollPortfolio:
 
         summary = await poll_portfolio(conn, client, now_ms=1)
 
-        assert summary["settlements"] == {"seen": 2, "new": 1, "refused": 1}
+        assert summary["settlements"] == {"seen": 2, "new": 1, "refused": 1,
+                                          "taker_backfilled": 0, "taker_mixed": 0}
 
     async def test_a_polled_fill_is_venue_hand_and_cannot_reach_the_gate(self, conn):
         """The ADR 0043 seam, exercised end to end through the real poller.
@@ -520,6 +524,125 @@ class TestPollPortfolio:
         )
         assert (row["polled_ms"], row["ok"], row["row_count"]) == (4_243, 0, None)
         assert "boom matcher" in row["error"]
+
+
+def _settlement(conn, ticker, *, settled_ms=1_000, is_taker=None):
+    conn.execute(
+        "INSERT INTO venue_settlements (ticker, market_result, settled_ms, "
+        "side, contracts, entry_price_tenths, fee_cost_tenths, is_taker) "
+        "VALUES (?, 'yes', ?, 'yes', 4, 375, 66, ?)",
+        (ticker, settled_ms, is_taker),
+    )
+
+
+def _fill(conn, ticker, fill_id, *, is_taker, source="venue_hand"):
+    conn.execute(
+        "INSERT INTO fills (kalshi_fill_id, ticker, filled_ms, count, "
+        "price_tenths, is_taker, fee_actual, fee_predicted, fee_model_used, "
+        "source) VALUES (?, ?, 1, 4, 375, ?, 0.0657, 0.0657, 'model_a_deci', ?)",
+        (fill_id, ticker, 1 if is_taker else 0, source),
+    )
+
+
+class TestSettlementTakerIsWrittenFromTheFills:
+    """The column had ten siblings in the INSERT and no writer of its own.
+
+    Live, 2026-09-09: `venue_settlements.is_taker` was NULL on 90 of 90 rows
+    while 62 of 62 `KXMVE` settlement tickers had a matching `fills` row
+    carrying the venue's own boolean. `backend/bets.py` selects the column and
+    puts it on the `/bets` screen, so the screen said "unknown" about a fact
+    the next table over had held since 2026-08-18.
+    """
+
+    def test_a_taker_position_gets_is_taker_1(self, conn):
+        _settlement(conn, "KXMVE-A")
+        _fill(conn, "KXMVE-A", "f1", is_taker=True)
+
+        assert backfill_settlement_taker(conn) == {"written": 1, "mixed": 0}
+        assert conn.execute(
+            "SELECT is_taker FROM venue_settlements WHERE ticker = 'KXMVE-A'"
+        ).fetchone()[0] == 1
+
+    def test_a_maker_position_gets_is_taker_0_not_left_null(self, conn):
+        _settlement(conn, "KXMVE-B")
+        _fill(conn, "KXMVE-B", "f2", is_taker=False)
+
+        assert backfill_settlement_taker(conn) == {"written": 1, "mixed": 0}
+        assert conn.execute(
+            "SELECT is_taker FROM venue_settlements WHERE ticker = 'KXMVE-B'"
+        ).fetchone()[0] == 0
+
+    def test_a_position_whose_fills_disagree_stays_null(self, conn):
+        """Mixed has no single answer, and a majority would be an invention."""
+        _settlement(conn, "KXMVE-C")
+        _fill(conn, "KXMVE-C", "f3", is_taker=True)
+        _fill(conn, "KXMVE-C", "f4", is_taker=True)
+        _fill(conn, "KXMVE-C", "f5", is_taker=False)
+
+        assert backfill_settlement_taker(conn) == {"written": 0, "mixed": 1}
+        assert conn.execute(
+            "SELECT is_taker FROM venue_settlements WHERE ticker = 'KXMVE-C'"
+        ).fetchone()[0] is None
+
+    def test_a_position_with_no_mirrored_fill_stays_null(self, conn):
+        """No evidence resolves to None, never to 0."""
+        _settlement(conn, "KXMVE-D")
+
+        assert backfill_settlement_taker(conn) == {"written": 0, "mixed": 0}
+        assert conn.execute(
+            "SELECT is_taker FROM venue_settlements WHERE ticker = 'KXMVE-D'"
+        ).fetchone()[0] is None
+
+    def test_an_engine_fill_counts_too(self, conn):
+        """`refine_first_seen` filters to `venue_hand`; this must not.
+
+        A position filled partly by the order path and partly by hand is one
+        position, and answering maker/taker from a subset of its fills is the
+        same substitution the mixed case refuses.
+        """
+        _settlement(conn, "KXMVE-E")
+        _fill(conn, "KXMVE-E", "f6", is_taker=True, source="engine")
+
+        assert backfill_settlement_taker(conn) == {"written": 1, "mixed": 0}
+        assert conn.execute(
+            "SELECT is_taker FROM venue_settlements WHERE ticker = 'KXMVE-E'"
+        ).fetchone()[0] == 1
+
+    def test_a_second_pass_rewrites_nothing(self, conn):
+        """Idempotent: only rows still NULL are ever considered."""
+        _settlement(conn, "KXMVE-F")
+        _fill(conn, "KXMVE-F", "f7", is_taker=True)
+        backfill_settlement_taker(conn)
+
+        assert backfill_settlement_taker(conn) == {"written": 0, "mixed": 0}
+
+    def test_an_already_written_flag_is_never_overwritten(self, conn):
+        """History, not a derived view: a row already answered is left alone."""
+        _settlement(conn, "KXMVE-G", is_taker=0)
+        _fill(conn, "KXMVE-G", "f8", is_taker=True)
+
+        assert backfill_settlement_taker(conn) == {"written": 0, "mixed": 0}
+        assert conn.execute(
+            "SELECT is_taker FROM venue_settlements WHERE ticker = 'KXMVE-G'"
+        ).fetchone()[0] == 0
+
+    async def test_the_settlements_poll_writes_it_without_being_asked(self, conn):
+        """The reachable caller: this runs on the five-minute fast branch.
+
+        `poll_settlements` <- `poll_portfolio_forever` <- `scripts/run_loop.py`.
+        A backfill nothing invokes is not a fix.
+        """
+        row = settlement_row()
+        client = FakeClient(settlements=[row])
+        _fill(conn, row["ticker"], "f9", is_taker=True)
+
+        result = await poll_settlements(conn, client, now_ms=1)
+
+        assert result["taker_backfilled"] == 1, result
+        assert conn.execute(
+            "SELECT is_taker FROM venue_settlements WHERE ticker = ?",
+            (row["ticker"],),
+        ).fetchone()[0] == 1
 
 
 class TestPollPortfolioForever:
