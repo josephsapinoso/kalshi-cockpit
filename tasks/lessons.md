@@ -16,6 +16,88 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-09 - An append-only record reports the last state it saw forever after that state ends, so "the newest row for X" cannot see X going away
+
+`venue_positions` is a poll record: while a combination is held it is rewritten
+every cycle, and when it settles it is not marked closed - it simply stops
+being written. **The absence is the event.**
+
+A reconciler asked for the newest `venue_positions` row *bearing each ticker*
+and printed its contracts. On live it reported three combinations as
+`OPEN AT VENUE -- UNWATCHED`. Two of them had settled the previous day. Their
+newest row said "4 contracts, open" because that was true the last time they
+existed, and it will keep saying so for as long as the table is kept.
+
+**Silence read as exposure, inside the one column written to catch silence read
+as health.** Nine tests were green over it, because every fixture described a
+position that was still open - so no fixture could tell "held" from "last seen
+held", which are the same row.
+
+**The shape to look for: any table where a row's existence is the signal and
+its absence is the other signal.** Poll records, heartbeat tables, presence
+logs, subscription lists, `venue_positions`, anything mirrored from an
+endpoint that returns "what is true now". For all of them, `ORDER BY id DESC
+LIMIT 1` over a key answers a question nobody asked - *what did we last
+believe* - and reads exactly like the question everyone wants, *what is true*.
+
+The correct form asks about **membership of the latest complete observation**:
+is this key present in the most recent successful poll? Two parts, and the
+second is easy to miss:
+
+- **The observation must be the latest COMPLETE one.** Take the latest poll
+  including failures, and every key is absent from it whenever a call errors -
+  turning an outage into an all-clear. `ok = 1` is load-bearing and deserves
+  its own test, because the mutation that drops it makes everything look
+  closed, which is the reassuring direction.
+- **Name the column for what it holds.** `venue_contracts_latest` asserted a
+  currency it never had; `contracts_when_last_seen` beside a `last_seen_ms`
+  cannot mislead the same way. A name that overclaims is the defect surviving
+  its own fix.
+
+Related: [[verification-methods-that-lie]], and the sibling where the missing
+thing is a caller rather than an absence, [[built-but-never-called]].
+
+## 2026-09-09 - A decision that turned on a named consumer must be re-opened when the consumer is never built, and nothing notices that it was not
+
+ADR 0065 gated the manual ticket behind a typed P(YES) and masked the ask until
+it was entered. The ADR records that two reviewers disagreed, and that the
+red-team position - *"an unscored form is a speed bump a user learns to type
+through"* - **lost on exactly one factual premise**, quoted from its own §1:
+
+> The premise changed on 2026-08-22: `bet_clv()` shipped, scoring Joe's own
+> bets against Kalshi's close. **A pre-bet P(YES) now has a consumer** - it can
+> sit beside the bet's CLV on `/bets`.
+
+`backend/bets.py` never read `p_yes_bp`. Nothing ever did. Eighteen days and
+four real bets later the field was still required, still masking the price, and
+the operator's own verdict was *"it just gets in the way"* - which is the
+red-team's sentence, arrived at from the other side.
+
+**The failure is not that the consumer went unbuilt. It is that the decision
+went on reading as settled.** An accepted ADR is evidence; nobody re-derives
+one. So the argument that a reviewer *lost* stays lost, and the condition that
+beat it is never checked again, because checking it is nobody's job and no test
+can fail.
+
+**The tell: a decision whose recorded reason is in the future tense.** "Now has
+a consumer", "will be scored", "once the dashboard lands", "this unblocks X".
+A premise about what will exist is a promise, and an ADR records promises with
+exactly the same authority as facts. Rendered as prose a month later they are
+indistinguishable.
+
+**So when a decision rests on a future fact, the ADR must carry the check as a
+trigger, not as a sentence** - the shape ADR 0127 used for the bid path: a test
+that goes red the day the condition changes. Here that would have been a test
+asserting `p_yes_bp` has a reader, red from the moment it was written, and the
+gate would never have shipped ahead of its justification.
+
+And the diagnostic that costs nothing: for any field a screen makes someone
+fill in, **grep for who reads it.** A write with no reader is not a feature
+with a missing half - it is a cost with no product, and the person paying it
+is the one who cannot see the grep. See [[justifications-decay-toward-reassurance]]:
+same family, except this justification was never true rather than becoming
+false.
+
 ## 2026-09-09 - A true sentence with the wrong scope cannot be caught by any guard that checks its facts, and a sourcing guard makes that harder to see rather than easier
 
 The buy ticket and the bid route both said *"every combination book this repo
