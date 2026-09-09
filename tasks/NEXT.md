@@ -130,17 +130,23 @@ verification, not a plan, produced the thing worth knowing.
 **STATE at close.** `main` = **`d27ca55`**, pushed, **CI green**
 (`34377084002`, 9m4s). Session started at `579fadd`, clean.
 
-**A SECOND DEPLOY IS OWED, AND THIS ONE HAS A DEADLINE.** Live is on
-**`8755de6`**; `d27ca55` carries the scope correction to the buy ticket and
-the bid-route 422, which the registration (§12.4) requires to land **before
-C1 at 15:30Z on 2026-09-13**. It is copy only — no ceiling, no route logic, no
-order path — but it sits on a real-money surface, so it was not shipped
-unasked. **If it is not deployed, Sunday's measurement runs while the screen
-still makes the unscoped claim that measurement exists to scope.**
+**THE SCOPE CORRECTION IS LIVE, four days ahead of its deadline.** Deployed on
+Joe's word, run `34381163045`. **`main` and live are the same commit**
+(`6f30079`), machine `7812601a239428` **unchanged** — no volume replaced, no
+credit fact inverted.
 
-    d27ca55  scope correction + Amendments 1-2   NOT on live   deploy before 09-13 15:30Z
-    6caf867  census provenance + tests           NOT on live   (docs/tests only)
-    8755de6  combo fill -> hedge position        LIVE, verified in container
+**Verified in the running container, not from the deploy output** — the SHA
+cannot show that a *sentence* changed:
+
+    COMBO_EXIT_CENSUS_SERIES        ('KXMVESPORTSMULTIGAMEEXTENDED', 'KXMVECROSSCATEGORY')
+    COMBO_EXIT_CENSUS_SHARD_SERIES  KXMVECROSSCATEGORY-SHARD1
+    COMBO_EXIT_CENSUS_SHARD_BOOKS_READ  0
+    buy ticket scoped               True
+    bid route  scoped               True
+
+So Sunday's measurement will run against a screen that already names the
+population its 40 books came from, which is what §12.4 required and why it was
+not deferred to the result.
 
 **DEPLOYED EARLIER on Joe's word ("deploy it"), and verified.** Live is on
 **`8755de6`**, machine `7812601a239428` — **unchanged, so no volume was
@@ -368,17 +374,13 @@ capture or the scan denominator is lost.
    settles leg markets; whether a minted `KXMVE` ticker settles its position
    automatically is unobserved. Surfaced by ADR 0125, not acted on.
 
-**Joe-gated — one open, and it has a Sunday deadline:**
+**Joe-gated: NOTHING. All five answered and closed this session.**
 
-- **(E) OPEN — deploy `d27ca55` to live before 2026-09-13 15:30Z?** The scope
-  correction on the buy ticket and the bid 422. Copy only: no ceiling, no
-  route logic, no order path, nothing money-touching. Left unshipped only
-  because the string sits on a real-money surface. **Undeployed, Sunday's
-  measurement runs while the screen still makes the unscoped claim that
-  measurement exists to scope** — and the registration ruled the correction is
-  owed *regardless* of what Sunday finds.
+- ~~**(E)** Deploy the scope correction before 2026-09-13 15:30Z?~~ **ANSWERED
+  YES and DONE.** Live is on `6f30079`, both surfaces verified scoped **inside
+  the container**. Four days ahead of the deadline.
 
-Answered and closed this session:
+Also answered and closed this session:
 
 - ~~**(A)** The NFL single-game arm for the census?~~ **ANSWERED YES
   2026-09-09 and DONE.** `--series` on
