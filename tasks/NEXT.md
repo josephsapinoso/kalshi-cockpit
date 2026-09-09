@@ -119,6 +119,181 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-09 (fifth session) — the biggest table in the database is 99.7% duplicate rows, and the obvious fix would have emptied the ladder
+
+**Found by running the partner's falsifying query instead of arguing.** The
+partner ranked the whole backlog, then revised its own ranking mid-flight after
+one trace, and named a single query that would kill its new thesis if it was
+wrong. The query confirmed it instead. Nothing on the Open list produced this.
+
+**STATE at close.** `main` = **`62191f4`**, four lanes merged, **full suite
+green on main: 6779 passed, 10 xfailed, 0 skipped, exit 0** (13m18s). Live is
+still on **`2126dde`** — *nothing from this session is deployed*, and the
+schema change means that matters (see the deploy note below). Machine
+`7812601a239428` unchanged. Demo untouched.
+
+Two ADRs: **0132** (the settlement taker flag gets a writer), **0133** (a
+consensus that has not moved is confirmed, not reinserted). **Amendment 2** to
+the fair-prices downsample registration. Schema **v35 → v36**, migrated but
+**not yet deployed**.
+
+### THE HEADLINE: `fair_prices` re-inserts an unchanged consensus every ~15-20s
+
+`write_fair_price` ended in an unconditional `INSERT` per outcome, and
+`run_pricing_pass` is reached from **both** the 900s full pass and the **15s
+quote** pass. So while a window is open the consensus is re-derived and
+re-inserted every ~15-20s, against an odds feed on a ten-minute floor.
+
+Measured read-only on live, key = the five-column row identity, payload = the
+value columns, `computed_ms` and `oldest_book_age_ms` excluded:
+
+    window A   3.98h   414 passes   199,506 transitions   99.73% unchanged
+    window B   5.15h   420 passes   199,504 transitions   99.61% unchanged
+    window C   2.01h   392 passes   199,488 transitions   99.75% unchanged
+
+`h2h` and `spreads` agree to 2dp in every window; largest single key is
+1.3-2.6% of all changes; **344 of 494 keys changed zero times in window A**.
+`fair_prices` + its 2 indexes is 2.41 GB — **47.5% of the database**.
+
+**Do not quote "72.3 passes/hour" — it describes none of the three windows.**
+Per-window they run 104.0, 81.6 and 195.0/h; 72.3 was a day average including
+idle hours at the 900s cadence. The 2.4x spread inside one day is the
+informative part.
+
+**Three windows are not `n = 3`.** The cluster is the **day**, so `G = 1`, and
+494 keys are not 494 clusters — the registration fixes `link_id` as the cluster
+and that view was never taken. **No inferential claim is available**, and this
+says nothing about an NFL Sunday, when the window profile is what changes most.
+
+### The fix that would have emptied the ladder, and the measurement that caught it
+
+`odds_age_now_ms = (now - computed_ms) + oldest_book_age_ms`. Those telescope,
+so freezing both preserves the sum exactly — the arithmetic is correct and it
+made freezing look free. **It is free only while the books stand still.**
+
+    book_updated_ms advanced on 19,643 of 19,689 consecutive observations
+    whose PRICE DID NOT MOVE -- 99.8%, median +646s
+    (price MOVED, book_updated SAME: exactly 0)
+    odds refetch cadence: 28 distinct fetch instants in 6h, p50 gap 615s
+
+The books get fresher every ten minutes without moving. A frozen
+`oldest_book_age_ms` never learns that, reported staleness grows without bound,
+and anything held past ~15 min is refused — ADR 0055's failure mode by another
+route. So the row now carries **two pairs**, each internally consistent because
+both members are stamped at one instant: `computed_ms`/`oldest_book_age_ms`
+freeze at first appearance (what a `fair_price_id` join points at), and the new
+nullable `confirmed_ms`/`confirmed_oldest_book_age_ms` move on every confirming
+pass. `_live_age_ms` coalesces each column independently.
+
+**The row identity is FIVE columns, not four.** On a prop `outcome_name` is
+only "Over"/"Under" and the player lives in `outcome_description`; a
+four-column key collides two players. The scan floor gained a third term
+(9 days) because a confirmed row's `computed_ms` no longer bounds its freshness.
+
+### Also landed
+
+- **The disk alarm's prose promised twice the time the disk had.** The alarm
+  **is** wired and live (`run_loop.py` is PID 710 in the container;
+  `run_loop.py:1257 → volume.read_volume("/data") → check_volume`). But
+  `REFERENCE_GROWTH_BYTES_PER_DAY` was 161.40 MB/day against a realised
+  326.6 — NOTICE would have said ~9.9 days when the truth was ~4.9. Now one
+  `CURRENT_GROWTH_RATE` carrying its own date and `n`; every duration derives
+  from it, and a test fails if one is ever hand-typed back.
+- **`venue_settlements.is_taker` had a schema, a reader, and no writer** — NULL
+  on 90 of 90 rows. Now written from the fills join. Mixed-fill positions stay
+  NULL, no-fill positions stay NULL, written flags are never overwritten.
+- **Amendment 2: the constant stays pinned, DO NOT RAISE.** Raising
+  `FAIR_PRICE_FAMILY_BYTES` re-scales a verdict computed from rows already
+  inspected. The reopening bar is left behind falsifiable: the eligible
+  fraction would have to reach **13.394%**; measured **4.005%**.
+- **The arming ADR was never owed.** §6 authorises one only on `ELIGIBLE TO
+  PROPOSE ARMING`; the deciding run returned `NOT WORTH ARMING`. Risk and
+  dominance are corroboration, explicitly not load-bearing. The module stays in
+  the tree — it carries the SQL §S1 is pinned to.
+
+### Killed, refuted, or answered — do not re-open these
+
+- **`clv_signal` vs `prune_quotes` is REFUTED.** They do know about each other:
+  `retention.py:228` carries `AND ticker NOT IN (SELECT ticker FROM
+  recommendations)`, and the module docstring names `clv_signal.py` as the one
+  reader reaching past an hour. Live: **58,612 rows, oldest 32.9 days,
+  `quote_mismatch` 0, `no_quote` 0, matched 100%.** A pruned quote would surface
+  as `no_quote`, not `quote_mismatch` — different statistic.
+- **Item 4's premise was wrong.** The fee alarm reads `ParsedFill.is_taker`, a
+  bool the venue supplies and `parse_fill` refuses the fill without. Both
+  2026-09-08 KXMVE fills are in `fills` with `is_taker = 1` and fees predicted
+  exactly. Zero settlements lack a fill.
+- **The dependency queue is clear.** Zero open Dependabot alerts;
+  `cryptography 50.0.1` and `pyarrow 19.0.1` read out of the running container.
+- **The decisions queue is empty.** All 32 sub-issues of map #3 are closed;
+  only the map itself is open. There is no frontier ticket.
+- **The `fair_prices` dry run exited with its output lost** — stdout was a pipe
+  whose reader was gone. Not worth re-running: Amendment 2 makes that figure
+  non-decision-bearing.
+
+### Still open, in order
+
+1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Untouched this
+   session and the partner ruled Lane G outside the freeze on three conditions,
+   all met: no file under `backend/odds/`, not `backend/scheduler.py`, and a
+   test proving pass cadence and count are unchanged. The freeze protects the
+   **credit-convergence readout**; "dwell measurement" has no referent.
+2. **SUNDAY 2026-09-13 — a scheduled run, not a task to plan.** Runner:
+   `scripts/run_combo_exit_capture.py --slot cN`, exit **3** on refusal. Now
+   confirmed from the registration: a slot may be retried **once within 10
+   minutes**; missed by more than 30 minutes it is recorded **missing, not
+   moved**, and the result reports four of five. *"The pool was thin, so we
+   took another look later"* is prohibited by name. **Nothing schedules these —
+   every slot is run by hand.** Arm C still has no per-slot command.
+3. **DEPLOY IS OWED, AND IT CARRIES A SCHEMA MIGRATION.** Live is three
+   sessions behind at `2126dde` and `main` is at v36 while live is v35. The
+   dedupe cannot help the disk until it ships, and the v36 migration must be
+   rehearsed in the container the way v35 was. **Nothing in this session has
+   been observed running on live.**
+4. **`manual_orders.py` reads `fair_prices.computed_ms` and I said it didn't.**
+   NEW, and it is my error: I told the lane only `_live_age_ms` and the ladder
+   query read that column. `backend/store/manual_orders.py` also reads it via
+   `recommendations.fair_price_id`, to freeze a descriptive
+   `submitted_ms - consensus_computed_ms` staleness figure on every hand-bet
+   order. **Never a gate, never judged** — so not a money-path defect — but
+   after v36 it will more often show *first appearance* than *last
+   reconfirmation* and understate recency. Lane G found it and correctly left
+   it alone.
+5. **The combo fee-model reopen trigger HAS FIRED.** `n = 68` KXMVE fills
+   across 17 distinct UTC days, no day more than 12% — so unlike `beta`, this
+   one is not concentration-blocked. 67 of 68 are takers. Also unjudged: **36
+   of 68 KXMVE fills are undercharges against zero of 34 non-KXMVE**, though 35
+   of the 36 are sub-$0.0001 float dust and the last is the maker row the model
+   refuses by design. Wants `measurement-skeptic` and `kalshi-platform`, not a
+   lane.
+6. **A second stale copy of the growth rate.** `fly.live.toml:654,660-661`
+   reasons from the superseded 161.40 MB/day and concludes "mid-November". No
+   Python constant can reach it. Flagged, not touched.
+7. **One `pip-audit` ignore remains and it is NOT a deferred fix.** `pyarrow`
+   `GHSA-rgxp-2hwp-jwgg` needs an Arrow **IPC file** read with pre-buffering
+   and this repo only writes Parquet. **Trigger: anything starts reading
+   `.arrow` or `.feather`.**
+8. **`worktree-agent-ab85969ab45aa6004` is still parked** and still unmerged —
+   the "last scored call" card that would render empty forever. Yours to keep
+   or bin. Two sibling worktree *directories* resisted deletion (a process
+   holds the handles); their branches are gone and git's registry is clean, so
+   they are inert clutter.
+
+**Joe-gated:** the parked branch (item 8), and whether item 5 gets a session.
+
+### Lessons written
+
+Three, all pattern-level: the column you exclude from a comparison key is where
+the duplicates' real payload hides; mutating a constant tests nothing unless
+every consumer actually derives from it; and a lane's green suite is a weaker
+claim than main's, because this repo skips its integration guards off the
+integration branch on purpose.
+
+**And one about my own procedure.** I asserted "the only readers of
+`computed_ms` are these two" from a grep, and a lane found a third. A grep over
+one spelling of a column name is not a reader census — the third reader reached
+it through a join on `fair_price_id`, which the grep could not see.
+
 ## 2026-09-09 (fourth session) — a live bet was invisible to the only screen that could exit it, and the wiring that fixed that killed the question a registration was asking
 
 **Found by checking the one thing the last session shipped and never observed

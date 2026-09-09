@@ -16,6 +16,99 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-09 - The column you exclude from a comparison key is where the duplicates' real payload hides
+
+`fair_prices` rows were measured 99.7% byte-identical to the row before them.
+To see that at all, `oldest_book_age_ms` had to be **excluded** from the
+comparison: it is an age, it increments every pass, and including it finds zero
+duplicates and makes the whole idea look refuted. That exclusion was correct as
+a measurement, and it is exactly what hid the hazard - **the excluded column
+was the only thing the "duplicate" rows were carrying that was not duplicated.**
+
+The freshness gate is `odds_age_now_ms = (now - computed_ms) + oldest_book_age_ms`.
+Those two telescope: freeze both and the sum is preserved exactly, so freezing
+them looked free, and the arithmetic proving it was correct. It is free only
+while the books stand still. Measured on live: `book_updated_ms` advanced on
+**19,643 of 19,689** consecutive observations whose price did **not** move -
+99.8%, median 646s - so the books refresh every ten minutes without moving.
+A frozen age never learns that, the reported staleness grows without bound, and
+every row held past the freshness limit is refused. With 344 of 494 keys
+unchanged across four hours, that empties the screen.
+
+**The shape to look for: whenever rows are deduped, compressed or downsampled
+on a comparison that excludes a column, ask what that column was for.** A
+column excluded *because it always changes* is, by that same fact, the column
+carrying the per-row information - and the rows you are about to stop writing
+are the only place it lives.
+
+Two corollaries, and the second is the more general one:
+
+- **A pair of fields measured at one instant and combined by a reader must move
+  together or not at all.** Updating one is strictly worse than updating
+  neither: freezing both preserved the sum, freezing one and refreshing the
+  other double-counts the elapsed time. The fix is a second pair, both members
+  stamped at the confirm instant, so each pair stays internally consistent.
+- **A valid proof about the arithmetic says nothing about whether its premise
+  holds.** The telescoping argument was right; the conclusion drawn from it was
+  wrong, because nobody had checked whether the books stood still. The
+  measurement that settled it took one query.
+
+See [[justifications-decay-toward-reassurance]]: same family, except this
+justification was a theorem rather than a comment, which made it harder to
+doubt rather than easier.
+
+## 2026-09-09 - Mutating a constant tests nothing unless every consumer actually derives from it
+
+The dedupe's row identity was meant to live in one tuple so the `INSERT` and
+the lookup could not drift. The first draft built the `INSERT` from the tuple
+and **hand-typed the lookup's `WHERE`**. So a mutation that dropped a column
+from the tuple changed nothing the lookup did, the test stayed green, and the
+guard reported itself verified.
+
+**The tell: the mutation's blast radius was smaller than the constant's stated
+scope.** A constant documented as "the single source of truth for X" is a claim
+about its *consumers*, not about itself. The mutation only exercises the
+consumers that really read it, and a hand-typed copy is invisible to the
+mutation *precisely because* it is a copy - the one failure mode the constant
+was introduced to prevent is the one its own guard cannot see.
+
+So the check is not "does some test go red when I mutate this" but **"does
+every named consumer change behaviour when I mutate this"** - enumerate them
+and confirm each. And prefer *constructing* the second use from the constant
+over asserting the two agree: a drift test catches divergence after it exists,
+construction makes it unrepresentable.
+
+This is [[built-but-never-called]] living inside a single function: the tuple
+had a reader and a non-reader, and the non-reader was the one that mattered.
+
+## 2026-09-09 - A lane's green suite is a weaker claim than main's, and this repo skips its integration guards off the integration branch on purpose
+
+Four lanes each reported a green full suite: **6727 passed, 20 skipped**. The
+same tree on `main` ran **6779 passed, 0 skipped**. One lane read its 20 skips
+as an environment quirk of the Windows dev box - but both runs were on that
+same box, so the difference was the *worktree*, not the environment.
+
+`tests/test_parallel_lanes_do_not_collide.py` skips itself off the integration
+branch deliberately, and its own comment says why: a `DRAFT-` ADR in a lane is
+the correct state, so a silent green there *"would read as checked and fine"*.
+The guards it holds are exactly the ones a merge needs - that no unnumbered ADR
+reaches `main`, and that the schema version covers its migrations. **A lane
+cannot run them by construction.**
+
+So "full suite green" from inside a worktree means "green on everything that
+agrees to run here", which is a different sentence. The count that can be
+compared to a baseline is collected on the integration branch, after the merge.
+
+And the method for taking that comparison matters too: **comparing collection
+counts by copying a test file somewhere else is invalid.** Several files here
+resolve fixtures relative to their own path and collect a different number when
+moved - one reported 19 tests from `/tmp` and 154 in place. Check out the
+baseline commit as a real worktree and collect there, then diff the node IDs;
+that attributes every test to a file instead of leaving a remainder to explain.
+
+Related: the previous session's lesson that CI failed twice on things no lane
+could see from inside its own worktree. Same family - this names the mechanism.
+
 ## 2026-09-09 - An append-only record reports the last state it saw forever after that state ends, so "the newest row for X" cannot see X going away
 
 `venue_positions` is a poll record: while a combination is held it is rewritten
