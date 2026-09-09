@@ -1824,13 +1824,21 @@ CREATE TABLE IF NOT EXISTS manual_orders (
     -- id columns below are kept as breadcrumbs and are explicitly NOT the
     -- record; the snapshot columns are.
     --
-    -- **Every one is nullable and a NULL means "not known", never zero.** A
-    -- `KXMVE` combination has no devigged consensus at all -- discovery drops
-    -- the prefix as junk (`kalshi/discovery.JUNK_PREFIX`), so no
-    -- `kalshi_markets` row and no `recommendations` row can exist for one --
-    -- and `consensus_fair_tenths = 0` would read as "the sportsbooks say this
-    -- is worth nothing", which on a money row is a lie rather than a gap.
+    -- **Every one is nullable and a NULL means "not known", never zero.**
+    -- `consensus_fair_tenths = 0` would read as "the sportsbooks say this is
+    -- worth nothing", which on a money row is a lie rather than a gap.
     -- `consensus_absent_reason` says which absence it was.
+    --
+    -- **A `KXMVE` combination has no `recommendations` row and never can** --
+    -- discovery drops the prefix as junk (`kalshi/discovery.JUNK_PREFIX`), so
+    -- no `kalshi_markets` row exists for one. That is not the same as having
+    -- no consensus: `parlay_lookups.fair_joint_conservative` holds the
+    -- devigged joint the desk priced the combination against and showed him
+    -- at the tap, and since the ADR below these columns carry it. Rows with
+    -- `consensus_absent_reason = 'combo_ticker'` predate that and mean the
+    -- desk never looked; nothing writes that value any more. The provenance
+    -- columns stay NULL on a combination -- book count and the sharp anchor
+    -- are per-leg and there is no single value.
     --
     -- Rows written before v28 carry NULL in all eight. Nothing backfills them:
     -- the values were never observed and inventing them would put a number
@@ -1846,12 +1854,16 @@ CREATE TABLE IF NOT EXISTS manual_orders (
     -- integer tenths of a cent on the same 0-1000 scale as
     -- `limit_price_tenths`. `recommendations.fair_probability` (the
     -- worst-of-four conservative devig for that outcome) through
-    -- `core.prices.probability_to_tenths`.
+    -- `core.prices.probability_to_tenths` -- or, on a combination,
+    -- `parlay_lookups.fair_joint_conservative`, which is the joint of each
+    -- leg's `p_conservative` off the same feed under the same worst-of-four.
     consensus_fair_tenths       INTEGER,
     -- The desk's own fee-net edge for that row, signed, rounded to integer
     -- tenths from `recommendations.edge_tenths` (REAL). A per-row fact and
     -- never an ordering: ADR 0071 forbids ranking by it, and `beta = -0.141`
-    -- is why.
+    -- is why. NULL on a combination: the parlay path computes a fee-FREE
+    -- hold, and writing that here would put a gross number in a column whose
+    -- name promises a net one.
     consensus_edge_tenths       INTEGER,
     -- Provenance, so the fair value can be interpreted rather than trusted.
     -- How many books the consensus was devigged from, and whether it was

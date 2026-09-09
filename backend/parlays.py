@@ -2004,9 +2004,17 @@ def priced_lookup_for(conn, minted_ticker: str):
 
     Returns `None` when nothing matches, which the caller must treat as "the
     position cannot be built", never as "the position has no legs".
+
+    `requested_ms` and `fair_joint_conservative` ride along for the hand-bet
+    path's consensus snapshot (ADR: the combination's consensus). They are the
+    *when* and the *what* of the devigged joint this row was priced against --
+    the same pair `fair_prices.computed_ms` / `.p_conservative` supply for a
+    single -- and the query already reads the row, so a second SELECT over the
+    same table would be a second matcher to drift from this one.
     """
     return conn.execute(
-        "SELECT id, selected_legs, card_key, derived_yes_ask_tenths, hold "
+        "SELECT id, requested_ms, selected_legs, card_key, "
+        "       derived_yes_ask_tenths, hold, fair_joint_conservative "
         "FROM parlay_lookups "
         "WHERE minted_market_ticker = ? AND status = 'priced' "
         "ORDER BY requested_ms DESC, id DESC LIMIT 1",

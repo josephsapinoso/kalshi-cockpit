@@ -85,6 +85,19 @@ into the record permanently, and permanently is the wrong tense for an opinion.
 
 ## 4. Unreadable resolves to `None`, never `0`
 
+> **Corrected 2026-09-09 — see the DRAFT ADR "A combination records the
+> consensus the desk computed".** The premise below is wrong. A `KXMVE`
+> combination has no `recommendations` row and never can, which is what
+> `JUNK_PREFIX` establishes — but the desk *does* compute a devigged
+> consensus for one and shows it to him:
+> `parlay_lookups.fair_joint_conservative`, the joint of each leg's
+> `p_conservative`, rendered one component above the buy button. Four real
+> combination bets recorded `combo_ticker` while that number was on the
+> screen. `combo_ticker` now means only "the desk never looked" and is
+> written by nothing; three combination-specific absences replace it. Every
+> other claim in this section stands, including the one this section is named
+> for.
+
 For a `KXMVE` combination there **is** no devigged consensus, and
 `consensus_fair_tenths = 0` would read as *"the sportsbooks say this is worth
 nothing"* — on a money row that is a lie, not a gap.
