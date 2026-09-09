@@ -304,12 +304,58 @@ needing different guards, so *"run it twice"* tests the cheapest one.
    series returned 0 open rows midweek and a named `--series` with no rows
    aborts by design. **Nobody opens the cockpit UI to run any of it.** A null is
    not confirmation; the word "structurally" is forbidden.
-3. **`/data/cockpit.db` is 5.07 GB and the volume has 4.7 GB free — 51% full,
-   and nothing watches it.** NEW. v35 was safe because `manual_orders` has four
-   rows, but a create-copy-drop-rename rebuild of any **large** table needs more
-   free space than exists. It also made a full-copy migration rehearsal
-   impossible this session. No instrument reports this; `db-sizes` would if
-   someone ran it.
+3. **The volume grows at 2x its documented rate, and the extension bought
+   about 46 days rather than a solution.** NEW, and this is the item most likely
+   to be misread as closed because a number moved in the right direction.
+
+   **Extended 10 -> 20 GB on 2026-09-09 on Joe's decision**, live, no restart:
+   `/data` went 51% -> **27% used, 14 GiB free**. Taken because a `VACUUM` did
+   not fit in the 4.7 GB then free, which is also why the v35 migration had to
+   be rehearsed from the migration's own undo helper instead of a database copy.
+   A `VACUUM` and a large-table rebuild are both possible now; neither was.
+
+   **Deleting rows would not have helped and that is the part to remember.**
+   `auto_vacuum = 0` on the live database, so freed pages go to a freelist and
+   are reused — the file does not shrink. `PRAGMA incremental_vacuum` is
+   unavailable (it needs `auto_vacuum` set at creation, and switching it on
+   requires the full VACUUM that did not fit). The freelist held 31 MB, so
+   there was no slack to recover either. **Deletion stops growth; only a VACUUM
+   reclaims disk.**
+
+   **Where the 5.07 GB is**, read 2026-09-09 ~19:49Z via `db-sizes`:
+
+       fair_prices + its 2 indexes    2.41 GB   47.5%
+       odds_snapshots + its 3         1.29 GB   25%
+       kalshi_quotes + its 1          1.22 GB   24%
+       everything else                0.15 GB    3%
+
+   **The rate, and it is the finding.** `docs/measurements/2026-09-01-the-volume-clock.md`
+   projected **160.23 MB/day** on the file. Realised across the 8.138 days
+   between its read (2026-09-01 ~16:30Z, file 2,413,142,016) and 2026-09-09
+   (5,070,802,944): **326.6 MB/day, 2.0x**. The family's *share* of growth held
+   — 56.8% against a projected 64.4% — and the *rate* did not, because a
+   composition measured over a 44.4-hour window was carried forward as a rate.
+   **At the realised figure 14 GiB is ~46 days, i.e. mid-to-late October.**
+
+   **Do not re-measure a rate from one window.** The pattern is in
+   `tasks/lessons.md`'s neighbourhood already; this is its instance on disk.
+
+   Still true and unchanged: **no instrument reports volume usage.**
+   `backend/store/volume.py` and `tests/test_volume_alarm.py` exist and were
+   NOT checked this session — whether an alarm is wired, and at what threshold,
+   is an open question and the cheapest thing on this list to answer.
+
+   **Two things owed, neither done:** an amendment to
+   `docs/measurements/2026-09-01-preregistration-fair-prices-downsample.md`
+   raising `FAIR_PRICE_FAMILY_BYTES` (deliberately NOT edited in code — it is
+   pinned so the same eligible fraction cannot yield a different byte verdict
+   on a different day; see the DO NOT UPDATE block at
+   `fair_price_downsample.py:202`), and a decision on arming the downsampler at
+   all. Arming needs its own ADR by its own config's terms, and its estimator
+   is now a **floor**, understating by ~2.68x. The `fair_prices` dry run was
+   started on live 2026-09-09 and had not finished after 20+ minutes; it is
+   read-only, deletes nothing, and its figure is informational now that the
+   disk pressure is gone.
 4. **`is_taker = None` on the settled `KXMVE` rows.** NEW. The fee-alarm trigger
    the partner set last session (reopen the combo fee model when the alarm fires
    on a combo fill, or at `n >= 30`) may be **unable to fire** if takerness is
