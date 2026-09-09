@@ -246,13 +246,11 @@ export default function SlateRow({
         )}
       </span>
       {/* The hand-bet door (ADR 0063), full width beneath the line so it
-          never competes with the reason for the row's attention.
-          `priceAlreadyVisible` because the ask is on the line above it. */}
+          never competes with the reason for the row's attention. */}
       <div className="w-full">
         <ManualTicket
           ticker={rec.ticker}
           variant="inline"
-          priceAlreadyVisible
           openLabel="Bet this by hand"
           note={
             resolved === "rejected"

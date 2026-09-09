@@ -844,6 +844,239 @@ class TestTheCallColumnsLandOnAVolumeThatAlreadyExists:
             db.open_db(self._v31_estimates(tmp_path))
 
 
+class TestTheTypedProbabilityBecomesOptional:
+    """v35 on a database that already holds hand bets, which is the only case
+    that matters.
+
+    Joe removed the ticket's P(YES) field on 2026-09-09 (ADR 0131, superseding ADR 0065 §2).
+    `manual_orders.p_yes_bp` was `NOT NULL` with a `CHECK (p_yes_bp BETWEEN 1
+    AND 9999)`, and SQLite relaxes neither in place -- so this is a table
+    rebuild, and a rebuild is the migration shape that can silently lose the
+    record. The bets already placed carry his real typed numbers and are the
+    reason the table exists; a FRESH database proves nothing about them.
+    """
+
+    #: A row shaped like the ones the live volume holds, with a distinctive
+    #: probability so a backfill, a zeroing or a re-derivation would be
+    #: visible rather than plausible.
+    BEFORE = 6234
+
+    def _v34_manual_orders(self, tmp_path, *, rows=2):
+        """A v34 volume: `p_yes_bp` required, the stamp wound back, hand bets
+        already in the table."""
+        path = tmp_path / "v34.db"
+        conn = db.init_db(path)
+        for statement in db._MIGRATIONS[35].undo_statements:
+            conn.execute(statement)
+        for i in range(rows):
+            conn.execute(
+                "INSERT INTO manual_orders (client_order_id, submitted_ms, "
+                "ticker, side, action, count, limit_price_tenths, "
+                "max_price_tenths, p_yes_bp, status, request_body_json, "
+                "dry_run, kalshi_order_id, idempotency_key, "
+                "consensus_fair_tenths, consensus_absent_reason) "
+                "VALUES (?, 1700, 'KXMLBGAME-X', 'yes', 'buy', 2, 520, 700, "
+                "?, 'filled', '{}', 0, ?, ?, 551, NULL)",
+                (
+                    f"placed-before-v35-{i}",
+                    self.BEFORE + i,
+                    f"venue-{i}",
+                    f"key-{i}",
+                ),
+            )
+        db._set_meta(conn, "schema_version", "34")
+        conn.commit()
+        conn.close()
+        return path
+
+    def test_the_v34_shape_really_did_require_it(self, tmp_path):
+        """The fixture is only worth something if the undo restored the
+        constraint. Without this, every assertion below could be passing
+        against a database that was already nullable."""
+        path = self._v34_manual_orders(tmp_path)
+        conn = db.connect(path)
+        try:
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO manual_orders (client_order_id, submitted_ms, "
+                    "ticker, side, action, count, max_price_tenths, p_yes_bp, "
+                    "status, request_body_json, dry_run) "
+                    "VALUES ('no-probability', 1, 'T', 'yes', 'buy', 1, 700, "
+                    "NULL, 'dry_run', '{}', 1)"
+                )
+        finally:
+            conn.close()
+
+    def test_it_migrates_and_every_typed_number_survives(self, tmp_path):
+        """The rebuild carries the record, values and all.
+
+        Mutation observed red: drop `p_yes_bp` from
+        `_MANUAL_ORDERS_COLUMNS_V35`, or drop the INSERT from
+        `_MANUAL_ORDERS_NULLABLE_P_YES`.
+        """
+        conn = db.init_db(self._v34_manual_orders(tmp_path))
+        try:
+            assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
+            rows = conn.execute(
+                "SELECT * FROM manual_orders ORDER BY id"
+            ).fetchall()
+            assert len(rows) == 2, "the rebuild lost a hand-bet record"
+            for i, row in enumerate(rows):
+                assert row["id"] == i + 1, "the row ids were not carried"
+                assert row["p_yes_bp"] == self.BEFORE + i, (
+                    "a typed probability was backfilled, zeroed or rewritten"
+                )
+                assert row["client_order_id"] == f"placed-before-v35-{i}"
+                assert row["limit_price_tenths"] == 520
+                assert row["status"] == "filled"
+                assert row["kalshi_order_id"] == f"venue-{i}"
+                assert row["idempotency_key"] == f"key-{i}"
+                assert row["consensus_fair_tenths"] == 551
+        finally:
+            conn.close()
+
+    def test_a_row_with_no_probability_is_accepted_afterwards(self, tmp_path):
+        """The whole point of the step, asserted as behaviour rather than as
+        a PRAGMA reading."""
+        conn = db.init_db(self._v34_manual_orders(tmp_path))
+        try:
+            conn.execute(
+                "INSERT INTO manual_orders (client_order_id, submitted_ms, "
+                "ticker, side, action, count, max_price_tenths, p_yes_bp, "
+                "status, request_body_json, dry_run) "
+                "VALUES ('not-asked', 1, 'T', 'yes', 'buy', 1, 700, NULL, "
+                "'dry_run', '{}', 1)"
+            )
+            row = conn.execute(
+                "SELECT p_yes_bp FROM manual_orders "
+                "WHERE client_order_id = 'not-asked'"
+            ).fetchone()
+            assert row["p_yes_bp"] is None, "NULL means not asked -- never 0"
+        finally:
+            conn.close()
+
+    def test_the_range_still_binds_on_a_probability_that_is_there(self, tmp_path):
+        """The CHECK was relaxed to admit NULL, not removed.
+
+        Mutation observed red: change the new CHECK to `p_yes_bp IS NULL OR 1`.
+        """
+        conn = db.init_db(self._v34_manual_orders(tmp_path))
+        try:
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO manual_orders (client_order_id, submitted_ms, "
+                    "ticker, side, action, count, max_price_tenths, p_yes_bp, "
+                    "status, request_body_json, dry_run) "
+                    "VALUES ('out-of-range', 1, 'T', 'yes', 'buy', 1, 700, "
+                    "10000, 'dry_run', '{}', 1)"
+                )
+        finally:
+            conn.close()
+
+    def test_the_other_constraints_survived_the_rebuild(self, tmp_path):
+        """A rebuild that quietly drops a UNIQUE is how a constraint stops
+        holding on the one database nobody develops against. `client_order_id`
+        is the one the order path relies on."""
+        conn = db.init_db(self._v34_manual_orders(tmp_path))
+        try:
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO manual_orders (client_order_id, submitted_ms, "
+                    "ticker, side, action, count, max_price_tenths, status, "
+                    "request_body_json, dry_run) "
+                    "VALUES ('placed-before-v35-0', 1, 'T', 'yes', 'buy', 1, "
+                    "700, 'dry_run', '{}', 1)"
+                )
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO manual_orders (client_order_id, submitted_ms, "
+                    "ticker, side, action, count, max_price_tenths, status, "
+                    "request_body_json, dry_run) "
+                    "VALUES ('bad-side', 1, 'T', 'maybe', 'buy', 1, 700, "
+                    "'dry_run', '{}', 1)"
+                )
+        finally:
+            conn.close()
+
+    def test_replaying_the_step_after_it_landed_keeps_the_rows(self, tmp_path):
+        """The crash point a rebuild is usually not idempotent at.
+
+        v4 needs `skip_statements_if_column` because its rebuild carries no
+        rows, so a replay after full success swaps the real table for an empty
+        one. This rebuild carries its rows and needs no such guard -- and
+        there is no column it could guard on, since the step adds none. That
+        claim is only worth what this test proves, so the step is run twice
+        over a database holding real bets.
+
+        Mutation observed red: change `INSERT OR IGNORE` to `INSERT` and the
+        replay raises on the primary key; delete the INSERT and the rows
+        vanish.
+        """
+        path = self._v34_manual_orders(tmp_path)
+        conn = db.init_db(path)
+        # Wind the stamp back so v35 is eligible again, which is exactly what
+        # a crash between the last statement and the stamp leaves behind.
+        conn.execute("UPDATE meta SET value = '34' WHERE key = 'schema_version'")
+        conn.commit()
+        assert 35 in db.migrate(conn)
+
+        rows = conn.execute(
+            "SELECT id, p_yes_bp FROM manual_orders ORDER BY id"
+        ).fetchall()
+        assert [tuple(r) for r in rows] == [
+            (1, self.BEFORE),
+            (2, self.BEFORE + 1),
+        ], "the replayed rebuild did not carry the record"
+        conn.close()
+
+    def test_a_crash_after_the_copy_replays_without_duplicating(self, tmp_path):
+        """The other crash point, and the one `INSERT OR IGNORE` is for.
+
+        The test above replays the whole step after it landed, which the temp
+        table's absence makes safe on its own -- so it does NOT exercise the
+        copy's conflict behaviour, and a plain `INSERT` passes it. The state
+        that needs the `OR IGNORE` is a crash between the copy and the swap:
+        `manual_orders_v35` exists and already holds every row. Reached here
+        by running the step's first two statements by hand and then letting
+        `migrate` run the whole step from the top, which is exactly what the
+        next boot does.
+
+        Mutation observed red: `INSERT OR IGNORE` -> `INSERT` in
+        `_MANUAL_ORDERS_NULLABLE_P_YES` raises on the primary key.
+        """
+        path = self._v34_manual_orders(tmp_path)
+        conn = db.connect(path)
+        # The interrupted run: create the temp table and copy into it, then
+        # die before the DROP.
+        create, copy = db._MIGRATIONS[35].statements[:2]
+        conn.execute(create)
+        conn.execute(copy)
+        conn.commit()
+        assert conn.execute(
+            "SELECT COUNT(*) FROM manual_orders_v35"
+        ).fetchone()[0] == 2, "the fixture did not reach the crash point"
+        conn.close()
+
+        conn = db.init_db(path)
+        try:
+            assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
+            rows = conn.execute(
+                "SELECT id, p_yes_bp FROM manual_orders ORDER BY id"
+            ).fetchall()
+            assert [tuple(r) for r in rows] == [
+                (1, self.BEFORE),
+                (2, self.BEFORE + 1),
+            ], "the resumed rebuild did not carry the record exactly once"
+        finally:
+            conn.close()
+
+    def test_a_v34_database_is_refused_until_it_is_migrated(self, tmp_path):
+        """The API opens read-only and cannot migrate, which is why the
+        entrypoint runs the migration before uvicorn starts."""
+        with pytest.raises(db.SchemaVersionMismatch):
+            db.open_db(self._v34_manual_orders(tmp_path))
+
+
 class TestPriceConstraints:
     """Prices are integer tenths in 0..1000. The database refuses anything else."""
 

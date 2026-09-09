@@ -16,11 +16,18 @@ It has no imports of its own, so unlike the sweep-tone driver this one needs no
 resolve hook.
 
 What this establishes: that `quoteVisibility` maps each recorded market state
-to the outcome the strip actually renders; that `askIsVisible` is true in
-exactly one of them; that the three clauses distinguishing them are each
-load-bearing (verified by mutation, not by reading); and that both the strip
-and the ticket's flag read this one function rather than spelling the
-predicate twice.
+to the outcome the strip actually renders; that the three clauses
+distinguishing them are each load-bearing (verified by mutation, not by
+reading); and that the strip reads this one function rather than spelling the
+predicate a second time inline.
+
+**`askIsVisible` and the ticket's `priceAlreadyVisible` flag are gone**
+(2026-09-09, ADR 0131). They named
+which of two masked-ask wordings the hand-bet ticket should use, and the mask
+went with the P(YES) field. The pins below are inverted rather than deleted:
+what is asserted now is that the ticket is handed no such flag, so a future
+session cannot restore a constant `true` and reintroduce ticket #24's defect
+without this going red.
 
 What this does **not** establish: that the server computes `price_is_current`
 or `quote_age_now_ms` correctly -- that is the backend's own tests, and this
@@ -121,18 +128,17 @@ NO_STATUS = {**CURRENT, "market_status": None}
 # ---------------------------------------------------------------------------
 
 _DRIVER = """
-import {{ quoteVisibility, askIsVisible }} from "{module}";
+import {{ quoteVisibility }} from "{module}";
 const input = JSON.parse(process.argv[2]);
 const detail = input.detail;
 console.log(JSON.stringify({{
   visibility: quoteVisibility(detail, input.now),
-  visible: askIsVisible(detail, input.now),
 }}));
 """
 
 
 def verdict(detail, *, now: int = NOW, source: str | None = None, tmp_path=None):
-    """Call the shipped predicate and return `(visibility, askIsVisible)`.
+    """Call the shipped predicate and return its verdict.
 
     `source` substitutes a mutated copy of the module, which is how the
     disabling checks below prove a clause is load-bearing. The module has no
@@ -166,7 +172,7 @@ def verdict(detail, *, now: int = NOW, source: str | None = None, tmp_path=None)
         f"node failed running the predicate:\n{out.stdout}\n{out.stderr}"
     )
     parsed = json.loads(out.stdout.strip())
-    return parsed["visibility"], parsed["visible"]
+    return parsed["visibility"]
 
 
 def _without_comments(ts: str) -> str:
@@ -181,34 +187,34 @@ class TestThePairThatDecidesTheFix:
     """The two states the fix must tell apart. If it cannot, it is not a fix."""
 
     def test_a_current_ask_is_visible(self):
-        assert verdict(CURRENT) == ("ask", True)
+        assert verdict(CURRENT) == "ask"
 
     def test_a_refused_stale_ask_is_not_a_visible_price(self):
         """The defect, stated as a test. Before ticket #24 the ticket claimed
         a price was on this screen in exactly this state."""
-        assert verdict(STALE) == ("stale", False)
+        assert verdict(STALE) == "stale"
 
     def test_no_detail_row_is_not_a_visible_price(self):
         """The other half of the defect: the page renders "the recorder never
         priced this ticker" and mounts no strip at all."""
-        assert verdict(None) == ("absent", False)
+        assert verdict(None) == "absent"
 
 
 @requires_node
 class TestTheStatesThatRenderNothing:
     def test_past_the_close(self):
-        assert verdict(CLOSED) == ("absent", False)
+        assert verdict(CLOSED) == "absent"
 
     def test_settled(self):
-        assert verdict(SETTLED) == ("absent", False)
+        assert verdict(SETTLED) == "absent"
 
     def test_finalized(self):
-        assert verdict(FINALIZED) == ("absent", False)
+        assert verdict(FINALIZED) == "absent"
 
     def test_a_missing_status_is_not_a_dead_market(self):
         """`?? ""` means absent reads as "not finalized". A market with no
         status string is open until something says otherwise."""
-        assert verdict(NO_STATUS) == ("ask", True)
+        assert verdict(NO_STATUS) == "ask"
 
 
 @requires_node
@@ -218,10 +224,10 @@ class TestUnreadableResolvesToRefusal:
     invented price if they resolved the other way."""
 
     def test_an_absent_currency_judgement_refuses(self):
-        assert verdict(NO_JUDGEMENT) == ("stale", False)
+        assert verdict(NO_JUDGEMENT) == "stale"
 
     def test_a_vouched_price_with_no_age_refuses(self):
-        assert verdict(NO_AGE) == ("stale", False)
+        assert verdict(NO_AGE) == "stale"
 
 
 @requires_node
@@ -252,7 +258,7 @@ class TestEveryClauseIsLoadBearing:
         source = VISIBILITY_TS.read_text(encoding="utf-8")
         mutated = source.replace('  if (dead) return "absent";\n', "")
         assert mutated != source, "the dead-market mutation no longer applies"
-        assert verdict(SETTLED, source=mutated, tmp_path=tmp_path) == ("ask", True)
+        assert verdict(SETTLED, source=mutated, tmp_path=tmp_path) == "ask"
 
     def test_deleting_the_currency_check_shows_a_stale_ask_as_a_price(
         self, tmp_path
@@ -262,7 +268,7 @@ class TestEveryClauseIsLoadBearing:
             '  if (detail.price_is_current !== true) return "stale";\n', ""
         )
         assert mutated != source, "the currency mutation no longer applies"
-        assert verdict(STALE, source=mutated, tmp_path=tmp_path) == ("ask", True)
+        assert verdict(STALE, source=mutated, tmp_path=tmp_path) == "ask"
 
     def test_deleting_the_age_check_shows_an_ageless_ask_as_a_price(
         self, tmp_path
@@ -272,7 +278,7 @@ class TestEveryClauseIsLoadBearing:
             '  if (age === null || age === undefined) return "stale";\n', ""
         )
         assert mutated != source, "the age mutation no longer applies"
-        assert verdict(NO_AGE, source=mutated, tmp_path=tmp_path) == ("ask", True)
+        assert verdict(NO_AGE, source=mutated, tmp_path=tmp_path) == "ask"
 
     def test_inverting_the_verdict_is_caught(self, tmp_path):
         """The check a substring test cannot make. An exactly inverted
@@ -283,29 +289,41 @@ class TestEveryClauseIsLoadBearing:
             '  if (detail.price_is_current === true) return "stale";\n',
         )
         assert mutated != source, "the inversion mutation no longer applies"
-        assert verdict(CURRENT, source=mutated, tmp_path=tmp_path) == (
-            "stale",
-            False,
-        )
+        assert verdict(CURRENT, source=mutated, tmp_path=tmp_path) == "stale"
 
 
 class TestOnePredicateOneSpelling:
-    """The substance of the ADR 0065 amendment: the strip and the ticket's
-    flag read one function. These are source-text pins on purpose -- "does
-    this file call that function" is a question about text.
+    """One function decides whether the strip shows a price, and only the
+    strip reads it. These are source-text pins on purpose -- "does this file
+    call that function" is a question about text.
     """
 
-    def test_the_market_page_derives_the_flag_rather_than_asserting_it(self):
-        """Mutation observed red: restore `priceAlreadyVisible` bare."""
+    def test_the_ticket_is_handed_no_price_visibility_flag(self):
+        """**Inverted 2026-09-09, not deleted, and not to make it pass.**
+
+        This asserted `askIsVisible(detail, now)` was passed to the ticket --
+        ticket #24's fix, which made the mask's flag DERIVED rather than a
+        constant `true`. The mask it fed is gone with the P(YES) field (ADR 0131, superseding ADR 0065
+        §2), so the flag has no meaning left to derive.
+
+        What is pinned instead is the property that made #24 a defect: the
+        ticket must not be told a price is on screen. A bare
+        `priceAlreadyVisible` restored here would be exactly the original bug
+        with no wording behind it, and the prop no longer exists on the
+        component, so it can only arrive as drift.
+
+        Mutation observed red: add `priceAlreadyVisible` back to the mount.
+        """
         page = _without_comments(MARKET_PAGE.read_text(encoding="utf-8"))
-        assert "askIsVisible(detail, now)" in page, (
-            "the market screen no longer derives the ticket's flag from the "
-            "quote strip's own verdict"
+        assert "priceAlreadyVisible" not in page, (
+            "the market screen passes a price-visibility flag to a ticket "
+            "that has no such prop and masks nothing (ADR "
+            "ADR 0131)"
         )
-        assert not re.search(r"priceAlreadyVisible\s*/>", page), (
-            "`priceAlreadyVisible` is passed as a bare true again -- the "
-            "ticket will claim a price is on screen when none is rendered "
-            "(ADR 0065, 2026-09-05 amendment; decision-map #24)"
+        assert "askIsVisible" not in page, (
+            "`askIsVisible` is read again -- it was removed with its only "
+            "caller, and a re-derivation here is the second spelling this "
+            "file exists to prevent"
         )
 
     def test_the_strip_reads_the_shared_predicate_rather_than_respelling_it(self):
@@ -381,16 +399,21 @@ class TestTheSearchResultReachesThePrice:
         for promise in ("the price", "See the price", "the ask"):
             assert promise not in link, (
                 f"the search link promises {promise!r}, which the game screen "
-                "does not always have -- the same claim ADR 0065's amendment "
-                "removed from the ticket"
+                "does not always have -- the same claim ADR 0065's 2026-09-05 "
+                "amendment removed from the ticket, before the ticket's mask "
+                "was removed outright"
             )
 
     def test_the_list_itself_still_carries_no_price(self):
-        """What keeps ADR 0065's mask intact on this screen. The link changes
-        where a reader can go, never what this component shows."""
+        """The list stays price-free. It used to be ADR 0065's mask that made
+        this load-bearing; what makes it load-bearing now is that a price here
+        would carry no age, no currency judgement and no book beside it. The
+        link changes where a reader can go, never what this component shows.
+        """
         search = _without_comments(SEARCH.read_text(encoding="utf-8"))
         for field in ("ask_dollars", "ask_display", "ask_tenths"):
             assert field not in search, (
-                f"the search list now renders {field}; browsing for an ask is "
-                "exactly what ADR 0065's masking prevents"
+                f"the search list now renders {field} -- an ask with no age "
+                "and no currency judgement beside it, which is the one thing "
+                "this screen must not show"
             )

@@ -1802,10 +1802,19 @@ CREATE TABLE IF NOT EXISTS manual_orders (
     -- Joe's ceiling as he typed it, before snapping. The order is refused,
     -- never re-priced, when the live ask exceeds it.
     max_price_tenths    INTEGER NOT NULL,
-    -- The typed P(YES), basis points (ADR 0065). Required at the route.
-    -- Lives HERE, beside the order it preceded -- never in `bet_estimates`,
-    -- whose stopped-study log stays terminal.
-    p_yes_bp            INTEGER NOT NULL,
+    -- The typed P(YES), basis points. **NULLABLE since v35** -- the ticket
+    -- stopped asking (ADR 0131,
+    -- superseding ADR 0065 §2 on Joe's instruction). It lives HERE, beside
+    -- the order it preceded, and never in `bet_estimates`, whose
+    -- stopped-study log stays terminal.
+    --
+    -- **NULL means "not asked", and there is no sentinel.** A `p_yes_bp = 0`
+    -- would read as "he thought this had no chance", which on a money row is
+    -- a lie rather than a gap -- the same reasoning the consensus block below
+    -- gives for its own NULLs. The four rows written while the field was
+    -- required keep their real values: they are history, nothing backfills
+    -- them, and nothing zeroes them.
+    p_yes_bp            INTEGER,
     status              TEXT NOT NULL,
     request_body_json   TEXT NOT NULL,
     error_text          TEXT,
@@ -1893,7 +1902,7 @@ CREATE TABLE IF NOT EXISTS manual_orders (
     CHECK (side IN ('yes', 'no')),
     CHECK (action = 'buy'),
     CHECK (count > 0),
-    CHECK (p_yes_bp BETWEEN 1 AND 9999),
+    CHECK (p_yes_bp IS NULL OR p_yes_bp BETWEEN 1 AND 9999),
     CHECK (dry_run IN (0, 1))
 );
 

@@ -1,29 +1,32 @@
 "use client";
 
 /**
- * The manual ticket (ADR 0063 + 0065): Joe's own hand bet, through the
- * portal, with his own number typed before the price is revealed.
+ * The manual ticket (ADR 0063): Joe's own hand bet, through the portal.
  *
- * The ordering is the design, not a flourish. Step 1 asks for P(YES) with
- * the ask MASKED — the moment the ask is visible the typed number becomes
- * the ask's number (anchoring; the Playbook has taught this since it was
- * written). The reveal is the reward for the estimate. The server enforces
- * its half regardless (`p_yes_bp` is required at the route); this masking
- * is the client's half.
+ * **THE TICKET ASKS FOR NO PROBABILITY, AND NOTHING IS MASKED** — removed
+ * 2026-09-09 on Joe's instruction, in his own words: "what is even the point
+ * of the (p)yes score entry? I don't need it. it just gets in the way." See
+ * `docs/adr/0131.md`, which
+ * supersedes ADR 0065 §2.
  *
- * THE MASK IS SURFACE-DEPENDENT, AND SAYING SO IS THE HONEST OPTION.
- * `priceAlreadyVisible` is passed true by every surface that renders
- * Kalshi's ask above this control — which, from the day the ticket shipped,
- * has included `/market/[ticker]` itself: its quote strip prints "Ask $X"
- * above the ticket whenever the quote is current. On those surfaces the
- * mask cannot hold, and a ticket that claims to be hiding a number the page
- * is already showing teaches the reader to distrust the rest of the copy.
- * The estimate step stays mandatory everywhere (the route refuses without
- * `p_yes_bp`), and the wording tells the truth about which case this is.
- * Where the surface shows fair value only — the parlay desk's legs, "who's
- * likely to win tonight" — the mask genuinely holds and the original
- * wording stands. ADR 0071 §2.2 makes price transparency the desk's job at
- * the moment of a bet, so the fix is never to hide the ask on the card.
+ * What used to be here: step 1 asked for P(YES) with the ask MASKED, on the
+ * argument that the moment the ask is visible the typed number becomes the
+ * ask's number (anchoring). That argument is sound and it was not what
+ * failed. ADR 0065 shipped over a red-team objection — "an unscored form is
+ * a speed bump a user learns to type through" — which lost on exactly one
+ * premise: that `bets.bet_clv()` had just given a pre-bet P(YES) a consumer.
+ * **That consumer was never built.** Nothing in the tree SELECTs `p_yes_bp`.
+ * Anti-anchoring protects a number nobody scores, so it bought friction and
+ * nothing else, and the red-team's description is what the desk actually was.
+ *
+ * Opening the control now goes straight to the live book. Removing the field
+ * removes no risk control: the desk lockout, idempotency, the KXMVE
+ * acknowledgement, the price ceiling, depth at the ask, the netting guard,
+ * the shard collateral check and reserve-then-check are all server-side and
+ * all untouched.
+ *
+ * ADR 0071 §2.2 makes price transparency the desk's job at the moment of a
+ * bet, which is now the whole of what this control does.
  *
  * MORE PLACES TO START A BET IS NOT MORE BETS. This control is mounted
  * inline on the slate rows, the Picks cards and the parlay legs. What
@@ -39,8 +42,9 @@
  * before retrying — rendered loud, never a spinner.
  *
  * Both platforms: one-handed at 390px (large touch targets, stacked), and
- * keyboard on desktop — Enter advances step 1's form, Escape closes the
- * ticket, the confirm is an explicit button and never an implicit submit.
+ * keyboard on desktop — Escape closes the ticket, and the confirm is an
+ * explicit button and never an implicit submit. (There is no form to advance
+ * with Enter any more; the estimate step it belonged to is gone.)
  *
  * **The typed bearer token was REMOVED 2026-09-08 on Joe's instruction**
  * (`docs/adr/0112-the-caps-come-off-the-hand-bet-path.md` §1, answer 3). This
@@ -57,7 +61,7 @@
  * the API is unchanged — `require_auth` still guards every mutating route.
  */
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 
 import {
   DISPLAY_TIME_ZONE,
@@ -77,18 +81,8 @@ function releaseClock(ms: number): string {
   });
 }
 
-/** "62.5" -> 6250 bp, or null when the text is not a probability. */
-function percentToBp(text: string): number | null {
-  const value = Number.parseFloat(text.replace(",", "."));
-  if (!Number.isFinite(value)) return null;
-  const bp = Math.round(value * 100);
-  if (bp < 1 || bp > 9999) return null;
-  return bp;
-}
-
 type Phase =
   | { name: "closed" }
-  | { name: "estimate" }
   | { name: "loading" }
   | { name: "blocked"; words: string }
   | { name: "ticket"; market: ManualMarket }
@@ -104,14 +98,11 @@ export type BuyVariant = "section" | "inline";
 export default function ManualTicket({
   ticker,
   variant = "section",
-  priceAlreadyVisible = false,
   openLabel,
   note,
 }: {
   ticker: string;
   variant?: BuyVariant;
-  /** True on any surface that renders Kalshi's ask above this control. */
-  priceAlreadyVisible?: boolean;
   /** Overrides the open affordance's words on a crowded surface. */
   openLabel?: string;
   /** An extra sentence this surface must say before a bet — the parlay
@@ -119,8 +110,6 @@ export default function ManualTicket({
   note?: string;
 }) {
   const [phase, setPhase] = useState<Phase>({ name: "closed" });
-  const [percent, setPercent] = useState("");
-  const [pYesBp, setPYesBp] = useState<number | null>(null);
   const [side, setSide] = useState<"yes" | "no">("yes");
   const [contracts, setContracts] = useState(1);
   const [maxPriceTenths, setMaxPriceTenths] = useState<number | null>(null);
@@ -130,19 +119,9 @@ export default function ManualTicket({
   const [comboOk, setComboOk] = useState(false);
   // One idempotency key per opened ticket: two taps are one order.
   const [intentKey, setIntentKey] = useState<string | null>(null);
-  const estimateInput = useRef<HTMLInputElement>(null);
-  // Several of these can share a screen, so every id is instance-scoped.
-  const uid = useId();
-  const estimateId = `manual-p-yes-${uid}`;
-
-  useEffect(() => {
-    if (phase.name === "estimate") estimateInput.current?.focus();
-  }, [phase.name]);
 
   const close = useCallback(() => {
     setPhase({ name: "closed" });
-    setPercent("");
-    setPYesBp(null);
     setComboOk(false);
     setIntentKey(null);
   }, []);
@@ -156,8 +135,7 @@ export default function ManualTicket({
     return () => document.removeEventListener("keydown", onKey);
   }, [phase.name, close]);
 
-  const revealMarket = async (bp: number) => {
-    setPYesBp(bp);
+  const openTicket = async () => {
     setPhase({ name: "loading" });
     setIntentKey(crypto.randomUUID());
     let market: ManualMarket;
@@ -184,7 +162,7 @@ export default function ManualTicket({
     if (market.lockout_until_ms !== null && market.lockout_until_ms > now) {
       setPhase({
         name: "blocked",
-        words: `You said not tonight. The desk unlocks at ${releaseClock(market.lockout_until_ms)} — there is no early unlock, and that is the point. (Your number was still worth typing: it is yours, not the ask's.)`,
+        words: `You said not tonight. The desk unlocks at ${releaseClock(market.lockout_until_ms)} — there is no early unlock, and that is the point.`,
       });
       return;
     }
@@ -210,11 +188,7 @@ export default function ManualTicket({
   };
 
   const confirm = async (market: ManualMarket) => {
-    if (
-      pYesBp === null ||
-      maxPriceTenths === null ||
-      intentKey === null
-    ) {
+    if (maxPriceTenths === null || intentKey === null) {
       return;
     }
     setPhase({ name: "sending", market });
@@ -224,7 +198,6 @@ export default function ManualTicket({
         side,
         contracts,
         max_price_tenths: maxPriceTenths,
-        p_yes_bp: pYesBp,
         idempotency_key: intentKey,
         combo_acknowledged: market.is_combo ? comboOk : false,
       },
@@ -264,65 +237,19 @@ export default function ManualTicket({
       {phase.name === "closed" && (
         <div className={inline ? "" : "mt-3"}>
           <button
-            onClick={() => setPhase({ name: "estimate" })}
+            onClick={() => void openTicket()}
             className="min-h-11 rounded-xl border border-border-strong px-4 py-2.5 text-sm font-semibold"
           >
             {openLabel ?? "Open the ticket"}
           </button>
           <p className="mt-2 max-w-[65ch] text-xs text-muted">
-            {priceAlreadyVisible
-              ? "The ticket asks for your own number first. The price is already on this screen, so that number is anchored by it — type it anyway; it is recorded beside the order."
-              : "The ticket asks for your own number first and shows the price after — a number typed after seeing the ask is just the ask wearing your handwriting."}
+            The ticket reads Kalshi&rsquo;s live book and shows you the ask you
+            would pay. Nothing is sent until you confirm.
           </p>
           {note && (
             <p className="mt-2 max-w-[65ch] text-xs text-muted">{note}</p>
           )}
         </div>
-      )}
-
-      {phase.name === "estimate" && (
-        <form
-          className="mt-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const bp = percentToBp(percent);
-            if (bp !== null) void revealMarket(bp);
-          }}
-        >
-          <label
-            htmlFor={estimateId}
-            className="text-xs font-semibold uppercase tracking-widest text-muted"
-          >
-            Your <Term k="p_yes">P(YES)</Term>, percent
-            {priceAlreadyVisible ? "" : " — before the price"}
-          </label>
-          <input
-            id={estimateId}
-            ref={estimateInput}
-            value={percent}
-            onChange={(event) => setPercent(event.target.value)}
-            inputMode="decimal"
-            autoComplete="off"
-            placeholder="62.5"
-            className="mt-2 w-full max-w-xs rounded-xl border bg-background px-4 py-3 text-2xl font-semibold"
-          />
-          {percentToBp(percent) !== null && (
-            <p className="mt-2 max-w-[65ch] text-xs text-muted">
-              = a {(percentToBp(percent)! / 100).toFixed(2)}% chance this
-              market ends YES — not your side, YES.
-            </p>
-          )}
-          {note && (
-            <p className="mt-2 max-w-[65ch] text-xs text-muted">{note}</p>
-          )}
-          <button
-            type="submit"
-            disabled={percentToBp(percent) === null}
-            className="mt-3 block min-h-11 rounded-xl border border-border-strong px-4 py-2.5 text-sm font-semibold disabled:opacity-40"
-          >
-            {priceAlreadyVisible ? "Continue" : "Show me the price"}
-          </button>
-        </form>
       )}
 
       {phase.name === "loading" && (
@@ -781,8 +708,7 @@ function Placed({
         {placed.contracts} × {placed.side.toUpperCase()} on{" "}
         <span className="font-mono text-xs">{placed.ticker}</span> at{" "}
         {placed.limit_price_display}, costs at most{" "}
-        {placed.worst_case_cost_display}. Your P(YES):{" "}
-        {(placed.p_yes_bp / 100).toFixed(2)}%.
+        {placed.worst_case_cost_display}.
       </p>
       <p className="mt-2 max-w-[65ch] text-xs leading-relaxed text-muted">
         {placed.note}

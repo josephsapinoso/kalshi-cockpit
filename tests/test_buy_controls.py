@@ -32,6 +32,7 @@ WHAT THESE TESTS DO NOT ESTABLISH
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
@@ -47,6 +48,15 @@ SRC = REPO / "frontend" / "src"
 
 def source(rel: str) -> str:
     return (SRC / rel).read_text(encoding="utf-8")
+
+
+def _without_comments(ts: str) -> str:
+    """TypeScript source with comments removed, so a pin on what a screen
+    *does* is neither satisfied nor defeated by prose about what it used to
+    do. Several of these files now carry paragraphs naming a prop precisely
+    because it was removed."""
+    ts = re.sub(r"/\*.*?\*/", "", ts, flags=re.S)
+    return re.sub(r"//[^\n]*", "", ts)
 
 
 # --------------------------------------------------------------------------
@@ -122,32 +132,44 @@ class TestTheWordsThatCarryTheClaim:
             "the combination buy does not say the book has no way out"
         )
 
-    def test_the_ticket_tells_the_truth_about_the_mask_on_both_surfaces(self):
-        """ADR 0065's mask holds only where the surface hides the ask. The
-        ticket must carry BOTH wordings, and the estimate step must still
-        show no price under either. Mutation observed red: collapse the
-        ternary to one branch."""
-        ticket = source("components/ManualTicket.tsx")
-        assert "priceAlreadyVisible" in ticket
-        assert "already on this screen" in ticket, (
-            "no wording exists for a surface that shows the ask"
-        )
-        assert "wearing your handwriting" in ticket, (
-            "the masked wording was lost"
-        )
+    def test_no_surface_hands_the_ticket_a_masked_ask_flag(self):
+        """**Inverted 2026-09-09 on Joe's instruction, not deleted.**
 
-    def test_the_estimate_step_still_shows_no_price_on_either_surface(self):
-        """The pin `tests/test_manual_orders.py` holds, re-asserted here
-        because the surface fork is a new way to break it."""
+        This required the ticket to carry BOTH masked-ask wordings and the
+        `priceAlreadyVisible` flag that chose between them (ADR 0065 §2, its
+        2026-09-05 amendment). Joe removed the probability entry the mask
+        existed to protect, so the flag has nothing to select and the prop is
+        gone from the component. Reversed rather than dropped: a surface that
+        starts passing it again is passing a prop that does not exist, which
+        is drift worth failing on.
+
+        Mutation observed red: add `priceAlreadyVisible` to any of the four
+        mounts below.
+        """
         ticket = source("components/ManualTicket.tsx")
-        start = ticket.index('{phase.name === "estimate"')
-        block = ticket[start:ticket.index("{phase.name ===", start + 30)]
-        assert "ask_display" not in block and "ask_tenths" not in block
+        for banned in ("already on this screen", "wearing your handwriting"):
+            assert banned not in ticket, (
+                f"the masked-ask wording `{banned}` survives a ticket that "
+                f"masks nothing"
+            )
+        for surface in (
+            "components/SlateRow.tsx",
+            "components/LiveBoard.tsx",
+            "components/PriceOnKalshi.tsx",
+            "app/market/[ticker]/page.tsx",
+        ):
+            body = _without_comments(source(surface))
+            assert "priceAlreadyVisible" not in body, (
+                f"{surface} passes a masked-ask flag to a ticket with no "
+                f"such prop"
+            )
 
     def test_the_search_result_list_carries_no_price_field(self):
-        """The masking survives the search screen only because the payload
-        has no quote in it. Pinned on the client too, so a future field
-        cannot be rendered here without this going red."""
+        """The list stays price-free. It was ADR 0065's masking that made
+        this load-bearing; what makes it load-bearing now is that a price
+        here would carry no age, no currency judgement and no book beside it.
+        Pinned on the client too, so a future field cannot be rendered here
+        without this going red."""
         search = source("components/MarketSearch.tsx")
         for banned in ("ask_display", "ask_tenths", "yes_bid", "last_price"):
             assert banned not in search, banned

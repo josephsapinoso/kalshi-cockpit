@@ -2,20 +2,23 @@
  * Does the game screen actually show an ask right now?
  *
  * **One predicate, one spelling.** The quote strip on `/market/[ticker]`
- * decides between three outcomes, and the hand-bet ticket's
- * `priceAlreadyVisible` flag is a claim about which one happened. Before
- * 2026-09-05 the page asserted that flag as a constant `true` while the strip
- * computed the real answer inline, so the ticket announced "the price is
- * already on this screen" in the two states where the strip prints no price
- * (ADR 0065, 2026-09-05 amendment; decision-map ticket #24).
- *
- * The fix is not a second condition on the page. It is that the strip's own
- * verdict becomes a value both callers read, because this repo has recorded
- * the same shape four times — one predicate with two spellings, and the
- * screen believing the wrong one — and every instance was the second spelling
+ * decides between three outcomes, and this file is where that decision lives
+ * so it cannot be spelled a second time. This repo has recorded the same
+ * shape four times — one predicate with two spellings, and the screen
+ * believing the wrong one — and every instance was the second spelling
  * drifting from the first. **The strip is the authority on whether the strip
  * shows a price.** Re-deriving that anywhere else reopens the defect the next
  * time the refusal grows a condition.
+ *
+ * **`askIsVisible` was removed 2026-09-09 with its only caller.** It existed
+ * to feed the hand-bet ticket's `priceAlreadyVisible` flag — which of two
+ * masked-ask wordings to render — and the mask went with the P(YES) field
+ * (ADR 0131, superseding ADR 0065
+ * §2). Ticket #24's fix is not undone by that: it required the flag to be
+ * DERIVED from this function rather than asserted, and the way a flag with no
+ * reader satisfies that requirement is by not existing. What is left is the
+ * strip, reading its own verdict. Do not reintroduce a named `=== "ask"`
+ * wrapper without a caller.
  *
  * Plain TypeScript with no React import and no dependency on `lib/api`, so
  * `tests/test_quote_visibility.py` can execute the shipped function under
@@ -49,8 +52,8 @@ export type QuotableDetail = {
 /**
  * The quote strip's three outcomes, named.
  *
- * - `"ask"` — a current ask is printed. This is the only value that makes
- *   ADR 0065's "the price is already on this screen" wording honest.
+ * - `"ask"` — a current ask is printed. The only value on which the strip
+ *   may show a number at all.
  * - `"stale"` — the market is live but the recorded ask is not transactable,
  *   so the strip refuses it outright in words. **Refused, not greyed**: a
  *   stale ask on a page with no fresher rows beside it reads as a price.
@@ -95,20 +98,4 @@ export function quoteVisibility(
   if (age === null || age === undefined) return "stale";
 
   return "ask";
-}
-
-/**
- * Is Kalshi's ask on the screen above the hand-bet ticket?
- *
- * This is exactly `priceAlreadyVisible` for the game screen. It is a named
- * function rather than an inline `=== "ask"` at the call site so that the
- * ticket's flag and the strip's render read the same word, and so a future
- * fourth outcome of `quoteVisibility` cannot silently become "a price is
- * visible" by falling outside a comparison someone wrote once.
- */
-export function askIsVisible(
-  detail: QuotableDetail | null | undefined,
-  now: number,
-): boolean {
-  return quoteVisibility(detail, now) === "ask";
 }

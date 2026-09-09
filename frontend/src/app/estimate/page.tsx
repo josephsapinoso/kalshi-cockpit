@@ -6,24 +6,27 @@
  *
  * Joe stopped the study on 2026-08-20 (Amendment 2, stopped without result),
  * and for two days this page kept a working form feeding a stopped study —
- * quiet misdirection with a banner on top. What retires the form for good is
- * that the typed P(YES) moved to where the bet is: the manual ticket asks for
- * it BEFORE revealing the price (ADR 0065) and the route refuses without it,
- * so every hand bet placed through the portal carries the number that was in
- * Joe's head first.
+ * quiet misdirection with a banner on top. What retired the form was that the
+ * typed P(YES) moved to where the bet is: the manual ticket asked for it
+ * BEFORE revealing the price (ADR 0065) and the route refused without it.
  *
- * **IT IS RECORDED. NOTHING READS IT BACK.** This comment said until
- * 2026-08-29 that the ticket is "where `bet_clv` gives it a consumer", and
- * that was never true: `bet_clv` (backend/bets.py:120) scores
- * `entry_price_tenths` against the closing mid and does not touch
- * `p_yes_bp`. Grep the tree -- `p_yes_bp` is written into `manual_orders`
- * and there is no SELECT on the column anywhere, only the idempotency
- * replay's `SELECT *`, which drops it. So the honest claim is about
- * CAPTURE, not consumption: the estimate is now taken under the conditions
- * that would make it worth scoring later -- typed blind, beside the order
- * it belongs to, on the bets that actually happen -- and no code scores it
- * today. Do not write a consumer back into this comment before one exists
- * in the tree; a registration that has not been accepted is not a consumer.
+ * **THE TICKET STOPPED ASKING TOO, 2026-09-09**, on Joe's instruction — ADR 0131, superseding ADR 0065 §2.
+ * `manual_orders.p_yes_bp` is nullable from schema v35 and a new row carries
+ * NULL, which means "not asked" and is never spelled `0`.
+ *
+ * The reason is the paragraph that used to stand here. **IT WAS RECORDED AND
+ * NOTHING EVER READ IT BACK.** This comment said until 2026-08-29 that the
+ * ticket is "where `bet_clv` gives it a consumer", and that was never true:
+ * `bet_clv` scores `entry_price_tenths` against the closing mid and does not
+ * touch `p_yes_bp`. Grep the tree -- there is no SELECT on the column
+ * anywhere, only the idempotency replay's `SELECT *`, which drops it. ADR
+ * 0065 made the field a precondition over a red-team objection that lost on
+ * exactly that premise, so masking protected a number nobody scores.
+ *
+ * The rows already written keep their real values. Nothing backfills them,
+ * nothing zeroes them, and the entries below are unchanged. Do not write a
+ * consumer into this comment before one exists in the tree; a registration
+ * that has not been accepted is not a consumer.
  *
  * This page keeps what was already typed:
  *

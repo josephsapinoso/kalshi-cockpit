@@ -287,7 +287,6 @@ export default function LiveBoard({
             <ManualTicket
               ticker={row.ticker}
               variant="inline"
-              priceAlreadyVisible
               openLabel="Bet this by hand"
               note="This is your own bet, not the engine's. It is recorded apart from the engine's record and never counts toward the gate."
             />

@@ -13,8 +13,10 @@ WHAT THIS DOES NOT ESTABLISH
 ----------------------------
 - Nothing about the venue's create-order response (never observed; C0 owns
   that) — the placer here runs dry.
-- Nothing about the frontend ticket; the masking of the ask until P(YES) is
-  typed is a client courtesy whose server half is the required `p_yes_bp`.
+- Nothing about the frontend ticket. There is no masking left to establish:
+  the ticket stopped asking for a probability on 2026-09-09 (ADR 0131, superseding ADR 0065 §2),
+  and the pins below assert only that the route no longer requires one and
+  that the row records NULL rather than a zero.
 """
 
 from __future__ import annotations
@@ -337,7 +339,6 @@ def _body(**overrides):
         "side": "yes",
         "contracts": 1,
         "max_price_tenths": 700,
-        "p_yes_bp": 7000,
         "idempotency_key": "test-key-00000001",
     }
     body.update(overrides)
@@ -406,7 +407,9 @@ class TestTheHappyPathRunsDry:
         conn.close()
         assert row is not None
         assert row["status"] == "dry_run"
-        assert row["p_yes_bp"] == 7000
+        # Not asked, so not known. NULL, never 0 -- a zero would read as "he
+        # thought this had no chance", which on a money row is a lie.
+        assert row["p_yes_bp"] is None
         assert row["dry_run"] == 1
 
     async def test_a_duplicate_key_replays_the_first_answer(
@@ -419,12 +422,67 @@ class TestTheHappyPathRunsDry:
         assert second["replayed"] is True
         assert second["client_order_id"] == first["client_order_id"]
 
-    async def test_p_yes_is_required_by_the_server_not_the_form(self, tmp_path):
-        app = _app(_base_db(tmp_path))
+    async def test_a_bet_needs_no_probability_and_records_none(
+        self, tmp_path, records_only
+    ):
+        """**Inverted 2026-09-09 on Joe's instruction, not to make it pass.**
+
+        This asserted a 422 when the body carried no `p_yes_bp` -- ADR 0065's
+        precondition, enforced server-side so the client's masking could not
+        be the only thing holding it. Joe removed the field: "what is even the
+        point of the (p)yes score entry? I don't need it. it just gets in the
+        way." ADR 0065 shipped over a red-team objection that an unscored form
+        is a speed bump a user learns to type through, and it lost on one
+        premise -- that `bets.bet_clv()` had given a pre-bet P(YES) a
+        consumer. Nothing in the tree ever SELECTed the column. See
+        `docs/adr/0131.md`.
+
+        Kept and reversed rather than deleted, because the thing worth pinning
+        is that a bet with no probability GOES THROUGH -- a deletion would
+        leave nothing to fail if a future session restored the precondition.
+        And the distinguishing consequence is asserted, not merely the absence
+        of a refusal: the row exists and its `p_yes_bp` is NULL.
+        """
+        path = _base_db(tmp_path)
+        app = _app(path)
         body = _body()
-        del body["p_yes_bp"]
+        assert "p_yes_bp" not in body, "the ticket no longer sends one"
         response = await post(app, "/api/manual-orders", json=body, headers=AUTH)
-        assert response.status_code == 422
+        assert response.status_code == 200, response.text
+        assert "p_yes_bp" not in response.json(), (
+            "the receipt still reports a probability the ticket never asked for"
+        )
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM manual_orders").fetchone()
+        conn.close()
+        assert row is not None, "the order was accepted but nothing was written"
+        assert row["p_yes_bp"] is None
+
+    async def test_a_stale_client_that_still_sends_one_is_not_refused(
+        self, tmp_path, records_only
+    ):
+        """A phone holding an old bundle must not start 422ing.
+
+        The field is gone from `ManualOrderRequest`, and Pydantic ignores an
+        extra key rather than rejecting it -- so the order lands and the row
+        records NULL, which is the truth about a number this server did not
+        ask for and does not read.
+        """
+        path = _base_db(tmp_path)
+        app = _app(path)
+        response = await post(
+            app, "/api/manual-orders", json=_body(p_yes_bp=7000), headers=AUTH,
+        )
+        assert response.status_code == 200, response.text
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT p_yes_bp FROM manual_orders").fetchone()
+        conn.close()
+        assert row["p_yes_bp"] is None, (
+            "a client-supplied probability was written after the server "
+            "stopped asking for one"
+        )
 
 
 class TestTheGuardsRefuse:
@@ -458,16 +516,16 @@ class TestTheGuardsRefuse:
         # screen gates its buy control on this field.
         assert second.json()["cooloff_until_ms"] is None
 
-    async def test_the_estimate_route_reports_no_cooloff_either(
+    async def test_the_market_route_reports_no_cooloff_either(
         self, tmp_path, records_only
     ):
         """The half a server-side removal alone would have missed.
 
-        `ManualTicket.tsx:183` refuses client-side on `market.cooloff_until_ms`.
-        Removing the brake in the route and leaving the estimate populating
-        this field would have left the screen enforcing a rule the server had
-        dropped -- the "one predicate with two spellings" failure this repo has
-        now hit three times.
+        `ManualTicket` refuses client-side on `market.cooloff_until_ms`.
+        Removing the brake in the route and leaving `/api/manual/market`
+        populating this field would have left the screen enforcing a rule the
+        server had dropped -- the "one predicate with two spellings" failure
+        this repo has now hit three times.
         """
         app = _app(_base_db(tmp_path))
         response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
@@ -1222,8 +1280,7 @@ class TestTheReserveIsAtomic:
         with pytest.raises(manual_store.OrderNotRecorded):
             manual_store.reserve_manual_order(
                 conn, order, dry_run=True, submitted_ms=1,
-                max_price_tenths=700,
-                p_yes_bp=7000, idempotency_key="k-00000001",
+                max_price_tenths=700, idempotency_key="k-00000001",
             )
         count = conn.execute("SELECT COUNT(*) FROM manual_orders").fetchone()[0]
         conn.close()
@@ -1453,7 +1510,10 @@ class TestTheManualMarketRead:
         assert response.status_code == 200
         body = response.json()
         assert body["ticker"] == TICKER
-        assert body["p_yes_required"] is True
+        # No `p_yes_required` flag since 2026-09-09: the ticket asks for no
+        # probability and masks nothing, so a flag saying otherwise would be
+        # the screen enforcing a rule the route had dropped.
+        assert "p_yes_required" not in body
         assert body["sides"]["yes"]["ask_tenths"] == 450
         assert body["sides"]["yes"]["authorised_contracts"] >= 1
         # The read reports the DEPLOYED value, not a fixture's preference: the
@@ -2040,36 +2100,79 @@ class TestTheSnapshotCanNeverBlockABet:
         assert "consensus_fair_tenths" not in source
 
 
-class TestTheTicketAsksBeforeItShows:
-    """ADR 0065's client half, pinned on the source: the estimate step must
-    not render an ask, and the confirm control must be gated on the typed
-    token. (The server half — required `p_yes_bp`, bearer auth — is driven
-    above; these pins stop the masking quietly eroding in a restyle.)"""
+class TestTheTicketAsksForNoProbability:
+    """**Inverted 2026-09-09 on Joe's instruction, not deleted.**
+
+    This class was `TestTheTicketAsksBeforeItShows` and pinned ADR 0065's
+    client half: an estimate step that renders no ask, and a market read that
+    cannot run until a probability is typed. Joe removed the field, so what is
+    pinned now is the opposite claim -- there is no estimate step, no
+    probability state and nothing between the open affordance and the live
+    book. Reversed rather than dropped so a future session restoring the gate
+    goes red instead of finding a silence.
+
+    (The auth pin below is unchanged: removing a data-collection field must
+    not remove a credential.)
+    """
 
     TICKET = REPO / "frontend" / "src" / "components" / "ManualTicket.tsx"
 
-    def _phase_block(self, source: str, marker: str) -> str:
-        start = source.index(marker)
-        return source[start:source.index("{phase.name ===", start + len(marker))]
+    def _without_comments(self, source: str) -> str:
+        """Source with comments stripped, so a pin on what the ticket DOES is
+        neither satisfied nor defeated by prose about what it used to do --
+        and this component's header is now three paragraphs of exactly that.
+        """
+        source = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
+        return re.sub(r"//[^\n]*", "", source)
 
-    def test_the_estimate_step_shows_no_ask(self):
-        """Mutation observed red: render `ask_display` inside the estimate
-        phase block."""
-        source = self.TICKET.read_text(encoding="utf-8")
-        block = self._phase_block(source, '{phase.name === "estimate"')
-        assert "ask_display" not in block and "ask_tenths" not in block, (
-            "the estimate step renders a price; the typed number is now the "
-            "ask's number (anchoring — ADR 0065)"
+    def test_no_probability_is_typed_anywhere_in_the_ticket(self):
+        """Mutation observed red: restore the `pYesBp` state and its input."""
+        source = self._without_comments(
+            self.TICKET.read_text(encoding="utf-8")
+        )
+        for banned in ("p_yes_bp", "pYesBp", "percentToBp", "P(YES)"):
+            assert banned not in source, (
+                f"`{banned}` is back in the ticket; Joe removed the "
+                f"probability entry 2026-09-09 (ADR "
+                f"ADR 0131)"
+            )
+
+    def test_opening_the_ticket_reads_the_book_with_nothing_in_between(self):
+        """The inverse of the pin this replaces, which required the market
+        read to come after a typed estimate.
+
+        Mutation observed red: reintroduce an `estimate` phase between the
+        open affordance and `openTicket`.
+        """
+        source = self._without_comments(
+            self.TICKET.read_text(encoding="utf-8")
+        )
+        assert 'name: "estimate"' not in source, (
+            "the estimate phase is back -- the open affordance no longer "
+            "reaches the live book directly"
+        )
+        assert "void openTicket()" in source, (
+            "the open affordance no longer opens the ticket"
+        )
+        opener = source.index("const openTicket")
+        assert source.index("fetchManualMarket(") > opener, (
+            "the market read left openTicket"
         )
 
-    def test_the_market_is_fetched_only_after_the_estimate(self):
-        source = self.TICKET.read_text(encoding="utf-8")
-        reveal = source.index("const revealMarket")
-        fetch_call = source.index("fetchManualMarket(")
-        assert fetch_call > reveal, (
-            "the market read left revealMarket — if it runs before the "
-            "estimate is typed, the reveal ordering is decoration"
+    def test_the_ask_is_not_masked_by_anything(self):
+        """The mask was surface-dependent and both wordings are gone with it.
+
+        Mutation observed red: restore either branch of the old ternary.
+        """
+        source = self._without_comments(
+            self.TICKET.read_text(encoding="utf-8")
         )
+        for banned in ("priceAlreadyVisible", "already on this screen",
+                       "wearing your handwriting"):
+            assert banned not in source, (
+                f"the masked-ask wording `{banned}` survives a ticket that "
+                f"masks nothing"
+            )
 
     def test_the_typed_token_is_gone_and_the_order_goes_through_the_proxy(self):
         """**Inverted 2026-09-08 on Joe's instruction.**

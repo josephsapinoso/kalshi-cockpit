@@ -60,7 +60,7 @@ import TrustNote from "@/components/TrustNote";
 import { SHELL_WIDTH } from "@/lib/shell";
 import { kalshiMarketUrl } from "@/lib/kalshiLink";
 import { leagueLabel } from "@/lib/leagueLabel";
-import { askIsVisible, quoteVisibility } from "@/lib/quoteVisibility";
+import { quoteVisibility } from "@/lib/quoteVisibility";
 
 const RANGES = [
   { key: "1d", label: "Today" },
@@ -113,8 +113,8 @@ function QuoteStrip({
   now: number;
   kalshiUrl: string;
 }) {
-  // The verdict comes from `lib/quoteVisibility`, which the ticket's
-  // `priceAlreadyVisible` flag also reads. Not a tidiness move: this strip is
+  // The verdict comes from `lib/quoteVisibility`, the strip's one
+  // authority on whether it shows a price. Not a tidiness move: this strip is
   // the authority on whether this strip shows a price, and the page asserting
   // that separately is the defect ADR 0065's 2026-09-05 amendment fixes.
   const visibility = quoteVisibility(detail, now);
@@ -380,37 +380,28 @@ export default function MarketPage() {
           specialists, Willy) from one briefing fetch. */}
       <ScoutDesk ticker={ticker} />
 
-      {/* The manual ticket (ADR 0063/0065): below the desk's facts, above
-          the history. It self-reports its own unreachable states (demo, flag
-          off, lockout, cool-off) in words, so mounting it unconditionally is
-          honest on every instance.
+      {/* The manual ticket (ADR 0063): below the desk's facts, above the
+          history. It self-reports its own unreachable states (demo, flag off,
+          lockout) in words, so mounting it unconditionally is honest on every
+          instance.
 
-          `priceAlreadyVisible` is DERIVED, not asserted, and that is ticket
-          #24's precondition discharged (Joe, 2026-09-02, option A; ADR 0065
-          amended 2026-09-05). It was passed unconditionally here until then,
-          which made the ticket announce "the price is already on this screen"
-          in the three states where QuoteStrip prints nothing: `detail` null
-          (the branch above renders "the recorder never priced this ticker"),
-          a refused stale ask, and a market past its close.
+          **It takes no `priceAlreadyVisible` flag any more.** That prop
+          existed to tell the ticket which of two masked-ask wordings to use,
+          and the mask went with the P(YES) field on 2026-09-09 (ADR 0131, superseding ADR
+          0065 §2 -- Joe removed the entry, and the consumer ADR 0065 named
+          to justify the masking was never built).
 
-          `askIsVisible` is the SAME function QuoteStrip renders from, and
-          sharing it is the substance rather than the tidiness. Re-testing
-          `price_is_current` here would be correct today and would rot the
-          next time the strip's refusal grows a condition -- the fifth
-          instance of the shape CLAUDE.md already records four times: one
-          predicate with two spellings, and the screen believing the wrong
-          one.
-
-          Two earlier versions of this comment were wrong in opposite
-          directions and both are superseded: one argued the flag was "true
-          here and always has been" (written before #24 measured the states
-          in which it is not), and one said the build "was killed as not
-          earning" -- an inference NEXT.md corrected on 2026-09-04. Joe never
-          killed #24; he resolved it with a build order. */}
-      <ManualTicket
-        ticker={ticker}
-        priceAlreadyVisible={askIsVisible(detail, now)}
-      />
+          Decision-map ticket #24's fix is not undone by that, and it is
+          worth being exact about why. #24 required the flag to be DERIVED
+          from `quoteVisibility` rather than asserted as a constant `true`,
+          because asserted it made the ticket announce "the price is already
+          on this screen" in the three states where the strip prints nothing:
+          `detail` null, a refused stale ask, and a market past its close. A
+          flag with no reader satisfies that requirement outright. The strip
+          below still renders from that one function; `askIsVisible` went
+          with its only caller, so there is no second reader left to
+          disagree with it. */}
+      <ManualTicket ticker={ticker} />
 
       {/* The calm alternative (ADR 0066): a quiet row below the ticket's
           card, deliberately NOT styled as its sibling — passing must read as
