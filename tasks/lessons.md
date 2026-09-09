@@ -16,6 +16,82 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-09 - An exemption list groups by syntax, not by kind, and the dangerous member is the one that merely looks like the safe ones
+
+`frontend/src/middleware.ts:160` read
+`matcher: ["/((?!_next/static|_next/image).*)"]`, and the comment above it
+justified the exclusion honestly and correctly - for `_next/static`, which is
+hashed build assets with nothing sensitive in them. `_next/image` sits inside
+the same alternation, shares the same prefix, and is a server-side image
+processor accepting attacker-controlled parameters. It was outside the auth
+gate on a public instance in front of a real-money order path, and the
+justification a reader would find written above it was true of its neighbour.
+
+**The pattern:** an exclusion list is a claim about every member
+independently, but it is *read* as a claim about the group, and the group is
+formed by whatever the syntax happens to collect - a shared path prefix, a
+regex alternation, a glob. When one member's rationale is written down, it
+launders the others. So: when auditing an allowlist, denylist, matcher or
+`ignore` file, **check each entry against the rationale separately, and treat
+a shared prefix as zero evidence that two entries are the same kind of
+thing.** The tell here was available for free: one is inert bytes on disk,
+the other is code that runs on request. Nothing in the shape of the line says
+so.
+
+The corollary is about how the exemption was found. It was not found by
+reading the file - it was found by making the request. A gated path answered
+`307 -> /login`; `/_next/image` answered with the optimizer's own parameter
+validation strings and no cookie was sent. That is the same method the
+2026-09-08 lesson arrived at from the opposite direction, where reading a
+route body produced a *false* claim of a missing guard. **Execute the path.
+It settles both directions.**
+
+## 2026-09-09 - A tool's summary of its own scan describes the state before the scan you just triggered, and its per-item verdict can be wrong in the safe-looking direction
+
+A `git push` printed "GitHub found 1 vulnerability (1 high)". That number was
+assembled before the rescan the push set off. A second later the truth was two
+CRITICAL unauthenticated RCEs and one high, and the "1 high" it named had been
+closed by the same rescan. Reading the alerts API instead of the push output
+took one command and changed the session's whole ranking.
+
+Worse, and the part that generalises: the closed alert was closed **wrongly**.
+It reported `state: fixed` while the manifest still pinned a version squarely
+inside the advisory's vulnerable range, unchanged by that push. So the
+instrument was not merely stale, it was *affirmatively wrong about one item*.
+
+**The pattern, and it is [[verification-methods-that-lie]] with a new member:**
+a summary emitted *by* an action describes the state *before* that action's
+effects, and a status field is a claim by the tool about the world rather than
+a reading of the world. Neither is a measurement. **Verify a dependency fix by
+reading the version out of the running artifact** - here, the versions were
+read out of the live container over ssh, not inferred from the alert closing
+or from the lockfile that produced the image. When one item in a feed is
+demonstrably wrong, that is a fact about the feed, so raise scrutiny on the
+items you *liked* the answer to as well.
+
+## 2026-09-09 - A config value can be malformed in a way that reads as fluent English, and the artifact then does not exist rather than failing
+
+A new agent definition's frontmatter carried
+`description: ... not a planner: it does not judge, ...`. The unquoted `: `
+terminates the YAML scalar and makes the whole mapping unparseable. The line
+reads as an ordinary, well-punctuated sentence. Nothing warns. The agent
+simply would not have been there when someone spawned it - a file present in
+the tree, committed, reviewed, and inert.
+
+That is exactly this repo's four-times-caught shape - four modules complete,
+tested, imported by nothing, described in a handoff as features - reached by a
+new route. The earlier instances were *code* with no caller. This is
+*configuration* with no parser, and it is harder to see, because the failure
+happens before anything runs and produces no symbol to grep for.
+
+**The pattern:** whenever a file's correctness depends on a parser rather than
+on a reader, add a test that parses it, and require the fields that matter
+rather than only well-formedness. Prose punctuation inside a structured value
+is the specific hazard: colons, quotes, leading `%` or `@`, anything a
+serialisation format reserves. `tests/test_agent_definitions_parse.py` was
+written for this and verified by planting the defect back, which is the only
+way to know the guard is not decoration.
+
 ## 2026-09-08 - A spine that records its own corrections inline grows without bound, and the corrected fact is the only part a session needs
 
 `CLAUDE.md` reached 44KB, and 61% of it was one section narrating how each

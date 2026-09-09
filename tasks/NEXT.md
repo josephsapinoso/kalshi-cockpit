@@ -35,6 +35,20 @@ not reconcile a baseline by reasoning about a delta — collect both trees. The
 suite is ~15-22 minutes and growing with the record; a slow run is not a hung
 one.
 
+**READ THE DEPENDENCY ALERTS AT SESSION START — new 2026-09-09, ADR 0117.**
+They were on none of the three queues, and two critical unauthenticated RCEs
+sat on the public money box until a routine push happened to trigger a rescan:
+
+    gh api repos/josephsapinoso/kalshi-cockpit/dependabot/alerts?state=open \
+      --jq '.[] | [.number,.security_advisory.severity,.dependency.package.name] | @tsv'
+
+**Do not read the alert summary git prints on push.** It is a snapshot taken
+*before* the rescan that push triggers, so it describes the previous state.
+Mine said "1 high" while the truth a second later was two criticals and a
+high. And **do not trust an alert's own `state`**: alert #15 reports `fixed`
+while `requirements.txt:9` still pins a version inside its vulnerable range.
+Verify a fix by reading the version out of the running container.
+
 **Two things to know before planning. CLAUDE.md is current on both:**
 
 1. **The signal test has NOT declared.** The verdict is UNRESOLVED at
@@ -102,6 +116,162 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-09 — two critical unauthenticated RCEs were live on the public box and are now patched; the effort dial is set; the month-old audit is down to two real items
+
+**STATE at close.** `main` = **`88ac4ec`**, pushed. **Live and demo are both
+on `88ac4ec`.** Live stayed on machine `7812601a239428` across the deploy, so
+no volume was replaced. Read `/api/health` rather than believing this table.
+
+    live     88ac4ec verified by reading /api/health build.git_sha
+    demo     88ac4ec no longer deliberately behind — it ran the same
+             vulnerable image with no auth token at all, so it was patched too
+
+Money doors **unchanged**, verified off `/api/health` after the deploy:
+`manual_orders` **false (ARMED)**, `combo_bids` true (dry), `engine_orders`
+true (dry). Nothing this session went near arming.
+
+### THE FINDING: the image optimizer was outside the auth gate
+
+`frontend/src/middleware.ts:160` reads
+`matcher: ["/((?!_next/static|_next/image).*)"]`. `_next/image` is excluded
+from the auth middleware. The comment above justifies the exclusion for
+`_next/static`, which really is inert hashed assets. **`_next/image` is a
+server-side image processor and it inherited the static-asset exemption by
+sitting next to one in a regex.**
+
+A routine push at 03:25:50Z triggered a GitHub rescan which opened three
+alerts, **none of which was on any of the three queues**:
+
+    #17  CRITICAL  cvss4 9.5  next 16.3.1   unauth RCE, Image Optimization API, AVIF
+    #16  CRITICAL             next 16.3.1   unauth RCE, windows-hosted servers
+    #18  HIGH      cvss4 8.9  sharp 0.35.3  libheif
+
+Exposure was established **against the live box, not the source**: a gated
+path 307s to `/login`, and `/_next/image` answers with the optimizer's own
+validation strings to a request with no session cookie. `next.config.ts:8` is
+`output: "standalone"` with `unoptimized` never set; `fly.live.toml:674`
+publishes port 3000, which is Next itself, with uvicorn on loopback behind
+it. Nothing sanitises ahead of the optimizer. `sharp` 0.35.3 with native
+libvips was confirmed present in the running container.
+
+**Patched: `next` 16.3.3, `sharp` 0.35.4.** No `overrides` needed — `next`
+declares sharp at `^0.35.3`, which already admits 0.35.4, so the lock was
+merely pinning an old resolution. `npx tsc --noEmit` clean, `npm run build`
+green, and the fix verified by reading **16.3.3 and 0.35.4 out of the live
+container**, not from the deploy output. ADR 0117.
+
+**Two bounds kept deliberately. Reachable is established; EXPLOITABLE IS
+NOT.** `remotePatterns` is empty so no remote fetch is possible;
+`localPatterns` is `**` but no local path is known to return
+attacker-influenced bytes, and whether one can be made to was not determined.
+And #16 does not reach production — the container is Debian on Linux — it
+reaches `next dev` on the Windows box. Same patch, so no time was spent
+deciding.
+
+### The instrument lied and that is its own finding
+
+Alert #15 (`cryptography`) was marked **fixed** by the same rescan.
+`requirements.txt:9` pins `cryptography~=44.0`, installed is 44.0.3, and the
+advisory's vulnerable range is `>= 42.0.0, <= 48.0.0` with the fix in 49.0.0.
+**The pin is inside the vulnerable range and nothing about it changed.**
+GitHub says fixed; the pin says otherwise. Not resolved, not treated as true,
+and it is why the other three fixes were verified in the container rather
+than by watching an alert close. Bumping five majors on the RSA-PSS path that
+signs real-money orders is **not** smuggled into a security patch — it is
+open, item 3 below.
+
+### Also landed
+
+- **The effort dial is set** (previous item 3, closed). The key is `effort`
+  in `.claude/agents/*.md`, values low|medium|high|xhigh|max; the Agent tool
+  has **no** spawn-time effort parameter, and extended thinking always
+  inherits and cannot be set per agent. Partner's assignment: `partner`,
+  `measurement-skeptic`, `pre-registrar` **high**; `kalshi-platform`,
+  `runtime-realist`, `sharp-bettor` **medium**. **None is low, and that is
+  the finding** — all six are reviewers whose completion criterion is a
+  judgement, so the Sonnet-for-lookup rule was never going to bite on them.
+- **`lookup-scout` is new** — sonnet, effort low, Glob/Grep/Read/Bash, briefed
+  to answer the literal question with a `file:line` and return nothing else.
+  It is what `partner.md` already asked for and did not exist. **It does not
+  load until the next session.**
+- **`tests/test_agent_definitions_parse.py` is new, 36 tests**, and it exists
+  because this session nearly shipped the exact defect it guards: the first
+  draft of `lookup-scout.md` had an unquoted `: ` in its description, which
+  makes the YAML unparseable. It reads as ordinary English and nothing would
+  have reported it — the agent would simply not be there. Verified by
+  disabling three ways (5 red, 2 red, 1 red), green on restore.
+
+### Still open, in order
+
+**Every claim here was read off an instrument this session unless it says
+otherwise.**
+
+1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Unchanged and
+   untouched. Frozen surface:
+   `backend/odds/{timing,budget,attention,ondemand,client,sweeplog}.py`, plus
+   the `window_status` bootstrap question (`timing.py:1536`). Sunday 09-13 is
+   the only attended NFL Sunday this month and the freeze is what makes it a
+   measurement. A deploy is not contamination; logic changes are.
+2. **`_next/image` is still outside the auth matcher.** The patch fixed the
+   vulnerable code, **not the exemption**. The app uses `next/image` in zero
+   places and `frontend/public/` holds only `robots.txt`, so
+   `images: { unoptimized: true }` would remove this whole class of exposure
+   permanently instead of one advisory at a time. Not done — it is a design
+   decision, not a patch, and it wants its own ADR.
+3. **The `cryptography` pin.** `~=44.0` is inside a live advisory's vulnerable
+   range and GitHub wrongly reports it fixed. The fix is 49.0.0, five majors
+   up, on the RSA-PSS path that signs real-money orders and which
+   `requirements.txt` marks "not optional, not swappable". Needs its own
+   decision. **Do not bump it as a chore.**
+4. **`tasks/audit-2026-08-07.md` cannot be archived — two items are live.**
+   Re-checked all six this session; 5, 27, 33 and 34 are FIXED with
+   citations. The two that survive:
+   - **Item 23.** `backend/analysis/marts.py:148-165` — `headline_verdicts`
+     walks `MARTS` and appends every `status == "ok"` panel's verdict, and
+     **never consults `missing_required_marts`**. So a per-bucket finding can
+     headline the dashboard while the multiple-comparisons qualifier is
+     absent entirely. `tests/test_marts.py:108`
+     (`test_unavailable_panels_contribute_no_headline`) **enshrines it** — it
+     builds a warehouse with no `mart_multiple_comparisons` at all and
+     asserts the headline appears anyway. This is the repo's own "count your
+     tests" rule being defeated by the dashboard that exists to enforce it.
+   - **Item 25.** The order endpoint's steps 1 and 3 have no end-to-end test:
+     `backend/api/routes.py:2085-2090` (404, recommendation must exist) and
+     `:2107-2124` (422, engine must have authorised a bet). Steps 2, 5, 6 and
+     the dry-run body **are** covered now, so the item is real but much
+     smaller than in August. Step 3 guards a defect **this repo has already
+     shipped once** — the code comment names it: three rows scored at -6.0c
+     were fully orderable at maximum size.
+5. **`_resubscribe` (`backend/kalshi/ws.py:269`) is called by nothing** — not
+   `run()`, not `_resync_all`, not any test. Dead code, one line to note, not
+   a re-open of item 34.
+6. **Scout Anthropic refusal fixture (ADR 0106 §5.2)** — one **billed** call,
+   Joe-gated. **Do not pre-build the harness**: a module with no caller is
+   this repo's four-times-caught pattern, and building it "ready for him" is
+   how it gets committed as a feature.
+7. `eu` lever (2026-09-28) — nothing to build. Stop carrying it as open.
+
+**Decided this session, so nobody re-derives them (ADR 0116 leftovers):**
+
+- **Should the NEXT.md session index split? NO.** The file is under 20% of the
+  ceiling. Revisit at 90%, which is the rule that already exists.
+- **Do ADRs and measurements carry CLAUDE.md's inline-correction sediment?
+  DROPPED, and the reason transfers.** The cut was justified by
+  *always-loaded, every-turn* cost. An ADR is opened by exactly the reader who
+  came for the trail. For them the sediment is the product. 118 ADRs plus 155
+  measurements is a multi-session sweep to remove the one thing those files
+  exist to carry.
+
+**Joe-gated, two questions:**
+
+- **(A)** Fund shard 0? Shard 1 (Combos) holds $22.24, shard 0 (Default) is at
+  $0.00, so every single-market hand bet dies at the venue. Unanswered since
+  09-08.
+- **(B)** Authorise the one billed Anthropic call for the Scout refusal
+  fixture? Not covered by the standing combo-lookup authorisation.
+
+---
+
 ## 2026-09-08 (third session) — the fat was cut: CLAUDE.md is 20KB, six agents are gone, four task files are archived, seven lessons deduplicated
 
 **STATE at close.** Committed on `main`, **not pushed** — CI has not run on
@@ -131,22 +301,21 @@ record; `docs/history/claude-md-2026-09-08.md` is the old spine verbatim.
 
 ### Still open, in order
 
-1. **Push and read CI** (`gh run list --limit 5`). If red, the failure is in
-   something the six local test files did not cover — fix forward, do not
-   revert the cut.
+1. ~~**Push and read CI.**~~ **DONE 2026-09-09.** Pushed `25ad5fb..6348a42`;
+   CI run `34307087087` on `6348a42` completed **success**. The cut is
+   verified and needs no fix-forward.
 2. Everything in the entry below is unchanged and still the live brief; its
    `Still open` list is the queue. Item 1 there (the odds-path freeze to
    2026-09-14) is the one with a date on it.
-3. **Effort dial for subagents.** Joe wants the partner to use Sonnet and
-   lower effort where the job is lookup-shaped (rule now in
-   `.claude/agents/partner.md`). The Agent tool has no effort parameter;
-   confirm the frontmatter key that sets effort per agent definition (a
-   `claude-code-guide` query was in flight when the session closed) and set
-   it low on the read-only agents.
-4. Not decided (ADR 0116 §what this does not decide): whether the session
-   index below should split; whether `tasks/audit-2026-08-07.md`'s six open
-   items are still open; whether ADRs and measurements carry the same
-   inline-correction sediment.
+3. ~~**Effort dial for subagents.**~~ **DONE 2026-09-09.** The key is `effort`
+   in `.claude/agents/*.md`. All six carry one, `lookup-scout` is new, and
+   `tests/test_agent_definitions_parse.py` guards the frontmatter. See the
+   2026-09-09 entry — and note the answer to "set it low on the read-only
+   agents" was **no**: none of the six is lookup-shaped.
+4. ~~Not decided (ADR 0116 §what this does not decide).~~ **ALL THREE
+   DECIDED 2026-09-09**, in the entry above: the index does not split, the six
+   audit items are down to two live ones, and the ADR/measurement sediment
+   sweep is dropped with its reasoning recorded.
 
 **Joe-gated: nothing.**
 
