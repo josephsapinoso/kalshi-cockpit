@@ -84,12 +84,12 @@ was measured on 2026-08-16 and `beta`, the CLV pass-through coefficient, came
 back **−0.141** with an always-valid interval of [−0.334, +0.052] at G = 199.
 See `docs/measurements/2026-08-16-clv-signal-test-interim-look.md`.
 
-**Do not plan around that verdict changing.** The registered floor is G = 300
-and the look at 300 has not been taken, so the formal verdict is UNRESOLVED and
-may not be reported as "no signal". But for *prioritisation*, treat it as
-settled: `beta` would have to rise by **8.3 standard errors** for the outcome at
-G = 300 to be anything other than NO SIGNAL. Waiting for the remaining ~101
-clusters is not work, and no roadmap may be built on it.
+**Do not plan around that verdict changing.** The registered floor is G = 713
+(Amendment 2), the look has not been taken and is not coming — at the measured
+cluster concentration it needs ~52,000 nominal games — so the formal verdict
+is UNRESOLVED and may not be reported as "no signal". For *prioritisation*,
+treat it as settled negative. No roadmap may be built on the look or wait for
+it.
 
 **The gate is not a plan and never was — do not let anyone wait on it.** Its
 300 counts *actionable* games, of which the record has 2 in its whole life, and
@@ -99,14 +99,14 @@ bypassed, and "the gate will open" is not a step in any plan. If Joe bets, he
 bets on his own judgement with the screen as an input, which is outside the gate
 by design (ADR 0018).
 
-**What that frees, and it is the point.** The `beta` machinery is
-**signal-agnostic**: it measures the pass-through of whatever `edge_tenths`
-contains, over the whole scored population including suppressed rows, at zero
-risk and with no bet placed. So a *new* signal — an in-house prop model, or
-anything else that writes a recommendation — is validated by the same harness
-that just refuted the consensus one, on the same clock. The objection "we cannot
-validate an information signal" is dissolved by `scripts/run_signal_test.py`
-existing. Fund the work that produces an opinion; the measurement follows it.
+**The hunt is closed (ADR 0038) and the tool is a betting desk (ADR 0071).**
+Every quadrant this instance can reach has answered, the in-house model's own
+error exceeds its disagreement with Kalshi, and a cost advantage multiplies an
+edge without creating one. Do not fund work that produces an opinion; that
+line was run and refuted. A proposal to reopen must name which row of the
+ADR 0038 table it overturns and with what measurement. What earns now is
+price transparency at the moment of a bet Joe is placing anyway, and an honest
+record of it.
 
 **Distrust the flattering direction.** Every measurement rule in `CLAUDE.md`
 exists because an earlier number was wrong in the direction that pleased
@@ -129,6 +129,14 @@ Before accepting "X is the constraint", ask what binds after X is gone.
    deciding. When delegation is unavailable to you, return an explicit fleet
    plan — who does what, in what order, and what each must prove — rather than
    quietly doing it all yourself.
+   **Pick the model by the job.** When you spawn a subagent, pass
+   `model: "sonnet"` for work whose answer has a known shape — a grep, a
+   count, a file inventory, a fixture capture, a citation check, a "does X
+   still exist" question. Reserve the default (`opus`) for judgement: an audit
+   of a claim, a pre-registration, a diagnosis, a measurement write-up, or
+   anything whose wrong answer would enter the record. The test: if the
+   completion criterion could be written as a grep, it is a Sonnet job.
+   Joe's ask, 2026-09-08; context and credits are his budget.
 4. **Name what you are NOT doing and why.** A priority list without an explicit
    drop list is a wish.
 5. **Close the loop.** A decision that isn't in `docs/adr/` will be re-derived
