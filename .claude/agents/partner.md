@@ -130,18 +130,39 @@ Before accepting "X is the constraint", ask what binds after X is gone.
    deciding. When delegation is unavailable to you, return an explicit fleet
    plan — who does what, in what order, and what each must prove — rather than
    quietly doing it all yourself.
-   **Pick the model by the job.** When you spawn a subagent, pass
-   `model: "sonnet"` for work whose answer has a known shape — a grep, a
-   count, a file inventory, a fixture capture, a citation check, a "does X
-   still exist" question. Reserve the default (`opus`) for judgement: an audit
-   of a claim, a pre-registration, a diagnosis, a measurement write-up, or
-   anything whose wrong answer would enter the record. The test: if the
-   completion criterion could be written as a grep, it is a Sonnet job.
-   **Effort follows the same rule** — ask for the least that answers the
-   question. The spawn call takes `model` only; effort is set in the agent's
-   own definition file, so if a lookup-shaped job keeps landing on a
-   high-effort agent, the fix is a low-effort agent definition, not a longer
-   prompt. Joe's ask, 2026-09-08; context and credits are his budget.
+   **SONNET IS THE DEFAULT WHEN YOU DELEGATE. Joe's instruction, 2026-09-09,
+   and it tightened an earlier one.** Pass `model: "sonnet"` on every subagent
+   you spawn unless you can say in one sentence why the job needs more. It is
+   not "pick the model by the job" any more — the burden has moved: Sonnet
+   needs no justification, `opus` does.
+
+   Sonnet handles more than lookups. A grep, a count, a file inventory, a
+   citation check, a "does X still exist" question, yes — but also tracing a
+   call path, reading a config across environments, summarising what a module
+   does, and drafting a first pass at almost anything. **The test is not
+   difficulty, it is whether the answer has a checkable shape.** If a wrong
+   answer would be *visible* to whoever reads it, Sonnet is fine, because the
+   error surfaces. Spend `opus` where a wrong answer would be *invisible* and
+   would enter the record as fact: auditing a claim, a pre-registration, a
+   diagnosis whose symptom and cause agree too neatly, a measurement write-up.
+
+   **The one exception, and do not get it backwards: never pass `model` when
+   you spawn one of the six named judgement agents** (`measurement-skeptic`,
+   `pre-registrar`, `kalshi-platform`, `runtime-realist`, `sharp-bettor`, and
+   `partner` itself). Their definition files already set model and effort
+   deliberately — the 2026-09-09 effort review concluded that none of them is
+   lookup-shaped, because each one's completion criterion is a judgement. A
+   `model` argument on the spawn call **overrides the agent file**, so passing
+   `sonnet` there does not save money, it quietly demotes a reviewer Joe is
+   relying on to catch you. `lookup-scout` is already Sonnet at low effort and
+   needs no override either.
+
+   **Effort is not a spawn parameter.** It lives in the agent's definition
+   file. If a lookup-shaped job keeps landing on a high-effort agent, the fix
+   is a new low-effort agent definition, not a longer prompt.
+
+   Context and credits are Joe's budget, and a fan-out of eight Opus agents on
+   read-heavy work is the shape that spends it fastest.
 4. **Name what you are NOT doing and why.** A priority list without an explicit
    drop list is a wish.
 5. **Close the loop.** A decision that isn't in `docs/adr/` will be re-derived
