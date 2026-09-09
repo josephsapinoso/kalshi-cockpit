@@ -35,14 +35,21 @@ marker on a row inside an open observation window is exactly what the
 amendment exists to prevent. `_NOTE` below replaces it and says who wrote the
 row, when, under what authority, and that it is excluded from the statistic.
 
-**Provenance here is a note, and a note is not a discriminator.** Amendment 1
-A1.3.3 rules that provenance must become a *column*, because
-`POST /api/hedge/positions` accepts `note`, `combo_ticker` and
-`parlay_lookup_id` straight from the request, so a hand-written row can be made
-byte-identical to a wired one. That column does not exist yet. Until it does,
-this row is identified by description in the amendment and by the id this
-script prints -- which is why printing it, and appending it to the amendment,
-is not optional.
+**Provenance here is a note, and prose is now the whole mechanism.** Amendment
+1 A1.3.3 required provenance to become a *column* — a hand-written row can be
+made byte-identical to a wired one, since `POST /api/hedge/positions` accepts
+`note`, `combo_ticker` and `parlay_lookup_id` straight from the request.
+**Joe withdrew that requirement on 2026-09-09 and Amendment 2 A2.7 records it
+as dropped.** A1.3.3's argument was *forgeability*, which matters when a
+statistic is being defended; the statistic was killed the same day, and what
+is left is an honest reader who cannot tell — answered by a row id in a
+committed file rather than by a column.
+
+So printing the id, and appending it to the amendment, is **not optional and
+is now the only mechanism there is**. A2.7.4 is the standing constraint:
+authorship leaves no raw material, so a column added later recovers attribution
+for nothing written before it. This is not a rule that can be broken and
+written up afterwards as a deviation.
 
 What this does not do
 ----------------------

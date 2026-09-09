@@ -1161,3 +1161,363 @@ evidence already on the record that the 09-08 pair closed.
 **This is recorded rather than quietly fixed** because the first reading was
 taken against live and is what A1.1 logs. Anyone re-reading A1.1's census must
 use the corrected instrument.
+
+
+---
+
+# AMENDMENT 2, 2026-09-09 — Joe killed the adoption successor, and the entry design is now settled by argument rather than by a count
+
+**Appended, not edited in.** §10's rule, the same one Amendment 1 followed.
+**Nothing above this line has been changed** — not §8's text, not Appendix A's
+timestamps, not Amendment 1. What changes is the **status** of several clauses
+above, and every one of them is named below rather than left to be inferred.
+
+## A2.0 The decision and its authority
+
+Joe, 2026-09-09, in answer to Amendment 1 §A1.6's recommendation. His words,
+verbatim and complete:
+
+> **"kill the adoption successor"**
+
+That is the authority. It is a **decision**, not a measurement, and it is
+exactly the shape Amendment 1 asked for: A1.6 registered the arithmetic showing
+the successor is powered only in the branch where the desk fails at its own
+stated purpose, and put the choice to P1's owner rather than letting a window
+quietly never fill. The choice was made in the open, before any window
+accumulated, and it is recorded here in one line so no later session
+reconstructs it as a drift.
+
+**This section does not reopen it.** No count, no `n`, and no later reading may
+be offered as grounds to revisit; see A2.3 for what reopening actually requires.
+
+## A2.1 The successor will not be written, and what that does to the claim
+
+**There is no successor registration. There is no `G = 30` window, no `R`, no
+`G`, no `R / G`, and no path to a REFUTED verdict on the entry design.** §7's
+preconditions P1–P4 no longer gate anything, because the thing they gated does
+not exist.
+
+Said as plainly as the coordinator asked for, and with the quantifier weakened
+to what is actually true:
+
+> **The manual entry form is not refuted, and it will not be refuted by this
+> registration or by any successor to it — because the only instrument that
+> could refute it has been killed by decision rather than exhausted by data.**
+
+Three readings that must not be taken from that sentence:
+
+- It is **not** "not yet refuted". Nothing is pending. There is no future date
+  on which a verdict arrives.
+- It is **not** "the form is vindicated". No adoption evidence exists in either
+  direction; §3.1 established the clean exposure was `G = 0` before any of this,
+  and it stayed there. **Absence of a refutation is not a finding.**
+- It is **not** "the form can never be questioned by any design ever". A
+  materially different design — a different estimand, a different unit, a
+  different instrument — could bear on it later. **This amendment forecloses
+  this lineage, not the subject.** See A2.9.
+
+## A2.2 §8's three branches — status of each, stated so none reads as live
+
+§8's decision rule is quoted verbatim above and stays quoted verbatim; its
+branches are **unreachable**, not pending. A future session finding §8's
+REFUTED branch and not this amendment would believe a deletion rule is armed
+and waiting. It is not. Branch by branch:
+
+| §8 branch | status after 2026-09-09 |
+|---|---|
+| `G >= 30` and `R = 0` → **REFUTED** | **VOID — unreachable.** No window accumulates `G`, no committed script computes it (P3 was never written), and the antecedent `G >= 30` can therefore never be satisfied. **This branch may not be cited as a live deletion rule, or as a rule that would have fired.** |
+| `G >= 30` and `R >= 1` → **NOT REFUTED** | **VOID — unreachable**, on the same antecedent. The form's survival rests on A2.6 and on the ADR at A2.9, **not** on this branch having been met. |
+| `G < 30` at 2026-11-30 → **UNDERPOWERED** | **VOID — and it does not fire on 2026-11-30 either.** There is no window to be underpowered. **2026-11-30 is not a date on which anything happens** and no calendar entry may carry it. |
+| *"`source = 'sportsbook'` never carries a verdict, at any `n`"* | **STANDS.** It was never conditional on a successor. `fills` cannot see a third-party slip; that arm has no denominator and can never have one. |
+| §8's **vacating of the deletion clause** | **STANDS, and is strengthened** — see A2.3. |
+| §8's **census permission** | discharged; see A2.4. |
+
+**The single sentence a future session needs:** *no count of `parlay_positions`,
+taken on any date, over any window, may be cited as evidence about whether the
+entry form or the hedge route is wanted.* That was true under §8 for one window;
+it is now true without a window, because the measurement route is abandoned.
+
+## A2.3 The deletion question is CLOSED, not deferred
+
+§8 vacated the deletion clause and forbade any session from deleting,
+disabling, unlinking or ceasing to deploy `/hedge`,
+`backend/api/routers/hedge.py`, `backend/core/hedge.py`, the hedge watcher,
+`parlay_positions` or `parlay_position_legs` **on the strength of any count**.
+That prohibition stands in full.
+
+**It is now CLOSED rather than DEFERRED, and the distinction is load-bearing.**
+"Deferred" would mean a verdict is coming and the question is parked until it
+arrives. No verdict is coming. Leaving the word "deferred" in the record would
+create a standing expectation that some future count settles this, which is the
+precise misreading A2.2 exists to prevent.
+
+**What reopening requires, stated exactly:**
+
+- **A new decision from Joe, with a stated reason, in his own words.** This is
+  the form ADR 0105 §5 already uses for its own overturning condition — *"Joe
+  saying so"* — and it is the form his kill instruction took.
+- **Not a measurement.** A count, a rate, a census, a low usage number, a quiet
+  observation that a table looks empty: **none of these reopens it**, and a
+  session that proposes one has proposed the route that was abandoned.
+- **Not the passage of time.** No date reopens it. A calendar entry is not a
+  reason (§13's own correction: *"a date is not a reason"*).
+- **A reopening that does happen is recorded as an ADR**, so the reason is in
+  the record rather than in a session.
+
+## A2.4 The 2026-09-15 census is NOT owed — discharged, with its figure already in the record
+
+A1.6.1 kept `docs/measurements/2026-09-15-parlay-positions-census.md` owed
+under §10's rule that a promised destination must not go unwritten. **That
+obligation is discharged and the document is not owed.**
+
+The reasoning, because "we decided not to write it" is exactly the shape of the
+failure §10 guards against and this must be shown not to be it:
+
+- §10's rule protects an unwritten **number**, not an unwritten **filename**.
+  The failure mode it names is a negative result that quietly never gets
+  written. **That number is written**: A1.1 item 4 records `parlay_positions`
+  read on live on 2026-09-09 holding **0 rows**, dated, sourced, in a committed
+  file, with its status as a verdict-free interim census recorded beside it.
+- §8 gave the census exactly one permitted use — *"a planning value for `n` in
+  the successor registration's power check"*. There is no successor and no
+  power check. **The use has lapsed; the figure has not.**
+- A separate document would therefore restate a figure already in the record,
+  under a heading implying a measurement programme that no longer exists. That
+  is worse than not writing it.
+
+**One correction that must be carried, or the record misleads.** The executing
+session made Amendment 1 §A1.2's authorised write, so `parlay_positions` on live
+is **no longer 0** — it holds `id = 1` (A1.10). A1.1's `0` stands as a **dated
+observation of 2026-09-09 taken before that write**, and may not be quoted as a
+current count. The row it gained is the A1.2 row, excluded from `R` and its
+sitting from `G` — an exclusion that now protects nothing, because there is no
+`R`, and which is left standing anyway so the row's authorship stays legible
+(A2.7.3).
+
+**Two different figures on the same page, not to be conflated.** A1.1's `0` is
+a count of `parlay_positions` rows. A1.10.1's `three` is the number of orphaned
+`manual_orders` combinations the reconciler's gap query returned — the
+complement, and on its first uncorrected reading at that. They count different
+things in opposite directions, and A1.10.1's own instruction governs the second:
+anyone re-reading it must use the corrected instrument (`55990c5`), which
+returns one genuinely open unwatched position and two settled.
+
+## A2.5 P4 and the window — nothing here revives it
+
+The window opened at `2026-09-08T21:33:05Z` was closed and voided as of
+`2026-09-09T15:56:45Z` by Amendment 1 §A1.3.2, on two independent grounds: the
+estimand was superseded by ADR 0125's wiring, and P3's denominator script was
+never committed before the window opened (§A1.4.1).
+
+**Nothing in Amendment 2 revives it, shortens it, extends it or reinterprets
+it.** P4's clock is not restarted, because there is nothing to time. Appendix
+A's deploy record — run `34281066870`, head sha `a13e6b8`, finished
+`2026-09-08T21:33:05Z`, machine `7812601a239428` — stays in the file as the
+factual record of the P2 deploy, and **as nothing else**. It is no longer the
+start of anything.
+
+## A2.6 What is NOT killed — the clause a future session will misread
+
+Killed: **the adoption successor registration, and only that.** It was never
+written and now never will be.
+
+**Not killed, in terms:**
+
+- **`/hedge`** — the route, the screen, the watcher, the arithmetic.
+- **`backend/api/routers/hedge.py`, `backend/core/hedge.py`, `backend/hedge.py`.**
+- **`parlay_positions` and `parlay_position_legs`**, both tables, and every row
+  in them.
+- **`POST /api/hedge/positions` and `RecordParlay.tsx`** — the manual entry
+  form, on all seven surfaces of §2's table, in the no-default form P2 shipped.
+- **ADR 0078 Decision 1**, which stands untouched: a `KXMVE` combination is
+  enter-only, and hedging a leg market is the only exit it has. Joe is buying
+  more of them through the desk — the first two fills landed 2026-09-08 and a
+  third on 2026-09-09 — so the exit is **more** load-bearing than when ADR 0078
+  was written, not less.
+- **ADR 0125's wiring**, which is correct and is not criticised anywhere in this
+  registration. It fixed a real hole in the exit path; the measurement was
+  collateral damage, and that trade was the right way round.
+- **`gate.py`'s boundary** (ADR 0078 §4, ADR 0063): it still never reads either
+  table, and nothing here changes that.
+
+§9.2's separation is what makes this coherent and it is worth restating once:
+**the route is the exit for a position; the form is the entry for a record of
+one.** An argument about the form was never an argument about the route.
+
+## A2.7 The provenance column is DROPPED — Joe's decision, recorded
+
+Amendment 1 §A1.3.3 required a provenance column on `parlay_positions`. Joe,
+2026-09-09, in answer to that requirement. His words, verbatim and complete:
+
+> **"drop the provenance column"**
+
+**A1.3.3's requirement is withdrawn on the operator's decision.** It is not
+deferred, not conditional, not owed to any queue. This section records the call
+and its consequence; it does not re-argue it, and no later session may cite the
+paragraphs below as grounds to revisit it.
+
+### A2.7.1 What is given up, stated once
+
+**A hand-written row and a wiring-written row are indistinguishable in
+`parlay_positions`, permanently, and anyone who later wants to separate them
+cannot do so retroactively.** The two writers — `POST /api/hedge/positions`
+(`backend/api/routers/hedge.py:73`) and ADR 0125's path
+(`backend/api/routes.py:4228`) — reach one `INSERT` at `backend/hedge.py:334`,
+and every field that might have carried the distinction (`note`,
+`combo_ticker`, `parlay_lookup_id`) is accepted from the request on the manual
+route (`backend/api/schemas.py:308-310`).
+
+The loss is not "hard to reconstruct". **The discriminating fact is never
+written down**, so there is nothing from which to reconstruct it. That is
+different in kind from a derived quantity, and A2.7.4 turns on the difference.
+
+### A2.7.2 Why that is affordable — and where the case I made was overstated
+
+The coordinator's reading, checked rather than adopted: *attribution only ever
+mattered for `R`, `R` is dead, and `/hedge` sizes off stake, return and legs
+rather than off who recorded the row.* **That reading is correct, and my
+A1.3.3 operational case was weaker than I stated it.** Three concessions, made
+specifically rather than generally:
+
+1. **Provenance does not enter the hedge arithmetic.** The equalising hedge is
+   computed from `stake_tenths`, `return_tenths` and the legs. A column would
+   have changed no number `/hedge` computes.
+2. **A label does not fix a wrong stake; it only annotates one.** And at the
+   moment `/hedge` matters — a position minutes to hours old, watched while the
+   game runs — **the reader of the row is the person who typed it.** The column
+   would tell the operator something about his own row that he already knows.
+3. **The `resolved_source` precedent I cited is not parallel, and I over-read
+   it.** That column separates evidence about an *outcome* the reader cannot
+   re-derive: whether a leg won, from `kalshi_markets.result` against Joe's
+   word. A stake is a number its writer knows he typed. Citing an adjacent
+   column because it is adjacent is the tidier story, and it is the thing this
+   registration is supposed to catch.
+
+**The residual, so the record is not falsely reassuring in the other direction
+either.** The case that genuinely survives is a **reader who is not the
+writer** — an agent-written row, or any row read long after the fact. Today
+that population is exactly one row, and it is named (A2.7.3). Coverage is
+therefore complete now, and thin only under the growth condition in A2.7.4.
+
+### A2.7.3 What replaces the column — a written record naming the row by id
+
+**This is the thing a future session will need, and it lives in the amendment
+rather than in the schema.** Say it here explicitly:
+
+> **`parlay_positions.id = 1`, `created_ms = 1788976165253`
+> (2026-09-09T17:49:25.253Z), was written by an agent session and not by Joe.**
+
+It is recorded in A1.10 with its derived values, its `venue_positions`
+cross-check and the script and commit (`d349872`) that wrote it, and its own
+`note` column denies Joe's authorship in terms — *"This is NOT an act of
+recording by Joe."*
+
+**A written record identifying a specific row by id is what replaces the
+column.** The threat model changed with the successor, and that is why prose is
+now sufficient where A1.3.3 said it was not: A1.3.3 argued **forgeability** —
+that a hand row could be *made* to look wired — which matters when a statistic
+is being defended against selection. With no statistic, the threat is not an
+adversary but an honest reader who cannot tell. **A row id in a committed file
+answers that, and does not get lost.**
+
+### A2.7.4 The reopening condition, and why it is stricter than P3's
+
+**If a future registration ever needs to count `parlay_positions` rows by
+author, it must add the column BEFORE its window opens.** This is the same
+"before" clause A1.4.1 ruled fatal for P3, named here while the reason is
+fresh — and it binds harder:
+
+- **P3's breach was curable in principle.** A denominator is computed from
+  `fills`, the raw material survives, and a script written late can still be
+  run over data written earlier. What P3 lost was the guarantee that the rule
+  was not tuned to the outcome.
+- **This one is not curable at all.** Authorship leaves no raw material.
+  **A column added later recovers attribution for nothing written before it**,
+  so the rows accumulated in the meantime are permanently unattributable and
+  would have to be excluded wholesale — which, for a table whose whole history
+  predates the column, means excluding the history.
+
+So: **not a rule that can be broken and written up as a deviation.** Any such
+registration starts its window at the migration, not before it.
+
+**And the growth condition, which is the honest limit on A2.7.3.** The prose
+mechanism works because agent-written rows are exceptional — one, today. If
+backfills or agent writes stop being exceptional, a per-row prose record rots,
+and the answer at that point is the column plus a window that starts there, not
+a longer list of ids in a measurement document.
+
+### A2.7.5 One justification this decision makes stale
+
+`scripts/backfill_orphan_combo_position.py`'s docstring says *"Amendment 1
+A1.3.3 rules that provenance must become a **column** ... That column does not
+exist yet."* **That now cites a withdrawn requirement**, and "does not exist
+yet" reads as pending when it is dropped. Per `tasks/lessons.md`'s pattern that
+justifications decay toward reassurance, it should be re-based on A2.7 when the
+file is next touched. Recorded, not urgent: the script has run once and is not
+on any path.
+
+## A2.8 The holes this kill leaves, named rather than tidied
+
+The kill is the right decision and A1.6's arithmetic is why. It is still a
+trade, and these are the things given up. None of them is an argument to
+reopen A2.0.
+
+1. **The form can no longer be removed on evidence.** Its only death is now
+   Joe's word (A2.3). It survives by default, carrying real maintenance cost —
+   seven surfaces, the no-default control, `schemas.py`'s validation, and
+   `tests/test_recording_a_bet_is_reachable.py`'s guards. **A feature that can
+   only be killed by decision tends not to be killed.** That is the trade, made
+   knowingly.
+2. **The residual population's size is unknown, and its recording behaviour is
+   now unmeasurable by choice.** The census constants say 51 of 52 combination
+   positions over 18 days were venue taker fills, and the cockpit's first fills
+   were 2026-09-08 — so historically nearly all of Joe's combinations were
+   bought outside the desk. Whether that persists decides whether the form is
+   load-bearing or nearly dead, and **we have chosen not to know.**
+   **Partially mitigated, and only partially:** `combo-position-gaps` and the
+   latest successful `positions` poll can show that a `KXMVE` position exists
+   at the venue with no `manual_orders` row — i.e. that the population is
+   non-empty. **They cannot show whether Joe records one**, because that
+   quantity is `R`, and `R` is what was killed. The population is observable;
+   the behaviour is not.
+3. **P2's justification is now stale, and stale justifications are a named
+   pattern here.** The no-default form was built so a window would be clean.
+   That window is void and no successor will open. **The no-default control is
+   still right** — on its own terms, that the instrument must not answer the
+   operator's question for him — but any comment or test docstring justifying
+   it by the measurement now points at a dead programme. It should be re-based
+   on the UX argument when next touched. A2.7.5 records a second instance of
+   the same decay, from a different cause, on the same day.
+4. **Not a new hole, and named so it is not double-counted:** the value of the
+   hedge arithmetic itself remains untested. §12 already said so — it *"would
+   remain untested at `G = 300`"* — so the kill takes nothing away here. Entry
+   was always a prerequisite for demand rather than a measurement of it.
+
+## A2.9 What Amendment 2 does not decide
+
+- **What the form is for.** That is P1's question, it survives the kill, and it
+  is answered by a separate document —
+  `docs/adr/0130-the-manual-hedge-form-is-for-what-the-wiring-cannot-reach.md`,
+  which takes its ordinal at merge. **This amendment records that P1 is no
+  longer a measurement precondition and is now a standing justification
+  requirement**, and nothing more.
+- **Whether adoption or calibration is worth measuring by some other design.**
+  A materially different estimand, unit or instrument is not foreclosed. What is
+  foreclosed is this lineage: this registration, its §8 branches, and any
+  successor to it. A new design starts from a new registration and its own power
+  check, inherits nothing from here except §12's caveats, and — if it needs
+  authorship — is bound by A2.7.4.
+- **Nothing is owed on the provenance column.** A2.7 records it **dropped on
+  Joe's decision**, not deferred and not queued. There is no half-obligation,
+  no owner, and no follow-up ticket; a session that finds A1.3.3's requirement
+  and not A2.7 has read half the record.
+- **Anything about the disarmed bid path** (ADR 0115), which rests offers and is
+  untouched by every clause here.
+- **Anything about edge, `beta`, the gate's 300-game floor, the 0.63-point cost
+  headroom, the 51.75% bar or `recommendations`.** ADR 0038 stands. `gate.py`
+  still may not read either table.
+
+**This amendment is not in force until it is committed**, on the same terms
+Amendment 1 closed with: an authorisation that lives only in a session
+transcript has not been registered, which is §9.1's defect against the original
+check.
