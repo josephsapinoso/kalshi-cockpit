@@ -59,7 +59,13 @@ from ..core.prices import is_valid_price
 #: from its next successful poll. No existing row is touched, and every
 #: existing row's marker is NULL, which is the truth about it: none of them
 #: kept its rows.
-SCHEMA_VERSION = 34
+#: v35 (2026-09-09) makes `manual_orders.p_yes_bp` NULLABLE and relaxes its
+#: CHECK, because the ticket stopped asking for a probability (Joe, 2026-09-09;
+#: ADR DRAFT-the-ticket-stops-asking-for-a-probability, superseding ADR 0065
+#: §2). A REBUILD, not a column step: SQLite cannot relax a NOT NULL or a
+#: table-level CHECK in place. The rows already written keep their real typed
+#: values -- nothing is deleted, backfilled, zeroed or rewritten.
+SCHEMA_VERSION = 35
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -651,6 +657,138 @@ _QUANTITIES_ARE_REAL_UNDO = (
 )
 
 
+# v35 relaxes `manual_orders.p_yes_bp` from NOT NULL to nullable, and its CHECK
+# with it. Neither can be done with `ALTER TABLE`: SQLite alters neither a
+# column's NOT NULL nor a table-level CHECK in place, so the table is rebuilt.
+#
+# **Why the field went away.** ADR 0065 made a typed P(YES) the ticket's first
+# field and masked the ask until it was entered, on the premise that
+# `bets.bet_clv()` gave the number a consumer. That consumer was never built --
+# nothing in the tree SELECTs `p_yes_bp` -- and Joe, the only user, asked for
+# the field removed on 2026-09-09. See
+# `docs/adr/DRAFT-the-ticket-stops-asking-for-a-probability.md`.
+#
+# **The column survives and so do the rows.** Hand bets were placed while the
+# field was required and they carry his real typed numbers; they are history,
+# and history is the product. The rebuild copies every column of every row,
+# `id` included, and nothing backfills, zeroes or rewrites anything. From v35
+# on a new row carries NULL, which means "not asked" -- never `0`, which on a
+# money row would read as "he thought this had no chance".
+#
+# **Idempotent at every crash point, and with no `skip_statements_if_column`.**
+# v4's guard exists because that rebuild carried no rows, so a replay after
+# full success would have dropped the real table for an empty one. This rebuild
+# carries its rows, so a replay is a no-op in effect:
+#   - after CREATE:  the temp table exists and is empty; the replay's CREATE is
+#                    a no-op, the copy fills it, and the swap completes.
+#   - after INSERT:  the temp table exists WITH the rows; `INSERT OR IGNORE`
+#                    over the copied `id` makes the second copy a no-op rather
+#                    than a PRIMARY KEY violation.
+#   - after RENAME:  `manual_orders` is already the new shape, so the replay
+#                    rebuilds an identical table carrying the identical rows.
+# There is also no column whose presence could serve as a completion marker:
+# this step adds none, and `_columns` reads names only -- a relaxed NOT NULL is
+# invisible to it.
+#
+# `TestTheTypedProbabilityBecomesOptional` drives the last two of those with
+# real rows in the table, and it takes BOTH: the after-RENAME replay passes on
+# a plain `INSERT` too, because the temp table is gone by then, so only the
+# after-INSERT case tells `OR IGNORE` apart from `INSERT`. A replay test that
+# does not reach the state the guard is for is a green test about nothing.
+_MANUAL_ORDERS_COLUMNS_V35 = (
+    "id, client_order_id, kalshi_order_id, submitted_ms, ticker, side, "
+    "action, count, limit_price_tenths, max_price_tenths, p_yes_bp, status, "
+    "request_body_json, error_text, dry_run, idempotency_key, "
+    "response_body_json, consensus_fair_tenths, consensus_edge_tenths, "
+    "consensus_book_count, consensus_anchored_on_sharp, "
+    "consensus_computed_ms, consensus_fair_price_id, consensus_link_id, "
+    "consensus_absent_reason"
+)
+
+
+def _manual_orders_create(table: str, *, p_yes_required: bool) -> str:
+    """The `manual_orders` shape, in both directions of the v35 step.
+
+    One spelling rather than two, because the only difference between the
+    forward table and the undo's is `p_yes_bp` -- and a hand-copied second
+    version of a 25-column table is how a UNIQUE quietly stops holding on the
+    one database nobody develops against.
+
+    **The consensus columns carry no CHECKs, and that is load-bearing rather
+    than an omission.** `schema.sql` spells out why: SQLite refuses `ALTER
+    TABLE ... DROP COLUMN` on a column named by a CHECK, and
+    `tests/test_store.py::_v1_database` winds the schema back by dropping
+    exactly those columns off whatever table this step leaves behind.
+    """
+    return (
+        f"CREATE TABLE IF NOT EXISTS {table} (\n"
+        "    id                  INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+        "    client_order_id     TEXT NOT NULL UNIQUE,\n"
+        "    kalshi_order_id     TEXT UNIQUE,\n"
+        "    submitted_ms        INTEGER NOT NULL,\n"
+        "    ticker              TEXT NOT NULL,\n"
+        "    side                TEXT NOT NULL,\n"
+        "    action              TEXT NOT NULL,\n"
+        "    count               INTEGER NOT NULL,\n"
+        "    limit_price_tenths  INTEGER,\n"
+        "    max_price_tenths    INTEGER NOT NULL,\n"
+        "    p_yes_bp            INTEGER"
+        + (" NOT NULL" if p_yes_required else "")
+        + ",\n"
+        "    status              TEXT NOT NULL,\n"
+        "    request_body_json   TEXT NOT NULL,\n"
+        "    error_text          TEXT,\n"
+        "    dry_run             INTEGER NOT NULL DEFAULT 1,\n"
+        "    idempotency_key     TEXT UNIQUE,\n"
+        "    response_body_json  TEXT,\n"
+        "    consensus_fair_tenths       INTEGER,\n"
+        "    consensus_edge_tenths       INTEGER,\n"
+        "    consensus_book_count        INTEGER,\n"
+        "    consensus_anchored_on_sharp INTEGER,\n"
+        "    consensus_computed_ms       INTEGER,\n"
+        "    consensus_fair_price_id     INTEGER,\n"
+        "    consensus_link_id           INTEGER,\n"
+        "    consensus_absent_reason     TEXT,\n"
+        "    CHECK (side IN ('yes', 'no')),\n"
+        "    CHECK (action = 'buy'),\n"
+        "    CHECK (count > 0),\n"
+        "    CHECK ("
+        + (
+            "p_yes_bp BETWEEN 1 AND 9999"
+            if p_yes_required
+            else "p_yes_bp IS NULL OR p_yes_bp BETWEEN 1 AND 9999"
+        )
+        + "),\n"
+        "    CHECK (dry_run IN (0, 1))\n"
+        ")"
+    )
+
+
+_MANUAL_ORDERS_NULLABLE_P_YES = (
+    _manual_orders_create("manual_orders_v35", p_yes_required=False),
+    f"INSERT OR IGNORE INTO manual_orders_v35 ({_MANUAL_ORDERS_COLUMNS_V35}) "
+    f"SELECT {_MANUAL_ORDERS_COLUMNS_V35} FROM manual_orders",
+    "DROP TABLE manual_orders",
+    "ALTER TABLE manual_orders_v35 RENAME TO manual_orders",
+)
+
+#: Putting the required field back, for the migration tests that build a v34
+#: database by undoing this step.
+#:
+#: `WHERE p_yes_bp IS NOT NULL` is the v21 precedent: a row with no
+#: probability could not have existed at v34, so it cannot survive the trip
+#: back. Every row that predates v35 has one, and every one of those is
+#: carried.
+_MANUAL_ORDERS_NULLABLE_P_YES_UNDO = (
+    _manual_orders_create("manual_orders_v34", p_yes_required=True),
+    f"INSERT OR IGNORE INTO manual_orders_v34 ({_MANUAL_ORDERS_COLUMNS_V35}) "
+    f"SELECT {_MANUAL_ORDERS_COLUMNS_V35} FROM manual_orders "
+    "WHERE p_yes_bp IS NOT NULL",
+    "DROP TABLE manual_orders",
+    "ALTER TABLE manual_orders_v34 RENAME TO manual_orders",
+)
+
+
 #: Schema versions that added ONLY new tables, and so need no `_MIGRATIONS`
 #: step at all.
 #:
@@ -678,6 +816,22 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # The ticket stops asking for a probability -- Joe, 2026-09-09, in his own
+    # words: "what is even the point of the (p)yes score entry? I don't need
+    # it. it just gets in the way." `manual_orders.p_yes_bp` becomes nullable
+    # and its CHECK is relaxed to admit NULL; `_MANUAL_ORDERS_NULLABLE_P_YES`
+    # above carries why this is a rebuild, why it needs no completion marker,
+    # and what happens to the rows already written.
+    #
+    # **This is not a risk control.** `p_yes_bp` was a data-collection gate.
+    # The path's real interlocks -- the desk lockout, idempotency, the KXMVE
+    # acknowledgement, the price ceiling, depth at the ask, the netting guard,
+    # the shard collateral check, reserve-then-check -- are untouched by it and
+    # by this step.
+    35: _Migration(
+        statements=_MANUAL_ORDERS_NULLABLE_P_YES,
+        undo_statements=_MANUAL_ORDERS_NULLABLE_P_YES_UNDO,
+    ),
     # Which screen was open when the heartbeat landed -- decision-map question
     # E, approved by Joe 2026-09-05.
     #

@@ -295,9 +295,10 @@ function Card({ card }: { card: ParlayCardData }) {
  *
  * Behind a `<details>`, closed: six cards times up to six legs is thirty-six
  * controls, and a card whose loudest feature is a wall of buy buttons is the
- * chase surface ADR 0067 refuses. `priceAlreadyVisible={false}` is correct
- * and is the only surface where it still is — this card prints fair value
- * and never Kalshi's ask, so ADR 0065's mask genuinely holds here.
+ * chase surface ADR 0067 refuses. This card prints fair value and never
+ * Kalshi's ask, which used to be what made it the one surface where ADR
+ * 0065's mask genuinely held; the mask went with the P(YES) field on
+ * 2026-09-09 and the card is unchanged by that.
  */
 /** An em-dash, so a missing fact keeps its column instead of shifting the rest. */
 const MISSING = "—";

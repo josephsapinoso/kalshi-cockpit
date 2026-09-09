@@ -211,13 +211,11 @@ function Result({ value }: { value: ParlayLookupResult }) {
       <p className="text-[11px] leading-snug text-muted">
         {value.notes.unquoted} {value.notes.fee}
       </p>
-      {/* The buy, on the minted market's own ticker. `priceAlreadyVisible`
-          because the ask is two lines above this — the mask cannot hold on
-          a block whose entire purpose is to show what Kalshi is charging. */}
+      {/* The buy, on the minted market's own ticker — two lines under the
+          ask, which is the whole purpose of this block. */}
       <ManualTicket
         ticker={value.minted_market_ticker}
         variant="inline"
-        priceAlreadyVisible
         openLabel="Buy this combination"
         note="One combination, one contract. There is no resting YES bid on any combination book this tool has read, so the only exit is the outcome — and the fee here is a ceiling, not a quote."
       />

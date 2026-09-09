@@ -11,11 +11,15 @@
  *
  * **It serves no prices, and that is the design rather than an omission.**
  * `/api/manual/search` delegates to `estimates.search_markets`, whose SELECT
- * carries no quote column at all. So ADR 0065's masking survives this
- * screen: there is no way to browse for an ask, type the number it put in
- * your head, and call that your estimate. Every row here opens a ticket
- * whose first field is still P(YES), and `priceAlreadyVisible` is false
- * because nothing on this list is a price.
+ * carries no quote column at all. The reason has changed since this was
+ * written and the property has not: it used to protect ADR 0065's masking --
+ * no browsing for an ask, typing the number it put in your head, and calling
+ * that your estimate -- and the ticket stopped asking for a probability on
+ * 2026-09-09 (ADR DRAFT-the-ticket-stops-asking-for-a-probability). What
+ * keeps the list price-free now is that a price here would be an unqualified
+ * one: no age, no currency judgement, no book beside it. The market screen is
+ * where a price gets its caveats, and the link below is how a reader reaches
+ * it.
  *
  * **Since 2026-09-05 a row also LINKS to one, and the distinction is the
  * whole of ticket #24.** Joe's option A: each result carries a link to
@@ -29,12 +33,13 @@
  * transparency the job at the moment of a bet; a search that could only sell
  * was the inverse of it.
  *
- * The link ships only because the game screen's `priceAlreadyVisible` became
- * conditional first (ADR 0065, amended 2026-09-05). That ordering was Joe's
- * own precondition and it is not ceremony: until that flag was derived,
- * following this link moved a reader from a screen where the estimate mask
- * honestly holds to one that announced "the price is already on this screen"
- * while showing no price.
+ * The link shipped only after the game screen's masked-ask flag became
+ * conditional (ADR 0065, amended 2026-09-05) -- Joe's own precondition, so
+ * that following the link could not move a reader onto a screen announcing
+ * "the price is already on this screen" while showing no price. That flag,
+ * and the mask it served, were removed on 2026-09-09; the ordering it
+ * enforced is history rather than a live constraint, and is recorded here
+ * because the link's existence is otherwise unexplained.
  *
  * Combination markets never appear: discovery excludes `KXMVE` from
  * `kalshi_markets` outright, and a combination has no ticker at all until a
@@ -217,11 +222,11 @@ export default function MarketSearch({
                     "I have bet on it" stays one tap, and this link is the
                     slower, better-informed path beside it.
 
-                    It ships only because `priceAlreadyVisible` became
-                    conditional first (ADR 0065, amended 2026-09-05). Before
-                    that, sending a reader here moved him from a screen where
-                    the estimate mask honestly holds to one that announced a
-                    price it was not showing.
+                    It shipped only after the game screen's masked-ask flag
+                    became conditional (ADR 0065, amended 2026-09-05): before
+                    that, sending a reader here moved him onto a screen that
+                    announced a price it was not showing. The mask itself was
+                    removed 2026-09-09 with the P(YES) field.
 
                     **The label does not promise a price, and that is the same
                     defect one level up.** It read "See the price and what the

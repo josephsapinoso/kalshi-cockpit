@@ -16,6 +16,44 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-09 - A replay test can pass through the crash point the guard is for, and then the guard is unverified while the test's name says otherwise
+
+Schema v35 rebuilds `manual_orders` and copies its rows with `INSERT OR
+IGNORE`, so an interrupted step can re-run from the top without duplicating a
+primary key. The test written for it wound the version stamp back after a
+completed migration and ran the step again, asserting the rows survived. It
+passed. **It also passed with the `OR IGNORE` removed** - the mutation came
+back green.
+
+The reason is that a create-copy-drop-rename rebuild has several crash points
+and they need different guards. After the RENAME the temp table does not
+exist, so the replay creates it empty and a plain `INSERT` has nothing to
+conflict with. The only state in which `OR IGNORE` does any work is a crash
+*between* the copy and the drop, where the temp table is already populated -
+and no test reached it, because winding back a version stamp does not
+reproduce a half-finished step.
+
+**So: when a step is idempotent at N distinct interruption points, "run it
+twice" tests one of them, and usually the cheapest one.** The state has to be
+constructed - here by executing the step's first two statements by hand and
+then letting `migrate` run the whole step - rather than approximated by
+re-invoking the runner.
+
+Two things follow, and the second is the more general one:
+
+- **The mutation is what found this, not review.** The claim "idempotent at
+  every crash point" sat in a comment above a green test naming three of them.
+  Reading the comment against the test would not have separated them; deleting
+  the guard did, immediately. This is why the convention is to disable every
+  guard rather than to argue it is covered.
+- **A test whose name generalises past what it exercises is the same defect
+  as a test named after the implementation** (see the 2026-09-09 lesson on
+  `_check_sequence` below). `test_replaying_the_step...` sounded like it
+  covered replay; it covered one replay. The tell is a name quantifying over
+  a class - "every", "any", "replaying" - where the body constructs a single
+  member of it.
+
+
 ## 2026-09-09 - A true sentence with the wrong scope cannot be caught by any guard that checks its facts, and a sourcing guard makes that harder to see rather than easier
 
 The buy ticket and the bid route both said *"every combination book this repo

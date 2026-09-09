@@ -262,7 +262,23 @@ class TestNoCommentSaysTheAccentIsTheLossColour:
 
 
 class TestTheMarketPageRecordsTicket24:
-    """The `priceAlreadyVisible` comment on `/market/[ticker]`."""
+    """The masked-ask comment on `/market/[ticker]`, after the flag it
+    described was removed.
+
+    **Inverted 2026-09-09, not deleted.** These pinned decision-map ticket
+    #24: `priceAlreadyVisible` had to be DERIVED from the quote strip's own
+    verdict rather than asserted as a constant `true`, or the ticket announced
+    "the price is already on this screen" in the three states the strip
+    renders nothing. Joe then removed the P(YES) entry the mask existed to
+    protect (ADR DRAFT-the-ticket-stops-asking-for-a-probability, superseding
+    ADR 0065 §2), so the flag has nothing left to select and the prop is gone
+    from the component.
+
+    A flag with no reader satisfies #24's requirement outright -- but only
+    while it stays gone, which is what these now assert. Deleted, they would
+    leave no evidence the question was ever settled, and a "simplifying" call
+    site could reintroduce the bare prop with nothing to fail.
+    """
 
     def test_it_no_longer_claims_the_prop_is_always_true(self):
         """Mutation observed red: restore "`priceAlreadyVisible` is true here
@@ -273,43 +289,37 @@ class TestTheMarketPageRecordsTicket24:
             "true; #24 measured two states in which it is false"
         )
 
-    def test_it_records_the_decision_and_where_it_landed(self):
+    def test_it_records_both_decisions_and_where_they_landed(self):
         """Mutation observed red: delete "#24" from the comment.
 
-        **Rewritten 2026-09-05, when #24 was built.** This asserted
-        `"conditional" in text` and "`detail` is null" -- a pin on a comment
-        describing work that had not happened. The repo's own lesson is that
-        copy naming a condition to wait for is falsified by fixing the
-        condition, so the pin and the fix ship together. What it guards now is
-        that the comment still says which ticket this was and which ADR
-        carries it, because the next reader's question is "why is this flag
-        computed" and the answer is not local.
+        **Rewritten twice.** First 2026-09-05, when #24 was built and this
+        stopped describing work that had not happened. Again 2026-09-09, when
+        the flag was removed: the next reader's question is no longer "why is
+        this flag computed" but "why does the ticket take no flag at all", and
+        both answers are non-local. The comment must therefore still name #24
+        and ADR 0065 -- the trail that explains the mask ever existed -- and
+        also the ADR that removed it.
         """
         text = comments(MARKET)
         assert "#24" in text
         assert "ADR 0065" in text
-        assert "askIsVisible" in text, (
-            "the comment no longer names the function the flag is derived "
-            "from, so a reader cannot find the shared predicate from here"
+        assert "the-ticket-stops-asking-for-a-probability" in text, (
+            "the comment does not name the ADR that removed the flag, so a "
+            "reader cannot tell whether #24 was undone or discharged"
         )
 
-    def test_the_prop_is_derived_rather_than_asserted(self):
-        """The decision was that the flag CHANGES before a link ships, not
-        that it goes. It has now changed: it is computed from the quote
-        strip's own verdict.
+    def test_the_ticket_is_mounted_with_no_visibility_flag(self):
+        """The negative half of #24, which is the half that always mattered:
+        a bare `priceAlreadyVisible` is how the defect looked, and it must not
+        come back by someone "restoring" the call site.
 
-        Mutation observed red: restore the bare `priceAlreadyVisible` form.
-        The negative half is the one that matters -- a bare prop is how the
-        defect looked, and it must not come back by someone "simplifying" the
-        call site.
+        Mutation observed red: add `priceAlreadyVisible` back to the mount.
         """
         code = _BLOCK_COMMENT.sub("", MARKET.read_text(encoding="utf-8"))
-        assert re.search(
-            r"<ManualTicket\s+ticker=\{ticker\}\s+"
-            r"priceAlreadyVisible=\{askIsVisible\(detail,\s*now\)\}\s*/>",
-            code,
-        ), "the market screen no longer derives the ticket's flag"
-        assert not re.search(r"priceAlreadyVisible\s*/>", code), (
-            "the flag is asserted bare again -- the ticket will claim a price "
-            "is on screen in the three states the strip renders nothing"
+        assert re.search(r"<ManualTicket\s+ticker=\{ticker\}\s*/>", code), (
+            "the market screen no longer mounts the ticket on its own ticker"
+        )
+        assert "priceAlreadyVisible" not in code, (
+            "a masked-ask flag is passed to a ticket that has no such prop "
+            "and masks nothing"
         )

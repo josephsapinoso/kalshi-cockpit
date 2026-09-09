@@ -3009,10 +3009,14 @@ def create_app(
         whatever the venue lists. This read is quote + book only — no fair
         value, no edge, no opinion (ADR 0062).
 
-        The ask is served alongside `p_yes_required: true` so the client
-        knows to mask it until the estimate is typed (ADR 0065) — but the
-        MASKING is the client's courtesy; the server-side enforcement is the
-        POST refusing without `p_yes_bp`.
+        **The ask is served plainly, and no `p_yes_required` flag goes with
+        it.** Until 2026-09-09 this payload carried `p_yes_required: true` and
+        the client masked the ask until a probability was typed (ADR 0065 §2).
+        Joe removed the field — it was friction, and the consumer ADR 0065
+        named to justify the masking was never built — so there is nothing
+        left to mask for, and a flag saying otherwise would be the screen
+        enforcing a rule the route had dropped. See
+        `docs/adr/DRAFT-the-ticket-stops-asking-for-a-probability.md`.
         """
         unreachable = _manual_reachable()
         now = db.now_ms()
@@ -3103,7 +3107,6 @@ def create_app(
             "observed_ms": quote.observed_ms,
             "reachable": unreachable is None,
             "unreachable_reason": unreachable,
-            "p_yes_required": True,
             "sides": sides,
             "price_grid": (
                 None if quote.price_grid is None else quote.price_grid.describe()
@@ -3209,9 +3212,15 @@ def create_app(
 
         **Serves no prices, by construction, and that is load-bearing rather
         than incidental.** It delegates to `estimates.search_markets`, whose
-        SELECT carries no quote column at all, so ADR 0065's masking survives
-        the search screen: you cannot browse for an ask, type the number it
-        put in your head, and call it your estimate.
+        SELECT carries no quote column at all. The reason has changed and the
+        property has not: it used to keep ADR 0065's masking intact — no
+        browsing for an ask, typing the number it put in your head, and
+        calling it your estimate — and the ticket stopped asking for a
+        probability on 2026-09-09 (ADR
+        DRAFT-the-ticket-stops-asking-for-a-probability). What keeps this list
+        price-free now is that a price served here would carry no age, no
+        currency judgement and no book beside it; `/api/manual/market` is
+        where a quote gets its caveats.
 
         Reachability is checked here as well as on the order itself — not
         because a market list is dangerous, but because a search box that
@@ -3789,7 +3798,6 @@ def create_app(
                 dry_run=placer.dry_run,
                 submitted_ms=submitted_ms,
                 max_price_tenths=request.max_price_tenths,
-                p_yes_bp=request.p_yes_bp,
                 idempotency_key=request.idempotency_key,
             )
         except DuplicateOrder as exc:
@@ -3888,7 +3896,6 @@ def create_app(
             "ticker": ticker,
             "side": request.side,
             "contracts": request.contracts,
-            "p_yes_bp": request.p_yes_bp,
             "limit_price_display": format_price(order.fill_price_tenths),
             "max_price_display": format_price(request.max_price_tenths),
             # "at most", never "costs $X": MLB's k is half the coefficient

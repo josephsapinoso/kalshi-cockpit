@@ -662,16 +662,15 @@ function Row({
       </span>
 
       {/* The hand-bet door (ADR 0063), last on the row so the facts are read
-          before the control. `priceAlreadyVisible` because this row prints
-          the ask three tracks left of here — ADR 0071 §2.2 puts it there on
-          purpose, so the ticket admits the anchor rather than pretending to
-          hide it. The engine's own door is not here and never was: this row
-          has always carried `suggested_contracts === 0`. */}
+          before the control. The ticket no longer asks for a probability and
+          masks nothing (ADR DRAFT-the-ticket-stops-asking-for-a-probability),
+          so this row printing the ask three tracks left of here is simply ADR
+          0071 §2.2 doing its job. The engine's own door is not here and never
+          was: this row has always carried `suggested_contracts === 0`. */}
       <span className="w-full xl:col-span-full">
         <ManualTicket
           ticker={row.ticker}
           variant="inline"
-          priceAlreadyVisible
           openLabel="Bet this by hand"
           note="This is your own bet. It is recorded apart from the engine's record and never counts toward the gate."
         />

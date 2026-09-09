@@ -477,11 +477,19 @@ def _insert_intent(
     dry_run: bool,
     submitted_ms: int,
     max_price_tenths: int,
-    p_yes_bp: int,
     idempotency_key: Optional[str],
     consensus: ConsensusSnapshot,
 ) -> int:
     """Write the intent, with what the desk was showing frozen beside it.
+
+    **`p_yes_bp` is written as NULL and is no longer a parameter**
+    (2026-09-09, ADR DRAFT-the-ticket-stops-asking-for-a-probability,
+    superseding ADR 0065 §2). It is named in the column list rather than left
+    out of it, so the absence is a decision a reader can see: NULL means "not
+    asked", and there is no sentinel -- a `0` would read as "he thought this
+    had no chance", which on a money row is a lie rather than a gap. The rows
+    written while the ticket asked keep their real values; nothing backfills
+    or rewrites them.
 
     **`limit_price_tenths` is already the ask at the tap and is not
     duplicated.** It is `OrderRequest.fill_price_tenths` -- the live derived
@@ -508,7 +516,7 @@ def _insert_intent(
             order.count,
             order.fill_price_tenths,
             max_price_tenths,
-            p_yes_bp,
+            None,                                       # p_yes_bp: not asked
             STATUS_PENDING,
             canonical_body_json(order.to_api_dict()),
             1 if dry_run else 0,
@@ -533,7 +541,6 @@ def reserve_manual_order(
     dry_run: bool,
     submitted_ms: int,
     max_price_tenths: int,
-    p_yes_bp: int,
     idempotency_key: Optional[str] = None,
 ) -> int:
     """Record the manual order and check the cap in one write transaction.
@@ -579,7 +586,6 @@ def reserve_manual_order(
                 dry_run=dry_run,
                 submitted_ms=submitted_ms,
                 max_price_tenths=max_price_tenths,
-                p_yes_bp=p_yes_bp,
                 idempotency_key=idempotency_key,
                 consensus=consensus,
             )

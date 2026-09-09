@@ -92,12 +92,15 @@ const SECONDARY = [
   },
   {
     // The stopped study's record (Amendment 2, stopped without result).
-    // The FORM retired 2026-08-22 (ADR 0065): a typed P(YES) becomes the
-    // manual ticket's first field, asked before the price is revealed and
-    // required by the route. It is RECORDED there, not consumed -- this
-    // comment claimed "where it has a consumer (bet_clv)" until 2026-08-29
-    // and that was never true: nothing in the tree SELECTs `p_yes_bp`, and
-    // `bet_clv` scores entry price against the closing mid without it.
+    // The FORM retired 2026-08-22 (ADR 0065), which moved a typed P(YES) to
+    // the manual ticket as its first field, asked before the price was
+    // revealed and required by the route. **The ticket stopped asking on
+    // 2026-09-09** (ADR DRAFT-the-ticket-stops-asking-for-a-probability),
+    // for the reason this comment already carried: it was RECORDED there and
+    // never consumed. The comment claimed "where it has a consumer (bet_clv)"
+    // until 2026-08-29 and that was never true -- nothing in the tree SELECTs
+    // `p_yes_bp`, and `bet_clv` scores entry price against the closing mid
+    // without it.
     // This page keeps the entries already logged and their revision flags.
     href: "/estimate",
     label: "Estimates",

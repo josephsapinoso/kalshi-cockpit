@@ -2183,9 +2183,10 @@ export type RecentEstimate = {
  * Reuses `EstimateMarket` because the payload is the same rows from the
  * same price-free SELECT: `/api/manual/search` delegates to
  * `estimates.search_markets`, whose query carries no quote column at all.
- * That is what lets a search screen exist without breaking ADR 0065's
- * masking — you cannot browse for an ask here, so the number you type is
- * still yours.
+ * That used to be what let a search screen exist without breaking ADR 0065's
+ * masking; the ticket stopped asking for a probability on 2026-09-09, and
+ * what the price-free SELECT buys now is that this list cannot show an ask
+ * with no age and no currency judgement beside it.
  *
  * **This replaced `searchEstimateMarkets`, which had no caller.** The
  * standalone `/estimate` form retired with ADR 0065 and took its search box
@@ -2888,7 +2889,6 @@ export type ManualMarket = {
   observed_ms: number;
   reachable: boolean;
   unreachable_reason: string | null;
-  p_yes_required: boolean;
   sides: { yes: ManualMarketSide; no: ManualMarketSide };
   price_grid: string | null;
   caps: {
@@ -2917,7 +2917,6 @@ export type ManualOrderPlaced = {
   ticker: string;
   side: string;
   contracts: number;
-  p_yes_bp: number;
   limit_price_display: string;
   max_price_display: string;
   worst_case_cost_display: string;
@@ -2961,7 +2960,6 @@ export async function placeManualOrder(
     side: "yes" | "no";
     contracts: number;
     max_price_tenths: number;
-    p_yes_bp: number;
     idempotency_key: string;
     /** Required on a combination ticker; the route 422s without it. */
     combo_acknowledged?: boolean;

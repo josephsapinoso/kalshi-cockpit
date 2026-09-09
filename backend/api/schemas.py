@@ -84,15 +84,21 @@ class DeskAttentionRequest(BaseModel):
 
 class ManualOrderRequest(BaseModel):
     """What the manual ticket sends (ADR 0063). Everything is re-validated
-    server-side; the two numbers the client DOES author — the price ceiling
-    and the typed P(YES) — are the two the design requires it to author.
+    server-side; the one number the client DOES author — the price ceiling —
+    is the one the design requires it to author.
 
     `max_price_tenths` is a ceiling, never a target: the order is refused
     when the live ask exceeds it, and the limit actually sent is the ask
     (bounded by this), snapped to the market's own grid.
 
-    `p_yes_bp` is ADR 0065's precondition — typed before the price is
-    revealed, stored beside the order row, never in the stopped study's log.
+    **`p_yes_bp` was removed 2026-09-09** (ADR
+    DRAFT-the-ticket-stops-asking-for-a-probability, superseding ADR 0065 §2)
+    on Joe's instruction: the field was friction, and the consumer ADR 0065
+    named to justify it was never built. The COLUMN survives, nullable, and
+    the rows written while it was required keep their real values. A body that
+    still carries the key is not refused — Pydantic ignores an extra field —
+    but nothing reads it and nothing is written; a stale client records NULL,
+    which is the truth about a number this server no longer asked for.
     """
 
     ticker: str = Field(min_length=1, max_length=80)
@@ -103,7 +109,6 @@ class ManualOrderRequest(BaseModel):
     # a validation error instead of the named reason the route gives.
     contracts: int = Field(gt=0, le=1_000)
     max_price_tenths: int = Field(ge=1, le=999)
-    p_yes_bp: int = Field(ge=1, le=9999)
     idempotency_key: str = Field(
         min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$"
     )
