@@ -302,8 +302,17 @@ otherwise.**
      exercised), other routes to a missing row than "never inserted", and the
      interaction of these guards with steps 4-7.
 5. **`_resubscribe` (`backend/kalshi/ws.py:269`) is called by nothing** — not
-   `run()`, not `_resync_all`, not any test. Dead code, one line to note, not
-   a re-open of item 34.
+   `run()`, not `_resync_all`, not any test. Found while re-checking audit
+   item 34, and it is **instance five of "built but never called"**, this time
+   on the WebSocket reconnect path.
+   **Treat it as a live-behaviour question, not a tidiness one.** A
+   resubscribe that never runs means a dropped socket silently stops
+   delivering the markets it was watching, and the desk would show stale
+   prices rather than an error. Nobody has checked whether reconnection is
+   handled some other way (a fresh `run()`, a supervisor restart) or not
+   handled at all. **Establish which before deleting it or writing it a
+   caller** — deleting dead code that was covering a real gap would remove the
+   evidence along with the symptom.
 6. **Scout Anthropic refusal fixture (ADR 0106 §5.2)** — one **billed** call,
    Joe-gated. **Do not pre-build the harness**: a module with no caller is
    this repo's four-times-caught pattern, and building it "ready for him" is

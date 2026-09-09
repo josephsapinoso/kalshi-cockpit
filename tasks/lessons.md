@@ -24,20 +24,31 @@ how [[wait-for-ci-before-pushing-again]] gets violated, because the reasoning
 that justified it - "the new run tests a superset anyway" - is the same
 sentence someone will say when it is false.
 
-**So it is a bounded exception, with both conditions checkable before the
-push:**
+**So it is a bounded exception. One condition carries it, and it is checkable
+before the push:**
 
-1. The new tree is a **strict superset** of the cancelled commit's tree. Not
-   "roughly the same work", not "the same branch" - the cancelled commit's
-   content is literally contained in what the new run will check out.
-2. The cancelled commit's **unique content is not exercised by that suite**
-   anyway, so the run being lost verified nothing about it in the first place.
+**The new tree must be a strict superset of the cancelled commit's tree** -
+the cancelled commit's content literally contained in what the new run will
+check out, not "roughly the same work" and not "the same branch". When that
+holds, nothing is lost, because the superset run checks everything the
+cancelled run would have and more.
 
-Here both held: the cancelled commit was a frontend lockfile bump, the new
-commit contained it, and CI runs `ruff` and `pytest`, neither of which touches
-`frontend/`. The frontend's real verification - `tsc --noEmit` and
-`next build` - had already been run locally, and that is the check that
-mattered, not the one that was cancelled.
+**The condition that is NOT required, written down because this session got it
+wrong first:** it does not additionally matter whether the cancelled commit's
+unique content is exercised by the suite. The first draft of this lesson
+demanded that too, and the very next push violated it - cancelling a run whose
+commit added a test file, which the suite obviously does exercise - while
+being completely safe, because the superset run ran that same new test. A rule
+with a redundant clause is worse than no clause: it gets broken in a safe case,
+and then it gets ignored in an unsafe one.
+
+Two separate cancellations happened this session and both were fine on the
+superset test alone. Where the "is it exercised" question does belong is a
+different one: **deciding whether local verification was sufficient.** The
+frontend lockfile bump was checked by `tsc --noEmit` and `next build` locally,
+and CI runs `ruff` and `pytest`, neither of which touches `frontend/` - so the
+run that was cancelled was never the check that mattered for that change. That
+is a reason to be relaxed about the wait, not a licence to cancel.
 
 **The general shape:** when urgency argues for skipping a discipline, do not
 skip it and do not obey it blindly. State the two or three conditions under
