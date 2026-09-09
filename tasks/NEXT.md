@@ -118,13 +118,19 @@ the channel diagnostic (A17.6/A17.11).
 
 ## 2026-09-09 — two critical unauthenticated RCEs were live on the public box and are now patched; the effort dial is set; the month-old audit is down to two real items
 
-**STATE at close.** `main` = **`88ac4ec`**, pushed. **Live and demo are both
-on `88ac4ec`.** Live stayed on machine `7812601a239428` across the deploy, so
-no volume was replaced. Read `/api/health` rather than believing this table.
+**STATE at close.** `main` = **`69ba254`**, pushed. **Live and demo are both
+on `69ba254`.** Live stayed on machine `7812601a239428` across both deploys,
+so no volume was replaced and no credit fact inverted. Read `/api/health`
+rather than believing this table.
 
-    live     88ac4ec verified by reading /api/health build.git_sha
-    demo     88ac4ec no longer deliberately behind — it ran the same
+    live     69ba254 verified by reading /api/health build.git_sha
+    demo     69ba254 no longer deliberately behind — it ran the same
              vulnerable image with no auth token at all, so it was patched too
+
+CI green on `6348a42` (`34307087087`) and on `88ac4ec` (`34307931989`).
+The run on `be29fcb` was **cancelled** by the next push — see the lessons
+entry on when that is permissible, because it is a bounded exception and not
+a precedent.
 
 Money doors **unchanged**, verified off `/api/health` after the deploy:
 `manual_orders` **false (ARMED)**, `combo_bids` true (dry), `engine_orders`
@@ -212,12 +218,23 @@ otherwise.**
    the `window_status` bootstrap question (`timing.py:1536`). Sunday 09-13 is
    the only attended NFL Sunday this month and the freeze is what makes it a
    measurement. A deploy is not contamination; logic changes are.
-2. **`_next/image` is still outside the auth matcher.** The patch fixed the
-   vulnerable code, **not the exemption**. The app uses `next/image` in zero
-   places and `frontend/public/` holds only `robots.txt`, so
-   `images: { unoptimized: true }` would remove this whole class of exposure
-   permanently instead of one advisory at a time. Not done — it is a design
-   decision, not a patch, and it wants its own ADR.
+2. ~~**`_next/image` is still outside the auth matcher.**~~ **THE OPTIMIZER IS
+   OFF, same session.** `frontend/next.config.ts` sets
+   `images: { unoptimized: true }` (ADR 0117 Amendment 1), deployed to live
+   and demo. **Verified by response, not by config**: an unauthenticated
+   `GET /_next/image?url=%2Frobots.txt&w=63&q=75` returned **400** with the
+   optimizer's own width validator before, and returns **404** after, on both
+   instances. That validator string is the discriminating signal — it can
+   only come from the optimizer.
+   **The "zero usages" claim was checked because it is the flattering
+   answer.** A first pass said `CrewAvatar.tsx` really imports `next/image`;
+   reading the file shows it draws inline SVG and line 4 is a comment saying
+   it deliberately avoids the pipeline. Two matches in the whole frontend,
+   both non-usages.
+   **What remains open: the exemption itself.** `middleware.ts:160` still
+   excludes `_next/image` from the auth matcher, so re-enabling the optimizer
+   restores the exposed endpoint *and* its exemption in one line. The config
+   comment says so at the point of change.
 3. **The `cryptography` pin.** `~=44.0` is inside a live advisory's vulnerable
    range and GitHub wrongly reports it fixed. The fix is 49.0.0, five majors
    up, on the RSA-PSS path that signs real-money orders and which
@@ -226,22 +243,45 @@ otherwise.**
 4. **`tasks/audit-2026-08-07.md` cannot be archived — two items are live.**
    Re-checked all six this session; 5, 27, 33 and 34 are FIXED with
    citations. The two that survive:
-   - **Item 23.** `backend/analysis/marts.py:148-165` — `headline_verdicts`
-     walks `MARTS` and appends every `status == "ok"` panel's verdict, and
-     **never consults `missing_required_marts`**. So a per-bucket finding can
-     headline the dashboard while the multiple-comparisons qualifier is
-     absent entirely. `tests/test_marts.py:108`
+   - **Item 23 — TOP OF THE NEXT SESSION'S LIST, AND THE DECISION IS ALREADY
+     MADE, SO DO NOT RE-DERIVE IT.** `backend/analysis/marts.py:148-165` —
+     `headline_verdicts` walks `MARTS` and appends every `status == "ok"`
+     panel's verdict, and **never consults `missing_required_marts`**. So a
+     per-bucket finding can headline the dashboard while the
+     multiple-comparisons qualifier is absent entirely. `tests/test_marts.py:108`
      (`test_unavailable_panels_contribute_no_headline`) **enshrines it** — it
      builds a warehouse with no `mart_multiple_comparisons` at all and
      asserts the headline appears anyway. This is the repo's own "count your
      tests" rule being defeated by the dashboard that exists to enforce it.
-   - **Item 25.** The order endpoint's steps 1 and 3 have no end-to-end test:
-     `backend/api/routes.py:2085-2090` (404, recommendation must exist) and
-     `:2107-2124` (422, engine must have authorised a bet). Steps 2, 5, 6 and
-     the dry-run body **are** covered now, so the item is real but much
-     smaller than in August. Step 3 guards a defect **this repo has already
-     shipped once** — the code comment names it: three rows scored at -6.0c
-     were fully orderable at maximum size.
+     **The partner's ruling, 2026-09-09: SUPPRESS.** `headline_verdicts`
+     returns nothing for a panel whose required marts are missing. An
+     unqualified per-bucket finding headlining the dashboard is rule 1 — a
+     large apparent edge with the multiple-comparisons qualifier *absent* is
+     precisely the defect the mart was built to prevent, and "show it with a
+     warning" is how warnings get read past. **Re-point the existing test to
+     assert the headline is ABSENT; keep it, do not delete it**, and verify by
+     restoring the old behaviour. Deferred only because it is a behaviour
+     change to a reporting surface at the end of a session that had already
+     deployed twice.
+   - ~~**Item 25.**~~ **DONE, same session.**
+     `tests/test_order_authorisation_guards.py` covers step 1 (404,
+     `"does not exist"`) and step 3 (422, `"found no edge worth betting after
+     fees"` and `"was sized at 0 contracts"`). Both pin the **status and a
+     discriminating substring**, because a status code alone cannot say
+     *which* guard fired — and both assert `quotes.calls == []`, since these
+     refusals precede the live-quote refresh, which is a side effect only the
+     intended guard produces. Fixtures reused from `test_quote_refresh.py`;
+     no new harness. **Verified by disabling each guard separately**, which is
+     the part that matters: with step 3 removed the request reaches
+     `backend/core/ev.py:133` and dies on `contracts must be positive, got 0`
+     — that is the shipped defect itself, a zero-authorised row travelling
+     toward being priced as a real order. Step 1 stayed green throughout, so
+     the step 3 test really does isolate step 3. `git diff backend/` empty
+     after restore, checked independently.
+     Out of scope, stated in the module docstring: a *negative*
+     `suggested_contracts` (the guard's `<= 0` covers it, only `0` is
+     exercised), other routes to a missing row than "never inserted", and the
+     interaction of these guards with steps 4-7.
 5. **`_resubscribe` (`backend/kalshi/ws.py:269`) is called by nothing** — not
    `run()`, not `_resync_all`, not any test. Dead code, one line to note, not
    a re-open of item 34.

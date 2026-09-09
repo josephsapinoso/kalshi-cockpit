@@ -16,6 +16,36 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-09 - A push may cancel an in-flight CI run only under two checkable conditions, and "it is probably a superset" is not one of them
+
+A push cancelled a running CI job in order to ship an unauthenticated-RCE fix
+about fifteen minutes sooner. That was the right call and it is also exactly
+how [[wait-for-ci-before-pushing-again]] gets violated, because the reasoning
+that justified it - "the new run tests a superset anyway" - is the same
+sentence someone will say when it is false.
+
+**So it is a bounded exception, with both conditions checkable before the
+push:**
+
+1. The new tree is a **strict superset** of the cancelled commit's tree. Not
+   "roughly the same work", not "the same branch" - the cancelled commit's
+   content is literally contained in what the new run will check out.
+2. The cancelled commit's **unique content is not exercised by that suite**
+   anyway, so the run being lost verified nothing about it in the first place.
+
+Here both held: the cancelled commit was a frontend lockfile bump, the new
+commit contained it, and CI runs `ruff` and `pytest`, neither of which touches
+`frontend/`. The frontend's real verification - `tsc --noEmit` and
+`next build` - had already been run locally, and that is the check that
+mattered, not the one that was cancelled.
+
+**The general shape:** when urgency argues for skipping a discipline, do not
+skip it and do not obey it blindly. State the two or three conditions under
+which skipping is safe, check them, and write them down - because the next
+person will inherit the precedent whether or not you meant to set one. A
+cancelled run still verifies nothing. What changes is whether anything needed
+verifying.
+
 ## 2026-09-09 - An exemption list groups by syntax, not by kind, and the dangerous member is the one that merely looks like the safe ones
 
 `frontend/src/middleware.ts:160` read
