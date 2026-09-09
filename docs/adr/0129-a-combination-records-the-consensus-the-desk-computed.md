@@ -1,6 +1,6 @@
-# ADR DRAFT — A combination records the consensus the desk computed
+# ADR 0129 — A combination records the consensus the desk computed
 
-Status: proposed
+Status: accepted
 Date: 2026-09-09
 
 Answers the question ADR 0125 left open under "What this does not decide"

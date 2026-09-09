@@ -1,6 +1,6 @@
-# DRAFT — A slot runner replaces the hand-typed run sheet for the 2026-09-13 capture
+# ADR 0128 — A slot runner replaces the hand-typed run sheet for the 2026-09-13 capture
 
-Status: proposed
+Status: accepted
 Date: 2026-09-09
 
 ## Context
