@@ -16,6 +16,52 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-09 - A true sentence with the wrong scope cannot be caught by any guard that checks its facts, and a sourcing guard makes that harder to see rather than easier
+
+The buy ticket and the bid route both said *"every combination book this repo
+has ever read had no YES bid - 40 of 40, across three runs on two dates."*
+Every word was true. The count was correct. Both numbers were `ast`-guarded
+against being typed rather than sourced, precisely so a stale digit could not
+survive a green suite - a guard this repo added after a refuted sentence lived
+eleven days.
+
+All 40 books came from two series. **Zero came from
+`KXMVECROSSCATEGORY-SHARD1`, which is where every hand fill this desk has
+taken lives.** Joe read the sentence while tapping a shard-1 combination.
+
+**Nothing could have caught this, and the reason is structural.** A sourcing
+guard asks *"is this number the number?"* The defect was not in the number. It
+was in the population the reader supplies when the sentence does not name one -
+and "every book this repo has ever read" invites exactly that, because it
+sounds exhaustive while being a statement about the reader's own sampling.
+
+**So the check that was missing is not about facts but about quantifiers: when
+a screen states a count over a population, does it name the population?** A
+count without a denominator's identity is an invitation to substitute the one
+in front of you. The tell is a phrase like "every X we have seen" or "all
+recorded Y" - true by construction, and therefore carrying no information about
+what was *not* seen, which is the half the reader needs.
+
+Two corollaries, both learned the hard way here:
+
+- **The strongest guards make this failure less visible, not more.** Green
+  sourcing tests, an `ast` parser, a constant with a comment block - the
+  sentence looked like the most carefully defended string in the codebase.
+  Defence-in-depth on the wrong axis reads as defence.
+- **Fixing one surface is not fixing it.** The same sentence lived on the bid
+  route's 422. Correcting the screen someone looks at and leaving the one
+  nobody looks at reproduces the defect exactly where it will not be noticed;
+  the tests here assert both surfaces in one file so neither can be quietly
+  dropped.
+
+And the scope clause must claim nothing extra. It says what was read and what
+was not, and stops - **not** that the unread population differs, which no data
+supports and which is the easier error to make while writing an honest caveat.
+
+See [[justifications-decay-toward-reassurance]]: this is the same family, but
+the sentence never decayed. It was narrow from the day it was written, and only
+the reader's context made it mislead.
+
 ## 2026-09-09 - A test can enshrine the defect as intended behaviour, and then the guard's absence is *documented* rather than merely missing
 
 `_check_sequence` trusted the first `seq` on a websocket connection at any

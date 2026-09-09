@@ -119,12 +119,30 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-09 (third session) — the desk armed the entry and never armed the exit, on the one path where he spends real money
+## 2026-09-09 (third session) — the desk armed the entry and never armed the exit; and the census behind every combo warning had never read the shard he trades
 
-**STATE at close.** `main` = **`6c25c22`**, pushed, **CI green**
-(`34369960258`, 8m48s). Session started at `579fadd`, clean.
+**Two findings, both about the combination path, both found by looking rather
+than by being told.** The exit gap (ADR 0125) came from the partner ranking it
+above the whole backlog. The shard gap came from probing `/markets` to confirm
+a ticker spelling — which is the second time this session that a routine
+verification, not a plan, produced the thing worth knowing.
 
-**DEPLOYED on Joe's word ("deploy it"), and verified.** Live is on
+**STATE at close.** `main` = **`d27ca55`**, pushed, **CI green**
+(`34377084002`, 9m4s). Session started at `579fadd`, clean.
+
+**A SECOND DEPLOY IS OWED, AND THIS ONE HAS A DEADLINE.** Live is on
+**`8755de6`**; `d27ca55` carries the scope correction to the buy ticket and
+the bid-route 422, which the registration (§12.4) requires to land **before
+C1 at 15:30Z on 2026-09-13**. It is copy only — no ceiling, no route logic, no
+order path — but it sits on a real-money surface, so it was not shipped
+unasked. **If it is not deployed, Sunday's measurement runs while the screen
+still makes the unscoped claim that measurement exists to scope.**
+
+    d27ca55  scope correction + Amendments 1-2   NOT on live   deploy before 09-13 15:30Z
+    6caf867  census provenance + tests           NOT on live   (docs/tests only)
+    8755de6  combo fill -> hedge position        LIVE, verified in container
+
+**DEPLOYED EARLIER on Joe's word ("deploy it"), and verified.** Live is on
 **`8755de6`**, machine `7812601a239428` — **unchanged, so no volume was
 replaced and no credit fact inverted.** Via `.github/workflows/deploy.yml`
 (`34373441693`), which is the only way either instance ships.
@@ -296,8 +314,39 @@ capture or the scan denominator is lost.
    `backend/odds/{timing,budget,attention,ondemand,client,sweeplog}.py` plus
    the `window_status` bootstrap question (`timing.py:1536`). A deploy is not
    contamination; logic changes are.
-2. **The Sunday capture — answer (A) above, then run it 09-13.** The
-   registration is written; nothing has been captured.
+2. **SUNDAY 2026-09-13 — the run sheet. Registration complete, nothing
+   captured.** Five slots, fixed clock, **no sixth capture** and no slot moved
+   more than 30 minutes (a missed slot is recorded *missing* and the result
+   says four of five — *"the pool was thin so we looked again later"* is
+   prohibited by name):
+
+       C1 15:30Z   C2 17:30Z   C3 20:00Z   C4 23:30Z   C5 00:45Z (09-14)
+
+   **Two invocations per slot, deliberately separate** — folding them into one
+   command would let an empty shard page abort Arm A's capture:
+
+       Arm A (comparison)  --max-books 40                 default series
+       Arm D (PRIMARY)     --max-books 25 --series KXMVECROSSCATEGORY-SHARD1
+
+   Redirect stdout to a `.txt` per capture or the scan denominator is lost
+   (the 2026-08-18 run hit this). ≤360 unmetered Kalshi calls for the day,
+   **zero Odds credits**.
+
+   **Three things that will otherwise be misread on the day:**
+   - **Arm C is EXPECTED to abort.** Both NFL series returned 0 open rows
+     midweek and a named `--series` with no rows aborts by design. Recorded
+     now so an abort is not later read as a failure of the instrument.
+   - **Nobody may open the cockpit UI to run any of this.** A page-open
+     registers attention and contaminates the dwell measurement the odds
+     freeze exists to protect. These are shell commands and no browser.
+   - **A null is not confirmation** (§0). At `k = 0` the licensed sentence is
+     only that the denominator grew and the bound narrowed. The word
+     "structurally" is forbidden outright.
+
+   **Also on Sunday, unrelated to the census:** it is the first real exercise
+   of the combo-fill → `parlay_positions` wiring (ADR 0125). If he buys a
+   combination, check a `parlay_positions` row appeared — not that the route
+   returned 200.
 3. **One `pip-audit` ignore remains and it is NOT a deferred fix.** `pyarrow`
    `GHSA-rgxp-2hwp-jwgg`, a known-bad match: the flaw needs an Arrow **IPC
    file** read with pre-buffering and this repo only writes Parquet.
@@ -319,7 +368,17 @@ capture or the scan denominator is lost.
    settles leg markets; whether a minted `KXMVE` ticker settles its position
    automatically is unobserved. Surfaced by ADR 0125, not acted on.
 
-**Joe-gated — two, and both have a Sunday deadline:**
+**Joe-gated — one open, and it has a Sunday deadline:**
+
+- **(E) OPEN — deploy `d27ca55` to live before 2026-09-13 15:30Z?** The scope
+  correction on the buy ticket and the bid 422. Copy only: no ceiling, no
+  route logic, no order path, nothing money-touching. Left unshipped only
+  because the string sits on a real-money surface. **Undeployed, Sunday's
+  measurement runs while the screen still makes the unscoped claim that
+  measurement exists to scope** — and the registration ruled the correction is
+  owed *regardless* of what Sunday finds.
+
+Answered and closed this session:
 
 - ~~**(A)** The NFL single-game arm for the census?~~ **ANSWERED YES
   2026-09-09 and DONE.** `--series` on
@@ -331,25 +390,73 @@ capture or the scan denominator is lost.
   return HTTP 200 on `/series` with 0 open rows midweek, so the tickers are
   right and their availability on the day is the thing Arm C tests.
 
-- **(C) NEW, and it outranks Arm C — does Sunday also read shard 1?**
-  Probing to confirm the Arm C tickers turned up something bigger.
-  **`KXMVECROSSCATEGORY-SHARD1` is a separate series with 1,000 open rows and
-  is not in `DISCOVERY_SERIES`**; `series_ticker=KXMVECROSSCATEGORY` returns
-  only non-shard tickers. Across all three recorded runs (20 + 9 + 11 rows),
-  **`SHARD1` tickers number zero** — and **every one of Joe's ~50 real
-  combination fills is `KXMVECROSSCATEGORY-SHARD1-*`**.
+- ~~**(C)** Add a shard arm to Sunday?~~ **ANSWERED YES 2026-09-09 and DONE —
+  Amendments 1 and 2, and it changed what the run is.**
 
-  So "no combination book read here has carried a YES bid" — the sentence
-  gating the warning before every combo tap, and underwriting ADR 0073's
-  ceiling and ADR 0078's hedge — was measured on a population he does not
-  trade. Not false; **narrower in scope than the screens imply, and the gap is
-  exactly where his money is.**
+  The finding: **`KXMVECROSSCATEGORY-SHARD1` is a separate series** not in
+  `DISCOVERY_SERIES` (`series_ticker=KXMVECROSSCATEGORY` returns only
+  non-shard tickers), and across all three recorded runs — 20 + 9 + 11 rows —
+  **`SHARD1` tickers number zero**, while **every one of Joe's ~50 real
+  combination fills is `KXMVECROSSCATEGORY-SHARD1-*`**. Not false; **narrower
+  in scope than the screens imply, and the gap is where his money is.**
 
-  Runnable: 13 of 1,000 midweek shard rows are eligible under the unmodified
-  §2 rule, and the `--series` flag already does it with no further code. It
-  needs a **registration amendment before 2026-09-13**, because adding an arm
-  after the data is the move the registration forbids by name. Recorded in the
-  registration's §1 before any data. **Add a shard arm to Sunday?**
+  **Arm D is now PRIMARY and Arm A is demoted to the comparison arm.** The
+  registrar resolved the rank on §0's own arithmetic rather than by which
+  population feels weightier: Arm A's *unique* contribution is comparability
+  to 0-of-40, which feeds the branch already proved unable to conclude
+  anything, while its *usable* contribution — falsification at `k = 1` — is
+  not unique to it, because one resting YES level anywhere kills the universal
+  sentence. **The rule, reusable: the headline goes to the arm whose
+  population the claim is APPLIED to, not the arm whose population it was
+  historically measured on.** Co-primary was refused — two headlines is two
+  chances to pick the better one afterwards.
+
+  `n = 25`, all five slots, **+140 unmetered Kalshi calls** (≤360 for the day
+  with Arm A), zero Odds credits. **A separate invocation from Arm A at each
+  slot**, because a `--series` with no open rows aborts by design and folding
+  the shard into Arm A's command would let an empty shard page destroy Arm A's
+  capture. Thin-day rule: ≥10 pooled distinct books → full scoring; 1–9 →
+  ABORTED-THIN except the falsifying branch; 0 → the instrument aborts and
+  that is reported, not retried.
+
+  **The population is one literal series**, after enumeration: `SHARD2`,
+  `SHARD3`, `KXMVESPORTSMULTIGAMEEXTENDED-SHARD1` and
+  `KXMVENFLSINGLEGAME-SHARD1` all **404** on `/series`. That is today's
+  answer, not a permanent one.
+
+  **The constraint the registrar added unprompted, and it binds the
+  write-up:** `markets_page` is newest-first and the page came back full, so
+  Arm D samples the **newest slice** of shard 1, not a random sample — and
+  newly minted combinations are plausibly *less* likely to carry a resting
+  order, the direction that flatters a null. The null sentence is fixed in
+  advance to say *"the newest N shard-1 combinations"*, with the age range in
+  the result's **headline, not a footnote**. So "13 of 1,000" is a rate over
+  the newest page, not over the series; the open shard population is ≥1,000
+  and its true size is unmeasured.
+
+- ~~**(D)** Does the buy-ticket copy need scoping before Sunday?~~ **RULED
+  OWED and DONE the same day** (registration §12.4). The sentence *"every
+  combination book this repo has ever read had no YES bid — 40 of 40"* is
+  true and correctly sourced, and is read by someone tapping a shard-1
+  combination those 40 books contain **zero** of. **No sourcing guard could
+  catch it — not a digit is wrong**; what was wrong is the scope a reader
+  supplies.
+
+  Not deferred to Sunday, for a named reason: waiting leaves the screen making
+  an unscoped claim *during* the measurement that scopes it, and in the
+  ABORTED-THIN branch the correction never lands at all — **a caveat selected
+  for being survivable.**
+
+  **Both surfaces** (`combo_note` on the buy ticket, and the bid route's 422)
+  now name the two series and say plainly that zero shard-1 books have been
+  read, then stop — implying neither that the shard was measured nor that it
+  differs. Correcting one and not the other reproduces the defect on the
+  surface nobody looks at. **Sourced, never typed, and that is forced rather
+  than tidy:** `KXMVECROSSCATEGORY-SHARD1` carries a digit and the existing
+  guards refuse bare integers, so typing it would trip them or force someone
+  to weaken one. New constants `COMBO_EXIT_CENSUS_SERIES`,
+  `..._SHARD_SERIES`, `..._SHARD_BOOKS_READ`. **No behaviour changed** — no
+  ceiling, no route logic, no order path.
 - ~~**(B)** Deploy to live?~~ **ANSWERED YES 2026-09-09 and DONE.** Live is on
   `8755de6`, verified in the container. **Still unobserved: the wiring firing
   on a real fill.** Nothing has bought a combination through the desk since it
