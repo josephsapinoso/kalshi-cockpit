@@ -299,11 +299,18 @@ class TestTheMarketPageRecordsTicket24:
         both answers are non-local. The comment must therefore still name #24
         and ADR 0065 -- the trail that explains the mask ever existed -- and
         also the ADR that removed it.
+
+        **Pins the ORDINAL, not the slug.** It first pinned
+        `the-ticket-stops-asking-for-a-probability`, which was the only handle
+        the ADR had while it was an unnumbered `DRAFT-` file, and that broke
+        the moment the number was taken at merge. A slug is the reference that
+        exists before a decision is real; the ordinal is the one that survives,
+        and it is how every other ADR in the tree is cited.
         """
         text = comments(MARKET)
         assert "#24" in text
         assert "ADR 0065" in text
-        assert "the-ticket-stops-asking-for-a-probability" in text, (
+        assert "ADR 0131" in text, (
             "the comment does not name the ADR that removed the flag, so a "
             "reader cannot tell whether #24 was undone or discharged"
         )
