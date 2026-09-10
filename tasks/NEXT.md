@@ -119,6 +119,97 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-10 (ninth session) — the parlay screen was empty on the clock, not the menu, and NFL prop ladders need no parser
+
+**Joe opened with "I have to make parlays more wide and variety options with
+over unders, props, underdog, etc." The variety was never the bound.** Measured
+on live at 16:4xZ: the `tonight` pool held **one** game and all seven cards read
+"needs N fresh games and the slate has 1", while the SAME slate, the same
+markets and the same minute built **six of seven** one day out. The excluded
+histogram is `kickoff_outside_window: 440`, `stale_consensus: 9` — so 440 of 449
+excluded legs were cut by the clock, and **adding totals or props would not have
+filled one of those cards.**
+
+**STATE at close.** `main` = **`8d5dd1c`** plus the widening commit, neither
+pushed. **Live = `158a90c`**, unchanged and now behind by more. Odds path
+untouched: the freeze to 10:00Z 2026-09-14 holds; nothing under `backend/odds/`
+or `backend/scheduler.py` was read or written. No ADR taken, and two are owed
+(below). Credits: **zero spent** — the capture is unauthenticated `/events`, the
+histogram is a GET of `/api/parlays`, and no lookup was minted, so Arm D's frame
+is uncontaminated by this session.
+
+### Joe's two answers, and one of them should be re-asked
+
+Batched as (A)/(B); he answered both in one line, as usual.
+
+- **(A) "take the trade"** — accept losing the sharp anchor to admit totals.
+  **Re-ask this.** He answered BEFORE the histogram existed. The trade is
+  ADR 0110's: dropping `eu` is the only lever that admits totals, and
+  `SHARP_BOOKS = {pinnacle, betfair_ex_eu, betfair_ex_uk, matchbook}`
+  (`runner.py:153`) contains no `us`-region book, so under `us` alone the sharp
+  set is **empty** and sharp anchoring was **73.0%** of the pinned record. He
+  traded that away to fix an empty screen that this session then showed was
+  empty for an unrelated reason. Dated 2026-09-28 regardless, so nothing is
+  lost by putting it again with the histogram attached.
+- **(B) "i want to bet on props for parlay legs"** — props are UNKILLED, and
+  this **overturns map ticket #12** (resolved by Joe 2026-09-02: *"option A —
+  he does not really bet props; drop them from the brief"*). The narrower want
+  is legs, not picks. #12 needs reopening or superseding; it is currently
+  closed and says the opposite.
+
+### What shipped
+
+- **`8d5dd1c`** — the NFL prop capture. `scripts/capture_nfl_prop_fixture.py`
+  and `tests/fixtures/events_nfl_props_nested.json`, unauthenticated, no
+  credits, nothing minted. **The finding is that NFL needed no new parser:**
+  the MLB grammar `"Player: N+"` and the join identity `floor_strike == N - 0.5`
+  hold **2,029 of 2,029** across KXNFLPASSYDS (253), KXNFLRECYDS (1,160) and
+  KXNFLRSHYDS (616) — three magnitudes, so it is a property of Kalshi's prop
+  ladder rather than of baseball. KXNFLFIRSTTD is 362 markets with **zero**
+  `floor_strike`, bare-name subtitles and `strike_type = 'structured'`: no
+  rung, joins to nothing. KXNFLANYTD had 0 open events and is recorded as
+  **unmeasured, not tested**. `props.py` split into `MLB_PROP_SERIES`, staged
+  `NFL_PROP_SERIES` and `PROP_SERIES_NO_STRIKE`; **`PROP_SERIES` is unchanged**,
+  so live behaviour did not move.
+- **The horizon widening.** An unnamed window tries `tonight` and widens only
+  if it builds no card at all; a **named** window is never widened. The
+  widening announces itself in `window.widened_from` / `widened_words`, and the
+  words carry the settlement caveat — Joe's rule was never about the window, it
+  was *"I'd want to see my parlays finish out by the time the evening games
+  end"*, so widening past it has to say the card cannot settle tonight.
+  `WindowPicker` renders it. If every window is empty the `tonight` payload is
+  returned unwidened, so the refusal blames the right clock.
+
+### The mutation that passed, and why the bed was wrong
+
+The first route test **passed a mutation that removed the guard entirely.** Its
+bed was an empty database: with nothing to build, every window refuses, so a
+route that wrongly widened still returned `tonight` and looked correct. Rebuilt
+on a slate seeded with games *only* tomorrow — the only bed that can tell the
+two paths apart. Pattern written to `lessons.md`: **a guard test needs a bed
+where the unguarded code would produce a DIFFERENT answer, and "both paths
+refuse" is not that bed.**
+
+    widen silently                          3 tests red
+    widen despite an explicit window        1 red
+    never widen                             1 red
+    return the widest window when all empty 1 red
+    merge NFL into PROP_SERIES              2 red
+    loosen SUBTITLE to admit bare names     1 red
+    invert the join identity to N + 0.5     3 red
+
+### Two ADRs owed
+
+1. **The parlay leg pool is odds-feed-driven.** The join runs `fair_prices` ->
+   find a Kalshi market, never the reverse (`backend/parlays.py:686-737`). That
+   one sentence is why every "add a market type" request is a **feed** decision
+   wearing a UI request's clothes, and it will be re-derived at full cost
+   otherwise.
+2. **The sharp-anchor trade**, if (A) survives re-asking. It changes what
+   "fair" means on every card in every sport and cannot be a config edit.
+
+---
+
 ## 2026-09-10 (eighth session) — a combination CAN be sold back, five screens said it could not, and three of my own claims were withdrawn
 
 **Joe opened with "I WANT TO ACTUALLY BUY ONE COMBINATION FOR A FUTURE GAME
@@ -239,6 +330,31 @@ known to be loose. Dual reporting with/without desk-created rows is required.
 an unregistered look does not trigger a registered rule, so ADR 0078 stays shut.
 
 ### Still open, in order
+
+A. **RE-ASK JOE (A): the sharp-anchor trade, with the histogram attached.**
+   He said "take the trade" — drop `eu`, lose Pinnacle and Betfair, admit
+   totals — BEFORE the 2026-09-10 histogram showed the cards were empty on
+   kickoff time rather than on market type. `SHARP_BOOKS` has no `us`-region
+   member (`runner.py:153`), so under `us` alone the sharp set is EMPTY and
+   sharp anchoring was 73.0% of the pinned record. Dated 2026-09-28 by
+   ADR 0110 regardless. **Do not act on the answer he already gave.**
+
+B. **Joe wants props as PARLAY LEGS (2026-09-10), which overturns map ticket
+   #12.** #12 is CLOSED carrying his 2026-09-02 answer *"option A — he does
+   not really bet props; drop them from the brief"*. Reopen or supersede it;
+   a closed ticket asserting the opposite is the front door lying. The
+   narrower want is legs, never picks.
+
+C. **The NFL prop lane is buildable but its coverage is unmeasured, and the
+   prior is bad.** `NFL_PROP_SERIES` is staged and tested (`8d5dd1c`);
+   enabling is ONE edit with two halves — `PROP_SERIES = {**MLB, **NFL}` AND
+   a sport-aware `prop_market_keys()` (`backend/odds/client.py`, FROZEN to
+   10:00Z 2026-09-14; it is a flat list whose length IS the price, so three
+   NFL keys there would be requested on every MLB event too). Half alone is
+   broken both ways. **Measure first:** ADR 0079 put primary-only coverage at
+   48 of 263 MLB prop markets (18%), NFL ladders are longer, and 35,448 of
+   35,448 alternate rungs carry no Under and cannot be devigged. One event,
+   ~14 credits, after the 14th. If coverage is as bad as MLB's, kill the lane.
 
 0. **THE PAIR TEST, RE-SPECIFIED — and do not start it before Sunday.** The old
    rule said "take it again **when a moneyline card is quoted**", which

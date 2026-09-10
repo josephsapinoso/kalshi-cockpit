@@ -16,6 +16,39 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-10 - A guard test needs a bed where the UNGUARDED code would answer differently; "both paths refuse" is not that bed
+
+A route was given a guard: widen the kickoff window when the caller named
+none, never when the caller named one. The test for the second half asked for
+`horizon=tonight` and asserted the payload came back saying `tonight`. It
+passed. Then the guard was deleted outright as a mutation - and it **still
+passed**, because the test ran against an empty database. With no games at
+all, every window refuses, the widening loop falls through to its "nothing
+built anywhere" branch and returns `tonight` regardless. Guarded and
+unguarded produced byte-identical output, so the assertion could not see the
+difference and had never been testing the guard.
+
+Rebuilt on a slate seeded with games ONLY tomorrow, the mutation turned red
+immediately: unguarded, the explicit `tonight` request served tomorrow's
+cards.
+
+**The shape to look for: a fixture chosen for being simple rather than for
+being discriminating.** An empty pool, a zero balance, a single row, a
+default config - these make a test easy to write and are exactly the states
+in which many different code paths converge on the same answer. The mutation
+check catches it, which is why CLAUDE.md requires it; what this adds is the
+diagnosis when the mutation comes back green. **A green mutation does not
+only mean "the assertion is weak". It often means the BED is degenerate.**
+Before weakening or deleting such a test, ask what input would make the two
+versions of the code disagree, and seed that instead.
+
+The corollary is a rule for writing the test in the first place: **state, in
+one sentence, what the unguarded code would return for this input.** If the
+answer is "the same thing", the bed is wrong before a line of assertion is
+written.
+
+---
+
 ## 2026-09-10 - A stopping rule that names an outcome manufactures that outcome, and the arm it names will look like the finding
 
 A pre-registered pair test had already been taken once and come back null:

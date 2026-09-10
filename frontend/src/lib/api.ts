@@ -1008,6 +1008,19 @@ export type ParlayWindow = {
   words: string;
   ends_ms: number;
   choices: { key: ParlayHorizon; words: string }[];
+  /**
+   * Present only when the SERVER widened the window because the reader named
+   * none and the narrower one built no card at all. Absent when the reader
+   * picked the window himself, and absent when `tonight` built something.
+   *
+   * The distinction matters on screen: a window the desk chose has to say so,
+   * or the reader reads tomorrow's cards as the ones he asked for. Never
+   * derived here — a client that inferred "widened" from `key !== "tonight"`
+   * would also flag every window the reader deliberately picked.
+   */
+  widened_from?: ParlayHorizon;
+  /** The server's sentence for why, including that it cannot settle tonight. */
+  widened_words?: string;
 };
 
 export type ParlayLadder = {

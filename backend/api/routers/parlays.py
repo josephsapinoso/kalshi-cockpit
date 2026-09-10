@@ -44,6 +44,7 @@ from ...parlays import (
     DEFAULT_HORIZON,
     HORIZONS,
     build_ladder_payload,
+    build_ladder_payload_widening,
     price_card_on_kalshi,
 )
 from ...store import db
@@ -186,13 +187,16 @@ def register(
                 "many hours, on the sportsbook's clock."
             ),
         ),
-        horizon: str = Query(
-            DEFAULT_HORIZON,
+        horizon: Optional[str] = Query(
+            None,
             description=(
-                "Which kickoff window the cards are built from: `tonight` "
-                "(default), `tomorrow`, or `48h`. Unlike `within_hours`, "
-                "which only NARROWS the pool, this moves its upper bound. "
-                "An unknown key is a 422."
+                "Which kickoff window the cards are built from: `tonight`, "
+                "`tomorrow`, or `48h`. Unlike `within_hours`, which only "
+                "NARROWS the pool, this moves its upper bound. An unknown "
+                "key is a 422. **Omitted is not the same as `tonight`**: "
+                "omitted tries `tonight` first and widens only if it builds "
+                "no card at all, announcing the widening in `window`; naming "
+                "a window pins it, and an empty `tonight` stays empty."
             ),
         ),
     ) -> dict:
@@ -221,7 +225,7 @@ def register(
         # would otherwise serve tonight's cards under tomorrow's URL, and the
         # screen would look like it had simply found nothing -- the failure
         # mode this desk already has too much of.
-        if horizon not in HORIZONS:
+        if horizon is not None and horizon not in HORIZONS:
             raise HTTPException(
                 status_code=422,
                 detail=(
@@ -233,6 +237,21 @@ def register(
             list_filter = parse_list_filter(league, within_hours, now_ms=now)
         except FilterRefused as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if horizon is None:
+            # **No window named -- try the narrowest and widen only if it
+            # builds nothing.** `tonight` stays Joe's rule and stays first;
+            # what changed is that an empty `tonight` no longer ends the
+            # screen when the same slate fills six cards one day out. The
+            # widening announces itself in `window.widened_words`.
+            return build_ladder_payload_widening(
+                conn,
+                now_ms=now,
+                max_odds_age_ms=staleness.max_odds_age_s * 1000,
+                list_filter=list_filter,
+                trust_thresholds=TrustThresholds.from_configs(
+                    staleness, thresholds
+                ),
+            )
         return build_ladder_payload(
             conn,
             now_ms=now,

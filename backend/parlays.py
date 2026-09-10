@@ -498,6 +498,13 @@ HORIZONS: dict[str, tuple[int, str]] = {
 
 DEFAULT_HORIZON = "tonight"
 
+#: The windows to try, narrowest first, when the caller names none.
+#:
+#: `HORIZONS` is insertion-ordered and already runs narrowest-first, so this
+#: reads it rather than restating it -- two spellings of one order is how the
+#: fallback and the selector drift apart.
+HORIZON_LADDER: tuple[str, ...] = tuple(HORIZONS)
+
 
 def horizon_end_ms(now_ms: int, horizon: str = DEFAULT_HORIZON) -> int:
     """The kickoff bound for a named window, epoch ms.
@@ -2934,3 +2941,79 @@ def build_ladder_payload(
         payload["filter"] = list_filter.as_dict(hidden=hidden)
     payload["window"] = window_echo
     return payload
+
+
+def build_ladder_payload_widening(
+    conn,
+    *,
+    now_ms: int,
+    max_odds_age_ms: int,
+    trust_thresholds: Optional[TrustThresholds] = None,
+    list_filter: Optional[ListFilter] = None,
+) -> dict:
+    """The ladder for the narrowest window that actually builds a card.
+
+    **This exists because the default window is structurally empty on most
+    weekdays, and the rule it enforces is Joe's own.** `tonight` is his
+    stated preference -- "I'd want to see my parlays finish out by the time
+    the evening games end" -- and it stays the first thing tried. What it
+    does not stay is a dead end: measured on live 2026-09-10 at 16:4xZ, the
+    `tonight` pool held **one** game and all seven cards read "needs N fresh
+    games and the slate has 1", while `tomorrow` built six of seven from the
+    same slate, the same markets and the same minute. 440 of 449 excluded
+    legs were cut by `kickoff_outside_window`, 9 by staleness.
+
+    So the emptiness was never a market-variety problem, and widening the
+    menu -- totals, props -- would not have filled one of those cards.
+
+    **A widened window is announced, never silent.** The payload's `window`
+    gains `widened_from` and `widened_words`, and the words say the thing
+    Joe's rule is actually about: a card built from tomorrow's games cannot
+    settle tonight. A screen that quietly showed tomorrow under tonight's
+    label would be lying in exactly the direction the operator would not
+    catch, because the cards would look right.
+
+    **An explicitly requested window is never widened.** This runs only when
+    the caller named none. Asking for `tonight` and being shown tomorrow is
+    the same lie by a different route, and the route keeps that distinction
+    by passing `None` rather than a default.
+
+    Costs one query on a night that builds -- the common case, and unchanged
+    -- and at most one per window on a night that does not. The extra work
+    happens precisely when the cheap answer was useless.
+
+    WHAT THIS DOES NOT DO
+    ---------------------
+    - **It does not rank, reorder, or select legs.** Each card is built by
+      its own recipe exactly as before; only the pool's upper kickoff bound
+      moves. Nothing here reads the consensus-vs-Kalshi gap (ADR 0071).
+    - **It does not manufacture a card.** If no window builds one, the
+      `tonight` payload is returned unwidened, so the refusal Joe reads is
+      the honest one about tonight rather than a wider window's.
+    """
+    first: Optional[dict] = None
+    for key in HORIZON_LADDER:
+        payload = build_ladder_payload(
+            conn,
+            now_ms=now_ms,
+            max_odds_age_ms=max_odds_age_ms,
+            trust_thresholds=trust_thresholds,
+            list_filter=list_filter,
+            horizon=key,
+        )
+        if first is None:
+            first = payload
+        if any(not card.get("not_built_reason") for card in payload["cards"]):
+            if key != HORIZON_LADDER[0]:
+                _, empty_words = HORIZONS[HORIZON_LADDER[0]]
+                payload["window"]["widened_from"] = HORIZON_LADDER[0]
+                payload["window"]["widened_words"] = (
+                    f"Nothing fresh kicks off among {empty_words}, so these "
+                    f"are {payload['window']['words']}. A card built from "
+                    f"them cannot settle tonight."
+                )
+            return payload
+    # Every window was empty. Return the narrowest, so the words on screen
+    # describe the window Joe asked about rather than the widest one tried.
+    assert first is not None  # HORIZON_LADDER is never empty
+    return first

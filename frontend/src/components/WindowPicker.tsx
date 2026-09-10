@@ -91,6 +91,28 @@ export default function WindowPicker({
         )}
         {window.words}.
       </p>
+      {/*
+        **The desk chose this window, and says so.** `widened_words` is
+        present only when the reader named no window and `tonight` built
+        nothing at all — measured on live 2026-09-10, where the tonight pool
+        held one game and all seven cards refused while the same slate built
+        six one day out. Without this line the reader sees tomorrow's cards
+        under a window he did not pick and has no way to tell.
+
+        It carries the settlement caveat rather than only the window change,
+        because Joe's rule was never about the window: it was "I'd want to
+        see my parlays finish out by the time the evening games end". The
+        server owns the sentence; rewording it here would put the caveat in
+        two places, and only one of them would get corrected.
+      */}
+      {window.widened_words && (
+        <p className="mt-2 rounded border border-border px-3 py-2 text-xs leading-snug text-muted">
+          <span className="font-semibold text-foreground">
+            Nothing tonight —{" "}
+          </span>
+          {window.widened_words}
+        </p>
+      )}
     </nav>
   );
 }
