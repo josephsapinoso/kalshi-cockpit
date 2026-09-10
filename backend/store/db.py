@@ -1419,8 +1419,29 @@ def connect(
     *,
     read_only: bool = False,
     cross_thread: bool = False,
+    statement_budget_ms: Optional[int] = None,
 ) -> sqlite3.Connection:
     """Open a connection with the pragmas the schema expects.
+
+    **`statement_budget_ms` bounds this connection to a wall-clock budget, not
+    a per-statement one.** SQLite's `sqlite3_progress_handler` fires every N
+    VM instructions, not at statement boundaries, so there is no callback that
+    can see "a new statement started" and reset a clock. The honest design is
+    therefore per-CONNECTION: the deadline is set once, here, from
+    `time.monotonic()` at open time, and every subsequent statement on this
+    connection shares the one remaining budget. That coincides with
+    per-request for the one caller this exists for -- `routes.get_conn` opens
+    one connection per API request (`backend/api/routes.py`) and closes it
+    when the request ends, so "per connection" and "per request" are the same
+    thing there. A connection reused across multiple unrelated statements
+    would see the budget shrink with each one; nothing in this repo does that
+    on a budgeted connection today.
+
+    Left `None` everywhere else on purpose -- the runner, migrations and
+    scripts open long-lived or batch connections that legitimately run
+    statements past 25 seconds, and a budget on those would abort real work
+    rather than an abandoned request. A statement that hits the budget raises
+    `sqlite3.OperationalError: interrupted`.
 
     `row_factory` is set to `sqlite3.Row` so call sites read columns by name.
     Positional access to a widening table is how a price column and a quantity
@@ -1507,6 +1528,20 @@ def connect(
         # needs and is then handed back. A non-zero limit would keep the
         # difference reserved, which is the behaviour being removed.
         conn.execute("PRAGMA journal_size_limit = 0")
+
+    if statement_budget_ms is not None:
+        deadline = time.monotonic() + statement_budget_ms / 1000.0
+
+        def _past_budget() -> int:
+            # A progress handler returns truthy to abort, 0 to continue.
+            # `10_000` (the `n` passed to `set_progress_handler` below) is how
+            # often SQLite checks -- often enough that a runaway CTE (the
+            # regression this exists for) is caught within a fraction of a
+            # second past the deadline, not after it has already OOM'd the box.
+            return 1 if time.monotonic() > deadline else 0
+
+        conn.set_progress_handler(_past_budget, 10_000)
+
     return conn
 
 
@@ -1698,9 +1733,19 @@ def open_db(
     *,
     read_only: bool = False,
     cross_thread: bool = False,
+    statement_budget_ms: Optional[int] = None,
 ) -> sqlite3.Connection:
-    """Open an existing database, refusing on a schema-version mismatch."""
-    conn = connect(db_path, read_only=read_only, cross_thread=cross_thread)
+    """Open an existing database, refusing on a schema-version mismatch.
+
+    `statement_budget_ms` passes straight through to `connect` -- see its
+    docstring for why the budget is per-connection.
+    """
+    conn = connect(
+        db_path,
+        read_only=read_only,
+        cross_thread=cross_thread,
+        statement_budget_ms=statement_budget_ms,
+    )
     found = get_meta(conn, "schema_version")
     if found is None:
         conn.close()

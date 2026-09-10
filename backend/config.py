@@ -1127,6 +1127,15 @@ class AppConfig:
     # live operational store and this is the analytics snapshot, and the
     # Dashboards screen must never be able to write to either.
     warehouse_path: Path = field(default_factory=lambda: Path("data/warehouse.duckdb"))
+    # **Under Next's rewrite-proxy timeout, not equal to it.** `frontend/next.config.ts`
+    # defaults `proxyTimeout` to 30s: past that, Next drops the request and
+    # answers its own generic error while uvicorn keeps executing the SQLite
+    # statement underneath, unbounded, each one holding `PRAGMA temp_store =
+    # MEMORY` scratch space until enough of them OOM-kill the process. This
+    # budget aborts the statement first, so the client gets a real 503 naming
+    # the cause instead of the proxy's generic one -- see
+    # `docs/adr/DRAFT-an-abandoned-request-stops-executing.md`.
+    api_read_budget_ms: int = 25_000
 
     @classmethod
     def load(cls) -> "AppConfig":
@@ -1167,6 +1176,7 @@ class AppConfig:
             warehouse_path=Path(
                 _optional("WAREHOUSE_PATH", "data/warehouse.duckdb")
             ),
+            api_read_budget_ms=_int("API_READ_BUDGET_MS", 25_000),
         )
 
     @property

@@ -17,14 +17,15 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Annotated, Optional
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from ..config import (
@@ -400,6 +401,41 @@ def create_app(
         allow_headers=["*"],
     )
 
+    @app.exception_handler(sqlite3.OperationalError)
+    async def _sqlite_operational_error(
+        request: Request, exc: sqlite3.OperationalError
+    ) -> JSONResponse:
+        """The read-budget abort becomes a 503; every other `OperationalError`
+        is left alone.
+
+        `store.db.connect`'s progress handler raises exactly this exception
+        with the message "interrupted" when a statement outruns
+        `api_read_budget_ms` -- see that module and
+        `docs/adr/DRAFT-an-abandoned-request-stops-executing.md`. Anything
+        else with this type (a locked database, a malformed statement) is a
+        real bug, not an abandoned-request defence, so it is re-raised to fall
+        through to Starlette's normal 500 handling rather than being
+        misreported as a budget hit.
+        """
+        if "interrupted" not in str(exc):
+            raise exc
+        logger.warning(
+            "API read connection hit its %sms budget and was interrupted",
+            app_config.api_read_budget_ms,
+        )
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "read_budget_exceeded",
+                "budget_ms": app_config.api_read_budget_ms,
+                "detail": (
+                    "the query ran past the API read budget and was stopped "
+                    "so the request could not pile up behind a proxy that had "
+                    "already given up"
+                ),
+            },
+        )
+
     def require_auth(
         authorization: Annotated[Optional[str], Header()] = None,
     ) -> None:
@@ -444,8 +480,21 @@ def create_app(
         used, and closed in sequence by one request, never shared between
         concurrent ones. The guard stays on everywhere else -- see
         `store.db.connect`.
+
+        `statement_budget_ms` bounds this connection to `AppConfig.api_read_budget_ms`
+        (default 25s, under Next's 30s rewrite-proxy timeout). Past it SQLite
+        raises `sqlite3.OperationalError: interrupted`, which the app-level
+        handler below turns into a 503 naming the cause -- see
+        `store.db.connect` for why the budget is per-connection and
+        `docs/adr/DRAFT-an-abandoned-request-stops-executing.md` for the
+        incident this closes.
         """
-        conn = db.open_db(app_config.db_path, read_only=True, cross_thread=True)
+        conn = db.open_db(
+            app_config.db_path,
+            read_only=True,
+            cross_thread=True,
+            statement_budget_ms=app_config.api_read_budget_ms,
+        )
         try:
             yield conn
         finally:
