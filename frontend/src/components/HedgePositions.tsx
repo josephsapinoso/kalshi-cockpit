@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import {
   closeHeldPosition,
+  DISPLAY_TIME_ZONE,
   resolveHeldLeg,
   type HedgeBlock,
   type HedgeRung,
@@ -209,7 +210,8 @@ function VenueStatusLine({
     const { market_result, settled_ms } = position.venue_settlement;
     const outcome =
       market_result === "yes" ? "won" : market_result === "no" ? "lost" : (market_result ?? "unknown");
-    const date = new Date(settled_ms).toLocaleDateString(undefined, {
+    const date = new Date(settled_ms).toLocaleDateString("en-US", {
+      timeZone: DISPLAY_TIME_ZONE,
       year: "numeric",
       month: "short",
       day: "numeric",
