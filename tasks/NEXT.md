@@ -130,8 +130,13 @@ histogram is `kickoff_outside_window: 440`, `stale_consensus: 9` — so 440 of 4
 excluded legs were cut by the clock, and **adding totals or props would not have
 filled one of those cards.**
 
-**STATE at close.** `main` = **`8d5dd1c`** plus the widening commit, neither
-pushed. **Live = `158a90c`**, unchanged and now behind by more. Odds path
+**STATE at close.** `main` = **`d56638a`** (`8d5dd1c` the capture, `d56638a`
+the widening), **NOT PUSHED** — `git log origin/main..main` is 3, counting
+`6533847` from the eighth session. Full suite on the tree as committed:
+**6,908 passed, 10 xfailed, 0 failed** (20m07s); ruff and tsc clean. CI has
+NOT run, because nothing was pushed. **Live = `158a90c`**, unchanged and now
+behind main by three — so the widening is NOT on Joe's phone: opening
+`/parlays` on a weekday evening still shows seven empty cards. Odds path
 untouched: the freeze to 10:00Z 2026-09-14 holds; nothing under `backend/odds/`
 or `backend/scheduler.py` was read or written. No ADR taken, and two are owed
 (below). Credits: **zero spent** — the capture is unauthenticated `/events`, the
