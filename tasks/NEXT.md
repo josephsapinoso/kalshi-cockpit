@@ -241,6 +241,30 @@ combo's own live quote and the absence of a resting YES bid are never shown.
 
 ### Still open, in order
 
+0. **A COMBO TAP REFUSES EVERY FUTURE-GAME CARD, AND LEAVES NO RECORD.** Joe's
+   screenshot, 22:22 PT 2026-09-09: the "Through tomorrow" SAFE card (NYY,
+   LAR, PHI, all kicking off on the 10th) tapped "Buy it on Kalshi" and got
+   "these legs cannot be priced right now ... no longer on the desk's slate
+   (its game has started, or it is past tonight's last game)" for all three.
+   Cause, from the code: `POST /api/parlays/lookup` carries no `horizon`
+   (`backend/api/schemas.py` ParlayLookupRequest), the route calls
+   `price_card_on_kalshi` without one, and it re-runs `ladder_candidates` at
+   `DEFAULT_HORIZON = "tonight"` (`backend/parlays.py`, `price_card_on_kalshi`
+   -> `ladder_candidates(conn, now_ms=..., max_odds_age_ms=...)`), so any leg
+   past 4am is absent from the pool and `resolve_requested_legs` refuses it
+   with a sentence that guesses "started". The refusal is raised BEFORE
+   `_record_lookup`, so `parlay_lookups` has no row for it (live still ends
+   at id 42, 2026-09-09 15:12Z). Also stale: the card copy "Nobody has
+   offered this price" / "almost never has anyone selling this combination"
+   — Kalshi quotes the minted market itself (6 of the last 8 lookups
+   `priced`, 2 `book_empty`); the entry/exit conflation ADR 0078's amendment
+   corrected. Prompt for the session that fixes it is in the 2026-09-10
+   session's closing message and repeated here in short: carry `horizon`
+   from the ladder through the request to the lookup and validate it against
+   `HORIZONS`; record a refused lookup; make the sentence say what is known;
+   correct the copy; ask kalshi-platform what decides `book_empty` on a
+   minted combo.
+
 1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Untouched. One
    candidate for after the freeze, measured not decided: `window_status`'s
    `GROUP BY odds_event_id` over `odds_snapshots` costs ~0.9 s and is polled
