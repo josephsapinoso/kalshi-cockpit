@@ -29,7 +29,7 @@ import httpx
 import pytest
 
 import backend.parlays as parlays
-from backend.parlays import end_of_desk_day_ms
+from backend.parlays import DEFAULT_HORIZON, HORIZONS, end_of_desk_day_ms, horizon_end_ms
 from backend.kalshi.combos import echoed_legs
 from backend.api.routes import create_app
 from backend.config import AppConfig
@@ -50,7 +50,7 @@ CAPTURED_EMPTY_BOOK = json.loads(
 HEADERS = {"Authorization": "Bearer secret-token"}
 
 
-def seed_game(conn, *, game, team, other, p, computed_ms):
+def seed_game(conn, *, game, team, other, p, computed_ms, commence_ms=None):
     event_ticker = f"KXMLBGAME-{game}"
     ticker = f"{event_ticker}-{team[:6].upper().replace(' ', '')}"
     conn.execute(
@@ -91,7 +91,8 @@ def seed_game(conn, *, game, team, other, p, computed_ms):
         # empties every ladder when the suite runs near the 4am
         # rollover, which would be a clock-dependent suite.
         (computed_ms, game,
-         min(now_ms() + 3_600_000, end_of_desk_day_ms(now_ms()) - 60_000),
+         commence_ms if commence_ms is not None
+         else min(now_ms() + 3_600_000, end_of_desk_day_ms(now_ms()) - 60_000),
          team, other, team),
     )
     for outcome, prob in ((team, p), (other, 1 - p - 0.02)):
@@ -329,6 +330,28 @@ def _with_no_bid(price_dollars: str, size: str) -> dict:
     return book
 
 
+def _with_yes_bid(price_dollars: str, size: str) -> dict:
+    """The CAPTURED empty combo book with one resting YES level added.
+
+    `_with_no_bid`'s sibling. A resting YES bid does not make an ask
+    (`ask_tenths` is the complement of the best resting NO bid, and there is
+    still none here), so this book still hits the `book_empty` branch -- it
+    exists to prove that branch can tell "no NO side, but something is
+    resting on YES" apart from "nothing resting on either side", which
+    2026-09-10's `error` detail is for.
+    """
+    assert set(CAPTURED_EMPTY_BOOK) == {"yes_dollars", "no_dollars"}, (
+        "the captured combo orderbook envelope changed shape -- this "
+        "synthetic level is built on it and must be rechecked"
+    )
+    assert not CAPTURED_EMPTY_BOOK["yes_dollars"], (
+        "the captured book is supposed to be the EMPTY one"
+    )
+    book = {k: list(v) for k, v in CAPTURED_EMPTY_BOOK.items()}
+    book["yes_dollars"] = [[price_dollars, size]]
+    return book
+
+
 #: A populated combo book: one resting NO bid at $0.985 (98.5c = 985 tenths),
 #: 18 units, in E2's shape inside the captured envelope.
 #:
@@ -359,6 +382,15 @@ class TestRefusals:
 
         The bound that replaced set-equality: not "would the desk pick these
         six", but "is each of these one the desk would serve at all".
+
+        **The sentence and the empty-table assertion both changed on
+        2026-09-10.** These tickers are pure fiction -- no `kalshi_markets`
+        row at all -- so `_commence_ms_for_tickers` finds no kickoff for
+        either, and the honest sentence is "not a leg this desk serves", not
+        a guess about the game having started. And a refusal now writes a
+        `parlay_lookups` row (`status='refused'`) instead of leaving none --
+        closing the gap `docs/adr/DRAFT-a-lookup-prices-the-window-the-card-
+        was-built-in.md` names.
         """
         app, fake_api, path = build()
         response = await post(
@@ -372,9 +404,11 @@ class TestRefusals:
         assert response.status_code == 409
         detail = response.json()["detail"]
         assert "KXMLBGAME-x-A" in detail and "KXMLBGAME-y-B" in detail
-        assert "no longer on the desk's slate" in detail
+        assert "is not a leg this desk serves" in detail
         assert fake_api.orderbook_calls == []
-        assert _lookup_rows(path) == []
+        rows = _lookup_rows(path)
+        assert [r["status"] for r in rows] == ["refused"]
+        assert rows[0]["error"] == detail
 
     async def test_the_refusal_never_tells_him_to_refresh_and_try_again(
         self, build
@@ -501,6 +535,245 @@ class TestRefusals:
         assert "nope" in rows[0]["error"]
 
 
+def _ticker_for(game: str, team: str) -> tuple[str, str]:
+    """The `(event_ticker, market_ticker)` pair `seed_game` builds for this
+    game/team, computed the same way so the two cannot drift apart."""
+    event_ticker = f"KXMLBGAME-{game}"
+    return event_ticker, f"{event_ticker}-{team[:6].upper().replace(' ', '')}"
+
+
+class TestHorizonTravelsWithTheTap:
+    """The lookup prices the window the card was BUILT under (2026-09-10).
+
+    Until this landed, `POST /api/parlays/lookup` always priced against
+    `tonight` regardless of which window the card came from, so a card built
+    under `tomorrow` or `48h` had every leg beyond tonight refused by a
+    lookup that could not tell "started" from "not tonight" apart -- item 0,
+    `docs/adr/DRAFT-a-lookup-prices-the-window-the-card-was-built-in.md`.
+
+    **Mutation run and recorded**: remove the `horizon=horizon` pass-through
+    in `price_card_on_kalshi`'s `ladder_candidates(...)` call (so it always
+    scans `tonight` regardless of what the request says). Both cross-window
+    tests below go red -- the "prices under the wide window" half fails with
+    a 409, because the future leg is then never in the pool under either
+    horizon.
+    """
+
+    async def test_a_leg_kicking_off_tomorrow_prices_under_tomorrow_and_refuses_under_tonight(
+        self, build
+    ):
+        event_ticker, market_ticker = _ticker_for("future1", "Team Future1")
+        # The fake collection has to name the future event too, or the tap
+        # refuses as `legs_not_combinable` -- a fact about the fake, not
+        # about the horizon this test is checking.
+        app, fake_api, path = build(
+            collections=[FakeCollections(tickers=SEEDED_EVENTS + (event_ticker,))]
+        )
+        conn = store.connect(path)
+        now = now_ms()
+        # Inside the `tomorrow` window, strictly after `tonight`'s -- the
+        # game this whole test is about.
+        tomorrow_commence = horizon_end_ms(now, "tomorrow") - 60_000
+        seed_game(
+            conn, game="future1", team="Team Future1", other="Team FutureOther1",
+            p=0.66, computed_ms=now - 30_000, commence_ms=tomorrow_commence,
+        )
+        conn.commit()
+        conn.close()
+
+        tonight_legs = await _served_legs(app)
+        legs = [
+            {"event_ticker": event_ticker, "market_ticker": market_ticker},
+            tonight_legs[0],
+        ]
+
+        under_tomorrow = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "horizon": "tomorrow", "legs": legs},
+            headers=HEADERS,
+        )
+        assert under_tomorrow.status_code == 200, under_tomorrow.json()
+        assert under_tomorrow.json()["status"] in ("priced", "book_empty")
+
+        # No `horizon` at all -- the default is `tonight`, and the same leg
+        # is now the one the pool never mentions.
+        under_tonight = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs},
+            headers=HEADERS,
+        )
+        assert under_tonight.status_code == 409
+        detail = under_tonight.json()["detail"]
+        assert market_ticker in detail
+        assert "kicks off after the" in detail
+        assert "pick a wider window" in detail
+        assert "has started" not in detail, (
+            "the leg has not started -- the sentence must not guess that "
+            "it has just because it is outside the window checked"
+        )
+
+    async def test_a_leg_two_nights_out_prices_under_48h_and_refuses_under_tomorrow(
+        self, build
+    ):
+        event_ticker, market_ticker = _ticker_for("future2", "Team Future2")
+        app, fake_api, path = build(
+            collections=[FakeCollections(tickers=SEEDED_EVENTS + (event_ticker,))]
+        )
+        conn = store.connect(path)
+        now = now_ms()
+        two_nights_commence = horizon_end_ms(now, "48h") - 60_000
+        seed_game(
+            conn, game="future2", team="Team Future2", other="Team FutureOther2",
+            p=0.66, computed_ms=now - 30_000, commence_ms=two_nights_commence,
+        )
+        conn.commit()
+        conn.close()
+
+        tonight_legs = await _served_legs(app)
+        legs = [
+            {"event_ticker": event_ticker, "market_ticker": market_ticker},
+            tonight_legs[0],
+        ]
+
+        under_48h = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "horizon": "48h", "legs": legs},
+            headers=HEADERS,
+        )
+        assert under_48h.status_code == 200, under_48h.json()
+        assert under_48h.json()["status"] in ("priced", "book_empty")
+
+        under_tomorrow = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "horizon": "tomorrow", "legs": legs},
+            headers=HEADERS,
+        )
+        assert under_tomorrow.status_code == 409
+        detail = under_tomorrow.json()["detail"]
+        assert market_ticker in detail
+        assert "kicks off after the" in detail
+
+    async def test_an_unknown_horizon_is_refused_in_words_naming_the_choices(
+        self, build
+    ):
+        app, _, _ = build()
+        legs = await _served_legs(app)
+        response = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "horizon": "next-week", "legs": legs},
+            headers=HEADERS,
+        )
+        assert response.status_code == 422
+        body = response.text
+        assert "next-week" in body
+        for key in HORIZONS:
+            assert key in body
+
+    async def test_omitting_horizon_still_prices_tonight(self, build):
+        """The wire default, unchanged: an older client that sends no
+        `horizon` at all still gets `tonight` -- not a 422, not a refusal."""
+        app, _, _ = build()
+        legs = await _served_legs(app)
+        response = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs},
+            headers=HEADERS,
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] in ("priced", "book_empty")
+        assert DEFAULT_HORIZON == "tonight"
+
+    async def test_a_leg_whose_game_has_started_is_named_as_started(
+        self, build
+    ):
+        """The other half of the "absent from the pool" fork.
+
+        `ladder_candidates`' own SQL only ever returns `commence_ms > now`
+        (`CANDIDATE_SQL`'s trailing predicate), so a started game never
+        reaches the pool at all -- this leg is absent from `candidates` for
+        the same structural reason a too-far-out one is, and the sentence
+        has to tell the two apart from the sportsbook's own kickoff, not
+        guess.
+        """
+        event_ticker, market_ticker = _ticker_for("started1", "Team Started1")
+        app, fake_api, path = build(
+            collections=[FakeCollections(tickers=SEEDED_EVENTS + (event_ticker,))]
+        )
+        conn = store.connect(path)
+        now = now_ms()
+        seed_game(
+            conn, game="started1", team="Team Started1", other="Team StartedOther1",
+            p=0.66, computed_ms=now - 90_000, commence_ms=now - 60_000,
+        )
+        conn.commit()
+        conn.close()
+
+        tonight_legs = await _served_legs(app)
+        legs = [
+            {"event_ticker": event_ticker, "market_ticker": market_ticker},
+            tonight_legs[0],
+        ]
+        response = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert f"{market_ticker}'s game has started" in detail
+        assert "pick a wider window" not in detail, (
+            "a started game is not a windowing problem -- a bigger window "
+            "does not fix it, so the sentence must not suggest one"
+        )
+        assert fake_api.orderbook_calls == []
+
+    async def test_swapping_started_and_after_window_is_caught(self, build):
+        """Pins the two sentences to their own conditions, independently of
+        the mutation test recorded in this file's docstring.
+
+        Mutation observed red (recorded, then reverted): swap the `<=` and
+        `>` comparisons in `resolve_requested_legs`'s started/after-window
+        branch -- a started leg then reads "kicks off after" and a
+        too-far-out leg reads "has started", and this test catches both.
+        """
+        started_event, started_ticker = _ticker_for(
+            "started2", "Team Started2"
+        )
+        future_event, future_ticker = _ticker_for("future3", "Team Future3")
+        app, fake_api, path = build(
+            collections=[FakeCollections(
+                tickers=SEEDED_EVENTS + (started_event, future_event)
+            )]
+        )
+        conn = store.connect(path)
+        now = now_ms()
+        seed_game(
+            conn, game="started2", team="Team Started2",
+            other="Team StartedOther2", p=0.66, computed_ms=now - 90_000,
+            commence_ms=now - 60_000,
+        )
+        seed_game(
+            conn, game="future3", team="Team Future3", other="Team FutureOther3",
+            p=0.65, computed_ms=now - 30_000,
+            commence_ms=horizon_end_ms(now, "48h") - 60_000,
+        )
+        conn.commit()
+        conn.close()
+
+        tonight_legs = await _served_legs(app)
+        response = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": [
+                {"event_ticker": started_event, "market_ticker": started_ticker},
+                {"event_ticker": future_event, "market_ticker": future_ticker},
+            ] + tonight_legs[:1]},
+            headers=HEADERS,
+        )
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert f"{started_ticker}'s game has started" in detail
+        assert f"{future_ticker} kicks off after" in detail
+
+
 class TestTheCapturedShapes:
     async def test_an_empty_book_is_an_honest_refusal_not_a_price(self, build):
         """The captured reality: a freshly minted combo's book is empty on
@@ -516,10 +789,38 @@ class TestTheCapturedShapes:
         assert body["status"] == "book_empty"
         assert body["minted_market_ticker"] == CAPTURED_RESPONSE["market_ticker"]
         assert "no price you could actually pay" in body["words"]
+        assert "try again shortly" not in body["words"].lower(), (
+            "this desk's own record has no case of an empty combo book "
+            "turning into a quoted one on a later ask -- the words must not "
+            "promise waiting helps"
+        )
         rows = _lookup_rows(path)
         assert [r["status"] for r in rows] == ["book_empty"]
         assert rows[0]["minted_market_ticker"] == CAPTURED_RESPONSE["market_ticker"]
         assert rows[0]["derived_yes_ask_tenths"] is None
+        # Both sides empty, distinguishable in the free-text column without a
+        # migration.
+        assert rows[0]["error"] == "yes_bid=none yes_levels=0 no_levels=0"
+
+    async def test_an_empty_no_side_is_distinguished_from_an_empty_book(
+        self, build
+    ):
+        """A resting YES bid still refuses (no NO bid means no ask) -- but the
+        row must say something resting either side, not just "empty".
+
+        Mutation observed red: drop the `error=book_detail` kwarg from the
+        `book_empty` branch's `_record_lookup` call.
+        """
+        app, _, path = build(book_payload=_with_yes_bid("0.4100", "7.00"))
+        legs = await _served_legs(app)
+        response = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "book_empty"
+        rows = _lookup_rows(path)
+        assert rows[0]["error"] == "yes_bid=410 yes_levels=1 no_levels=0"
 
     async def test_the_minted_ticker_reads_from_the_captured_key(self, build):
         """`market_ticker` at the top level — the shape the 2026-08-23

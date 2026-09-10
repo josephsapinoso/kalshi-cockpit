@@ -6,6 +6,7 @@ import type {
   ParlayCardData,
   ParlayCardLeg,
   ParlayLadder,
+  ParlayWindow,
   Refreshable,
 } from "@/lib/api";
 import { glossSentence } from "@/lib/suppressionGloss";
@@ -79,7 +80,7 @@ export default function ParlayCards({
     <div className="space-y-8">
       <div className="grid gap-6 lg:grid-cols-3">
         {ladder.cards.map((card) => (
-          <Card key={card.key} card={card} />
+          <Card key={card.key} card={card} horizon={ladder.window?.key} />
         ))}
       </div>
       <Freshness
@@ -97,7 +98,16 @@ export default function ParlayCards({
   );
 }
 
-function Card({ card }: { card: ParlayCardData }) {
+function Card({
+  card,
+  horizon,
+}: {
+  card: ParlayCardData;
+  /** The window this card was built under (`ladder.window.key`) -- carried
+   * down to `PriceOnKalshi` so its lookup prices the same window the card
+   * was drawn from, rather than always guessing `tonight`. */
+  horizon?: ParlayWindow["key"];
+}) {
   return (
     <section
       aria-label={`${card.title} card`}
@@ -155,9 +165,11 @@ function Card({ card }: { card: ParlayCardData }) {
                 This is what the books&rsquo; consensus says the parlay is
                 worth. Get exactly this price and the bet is fair — it wins you
                 nothing on average, so you need <strong>better</strong> than
-                it. Kalshi itself almost never has anyone selling this
-                combination, so this is the number to take to wherever you can
-                actually place the bet.
+                it. Kalshi quotes this combination itself — a resting NO bid
+                is the ask you pay, and nobody has to be selling it to you at
+                the moment you tap — but nobody bids to buy it back, so the
+                only exit once you own it is the outcome. This is still the
+                number to take to wherever you can actually place the bet.
               </p>
             </div>
           )}
@@ -238,7 +250,7 @@ function Card({ card }: { card: ParlayCardData }) {
                 — pay the asking price, if there is one
               </span>
             </summary>
-            <PriceOnKalshi card={card} />
+            <PriceOnKalshi card={card} horizon={horizon} />
           </details>
           <LegBuys card={card} />
           {/*
@@ -656,9 +668,9 @@ function Stakes({ card }: { card: ParlayCardData }) {
         ))}
       </ul>
       <p className="mt-1 text-[11px] leading-snug text-muted">
-        Nobody has offered this price. Ask Kalshi below for the real one — it
-        is usually worse, and it is capped by how many contracts are actually
-        resting, which this estimate is not.
+        This is an estimate, not Kalshi&rsquo;s quote. Ask Kalshi below for
+        the real one — it is usually worse, and it is capped by how many
+        contracts are actually resting, which this estimate is not.
       </p>
     </div>
   );

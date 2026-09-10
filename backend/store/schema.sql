@@ -1216,7 +1216,13 @@ CREATE TABLE IF NOT EXISTS parlay_lookups (
     -- would refuse taps that work. Nobody has measured how often the fallback
     -- fires or how often it is then accepted. This column is that measurement.
     collection_unverified    INTEGER NOT NULL DEFAULT 0,
-    CHECK (status IN ('priced', 'book_empty', 'no_collection', 'error'))
+    -- 'refused' since v38: a lookup `resolve_requested_legs` stopped before
+    -- any mint -- a drifted leg, a card shape mismatch, a same-game pair.
+    -- No market exists for that row, so every book/mint column stays NULL;
+    -- only `error` (the refusal's own words) and `selected_legs` (the legs
+    -- actually requested) are meaningful. See `docs/adr/DRAFT-a-lookup-
+    -- prices-the-window-the-card-was-built-in.md`.
+    CHECK (status IN ('priced', 'book_empty', 'no_collection', 'error', 'refused'))
 );
 CREATE INDEX IF NOT EXISTS idx_parlay_lookups_time
     ON parlay_lookups(requested_ms DESC);

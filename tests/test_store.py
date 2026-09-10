@@ -1077,6 +1077,191 @@ class TestTheTypedProbabilityBecomesOptional:
             db.open_db(self._v34_manual_orders(tmp_path))
 
 
+class TestParlayLookupsAdmitRefused:
+    """v38 on a database that already holds "Price on Kalshi" taps, which is
+    the only case that matters.
+
+    A lookup `resolve_requested_legs` refuses before any mint now writes a
+    `parlay_lookups` row too (`docs/adr/DRAFT-a-lookup-prices-the-window-
+    the-card-was-built-in.md`), and `status` carried a table-level CHECK
+    that SQLite cannot widen in place -- so this is a rebuild, and a rebuild
+    is the migration shape that can silently lose the record. The rows
+    already written are the desk's own audit trail of what Kalshi actually
+    minted; a fresh database proves nothing about them.
+    """
+
+    def _v37_parlay_lookups(self, tmp_path, *, rows=2):
+        """A v37 volume: `status` without `'refused'`, the stamp wound back,
+        real lookup rows already in the table."""
+        path = tmp_path / "v37.db"
+        conn = db.init_db(path)
+        for statement in db._MIGRATIONS[38].undo_statements:
+            conn.execute(statement)
+        for i in range(rows):
+            conn.execute(
+                "INSERT INTO parlay_lookups (requested_ms, card_key, "
+                "stake_cents, selected_legs, collection_ticker, status, "
+                "minted_market_ticker, book_no_bid_tenths, "
+                "derived_yes_ask_tenths, book_depth, "
+                "fair_joint_conservative, hold, error, "
+                "collection_unverified) "
+                "VALUES (?, 'safe', 500, '[]', 'KXMVE-R', 'priced', ?, "
+                "620, 380, 12.0, 0.61, 0.05, NULL, 0)",
+                (1700 + i, f"KXMVE-MINTED-{i}"),
+            )
+        db._set_meta(conn, "schema_version", "37")
+        conn.commit()
+        conn.close()
+        return path
+
+    def test_the_v37_shape_really_did_refuse_the_new_status(self, tmp_path):
+        """The fixture is only worth something if the undo restored the
+        CHECK. Without this, every assertion below could be passing against
+        a database that already admitted `'refused'`."""
+        path = self._v37_parlay_lookups(tmp_path)
+        conn = db.connect(path)
+        try:
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO parlay_lookups (requested_ms, card_key, "
+                    "stake_cents, selected_legs, status) "
+                    "VALUES (1, 'safe', 500, '[]', 'refused')"
+                )
+        finally:
+            conn.close()
+
+    def test_it_migrates_and_every_lookup_row_survives(self, tmp_path):
+        """The rebuild carries the record, values and all.
+
+        Mutation observed red: drop `minted_market_ticker` from
+        `_PARLAY_LOOKUPS_COLUMNS_V38`, or drop the INSERT from
+        `_PARLAY_LOOKUPS_ADMIT_REFUSED`.
+        """
+        conn = db.init_db(self._v37_parlay_lookups(tmp_path))
+        try:
+            assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
+            rows = conn.execute(
+                "SELECT * FROM parlay_lookups ORDER BY id"
+            ).fetchall()
+            assert len(rows) == 2, "the rebuild lost a lookup record"
+            for i, row in enumerate(rows):
+                assert row["id"] == i + 1, "the row ids were not carried"
+                assert row["requested_ms"] == 1700 + i
+                assert row["minted_market_ticker"] == f"KXMVE-MINTED-{i}"
+                assert row["status"] == "priced"
+                assert row["derived_yes_ask_tenths"] == 380
+        finally:
+            conn.close()
+
+    def test_a_refused_row_is_accepted_afterwards(self, tmp_path):
+        """The whole point of the step, asserted as behaviour rather than as
+        a PRAGMA reading."""
+        conn = db.init_db(self._v37_parlay_lookups(tmp_path))
+        try:
+            conn.execute(
+                "INSERT INTO parlay_lookups (requested_ms, card_key, "
+                "stake_cents, selected_legs, status, error) "
+                "VALUES (1, 'safe', 500, '[]', 'refused', 'KXMLBGAME-x-A "
+                "is not a leg this desk serves')"
+            )
+            row = conn.execute(
+                "SELECT status, error FROM parlay_lookups "
+                "WHERE status = 'refused'"
+            ).fetchone()
+            assert row["status"] == "refused"
+            assert row["error"].startswith("KXMLBGAME-x-A")
+        finally:
+            conn.close()
+
+    def test_an_unknown_status_is_still_refused(self, tmp_path):
+        """The CHECK was widened by one value, not removed.
+
+        Mutation observed red: change the new CHECK to `status IS NOT NULL`.
+        """
+        conn = db.init_db(self._v37_parlay_lookups(tmp_path))
+        try:
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO parlay_lookups (requested_ms, card_key, "
+                    "stake_cents, selected_legs, status) "
+                    "VALUES (1, 'safe', 500, '[]', 'not-a-real-status')"
+                )
+        finally:
+            conn.close()
+
+    def test_the_time_index_survives_the_rebuild(self, tmp_path):
+        """A rebuild that quietly drops an index is how a query plan changes
+        on the one database nobody develops against."""
+        conn = db.init_db(self._v37_parlay_lookups(tmp_path))
+        try:
+            names = {
+                row["name"] for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'index'"
+                )
+            }
+            assert "idx_parlay_lookups_time" in names
+        finally:
+            conn.close()
+
+    def test_replaying_the_step_after_it_landed_keeps_the_rows(self, tmp_path):
+        """The crash point a rebuild is usually not idempotent at.
+
+        Mutation observed red: change `INSERT OR IGNORE` to `INSERT` and the
+        replay raises on the primary key; delete the INSERT and the rows
+        vanish.
+        """
+        path = self._v37_parlay_lookups(tmp_path)
+        conn = db.init_db(path)
+        conn.execute("UPDATE meta SET value = '37' WHERE key = 'schema_version'")
+        conn.commit()
+        assert 38 in db.migrate(conn)
+
+        rows = conn.execute(
+            "SELECT id, minted_market_ticker FROM parlay_lookups ORDER BY id"
+        ).fetchall()
+        assert [tuple(r) for r in rows] == [
+            (1, "KXMVE-MINTED-0"),
+            (2, "KXMVE-MINTED-1"),
+        ], "the replayed rebuild did not carry the record"
+        conn.close()
+
+    def test_a_crash_after_the_copy_replays_without_duplicating(self, tmp_path):
+        """The other crash point, and the one `INSERT OR IGNORE` is for.
+
+        Mutation observed red: `INSERT OR IGNORE` -> `INSERT` in
+        `_PARLAY_LOOKUPS_ADMIT_REFUSED` raises on the primary key.
+        """
+        path = self._v37_parlay_lookups(tmp_path)
+        conn = db.connect(path)
+        create, copy = db._MIGRATIONS[38].statements[:2]
+        conn.execute(create)
+        conn.execute(copy)
+        conn.commit()
+        assert conn.execute(
+            "SELECT COUNT(*) FROM parlay_lookups_v38"
+        ).fetchone()[0] == 2, "the fixture did not reach the crash point"
+        conn.close()
+
+        conn = db.init_db(path)
+        try:
+            assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
+            rows = conn.execute(
+                "SELECT id, minted_market_ticker FROM parlay_lookups ORDER BY id"
+            ).fetchall()
+            assert [tuple(r) for r in rows] == [
+                (1, "KXMVE-MINTED-0"),
+                (2, "KXMVE-MINTED-1"),
+            ], "the resumed rebuild did not carry the record exactly once"
+        finally:
+            conn.close()
+
+    def test_a_v37_database_is_refused_until_it_is_migrated(self, tmp_path):
+        """The API opens read-only and cannot migrate, which is why the
+        entrypoint runs the migration before uvicorn starts."""
+        with pytest.raises(db.SchemaVersionMismatch):
+            db.open_db(self._v37_parlay_lookups(tmp_path))
+
+
 class TestPriceConstraints:
     """Prices are integer tenths in 0..1000. The database refuses anything else."""
 

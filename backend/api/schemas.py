@@ -20,9 +20,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..core.correlation import Leg
+from ..parlays import DEFAULT_HORIZON, HORIZONS
 
 
 class OrderPlacementRequest(BaseModel):
@@ -264,11 +265,37 @@ class ParlayLookupRequest(BaseModel):
     reader tapped. It does NOT require that the desk would still compose the
     same card -- that rule shipped until 2026-08-30 and made the button
     unusable whenever a quote pass landed between the render and the tap.
+
+    **`horizon` travels with the tap, since 2026-09-10.** Until then the
+    lookup priced every card at `tonight` regardless of which window built
+    it, so a card built under "Through tomorrow" or "Next two nights" had
+    every future leg refused by a lookup that never learned the window had
+    moved -- item 0, `docs/adr/DRAFT-a-lookup-prices-the-window-the-card-
+    was-built-in.md`. The client sends back `GET /api/parlays`'s own
+    `window.key`, the same echo `WindowPicker` already renders, so the two
+    calls agree by construction rather than by two callers remembering the
+    same default.
     """
 
     card_key: str
     stake_cents: int = Field(default=500, gt=0, le=100_000)
     legs: list[ParlayLookupLeg] = Field(min_length=2)
+    horizon: str = DEFAULT_HORIZON
+
+    @field_validator("horizon")
+    @classmethod
+    def _known_horizon(cls, value: str) -> str:
+        """The POST's own refusal, worded identically to the GET's.
+
+        Two spellings of "unknown window" is how one of them drifts stale;
+        `HORIZONS` is the single list both read from.
+        """
+        if value not in HORIZONS:
+            raise ValueError(
+                f"'{value}' is not a window this desk carries. "
+                f"Choose one of: {', '.join(HORIZONS)}."
+            )
+        return value
 
 
 class HeldLegRequest(BaseModel):
