@@ -119,6 +119,174 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-10 (eighth session) — a combination CAN be sold back, five screens said it could not, and three of my own claims were withdrawn
+
+**Joe opened with "I WANT TO ACTUALLY BUY ONE COMBINATION FOR A FUTURE GAME
+THROUGH THE DESK." The answer is no, and it is the venue rather than us.**
+ADR 0138's horizon fix was real; fixing it revealed that nobody quotes those
+books. What the session actually found is unrelated to the question and worth
+more: **two `KXMVECROSSCATEGORY-SHARD1` books carried resting YES bids**, so
+the universal five screens asserted — "you can enter and you cannot exit" — is
+false.
+
+**STATE at close.** `main` = **`7301129`**, pushed. `a2e690d` CI green
+(run 34487598739). **Live = `158a90c`** — behind main by both commits.
+Odds path untouched: the freeze to 10:00Z 2026-09-14 holds; nothing under
+`backend/odds/` or `backend/scheduler.py` was read or written. No ADR taken.
+One measurement document, and it is a disclosure rather than a finding.
+Credits: **52 of 700** on budget day 20260910; four attention registrations
+bought only two sweeps (24 credits) because the ten-minute cadence refused the
+rest; attention slice 24 of 300.
+
+### THE HEADLINE: a resting YES bid exists
+
+```
+KXMVECROSSCATEGORY-SHARD1-S202662C6B3CFEC6-5D18E47B21C
+   yes_dollars [['0.0980','10.00']]   no_dollars [['0.8610','10.00']]   created 13:43:30.222636Z
+KXMVECROSSCATEGORY-SHARD1-S2026D379AC93CBF-7772CD6AC5F
+   yes_dollars [['0.0570','10.00']]   no_dollars [['0.9020','10.00']]   created 13:45:34.187576Z
+```
+
+One level a side, `depth=5` requested so the shape is complete. Both **minted
+one to three minutes before being seen quoted** — a fresh combo book can be
+two-sided. Found by a **public unauthenticated** `/markets` + `/orderbook`
+read via `urllib`, no credential, no `lookup_combo`: it created nothing and
+added nothing to any sampling frame. Neither is desk-minted — one leg is
+`KXEPLGAME`, a league this desk cannot build, and neither ticker appears in
+`parlay_lookups`.
+
+**An existence proof kills a universal and supplies no rate.** Five surfaces
+were corrected in `7301129` (buy ticket `combo_note`, the 422 acknowledgement
+refusal, the bid route's 422, `NOTES["unquoted"]`, and the `ManualTicket`
+fallback / `PriceOnKalshi` note / `/parlays` lede). Each now reports the two
+books, **names the size** — ten contracts at a single price, because "an exit
+exists" without "it is this small" trades one overstatement for its mirror —
+and claims **no frequency**, which Arm D measures 2026-09-13. New sourced
+constants `COMBO_EXIT_SHARD_YES_BID_{DATE,BOOKS,SIZE_CONTRACTS}`;
+`COMBO_EXIT_CENSUS_SHARD_BOOKS_READ` **stays zero** on purpose (it counts
+shard books inside the census of forty, and these two were not in it).
+
+**It shipped before Sunday rather than after, and the error ran in the
+CAUTIOUS direction** — Joe was told a combination is less exitable than it may
+be. That is the flattering direction, which is exactly why it would have sat
+for months. The `/parlays` lede is Joe's ratified copy (#9, 2026-08-27) and
+one word moved: "nobody" → "hardly anyone". **Joe-gated: the final phrasing.**
+
+### THREE CLAIMS I MADE AND WITHDREW — read this before re-deriving any of them
+
+1. **"Moneyline combos get quoted, spread combos never do."** `measurement-skeptic`:
+   **UNSUPPORTED**. My `p = 0.00095` did not reproduce (it is 0.000275; I summed
+   the hypergeometric over the wrong margin). The unit is the **mint, not the
+   tap** — no minted ticker in the record has EVER changed status between
+   reads, including one across 6h44m — so the denominator is 13/26 vs 0/11
+   (p = 0.0029), not 15/31 vs 0/17. **The parts do not agree**: 64% of the
+   spread arm sits at leg counts with no moneyline comparator; at 3 legs it is
+   9/17 vs 0/4 (p = 0.083), within `safe` 9/14 vs 0/2 (p = 0.175).
+2. **"The horizon separates — tonight is quoted, beyond tonight never."** The
+   `tonight` control arm **re-read a ticker already known to be priced**, so it
+   was fixed by construction. Also confounded structurally: every
+   beyond-tonight leg the desk can offer is NCAAF, because the feed buys near
+   kickoff and tomorrow's MLB is not in the pool. No tap fixes that.
+3. **"69% of visits open onto stale odds, so the screen is broken at the
+   moment of decision."** That is the **first-stamp** reading;
+   `visit-freshness`'s own docstring distinguishes it from `last_age_ms`,
+   "what the visit bought itself by staying". `RefreshWhenPriced.tsx` already
+   buys attention on open and re-renders when `fixtures_fresh` rises, in ten
+   to fifteen seconds, and `ParlayCards`'s `Freshness` block already says why
+   the desk is empty. **The item was cut, not built.**
+
+**The confound that survives all of it, and it is unresolvable in this table:**
+`lookup` **creates** the market when the combination does not exist
+(`backend/kalshi/combos.py`). "Spread combos are not quoted" and "**self-minted
+tickers** are not quoted" predict identical data, and the spread-bearing
+recipes (`lottery` 6 legs, `longshot` = the three *least* likely games,
+`short_spreads`) are exactly the combinations no human would have built.
+`parlay_lookups` has **no pre-existence column**. `pre-registrar` scored the
+two YES-bid books against this at LR ≈ 1.004 — no evidence either way, since
+the desk's two touched tickers sit in a scanned page of ≥1,000.
+
+### What shipped
+
+- **`a2e690d`** — `book_empty` now passes `leg_details_for(selected)`
+  (`backend/parlays.py`); 30 of the first 46 live rows carry bare tickers while
+  the return payload twenty lines below built `commence_ms` off the same
+  `selected`. Verified by disabling: mutation red on `KeyError: 'side'`, priced
+  twin green. Item 0's stopping rule replaced (below). Two lessons.
+- **`7301129`** — the five copy surfaces, the guards moved with the fact, and
+  `docs/measurements/2026-09-10-disclosed-unregistered-look-combo-exit-shard1.md`.
+
+**Guards moved, never weakened.** Three tests pinned the killed sentence *in
+words* so it could not be softened out; they now pin the replacement with the
+same force and additionally assert the universal cannot return
+(`"cannot exit" not in detail`). `test_the_exit_census_copy_names_its_scope`
+required the copy to say "nothing is known" about the shard — itself now a
+demand for a false statement — and now requires it to disclaim the **rate**.
+Verified by disabling: reinstating "and you cannot exit" turns
+`test_kxmve_is_refused_without_the_acknowledgement` red.
+
+### THE DISCLOSURE — read it before writing Sunday's result
+
+`docs/measurements/2026-09-10-disclosed-unregistered-look-combo-exit-shard1.md`.
+Two looks at Arm D's registered population, three days early. **α, population,
+stopping rule and decision rule are UNCHANGED**, and the one inferential test
+(Arm A S2 Fisher, α = 0.01) has a population neither look touched. What is
+damaged: the answer is known in advance, and **my twelve taps minted into the
+newest-first frame Arm D samples** — `lookup_combo(allow_market_creation=True)`
+is an outward-facing write, which "it spends no money" did not reveal. Three of
+those rows returned tickers earlier taps had returned, so at most twelve and
+known to be loose. Dual reporting with/without desk-created rows is required.
+`EXIT_PRACTICAL` scores as met at exactly its boundary and **fires nothing** —
+an unregistered look does not trigger a registered rule, so ADR 0078 stays shut.
+
+### Still open, in order
+
+0. **THE PAIR TEST, RE-SPECIFIED — and do not start it before Sunday.** The old
+   rule said "take it again **when a moneyline card is quoted**", which
+   conditions the retake on one arm's outcome; followed, it produced a
+   moneyline arm 2-of-2 quoted **by construction**. Honest accounting: two
+   pairs, one null (07:09Z, both arms empty), one conditioned (13:51Z). New
+   rule: fixed order, **18:00Z daily for five days**, record every pair
+   including double-empties. **Add the pre-existence column first** or the
+   pairs cannot separate the two stories. Every lookup mints into Arm D's
+   frame, so not before 2026-09-13.
+1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Unchanged.
+2. **SUNDAY 2026-09-13 — a scheduled run, not a task to plan.** Unchanged, and
+   now carrying the disclosure above.
+3. **Total-exposure line at the buy button** (partner's rank, sharp-bettor's
+   finding #3). On the 66-of-69-invisible-positions argument ONLY — the depth
+   argument died when row 49's 2,928 contracts became 152 in forty minutes.
+   `backend/bets.py::open_positions` already computes a venue-sourced number
+   that refuses honestly; the job is to move it above the buy control.
+4. **The priced combo quote should carry its read age and mark its own verdict
+   stale.** n = 1: the same ticker went ask 302 → 329 tenths, depth 2928 → 152,
+   verdict "+0.3% EV. Rare" → "−7.9% EV. Don't." in forty minutes. Justified on
+   cost asymmetry, not on n. **It relabels, it never blocks** — disabling the
+   buy control is a new ceiling on a hand bet and ADR 0112 forbids it.
+5. **`Freshness` is gated `stale === 0 || unbuilt === 0`** and would go silent
+   on a pool empty because nothing was ever fetched — the one state that most
+   needs it. Unobserved; a conjecture from reading, worth one test that builds
+   that pool.
+6. **NFL prop fixture capture** (`KXNFLANYTD`, `KXNFLFIRSTTD`, a yardage
+   series). One unauthenticated `/events` pull, capture only. Bottom; drop first.
+7. **The combo fee-model reopen trigger** (n = 68) — standing no. Unchanged.
+8. **`pip-audit` pyarrow ignore**, **the binned card** — unchanged.
+
+**Joe-gated: the `/parlays` lede's final wording** ("hardly anyone" vs "rarely
+anyone" vs his own). Everything else in the correction is correctness and
+shipped without asking.
+
+**Two contamination notes for whoever reads these instruments next.** Four
+`desk_attention` POSTs at 13:50Z and 14:01Z were an AGENT, not Joe — they are
+in this week's dwell record and `visit-freshness` will count them as visits.
+And `parlay_lookups` rows 47–58 are agent taps, twelve of them, all on
+2026-09-10.
+
+### Lessons written
+
+Two, both pattern-level: **a stopping rule that names an outcome manufactures
+that outcome**, and **an operation that reads can also write — "it spends no
+money" is not the test for whether it is inert.**
+
 ## 2026-09-10 (seventh session) — a combo tap now prices the window the card was built in, and the desk has a spreads-only card Joe chose
 
 **Found by doing what Joe did.** He tapped "Buy it on Kalshi" on a "Through
