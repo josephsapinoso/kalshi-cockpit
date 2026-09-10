@@ -78,6 +78,54 @@ def record(conn, *, legs=None, stake=5_000, payout=100_000, **kwargs):
     )
 
 
+def _poll(conn, *, polled_ms, ok=True, mirrored=1, row_count=0):
+    """A `positions` `poll_log` row, matching `tests/test_venue_positions.py`'s
+    own helper -- `mirrored = 1` by default because that is the shape the
+    coverage read actually selects (`bets.open_positions`'s rule, reused)."""
+    cursor = conn.execute(
+        "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count, mirrored) "
+        "VALUES (?, 'positions', ?, ?, ?)",
+        (polled_ms, 1 if ok else 0, row_count, mirrored),
+    )
+    conn.commit()
+    return int(cursor.lastrowid)
+
+
+def _venue_row(
+    conn,
+    *,
+    poll_log_id,
+    polled_ms,
+    ticker,
+    contracts=17.74,
+    exposure_tenths=9_690,
+):
+    conn.execute(
+        "INSERT INTO venue_positions "
+        "(poll_log_id, polled_ms, ticker, contracts, exposure_tenths) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (poll_log_id, polled_ms, ticker, contracts, exposure_tenths),
+    )
+    conn.commit()
+
+
+def _settlement(
+    conn,
+    *,
+    ticker,
+    market_result="no",
+    settled_ms=NOW_MS,
+    side="yes",
+    contracts=17.74,
+):
+    conn.execute(
+        "INSERT INTO venue_settlements (ticker, market_result, settled_ms, "
+        "side, contracts) VALUES (?, ?, ?, ?, ?)",
+        (ticker, market_result, settled_ms, side, contracts),
+    )
+    conn.commit()
+
+
 def assess(conn, position_id, books, *, spendable=10_000_000):
     position = next(
         row
@@ -845,6 +893,257 @@ class TestReadingTheBooks:
         assert await hedge.read_books(
             [CIN, LAD], now_ms=NOW_MS, fetch_quote=fetch
         ) == {}
+
+
+class TestUnrecordedAtVenue:
+    """`hedge.unrecorded_at_venue` -- combinations the venue holds that no
+    open `parlay_positions` row watches. Read off live 2026-09-10: one open
+    KXMVE combination, bought in the Kalshi app, that `/hedge` had never
+    heard of."""
+
+    def test_a_kxmve_ticker_with_no_open_position_is_listed(self, conn):
+        poll_id = _poll(conn, polled_ms=NOW_MS)
+        _venue_row(
+            conn,
+            poll_log_id=poll_id,
+            polled_ms=NOW_MS,
+            ticker="KXMVECROSSCATEGORY-SHARD1-ABC",
+            contracts=17.74,
+            exposure_tenths=9_690,
+        )
+        rows = hedge.unrecorded_at_venue(conn)
+        assert [r["ticker"] for r in rows] == ["KXMVECROSSCATEGORY-SHARD1-ABC"]
+        assert rows[0]["contracts"] == 17.74
+        assert rows[0]["exposure_display"] == "$9.69"
+        assert rows[0]["last_seen_ms"] == NOW_MS
+
+    def test_a_ticker_seen_only_in_an_earlier_poll_is_not_listed(self, conn):
+        """Absence IS the event: a position gone from the latest complete
+        poll has closed, and taking 'the newest row seen for this ticker'
+        instead -- the bug the 2026-09-09 entry-side reconciler had -- would
+        report it as still open. MUTATION: filtering by per-ticker latest
+        row instead of the latest poll's own id turns this red."""
+        earlier = _poll(conn, polled_ms=NOW_MS - 120_000)
+        _venue_row(
+            conn, poll_log_id=earlier, polled_ms=NOW_MS - 120_000,
+            ticker="KXMVE-NOW-CLOSED",
+        )
+        _poll(conn, polled_ms=NOW_MS, row_count=0)
+        assert hedge.unrecorded_at_venue(conn) == []
+
+    def test_a_failed_newer_poll_is_ignored(self, conn):
+        """The latest OK-and-mirrored poll is the baseline, never a failed
+        attempt that happens to be newer -- a real failed poll (ok=0,
+        mirrored=NULL, since `store_positions_snapshot` only mirrors on
+        success). MUTATION: dropping the `mirrored = 1` filter turns this
+        red."""
+        ok_poll = _poll(conn, polled_ms=NOW_MS - 60_000)
+        _venue_row(
+            conn, poll_log_id=ok_poll, polled_ms=NOW_MS - 60_000,
+            ticker="KXMVE-STILL-OPEN",
+        )
+        _poll(conn, polled_ms=NOW_MS, ok=False, mirrored=None)
+        rows = hedge.unrecorded_at_venue(conn)
+        assert [r["ticker"] for r in rows] == ["KXMVE-STILL-OPEN"]
+
+    def test_an_ok_but_unmirrored_newer_poll_is_also_ignored(self, conn):
+        """Isolates the `ok = 1` clause on its own. `mirrored = 1` never
+        legitimately accompanies `ok = 0` in this repo (the mirror write
+        happens only inside a successful poll's own transaction), so a row
+        shaped that way cannot occur naturally -- but nothing in the schema
+        forbids it, and this pins the clause the schema does not. MUTATION:
+        dropping the `ok = 1` filter turns this red."""
+        ok_poll = _poll(conn, polled_ms=NOW_MS - 60_000)
+        _venue_row(
+            conn, poll_log_id=ok_poll, polled_ms=NOW_MS - 60_000,
+            ticker="KXMVE-STILL-OPEN",
+        )
+        # Adversarial shape: failed (ok=0) yet marked mirrored=1.
+        _poll(conn, polled_ms=NOW_MS, ok=False, mirrored=1)
+        rows = hedge.unrecorded_at_venue(conn)
+        assert [r["ticker"] for r in rows] == ["KXMVE-STILL-OPEN"]
+
+    def test_a_non_kxmve_ticker_is_not_listed(self, conn):
+        """Singles are out of this screen's scope -- a bare market has no
+        other leg to reshape, so it has no hedge story. MUTATION: removing
+        the `KXMVE%` filter turns this red."""
+        poll_id = _poll(conn, polled_ms=NOW_MS)
+        _venue_row(
+            conn, poll_log_id=poll_id, polled_ms=NOW_MS,
+            ticker="KXMLBGAME-26AUG26CINSF-CIN",
+        )
+        assert hedge.unrecorded_at_venue(conn) == []
+
+    def test_a_recorded_open_combo_is_not_listed(self, conn):
+        record(conn, combo_ticker="KXMVE-MINE")
+        poll_id = _poll(conn, polled_ms=NOW_MS)
+        _venue_row(conn, poll_log_id=poll_id, polled_ms=NOW_MS, ticker="KXMVE-MINE")
+        assert hedge.unrecorded_at_venue(conn) == []
+
+    def test_a_bare_unmirrored_stamp_is_also_ignored(self, conn):
+        """Isolates the `mirrored = 1` clause. `routes.py::
+        _stamp_positions_read` logs a real, successful (`ok = 1`) 'positions'
+        poll on every hand bet but keeps no rows under it -- the shape
+        `bets.open_positions` already guards against and this module reuses
+        the guard for. MUTATION: dropping the `mirrored = 1` filter turns
+        this red."""
+        ok_poll = _poll(conn, polled_ms=NOW_MS - 60_000)
+        _venue_row(
+            conn, poll_log_id=ok_poll, polled_ms=NOW_MS - 60_000,
+            ticker="KXMVE-STILL-OPEN",
+        )
+        # A bare stamp: ok=1, but nothing was mirrored under it.
+        _poll(conn, polled_ms=NOW_MS, ok=True, mirrored=None, row_count=1)
+        rows = hedge.unrecorded_at_venue(conn)
+        assert [r["ticker"] for r in rows] == ["KXMVE-STILL-OPEN"]
+
+    def test_no_complete_poll_is_an_empty_list_and_not_a_claim(self, conn):
+        assert hedge.unrecorded_at_venue(conn) == []
+        tickers, polled_ms = hedge.venue_position_tickers(conn)
+        assert tickers is None
+        assert polled_ms is None
+
+
+class TestAtVenueAndSettlement:
+    """The per-position facts: is the ticket still at the venue, and has the
+    venue itself settled it. Neither auto-closes the ticket."""
+
+    async def test_true_when_present_in_the_latest_poll(self, conn):
+        position_id = record(conn, combo_ticker="KXMVE-HERE")
+        poll_id = _poll(conn, polled_ms=NOW_MS)
+        _venue_row(conn, poll_log_id=poll_id, polled_ms=NOW_MS, ticker="KXMVE-HERE")
+
+        async def fetch(ticker, *, observed_ms):
+            raise RuntimeError("no live book needed for this assertion")
+
+        payload = await hedge.build_payload(
+            conn,
+            now_ms=NOW_MS,
+            max_quote_age_ms=MAX_AGE_MS,
+            spendable_tenths=None,
+            fetch_quote=fetch,
+        )
+        position = next(p for p in payload["positions"] if p["id"] == position_id)
+        assert position["at_venue"] is True
+        assert payload["venue_poll_ms"] == NOW_MS
+
+    async def test_false_when_absent_from_the_latest_poll(self, conn):
+        position_id = record(conn, combo_ticker="KXMVE-GONE")
+        _poll(conn, polled_ms=NOW_MS)  # a complete poll that holds nothing
+
+        async def fetch(ticker, *, observed_ms):
+            raise RuntimeError("no live book needed for this assertion")
+
+        payload = await hedge.build_payload(
+            conn,
+            now_ms=NOW_MS,
+            max_quote_age_ms=MAX_AGE_MS,
+            spendable_tenths=None,
+            fetch_quote=fetch,
+        )
+        position = next(p for p in payload["positions"] if p["id"] == position_id)
+        assert position["at_venue"] is False
+
+    async def test_null_for_a_sportsbook_slip(self, conn):
+        # No `combo_ticker` at all -- a sportsbook slip cannot be "at the
+        # venue" and the question has no answer, not a False one.
+        position_id = record(conn)
+        _poll(conn, polled_ms=NOW_MS)
+
+        async def fetch(ticker, *, observed_ms):
+            raise RuntimeError("no live book needed for this assertion")
+
+        payload = await hedge.build_payload(
+            conn,
+            now_ms=NOW_MS,
+            max_quote_age_ms=MAX_AGE_MS,
+            spendable_tenths=None,
+            fetch_quote=fetch,
+        )
+        position = next(p for p in payload["positions"] if p["id"] == position_id)
+        assert position["at_venue"] is None
+
+    async def test_null_with_no_complete_poll_at_all(self, conn):
+        position_id = record(conn, combo_ticker="KXMVE-UNKNOWN")
+
+        async def fetch(ticker, *, observed_ms):
+            raise RuntimeError("no live book needed for this assertion")
+
+        payload = await hedge.build_payload(
+            conn,
+            now_ms=NOW_MS,
+            max_quote_age_ms=MAX_AGE_MS,
+            spendable_tenths=None,
+            fetch_quote=fetch,
+        )
+        position = next(p for p in payload["positions"] if p["id"] == position_id)
+        assert position["at_venue"] is None
+        assert payload["venue_poll_ms"] is None
+        assert payload["unrecorded_at_venue"] == []
+
+    async def test_a_settled_combo_carries_the_venues_own_settlement(self, conn):
+        """Read off live 2026-10-09: a combo settled (`venue_settlements`)
+        while all three leg markets still read `result IS NULL`, because the
+        venue processes a combination on its own clock. MUTATION: dropping
+        the `combo_settlements` lookup turns this red."""
+        position_id = record(conn, combo_ticker="KXMVECROSSCATEGORY-SHARD1-EE")
+        _settlement(
+            conn,
+            ticker="KXMVECROSSCATEGORY-SHARD1-EE",
+            market_result="no",
+            settled_ms=1_789_004_425_534,
+        )
+
+        async def fetch(ticker, *, observed_ms):
+            raise RuntimeError("no live book needed for this assertion")
+
+        payload = await hedge.build_payload(
+            conn,
+            now_ms=NOW_MS,
+            max_quote_age_ms=MAX_AGE_MS,
+            spendable_tenths=None,
+            fetch_quote=fetch,
+        )
+        position = next(p for p in payload["positions"] if p["id"] == position_id)
+        assert position["venue_settlement"] == {
+            "market_result": "no",
+            "settled_ms": 1_789_004_425_534,
+        }
+        # No auto-close: which leg lost is not knowable from the combo's own
+        # settlement alone, so every leg is untouched by this.
+        assert all(leg["outcome"] == "pending" for leg in position["legs"])
+
+    async def test_an_unsettled_combo_carries_none(self, conn):
+        position_id = record(conn, combo_ticker="KXMVECROSSCATEGORY-SHARD1-FF")
+
+        async def fetch(ticker, *, observed_ms):
+            raise RuntimeError("no live book needed for this assertion")
+
+        payload = await hedge.build_payload(
+            conn,
+            now_ms=NOW_MS,
+            max_quote_age_ms=MAX_AGE_MS,
+            spendable_tenths=None,
+            fetch_quote=fetch,
+        )
+        position = next(p for p in payload["positions"] if p["id"] == position_id)
+        assert position["venue_settlement"] is None
+
+    async def test_a_sportsbook_slip_carries_none_too(self, conn):
+        position_id = record(conn)
+
+        async def fetch(ticker, *, observed_ms):
+            raise RuntimeError("no live book needed for this assertion")
+
+        payload = await hedge.build_payload(
+            conn,
+            now_ms=NOW_MS,
+            max_quote_age_ms=MAX_AGE_MS,
+            spendable_tenths=None,
+            fetch_quote=fetch,
+        )
+        position = next(p for p in payload["positions"] if p["id"] == position_id)
+        assert position["venue_settlement"] is None
 
 
 class _FakeMarket:

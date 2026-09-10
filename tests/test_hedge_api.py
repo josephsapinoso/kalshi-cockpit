@@ -53,6 +53,19 @@ def app(tmp_path):
     )
 
 
+@pytest.fixture()
+def app_and_path(tmp_path):
+    """Same as `app`, plus the db path -- for tests that need to write a
+    `poll_log`/`venue_positions`/`venue_settlements` row directly, the way
+    the live poller does, rather than through a route."""
+    path = tmp_path / "cockpit.db"
+    store.init_db(path).close()
+    application = create_app(
+        AppConfig(db_path=path, instance_mode="live", auth_token="secret-token")
+    )
+    return application, path
+
+
 async def call(app, method, path, **kwargs):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
@@ -275,6 +288,80 @@ class TestThePayload:
         body = (await call(app, "GET", "/api/hedge")).json()
         assert body["positions"] == []
         assert body["as_of_ms"] > 0
+
+
+class TestVenueCoverageOnTheRoute:
+    """`GET /api/hedge` serialises the coverage facts end to end: what the
+    venue holds that `parlay_positions` does not, and whether a recorded
+    ticket's own market is still there or has itself settled. Read off live
+    2026-09-10/2026-10-09 -- see ADR DRAFT-the-hedge-screen-says-what-it-
+    cannot-see."""
+
+    async def test_the_route_serialises_venue_coverage(self, app_and_path):
+        application, path = app_and_path
+        posted = await call(
+            application,
+            "POST",
+            "/api/hedge/positions",
+            json=dict(TICKET, combo_ticker="KXMVE-ROUTE"),
+            headers=AUTH,
+        )
+        assert posted.status_code == 200, posted.text
+
+        conn = store.open_db(path)
+        try:
+            cursor = conn.execute(
+                "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count, "
+                "mirrored) VALUES (?, 'positions', 1, 1, 1)",
+                (1_700_000_000_000,),
+            )
+            poll_id = int(cursor.lastrowid)
+            conn.execute(
+                "INSERT INTO venue_positions (poll_log_id, polled_ms, ticker, "
+                "contracts, exposure_tenths) VALUES (?, ?, ?, ?, ?)",
+                (poll_id, 1_700_000_000_000, "KXMVE-UNRECORDED", 5.0, 1_000),
+            )
+            conn.execute(
+                "INSERT INTO venue_settlements (ticker, market_result, "
+                "settled_ms, side, contracts) VALUES (?, 'no', ?, 'yes', 5.0)",
+                ("KXMVE-ROUTE", 1_700_000_600_000),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        body = (await call(application, "GET", "/api/hedge")).json()
+
+        assert body["venue_poll_ms"] == 1_700_000_000_000
+        assert [row["ticker"] for row in body["unrecorded_at_venue"]] == [
+            "KXMVE-UNRECORDED"
+        ]
+        assert body["unrecorded_at_venue"][0]["exposure_display"] == "$1.00"
+        assert "max_quote_age_ms" in body
+
+        position = body["positions"][0]
+        # The recorded ticket's OWN ticker ("KXMVE-ROUTE") is not in the
+        # venue_positions row above -- only "KXMVE-UNRECORDED" is.
+        assert position["at_venue"] is False
+        assert position["venue_settlement"] == {
+            "market_result": "no",
+            "settled_ms": 1_700_000_600_000,
+        }
+        # No auto-close from any of this.
+        assert all(leg["outcome"] == "pending" for leg in position["legs"])
+
+    async def test_no_venue_data_at_all_reads_as_unknown_not_empty(self, app):
+        posted = await call(app, "POST", "/api/hedge/positions", json=TICKET, headers=AUTH)
+        assert posted.status_code == 200
+
+        body = (await call(app, "GET", "/api/hedge")).json()
+        assert body["venue_poll_ms"] is None
+        assert body["unrecorded_at_venue"] == []
+        position = body["positions"][0]
+        # No `combo_ticker` on this ticket (a sportsbook slip) -- null,
+        # never False.
+        assert position["at_venue"] is None
+        assert position["venue_settlement"] is None
 
 
 class TestEveryMutatingRouteNeedsAuth:

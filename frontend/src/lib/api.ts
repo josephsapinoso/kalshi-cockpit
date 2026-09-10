@@ -3074,6 +3074,19 @@ export type HedgeBlock = {
   chance_refusal?: HedgeRefusal | null;
 };
 
+/**
+ * What the venue itself said happened to the position's own (combo) market —
+ * distinct from every leg's own `outcome`. A `KXMVE` combination can settle
+ * before its leg markets do, so this can be non-null while every leg below
+ * still reads `pending`; nothing here marks a leg won or lost.
+ */
+export type VenueSettlement = {
+  /** Verbatim from the venue. Observed values are "yes" and "no", but this
+   * is not assumed to be the only two. */
+  market_result: string | null;
+  settled_ms: number;
+};
+
 export type HeldPosition = {
   id: number;
   label: string;
@@ -3090,16 +3103,47 @@ export type HeldPosition = {
    * balance nobody could read — never a limit to act on. */
   bankroll_known: boolean;
   pending_legs: number;
+  /** Whether this ticket's own market is in the latest complete venue
+   * positions poll. `null` means the question has no answer: either this is
+   * a sportsbook slip (no `combo_ticker`), or there has never been a
+   * complete poll to check against — neither is a `false`. Never auto-closes
+   * anything; the close route is still Joe's own tap. */
+  at_venue: boolean | null;
+  /** The venue's own settlement of this ticket's own market, or `null` when
+   * unsettled (or not a combination at all). */
+  venue_settlement: VenueSettlement | null;
   legs: HeldLeg[];
   /** `null` means there is nothing to hedge, which is not the same as a
    * refusal — that arrives as a block whose `refusal` is set. */
   hedge: HedgeBlock | null;
 };
 
+/** A Kalshi combination the venue holds that no open `HeldPosition` is
+ * watching — bought outside the desk (the Kalshi app), so ADR 0125's writer
+ * never saw the fill. Singles are out of scope here: a bare market has no
+ * other leg to reshape and so no hedge story. */
+export type UnrecordedAtVenue = {
+  ticker: string;
+  contracts: number | null;
+  exposure_display: string;
+  last_seen_ms: number;
+};
+
 export type HedgeScreen = {
   as_of_ms: number;
   positions: HeldPosition[];
   notes: Record<string, string>;
+  /** Combinations the venue holds that nothing here is watching. `[]` is a
+   * real answer only when `venue_poll_ms` is non-null; with no complete poll
+   * yet this is `[]` too, but that means "unknown", not "confirmed none". */
+  unrecorded_at_venue: UnrecordedAtVenue[];
+  /** When the venue positions poll this coverage read is based on last
+   * completed, or `null` when there has never been one. */
+  venue_poll_ms: number | null;
+  /** The same staleness bound a hedge quote is refused past — for dimming a
+   * leg's price on the screen at the same threshold, rather than a second
+   * hardcoded guess of it. */
+  max_quote_age_ms: number;
 };
 
 export async function fetchHedge(): Promise<HedgeScreen> {

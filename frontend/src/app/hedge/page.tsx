@@ -57,7 +57,14 @@ export default async function HedgePage() {
         </p>
       </header>
 
-      <HedgePositions positions={screen.positions} notes={screen.notes} />
+      <HedgePositions
+        positions={screen.positions}
+        notes={screen.notes}
+        unrecordedAtVenue={screen.unrecorded_at_venue}
+        venuePollMs={screen.venue_poll_ms}
+        asOfMs={screen.as_of_ms}
+        maxQuoteAgeMs={screen.max_quote_age_ms}
+      />
       <RecordParlay />
     </Shell>
   );

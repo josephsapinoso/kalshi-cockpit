@@ -155,7 +155,7 @@ export default function RecordParlay({
   }
 
   return (
-    <details className="mt-4 rounded-lg border border-border p-4">
+    <details id="record-parlay" className="mt-4 rounded-lg border border-border p-4">
       <summary className="cursor-pointer text-sm font-semibold uppercase tracking-widest">
         {summary}
       </summary>

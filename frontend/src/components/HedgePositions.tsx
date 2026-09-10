@@ -10,9 +10,31 @@ import {
   type HedgeRung,
   type HeldLeg,
   type HeldPosition,
+  type UnrecordedAtVenue,
 } from "@/lib/api";
 import { kalshiMarketUrl } from "@/lib/kalshiLink";
 import Term from "@/components/Term";
+
+/**
+ * How old a Kalshi quote or a venue positions read is, at second precision.
+ *
+ * `describeAge` in `lib/openPositionsStamps.ts` answers the same question at
+ * minute precision, which is right for a figure that moves every five
+ * minutes and wrong here: `MAX_KALSHI_QUOTE_AGE_S` is 30 seconds, so a quote
+ * halfway to stale would read "just now" under that formatter and the whole
+ * point of showing the age -- letting Joe see a price about to be refused
+ * before the refusal fires -- would be lost.
+ */
+function describeQuoteAge(ms: number | null | undefined): string | null {
+  if (ms === null || ms === undefined || ms < 0) return null;
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 1) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}
 
 /**
  * What Joe holds, and what hedging it would do (ADR 0078).
@@ -39,24 +61,76 @@ import Term from "@/components/Term";
 export default function HedgePositions({
   positions,
   notes,
+  unrecordedAtVenue = [],
+  venuePollMs = null,
+  asOfMs,
+  maxQuoteAgeMs = 30_000,
 }: {
   positions: HeldPosition[];
   notes: Record<string, string>;
+  /** Kalshi combinations the venue holds that nothing here watches (ADR
+   * DRAFT-the-hedge-screen-says-what-it-cannot-see). */
+  unrecordedAtVenue?: UnrecordedAtVenue[];
+  venuePollMs?: number | null;
+  asOfMs: number;
+  maxQuoteAgeMs?: number;
 }) {
-  if (positions.length === 0) {
-    return (
-      <p className="mt-6 text-sm text-muted">
-        No tickets recorded. Add one below and the desk will watch its legs
-        while the games run.
-      </p>
-    );
-  }
-
   return (
     <div className="mt-6 flex flex-col gap-4">
-      {positions.map((position) => (
-        <Position key={position.id} position={position} notes={notes} />
-      ))}
+      <VenueCoverageBanner unrecorded={unrecordedAtVenue} />
+      {positions.length === 0 ? (
+        <p className="text-sm text-muted">
+          No tickets recorded. Add one below and the desk will watch its legs
+          while the games run.
+        </p>
+      ) : (
+        positions.map((position) => (
+          <Position
+            key={position.id}
+            position={position}
+            notes={notes}
+            venuePollMs={venuePollMs}
+            asOfMs={asOfMs}
+            maxQuoteAgeMs={maxQuoteAgeMs}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+/**
+ * What the venue holds that this record does not.
+ *
+ * **Record order, one colour, no red** — the coordinator's own wording, and
+ * deliberately: this is a coverage fact, not an alarm, and ADR 0071 §2.5's
+ * "a per-row fact is transparency; an ordering is a claim" applies to the
+ * list here exactly as it does to the positions above.
+ */
+function VenueCoverageBanner({ unrecorded }: { unrecorded: UnrecordedAtVenue[] }) {
+  if (unrecorded.length === 0) return null;
+  const plural = unrecorded.length === 1 ? "" : "s";
+  const verb = unrecorded.length === 1 ? "is" : "are";
+  return (
+    <div className="rounded-lg border border-border p-3 text-sm" role="status">
+      <p>
+        {unrecorded.length} Kalshi combination{plural} at the venue {verb} not
+        recorded here:
+      </p>
+      <ul className="mt-1.5 flex flex-col gap-0.5 text-xs">
+        {unrecorded.map((row) => (
+          <li key={row.ticker} className="tabular">
+            {row.ticker} &middot; {row.contracts ?? "--"} contracts &middot;{" "}
+            {row.exposure_display}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1.5 text-xs text-muted">
+        <a href="#record-parlay" className="underline decoration-dotted">
+          Record it below
+        </a>{" "}
+        to watch it.
+      </p>
     </div>
   );
 }
@@ -64,9 +138,15 @@ export default function HedgePositions({
 function Position({
   position,
   notes,
+  venuePollMs,
+  asOfMs,
+  maxQuoteAgeMs,
 }: {
   position: HeldPosition;
   notes: Record<string, string>;
+  venuePollMs: number | null;
+  asOfMs: number;
+  maxQuoteAgeMs: number;
 }) {
   return (
     <section
@@ -86,10 +166,15 @@ function Position({
         {position.book ? ` · ${position.book}` : ""} ·{" "}
         {position.state_detail}
       </p>
+      <VenueStatusLine
+        position={position}
+        venuePollMs={venuePollMs}
+        asOfMs={asOfMs}
+      />
 
       <ol className="mt-3 divide-y divide-border">
         {position.legs.map((leg) => (
-          <Leg key={leg.id} leg={leg} />
+          <Leg key={leg.id} leg={leg} maxQuoteAgeMs={maxQuoteAgeMs} />
         ))}
       </ol>
 
@@ -100,8 +185,58 @@ function Position({
   );
 }
 
+/**
+ * The two dead-ticket facts, in precedence order.
+ *
+ * A settlement from the venue is definitive and comes first: which leg lost
+ * is not knowable from it alone (leg markets can finalize later, or Joe
+ * marks them), so nothing here touches a leg's own `outcome` — only the
+ * words say more than the legs below currently do. Absence from the latest
+ * positions poll is the weaker fact — a position also stops appearing there
+ * when it is simply closed some other way — and is shown only when there is
+ * no settlement to say more.
+ */
+function VenueStatusLine({
+  position,
+  venuePollMs,
+  asOfMs,
+}: {
+  position: HeldPosition;
+  venuePollMs: number | null;
+  asOfMs: number;
+}) {
+  if (position.venue_settlement) {
+    const { market_result, settled_ms } = position.venue_settlement;
+    const outcome =
+      market_result === "yes" ? "won" : market_result === "no" ? "lost" : (market_result ?? "unknown");
+    const date = new Date(settled_ms).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+    return (
+      <p className="mt-1 text-xs text-muted">
+        Settled at the venue: {outcome} on {date}.
+      </p>
+    );
+  }
+  if (position.at_venue === false) {
+    const age =
+      venuePollMs !== null ? describeQuoteAge(asOfMs - venuePollMs) : null;
+    return (
+      <p className="mt-1 text-xs text-muted">
+        This ticket is no longer at the venue
+        {age ? ` (last positions read ${age})` : ""}.
+      </p>
+    );
+  }
+  return null;
+}
+
 /** One leg: what it is, what the venue says it is worth now, and how it settled. */
-function Leg({ leg }: { leg: HeldLeg }) {
+function Leg({ leg, maxQuoteAgeMs }: { leg: HeldLeg; maxQuoteAgeMs: number }) {
+  const age = describeQuoteAge(leg.quote_age_ms);
+  const stale = leg.quote_age_ms !== null && leg.quote_age_ms > maxQuoteAgeMs;
   return (
     <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1.5">
       {/*
@@ -123,9 +258,21 @@ function Leg({ leg }: { leg: HeldLeg }) {
       </span>
       {/*
         A percentage or "--". Never 0%: an absent bid and a leg nobody wants
-        are different facts, and the payload keeps them apart.
+        are different facts, and the payload keeps them apart. Dimmed, never
+        hidden, once its quote is older than the same bound a hedge quote
+        would be refused at -- the price is still what was last seen, and
+        saying so plainly is better than pretending it did not move.
       */}
-      <span className="tabular text-sm">{leg.chance_display}</span>
+      <span
+        className={`tabular text-sm ${stale ? "text-muted opacity-60" : ""}`}
+      >
+        {leg.chance_display}
+        {age && (
+          <span className="ml-1 text-[10px] font-normal text-muted">
+            {age}
+          </span>
+        )}
+      </span>
       {leg.outcome === "pending" ? (
         <LegControls leg={leg} />
       ) : (
