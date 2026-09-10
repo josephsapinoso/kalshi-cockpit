@@ -92,7 +92,7 @@ def conn():
 class TestNeitherGrowingTableIsScanned:
     def test_odds_snapshots_is_searched_not_scanned(self, conn):
         """The table with no retention rule. It only ever gets bigger."""
-        steps = plan(conn, ladder_sql(), (0, 0))
+        steps = plan(conn, ladder_sql(), (0, 0, 0))
         assert not any(s.startswith("SCAN odds_snapshots") for s in steps), (
             f"the ladder groups the whole snapshot history: {steps}"
         )
@@ -110,11 +110,25 @@ class TestNeitherGrowingTableIsScanned:
         now observes when the index is dropped. A guard for "every row is
         visited" must not be defeated by which index the visit goes through.
         """
-        steps = plan(conn, ladder_sql(), (0, 0))
+        steps = plan(conn, ladder_sql(), (0, 0, 0))
         assert not any(re.fullmatch(r"SCAN f(?: USING .+)?", s) for s in steps), (
             f"every fair price ever computed is visited: {steps}"
         )
         assert any("market=?" in s and "computed_ms>?" in s for s in steps), steps
+        # **The confirmed arm seeks too.** The OR's right-hand side
+        # (`f.confirmed_ms >= ?`) must reach its own index rather than
+        # falling back to a residual filter over rows the LEFT arm's index
+        # already visited -- that would still be correct and would still be
+        # a scan of `f` in cost, which this repo has already paid for once.
+        assert any(
+            "market=?" in s and "confirmed_ms>?" in s for s in steps
+        ), steps
+        # **Both arms run as one plan, not two separate scans SQLite unions
+        # in Python.** `MULTI-INDEX OR` is SQLite's own name for seeking
+        # each side of an OR on its own index and combining the rowid sets
+        # -- the alternative it degrades to when only one side is indexed is
+        # asserted directly by `TestTheConfirmedIndexIsLoadBearing` below.
+        assert any("MULTI-INDEX OR" in s for s in steps), steps
 
     def test_the_restriction_is_present_in_the_query(self, conn):
         sql = ladder_sql()
@@ -204,7 +218,7 @@ class TestTheLadderIsBoundedInSql:
     def test_duplicates_never_reach_python(self, conn):
         """The behavioural half: three rows for one rung, one comes back."""
         _seed_one_rung(conn, computed_ms_values=(1_000, 2_000, 3_000))
-        rows = conn.execute(ladder_sql(), (0, 0)).fetchall()
+        rows = conn.execute(ladder_sql(), (0, 0, 0)).fetchall()
         assert len(rows) == 1, (
             f"the query returned {len(rows)} rows for one identity; the "
             f"bound is not bounding"
@@ -224,7 +238,7 @@ class TestTheLadderIsBoundedInSql:
             computed_ms_values=(1_000,),
             descriptions=("Pitcher A", "Pitcher B"),
         )
-        rows = conn.execute(ladder_sql(), (0, 0)).fetchall()
+        rows = conn.execute(ladder_sql(), (0, 0, 0)).fetchall()
         assert len(rows) == 2, (
             f"two players at one rung collapsed to {len(rows)} row(s)"
         )
@@ -247,7 +261,7 @@ class TestEachHalfIsLoadBearing:
         c = db.init_db(os.path.join(tempfile.mkdtemp(), "half.db"))
         try:
             c.execute("DROP INDEX IF EXISTS idx_fair_market_computed")
-            steps = plan(c, ladder_sql(), (0, 0))
+            steps = plan(c, ladder_sql(), (0, 0, 0))
         finally:
             c.close()
         assert any(re.fullmatch(r"SCAN f(?: USING .+)?", s) for s in steps), (
@@ -265,7 +279,7 @@ class TestEachHalfIsLoadBearing:
         """
         c = db.init_db(os.path.join(tempfile.mkdtemp(), "noidx.db"))
         try:
-            steps = plan(c, ladder_sql(), (0, 0))
+            steps = plan(c, ladder_sql(), (0, 0, 0))
         finally:
             c.close()
         assert any(
@@ -296,16 +310,59 @@ class TestEachHalfIsLoadBearing:
             Path(__file__).resolve().parents[1] / "backend" / "store" / "schema.sql"
         ).read_text(encoding="utf-8")
         assert "CREATE INDEX IF NOT EXISTS idx_fair_market_computed" in schema
+        assert "CREATE INDEX IF NOT EXISTS idx_fair_market_confirmed" in schema, (
+            "the confirmed-stamp index must also reach a volume that "
+            "already exists -- schema.sql alone never touches one"
+        )
+
+
+class TestTheConfirmedIndexIsLoadBearing:
+    """`idx_fair_market_confirmed` is not decoration beside the OR.
+
+    Dropping it does not merely lose the RIGHT arm's own seek -- it loses
+    SQLite's `MULTI-INDEX OR` optimisation entirely, because that plan needs
+    EVERY arm of the OR indexed to fire. What is left is a single seek on
+    `idx_fair_market_computed` for the equality alone (`market=?`), with
+    `computed_ms>?` demoted from an index bound to a residual row-by-row
+    filter -- silently wider than the query looks, and exactly the shape
+    measured live before this fix (6,561,382 rows through this index).
+    """
+
+    def test_without_the_confirmed_index_the_computed_seek_is_lost(self):
+        """Mutation observed red with the index in place: see the sibling
+        assertion in `TestNeitherGrowingTableIsScanned` above, which requires
+        `computed_ms>?` to appear. Here the index is gone and the bound must
+        be gone with it."""
+        c = db.init_db(os.path.join(tempfile.mkdtemp(), "noconfirmed.db"))
+        try:
+            c.execute("DROP INDEX IF EXISTS idx_fair_market_confirmed")
+            steps = plan(c, ladder_sql(), (0, 0, 0))
+        finally:
+            c.close()
+        assert not any("computed_ms>?" in s for s in steps), (
+            f"the computed_ms seek survived losing its OR partner, so the "
+            f"partial index is not actually load-bearing: {steps}"
+        )
+        assert any(
+            re.fullmatch(r"SEARCH f USING INDEX idx_fair_market_computed \(market=\?\)", s)
+            for s in steps
+        ), (
+            f"expected the degraded plan -- an equality-only seek with no "
+            f"computed_ms bound: {steps}"
+        )
 
 
 class TestTheQueryNamesEveryMarketALegMayComeFrom:
     """The literals in the SQL and the constants callers use must agree.
 
-    The query has to stay a literal triple-quoted string -- `ladder_sql()`
-    above extracts it by regex, and interpolating a constant would both break
-    that extraction and risk losing the `market=?` index seek. So the market
-    list is written twice, and this is what stops the two copies drifting: add
-    a prop series to `PROP_SERIES` without adding it here and the pool would
+    The query has to stay a literal triple-quoted string, because it is
+    `CANDIDATE_SQL` in `backend/parlays.py` -- `ladder_sql()` above reaches it
+    with `from backend.parlays import CANDIDATE_SQL`, not a regex extraction,
+    since 2026-08-30. The live constraint is that the market literals stay
+    inline: interpolating them risks losing the `market=?` index seek that
+    keeps this query off a full scan of `fair_prices`. So the market list is
+    written twice, and this is what stops the two copies drifting: add a prop
+    series to `PROP_SERIES` without adding it here and the pool would
     silently never contain it.
     """
 

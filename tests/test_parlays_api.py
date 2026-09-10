@@ -433,7 +433,19 @@ class TestAConfirmedRowSurvivesAnOldComputedMs:
     ):
         """The control: without a confirmation, an old `computed_ms` is
         exactly as stale as it always was. Confirmation is what buys
-        freshness, not merely being inside the wider scan floor."""
+        freshness, not merely being inside the wider scan floor.
+
+        **Never reaches `excluded['stale_consensus']`, since the scan floor
+        stopped being 9 days wide.** Five days out is far past the deployed
+        2-hour floor (`max(8 * max_odds_age_ms, 2h)`), so `CANDIDATE_SQL`'s
+        `computed_ms >= ? OR confirmed_ms >= ?` excludes this row before
+        `build_ladder` ever sees it to tally -- refused by the scan, not
+        counted by the freshness gate. That is a different case from a row
+        that had JUST gone stale, which the 8x multiple keeps inside the
+        scan precisely so it CAN be tallied; see
+        `TestTheScanIsNeverTighterThanTheFreshnessRule` and
+        `_CANDIDATE_SCAN_FLOOR_MULTIPLE`'s own docstring for that guarantee.
+        """
         five_days_ago = now_ms() - 5 * 24 * 3_600_000
 
         def seed(conn):
@@ -448,7 +460,6 @@ class TestAConfirmedRowSurvivesAnOldComputedMs:
         body = (await get(app, "/api/parlays")).json()
         safe = next(c for c in body["cards"] if c["key"] == "safe")
         assert all(l["team"] != "Team OldUnconfirmed" for l in safe["legs"])
-        assert body["excluded"]["stale_consensus"] >= 1
 
 
 class TestHonesty:
@@ -1177,45 +1188,97 @@ class TestTheScanIsNeverTighterThanTheFreshnessRule:
         assert _CANDIDATE_SCAN_FLOOR_MULTIPLE > 1
 
 
-class TestTheDedupeFloorCoversAConfirmedRowsComputedMs:
-    """ADR 0133 broke the invariant `TestTheScanIsNeverTighterThanTheFreshnessRule`
-    checks: `computed_ms` no longer tracks freshness once a row can be
-    confirmed instead of re-inserted, so the multiple-of-`max_odds_age_ms`
-    floor alone can no longer promise every fresh row is scanned. This checks
-    the THIRD term that makes the promise hold again.
+class TestAConfirmedRowIsScannedByItsConfirmedStamp:
+    """Replaces `TestTheDedupeFloorCoversAConfirmedRowsComputedMs`.
+
+    That class pinned a THIRD scan-floor term (`_CANDIDATE_SCAN_DEDUPE_FLOOR_MS`,
+    9 days) wide enough to pull a confirmed row into the scan by its stale
+    `computed_ms` -- and pulled 6,561,382 rows through `idx_fair_market_computed`
+    on live to do it (RSS 196MB -> 1.2GB, `candidate_ms` 83 -> ~4,600, three
+    OOM kills). The floor was the defect, not the fix: `computed_ms` was never
+    the right column to scan a confirmed row on. `CANDIDATE_SQL`'s predicate
+    is now `computed_ms >= ? OR confirmed_ms >= ?`, so a confirmed row is
+    found by the stamp that is actually live -- no third floor term needed,
+    the multiple-of-`max_odds_age_ms` floor is sufficient again on its own.
     """
 
-    def test_the_dedupe_floor_is_combined_with_the_multiple_via_max(self):
-        from backend.parlays import (
-            _CANDIDATE_SCAN_DEDUPE_FLOOR_MS,
-            _CANDIDATE_SCAN_FLOOR_MULTIPLE,
-            _CANDIDATE_SCAN_MIN_MS,
+    def test_a_confirmed_row_is_scanned_despite_a_stale_computed_ms(self, conn):
+        """(a) Nine days stale by `computed_ms`, confirmed five minutes ago:
+        must reach the pool at the deployed freshness rule."""
+        now = now_ms()
+        nine_days_ago = now - 9 * 24 * 3_600_000
+        five_min_ago = now - 5 * 60_000
+        seed_game(
+            conn, game="g1", team="Team Confirmed", other="Team X", p=0.7,
+            computed_ms=nine_days_ago,
+            confirmed_ms=five_min_ago,
+            confirmed_oldest_book_age_ms=5_000,
+        )
+        conn.commit()
+
+        legs, _ = ladder_candidates(conn, now_ms=now, max_odds_age_ms=900_000)
+        assert any(l.team == "Team Confirmed" for l in legs), (
+            "a row confirmed five minutes ago was not scanned because its "
+            "computed_ms is nine days old -- the OR predicate is not "
+            "reaching the confirmed arm"
         )
 
-        # The deployed freshness rule (900s) times the multiple is nowhere
-        # near what a game tracked days ahead needs -- the dedupe floor must
-        # be the one actually winning the max() for any plausible deployed
-        # value, or it is decoration.
-        for max_age_ms in (0, 900_000, 3_600_000, 7_200_000):
-            multiple_floor = max(
-                _CANDIDATE_SCAN_FLOOR_MULTIPLE * max_age_ms, _CANDIDATE_SCAN_MIN_MS
-            )
-            assert _CANDIDATE_SCAN_DEDUPE_FLOOR_MS > multiple_floor, (
-                "the dedupe floor is not actually the binding term at "
-                f"max_odds_age_ms={max_age_ms}"
-            )
+    def test_a_row_confirmed_nine_days_ago_is_not_scanned(self, conn):
+        """(b) Both stamps nine days old: must NOT reach the pool. The OR
+        has two arms and both have to be checked, or (a) alone would also
+        pass with `confirmed_ms >= ?` replaced by `confirmed_ms IS NOT NULL`."""
+        now = now_ms()
+        nine_days_ago = now - 9 * 24 * 3_600_000
+        seed_game(
+            conn, game="g1", team="Team StaleConfirmed", other="Team X",
+            p=0.7,
+            computed_ms=nine_days_ago,
+            confirmed_ms=nine_days_ago,
+            confirmed_oldest_book_age_ms=5_000,
+        )
+        conn.commit()
 
-    def test_the_dedupe_floor_covers_the_observed_eight_day_tracking_window(
-        self,
+        legs, _ = ladder_candidates(conn, now_ms=now, max_odds_age_ms=900_000)
+        assert not any(l.team == "Team StaleConfirmed" for l in legs), (
+            "a row stale on both stamps reached the pool -- the OR's "
+            "confirmed arm is not being bounded by the floor"
+        )
+
+    def test_the_dedupe_floor_constant_no_longer_exists(self):
+        """(c) The defect and its constant are both gone, not just unused."""
+        import backend.parlays as parlays_module
+
+        assert not hasattr(parlays_module, "_CANDIDATE_SCAN_DEDUPE_FLOOR_MS")
+
+    def test_the_deployed_horizon_is_the_multiple_or_the_two_hour_floor(
+        self, conn
     ):
-        """ADR 0099 measured kickoffs surfacing three hours to eight days
-        out and caps `within_hours` at 168 (7 days). A row for such a game
-        can carry a `computed_ms` up to that far in the past and still be
-        confirmed-fresh every pass since."""
-        from backend.parlays import _CANDIDATE_SCAN_DEDUPE_FLOOR_MS
+        """(d) With no third term, the horizon at deployed values is
+        `max(8 * 900_000, 2h)` -- both terms equal 7,200,000ms, so the
+        floor is exactly two hours, not nine days.
 
-        eight_days_ms = 8 * 24 * 3_600_000
-        assert _CANDIDATE_SCAN_DEDUPE_FLOOR_MS > eight_days_ms
+        Asserted behaviourally, not by recomputing the formula beside the
+        function: a row three days stale (inside the OLD 9-day floor,
+        outside the new 2-hour one) and never confirmed must not reach the
+        pool. Recomputing `max(_CANDIDATE_SCAN_FLOOR_MULTIPLE * ..., ...)`
+        in the test itself would pass unchanged if `ladder_candidates` kept
+        a third term nobody was calling here -- this calls the real
+        function so a reinstated 9-day term is observed, not assumed away.
+        """
+        now = now_ms()
+        three_days_ago = now - 3 * 24 * 3_600_000
+        seed_game(
+            conn, game="g1", team="Team ThreeDaysStale", other="Team X",
+            p=0.7,
+            computed_ms=three_days_ago,
+        )
+        conn.commit()
+
+        legs, _ = ladder_candidates(conn, now_ms=now, max_odds_age_ms=900_000)
+        assert not any(l.team == "Team ThreeDaysStale" for l in legs), (
+            "a row three days old and never confirmed reached the pool -- "
+            "the scan floor is wider than 2 hours again"
+        )
 
 
 class TestThePriceToBeatIsServedAndIsBreakEven:

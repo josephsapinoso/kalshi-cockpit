@@ -317,12 +317,15 @@ def _live_age_ms(row, *, now_ms: int) -> Optional[int]:
 
 #: The two team markets, and the five MLB prop keys a leg may come from.
 #:
-#: **These duplicate the literals in the ladder query on purpose.** That query
-#: has to stay a literal triple-quoted string -- `tests/test_ladder_query_is_
-#: indexed.py` extracts it by regex, and an f-string both breaks the extraction
-#: and risks losing the `market=?` index seek that keeps `/api/parlays` off a
-#: full scan of ~6.9M `fair_prices` rows. A drift test asserts the two agree
-#: rather than a shared constant being interpolated into the SQL.
+#: **These duplicate the literals in the ladder query on purpose.** The query
+#: is `CANDIDATE_SQL` below, and `tests/test_ladder_query_is_indexed.py`'s
+#: `ladder_sql()` reaches it by `from backend.parlays import CANDIDATE_SQL` --
+#: an import, not a regex extraction, since 2026-08-30. **The live constraint
+#: is that the market literals stay inline**, so the `market=?` seek on
+#: `idx_fair_market_computed` / `idx_fair_market_confirmed` survives: those
+#: are the indexes that keep `/api/parlays` off a scan of ~6.9M `fair_prices`
+#: rows. A drift test asserts the two agree rather than a shared constant
+#: being interpolated into the SQL.
 _TEAM_MARKETS: frozenset[str] = frozenset({"h2h", "spreads"})
 _PROP_MARKETS: frozenset[str] = frozenset(PROP_BASE_MARKETS)
 
@@ -376,34 +379,6 @@ _CANDIDATE_SCAN_FLOOR_MULTIPLE = 8
 #: is what the multiple gives at the deployed `MAX_ODDS_AGE_S` of 900s --
 #: stated so a `None` caller cannot silently scan a single millisecond.
 _CANDIDATE_SCAN_MIN_MS = 2 * 3_600_000
-
-#: **ADR 0133 broke the invariant this whole floor was built on.** The
-#: multiple above assumed `computed_ms` tracks freshness -- true only while
-#: `write_fair_price` re-inserted every pass, so an old `computed_ms` meant a
-#: genuinely old (and downstream-refused) row. Since dedupe, `computed_ms`
-#: freezes at first appearance and a row's LIVE freshness comes from
-#: `confirmed_ms` instead (see `_live_age_ms`), which this query's WHERE
-#: clause cannot see -- it has to stay a predicate on `computed_ms` alone, so
-#: `idx_fair_market_computed` (`market, computed_ms DESC`) keeps serving it as
-#: a seek (`tests/test_ladder_query_is_indexed.py`), not a COALESCE.
-#:
-#: So a row can now be confirmed-fresh every pass for as long as a game stays
-#: on the desk while carrying a `computed_ms` from whenever that price FIRST
-#: appeared -- which can be days before kickoff. `ladder_candidates` never
-#: bounds `o.commence_ms` by any card horizon (that cut happens in Python,
-#: after this query, in `HORIZONS`/`window_ms` below), so the real ceiling is
-#: how far ahead a game can already be on the desk: ADR 0099 measured "kickoffs
-#: from three hours to eight days out" on live and caps `within_hours` at 168
-#: (7 days). Nine days, one day of margin past the observed eight.
-#:
-#: Combined with the multiple via `max()`, never replacing it: the multiple
-#: still answers "how wide must the scan be relative to the freshness rule"
-#: for a row that has NEVER been confirmed (falls back to `computed_ms`
-#: alone), and this answers "how old can a CONFIRMED row's `computed_ms` be".
-#: Both floors are cheap to be generous with now -- dedupe cuts the table
-#: this query scans by the same ~99.7% the duplication measurement found, so
-#: widening this floor is nearly free where narrowing it used to cost 25s.
-_CANDIDATE_SCAN_DEDUPE_FLOOR_MS = 9 * 24 * 3_600_000
 
 
 #: The clock the desk is read on. **Must equal `DISPLAY_TIME_ZONE` in
@@ -594,7 +569,19 @@ CANDIDATE_SQL = """
         WHERE f.market IN ('h2h', 'spreads', 'pitcher_strikeouts',
                           'batter_total_bases', 'batter_hits',
                           'batter_home_runs', 'batter_rbis')
-          AND f.computed_ms >= ?
+          -- **Either stamp, since the ladder-scan-keys-on-the-confirmed-
+          -- stamp fix.** `computed_ms` freezes at first appearance (ADR
+          -- 0133) and only `confirmed_ms` moves on a row that keeps getting
+          -- re-derived unchanged, so a predicate on `computed_ms` alone can
+          -- miss a row that is fresh right now. `confirmed_ms >=
+          -- computed_ms` whenever it is set, so this OR is exactly
+          -- `COALESCE(confirmed_ms, computed_ms) >= ?` -- not an
+          -- approximation of it -- while staying sargable: each arm seeks
+          -- its own index, `idx_fair_market_computed` for the first and the
+          -- PARTIAL `idx_fair_market_confirmed` for the second, and SQLite
+          -- runs the pair as `MULTI-INDEX OR` rather than falling back to a
+          -- scan the way a COALESCE in the predicate would.
+          AND (f.computed_ms >= ? OR f.confirmed_ms >= ?)
           AND o.commence_ms IS NOT NULL AND o.commence_ms > ?
         )
         WHERE rn = 1
@@ -624,19 +611,30 @@ def ladder_candidates(
     the query can never be tighter than the freshness rule the caller will
     apply. Pass the same value you pass `build_ladder`.
 
-    The floor is now the max of THREE terms, not two, since ADR 0133's
-    `fair_prices` dedupe (see `_CANDIDATE_SCAN_DEDUPE_FLOOR_MS`): the
-    multiple-of-`max_odds_age_ms` term still bounds an unconfirmed row, and
-    the dedupe term bounds a confirmed one, whose `computed_ms` no longer
-    says anything about its live freshness.
+    **The floor is the max of two terms, not three.** A 9-day third term
+    (`_CANDIDATE_SCAN_DEDUPE_FLOOR_MS`) used to sit here to catch a
+    confirmed row by its stale `computed_ms` -- ADR 0133 froze `computed_ms`
+    at first appearance, so a row confirmed fresh every pass could still
+    carry a `computed_ms` from whenever a game first showed up on the desk,
+    up to eight days before kickoff (ADR 0099). Widening the floor to 9 days
+    caught that row, and it caught it by pulling every OTHER row in the
+    9-day window through `idx_fair_market_computed` too -- 6,561,382 rows,
+    measured live, RSS 196MB -> 1.2GB, `candidate_ms` 83 -> ~4,600, three
+    OOM kills. The floor was never the defect; scanning on `computed_ms`
+    alone while confirmed freshness lives on a different column was. The fix
+    is in `CANDIDATE_SQL` itself: the predicate now reads `computed_ms >= ?
+    OR confirmed_ms >= ?`, so a confirmed row is found by the stamp that is
+    actually fresh, and the multiple-of-`max_odds_age_ms` floor is once
+    again sufficient on its own -- there is no longer a distinct "how old
+    can a confirmed row's `computed_ms` be" question to answer.
     """
     horizon_ms = max(
         _CANDIDATE_SCAN_FLOOR_MULTIPLE * (max_odds_age_ms or 0),
         _CANDIDATE_SCAN_MIN_MS,
-        _CANDIDATE_SCAN_DEDUPE_FLOOR_MS,
     )
+    floor_ms = now_ms - horizon_ms
     rows = conn.execute(
-        CANDIDATE_SQL, (now_ms - horizon_ms, now_ms)
+        CANDIDATE_SQL, (floor_ms, floor_ms, now_ms)
     ).fetchall()
 
     excluded: dict[str, int] = {}

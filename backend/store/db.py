@@ -73,7 +73,17 @@ from ..core.prices import is_valid_price
 #: are nullable with no default and no backfill, so every existing row reads
 #: as "never re-confirmed" and falls back to its own `computed_ms` pair,
 #: which is the truth about it.
-SCHEMA_VERSION = 36
+#: v37 (2026-09-10) adds `idx_fair_market_confirmed` -- the ladder scan keys
+#: on the confirmed stamp. v36 froze `computed_ms` at first appearance, which
+#: broke `ladder_candidates`' promise that its scan floor bounds every fresh
+#: row; the interim fix was a 9-day floor wide enough to catch a confirmed
+#: row by its stale `computed_ms`, and it was the defect, not a fix: it pulled
+#: 6.5M rows through `idx_fair_market_computed` on every call. The real fix is
+#: a predicate on EITHER stamp (`computed_ms >= ? OR confirmed_ms >= ?`,
+#: `backend/parlays.py`'s `CANDIDATE_SQL`) and this partial index, so the
+#: OR's second arm seeks instead of falling back to a scan. See
+#: `docs/adr/DRAFT-the-ladder-scan-keys-on-the-confirmed-stamp.md`.
+SCHEMA_VERSION = 37
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -824,6 +834,37 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # The covering index the ladder scan's OR predicate needs -- the "ladder
+    # scan keys on the confirmed stamp" fix, following v31's pattern: the
+    # statement, the plan and the size cost live beside the CREATE in
+    # `schema.sql`, and what belongs here is only why a step is needed at
+    # all.
+    #
+    # **`schema.sql` cannot reach an existing volume for this one**, same as
+    # v31. `executescript` runs it on every open and `CREATE INDEX IF NOT
+    # EXISTS` would in fact create the index there too, so this step looks
+    # redundant and is not: without a version bump nothing *checks*.
+    # `scripts/migrate_db.py` verifies at boot, by name, that every index a
+    # step declares is actually present, and it can only check the steps it
+    # is told about. The declared `indexes` tuple is what makes a migration
+    # that reported success while doing nothing visible.
+    #
+    # No `columns`, so the generic wind-back (drop the declared indexes) is
+    # the whole undo and `undo_statements` stays empty.
+    #
+    # **Not free on the live volume.** `fair_prices` was 47.5% of a 5.07 GB
+    # database as of v36's own measurement; the CREATE INDEX is a partial
+    # scan (only rows with `confirmed_ms IS NOT NULL`) plus a sort, taken
+    # once at boot before uvicorn starts -- where a slow one-off belongs,
+    # because `migrate_db.py` runs ahead of the API rather than under it.
+    37: _Migration(
+        statements=(
+            "CREATE INDEX IF NOT EXISTS idx_fair_market_confirmed "
+            "ON fair_prices(market, confirmed_ms DESC) "
+            "WHERE confirmed_ms IS NOT NULL",
+        ),
+        indexes=("idx_fair_market_confirmed",),
+    ),
     # Dedupe for `fair_prices` -- ADR 0133. `write_fair_price` used to INSERT
     # unconditionally, every pass, whether or not the payload had changed
     # since the last one for this (link_id, market, outcome_name,
@@ -844,10 +885,17 @@ _MIGRATIONS: dict[int, _Migration] = {
     # which is true of every row on the live volume today and of any row
     # whose payload has only ever appeared once since. `_live_age_ms` in
     # `backend/parlays.py` COALESCEs to the frozen pair -- never to zero.
-    # Metadata-only (`ALTER TABLE ADD COLUMN` does not rewrite the table); no
-    # new index, since both readers of `fair_prices.computed_ms` already seek
-    # on `idx_fair_market_computed` / `idx_fair_link` and neither column is
-    # queried on.
+    # Metadata-only (`ALTER TABLE ADD COLUMN` does not rewrite the table).
+    #
+    # **"No new index" was wrong the moment v37 shipped.** This comment
+    # originally claimed neither column is queried on, reasoning from the
+    # readers that existed in 2026-09-09. `ladder_candidates`' scan floor
+    # depended on `computed_ms` tracking freshness, which stopped being true
+    # the instant this step landed -- a confirmed row can be fresh every pass
+    # while `computed_ms` stays wherever it first appeared, days earlier. v37
+    # adds `idx_fair_market_confirmed` and a predicate on `confirmed_ms`
+    # precisely because this column IS queried on now. See v37's own comment
+    # and `docs/adr/DRAFT-the-ladder-scan-keys-on-the-confirmed-stamp.md`.
     36: _Migration(
         columns=(
             ("fair_prices", "confirmed_ms", "INTEGER"),
