@@ -16,6 +16,95 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-10 - "The query admits this market" is not "the desk holds this market", and only one of them is a fact about live
+
+A finding said MLB player props were "bought, priced and sitting in the
+candidate pool right now", so the blocker on props-as-parlay-legs was the free
+recipe gate rather than the paid feed gate. It was reported to Joe, published
+on a ticket, and used to invert a roadmap.
+
+The evidence was `CANDIDATE_SQL`'s allowlist: five prop markets named in a
+`WHERE market IN (...)`. That is real and it was verified. What was never
+checked is whether any row of those markets exists. On live:
+
+    ODDS_MARKETS                          'h2h,spreads'
+    newest prop row in `fair_prices`      600 hours old
+    prop rows in the last 7 days          0
+    h2h rows in the last 24 hours         65,032
+
+The pool held seven usable legs and none of them was a prop. Both gates were
+shut, the expensive one was binding after all, and the free test that had been
+promised did not exist.
+
+**The shape to look for: a permission mistaken for a population.** An
+allowlist, a feature flag set to on, a route that is mounted, a parser that
+handles a format, a column that exists - each says the system *would* accept
+the thing. None says the thing is *there*. The two read identically in source
+and diverge only against the deployed data, and the gap is invisible in a
+code-only review no matter how careful.
+
+Three rules:
+
+- **When a claim's verb is "has", "holds" or "is in", the evidence must be a
+  row count from the deployed system.** Source can support "would accept" and
+  nothing stronger. If the check that would settle it is a query and the query
+  was not run, the claim is not yet made.
+- **A subagent's finding inherits this.** The report here was accurate about
+  the allowlist and wrong about the pool, in adjacent sentences, and the
+  accurate half made the other one feel checked. Split a finding into the part
+  established from source and the part that needs live, then go and get the
+  second - do not accept a mixed claim as one unit.
+- **Check the config the container actually has, not the default.** One
+  `os.environ.get("ODDS_MARKETS")` answered the whole question in a line, and
+  is the same move `runtime-realist` exists to make.
+
+The cost of getting it wrong was not the wasted work - the staging built on
+the way is worth having. It was telling Joe a decision was free when it was
+not, which is the direction that gets acted on.
+
+See [[built-but-never-called]] and the two-gates lesson above: the correction
+does not restore the old picture either. The free gate is still real and still
+was unnamed. What changed is that opening it alone does nothing.
+
+---
+
+## 2026-09-10 - A rewound clock turns an indexed query into a cold-file scan
+
+Testing whether a prop card would build, the machinery was replayed against
+rows from 25 days earlier by passing a `now_ms` set back to then. Every query
+involved was index-seeking and read-only, which is why it looked safe.
+
+It ran for more than five minutes and took the desk down with it:
+`/api/parlays` went from 1.5s to 503 `read_budget_exceeded`, twice, on a box
+that had been healthy a minute before. `CANDIDATE_SQL` bounds its scan
+relative to `now_ms` - a floor two hours back and a `commence_ms > now_ms`
+filter - so rewinding the clock did not move a small window, it pointed the
+same query at a 25-day-old region of a 5GB file that no part of the working
+set had touched. Every page it needed was a miss, and every page it pulled in
+evicted one the desk was using.
+
+**The shape to look for: a query whose cost is bounded by the clock rather
+than by a LIMIT.** Time-bounded reads are cheap because recent data is warm,
+not because the predicate is narrow. Move the clock and the same statement,
+with the same plan and the same row count, becomes an entirely different
+amount of I/O.
+
+Two rules:
+
+- **A historical replay on live is not a read-only operation in the sense that
+  matters.** Do it against a copy, or a fixture, or accept that the desk pays.
+  This is the same conclusion as the full-table-scan lesson from earlier the
+  same day, reached by a different route - which is the argument for treating
+  "it is `mode=ro`" as saying nothing at all about cost.
+- **Killing the local `flyctl` client does not kill the remote process.** The
+  probe was still running under its own PID after the client was stopped and
+  had to be killed explicitly on the box - reading `/proc/*/cmdline`, matching
+  the base64-exec, and refusing anything that looked like `uvicorn` or
+  `run_loop.py`. A bare `pkill python` on that container kills the app and the
+  recorder.
+
+---
+
 ## 2026-09-10 - A warning keyed on a count the failure itself suppresses goes quiet exactly when it is needed
 
 A block on the parlay screen exists to explain one specific outage: Joe read

@@ -138,6 +138,71 @@ class Recipe:
 TEAM_MARKETS_ONLY: frozenset[str] = frozenset({"h2h", "spreads"})
 
 
+#: The five MLB player-prop markets `CANDIDATE_SQL` already admits.
+#:
+#: **Spelled here rather than imported, deliberately.** This module has no
+#: `backend.*` imports at all — it is the pure core the rest of the desk calls
+#: into — and reaching into `backend/odds/client.py` for five strings would
+#: couple the card recipes to the feed client, in the one direction ADR 0140
+#: says the dependency already runs. `tests/test_staged_prop_card.py` pins
+#: these against `PROP_BASE_MARKETS`, which is the same guarantee without the
+#: edge, and is how `backend/config.py` cross-checks its own duplicated
+#: threshold.
+MLB_PROP_MARKETS: frozenset[str] = frozenset(
+    {
+        "pitcher_strikeouts",
+        "batter_total_bases",
+        "batter_hits",
+        "batter_home_runs",
+        "batter_rbis",
+    }
+)
+
+
+#: A prop-bearing card. **DEFINED, AND DELIBERATELY NOT IN `CARD_SHAPES`.**
+#:
+#: Staged the way `NFL_PROP_SERIES` is staged (`8d5dd1c`): complete, tested,
+#: and reachable by nothing, so enabling it later is one visible edit rather
+#: than a design session.
+#:
+#: **Why it is not registered: there is no data, and a registered card would
+#: lie about that.** Measured on live 2026-09-10 — `ODDS_MARKETS` is
+#: `'h2h,spreads'`, the newest MLB prop row in `fair_prices` was computed
+#: **600 hours** earlier, and the last seven days hold **zero**. So this card
+#: would render "needs 2 fresh games and the slate has 0" on every load,
+#: forever, which reads as a thin slate rather than as a market the desk does
+#: not buy. A permanently-unbuildable card is worse than no card.
+#:
+#: Registering it is correct only once a sweep has actually bought prop rows —
+#: which costs credits on every sweep thereafter and edits `backend/odds/`
+#: (frozen to 10:00Z 2026-09-14). ADR 0140 is why that is a feed decision and
+#: not a screen one.
+#:
+#: **The floor is required, not decorative.** `min_leg_probability` exists for
+#: exactly this card (see the field's own comment): the fair side has no other
+#: bound, so a card of three 0.2% legs renders an eight-figure payout beside a
+#: fair cost of 0c. At 0.20 the worst case is a joint of 0.008 — about 125x,
+#: so $12,500 on a $100 stake — which is the same order as `longshot`, a card
+#: already on the desk. It is a backstop rather than a filter: ranked
+#: likeliest, a prop leg is typically 0.6–0.85 and the floor never binds.
+#:
+#: Same-game correlation needs nothing here — `_best_per_game` takes at most
+#: one leg per fixture and is the structural guard, so two props from one game
+#: cannot both be selected however this recipe is tuned.
+STAGED_PROP_CARD: Recipe = Recipe(
+    key="props",
+    markets=MLB_PROP_MARKETS,
+    title="Three props",
+    what_it_is=(
+        "the 3 likeliest player props on the slate, one per game"
+    ),
+    min_legs=2,
+    max_legs=3,
+    min_leg_probability=0.20,
+    pool_words="fresh games with a player prop",
+)
+
+
 #: The registered cards. `key` is the identity written to `parlay_lookups` and
 #: used in the Discord dedupe key, so a key is never reused or repurposed —
 #: `lottery`'s *title* changed on 2026-08-26 when Longshot arrived and made

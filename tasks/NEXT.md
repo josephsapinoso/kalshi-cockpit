@@ -128,11 +128,32 @@ a market type costs credits on every sweep forever. True, and not the binding
 constraint. **Every parlay recipe declares which markets it draws from and all
 seven decline props** — `TEAM_MARKETS_ONLY` (`backend/core/ladder.py:138`), six
 recipes, plus one spreads-only — a free gate nobody had written down. And the
-paid gate is **already open for baseball**: `CANDIDATE_SQL` admits five MLB
-prop markets (`backend/parlays.py:611-613`), the prop arm resolves them, and
-the recipe gate throws them away. So the question is answerable **today, in
-baseball, at zero credits**, and the ~14-credit NFL measurement is only worth
-buying if that comes back well. Ordering inverted, decision unchanged.
+paid gate is **NOT open** -- a claim to the contrary was published and
+withdrawn the same session, and the withdrawal is the more useful finding.
+
+**THE CORRECTION, MEASURED ON LIVE. Read this before planning any prop work.**
+`CANDIDATE_SQL` admits five MLB prop markets (`backend/parlays.py:611-613`)
+and the prop arm resolves them to legs with a real Kalshi rung -- the code
+path is open end to end. **There are no rows.**
+
+    ODDS_MARKETS on live                  'h2h,spreads'
+    newest MLB prop row in fair_prices    600.5 hours old (~25 days)
+    prop rows in the last 24h / 7d        0 / 0
+    h2h / spreads rows in the last 24h    65,032 / 71,044
+    usable legs in tonight's pool         7, of which props: 0
+
+So **"the query admits this market" and "the desk holds this market" are
+different claims**, and the first was reported as the second. Both gates are
+shut, the expensive one binds after all, and there is no free test: buying
+prop rows changes `ODDS_MARKETS` / the prop sweep, which costs credits on
+every sweep thereafter and edits `backend/odds/`, **frozen to 10:00Z
+2026-09-14**. The 25-day-old rows cannot stand in -- they are outside the
+freshness rule and outside the candidate scan's own two-hour floor.
+
+Joe answered **B1** ("run the free baseball prop test") against the wrong
+premise. He has been told. The corrected choice is the one the ticket body
+already had: **~14 credits on one event after the freeze lifts, or close the
+lane.**
 
 **STATE at close.** `main` = **`7f0f85f`**, pushed, CI green (run
 34520670775 on `5042d15`, and the one docs commit after it). Four commits:
@@ -272,10 +293,27 @@ return — **strictly stronger than what it replaced.** Lesson written.
    seconds later works. Every deploy has always done this; it was read as a
    one-off in the ninth session and it is not.
 
-B1. **If Joe answers B1: admit prop legs to one recipe, in baseball, free.**
-   `backend/core/ladder.py` is **not** under the odds freeze. The card maths
-   already knows a leg's `event_key`, so refuse same-game prop pairs. This is
-   the fastest falsifying test of the whole prop lane and it costs nothing.
+B1. **STAGED AND WAITING ON DATA, NOT ON CODE.** Joe chose B1; the free test
+   did not exist (see the correction above). What was built instead:
+   `STAGED_PROP_CARD` in `backend/core/ladder.py` -- a complete, tested,
+   **deliberately unregistered** prop card, staged the way `NFL_PROP_SERIES`
+   was in `8d5dd1c`. `tests/test_staged_prop_card.py` proves it builds, takes
+   one leg per fixture, and refuses a lottery leg.
+   **Enabling it is one line -- appending it to `CARD_SHAPES` -- and that line
+   is correct only AFTER a sweep has bought prop rows.** Registering it now
+   puts a card on Joe's screen that reads "needs 2 fresh games and the slate
+   has 0" forever, which reads as a thin slate rather than as a market the
+   desk does not buy.
+   Two things the machinery already had, and neither needed writing:
+   `min_leg_probability` exists for exactly this card (its own comment calls
+   it required on any card admitting props) and is set to 0.20, worst case
+   ~125x; and `_best_per_game` is an explicit "structural same-game guard", so
+   the correlation risk raised with Joe cannot occur however the recipe is
+   tuned.
+   **The remaining question is entirely about the feed**, is not free, and is
+   blocked to 10:00Z 2026-09-14 -- ~14 credits on one event, then either
+   register the card or close the lane on a number. ADR 0140 is why this was
+   always a feed decision.
 
 1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Unchanged.
 2. **SUNDAY 2026-09-13 — a scheduled run, not a task to plan.** Unchanged, and
