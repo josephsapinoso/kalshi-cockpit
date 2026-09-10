@@ -66,13 +66,100 @@ from typing import Optional
 #
 # The series ticker is what we actually know, so it is what the gate reads.
 # ---------------------------------------------------------------------------
-PROP_SERIES: dict[str, str] = {
+MLB_PROP_SERIES: dict[str, str] = {
     "KXMLBKS": "pitcher_strikeouts",
     "KXMLBTB": "batter_total_bases",
     "KXMLBHIT": "batter_hits",
     "KXMLBHR": "batter_home_runs",
     "KXMLBRBI": "batter_rbis",
 }
+
+# ---------------------------------------------------------------------------
+# The three NFL yardage ladders. **Measured, not guessed, and STAGED rather
+# than live** -- see `PROP_SERIES` below for why this is not simply merged in.
+#
+# Captured 2026-09-10 into `tests/fixtures/events_nfl_props_nested.json`
+# (`scripts/capture_nfl_prop_fixture.py`, unauthenticated, no credits). The
+# capture existed to find out whether NFL needed a second subtitle grammar and
+# a second join rule. It needs neither:
+#
+#     series          markets   SUBTITLE parsed   floor_strike == N - 0.5
+#     KXNFLPASSYDS        253       253 / 253            253 / 253
+#     KXNFLRECYDS       1,160     1,160 / 1,160        1,160 / 1,160
+#     KXNFLRSHYDS         616       616 / 616            616 / 616
+#
+# 2,029 of 2,029 on both counts, across three magnitudes (hundreds of passing
+# yards, tens of rushing). So the MLB grammar `"Player: N+"` and the MLB join
+# identity are properties of Kalshi's prop ladder, not of baseball, and this
+# module needed **no new parser** -- which is the finding, and is why nothing
+# below this line adds one.
+#
+# `competition` is `"Pro Football"` and `competition_scope` is the statistic
+# (`"Passing Yards"`, `"Receiving Yards"`, `"Rushing Yards"`); every market
+# carries `occurrence_datetime` and `strike_type = "greater"`.
+#
+# The Odds API keys were read from the vendor's own market table on
+# 2026-09-10, not recalled: a wrong key does not error, it buys nothing.
+# ---------------------------------------------------------------------------
+NFL_PROP_SERIES: dict[str, str] = {
+    "KXNFLPASSYDS": "player_pass_yds",
+    "KXNFLRECYDS": "player_reception_yds",
+    "KXNFLRSHYDS": "player_rush_yds",
+}
+
+# ---------------------------------------------------------------------------
+# Prop series that carry **no strike**, and therefore join to nothing.
+#
+# `KXNFLFIRSTTD` is a player-per-market list -- `yes_sub_title` is a bare
+# `"Kyren Williams"`, `floor_strike` is absent on 362 of 362 markets, and
+# `strike_type` is `"structured"` rather than `"greater"`. `parse_subtitle`
+# returns `None` on every one of them, which is the correct refusal and not a
+# defect to loosen the regex around: there is no rung, so there is nothing for
+# `kalshi_markets.strike == odds_snapshots.outcome_point` to match on.
+#
+# `KXNFLANYTD` had **0 open events** at capture, so nothing about its shape is
+# established here. It is listed because `tasks/NEXT.md` named it, and an
+# absent series must not be mistaken for a measured one.
+#
+# The Odds API does quote both (`player_1st_td`, `player_anytime_td`) as
+# Yes/No rather than Over/Under. Admitting them would need a join that does not
+# run on a strike -- a different mechanism, and its own decision.
+# ---------------------------------------------------------------------------
+PROP_SERIES_NO_STRIKE: frozenset[str] = frozenset({"KXNFLFIRSTTD", "KXNFLANYTD"})
+
+# ---------------------------------------------------------------------------
+# THE LIVE ALLOWLIST. **MLB only, deliberately, until the odds path thaws.**
+#
+# `NFL_PROP_SERIES` is correct and tested and is still not merged here, because
+# this dict is read by two things that would then disagree:
+#
+#   1. `is_prop_series` -> `discovery.py:390`, which decides what gets ADMITTED
+#      into `kalshi_markets`. Adding NFL here starts writing ~2,000 prop
+#      markets a slate to a database already growing at 326.6 MB/day.
+#   2. `PROP_SERIES.get` -> `runner.py:1697`, which maps a series to the book
+#      market it is priced against. The books are fetched by
+#      `odds/client.prop_market_keys()`, a FLAT list whose length is the price
+#      of a prop event -- one credit per key per region. NFL keys added there
+#      would be requested on every MLB event too, taking a five-key event to
+#      eight for three keys that return nothing.
+#
+# So the buy side has to become sport-aware in the same edit, and
+# `backend/odds/` is frozen until 10:00Z 2026-09-14 (`tasks/NEXT.md` item 1).
+# Enabling NFL props is therefore ONE edit here plus a sport-aware
+# `prop_market_keys()`, and neither half is safe alone: admitted-but-unbought
+# props are rows nobody prices, and bought-but-unadmitted props are credits
+# spent on markets nothing reads.
+#
+#     PROP_SERIES = {**MLB_PROP_SERIES, **NFL_PROP_SERIES}
+#
+# One open question the MLB record does NOT answer for NFL: whether the
+# `_alternate` feeds are needed. MLB refuses them because 35,448 alternate
+# rungs carried zero Unders, so they cannot be devigged. But Kalshi's NFL
+# ladder is `N+` milestones, which is exactly what the vendor says the
+# alternate feeds cover -- so the primary may quote one line where Kalshi
+# prices twenty rungs. Unmeasured. Measure before spending.
+# ---------------------------------------------------------------------------
+PROP_SERIES: dict[str, str] = dict(MLB_PROP_SERIES)
 
 # `market_type` for everything in `PROP_SERIES`. The fifth value the column
 # takes, beside moneyline / spread / total / team_total.
