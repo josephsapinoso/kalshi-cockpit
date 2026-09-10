@@ -37,7 +37,7 @@ column from the table: about 1,400 rows per event. With `commence_ms` as the
 second column the minimum is the first entry and the seek stops there. One
 plan line, three orders of magnitude of rows.
 
-Measured, because the claim being overturned was deliberate:
+Measured, because the claim being overturned was deliberate. Live, before:
 
     whole candidate scan                        73,526 ms   (494 rows)
     odds_snapshots MIN(commence_ms) GROUP BY    26,719 ms   (703 rows)
@@ -45,6 +45,21 @@ Measured, because the claim being overturned was deliberate:
 
 848 rows in the window and 73 seconds to return them. Reproduced locally at
 live's shape, warm, best of three: **503.9 ms without, 167.5 ms with**.
+
+Shipped and re-measured on live the same day:
+
+    odds_snapshots MIN GROUP BY    26,719 ms  ->    327.9 ms      81x
+    whole candidate scan           73,526 ms  ->  11,712 ms      6.3x
+    /api/parlays, cold             503 at 25 s ->     3.95 s
+    /api/parlays, warm             1.5-3.3 s   ->  0.49-0.82 s
+
+**The local 3x understated the live win by more than an order of magnitude**,
+and predictably so: the local box was CPU-bound with the table in memory,
+while live is I/O-bound and the index removes ~1,400 table-page reads per
+event. When a benchmark and production differ in which resource binds, the
+benchmark gives a direction and a floor, never a magnitude -- and it is worth
+saying which one you have before shipping, because "3x" and "81x" justify
+different amounts of risk.
 
 **The shape to look for: any judgement about cost made from
 `EXPLAIN QUERY PLAN` alone.** It answers "how will this be reached" -

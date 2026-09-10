@@ -238,11 +238,29 @@ because the desk was 503-ing in front of Joe, and because a covering seek
 should *reduce* cache pressure here — it stops pulling ~1,400 table pages per
 event into the page cache that is the binding resource on this box.
 
-**NOT YET VERIFIED ON LIVE.** The migration is a full index build over the
-highest-volume table, taken at boot before uvicorn starts. Deploy, let
-`migrate_db.py` run it, then re-run `parlay-candidates-timing` and compare
-against the 73,526 / 26,719 above. **Until that comparison exists, the live win
-is a prediction.**
+**VERIFIED ON LIVE, same session.** Deployed `2e66f36`, migration ran at boot,
+index confirmed present and chosen by the planner. Re-ran
+`parlay-candidates-timing` on the freshly-booted (i.e. COLD) container:
+
+                                          before      after     factor
+    odds_snapshots MIN GROUP BY        26,719 ms   327.9 ms       81x
+    whole candidate scan               73,526 ms  11,712 ms      6.3x
+
+and the route itself, which is what Joe touches:
+
+    first call after deploy   503 read_budget_exceeded (25 s)  ->   3.95 s
+    warm                      1.5-3.3 s historic best          ->   0.49-0.82 s
+
+**So the cold-start 503 is gone, and the warm desk is roughly 3x faster than
+its best previously recorded state.** The local 3x was a floor, as predicted;
+the live subquery win is 81x because live is I/O-bound and the index removes
+~1,400 table-page reads per event rather than CPU work.
+
+**What this does NOT establish:** nothing about `/api/board`, `/api/slate` or
+the recorder, which were never timed against this. And the 6-of-7 cards seen
+after the deploy versus 4-of-7 before is the evening slate filling out, NOT an
+effect of the index -- the index changes speed and cannot change which legs
+are eligible.
 
 ### Two corrections to the front door, both verified rather than reasoned
 
@@ -341,17 +359,12 @@ return — **strictly stronger than what it replaced.** Lesson written.
 
 ### Still open, in order
 
-0c. **DEPLOY SCHEMA v39 AND VERIFY THE INDEX ON LIVE.** This is the first
-   thing the next session does. `idx_odds_event_commence` is committed but
-   NOT deployed; the migration is a full index build over 3,696,485 rows,
-   taken at boot before uvicorn starts. Deploy with `-e GIT_SHA=`, let
-   `migrate_db.py` run it, then re-run
-   `inspect_live_db.py parlay-candidates-timing` and compare against
-   **73,526 ms whole scan / 26,719 ms subquery**. Until that comparison
-   exists the win is a prediction. Also re-time `/api/parlays` against the
-   1.5-3.3s baseline. If the numbers do not move, the diagnosis is wrong and
-   the index should be reverted rather than kept on the strength of the
-   argument.
+0c. **The whole candidate scan is still 11.7 s cold, and that is the next
+   number to attack if the desk ever feels slow again.** The subquery is no
+   longer the cost (327.9 ms of it); what remains is `fair_prices` and the
+   joins. It is comfortably inside the 25 s budget now and there is no
+   symptom, so this is a note rather than a task -- do not open it without
+   one. `inspect_live_db.py parlay-candidates-timing` is the instrument.
 
 0d. **THE COLD-START 503 WAS NOT THE WIDENING, AND THAT IS MEASURED
    RATHER THAN SUSPECTED.** Deployed `7f0f85f` and read `/api/parlays` three
