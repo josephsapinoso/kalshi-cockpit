@@ -281,6 +281,14 @@ export const GLOSSARY = {
       "knowing it gains you nothing. Only news newer than the line can " +
       "matter.",
   },
+  spread: {
+    label: "spread",
+    definition:
+      "A handicap that turns an uneven game into a near coin flip. " +
+      "“Rams −3.5” means the Rams must win by 4 or more for " +
+      "that side to hit — win by 3 and it misses even though the Rams won " +
+      "the game.",
+  },
   consensus_chance: {
     label: "chance to win",
     definition:

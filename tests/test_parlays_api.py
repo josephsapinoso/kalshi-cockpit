@@ -260,6 +260,12 @@ def _fresh_slate(conn, n: int = 6, start_p: float = 0.74) -> None:
 
 class TestTheLadderBuilds:
     async def test_six_fresh_games_fill_every_card(self, build):
+        """`_fresh_slate` seeds moneylines only, so `short_spreads` (which
+        draws exclusively from `spreads` -- see `TestShortSpreads` in
+        `tests/test_ladder.py` for its selection behaviour) has nothing to
+        build from here -- it is checked separately rather than folded into
+        the blanket `not_built_reason is None` assertion every OTHER card
+        still owes."""
         app = build(_fresh_slate)
         body = (await get(app, "/api/parlays")).json()
         by_key = {c["key"]: c for c in body["cards"]}
@@ -269,7 +275,14 @@ class TestTheLadderBuilds:
         assert len(by_key["longshot"]["legs"]) == 3
         assert len(by_key["soon"]["legs"]) == 3
         assert len(by_key["agreed"]["legs"]) == 3
-        assert all(c["not_built_reason"] is None for c in body["cards"])
+        assert all(
+            c["not_built_reason"] is None
+            for c in body["cards"]
+            if c["key"] != "short_spreads"
+        )
+        assert by_key["short_spreads"]["not_built_reason"] == (
+            "needs 2 fresh games with a short spread and the slate has 0"
+        )
 
     async def test_the_wire_carries_every_registered_card(self, build):
         """The payload is the screen's whole source of truth for which cards

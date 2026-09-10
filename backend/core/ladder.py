@@ -5,7 +5,7 @@ to buy the venue's own combination product with the fair joint probability in
 view — not an edge claim. ADR 0038's closed hunt is untouched: nothing here
 computes an edge, sizes a bet, or feeds the gate.
 
-**One pool, six cuts.** Until 2026-08-26 this module built three cards that
+**One pool, seven cuts.** Until 2026-08-26 this module built three cards that
 were not three products: Safe was the 3 likeliest legs, Middle was Safe plus
 one, Lottery was the first 6 of the same ranking, and `prefer_spreads` was the
 only structural difference in the whole ladder. A `Recipe` now carries the cut
@@ -120,6 +120,13 @@ class Recipe:
     #: of 0c. CLAUDE.md rule 1 -- a large apparent number is a bug until shown
     #: otherwise -- applies to the payout column exactly as to an edge.
     min_leg_probability: Optional[float] = None
+    #: Refuse a spread leg whose handicap exceeds this many points. `None` (the
+    #: default) leaves spreads unbounded. A spread's `point` is always the
+    #: book's number and always negative (`backend/kalshi/spreads.py:108-124`),
+    #: so the test is `-leg.point > max_spread_margin` — a bound on the
+    #: MAGNITUDE of the handicap, not its sign. Non-spread legs are untouched
+    #: by this knob; gate them out with `markets` instead.
+    max_spread_margin: Optional[float] = None
     pool_words: str = "fresh games"
 
 
@@ -202,6 +209,19 @@ CARD_SHAPES: tuple[Recipe, ...] = (
         max_legs=3,
         max_method_spread=AGREEMENT_SPREAD_POINTS,
         pool_words="fresh games whose four devig methods agree",
+    ),
+    Recipe(
+        key="short_spreads",
+        markets=frozenset({"spreads"}),
+        title="Two short spreads",
+        what_it_is=(
+            "two teams each covering a small handicap (3.5 or less), from "
+            "different games"
+        ),
+        min_legs=2,
+        max_legs=2,
+        max_spread_margin=3.5,
+        pool_words="fresh games with a short spread",
     ),
 )
 
@@ -518,6 +538,13 @@ def _pool_for(
             leg
             for leg in pool
             if _methods_agree(leg, within_points=recipe.max_method_spread)
+        ]
+    if recipe.max_spread_margin is not None:
+        pool = [
+            leg
+            for leg in pool
+            if leg.market != "spreads"
+            or (leg.point is not None and -leg.point <= recipe.max_spread_margin)
         ]
     return _best_per_game(
         pool,

@@ -183,6 +183,16 @@ function Card({ card }: { card: ParlayCardData }) {
                   {kickoff(leg.commence_ms)}
                 </span>
                 <LeagueTag league={leg.league} />
+                <span className="tabular shrink-0 whitespace-nowrap rounded border border-border px-1 font-mono text-[10px] uppercase tracking-wide text-muted">
+                  {leg.market === "spreads" ? (
+                    <>
+                      <Term k="spread">SPREAD</Term>
+                      {leg.point !== null ? ` ${signedPoint(leg.point)}` : ""}
+                    </>
+                  ) : (
+                    legKindLabel(leg)
+                  )}
+                </span>
                 <Link
                   href={`/market/${encodeURIComponent(leg.ticker)}`}
                   className="min-w-0 truncate text-sm font-semibold tracking-tight hover:underline"
@@ -822,4 +832,29 @@ function kickoff(ms: number | null): string {
     minute: "2-digit",
     hour12: false,
   });
+}
+
+/**
+ * A real minus sign (U+2212), not the ASCII hyphen `String()` produces --
+ * a spread's `point` is always the book's number and always negative
+ * (`backend/core/ladder.py`), and next to a number a hyphen reads as a
+ * small dash rather than "negative".
+ */
+function signedPoint(point: number): string {
+  const text = String(point);
+  return text.startsWith("-") ? `−${text.slice(1)}` : text;
+}
+
+/**
+ * The leg-kind tag for every market OTHER than a spread (which wraps
+ * "SPREAD" in a glossary `<Term>` inline, above): "WIN" for a plain
+ * moneyline, "PROP <line>" for anything else -- sport-neutral, so a
+ * beginner can tell a spread pick from a plain win from a prop without
+ * opening the leg's own market page. Never derived from `leg.label`,
+ * which is Kalshi's own subtitle and phrases every market differently
+ * ("wins by over 3.5 points" vs "wins by over 1.5 runs").
+ */
+function legKindLabel(leg: ParlayCardLeg): string {
+  if (leg.market === "h2h") return "WIN";
+  return `PROP${leg.point !== null ? ` ${signedPoint(leg.point)}` : ""}`;
 }
