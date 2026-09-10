@@ -93,6 +93,29 @@ And the counterpart: if the docstring's claim does NOT still hold, the change
 is the thing that is wrong. Either way the docstring decides, which is the
 argument for the docstring naming a claim rather than describing the code.
 
+**The second failure mode of a source-slicing test, and it is worse because it
+stays green: the slice silently retargets.** Several tests here locate a
+region with `source.index("<ManualTicket")` and assert inside it. Adding a
+component whose *docstring mentions* `<ManualTicket>` moved that index into a
+comment, and the test went on asserting -- against prose, about nothing. One
+of them then survived deleting the very word it exists to require, because the
+element it finally landed on carries a JSX comment discussing the same
+subject. A test can be looking at the wrong place and at commentary rather
+than at the screen, and report success for both reasons at once.
+
+Three rules for a test that slices source:
+
+- **Anchor on something only the real thing has.** `"<ManualTicket\n"` over
+  `"<ManualTicket"`; better still, assert a required prop is inside the slice
+  (`ticker={...}`) so a wrong slice fails loudly instead of quietly.
+- **Assert against the user-facing string, not the region containing it.**
+  Pull out the `note="..."` value and test that. A claim about what the screen
+  says has to be tested against what the screen says; a comment nearby that
+  happens to use the word is not evidence.
+- **Prose is not inert.** Adding a comment cannot change behaviour, so it gets
+  reviewed as free -- and here it silently disarmed two guards. Re-run the
+  tests that slice a file whose comments you edited.
+
 ---
 
 ## 2026-09-10 - When one blocker is expensive, look for the free one; the expensive blocker gets all the attention
