@@ -935,6 +935,44 @@ class TestPricing:
             assert isinstance(leg["commence_ms"], int)
 
 
+    async def test_an_empty_book_records_what_a_priced_one_does(self, build):
+        """`book_empty` carries side, label, league and commence time too.
+
+        A market WAS minted on this path, so the row describes a real
+        combination on the exchange -- the argument that a refusal has
+        nothing to describe belongs to the `refused` branch and was applied
+        here by proximity. Until 2026-09-10 this branch called
+        `_record_lookup` with no `leg_details` while the return payload
+        twenty lines below built `commence_ms` off the same `selected`, so
+        the data was in hand and dropped on 30 of the first 46 live rows.
+
+        It matters because of who reads this population: the open question
+        is when an empty combo book fills, every row in it is this kind, and
+        the league and kickoff anyone would group by are exactly what was
+        missing.
+
+        Driven end to end through the route, for the reason the priced twin
+        gives: asserting `leg_details_for` alone passes happily while
+        `_record_lookup` drops the fields on the floor.
+        """
+        app, _, path = build()
+        legs = await _served_legs(app)
+        body = (await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )).json()
+        assert body["status"] == "book_empty"
+
+        recorded = json.loads(_lookup_rows(path)[0]["selected_legs"])
+        assert recorded, "an empty-book lookup recorded no legs at all"
+        for leg in recorded:
+            assert leg["side"] == "yes"
+            assert leg["label"], "a leg with no name cannot be grouped or read"
+            assert leg["label"] != leg["market_ticker"]
+            assert leg["league"]
+            assert isinstance(leg["commence_ms"], int)
+
+
 class TestThePayoutCannotExceedTheBook:
     """2026-08-24 code review, finding 4 — CLAUDE.md rule 1 on a payout.
 

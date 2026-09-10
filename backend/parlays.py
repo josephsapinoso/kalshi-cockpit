@@ -2655,12 +2655,25 @@ async def price_card_on_kalshi(
             f"yes_bid={yes_bid if yes_bid is not None else 'none'} "
             f"yes_levels={len(book.yes_bids)} no_levels={len(book.no_bids)}"
         )
+        # **`leg_details` here for the same reason as on the priced branch,
+        # and it took until 2026-09-10 to notice.** A market WAS minted on
+        # this path, so the row describes a real combination on the exchange;
+        # the argument that a refusal has nothing to describe belongs to the
+        # `refused` branch and was applied here by proximity. Concretely, 30
+        # of the first 46 live rows are `book_empty` and carry bare tickers
+        # while the return payload twenty lines below builds `commence_ms`
+        # off the same `selected` -- the data was in hand and dropped.
+        #
+        # Whoever reads this population is asking when an empty book fills,
+        # and every row in it is the bare kind, so the league and the
+        # kickoff they would group by are exactly what is missing.
         _record_lookup(
             conn, now_ms=now_ms, card_key=card_key, stake_cents=stake_cents,
             legs=legs, status="book_empty",
             collection_ticker=collection.collection_ticker, minted=minted,
             fair_joint=joint.conservative, collection_unverified=unverified,
             error=book_detail,
+            leg_details=leg_details_for(selected),
         )
         return {
             "status": "book_empty",
@@ -2681,18 +2694,39 @@ async def price_card_on_kalshi(
                 for leg in selected
             ],
             "fair": {"conservative": joint.conservative},
+            # **The old first sentence was falsified on 2026-09-10 and is
+            # gone.** It said every freshly minted combo book this tool had
+            # read looked like this. Two shard-1 books minted at 13:43:30Z
+            # and 13:45:34Z that day were read from ~13:46Z carrying resting
+            # bids on BOTH sides ($10 at 0.0980 and $10 at 0.0570), so a
+            # three-minute-old book can be two-sided. It was also a claim
+            # this code cannot check: a lookup cannot tell a market Kalshi
+            # minted for it from one that already existed, so "freshly
+            # minted" was never an observation this branch could make.
+            #
+            # **Nothing replaces it, deliberately.** The obvious candidate --
+            # that tonight's slate gets quoted and further out does not --
+            # was measured the same day and withdrawn: the `tonight` arm was
+            # a re-read of a ticker already known to be priced, and no
+            # minted ticker in the record has ever changed status between
+            # reads, so that arm was fixed by construction rather than
+            # observed. Saying less is the correction.
+            #
+            # The re-ask sentence stays, because it is the one thing the
+            # record does establish: zero of the repeat reads in this table
+            # ever found an empty book quoted, including one combination
+            # re-read across 6h44m.
             "words": (
                 "Kalshi created the market, but nothing is resting in its "
                 "book -- no one is offering to sell this combination, so "
-                "there is no price you could actually pay right now. Every "
-                "freshly minted combo book this tool has read looked exactly "
-                "like this; the app may show a number, but a number nobody "
-                "will trade at is not a cost. Asking again costs nothing and "
-                "mints nothing new -- it just re-reads this same market's "
-                "book -- but nothing in this desk's own record shows an "
-                "empty combo book turning into a quoted one on a later ask. "
-                "Build it in the Kalshi app instead and compare its quote to "
-                "the fair value on the card."
+                "there is no price you could actually pay right now. The "
+                "app may show a number, but a number nobody will trade at "
+                "is not a cost. Asking again costs nothing and mints "
+                "nothing new -- it just re-reads this same market's book -- "
+                "but nothing in this desk's own record shows an empty combo "
+                "book turning into a quoted one on a later ask. Build it in "
+                "the Kalshi app instead and compare its quote to the fair "
+                "value on the card."
             ),
         }
 

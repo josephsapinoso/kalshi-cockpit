@@ -16,6 +16,83 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-10 - A stopping rule that names an outcome manufactures that outcome, and the arm it names will look like the finding
+
+A pre-registered pair test had already been taken once and come back null:
+both arms empty, nothing separated. The written rule for retaking it was
+"take it again **when a moneyline card is quoted**". Followed exactly, it
+produced a block in which the moneyline arm was 2 of 2 quoted - which was
+not an observation, because the rule would not have fired otherwise. The tap
+order preserved the mechanism in the record: three moneyline taps, then the
+spread tap last, after the trigger was satisfied. It was reported as a clean
+separation and withdrawn the same session.
+
+**The shape to look for: a retake condition that mentions a result.** "When
+X is quoted", "once the pool is fresh", "next time it succeeds", "when we
+see a good one" - each fixes one margin of the table before any data is
+collected, and the fixed margin is invariably the one that carries the
+claim. A null result is the cheapest thing a test produces and the easiest
+to explain away by retaking; the rule that governs the retake is therefore
+doing more inferential work than the statistic is.
+
+Three rules that fall out:
+
+- **A retake condition may name a clock or a fixed order. It may never name
+  an outcome.** "18:00Z daily for five days, moneyline first, spread second,
+  record every pair" is a rule. "When a moneyline card is quoted" is a
+  result wearing a rule's clothes.
+- **Record the pairs that came back boring.** The 07:09Z pair - both arms
+  empty, four seconds wide, tighter than the one that got reported - was the
+  honest observation, and it went unmentioned because it said nothing. A
+  test whose null results are not written down cannot come back negative.
+- **When a control arm is a re-read, check whether its answer was already
+  known.** Here no minted ticker had *ever* changed status between reads, so
+  re-tapping a known-priced ticker as the "control" fixed that arm by
+  construction too - the same defect a second time, in a comparison that
+  looked independent of the first.
+
+And the one about who caused it: the bad rule was sitting in `NEXT.md` as
+part of a previous session's open item, so it arrived carrying the authority
+of the record. **A stopping rule inherited from a handoff gets audited before
+it is executed, not after it produces a result.**
+
+See [[verification-methods-that-lie]] and the two 2026-09-10 lessons below.
+
+## 2026-09-10 - An operation that reads can also write, and "it spends no money" is not the test for whether it is inert
+
+Twelve "Price on Kalshi" taps were taken on live to answer a product
+question. Every one was correct, authorised, cost nothing and placed no
+order - and each one **minted a market on the exchange**, because
+`lookup_combo` is called with `allow_market_creation=True` and
+`backend/kalshi/combos.py` calls that "an outward-facing write". Those mints
+landed at the front of a newest-first, truncated page that a measurement
+registered to fire three days later samples from, and three of them came
+back carrying a readable ask - which was that measurement's own eligibility
+predicate. A read-shaped operation had written into a registered sampling
+frame.
+
+**The shape to look for: an operation whose name and whose cost both say
+"read", with a creation flag buried in the call.** The tells are a
+`create`/`allow_creation`/`upsert` parameter defaulted on, a "look up or
+create" docstring, and any endpoint that returns an identifier that did not
+exist before. None of these show up as money, so a money-based safety check
+passes them.
+
+Two rules that fall out:
+
+- **Before repeating an action on a live external system, read what the call
+  does, not what the button is called.** "A lookup spends nothing" was true
+  and irrelevant; the question was what exists afterwards that did not exist
+  before.
+- **Ask what population an action joins, not just what it returns.** Anything
+  that creates a row, a market or a record becomes part of some future
+  sample. Where a registration exists, that is contamination; where none
+  exists yet, it is a baseline someone will later mistake for organic.
+
+See [[justifications-decay-toward-reassurance]]: "it spends no money" was
+exactly such a justification, correct on its own terms and load-bearing for
+a claim it never made.
+
 ## 2026-09-10 - A read-only scan on live is not free for the desk: it evicts the page cache, and the next reader pays for it
 
 A research agent answered "how many spread rows does `fair_prices` hold, all

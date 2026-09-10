@@ -248,7 +248,49 @@ of a moneyline card on the same slate in the same minute. Not yet taken.
    `yes_levels=0 no_levels=0` (rows 45 and 46; 43 was the same safe card a
    second earlier). A pair where both sides are empty is consistent with
    "spread combos are never quoted" and with "nothing is quoted at 00:09 PT
-   on a future-game combo"; take it again when a moneyline card is quoted.
+   on a future-game combo".
+
+   **THAT STOPPING RULE WAS WRONG AND IT WAS FOLLOWED — 2026-09-10, eighth
+   session.** It read "take it again when a moneyline card is quoted", which
+   conditions the retake on one arm's outcome. Taken under it at 13:51Z, the
+   moneyline arm came back 2 of 2 quoted **by construction of the rule, not
+   by observation**, and the tap order shows the mechanism: three moneyline
+   taps, then the spread tap last, once the trigger was satisfied. The
+   resulting "clean separation" is uninterpretable and was withdrawn the same
+   session. The honest accounting of this test is **two pairs taken, one null
+   (07:09Z, BOTH arms empty), one outcome-conditioned (13:51Z)** — and the
+   first is the one that counts.
+
+   **The replacement rule, unconditioned:** tap the moneyline card and the
+   spread card **in a fixed order within the same minute, on a schedule fixed
+   in advance** (18:00Z daily for five days), and record **every** pair
+   including the ones where both arms come back empty. Five unconditioned
+   pairs are worth more than the 48 rows now on the table. Do not start it
+   before Sunday's Arm D look — every lookup mints a market into that
+   measurement's own sampling frame (see
+   `docs/measurements/2026-09-10-disclosed-unregistered-look-combo-exit-shard1.md`).
+
+   **And a confound that no number of pairs can settle**, found by
+   `measurement-skeptic` the same session: `lookup` **creates** the market
+   when the combination does not already exist
+   (`backend/kalshi/combos.py`), and the spread-bearing recipes (`lottery`
+   at 6 legs, `longshot` = the three *least* likely games, `short_spreads`)
+   are exactly the combinations no human would have built in the Kalshi app.
+   So "spread combos are not quoted" and "**self-minted tickers** are not
+   quoted" predict identical data, and `parlay_lookups` records no
+   pre-existence flag. Add that column before running the pairs, or the
+   pairs cannot separate the two. Evidence already against the second story:
+   two shard-1 books minted at 13:43:30Z and 13:45:34Z carried resting YES
+   bids when read from ~13:46Z, so a *fresh* mint can be two-sided within
+   three minutes.
+
+   The mint, not the tap, is the unit: **no minted ticker in the whole
+   record has ever changed status between reads**, including one re-read
+   across 6h44m, so repeat taps of a ticker carry zero information and the
+   row denominator (31/17) is inflated. At the mint denominator it is 13 of
+   26 moneyline-only against 0 of 11 spread-bearing — a correlation, still
+   not a mechanism, and it does not survive matching on leg count (3 legs:
+   9/17 vs 0/4).
    **The tap Joe asked for is verified on live**: under "Next two nights"
    the safe card (NCST, LOU on the 11th, NYY on the 10th — every leg beyond
    tonight) minted `KXMVECROSSCATEGORY-SHARD1-…AC3CA136377` and answered
