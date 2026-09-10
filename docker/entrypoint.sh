@@ -276,6 +276,45 @@ urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)" 2>/dev/nu
 done
 echo "[entrypoint] backend healthy after ${i}s"
 
+# Pull the parlay desk's read path into the page cache, in the background.
+#
+# Measured on live 2026-09-10, on a machine that had just booted: the first
+# `/api/parlays` took 20.5s, the same request once warm took 0.56s. The box has
+# 2.0 GB of RAM and no swap against a 5.43 GB database, so at most ~27% of the
+# file is ever resident and a fresh machine has none of it -- the first reader
+# pays for all of it, and that reader is Joe tapping the desk.
+#
+# It very nearly does not fit: the API read budget is 25s (ADR 0135) and the
+# cold path measured 20.5s. Restarts are not rare -- the teardown below fires
+# whenever any child dies, on purpose -- so every one of them was a coin flip
+# on a 503 in front of him.
+#
+# **`& disown`, and the `disown` is the load-bearing half.** Both words matter
+# and for opposite reasons.
+#
+# `&` because this must never delay the boot: Fly health checks port 3000, the
+# wait loop above gives uvicorn 30s, and a synchronous 20-second read in front
+# of that would turn a slow boot into a failed one on the machine that holds
+# real money. The script is read-only, single-shot, and swallows every
+# exception for the same reason.
+#
+# `disown` because `wait -n` at the bottom of this file returns as soon as ANY
+# job of this shell exits -- and this one is *designed* to exit, after about
+# twenty seconds. Backgrounded without `disown` it satisfies `wait -n` on its
+# own completion, the teardown runs, finds backend, frontend and runner all
+# alive, falls through to the `else` branch, and reports "FRONTEND exited"
+# before shutting the container down. Fly restarts it, the warm-up runs again,
+# and the machine crash-loops every twenty seconds while every process in it is
+# healthy. `disown` removes the job from the shell's table so `wait -n` cannot
+# see it.
+#
+# The general rule for this file: **a background child here is a liveness
+# signal, not a task.** Anything added with a bare `&` is asserting "if I exit,
+# the container is broken". Work that finishes on purpose has to be disowned.
+echo "[entrypoint] warming the parlay read path (background)"
+python scripts/warm_read_path.py --db "${DB_PATH}" &
+disown
+
 echo "[entrypoint] starting frontend on 0.0.0.0:${PORT:-3000}"
 # **This is the hop Fly's health check actually rides on**, and it is the one
 # that was flapping. Node defaults `server.keepAliveTimeout` to 5s; Fly checks

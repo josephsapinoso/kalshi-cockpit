@@ -144,6 +144,10 @@ tasks/
 scripts/*
 !scripts/run_loop.py
 !scripts/migrate_db.py
+# Run by the entrypoint, backgrounded, to pull the parlay read path into the
+# page cache before Joe taps it. Cold boot measured 20.5s against a 25s read
+# budget on 2026-09-10; warm is 0.56s.
+!scripts/warm_read_path.py
 !scripts/inspect_live_db.py
 !scripts/inspect_live_db_*.py
 !scripts/inspect_live_disk.py
