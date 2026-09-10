@@ -647,8 +647,12 @@ primary_region = "ord"
   # indistinguishable from a working one.
   #
   # If usage climbs again, first ask what lost its retention rule; raise
-  # the number only with the answer in hand. Today the answer is known:
-  # `fair_prices` is 646 MB and has no retention rule.
+  # the number only with the answer in hand. When this was written the answer
+  # was `fair_prices` at 646 MB with no retention rule. **Both halves have
+  # moved since and the figure below is the one to correct against**: read
+  # 2026-09-09 it was 2.41 GB with its two indexes, 47.5% of a 5.07 GB
+  # database, at 10.1M rows. It still has no retention rule and is not getting
+  # one -- see the note on the downsample below.
   # **Raised 5GB -> 20GB on 2026-09-01, and the ceiling is the whole point of
   # the edit.** Joe extended the volume 5GB -> 10GB by hand the same day, on
   # the measured 161.40 MB/day fill date of ~2026-09-17. Extending ALONE would
@@ -657,11 +661,31 @@ primary_region = "ord"
   # 2026-09-17 clock run unnoticed for twelve days. A limit under the current
   # size is a disabled net that reads like a configured one.
   #
-  # 20GB is a backstop, not a plan: at the measured rate the 10GB volume runs
-  # to roughly mid-November, and the retention downsample is the thing that
-  # should actually bound growth. The net exists so that a miss costs money
-  # rather than an outage — about 15 cents per GB per month, against an ENOSPC
-  # a restart does not clear.
+  # 20GB is a backstop, not a plan. **Two claims that stood here have since
+  # been refuted and are corrected rather than deleted, because the reasoning
+  # they supported is still the reasoning:**
+  #
+  #   - "at the measured rate the 10GB volume runs to roughly mid-November"
+  #     used 161.40 MB/day, which was `n = 1 day`. Realised growth over the
+  #     8.138 days to 2026-09-09 was **326.6 MB/day, 2.0x**. Joe extended the
+  #     volume again by hand that day, 10GB -> 20GB, which is why the limit
+  #     above reads 20GB and the mount is larger than this comment assumed.
+  #     `backend/store/volume.py::CURRENT_GROWTH_RATE` is the one place the
+  #     rate is now corrected; this comment cannot read it and will go stale
+  #     again, so treat that constant as authoritative over this prose.
+  #   - "the retention downsample is the thing that should actually bound
+  #     growth" is **closed, not pending**. The 2026-09-01 deciding run
+  #     returned NOT WORTH ARMING and §6 authorises an arming ADR only on
+  #     ELIGIBLE TO PROPOSE ARMING, so none was ever owed (Amendment 2,
+  #     `docs/measurements/2026-09-01-preregistration-fair-prices-downsample.md`).
+  #     What bounds growth instead is ADR 0133: `write_fair_price` confirms an
+  #     unchanged consensus in place rather than reinserting it, which removed
+  #     ~99.7% of that table's writes. Deployed 2026-09-09 (schema v36). The
+  #     resulting rate is a PROJECTION of roughly 142 MB/day and has not yet
+  #     been measured over a clean window -- do not quote it as measured.
+  #
+  # The net exists so that a miss costs money rather than an outage — about
+  # 15 cents per GB per month, against an ENOSPC a restart does not clear.
   #
   # Threshold stays 80 rather than 90 for the reason recorded above: SQLite
   # extends the WAL before a write, and this record has seen a 175 MiB WAL

@@ -517,6 +517,27 @@ def _read_consensus(
     is `submitted_ms - consensus_computed_ms`, recorded rather than judged
     here. A freshness threshold chosen at the write site would bake one
     session's opinion into the record permanently and irreversibly.
+
+    **`f.computed_ms` changed meaning under schema v36 and this field changed
+    with it.** ADR 0133 made `write_fair_price` confirm an unchanged consensus
+    in place instead of reinserting it, so `computed_ms` now freezes at the
+    instant a value FIRST appeared, and `confirmed_ms` carries the last time
+    the same value was re-derived. The gap recorded here is therefore "how long
+    this consensus has stood", not "how long since anyone looked" -- and for a
+    consensus that has held a while those differ by hours rather than seconds.
+    It reads STALER than the inputs actually were.
+
+    **That is the conservative direction and it is why this is documented
+    rather than silently switched.** Coalescing to `confirmed_ms` here would
+    change a number already written on money rows, on a field whose whole
+    charter is that it is recorded and never judged; that is a decision with an
+    ADR, not an edit. `test_the_consensus_stamp_is_first_appearance_not_last_
+    confirmation` pins the current behaviour so the choice cannot drift by
+    accident in either direction.
+
+    Note this field never carried `oldest_book_age_ms` either, so it was always
+    a partial measure of input staleness rather than the freshness gate --
+    `backend/parlays.py::_live_age_ms` is that, and it DOES coalesce.
     """
     if is_combo_ticker(ticker):
         return _read_combo_consensus(conn, ticker=ticker, side=side)

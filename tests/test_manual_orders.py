@@ -2032,6 +2032,100 @@ class TestACombinationCarriesTheConsensusTheDeskComputed:
         )
 
 
+class TestTheConsensusStampSurvivedTheDedupe:
+    """What `consensus_computed_ms` means now that v36 confirms in place.
+
+    ADR 0133 stopped `write_fair_price` reinserting an unchanged consensus, so
+    `fair_prices.computed_ms` freezes at the instant a value FIRST appeared and
+    `confirmed_ms` carries the last time it was re-derived. `_read_consensus`
+    still selects `computed_ms`, which means the gap it records is "how long
+    this consensus has stood" rather than "how long since anyone looked".
+
+    **Neither reading is pinned by the schema, so it is pinned here.** The
+    choice is deliberate and conservative -- it reads staler than the inputs
+    were -- and coalescing to `confirmed_ms` would silently change a number
+    already written on money rows, which is an ADR rather than an edit. These
+    tests fail if it drifts in either direction.
+    """
+
+    def _confirm(self, path, fair_id, *, confirmed_ms, book_age_ms=None):
+        """Age a seeded row the way a confirming pass would: value untouched."""
+        conn = db.open_db(path)
+        try:
+            conn.execute(
+                "UPDATE fair_prices SET confirmed_ms = ?, "
+                "confirmed_oldest_book_age_ms = ? WHERE id = ?",
+                (confirmed_ms, book_age_ms, fair_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_the_consensus_stamp_is_first_appearance_not_last_confirmation(
+        self, tmp_path
+    ):
+        """The recorded stamp is `computed_ms`, even when a confirm is newer.
+
+        Mutation observed red: change `f.computed_ms` in `_read_consensus`'s
+        SELECT to `COALESCE(f.confirmed_ms, f.computed_ms)` -- the snapshot
+        then reports the confirm stamp and this assertion fails.
+
+        The two stamps are an hour apart on purpose. A consensus that has held
+        an hour is exactly the case where the readings diverge enough to change
+        what a reader concludes, and it is the common case rather than a corner
+        one: 344 of 494 live keys changed zero times across four hours.
+        """
+        path = _base_db(tmp_path)
+        first_seen = 1_700_000_000_000
+        fair_id, _ = _seed_consensus(path, computed_ms=first_seen)
+        self._confirm(path, fair_id, confirmed_ms=first_seen + 3_600_000)
+
+        conn = db.open_db(path)
+        try:
+            snap = manual_store.consensus_snapshot(
+                conn, ticker=TICKER, side="yes"
+            )
+        finally:
+            conn.close()
+
+        assert snap.computed_ms == first_seen, (
+            "the snapshot must record when this consensus FIRST appeared; a "
+            "confirm stamp here would silently redefine a number already "
+            "written on money rows"
+        )
+        assert snap.fair_price_id == fair_id
+
+    def test_a_row_that_was_never_reconfirmed_is_unchanged_by_the_dedupe(
+        self, tmp_path
+    ):
+        """The v36 columns are nullable and every pre-existing row reads NULL.
+
+        This is the whole live table on the day v36 deployed, so a snapshot
+        that needed `confirmed_ms` to be present would have reported nothing
+        for every historical row.
+        """
+        path = _base_db(tmp_path)
+        first_seen = 1_700_000_000_000
+        fair_id, _ = _seed_consensus(path, computed_ms=first_seen)
+
+        conn = db.open_db(path)
+        try:
+            row = conn.execute(
+                "SELECT confirmed_ms, confirmed_oldest_book_age_ms "
+                "FROM fair_prices WHERE id = ?",
+                (fair_id,),
+            ).fetchone()
+            snap = manual_store.consensus_snapshot(
+                conn, ticker=TICKER, side="yes"
+            )
+        finally:
+            conn.close()
+
+        assert row["confirmed_ms"] is None
+        assert row["confirmed_oldest_book_age_ms"] is None
+        assert snap.computed_ms == first_seen
+
+
 class TestTheSnapshotCanNeverBlockABet:
     """Additive recording. If the lookup breaks, the order still goes.
 
