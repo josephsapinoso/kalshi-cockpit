@@ -251,12 +251,13 @@ class TestCardInvariants:
                 legs=(leg("g"),), not_built_reason="no",
             )
 
-    def test_the_shapes_are_the_six_registered_cards(self):
-        """Six since 2026-08-26. This is the one assertion that catches a
-        recipe added or dropped by accident, so it pins the identities and
-        the lengths rather than just the count.
+    def test_the_shapes_are_the_seven_registered_cards(self):
+        """Seven since 2026-09-10 (`short_spreads` joined the original six).
+        This is the one assertion that catches a recipe added or dropped by
+        accident, so it pins the identities and the lengths rather than just
+        the count.
 
-        `lottery`'s TITLE changed with the same commit and its key did not:
+        `lottery`'s TITLE changed on 2026-08-26 and its key did not:
         `parlay_lookups` and the Discord dedupe history are keyed on it, so
         renaming the key would make the record incomparable across the
         rename for no gain.
@@ -268,6 +269,7 @@ class TestCardInvariants:
             ("longshot", 2, 3),
             ("soon", 2, 3),
             ("agreed", 2, 3),
+            ("short_spreads", 2, 2),
         ]
         assert next(r for r in CARD_SHAPES if r.key == "lottery").title == (
             "Long ladder"
@@ -451,6 +453,48 @@ class TestMethodAgreement:
             "has 0"
         )
         assert card(ladder, "safe").not_built_reason is None
+
+
+class TestShortSpreads:
+    """`short_spreads` (2026-09-10): two teams each covering a small
+    handicap (3.5 points/runs or less), from different games -- Joe's rule,
+    not a ranking (ADR 0071 §2.5). A spread leg's `point` is always the
+    book's number and always negative, so "3.5 or shorter" is
+    `-3.5 <= point < 0`; `max_spread_margin` reads it as a MAGNITUDE bound.
+
+    What this does NOT establish: that the card is quoted on Kalshi at all
+    (see the DRAFT ADR's unmeasured quote-rate prior).
+    """
+
+    def test_a_spread_wider_than_the_margin_reaches_no_short_spreads_card(self):
+        wide = leg("g1", p=0.65, market="spreads", point=-7.5, ticker="WIDE")
+        short_a = leg("g2", p=0.60, market="spreads", point=-3.5, ticker="SHORT-A")
+        short_b = leg("g3", p=0.55, market="spreads", point=-1.5, ticker="SHORT-B")
+        ladder = build([wide, short_a, short_b])
+        built = card(ladder, "short_spreads")
+        assert built.not_built_reason is None
+        tickers = {l.kalshi_market_ticker for l in built.legs}
+        assert tickers == {"SHORT-A", "SHORT-B"}
+
+    def test_short_spreads_never_takes_a_moneyline(self):
+        moneylines = games(4)  # market="h2h" by default
+        ladder = build(moneylines)
+        built = card(ladder, "short_spreads")
+        assert built.legs == ()
+        assert built.not_built_reason == (
+            "needs 2 fresh games with a short spread and the slate has 0"
+        )
+
+    def test_short_spreads_takes_one_leg_per_game(self):
+        rung_a = leg("g1", p=0.60, market="spreads", point=-2.5, ticker="A-2.5")
+        rung_b = leg("g1", p=0.55, market="spreads", point=-1.5, ticker="A-1.5")
+        other = leg("g2", p=0.58, market="spreads", point=-3.0, ticker="B-3.0")
+        ladder = build([rung_a, rung_b, other])
+        built = card(ladder, "short_spreads")
+        assert built.not_built_reason is None
+        ids = [l.odds_event_id for l in built.legs]
+        assert ids.count("g1") == 1
+        assert set(ids) == {"g1", "g2"}
 
 
 class TestEveryRecipeInheritsTheGuards:
