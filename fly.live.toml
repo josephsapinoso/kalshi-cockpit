@@ -781,4 +781,12 @@ primary_region = "ord"
   #
   # Raise it again rather than trimming a migration to fit: the constraint that
   # matters is that the volume holding the record cannot be recreated.
-  grace_period = "120s"
+  #
+  # **Raised 120s -> 600s on 2026-09-10 for schema v37 (ADR 0134).** Its
+  # migration is one `CREATE INDEX` over a partial index on `fair_prices`, which
+  # holds ~600 rows but has to read all 10.1M to find them. Rehearsed in the
+  # container on a paced copy of the live file: **181.8s** cold. The container's
+  # image cannot pre-build an index its code does not know, so the build runs
+  # at boot and the grace has to cover it; 600s is the measurement with a
+  # margin for a cold page cache, not a guess.
+  grace_period = "600s"
