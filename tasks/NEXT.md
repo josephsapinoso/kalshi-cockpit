@@ -119,6 +119,182 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-10 (seventh session) — a combo tap now prices the window the card was built in, and the desk has a spreads-only card Joe chose
+
+**Found by doing what Joe did.** He tapped "Buy it on Kalshi" on a "Through
+tomorrow" card at 22:22 PT and every leg was refused as "started, or past
+tonight's last game". None had started. The lookup was pricing every card at
+`tonight` whatever window built it, guessing the reason, and writing no row.
+Kalshi minted for future games all along (fixture minted 5 days out, live id
+2 priced a next-day leg): the refusal was ours.
+
+**STATE at close.** `main` = **`158a90c`**, pushed, **CI green
+(run 34447293327)**; full suite on main before the docs commit: **6870 passed,
+10 xfailed, 0 failed** (10m29s). **Live = `158a90c`, schema v38,
+machine `7812601a239428` unchanged** (deploy run 34448064455;
+migration v37 -> v38 at boot in under a second (07:04:26Z, both log lines carry the same second; backend healthy after 13 s, health passing 07:04:49Z)). Demo untouched. Odds path
+untouched: the freeze to 10:00Z 2026-09-14 holds; `git diff 324a53f..main --
+backend/odds backend/scheduler.py` is empty and `fly.live.toml` changed only
+in comment lines.
+
+Two ADRs: **0138** (a lookup prices the window the card was built in; a
+refusal is recorded, schema v38; the sentence never guesses; the copy says
+who quotes a combination), **0139** (Two short spreads is a rule Joe chose).
+One registration: `docs/measurements/2026-09-10-preregistration-totals-market-credit-cost.md`.
+Three lanes ran in parallel worktrees, all merged, worktrees and branches
+removed. Eight reviewer agents ran before the plan (partner, two explorers,
+kalshi-platform twice, sharp-bettor, measurement-skeptic, pre-registrar);
+Joe answered three lettered questions in one line: recipe **A**, keep all
+six cards, write the registration.
+
+### THE HEADLINE: the horizon now travels with the tap — ADR 0138
+
+`POST /api/parlays/lookup` takes `horizon` (validated against `HORIZONS`
+with the GET's own 422 words), `price_card_on_kalshi` passes it to
+`ladder_candidates`, and the screen sends the ladder payload's `window.key`
+from `ParlayCards` through `PriceOnKalshi` to `lookupParlay`. An absent leg
+is now classified from the sportsbook's own kickoff: "has started" only when
+`commence_ms <= now`, "kicks off after the '<window words>' window ends —
+pick a wider window" when beyond the horizon, "is not a leg this desk
+serves" otherwise. **Schema v38** rebuilds `parlay_lookups` so `status`
+admits `'refused'`, and the resolve step records the refusal (legs, horizon,
+the words) before re-raising; the `book_empty` branch now writes the YES
+side and both level counts into `error`, so an empty NO side is no longer
+indistinguishable from an empty book. Copy: "Kalshi itself almost never has
+anyone selling this combination" and "Nobody has offered this price" are
+gone — Kalshi quotes the minted combination itself (a resting NO bid is the
+ask you pay, 33 of 40 books carried one); nobody bids to buy it back, so the
+exit is the outcome. "Try again shortly" is gone too: **0 of 6 repeat groups
+on live ever flipped from empty to quoted, out to 80 minutes.**
+
+**A merged query was corrected the same hour, and it is the lesson in
+miniature.** Lane 1's kickoff lookup LEFT JOINed a `GROUP BY odds_event_id`
+over all of `odds_snapshots` — `MATERIALIZE o`, `SCAN odds_snapshots` on
+every refused tap, the plan `CANDIDATE_SQL` was measured at 15 s with on
+2026-08-26. It is now a correlated scalar subquery seeking `idx_odds_event`,
+the statement is a function the plan test imports, and
+`tests/test_ladder_query_is_indexed.py` pins plan and value.
+
+**Rehearsed in the container on the real rows before the deploy**: the
+exact statements from the new `db.py` against a scratch file holding the
+live table's 42 rows (attached `mode=ro`, nothing copied but that table):
+digest identical through forward, replay, undo and forward again; the old
+CHECK refuses `'refused'`, the new one accepts it; the index survives;
+2 ms. No 5 GB copy this time, on purpose — see the lesson below.
+
+### The recipe — ADR 0139
+
+`short_spreads` / "Two short spreads": `markets={"spreads"}`,
+`max_spread_margin=3.5` (a new `Recipe` knob; a spread's `point` is the
+book's number and always negative, so the bound is on `-point`),
+`min_legs=max_legs=2`, likeliest-first, one leg per fixture from
+`_best_per_game`. Not pushed to the phone. The leg row now shows a kind tag
+("SPREAD −3.5", "WIN", "PROP <line>") from `leg.market`/`leg.point`, which
+were on the wire and never drawn; `spread` joined the glossary.
+
+**Census before the build, read off live at 06:10Z (48h window):** 14 spread
+legs, **9 at 3.5 or shorter across 6 fixtures** (MLB 1.5/2.5 runs, NFL and
+NCAAF 3.5), `p_conservative` 0.33–0.57, odds 34–48 min old because no page
+was open. Every one was `stale_consensus` on the route at that hour, which is
+the feed on its hourly floor, not a defect.
+
+**Its Kalshi quote rate is unmeasured and the prior is unfavourable**: on
+live, **0 of 11 lookups containing a spread leg came back quoted, against 12
+of 28 moneyline-only** — self-selected taps, confounded with league and date
+(the 11 include every NCAAF row and mostly six-leg cards), so a correlation
+and not a mechanism. The falsifying pair is one lookup of this card and one
+of a moneyline card on the same slate in the same minute. Not yet taken.
+
+### Focus 2 decided, most of it by the record rather than by Joe
+
+- **Totals: not this season at `us,eu`.** The multiplier is exactly 1.5
+  (`sweep_cost = markets x regions`), and the largest budget day on record
+  (496, 2026-09-05, no NFL) becomes **744 against 700**. **ADR 0110 already
+  refuses totals** and dates the only lever (drop `eu`, 3 credits a call) to
+  2026-09-28 behind two preconditions. Below the feed, totals do not exist:
+  no series constant, no subtitle parser, not in the runner's derived link
+  set, no pricing branch, not in `CANDIDATE_SQL`. The credit look is
+  registered (§0 gate: totals have no consumer — already true; one look after
+  10:00Z 09-14 on budget day 20260913; edges 560 / 700 fixed).
+- **NFL props: undiscovered.** `PROP_SERIES` is MLB-only, zero `KXNFL*` prop
+  rows on live, and FIRSTTD/ANYTD carry no strike so the props join has
+  nothing to join on. Needs one unauthenticated `/events` capture before any
+  parser is written against memory.
+- **MLB props are dead on live** — last `fair_prices` write 2026-08-16, 0
+  rows in 24h. Not a recipe source.
+- **Long ladder and Longshot stay** (Joe's answer). The sharp-bettor's
+  argument that their only distinguishing feature is more legs, and legs are
+  hold, is on the record for the next UI ticket.
+
+### Verified by disabling
+
+    Lane 1 horizon pass-through      1 mutation   2 tests red
+    Lane 1 started/after-window fork 1 mutation   4 red
+    Lane 1 refused status            1 mutation   1 red
+    Lane 1 book_empty detail         1 mutation   2 red
+    Lane 2 margin filter             1 mutation   1 red
+    Lane 2 spreads-only markets      1 mutation   1 red
+    main   kickoff query plan        the merged query itself was the red case
+
+### Still open, in order
+
+0. **THE FALSIFYING PAIR FOR THE SPREAD CARD.** One lookup of "Two short
+   spreads" and one of a moneyline card, same slate, same minute, read off
+   `parlay-lookups-tail`. Until then the card's Kalshi quote rate is a prior,
+   not a measurement. **Taken once at 07:09Z after the
+   deploy, and it did not separate anything**: `short_spreads` (NYY −1.5,
+   LAR −3.5) and `safe` (three moneylines, all on the 10th and 11th) minted
+   within four seconds of each other and BOTH came back `book_empty` with
+   `yes_levels=0 no_levels=0` (rows 45 and 46; 43 was the same safe card a
+   second earlier). A pair where both sides are empty is consistent with
+   "spread combos are never quoted" and with "nothing is quoted at 00:09 PT
+   on a future-game combo"; take it again when a moneyline card is quoted.
+   **The tap Joe asked for is verified on live**: under "Next two nights"
+   the safe card (NCST, LOU on the 11th, NYY on the 10th — every leg beyond
+   tonight) minted `KXMVECROSSCATEGORY-SHARD1-…AC3CA136377` and answered
+   `book_empty` in 2.4 s (row 43); the same legs under "tonight" answered
+   409 "kicks off after the 'games kicking off before tonight's slate ends'
+   window ends -- pick a wider window" and wrote row 44, `status =
+   'refused'`, `horizon = tonight` on every leg. Attention registered at
+   07:08:14Z and the consensus was fresh by 07:09:18Z. Small gap seen in the
+   rows: a `book_empty`/`priced` row's legs carry no `horizon` (only the
+   refused branch adds it) and no `side`/`label` on this path — read
+   `legs_for_position` before relying on either.
+1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Unchanged.
+   After it: the registered totals look, and the `window_status` covering
+   index candidate (unchanged).
+2. **SUNDAY 2026-09-13 — a scheduled run, not a task to plan.** Unchanged.
+3. **The cold-cache cost of the ladder query is 75 s.** Measured this session
+   in the container: `ladder_candidates` at `tomorrow` took **74.8 s** on a
+   page cache a research agent had just flushed with two full-table
+   `GROUP BY`s over `fair_prices`, then **2.15 s** warm; `/api/parlays`
+   answered 503 `read_budget_exceeded` at 25 s on both windows in between.
+   The read budget (ADR 0135) held. Not a regression — see the lesson — but
+   it is the number a first tap after any full-table read will pay.
+4. **The boot health grace is 600 s.** Unchanged.
+5. **`position_state` has not fired on live.** Unchanged.
+6. **The combo fee-model reopen trigger** (n = 68) — the partner's standing
+   no: a constant that cannot change a decision does not get a session.
+7. **`pip-audit` pyarrow ignore** — trigger only, unchanged.
+8. **The binned card** — do not rebuild, unchanged.
+
+**Joe-gated: NOTHING.** All three questions were answered in-session.
+
+### Lessons written
+
+One, pattern-level: a read-only full-table scan on live evicts the page
+cache, and the next reader pays for it — a census goes through the indexed
+path the product uses or a bounded key range, a 503 at the read budget
+minutes after a live read is the read and not a regression, and a subagent
+told to read "read-only" will still flush the cache unless the instruction
+bounds the rows.
+
+**And one about my own procedure.** I merged a lane whose query I had not
+run `EXPLAIN` on, and it carried the exact plan this repo had already
+measured and fixed once. The plan test existed for the sibling statement;
+the new statement was not held to it until I looked. A new query against a
+growing table gets its plan pinned in the same commit that introduces it.
+
 ## 2026-09-10 (sixth session) — the ladder floor was OOM-cycling the recorder; the fix shipped, and /hedge now says what it cannot see
 
 **Found by measuring the thing the last entry said was slow, from the outside,
