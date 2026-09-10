@@ -130,13 +130,20 @@ histogram is `kickoff_outside_window: 440`, `stale_consensus: 9` — so 440 of 4
 excluded legs were cut by the clock, and **adding totals or props would not have
 filled one of those cards.**
 
-**STATE at close.** `main` = **`d56638a`** (`8d5dd1c` the capture, `d56638a`
-the widening), **NOT PUSHED** — `git log origin/main..main` is 3, counting
-`6533847` from the eighth session. Full suite on the tree as committed:
-**6,908 passed, 10 xfailed, 0 failed** (20m07s); ruff and tsc clean. CI has
-NOT run, because nothing was pushed. **Live = `158a90c`**, unchanged and now
-behind main by three — so the widening is NOT on Joe's phone: opening
-`/parlays` on a weekday evening still shows seven empty cards. Odds path
+**STATE at close.** `main` = **`76cc97c`**, **pushed**, CI green
+(run 34510972323). Three commits: `8d5dd1c` the NFL prop capture, `d56638a`
+the horizon widening, `76cc97c` this state line. Full suite on the tree as
+committed: **6,908 passed, 10 xfailed, 0 failed** (20m07s); ruff and tsc
+clean. **Live = `76cc97c`**, deployed 2026-09-10 ~18:0xZ with
+`-e GIT_SHA=`, read back off `/api/health` rather than inferred; recorder
+healthy, live quotes up, arming unchanged (hand path armed, engine and bids
+dry). No open Dependabot alerts on the push rescan — noting that the query
+still cannot see `cryptography`, so that is a clean *listing*, not a clean
+*tree*. Odds path untouched: the freeze to 10:00Z 2026-09-14 holds. No ADR
+taken, two owed (below). Credits: **zero spent** — the capture is
+unauthenticated `/events`, the histogram and the post-deploy checks are GETs
+of `/api/parlays`, and no lookup was minted, so Arm D's frame is
+uncontaminated by this session. Odds path
 untouched: the freeze to 10:00Z 2026-09-14 holds; nothing under `backend/odds/`
 or `backend/scheduler.py` was read or written. No ADR taken, and two are owed
 (below). Credits: **zero spent** — the capture is unauthenticated `/events`, the
@@ -335,6 +342,26 @@ known to be loose. Dual reporting with/without desk-created rows is required.
 an unregistered look does not trigger a registered rule, so ADR 0078 stays shut.
 
 ### Still open, in order
+
+0b. **THE WIDENING'S WORST CASE IS 3x `CANDIDATE_SQL` UNDER A 25s READ
+   BUDGET, AND IT WAS OBSERVED FAILING ONCE.** `build_ladder_payload_widening`
+   runs one `ladder_candidates` per window until one builds, so a night where
+   `tonight` is empty costs three scans in a single request. The first call
+   after the 2026-09-10 deploy returned **503 `read_budget_exceeded`**
+   (`budget_ms` 25000); retries were 200 in 1.5-3.3s, so it was a cold
+   container rather than a standing break. **The two conditions coincide by
+   construction**: the cold box is most likely right after a deploy, and an
+   empty `tonight` is what triggers the extra scans. The local suite cannot
+   see this -- it never runs cold against a 10M-row database.
+   Bound it: cache the candidate pool across horizons (one scan, filtered
+   three ways, since the windows are nested), or widen at most once. Prefer
+   the cache -- `ladder_candidates` already takes `horizon` only to set an
+   upper kickoff bound.
+   **Also still unobserved: the widened branch has never fired on live.** At
+   16:4xZ `tonight` held 1 game and built 0 cards; by 18:1xZ it held enough
+   to build 4 of 7, so the fallback correctly did nothing and has been proven
+   only by test. Check `window.widened_from` on a real weekday morning before
+   believing the screen behaves as designed.
 
 A. **RE-ASK JOE (A): the sharp-anchor trade, with the histogram attached.**
    He said "take the trade" — drop `eu`, lose Pinnacle and Betfair, admit
