@@ -631,44 +631,55 @@ CANDIDATE_SQL = """
         """
 
 
-def ladder_candidates(
+class CandidatePool(NamedTuple):
+    """Everything the candidate scan reads that does NOT depend on the window.
+
+    **Every field here is horizon-independent, and that is the whole point.**
+    `CANDIDATE_SQL` binds `(floor_ms, floor_ms, now_ms)` -- the word `horizon`
+    appears nowhere in the statement -- and the upper kickoff bound is applied
+    in Python after `fetchall()`. The per-event `kalshi_markets` loop is keyed
+    off the *unfiltered* scan, so its statement count is a property of the scan
+    rather than of the window. `combo_eligible_events` takes `now_ms` only.
+
+    So a request that tries three windows can read this once and filter it
+    three ways. The windows are strictly nested (`tonight` <= `tomorrow` <=
+    `48h`), so that is provably the same answer and not an approximation of it.
+
+    `now_ms` and `max_odds_age_ms` ride along so a pool cannot be reused
+    against a clock or a freshness rule it was not built for. `ladder_candidates`
+    refuses rather than quietly answering for the wrong minute -- a pool is the
+    kind of object that gets passed one function further than intended.
+    """
+
+    freshest: dict
+    outcomes_by_link: dict[int, list[str]]
+    markets_by_event: dict[str, list]
+    eligible_events: Optional[set[str]]
+    now_ms: int
+    max_odds_age_ms: Optional[int]
+
+
+def candidate_pool(
     conn,
     *,
     now_ms: int,
     max_odds_age_ms: Optional[int] = None,
-    horizon: str = DEFAULT_HORIZON,
-) -> tuple[list[CandidateLeg], dict[str, int]]:
-    """Every buyable YES side with a fresh-enough-to-consider consensus.
+) -> CandidatePool:
+    """The window-independent half of `ladder_candidates`, read once.
 
-    Pre-game only AND tonight only, by the sportsbook's clock
-    (`MIN(odds_snapshots.commence_ms)` per fixture — the scorer's own
-    definition; Kalshi's `commence_ms` runs three hours late and is never read
-    here). The upper bound is `end_of_desk_day_ms`: a parlay settles when its
-    last leg does, and Joe's rule is that his finish out with the evening
-    games. Freshest `fair_prices` row per
-    (link, market, outcome, point). Freshness itself is judged in
-    `build_ladder`; this function only refuses what can never be a leg.
+    Split out on 2026-09-10. `build_ladder_payload_widening` calls
+    `ladder_candidates` once per window until one builds a card, and every
+    statement in this function was being run again for each of them -- the
+    scan, the per-event loop, and the eligibility read -- against a read budget
+    (ADR 0135) that is cumulative across every statement in the request.
+    Measured on a three-game bed that widens once: two scans and six per-event
+    reads where one and three do.
 
-    `max_odds_age_ms` is not a filter here — it only widens the scan floor so
-    the query can never be tighter than the freshness rule the caller will
-    apply. Pass the same value you pass `build_ladder`.
-
-    **The floor is the max of two terms, not three.** A 9-day third term
-    (`_CANDIDATE_SCAN_DEDUPE_FLOOR_MS`) used to sit here to catch a
-    confirmed row by its stale `computed_ms` -- ADR 0133 froze `computed_ms`
-    at first appearance, so a row confirmed fresh every pass could still
-    carry a `computed_ms` from whenever a game first showed up on the desk,
-    up to eight days before kickoff (ADR 0099). Widening the floor to 9 days
-    caught that row, and it caught it by pulling every OTHER row in the
-    9-day window through `idx_fair_market_computed` too -- 6,561,382 rows,
-    measured live, RSS 196MB -> 1.2GB, `candidate_ms` 83 -> ~4,600, three
-    OOM kills. The floor was never the defect; scanning on `computed_ms`
-    alone while confirmed freshness lives on a different column was. The fix
-    is in `CANDIDATE_SQL` itself: the predicate now reads `computed_ms >= ?
-    OR confirmed_ms >= ?`, so a confirmed row is found by the stamp that is
-    actually fresh, and the multiple-of-`max_odds_age_ms` floor is once
-    again sufficient on its own -- there is no longer a distinct "how old
-    can a confirmed row's `computed_ms` be" question to answer.
+    **This is a dedup, not a performance fix for the 2026-09-10 503.** That
+    request returned `read_budget_exceeded` on a container minutes old against
+    a 10M-row database, and there is no evidence the widening path ran at all.
+    Running the byte-identical query three times and discarding two results is
+    wrong on its own terms, which is the whole case for removing it.
     """
     horizon_ms = max(
         _CANDIDATE_SCAN_FLOOR_MULTIPLE * (max_odds_age_ms or 0),
@@ -678,11 +689,6 @@ def ladder_candidates(
     rows = conn.execute(
         CANDIDATE_SQL, (floor_ms, floor_ms, now_ms)
     ).fetchall()
-
-    excluded: dict[str, int] = {}
-
-    def count(reason: str) -> None:
-        excluded[reason] = excluded.get(reason, 0) + 1
 
     # Freshest row per identity. The SQL above now guarantees one row per
     # identity already, so this loop drops nothing -- it is kept deliberately,
@@ -725,6 +731,10 @@ def ladder_candidates(
 
     # Kalshi's buyable markets per linked event: moneylines on the game
     # event, spread rungs on the spread event (each links separately).
+    #
+    # **N statements, not one** -- which is why this loop sits here rather
+    # than after the window filter. Keyed off the unfiltered scan, its count
+    # is a property of the slate; running it once per horizon tripled it.
     markets_by_event: dict[str, list] = {}
     for row in freshest.values():
         event_ticker = row["kalshi_event_ticker"]
@@ -743,14 +753,90 @@ def ladder_candidates(
             (event_ticker,),
         ).fetchall()
 
-    alias_cache: dict[str, object] = {}
-    candidates: list[CandidateLeg] = []
-    window_ms = horizon_end_ms(now_ms, horizon)
     # `None` when the cache is cold or stale, and then nothing is filtered on
     # it -- see `combo_eligible_events`. A parlay desk that hides every game
     # because a background walk failed is worse than one that offers a card
     # the venue then refuses in words.
     eligible_events = combo_eligible_events(conn, now_ms=now_ms)
+
+    return CandidatePool(
+        freshest=freshest,
+        outcomes_by_link=outcomes_by_link,
+        markets_by_event=markets_by_event,
+        eligible_events=eligible_events,
+        now_ms=now_ms,
+        max_odds_age_ms=max_odds_age_ms,
+    )
+
+
+def ladder_candidates(
+    conn,
+    *,
+    now_ms: int,
+    max_odds_age_ms: Optional[int] = None,
+    horizon: str = DEFAULT_HORIZON,
+    pool: Optional[CandidatePool] = None,
+) -> tuple[list[CandidateLeg], dict[str, int]]:
+    """Every buyable YES side with a fresh-enough-to-consider consensus.
+
+    Pre-game only AND tonight only, by the sportsbook's clock
+    (`MIN(odds_snapshots.commence_ms)` per fixture — the scorer's own
+    definition; Kalshi's `commence_ms` runs three hours late and is never read
+    here). The upper bound is `end_of_desk_day_ms`: a parlay settles when its
+    last leg does, and Joe's rule is that his finish out with the evening
+    games. Freshest `fair_prices` row per
+    (link, market, outcome, point). Freshness itself is judged in
+    `build_ladder`; this function only refuses what can never be a leg.
+
+    `max_odds_age_ms` is not a filter here — it only widens the scan floor so
+    the query can never be tighter than the freshness rule the caller will
+    apply. Pass the same value you pass `build_ladder`.
+
+    **The floor is the max of two terms, not three.** A 9-day third term
+    (`_CANDIDATE_SCAN_DEDUPE_FLOOR_MS`) used to sit here to catch a
+    confirmed row by its stale `computed_ms` -- ADR 0133 froze `computed_ms`
+    at first appearance, so a row confirmed fresh every pass could still
+    carry a `computed_ms` from whenever a game first showed up on the desk,
+    up to eight days before kickoff (ADR 0099). Widening the floor to 9 days
+    caught that row, and it caught it by pulling every OTHER row in the
+    9-day window through `idx_fair_market_computed` too -- 6,561,382 rows,
+    measured live, RSS 196MB -> 1.2GB, `candidate_ms` 83 -> ~4,600, three
+    OOM kills. The floor was never the defect; scanning on `computed_ms`
+    alone while confirmed freshness lives on a different column was. The fix
+    is in `CANDIDATE_SQL` itself: the predicate now reads `computed_ms >= ?
+    OR confirmed_ms >= ?`, so a confirmed row is found by the stamp that is
+    actually fresh, and the multiple-of-`max_odds_age_ms` floor is once
+    again sufficient on its own -- there is no longer a distinct "how old
+    can a confirmed row's `computed_ms` be" question to answer.
+    """
+    if pool is None:
+        pool = candidate_pool(
+            conn, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms
+        )
+    elif pool.now_ms != now_ms or pool.max_odds_age_ms != max_odds_age_ms:
+        # **Refuse, never reconcile.** A pool built for a different minute or
+        # a different freshness rule would answer confidently for the wrong
+        # one, and the wrongness is invisible on screen -- the cards would
+        # look right. Cheaper to crash in a test than to serve a stale slate.
+        raise ValueError(
+            "candidate pool was built for now_ms="
+            f"{pool.now_ms}/max_odds_age_ms={pool.max_odds_age_ms}, "
+            f"asked for {now_ms}/{max_odds_age_ms}"
+        )
+
+    freshest = pool.freshest
+    outcomes_by_link = pool.outcomes_by_link
+    markets_by_event = pool.markets_by_event
+    eligible_events = pool.eligible_events
+
+    excluded: dict[str, int] = {}
+
+    def count(reason: str) -> None:
+        excluded[reason] = excluded.get(reason, 0) + 1
+
+    alias_cache: dict[str, object] = {}
+    candidates: list[CandidateLeg] = []
+    window_ms = horizon_end_ms(now_ms, horizon)
 
     for (link_id, market, outcome, player, point), row in freshest.items():
         # **Tonight only.** A parlay settles when its last leg does, so a card
@@ -2422,6 +2508,7 @@ async def price_card_on_kalshi(
     max_odds_age_ms: int,
     api,
     horizon: str = DEFAULT_HORIZON,
+    max_kalshi_quote_age_ms: Optional[int] = None,
 ) -> dict:
     """Mint (or find) the card's combo on Kalshi and price it off its book.
 
@@ -2814,6 +2901,36 @@ async def price_card_on_kalshi(
                 else f"about {depth:g} contracts resting at that price"
             ),
             "at_stake": _at_stake(stake_cents, ask_tenths=ask_tenths, depth=depth),
+            # **When this book was read.** The one price surface on the desk
+            # that shipped no clock, and the only one that has been transacted
+            # through: `serialise.py` has sent `quote_age_now_ms` and
+            # `price_is_current` on the single-market path since ADR 0092, and
+            # `<ManualTicket>` renders a FRESH ask one element below this
+            # result. A stale verdict and a fresh ask, adjacent, with nothing
+            # saying which is which.
+            #
+            # It relabels; it never blocks. Disabling the buy control on age
+            # would be a new ceiling on a hand bet and ADR 0112 forbids it.
+            #
+            # **The verdict is what goes stale, not the price transacted.**
+            # `POST /api/manual-orders` check 7 re-fetches Kalshi at the tap
+            # and builds the order at that live ask, so an old read here
+            # cannot produce a surprising FILL -- it produces a surprising
+            # REFUSAL (the live ask has passed the typed ceiling), or a fill
+            # inside a generous ceiling whose EV was never what the screen
+            # said. n = 1 on the size of that drift, and it is the reason this
+            # is justified on cost asymmetry rather than on frequency: one
+            # combination went ask 302 -> 329 tenths, depth 2,928 -> 152 and
+            # verdict "+0.3% EV. Rare" -> "-7.9% EV. Don't." in forty minutes.
+            "quoted_ms": now_ms,
+            # The threshold, carried WITH the stamp rather than known
+            # separately by the screen: an age is not a verdict until
+            # something says what counts as current, and two surfaces holding
+            # their own copy of that number is how they drift into disagreeing
+            # about the same book. `None` when the caller named none, and then
+            # the screen shows the age and marks nothing -- unreadable
+            # resolves to a refusal to claim, never to a default.
+            "quote_max_age_ms": max_kalshi_quote_age_ms,
         },
         "fair": {
             "conservative_percent_display": _percent(joint.conservative),
@@ -2874,12 +2991,14 @@ def build_ladder_payload(
     trust_thresholds: Optional[TrustThresholds] = None,
     list_filter: Optional[ListFilter] = None,
     horizon: str = DEFAULT_HORIZON,
+    pool: Optional[CandidatePool] = None,
 ) -> dict:
     candidates, excluded = ladder_candidates(
         conn,
         now_ms=now_ms,
         max_odds_age_ms=max_odds_age_ms,
         horizon=horizon,
+        pool=pool,
     )
     # **The #15 cut, applied to the pool before the cards are built** and
     # nowhere else: a card is then the same cut of a smaller pool, ordered
@@ -2978,9 +3097,12 @@ def build_ladder_payload_widening(
     the same lie by a different route, and the route keeps that distinction
     by passing `None` rather than a default.
 
-    Costs one query on a night that builds -- the common case, and unchanged
-    -- and at most one per window on a night that does not. The extra work
-    happens precisely when the cheap answer was useless.
+    **Costs one candidate scan, whatever it tries.** The pool is read once and
+    filtered per window, because everything the scan reads is
+    horizon-independent -- see `CandidatePool`. Before 2026-09-10 each window
+    re-ran the byte-identical query *and* the per-event `kalshi_markets` loop,
+    so a night that widened twice paid for three and threw two away, against a
+    read budget (ADR 0135) that is cumulative across the request.
 
     WHAT THIS DOES NOT DO
     ---------------------
@@ -2991,6 +3113,11 @@ def build_ladder_payload_widening(
       `tonight` payload is returned unwidened, so the refusal Joe reads is
       the honest one about tonight rather than a wider window's.
     """
+    # One read, filtered per window below. `build_ladder_payload` builds its
+    # own when handed `None`, so the single-window route is untouched.
+    pool = candidate_pool(
+        conn, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms
+    )
     first: Optional[dict] = None
     for key in HORIZON_LADDER:
         payload = build_ladder_payload(
@@ -3000,6 +3127,7 @@ def build_ladder_payload_widening(
             trust_thresholds=trust_thresholds,
             list_filter=list_filter,
             horizon=key,
+            pool=pool,
         )
         if first is None:
             first = payload

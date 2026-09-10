@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { lookupParlay } from "@/lib/api";
+import { formatAge, lookupParlay } from "@/lib/api";
 import type { ParlayCardData, ParlayHorizon, ParlayLookupResult } from "@/lib/api";
 import ManualTicket from "@/components/ManualTicket";
 import Term from "@/components/Term";
@@ -172,6 +172,78 @@ export default function PriceOnKalshi({
   );
 }
 
+/**
+ * How old the quote above is, and whether it still counts as current.
+ *
+ * **This block relabels and never blocks.** Disabling the buy control on age
+ * would be a new ceiling on a hand bet, and ADR 0112 removed all five of those
+ * on Joe's word. The buy stays exactly as reachable as it was; what changes is
+ * that the reader can see which of the two numbers on this screen is fresh.
+ *
+ * **Which is the point, because they are not both fresh.** `<ManualTicket>`
+ * two elements below re-reads Kalshi and shows a LIVE ask. The verdict, hold
+ * and fair value above were computed against the book as it stood at
+ * `quoted_ms`. Before this line the screen rendered a stale verdict adjacent
+ * to a fresh ask with nothing distinguishing them.
+ *
+ * **What a stale verdict can and cannot do.** It cannot produce a surprising
+ * fill: `POST /api/manual-orders` re-fetches Kalshi at the tap and builds the
+ * order at that live ask, refusing above the ceiling Joe types. It can produce
+ * a surprising refusal, or a fill inside a generous ceiling whose EV was never
+ * what this screen said. Justified on that asymmetry rather than on frequency
+ * — n = 1, and it is in the words below.
+ *
+ * Ticks on its own. An age rendered once is a stamp that stops being true
+ * while the reader looks at it, which is the failure this exists to fix.
+ */
+const QUOTE_AGE_TICK_MS = 1_000;
+
+function QuoteAge({
+  quotedMs,
+  maxAgeMs,
+}: {
+  quotedMs: number;
+  maxAgeMs: number | null;
+}) {
+  const [ageMs, setAgeMs] = useState(() => Date.now() - quotedMs);
+  useEffect(() => {
+    const tick = () => setAgeMs(Date.now() - quotedMs);
+    tick();
+    const timer = setInterval(tick, QUOTE_AGE_TICK_MS);
+    return () => clearInterval(timer);
+  }, [quotedMs]);
+
+  // Clamped at zero for display only: a client clock behind the server's would
+  // otherwise render a negative age, which reads as a bug rather than as the
+  // clock skew it is. The staleness test below uses the raw value, so skew
+  // cannot mark a genuinely old quote current.
+  const shown = formatAge(Math.max(0, ageMs));
+  // `null` threshold means the server named none, so nothing is marked —
+  // unreadable resolves to a refusal to claim, never to a default.
+  const stale = maxAgeMs !== null && ageMs > maxAgeMs;
+
+  if (!stale) {
+    return (
+      <p className="text-[11px] leading-snug text-muted">
+        Read from Kalshi&rsquo;s book {shown} ago.
+      </p>
+    );
+  }
+  return (
+    <p className="text-[11px] leading-snug text-accent-2">
+      Read from Kalshi&rsquo;s book <span className="font-semibold">{shown}</span>{" "}
+      ago, and this desk treats a Kalshi price over{" "}
+      {formatAge(maxAgeMs as number)} old as out of date — so the fair value,
+      hold and verdict above describe a book that may have moved. One
+      combination went from &ldquo;+0.3% EV&rdquo; to &ldquo;&minus;7.9%
+      EV&rdquo; in forty minutes as its book thinned. The buy below re-reads
+      Kalshi and charges the live price, so this is the verdict going out of
+      date, not the cost. Ask again to re-price it — it re-reads this same
+      market and mints nothing new.
+    </p>
+  );
+}
+
 function Result({ value }: { value: ParlayLookupResult }) {
   // Every non-priced status must be listed here. The fallthrough below reads
   // `value.quoted`, which only `priced` has, so a status missing from this
@@ -221,6 +293,10 @@ function Result({ value }: { value: ParlayLookupResult }) {
         <Term k="hold">hold</Term> {value.hold_display}
       </p>
       <p className="text-xs text-muted">{value.verdict}</p>
+      <QuoteAge
+        quotedMs={value.quoted.quoted_ms}
+        maxAgeMs={value.quoted.quote_max_age_ms}
+      />
       <p className="text-[11px] leading-snug text-muted">
         {value.notes.unquoted} {value.notes.fee}
       </p>

@@ -171,7 +171,10 @@ together or the screen lies in the interval
 - **Hand-bet path: armed, and used.** `MANUAL_ORDERS_ARE_DRY_RUNS = False`
   (`backend/store/manual_orders.py`) since 2026-08-26; `POST /api/manual-orders`
   sends real immediate-or-cancel orders at Joe's tap with his own typed
-  estimate. First two real fills 2026-09-08 (KXMVE combos, shard 1, ADR 0113).
+  estimate. First two real fills 2026-09-08 (KXMVE combos, shard 1, ADR 0113);
+  **four by 2026-09-09** — ADR 0129 works from `parlay_lookups.hold` = 0.170,
+  0.063, 0.209, 0.174. This line read "two" until 2026-09-10, and it is the
+  count every claim about the transacted path is reasoned from.
   The five brakes are gone (ADR 0112) and **no ceiling of ours bounds a hand
   bet**; what remains is the desk lockout, idempotency, the KXMVE
   acknowledgement, the price ceiling, depth at the ask, the netting guard, the
@@ -217,9 +220,25 @@ placed, reads its legs' live Kalshi prices while the game runs, and says what
 hedging the endangered leg would do — the only exit an enter-only combo has.
 No model, no tokens, no credits (asserted over the source of `core/hedge.py`,
 `hedge.py`, `hedge_watch.py`); no `recommendations` row and no gate read. With
-one leg live the lock is exact and is pushed to the phone; with several there
-is no figure and the screen says so. Neither claims the price will get worse
-if he waits.
+one leg live there is a figure and it is pushed to the phone; with several
+there is no figure and the screen says so. Neither claims the price will get
+worse if he waits.
+
+**That figure is an upper bound, not an exact lock** — this line said "exact"
+until 2026-09-10 and `core/hedge.py:43-45` had said otherwise the whole time
+("*that the guarantee is exact*" is listed under what the module does **not**
+establish: every figure charges the *entry* fee only, and the settlement charge
+is H4, untested — ADR 0027). A second, independent reason it cannot be exact:
+the basis it is computed from is the **ask the desk sent**, not what Kalshi
+charged. `manual_orders.fill_price_tenths` is written from
+`OrderOutcome.fill_price_tenths` (`backend/api/routes.py:3957`), which is
+"what one contract costs at the price being sent"; `record_outcome` drops the
+venue's own `average_fill_price_dollars`, `average_fee_paid_dollars` and
+`fill_count` on the floor. Both errors run **cautious** — recorded stake >=
+true stake, so the reported lock sits at or below the true one, and nothing
+shown to Joe is flattering because of it. Registered as a census (not an
+estimate; n is a handful and one stratum is mechanically pinned to zero):
+`docs/measurements/2026-09-10-preregistration-recorded-fill-vs-venue-charge.md`.
 
 ## The three rules everything else follows from
 

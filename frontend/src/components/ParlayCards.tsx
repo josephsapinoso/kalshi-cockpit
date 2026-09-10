@@ -702,6 +702,15 @@ function Stakes({ card }: { card: ParlayCardData }) {
  * screen is a warning the reader learns to skip. The trigger is the conjunction:
  * the clock cost the reader a card.
  *
+ * **The clock costs a card in two ways, and `stale_consensus` sees one.** It
+ * counts sides the candidate scan returned and the freshness rule refused;
+ * rows older than the scan's own floor are never selected, so they are never
+ * counted, and the count reads zero. Past two hours of a wedged recorder this
+ * block therefore went silent — quieter as the outage got worse, and absent in
+ * the 2026-08-25 incident above. `/api/window` supplies the second trigger
+ * because it counts fixtures rather than candidate rows: games upcoming with
+ * none of them fresh survives the rows dropping out of scan.
+ *
  * **It adds no number of its own.** Everything here is a field of
  * `ActionableWindow` put into a sentence; the exit line, the next-window time
  * and the tap are `StaleOddsExit`, the same component the slate renders beside
@@ -726,7 +735,37 @@ function Freshness({
   const unbuilt = ladder.cards.filter(
     (card) => card.not_built_reason !== null,
   ).length;
-  if (stale === 0 || unbuilt === 0) return null;
+
+  // **Two ways the clock empties the desk, and this block used to see one.**
+  //
+  // `stale_consensus` counts sides the candidate scan RETURNED and the
+  // freshness rule then refused. But the scan has its own floor —
+  // `now - max(8 * MAX_ODDS_AGE_S, 2h)` (`_CANDIDATE_SCAN_MIN_MS`) — and a
+  // row older than that is never selected at all, so it is never counted.
+  // The two states are therefore:
+  //
+  //   recorder wedged under 2h   rows in-scan, refused   stale > 0   fired
+  //   recorder wedged over 2h    rows out of scan        stale = 0   SILENT
+  //
+  // which made this block quieter as the outage got worse, and silent in
+  // exactly the incident it was written for: on 2026-08-25 Joe read "needs 2
+  // fresh games and the slate has 0" as "there is nothing on tonight" while
+  // twenty fixtures sat upcoming and the recording loop was wedged.
+  //
+  // `/api/window` is what can tell them apart, because it counts fixtures
+  // rather than candidate rows: games upcoming with none of them fresh is the
+  // wedged-recorder signature, and it survives the rows falling out of scan.
+  const nothingFresh =
+    actionable !== null &&
+    actionable.fixtures_upcoming > 0 &&
+    actionable.fixtures_fresh === 0;
+
+  // Still the conjunction: the clock has to have cost the reader a card. A
+  // warning on a working screen is one the reader learns to skip.
+  if (unbuilt === 0) return null;
+  // Without `/api/window` there is no second signal, so an uncounted stale
+  // pool is indistinguishable from an empty schedule and this says nothing.
+  if (stale === 0 && !nothingFresh) return null;
 
   // Both halves or neither: the sentence below reads "bought Xm ago, limit is
   // Y" and half of it is not a sentence. `!` is avoided deliberately — a
@@ -771,7 +810,7 @@ function Freshness({
             How long ago the lines were last bought could not be read, so this
             page cannot say how far past the limit they are.
           </>
-        ) : (
+        ) : stale > 0 ? (
           <>
             The lines were last bought{" "}
             <span className="font-semibold text-foreground">
@@ -781,6 +820,23 @@ function Freshness({
             {formatDuration(clock.limit_ms)} old — so all {stale} candidate side
             {stale === 1 ? " was" : "s were"} refused on age. Nothing is wrong
             with the games; the comparison is what expired.
+          </>
+        ) : (
+          // `stale === 0` here means the rows fell out of the candidate scan
+          // entirely, not that none were refused. Saying "all 0 sides were
+          // refused on age" would be the screen reporting the good news of an
+          // empty count while the actual state is worse.
+          <>
+            The lines were last bought{" "}
+            <span className="font-semibold text-foreground">
+              {formatAge(clock.age_ms)}
+            </span>
+            , and a card may only use a price under{" "}
+            {formatDuration(clock.limit_ms)} old. These are old enough that the
+            desk no longer reads them at all, which is why nothing is listed as
+            left out below — the count is zero because the prices never reached
+            the shortlist, not because they passed. Nothing is wrong with the
+            games; the comparison is what expired.
           </>
         )}
       </p>

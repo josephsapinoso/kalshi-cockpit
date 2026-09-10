@@ -102,25 +102,49 @@ def _payload(cards_built: bool, horizon: str) -> dict:
 
 
 class _Recorder:
-    """Stands in for `build_ladder_payload`, recording which windows it saw."""
+    """Stands in for `build_ladder_payload`, recording which windows it saw.
+
+    Also records the `pool` it was handed each time. The widening loop reads
+    the candidate pool once and filters it per window, so every call must
+    receive the *same object* -- `pools` collects identities so a regression
+    that went back to one scan per window shows up here as well as in
+    `tests/test_ladder_scan_is_not_repeated.py`.
+    """
 
     def __init__(self, builds: set[str]) -> None:
         self.builds = builds
         self.seen: list[str] = []
+        self.pools: list[int] = []
 
-    def __call__(self, conn, *, horizon: str, **kwargs) -> dict:
+    def __call__(self, conn, *, horizon: str, pool=None, **kwargs) -> dict:
         self.seen.append(horizon)
+        self.pools.append(id(pool))
         return _payload(horizon in self.builds, horizon)
 
 
 @pytest.fixture
 def patched(monkeypatch):
+    """Stubs both halves of the split.
+
+    `candidate_pool` is stubbed because the loop now reads it before the first
+    window, and these tests hand in `object()` as the connection: they are
+    about the loop's control flow, and giving them a real database back would
+    make them depend on a slate they do not seed.
+    """
+
     def install(builds: set[str]) -> _Recorder:
         recorder = _Recorder(builds)
         monkeypatch.setattr(parlays_module, "build_ladder_payload", recorder)
+        monkeypatch.setattr(
+            parlays_module, "candidate_pool", lambda conn, **kw: _SENTINEL_POOL
+        )
         return recorder
 
     return install
+
+
+#: A stand-in pool. Identity is the only property these tests read.
+_SENTINEL_POOL = object()
 
 
 def _widen(**kwargs) -> dict:
@@ -148,6 +172,15 @@ class TestItStopsAtTheNarrowestWindowThatBuilds:
         payload = _widen()
         assert recorder.seen == list(HORIZON_LADDER)
         assert payload["window"]["key"] == "48h"
+
+    def test_every_window_is_filtered_from_one_pool(self, patched) -> None:
+        """Three windows tried, one pool read. The scan is horizon-independent
+        (`CandidatePool`), so re-reading it per window was work thrown away."""
+        recorder = patched({"48h"})
+        _widen()
+        assert len(recorder.pools) == len(HORIZON_LADDER)
+        assert len(set(recorder.pools)) == 1
+        assert recorder.pools[0] == id(_SENTINEL_POOL)
 
 
 class TestTheWideningAnnouncesItself:

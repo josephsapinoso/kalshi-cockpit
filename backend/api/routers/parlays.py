@@ -306,6 +306,11 @@ def register(
                 ],
                 now_ms=now,
                 max_odds_age_ms=staleness.max_odds_age_s * 1000,
+                # The SAME threshold the single-market path marks
+                # `price_is_current` against (`serialise.py`), passed rather
+                # than re-derived so the two surfaces cannot drift into
+                # calling different ages current.
+                max_kalshi_quote_age_ms=staleness.max_kalshi_quote_age_s * 1000,
                 horizon=request.horizon,
                 api=api,
             )

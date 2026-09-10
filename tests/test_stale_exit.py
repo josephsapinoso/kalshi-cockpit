@@ -538,10 +538,26 @@ class TestTheParlayDeskSaysWhyItIsEmpty:
         all three cards built, on the afternoon this was written. A banner that
         fires on a working screen is one the reader learns to skip, so the
         trigger is the conjunction. Mutation observed red: drop the `unbuilt`
-        half of the condition."""
+        half of the condition.
+
+        **Spelling updated 2026-09-10, claim unchanged and strengthened.** This
+        used to pin the literal `stale === 0 || unbuilt === 0`. That predicate
+        satisfied this test's claim and failed a second one: `stale_consensus`
+        only counts sides the candidate scan RETURNED, and rows older than the
+        scan floor are never selected, so a recorder wedged past two hours
+        drove the count to zero and took this block off the screen -- silent in
+        exactly the incident it was written for. The conjunction survives; what
+        it conjoins on the stale side is now "stale rows OR upcoming-but-none-
+        fresh". See `tests/test_freshness_block_survives_a_wedged_recorder.py`.
+        """
         block = self._freshness_block()
-        assert "stale === 0 || unbuilt === 0" in block
-        assert "return null" in block
+        # The claim: a working screen stays quiet, whatever else is true.
+        assert "if (unbuilt === 0) return null;" in block
+        # And the trigger is still a conjunction, not `unbuilt` alone.
+        assert "if (stale === 0 && !nothingFresh) return null;" in block
+        # The predicate this replaced must not come back: it goes silent as the
+        # outage gets worse.
+        assert "stale === 0 || unbuilt === 0" not in block
 
     def test_the_block_states_the_two_facts_the_card_cannot(self):
         """Upcoming vs fresh is what separates "no games" from "no prices";

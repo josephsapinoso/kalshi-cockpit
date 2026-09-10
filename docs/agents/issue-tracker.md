@@ -45,3 +45,23 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
 - **Claim**: `gh issue edit <n> --add-assignee @me` — the session's first write.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
+- **Supersede — never reopen a ticket Joe has answered.** When he says something
+  that a closed ticket appears to contradict, open a NEW ticket carrying the new
+  question, and comment the link onto the old one. Reopening rewrites the record
+  of what he said and when; the map exists to preserve both answers with their
+  dates and their evidence, which is exactly what a reopen destroys.
+
+  **First check the two questions are actually the same one.** Usually they are
+  not, and saying so is most of the work. Worked example, 2026-09-10: #12 was
+  resolved *"he does not really bet props; drop them from the brief"*
+  (2026-09-02), and eight days later he asked for *"props for parlay legs"*.
+  Those read as a reversal and are not one — #12 asked about props as **picks**,
+  #36 asks about props as **legs**, and a prop he would not bet alone is still a
+  leg he would combine. Neither ticket was edited to agree with the other.
+
+  The successor states what changed, quotes both answers with their dates, and
+  says plainly which parts of the predecessor it does NOT reopen. The
+  predecessor gets a comment saying it was superseded in part, that its answer
+  is not withdrawn, and why it was left closed. A closed ticket asserting the
+  opposite of what Joe currently wants is the front door lying; so is a reopened
+  one that has quietly lost his original answer.

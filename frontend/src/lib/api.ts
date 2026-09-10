@@ -1085,6 +1085,27 @@ export type ParlayLookupResult =
           payout_display: string | null;
           depth_note: string | null;
         };
+        /**
+         * When this book was read, epoch ms. Every other price surface on the
+         * desk has carried a clock since ADR 0092 (`quote_age_now_ms`,
+         * `price_is_current`); this one did not, and it is the only one that
+         * has been transacted through.
+         *
+         * **What goes stale is the VERDICT, not the price paid.** The buy
+         * route re-fetches Kalshi at the tap and builds the order at that
+         * live ask, so an old read here cannot cause a surprising fill — it
+         * causes a surprising refusal, or a fill inside a generous ceiling
+         * whose EV was never what this said.
+         */
+        quoted_ms: number;
+        /**
+         * How old a quote may be and still count as current, from the server's
+         * own `MAX_KALSHI_QUOTE_AGE_S`. Carried rather than duplicated here:
+         * two surfaces holding their own copy is how they drift into
+         * disagreeing about the same book. `null` when the server named none,
+         * and then the age is shown and nothing is marked.
+         */
+        quote_max_age_ms: number | null;
       };
       fair: {
         conservative_percent_display: string;
