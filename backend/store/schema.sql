@@ -613,6 +613,31 @@ CREATE INDEX IF NOT EXISTS idx_fair_link ON fair_prices(link_id, computed_ms DES
 CREATE INDEX IF NOT EXISTS idx_fair_market_computed
     ON fair_prices(market, computed_ms DESC);
 
+-- ADR 0133's `confirmed_ms` broke the promise this index alone used to
+-- keep. Since dedupe, a row that has never gone stale is UPDATEd on
+-- `confirmed_ms` while `computed_ms` freezes at first appearance, so the
+-- predicate that once meant "fresh" (`computed_ms >= ?`) had to become
+-- `computed_ms >= ? OR confirmed_ms >= ?` (see `CANDIDATE_SQL` in
+-- `backend/parlays.py`). Without a second index the OR's right arm falls
+-- back to a scan of `f`, which is exactly the 6.5M-row read measured live
+-- on 2026-09-09/10 (RSS 196MB -> 1.2GB, candidate_ms 83 -> ~4,600, three
+-- OOM kills). With this index the planner runs the OR as
+-- `MULTI-INDEX OR`, seeking each arm on its own index and unioning rowids.
+--
+-- PARTIAL, not a plain `(market, confirmed_ms DESC)`: `confirmed_ms` is
+-- NULL on every row that has never been re-confirmed (every row before
+-- v36, and any row whose payload has only ever appeared once since), and a
+-- NULL never satisfies `>= ?`. Indexing those rows would cost write
+-- amplification on every INSERT for keys the second arm's seek could never
+-- use anyway; `WHERE confirmed_ms IS NOT NULL` keeps the index bounded by
+-- the count of DISTINCT (link, market, outcome, point) keys that have ever
+-- been re-confirmed, not by the table's row count. The recorder's frozen-row
+-- INSERT path (a payload seen for the first time) never touches this index
+-- at all -- only the UPDATE path that sets `confirmed_ms` does.
+CREATE INDEX IF NOT EXISTS idx_fair_market_confirmed
+    ON fair_prices(market, confirmed_ms DESC)
+    WHERE confirmed_ms IS NOT NULL;
+
 -- The Quant's independent opinion. Deliberately a separate table from
 -- fair_prices: the whole point is that it is NOT derived from the same
 -- sportsbook consensus, so when the two agree that is genuine corroboration

@@ -129,7 +129,19 @@ _SQL_PARLAY_CANDIDATES = """
         WHERE f.market IN ('h2h', 'spreads', 'pitcher_strikeouts',
                           'batter_total_bases', 'batter_hits',
                           'batter_home_runs', 'batter_rbis')
-          AND f.computed_ms >= ?
+          -- **Either stamp, since the ladder-scan-keys-on-the-confirmed-
+          -- stamp fix.** `computed_ms` freezes at first appearance (ADR
+          -- 0133) and only `confirmed_ms` moves on a row that keeps getting
+          -- re-derived unchanged, so a predicate on `computed_ms` alone can
+          -- miss a row that is fresh right now. `confirmed_ms >=
+          -- computed_ms` whenever it is set, so this OR is exactly
+          -- `COALESCE(confirmed_ms, computed_ms) >= ?` -- not an
+          -- approximation of it -- while staying sargable: each arm seeks
+          -- its own index, `idx_fair_market_computed` for the first and the
+          -- PARTIAL `idx_fair_market_confirmed` for the second, and SQLite
+          -- runs the pair as `MULTI-INDEX OR` rather than falling back to a
+          -- scan the way a COALESCE in the predicate would.
+          AND (f.computed_ms >= ? OR f.confirmed_ms >= ?)
           AND o.commence_ms IS NOT NULL AND o.commence_ms > ?
         )
         WHERE rn = 1
@@ -192,7 +204,9 @@ def _q_parlay_candidates_timing(conn: sqlite3.Connection, args) -> list[Section]
     )
 
     started = time.perf_counter()
-    rows = conn.execute(_SQL_PARLAY_CANDIDATES, (floor_ms, now_ms)).fetchall()
+    rows = conn.execute(
+        _SQL_PARLAY_CANDIDATES, (floor_ms, floor_ms, now_ms)
+    ).fetchall()
     whole_ms = (time.perf_counter() - started) * 1000.0
 
     started = time.perf_counter()
@@ -211,7 +225,7 @@ def _q_parlay_candidates_timing(conn: sqlite3.Connection, args) -> list[Section]
 
     plan = _fetch(
         conn, "EXPLAIN QUERY PLAN " + _SQL_PARLAY_CANDIDATES,
-        (floor_ms, now_ms),
+        (floor_ms, floor_ms, now_ms),
         title="EXPLAIN QUERY PLAN: whole candidate scan",
         cap=args.limit,
     )
