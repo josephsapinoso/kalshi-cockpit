@@ -283,6 +283,26 @@ MAX_HEDGE_PUSHES_PER_DAY = 4
 #: a $5 slip and once over a $300 one, which is backwards.
 HEDGE_RATCHET_STEP_TENTHS = 5_000
 
+#: The `notifications.kind` of the symmetric "legs in play" push. AMENDS
+#: ADR 0078 Decision 2 (Joe, 2026-09-10): three of his four parlays had a leg
+#: collapse mid-game and nothing told him, and the push he chose is the same
+#: message on a good day and a bad day, once per ticket per day, while a
+#: watched game is in play. See `position_state_key` and `Alerter.position_states`.
+#:
+#: **Its own kind, so it is a separate dedupe bucket from `hedge_lock`.** The
+#: two are answering different questions -- one bounds how often a number the
+#: tool stands behind repeats, the other bounds how often a fact with no
+#: figure repeats -- and sharing a bucket would let a busy LOCK day silence
+#: the symmetric push, or vice versa.
+POSITION_STATE_KIND = "position_state"
+
+#: How many "legs in play" pushes one budget day may carry, across every
+#: ticket. **Its own ceiling, not shared with `MAX_HEDGE_PUSHES_PER_DAY`**, for
+#: the same reason the kind is separate: a lock and a "still live" statement
+#: are different products competing for the same phone, and one running out
+#: must not silence the other.
+MAX_POSITION_STATE_PUSHES_PER_DAY = 4
+
 
 def _day(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%d")
@@ -378,6 +398,47 @@ def hedge_key(position: Mapping[str, Any]) -> Optional[str]:
         return None
     step = int(floor) // HEDGE_RATCHET_STEP_TENTHS
     return f"hedge_lock:{position.get('id')}:{step}"
+
+
+def position_state_key(
+    position: Mapping[str, Any], *, day_start_ms: int
+) -> Optional[str]:
+    """The identity of one "legs in play" push. AMENDS ADR 0078 D2.
+
+    `position_state:<position id>:<day_start_ms>` -- once per ticket per
+    budget day, unconditionally. **This is not a ratchet, and that is the
+    whole point of the amendment.** `hedge_key` above exists because a LOCK's
+    value moves every minute the game runs, so a dedupe key has to say
+    "materially better" to be worth repeating. This push carries no figure
+    that moves -- it is a fixed statement, once a day, that legs are live --
+    so keying on the day boundary alone is the entire rule, and it is what
+    makes the push symmetric: nothing about the key depends on whether the
+    news is good or bad.
+
+    **`pending_legs >= 1` stands in for both "open" and "in play", and that
+    substitution is deliberate rather than a shortcut.** The payload never
+    carries an explicit open/closed flag or an in-play flag:
+    `screen["positions"]` is built from `hedge.open_positions`, so every
+    position handed to this function is already open by construction, and
+    `hedge_watch.watch_once` calls `Alerter.position_states` only from inside
+    a cycle that `watch_hedges_forever` enters only when
+    `anything_in_progress` was true. So "in play" is a fact the *watcher*
+    already established before this function ever runs -- the caller
+    supplies it, and this function is honest about reading a weaker proxy
+    (`pending_legs`) rather than re-deriving a fact it has no timestamp to
+    compute. A settled ticket has no pending leg (`hedge.assess` resolves it
+    to `won`, `dead` or `void_leg` with `pending_legs == 0`), so the same
+    check that stands in for "in play" also refuses a closed ticket for free.
+
+    `None` when there is nothing to say: no position id, or no pending leg.
+    """
+    pid = position.get("id")
+    if pid is None:
+        return None
+    pending = position.get("pending_legs")
+    if not pending or int(pending) < 1:
+        return None
+    return f"position_state:{pid}:{day_start_ms}"
 
 
 @dataclass(frozen=True)
@@ -926,6 +987,93 @@ class Alerter:
                 sent.append(key)
                 # Only a DELIVERED push spends the ceiling, so one Discord
                 # outage cannot silence the rest of the day (ADR 0072 §4).
+                pushed_today += 1
+            else:
+                failed.append(key)
+
+        return AlertResult(
+            sent=tuple(sent), failed=tuple(failed), skipped=tuple(skipped)
+        )
+
+    def _position_state_pushes_today(self, *, day_start_ms: int) -> int:
+        """Delivered "legs in play" pushes since the budget day began.
+
+        **Its own query, filtered on `POSITION_STATE_KIND` alone.** Folding
+        this into `_hedge_pushes_today` with a second `kind` in the `WHERE`
+        would make the two ceilings share one counter, and the whole reason
+        `POSITION_STATE_KIND` is a distinct kind is so that a busy LOCK day
+        cannot silence the symmetric push, or vice versa.
+        """
+        row = self.conn.execute(
+            "SELECT COUNT(*) FROM notifications "
+            "WHERE kind = ? AND sent_ms >= ? AND delivered = 1",
+            (POSITION_STATE_KIND, day_start_ms),
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    async def position_states(
+        self, screen: Mapping[str, Any], *, now_ms: int, day_start_ms: int
+    ) -> AlertResult:
+        """Push, once a day per ticket, that its legs are in play. AMENDS ADR
+        0078 Decision 2 -- Joe, 2026-09-10.
+
+        Three of his four parlays had a leg collapse mid-game and nothing
+        told him. He was asked which push he wanted and chose a symmetric
+        one: the same message on a good day and a bad day, once per ticket
+        per day, while a watched game is in play. D2's reason for keeping a
+        DE-RISK off the phone survives this amendment untouched -- *"the
+        phone would be buzzing for a number the tool cannot stand behind"* --
+        because this push carries no such number. It carries per-leg venue
+        BIDS read straight off the book and a count, the same class of fact
+        `hedge_lock` already stands behind one layer over. The difference is
+        that this one fires regardless of direction, which is what makes its
+        arrival a fact rather than a nudge: an alert that speaks only when
+        something is wrong is a nudge no matter how carefully the words are
+        chosen, and one on a fixed schedule tells you nothing by showing up.
+
+        **Only a ticket with a pending leg is a candidate**, via
+        `position_state_key`. A screen-only ticket -- nothing pending, or no
+        id -- is **neither sent nor skipped**, the same distinction
+        `hedge_locks` draws immediately above: it was never a candidate to
+        begin with, and counting it as skipped would inflate `alerts_deduped`
+        with rows that were never deduped.
+
+        **Its own ceiling and its own dedupe bucket.** `MAX_HEDGE_PUSHES_PER_DAY`
+        and `_hedge_pushes_today` govern `hedge_lock` alone; this method reads
+        `MAX_POSITION_STATE_PUSHES_PER_DAY` and `_position_state_pushes_today`,
+        so one running out cannot silence the other.
+        """
+        if not self.enabled:
+            return AlertResult()
+
+        sent: list[str] = []
+        failed: list[str] = []
+        skipped: list[str] = []
+        notes = dict(screen.get("notes") or {})
+        pushed_today = self._position_state_pushes_today(day_start_ms=day_start_ms)
+
+        for position in screen.get("positions") or []:
+            key = position_state_key(position, day_start_ms=day_start_ms)
+            if key is None:
+                continue
+            if pushed_today >= MAX_POSITION_STATE_PUSHES_PER_DAY:
+                skipped.append(key)
+                continue
+            outcome = await self._send(
+                POSITION_STATE_KIND,
+                key,
+                lambda p=position: self.notifier.position_state(
+                    p, notes=notes, as_of_ms=screen.get("as_of_ms") or now_ms
+                ),
+                now_ms=now_ms,
+                detail=str(position.get("pending_legs") or ""),
+            )
+            if outcome is None:
+                skipped.append(key)
+            elif outcome:
+                sent.append(key)
+                # Only a DELIVERED push spends the ceiling -- one Discord
+                # outage must not silence the rest of the day (ADR 0072 §4).
                 pushed_today += 1
             else:
                 failed.append(key)

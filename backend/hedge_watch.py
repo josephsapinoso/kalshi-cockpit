@@ -111,12 +111,25 @@ async def watch_once(
     fetch_quote,
     day_start_hour: int = DEFAULT_DAY_START_UTC_HOUR,
 ) -> dict:
-    """One cycle: settle what the venue has settled, re-price, alert on locks.
+    """One cycle: settle what the venue has settled, re-price, alert.
 
     Settling first is load-bearing rather than tidy. A lock exists only when
     every OTHER leg has already won, so a leg the venue called ten minutes ago
     and nobody has read is the difference between "several legs live" and "one
     leg live" -- between a de-risk and a figure worth a push.
+
+    **This cycle also fires the symmetric "legs in play" push** (AMENDS ADR
+    0078 D2, Joe 2026-09-10): once per ticket per budget day, while a watched
+    game is in play, naming which legs are still live and at what the venue
+    is bidding -- the same message whether the news is good or bad. It
+    carries no figure the tool cannot stand behind (a count and per-leg venue
+    BIDS, never a locked dollar amount), which is what lets it fire on a
+    fixed schedule rather than on a threshold: an alert that only speaks when
+    something is wrong is a nudge by construction, and one on a fixed
+    cadence regardless of direction is a fact by construction, because its
+    arrival carries no information. It shares this cycle's screen and
+    settlement with the lock push but not its dedupe bucket or its ceiling --
+    see `Alerter.position_states`.
     """
     settled = held_parlays.resolve_from_venue(conn, now_ms=now_ms)
     screen = await held_parlays.build_payload(
@@ -126,15 +139,22 @@ async def watch_once(
         spendable_tenths=store_db.latest_balance_tenths(conn),
         fetch_quote=fetch_quote,
     )
-    result = await alerter.hedge_locks(
-        screen,
-        now_ms=now_ms,
-        day_start_ms=day_start_ms(now_ms, hour=day_start_hour),
+    day_ms = day_start_ms(now_ms, hour=day_start_hour)
+    lock_result = await alerter.hedge_locks(
+        screen, now_ms=now_ms, day_start_ms=day_ms,
     )
+    state_result = await alerter.position_states(
+        screen, now_ms=now_ms, day_start_ms=day_ms,
+    )
+    merged = dict(lock_result.as_dict())
+    for key, value in state_result.as_dict().items():
+        # Distinct keys so a caller can tell the two pushes apart rather than
+        # summing them into one number that answers neither question.
+        merged[f"position_{key}"] = value
     return {
         "legs_settled": settled,
         "positions": len(screen["positions"]),
-        **result.as_dict(),
+        **merged,
     }
 
 
@@ -187,7 +207,11 @@ async def watch_hedges_forever(
                         fetch_quote=fetch_quote,
                         day_start_hour=day_start_hour,
                     )
-                    if summary["alerts_sent"] or summary["legs_settled"]:
+                    if (
+                        summary["alerts_sent"]
+                        or summary["legs_settled"]
+                        or summary["position_alerts_sent"]
+                    ):
                         logger.info("hedge watch: %s", summary)
             except asyncio.CancelledError:
                 raise
