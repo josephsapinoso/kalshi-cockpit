@@ -449,9 +449,13 @@ def _read_combo_consensus(
     row's clothes. And the value copied is `fair_joint_conservative` itself,
     never a fair value reconstructed by dividing a ratio back out.
 
-    `computed_ms` is the lookup's `requested_ms`: when the joint was computed,
-    which is the same instant `fair_prices.computed_ms` names for a single.
-    `submitted_ms - computed_ms` is therefore staleness on both paths.
+    `computed_ms` is the lookup's `requested_ms`: when the joint was computed.
+    That no longer matches what `_read_consensus` records for a single below
+    -- a single now coalesces to `fair_prices.confirmed_ms` (ADR 0133) and a
+    combo has no analogous re-confirm to coalesce with, so this stays the
+    instant of first computation on purpose. `submitted_ms - computed_ms` is
+    staleness on both paths, but "how stale" now means something narrower
+    here than it does for a single.
 
     `edge_tenths` stays NULL, and not for want of a candidate. It is the
     desk's FEE-NET edge; the parlay path computes a fee-FREE hold. Putting a
@@ -518,33 +522,34 @@ def _read_consensus(
     here. A freshness threshold chosen at the write site would bake one
     session's opinion into the record permanently and irreversibly.
 
-    **`f.computed_ms` changed meaning under schema v36 and this field changed
-    with it.** ADR 0133 made `write_fair_price` confirm an unchanged consensus
-    in place instead of reinserting it, so `computed_ms` now freezes at the
-    instant a value FIRST appeared, and `confirmed_ms` carries the last time
-    the same value was re-derived. The gap recorded here is therefore "how long
-    this consensus has stood", not "how long since anyone looked" -- and for a
-    consensus that has held a while those differ by hours rather than seconds.
-    It reads STALER than the inputs actually were.
+    **`f.computed_ms` changed meaning under schema v36, and this field is
+    coalesced to compensate.** ADR 0133 made `write_fair_price` confirm an
+    unchanged consensus in place instead of reinserting it, so `computed_ms`
+    freezes at the instant a value FIRST appeared while `confirmed_ms`
+    carries the last time the same value was re-derived. The SELECT below
+    reads `COALESCE(f.confirmed_ms, f.computed_ms)`, mirroring
+    `backend/parlays.py::_live_age_ms`'s own COALESCE -- so the figure
+    recorded here is the instant this consensus was last computed OR
+    reconfirmed, per ADR 0133, and never reads staler than the freshest
+    confirm. `confirmed_ms` is NULL on a row that has never been
+    reconfirmed (every row predating v36, and any row whose payload has only
+    ever appeared once since), which is exactly what the fallback to
+    `computed_ms` says. `test_the_consensus_stamp_reads_the_confirm_when_
+    one_exists` pins this so the coalesce cannot silently regress to the
+    frozen stamp.
 
-    **That is the conservative direction and it is why this is documented
-    rather than silently switched.** Coalescing to `confirmed_ms` here would
-    change a number already written on money rows, on a field whose whole
-    charter is that it is recorded and never judged; that is a decision with an
-    ADR, not an edit. `test_the_consensus_stamp_is_first_appearance_not_last_
-    confirmation` pins the current behaviour so the choice cannot drift by
-    accident in either direction.
-
-    Note this field never carried `oldest_book_age_ms` either, so it was always
-    a partial measure of input staleness rather than the freshness gate --
-    `backend/parlays.py::_live_age_ms` is that, and it DOES coalesce.
+    Note this field never carried `oldest_book_age_ms` either, so it is a
+    partial measure of input staleness rather than the freshness gate --
+    `backend/parlays.py::_live_age_ms` is that fuller measure; this mirrors
+    only its computed/confirmed half.
     """
     if is_combo_ticker(ticker):
         return _read_combo_consensus(conn, ticker=ticker, side=side)
 
     row = conn.execute(
         "SELECT r.fair_probability, r.edge_tenths, r.fair_price_id, "
-        "       r.link_id, f.book_count, f.anchored_on_sharp, f.computed_ms "
+        "       r.link_id, f.book_count, f.anchored_on_sharp, "
+        "       COALESCE(f.confirmed_ms, f.computed_ms) AS computed_ms "
         "FROM recommendations r "
         "LEFT JOIN fair_prices f ON f.id = r.fair_price_id "
         "WHERE r.ticker = ? AND r.side = ? "

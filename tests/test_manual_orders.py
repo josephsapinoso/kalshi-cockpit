@@ -2038,14 +2038,13 @@ class TestTheConsensusStampSurvivedTheDedupe:
     ADR 0133 stopped `write_fair_price` reinserting an unchanged consensus, so
     `fair_prices.computed_ms` freezes at the instant a value FIRST appeared and
     `confirmed_ms` carries the last time it was re-derived. `_read_consensus`
-    still selects `computed_ms`, which means the gap it records is "how long
-    this consensus has stood" rather than "how long since anyone looked".
+    selects `COALESCE(f.confirmed_ms, f.computed_ms)`, mirroring
+    `backend/parlays.py::_live_age_ms`'s own COALESCE, so the gap it records
+    is "how long since this consensus was last computed OR reconfirmed" --
+    never staler than the freshest confirm.
 
-    **Neither reading is pinned by the schema, so it is pinned here.** The
-    choice is deliberate and conservative -- it reads staler than the inputs
-    were -- and coalescing to `confirmed_ms` would silently change a number
-    already written on money rows, which is an ADR rather than an edit. These
-    tests fail if it drifts in either direction.
+    **Neither reading is pinned by the schema, so it is pinned here.** These
+    tests fail if the coalesce regresses to the frozen `computed_ms` alone.
     """
 
     def _confirm(self, path, fair_id, *, confirmed_ms, book_age_ms=None):
@@ -2061,14 +2060,15 @@ class TestTheConsensusStampSurvivedTheDedupe:
         finally:
             conn.close()
 
-    def test_the_consensus_stamp_is_first_appearance_not_last_confirmation(
+    def test_the_consensus_stamp_reads_the_confirm_when_one_exists(
         self, tmp_path
     ):
-        """The recorded stamp is `computed_ms`, even when a confirm is newer.
+        """The recorded stamp is the confirm, when a confirm is newer.
 
-        Mutation observed red: change `f.computed_ms` in `_read_consensus`'s
-        SELECT to `COALESCE(f.confirmed_ms, f.computed_ms)` -- the snapshot
-        then reports the confirm stamp and this assertion fails.
+        Mutation observed red: change `COALESCE(f.confirmed_ms,
+        f.computed_ms)` back to bare `f.computed_ms` in `_read_consensus`'s
+        SELECT -- the snapshot then reports the frozen first-seen stamp and
+        this assertion fails.
 
         The two stamps are an hour apart on purpose. A consensus that has held
         an hour is exactly the case where the readings diverge enough to change
@@ -2077,8 +2077,9 @@ class TestTheConsensusStampSurvivedTheDedupe:
         """
         path = _base_db(tmp_path)
         first_seen = 1_700_000_000_000
+        confirmed = first_seen + 3_600_000
         fair_id, _ = _seed_consensus(path, computed_ms=first_seen)
-        self._confirm(path, fair_id, confirmed_ms=first_seen + 3_600_000)
+        self._confirm(path, fair_id, confirmed_ms=confirmed)
 
         conn = db.open_db(path)
         try:
@@ -2088,17 +2089,17 @@ class TestTheConsensusStampSurvivedTheDedupe:
         finally:
             conn.close()
 
-        assert snap.computed_ms == first_seen, (
-            "the snapshot must record when this consensus FIRST appeared; a "
-            "confirm stamp here would silently redefine a number already "
-            "written on money rows"
+        assert snap.computed_ms == confirmed, (
+            "the snapshot must record when this consensus was last computed "
+            "OR reconfirmed (ADR 0133); a frozen first-seen stamp here "
+            "understates recency for any consensus that has held a while"
         )
         assert snap.fair_price_id == fair_id
 
-    def test_a_row_that_was_never_reconfirmed_is_unchanged_by_the_dedupe(
+    def test_a_row_that_was_never_reconfirmed_falls_back_to_computed_ms(
         self, tmp_path
     ):
-        """The v36 columns are nullable and every pre-existing row reads NULL.
+        """The v36 columns are nullable, so the COALESCE falls back for them.
 
         This is the whole live table on the day v36 deployed, so a snapshot
         that needed `confirmed_ms` to be present would have reported nothing
@@ -2123,7 +2124,10 @@ class TestTheConsensusStampSurvivedTheDedupe:
 
         assert row["confirmed_ms"] is None
         assert row["confirmed_oldest_book_age_ms"] is None
-        assert snap.computed_ms == first_seen
+        assert snap.computed_ms == first_seen, (
+            "with no confirm recorded, the COALESCE must fall back to the "
+            "frozen computed_ms rather than reporting nothing"
+        )
 
 
 class TestTheSnapshotCanNeverBlockABet:
