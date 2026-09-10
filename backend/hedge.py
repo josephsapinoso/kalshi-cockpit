@@ -502,6 +502,174 @@ def watched_tickers(conn: sqlite3.Connection) -> list[str]:
 
 
 # --------------------------------------------------------------------------
+# Coverage -- what the venue holds that the record does not, and vice versa
+# --------------------------------------------------------------------------
+#
+# ADR DRAFT-the-hedge-screen-says-what-it-cannot-see. Read off live
+# 2026-09-10: the newest `positions` poll held one open KXMVE combination
+# bought in the Kalshi app, and `/hedge` had never heard of it -- the entry
+# path this ADR extends (ADR 0125) writes `parlay_positions` only when the
+# fill came through the desk. These functions supply the two facts that keep
+# a hole like that from reading as "nothing is happening": what the venue
+# holds that this record does not, and whether a ticket this record holds is
+# still at the venue at all. Neither closes a position or ranks one; ADR
+# 0071 §2.5 and Decision 4's "no ranking" apply here exactly as they do to
+# the rest of this module.
+
+
+def _latest_ok_positions_poll(conn: sqlite3.Connection) -> Optional[sqlite3.Row]:
+    """The newest `positions` poll that both succeeded AND kept its rows.
+
+    `bets.open_positions` established this exact selector (`ok = 1 AND
+    mirrored = 1`) and the reason for the second clause: `poll_log` has a
+    second writer, `routes.py::_stamp_positions_read`, which logs a real
+    `row_count` on every hand bet but keeps no rows under it. `ok = 1` alone
+    would sometimes select that bare stamp, find zero `venue_positions` rows
+    under it, and read as "the venue holds nothing" for as long as five
+    minutes after every bet -- the false negative in the flattering
+    direction this module's whole design refuses. `mirrored = 1` keeps that
+    stamp out of the selection, the same way it keeps it out of
+    `bets.open_positions`.
+
+    `None` when there has never been a poll of this shape -- coverage is then
+    genuinely unknown, and callers must say so rather than reporting an empty
+    venue.
+    """
+    return conn.execute(
+        "SELECT id, polled_ms FROM poll_log "
+        "WHERE endpoint = 'positions' AND ok = 1 AND mirrored = 1 "
+        "ORDER BY polled_ms DESC, id DESC LIMIT 1"
+    ).fetchone()
+
+
+def venue_position_tickers(
+    conn: sqlite3.Connection,
+) -> tuple[Optional[set[str]], Optional[int]]:
+    """Every ticker the LATEST COMPLETE positions poll saw held, and when.
+
+    `venue_positions` is append-only and per-poll: a position still open is
+    rewritten every cycle under a fresh `poll_log_id`, and a position that
+    closed simply stops being written under later ones -- it is never marked
+    closed in place. So membership can only be asked of ONE poll, the newest
+    complete one, never of "the newest row seen for this ticker" (which
+    would answer a ticker last seen three polls ago as still open, the exact
+    shape of bug `scripts/inspect_live_db_parlays.py`'s `_q_combo_position_gaps`
+    was written to surface on the entry side).
+
+    Returns `(None, None)` when there has never been a complete poll --
+    coverage is unknown, not "the venue holds nothing" -- and otherwise the
+    set of tickers plus that poll's `polled_ms`.
+    """
+    poll = _latest_ok_positions_poll(conn)
+    if poll is None:
+        return None, None
+    rows = conn.execute(
+        "SELECT DISTINCT ticker FROM venue_positions "
+        "WHERE poll_log_id = ? AND ticker IS NOT NULL",
+        (int(poll["id"]),),
+    ).fetchall()
+    return {str(row["ticker"]) for row in rows}, int(poll["polled_ms"])
+
+
+def unrecorded_at_venue(conn: sqlite3.Connection) -> list[dict]:
+    """KXMVE combinations the latest complete poll holds that no OPEN
+    `parlay_positions` row is watching.
+
+    **Combinations only.** `ticker LIKE 'KXMVE%'` is deliberate: a single
+    Kalshi market is not a parlay, this screen watches parlays, and a bare
+    single held outside the desk has no hedge story -- there is no other leg
+    to reshape. Widening this to every venue ticker would be a different
+    screen answering a different question.
+
+    A ticker already claimed by an OPEN position is not listed even if that
+    position's `combo_ticker` came from a different source than the fill
+    being observed now -- the identity is the ticker, and a closed position
+    that reused one (Kalshi does not reuse tickers, but this repo does not
+    assume it) would be a second bug, not this one's to hide.
+
+    Returns `[]`, never a claim of coverage, when there has been no complete
+    poll -- see `venue_position_tickers`.
+    """
+    poll = _latest_ok_positions_poll(conn)
+    if poll is None:
+        return []
+    open_combo_tickers = {
+        str(row["combo_ticker"])
+        for row in conn.execute(
+            "SELECT combo_ticker FROM parlay_positions "
+            "WHERE status = 'open' AND combo_ticker IS NOT NULL"
+        )
+    }
+    rows = conn.execute(
+        "SELECT ticker, contracts, exposure_tenths FROM venue_positions "
+        "WHERE poll_log_id = ? AND ticker LIKE 'KXMVE%' "
+        "ORDER BY ticker",
+        (int(poll["id"]),),
+    ).fetchall()
+    polled_ms = int(poll["polled_ms"])
+    return [
+        {
+            "ticker": str(row["ticker"]),
+            "contracts": row["contracts"],
+            "exposure_display": format_dollars(row["exposure_tenths"]),
+            "last_seen_ms": polled_ms,
+        }
+        for row in rows
+        if str(row["ticker"]) not in open_combo_tickers
+    ]
+
+
+def combo_settlements(
+    conn: sqlite3.Connection, tickers: Sequence[str]
+) -> dict[str, dict]:
+    """The venue's own settlement of each ticker in `tickers`, batched.
+
+    **Found reading live 2026-09-10/2026-10-09.** A `KXMVE` combination can
+    settle (`venue_settlements`, `market_result = 'no'`) while its leg
+    markets have not -- `kalshi_markets.result` stayed NULL on all three legs
+    of a settled combo, because the venue processes a combination market on
+    its own clock rather than waiting for every leg market to resolve
+    individually. `resolve_from_venue` reads only `kalshi_markets.result`, so
+    it cannot see this, and neither can `venue_position_tickers` -- a settled
+    position also stops appearing in the positions poll, the same as one that
+    was simply closed, so absence-from-poll cannot tell "settled" from
+    "closed some other way" either. The combo's own settlement is the one
+    fact that says which.
+
+    `market_result` is returned **verbatim**, never mapped here: 'yes' and
+    'no' are what has been observed, but nothing here assumes those are the
+    only spellings the venue uses, and inventing a third would be a guess.
+
+    Batched over every open position's `combo_ticker` in one query, on the
+    same reasoning `read_books` gives for staying sequential the other
+    direction: this table is not the venue, so there is no rate limit to
+    respect and no reason to serialise it.
+    """
+    wanted = {str(t) for t in tickers if t}
+    if not wanted:
+        return {}
+    placeholders = ",".join("?" for _ in wanted)
+    rows = conn.execute(
+        f"SELECT ticker, market_result, settled_ms FROM venue_settlements "
+        f"WHERE ticker IN ({placeholders}) "
+        f"ORDER BY settled_ms DESC, id DESC",
+        tuple(wanted),
+    ).fetchall()
+    result: dict[str, dict] = {}
+    for row in rows:
+        ticker = str(row["ticker"])
+        if ticker in result:
+            # Already holding the newest for this ticker -- the ORDER BY put
+            # it first, and a second row is an older settlement attempt.
+            continue
+        result[ticker] = {
+            "market_result": row["market_result"],
+            "settled_ms": int(row["settled_ms"]),
+        }
+    return result
+
+
+# --------------------------------------------------------------------------
 # The assessment
 # --------------------------------------------------------------------------
 
@@ -828,6 +996,23 @@ def _leg_payload(
     }
 
 
+def _at_venue(
+    position: Mapping[str, Any], venue_tickers: Optional[set[str]]
+) -> Optional[bool]:
+    """Whether this position's own market is in the latest complete poll.
+
+    `None` -- never `True` or `False` -- in the two states where the question
+    has no answer: a sportsbook slip has no `combo_ticker` and cannot be "at
+    the venue" in the first place, and with no complete poll yet coverage
+    itself is unknown. Only a `combo_ticker` present and a poll to check it
+    against yields a real `True`/`False`.
+    """
+    combo_ticker = position["combo_ticker"]
+    if not combo_ticker or venue_tickers is None:
+        return None
+    return str(combo_ticker) in venue_tickers
+
+
 def serialise_position(
     position: Mapping[str, Any],
     legs: Sequence[Mapping[str, Any]],
@@ -835,6 +1020,8 @@ def serialise_position(
     assessment: Assessment,
     *,
     now_ms: int,
+    venue_tickers: Optional[set[str]] = None,
+    venue_settlement: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     """One held ticket as the screen and the notifier both read it."""
     return {
@@ -851,6 +1038,16 @@ def serialise_position(
         "state_detail": assessment.detail,
         "bankroll_known": assessment.bankroll_known,
         "pending_legs": assessment.pending_legs,
+        # `True`/`False` only when there is both a ticket to check and a
+        # complete poll to check it against; `None` otherwise. Never
+        # auto-closes anything -- see `close_position`, tapped by Joe.
+        "at_venue": _at_venue(position, venue_tickers),
+        # The venue's own settlement of the COMBO market, verbatim, or `None`
+        # when unsettled. Distinct from `at_venue`: a combo can settle before
+        # its leg markets do, so this can be non-null while every leg below
+        # still reads `pending` -- which leg lost is not knowable from this
+        # alone, and nothing here marks one.
+        "venue_settlement": dict(venue_settlement) if venue_settlement else None,
         "legs": [
             _leg_payload(
                 leg, books, hedge_leg_id=assessment.hedge_leg_id, now_ms=now_ms
@@ -904,10 +1101,20 @@ async def build_payload(
     Positions come back in the order they were recorded. **No ordering here is
     a judgement** -- ADR 0071 §2.5 forbids ranking by the consensus-vs-Kalshi
     gap, and this module does not compute that gap at all.
+
+    Also carries the two coverage facts ADR DRAFT-the-hedge-screen-says-
+    what-it-cannot-see adds: `unrecorded_at_venue` (combinations the venue
+    holds that this record does not) and, per position, `at_venue` and
+    `venue_settlement` (whether and how this record's own ticket is still
+    there). Neither is used to close or reorder anything here.
     """
     positions = open_positions(conn)
     books = await read_books(
         watched_tickers(conn), now_ms=now_ms, fetch_quote=fetch_quote
+    )
+    venue_tickers, venue_poll_ms = venue_position_tickers(conn)
+    settlements = combo_settlements(
+        conn, [p["combo_ticker"] for p in positions if p["combo_ticker"]]
     )
     rows = []
     for position in positions:
@@ -920,11 +1127,28 @@ async def build_payload(
             max_quote_age_ms=max_quote_age_ms,
             spendable_tenths=spendable_tenths,
         )
+        combo_ticker = position["combo_ticker"]
         rows.append(
-            serialise_position(position, legs, books, assessment, now_ms=now_ms)
+            serialise_position(
+                position,
+                legs,
+                books,
+                assessment,
+                now_ms=now_ms,
+                venue_tickers=venue_tickers,
+                venue_settlement=(
+                    settlements.get(str(combo_ticker)) if combo_ticker else None
+                ),
+            )
         )
     return {
         "as_of_ms": now_ms,
         "positions": rows,
         "notes": dict(NOTES),
+        "unrecorded_at_venue": unrecorded_at_venue(conn),
+        "venue_poll_ms": venue_poll_ms,
+        # Rides along so the screen can dim a leg's price past the same bound
+        # the assessment itself refuses a stale quote at -- one number, not a
+        # second guess of it hardcoded into a component.
+        "max_quote_age_ms": max_quote_age_ms,
     }
