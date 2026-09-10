@@ -91,7 +91,7 @@ from ..core.prices import is_valid_price
 #: cannot widen a table-level CHECK in place. The rows already written keep
 #: their real values -- nothing is deleted, backfilled or rewritten. See
 #: `docs/adr/0138-a-lookup-prices-the-window-the-card-was-built-in.md`.
-SCHEMA_VERSION = 38
+SCHEMA_VERSION = 39
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -923,6 +923,40 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # `idx_odds_event_commence`, restoring an index removed on 2026-08-26 for
+    # "changing no plan". The statement, the measurement and the size cost sit
+    # beside the CREATE in `schema.sql`, following v31 and v37; what belongs
+    # here is only why the step is needed at all.
+    #
+    # It is needed because the desk was returning 503 `read_budget_exceeded`
+    # at 25 s. `inspect_live_db.py parlay-candidates-timing` on 2026-09-10 put
+    # the whole candidate scan at 73,526 ms for 494 rows, of which the
+    # `odds_snapshots MIN(commence_ms) GROUP BY` alone was 26,719 ms -- while
+    # only 848 of 10,112,298 `fair_prices` rows were inside the scan window.
+    # `MIN(commence_ms)` under an index that lacks `commence_ms` reads every
+    # row of every group; ~1,400 per event here.
+    #
+    # **`schema.sql` cannot reach an existing volume**, same as v31 and v37:
+    # `executescript` would create the index on open, so this step looks
+    # redundant and is not. Without a version bump nothing CHECKS, and
+    # `scripts/migrate_db.py` verifies at boot, by name, only the indexes a
+    # declared step names. The `indexes` tuple is what makes a migration that
+    # reported success while doing nothing visible.
+    #
+    # **Not free on the live volume**, and slower than v37's: this one is a
+    # full index build over the highest-volume table (3,696,485 rows, ~190 MB
+    # by the local measurement), taken once at boot before uvicorn starts,
+    # which is where a slow one-off belongs.
+    #
+    # No `columns`, so dropping the declared index is the whole undo and
+    # `undo_statements` stays empty.
+    39: _Migration(
+        statements=(
+            "CREATE INDEX IF NOT EXISTS idx_odds_event_commence "
+            "ON odds_snapshots(odds_event_id, commence_ms)",
+        ),
+        indexes=("idx_odds_event_commence",),
+    ),
     # The covering index the ladder scan's OR predicate needs -- the "ladder
     # scan keys on the confirmed stamp" fix, following v31's pattern: the
     # statement, the plan and the size cost live beside the CREATE in

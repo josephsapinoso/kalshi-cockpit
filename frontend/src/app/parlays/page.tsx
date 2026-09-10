@@ -105,10 +105,14 @@ export default async function ParlaysPage({
             correctness rather than wording.** Two `KXMVECROSSCATEGORY-SHARD1`
             books were read carrying resting YES bids ($10 at 0.0980 and $10 at
             0.0570), so the universal is false; one counterexample ends it.
-            Joe ratifies wording and this sentence is still his -- the final
-            phrasing is put to him -- but a ratified sentence does not get to
-            stay false on the screen while the answer is pending, which is
-            CLAUDE.md's fix-and-copy-ship-together rule. Everything else in
+            Joe ratifies wording and this sentence is still his, but a
+            ratified sentence does not get to stay false on the screen while
+            the answer is pending, which is CLAUDE.md's
+            fix-and-copy-ship-together rule. **He was asked on 2026-09-10 and
+            kept it:** given "hardly anyone" in place, the two shard-1 books
+            behind the change, and two alternatives, he re-ratified this
+            wording. It is his approved copy in full again, not a correctness
+            patch awaiting an answer. Everything else in
             #9's sentence is untouched, and the replacement still makes no
             availability claim and implies no rate: how OFTEN a bid is there
             is what Arm D measures on 2026-09-13.

@@ -238,14 +238,53 @@ CREATE TABLE IF NOT EXISTS odds_snapshots (
 -- Leads with `odds_event_id`, which is what lets the parlay ladder's fixture
 -- lookup be a seek once its subquery is restricted to linked events.
 --
--- **A second index on `(odds_event_id, commence_ms)` was added on 2026-08-26
--- and removed the same hour, because it changed no plan.** With it:
--- `SEARCH ... USING INDEX idx_odds_event_commence`. Without it:
--- `SEARCH ... USING INDEX idx_odds_event`. Identical shape -- the leading
--- column is all the equality needs. It would have cost write amplification on
--- the highest-volume table in the system to buy nothing, which is what an
--- index that changes no plan always is.
+-- **A second index on `(odds_event_id, commence_ms)` was added on 2026-08-26,
+-- removed the same hour for changing no plan, and RESTORED on 2026-09-10
+-- because "changes no plan" was the wrong test.** The original note read:
+--
+--     With it: `SEARCH ... USING INDEX idx_odds_event_commence`. Without it:
+--     `SEARCH ... USING INDEX idx_odds_event`. Identical shape -- the leading
+--     column is all the equality needs.
+--
+-- Both halves of that are true and the conclusion does not follow.
+-- **EXPLAIN QUERY PLAN reports the access METHOD, never the number of rows
+-- the method touches.** The subquery below takes `MIN(commence_ms)` per
+-- event. Under `idx_odds_event` -- `(odds_event_id, market, fetched_ms DESC)`
+-- -- `commence_ms` is not in the index, so satisfying that MIN means reading
+-- EVERY row of the group and fetching the column from the table: ~1,400 rows
+-- per event on live. Under `(odds_event_id, commence_ms)` the minimum is the
+-- FIRST entry of the group and the search stops there. One plan line, three
+-- orders of magnitude of rows.
+--
+-- Measured rather than argued, because the claim being overturned was
+-- deliberate and written down. On live, through
+-- `inspect_live_db.py parlay-candidates-timing`, 2026-09-10:
+--
+--     whole candidate scan                        73,526 ms   (494 rows)
+--     odds_snapshots MIN(commence_ms) GROUP BY    26,719 ms   (703 rows)
+--     fair_prices rows in the scan window                848  of 10,112,298
+--
+-- 848 rows in the window and 73 seconds to return them: the row count was
+-- never the problem. Reproduced on a throwaway local database at live's shape
+-- (800 events x 1,400 rows), warm, best of three: **503.9 ms without, 167.5 ms
+-- with**, and the two plans differing only in the index name. That 3x is a
+-- FLOOR on the live win, not an estimate of it -- the local box is CPU-bound
+-- with the table in memory, while live is I/O-bound against a 5.19 GB file on
+-- a small machine, which is exactly the regime where "rows touched" dominates.
+--
+-- **The write-amplification objection stands and is paid deliberately.** This
+-- is the highest-volume table in the system. The cost measured locally is
+-- ~52 bytes per row -- about 190 MB against live's 3,696,485 rows. Bought
+-- because the desk was answering 503 `read_budget_exceeded` at 25 s in front
+-- of Joe, and because a covering seek should REDUCE cache pressure here: it
+-- stops pulling ~1,400 table pages per event into a page cache that is the
+-- binding resource on this box.
+--
+-- The lesson, which is the reusable part: an index that changes no plan can
+-- still change the cost by orders of magnitude, and the only way to tell is
+-- to time it. See `tasks/lessons.md`, 2026-09-10.
 CREATE INDEX IF NOT EXISTS idx_odds_event ON odds_snapshots(odds_event_id, market, fetched_ms DESC);
+CREATE INDEX IF NOT EXISTS idx_odds_event_commence ON odds_snapshots(odds_event_id, commence_ms);
 CREATE INDEX IF NOT EXISTS idx_odds_commence ON odds_snapshots(commence_ms);
 -- **And here is the index that DOES change the plan -- ADR 0086, schema v31.**
 -- Read the refusal above first; this is not an exception to it, it is the same

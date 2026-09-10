@@ -269,36 +269,75 @@ class TestEachHalfIsLoadBearing:
             f"with a write cost: {steps}"
         )
 
-    def test_the_odds_seek_comes_from_the_restriction_not_a_new_index(self):
-        """The correction, kept as a test so it is not re-discovered.
+    def test_the_odds_seek_is_a_seek_whichever_index_serves_it(self):
+        """**Rewritten 2026-09-10.** It used to assert that the seek came from
+        `idx_odds_event` rather than a new index, on the since-refuted claim
+        that `(odds_event_id, commence_ms)` was redundant. See
+        `test_a_second_odds_index_must_carry_a_MEASUREMENT_not_a_plan_diff`.
 
-        `(odds_event_id, commence_ms)` was written, looked necessary, and
-        changed no plan -- `idx_odds_event` already leads with the same column.
-        This asserts the seek survives on the EXISTING index, which is what
-        makes the deleted one redundant rather than missing.
+        It was also passing for a reason that had nothing to do with its
+        claim: `"idx_odds_event" in s` is a SUBSTRING test, and
+        `idx_odds_event_commence` contains it. The test could not have failed
+        no matter which of the two indexes the planner chose.
+
+        The durable claim is the one kept here: the restriction to linked
+        events is what turns this from a scan of the whole snapshot history
+        into a seek. Which index serves the seek is the planner's business.
         """
         c = db.init_db(os.path.join(tempfile.mkdtemp(), "noidx.db"))
         try:
             steps = plan(c, ladder_sql(), (0, 0, 0))
         finally:
             c.close()
+        assert not any(s.startswith("SCAN odds_snapshots") for s in steps), (
+            f"the restriction to linked events stopped biting: {steps}"
+        )
         assert any(
-            "odds_snapshots" in s and "idx_odds_event" in s and "SEARCH" in s
+            "odds_snapshots" in s and "SEARCH" in s and "odds_event_id=?" in s
             for s in steps
         ), steps
 
-    def test_no_duplicate_leading_column_index_was_reintroduced(self):
-        """An index that changes no plan is a write cost for nothing."""
+    def test_a_second_odds_index_must_carry_a_MEASUREMENT_not_a_plan_diff(self):
+        """**Inverted 2026-09-10, and the rule it enforces is stronger.**
+
+        This used to assert `idx_odds_event_commence` did NOT exist, on the
+        2026-08-26 finding that it "changed no plan": with it and without it,
+        the step reads `SEARCH ... (odds_event_id=?)`. That observation was
+        correct and the inference from it was not.
+
+        **EXPLAIN QUERY PLAN reports the access method, never how many rows
+        the method touches.** The subquery takes `MIN(commence_ms)` per event;
+        under `idx_odds_event` — `(odds_event_id, market, fetched_ms DESC)` —
+        `commence_ms` is absent from the index, so the minimum is only found
+        by reading every row of the group and fetching the column from the
+        table. ~1,400 rows per event on live. With `commence_ms` second, the
+        minimum is the first entry.
+
+        Measured on live 2026-09-10 while `/api/parlays` was answering 503
+        `read_budget_exceeded` at 25 s: the candidate scan took 73,526 ms to
+        return 494 rows, of which this subquery alone was 26,719 ms, with 848
+        of 10,112,298 `fair_prices` rows inside the window. Locally at live's
+        shape: 503.9 ms -> 167.5 ms.
+
+        So the guard is not deleted, it is re-aimed. The original rule — do
+        not pay write amplification on the highest-volume table for nothing —
+        is intact. What changed is what counts as evidence of "nothing": a
+        plan diff cannot show it, and a timing can.
+        """
         schema = (
             Path(__file__).resolve().parents[1] / "backend" / "store" / "schema.sql"
         ).read_text(encoding="utf-8")
-        # The NAME appears in the schema's prose, explaining why it is absent.
-        # What must not exist is a CREATE for it — assert the statement, not
-        # the string, or the explanation trips the guard it belongs to.
-        assert "CREATE INDEX IF NOT EXISTS idx_odds_event_commence" not in schema, (
-            "a second odds_snapshots index leading with odds_event_id is back; "
-            "it changed no plan when measured on 2026-08-26"
+        assert "CREATE INDEX IF NOT EXISTS idx_odds_event_commence" in schema, (
+            "the index is gone again; if it was removed on a plan diff, read "
+            "this test's docstring first -- that argument was tried in 2026 "
+            "and the timing refuted it"
         )
+        # And the measurement that justifies it has to survive with it, or the
+        # 2026-08-26 argument becomes available again and reads as sound.
+        assert "never the number of rows" in schema
+        assert "26,719 ms" in schema
+        # The cost is still acknowledged, not waved away.
+        assert "write-amplification objection stands" in schema
 
     def test_the_index_is_declared_in_the_schema(self):
         """It must reach the LIVE volume, which is an existing database.
@@ -461,8 +500,17 @@ class TestARefusedLegsKickoffIsSoughtNotGrouped:
         )
         assert not any(s.startswith("MATERIALIZE") for s in steps), steps
         # The alias is `o`, so the step names the index, not the table.
+        #
+        # **Which index is not pinned, deliberately (2026-09-10).** This read
+        # `SEARCH o USING INDEX idx_odds_event` until `idx_odds_event_commence`
+        # was restored, and now reads `SEARCH o USING COVERING INDEX
+        # idx_odds_event_commence` -- strictly better, because COVERING means
+        # it stops touching the table at all. A guard that named the index
+        # would have called that a regression. The claim is that this is a
+        # seek on the event id, and it is the claim that is pinned.
         assert any(
-            s.startswith("SEARCH o USING INDEX idx_odds_event")
+            s.startswith("SEARCH o USING ")
+            and "INDEX idx_odds_event" in s
             and "odds_event_id=?" in s
             for s in steps
         ), steps

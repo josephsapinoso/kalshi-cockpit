@@ -16,6 +16,81 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-10 - An index that changes no plan can still change the cost by orders of magnitude; EXPLAIN reports the method, not the rows
+
+An index on `odds_snapshots(odds_event_id, commence_ms)` was added on
+2026-08-26 and removed the same hour. The reasoning was written down and was
+carefully done:
+
+    With it:    SEARCH ... USING INDEX idx_odds_event_commence (odds_event_id=?)
+    Without it: SEARCH ... USING INDEX idx_odds_event          (odds_event_id=?)
+
+Identical shape, so the index bought nothing and cost write amplification on
+the highest-volume table. Both observations were true. The conclusion was
+wrong, and the desk paid for it two weeks later with `/api/parlays` answering
+503 `read_budget_exceeded` at 25 s.
+
+The query takes `MIN(commence_ms)` grouped by event. `idx_odds_event` is
+`(odds_event_id, market, fetched_ms DESC)` - `commence_ms` is not in it, so
+satisfying the MIN means reading **every row of the group** and fetching the
+column from the table: about 1,400 rows per event. With `commence_ms` as the
+second column the minimum is the first entry and the seek stops there. One
+plan line, three orders of magnitude of rows.
+
+Measured, because the claim being overturned was deliberate:
+
+    whole candidate scan                        73,526 ms   (494 rows)
+    odds_snapshots MIN(commence_ms) GROUP BY    26,719 ms   (703 rows)
+    fair_prices rows inside the scan window            848  of 10,112,298
+
+848 rows in the window and 73 seconds to return them. Reproduced locally at
+live's shape, warm, best of three: **503.9 ms without, 167.5 ms with**.
+
+**The shape to look for: any judgement about cost made from
+`EXPLAIN QUERY PLAN` alone.** It answers "how will this be reached" -
+SCAN/SEARCH, which index, which join order. It does not answer "how many rows
+will that touch", and for aggregates the difference between the two is
+unbounded. `SEARCH ... (x=?)` is one row when the index covers what the query
+needs and the entire group when it does not, and the two print the same.
+
+The tells that a plan diff is about to mislead: an aggregate over a column not
+in the index (`MIN`, `MAX`, `SUM`), an `ORDER BY ... LIMIT` on a column not in
+the index, or a `SEARCH` whose equality is on a low-cardinality column so each
+"seek" lands on a large group. In each, the access method is identical and the
+work is not.
+
+Three rules:
+
+- **A plan diff can prove an index IS used. It cannot prove one is
+  worthless.** To retire an index, time the query. To add one, time the query.
+  The plan is a hypothesis about why, never the measurement.
+- **Keep the timing next to the index, not just the decision.** The removal
+  note here was excellent - it recorded the reasoning in full - and that is
+  exactly why the wrong conclusion survived: the next reader found a careful
+  argument and no number to check it against. A recorded justification with no
+  measurement in it is a claim that has been made harder to question.
+- **`SEARCH` is not a synonym for fast.** It means an index was used to locate
+  a starting point. Everything after the starting point is invisible in the
+  plan.
+
+The correction also improved a second query nobody was looking at: the refused
+leg's kickoff lookup went from `SEARCH o USING INDEX idx_odds_event` to
+`SEARCH o USING COVERING INDEX idx_odds_event_commence`, so it stopped
+touching the table at all - and the test guarding it FAILED, because it pinned
+the index name rather than the claim. See the lesson on that above; a guard
+that names an implementation calls an improvement a regression.
+
+And one that was passing for no reason: a sibling test asserted
+`"idx_odds_event" in step`, which is a substring of
+`idx_odds_event_commence`, so it could not have failed whichever index the
+planner chose. **A substring assertion over identifiers that share a prefix is
+not an assertion.**
+
+See [[justifications-decay-toward-reassurance]] and
+[[verification-methods-that-lie]].
+
+---
+
 ## 2026-09-10 - "The query admits this market" is not "the desk holds this market", and only one of them is a fact about live
 
 A finding said MLB player props were "bought, priced and sitting in the

@@ -87,8 +87,14 @@ GAMES_LEDE = (
 #: is correctness, and correctness does not wait for an answer -- CLAUDE.md's
 #: rule is that the fix and the copy ship together or the screen lies in the
 #: interval. So the universal is cut to the narrowest true replacement,
-#: changing one word, and the final wording is Joe's to choose. The rest of
-#: #9's sentence is untouched.
+#: changing one word. The rest of #9's sentence is untouched.
+#:
+#: **RE-RATIFIED by Joe, 2026-09-10: "hardly anyone" stands.** He was given the
+#: replacement in place, the counterexample behind it, and two alternatives
+#: ("almost nobody", or his own words) and chose to keep it. So this sentence
+#: is once again his approved copy in full, not a correctness patch awaiting
+#: an answer, and changing it is his call rather than a side effect of
+#: shipping a feature.
 PARLAYS_LEDE = (
     "Parlay cards cut from tonight’s games, one pick per game, shown at the "
     "fair value the sportsbooks’ chances imply rather than at what Kalshi "

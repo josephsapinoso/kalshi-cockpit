@@ -170,6 +170,80 @@ library version — **Arm D's frame is uncontaminated by this session.**
 ADR 0140 taken. Dependabot: no open alerts, and the `cryptography` blind spot
 is closed (below).
 
+### THE 503 HAS A CAUSE, AND IT IS A MISSING INDEX — schema v39
+
+Chasing why the desk was still answering 503 `read_budget_exceeded` an hour
+after the cache-eviction incident below, `inspect_live_db.py
+parlay-candidates-timing` gave the numbers:
+
+    whole candidate scan                        73,526 ms   (494 rows)
+    odds_snapshots MIN(commence_ms) GROUP BY    26,719 ms   (703 rows)
+    fair_prices rows inside the scan window            848  of 10,112,298
+    odds_snapshots rows                          3,696,485
+    live database                                   5.19 GB
+
+**848 rows in the window and 73 seconds to return them**, so the row count was
+never the problem. The plan named it: `SEARCH o USING AUTOMATIC PARTIAL
+COVERING INDEX` — SQLite building a temporary index at query time because no
+suitable one exists.
+
+**`CANDIDATE_SQL`'s own comment claims an index that has never existed.** It
+says the plan is a seek "with it, plus `idx_odds_event_commence`". Live has
+`idx_odds_commence`, `idx_odds_event` and `idx_odds_sport_commence`, and no
+`idx_odds_event_commence`. The 2026-08-26 fix was half-shipped: the subquery
+restriction landed and the index did not.
+
+**It did not land because it was deliberately removed, and the reasoning was
+wrong in an instructive way.** `schema.sql` recorded it: with the index and
+without it, the step reads `SEARCH ... (odds_event_id=?)` — "identical shape",
+so it "changed no plan" and would cost write amplification for nothing. Both
+observations are true. **`EXPLAIN QUERY PLAN` reports the access method, never
+how many rows the method touches.** The subquery takes `MIN(commence_ms)` per
+event; `idx_odds_event` is `(odds_event_id, market, fetched_ms DESC)`, so the
+minimum can only be found by reading every row of the group — ~1,400 per event
+— and fetching the column from the table. With `commence_ms` second, the
+minimum is the first entry.
+
+Reproduced locally at live's shape (800 events x 1,400 rows), warm, best of
+three: **503.9 ms without, 167.5 ms with**, the two plans differing only in the
+index name. That 3x is a **floor** on the live win, not an estimate of it: the
+local box is CPU-bound with the table in memory and live is I/O-bound against a
+5.19 GB file, which is the regime where rows-touched dominates.
+
+Shipped as **schema v39** (`idx_odds_event_commence`), with the measurement
+stored beside the CREATE in `schema.sql` and pinned by
+`tests/test_odds_event_commence_index.py` — **the index and the recorded reason
+are guarded separately**, because an index whose justification was deleted is
+one somebody removes again on the same argument as last time.
+
+Two existing tests went red and both were name-pinning rather than claim-pinning:
+
+- `test_no_duplicate_leading_column_index_was_reintroduced` asserted the index
+  did NOT exist. **Inverted, not deleted** — the original rule (do not pay
+  write amplification for nothing) is intact; what changed is what counts as
+  evidence of "nothing", and a plan diff cannot supply it.
+- `test_odds_snapshots_is_searched_not_scanned` failed on an **improvement**:
+  the refused-leg kickoff lookup went from `SEARCH o USING INDEX
+  idx_odds_event` to `SEARCH o USING COVERING INDEX idx_odds_event_commence`,
+  which stops touching the table at all. A guard that names an implementation
+  calls a better plan a regression.
+- And `test_the_odds_seek_comes_from_the_restriction_not_a_new_index` was
+  passing for no reason at all: `"idx_odds_event" in step` is a **substring**
+  of `idx_odds_event_commence`, so it could not have failed whichever index
+  the planner chose. Rewritten to assert the seek, which is the durable claim.
+
+**The write-amplification objection stands and is being paid deliberately:**
+~52 bytes/row locally, about **190 MB** on live's 3,696,485 rows. Bought
+because the desk was 503-ing in front of Joe, and because a covering seek
+should *reduce* cache pressure here — it stops pulling ~1,400 table pages per
+event into the page cache that is the binding resource on this box.
+
+**NOT YET VERIFIED ON LIVE.** The migration is a full index build over the
+highest-volume table, taken at boot before uvicorn starts. Deploy, let
+`migrate_db.py` run it, then re-run `parlay-candidates-timing` and compare
+against the 73,526 / 26,719 above. **Until that comparison exists, the live win
+is a prediction.**
+
 ### Two corrections to the front door, both verified rather than reasoned
 
 1. **The ADR 0117 box's `cryptography` warning is stale and has been removed
@@ -251,8 +325,12 @@ return — **strictly stronger than what it replaced.** Lesson written.
 
 <https://claude.ai/code/artifact/b2289b51-be1e-4b12-af59-b09b0db876df>
 
-- **(A) the `/parlays` lede wording.** Still his. "hardly anyone" is in place
-  and correct; he confirms it or replaces it.
+- **(A) the `/parlays` lede wording — ANSWERED A1, 2026-09-10: "hardly
+  anyone" stands.** Given the replacement in place, the two shard-1 books
+  behind it and two alternatives, he kept it. So #9's sentence is his approved
+  copy in full again rather than a correctness patch awaiting an answer, and
+  changing it is his call. Recorded on ticket #9 and in the two files that pin
+  the sentence verbatim.
 - **(B) props as parlay legs**, re-put with the two-gates finding: try it free
   in baseball now (recommended), wait and buy the NFL measurement, or close the
   lane. The correlation limit is stated in the artifact rather than discovered
@@ -263,7 +341,19 @@ return — **strictly stronger than what it replaced.** Lesson written.
 
 ### Still open, in order
 
-0c. **THE COLD-START 503 IS NOT THE WIDENING, AND THAT IS NOW MEASURED
+0c. **DEPLOY SCHEMA v39 AND VERIFY THE INDEX ON LIVE.** This is the first
+   thing the next session does. `idx_odds_event_commence` is committed but
+   NOT deployed; the migration is a full index build over 3,696,485 rows,
+   taken at boot before uvicorn starts. Deploy with `-e GIT_SHA=`, let
+   `migrate_db.py` run it, then re-run
+   `inspect_live_db.py parlay-candidates-timing` and compare against
+   **73,526 ms whole scan / 26,719 ms subquery**. Until that comparison
+   exists the win is a prediction. Also re-time `/api/parlays` against the
+   1.5-3.3s baseline. If the numbers do not move, the diagnosis is wrong and
+   the index should be reverted rather than kept on the strength of the
+   argument.
+
+0d. **THE COLD-START 503 WAS NOT THE WIDENING, AND THAT IS MEASURED
    RATHER THAN SUSPECTED.** Deployed `7f0f85f` and read `/api/parlays` three
    times immediately after:
 
