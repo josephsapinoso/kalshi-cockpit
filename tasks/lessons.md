@@ -16,6 +16,130 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-10 - A warning keyed on a count the failure itself suppresses goes quiet exactly when it is needed
+
+A block on the parlay screen exists to explain one specific outage: Joe read
+"needs 2 fresh games and the slate has 0" as "there is nothing on tonight"
+while twenty fixtures sat upcoming and the recording loop was wedged. The
+block was gated on `stale_consensus > 0` - the count of sides the candidate
+scan returned and the freshness rule then refused.
+
+But the scan has its own floor, two hours. A row older than that is never
+selected, so it is never counted. Which gives:
+
+    recorder wedged under 2h    rows in-scan, refused    stale > 0    fires
+    recorder wedged over 2h     rows out of scan         stale = 0    SILENT
+
+The block got quieter the longer the outage ran, and was absent in exactly
+the incident it was written for. Its second paragraph also read "so all
+{stale} candidate sides were refused on age", which renders "all 0" in that
+state - an empty count presented as though nothing had been dropped.
+
+**The shape to look for: an alarm whose trigger is a count of things that
+survived far enough to be counted.** Rejections, retries, errors-per-minute,
+items-dropped - each requires the pipeline to get far enough to do the
+rejecting. A hard enough failure produces *fewer* of them, and zero is the
+reading a healthy system also gives. The alarm and the all-clear are the same
+number.
+
+Two rules that fall out:
+
+- **Ask what the counter reads when the thing it watches fails completely,
+  not partially.** If the answer is "the same as when nothing is wrong", the
+  counter cannot be the trigger. It usually has an upstream twin that counts
+  the *population* rather than the survivors - here, fixtures upcoming versus
+  fixtures fresh, which survives the rows dropping out of scan entirely.
+- **A monotone assumption is worth stating out loud.** The gate silently
+  assumed worse outage implies bigger count. Writing that sentence down is
+  enough to notice it is false; it never got written down.
+
+See [[verification-methods-that-lie]] and [[built-but-never-called]] - the
+common ancestor is a check that reports health because it cannot see.
+
+---
+
+## 2026-09-10 - A test that pins a predicate's spelling blocks the fix that keeps its claim
+
+A guard test asserted the literal string `stale === 0 || unbuilt === 0` and
+documented its claim in the docstring above: a banner that fires on a working
+screen is one the reader learns to skip, so the trigger is the conjunction.
+
+The predicate then turned out to be wrong for an unrelated reason (the lesson
+above). The replacement **preserved that claim exactly** - a working screen
+still stays silent - and the test went red anyway, because it was pinning
+characters rather than behaviour.
+
+That is a dangerous moment. The test is red, the change is correct, and the
+cheapest route is to delete or loosen the assertion - which is how a real
+guard gets thrown away while fixing something else.
+
+**The shape to look for: an assertion whose failure message would be "the
+code says something different" rather than "the code does something
+different."** String matching against source is legitimate here - there is no
+frontend test runner, so it is how every `.tsx` claim in this repo is pinned -
+but it means the pin and the claim can come apart silently, and only a change
+that keeps the claim will reveal it.
+
+The rule: **when such a test goes red, re-read its docstring before its
+assertion.** If the docstring's claim still holds under the new code, the
+test is out of date and gets rewritten to assert the claim - never deleted,
+never loosened. Rewriting it is also the moment to add the half it was
+missing, because whatever motivated the change is usually a case the original
+never considered. Here the replacement asserts the working-screen silence
+directly, asserts the new conjunction, *and* refuses the old predicate's
+return - strictly stronger than what it replaced.
+
+And the counterpart: if the docstring's claim does NOT still hold, the change
+is the thing that is wrong. Either way the docstring decides, which is the
+argument for the docstring naming a claim rather than describing the code.
+
+---
+
+## 2026-09-10 - When one blocker is expensive, look for the free one; the expensive blocker gets all the attention
+
+"Add props as parlay legs" had been costed, ticketed and scheduled entirely
+as a **feed** decision: a prop cannot be a leg unless a sportsbook price was
+bought for it, buying a new market type costs credits on every sweep forever,
+so the work was gated behind a paid coverage measurement.
+
+All of that is true. It was also not the binding constraint. Every parlay
+card declares which market types it draws from and all seven said team
+markets only - a free, one-line gate nobody had written down anywhere. And
+the expensive gate was **already open for baseball**: five MLB prop markets
+were being bought, priced and put in the candidate pool every sweep, and the
+free gate threw them away.
+
+So the question could be answered that afternoon, in baseball, at zero cost,
+using data already being paid for - and the paid football measurement was
+only worth buying if that free test came back well.
+
+**The shape to look for: a blocker with a price tag, in a chain nobody walked
+to the end of.** A cost is memorable and gets written into every summary of
+the problem; a `frozenset` in a config table is not, and does not. So the
+expensive gate becomes the whole story, the roadmap is built around
+scheduling and funding it, and a second gate downstream of it goes unnamed -
+sometimes for months, sometimes while the expensive resource is already being
+bought and discarded.
+
+Two rules:
+
+- **Walk the chain to the screen before pricing anything.** Not "what stops
+  this being available" but "what stops this being *rendered*", one hop at a
+  time. The paid gate is rarely the last one.
+- **Whenever a paid input is proposed, check whether it is already being
+  bought.** A pipeline that acquires something and drops it later looks
+  identical from the outside to one that never acquires it, and the fix for
+  the second costs money while the fix for the first is free.
+
+Corollary worth keeping: this inverted the *order* of the work, not the
+decision. The paid measurement is still the right thing to buy - after the
+free test says the feature is worth having.
+
+See [[built-but-never-called]] and [[he-wants-picks-not-more-rigour]]: the
+fastest falsifying test was available the whole time and cost nothing.
+
+---
+
 ## 2026-09-10 - A guard test needs a bed where the UNGUARDED code would answer differently; "both paths refuse" is not that bed
 
 A route was given a guard: widen the kickoff window when the caller named

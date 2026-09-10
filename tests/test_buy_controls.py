@@ -124,11 +124,26 @@ class TestTheWordsThatCarryTheClaim:
         )
 
     def test_the_combo_buy_names_the_missing_exit(self):
+        # **`"<ManualTicket\n"`, not `"<ManualTicket"`.** The bare prefix also
+        # matches prose ABOUT the control: a component added 2026-09-10 refers
+        # to `<ManualTicket>` in its docstring, and the slice silently began
+        # there instead, testing a comment. The claim below is unchanged and
+        # the element still carries it; only the extraction was wrong.
         combo = source("components/PriceOnKalshi.tsx")
-        assert "<ManualTicket" in combo
-        note = combo[combo.index("<ManualTicket"):]
+        assert "<ManualTicket\n" in combo, "the combination buy control moved"
+        note = combo[combo.index("<ManualTicket\n"):]
         note = note[: note.index("/>")]
-        assert "exit" in note, (
+        assert "ticker={value.minted_market_ticker}" in note, (
+            "this is not the buy control; re-scope the slice before trusting it"
+        )
+        # **The `note=` string, not the whole element.** The element also
+        # carries a JSX comment that discusses the exit, so asserting over the
+        # slice passed even with the word removed from the words Joe reads --
+        # observed 2026-09-10 by mutating the note and watching this stay
+        # green. A claim about the screen has to be tested against the screen.
+        words = note[note.index('note="') + len('note="') :]
+        words = words[: words.index('"')]
+        assert "exit" in words, (
             "the combination buy does not say the book has no way out"
         )
 

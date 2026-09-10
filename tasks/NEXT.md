@@ -119,6 +119,180 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-10 (tenth session) — one scan per request, a quote that says when it was read, and a warning that went silent as the outage got worse
+
+**The session's finding is that "add props as parlay legs" has two gates and
+only one of them costs money.** Everyone had it costed as a feed decision:
+a prop cannot be a leg unless a sportsbook price was bought for it, and buying
+a market type costs credits on every sweep forever. True, and not the binding
+constraint. **Every parlay recipe declares which markets it draws from and all
+seven decline props** — `TEAM_MARKETS_ONLY` (`backend/core/ladder.py:138`), six
+recipes, plus one spreads-only — a free gate nobody had written down. And the
+paid gate is **already open for baseball**: `CANDIDATE_SQL` admits five MLB
+prop markets (`backend/parlays.py:611-613`), the prop arm resolves them, and
+the recipe gate throws them away. So the question is answerable **today, in
+baseball, at zero credits**, and the ~14-credit NFL measurement is only worth
+buying if that comes back well. Ordering inverted, decision unchanged.
+
+**STATE at close.** `main` = **`1fdba22`**, pushed. Two commits: `a5b7460`
+(pre-registration, docs-only) and `1fdba22` (the three lanes). **Live =
+`76cc97c`** — behind by three, two of them docs-only; the deploy is the next
+session's or this one's last act. Full suite on the tree before the final two
+lanes: **6,915 passed, 10 xfailed, 1 failed**, the failure being the
+`test_stale_exit.py` guard discussed below and now resolved; ruff and tsc
+clean. Odds path untouched: **the freeze to 10:00Z 2026-09-14 holds** — nothing
+under `backend/odds/` or `backend/scheduler.py` was read for edit or written.
+**Credits: zero spent.** No lookup was minted, no combo tap taken, nothing
+authenticated was called against Kalshi except one read-only `flyctl ssh` for a
+library version — **Arm D's frame is uncontaminated by this session.**
+ADR 0140 taken. Dependabot: no open alerts, and the `cryptography` blind spot
+is closed (below).
+
+### Two corrections to the front door, both verified rather than reasoned
+
+1. **The ADR 0117 box's `cryptography` warning is stale and has been removed
+   from the live reading.** It said `requirements.txt:9` still pins a version
+   inside alert #15's vulnerable range. The pin is `~=50.0`, the range is
+   `>= 42.0.0, <= 48.0.0`, and the running container reports **50.0.1** (read
+   over `flyctl ssh`; the `Error: The handle is invalid.` after a good read is
+   the known artifact). The 44 -> 50 bump (ADR 0124, 2026-09-09) closed it. The
+   query is still blind to `cryptography`, so keep verifying from the
+   container — but there is nothing outstanding to verify *against* today.
+2. **The decision queue is empty.** All 32 sub-issues of map #3 were closed;
+   only the map itself was open. So the map produces no frontier this session,
+   and the only decisions outstanding are the ones put to Joe below.
+
+### Ticket #12 is superseded, not reopened — and the convention is now written down
+
+Joe's 2026-09-10 *"i want to bet on props for parlay legs"* reads as a reversal
+of #12's *"option A — he does not really bet props; drop them from the brief"*
+(2026-09-02) and **is not one**: #12 asked about props as **picks**, the new
+want is props as **legs**, and a prop he would not bet alone is still a leg he
+would combine. **#36** carries the new question; #12 keeps its answer, is left
+closed, and now points at #36. Neither was edited to agree with the other.
+
+`docs/agents/issue-tracker.md` gained the rule, with this as the worked
+example: **never reopen a ticket Joe has answered** — reopening rewrites the
+record of what he said and when, which is the thing the map exists to keep.
+Check first whether the two questions are actually the same one; usually they
+are not, and saying so is most of the work.
+
+### What shipped — `1fdba22`
+
+- **One candidate scan per request.** `build_ladder_payload_widening` called
+  `ladder_candidates` once per window until one built a card, and everything
+  `ladder_candidates` reads before applying the window is horizon-independent:
+  `CANDIDATE_SQL` binds `(floor_ms, floor_ms, now_ms)` and never the horizon
+  (the kickoff bound is applied in Python after `fetchall()`), the per-event
+  `kalshi_markets` loop is keyed off the **unfiltered** scan, and
+  `combo_eligible_events` takes `now_ms` only. Split into `CandidatePool` /
+  `candidate_pool`, read once and filtered per window; the windows are strictly
+  nested, so that is provably the same answer.
+  **The duplication was bigger than item 0b claimed** — `1 + N` statements per
+  window, not one query per window. Measured on a three-game bed that widens
+  once: **two scans and six per-event reads before, one and three after.**
+  A pool carries the `now_ms` / `max_odds_age_ms` it was built for and
+  `ladder_candidates` refuses a mismatch rather than answering for the wrong
+  minute. That guard was **decoration until its own test existed** — the first
+  mutation run came back green.
+- **The combo quote now says when it was read.** `quoted_ms` and
+  `quote_max_age_ms` travel with the priced payload, the threshold **passed
+  from the route** (`staleness.max_kalshi_quote_age_s`) rather than re-derived,
+  so it cannot drift from what `serialise.py` marks `price_is_current` against.
+  `QuoteAge` renders a ticking age and marks itself past the limit. It
+  **relabels and never blocks** — ADR 0112 removed all five ceilings on a hand
+  bet and a staleness gate on the buy would be a sixth.
+- **`Freshness` stopped going silent as the outage got worse.** See the lesson;
+  the gate now also fires on `/api/window`'s fixtures-upcoming-with-none-fresh,
+  and the zero-count branch no longer says "all 0 candidate sides were refused
+  on age".
+- **ADR 0140** — the parlay leg pool is odds-feed-driven.
+
+### The `test_stale_exit.py` guard, and why it was rewritten rather than loosened
+
+It pinned the literal `stale === 0 || unbuilt === 0` while its docstring stated
+the claim: a banner that fires on a working screen is one the reader learns to
+skip. The replacement **preserves that claim exactly** and the test went red
+anyway, because it was pinning characters. Rewritten to assert the claim, plus
+the half it was missing, and it additionally refuses the old predicate's
+return — **strictly stronger than what it replaced.** Lesson written.
+
+### Guards verified by disabling
+
+    widening no longer shares the pool          4 red
+    pool reuse guard (`now_ms` mismatch)        2 red   (green on first pass)
+    threshold dropped from the priced payload   1 red
+    buy control given a `disabled` prop         1 red
+    Freshness gate back to the row-only test    3 red
+
+### Joe has two letters and one FYI — artifact published
+
+<https://claude.ai/code/artifact/b2289b51-be1e-4b12-af59-b09b0db876df>
+
+- **(A) the `/parlays` lede wording.** Still his. "hardly anyone" is in place
+  and correct; he confirms it or replaces it.
+- **(B) props as parlay legs**, re-put with the two-gates finding: try it free
+  in baseball now (recommended), wait and buy the NFL measurement, or close the
+  lane. The correlation limit is stated in the artifact rather than discovered
+  after.
+- **(C) FYI, no answer wanted:** his "take the trade" answer is **withdrawn and
+  not being acted on**, per the partner's ruling. Do not re-ask it. ADR 0110
+  dates the lever to 2026-09-28 regardless, so nothing is lost.
+
+### Still open, in order
+
+0c. **DEPLOY.** Live is `76cc97c`, three behind. The code change is the parlay
+   desk (scan dedup, quote age, Freshness). Deploy with `-e GIT_SHA=` or
+   `/api/health` reports null, and read the sha back rather than inferring it.
+
+B1. **If Joe answers B1: admit prop legs to one recipe, in baseball, free.**
+   `backend/core/ladder.py` is **not** under the odds freeze. The card maths
+   already knows a leg's `event_key`, so refuse same-game prop pairs. This is
+   the fastest falsifying test of the whole prop lane and it costs nothing.
+
+1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Unchanged.
+2. **SUNDAY 2026-09-13 — a scheduled run, not a task to plan.** Unchanged, and
+   still carrying the eighth session's disclosure.
+3. **The recorded-fill-vs-venue-charge census.** Registered this session:
+   `docs/measurements/2026-09-10-preregistration-recorded-fill-vs-venue-charge.md`.
+   **Read the registration before running it — two things in it are binding.**
+   It may NOT be implemented by adding a join to `manual-orders-audit`
+   (`tests/test_inspect_live_db.py` lists `fills` in `FORBIDDEN_TABLES` and is
+   right to be absolute); route it through a separate named harness, as
+   `2026-09-09-fee-alarm-replayed-over-every-hand-fill.md` did. And it is a
+   **census, not an estimate** — no mean, no rate, at any `n`; per-row output
+   ordered by `submitted_ms` ascending and by nothing else.
+   **Both decision branches are unconditional, so this decides nothing** — it
+   captures a fact before the ~3-month `fills` window drops it, which is a
+   different and smaller reason. The `/hedge` "exact" wording was already
+   corrected in CLAUDE.md this session and a clean result does not restore it.
+4. **Total-exposure line at the buy button** — and the partner's design call
+   changes the shape: put it **inside `ManualTicket`** so all six mount points
+   get it from one edit, fed by a small dedicated route. `open_positions`
+   (`backend/bets.py:502`) is served only by `GET /api/slate`, and `/parlays` —
+   the screen all four real combination bets were placed on — fetches none of
+   it. The cheap `/slate` prop-threading covers the screen he does not buy on.
+5. **Check `window.widened_from` on live on a weekday morning.** Still never
+   observed firing. A GET, costs nothing, five minutes inside any lane.
+   **And do not repeat the item's own reasoning**: the widening runs only when
+   the caller names no horizon, so the 2026-09-10 histogram (taken with
+   explicit horizons) says nothing about how often it fires.
+6. **The pair test, re-specified** — unchanged, blocked to 2026-09-13, still
+   needs the `parlay_lookups` pre-existence column first. Only worth a
+   migration if item 3 produces a schema v39 anyway.
+7. **The combo fee-model reopen trigger** (n = 68) — standing no. Unchanged.
+8. **`pip-audit` pyarrow ignore**, **the binned card** — unchanged.
+
+**Closed this session:** the ninth session's item 0b (scan dedup shipped; the
+`widened_from` observation survives as item 5), item A (withdrawn, not
+deferred — see (C)), item B (superseded by #36), the ninth session's item 5
+(`Freshness`, was a conjecture, was true, fixed), item 6 (NFL prop fixture
+capture — done in `8d5dd1c`; KXNFLANYTD had 0 open events, which is a venue
+state and not a task). **The second owed ADR is not owed** — it was conditional
+on the sharp-anchor re-ask surviving, and the re-ask is withdrawn.
+
+---
+
 ## 2026-09-10 (ninth session) — the parlay screen was empty on the clock, not the menu, and NFL prop ladders need no parser
 
 **Joe opened with "I have to make parlays more wide and variety options with
