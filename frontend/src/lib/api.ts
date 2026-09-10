@@ -1115,6 +1115,7 @@ export async function lookupParlay(
   cardKey: string,
   stakeCents: number,
   legs: { event_ticker: string; market_ticker: string }[],
+  horizon?: ParlayHorizon,
 ): Promise<
   { ok: true; value: ParlayLookupResult } | { ok: false; refusal: string }
 > {
@@ -1124,7 +1125,22 @@ export async function lookupParlay(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
-      body: JSON.stringify({ card_key: cardKey, stake_cents: stakeCents, legs }),
+      body: JSON.stringify({
+        card_key: cardKey,
+        stake_cents: stakeCents,
+        legs,
+        // **The window the card was BUILT under, not a client guess.**
+        // Until 2026-09-10 this call never sent one, so the backend always
+        // priced against `tonight` regardless of which window
+        // `GET /api/parlays` used to build the card -- every leg beyond
+        // tonight on a card built under `tomorrow` or `48h` was refused by
+        // a lookup that could not tell "started" from "not tonight" (item 0,
+        // `docs/adr/DRAFT-a-lookup-prices-the-window-the-card-was-built-
+        // in.md`). `undefined` is omitted by `JSON.stringify` rather than
+        // sent as `null`, so an old caller that never passes `horizon`
+        // still gets the server's own `tonight` default.
+        ...(horizon ? { horizon } : {}),
+      }),
     });
   } catch (error) {
     return {

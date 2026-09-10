@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { lookupParlay } from "@/lib/api";
-import type { ParlayCardData, ParlayLookupResult } from "@/lib/api";
+import type { ParlayCardData, ParlayHorizon, ParlayLookupResult } from "@/lib/api";
 import ManualTicket from "@/components/ManualTicket";
 import Term from "@/components/Term";
 
@@ -73,7 +73,19 @@ import Term from "@/components/Term";
  * five times in six. It renders only on `status === "priced"`; when the book
  * is genuinely empty the existing words already say so.
  */
-export default function PriceOnKalshi({ card }: { card: ParlayCardData }) {
+export default function PriceOnKalshi({
+  card,
+  horizon,
+}: {
+  card: ParlayCardData;
+  /**
+   * The window this card was BUILT under -- `ladder.window.key`, echoed by
+   * the caller. `undefined` on an older caller or a payload with no window
+   * echo; the lookup then falls back to the server's own `tonight` default,
+   * which is only right when the card actually is a tonight card.
+   */
+  horizon?: ParlayHorizon;
+}) {
   const [state, setState] = useState<
     | { kind: "idle" }
     | { kind: "working" }
@@ -99,6 +111,7 @@ export default function PriceOnKalshi({ card }: { card: ParlayCardData }) {
           event_ticker: l.event_ticker,
           market_ticker: l.ticker,
         })),
+        horizon,
       );
       if (result.ok) {
         setState({ kind: "done", value: result.value });

@@ -2087,11 +2087,23 @@ def _record_lookup(conn, *, now_ms, card_key, stake_cents, legs, status,
                    ask_tenths=None, depth=None, fair_joint=None, hold=None,
                    error=None, collection_unverified=False,
                    leg_details=None) -> None:
-    """Every lookup is recorded, every outcome -- it minted a real market.
+    """Every lookup is recorded, every outcome.
+
+    True since 2026-09-10 and not before: `price_card_on_kalshi` used to let
+    a `LookupRefused` from `resolve_requested_legs` propagate before this
+    function was ever called, so a drifted leg, a card-shape mismatch or a
+    same-game pair minted nothing AND left no row -- the one outcome this
+    docstring's own promise did not cover. That branch now calls here too,
+    with `status="refused"` and every book/mint field left `NULL`, because
+    unlike every other outcome a refusal at this point has not minted a
+    market -- there is nothing on the exchange to describe yet.
 
     `selected_legs` carries the two tickers **in the order that went on the
     wire**, plus, since 2026-09-09, each leg's side, label, league and
-    commence time when the caller has them (`leg_details`).
+    commence time when the caller has them (`leg_details`) -- and, since
+    2026-09-10, the `horizon` the tap was made under, riding in the same
+    per-leg detail. `legs_for_position` reads its fields by name and ignores
+    the rest, so an extra key here cannot break a `priced` row's reader.
 
     The four extra fields exist for one reason: a `KXMVE` combination is
     enter-only, `/hedge` is the only exit it has, and `hedge.record_position`
@@ -2123,12 +2135,57 @@ def _record_lookup(conn, *, now_ms, card_key, stake_cents, legs, status,
     conn.commit()
 
 
+def _commence_ms_for_tickers(
+    conn, market_tickers: Sequence[str]
+) -> dict[str, Optional[int]]:
+    """The sportsbook's own kickoff for each ticker, or `None` when unknown.
+
+    **The server's own commence_ms, preferred over Kalshi's** -- the same
+    choice `CANDIDATE_SQL` makes. `kalshi_events.commence_ms` runs three
+    hours late (CLAUDE.md) and is never read here; this joins through
+    `event_links` to `odds_snapshots.commence_ms` instead, the sportsbook
+    clock the ladder itself is built on.
+
+    A ticker absent from `kalshi_markets`, or linked to no odds fixture,
+    comes back with no entry -- the caller must read that as "unknown",
+    never as "not yet started". `MIN` per ticker, not a bare join: an event
+    can carry more than one `event_links` row (the table's own UNIQUE is on
+    the pair, not on `kalshi_event_ticker` alone), and the earliest recorded
+    start is the same "protects against a reschedule" choice
+    `CANDIDATE_SQL`'s own subquery documents.
+
+    Only called for legs already absent from the candidate pool -- a handful
+    of tickers per refusal, never the whole slate -- so this is a second
+    small query, not a second copy of `ladder_candidates`.
+    """
+    if not market_tickers:
+        return {}
+    placeholders = ",".join("?" for _ in market_tickers)
+    rows = conn.execute(
+        "SELECT k.ticker AS ticker, MIN(o.commence_ms) AS commence_ms "
+        "FROM kalshi_markets k "
+        "JOIN kalshi_events e ON e.event_ticker = k.event_ticker "
+        "LEFT JOIN event_links l ON l.kalshi_event_ticker = e.event_ticker "
+        "LEFT JOIN ("
+        "  SELECT odds_event_id, MIN(commence_ms) AS commence_ms "
+        "  FROM odds_snapshots GROUP BY odds_event_id"
+        ") o ON o.odds_event_id = l.odds_event_id "
+        f"WHERE k.ticker IN ({placeholders}) "
+        "GROUP BY k.ticker",
+        tuple(market_tickers),
+    ).fetchall()
+    return {row["ticker"]: row["commence_ms"] for row in rows}
+
+
 def resolve_requested_legs(
     candidates: Sequence[CandidateLeg],
     *,
+    conn,
     card_key: str,
     requested_legs: Sequence[tuple[str, str]],
     max_odds_age_ms: int,
+    now_ms: int,
+    horizon: str = DEFAULT_HORIZON,
 ) -> list[CandidateLeg]:
     """The legs the reader tapped, checked one at a time, or a refusal.
 
@@ -2160,6 +2217,14 @@ def resolve_requested_legs(
       mint a nine-leg combination.
 
     Refuses in words naming the leg and the reason, never "the slate moved".
+
+    **`horizon` must be the window `candidates` was itself built under**
+    (`ladder_candidates(..., horizon=horizon)`) -- this function does not
+    re-derive it. A leg absent from `candidates` is looked up by its own
+    kickoff (`_commence_ms_for_tickers`, the sportsbook's clock) to say
+    whether it has started, is outside the window, or is simply not one the
+    desk serves; see that fork below for the three sentences and why there
+    are only three.
     """
     requested = list(dict.fromkeys(requested_legs))
     if not requested:
@@ -2180,19 +2245,55 @@ def resolve_requested_legs(
         (leg.kalshi_event_ticker, leg.kalshi_market_ticker): leg
         for leg in candidates
     }
+    # **Only for legs the pool cannot answer for**, and only their kickoffs --
+    # one small query keyed on a handful of tickers, never a second ladder
+    # scan. `unusable_reason` below already explains a leg the pool CONTAINS
+    # but refuses (stale, unmeasurable, not a probability); this is for a leg
+    # the pool never mentions at all, where the only fact this function can
+    # still ask for is when the game the ticker names actually kicks off.
+    missing_tickers = [
+        market_ticker
+        for event_ticker, market_ticker in requested
+        if (event_ticker, market_ticker) not in by_key
+    ]
+    kickoffs = _commence_ms_for_tickers(conn, missing_tickers)
     selected: list[CandidateLeg] = []
     refusals: list[str] = []
     for event_ticker, market_ticker in requested:
         leg = by_key.get((event_ticker, market_ticker))
         if leg is None:
-            # Absent from the pool entirely. `ladder_candidates` is pre-game
-            # and tonight-only, so the overwhelmingly likely reason is that
-            # the game has started -- but "likely" is not "measured", and the
-            # sentence says what is known rather than guessing which.
-            refusals.append(
-                f"{market_ticker} is no longer on the desk's slate (its game "
-                "has started, or it is past tonight's last game)"
-            )
+            # Absent from the pool entirely. Until 2026-09-10 this guessed
+            # "the game has started, or it is past tonight's last game" for
+            # every such leg -- a card built under a wider window (ADR
+            # DRAFT-a-lookup-prices-the-window-the-card-was-built-in) made
+            # that a guess dressed as a fact: a leg two nights out is also
+            # "absent from the pool" under `tonight`, and it has not
+            # started. The three things this function can actually tell
+            # apart, from the sportsbook's own kickoff:
+            commence = kickoffs.get(market_ticker)
+            if commence is not None and commence <= now_ms:
+                refusals.append(f"{market_ticker}'s game has started")
+            elif (
+                commence is not None
+                and commence > horizon_end_ms(now_ms, horizon)
+            ):
+                _, window_words = HORIZONS.get(
+                    horizon, HORIZONS[DEFAULT_HORIZON]
+                )
+                refusals.append(
+                    f"{market_ticker} kicks off after the '{window_words}' "
+                    "window ends -- pick a wider window"
+                )
+            else:
+                # Either truly unknown (no `kalshi_markets` row, or linked
+                # to no odds fixture), or known and inside the window and
+                # not yet started -- which means the pool dropped it for a
+                # reason this function was not given (no consensus at all,
+                # a market Kalshi does not price, or similar). Both are
+                # honestly "not a leg this desk serves"; neither is a guess.
+                refusals.append(
+                    f"{market_ticker} is not a leg this desk serves"
+                )
             continue
         reason = unusable_reason(leg, max_odds_age_ms=max_odds_age_ms)
         if reason is not None:
@@ -2257,6 +2358,7 @@ async def price_card_on_kalshi(
     now_ms: int,
     max_odds_age_ms: int,
     api,
+    horizon: str = DEFAULT_HORIZON,
 ) -> dict:
     """Mint (or find) the card's combo on Kalshi and price it off its book.
 
@@ -2273,11 +2375,19 @@ async def price_card_on_kalshi(
     and the 2026-08-23 capture shows a freshly minted combo's book IS empty
     on both sides, so that refusal is the expected first answer.
 
+    **`horizon` must be the window the card was BUILT under, echoed back by
+    the client.** Until 2026-09-10 this always priced against `tonight`
+    regardless of which window `GET /api/parlays` used to build the card, so
+    a card built under `tomorrow` or `48h` had every leg beyond tonight
+    refused by a lookup that could not tell the difference between "started"
+    and "not tonight" (item 0,
+    `docs/adr/DRAFT-a-lookup-prices-the-window-the-card-was-built-in.md`).
+
     No fee-net EV anywhere (ADR 0046): the hold is fee-free arithmetic
     (`1 - fair x offered decimal`) and the fee sentence travels beside it.
     """
     candidates, _ = ladder_candidates(
-        conn, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms
+        conn, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms, horizon=horizon
     )
     # **The ladder is deliberately NOT rebuilt here.** It was, and rebuilding
     # it was the defect: a card the desk cannot compose *this second* is not a
@@ -2285,12 +2395,37 @@ async def price_card_on_kalshi(
     # hours" cut alone turns that into a refusal every time an hour passes.
     # It also cost a 200,000-sample copula per card on a path that needs one
     # joint -- `joint_for(selected)` computes exactly the one being priced.
-    selected = resolve_requested_legs(
-        candidates,
-        card_key=card_key,
-        requested_legs=requested_legs,
-        max_odds_age_ms=max_odds_age_ms,
-    )
+    try:
+        selected = resolve_requested_legs(
+            candidates,
+            conn=conn,
+            card_key=card_key,
+            requested_legs=requested_legs,
+            max_odds_age_ms=max_odds_age_ms,
+            now_ms=now_ms,
+            horizon=horizon,
+        )
+    except LookupRefused as exc:
+        # **Recorded since 2026-09-10.** Until then a refusal here -- a
+        # drifted leg, a card shape mismatch, a same-game pair -- never
+        # touched the table at all, because it is raised before the first
+        # `_record_lookup` call and nothing caught it. The audit table's own
+        # docstring already promised a row for every outcome; this is the
+        # one outcome that promise did not cover. No market was minted, so
+        # every book/mint field stays NULL -- only the words and the legs
+        # actually requested are worth recording. `horizon` rides in
+        # `selected_legs`' per-leg detail so a refused row still says which
+        # window it was asked under; `legs_for_position` reads its fields by
+        # name and ignores the rest, so this cannot break a `priced` row's
+        # reader.
+        _record_lookup(
+            conn, now_ms=now_ms, card_key=card_key, stake_cents=stake_cents,
+            legs=list(requested_legs), status="refused", error=exc.detail,
+            leg_details={
+                (e, m): {"horizon": horizon} for e, m in requested_legs
+            },
+        )
+        raise
     served = {(l.kalshi_event_ticker, l.kalshi_market_ticker) for l in selected}
 
     # `sorted`, not `list`: `served` is a set, so its iteration order varies
@@ -2487,11 +2622,24 @@ async def price_card_on_kalshi(
     ask_tenths = book.best_yes_ask
 
     if ask_tenths is None:
+        # **The two sides of "empty" are not the same fact.** No resting NO
+        # bid (what `ask_tenths is None` means) says nothing about the YES
+        # side, and "the whole book is empty" and "only the ask side is" are
+        # different observations to whoever reads this row later. Neither
+        # needs a column: `best_yes_bid` and the level counts fit in the
+        # existing free-text `error` field, which every other status already
+        # uses for exactly this kind of detail-without-a-migration.
+        yes_bid = book.best_yes_bid
+        book_detail = (
+            f"yes_bid={yes_bid if yes_bid is not None else 'none'} "
+            f"yes_levels={len(book.yes_bids)} no_levels={len(book.no_bids)}"
+        )
         _record_lookup(
             conn, now_ms=now_ms, card_key=card_key, stake_cents=stake_cents,
             legs=legs, status="book_empty",
             collection_ticker=collection.collection_ticker, minted=minted,
             fair_joint=joint.conservative, collection_unverified=unverified,
+            error=book_detail,
         )
         return {
             "status": "book_empty",
@@ -2518,9 +2666,12 @@ async def price_card_on_kalshi(
                 "there is no price you could actually pay right now. Every "
                 "freshly minted combo book this tool has read looked exactly "
                 "like this; the app may show a number, but a number nobody "
-                "will trade at is not a cost. Try again shortly, or build it "
-                "in the Kalshi app and compare its quote to the fair value "
-                "on the card."
+                "will trade at is not a cost. Asking again costs nothing and "
+                "mints nothing new -- it just re-reads this same market's "
+                "book -- but nothing in this desk's own record shows an "
+                "empty combo book turning into a quoted one on a later ask. "
+                "Build it in the Kalshi app instead and compare its quote to "
+                "the fair value on the card."
             ),
         }
 

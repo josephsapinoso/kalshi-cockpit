@@ -83,7 +83,15 @@ from ..core.prices import is_valid_price
 #: `backend/parlays.py`'s `CANDIDATE_SQL`) and this partial index, so the
 #: OR's second arm seeks instead of falling back to a scan. See
 #: `docs/adr/0134-the-ladder-scan-keys-on-the-confirmed-stamp.md`.
-SCHEMA_VERSION = 37
+#: v38 (2026-09-10) widens `parlay_lookups.status` to admit `'refused'` -- a
+#: lookup `resolve_requested_legs` stops before any mint (a drifted leg, a
+#: card shape mismatch, a same-game pair) now writes a row too, closing the
+#: one outcome the table's own docstring promised a row for and never got
+#: one. A REBUILD, not a column step, for the same reason v35 was: SQLite
+#: cannot widen a table-level CHECK in place. The rows already written keep
+#: their real values -- nothing is deleted, backfilled or rewritten. See
+#: `docs/adr/DRAFT-a-lookup-prices-the-window-the-card-was-built-in.md`.
+SCHEMA_VERSION = 38
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -807,6 +815,87 @@ _MANUAL_ORDERS_NULLABLE_P_YES_UNDO = (
 )
 
 
+#: The `parlay_lookups` shape at v37 vs. v38, spelled once and reused in both
+#: directions -- the same reason `_MANUAL_ORDERS_COLUMNS_V35` exists. Every
+#: column but the CHECK's own admitted `status` values is identical, and a
+#: hand-copied second version of a 15-column table with a CHECK inside it is
+#: how the constraint quietly drifts between the two.
+_PARLAY_LOOKUPS_COLUMNS_V38 = (
+    "id, requested_ms, card_key, stake_cents, selected_legs, "
+    "collection_ticker, status, minted_market_ticker, book_no_bid_tenths, "
+    "derived_yes_ask_tenths, book_depth, fair_joint_conservative, hold, "
+    "error, collection_unverified"
+)
+
+
+def _parlay_lookups_create(table: str, *, refused_allowed: bool) -> str:
+    """The `parlay_lookups` shape, in both directions of the v38 step.
+
+    `schema.sql` carries the canonical column comments; this is DDL only,
+    kept in one function so the CHECK's two spellings (with and without
+    `'refused'`) cannot drift the way two hand-typed `CREATE TABLE`
+    statements would.
+    """
+    statuses = "'priced', 'book_empty', 'no_collection', 'error'"
+    if refused_allowed:
+        statuses += ", 'refused'"
+    return (
+        f"CREATE TABLE IF NOT EXISTS {table} (\n"
+        "    id                       INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+        "    requested_ms             INTEGER NOT NULL,\n"
+        "    card_key                 TEXT NOT NULL,\n"
+        "    stake_cents              INTEGER NOT NULL,\n"
+        "    selected_legs            TEXT NOT NULL,\n"
+        "    collection_ticker        TEXT,\n"
+        "    status                   TEXT NOT NULL,\n"
+        "    minted_market_ticker     TEXT,\n"
+        "    book_no_bid_tenths       INTEGER,\n"
+        "    derived_yes_ask_tenths   INTEGER,\n"
+        "    book_depth               REAL,\n"
+        "    fair_joint_conservative  REAL,\n"
+        "    hold                     REAL,\n"
+        "    error                    TEXT,\n"
+        "    collection_unverified    INTEGER NOT NULL DEFAULT 0,\n"
+        f"    CHECK (status IN ({statuses}))\n"
+        ")"
+    )
+
+
+#: **Idempotent at every crash point, on the `_MANUAL_ORDERS_NULLABLE_P_YES`
+#: pattern -- no `skip_statements_if_column` needed**, because `INSERT OR
+#: IGNORE` plus DROP/RENAME make a full replay a no-op that recreates an
+#: identical table, rows and all. Unlike v35, this rebuild's table carries an
+#: index (`idx_parlay_lookups_time`), which `DROP TABLE` takes with it -- so
+#: the last statement recreates it, on the `_SETTLEMENTS_REBUILD` (v4)
+#: precedent, and the `_Migration` entry below declares it for the same
+#: reason v4's does: so `scripts/migrate_db.py` can verify by name, at boot,
+#: that the step actually left it behind.
+_PARLAY_LOOKUPS_ADMIT_REFUSED = (
+    _parlay_lookups_create("parlay_lookups_v38", refused_allowed=True),
+    f"INSERT OR IGNORE INTO parlay_lookups_v38 ({_PARLAY_LOOKUPS_COLUMNS_V38}) "
+    f"SELECT {_PARLAY_LOOKUPS_COLUMNS_V38} FROM parlay_lookups",
+    "DROP TABLE parlay_lookups",
+    "ALTER TABLE parlay_lookups_v38 RENAME TO parlay_lookups",
+    "CREATE INDEX IF NOT EXISTS idx_parlay_lookups_time "
+    "ON parlay_lookups(requested_ms DESC)",
+)
+
+#: The v37 shape, for the migration tests that build an "old" database by
+#: undoing this step. `WHERE status != 'refused'` is the v21/v35 precedent:
+#: a `'refused'` row could not have existed at v37, so none survives the trip
+#: back -- and on a real v37-to-v38-to-v37 round trip there are none to drop.
+_PARLAY_LOOKUPS_ADMIT_REFUSED_UNDO = (
+    _parlay_lookups_create("parlay_lookups_v37", refused_allowed=False),
+    f"INSERT OR IGNORE INTO parlay_lookups_v37 ({_PARLAY_LOOKUPS_COLUMNS_V38}) "
+    f"SELECT {_PARLAY_LOOKUPS_COLUMNS_V38} FROM parlay_lookups "
+    "WHERE status != 'refused'",
+    "DROP TABLE parlay_lookups",
+    "ALTER TABLE parlay_lookups_v37 RENAME TO parlay_lookups",
+    "CREATE INDEX IF NOT EXISTS idx_parlay_lookups_time "
+    "ON parlay_lookups(requested_ms DESC)",
+)
+
+
 #: Schema versions that added ONLY new tables, and so need no `_MIGRATIONS`
 #: step at all.
 #:
@@ -921,6 +1010,16 @@ _MIGRATIONS: dict[int, _Migration] = {
     35: _Migration(
         statements=_MANUAL_ORDERS_NULLABLE_P_YES,
         undo_statements=_MANUAL_ORDERS_NULLABLE_P_YES_UNDO,
+    ),
+    # `parlay_lookups.status` admits `'refused'` -- a lookup that
+    # `resolve_requested_legs` stops before any mint now writes a row instead
+    # of leaving the table's own "every outcome is recorded" docstring false
+    # for the one outcome that never touched it. See the constants above for
+    # why this is a rebuild and why it needs no completion-marker column.
+    38: _Migration(
+        statements=_PARLAY_LOOKUPS_ADMIT_REFUSED,
+        indexes=("idx_parlay_lookups_time",),
+        undo_statements=_PARLAY_LOOKUPS_ADMIT_REFUSED_UNDO,
     ),
     # Which screen was open when the heartbeat landed -- decision-map question
     # E, approved by Joe 2026-09-05.

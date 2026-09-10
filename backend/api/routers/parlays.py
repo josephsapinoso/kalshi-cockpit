@@ -284,6 +284,7 @@ def register(
                 ],
                 now_ms=now,
                 max_odds_age_ms=staleness.max_odds_age_s * 1000,
+                horizon=request.horizon,
                 api=api,
             )
         except LookupRefused as exc:
