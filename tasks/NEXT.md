@@ -178,7 +178,7 @@ pre-build an index its code does not know). Live built it in 172 s.
 **After, on the warm box:** `/api/parlays` **1.1 s**, `/api/slate` 0.6 s,
 `/api/board` 0.27 s, `/api/hedge` 0.13 s, every SSR page under 2.2 s; the
 runner at **189 MB, 72-75 ms** over 434 rows; zero OOM lines since. The
-25-minute reading had `/api/window` at 20 s — that was the cold page cache
+first post-boot reading had `/api/window` at 20 s — that was the cold page cache
 after the reboot and the 5 GB rehearsal copy, not a second defect: replayed on
 live it is **0.95 s**, 0.91 of it one `GROUP BY` over `odds_snapshots`.
 

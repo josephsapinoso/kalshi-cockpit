@@ -177,11 +177,11 @@ cannot pre-build an index its code does not know, so the grace was raised to
 Live on `324a53f` (ADRs 0134–0137, schema v37), same machine, migrated
 `v36 -> v37` at boot in **172 s** (04:33:16Z checking schema, 04:36:08Z
 migrated; the 600 s grace held), health passing 04:36:41Z. Same script, same
-reps. Two readings, and the difference between them is the finding about
+reps, at ~04:39Z and ~04:45Z. Two readings, and the difference between them is the finding about
 `/api/window`:
 
 ```
-                              before (v36)        ~25 min after boot     ~45 min after boot
+                              before (v36)        ~3 min after boot      ~9 min after boot
 /api/health                    161 ms              136 ms                 131 ms
 /api/odds/refreshable          343 ms              119 ms                 102 ms
 /api/hedge                     916 ms              180 ms                 128 ms
@@ -197,8 +197,8 @@ reps. Two readings, and the difference between them is the finding about
 /picks    (SSR)                -                   1,607 ms               1,493 ms
 ```
 
-The 25-minute reading was taken on a box whose page cache had been emptied
-by the reboot and by the 5 GB rehearsal copy; the 45-minute reading is the
+The first reading was taken on a box whose page cache had been emptied
+by the reboot and by the 5 GB rehearsal copy; the second reading is the
 steady state. `/api/window` at 20 s was the cold box, not a second defect:
 replayed read-only on live with every statement timed, `window_status` takes
 **0.95 s**, of which 0.91 s is one `GROUP BY odds_event_id` over
