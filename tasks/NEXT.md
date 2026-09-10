@@ -134,13 +134,14 @@ the recipe gate throws them away. So the question is answerable **today, in
 baseball, at zero credits**, and the ~14-credit NFL measurement is only worth
 buying if that comes back well. Ordering inverted, decision unchanged.
 
-**STATE at close.** `main` = **`1fdba22`**, pushed. Two commits: `a5b7460`
-(pre-registration, docs-only) and `1fdba22` (the three lanes). **Live =
-`76cc97c`** — behind by three, two of them docs-only; the deploy is the next
-session's or this one's last act. Full suite on the tree before the final two
-lanes: **6,915 passed, 10 xfailed, 1 failed**, the failure being the
-`test_stale_exit.py` guard discussed below and now resolved; ruff and tsc
-clean. Odds path untouched: **the freeze to 10:00Z 2026-09-14 holds** — nothing
+**STATE at close.** `main` = **`7f0f85f`**, pushed, CI green (run
+34520670775 on `5042d15`, and the one docs commit after it). Four commits:
+`a5b7460` the pre-registration, `1fdba22` the three lanes, `5042d15` the
+session files, `7f0f85f` a lesson. **Live = `7f0f85f`**, deployed with
+`-e GIT_SHA=` and read back off `/api/health` rather than inferred; recorder
+writing, live quotes up, arming unchanged (hand path armed, engine and bids
+dry). Full suite on the tree as committed: **6,938 passed, 10 xfailed, 0
+failed** (10m29s); ruff and tsc clean. Odds path untouched: **the freeze to 10:00Z 2026-09-14 holds** — nothing
 under `backend/odds/` or `backend/scheduler.py` was read for edit or written.
 **Credits: zero spent.** No lookup was minted, no combo tap taken, nothing
 authenticated was called against Kalshi except one read-only `flyctl ssh` for a
@@ -241,9 +242,35 @@ return — **strictly stronger than what it replaced.** Lesson written.
 
 ### Still open, in order
 
-0c. **DEPLOY.** Live is `76cc97c`, three behind. The code change is the parlay
-   desk (scan dedup, quote age, Freshness). Deploy with `-e GIT_SHA=` or
-   `/api/health` reports null, and read the sha back rather than inferring it.
+0c. **THE COLD-START 503 IS NOT THE WIDENING, AND THAT IS NOW MEASURED
+   RATHER THAN SUSPECTED.** Deployed `7f0f85f` and read `/api/parlays` three
+   times immediately after:
+
+       attempt 1 (cold)   503 read_budget_exceeded   25.0s
+       attempt 2          200, 4 of 7 cards          10.8s
+       attempt 3 (warm)   200, 4 of 7 cards           1.5s
+
+   **`widened_from` was `None` on both successes** — `tonight` built four
+   cards, so the widening loop never ran and the 503 landed on a request that
+   took **one** `ladder_candidates` scan. The ninth session's item 0b read the
+   two events as coinciding by construction; they do not. A cold container
+   against a 10M-row database blows a 25s budget on a single scan, which is
+   the same page-cache effect as the 74.8s-cold / 2.15s-warm measurement in
+   `lessons.md` — the 5GB file does not fit the ~1.4GB cache and a fresh
+   machine has none of it.
+
+   So the dedup shipped in `1fdba22` is right on its own terms and buys
+   nothing here. **Do not write it up as the fix, and do not chase the
+   widening further.** The real question is a cold box serving a 25s budget:
+   warm the candidate path on boot, raise or stage the budget for the first
+   request after start, or accept a 503 on the first tap after a deploy and
+   say so on screen. Not chosen — it is a design call and it wants
+   `runtime-realist` on what actually runs at boot before anyone picks.
+
+   **Joe-visible consequence, worth knowing before he taps:** the first
+   `/parlays` load after any deploy is likely to fail, and a retry ten
+   seconds later works. Every deploy has always done this; it was read as a
+   one-off in the ninth session and it is not.
 
 B1. **If Joe answers B1: admit prop legs to one recipe, in baseball, free.**
    `backend/core/ladder.py` is **not** under the odds freeze. The card maths
