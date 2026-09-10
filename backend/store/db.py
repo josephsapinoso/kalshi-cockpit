@@ -82,7 +82,7 @@ from ..core.prices import is_valid_price
 #: a predicate on EITHER stamp (`computed_ms >= ? OR confirmed_ms >= ?`,
 #: `backend/parlays.py`'s `CANDIDATE_SQL`) and this partial index, so the
 #: OR's second arm seeks instead of falling back to a scan. See
-#: `docs/adr/DRAFT-the-ladder-scan-keys-on-the-confirmed-stamp.md`.
+#: `docs/adr/0134-the-ladder-scan-keys-on-the-confirmed-stamp.md`.
 SCHEMA_VERSION = 37
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
@@ -895,7 +895,7 @@ _MIGRATIONS: dict[int, _Migration] = {
     # while `computed_ms` stays wherever it first appeared, days earlier. v37
     # adds `idx_fair_market_confirmed` and a predicate on `confirmed_ms`
     # precisely because this column IS queried on now. See v37's own comment
-    # and `docs/adr/DRAFT-the-ladder-scan-keys-on-the-confirmed-stamp.md`.
+    # and `docs/adr/0134-the-ladder-scan-keys-on-the-confirmed-stamp.md`.
     36: _Migration(
         columns=(
             ("fair_prices", "confirmed_ms", "INTEGER"),

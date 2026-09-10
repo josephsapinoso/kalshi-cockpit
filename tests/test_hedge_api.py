@@ -294,8 +294,8 @@ class TestVenueCoverageOnTheRoute:
     """`GET /api/hedge` serialises the coverage facts end to end: what the
     venue holds that `parlay_positions` does not, and whether a recorded
     ticket's own market is still there or has itself settled. Read off live
-    2026-09-10/2026-10-09 -- see ADR DRAFT-the-hedge-screen-says-what-it-
-    cannot-see."""
+    2026-09-10 -- see ADR 0136, the hedge screen says what it
+    cannot see."""
 
     async def test_the_route_serialises_venue_coverage(self, app_and_path):
         application, path = app_and_path

@@ -1,6 +1,6 @@
-# The phone says which legs are live, on a schedule — not only when one is losing
+# ADR 0137 — The phone says which legs are live, on a schedule — not only when one is losing
 
-- **Status:** Draft
+- **Status:** Accepted, 2026-09-10 (amends ADR 0078 D2 on Joe's word)
 - **Date:** 2026-09-10
 - **Amends:** ADR 0078 ("The desk watches what Joe holds, and a hedge alert
   says only what it measured") Decision 2. Nothing else in ADR 0078 changes:

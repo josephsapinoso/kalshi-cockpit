@@ -1,6 +1,6 @@
-# ADR DRAFT — An abandoned request stops executing
+# ADR 0135 — An abandoned request stops executing
 
-**Status:** Draft, 2026-09-09. No ordinal assigned; renumber and accept when
+**Status:** Accepted, 2026-09-10. Numbered at merge; shipped alongside ADR 0134, the query that caused the incident. Original note: renumber and accept when
 merged alongside the fix to whichever query actually caused the incident this
 records (a separate lane's work — see §4).
 

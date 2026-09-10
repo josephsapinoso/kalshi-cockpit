@@ -7,7 +7,7 @@ handler turns that abort into a 503 naming the cause rather than a bare 500.
 **What it does not establish:** which specific query caused the incident this
 guards against (four routes 500ing at Next's 30s rewrite-proxy timeout,
 uvicorn OOM-killed at 1.88 GB) -- that is a separate lane's fix. See
-`docs/adr/DRAFT-an-abandoned-request-stops-executing.md`.
+`docs/adr/0135-an-abandoned-request-stops-executing.md`.
 """
 
 from __future__ import annotations

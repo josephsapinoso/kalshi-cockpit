@@ -1,4 +1,4 @@
-# ADR DRAFT — The ladder scan keys on the confirmed stamp
+# ADR 0134 — The ladder scan keys on the confirmed stamp
 
 **Status:** Accepted, 2026-09-10.
 **Date:** 2026-09-10.

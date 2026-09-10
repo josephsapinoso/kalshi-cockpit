@@ -1,6 +1,6 @@
-# ADR DRAFT — The hedge screen says what it cannot see
+# ADR 0136 — The hedge screen says what it cannot see
 
-- **Status:** Draft
+- **Status:** Accepted, 2026-09-10
 - **Date:** 2026-09-10
 - **Extends:** ADR 0078 (the desk watches what Joe holds), ADR 0125 (a
   combination bought through the desk is watched for its own exit). Touches

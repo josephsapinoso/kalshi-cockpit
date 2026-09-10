@@ -1134,7 +1134,7 @@ class AppConfig:
     # MEMORY` scratch space until enough of them OOM-kill the process. This
     # budget aborts the statement first, so the client gets a real 503 naming
     # the cause instead of the proxy's generic one -- see
-    # `docs/adr/DRAFT-an-abandoned-request-stops-executing.md`.
+    # `docs/adr/0135-an-abandoned-request-stops-executing.md`.
     api_read_budget_ms: int = 25_000
 
     @classmethod

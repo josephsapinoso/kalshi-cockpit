@@ -69,7 +69,7 @@ export default function HedgePositions({
   positions: HeldPosition[];
   notes: Record<string, string>;
   /** Kalshi combinations the venue holds that nothing here watches (ADR
-   * DRAFT-the-hedge-screen-says-what-it-cannot-see). */
+   * 0136-the-hedge-screen-says-what-it-cannot-see). */
   unrecordedAtVenue?: UnrecordedAtVenue[];
   venuePollMs?: number | null;
   asOfMs: number;

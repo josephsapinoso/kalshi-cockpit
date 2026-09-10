@@ -505,7 +505,7 @@ def watched_tickers(conn: sqlite3.Connection) -> list[str]:
 # Coverage -- what the venue holds that the record does not, and vice versa
 # --------------------------------------------------------------------------
 #
-# ADR DRAFT-the-hedge-screen-says-what-it-cannot-see. Read off live
+# ADR 0136. Read off live
 # 2026-09-10: the newest `positions` poll held one open KXMVE combination
 # bought in the Kalshi app, and `/hedge` had never heard of it -- the entry
 # path this ADR extends (ADR 0125) writes `parlay_positions` only when the
@@ -1102,8 +1102,8 @@ async def build_payload(
     a judgement** -- ADR 0071 §2.5 forbids ranking by the consensus-vs-Kalshi
     gap, and this module does not compute that gap at all.
 
-    Also carries the two coverage facts ADR DRAFT-the-hedge-screen-says-
-    what-it-cannot-see adds: `unrecorded_at_venue` (combinations the venue
+    Also carries the two coverage facts ADR 0136 (the hedge screen says
+    what it cannot see) adds: `unrecorded_at_venue` (combinations the venue
     holds that this record does not) and, per position, `at_venue` and
     `venue_settlement` (whether and how this record's own ticket is still
     there). Neither is used to close or reorder anything here.

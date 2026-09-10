@@ -411,7 +411,7 @@ def create_app(
         `store.db.connect`'s progress handler raises exactly this exception
         with the message "interrupted" when a statement outruns
         `api_read_budget_ms` -- see that module and
-        `docs/adr/DRAFT-an-abandoned-request-stops-executing.md`. Anything
+        `docs/adr/0135-an-abandoned-request-stops-executing.md`. Anything
         else with this type (a locked database, a malformed statement) is a
         real bug, not an abandoned-request defence, so it is re-raised to fall
         through to Starlette's normal 500 handling rather than being
@@ -486,7 +486,7 @@ def create_app(
         raises `sqlite3.OperationalError: interrupted`, which the app-level
         handler below turns into a 503 naming the cause -- see
         `store.db.connect` for why the budget is per-connection and
-        `docs/adr/DRAFT-an-abandoned-request-stops-executing.md` for the
+        `docs/adr/0135-an-abandoned-request-stops-executing.md` for the
         incident this closes.
         """
         conn = db.open_db(
