@@ -272,7 +272,14 @@ combo's own live quote and the absence of a resting YES bid are never shown.
    props (FIRSTTD 110, RSHYDS/RECYDS/PASSYDS 97, ANYTD 94). Joe wants
    spreads, totals and props in parlays. What blocks it: `ODDS_MARKETS =
    "h2h,spreads"` (`fly.live.toml:486`, odds path, frozen to 10:00Z
-   2026-09-14, and a third market raises per-call credit cost ~1.5x);
+   2026-09-14, and the multiplier is exactly 1.5 (`sweep_cost = markets x
+   regions`, `backend/odds/budget.py:66-68`, 4 -> 6 at `us,eu`), ADR 0110
+   already refuses totals this season because the largest budget day on
+   record (496 credits, 2026-09-05, no NFL) becomes 744 against the 700 cap,
+   and the only lever that admits totals is dropping `eu` (3 credits a
+   call), dated 2026-09-28 behind ADR 0110's two preconditions; the credit
+   look is registered in
+   `docs/measurements/2026-09-10-preregistration-totals-market-credit-cost.md`);
    `CANDIDATE_SQL` admits h2h, spreads and five MLB prop keys only; the
    four `CARD_SHAPES` recipes pick "the N likeliest games", one leg per
    fixture (same-game stays out, ADR 0012 section 5). A recipe is a rule

@@ -453,20 +453,30 @@ primary_region = "ord"
   #
   # A team sweep costs `len(markets) * len(regions)` -- `odds/budget.py:66-68`
   # -- so three keys across two regions was 6 credits per sport per refresh.
-  # **Two of those three keys were consumed by nothing.** The pricing path is
+  # **Two of those three keys were consumed by nothing** -- true in 2026-08;
+  # corrected 2026-09-10, see the ADR 0070 note above: `spreads` is no longer
+  # one of them, `totals` still is. The pricing path is
   # `book_quotes_for_event(conn, odds_event_id, *, now, market=MONEYLINE)` with
   # `MONEYLINE = "h2h"` (`runner.py:136, 252`), and its ONLY call site
-  # (`runner.py:1218`) passes no `market` and therefore takes the default.
-  # Outside tests, `"spreads"` and `"totals"` appear in exactly one place in the
-  # tree: `TEAM_MARKETS` in `odds/client.py:95`, which is the *fetch* allowlist.
-  # No suppression rule, devig, EV computation, sizing calculation, gate
-  # condition or API response reads either one.
+  # (`runner.py:1218`) passes no `market` and therefore takes the default --
+  # that remains the h2h path and is unaffected by ADR 0070's separate
+  # `_price_spread_event` path.
+  # Outside tests, `"totals"` still appears in exactly one place in the tree
+  # besides this file: `TEAM_MARKETS` in `odds/client.py:95`, the *fetch*
+  # allowlist. `"spreads"` no longer does -- `_price_spread_event`
+  # (`runner.py:1242`) and the parlay ladder (`TEAM_MARKETS_ONLY`,
+  # `core/ladder.py:131`) both read it now (corrected 2026-09-10). No
+  # suppression rule, devig, EV computation, sizing calculation, gate
+  # condition or API response reads `totals`.
   #
-  # **Nor could they be used if something wanted to.** `match/linker.py:281`
-  # refuses any Kalshi event whose side-set is not exactly 2, so KXNFLSPREAD
-  # (25 sides), KXNFLTOTAL (19) and KXMLBTOTAL (11) are rejected on every pass
-  # and always have been. Spread and total have never priced for ANY sport.
-  # Buying their odds is buying the input to a feature that does not exist.
+  # **Nor could they be used if something wanted to** -- true in 2026-08 for
+  # both; corrected 2026-09-10, see the ADR 0070 note above. Spread events no
+  # longer hit `match/linker.py:281`'s 2-side refusal -- they inherit their
+  # game's link by fixture segment (`SPREAD_LINK_METHOD`) -- so KXNFLSPREAD
+  # (25 sides) is not rejected and has priced since ADR 0070. `totals` events
+  # still do: KXNFLTOTAL (19) and KXMLBTOTAL (11) are rejected on every pass
+  # and always have been, and total has never priced for ANY sport. Buying
+  # total odds alone is buying the input to a feature that does not exist.
   #
   # **What it buys back.** 6 credits/call -> 2. The measured collision was an
   # NCAAF Saturday (12.5 open hours) landing on an MLB evening: 630-700 credits

@@ -33,9 +33,10 @@ WebSocket path with the result that it stayed dead through 611 passing tests.
 
 What this does not do yet
 -------------------------
-- **Spreads and totals** are stored by ingest and ignored by pricing. They need
-  the model's margin distribution to price, and shipping them half-done would
-  put rows in the evidence record that nothing can score.
+- **Spreads are priced** (`_price_spread_event`, ADR 0070) and consumed by the
+  parlay ladder. **Totals** are still stored by ingest and ignored by pricing:
+  they need the model's margin distribution to price, and shipping them
+  half-done would put rows in the evidence record that nothing can score.
 
   MLB **player props** are priced, since 2026-08-15. They needed the
   per-`outcome_point` grouping spreads also need, but not the margin

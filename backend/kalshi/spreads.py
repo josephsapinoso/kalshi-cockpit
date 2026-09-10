@@ -112,10 +112,12 @@ def spread_margin_agrees(margin: float, strike: Optional[float]) -> bool:
 def spread_book_point(margin: float) -> float:
     """The sportsbook `point` that Kalshi's `"T wins by over S"` YES is.
 
-    **The join identity, in one place.** Kalshi sells only the favorite's
-    cover, and the book publishes that same side as `(T, point = -S)` — the
-    favorite laying S. The complementary book outcome `(other team, +S)` is
-    the same Kalshi market's NO side, which is not a buyable leg.
+    **The join identity, in one place.** Every Kalshi spread market's YES is
+    a "T wins by over S" cover (both teams get their own rung ladder — see
+    `tests/fixtures/events_nfl_spread.json`, `mutually_exclusive: false`), and
+    the book publishes that same side as `(T, point = -S)` — the favorite
+    laying S. The complementary book outcome `(other team, +S)` is the same
+    Kalshi market's NO side, which is not a buyable leg.
 
     Trivial arithmetic, and that is the point: it was written out twice (the
     runner's pricing path and the parlay desk's reader) and a sign convention
