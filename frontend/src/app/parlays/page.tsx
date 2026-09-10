@@ -97,8 +97,21 @@ export default async function ParlaysPage({
             with `ladder.notes.chance` still appended. It adds the fact the
             old sentence omitted and a novice most needs: a card is enter-only
             -- no YES bid on 40 of 40 combination books this repo has read
-            (`parlays.py`, ADR 0012 §5) -- so once bought nobody is bidding to
-            buy it back. No availability claim, deliberately (#9 records why).
+            (`parlays.py`, ADR 0012 §5) -- so once bought hardly anyone is
+            bidding to buy it back. No availability claim, deliberately (#9
+            records why).
+
+            **"nobody" became "hardly anyone" on 2026-09-10, and the change is
+            correctness rather than wording.** Two `KXMVECROSSCATEGORY-SHARD1`
+            books were read carrying resting YES bids ($10 at 0.0980 and $10 at
+            0.0570), so the universal is false; one counterexample ends it.
+            Joe ratifies wording and this sentence is still his -- the final
+            phrasing is put to him -- but a ratified sentence does not get to
+            stay false on the screen while the answer is pending, which is
+            CLAUDE.md's fix-and-copy-ship-together rule. Everything else in
+            #9's sentence is untouched, and the replacement still makes no
+            availability claim and implies no rate: how OFTEN a bid is there
+            is what Arm D measures on 2026-09-13.
           */}
           {/*
             **This sentence is RATIFIED and is restored here after being
@@ -119,8 +132,8 @@ export default async function ParlaysPage({
           one pick per game, shown at the{" "}
           <Term k="fair_value">fair value</Term> the sportsbooks&rsquo; chances
           imply rather than at what Kalshi charges — a card pays only if every
-          pick on it wins, and once you own one nobody is bidding to buy it
-          back.{" "}
+          pick on it wins, and once you own one hardly anyone is bidding to buy
+          it back.{" "}
           {ladder.notes.chance}
         </p>
       </header>

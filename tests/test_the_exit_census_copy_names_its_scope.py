@@ -53,9 +53,14 @@ from backend.parlays import (  # noqa: E402
 #: variable holding it -- a dict key or a parameter name is not part of the
 #: sentence and would let the copy be moved out from under this guard.
 SURFACES = {
+    # Marker moved 2026-09-10: the sentence used to say "cannot exit it" and
+    # that universal was falsified (two shard-1 books carried resting YES
+    # bids). The marker tracks the sentence, not the killed claim -- pinning
+    # a phrase the copy must no longer contain would have made this guard
+    # unsatisfiable rather than protective.
     "buy ticket combo_note": (
         REPO / "backend" / "api" / "routes.py",
-        "cannot exit it",
+        "hold it to the outcome",
     ),
     "bid route 422": (
         REPO / "backend" / "api" / "routers" / "parlays.py",
@@ -147,15 +152,26 @@ class TestTheScopeClaimsOnlyWhatWasMeasured:
 
         "unlike", "however", "but" after the census sentence all smuggle in a
         contrast that no data supports. Registration §11.3 forbids the screens
-        hinting in either direction; the honest statement is that nothing is
-        known there.
+        hinting in either direction.
+
+        **This used to require the words "nothing is known", and on
+        2026-09-10 that requirement became a demand for a false statement.**
+        Two shard-1 books were read carrying resting YES bids, so something
+        IS known: a bid can be there. What is still unknown -- and what §11.3
+        actually protects -- is how OFTEN, which Arm D measures on
+        2026-09-13. The guard therefore now requires the copy to disclaim the
+        RATE rather than to disclaim all knowledge, which is the claim the
+        record supports and the one it supported before, differently worded.
         """
+        unmeasured = ("unmeasured", "never been measured", "not been measured")
         for label, (path, marker) in SURFACES.items():
             source = _copy_source(path, marker).lower()
-            assert "nothing is known" in source, (
-                f"{label} names the shard without saying that nothing is "
-                f"known about it either way, which is the only claim the "
-                f"record supports."
+            assert any(phrase in source for phrase in unmeasured), (
+                f"{label} names the shard observation without saying its "
+                f"frequency is unmeasured. An existence proof with no "
+                f"disclaimer reads as an availability claim, which is the "
+                f"error in the opposite direction from the one this file "
+                f"was written to stop."
             )
             for phrase in ("unlike", "whereas", "may differ", "different there"):
                 assert phrase not in source, (

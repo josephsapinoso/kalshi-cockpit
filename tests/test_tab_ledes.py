@@ -78,11 +78,22 @@ GAMES_LEDE = (
 )
 
 #: #9's Parlays lede, verbatim. `<Term>` markup is stripped before comparison.
+#:
+#: **The final clause was RATIFIED as "nobody is bidding to buy it back" and
+#: was falsified on 2026-09-10**, when two `KXMVECROSSCATEGORY-SHARD1` books
+#: were read carrying resting YES bids. One counterexample ends a universal.
+#:
+#: Joe ratifies WORDING; whether a screen may keep asserting something false
+#: is correctness, and correctness does not wait for an answer -- CLAUDE.md's
+#: rule is that the fix and the copy ship together or the screen lies in the
+#: interval. So the universal is cut to the narrowest true replacement,
+#: changing one word, and the final wording is Joe's to choose. The rest of
+#: #9's sentence is untouched.
 PARLAYS_LEDE = (
     "Parlay cards cut from tonight’s games, one pick per game, shown at the "
     "fair value the sportsbooks’ chances imply rather than at what Kalshi "
     "charges — a card pays only if every pick on it wins, and once you own "
-    "one nobody is bidding to buy it back."
+    "one hardly anyone is bidding to buy it back."
 )
 
 #: #9's "Your bets" lede, verbatim. CLV is described, never named, so the

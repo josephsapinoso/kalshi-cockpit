@@ -230,7 +230,14 @@ function Result({ value }: { value: ParlayLookupResult }) {
         ticker={value.minted_market_ticker}
         variant="inline"
         openLabel="Buy this combination"
-        note="One combination, one contract. There is no resting YES bid on any combination book this tool has read, so the only exit is the outcome — and the fee here is a ceiling, not a quote."
+        /* "so the only exit is the outcome" was a conclusion drawn from a
+           universal that died on 2026-09-10: two KXMVECROSSCATEGORY-SHARD1
+           books were read carrying resting YES bids ($10 at 0.0980, $10 at
+           0.0570). The scoped fact before it is still literally true — this
+           tool read none — but a true premise no longer licenses that
+           conclusion, and stating the premise alone would imply it. How
+           often a bid is there is what Arm D measures on 2026-09-13. */
+        note="One combination, one contract. This tool has read no resting YES bid on a combination book, and on 2026-09-10 two were seen elsewhere on this shard at ten contracts apiece — so an exit is small and its frequency unmeasured. Expect to hold to the outcome or hedge a leg, and the fee here is a ceiling, not a quote."
       />
     </div>
   );

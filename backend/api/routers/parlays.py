@@ -37,6 +37,9 @@ from ...parlays import (
     COMBO_EXIT_CENSUS_SERIES,
     COMBO_EXIT_CENSUS_SHARD_BOOKS_READ,
     COMBO_EXIT_CENSUS_SHARD_SERIES,
+    COMBO_EXIT_SHARD_YES_BID_BOOKS,
+    COMBO_EXIT_SHARD_YES_BID_DATE,
+    COMBO_EXIT_SHARD_YES_BID_SIZE_CONTRACTS,
     LookupRefused,
     DEFAULT_HORIZON,
     HORIZONS,
@@ -325,15 +328,20 @@ def register(
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    f"a combination is enter-only: every combination book this "
-                    f"repo has read had no YES bid on the other side, "
+                    f"a combination is close to enter-only: "
                     f"{COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID} of "
-                    f"{COMBO_EXIT_CENSUS_BOOKS_READ}, "
-                    f"so the only exit is the outcome. All of those books were "
-                    f"{' and '.join(COMBO_EXIT_CENSUS_SERIES)}; "
+                    f"{COMBO_EXIT_CENSUS_BOOKS_READ} combination books this "
+                    f"repo read had no YES bid on the other side. All of "
+                    f"those were "
+                    f"{' and '.join(COMBO_EXIT_CENSUS_SERIES)}, and "
                     f"{COMBO_EXIT_CENSUS_SHARD_BOOKS_READ} were on "
-                    f"{COMBO_EXIT_CENSUS_SHARD_SERIES}, so nothing is known "
-                    f"either way about that shard. The fee model is "
+                    f"{COMBO_EXIT_CENSUS_SHARD_SERIES}. On "
+                    f"{COMBO_EXIT_SHARD_YES_BID_DATE}, "
+                    f"{COMBO_EXIT_SHARD_YES_BID_BOOKS} books on that shard "
+                    f"did carry a resting YES bid of "
+                    f"{COMBO_EXIT_SHARD_YES_BID_SIZE_CONTRACTS} contracts at "
+                    f"a single price, so an exit exists, is small, and its "
+                    f"frequency is unmeasured. The fee model is "
                     f"unverified (ADR 0046). Send `combo_acknowledged` only if "
                     f"that is understood."
                 ),

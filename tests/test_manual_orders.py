@@ -569,13 +569,28 @@ class TestTheGuardsRefuse:
         #
         # **The 2026-09-06 parlay census does not touch this claim.** It
         # refuted the ENTRY half (51 of 52 combination positions were taker
-        # fills) and measured nothing about the way out. This is the
-        # real-money route's refusal, so it stays exactly as strong as it is;
-        # ADR 0085 Amendment 1 §A1.4 forbids softening it.
+        # fills) and measured nothing about the way out. ADR 0085
+        # Amendment 1 §A1.4 forbids softening the exit claim on the strength
+        # of that entry finding, and it still does.
+        #
+        # **What DID move it, on 2026-09-10: two shard-1 books were read
+        # carrying resting YES bids.** "You can enter and you cannot exit"
+        # was a universal and one counterexample ends it. §A1.4 protects a
+        # claim that holds; it does not require a real-money refusal path to
+        # keep asserting a falsified one. The refusal keeps its force by
+        # naming the size instead -- ten contracts at a single price -- and
+        # still refuses to imply a rate, which Arm D measures on 2026-09-13.
         assert str(parlays.COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID) in detail
         assert str(parlays.COMBO_EXIT_CENSUS_BOOKS_READ) in detail
         assert "NO YES BID" in detail
-        assert "cannot exit" in detail
+        assert str(parlays.COMBO_EXIT_SHARD_YES_BID_BOOKS) in detail
+        assert str(parlays.COMBO_EXIT_SHARD_YES_BID_SIZE_CONTRACTS) in detail
+        # Both halves of the replacement, so neither can be dropped: the
+        # entry door is still open, and the way out is small and unmeasured.
+        assert "you can enter" in detail
+        assert "small and unmeasured" in detail
+        # The killed universal must not return.
+        assert "cannot exit" not in detail
 
     def test_no_census_number_in_the_combo_acknowledgement_refusal_is_typed_rather_than_sourced(
         self,
@@ -1549,10 +1564,22 @@ class TestTheManualMarketRead:
         **This is the entry claim's neighbour and not the entry claim.** The
         2026-09-06 parlay census refuted "you probably cannot get in" (51 of
         52 combination positions were taker fills); it measured nothing about
-        the way out, and no combination book this repo has read has ever
-        carried a resting YES bid. So the sentence stays exactly as strong as
-        it is -- ADR 0085 Amendment 1 §A1.4 forbids softening it on the
-        strength of the entry finding.
+        the way out, and ADR 0085 Amendment 1 §A1.4 forbids softening the
+        exit sentence on the strength of the entry finding.
+
+        **The exit sentence DID move on 2026-09-10, and not for that
+        forbidden reason.** Two `KXMVECROSSCATEGORY-SHARD1` books were read
+        that day carrying resting YES bids -- an existence proof, which kills
+        the universal "you cannot exit it" outright. §A1.4 bars softening a
+        claim that still holds; it does not require repeating a falsified
+        one on a real-money surface.
+
+        So this test now pins the REPLACEMENT's load-bearing words with the
+        same force. The warning must still be a warning -- it names the size,
+        because an exit of ten contracts is the fact that keeps "an exit
+        exists" from reading as reassurance -- and it must still claim no
+        rate, because Arm D measures that on 2026-09-13 and §11.3 forbids the
+        screens implying a frequency before it does.
         """
         quotes = StubQuotes(_payload(ticker=COMBO_TICKER))
         app = _app(_base_db(tmp_path), quotes=quotes)
@@ -1562,9 +1589,21 @@ class TestTheManualMarketRead:
         assert str(parlays.COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID) in note
         assert str(parlays.COMBO_EXIT_CENSUS_BOOKS_READ) in note
         assert "no YES" in note
+        # The falsifying observation, in the census's own sourcing style.
+        assert str(parlays.COMBO_EXIT_SHARD_YES_BID_BOOKS) in note
+        assert str(parlays.COMBO_EXIT_SHARD_YES_BID_SIZE_CONTRACTS) in note
+        assert parlays.COMBO_EXIT_SHARD_YES_BID_DATE in note
         # The exit claim itself, in words, so the numbers cannot survive the
-        # sentence they belong to being softened out from under them.
-        assert "cannot exit it" in note
+        # sentence they belong to being softened out from under them. The
+        # size and the ignorance are BOTH load-bearing: drop "small" and the
+        # note reads as an exit being available, drop "never been measured"
+        # and it implies a rate nobody has measured.
+        assert "small" in note
+        assert "never been measured" in note
+        assert "hold it to the outcome" in note
+        # And the killed universal must not creep back in any form.
+        assert "cannot exit" not in note
+        assert "only way out" not in note
         # A single market gets no note at all: the caveat is about
         # combinations, and a caveat everywhere is a caveat nowhere. Its own
         # app, because `StubQuotes` answers every ticker with the payload it

@@ -484,8 +484,15 @@ function TicketBody({
       {market.is_combo && (
         <div className="rounded-xl border border-negative/50 bg-negative/10 p-3">
           <p className="max-w-[65ch] text-xs leading-relaxed">
+            {/* The FALLBACK only, for when the server sent no note. It said
+                "you cannot exit it" until 2026-09-10, when two shard-1 books
+                were read carrying resting YES bids and the universal died.
+                A fallback is exactly where a falsified sentence survives
+                longest, because it renders only when something else broke. */}
             {market.combo_note ??
-              "This is a combination market. You can enter it and you cannot exit it."}
+              "This is a combination market. You can enter it, and getting " +
+                "out is small and unmeasured — plan to hold it to the " +
+                "outcome or to hedge a leg."}
           </p>
           <label className="mt-2 flex items-start gap-2 text-xs font-semibold">
             <input

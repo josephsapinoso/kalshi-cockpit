@@ -202,6 +202,37 @@ COMBO_EXIT_CENSUS_SERIES = ("KXMVESPORTSMULTIGAMEEXTENDED", "KXMVECROSSCATEGORY"
 COMBO_EXIT_CENSUS_SHARD_SERIES = "KXMVECROSSCATEGORY-SHARD1"
 COMBO_EXIT_CENSUS_SHARD_BOOKS_READ = 0
 
+#: **The universal died on 2026-09-10, and these are what killed it.**
+#:
+#: Three surfaces asserted, unconditionally, that no combination book had ever
+#: carried a resting YES bid and therefore that the only exit is the outcome.
+#: That afternoon two `KXMVECROSSCATEGORY-SHARD1` books were read carrying
+#: one, two-sided, and they are not on the census above: they were found by a
+#: public unauthenticated `/markets` read, outside any census and outside the
+#: 2026-09-13 registration, and are disclosed in
+#: `docs/measurements/2026-09-10-disclosed-unregistered-look-combo-exit-shard1.md`.
+#:
+#: **An existence proof kills a universal and supplies no rate.** These
+#: constants therefore say what was seen and never divide by anything.
+#: `..._BOOKS` is not a numerator: the denominator -- how many shard books
+#: carry a YES bid -- is exactly what Arm D measures on 2026-09-13, and until
+#: it runs no screen may imply a frequency in either direction (§11.3).
+#:
+#: **`..._SIZE_CONTRACTS` is the size at a single price on a single book**,
+#: which is the registration's own `EXIT_PRACTICAL` unit. It is deliberately
+#: the number the copy leans on, because it is what makes the correction
+#: honest rather than merely less wrong: the exit that exists is a dollar of
+#: it. Kept as a bare count of contracts, not dollars -- `orderbook.py` reads
+#: these quantities as float contracts.
+#:
+#: `COMBO_EXIT_CENSUS_SHARD_BOOKS_READ` stays at zero on purpose. It counts
+#: shard books inside the census of forty, and these two were not in it;
+#: moving it would claim the census reached the shard, which is the exact
+#: implication §11.3 forbids and which Sunday exists to settle.
+COMBO_EXIT_SHARD_YES_BID_DATE = "2026-09-10"
+COMBO_EXIT_SHARD_YES_BID_BOOKS = 2
+COMBO_EXIT_SHARD_YES_BID_SIZE_CONTRACTS = 10
+
 NOTES: dict[str, str] = {
     "chance": (
         "Chance every leg hits, by the books' consensus — not an edge. A "
@@ -242,10 +273,14 @@ NOTES: dict[str, str] = {
         f"either side. Entry still happens: a {PARLAY_CENSUS_DATE} census of "
         f"this desk's own combination fills found "
         f"{PARLAY_CENSUS_TAKER_FILLS} of {PARLAY_CENSUS_POSITIONS} positions "
-        f"were entered by hitting an offer, not by resting a bid. Getting out "
-        f"is the half that has never been seen -- no combination book read "
-        f"here has carried a YES bid -- so plan to hold to settlement or to "
-        f"hedge a leg."
+        f"were entered by hitting an offer, not by resting a bid. Getting "
+        f"out is the half that is barely seen: on "
+        f"{COMBO_EXIT_SHARD_YES_BID_DATE}, "
+        f"{COMBO_EXIT_SHARD_YES_BID_BOOKS} books on "
+        f"{COMBO_EXIT_CENSUS_SHARD_SERIES} did carry a resting YES bid, "
+        f"{COMBO_EXIT_SHARD_YES_BID_SIZE_CONTRACTS} contracts at a single "
+        f"price on each -- so a way out exists and is tiny. How often is "
+        f"unmeasured. Plan to hold to settlement or to hedge a leg."
     ),
     "fee": (
         "Kalshi's combo fee model is unverified. Every combo fill ever "

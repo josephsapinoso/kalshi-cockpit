@@ -96,6 +96,9 @@ from ..parlays import (
     COMBO_EXIT_CENSUS_SERIES,
     COMBO_EXIT_CENSUS_SHARD_BOOKS_READ,
     COMBO_EXIT_CENSUS_SHARD_SERIES,
+    COMBO_EXIT_SHARD_YES_BID_BOOKS,
+    COMBO_EXIT_SHARD_YES_BID_DATE,
+    COMBO_EXIT_SHARD_YES_BID_SIZE_CONTRACTS,
     scouting_facts,
 )
 from ..portfolio_poll import log_poll_attempt, store_positions_snapshot
@@ -3230,16 +3233,47 @@ def create_app(
             # imply the shard WAS measured, and equally must not imply it is
             # DIFFERENT: nothing has been measured there either way, and
             # §11.3 forbids the screens hinting in either direction.
+            # **Three clauses here were falsified on 2026-09-10 and are
+            # gone.** "Every combination book this repo has ever read had no
+            # YES bid" was a universal; "nothing is known either way about
+            # that shard" was a claim of ignorance; "you cannot exit it: the
+            # only way out is the outcome" was the conclusion drawn from
+            # both. Two `KXMVECROSSCATEGORY-SHARD1` books were read that day
+            # carrying resting YES bids, two-sided, and one existence proof
+            # kills all three.
+            #
+            # **It ships before Sunday's measurement rather than after, and
+            # that is the point.** The error ran in the CAUTIOUS direction --
+            # Joe was told a combination was less exitable than it may be --
+            # which is exactly why it would otherwise sit here for months.
+            # A money surface does not get to keep a falsified sentence
+            # while a rate is pending.
+            #
+            # **What replaces it says less, not more.** The census still
+            # bounds what was systematically read; the shard sentence now
+            # reports the two books instead of denying knowledge of them;
+            # and the exit sentence gives the size, because "an exit exists"
+            # without "it is this small" would trade one overstatement for
+            # its mirror image. No rate: Arm D measures that on 2026-09-13
+            # and §11.3 forbids the screens implying a frequency until it
+            # does.
             "combo_note": (
-                f"Every combination book this repo has ever read had no YES "
-                f"bid — {COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID} of "
-                f"{COMBO_EXIT_CENSUS_BOOKS_READ}, across three runs on two "
-                f"dates. All of them were "
-                f"{' and '.join(COMBO_EXIT_CENSUS_SERIES)}; "
+                f"Across three runs on two dates, "
+                f"{COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID} of "
+                f"{COMBO_EXIT_CENSUS_BOOKS_READ} combination books this repo "
+                f"read carried no YES bid. All of them were "
+                f"{' and '.join(COMBO_EXIT_CENSUS_SERIES)}, and "
                 f"{COMBO_EXIT_CENSUS_SHARD_BOOKS_READ} were on "
-                f"{COMBO_EXIT_CENSUS_SHARD_SERIES}, so nothing is known "
-                f"either way about that shard. You can enter this and you "
-                f"cannot exit it: the only way out is the outcome. The fee is "
+                f"{COMBO_EXIT_CENSUS_SHARD_SERIES} — the shard this order "
+                f"is on. That shard has since been seen quoted: on "
+                f"{COMBO_EXIT_SHARD_YES_BID_DATE}, "
+                f"{COMBO_EXIT_SHARD_YES_BID_BOOKS} of its books carried a "
+                f"resting YES bid of "
+                f"{COMBO_EXIT_SHARD_YES_BID_SIZE_CONTRACTS} contracts at a "
+                f"single price. So an exit is not impossible — it is small, "
+                f"and how often one is there has never been measured. Buy "
+                f"this expecting to hold it to the outcome or to hedge a "
+                f"leg, not to sell it back. The fee is "
                 f"priced through a hedged coefficient because the measured "
                 f"model undercharges on combos, so the cost shown is a "
                 f"ceiling and not a quote."
@@ -3406,24 +3440,37 @@ def create_app(
                 # `parlays.COMBO_EXIT_CENSUS_*` on 2026-09-06 for the reason
                 # the other two were: `str(40) in detail` cannot tell a typed
                 # digit from a sourced one, so the digits could have outlived
-                # the measurement with CI green. The claim does not move --
-                # the 2026-09-06 parlay census measured ENTRY, and no
-                # combination book this repo has read has ever carried a
-                # resting YES bid. This is a real-money refusal path; a
-                # softened exit claim here is the failure ADR 0085
-                # Amendment 1 §A1.4 pins against. Guarded by
+                # the measurement with CI green.
+                #
+                # **And on 2026-09-10 the claim DID move, which is what that
+                # sourcing was for.** "You can enter and you cannot exit" was
+                # a universal, and two `KXMVECROSSCATEGORY-SHARD1` books were
+                # read that day carrying resting YES bids. ADR 0085
+                # Amendment 1 §A1.4 pins against SOFTENING an exit claim that
+                # still holds; it does not require repeating one that has
+                # been falsified, and this is a real-money refusal path where
+                # a false sentence is worse than a weaker true one. The
+                # replacement keeps the warning's force by naming the size --
+                # the exit that exists is a dollar of it -- and still claims
+                # no rate, which Arm D measures on 2026-09-13. Guarded by
                 # `tests/test_manual_orders.py::test_no_census_number_in_the_
                 # combo_acknowledgement_refusal_is_typed_rather_than_sourced`.
                 raise HTTPException(
                     status_code=422,
                     detail=(
                         f"combination (KXMVE) markets need the acknowledgement "
-                        f"before this door opens: every combination book this "
-                        f"repo has ever read had NO YES BID — "
+                        f"before this door opens: "
                         f"{COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID} of "
-                        f"{COMBO_EXIT_CENSUS_BOOKS_READ}, across "
-                        f"three runs on two dates — so you can enter and you "
-                        f"cannot exit (ADR 0012 §5). The fee model also "
+                        f"{COMBO_EXIT_CENSUS_BOOKS_READ} combination books "
+                        f"this repo read across three runs on two dates had "
+                        f"NO YES BID, and on "
+                        f"{COMBO_EXIT_SHARD_YES_BID_DATE} the "
+                        f"{COMBO_EXIT_SHARD_YES_BID_BOOKS} that did carry "
+                        f"one held only "
+                        f"{COMBO_EXIT_SHARD_YES_BID_SIZE_CONTRACTS} "
+                        f"contracts at a single price — so you can enter, "
+                        f"and getting out is small and unmeasured "
+                        f"(ADR 0012 §5). The fee model also "
                         f"undercharges on combos (ADR 0046); a hedged coefficient "
                         f"prices this order and it is not a measurement of what "
                         f"Kalshi charges. Send `combo_acknowledged` only if that "
