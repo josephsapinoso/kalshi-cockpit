@@ -263,7 +263,20 @@ combo's own live quote and the absence of a resting YES bid are never shown.
    from the ladder through the request to the lookup and validate it against
    `HORIZONS`; record a refused lookup; make the sentence say what is known;
    correct the copy; ask kalshi-platform what decides `book_empty` on a
-   minted combo.
+   minted combo. **Read on live 2026-09-10 05:5xZ, for the fix and for what
+   Joe asked next:** `combo_eligible_events` (3,648 rows, refreshed
+   04:36Z) spans 26SEP09..26SEP21 (1,016 legs on 26SEP12, 357 on 26SEP13),
+   so "Next two nights" is inside Kalshi's own combinable window and the
+   only refusal was ours; and the list already carries `KXNFLSPREAD` (142),
+   `KXNFLTOTAL` (142), `KXNCAAFSPREAD`/`KXNCAAFTOTAL` (118 each), NFL
+   props (FIRSTTD 110, RSHYDS/RECYDS/PASSYDS 97, ANYTD 94). Joe wants
+   spreads, totals and props in parlays. What blocks it: `ODDS_MARKETS =
+   "h2h,spreads"` (`fly.live.toml:486`, odds path, frozen to 10:00Z
+   2026-09-14, and a third market raises per-call credit cost ~1.5x);
+   `CANDIDATE_SQL` admits h2h, spreads and five MLB prop keys only; the
+   four `CARD_SHAPES` recipes pick "the N likeliest games", one leg per
+   fixture (same-game stays out, ADR 0012 section 5). A recipe is a rule
+   Joe chooses, never a ranking by edge (ADR 0071).
 
 1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Untouched. One
    candidate for after the freeze, measured not decided: `window_status`'s
