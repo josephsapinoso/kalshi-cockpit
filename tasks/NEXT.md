@@ -233,6 +233,41 @@ four-column key collides two players. The scan floor gained a third term
 
 ### Still open, in order
 
+0. **THE LADDER SCAN FLOOR IS A LIVE PERFORMANCE REGRESSION I SHIPPED TODAY.**
+   Measured on live after the v36 deploy, by binary search on the primary key
+   (cheap and exact — do not full-scan this table):
+
+       rows inside the NEW 9-day floor      6,561,382
+       rows inside the OLD 2-hour floor           138   (post-dedupe)
+       max_id                              10,109,064
+
+   Lane G widened `ladder_candidates`' scan floor to
+   `max(8 x max_odds_age_ms, _CANDIDATE_SCAN_DEDUPE_FLOOR_MS)` where the new
+   term is **9 days** (`backend/parlays.py:406`), for a CORRECT reason: after
+   the dedupe a confirmed row's `computed_ms` no longer bounds its freshness,
+   so a long-held-but-fresh consensus would fall below a 2-hour floor and
+   vanish from the ladder. **The reason is right and the fix overshot** — it
+   pulled the entire pre-dedupe backlog into every scan.
+
+   For scale: the flat-24h floor this repo already removed on 2026-08-30 was
+   scanning **541,222 rows in 25,324.7 ms**. The window is now **12x that**.
+   Pre-deploy the 2-hour floor held roughly 72,000 rows, so this is ~90x worse
+   than yesterday. `/api/parlays` pays it TWICE per lookup tap.
+
+   **It self-heals, slowly and only partly.** Pre-dedupe rows age past 9 days
+   around **2026-09-18**, after which the window holds roughly 29,000 rows
+   (9 days x ~3,200 real changes/day) — better than the old 72,000, so the
+   long-run design is sound. The transition is the problem, and it is the
+   window Joe is using the desk in.
+
+   **Do not fix it by narrowing the floor back** — that reinstates the bug Lane
+   G fixed and empties the ladder. The floor must key on the CONFIRMED stamp,
+   not `computed_ms`: an index on `(market, confirmed_ms DESC)` with a matching
+   predicate, or a single effective-timestamp column, or drop the time floor
+   and take the latest row per key through `idx_fair_link`. Whichever, it must
+   keep the index seek `tests/test_ladder_query_is_indexed.py` asserts by
+   regex, and the query must stay a literal string.
+
 1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Untouched this
    session and the partner ruled Lane G outside the freeze on three conditions,
    all met: no file under `backend/odds/`, not `backend/scheduler.py`, and a
