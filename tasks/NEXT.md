@@ -119,6 +119,164 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-10 (sixth session) — the ladder floor was OOM-cycling the recorder; the fix shipped, and /hedge now says what it cannot see
+
+**Found by measuring the thing the last entry said was slow, from the outside,
+before touching it.** Item 0 said the 9-day floor scanned 6.5M rows and
+`/api/parlays` paid it twice. It was worse: the scan's `ROW_NUMBER()` runs
+under `temp_store = MEMORY`, so 6.5M rows became ~1 GB of resident memory in
+BOTH processes, and the 2 GB box had restarted three times in five hours
+before this session began. The partner's ranking and the sharp-bettor's craft
+review both redirected the hedge-alert ask to coverage first, and the coverage
+read was 0 of 1.
+
+**STATE at close.** `main` = **`324a53f`** plus this entry, pushed; **CI green
+on `324a53f` (run 34437142296)**; full suite on main before the docs commit:
+**6845 passed, 10 xfailed, 0 failed** after one timezone fix. **Live =
+`324a53f`, schema v37, machine `7812601a239428` unchanged** (deploy run
+34437560202; migration `v36 -> v37` at boot in 172 s). Demo untouched. Odds
+path untouched: the freeze to 10:00Z 2026-09-14 holds, and `credits-day` shows
+no attention row during either probe — a server-side fetch of an SSR page does
+not register attention, only the client's `/desk-attention` POST does.
+
+Four ADRs: **0134** (the ladder scan keys on the confirmed stamp; v37 partial
+index), **0135** (an abandoned request stops executing; `API_READ_BUDGET_MS`),
+**0136** (the hedge screen says what it cannot see), **0137** (the phone says
+which legs are live, on a schedule — amends ADR 0078 D2 on Joe's word). Six
+lanes ran in parallel worktrees, all merged; worktrees and branches removed.
+
+### THE HEADLINE: the box was dying every hour, and opening `/parlays` could kill it on demand
+
+`docs/measurements/2026-09-10-the-ladder-floor-oom-cycles-the-recorder.md`.
+
+Timed from outside with a minted read-only cookie (the MCP Chrome tab group
+carried no session cookie, so no browser-side paint timing exists — say so if
+you cite this): `/api/window`, `/api/signal`, `/api/parlays`, `/api/slate` all
+**500 at exactly 30 s** (Next's rewrite-proxy timeout; uvicorn keeps executing
+after Next hangs up, so abandoned queries pile up), `/parlays` unanswered at
+180 s. Three minutes later the kernel killed the runner at **1.13 GB** and then
+uvicorn at **1.88 GB**, and the machine rebooted. The runner's own log
+(`loop-rss`) had carried the attribution since the v36 deploy at 22:52Z:
+RSS **196 MB -> 1.10-1.23 GB** per pass, `candidate_ms` **83 -> 3,549-9,454**,
+over the same ~440 rows; boot lines at 00:32Z, 01:04Z, 03:18Z; a
+`PassDeadlineExceeded` at 23:33Z. Nobody had read that column.
+
+**The fix, and why not the obvious one.** Narrowing the floor back was ruled
+out by item 0 itself. The predicate now reads
+`(f.computed_ms >= ? OR f.confirmed_ms >= ?)` — exact, because a confirmed
+stamp is never older than its frozen one — served by a **partial** index
+`idx_fair_market_confirmed ON fair_prices(market, confirmed_ms DESC) WHERE
+confirmed_ms IS NOT NULL`, which holds **614 rows** on live. The plan is a
+`MULTI-INDEX OR` with two seeks; with the index dropped the `computed_ms>?`
+term vanishes and the existing plan test goes red. The 9-day constant is gone;
+the floor is `max(8 x max_odds_age_ms, 2h)` again. Rehearsed in the container
+on a paced copy: the index build reads the whole 10.1M-row table once,
+**181.8 s cold**, so the boot health grace went **120 s -> 600 s** with the
+measurement beside it in `fly.live.toml` (the container's image cannot
+pre-build an index its code does not know). Live built it in 172 s.
+
+**After, on the warm box:** `/api/parlays` **1.1 s**, `/api/slate` 0.6 s,
+`/api/board` 0.27 s, `/api/hedge` 0.13 s, every SSR page under 2.2 s; the
+runner at **189 MB, 72-75 ms** over 434 rows; zero OOM lines since. The
+25-minute reading had `/api/window` at 20 s — that was the cold page cache
+after the reboot and the 5 GB rehearsal copy, not a second defect: replayed on
+live it is **0.95 s**, 0.91 of it one `GROUP BY` over `odds_snapshots`.
+
+Two independent brakes shipped beside the query fix, on the partner's ruling
+that their failure modes differ from the query's: the runner **builds the
+ladder only when a card could be sent** (`Alerter.parlay_cards_could_send`,
+so the change-alert debounce still advances on real builds), and every
+per-request API connection carries a **25 s progress-handler budget** that
+answers 503 `read_budget_exceeded` instead of piling up behind a proxy that
+already gave up (`API_READ_BUDGET_MS`, under Next's 30 s).
+
+### The hedge screen covered 0 of 1 live positions, and now says so
+
+Read off live at 03:25Z: the venue held ONE open combination (17.74 contracts,
+$9.69) bought in the Kalshi app, absent from `parlay_positions`; the one
+recorded position (id 1, the $1.64 BOS/NYY/LAD combo) had **settled `no` at
+01:40Z** in `venue_settlements` while still reading `open` with three
+`pending` legs, because `resolve_from_venue` reads only `kalshi_markets.result`
+and the venue had not finalized the leg markets (and the result pass runs
+inside the full pass that kept dying). ADR 0136: `/api/hedge` now carries
+`unrecorded_at_venue` (KXMVE tickers in the latest **ok** positions poll with
+no open row — the membership-of-latest-complete-observation rule), per-position
+`at_venue` and `venue_settlement`, and the screen renders the quote age beside
+every leg price (it was in the payload and never drawn). No auto-close: which
+leg lost is not knowable from the combo's settlement. Verified on live after
+the deploy: position 1 renders `dead`, `at_venue: false`, settlement `no`, BOS
+`lost`, NYY `won`, LAD `pending`; the venue list is `[]` because the $9.69
+combo settled between 03:25Z and 04:41Z (`row_count 0`).
+
+### The push Joe chose — ADR 0137, amending ADR 0078 D2
+
+Asked which push he wanted, Joe chose the **symmetric "legs in play"
+statement**: once per ticket per budget day when a watched game is in play,
+every pending leg's venue bid with its quote age, "N of M legs live", the
+sentence "No figure locks" when N > 1, the lock figure only when N = 1 and one
+exists, `not_advice` and `upper_bound` verbatim, record order, the parlay
+colour. **Identical template on a good day and a bad day** — the sharp-bettor's
+argument that carried it: an alert that fires only on bad news is a nudge by
+construction; one that fires on a schedule carries no information in its
+arrival. Kind `position_state`, key `position_state:{id}:{day_start_ms}`, own
+ceiling of 4/day, own counter. A forbidden-words test pins the transport. The
+watcher spends nothing metered (existing test still green). **Not yet observed
+firing on live** — no position was in play after the deploy.
+
+The sharp-bettor's other findings, recorded for the next UI ticket, not built:
+the de-risk headline (a joint built on the unmeasured 0.05/0.02 correlation
+nudges) is the least defensible number on the page and should go; the
+five-column ladder does not fit a phone at the moment of decision (contracts,
+cost, worst case; the two branches behind a tap); no total exposure line; the
+combo's own live quote and the absence of a resting YES bid are never shown.
+
+### Verified by disabling
+
+    Lane A runner gate       3 mutations   3 red (7 tests)
+    Lane B v37 predicate     3 mutations   3 red   + one vacuous test rewritten before it could pass for nothing
+    Lane C read budget       2 mutations   2 red
+    Lane D coalesce          1 mutation    1 red
+    Lane E1 coverage facts   5 mutations   5 red   + one isolation test added when a mutation showed two clauses untested apart
+    Lane E2 the push         4 mutations   4 red
+
+### Still open, in order
+
+1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Untouched. One
+   candidate for after the freeze, measured not decided: `window_status`'s
+   `GROUP BY odds_event_id` over `odds_snapshots` costs ~0.9 s and is polled
+   every 10 s by `RefreshWhenPriced` while a tab is open; a covering index
+   would be the shape, and it needs its own re-timing.
+2. **SUNDAY 2026-09-13 — a scheduled run, not a task to plan.** Unchanged.
+3. **The boot health grace is 600 s.** Raised for v37 on a measurement; the
+   file's own rule says raise rather than trim a migration to fit. Lower it
+   only with a reason, not by reflex.
+4. **`position_state` has not fired on live.** The first in-play watched
+   position will tell; check `notifications WHERE kind = 'position_state'`
+   after it, and that `hedge_lock` still fires separately.
+5. **The combo fee-model reopen trigger** (n = 68) — unchanged, Joe-gated
+   whether it gets a session; the partner asks that any session name the
+   constant it could move before it starts.
+6. **`fly.live.toml` growth-rate copy (old item 6) — ALREADY CORRECTED** in
+   an earlier edit (`:668-670` records the 326.6 MB/day realisation). Closed.
+7. **`pip-audit` pyarrow ignore** — trigger only, unchanged.
+8. **The binned card** — do not rebuild, unchanged.
+
+**Joe-gated: NOTHING.** The one question this session (which push) was
+answered in-session.
+
+### Lessons written
+
+One, pattern-level: the cost of a scan is not its wall-clock — under
+`temp_store = MEMORY` a window function turns rows read into resident memory,
+so a floor widened for a correct reason is re-timed on live reading RSS beside
+milliseconds before it ships; and an abandoned request is not a finished one.
+
+**And one about my own procedure.** I measured the live site with a probe that
+was, functionally, a user opening four tabs, and the box died three minutes
+later. The probe was right to run and the death was going to happen at Joe's
+next tap either way — but a measurement that can take the box down is one to
+announce before running, and to run one route at a time.
+
 ## 2026-09-09 (fifth session) — the biggest table in the database is 99.7% duplicate rows, and the obvious fix would have emptied the ladder
 
 **Found by running the partner's falsifying query instead of arguing.** The

@@ -16,6 +16,48 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-10 - The cost of a scan is not its wall-clock, and a floor widened for a correct reason still has to be re-timed on live before it ships
+
+The ladder query's scan floor was widened from two hours to nine days for a
+reason that was right (after ADR 0133 a confirmed row's `computed_ms` no longer
+bounds its freshness, so a two-hour floor would have emptied the ladder). The
+row count it would read was measured the same day - 6,561,382 against 138 -
+and written down as a live regression. What was not measured was what those
+rows cost in **memory**: the query ends in `ROW_NUMBER() OVER (PARTITION BY
+...)`, and under `PRAGMA temp_store = MEMORY` a window function materialises
+its whole input in RAM. Row count became resident set. The recorder went from
+196 MB to 1.2 GB per pass on a 2 GB box, the page cache left for a 5 GB
+database fell to ~450 MB, every read on the machine went to disk, and the
+kernel killed the runner three times in five hours.
+
+**The shape to look for: a scan whose output is small but whose input is
+materialised.** `SELECT ... LIMIT 10` over a window function, a `GROUP BY` or
+an `ORDER BY` that SQLite cannot satisfy from an index, a `DISTINCT` over a
+join - all of these read N rows and hold N rows, and `EXPLAIN QUERY PLAN`
+shows the seek and says nothing about the hold. The wall-clock in the runner's
+own log was 4.6 s, which reads as "slow but fine"; the RSS column beside it was
+the finding, and it had been there since the deploy.
+
+Two rules that fall out:
+
+- **A floor, window or horizon that widens what a query reads is re-timed on
+  live before it ships, and the timing reads RSS beside milliseconds.** The
+  repo already had the instrument (`inspect_live_db.py loop-rss` carries
+  `rss_kb` and `candidate_ms` on every pass); nobody read it between the deploy
+  and the kill.
+- **A predicate that cannot see the column freshness moved to is the defect;
+  the floor is the symptom.** The fix was never "narrow the floor back" - it was
+  to put `confirmed_ms` in the predicate with an index that serves it, at which
+  point the floor returns to what it was and the question of how wide to make
+  it goes away.
+
+And the one about diagnosis: **an abandoned request is not a finished one.**
+Next's proxy answers 500 at 30 s and the backend keeps executing; four routes
+that "took 30 s" had in fact taken 30 s *so far*, and each was still holding
+its memory when the next one arrived. A timeout observed at the client is a
+lower bound on the server's cost, and it hides the pile-up that turns slow
+into dead. See [[verification-methods-that-lie]].
+
 ## 2026-09-09 - The column you exclude from a comparison key is where the duplicates' real payload hides
 
 `fair_prices` rows were measured 99.7% byte-identical to the row before them.
