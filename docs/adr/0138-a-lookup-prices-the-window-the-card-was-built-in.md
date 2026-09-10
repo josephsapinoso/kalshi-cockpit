@@ -1,4 +1,4 @@
-# ADR DRAFT — A lookup prices the window the card was built in
+# ADR 0138 — A lookup prices the window the card was built in
 
 **Status:** Accepted, 2026-09-10.
 **Date:** 2026-09-10.

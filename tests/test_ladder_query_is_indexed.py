@@ -439,3 +439,53 @@ def _seed_one_rung(
                 (computed_ms, market, description),
             )
     conn.commit()
+
+
+class TestARefusedLegsKickoffIsSoughtNotGrouped:
+    """`_commence_ms_for_tickers` (ADR 0138) must not regroup the whole
+    snapshot history to answer for two tickers.
+
+    Its first version LEFT JOINed `(SELECT ... FROM odds_snapshots GROUP BY
+    odds_event_id)`, which SQLite plans as `MATERIALIZE o` over every row the
+    table holds -- the plan `CANDIDATE_SQL` was measured at 15 s with. It ran
+    on every refused tap. A correlated scalar subquery seeks `idx_odds_event`
+    on the fixture instead.
+    """
+
+    def test_odds_snapshots_is_searched_not_scanned(self, conn):
+        from backend.parlays import commence_for_tickers_sql
+
+        steps = plan(conn, commence_for_tickers_sql(2), ("a", "b"))
+        assert not any(s.startswith("SCAN odds_snapshots") for s in steps), (
+            f"a refused tap groups the whole snapshot history: {steps}"
+        )
+        assert not any(s.startswith("MATERIALIZE") for s in steps), steps
+        # The alias is `o`, so the step names the index, not the table.
+        assert any(
+            s.startswith("SEARCH o USING INDEX idx_odds_event")
+            and "odds_event_id=?" in s
+            for s in steps
+        ), steps
+        assert any(s.startswith("CORRELATED SCALAR SUBQUERY") for s in steps), steps
+
+    def test_the_seek_answers_with_the_fixtures_earliest_start(self, conn):
+        """Plan shape is not correctness: the value must be the fixture's
+        MIN commence, per ticker, and an unlinked ticker must come back
+        without an entry rather than as None-means-started."""
+        from backend.parlays import _commence_ms_for_tickers
+
+        _seed_one_rung(conn, (1,), (None,), market="h2h")
+        conn.execute(
+            "INSERT INTO odds_snapshots (fetched_ms, sport_key, odds_event_id, "
+            "commence_ms, home_team, away_team, bookmaker, market, "
+            "outcome_name, price_decimal) VALUES (2, 'baseball_mlb', 'oe-1', "
+            "500, 'H', 'A', 'pinnacle', 'h2h', 'H', 2.0)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO kalshi_markets (ticker, event_ticker, title, "
+            "first_seen_ms, last_seen_ms) VALUES ('KXTEST-1-H', 'KXTEST-1', "
+            "'H?', 1, 1)"
+        )
+        conn.commit()
+        found = _commence_ms_for_tickers(conn, ["KXTEST-1-H", "KXNOPE-1-Z"])
+        assert found == {"KXTEST-1-H": 500}

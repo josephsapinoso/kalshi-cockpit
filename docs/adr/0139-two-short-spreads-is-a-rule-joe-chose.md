@@ -1,4 +1,4 @@
-# Two short spreads is a rule Joe chose
+# ADR 0139 — Two short spreads is a rule Joe chose
 
 **Status:** Accepted, 2026-09-10.
 **Date:** 2026-09-10.

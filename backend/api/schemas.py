@@ -270,7 +270,7 @@ class ParlayLookupRequest(BaseModel):
     lookup priced every card at `tonight` regardless of which window built
     it, so a card built under "Through tomorrow" or "Next two nights" had
     every future leg refused by a lookup that never learned the window had
-    moved -- item 0, `docs/adr/DRAFT-a-lookup-prices-the-window-the-card-
+    moved -- item 0, `docs/adr/0138-a-lookup-prices-the-window-the-card-
     was-built-in.md`. The client sends back `GET /api/parlays`'s own
     `window.key`, the same echo `WindowPicker` already renders, so the two
     calls agree by construction rather than by two callers remembering the

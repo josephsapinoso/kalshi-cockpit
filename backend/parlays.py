@@ -2157,24 +2157,45 @@ def _commence_ms_for_tickers(
     Only called for legs already absent from the candidate pool -- a handful
     of tickers per refusal, never the whole slate -- so this is a second
     small query, not a second copy of `ladder_candidates`.
+
+    **The kickoff is a correlated seek, never a grouped copy of
+    `odds_snapshots`.** The first version of this (2026-09-10, merged and
+    corrected the same hour) LEFT JOINed `(SELECT odds_event_id,
+    MIN(commence_ms) ... GROUP BY odds_event_id)` -- which SQLite answers by
+    materialising the whole snapshot history (`MATERIALIZE o`, `SCAN
+    odds_snapshots`) before it looks at a single ticker. That is the exact
+    plan `CANDIDATE_SQL` was measured at 15 s with on 2026-08-26 and fixed by
+    restricting the group to linked events, and the table has grown since.
+    A scalar subquery per `event_links` row seeks `idx_odds_event` on
+    `odds_event_id=?` and reads only that fixture's rows;
+    `tests/test_ladder_query_is_indexed.py` pins the plan.
     """
     if not market_tickers:
         return {}
-    placeholders = ",".join("?" for _ in market_tickers)
     rows = conn.execute(
-        "SELECT k.ticker AS ticker, MIN(o.commence_ms) AS commence_ms "
+        commence_for_tickers_sql(len(market_tickers)), tuple(market_tickers)
+    ).fetchall()
+    return {row["ticker"]: row["commence_ms"] for row in rows}
+
+
+def commence_for_tickers_sql(n: int) -> str:
+    """The statement `_commence_ms_for_tickers` issues, for `n` tickers.
+
+    A function of `n` rather than a literal only because SQLite has no array
+    parameter; everything but the placeholder count is fixed here so the
+    plan test certifies the statement that actually runs.
+    """
+    placeholders = ",".join("?" for _ in range(n))
+    return (
+        "SELECT k.ticker AS ticker, "
+        "       MIN((SELECT MIN(o.commence_ms) FROM odds_snapshots o "
+        "            WHERE o.odds_event_id = l.odds_event_id)) AS commence_ms "
         "FROM kalshi_markets k "
         "JOIN kalshi_events e ON e.event_ticker = k.event_ticker "
         "LEFT JOIN event_links l ON l.kalshi_event_ticker = e.event_ticker "
-        "LEFT JOIN ("
-        "  SELECT odds_event_id, MIN(commence_ms) AS commence_ms "
-        "  FROM odds_snapshots GROUP BY odds_event_id"
-        ") o ON o.odds_event_id = l.odds_event_id "
         f"WHERE k.ticker IN ({placeholders}) "
-        "GROUP BY k.ticker",
-        tuple(market_tickers),
-    ).fetchall()
-    return {row["ticker"]: row["commence_ms"] for row in rows}
+        "GROUP BY k.ticker"
+    )
 
 
 def resolve_requested_legs(
@@ -2265,7 +2286,7 @@ def resolve_requested_legs(
             # Absent from the pool entirely. Until 2026-09-10 this guessed
             # "the game has started, or it is past tonight's last game" for
             # every such leg -- a card built under a wider window (ADR
-            # DRAFT-a-lookup-prices-the-window-the-card-was-built-in) made
+            # 0138-a-lookup-prices-the-window-the-card-was-built-in) made
             # that a guess dressed as a fact: a leg two nights out is also
             # "absent from the pool" under `tonight`, and it has not
             # started. The three things this function can actually tell
@@ -2381,7 +2402,7 @@ async def price_card_on_kalshi(
     a card built under `tomorrow` or `48h` had every leg beyond tonight
     refused by a lookup that could not tell the difference between "started"
     and "not tonight" (item 0,
-    `docs/adr/DRAFT-a-lookup-prices-the-window-the-card-was-built-in.md`).
+    `docs/adr/0138-a-lookup-prices-the-window-the-card-was-built-in.md`).
 
     No fee-net EV anywhere (ADR 0046): the hold is fee-free arithmetic
     (`1 - fair x offered decimal`) and the fee sentence travels beside it.

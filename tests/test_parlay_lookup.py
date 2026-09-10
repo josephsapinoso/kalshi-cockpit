@@ -389,7 +389,7 @@ class TestRefusals:
         either, and the honest sentence is "not a leg this desk serves", not
         a guess about the game having started. And a refusal now writes a
         `parlay_lookups` row (`status='refused'`) instead of leaving none --
-        closing the gap `docs/adr/DRAFT-a-lookup-prices-the-window-the-card-
+        closing the gap `docs/adr/0138-a-lookup-prices-the-window-the-card-
         was-built-in.md` names.
         """
         app, fake_api, path = build()
@@ -549,7 +549,7 @@ class TestHorizonTravelsWithTheTap:
     `tonight` regardless of which window the card came from, so a card built
     under `tomorrow` or `48h` had every leg beyond tonight refused by a
     lookup that could not tell "started" from "not tonight" apart -- item 0,
-    `docs/adr/DRAFT-a-lookup-prices-the-window-the-card-was-built-in.md`.
+    `docs/adr/0138-a-lookup-prices-the-window-the-card-was-built-in.md`.
 
     **Mutation run and recorded**: remove the `horizon=horizon` pass-through
     in `price_card_on_kalshi`'s `ladder_candidates(...)` call (so it always

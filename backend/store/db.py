@@ -90,7 +90,7 @@ from ..core.prices import is_valid_price
 #: one. A REBUILD, not a column step, for the same reason v35 was: SQLite
 #: cannot widen a table-level CHECK in place. The rows already written keep
 #: their real values -- nothing is deleted, backfilled or rewritten. See
-#: `docs/adr/DRAFT-a-lookup-prices-the-window-the-card-was-built-in.md`.
+#: `docs/adr/0138-a-lookup-prices-the-window-the-card-was-built-in.md`.
 SCHEMA_VERSION = 38
 
 #: Per-connection page cache, in KiB. Read connections get the larger share

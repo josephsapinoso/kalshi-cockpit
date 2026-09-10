@@ -1220,7 +1220,7 @@ CREATE TABLE IF NOT EXISTS parlay_lookups (
     -- any mint -- a drifted leg, a card shape mismatch, a same-game pair.
     -- No market exists for that row, so every book/mint column stays NULL;
     -- only `error` (the refusal's own words) and `selected_legs` (the legs
-    -- actually requested) are meaningful. See `docs/adr/DRAFT-a-lookup-
+    -- actually requested) are meaningful. See `docs/adr/0138-a-lookup-
     -- prices-the-window-the-card-was-built-in.md`.
     CHECK (status IN ('priced', 'book_empty', 'no_collection', 'error', 'refused'))
 );

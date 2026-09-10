@@ -1082,7 +1082,7 @@ class TestParlayLookupsAdmitRefused:
     the only case that matters.
 
     A lookup `resolve_requested_legs` refuses before any mint now writes a
-    `parlay_lookups` row too (`docs/adr/DRAFT-a-lookup-prices-the-window-
+    `parlay_lookups` row too (`docs/adr/0138-a-lookup-prices-the-window-
     the-card-was-built-in.md`), and `status` carried a table-level CHECK
     that SQLite cannot widen in place -- so this is a rebuild, and a rebuild
     is the migration shape that can silently lose the record. The rows
