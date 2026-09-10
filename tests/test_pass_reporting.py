@@ -333,3 +333,78 @@ class TestTheLadderReportsWhyItRefusedLegs:
             "the tally is read but never handed to `CombinedPass`, so it is "
             "computed and thrown away -- the exact defect this guards"
         )
+
+
+class TestTheLadderIsNotBuiltWhenNothingCouldSend:
+    """`build_ladder_payload` scans `fair_prices` -- a scan that has itself
+    been a live regression of millions of rows -- and a sweep or a full pass
+    being necessary for the ladder to have changed was never sufficient for
+    either parlay channel to still have anywhere to send it: the change
+    ceiling can be spent and the scheduled card already claimed for every
+    rung while sweeps keep firing every pass for the rest of the day.
+    `Alerter.parlay_cards_could_send` is the second, orthogonal gate that
+    catches that case, and it has to gate the actual build -- not just get
+    called and ignored.
+    """
+
+    @staticmethod
+    def _score_settle_and_alert_source() -> str:
+        tree = ast.parse(
+            (ROOT / "scripts" / "run_loop.py").read_text(encoding="utf-8")
+        )
+        func = next(
+            (
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.AsyncFunctionDef)
+                and node.name == "score_settle_and_alert"
+            ),
+            None,
+        )
+        assert func is not None, (
+            "`score_settle_and_alert` is gone; this test is vacuous"
+        )
+        return ast.unparse(func)
+
+    def test_a_build_that_could_not_send_is_never_attempted(self):
+        """Mutation observed red: drop
+        `alerter.parlay_cards_could_send(...)` from the `if` that guards
+        `build_ladder_payload(`.
+        """
+        source = self._score_settle_and_alert_source()
+
+        assert "parlay_cards_could_send(" in source, (
+            "the ladder is still built on every sweep/full pass even once "
+            "neither the scheduled card nor the change alert has room left "
+            "today -- the exact cost this guard exists to cut"
+        )
+        # The predicate must gate the SAME `if` that guards the build, not
+        # merely appear somewhere in the function -- e.g. logged and ignored.
+        guard = source[
+            source.index("if alerter.enabled"):
+            source.index("build_ladder_payload(")
+        ]
+        assert "parlay_cards_could_send(" in guard, (
+            "`parlay_cards_could_send` is called but not inside the `if` "
+            "that decides whether to build -- it must gate the build itself"
+        )
+
+    def test_ladder_excluded_starts_none_before_the_gate(self):
+        """`ladder_excluded` must stay `None` -- never `0` -- on a pass this
+        gate skips, so the pass line can tell "nothing could be sent, so
+        nothing was built" from "built, and refused nothing". See
+        `test_a_ladder_that_refused_nothing_still_says_so` for the sibling
+        claim about the built case, and the repo's "unreadable resolves to
+        `None`, never `0`" convention this is an instance of.
+
+        Mutation observed red: initialise `ladder_excluded = {}` instead of
+        `None`, or assign `0` inside a skipped branch.
+        """
+        source = self._score_settle_and_alert_source()
+        before_gate = source[:source.index("if alerter.enabled")]
+
+        assert "ladder_excluded = None" in before_gate, (
+            "ladder_excluded is not initialised to None before the gate, so "
+            "a skipped build would leave it undefined or reporting a "
+            "false-zero tally instead of 'did not run'"
+        )
