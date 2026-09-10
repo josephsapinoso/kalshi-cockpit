@@ -1273,15 +1273,33 @@ async def main() -> int:
             # a second or more of that every fifteen seconds would eat the
             # margin that keeps a row bettable.
             #
-            # And it would buy nothing. The ladder is a pure function of stored
-            # odds, so between sweeps it rebuilds byte-identically: the key is
-            # the same, `UNIQUE (kind, key)` drops it, and the whole build
+            # And between sweeps it would buy nothing on the SEND side even
+            # where the build itself is cheap: the ladder is a pure function
+            # of stored odds, so it rebuilds byte-identically, the key is the
+            # same, `UNIQUE (kind, key)` drops it, and the whole build
             # produced a notification that was then discarded.
             #
-            # So: a pass that actually swept, or a full pass. A sweep is the
-            # only thing that changes a fair value, and the full pass bounds
-            # the wait when the pool changes for the other reason -- a game
-            # commencing and dropping out of `ladder_candidates`.
+            # **The build is not always cheap, and this is not decoration.**
+            # `build_ladder_payload` scans `fair_prices`, and that scan floor
+            # has itself been a live regression (6.5M rows, ~1.2 GB RSS in the
+            # recorder, one prior commit up) independent of whatever the
+            # 200,000-sample copula above costs. A pass that swept, or a full
+            # pass, is necessary for the answer to have changed -- but it is
+            # not sufficient for the answer to be *sendable*: both channels
+            # this section exists to feed can be closed for the rest of the
+            # day (the change ceiling spent, the scheduled card already
+            # claimed for every rung) while sweeps keep firing every pass.
+            # `Alerter.parlay_cards_could_send` below is the second, orthogonal
+            # gate that catches that case -- a scan is expensive whether or not
+            # anyone was ever going to hear about its answer.
+            #
+            # So: a pass that actually swept, or a full pass, AND a pass where
+            # `parlay_cards_could_send` says a push is still possible today. A
+            # sweep is the only thing that changes a fair value, the full pass
+            # bounds the wait when the pool changes for the other reason -- a
+            # game commencing and dropping out of `ladder_candidates` -- and
+            # the could-send check bounds the pass count for the many hours a
+            # day when neither channel has anywhere left to go.
             #
             # **This block used to end by claiming the two triggers Joe asked
             # for were one mechanism** -- *"the daily card is the first build
@@ -1296,12 +1314,19 @@ async def main() -> int:
             # scheduled card at `PARLAY_CARD_UTC_HOUR`, and a change alert
             # debounced over `PARLAY_DEBOUNCE_BUILDS` consecutive builds.
             #
-            # **What stays true is the gate above**, and it is what makes the
-            # debounce mean anything: a "build" is a pass that could have
+            # **The sweep/full-pass half of the gate is what makes the
+            # debounce mean anything**: a "build" is a pass that could have
             # changed the answer. Counting byte-identical rebuilds towards a
             # consecutive-builds run would let a quiet slate satisfy the
             # debounce by doing nothing, which is the opposite of the property
-            # being bought.
+            # being bought. **The could-send half does not touch that
+            # property**: when it skips a build, `Alerter._observe_candidate`
+            # is simply never called for that pass, so a composition's run
+            # length is left exactly where the last real build put it --
+            # paused, not reset. Nothing could have been sent during the gap
+            # either way, since could-send only returns `False` when both
+            # channels are shut for the day.
+            #
             # **Refresh the combo-eligibility cache before the ladder reads
             # it, on full passes only and at most hourly.**
             #
@@ -1333,7 +1358,7 @@ async def main() -> int:
             # tell "refused nothing" from "did not run". See
             # `CombinedPass.as_dict`.
             ladder_excluded = None
-            if alerter.enabled and (counts.odds_sweeps > 0 or kind == "full"):
+            if alerter.enabled and (counts.odds_sweeps > 0 or kind == "full") and alerter.parlay_cards_could_send(now_ms=stamp, day_start_ms=budget.day_start_ms(stamp), card_hour_utc=parlay_card_hour):
                 # Bound rather than inlined: the payload's `excluded` tally is
                 # the only view of why legs were dropped, and until 2026-08-28
                 # it was discarded here and readable only through an

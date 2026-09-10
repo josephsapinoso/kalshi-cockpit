@@ -685,6 +685,66 @@ class Alerter:
         self.conn.commit()
         return builds
 
+    def parlay_cards_could_send(
+        self, *, now_ms: int, day_start_ms: int, card_hour_utc: int
+    ) -> bool:
+        """Whether a `parlay_cards` call on this pass's build could push
+        anything at all -- called BEFORE the ladder is built, so the runner
+        can skip the build entirely (and the 200,000-sample copula it costs)
+        when the answer is no.
+
+        Pure read, no side effects. True when either channel still has room:
+
+        - **The scheduled card** (`PARLAY_DAILY_KIND`) is due (`now_ms` at or
+          past `card_hour_utc`, via `parlay_card_due_ms`) AND at least one of
+          `PUSHED_CARD_KEYS` has not yet claimed its `f"{day_start_ms}:"` key
+          for today. Both conditions, not either: a rung already claimed stays
+          claimed for the rest of the day regardless of the hour, and an
+          unclaimed rung before its hour cannot send until the hour arrives --
+          checking claim status alone would keep building all day for a rung
+          that simply has not reached its due time yet.
+        - **The change alert** (`PARLAY_CHANGE_KIND`) has not spent
+          `MAX_PARLAY_PUSHES_PER_DAY` yet. Independent of the scheduled
+          channel -- `parlay_cards`'s own docstring: the daily card "does not
+          spend `MAX_PARLAY_PUSHES_PER_DAY`, because it cannot run away".
+
+        `False` when `self.enabled` is false, matching every other alert path.
+
+        **Deliberately blind to the debounce.** `PARLAY_DEBOUNCE_BUILDS`
+        counts consecutive *builds* of one composition, and that count lives
+        in `parlay_card_candidates` -- a fact about the ladder this method
+        never sees, because seeing it would require building the very thing
+        this method exists to let the runner skip. So this can return `True`
+        on a pass whose build turns out to be held by the debounce; that is
+        correct, because the predicate answers "could a build produce a
+        send", not "will this specific one".
+
+        **A skipped build does not reset the debounce, and that is the
+        decision this method's existence rests on.** When the runner skips
+        the build (this returns `False`), `_observe_candidate` is never
+        called for that pass, so the `parlay_card_candidates` row is left
+        exactly where the last real build left it. A composition two builds
+        into a streak stays at two -- it neither restarts at zero nor
+        advances to three. The streak resumes, rather than restarting, the
+        next time a build actually runs. Nothing could have been sent during
+        the gap anyway (both channels were exhausted), so pausing the streak's
+        clock there costs nothing a live send would have needed.
+        """
+        if not self.enabled:
+            return False
+        if now_ms >= parlay_card_due_ms(day_start_ms, card_hour_utc):
+            row = self.conn.execute(
+                "SELECT COUNT(*) AS n FROM notifications "
+                "WHERE kind = ? AND key LIKE ?",
+                (PARLAY_DAILY_KIND, f"{day_start_ms}:%"),
+            ).fetchone()
+            if int(row["n"] or 0) < len(PUSHED_CARD_KEYS):
+                return True
+        return (
+            self._parlay_pushes_today(day_start_ms=day_start_ms)
+            < MAX_PARLAY_PUSHES_PER_DAY
+        )
+
     async def parlay_cards(
         self,
         ladder: dict,

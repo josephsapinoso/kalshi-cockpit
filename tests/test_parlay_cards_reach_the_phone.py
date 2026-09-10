@@ -472,6 +472,94 @@ class TestTheDebounceHoldsACompositionThatIsStillChurning:
         assert PARLAY_DEBOUNCE_BUILDS == 2
 
 
+class TestParlayCardsCouldSend:
+    """`parlay_cards_could_send` runs BEFORE the ladder is built, so the loop
+    can skip `build_ladder_payload`'s `fair_prices` scan entirely on a pass
+    that cannot possibly result in a push. It must agree with what
+    `parlay_cards` would actually do: never more permissive (that just moves
+    the wasted scan into a different frame) and never so strict that it
+    silences a channel that still has room.
+    """
+
+    async def test_an_unclaimed_day_could_still_send(self, conn):
+        """Mutation observed red: return `False` unconditionally.
+
+        Nothing has been claimed yet and the hour is here -- the scheduled
+        card for at least one rung is still there to send.
+        """
+        alerter = Alerter(conn, FakeNotifier())
+        assert alerter.parlay_cards_could_send(
+            now_ms=_at(20, 0), day_start_ms=DAY_START, card_hour_utc=20
+        )
+
+    async def test_a_claimed_day_with_the_ceiling_spent_cannot_send(self, conn):
+        """Both channels shut for the day: the one case this predicate exists
+        to catch. Mutation observed red: drop the ceiling check, or the claim
+        check, from the `or`.
+        """
+        alerter = Alerter(conn, FakeNotifier())
+        await _push(
+            alerter,
+            _ladder(
+                _card("safe"), _card("middle", ("D", "E")),
+                _card("lottery", ("F", "G", "H")),
+            ),
+            now_ms=_at(20, 0), hour=20,
+        )
+        for n in range(MAX_PARLAY_PUSHES_PER_DAY):
+            await _settle(
+                alerter, _ladder(_card(tickers=(f"G{n}", "X", "Y"))),
+                now_ms=_at(20, 1) + n * 60_000, hour=20,
+            )
+        assert alerter.parlay_cards_could_send(
+            now_ms=_at(20, 5), day_start_ms=DAY_START, card_hour_utc=20
+        ) is False
+
+    async def test_a_claimed_day_with_room_left_could_still_send(self, conn):
+        """The scheduled card cannot run away and does not spend the change
+        ceiling, so a day that has claimed it still has the whole change
+        budget to give.
+        """
+        alerter = Alerter(conn, FakeNotifier())
+        await _push(
+            alerter,
+            _ladder(
+                _card("safe"), _card("middle", ("D", "E")),
+                _card("lottery", ("F", "G", "H")),
+            ),
+            now_ms=_at(20, 0), hour=20,
+        )
+        assert alerter.parlay_cards_could_send(
+            now_ms=_at(20, 1), day_start_ms=DAY_START, card_hour_utc=20
+        )
+
+    async def test_a_disabled_notifier_never_could_send(self, conn):
+        """Matches `enabled` on every other alert path -- a revoked webhook
+        must not leave the recorder paying for a scan nothing can use."""
+        alerter = Alerter(conn, FakeNotifier())
+        alerter.notifier.enabled = False
+        assert alerter.parlay_cards_could_send(
+            now_ms=_at(20, 0), day_start_ms=DAY_START, card_hour_utc=20
+        ) is False
+
+    async def test_before_the_hour_the_ceiling_alone_decides(self, conn):
+        """The scheduled channel cannot fire before its hour, so "not yet
+        claimed" alone would keep saying True all day regardless of the
+        change ceiling -- exactly the cost this predicate exists to cut on a
+        slate that burns the ceiling in its first few kickoffs. Mutation
+        observed red: drop the due-time check and test claim status alone.
+        """
+        alerter = Alerter(conn, FakeNotifier())
+        for n in range(MAX_PARLAY_PUSHES_PER_DAY):
+            await _settle(
+                alerter, _ladder(_card(tickers=(f"G{n}", "X", "Y"))),
+                now_ms=_at(18, 0) + n * 60_000, hour=20,
+            )
+        assert alerter.parlay_cards_could_send(
+            now_ms=_at(18, 5), day_start_ms=DAY_START, card_hour_utc=20
+        ) is False
+
+
 class TestTheScheduledCardLandsAtItsHour:
     """Joe's trigger #1, taken literally. Immune to churn by construction
     rather than by policy: whatever the ladder says at the stated hour is the
@@ -993,6 +1081,28 @@ class TestTheLoopAsksOnEveryPass:
         a newly-buildable card for up to a quarter of an hour.
         """
         assert "counts.odds_sweeps > 0" in self._gate_line()
+
+    def test_it_does_not_build_when_nothing_could_send(self):
+        """Mutation observed red: drop `alerter.parlay_cards_could_send(...)`
+        from the gate.
+
+        `build_ladder_payload` scans `fair_prices` -- itself measured as a
+        multi-million-row scan -- and a sweep or a full pass is necessary for
+        the ladder to have changed but not sufficient for either the
+        scheduled card or the change alert to still have anywhere to go. The
+        recorder must not pay for that scan on a pass that cannot possibly
+        produce a push.
+        """
+        assert "alerter.parlay_cards_could_send(" in self._gate_line()
+
+    def test_the_could_send_call_gets_the_same_clock_the_push_does(self):
+        """The predicate and the push it gates must agree on which day and
+        which hour, or a skip/build decision could disagree with what
+        `parlay_cards` itself would have done a moment later."""
+        gate = self._gate_line()
+        assert "now_ms=stamp" in gate
+        assert "day_start_ms=budget.day_start_ms(stamp)" in gate
+        assert "card_hour_utc=parlay_card_hour" in gate
 
     def test_it_does_not_rebuild_the_ladder_on_every_pass(self):
         """Mutation observed red: gate on `alerter.enabled` alone.
