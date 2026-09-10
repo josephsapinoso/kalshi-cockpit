@@ -273,11 +273,25 @@ four-column key collides two players. The scan floor gained a third term
    `GHSA-rgxp-2hwp-jwgg` needs an Arrow **IPC file** read with pre-buffering
    and this repo only writes Parquet. **Trigger: anything starts reading
    `.arrow` or `.feather`.**
-8. **`worktree-agent-ab85969ab45aa6004` is still parked** and still unmerged —
-   the "last scored call" card that would render empty forever. Yours to keep
-   or bin. Two sibling worktree *directories* resisted deletion (a process
-   holds the handles); their branches are gone and git's registry is clean, so
-   they are inert clutter.
+8. **The "last scored call" card is BINNED — Joe's word, 2026-09-09.** Not
+   deferred. `worktree-agent-ab85969ab45aa6004` and its worktree are deleted.
+   **The commit is `ab559e6` and stays recoverable from the object store until
+   GC** (~90 days), which is the only reason binning it is cheap — it held a
+   `DRAFT-the-last-scored-call-gets-a-caller.md`, `/estimate` page wiring, an
+   `api.ts` client and `tests/test_last_scored_call_is_rendered.py`, 350
+   insertions across 7 files.
+
+   **Do not rebuild it.** The reason it could never work is a fact about the
+   data, not a missing piece: `bet_estimates` holds exactly **one** row and it
+   is `is_study_row = 1`, which `last_scored_call` must exclude — so the card
+   renders empty forever. Verified again this session: `bet_estimates = 1` on
+   live. The premise it was assigned on was already stale when it was written,
+   ADR 0094 §11 having killed the log screen on Joe's word 2026-09-05.
+   Reopening needs study rows that are not study rows, i.e. real scored calls.
+
+   Two sibling worktree *directories* also resisted deletion (a process holds
+   the handles); their branches are gone and git's registry is clean, so they
+   are inert clutter.
 
 **Joe-gated:** the parked branch (item 8), and whether item 5 gets a session.
 
