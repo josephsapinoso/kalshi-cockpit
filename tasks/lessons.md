@@ -16,6 +16,42 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-10 - A read-only scan on live is not free for the desk: it evicts the page cache, and the next reader pays for it
+
+A research agent answered "how many spread rows does `fair_prices` hold, all
+time, by market?" with a `GROUP BY` over the whole 10.1M-row table, twice,
+plus a three-table join - all `mode=ro`, all correct, all finished. Ten
+minutes later `/api/parlays` answered 503 `read_budget_exceeded` at 25 s on
+both windows, and the ladder's own candidate query - 75 ms every pass in the
+runner's log - took **74.8 s** cold and **2.15 s** warm when run by hand in
+the container. The box was idle (load 0.13) and nothing was wrong with the
+code. The 5 GB file had been streamed through a ~1.4 GB page cache, and the
+pages the desk needs were the ones that left.
+
+**The shape to look for: a "harmless" read whose input is the whole table.**
+Read-only says nothing about cost; on a 2 GB box the cache *is* the
+performance, and a full-table scan is a cache flush with a result attached.
+The read budget (ADR 0135) did its job - the requests were stopped rather
+than piled up - which is why this cost minutes and not a reboot.
+
+Three rules that fall out:
+
+- **A census on live goes through the indexed path the product uses**
+  (`ladder_candidates`, `inspect_live_db.py`'s whitelisted queries), or
+  through a bounded key range, never `GROUP BY` over an unbounded table.
+  If the question needs the whole table, ask it once, say so first, and
+  expect the desk to be slow for minutes afterwards.
+- **A 503 at the read budget minutes after a live read is the read, not a
+  regression.** Check `loop-rss` and `/proc/loadavg` before diagnosing; a
+  cold-cache candidate query looks exactly like the OOM cycle of two days
+  earlier and has the opposite cause.
+- **Subagents inherit none of this.** A reviewer told to "read live only
+  via the read-only replay pattern" will do exactly that and still flush the
+  cache; the instruction has to bound the *rows*, not just the mode.
+
+See [[verification-methods-that-lie]] and the 2026-09-10 lesson above: same
+box, same table, the cost hiding in a different column.
+
 ## 2026-09-10 - The cost of a scan is not its wall-clock, and a floor widened for a correct reason still has to be re-timed on live before it ships
 
 The ladder query's scan floor was widened from two hours to nine days for a
