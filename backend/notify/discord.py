@@ -27,6 +27,7 @@ Three classes of message, and the third matters most:
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import Optional, Sequence
 from urllib.parse import quote
@@ -510,6 +511,137 @@ class DiscordNotifier:
                             notes.get("upper_bound"),
                             notes.get("not_advice"),
                             notes.get("no_button"),
+                        ) if note
+                    )
+                },
+            }
+        )
+
+    async def position_state(
+        self, position: dict, *, notes: dict, as_of_ms: int
+    ) -> bool:
+        """The symmetric "legs in play" push. AMENDS ADR 0078 D2 -- Joe,
+        2026-09-10.
+
+        Fires once a day per ticket while a watched game is running, and
+        says the same shape of thing whether the news is good or bad: which
+        legs are still live, at what the venue is bidding right now, and how
+        many. It never names a locked dollar figure -- that stays
+        `hedge_lock`'s job, and D2's reason for reserving it survives: the
+        phone must not buzz for a number the tool cannot stand behind. A
+        count and a per-leg venue BID are both things the book actually
+        said; this embed states them and nothing else.
+
+        **The template is byte-identical in shape whether the legs are at
+        91c or 9c.** A rising leg and a falling leg produce the same field
+        titles and the same sentences -- only the numbers inside them
+        differ -- because an alert whose *shape* changes with direction is a
+        nudge no matter how careful the words are. The argument that settled
+        this: an alert that fires only on bad news is a nudge by
+        construction, no matter how the words are chosen; an alert on a
+        fixed schedule regardless of direction is a fact by construction,
+        because its arrival carries no information.
+
+        **No comparative figure.** Nothing stores what a leg was worth
+        earlier today, so there is no "moved from Xc" to report and none is
+        invented here.
+
+        **Every string but the age is pre-rendered**, exactly as
+        `hedge_lock` requires and for its reason: the screen and the embed
+        must not be able to disagree by a rounding step. The age is the one
+        exception, computed from `as_of_ms` against wall-clock time at send
+        time -- a display freshness figure, not a money figure, and the
+        forbidden-word test does not pin its value for the same reason you
+        would not pin a clock's reading.
+        """
+        if not self.config:
+            return False
+
+        legs = position.get("legs") or []
+        total = len(legs)
+        live = [leg for leg in legs if leg.get("outcome") == "pending"]
+        n_live = len(live)
+        age_s = max(0, int(time.time() * 1000) - int(as_of_ms)) // 1000
+
+        fields = []
+        for leg in legs:
+            label = str(leg.get("label") or "")
+            if leg.get("outcome") == "pending":
+                quote_age_ms = leg.get("quote_age_ms")
+                age_text = (
+                    f"{quote_age_ms / 1000:.0f}s ago"
+                    if quote_age_ms is not None
+                    else "no live quote"
+                )
+                fields.append(
+                    _field(
+                        label,
+                        f"{leg.get('chance_display') or '--'}  ({age_text})",
+                        inline=False,
+                    )
+                )
+            else:
+                fields.append(
+                    _field(
+                        label,
+                        str(leg.get("outcome") or "").capitalize() or "--",
+                        inline=False,
+                    )
+                )
+
+        if n_live > 1:
+            # The only field that speaks to several live legs at once, and it
+            # says what buying one side of one leg does -- reshapes, never
+            # locks -- rather than which way anything is moving.
+            fields.append(
+                _field(
+                    "No figure locks",
+                    f"{n_live} legs are still live. Buying the other side "
+                    "of any one of them locks nothing — it changes the "
+                    "shape of what can happen, and both branches are on "
+                    "the screen.",
+                    inline=False,
+                )
+            )
+        elif n_live == 1:
+            block = position.get("hedge") or {}
+            if block.get("kind") == "lock" and block.get("guaranteed"):
+                # The one figure this embed is allowed to state, and it is
+                # the exact fact `hedge_lock` already stands behind -- never
+                # invented here, only carried.
+                fields.append(
+                    _field(
+                        "Locks",
+                        f"{block.get('guaranteed_display')} whichever way "
+                        "the last leg goes",
+                        inline=False,
+                    )
+                )
+            # Otherwise: no guarantee to state and no line about one. A
+            # `False` flag here would invite "not guaranteed" beside a
+            # number as though one were coming -- the same ruling
+            # `hedge._hedge_payload` makes for the derisk block's missing
+            # `guaranteed` key.
+
+        return await self._post(
+            {
+                "title": f"Legs in play — {position.get('label')}",
+                "description": (
+                    f"{position.get('stake_display')} → "
+                    f"{position.get('return_display')} · {n_live} of "
+                    f"{total} legs live · read {age_s}s ago"
+                ),
+                "url": f"{self.config.cockpit_base_url}/hedge",
+                # The parlay colour, deliberately: never opportunity green
+                # (this finds nothing) and never a warning colour (this is
+                # not bad news by construction -- it fires the same on a
+                # good day).
+                "color": COLOUR_PARLAY,
+                "fields": fields,
+                "footer": {
+                    "text": "\n".join(
+                        note for note in (
+                            notes.get("not_advice"), notes.get("upper_bound"),
                         ) if note
                     )
                 },
