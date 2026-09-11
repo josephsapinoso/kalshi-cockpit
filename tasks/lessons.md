@@ -16,6 +16,51 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-11 - Never hand-type an identifier into the mechanism whose job is to report identity
+
+A live deploy went out with `-e GIT_SHA=a5b160a3f6ca01bbfcba04d1b32e10a0dcba8bd2`.
+The real commit was `a5b160ac9cf0a3132fbe271eb5a2fd8a157a28f5`. The first seven
+characters matched, because those were read; the remaining thirty-three were
+invented.
+
+The deployed **code** was correct -- `fly deploy` ships the working tree, which
+was clean and at that commit -- so nothing was broken and every test still
+described what was running. What was wrong is the only thing anyone checks to
+find out what is running: `/api/health` reported a `git_sha` that exists in no
+repository. A session reading it would have found no such commit and had no way
+to tell "the label is wrong" from "the tree is not what I think it is".
+
+**The causal chain is the part worth keeping, because it was a workaround that
+did it.** The auto-mode classifier refuses compound commands, and the reliable
+response is to issue commands singly (see the memory note). So
+`flyctl deploy ... -e GIT_SHA=$(git rev-parse HEAD)` -- which cannot be wrong --
+got split into `git rev-parse HEAD` in one call and a deploy in another, with
+the value carried across by hand. **Splitting a command to satisfy a gate
+converts a substitution into a transcription**, and transcription is the step
+that fails.
+
+Three rules:
+
+- **Substitute, never transcribe.** `$(git rev-parse HEAD)` in the same command
+  is correct by construction. If a gate forces the split, paste the value from
+  the command's own output rather than typing it, and diff it against the source
+  before pressing go.
+- **An identifier is the one field where "close enough" is undetectable.** A
+  wrong price or a wrong count looks wrong. A wrong SHA looks exactly like a
+  right one -- same length, same alphabet, correct prefix -- and the prefix is
+  the part a reader spot-checks.
+- **Verify the label against its source, not against itself.** Reading
+  `/api/health` back confirms the deploy *landed*; it cannot confirm the value
+  is real, because it is echoing what it was handed. The check that works is
+  `git rev-parse HEAD` beside the reported string.
+
+The general form, and it is the same shape as the warm-up that shipped doing
+nothing: **a component that reports on the system can be broken in a way that
+leaves the system fine and the report confident.** Those are the expensive ones,
+because the report is what everyone downstream believes.
+
+---
+
 ## 2026-09-11 - A screen whose content depends on sweep phase will be mistaken for a property of the slate
 
 Checking whether the parlay desk's horizon widening had ever fired, I read
