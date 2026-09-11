@@ -3170,6 +3170,10 @@ export type HeldPosition = {
   placed_ms: number | null;
   combo_ticker: string | null;
   stake_display: string;
+  /** The entry fee the hedge arithmetic sinks beside the stake on a Kalshi
+   * combo (ADR 0145); `null` on a sportsbook slip, whose vig is in its
+   * price. Rendered, never computed with. */
+  entry_fee_display: string | null;
   return_display: string;
   state: "lock" | "derisk" | "dead" | "won" | "void_leg" | "not_hedgeable";
   state_detail: string;

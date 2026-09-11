@@ -41,15 +41,19 @@ What this module does NOT establish
   beats holding a ticket worth more in expectation is a preference about
   variance, and this module has no opinion.
 - **That the guarantee is exact, or which way it leans.** Four terms sit on
-  every figure and they do not share a sign. Two make the true figure
+  every figure and they do not share a sign. One makes the true figure
   smaller: whether Kalshi also charges at settlement is H4, untested
-  (ADR 0027); and the fee already paid to *enter* the ticket is not in
-  `stake_tenths` at all (`routes._record_combo_position` writes price times
-  contracts, and `Rung` nets against that). Two make it larger: the stake a
-  caller passes may be the price *sent* rather than the price charged
-  (ADR 0143 §4); and the hedge's own fee is the flat 0.070 rounded up, where
-  baseball's measured k is ~0.035 (ADR 0028). Callers must say it is an
-  estimate, and never a ceiling or a floor.
+  (ADR 0027). Three make it larger: the stake a caller passes may be the
+  price *sent* rather than the price charged (ADR 0143 §4); the hedge's own
+  fee is the flat 0.070 rounded up, where baseball's measured k is ~0.035
+  (ADR 0028); and the fee already paid to *enter* a Kalshi combination is
+  charged here at `COMBO_TAKER_COEFFICIENT` (0.071), which overstated the
+  venue's charge by 0.6–1.4% on the eight measured combo fills, by 1.4% on
+  average over 62 more, and understated it on none (ADR 0145 — until that
+  ADR the entry fee was
+  absent from the sunk stake altogether, the largest term and the only
+  one that ran optimistic). Callers must say it is an estimate, and never
+  a ceiling or a floor.
 - **Anything about a ticket with more than one leg still live.** `derisk` is
   branch arithmetic and a notional value, not a lock. Hedging one of four live
   legs locks nothing at all.
@@ -75,10 +79,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from decimal import ROUND_CEILING, Decimal
 from typing import Optional, Sequence, Union
 
 from .correlation import CorrelationRefused, Leg, joint_probability_all
-from .fees import calculate_fee
+from .fees import COMBO_TAKER_COEFFICIENT, FEE_GRID_DOLLARS, calculate_fee
 from .prices import PRICE_MAX, format_price, is_valid_price
 
 #: A contract settles at $1.00, which is `PRICE_MAX` tenths of a cent. Money in
@@ -293,6 +298,54 @@ def _fee_tenths(price_tenths: int, contracts: int) -> Optional[int]:
     if fee_dollars is None:
         return None
     return int(math.ceil(fee_dollars * SETTLEMENT_TENTHS - 1e-9))
+
+
+def combo_entry_fee_tenths(stake_tenths: int, return_tenths: int) -> Optional[int]:
+    """The taker fee already paid to ENTER a Kalshi combination, in integer
+    tenths of a cent, rounded UP. ADR 0145.
+
+    A combination is bought once, at its own price, and the venue charges
+    `k * C * P * (1 - P)` on that one order -- per contract at the combo's
+    price, not per leg (`docs/measurements/2026-08-18-combo-fill-fee-look-result.md`,
+    n = 8: the leg-count forms matched zero rows; and the 62-fill replay of
+    2026-09-09 is consistent). `parlay_positions` stores neither `C` nor `P`,
+    only `stake = C * P` and `return = C * $1`, so the fee is taken in the
+    collapsed form
+
+        fee = k * stake_dollars * (1 - stake / return)
+
+    which is algebraically the same number and needs no contract count. That
+    matters: `routes._record_combo_position` truncates a fractional venue
+    fill count to an integer today, and recovering `C` from `return / 1000`
+    would inherit that truncation the day it is fixed.
+
+    `COMBO_TAKER_COEFFICIENT` (0.071), not the flat 0.070: 0.070 undercharged
+    four of the eight measured combo fills, and 0.071 exceeds every implied
+    k seen (0.070041-0.070548) by construction. The grid is the venue's
+    $0.0001 (`FEE_GRID_DOLLARS`) rounded up, then rounded up again onto
+    integer tenths -- both in the direction that lowers the displayed lock,
+    which is the direction a sunk cost may safely err in.
+
+    `None` on a ticket the arithmetic cannot read (a stake at or below zero,
+    or a return at or below the stake) rather than `0`: a missing fee must
+    never resolve to a free entry. `ticket_refusal` refuses the same tickets
+    a step later, so a caller that adds `None or 0` is not manufacturing a
+    lock -- the ticket never reaches the ladder.
+    """
+    if stake_tenths <= 0 or return_tenths <= stake_tenths:
+        return None
+    stake = Decimal(int(stake_tenths))
+    combo_price = stake / Decimal(int(return_tenths))
+    raw = (
+        COMBO_TAKER_COEFFICIENT
+        * (stake / Decimal(SETTLEMENT_TENTHS))
+        * (Decimal(1) - combo_price)
+    )
+    fee_dollars = raw.quantize(FEE_GRID_DOLLARS, rounding=ROUND_CEILING)
+    tenths = (fee_dollars * Decimal(SETTLEMENT_TENTHS)).to_integral_value(
+        rounding=ROUND_CEILING
+    )
+    return int(tenths)
 
 
 def _rung(

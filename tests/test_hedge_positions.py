@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from backend import hedge
+from backend.core import hedge as core_hedge
 from backend.core.hedge import Derisk, Lock, Refusal
 from backend.store import db
 
@@ -601,6 +602,118 @@ class TestWhatStateATicketIsIn:
         }
 
 
+class TestTheEntryFeeIsSunkBesideTheStake:
+    """ADR 0145. `parlay_positions.stake_tenths` is contracts times price and
+    carries no fee; the arithmetic sinks the venue's entry fee beside it.
+
+    **Every row here is synthetic, and the ADR says why**: the four real
+    positions on live are all `STATE_DEAD` (a lost leg each) and `/hedge`
+    has never produced a lock in its life, so there is no real row on which
+    a before/after could be shown. The 4-at-41c ticket below has the shape
+    of a real fill and is not one.
+    """
+
+    def _lock_floor(self, conn, position_id, books):
+        legs = hedge.legs_for(conn, position_id)
+        hedge.resolve_leg(
+            conn,
+            leg_id=int(legs[1]["id"]),
+            outcome="won",
+            now_ms=NOW_MS,
+            source="manual",
+        )
+        _, _, assessment = assess(conn, position_id, books)
+        assert isinstance(assessment.outcome, Lock)
+        return assessment.outcome
+
+    def test_a_kalshi_combo_sinks_its_entry_fee_and_a_sportsbook_slip_does_not(
+        self, conn
+    ):
+        slip = record(conn, source="sportsbook")
+        combo = record(conn, source="kalshi_combo")
+        slip_lock = self._lock_floor(conn, slip, {CIN: book()})
+        combo_lock = self._lock_floor(conn, combo, {CIN: book()})
+        fee = core_hedge.combo_entry_fee_tenths(5_000, 100_000)
+        assert fee == 338
+        # Same ticket, same book, same hedge: the combo's every branch is
+        # lower by exactly the fee, because the fee is sunk and nothing else.
+        assert slip_lock.equalising.contracts == combo_lock.equalising.contracts
+        assert (
+            slip_lock.equalising.floor_tenths - combo_lock.equalising.floor_tenths
+            == fee
+        )
+        assert (
+            slip_lock.equalising.if_leg_wins_tenths
+            - combo_lock.equalising.if_leg_wins_tenths
+            == fee
+        )
+
+    def test_a_lock_a_few_tenths_wide_is_not_a_lock_once_the_fee_is_sunk(
+        self, conn
+    ):
+        # Four contracts at 41c, one leg left, hedged by buying NO at 56c:
+        # the ticket pays $4.00, the hedge costs 4 x 56c + a 69-tenth fee =
+        # $2.309, and the stake was $1.64 -- so the floor is 51 tenths, about
+        # five cents, and `is_guaranteed_profit` fires. The entry fee on that
+        # ticket is 69 tenths. Charged, the same figure is -18: a loss the
+        # screen would have pushed to the phone as a guaranteed gain.
+        books = {CIN: book(yes_bid=440, no_bid=540)}
+        as_slip = record(conn, source="sportsbook", stake=1_640, payout=4_000)
+        as_combo = record(conn, source="kalshi_combo", stake=1_640, payout=4_000)
+        slip_lock = self._lock_floor(conn, as_slip, books)
+        combo_lock = self._lock_floor(conn, as_combo, books)
+        assert slip_lock.best_available is not None
+        assert slip_lock.best_available.floor_tenths == 51
+        assert slip_lock.is_guaranteed_profit is True
+        assert combo_lock.best_available is not None
+        assert combo_lock.best_available.floor_tenths == 51 - 69
+        assert combo_lock.is_guaranteed_profit is False, (
+            "the entry fee is no longer sunk into the hedge arithmetic; a "
+            "lock narrower than the fee Joe already paid would be announced "
+            "as a guaranteed gain (ADR 0145)"
+        )
+
+    def test_the_payload_shows_the_fee_beside_the_stake_and_only_on_a_combo(
+        self, conn
+    ):
+        as_slip = record(conn, source="sportsbook", stake=1_640, payout=4_000)
+        as_combo = record(conn, source="kalshi_combo", stake=1_640, payout=4_000)
+        payloads = {
+            int(row["id"]): hedge.serialise_position(
+                row,
+                hedge.legs_for(conn, int(row["id"])),
+                {CIN: book()},
+                assess(conn, int(row["id"]), {CIN: book()})[2],
+                now_ms=NOW_MS,
+                venue_tickers=None,
+                venue_settlement=None,
+            )
+            for row in hedge.open_positions(conn)
+        }
+        assert payloads[as_slip]["entry_fee_display"] is None
+        assert payloads[as_combo]["entry_fee_display"] == "$0.07"
+        # The stake line itself is still what was recorded; the fee is shown
+        # beside it rather than folded in, so the row reconciles with the
+        # `manual_orders` intent it came from.
+        assert payloads[as_combo]["stake_display"] == "$1.64"
+
+    def test_a_derisk_sinks_the_same_fee(self, conn):
+        # Two legs live: no lock, but the branch costs are net of the sunk
+        # stake too, and the sunk stake is one number, not one per state.
+        books = {CIN: book(), LAD: book(ticker=LAD, yes_bid=600)}
+        slip = record(conn, source="sportsbook")
+        combo = record(conn, source="kalshi_combo")
+        _, _, slip_a = assess(conn, slip, books)
+        _, _, combo_a = assess(conn, combo, books)
+        assert isinstance(slip_a.outcome, Derisk)
+        assert isinstance(combo_a.outcome, Derisk)
+        assert (
+            slip_a.outcome.ladder[0].if_leg_wins_tenths
+            - combo_a.outcome.ladder[0].if_leg_wins_tenths
+            == 338
+        )
+
+
 class TestWhatTheBalanceIsAllowedToDecide:
     def test_a_read_balance_bounds_the_hedge(self, conn):
         # $100 against an 80c hedge plus its fee: 124 contracts, not 125.
@@ -849,10 +962,14 @@ class TestTheLockCaveatClaimsNoDirection:
 
     def test_the_note_names_what_it_leaves_out_and_calls_itself_an_estimate(self):
         note = hedge.NOTES["upper_bound"]
-        # The hedge's own fee is the only fee charged ...
-        assert "fee on this hedge only" in note
-        # ... so the entry fee and the settlement charge are both named ...
+        # The hedge's own fee is charged ...
+        assert "fee on this hedge" in note
+        # ... and so is the entry fee, since ADR 0145, at a named rate; it
+        # must not go back to saying the entry fee is left out ...
         assert "already paid to enter" in note
+        assert "measured combo rate" in note
+        assert "does not subtract" not in note
+        # ... the settlement charge is still named as unverified ...
         assert "pays out" in note and "unverified" in note
         # ... as is the sent-vs-charged stake ...
         assert "price the desk sent" in note

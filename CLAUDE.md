@@ -237,20 +237,25 @@ shown to Joe was flattering. Audited 2026-09-11 (measurement-skeptic, against
 `core/hedge.py` source): the displayed figure carries **at least four error
 terms and they point both ways**, none measured on a single row:
 
-    E3  entry fee absent from S     too HIGH   ~17 tenths/contract at 41c — the largest
-        (`routes.py:4318` is contracts × price, no fee; `core/hedge.py:222` defines
-        the branches net of the sunk stake)
+    E3  entry fee, charged at 0.071 too LOW    ~1% of the fee (≈1 tenth a position); ADR 0145
+        (was ABSENT from S until ADR 0145 — too HIGH by ~17 tenths/contract at
+        41c, the largest term and the only one that ran optimistic. `routes.py:4318`
+        still writes contracts × price with no fee; `backend/hedge.py:assess` now
+        sinks `core/hedge.py:combo_entry_fee_tenths` beside it at read time)
     E1  settlement fee, H4 untested too HIGH   0 if H4 holds; ADR 0027
     E2  sent price vs fill price    too LOW    0–10 tenths, ~0 on a one-level KXMVE book
     E4  hedge fee at flat 0.070     too LOW    ~9 tenths × n; measured baseball k ≈ 0.035
 
-(The registration's Amendment 1 §A6 is the canonical table; the hedge price
-being a live ask is a fifth, unsigned term it does not list.) Net is inside
-about a cent a contract with indeterminate sign, and E3 alone
-is the size of the smallest floors `Lock.is_guaranteed_profit` fires on. **The
-flattering error is calling the figure cautious, a floor, or "at least"** —
-the words to refuse are ceiling, floor, conservative, at least, can only be
-smaller/larger. The stake basis: **`manual_orders` has no `fill_price_tenths`
+(The registration's Amendment 1 §A6 is the canonical table as it stood before
+ADR 0145 and is not edited; the hedge price being a live ask is a fifth,
+unsigned term it does not list.) Net is now inside a few tenths a contract
+with indeterminate sign. **`/hedge` has produced zero locks in its life**
+(2026-09-11: 0 `hedge_lock` notifications, all four real positions
+`STATE_DEAD`), so E3 did no realised harm and the fix is validated on
+synthetic rows only. **The flattering error is calling the figure cautious,
+a floor, or "at least"** — the words to refuse are ceiling, floor,
+conservative, at least, can only be smaller/larger. The stake basis:
+**`manual_orders` has no `fill_price_tenths`
 column** — this paragraph named one until 2026-09-11. The column is
 `limit_price_tenths`, written at **intent** time
 (`backend/store/manual_orders.py:648`) from `OrderRequest.fill_price_tenths`

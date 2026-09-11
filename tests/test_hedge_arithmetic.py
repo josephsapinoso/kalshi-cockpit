@@ -169,6 +169,48 @@ class TestTheFee:
         assert result.is_guaranteed_profit is False
 
 
+class TestTheEntryFeeAlreadyPaid:
+    """`combo_entry_fee_tenths`, ADR 0145: the taker fee sunk on entering a
+    Kalshi combination, recovered from stake and return alone."""
+
+    @pytest.mark.parametrize(
+        "contracts, price_tenths",
+        [(4, 410), (5, 357), (1, 20), (250, 999), (17, 500), (3, 1)],
+    )
+    def test_the_collapsed_form_is_the_venues_per_contract_fee(
+        self, contracts, price_tenths
+    ):
+        # The position stores `C * P` and `C * $1`, never `C` or `P`. The
+        # helper must land on the same tenths as the guarded constant's own
+        # per-contract form would, so a change to `COMBO_TAKER_COEFFICIENT`
+        # reaches the hedge screen without a second number to keep in step.
+        import math
+
+        from backend.core.fees import combo_taker_fee
+        from backend.core.hedge import combo_entry_fee_tenths
+
+        stake = contracts * price_tenths
+        payout = contracts * 1000
+        direct = combo_taker_fee(price_tenths, contracts)
+        assert direct is not None
+        assert combo_entry_fee_tenths(stake, payout) == math.ceil(
+            direct * 1000 - 1e-9
+        )
+
+    def test_the_worked_example_from_the_audit(self):
+        # Four contracts at 41c: 0.071 * 4 * 0.41 * 0.59 = $0.0687, i.e. ~17
+        # tenths a contract -- the magnitude the 2026-09-11 audit named as E3.
+        from backend.core.hedge import combo_entry_fee_tenths
+
+        assert combo_entry_fee_tenths(1_640, 4_000) == 69
+
+    @pytest.mark.parametrize("stake, payout", [(0, 1_000), (1_000, 1_000), (-5, 100), (50, 40)])
+    def test_an_unreadable_ticket_has_no_fee_rather_than_a_free_one(self, stake, payout):
+        from backend.core.hedge import combo_entry_fee_tenths
+
+        assert combo_entry_fee_tenths(stake, payout) is None
+
+
 class TestRefusals:
     def test_every_reason_is_declared(self):
         for value in (
