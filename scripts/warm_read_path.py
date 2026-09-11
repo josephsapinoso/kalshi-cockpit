@@ -48,6 +48,16 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from pathlib import Path
+
+# **The repo root, or `import backend` fails.** `python scripts/warm_read_path.py`
+# puts `/app/scripts` on `sys.path`, not `/app`. Shipped without this line on
+# 2026-09-10 and the boot logged
+# `[warm] skipped: ModuleNotFoundError: No module named 'backend'` --
+# harmlessly, because every failure here is swallowed, which is exactly why it
+# would have gone unnoticed if the log had not been read. `migrate_db.py:22`
+# does the same thing for the same reason.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 def main(argv: list[str] | None = None) -> int:
