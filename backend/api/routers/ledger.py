@@ -38,7 +38,70 @@ def _gate_open(conn, gate: GateConfig) -> bool:
 
 
 def register(app: FastAPI, *, gate: GateConfig, get_conn) -> None:
-    """Attach the two ledger handlers to `app`, in their original order."""
+    """Attach the ledger handlers to `app`, in their original order.
+
+    `/api/exposure` joined them on 2026-09-10 and is deliberately FIRST: it
+    is the cheapest handler in the module and the only one a buy button
+    waits on. It lives here because this is where `open_positions` is
+    already served from, not because it is a ledger screen.
+    """
+
+    @app.get("/api/exposure")
+    def exposure(conn=Depends(get_conn)) -> dict:
+        """How deep Joe already is — the one figure a buy button needs.
+
+        **Why a second route rather than `/api/bets`.** `/api/bets` already
+        serves `open_positions`, and it also drags `bets_record(limit=200)`,
+        `pass_summary` and `lockout_until` along with it. The manual ticket
+        opens on seven surfaces (`ManualTicket.tsx`) and this read happens
+        every time one of them opens, beside a live Kalshi book read. Paying
+        for two hundred settled rows and two more table scans to render one
+        sentence is the wrong trade at that moment, so this route reads
+        `open_positions` and nothing else. `test_exposure_route.py` pins the
+        payload keys, which is what stops the next screen's needs from being
+        bolted on here.
+
+        **Why exposure belongs at the buy button at all.** ADR 0112 removed
+        all five brakes from the hand-bet path, so no ceiling of ours bounds a
+        hand bet any more; ADR 0071 §2.2 makes price transparency the desk's
+        job at the moment of a bet. What is already at risk is the one number
+        that decided whether a brake fired, and after the brakes went nothing
+        on any screen told him. `/parlays` — the screen all four real
+        combination fills were placed on — fetched no position data at all.
+
+        **It informs and never blocks**, which is the same posture
+        `PriceOnKalshi.tsx`'s `QuoteAge` block takes: a refusal here changes
+        no button. A sixth ceiling on a hand bet would be a reversal of
+        ADR 0112 and is not what this is.
+
+        Every honesty property is `open_positions`' own and none is re-stated
+        here: money stays integer tenths of a cent beside pre-rendered display
+        strings, an unreadable figure arrives as words in `staked_refusal` /
+        `value_refusal` and never as `0`, and each figure wears the clock of
+        the read that produced it. Passing the block through unchanged is
+        deliberate — a second shaping of it here would be a second place for
+        the two to drift apart, and `OpenPositionsBlock` is already the
+        frontend's type for exactly this object.
+
+        `as_of_ms` is the server clock the block's `*_age_ms` fields were
+        subtracted against, sent so a reader never has to subtract a browser
+        millisecond from a server one.
+
+        Public read, on the same terms as `/api/bets` and `/api/ledger`: on
+        live the middleware gates every route, and the demo's mirror is empty
+        by construction because the poller needs credentials.
+
+        What this does **not** establish: that the mirror is complete (a
+        position opened while the poller was down is absent, and the whole
+        figure is what it is bounded by — `open_positions`' own caveat), nor
+        anything about the unit of the venue's `market_exposure_dollars`,
+        which is inferred and measured by nothing.
+        """
+        now = db.now_ms()
+        return {
+            "as_of_ms": now,
+            "open_positions": bets_module.open_positions(conn, now_ms=now),
+        }
 
     @app.get("/api/bets")
     def bets(conn=Depends(get_conn), limit: int = Query(200, le=1000)) -> dict:

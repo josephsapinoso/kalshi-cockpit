@@ -228,8 +228,8 @@ export const GLOSSARY = {
     label: "exposure",
     definition:
       "The total you could lose if every bet you have open lost, fees " +
-      "included. The exposure cap bounds that total, so one bad night " +
-      "cannot take the whole bankroll.",
+      "included. Hold two $20 bets and you are $40 exposed. Nothing caps " +
+      "it on a bet you place by hand — that is why the ticket shows it.",
   },
   kelly: {
     label: "quarter-Kelly",
