@@ -158,33 +158,26 @@ jobs:
         run: |
           set -euo pipefail
 
-          IGNORE=()
-
-          # ---- ONE ENTRY. It was seven until 2026-09-09. ---------------
+          # ---- ZERO ENTRIES. It was seven until 2026-09-09, one until
+          # 2026-09-11. -------------------------------------------------
           #
-          # The six cryptography advisories are GONE, not silenced: the pin
-          # went 44 -> 50 on Joe's explicit yes (ADR 0124), and `pip-audit`
-          # against `requirements.txt` with NO ignores at all now reports
-          # exactly the one entry below. Deleting an ignore the moment its
-          # bump lands is the rule this list was written under, and this is
-          # that rule being kept.
+          # The six cryptography advisories went first: the pin moved 44 ->
+          # 50 on Joe's explicit yes (ADR 0124). The last entry was
+          # GHSA-rgxp-2hwp-jwgg (PYSEC-2026-113, CVE-2026-25087), a
+          # use-after-free in Apache Arrow C++ reading an Arrow IPC file --
+          # a KNOWN-BAD MATCH against the old `pyarrow~=19.0` pin that was
+          # unreachable here, since the only pyarrow call touching a file is
+          # `pq.write_table`, a Parquet *write*. It is now GONE rather than
+          # silenced: the pin is `~=25.0` and the advisory tops out at
+          # 23.0.0.
           #
-          # GHSA-rgxp-2hwp-jwgg (PYSEC-2026-113, CVE-2026-25087)
-          # KNOWN-BAD MATCH -- unreachable here, NOT a deferred fix.
-          # Use-after-free in Apache Arrow C++ reading an Arrow **IPC file**
-          # (explicitly not an IPC stream) with pre-buffering, where the
-          # file holds variadic buffers. Affects 15.0.0 through 23.0.0;
-          # fixed 23.0.1. The range does match the 19.0.1 pin, but the code
-          # path does not exist here: the only pyarrow call touching a file
-          # is `pq.write_table` in `backend/store/publish.py`, a Parquet
-          # *write*, and a tree-wide search for `pyarrow.ipc`, `feather`,
-          # `RecordBatchFileReader`, `RecordBatchStreamReader`, `open_file`,
-          # `open_stream` and `pre_buffer` returns nothing outside `.venv`.
-          # RE-EVALUATE if anything starts reading `.arrow` or `.feather`.
-          IGNORE+=(--ignore-vuln GHSA-rgxp-2hwp-jwgg)
-
-          pip-audit -r requirements.txt --strict --progress-spinner off \
-            "${IGNORE[@]}"
+          # **Deleting an ignore the moment its bump lands is the rule this
+          # list was written under.** An ignore that outlives its bump is
+          # indistinguishable from one that is still needed, and the next
+          # reader has no way to tell which. Keep this list empty; if
+          # something must be added back, it carries its own reachability
+          # argument the way the two above did.
+          pip-audit -r requirements.txt --strict --progress-spinner off
 
       # ruff.toml selects only pyflakes + pycodestyle's error classes (59
       # rules), minus the four rule codes that already have violations this

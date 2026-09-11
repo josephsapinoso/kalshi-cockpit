@@ -41,10 +41,15 @@ the predicate carries no multiplicity correction while the runner re-evaluates
 ~100 candidates every 900s. Quote the game count, never the row count.
 Do not count actionable rows with `clv-coverage` — it filters on
 `clv_scored_ms IS NOT NULL` and actionable rows are written before commence;
-`/api/gate` has the right number. Still unrun: split the unsuppressed
-population by `anchored_on_sharp` (a sharp anchor selects at most three books,
-`backend/core/devig.py:289`) and report the `edge_tenths > 0` rate in each,
-clustered per game. `docs/measurements/2026-09-01-actionable-population-reaudit.md`.
+`/api/gate` has the right number. Splitting the unsuppressed population by
+`anchored_on_sharp` (a sharp anchor selects at most three books,
+`backend/core/devig.py:289`) and reporting the `edge_tenths > 0` rate in each,
+clustered per game, is **deliberately refused, not merely unrun** — this line
+said "Still unrun" until 2026-09-11, which implied an owner who does not
+exist. `scripts/inspect_live_db_decisions.py:234` declines to compute it by
+design: a query carrying a decision rule is not a dump, so that module emits
+the rows and no aggregate. Running it needs a registration first, not a
+volunteer. `docs/measurements/2026-09-01-actionable-population-reaudit.md`.
 
 ## The signal is measured and negative
 
@@ -230,11 +235,19 @@ until 2026-09-10 and `core/hedge.py:43-45` had said otherwise the whole time
 establish: every figure charges the *entry* fee only, and the settlement charge
 is H4, untested — ADR 0027). A second, independent reason it cannot be exact:
 the basis it is computed from is the **ask the desk sent**, not what Kalshi
-charged. `manual_orders.fill_price_tenths` is written from
-`OrderOutcome.fill_price_tenths` (`backend/api/routes.py:3957`), which is
-"what one contract costs at the price being sent"; `record_outcome` drops the
-venue's own `average_fill_price_dollars`, `average_fee_paid_dollars` and
-`fill_count` on the floor. Both errors run **cautious** — recorded stake >=
+charged. **`manual_orders` has no `fill_price_tenths` column** — this
+paragraph named one until 2026-09-11, along with the wrong class and the wrong
+line. The column is `limit_price_tenths`, written at **intent** time
+(`backend/store/manual_orders.py:648`) from `OrderRequest.fill_price_tenths`
+(`backend/kalshi/orders.py:298`), a property meaning "what one contract of
+*our* side costs at the price being sent" — `OrderOutcome` has no such
+property, so nothing the venue returned was ever in it. `record_outcome`
+(`backend/store/manual_orders.py:765`) then stamps `status`,
+`kalshi_order_id` and `error_text` and **nothing else**, dropping the venue's
+own `average_fill_price_dollars`, `average_fee_paid_dollars` and `fill_count`
+on the floor. (`backend/api/routes.py:3959` is a different table: it feeds
+`parlay_positions.stake_tenths` via `contracts * fill_price_tenths` at
+`:4318`.) Both errors run **cautious** — recorded stake >=
 true stake, so the reported lock sits at or below the true one, and nothing
 shown to Joe is flattering because of it. Registered as a census (not an
 estimate; n is a handful and one stratum is mechanically pinned to zero):

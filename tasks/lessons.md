@@ -16,6 +16,123 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-11 - A screen whose content depends on sweep phase will be mistaken for a property of the slate
+
+Checking whether the parlay desk's horizon widening had ever fired, I read
+`/api/parlays` on live four minutes apart and got two different desks:
+
+    04:00Z   tonight 0/7, tomorrow 0/7, 48h 0/7   bare call: widened_from None
+    04:04Z   tonight 0/7                          bare call: widened_from 'tonight',
+                                                  window -> tomorrow, 4 of 7 cards
+
+Same slate, same games, same commit. The excluded histogram says what moved:
+`kickoff_outside_window` held at ~434 across both reads while `stale_consensus`
+fell **256 -> 36 -> 31**. A sweep landed. The desk was never empty on menu or
+on clock; it was empty on **freshness**, and freshness is a sawtooth whose
+period is the sweep cadence.
+
+This is the third distinct reason this screen has been empty, and the first
+two were each mistaken for something else at the time. The ninth session found
+it empty on the **clock** while everyone was treating it as empty on the
+**menu** ("we need totals, props, more variety") -- 440 of 449 excluded legs
+were `kickoff_outside_window`. Now there is a third: empty on freshness, which
+unlike the other two is **time-varying with a period nobody stamps**.
+
+**The shape to look for: any screen or metric fed by a periodically-refreshed
+cache, read at an unrecorded phase of that period.** Card yield, "how many
+opportunities does the desk show", freshness ratios, anything counted off a
+page. Two honest observers reading the same system twenty minutes apart get
+different numbers and both write them down as facts about the slate.
+
+Three rules:
+
+- **Stamp the phase, not just the time.** "4 of 7 cards at 04:04Z" is not a
+  fact about the slate unless it also says how long since the last sweep. The
+  instrument exists -- `scripts/inspect_live_db.py sweep-log` -- and the
+  histogram itself carries the phase, because `stale_consensus` moving while
+  `kickoff_outside_window` sits still *is* the signature of a sweep landing.
+- **A single read cannot separate a property from a phase.** Read twice, at
+  least one sweep interval apart, before any claim about yield. One read is
+  G = 1 and it will be quoted as a rate.
+- **The two exclusion reasons answer different questions and must be reported
+  together.** `kickoff_outside_window` is structural -- widen the window and it
+  moves. `stale_consensus` is temporal -- wait and it moves. Reporting only the
+  total ("449 legs excluded") loses exactly the distinction that tells you
+  whether to change code or to wait.
+
+The corollary that made this worth writing rather than noting: the widening
+mechanism had gone unobserved for days not because it was broken but because
+**it only has somewhere to widen into in the minutes after a sweep**. A
+mechanism that fires only during one phase of a cycle will read as dead to
+anyone who spot-checks it. Checking it "a few times" is not a sample.
+
+---
+
+## 2026-09-11 - A reachability guard that walks modules cannot see an orphaned symbol inside a reached one
+
+`tests/test_has_callers.py` is the guard this repo leans on hardest. CLAUDE.md
+credits it with catching the built-but-never-called problem five times, and the
+credit is deserved. It also has a blind spot it cannot report on itself, and
+two functions have been sitting in it.
+
+It has two mechanisms and they miss in opposite directions:
+
+- **`DISPOSITIONS` is keyed by MODULE.** The walk computes unreachable modules
+  and demands each be classified: `unclassified = [m for m in orphans if m not
+  in DISPOSITIONS]` (line 1249). A module with even one production importer is
+  not an orphan, so it never enters the list, and **nothing then looks inside
+  it.**
+- **`MUST_HAVE_CALLERS` is keyed by SYMBOL, and it is opt-in.** A hand-written
+  list of `(symbol, why it matters)` tuples. The file's own docstring says it:
+  "a list of symbols someone remembered to add."
+
+So a symbol is protected only if someone added it by name, or if its whole
+module was already unreachable. **The gap is the conjunction: an uncalled
+function in a module that is reached for other reasons is invisible to both.**
+
+`backend/analysis/clv.py` and `backend/analysis/validate.py` are the live
+instance. `score_recommendations`, `ClosingLine` and `BUCKETS` in those files
+have real production importers, so both modules are reachable and
+`DISPOSITIONS` is silent; neither `horizons_agree` nor `summarise` was ever
+added to `MUST_HAVE_CALLERS`, so that is silent too. `horizons_agree` is
+referenced today only by prose comments and its own tests. It was found by
+ADR 0120's hand-walk, and the ratchet could not have found it.
+
+**The shape to look for: a guard whose unit of analysis is coarser than the
+thing it protects.** Module-level reachability, file-level coverage gates,
+package-level dependency audits, per-endpoint auth tests on a route that
+branches internally. Each is real protection at its own grain and silently
+offers none below it. The tell is that the guard's pass condition can be
+satisfied by a *neighbour* of the thing you care about.
+
+Three rules:
+
+- **State a guard's grain next to its claim.** "Every module is reached or
+  classified" is true here and reads as "nothing is unreached", which is not.
+  A guard trusted beyond its grain is worse than one trusted exactly as far,
+  because the gap is precisely where nobody looks.
+- **An opt-in list cannot report what is missing from it.** That is not a
+  defect to fix by adding entries; it is a permanent property. Pair every
+  opt-in list with something exhaustive at the same grain, or write down that
+  the coverage is whatever people remembered.
+- **When a hand-walk finds something the ratchet exists to find, the finding
+  is the ratchet's gap, not the symbol.** ADR 0120 wrote up two orphaned
+  functions and tolerated them on stated grounds. The more durable output was
+  the one nobody wrote down: the guard had been unable to see them all along,
+  and still is.
+
+Not fixed here, deliberately. ADR 0120 examined this pair on 2026-09-09 and
+tolerated it -- the `beta` fits ran through `clv_signal.py` and
+`signal_test.py`, which are reached, and the signal is settled negative, so
+deleting 136 lines earns nothing. Nothing has changed since. What was missing
+was the pattern, not another disposition row.
+
+Worth knowing before anyone times the suite: `tests/test_has_callers.py` alone
+is **122 tests in 198.7s** (measured 2026-09-11, this machine), a meaningful
+share of the 15-22 minute run. It is slow, not hung.
+
+---
+
 ## 2026-09-10 - "Cold start variance" was two states with one name, and the warm reading was the one I took first
 
 A cold-boot request measured 3.95s after one deploy and 20.5s after the next,

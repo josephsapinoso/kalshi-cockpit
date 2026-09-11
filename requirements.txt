@@ -32,7 +32,12 @@ pydantic~=2.10            # also the schema layer for agent structured outputs
 pandas~=2.2
 numpy~=2.2
 scipy~=1.15               # Shin devig solver, calibration, noise guards
-pyarrow~=19.0             # SQLite -> Parquet publish step
+# 25 and not 23: GHSA-rgxp-2hwp-jwgg is fixed in 23.0.1, so `~=23.0` would
+# still admit the vulnerable 23.0.0. `~=25.0` has no version in the affected
+# 15.0.0-23.0.0 range at all. The publish step uses only `pa.{schema,field,
+# table,array}`, the four scalar types and `pq.write_table` -- stable across
+# all of these majors.
+pyarrow~=25.0             # SQLite -> Parquet publish step
 duckdb~=1.1               # analytics engine over the Parquet lake
 
 # --- Agents ------------------------------------------------------------------
