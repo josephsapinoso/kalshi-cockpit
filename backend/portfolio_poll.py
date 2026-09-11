@@ -55,6 +55,24 @@ What this does NOT establish
   Nothing here is a fit, and the comparison stays **off-gate**: ADR 0043's
   `source = 'engine'` filter means no `venue_hand` row can move the
   interlock in either direction, and this changes none of that.
+- **That the combo-fee reopen trigger changes anything.** ADR 0046 held that
+  a combo-aware fee model "needs its own registered look on a fresh sample"
+  once the original 8-fill look (2026-08-18) was outgrown. That sample-size
+  trigger FIRED around 2026-09-09 -- n = 68 `KXMVE` fills across 17 distinct
+  UTC days, no day > 12% of it (not concentration-blocked, unlike `beta`),
+  67/68 takers, 36/68 undercharges against 0/34 non-`KXMVE`. It changes
+  nothing: 35 of the 36 undercharges are sub-$0.0001 float dust and the
+  36th is the maker row `predict_fill_fee` already refuses by design (no
+  maker combo fill has ever been observed, see the refusal list above), so
+  the fresh sample still supplies zero rows a combo-aware model could fit
+  against. The partner's standing answer is **NO** -- "a constant that
+  cannot change a decision does not get a session" -- because nobody has
+  named a decision `COMBO_TAKER_COEFFICIENT` (`core/fees.py`, ADR 0073)
+  would flip if it moved: the coefficient is a ceiling on a one-contract
+  order cap, not an EV input, per ADR 0046's refusal to branch. **Before a
+  session reopens this, it must name that constant and the decision it
+  would change, in advance** -- not after totalling the fresh sample. ADR
+  0027, ADR 0028, ADR 0046, ADR 0073.
 - **Which estimate a position matches.** Matching is analysis (§7.3 of the
   registration), runs on read, and is deliberately not done at ingest: a
   matcher inside the poller would bake today's matching rule into the stored
