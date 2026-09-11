@@ -215,6 +215,14 @@ export default function RecordParlay({
               placeholder="5.00"
               className="tabular min-h-9 rounded border border-border bg-transparent px-2 text-sm"
             />
+            {source === "kalshi_combo" ? (
+              // ADR 0145: the hedge arithmetic adds Kalshi's entry fee
+              // itself, so a stake typed with the fee in it is charged twice.
+              <span className="text-muted">
+                Contracts times price, before Kalshi&rsquo;s fee — the desk
+                adds the fee itself.
+              </span>
+            ) : null}
           </label>
           <label className="flex flex-1 flex-col gap-1 text-xs">
             {/*

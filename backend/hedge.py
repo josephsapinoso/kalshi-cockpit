@@ -58,6 +58,7 @@ from .core.hedge import (
     Lock,
     Refusal,
     UNREADABLE_TICKET,
+    combo_entry_fee_tenths,
     derisk,
     hedge_lock,
     ticket_refusal,
@@ -100,18 +101,21 @@ NOTES: dict[str, str] = {
     # Keyed `upper_bound` for the wire's sake (`api.ts`, `discord.py` and
     # three test files read the key); the sentence stopped claiming one on
     # 2026-09-11. Four terms sit on the figure and they do not share a sign
-    # -- the entry fee left out of `stake_tenths` and the untested
-    # settlement charge (H4) push the true number down; the sent-vs-charged
-    # stake (ADR 0143 §4) and the flat 0.070 hedge fee push it up -- so it
-    # is an estimate, and neither a ceiling nor a floor. Wording per the
-    # measurement-skeptic's audit, 2026-09-11.
+    # -- the untested settlement charge (H4) pushes the true number down;
+    # the sent-vs-charged stake (ADR 0143 §4), the flat 0.070 hedge fee and
+    # the 0.071 entry-fee coefficient (ADR 0145, which put the entry fee
+    # into the sunk stake) push it up -- so it is an estimate, and neither
+    # a ceiling nor a floor. Wording per the measurement-skeptic's audit,
+    # 2026-09-11, amended for ADR 0145.
     "upper_bound": (
-        "Every figure here charges the fee on this hedge only. It does not "
-        "subtract the fee you already paid to enter the ticket, and it "
-        "assumes Kalshi charges nothing when the market pays out — which is "
-        "unverified. The stake it subtracts is the price the desk sent, not "
-        "the price Kalshi charged. Treat it as an estimate good to roughly a "
-        "cent a contract, not a guaranteed amount."
+        "Every figure here charges the fee on this hedge, and on a Kalshi "
+        "combo it also subtracts the fee you already paid to enter the "
+        "ticket, at the measured combo rate — which has run about a percent "
+        "above what Kalshi charged on every fill seen. It assumes Kalshi "
+        "charges nothing when the market pays out, which is unverified. The "
+        "stake it subtracts is the price the desk sent, not the price Kalshi "
+        "charged. Treat it as an estimate good to roughly a cent a contract, "
+        "not a guaranteed amount."
     ),
     "not_advice": (
         "This is what a hedge would lock in at the price showing right now. "
@@ -387,6 +391,17 @@ def record_position(
         )
     conn.commit()
     return position_id
+
+
+def entry_fee_tenths(position: Mapping[str, Any]) -> Optional[int]:
+    """The fee sunk on entering this ticket, or `None` when there is none to
+    model: a sportsbook slip prices its vig into the odds Joe typed, so
+    charging a fee on top would double-count it. ADR 0145."""
+    if str(position["source"]) != "kalshi_combo":
+        return None
+    return combo_entry_fee_tenths(
+        int(position["stake_tenths"]), int(position["return_tenths"])
+    )
 
 
 def open_positions(conn: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -726,7 +741,14 @@ def assess(
     module.
     """
     position_id = int(position["id"])
-    stake = int(position["stake_tenths"])
+    # The sunk stake is what left the account: the contracts at their price
+    # PLUS the taker fee the venue charged on entry, which `stake_tenths`
+    # does not carry (`routes._record_combo_position` writes price times
+    # contracts). Left out, every branch of every rung reads too high by
+    # the fee -- ~17 tenths a contract at 41c, the size of the smallest
+    # floors `Lock.is_guaranteed_profit` fires on. ADR 0145. A sportsbook
+    # slip has no separate fee: its vig is inside the price already typed.
+    stake = int(position["stake_tenths"]) + (entry_fee_tenths(position) or 0)
     payout = int(position["return_tenths"])
 
     if any(leg["outcome"] == "lost" for leg in legs):
@@ -1046,6 +1068,14 @@ def serialise_position(
         "placed_ms": position["placed_ms"],
         "combo_ticker": position["combo_ticker"],
         "stake_display": format_dollars(int(position["stake_tenths"])),
+        # The entry fee the arithmetic sinks beside the stake (ADR 0145), or
+        # `None` on a sportsbook slip. Shown so the screen's stake line and
+        # the lock figure reconcile: the lock is net of BOTH numbers.
+        "entry_fee_display": (
+            format_dollars(fee)
+            if (fee := entry_fee_tenths(position)) is not None
+            else None
+        ),
         "return_display": format_dollars(int(position["return_tenths"])),
         "state": assessment.state,
         "state_detail": assessment.detail,

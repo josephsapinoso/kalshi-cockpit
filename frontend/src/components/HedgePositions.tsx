@@ -159,7 +159,11 @@ function Position({
           {position.label}
         </h2>
         <span className="tabular text-sm text-muted">
-          {position.stake_display} &rarr; {position.return_display}
+          {position.stake_display}
+          {position.entry_fee_display
+            ? ` + ${position.entry_fee_display} fee`
+            : ""}{" "}
+          &rarr; {position.return_display}
         </span>
       </header>
       <p className="mt-1 text-xs leading-snug text-muted">
