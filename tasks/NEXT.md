@@ -119,6 +119,262 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-11 (eleventh session) — the spine named a column that does not exist, the widening was seen firing, and the index that would fix `/api/window` is built and deliberately not shipped
+
+**The session's finding is that three separate things everyone had written
+down were wrong in the same direction: they described a mechanism that was
+never there.** CLAUDE.md's money-path paragraph named a database column that
+does not exist. CLAUDE.md called a measurement "still unrun" that is
+deliberately refused. And `widened_from`, recorded for days as never observed,
+fires fine — it had been spot-checked at the wrong phase of the sweep cycle.
+None of the three was a code defect. All three were the record drifting from
+the thing it described, which is the failure mode this file exists to catch.
+
+**STATE at close.** `main` = **`52d1dd0`**, pushed, CI green (runs 34569311226,
+34569985161, 34570679419). Four commits: `e00af51` the spine corrections and
+the pyarrow bump, `5e3ea5f` the guard that went red on it, `76f5e3c` the lane A
+merge, `52d1dd0` the NEXT.md split. **Live = `52d1dd0`**, deployed with
+`-e GIT_SHA=` and read back off `/api/health` rather than inferred; recorder
+writing, live quotes up, arming unchanged (hand path armed, engine and bids
+dry). ADR **0142** taken. Odds path untouched: **the freeze to 10:00Z
+2026-09-14 holds** — `git diff --name-only` against `backend/odds/` and
+`backend/scheduler.py` returns nothing for every branch this session produced.
+**Credits: zero spent.** Every live call was a GET on a route with no visit
+registration (`/api/parlays`, `/api/window`, `/api/exposure`, `/api/health`);
+no lookup was minted and no combo tap taken, so **Arm D's frame is
+uncontaminated by this session.** The 300/300 attention slice was already
+spent ~6 hours before the session opened. No open Dependabot alerts.
+
+### READ THIS FIRST: lane B is finished, on a branch, and must NOT be merged or deployed before 10:00Z 2026-09-14
+
+Branch **`lane-b-window-index`** (`8b02d81`, `65ab0ec`), complete, tested,
+CI-clean on its own tree, **deliberately not merged**. It adds
+`idx_odds_window` — a covering index for `/api/window`'s `fixture_freshness`
+query, which schema v39 does not touch and which is the dominant *continuous*
+read on the box (four SSR pages on load, `RefreshWhenPriced` at 3s then 10s,
+`Nav.tsx` on every visible tab, plus `run_loop.py`).
+
+**It is on a branch rather than on main for one reason: a deploy ships it.**
+The boot index build is budgeted at **2-4 minutes** on live, and `main` is
+kept in sync with live by habit — so a merge would very likely be deployed by
+the next session, and Arm D runs **Sunday 2026-09-13**. A multi-minute boot
+during a registered measurement is the kind of avoidable collision that is
+obvious only afterwards. `scripts/lane_board.py` reads every local branch, so
+the work is discoverable by the documented mechanism rather than by memory.
+
+**Merge checklist, for the session that takes it after the freeze lifts:**
+
+1. `git fetch`, then **re-take schema v40** — it is a placeholder taken without
+   reading `schema.sql` or `LANES.md`. `SCHEMA_VERSION`, the `_MIGRATIONS` key,
+   the `schema v40` line in `schema.sql` and `VERSION` in the test all move
+   together.
+2. Number `docs/adr/DRAFT-a-single-arm-timing-is-not-evidence.md`. It amends
+   ADR 0141 — 0141 says *time it*, this says *how*.
+3. Re-run the suite on the merged tree; the branch is based on `fcca0ac` and
+   main has moved.
+4. Deploy, and **do not trim the 600 s health grace** — it is what covers the
+   boot build.
+
+The numbers, and read the caveat with them: at live's shape (3.63M rows,
+2,640 events) the statement goes **3,904-4,399 ms -> 667-797 ms**, a paired
+ratio of **5.1x-6.1x across every cache regime the rehearsal box produces**.
+**That is a FLOOR, not a magnitude** — the rehearsal is at worst partly cached
+on a fast SSD and live is I/O-bound against 5.19 GB, which is exactly the
+regime where what the index removes (~1.46M table-row fetches per call)
+dominates. v39's local 3x came back as 81x on live. Cost: **71.2 bytes/row,
+~263 MB** on live's 3,696,485 rows, against v39's 190 MB; a 900-row sweep goes
+9.5->12.5 ms resident and 24.9->40.7 ms under cache pressure, which is
+milliseconds every ten minutes to buy a read that happens every 3-10 seconds.
+
+**The method finding is worth more than the index, and it changed a
+conclusion.** The identical query over identical data read **1,283 ms in one
+session and 3,904 ms in the next**, purely on page-cache residency — a 3x
+swing that would have supported any "ratio" between 1.6x and 15x had the two
+arms been timed in separate runs. Every arm is now timed **round-robin in one
+process**. Under that method a drafted finding did not survive: a claimed
+222-vs-184 ms win for the five-column index over a cheaper four-column form is
+really **2-9%**, and the record now says so and names dropping
+`book_updated_ms` (25 MB back, cheaper writes) as the first thing to give up
+if live shows memory pressure. That is the DRAFT ADR.
+
+### Item 5 is CLOSED — `widened_from` fires, and the reason nobody had seen it
+
+Over four minutes on live, same commit, same slate:
+
+    04:00Z   tonight 0/7, tomorrow 0/7, 48h 0/7   bare call: widened_from None
+    04:04Z   tonight 0/7                          bare call: widened_from 'tonight',
+                                                  window -> tomorrow, 4 of 7 cards
+
+The mechanism works end to end and `widened_words` renders the settlement
+caveat. The 04:00Z reading is **also correct** — every window was empty, so
+the ladder fell through and returned `tonight` unwidened, which is the
+documented branch.
+
+**What actually moved is freshness.** `kickoff_outside_window` held at ~434
+across both reads while `stale_consensus` fell **256 -> 36 -> 31**: a sweep
+landed. So the desk's card yield is a **sawtooth whose period is the sweep
+cadence**, and a mechanism that only has somewhere to widen into in the
+minutes after a sweep reads as dead to anyone who spot-checks it. This is the
+**third** distinct reason this screen has been empty — the menu (refuted,
+ninth session), the clock (ninth session), and now freshness — and the first
+that is time-varying. Written to `lessons.md` as the pattern. **Deliberately
+NOT written as a measurement doc**: three reads is G = 1, it establishes a
+mechanism and cannot support a rate, and a `docs/measurements/` file would
+invite someone to quote one.
+
+**The Freshness copy gap the partner suspected does not exist.** `/api/window`
+reported `fixtures_upcoming: 428`, `fixtures_fresh: 0`, so `nothingFresh` is
+true and the block speaks even with `stale_consensus` at 0. Joe's screen at
+04:00Z would have told him why it was empty. The ninth session's fix works;
+that loop is closed.
+
+### The three corrections to the record
+
+1. **CLAUDE.md's money-path paragraph was wrong three ways.** `manual_orders`
+   has **no `fill_price_tenths` column** — it is `limit_price_tenths`, written
+   at **intent** time (`store/manual_orders.py:648`) from
+   `OrderRequest.fill_price_tenths` (`kalshi/orders.py:298`). `OrderOutcome`
+   has no such property, so nothing the venue returned was ever in it. The
+   cited `routes.py:3957` is `:3959` and points at a different table anyway
+   (`parlay_positions.stake_tenths`, via `contracts * fill_price_tenths` at
+   `:4318`). **Each verified against source, not taken on report.** The claim
+   that matters is untouched: the recorded basis is the ask the desk sent,
+   both errors run cautious, the hedge figure is an upper bound. **The
+   pre-registration's §0.1/§2 repeat the same three errors and are NOT yet
+   fixed** — see open item 3.
+2. **The `anchored_on_sharp` split is deliberately refused, not unrun.**
+   `scripts/inspect_live_db_decisions.py:234` declines to compute it by
+   design: a query carrying a decision rule is not a dump. "Still unrun"
+   implied an owner who does not exist. Rewritten rather than deleted, so the
+   question survives without the phantom task.
+3. **`test_has_callers.py` is 122 tests in 198.7s**, not the 300s reported to
+   me. Measured before writing it down.
+
+### What else shipped
+
+- **The exposure line, inside `ManualTicket` — ADR 0142, rank 1.** ADR 0112
+  removed all five brakes and those caps were the only consumer of Joe's
+  exposure figure in the product; nothing has read it since, and `/parlays` —
+  where all four real combination bets were placed — fetches no position data
+  at all. `GET /api/exposure` is a new minimal route rather than a reuse of
+  `/api/bets`, which drags `bets_record(limit=200)`, `pass_summary` and
+  `lockout_until` along for a buy button. All **seven** mount points get it
+  from one edit. Verified on live: 200 in 0.27s, 401 without the cookie.
+  **It informs and never blocks** — `canConfirm` does not read the exposure
+  state, re-verified here by mutation rather than inherited (adding
+  `exposure?.refused !== true` to `canConfirm` turns
+  `test_the_confirm_predicate_does_not_read_the_exposure_state` red). A gate
+  there would be a sixth ceiling and a reversal of ADR 0112. Unreadable
+  renders the server's refusal words, never `$0.00`.
+- **JOE-GATED, and it is the one thing here that wants his eye: the glossary's
+  `exposure` definition changed.** It said *"The exposure cap bounds that
+  total, so one bad night cannot take the whole bankroll."* That has been
+  **false on the hand-bet path since ADR 0112**, and this definition renders
+  **at the buy button** — a false reassurance, in the flattering direction, at
+  the worst possible place. It now says nothing caps it on a hand bet, with a
+  worked example. Kept because it is a correctness fix; the wording is his to
+  overrule.
+- **pyarrow 19.0.1 -> `~=25.0`, and the pip-audit ignore list is now EMPTY.**
+  25 and not 23 because GHSA-rgxp-2hwp-jwgg is fixed in 23.0.1 and `~=23.0`
+  would still admit the vulnerable 23.0.0. Verified the way CI verifies it:
+  `pip-audit --strict` with zero ignores reports clean, and `seed_demo` +
+  `store.publish` runs green under 25.0.1. pyarrow is imported only by
+  `store/publish.py`, a CI-only CLI, so nothing on the serving path touches
+  it and the bump cannot affect a boot.
+- **NEXT.md split at 76.6% -> 37.2%**, the lowest any split has been taken at.
+  Seven entries to `archive/next-2026-09-11.md`, date boundary at 2026-09-09,
+  md5-verified, index lines in the same edit.
+- **Two lessons**: the sweep-phase confound, and the reachability ratchet's
+  blind spot.
+
+### The guard that went red, and why that is the system working
+
+Emptying the pip-audit ignore list turned
+`test_marts.py::TestThePipAuditIgnoreListIsPinned` red on CI. **The guard is
+right and was not weakened** — its own message says a removal "should mean the
+bump landed, which is the good case, and still deliberate", so
+`EXPECTED_IGNORES` is now the empty set with the trail in the comment.
+Verified by disabling: adding a fake `--ignore-vuln` to `ci.yml` turns it red
+again, so an empty expectation is still an assertion and not a vacuous pass.
+
+**I missed it pre-push** by narrowing the test search to files that also
+mention `CLAUDE.md`; `test_marts.py` does not. The grep that would have found
+it is the unnarrowed one. Pattern: **narrowing a "what tests pin this?" search
+by an unrelated predicate is how a pinned fact gets missed.**
+
+### Two lane-hygiene facts worth keeping
+
+- **Lanes share the scratchpad directory.** Lane B had a scratch file
+  (`mutate.py`) overwritten mid-run by another lane. Worktrees were
+  unaffected, but scratch files need unique names.
+- **Do file moves in BINARY.** A text-mode round trip on Windows rewrites
+  every line ending, so a seven-entry move renders as a whole-file diff and
+  the only property a reviewer can check — that nothing outside the moved
+  range changed — disappears. The split's diff is 20 insertions and 1,729
+  deletions, which is the shape that can be inspected. In the split log.
+
+### Still open, in order
+
+1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Unchanged.
+2. **SUNDAY 2026-09-13 — Arm D, a scheduled run, not a task to plan.**
+   Unchanged. Take NO combo taps before then; every lookup mints into its
+   sampling frame.
+3. **The recorded-fill-vs-venue-charge census.** Partner's call, adopted:
+   **do the unconditional parts now, defer the census itself to a trigger.**
+   Branch 8.1 was the CLAUDE.md correction — **done this session**. Branch 8.2
+   is item 4 below. What remains is a four-row census, deferred to **the first
+   session after the 10th real fill, or 2026-11-01, whichever comes first**:
+   the `fills` window from 2026-09-08 does not close until ~December, so
+   perishability buys two months and n≈12 is worth reading where n=4 is worth
+   arguing about. **Still binding when it runs**: not via
+   `manual-orders-audit` (`fills` is in `FORBIDDEN_TABLES`); a separate named
+   harness; a census, not an estimate — no mean, no rate, at any n.
+   **The registration's §0.1/§2 still repeat the three
+   `fill_price_tenths`/`OrderOutcome`/`:3957` errors corrected in CLAUDE.md
+   this session.** Fix them before the census runs, not after.
+4. **Persist the venue's own fill numbers — rank 4, NOT started.** It collides
+   with lane B on `schema.sql` and `db.py`, and lane B is unmerged, so it was
+   held rather than run. `record_outcome` (`store/manual_orders.py:765`)
+   writes only `status`, `kalshi_order_id` and `error_text`, dropping
+   `fill_count`, `average_fill_price_dollars` and `average_fee_paid_dollars`
+   on the floor. Those survive only in `fills`, on a ~3-month window;
+   `manual_orders` is permanent. Three nullable columns plus a schema bump
+   makes every future hand bet self-describing and is the only path to a hedge
+   figure that could eventually be exact. **Needs its own ADR — the census
+   registration's §8.4 explicitly does not authorize money-touching changes,
+   so do not cite it as cover.** Sequence it after lane B.
+5. **`#36` props as parlay legs — blocked on the freeze, not on code.**
+   Unchanged and still the only open ticket. `STAGED_PROP_CARD` is built,
+   tested and deliberately not in `CARD_SHAPES`; enabling is one line and is
+   correct only after a sweep has bought prop rows. `ODDS_MARKETS` on live is
+   `'h2h,spreads'`. ~14 credits on one event after 10:00Z 2026-09-14, then
+   register the card or close the lane on a number.
+6. **The pair test** — blocked to 2026-09-13, needs a `parlay_lookups`
+   pre-existence column. **Its old justification is dead**: it said it was only
+   worth a migration if item 3 produced one, and v39 shipped for the index
+   instead. Make it fund its own schema change or drop it.
+7. **The combo fee-model reopen trigger** (n = 68) — standing no. Its home is
+   a comment at the site that would fire it, not this list.
+8. **The binned card** — **struck.** A closed decision, not open work: Joe
+   binned it 2026-09-09 and the reason is permanent (`bet_estimates` holds one
+   row and it is `is_study_row = 1`). Its home is CLAUDE.md's "Do not rebuild
+   these" table, and it should be moved there rather than carried here again.
+
+**Struck from the list this session, all on the partner's reading and none of
+them work:** the ninth session's 0c, 0d and 0e (notes, not tasks — 0d says
+"measured, closed" in its own text and 0e says "do not open without a
+symptom"; 0e's home is the docstring of `inspect_live_db.py
+parlay-candidates-timing`), the `pip-audit` pyarrow ignore (done), item 5
+(done, above), and the `anchored_on_sharp` phantom (deliberately refused, not
+owned).
+
+**Closed this session:** item 5, the pyarrow ignore, rank 1 (exposure line),
+rank 3 (spine corrections), rank 6 (NEXT.md split), rank 7 (two lessons and
+the strike). **No ADRs are owed** — 0142 is taken and lane B's draft is
+numbered at its merge.
+
+---
+
 ## 2026-09-10 (tenth session) — one scan per request, a quote that says when it was read, and a warning that went silent as the outage got worse
 
 **The session's finding is that "add props as parlay legs" has two gates and
