@@ -8,6 +8,22 @@ split date, and regenerate the index from the headings.
 
 ---
 
+**Split 2026-09-11, at 180,535 bytes — 68.9%, well under the trigger.**
+Taken on a direct request to bring the file down toward 40–45% rather than
+on the alarm. The nine 2026-09-08, five 2026-09-07, eight 2026-09-06 and ten
+2026-09-05 entries — 32 in all — moved to `archive/lessons-2026-09-11.md`,
+verbatim, leaving **118,685 bytes — 45.3%**. Date boundary as always: only a
+whole-date cut was available near the target — the next one in (everything
+2026-09-09 and earlier) would have left 78,149 bytes, **29.8%**, undershooting
+the band by more than this split overshoots it, so the shallower cut was
+taken. Verified by md5 against the exact bytes removed
+(`895c39ab148bc6d2b3d6b63dbb03249f`); the only lines added to `lessons.md`
+itself were the four moved dates' index pointers, repointed from "in this
+file, above" to the new archive link, in the same edit. Done in **binary**,
+per the lesson two splits above: `git diff --stat` came back 4 insertions,
+1062 deletions — a pure deletion plus the four pointer lines, nothing else
+touched.
+
 **Split 2026-09-08, at 209,373 bytes — 79.9%, under the trigger and on
 Joe's instruction rather than on the rule.** Everything 2026-09-04 and
 earlier — 77 lessons across eight dates — moved to
