@@ -424,12 +424,10 @@ CREATE INDEX IF NOT EXISTS idx_odds_sport_commence
 --     after      667 ms  ..    797 ms
 --     paired ratio, median to median   5.5x .. 6.1x
 --
--- and **5.1x** in a third regime, an earlier session where the whole file was
+-- plus **5.1x** in a third regime, an earlier session where the whole file was
 -- resident and the bind was CPU. So the honest span is **5.1x - 6.1x across
 -- every regime this box can produce**, and the low end is the number to plan
--- against.
---
--- and the plan becomes a covering seek on BOTH arms:
+-- against. The plan becomes a covering seek on BOTH arms:
 --
 --     SEARCH odds_snapshots USING COVERING INDEX idx_odds_window (market=?)
 --     SEARCH o USING COVERING INDEX idx_odds_window (market=? AND odds_event_id=? AND fetched_ms=?)
@@ -443,10 +441,10 @@ CREATE INDEX IF NOT EXISTS idx_odds_sport_commence
 -- apart are not evidence here. **Compare arms from ONE run of the script; a
 -- number written down earlier is not a baseline.**
 --
--- **That 5.1x low end is a FLOOR on the live win, not an estimate of it**, and the
--- distinction is v39's, paid for: the local benchmark said 3x and live
--- returned 81x. This box is at worst partly cached with a fast SSD; live is
--- I/O-bound against a 5.19 GB file on a small machine. What this index removes
+-- **That 5.1x low end is a FLOOR on the live win, not an estimate of it**,
+-- and the distinction is v39's, paid for: the local benchmark said 3x and
+-- live returned 81x. This box is at worst partly cached with a fast SSD;
+-- live is I/O-bound against a 5.19 GB file on a small machine. What this index removes
 -- is ~1.46M table-row fetches per call, which is I/O -- so the regime where it
 -- pays most is exactly the one the benchmark cannot reproduce, and the ratio
 -- rising from 5.1x to 5.8x as this box lost page cache is the direction of
@@ -468,10 +466,10 @@ CREATE INDEX IF NOT EXISTS idx_odds_sport_commence
 -- go 9.5 ms -> 12.5 ms with the file resident and **24.9 ms -> 40.7 ms** under
 -- cache pressure, so call it +30% to +65%. It stays milliseconds against a
 -- sweep that fires at most every ten minutes, and the read it buys happens
--- every 3-10 s while a tab is open. Boot build: 21.7-27.2 s locally; on live expect **two to
--- four minutes** by analogy with v37's comparably-sized build (181.8 s
--- rehearsed, 172 s on the volume). The 600 s health grace covers that and must
--- not be trimmed to fit.
+-- every 3-10 s while a tab is open. Boot build: 21.7-27.2 s locally; on live
+-- expect **two to four minutes** by analogy with v37's comparably-sized build
+-- (181.8 s rehearsed, 172 s on the volume). The 600 s health grace covers
+-- that and must not be trimmed to fit.
 --
 -- **The cheaper four-column form is the 25 MB question, and it was measured
 -- rather than argued.** `(market, odds_event_id, fetched_ms DESC,

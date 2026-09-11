@@ -360,9 +360,26 @@ class TestTheRecordedReasonSurvives:
     """
 
     def test_the_schema_records_the_rehearsed_timing(self):
+        """The whole table, verbatim, and not a list of figures.
+
+        **This guard was written as a list of figures first and it was
+        decoration** -- observed, not reasoned. Deleting the three-line timing
+        table left it green, because `3,904 ms` also appears two paragraphs
+        down in the sentence about page-cache residency, and `in` on the file
+        cannot tell the two apart. Same shape as the `idx_odds_event`
+        substring trap this file's header records: an assertion satisfied by
+        text other than the text it is guarding.
+        """
         src = SCHEMA.read_text(encoding="utf-8")
-        for figure in ("3,904 ms", "797 ms", "5.5x .. 6.1x", "5.1x - 6.1x"):
-            assert figure in src, f"the rehearsal lost {figure}"
+        assert (
+            "--     before   3,904 ms  ..  4,399 ms\n"
+            "--     after      667 ms  ..    797 ms\n"
+            "--     paired ratio, median to median   5.5x .. 6.1x\n"
+        ) in src, "the rehearsal's timing table was deleted or reworded"
+        assert "5.1x - 6.1x across" in src, (
+            "the span across cache regimes was lost; without it the reader "
+            "has one number and no idea how much it moves"
+        )
 
     def test_the_schema_records_that_the_timing_was_paired(self):
         """The design, not just the digits.
@@ -384,29 +401,58 @@ class TestTheRecordedReasonSurvives:
         a magnitude -- and the file has to say which one it has, because 5x and
         81x justify different amounts of risk."""
         src = SCHEMA.read_text(encoding="utf-8")
-        assert "FLOOR on the live win" in src
+        assert "5.1x low end is a FLOOR on the live win" in src, (
+            "pinned with the qualifier, because v39's own comment further up "
+            "this same file also says 'FLOOR on the live win' -- a bare "
+            "assertion for that phrase is satisfied by another index's "
+            "justification and cannot fail when this one is deleted"
+        )
         assert "which resource binds" in src
 
     def test_the_schema_records_the_cost_it_is_paying(self):
         """A benefit recorded without its cost is half an argument, and this
         one is 263 MB on a box that has OOM-killed the recorder."""
         src = SCHEMA.read_text(encoding="utf-8")
-        for figure in ("71.2 bytes/row", "263 MB", "24.9 ms -> 40.7 ms"):
+        for figure in ("71.2 bytes/row", "263 MB on live's 3,696,485",
+                       "24.9 ms -> 40.7 ms"):
             assert figure in src, f"the cost record lost {figure}"
         assert "cache-pressure objection" in src
 
     def test_the_schema_records_what_the_cheaper_form_costs(self):
         """Recorded as a live option with a price, not as a rejected idea.
 
-        The four-column form is 25 MB smaller and measurably slower by 4-9%,
-        consistently, at three page-cache sizes. That is a small enough margin
-        that the record has to say so -- and has to name dropping
-        `book_updated_ms` as the first thing to give back if live shows memory
-        pressure, rather than leaving a future session to re-derive it."""
+        The four-column form is 25 MB smaller, cheaper to write, and slower by
+        2-9% consistently across four cache regimes. That is a small enough
+        margin that the record has to carry the whole comparison -- and has to
+        name dropping `book_updated_ms` as the first thing to give back if live
+        shows memory pressure, rather than leaving a future session to
+        re-derive it.
+
+        **The per-regime table is pinned verbatim, not the `2-9%` summary**:
+        that figure appears twice in the comment, so an assertion for it
+        survives deleting the measurement it summarises. Two guards in this
+        file were decoration for exactly that reason before the mutation run
+        caught them.
+        """
         src = SCHEMA.read_text(encoding="utf-8")
         assert "four-column form is the 25 MB question" in src
         assert "64.6 bytes/row" in src
-        assert "2-9%" in src
+        assert (
+            "--                    2 MB cache   16 MB cache   64 MB cache"
+            "   5-arm run\n"
+            "--     five-column       713 ms       697 ms        702 ms"
+            "        764 ms\n"
+            "--     four-column       741 ms       765 ms        736 ms"
+            "        783 ms\n"
+        ) in src, "the per-regime comparison was deleted or reworded"
+        # The table's reading, pinned with enough context to be unique: bare
+        # `2-9%` appears twice in the comment and would survive deleting this.
+        assert "and small in size**: 2-9% on the" in src, (
+            "the table is still there but what it means was deleted; a reader "
+            "should not have to re-derive 'consistent in direction, small in "
+            "size' from six numbers"
+        )
+        assert "first thing to give back" in src
 
     def test_the_schema_records_why_v39s_index_cannot_serve_this_query(self):
         """The obvious objection -- "there is already an index on this table"
@@ -447,3 +493,55 @@ def test_the_index_name_cannot_be_matched_by_accident():
             f"{INDEX} contains {name}; an assertion for {name} elsewhere "
             "would now be satisfied by this index"
         )
+
+
+def test_every_phrase_the_reason_guards_pin_occurs_exactly_once():
+    """No guard above can be satisfied by prose other than the prose it guards.
+
+    **Two guards in this file were decoration and the mutation run is what
+    said so.** Deleting the three-line timing table left
+    `test_the_schema_records_the_rehearsed_timing` green, because `3,904 ms`
+    also appears two paragraphs down in the sentence about page-cache
+    residency. Deleting the four-column comparison left its guard green for the
+    same reason: `2-9%` appears twice. And `FLOOR on the live win` appears in
+    v39's comment further up the same file, so a bare assertion for it could
+    not fail when THIS index's justification was deleted -- it would be
+    satisfied by a different index's.
+
+    That is the `idx_odds_event` substring trap in a new costume: an assertion
+    that passes off the wrong occurrence. This test closes the class rather
+    than the three instances -- it reads every string literal the guards above
+    compare with `in`, and requires each to appear exactly once in
+    `schema.sql`. Adding a guard on a phrase that already appears twice fails
+    here, at the moment it is written, instead of silently passing forever.
+    """
+    tree = ast.parse(pathlib.Path(__file__).read_text(encoding="utf-8"))
+    guards = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef)
+        and node.name == "TestTheRecordedReasonSurvives"
+    )
+    pinned: set[str] = set()
+    for node in ast.walk(guards):
+        if (isinstance(node, ast.Compare)
+                and isinstance(node.ops[0], ast.In)
+                and isinstance(node.left, ast.Constant)
+                and isinstance(node.left.value, str)):
+            pinned.add(node.left.value)
+        # `for figure in (...)` loops pin each element the same way.
+        if isinstance(node, ast.For) and isinstance(node.iter, ast.Tuple):
+            pinned.update(
+                elt.value for elt in node.iter.elts
+                if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+            )
+    assert len(pinned) >= 10, (
+        f"only {len(pinned)} pinned phrases found; this test stopped reading "
+        "the guards it is supposed to check"
+    )
+    src = SCHEMA.read_text(encoding="utf-8")
+    duplicated = {p: src.count(p) for p in pinned if src.count(p) != 1}
+    assert not duplicated, (
+        "these guarded phrases do not appear exactly once in schema.sql, so "
+        "the assertion can be satisfied by the wrong occurrence (or by none): "
+        f"{duplicated}"
+    )
