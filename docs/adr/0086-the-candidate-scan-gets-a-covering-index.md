@@ -75,6 +75,14 @@ the hour on 2026-08-26:
 > write amplification on the highest-volume table in the system to buy nothing,
 > which is what an index that changes no plan always is.
 
+**AMENDED 2026-09-10 by ADR 0141 — read that before relying on this section.**
+The refusal quoted above was measured wrong and the index it refused is back
+(schema v39): the subquery it serves went from 26,719 ms to 327.9 ms on live.
+The test below — *does the plan change?* — is NOT sufficient, because
+EXPLAIN QUERY PLAN reports the access method and never the rows it touches.
+**This ADR's own decision stands**; §"The objection" priced it in milliseconds
+rather than in plan shape, which is what ADR 0141 now requires of everyone.
+
 That refusal is correct and stands. Its stated test — *does the plan change?* —
 is the one applied here, and here it changes twice over: the seek becomes
 selective and the sort disappears. The precedent is not "this repo does not
