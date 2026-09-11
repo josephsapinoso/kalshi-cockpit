@@ -351,6 +351,179 @@ CREATE INDEX IF NOT EXISTS idx_odds_commence ON odds_snapshots(commence_ms);
 CREATE INDEX IF NOT EXISTS idx_odds_sport_commence
     ON odds_snapshots(sport_key, commence_ms, odds_event_id, home_team, away_team);
 
+-- **And the covering index for `/api/window` -- schema v40 (LANE B).**
+-- Same test as v39's, applied to the other continuous read on this table, and
+-- it comes out the same way: a TIME, not a plan.
+--
+-- `odds/timing.py::fixture_freshness` is the statement, and it is the dominant
+-- continuous cost on the box. Four server-rendered pages fetch `/api/window`
+-- on load (`board`, `parlays`, `slate`, `picks`), `RefreshWhenPriced` polls it
+-- every 3 s for 30 s and then every 10 s, `Nav.tsx` polls it on every visible
+-- tab, and `run_loop.py` calls it. Replayed read-only on live 2026-09-10 with
+-- every statement timed, `window_status` took **0.95 s, of which 0.91 s was
+-- this one `GROUP BY odds_event_id`**
+-- (`docs/measurements/2026-09-10-the-ladder-floor-oom-cycles-the-recorder.md`
+-- section 7).
+--
+--     WITH latest AS (
+--       SELECT odds_event_id, MAX(fetched_ms) AS m FROM odds_snapshots
+--       WHERE market = ? AND commence_ms >= ? GROUP BY odds_event_id
+--     )
+--     SELECT MIN(COALESCE(o.book_updated_ms, o.fetched_ms)) AS oldest_ms
+--     FROM odds_snapshots o JOIN latest l
+--       ON o.odds_event_id = l.odds_event_id AND o.fetched_ms = l.m
+--     WHERE o.market = ? GROUP BY o.odds_event_id
+--
+-- **`idx_odds_event_commence` cannot help here and no amount of planner luck
+-- would change that**: this query needs `market`, `fetched_ms` and
+-- `book_updated_ms`, and that index carries none of the three. The plan before
+-- this index is
+--
+--     CO-ROUTINE latest
+--     SEARCH odds_snapshots USING INDEX idx_odds_event (ANY(odds_event_id) AND market=?)
+--     SCAN l
+--     SEARCH o USING INDEX idx_odds_event (odds_event_id=? AND market=? AND fetched_ms=?)
+--     USE TEMP B-TREE FOR GROUP BY
+--
+-- `ANY(odds_event_id)` is a skip-scan: `idx_odds_event` leads with
+-- `odds_event_id`, so `market = 'h2h'` is not a seek term, and `commence_ms`
+-- is in no column of it at all. Every one of the ~1.46M `h2h` index entries is
+-- visited AND its row fetched from the table, just to test `commence_ms >= ?`
+-- and throw ~70% of them away. That is the 0.91 s.
+--
+-- **Each column, and why it is there.** The index is the CTE's whole working
+-- set in index order, and then the outer arm's as well:
+--
+--     market           the CTE's only equality; leading, so the scan starts
+--                      inside `h2h` instead of skip-scanning every event
+--     odds_event_id    both GROUP BY keys, and the join key on the outer arm
+--     fetched_ms DESC  the CTE's MAX(), and the outer arm's third equality;
+--                      DESC to match `idx_odds_event`'s order on the same
+--                      column, so the two stay interchangeable for the
+--                      runner's latest-sweep reads
+--     commence_ms      the CTE's range filter -- IN THE INDEX so the filter is
+--                      applied without touching the table, which is the whole
+--                      win. Fourth, not second: it is functionally determined
+--                      by `odds_event_id` (one commence per fixture), so as a
+--                      seek term it buys nothing that placing it before
+--                      `odds_event_id` does not cost in a sort. Both orderings
+--                      that seek on it were measured; see below.
+--     book_updated_ms  the outer arm's MIN(COALESCE(...)) payload, carried so
+--                      that arm is covering too
+--
+-- **Rehearsed at live's shape, because ADR 0141 says a plan diff cannot price
+-- an index.** `scripts/measure_window_index.py` builds a throwaway database at
+-- live's shape -- 3,632,772 rows, 2,640 events, 800 of them with
+-- `commence_ms >= now`, 32-character event ids, `market` 40% `h2h` / 34%
+-- `spreads` / 26% prop keys -- with the other four indexes present, and runs
+-- `fixture_freshness` itself rather than a retyped copy. Every arm timed
+-- ALTERNATELY in one process against its own copy of the same data, five
+-- rounds, across two independent round-robin runs:
+--
+--     before   3,904 ms  ..  4,399 ms
+--     after      667 ms  ..    797 ms
+--     paired ratio, median to median   5.5x .. 6.1x
+--
+-- and **5.1x** in a third regime, an earlier session where the whole file was
+-- resident and the bind was CPU. So the honest span is **5.1x - 6.1x across
+-- every regime this box can produce**, and the low end is the number to plan
+-- against.
+--
+-- and the plan becomes a covering seek on BOTH arms:
+--
+--     SEARCH odds_snapshots USING COVERING INDEX idx_odds_window (market=?)
+--     SEARCH o USING COVERING INDEX idx_odds_window (market=? AND odds_event_id=? AND fetched_ms=?)
+--
+-- **Interleaved, because the absolute milliseconds on this box are worthless
+-- and the ratio is not.** The identical query over the identical data read
+-- 1,283 ms in one session and 3,904 ms in the next, purely on how much of the
+-- 1.44 GB file the OS still held resident -- a 3x swing in the headline. The
+-- RATIO across those same two regimes moved only 5.1x -> 5.8x. So the number
+-- this file records is the paired one, and single-arm timings taken minutes
+-- apart are not evidence here. **Compare arms from ONE run of the script; a
+-- number written down earlier is not a baseline.**
+--
+-- **That 5.1x low end is a FLOOR on the live win, not an estimate of it**, and the
+-- distinction is v39's, paid for: the local benchmark said 3x and live
+-- returned 81x. This box is at worst partly cached with a fast SSD; live is
+-- I/O-bound against a 5.19 GB file on a small machine. What this index removes
+-- is ~1.46M table-row fetches per call, which is I/O -- so the regime where it
+-- pays most is exactly the one the benchmark cannot reproduce, and the ratio
+-- rising from 5.1x to 5.8x as this box lost page cache is the direction of
+-- that effect, visible in miniature. A benchmark that differs from production
+-- in which resource binds gives a direction and a floor and never a magnitude.
+--
+-- **`USE TEMP B-TREE FOR GROUP BY` survives, deliberately.** The outer GROUP
+-- BY drives from the materialized CTE, which SQLite does not know is already
+-- in `odds_event_id` order, and the only way to remove it is to rewrite the
+-- statement -- which lives under the `backend/odds/` freeze. It sorts the
+-- joined rows (~800 fixtures x one sweep), not the table, and it is not where
+-- the second went. Do not read its presence as the index failing.
+--
+-- **The cost, named rather than waved at.** +258.4 MB over 3,632,772 rows =
+-- **71.2 bytes/row, about 263 MB on live's 3,696,485**. That is more than
+-- v39's ~52 bytes/row / 190 MB, because this carries five columns including a
+-- 32-character event id. **The write is the cost that grew most and it is
+-- reported at its worst reading, not its best**: one 900-row sweep's INSERTs
+-- go 9.5 ms -> 12.5 ms with the file resident and **24.9 ms -> 40.7 ms** under
+-- cache pressure, so call it +30% to +65%. It stays milliseconds against a
+-- sweep that fires at most every ten minutes, and the read it buys happens
+-- every 3-10 s while a tab is open. Boot build: 21.7-27.2 s locally; on live expect **two to
+-- four minutes** by analogy with v37's comparably-sized build (181.8 s
+-- rehearsed, 172 s on the volume). The 600 s health grace covers that and must
+-- not be trimmed to fit.
+--
+-- **The cheaper four-column form is the 25 MB question, and it was measured
+-- rather than argued.** `(market, odds_event_id, fetched_ms DESC,
+-- commence_ms)` is 64.6 bytes/row -- 238 MB on live, 25 MB less -- and leaves
+-- the outer arm a non-covering seek (1 of 2 arms covering, against 2 of 2).
+-- Timed paired against the five-column form at three SQLite page-cache sizes,
+-- four rounds each:
+--
+--                    2 MB cache   16 MB cache   64 MB cache   5-arm run
+--     five-column       713 ms       697 ms        702 ms        764 ms
+--     four-column       741 ms       765 ms        736 ms        783 ms
+--
+-- **Consistent in direction in all four, and small in size**: 2-9% on the
+-- median. An earlier pair of SINGLE-arm runs had the four-column form ahead in
+-- one regime and behind in the other, which is exactly the artifact the paired
+-- design exists to remove -- and the first version of this comment claimed a
+-- 222-vs-184 ms win for the five-column form that the paired measurement does
+-- not support. It also costs less to write: 29.2 ms against 40.7 ms on a
+-- 900-row sweep under cache pressure.
+--
+-- So the honest statement is that the read margin is small, and the reason to
+-- pay the 25 MB is the one this box cannot price: the fifth column removes
+-- ~40,000 random table-row fetches per call, and a call happens every 3-10 s
+-- while a tab is open where a sweep fires every ten minutes. **If live shows
+-- memory pressure attributable to this index, dropping `book_updated_ms` is
+-- the first thing to give back** -- 25 MB and a cheaper write for a documented
+-- 2-9% of the read.
+--
+-- Two orderings that seek on `commence_ms` instead of carrying it were also
+-- measured and are not close: `(market, commence_ms, odds_event_id, ...)` and
+-- `(commence_ms, market, odds_event_id, ...)` are both REFUSED by the planner,
+-- which keeps `idx_odds_event` and leaves the query at its original ~3,900 ms
+-- while charging the full 263 MB. Sorting for the GROUP BY costs more than the
+-- narrower seek saves.
+--
+-- **The cache-pressure objection is the same one v39 answered, and the answer
+-- is the same.** This box has OOM-killed the recorder. Resident index bytes go
+-- up; page traffic per call goes down by orders of magnitude, because today
+-- every `/api/window` drags ~1.46M `odds_snapshots` rows through the page
+-- cache and after this it walks a contiguous index range and touches the table
+-- not at all. At a 3-10 s poll that is the difference that matters.
+--
+-- The column list must stay in step with `odds/timing.py::fixture_freshness`:
+-- a column referenced there and not here silently demotes both arms to a table
+-- fetch per row. Pinned by `tests/test_window_freshness_index.py`, which
+-- guards the index AND this recorded reason separately -- an index whose
+-- justification was deleted is one somebody removes again on the same argument
+-- as last time.
+CREATE INDEX IF NOT EXISTS idx_odds_window
+    ON odds_snapshots(market, odds_event_id, fetched_ms DESC, commence_ms,
+                      book_updated_ms);
+
 -- Credit accounting. The free tier is 500/month and cost = markets x regions,
 -- so an unmetered poll loop drains the month in a day. Every call is recorded
 -- with what the API said remained, so the budget is reconciled against the
