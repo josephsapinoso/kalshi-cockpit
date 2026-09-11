@@ -450,9 +450,9 @@ class DiscordNotifier:
         the screen; `Alerter.hedge_locks` is what enforces it.
 
         **No button, and the link goes to the cockpit.** Same ruling as every
-        other embed here -- and in this case the hedge cannot be placed from
-        the cockpit either (the manual door is capped at one contract), so the
-        screen names the size and Kalshi takes the order.
+        other embed here -- and in this case `/hedge` has no buy button of its
+        own (it said "capped at one contract" until 2026-09-11; ADR 0112 took
+        the caps off), so the screen names the size and Kalshi takes the order.
         """
         if not self.config:
             return False

@@ -40,10 +40,16 @@ What this module does NOT establish
 - **That taking a lock is correct.** A guaranteed $12 is guaranteed; whether it
   beats holding a ticket worth more in expectation is a preference about
   variance, and this module has no opinion.
-- **That the guarantee is exact.** Every figure here charges the *entry* fee
-  only. Whether Kalshi also charges at settlement is H4, and H4 is untested
-  (ADR 0027) — so a locked figure is an **upper bound**, and callers must say
-  so.
+- **That the guarantee is exact, or which way it leans.** Four terms sit on
+  every figure and they do not share a sign. Two make the true figure
+  smaller: whether Kalshi also charges at settlement is H4, untested
+  (ADR 0027); and the fee already paid to *enter* the ticket is not in
+  `stake_tenths` at all (`routes._record_combo_position` writes price times
+  contracts, and `Rung` nets against that). Two make it larger: the stake a
+  caller passes may be the price *sent* rather than the price charged
+  (ADR 0143 §4); and the hedge's own fee is the flat 0.070 rounded up, where
+  baseball's measured k is ~0.035 (ADR 0028). Callers must say it is an
+  estimate, and never a ceiling or a floor.
 - **Anything about a ticket with more than one leg still live.** `derisk` is
   branch arithmetic and a notional value, not a lock. Hedging one of four live
   legs locks nothing at all.

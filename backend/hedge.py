@@ -97,10 +97,21 @@ STATES = (
 #: `parlays.NOTES` does. They travel to Discord unchanged (ADR 0072 Decision 3),
 #: so a caveat cannot be dropped by the transport that needs it most.
 NOTES: dict[str, str] = {
+    # Keyed `upper_bound` for the wire's sake (`api.ts`, `discord.py` and
+    # three test files read the key); the sentence stopped claiming one on
+    # 2026-09-11. Four terms sit on the figure and they do not share a sign
+    # -- the entry fee left out of `stake_tenths` and the untested
+    # settlement charge (H4) push the true number down; the sent-vs-charged
+    # stake (ADR 0143 §4) and the flat 0.070 hedge fee push it up -- so it
+    # is an estimate, and neither a ceiling nor a floor. Wording per the
+    # measurement-skeptic's audit, 2026-09-11.
     "upper_bound": (
-        "Every figure charges the entry fee only. Whether Kalshi also charges "
-        "at settlement is unverified here, so a locked amount is a ceiling — "
-        "the real number can only be smaller."
+        "Every figure here charges the fee on this hedge only. It does not "
+        "subtract the fee you already paid to enter the ticket, and it "
+        "assumes Kalshi charges nothing when the market pays out — which is "
+        "unverified. The stake it subtracts is the price the desk sent, not "
+        "the price Kalshi charged. Treat it as an estimate good to roughly a "
+        "cent a contract, not a guaranteed amount."
     ),
     "not_advice": (
         "This is what a hedge would lock in at the price showing right now. "
@@ -108,10 +119,12 @@ NOTES: dict[str, str] = {
         "beats holding — the hedge price is the market's own number and "
         "nothing here beats it."
     ),
+    # "capped at one contract" was true until ADR 0112 (2026-09-08) took the
+    # caps off; the live limits are the venue-shaped 500 / 250 in
+    # `store/manual_orders.py`. The sentence now claims only what is so.
     "no_button": (
         "Place the hedge in the Kalshi app. This screen shows the size and "
-        "the price; the cockpit's own bet door is capped at one contract, "
-        "which a hedge is not."
+        "the price; it has no buy button of its own and places nothing."
     ),
     "derisk": (
         "More than one leg is still live, so a hedge on one of them locks "

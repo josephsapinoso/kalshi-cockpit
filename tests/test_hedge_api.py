@@ -268,8 +268,13 @@ class TestThePayload:
             "no_button",
             "derisk",
         }
-        # The sentence that keeps the figure honest is present, not merely a key.
-        assert "ceiling" in body["notes"]["upper_bound"]
+        # The sentence that keeps the figure honest is present, not merely a
+        # key -- and since 2026-09-11 it calls the figure an estimate rather
+        # than a ceiling, because four terms of mixed sign sit on it.
+        # `test_hedge_positions.py` guards the words and the killed claims.
+        assert "estimate" in body["notes"]["upper_bound"]
+        assert "not a guaranteed amount" in body["notes"]["upper_bound"]
+        assert "a ceiling" not in body["notes"]["upper_bound"]
 
     async def test_no_credentials_still_renders_the_record(self, app):
         """The demo instance holds no Kalshi key and must not 500 on this.
