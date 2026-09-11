@@ -373,22 +373,28 @@ class TestThePipAuditIgnoreListIsPinned:
 
     # Every advisory outstanding against `requirements.txt`.
     #
-    # **This was SEVEN entries on 2026-09-08 and is ONE on 2026-09-09.** Six of
-    # them were `cryptography`, and they are gone because the pin went 44 -> 50
-    # (ADR 0124), not because anything was silenced: `pip-audit` against
-    # `requirements.txt` with no ignores at all now reports exactly the entry
-    # below. The list is meant to shrink that way -- an ignore is deleted the
-    # moment its bump lands, and this test going red is how that gets noticed.
+    # **SEVEN on 2026-09-08, ONE on 2026-09-09, ZERO on 2026-09-11.** Six were
+    # `cryptography`, gone because the pin went 44 -> 50 (ADR 0124). The last
+    # was GHSA-rgxp-2hwp-jwgg against pyarrow, gone because the pin went
+    # 19.0.1 -> `~=25.0` -- the advisory tops out at 23.0.0, so `~=23.0` would
+    # have re-admitted it and `~=25.0` has nothing in the affected range.
+    # Nothing was silenced in either case: `pip-audit -r requirements.txt
+    # --strict` with no ignores at all now reports "No known vulnerabilities
+    # found" (run locally 2026-09-11 before the bump was pushed).
     #
-    # `ci.yml` carries the full record beside the flag: what it is, what fixes
-    # it, and whether the code path is reachable here.
-    EXPECTED_IGNORES = {
-        # pyarrow, SQLite -> Parquet publish, no money path. Known-bad match
-        # rather than a deferred fix: the flaw needs an Arrow IPC *file* read
-        # and nothing here ever reads one -- the only pyarrow call touching a
-        # file is `pq.write_table`.
-        "GHSA-rgxp-2hwp-jwgg",
-    }
+    # The list is meant to shrink this way -- an ignore is deleted the moment
+    # its bump lands, and this test going red is how that gets noticed. It
+    # went red on exactly that removal, which is the good case and is why the
+    # empty set below is a deliberate edit rather than a loosened assertion.
+    #
+    # **An empty list is the target state, not a gap in coverage.** The three
+    # tests below still hold the step to --strict, to `requirements.txt`, to
+    # failing the build, and to running before the suite, so zero ignores
+    # means zero outstanding advisories rather than zero enforcement.
+    #
+    # `ci.yml` carries the full record beside the flag: what each was, what
+    # fixed it, and whether the code path was reachable here.
+    EXPECTED_IGNORES: set[str] = set()
 
     def _audit_step(self):
         workflow = yaml.safe_load(self.WORKFLOW.read_text(encoding="utf-8"))
