@@ -16,6 +16,97 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-10 - "Cold start variance" was two states with one name, and the warm reading was the one I took first
+
+A cold-boot request measured 3.95s after one deploy and 20.5s after the next,
+on identical code, and it went into a handoff as unexplained variance.
+
+There was no variance. The 3.95s box had been warmed twice before I timed it:
+the schema migration's `CREATE INDEX` had just read the whole of the table the
+query scans, and then I ran a full timing pass over the same statement. Both
+finished before the request I labelled "first". The 20.5s box had a migration
+that did nothing and was timed immediately. Cold start was ~20s throughout.
+
+**The shape to look for: a "first request" measured after your own setup
+touched the same data.** Migrations, backfills, index builds, health probes,
+smoke tests and the diagnostic you just ran to check whether the fix worked are
+all warm-up passes. On a box whose page cache is smaller than its database,
+they are the dominant term, and they are invisible in the number you write
+down.
+
+Three rules:
+
+- **Write down what ran before the measurement, not just the measurement.** The
+  order of operations IS a variable here. "First request after deploy" is
+  underspecified on any system with a cache; "first request after deploy, with
+  a migration and a full scan in between" is a different experiment with a
+  different answer.
+- **Reconstruct the timeline from the box rather than from memory.** `/proc`
+  settled this in one read: VM uptime against the process's own age said
+  exactly when the machine booted and which build it came up carrying. My
+  sense of how long ago each deploy had happened was off by forty minutes,
+  which is what made the two readings look like one phenomenon.
+- **When two measurements of "the same thing" disagree by 5x, suspect the
+  definition before the system.** The system was behaving consistently the
+  whole time.
+
+The capacity fact underneath, worth keeping on its own: 2.0 GB of RAM, no swap,
+a 5.43 GB database and a page cache that tops out near 1.49 GB. **At most ~27%
+of the file is ever resident**, so "warm" is never fully warm and *which* 27%
+is resident is the whole performance story. Fixed by warming the read path at
+boot: 20.5s -> 0.81s on the first request after a fresh machine.
+
+---
+
+## 2026-09-10 - A component that swallows every error needs a test more than a loud one does
+
+The boot warm-up catches every exception on purpose: it runs on the machine
+that holds real money, under `set -e`, and a warm-up that can fail a boot is
+worse than a cold cache. That reasoning is right and it shipped a component
+that did nothing at all.
+
+`python scripts/warm_read_path.py` puts `scripts/` on `sys.path`, not the repo
+root, so `from backend.parlays import ...` raised `ModuleNotFoundError`. The
+swallow caught it, printed one line, and the boot carried on:
+
+    [warm] parlay read path warmed in 9.9s (3 candidate legs)   <- what it does now
+    [warm] skipped: ModuleNotFoundError: No module named 'backend'   <- what it did
+
+Everything else looked perfect. Container healthy, deploy successful,
+entrypoint correct, tests green. The first request still took 17.9s and I
+nearly recorded that as "warming does not help" - a wrong conclusion about the
+idea, caused by an unrelated bug in the implementation, with no failing signal
+anywhere.
+
+**The shape to look for: a component whose failure mode is "nothing happens".**
+Best-effort caches, prefetchers, warmers, metrics emitters, cleanup jobs,
+optional backfills, anything wrapped in `except Exception: pass` or a bare
+`|| true`. The swallow is usually the correct design. It also converts every
+bug in that component into silence.
+
+Three rules:
+
+- **A swallowed failure must still be loud in one place.** A log line is the
+  minimum, and it is only worth having if something reads it. Prefer a success
+  line with a number in it - "warmed in 9.9s (3 legs)" distinguishes working
+  from skipped from reading-an-empty-database at a glance, which a bare "ok"
+  does not.
+- **Test it the way the caller invokes it, not the way a test imports it.** The
+  bug here is unreachable from `import warm_read_path` in pytest, because
+  pytest already has the repo root on `sys.path`. It reproduces only as a
+  subprocess, by path, from the right working directory. **When the defect is
+  in how a thing is launched, the test has to launch it.**
+- **Pin the swallow in both directions.** A missing database and a corrupt one
+  must still exit zero, or the safety property is gone; and a healthy database
+  must NOT report "skipped", or the component is decoration.
+
+The general version, and it is the same pattern as the alarm keyed on a
+suppressed count above: **any mechanism whose broken state resembles its idle
+state cannot be monitored by looking for problems.** It has to be monitored by
+looking for evidence of work.
+
+---
+
 ## 2026-09-10 - An index that changes no plan can still change the cost by orders of magnitude; EXPLAIN reports the method, not the rows
 
 An index on `odds_snapshots(odds_event_id, commence_ms)` was added on

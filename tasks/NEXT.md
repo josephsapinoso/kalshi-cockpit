@@ -359,8 +359,33 @@ return — **strictly stronger than what it replaced.** Lesson written.
 
 ### Still open, in order
 
-0c. **The whole candidate scan is still 11.7 s cold, and that is the next
-   number to attack if the desk ever feels slow again.** The subquery is no
+0c. **COLD START IS FIXED, AND THE RESIDUAL IS NAMED.** The desk warms its own
+   read path at boot (`scripts/warm_read_path.py`, run backgrounded and
+   **disowned** by the entrypoint). Measured on live across three deploys:
+
+       cold boot, before            20.5 s   (25 s read budget -- it barely fit)
+       warm-up itself                9.9 s   (logged: "[warm] ... warmed in Ns")
+       first request, after          0.81 s
+       warm                          0.50 s
+
+   **The residual: a request arriving DURING the warm window still waits.** The
+   warm starts once uvicorn is healthy (~13 s in) and runs ~10 s, so roughly
+   the first 25 seconds after a boot are unprotected. That is acceptable
+   because a deploy is a deliberate act and Joe is not tapping inside it --
+   but it is not "solved", and an unlucky Fly-initiated restart could still
+   land there. Do not report it as eliminated.
+
+   **Two things that make this checkable:** the boot log line carries the
+   elapsed time AND the leg count, so a warm-up that read an empty database is
+   distinguishable from one that worked; and `tests/test_warm_read_path.py`
+   runs the script as a subprocess by path, which is the only way to catch the
+   class of bug that shipped here (see below).
+
+0e. **The whole candidate scan is still ~10 s on a genuinely cold box**, which
+   is what the warm-up now absorbs rather than removes. If the desk ever feels
+   slow again this is the number to attack; there is no symptom today, so this
+   is a note rather than a task. `inspect_live_db.py parlay-candidates-timing`
+   is the instrument. The subquery is no
    longer the cost (327.9 ms of it); what remains is `fair_prices` and the
    joins. It is comfortably inside the 25 s budget now and there is no
    symptom, so this is a note rather than a task -- do not open it without
