@@ -74,6 +74,12 @@ EXEMPT: dict[tuple[str, str], str] = {
     ("app/layout.tsx", "devig"): (
         "the word is in the <meta> description string — no DOM to tap"
     ),
+    ("lib/api.ts", "exposure"): (
+        "the only surviving occurrence is the route path in "
+        '`get<Exposure>("/api/exposure")` — a URL, not prose, and this file '
+        "renders no DOM at all. The line that URL feeds is glossed where it "
+        "is read: `ManualTicket.tsx` wraps it in <Term k=\"exposure\">"
+    ),
     ("app/dashboards/page.tsx", "clv"): (
         "developer screen (503 on live, off the nav since 2026-08-22); its "
         "subtitle sentence carries the caveat in place"

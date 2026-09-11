@@ -28,6 +28,30 @@
  * ADR 0071 §2.2 makes price transparency the desk's job at the moment of a
  * bet, which is now the whole of what this control does.
  *
+ * **THE TICKET SAYS HOW DEEP HE ALREADY IS** (2026-09-10). One line, above the
+ * confirm: what is already staked at the venue, on how many open positions,
+ * and when that was read. It lives INSIDE this component because that is the
+ * one edit that reaches all seven surfaces a bet can start from — `LiveBoard`,
+ * `MarketSearch`, `ParlayCards`, `PriceOnKalshi`, `SlateRow`, the market page
+ * and the slate page — and because `/parlays`, the screen all four real
+ * combination fills were placed on, fetched no position data at all.
+ *
+ * The argument is ADR 0112's own. Removing the five brakes removed the last
+ * thing that read Joe's exposure before a bet: the caps were the only consumer
+ * of that number, and after they went nothing on any screen carried it. Price
+ * transparency at the moment of a bet (ADR 0071 §2.2) is what Kalshi charges
+ * *against what he already has on*, and he was being shown one half.
+ *
+ * **It informs and it never blocks, and that is load-bearing.** A staleness or
+ * exposure gate on this button would be a sixth ceiling, which is a reversal
+ * of ADR 0112 and not a feature. `canConfirm` below does not read this state
+ * and must not; the posture is `PriceOnKalshi.tsx`'s `QuoteAge` block —
+ * relabel, never gate. A failed read renders as a refusal in words, never as
+ * `$0.00`, because a zero here reports "nothing at risk" off a dead poller,
+ * which is the flattering direction. The wording lives in
+ * `lib/exposureLine.ts` so its branch table can be tested without driving a
+ * fetch through three hooks.
+ *
  * MORE PLACES TO START A BET IS NOT MORE BETS. This control is mounted
  * inline on the slate rows, the Picks cards and the parlay legs. What
  * bounds purchases is the ten-minute cool-off after every completed order
@@ -65,12 +89,18 @@ import { useCallback, useEffect, useId, useState } from "react";
 
 import {
   DISPLAY_TIME_ZONE,
+  fetchExposure,
   fetchManualMarket,
   placeManualOrder,
   refusalText,
   type ManualMarket,
   type ManualOrderPlaced,
 } from "@/lib/api";
+import {
+  exposureUnreadable,
+  exposureWords,
+  type ExposureWords,
+} from "@/lib/exposureLine";
 import Term from "@/components/Term";
 
 function releaseClock(ms: number): string {
@@ -119,11 +149,18 @@ export default function ManualTicket({
   const [comboOk, setComboOk] = useState(false);
   // One idempotency key per opened ticket: two taps are one order.
   const [intentKey, setIntentKey] = useState<string | null>(null);
+  // What is already at risk. `null` while the read is in flight — a state
+  // that is neither a figure nor a refusal, and must not be rendered as
+  // either. It never reaches `canConfirm`.
+  const [exposure, setExposure] = useState<ExposureWords | null>(null);
 
   const close = useCallback(() => {
     setPhase({ name: "closed" });
     setComboOk(false);
     setIntentKey(null);
+    // Dropped with everything else: a figure read for the last ticket is a
+    // stamp that goes on being true-looking while the next one opens.
+    setExposure(null);
   }, []);
 
   useEffect(() => {
@@ -134,6 +171,41 @@ export default function ManualTicket({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [phase.name, close]);
+
+  // The exposure read, fired when the ticket opens and never awaited by
+  // anything that could hold the ticket shut. It runs BESIDE `openTicket`'s
+  // book read rather than inside it, deliberately: a slow or dead
+  // `/api/exposure` must not delay the live ask by one millisecond, and a
+  // thrown fetch must not become a `blocked` phase. `/api/exposure` is the
+  // cheapest handler in `routers/ledger.py` — `open_positions` and nothing
+  // else — precisely so this can be paid for on every open.
+  const ticketOpen = phase.name === "ticket" || phase.name === "sending";
+  useEffect(() => {
+    if (!ticketOpen) return;
+    let live = true;
+    setExposure(null);
+    void fetchExposure().then(
+      (read) => {
+        if (live) {
+          setExposure(exposureWords(read.open_positions, DISPLAY_TIME_ZONE));
+        }
+      },
+      (error: unknown) => {
+        if (live) {
+          setExposure(
+            exposureUnreadable(
+              error instanceof Error
+                ? `${error.message}.`
+                : "the desk could not reach its own record.",
+            ),
+          );
+        }
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [ticketOpen]);
 
   const openTicket = async () => {
     setPhase({ name: "loading" });
@@ -280,6 +352,7 @@ export default function ManualTicket({
           comboOk={comboOk}
           setComboOk={setComboOk}
           note={note}
+          exposure={exposure}
           sending={phase.name === "sending"}
           onConfirm={() => void confirm(phase.market)}
         />
@@ -324,6 +397,7 @@ function TicketBody({
   comboOk,
   setComboOk,
   note,
+  exposure,
   sending,
   onConfirm,
 }: {
@@ -337,6 +411,10 @@ function TicketBody({
   comboOk: boolean;
   setComboOk: (ok: boolean) => void;
   note?: string;
+  /** `null` while the read is in flight. Read by `<Exposure>` alone — it is
+   *  deliberately absent from `canConfirm` below, and adding it there would
+   *  be the sixth ceiling ADR 0112 removed the other five of. */
+  exposure: ExposureWords | null;
   sending: boolean;
   onConfirm: () => void;
 }) {
@@ -514,6 +592,10 @@ function TicketBody({
         </div>
       )}
 
+      {/* Last thing read before the tap, and the only thing on this ticket
+          that is about the rest of the book rather than this market. */}
+      <Exposure words={exposure} />
+
       <button
         onClick={onConfirm}
         disabled={!canConfirm}
@@ -528,6 +610,52 @@ function TicketBody({
             : `Confirm — buy ${side.toUpperCase()}`}
       </button>
     </div>
+  );
+}
+
+/**
+ * How deep he already is, above the confirm.
+ *
+ * Three states and no fourth: still reading, a figure with the clock of the
+ * read that produced it, or the server's own reason it cannot be said. The
+ * words come from `lib/exposureLine.ts`; this renders them and chooses a
+ * colour, and it holds no branch of its own about money.
+ *
+ * A refusal wears the warning ochre (`accent-2`), the same class the
+ * real-money strip above uses: it is a caution, not a loss and not a block.
+ * Nothing here is disabled and nothing here is passed to `canConfirm` —
+ * ADR 0112 removed all five brakes on a hand bet, and a screen that gated the
+ * button on a stale mirror would restore one under a new name.
+ */
+function Exposure({ words }: { words: ExposureWords | null }) {
+  if (words === null) {
+    return (
+      <p className="max-w-[65ch] text-xs text-muted">
+        Reading what you already have on&hellip;
+      </p>
+    );
+  }
+  if (words.refused) {
+    return (
+      <p className="max-w-[65ch] rounded-xl border border-accent-2/50 bg-accent-2-soft px-3 py-2 text-xs leading-relaxed text-accent-2">
+        <Term k="exposure">Exposure</Term>: {words.headline}
+        {words.stamp !== null && (
+          <span className="text-muted"> ({words.stamp})</span>
+        )}
+      </p>
+    );
+  }
+  return (
+    <p className="max-w-[65ch] text-xs leading-relaxed">
+      <Term k="exposure">Exposure</Term>:{" "}
+      <span className="font-semibold tabular">{words.headline}</span>
+      {words.qualifier !== null && (
+        <span className="text-muted"> — {words.qualifier}</span>
+      )}
+      {words.stamp !== null && (
+        <span className="text-muted"> ({words.stamp})</span>
+      )}
+    </p>
   );
 }
 

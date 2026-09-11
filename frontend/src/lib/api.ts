@@ -1809,6 +1809,30 @@ export type OpenPositionsBlock = {
   staked_refusal?: string | null;
 };
 
+/**
+ * `GET /api/exposure` — how deep Joe already is, and nothing else.
+ *
+ * **A separate route from `/api/bets` on purpose.** `/api/bets` serves the
+ * same `open_positions` block, and also 200 settled rows, the pass summary
+ * and the lockout clock. `<ManualTicket>` opens this on seven surfaces, beside
+ * a live Kalshi book read, so the buy button waits on the cheapest possible
+ * read (`backend/api/routers/ledger.py`).
+ *
+ * `open_positions` is the same `OpenPositionsBlock` the slate and /bets carry,
+ * passed through unshaped. `as_of_ms` is the server clock its `*_age_ms`
+ * fields were subtracted against — no browser millisecond is ever subtracted
+ * from a server one.
+ */
+export type Exposure = {
+  as_of_ms: number;
+  open_positions: OpenPositionsBlock;
+};
+
+/** Reads, and never gates. A thrown fetch or a non-2xx is rendered as a
+ *  refusal beside the buy button (`exposureUnreadable`), never as a reason to
+ *  disable it — ADR 0112 removed all five brakes and this adds no sixth. */
+export const fetchExposure = () => get<Exposure>("/api/exposure");
+
 export const fetchSlate = (filter: ListFilter = NO_FILTER) =>
   get<Slate>(`/api/slate${listFilterQuery(filter)}`);
 
