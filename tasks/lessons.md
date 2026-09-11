@@ -16,6 +16,49 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-11 - Before a missing number becomes a migration, check whether the row already determines it
+
+E3 — the entry fee absent from `parlay_positions.stake_tenths` — arrived
+framed as a storage decision: rewire the write site to the venue's fee
+column, accept a mixed-basis column because the four real rows predate that
+column, and pair it with a schema question. Every part of that framing was
+inherited from the *previous* deferral (ADR 0143 §4 had deferred rewiring
+the same function for a different column), so the shape of the fix was
+decided before anyone asked what the fee is a function of.
+
+It is a function of two columns already on the row. A combo is charged once,
+per contract, at its own price, and the row stores `C·P` and `C·$1`; the fee
+collapses to `k · stake · (1 − stake/return)`. No migration, no backfill, no
+mixed basis, and the pre-v40 rows behave exactly like any row written
+tomorrow. The whole "decision" was a read-site line and a helper.
+
+The shape: **a deferred item carries the shape of the fix it was deferred
+as.** When a new reason revives it, the reason gets attached to the old
+shape — "the same rewire, now with a real reason" — and the session budgets
+for the old shape's cost (an ADR about columns, a mixed-basis argument, a
+platform review) before checking whether the new reason even needs it.
+
+Three rules:
+
+- **Ask what the missing number is a function of before asking where to
+  store it.** If the inputs are already on the row, the fix is arithmetic
+  and the storage question is moot. Derivable-from-the-row is the first
+  check, not the last.
+- **An inherited "the same X as before" is a claim to verify, not a
+  scope.** It was true of the previous item; whether it is true of this one
+  depends on facts nobody has looked at yet.
+- **Read the output history before sizing the fix.** `/hedge` had produced
+  zero locks in its life, which turned a day's decision into an hour's line.
+  A defect found by source reading has no measured harm until someone
+  counts the outputs it could have corrupted; count them first.
+
+Where it went: `core/hedge.py::combo_entry_fee_tenths`, DRAFT ADR (0145
+reserved), and the collapsed form was chosen so that the *other* deferred
+item on the same function — the `int(fill_count)` truncation — cannot break
+it when it is fixed.
+
+---
+
 ## 2026-09-11 - A caveat that names one error term is a claim about all the others
 
 `/hedge` told Joe its lock figure was "a ceiling — the real number can only be

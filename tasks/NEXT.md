@@ -119,6 +119,125 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-11 (thirteenth session) — E3 is fixed on a branch without touching a column, `/hedge` has never produced a lock, and Monday now merges two lanes
+
+**The session's finding is that the "money-path defect" was a read-site
+arithmetic gap, not a storage decision.** The handoff framed E3 — the entry
+fee absent from `parlay_positions.stake_tenths` — as "the same
+`_record_combo_position` rewire ADR 0143 §4 deferred", i.e. a schema change
+that would make a mixed-basis column because all four real rows predate v40.
+`kalshi-platform` read the fee semantics against the captures and the two
+measurement docs and the framing fell over: the fee on a KXMVE fill is
+charged once per combo contract at the combo's own price, so it is a
+function of `stake` and `return`, both already on the row —
+`fee = 0.071 × stake_dollars × (1 − stake/return)`, identical to
+`combo_taker_fee(P, C)` with no contract count needed. No migration, no
+backfill, no mixed basis, and the four NULL-venue rows are handled the same
+as any row written tomorrow.
+
+**The partner's other finding changed the size of the session, not its
+rank: `/hedge` has produced zero locks in its life.** Read on live,
+bounded by table: 4 `parlay_positions` rows, all `status = 'open'`, 12 of
+12 legs venue-resolved, every ticket carrying a lost leg, so all four are
+`STATE_DEAD` and never reach the lock path; `notifications` has **0**
+`hedge_lock` rows ever. E3's realised harm is exactly zero and cannot fire
+on those rows in future. So: ADR, one read-site fix, copy, synthetic
+tests, stop.
+
+**STATE at close.** `main` = live = `3ffbca4` plus this entry (deployed with
+`-e GIT_SHA=$(cat sha.txt)` and read back); recorder writing, arming
+unchanged (hand path armed, engine and bids dry). **Lane C is on a branch,
+pushed, deliberately not merged**: `lane-c-hedge-entry-fee` at `57f7b48`,
+one commit on `3ffbca4`, DRAFT ADR reserved **0145**, no schema change.
+Odds path untouched: **the freeze to 10:00Z 2026-09-14 holds** — the diff
+against `7f0f85f` for `backend/odds/` and `backend/scheduler.py` is empty
+on both `main` and lane C. **Credits: zero spent**; every live call was
+`GET /api/health` or a read-only, table-bounded DB replay over `flyctl ssh`.
+No lookup minted, no combo tap: **Arm D's frame is uncontaminated.** No
+open Dependabot alerts. One empty OS-held shell directory
+(`.claude/worktrees/agent-a11b77117a02ff6c8`) still cannot be removed; the
+second one (`agent-ae85feea6e90c6f59`) is gone.
+
+### What shipped on lane C — `57f7b48`, DRAFT ADR (0145 reserved)
+
+- `core/hedge.py::combo_entry_fee_tenths(stake, return)`: the collapsed
+  form at `COMBO_TAKER_COEFFICIENT` (0.071 — 0.070 undercharged four of the
+  eight measured fills; 0.071 overstated by 0.6–1.4% on those eight, 1.4% on
+  average over 62 more, and understated none), rounded up onto the venue's
+  $0.0001 grid and up again onto integer tenths. `None` on an unreadable
+  ticket, never `0`; `ticket_refusal` refuses the same tickets a step later.
+- `hedge.py::assess` sinks it beside the stake, **`kalshi_combo` rows
+  only** — a sportsbook slip's vig is inside the odds Joe typed. One sunk
+  number feeds `hedge_lock` and `derisk` alike.
+- Payload gains `entry_fee_display` (string or `null`); the card reads
+  `$1.64 + $0.07 fee → $4.00`; `stake_display` is unchanged so it still
+  reconciles with the `manual_orders` intent. `RecordParlay.tsx` tells him,
+  on the combo option only, to type contracts × price before the fee.
+- `NOTES["upper_bound"]` (key kept) no longer says the entry fee is left
+  out; names the rate and which way it errs. Killed words still killed and
+  still guarded. `core/hedge.py`'s "does NOT establish" list and CLAUDE.md's
+  E-table rewritten: E3 is now `too LOW, ~1% of the fee`.
+- **Verified by disabling**: removing the sunk term turns three of the four
+  new position tests red. The worked defect, synthetic: 4 × 41c hedged at
+  56c is **+51 tenths and `guaranteed`** as a slip, **−18 and not** as a
+  combo. 3,493 tests across every file that reads CLAUDE.md, the ADRs or
+  the hedge modules green on the lane; ruff and tsc clean.
+- **Every test row is synthetic and the ADR says so** — there is no real
+  row on which a before/after can be shown. The first real lock this
+  arithmetic produces will be the first.
+
+### Why compute rather than read `venue_avg_fee_dollars` (ADR §3)
+
+NULL on 4 of 4 real rows; no id-level join from `parlay_positions` to
+`manual_orders` (only an incidental `(combo_ticker, placed_ms) =
+(ticker, submitted_ms)` equality); "per contract" is asserted from the field
+name and the only capture filled one contract; and the computed path never
+understated on 70 of 70 observed fills. If the venue figure is ever read
+here it is as a check that trips the fee alarm, not as the hedge's input.
+
+### Known and declined, so the next session does not promote them
+
+- **`parlay_positions.status` never advances.** All four rows read `open`
+  with every leg resolved; `open_positions()` accumulates dead tickets. The
+  screen renders `STATE_DEAD` in words. Hygiene, not a defect.
+- **No hedge-evaluation table.** The only record of a lock is the
+  `notifications` row and it has never been written. A table over a source
+  with zero outputs is not funded.
+- **`int(fill_count)` at `routes.py:3952`.** KXMVE counts are fractional on
+  the wire (`"227.27"`, `"4.15"`); truncation records the position smaller
+  than held. Unruled, rides in the ADR as a note; the collapsed fee form was
+  chosen so fixing it cannot break the fee.
+- **The lane board's db.py COLLISION flag on lane B** is mechanical — both
+  sides of the `_MIGRATIONS` hunk are pre-written — and the partner refused
+  a Friday rebase for a Monday merge again. Expect a real rebase Monday.
+
+### Still open, in order
+
+1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Unchanged.
+2. **SUNDAY 2026-09-13 — Arm D, a scheduled run, not a task to plan.**
+   Unchanged. Take NO combo taps before then.
+3. **Monday 2026-09-14 after 10:00Z, in this order:** (a) merge lane B per
+   its checklist (rebase, suite on the merged tree, deploy, keep the 600 s
+   grace); (b) **merge lane C behind it** — `git fetch`, number the DRAFT to
+   the next free ordinal (0145 unless something landed first), rebase on
+   the merged main, suite, deploy; (c) `#36` props: one prop sweep, one
+   event, ~14 credits, once (Joe's answer C), then register
+   `STAGED_PROP_CARD` or close the lane on a number — **not** a standing
+   `ODDS_MARKETS` change; (d) nothing else touches `backend/odds/`.
+4. **The census** — first session after the 10th real manual order or
+   2026-11-01. Runnable as written; may not be cited for or against ADR 0143
+   **or 0145**. Its Amendment 1 §A6 table is the pre-0145 record and is not
+   edited.
+5. **Reservations** (also in `tasks/LANES.md`): schema **v41** and ADR
+   **0144** are lane B's; ADR **0145** is lane C's; main-session ADRs start
+   at **0146**.
+
+**Struck this session:** item 3 (E3 — built on lane C, above), item 6 (the
+pair test — killed on the partner's reading last session; a killed item is
+not an open item, and it returns only as a pre-registration).
+
+---
+
 ## 2026-09-11 (twelfth session) — the hedge figure was called a ceiling and it is not one; the census registration can now be run as written; lane B is renumbered and still waiting on Monday
 
 **The session's finding is that a caveat can be the flattering sentence.**
