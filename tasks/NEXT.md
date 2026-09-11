@@ -145,6 +145,33 @@ no lookup was minted and no combo tap taken, so **Arm D's frame is
 uncontaminated by this session.** The 300/300 attention slice was already
 spent ~6 hours before the session opened. No open Dependabot alerts.
 
+### JOE'S ANSWERS, 2026-09-11 — all three yes
+
+Put to him as three lettered questions with a recommendation on each; he
+answered "yes to all" and asked that they be saved here.
+
+- **(A) Start a fresh session after lane D lands.** Procedural. Acted on.
+- **(B) The exposure gloss at the buy button STANDS.** It replaced a false
+  reassurance -- the old text promised a cap that ADR 0112 removed on his own
+  instruction, and it renders **at the buy button**, which is the worst place
+  in the product to carry a comforting untruth. **Now pinned in words**
+  (`TestTheExposureGlossIsJoesRatifiedCopy` in
+  `tests/test_manual_ticket_exposure.py`), with the same force as the #9 tab
+  ledes: the ratified sentence verbatim, a worked-example guard, and a guard
+  that the killed claim ("exposure cap bounds", "cannot take the whole
+  bankroll") **cannot return in any spelling**. Verified by disabling --
+  restoring the old sentence turns two tests red. A future session will read
+  "nothing caps it" as alarming copy and want to soften it; it is not
+  alarming, it is the fact, and the softer version is the one that was wrong.
+- **(C) #36 props as parlay legs: SPEND THE ~14 CREDITS.** Recorded on the
+  ticket (comment 5634130986). **This authorises one prop sweep on one event,
+  once, after 10:00Z 2026-09-14 — and nothing else.** It does **not**
+  authorise leaving props in `ODDS_MARKETS`: buying a market type costs
+  credits on *every* sweep thereafter (ADR 0140), so making it permanent is a
+  separate decision with a recurring bill. Then either append
+  `STAGED_PROP_CARD` to `CARD_SHAPES` (one line, already built and tested) or
+  close the lane **on a number**.
+
 ### READ THIS FIRST: lane B is finished, on a branch, and must NOT be merged or deployed before 10:00Z 2026-09-14
 
 Branch **`lane-b-window-index`** (`8b02d81`, `65ab0ec`), complete, tested,
@@ -343,8 +370,10 @@ by an unrelated predicate is how a pinned fact gets missed.**
    figure that could eventually be exact. **Needs its own ADR — the census
    registration's §8.4 explicitly does not authorize money-touching changes,
    so do not cite it as cover.** Sequence it after lane B.
-5. **`#36` props as parlay legs — blocked on the freeze, not on code.**
-   Unchanged and still the only open ticket. `STAGED_PROP_CARD` is built,
+5. **`#36` props as parlay legs — ANSWERED, and blocked on the freeze.**
+   **Joe said spend the ~14 credits (2026-09-11).** One prop sweep, one
+   event, once, after 10:00Z 2026-09-14 — not a standing `ODDS_MARKETS`
+   change, which would bill every sweep forever. `STAGED_PROP_CARD` is built,
    tested and deliberately not in `CARD_SHAPES`; enabling is one line and is
    correct only after a sweep has bought prop rows. `ODDS_MARKETS` on live is
    `'h2h,spreads'`. ~14 credits on one event after 10:00Z 2026-09-14, then

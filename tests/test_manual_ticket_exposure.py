@@ -417,3 +417,74 @@ class TestOneEditReachesSevenSurfaces:
             text = (REPO / "frontend" / "src" / rel).read_text(encoding="utf-8")
             assert "<ManualTicket" in code_only(text), rel
         assert len(mounts) == 7
+
+
+#: The `exposure` gloss, ratified by Joe 2026-09-11.
+#:
+#: **It replaced a false reassurance, which is why it is pinned in words.**
+#: The definition used to end "The exposure cap bounds that total, so one bad
+#: night cannot take the whole bankroll." ADR 0112 removed all five brakes from
+#: the hand-bet path on Joe's own instruction, so that sentence has been false
+#: on the path he actually uses since 2026-09-08 -- and this gloss renders AT
+#: THE BUY BUTTON, which makes it the worst place in the product to carry a
+#: comforting untruth. Corrected 2026-09-11, put to Joe with the alternative,
+#: and kept on his answer.
+#:
+#: A future session looking at "nothing caps it" will read it as alarming copy
+#: and be tempted to soften it. It is not alarming; it is the fact, and the
+#: softer version is the one that was wrong.
+RATIFIED_EXPOSURE_GLOSS = (
+    "The total you could lose if every bet you have open lost, fees "
+    "included. Hold two $20 bets and you are $40 exposed. Nothing caps "
+    "it on a bet you place by hand \u2014 that is why the ticket shows it."
+)
+
+#: The claim ADR 0112 falsified. It may not come back in any spelling.
+KILLED_EXPOSURE_CLAIMS = (
+    "exposure cap bounds",
+    "cannot take the whole bankroll",
+)
+
+
+class TestTheExposureGlossIsJoesRatifiedCopy:
+    """Ratified 2026-09-11. Same force as the #9 tab ledes: the words are
+    his, and a correctness patch is not a licence to reword them."""
+
+    def _gloss(self) -> str:
+        text = (LIB / "glossary.ts").read_text(encoding="utf-8")
+        start = text.index("exposure: {")
+        block = text[start : text.index("},", start)]
+        # The definition only -- the sibling `label` is also a quoted string.
+        return block[block.index("definition:") :]
+
+    def test_the_ratified_sentence_is_on_the_ticket_verbatim(self):
+        """Verbatim after the string concatenation the file is written in."""
+        joined = "".join(re.findall(r'"([^"]*)"', self._gloss()))
+        assert joined == RATIFIED_EXPOSURE_GLOSS, (
+            "the exposure gloss changed. It is Joe's ratified copy "
+            "(2026-09-11) and renders at the buy button; changing it is his "
+            "call, not a passing edit.\n"
+            f"  found:  {joined!r}\n"
+            f"  wanted: {RATIFIED_EXPOSURE_GLOSS!r}"
+        )
+
+    def test_the_falsified_cap_claim_cannot_return(self):
+        """The half that makes this a guard rather than a snapshot. ADR 0112
+        removed the caps; copy that promises one is false on the hand-bet
+        path, and false in the flattering direction."""
+        gloss = self._gloss()
+        for claim in KILLED_EXPOSURE_CLAIMS:
+            assert claim not in gloss, (
+                f"the exposure gloss says {claim!r} again. ADR 0112 removed "
+                "all five brakes from the hand-bet path -- there is no cap to "
+                "promise, and this string renders at the buy button."
+            )
+
+    def test_the_gloss_teaches_with_a_worked_example(self):
+        """Joe is a beginner and asked to be educated, not shielded: a
+        definition without a number is a definition he has to translate."""
+        gloss = self._gloss()
+        assert "$20" in gloss and "$40" in gloss, (
+            "the worked example is gone; a bare definition is what the "
+            "glossary exists to avoid"
+        )
