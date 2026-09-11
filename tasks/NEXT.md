@@ -214,16 +214,15 @@ Dependabot alerts.
    `tasks/lessons.md:4306` citation in ADR 0021 predates several splits and
    was left.
 
-### JOE'S QUESTIONS, 2026-09-11 (twelfth) — acted on the recommendation, yours to overrule
+### JOE'S ANSWERS, 2026-09-11 (twelfth) — both settled, in his words: "a) figure b) sure"
 
-- **(A) One figure or a range on `/hedge`?** The honest rendering is a range,
-  because E1/E3 push the true lock below the display and E2/E4 push it above.
-  **Done as the partner recommended: one figure, honest sentence.** A range
-  during a live game is harder to act on and the gap is about a cent a
-  contract. Say "A-range" to get the range instead.
-- **(B) Nothing money-touching this weekend.** No combo taps, no lookups, no
-  arming, no spend until Sunday's scheduled Arm D. If you want something
-  bought or tested that is not Arm D, say so; otherwise credits stay at zero.
+- **(A) One figure on `/hedge`, not a range.** Ratified. The honest
+  rendering would be a range (E1/E3 push the true lock below the display,
+  E2/E4 above), but a range during a live game is harder to act on and the
+  gap is about a cent a contract. **One figure with the honest sentence
+  stands; do not convert it to a range without a new answer from him.**
+- **(B) Nothing money-touching this weekend.** Ratified. No combo taps, no
+  lookups, no arming, no spend until Sunday's scheduled Arm D.
 
 ### Still open, in order
 
