@@ -351,7 +351,7 @@ CREATE INDEX IF NOT EXISTS idx_odds_commence ON odds_snapshots(commence_ms);
 CREATE INDEX IF NOT EXISTS idx_odds_sport_commence
     ON odds_snapshots(sport_key, commence_ms, odds_event_id, home_team, away_team);
 
--- **And the covering index for `/api/window` -- schema v40 (LANE B).**
+-- **And the covering index for `/api/window` -- schema v41 (LANE B).**
 -- Same test as v39's, applied to the other continuous read on this table, and
 -- it comes out the same way: a TIME, not a plan.
 --

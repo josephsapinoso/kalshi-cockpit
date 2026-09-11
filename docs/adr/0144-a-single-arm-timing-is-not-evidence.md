@@ -1,10 +1,13 @@
-# DRAFT — A single-arm timing is not evidence either
+# 0144 — A single-arm timing is not evidence either
 
-**Status:** DRAFT, no ordinal taken. Written by lane B on 2026-09-10 while
-adding `idx_odds_window`. Take an ordinal at merge, after `git fetch` — a
-parallel lane may also be writing ADRs this session.
+Date: 2026-09-10
+Status: accepted
+Amends: ADR 0141, which it agrees with and does not overturn.
 
-**Amends:** ADR 0141, which it agrees with and does not overturn.
+Written by lane B on 2026-09-10 while adding `idx_odds_window`. Filed as
+`DRAFT-a-single-arm-timing-is-not-evidence.md` with no ordinal taken, per
+`docs/adr/README.md`; numbered 0144 at the merge checklist step, after
+confirming `ls docs/adr/` topped out at 0143 on `main`.
 
 ## The decision
 

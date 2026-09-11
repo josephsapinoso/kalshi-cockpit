@@ -92,16 +92,18 @@ from ..core.prices import is_valid_price
 #: their real values -- nothing is deleted, backfilled or rewritten. See
 #: `docs/adr/0138-a-lookup-prices-the-window-the-card-was-built-in.md`.
 #:
-#: v40 `idx_odds_window`, the covering index for `/api/window`'s freshness
+#: v41 `idx_odds_window`, the covering index for `/api/window`'s freshness
 #: query. The statement, the timing and the size cost sit beside the CREATE in
 #: `schema.sql`.
 #:
-#: **THE ORDINAL 40 IS A LANE-B PLACEHOLDER.** It was chosen without reading
+#: **THE ORDINAL 41 IS A LANE-B PLACEHOLDER.** It was chosen without reading
 #: `schema.sql` or `tasks/LANES.md`, because another lane in the same session
 #: may also be bumping the schema. Re-take it at merge, after `git fetch`:
-#: this constant, the `_MIGRATIONS` key below, the `schema v40` line in
+#: this constant, the `_MIGRATIONS` key below, the `schema v41` line in
 #: `schema.sql`, and `tests/test_window_freshness_index.py` all move together.
-SCHEMA_VERSION = 40
+#: Renumbered from the original placeholder of 40: lane D merged first and
+#: took 40 (ADR 0143), confirmed against `main`'s `SCHEMA_VERSION`.
+SCHEMA_VERSION = 41
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -934,7 +936,9 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30)
 
 _MIGRATIONS: dict[int, _Migration] = {
     # `idx_odds_window`, the covering index for `/api/window`. **ORDINAL IS A
-    # LANE-B PLACEHOLDER -- re-take at merge, see `SCHEMA_VERSION`.** The
+    # LANE-B PLACEHOLDER, renumbered from 40 to 41 because lane D took 40
+    # first (ADR 0143) -- re-take again at the real merge, see
+    # `SCHEMA_VERSION`.** The
     # statement, the before/after timing at live's shape and the size cost sit
     # beside the CREATE in `schema.sql`, following v31, v37 and v39; what
     # belongs here is only why the step is needed at all.
@@ -965,7 +969,7 @@ _MIGRATIONS: dict[int, _Migration] = {
     #
     # No `columns`, so dropping the declared index is the whole undo and
     # `undo_statements` stays empty.
-    40: _Migration(
+    41: _Migration(
         statements=(
             "CREATE INDEX IF NOT EXISTS idx_odds_window "
             "ON odds_snapshots(market, odds_event_id, fetched_ms DESC, "

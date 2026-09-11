@@ -81,8 +81,9 @@ NOW = 1_789_000_000_000
 #: **The ordinal is a lane placeholder.** It was taken without reading
 #: `schema.sql` or `tasks/LANES.md` because a parallel lane may also be bumping
 #: the schema; re-take it at merge alongside `SCHEMA_VERSION` and the
-#: `_MIGRATIONS` key. See the note on `store.SCHEMA_VERSION`.
-VERSION = 40
+#: `_MIGRATIONS` key. See the note on `store.SCHEMA_VERSION`. Renumbered from
+#: 40 to 41: lane D merged first and took 40 (ADR 0143).
+VERSION = 41
 
 
 def _statement_from_source() -> str:
