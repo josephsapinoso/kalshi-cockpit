@@ -45,8 +45,8 @@ export default async function HedgePage() {
         <p className="mt-3 max-w-[65ch] text-sm leading-relaxed text-muted">
           Tickets you hold, priced against what the other side costs on Kalshi
           right now. When one <Term k="leg">leg</Term> is left and the rest
-          have won, a <Term k="hedge">hedge</Term> has an exact answer — a{" "}
-          <Term k="lock">lock</Term>. Before that it can only{" "}
+          have won, a <Term k="hedge">hedge</Term> can pay the same whichever
+          way it goes — a <Term k="lock">lock</Term>. Before that it can only{" "}
           <Term k="derisk">de-risk</Term>.
         </p>
         <p className="mt-2 max-w-[65ch] text-xs leading-relaxed text-muted">

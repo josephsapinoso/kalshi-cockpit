@@ -815,6 +815,88 @@ class TestThePayload:
         }
 
 
+#: The claims killed on 2026-09-11. Four terms sit on the lock figure and they
+#: do not share a sign -- the entry fee left out of `stake_tenths` and the
+#: untested settlement charge (H4, ADR 0027) push the true number DOWN; the
+#: stake recorded at the ask the desk SENT rather than the price the venue
+#: charged (`routes._record_combo_position`, ADR 0143 §4) and the flat 0.070
+#: hedge fee push it UP -- so "a ceiling", "can only be smaller" and "an exact
+#: answer" were each a bound the figure does not have, and the flattering
+#: error is calling it a floor. "capped at one contract" is a separate
+#: falsehood: ADR 0112 took the caps off on 2026-09-08. Same shape as
+#: `KILLED_EXPOSURE_CLAIMS` in `test_manual_ticket_exposure.py`.
+KILLED_LOCK_CLAIMS = (
+    "can only be smaller",
+    "can only be larger",
+    "a ceiling",
+    "exact answer",
+    "exact lock",
+    "capped at one contract",
+)
+
+HEDGE_PAGE = ROOT / "frontend" / "src" / "app" / "hedge" / "page.tsx"
+HEDGE_CARDS = ROOT / "frontend" / "src" / "components" / "HedgePositions.tsx"
+
+
+class TestTheLockCaveatClaimsNoDirection:
+    """The words around the lock figure, guarded rather than snapshotted.
+
+    Not a verbatim pin: this copy is the measurement-skeptic's wording,
+    drafted 2026-09-11, and Joe has not ratified it. What is pinned is what
+    it must say -- the terms it leaves out, and that it is an estimate -- and
+    what it may never say again.
+    """
+
+    def test_the_note_names_what_it_leaves_out_and_calls_itself_an_estimate(self):
+        note = hedge.NOTES["upper_bound"]
+        # The hedge's own fee is the only fee charged ...
+        assert "fee on this hedge only" in note
+        # ... so the entry fee and the settlement charge are both named ...
+        assert "already paid to enter" in note
+        assert "pays out" in note and "unverified" in note
+        # ... as is the sent-vs-charged stake ...
+        assert "price the desk sent" in note
+        assert "not the price Kalshi charged" in note
+        # ... and the figure is an estimate with a stated grain, not a bound.
+        assert "estimate" in note and "not a guaranteed amount" in note, (
+            "the lock caveat has gone back to claiming a direction; four "
+            "terms of mixed sign sit on the figure and it is an estimate"
+        )
+
+    def test_the_no_button_note_claims_only_what_is_so(self):
+        note = hedge.NOTES["no_button"]
+        assert "places nothing" in note
+        assert "one contract" not in note, (
+            "the hedge screen says the bet door is capped again. ADR 0112 "
+            "removed every cap of ours on 2026-09-08."
+        )
+
+    def test_the_killed_claims_cannot_return(self):
+        """The half that makes this a guard rather than a snapshot."""
+        notes = "\n".join(hedge.NOTES.values())
+        page = HEDGE_PAGE.read_text(encoding="utf-8")
+        cards = HEDGE_CARDS.read_text(encoding="utf-8")
+        for claim in KILLED_LOCK_CLAIMS:
+            for name, text in (
+                ("hedge.NOTES", notes),
+                ("hedge/page.tsx", page),
+                ("HedgePositions.tsx", cards),
+            ):
+                assert claim not in text, (
+                    f"{name} says {claim!r} again. The lock figure carries "
+                    "four terms of mixed sign and is an estimate, not a "
+                    "ceiling or a floor; and no cap of ours bounds the bet "
+                    "door. These words render on the phone during a live "
+                    "game."
+                )
+
+    def test_the_page_lede_still_defines_a_lock(self):
+        """Vacuity guard for the scan above: the lede was reworded, not cut."""
+        page = HEDGE_PAGE.read_text(encoding="utf-8")
+        assert 'Term k="lock"' in page
+        assert "whichever" in page
+
+
 class TestTheInterlockCannotSeeThisRecord:
     def test_gate_reads_neither_new_table(self):
         """The `manual_orders` rule, applied to the same class of row.
