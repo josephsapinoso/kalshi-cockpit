@@ -771,9 +771,10 @@ def reserve_manual_order(
 # `limit_price_tenths` is `OrderRequest.fill_price_tenths` — "what one contract
 # of *our* side costs at the price being sent" — frozen by `_insert_intent`
 # before the request left the process. `OrderOutcome` has no such property and
-# nothing the venue returned was ever in it, which is one of the two
-# independent reasons `/hedge`'s figure is an upper bound and not an exact
-# lock (the other is the untested settlement charge, H4 — `core/hedge.py`).
+# nothing the venue returned was ever in it, which is one of at least four
+# error terms on `/hedge`'s figure — and they do not share a sign, so the
+# figure is an estimate and neither a ceiling nor a floor (`core/hedge.py`'s
+# "does NOT establish" list; audited 2026-09-11).
 #
 # The V2 create-order response carries three numbers about what actually
 # happened, and `record_outcome` dropped all three. They survive elsewhere only

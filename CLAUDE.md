@@ -229,29 +229,43 @@ one leg live there is a figure and it is pushed to the phone; with several
 there is no figure and the screen says so. Neither claims the price will get
 worse if he waits.
 
-**That figure is an upper bound, not an exact lock** — this line said "exact"
-until 2026-09-10 and `core/hedge.py:43-45` had said otherwise the whole time
-("*that the guarantee is exact*" is listed under what the module does **not**
-establish: every figure charges the *entry* fee only, and the settlement charge
-is H4, untested — ADR 0027). A second, independent reason it cannot be exact:
-the basis it is computed from is the **ask the desk sent**, not what Kalshi
-charged. **`manual_orders` has no `fill_price_tenths` column** — this
-paragraph named one until 2026-09-11, along with the wrong class and the wrong
-line. The column is `limit_price_tenths`, written at **intent** time
+**That figure is an estimate pinned in neither direction, not a lock and not
+a bound.** This line said "exact" until 2026-09-10, "an upper bound" until
+2026-09-11, and in between asserted both an upper bound *and* "the reported
+lock sits at or below the true one" in one paragraph, then concluded nothing
+shown to Joe was flattering. Audited 2026-09-11 (measurement-skeptic, against
+`core/hedge.py` source): the displayed figure carries **at least four error
+terms and they point both ways**, none measured on a single row:
+
+    E3  entry fee absent from S     too HIGH   ~17 tenths/contract at 41c — the largest
+        (`routes.py:4318` is contracts × price, no fee; `core/hedge.py:222` defines
+        the branches net of the sunk stake)
+    E1  settlement fee, H4 untested too HIGH   0 if H4 holds; ADR 0027
+    E2  sent price vs fill price    too LOW    0–10 tenths, ~0 on a one-level KXMVE book
+    E4  hedge fee at flat 0.070     too LOW    ~9 tenths × n; measured baseball k ≈ 0.035
+
+(The registration's Amendment 1 §A6 is the canonical table; the hedge price
+being a live ask is a fifth, unsigned term it does not list.) Net is inside
+about a cent a contract with indeterminate sign, and E3 alone
+is the size of the smallest floors `Lock.is_guaranteed_profit` fires on. **The
+flattering error is calling the figure cautious, a floor, or "at least"** —
+the words to refuse are ceiling, floor, conservative, at least, can only be
+smaller/larger. The stake basis: **`manual_orders` has no `fill_price_tenths`
+column** — this paragraph named one until 2026-09-11. The column is
+`limit_price_tenths`, written at **intent** time
 (`backend/store/manual_orders.py:648`) from `OrderRequest.fill_price_tenths`
-(`backend/kalshi/orders.py:298`), a property meaning "what one contract of
-*our* side costs at the price being sent" — `OrderOutcome` has no such
-property, so nothing the venue returned was ever in it. `record_outcome`
-(`backend/store/manual_orders.py:765`) then stamps `status`,
-`kalshi_order_id` and `error_text` and **nothing else**, dropping the venue's
-own `average_fill_price_dollars`, `average_fee_paid_dollars` and `fill_count`
-on the floor. (`backend/api/routes.py:3959` is a different table: it feeds
-`parlay_positions.stake_tenths` via `contracts * fill_price_tenths` at
-`:4318`.) Both errors run **cautious** — recorded stake >=
-true stake, so the reported lock sits at or below the true one, and nothing
-shown to Joe is flattering because of it. Registered as a census (not an
-estimate; n is a handful and one stratum is mechanically pinned to zero):
-`docs/measurements/2026-09-10-preregistration-recorded-fill-vs-venue-charge.md`.
+(`backend/kalshi/orders.py:299`), "what one contract of *our* side costs at
+the price being sent" — `OrderOutcome` has no such property. Since ADR 0143
+(schema v40, 2026-09-11) `record_outcome` also keeps the venue's own
+`venue_fill_count`, `venue_avg_fill_price_tenths` and `venue_avg_fee_dollars`
+on the permanent row; **all four real fills predate it and carry NULL there.**
+`_record_combo_position` (`backend/api/routes.py:3959`) still feeds
+`parlay_positions.stake_tenths` from the sent price (`contracts *
+fill_price_tenths`, `:4318`); rewiring it is deferred by ADR 0143 §4 and is
+not a cleanup. E2 is the only term the registered census can pin
+(`docs/measurements/2026-09-10-preregistration-recorded-fill-vs-venue-charge.md`,
+Amendment 1); it is a census, not an estimate, n is a handful and one stratum
+is mechanically pinned to zero.
 
 ## The three rules everything else follows from
 
@@ -352,10 +366,12 @@ first — it carries what was learned without the bulk.
 
 ## Do not rebuild these
 
-Measured and refuted in the previous project. Re-litigating them costs days.
+Measured and refuted, mostly in the previous project. Re-litigating them
+costs days.
 
 | Idea | Result |
 |---|---|
+| **The "last scored call" card** (`/estimate`) | **Binned by Joe 2026-09-09**, not deferred. It can never render: `bet_estimates` holds exactly **one** row on live and it is `is_study_row = 1`, which `last_scored_call` must exclude, so the card is empty forever. The premise was stale when assigned — ADR 0094 §11 had killed the log screen on Joe's word 2026-09-05. Reopening needs real scored calls that are not study rows. The build (350 insertions, 7 files) is commit `ab559e6`, recoverable from the object store until GC. |
 | Stale-quote detection / picking off | Edge lives at ~400ms; a 60–180s detector is far too slow |
 | "The NO side is systematically cheap" | Refuted on 66,686 settled markets — every price bucket negative |
 | Kalshi↔Polymarket arbitrage | Text matching gives 0.56% match rate, and the matches are *wrong* |

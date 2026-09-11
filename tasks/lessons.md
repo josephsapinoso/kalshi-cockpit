@@ -16,6 +16,46 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-11 - A caveat that names one error term is a claim about all the others
+
+`/hedge` told Joe its lock figure was "a ceiling — the real number can only be
+smaller", because the settlement fee (H4) is unmodelled. True sentence, wrong
+claim. The figure carries at least four error terms and they do not share a
+sign; the largest — the entry fee Joe already paid, absent from `stake_tenths`
+entirely — runs the *other* way and is the size of the smallest floors the
+"guaranteed profit" alert fires on. CLAUDE.md had, in one paragraph, called the
+same number an upper bound *and* said the recorded stake put it at or below the
+truth, then concluded nothing shown to Joe was flattering. That closing
+reassurance was the unsupported sentence.
+
+The shape: **a disclosed caveat reads as an audit.** "We know about X, so the
+number is conservative" is heard as "we have looked at the error budget", when
+all it establishes is the sign of X. Every undisclosed term is then assumed
+absent — and the one that binds is usually the one nobody wrote down, because
+the one that was written down was found while looking *for* a reason to be
+cautious. A caveat that sounds conservative is the flattering direction for a
+caveat: it licenses acting on the number.
+
+Three rules:
+
+- **A bound needs the whole budget, not one term.** Before writing "at least",
+  "at most", "ceiling", "floor" or "conservative" about any displayed figure,
+  list every term between the figure and the truth with its sign. If you cannot
+  list them, the honest word is "estimate", and say roughly how good.
+- **The reassurance sentence at the end of a caveat paragraph is the one to
+  audit.** It is where a list of specific facts gets rolled into a general
+  claim, and it is written last, when the author already believes the answer.
+- **Two limits on one quantity is the tell.** When a doc asserts an upper bound
+  in one sentence and a lower bound in another, neither is established; the
+  author has found two terms and stated each as if it were alone.
+
+Where it went: `core/hedge.py`'s "does NOT establish" list now carries all four
+terms; the screen says "estimate good to roughly a cent a contract, not a
+guaranteed amount"; the killed one-sided words are guarded so they cannot
+return. The registration's Amendment 1 §A6 is the canonical table.
+
+---
+
 ## 2026-09-11 - Never hand-type an identifier into the mechanism whose job is to report identity
 
 A live deploy went out with `-e GIT_SHA=a5b160a3f6ca01bbfcba04d1b32e10a0dcba8bd2`.

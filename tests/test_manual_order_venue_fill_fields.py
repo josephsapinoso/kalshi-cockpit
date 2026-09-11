@@ -20,9 +20,10 @@ WHAT THIS DOES NOT ESTABLISH
   back; `docs/measurements/2026-09-10-preregistration-recorded-fill-vs-venue-
   charge.md` is the census that will compare them against what the desk sent,
   and it cannot run on rows that do not carry the venue side.
-- Nothing about `/hedge`'s figure becoming exact. Two independent errors make
-  it an upper bound and this closes one of them; the settlement charge (H4,
-  ADR 0027) is untested and still open.
+- Nothing about `/hedge`'s figure becoming exact. At least four error terms of
+  mixed sign sit on it (`core/hedge.py`'s docstring); this makes ONE of them
+  measurable and rewires nothing, so the figure stays an estimate in neither
+  direction.
 - Nothing that generalises the response shape. The fixture is the C0 probe's
   one ticker, one day, one series, and it is SYNTHETIC by the ADR 0035
   precedent -- the shape assertion below is what keeps it honest.
@@ -168,7 +169,7 @@ class TestAFilledOrderRecordsWhatTheVenueReported:
 
         `limit_price_tenths` is what the desk sent (500 tenths here, snapped);
         the venue reported 20. A record that kept only the first cannot say
-        what was charged, which is why `/hedge`'s figure is an upper bound.
+        what was charged, one of the error terms on `/hedge`'s figure.
         """
         request = _request(price_tenths=500)
         row = _row(path, request, _outcome_from(

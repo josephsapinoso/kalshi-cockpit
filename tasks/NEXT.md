@@ -119,6 +119,155 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-11 (twelfth session) — the hedge figure was called a ceiling and it is not one; the census registration can now be run as written; lane B is renumbered and still waiting on Monday
+
+**The session's finding is that a caveat can be the flattering sentence.**
+`/hedge` told Joe its lock figure was "a ceiling — the real number can only
+be smaller", and CLAUDE.md said in one paragraph both that the figure was an
+upper bound *and* that the recorded stake made it sit at or below the true
+one, then concluded nothing shown to him was flattering. The
+`measurement-skeptic` read `core/hedge.py` against those sentences and found
+**at least four error terms of mixed sign**, none measured on a single row,
+and the largest one — **the entry fee Joe already paid is not in
+`stake_tenths` at all** (`routes.py:4318` is contracts × price; `Rung` nets
+the branches against the sunk stake) — runs **optimistic**, at ~17 tenths a
+contract at 41c, and is the size of the smallest floors
+`Lock.is_guaranteed_profit` fires on. So a displayed lock of a cent or two
+can be a true loss, and the one-sided "ceiling" was the safe error only by
+luck. The registered table is Amendment 1 §A6 of the census registration:
+
+    E1  settlement fee, H4 untested   too HIGH   unknown
+    E2  sent price vs fill price       too LOW    0–10 tenths; ~0 on a one-level book — the only term the census pins
+    E3  entry fee absent from S        too HIGH   ~17 tenths/contract at 41c — the largest
+    E4  hedge fee at flat 0.070        too LOW    ~9 tenths × n; measured baseball k ≈ 0.035
+
+**Words to refuse on that screen and in every doc about it:** ceiling, floor,
+conservative, at least, can only be smaller/larger. It is an estimate good to
+roughly a cent a contract, pinned in neither direction. **E3 is a candidate
+money-path defect found by source reading, not by data** — it has no owner
+and no decision yet; see open item 3.
+
+**STATE at close.** `main` pushed, CI green, live = main (deployed with
+`-e GIT_SHA=$(cat sha.txt)` and read back off `/api/health` against
+`git rev-parse HEAD`); recorder writing, live quotes up, arming unchanged
+(hand path armed, engine and bids dry). No new ADR and no schema change on
+`main`. Odds path untouched: **the freeze to 10:00Z 2026-09-14 holds** —
+`git diff --name-only 7f0f85f..HEAD -- backend/odds/ backend/scheduler.py`
+is empty. **Credits: zero spent**; every live call was `GET /api/health`.
+No lookup minted, no combo tap: **Arm D's frame is uncontaminated.** No open
+Dependabot alerts.
+
+### What shipped, in the partner's order
+
+1. **The hedge copy** (merge `d14194b`). `page.tsx` no longer says "an exact
+   answer"; `NOTES["upper_bound"]` (key kept — `api.ts`, `discord.py` and
+   three tests read it) now names both directions in plain words and calls
+   the figure an estimate; `NOTES["no_button"]` no longer claims the bet door
+   is "capped at one contract" (false since ADR 0112; limits are 500/250).
+   `core/hedge.py`'s "does NOT establish" list carries all four terms
+   including E3, which it had never listed. Killed claims are guarded in
+   `TestTheLockCaveatClaimsNoDirection` (`tests/test_hedge_positions.py`);
+   verified red-then-green by restoring each old sentence (3, 1 and 2
+   failures). The same one-sided restatement was removed from
+   `manual_orders.py:775`, `schema.sql:2011`, `test_hedge_arithmetic.py:12`
+   and `test_manual_order_venue_fill_fields.py:24,171`. CLAUDE.md's `/hedge`
+   paragraph rewritten around the table above and updated for v40. ADR 0143
+   §4's "remains an upper bound" is left as the historical record it is.
+2. **The census registration is amended, not silently edited.**
+   `docs/measurements/2026-09-10-preregistration-recorded-fill-vs-venue-charge.md`
+   Amendment 1 (678 lines appended, 0 deleted, written blind by
+   `pre-registrar`). The three citation errors are quoted and corrected;
+   `routes.py:3959`/`:4318` are recorded as *correct, do not fix*. Four
+   rulings a future session may want to overrule: (i) same statistic,
+   corrected name — H1 is now `limit_price_tenths >= V` per contract and
+   `sent > venue` is **price improvement, not a recorder defect**; the word
+   `discrepancy` is retired; (ii) the population splits at v40 — `fills` is
+   PRIMARY, `venue_avg_fill_price_tenths` is FALLBACK only when the join is
+   empty, because the create-order response's side convention for a `no`
+   order is assumed, not verified; a `side_convention_ambiguous` class is
+   pre-declared; (iii) **§9 had no stopping rule** — one is fixed: first
+   session after the 10th real manual order, or 2026-11-01, whichever first,
+   checkable via `manual-orders-audit` which cannot see `fills`; (iv) §7 and
+   §11.8 are **withdrawn** as contradictory and unestablished (the table
+   above). §8.1 and §8.2 are both spent — the persistence arm was taken by
+   ADR 0143 on the retention ground — and **the census may not be cited for
+   or against ADR 0143 in either direction**; what it still buys is A7.3/A7.4.
+3. **The n=68 combo fee-model reopen trigger now lives at its site** (merge
+   `1985faa`): `backend/portfolio_poll.py` "does NOT establish" list, beside
+   `predict_fill_fee`, with a pointer at `COMBO_TAKER_COEFFICIENT`
+   (`core/fees.py:366`) — the constant at stake, not `TAKER_COEFFICIENT`,
+   because every one of the 68 rows is `KXMVE`. Off this list for good.
+4. **Lane B pre-staged, not merged** (`1b96b7c` on `lane-b-window-index`):
+   schema **v40 → v41** in all four places, DRAFT ADR numbered **0144**. The
+   partner refused a Friday rebase for a Monday merge. Its
+   `test_every_version_is_accounted_for` is red on the branch by design (no
+   v40 entry in its `_MIGRATIONS`; resolved at the real rebase).
+5. **The binned card** moved to CLAUDE.md's "Do not rebuild these" table.
+6. **Housekeeping.** Lane D's worktree and branch, the stale
+   `worktree-agent-a7502ebbe85bb967f` branch, three empty shell directories
+   and this session's three merged lane worktrees are gone. One empty
+   directory (`.claude/worktrees/agent-a11b77117a02ff6c8`) is held open by
+   the OS and is git-invisible; delete by hand or ignore.
+7. **`lessons.md` archived 68.9% → 45.3%** (merge `7ac97bf`), boundary
+   2026-09-08, 32 entries to `archive/lessons-2026-09-11.md`, md5-verified,
+   binary move, diff is four repointed index lines and pure deletion. A stale
+   `tasks/lessons.md:4306` citation in ADR 0021 predates several splits and
+   was left.
+
+### JOE'S QUESTIONS, 2026-09-11 (twelfth) — acted on the recommendation, yours to overrule
+
+- **(A) One figure or a range on `/hedge`?** The honest rendering is a range,
+  because E1/E3 push the true lock below the display and E2/E4 push it above.
+  **Done as the partner recommended: one figure, honest sentence.** A range
+  during a live game is harder to act on and the gap is about a cent a
+  contract. Say "A-range" to get the range instead.
+- **(B) Nothing money-touching this weekend.** No combo taps, no lookups, no
+  arming, no spend until Sunday's scheduled Arm D. If you want something
+  bought or tested that is not Arm D, say so; otherwise credits stay at zero.
+
+### Still open, in order
+
+1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Unchanged.
+2. **SUNDAY 2026-09-13 — Arm D, a scheduled run, not a task to plan.**
+   Unchanged. Take NO combo taps before then.
+3. **E3 — the entry fee is missing from `parlay_positions.stake_tenths`.**
+   New, and the one candidate money-path defect this session found. It is
+   named in Amendment 1 §A6.5 as *out of the census's scope*, so nothing
+   measures it. It needs its own decision: whether `stake_tenths` should
+   carry the entry fee (which would make `_record_combo_position` read
+   `venue_avg_fee_dollars` — the same rewire ADR 0143 §4 deferred, now with
+   a reason that is not cosmetic). **Order still holds: decide, do not
+   clean up.** All four real fills predate v40 and have NULL venue columns,
+   so a rewire today makes a mixed-basis column. Pair it with the
+   `int(fill_count)` truncation on `contracts` (`routes.py:3952`), also
+   unruled. Wants `kalshi-platform` on the fee semantics before any ADR.
+4. **Monday 2026-09-14 after 10:00Z — three date-blocked items, in this
+   order:** (a) merge lane B per its checklist — rebase (expect a real
+   one), suite on the merged tree, deploy, do not trim the 600 s grace;
+   (b) `#36` props: one prop sweep, one event, ~14 credits, once (Joe's
+   answer C), then register `STAGED_PROP_CARD` or close the lane on a
+   number — **not** a standing `ODDS_MARKETS` change; (c) nothing else
+   touches `backend/odds/`.
+5. **The census** — deferred to the first session after the 10th real
+   manual order or 2026-11-01. Registration is now runnable as written.
+   Still binding: a separate named harness, `fills` never via
+   `manual-orders-audit`, a census not an estimate, no mean, no rate.
+6. **The pair test — KILLED** on the partner's reading. Two pairs so far,
+   one null and one conditioned, zero usable; it proposes five days of
+   lookups that mint into Arm D's and #36's frames for n = 5 and wants a
+   schema migration on `parlay_lookups` to get there; its justification has
+   already died and been replaced once. **It comes back only as a
+   pre-registration stating the decision rule and the falsifier in
+   advance; then it earns its column.**
+7. **Reservations** (also in `tasks/LANES.md`): schema **v41 is lane B's**;
+   ADR **0144 is lane B's**; main-session ADRs start at **0145**.
+
+**Struck this session:** item 4 (venue fill numbers — done last session;
+its follow-on is item 3 above with a real reason now), item 7 (the n=68
+trigger — in code), item 8 (the binned card — in CLAUDE.md).
+
+---
+
 ## 2026-09-11 (eleventh session) — the spine named a column that does not exist, the widening was seen firing, and the index that would fix `/api/window` is built and deliberately not shipped
 
 **The session's finding is that three separate things everyone had written

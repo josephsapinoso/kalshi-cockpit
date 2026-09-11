@@ -10,8 +10,9 @@ and a lock that is large relative to the stake is **deliberately not**
 suppressed.
 
 What they do not establish: that taking a lock is correct, that the guarantee is
-exact (H4 is untested, so every figure is an upper bound), or anything at all
-about a ticket with more than one leg still live.
+exact or which way it leans (four error terms of mixed sign sit on every figure;
+`core/hedge.py`'s docstring lists them), or anything at all about a ticket with
+more than one leg still live.
 """
 
 from __future__ import annotations

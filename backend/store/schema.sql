@@ -2008,8 +2008,9 @@ CREATE TABLE IF NOT EXISTS manual_orders (
     -- contract of our side costs at the price being sent" -- frozen at intent
     -- time by `_insert_intent`, before the request left the process. It is
     -- not what Kalshi charged, and no column on this table was, which is one
-    -- of the two independent reasons `/hedge`'s figure is an upper bound
-    -- rather than an exact lock (ADR 0078; `core/hedge.py`'s own docstring).
+    -- of at least four error terms on `/hedge`'s figure; they do not share a
+    -- sign, so the figure is an estimate and neither a ceiling nor a floor
+    -- (ADR 0078; `core/hedge.py`'s own docstring, audited 2026-09-11).
     --
     -- These three carry the venue's answer instead. They come straight off
     -- the V2 create-order response (`OrderOutcome.fill_count`,
