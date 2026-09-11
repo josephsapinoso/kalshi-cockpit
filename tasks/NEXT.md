@@ -185,6 +185,18 @@ second one (`agent-ae85feea6e90c6f59`) is gone.
 - **Every test row is synthetic and the ADR says so** — there is no real
   row on which a before/after can be shown. The first real lock this
   arithmetic produces will be the first.
+- **Lane C's CI run is RED, and not on anything it changed.** Run
+  34616576251 fails exactly one test,
+  `test_lane_board.py::TestTheRealRepoIsStillReadable::test_the_integration_tree_is_found_and_carries_an_adr_baseline`:
+  it asserts a checkout on `main` exists, and a CI checkout of a branch has
+  none. It passes from the lane worktree locally (where the main checkout is
+  a sibling) and it will pass at the merge, which CI runs on `main`. **Every
+  lane branch pushed to origin is red by construction on this test** — lane
+  B has never had a branch run, so "CI-clean on its own tree" there was a
+  local claim. Not fixed here (a lane_board guard is not lane C's scope);
+  the guard could skip when the checkout is not `main`, if anyone wants
+  branch CI to mean something. Read the branch red as this test and nothing
+  else, and confirm by name before the merge.
 
 ### Why compute rather than read `venue_avg_fee_dollars` (ADR §3)
 
