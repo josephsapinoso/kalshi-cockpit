@@ -363,6 +363,12 @@ def calculate_fee(
 # charges. The safety that does not depend on the number is the one-contract
 # ceiling ADR 0073 puts on every combo order: the absolute size of an error
 # in this coefficient is a fraction of a cent.
+#
+# The 2026-09-09 sample-size reopen trigger (n=68 KXMVE fills) fired and was
+# declined -- standing NO, full note at `backend/portfolio_poll.py`'s module
+# docstring under "What this does NOT establish". Nobody has named a decision
+# this constant would flip if it moved; that naming has to happen before a
+# session reopens it, not after.
 COMBO_TAKER_COEFFICIENT = Decimal("0.071")
 
 
