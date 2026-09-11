@@ -64,3 +64,21 @@ being written and nobody checks the size before adding. **Check `wc -c` BEFORE
 writing an entry, not after** — at 98.9% the margin was 2,737 bytes, roughly one
 paragraph, and the failure mode is silent.
 
+**Split again 2026-09-11, at 200,701 bytes — 76.6%, checked before
+writing.** The five 2026-09-09 and two 2026-09-08 entries moved to
+`archive/next-2026-09-11.md`, verbatim, leaving **97KB — 37.2%**. The
+lowest percentage any split has been taken at. Cut on the partner’s
+reading that the file had two entries of headroom left: the trigger is a
+ceiling, not a target, and a split is cheapest at the start of a session
+and most expensive in the middle of one. Date boundary — everything
+2026-09-09 and earlier moved, so the five 2026-09-10 entries stayed
+together. md5 verified against the bytes removed
+(`67e5e15a0c37d328786b10aa08b8e223`); index lines written in the same
+edit.
+
+**What this one taught, and it is about the script rather than the rule:**
+do the move in **binary**. A text-mode round trip on Windows rewrites every
+line ending in the file, so a seven-entry move renders as a whole-file diff
+and the one thing a reviewer needs to see — that nothing outside the moved
+range changed — becomes invisible. Read bytes, slice bytes, write bytes,
+and hash the slice.
