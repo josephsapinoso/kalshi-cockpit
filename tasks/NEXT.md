@@ -130,13 +130,16 @@ fires fine — it had been spot-checked at the wrong phase of the sweep cycle.
 None of the three was a code defect. All three were the record drifting from
 the thing it described, which is the failure mode this file exists to catch.
 
-**STATE at close.** `main` = **`52d1dd0`**, pushed, CI green (runs 34569311226,
-34569985161, 34570679419). Four commits: `e00af51` the spine corrections and
-the pyarrow bump, `5e3ea5f` the guard that went red on it, `76f5e3c` the lane A
-merge, `52d1dd0` the NEXT.md split. **Live = `52d1dd0`**, deployed with
-`-e GIT_SHA=` and read back off `/api/health` rather than inferred; recorder
-writing, live quotes up, arming unchanged (hand path armed, engine and bids
-dry). ADR **0142** taken. Odds path untouched: **the freeze to 10:00Z
+**STATE at close.** `main` pushed and CI green throughout. Commits, in order:
+`e00af51` the spine corrections and the pyarrow bump, `5e3ea5f` the guard that
+went red on it, `76f5e3c` the lane A merge, `52d1dd0` the NEXT.md split,
+`a5b160a` this entry, `3ad6eb2` the fabricated-SHA lesson, `905bea5` Joe's
+answers and the ratified gloss, then the lane D merge. **Live tracked main at
+every step**, deployed with `-e GIT_SHA=` and read back off `/api/health`
+against `git rev-parse HEAD` rather than inferred; recorder writing, live
+quotes up, arming unchanged (hand path armed, engine and bids dry). ADRs
+**0142** (exposure at the moment of a bet) and **0143** (the venue's own fill
+numbers) taken; **schema v40** allocated to 0143. Odds path untouched: **the freeze to 10:00Z
 2026-09-14 holds** — `git diff --name-only` against `backend/odds/` and
 `backend/scheduler.py` returns nothing for every branch this session produced.
 **Credits: zero spent.** Every live call was a GET on a route with no visit
@@ -191,14 +194,18 @@ the work is discoverable by the documented mechanism rather than by memory.
 
 **Merge checklist, for the session that takes it after the freeze lifts:**
 
-1. `git fetch`, then **re-take schema v40** — it is a placeholder taken without
-   reading `schema.sql` or `LANES.md`. `SCHEMA_VERSION`, the `_MIGRATIONS` key,
-   the `schema v40` line in `schema.sql` and `VERSION` in the test all move
-   together.
+1. **Renumber its schema v40 to v41.** Lane B wrote 40 as a placeholder, and
+   **lane D merged first and took 40** (ADR 0143, the venue fill fields), so
+   40 is now allocated on `main`. `SCHEMA_VERSION`, the `_MIGRATIONS` key, the
+   `schema v40` line in `schema.sql` and `VERSION` in the test all move
+   together — they are ONE number. `git fetch` first and confirm against
+   `SCHEMA_VERSION` rather than against this sentence.
 2. Number `docs/adr/DRAFT-a-single-arm-timing-is-not-evidence.md`. It amends
-   ADR 0141 — 0141 says *time it*, this says *how*.
+   ADR 0141 — 0141 says *time it*, this says *how*. Next free ordinal is
+   **0144** unless something landed first.
 3. Re-run the suite on the merged tree; the branch is based on `fcca0ac` and
-   main has moved.
+   main has moved a long way — lane A, lane D, the split and the answers are
+   all in front of it. Expect a real rebase, not a fast-forward.
 4. Deploy, and **do not trim the 600 s health grace** — it is what covers the
    boot build.
 
@@ -340,6 +347,65 @@ by an unrelated predicate is how a pinned fact gets missed.**
   range changed — disappears. The split's diff is 20 insertions and 1,729
   deletions, which is the shape that can be inspected. In the split log.
 
+### Lane D — the venue's own fill numbers are now kept, ADR 0143, schema v40
+
+`record_outcome` stamped `status`, `kalshi_order_id` and `error_text` and
+dropped `fill_count`, `average_fill_price_dollars` and
+`average_fee_paid_dollars` on the floor. Those three survive **only in
+`fills`, on a ~3-month window**; `manual_orders` is permanent. Joe's first
+real fills were 2026-09-08, so the venue-side truth about them starts
+disappearing around December, and every hand bet placed before the fix would
+have been permanently un-reconstructable.
+
+    venue_fill_count              REAL      OrderOutcome.fill_count
+    venue_avg_fill_price_tenths   INTEGER   dollars_to_tenths, then is_valid_price
+    venue_avg_fee_dollars         REAL      Decimal, refusing negative/non-finite
+
+**The fee is in DOLLARS, and that is a followed precedent rather than a new
+exception.** `fills.fee_actual` is already `REAL` dollars and
+`portfolio_poll.parse_fill` states why outright. A second reason applies here
+and not to the price: **the fee on the C0 capture is `"0.0014"` — 1.4 tenths,
+which `dollars_to_tenths` writes as `1`, a 29% understatement of the only
+number on the row saying what the venue charged.** Storing it in tenths would
+have destroyed the fact the column exists for. Verified against
+`schema.sql:966` and `portfolio_poll.py:218` rather than taken on report.
+
+**`None`-not-`0`, across three states that are genuinely different:**
+
+    dry run        NULL   NULL   NULL
+    rejected       NULL   NULL   NULL
+    zero-fill IOC  0.0    NULL   NULL
+
+The zero-fill row is the whole point: a real observed `0.0` beside two NULL
+money columns, because "nothing filled" is not "nothing was charged at a price
+of nothing". A price of `0` is refused outright — `dollars_to_tenths("0.0000")`
+is `0` and a `0` in a price column reads as a settled loser, not an absence.
+A fee of `0.0` is kept, because unlike a price, zero is a fee the venue can
+charge. **Re-verified here by mutation**: dropping the `is_valid_price` arm
+turns two tests red.
+
+`record_outcome` keeps its contract — the derivation sits **before** the `try`
+whose only declared failure is `sqlite3.Error`, pinned by a source-ordering
+assertion, so an unexpected exception cannot be reported as a database
+failure on an order whose money is already spent.
+
+**`/hedge` is UNCHANGED by this and remains an upper bound.**
+`_record_combo_position` still computes `stake_tenths` from the sent ask.
+Rewiring it to `venue_avg_fill_price_tenths` is a money-path change with its
+own decision; this commit only makes that decision *possible*. Deferred
+explicitly in ADR 0143 §4.
+
+**Three corrections lane D made to its own brief, all verified:**
+`OrderRequest.fill_price_tenths` is at `kalshi/orders.py:299` (`:298` is the
+decorator); the census registration repeats **two** of the errors corrected in
+CLAUDE.md, not three — its `routes.py:3959` citation is **right**, and it has
+a *different* third error nobody had noticed, a preamble tying its decision to
+"schema v39", which has since been taken by `idx_odds_event_commence`; and the
+venue's `fill_count` already reached `parlay_positions.contracts` via
+`routes.py:3952`, so "the venue's numbers reach nothing" would have been too
+strong. **The registration is still unfixed** — amending a registration is not
+a lane's call. See open item 3.
+
 ### Still open, in order
 
 1. **DO NOT TOUCH THE ODDS PATH BEFORE 10:00Z ON 2026-09-14.** Unchanged.
@@ -359,17 +425,12 @@ by an unrelated predicate is how a pinned fact gets missed.**
    **The registration's §0.1/§2 still repeat the three
    `fill_price_tenths`/`OrderOutcome`/`:3957` errors corrected in CLAUDE.md
    this session.** Fix them before the census runs, not after.
-4. **Persist the venue's own fill numbers — rank 4, NOT started.** It collides
-   with lane B on `schema.sql` and `db.py`, and lane B is unmerged, so it was
-   held rather than run. `record_outcome` (`store/manual_orders.py:765`)
-   writes only `status`, `kalshi_order_id` and `error_text`, dropping
-   `fill_count`, `average_fill_price_dollars` and `average_fee_paid_dollars`
-   on the floor. Those survive only in `fills`, on a ~3-month window;
-   `manual_orders` is permanent. Three nullable columns plus a schema bump
-   makes every future hand bet self-describing and is the only path to a hedge
-   figure that could eventually be exact. **Needs its own ADR — the census
-   registration's §8.4 explicitly does not authorize money-touching changes,
-   so do not cite it as cover.** Sequence it after lane B.
+4. **Persist the venue's own fill numbers — DONE this session.** ADR 0143,
+   schema v40, merged. What remains is the follow-on it makes possible and
+   does NOT authorise: rewiring `_record_combo_position`'s `stake_tenths`
+   from the sent ask to `venue_avg_fill_price_tenths`, which would make
+   `/hedge`'s figure exact rather than an upper bound. That is a money-path
+   change and needs its own decision — ADR 0143 §4 defers it deliberately.
 5. **`#36` props as parlay legs — ANSWERED, and blocked on the freeze.**
    **Joe said spend the ~14 credits (2026-09-11).** One prop sweep, one
    event, once, after 10:00Z 2026-09-14 — not a standing `ODDS_MARKETS`

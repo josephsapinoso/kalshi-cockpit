@@ -50,9 +50,10 @@ import logging
 import math
 import sqlite3
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
-from ..core.prices import probability_to_tenths
+from ..core.prices import dollars_to_tenths, is_valid_price, probability_to_tenths
 from ..kalshi.orders import OrderOutcome, OrderRequest, canonical_body_json
 # The combination's consensus, read through the SAME query that the order
 # route already runs to wire up `/hedge` (`routes._record_combo_position`).
@@ -762,19 +763,201 @@ def reserve_manual_order(
         conn.isolation_level = previous_isolation
 
 
+# ---------------------------------------------------------------------------
+# What the VENUE said it did.
+# ---------------------------------------------------------------------------
+#
+# Every price written before this block is the ask the desk SENT.
+# `limit_price_tenths` is `OrderRequest.fill_price_tenths` — "what one contract
+# of *our* side costs at the price being sent" — frozen by `_insert_intent`
+# before the request left the process. `OrderOutcome` has no such property and
+# nothing the venue returned was ever in it, which is one of the two
+# independent reasons `/hedge`'s figure is an upper bound and not an exact
+# lock (the other is the untested settlement charge, H4 — `core/hedge.py`).
+#
+# The V2 create-order response carries three numbers about what actually
+# happened, and `record_outcome` dropped all three. They survive elsewhere only
+# in `fills`, on a ~3-month retention window, while this table is permanent.
+
+
+@dataclass(frozen=True)
+class VenueFill:
+    """What the venue reported, in this repo's units. All three may be absent.
+
+    An absence is `None` and never `0`, and the three ways it happens are
+    different facts: a dry run (no request left), a rejection (the POST raised
+    and no response was ever read), and a zero fill (an IOC that matched no
+    one). Only the last of those has a `fill_count` — a real, observed `0.0` —
+    and its two money fields stay `None`, because "nothing filled" is not "the
+    venue charged nothing at a price of nothing".
+
+    There is deliberately no absent-reason vocabulary here, unlike
+    `ConsensusSnapshot`. The cause is already on the row: `status` is
+    `dry_run`, `rejected`, `unfilled` or a fill status, and a second column
+    restating it would be two spellings of one fact.
+    """
+
+    fill_count: Optional[float] = None
+    avg_fill_price_tenths: Optional[int] = None
+    avg_fee_dollars: Optional[float] = None
+
+
+def _venue_count(value: Any) -> Optional[float]:
+    """A venue contract count as a float, or `None` when unreadable.
+
+    REAL rather than INTEGER because V2 counts are fixed-point strings and the
+    venue supports fractional contracts to 0.01 — the same reason
+    `fills.count` is REAL. `kalshi/orders._fp` has already turned the string
+    into a float by the time this sees it and applies no bounds, so the
+    bounds are here: a negative or non-finite count is refused rather than
+    recorded, since a count is being validated, not trusted
+    (`portfolio_poll._fractional_count`'s rule, same wording, same reason).
+    """
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or number < 0:
+        return None
+    return number
+
+
+def _venue_price_tenths(value: Any) -> Optional[int]:
+    """The venue's average fill price as integer tenths, or `None`.
+
+    Through `core.prices.dollars_to_tenths`, the same reader
+    `portfolio_poll.parse_fill` uses for `fills.price_tenths`. The venue sends
+    a 4dp dollar string ("0.0200") and 4dp *is* tenths of a cent, so for any
+    price a single fill can take this is exact rather than a rounding.
+
+    **It is not exact on a multi-fill order, and that is a rounding rather
+    than a refusal.** `average_fill_price` is volume-weighted, so it can land
+    between tenths ("0.2005") even though no single fill can; it is rounded
+    half-up to the nearer tenth. Half a tenth is a twentieth of a cent, and
+    refusing the venue's answer over it would discard the observation to keep
+    a precision this column never claimed. Stated here rather than left for
+    someone comparing two tables to find them off by one.
+
+    **The range check is not decoration.** `dollars_to_tenths` refuses a
+    negative and a non-finite, and nothing else: `"0.0000"` parses cleanly to
+    `0`, and a `0` in a price column reads as a settled loser rather than as
+    an absence. `is_valid_price` is the repo's own predicate for "a tradeable
+    level, strictly inside 0 and $1.00", and a value outside it is refused
+    rather than clamped — clamping a price the venue could not have charged
+    onto the edge of the book is the failure `kalshi/orders.py`'s module
+    docstring exists to describe.
+    """
+    tenths = dollars_to_tenths(value)
+    if tenths is None or not is_valid_price(tenths):
+        return None
+    return tenths
+
+
+def _venue_fee_dollars(value: Any) -> Optional[float]:
+    """The venue's average fee per contract, in DOLLARS, or `None`.
+
+    **The one money value here that is not tenths, and it follows an existing
+    exception rather than opening a new one.** `fills.fee_actual` is REAL
+    dollars because `core.fees.calculate_fee` returns dollars and
+    `gate._fee_model_verified` compares in dollars; `portfolio_poll.parse_fill`
+    states it outright ("the one money field in this module not stored in
+    tenths, and that is the existing table's contract, not a new decision").
+
+    A second reason applies here and not to the price: a per-contract fee is
+    below the resolution of a tenth. The fee on the C0 capture is `"0.0014"` —
+    1.4 tenths, which `dollars_to_tenths` writes as `1`, a 29% understatement
+    of the only number on the row that says what the venue charged.
+
+    Parsed through `Decimal`, mirroring `portfolio_poll._fee_dollars`. It is
+    not imported from there because `portfolio_poll` imports `store.db` and a
+    store module reaching back up into a poller is the wrong direction — and
+    unlike the `parlays` import above, the alternative here is six lines of
+    parsing rather than a second matcher that must agree with the first.
+
+    `0.0` is kept, not refused: a fee of zero is a thing the venue can
+    legitimately report on a fill, and unlike a price of zero it is not a
+    settled outcome wearing a live number's clothes.
+    """
+    if value is None:
+        return None
+    try:
+        as_decimal = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if not as_decimal.is_finite() or as_decimal < 0:
+        return None
+    return float(as_decimal)
+
+
+def _read_venue_fill(outcome: OrderOutcome) -> VenueFill:
+    """The venue's three numbers off the outcome. **May raise.**
+
+    `venue_fill` is the one callers use. Split in two for the reason
+    `_read_consensus` is: the refusal has to be provable by making this throw,
+    and a function that catches its own exceptions cannot be made to.
+    """
+    return VenueFill(
+        fill_count=_venue_count(outcome.fill_count),
+        avg_fill_price_tenths=_venue_price_tenths(
+            outcome.average_fill_price_dollars
+        ),
+        avg_fee_dollars=_venue_fee_dollars(outcome.average_fee_paid_dollars),
+    )
+
+
+def venue_fill(outcome: OrderOutcome) -> VenueFill:
+    """`_read_venue_fill`, wrapped so it can never fail the status stamp.
+
+    **This is additive recording and nothing else.** By the time
+    `record_outcome` runs the request has gone; a bookkeeping failure must
+    never report a completed purchase as failed. If this read raises, the
+    status, the order id and the error text are still written and the three
+    venue columns are NULL — which is what they were before the columns
+    existed.
+
+    `BaseException` is deliberately not caught, for the reason
+    `consensus_snapshot` gives: a `KeyboardInterrupt` or a cancellation is the
+    process being torn down, and relabelling that as a missing fill would hide
+    a shutdown inside a data column.
+    """
+    try:
+        return _read_venue_fill(outcome)
+    except Exception:                                   # noqa: BLE001
+        logger.exception(
+            "the venue fill fields could not be read from the outcome for "
+            "%s; the status is still stamped and the columns record the "
+            "absence rather than a zero.",
+            outcome.request.ticker,
+        )
+        return VenueFill()
+
+
 def record_outcome(
     conn: sqlite3.Connection, row_id: int, outcome: OrderOutcome
 ) -> None:
     """Stamp the row with what came back. Must not unwind the order — by now
-    the request has gone (same contract as `orders.record_outcome`)."""
+    the request has gone (same contract as `orders.record_outcome`).
+
+    Since 2026-09-11 this also stamps what the VENUE said it did, read through
+    `venue_fill`, which swallows its own failures so the three additive
+    columns cannot cost the row its status. See the block above.
+    """
+    fill = venue_fill(outcome)
     try:
         conn.execute(
             "UPDATE manual_orders SET status = ?, kalshi_order_id = ?, "
-            "error_text = ? WHERE id = ?",
+            "error_text = ?, venue_fill_count = ?, "
+            "venue_avg_fill_price_tenths = ?, venue_avg_fee_dollars = ? "
+            "WHERE id = ?",
             (
                 outcome.status,
                 outcome.kalshi_order_id,
                 outcome.error_text,
+                fill.fill_count,
+                fill.avg_fill_price_tenths,
+                fill.avg_fee_dollars,
                 int(row_id),
             ),
         )

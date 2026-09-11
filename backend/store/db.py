@@ -91,7 +91,22 @@ from ..core.prices import is_valid_price
 #: cannot widen a table-level CHECK in place. The rows already written keep
 #: their real values -- nothing is deleted, backfilled or rewritten. See
 #: `docs/adr/0138-a-lookup-prices-the-window-the-card-was-built-in.md`.
-SCHEMA_VERSION = 39
+#: v40 (2026-09-11) adds `manual_orders.venue_fill_count`,
+#: `.venue_avg_fill_price_tenths` and `.venue_avg_fee_dollars` -- the three
+#: numbers the V2 create-order response carries about what actually happened,
+#: which `record_outcome` had been dropping on the floor. Every price on the
+#: row until now was the ask the desk SENT, frozen at intent time; these are
+#: what the venue said it charged, and they outlive `fills`' ~3-month
+#: retention because this table is permanent. A column step: all three
+#: nullable, no default, no backfill, so every existing row reads "the venue
+#: told us nothing", which is the truth about it. Additive bookkeeping only --
+#: nothing sent, ordered, priced or gated changes.
+#:
+#: **40 was taken at the merge commit on 2026-09-11**, after `git fetch`,
+#: with `SCHEMA_VERSION` at 39 on `main` -- so it creates no hole.
+#: `lane-b-window-index` carried 40 as a placeholder too and was still
+#: unmerged, so THAT lane renumbers to 41; this one does not.
+SCHEMA_VERSION = 40
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -923,6 +938,44 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # The venue's own fill numbers on `manual_orders`.
+    #
+    # **40, taken at the merge commit 2026-09-11** after `git fetch`, with
+    # `SCHEMA_VERSION` at 39 on `main`. The lane wrote it as a placeholder
+    # because `lane-b-window-index` held 40 too and was unmerged; this lane
+    # merged first, so it keeps 40 and lane B renumbers to 41.
+    #
+    # The lane was right to mark rather than skip: `test_every_version_is_
+    # accounted_for` forbids a hole in the version line, so a lane cannot dodge
+    # a collision by taking 41 -- it can only mark the number it took and let
+    # the integrator settle it. This key, `SCHEMA_VERSION` above and the marker
+    # in `schema.sql`'s `manual_orders` block are ONE number
+    # (`docs/adr/README.md`: three counters in this repo name global state and
+    # can each be allocated twice).
+    #
+    # `record_outcome` stamped `status`, `kalshi_order_id` and `error_text`
+    # and dropped `fill_count`, `average_fill_price_dollars` and
+    # `average_fee_paid_dollars` on the floor. Those three survive only in
+    # `fills`, which is retention-eligible on ~3 months; `manual_orders` is
+    # permanent, and the first real fills through this door landed
+    # 2026-09-08. The full argument, and why the fee column alone is dollars,
+    # sits beside the columns in `schema.sql`.
+    #
+    # A column step, not a rebuild: three nullable columns, no default, no
+    # backfill and no CHECK. Every existing row reads NULL, which is the
+    # truth about it -- those outcomes were recorded before the fields
+    # existed and nothing may invent what the venue said. The undo is the
+    # generic column drop, so `undo_statements` stays empty.
+    #
+    # **Additive bookkeeping only.** Nothing about what is sent, ordered,
+    # priced or gated changes, and `gate.py` still never reads this table.
+    40: _Migration(
+        columns=(
+            ("manual_orders", "venue_fill_count", "REAL"),
+            ("manual_orders", "venue_avg_fill_price_tenths", "INTEGER"),
+            ("manual_orders", "venue_avg_fee_dollars", "REAL"),
+        ),
+    ),
     # `idx_odds_event_commence`, restoring an index removed on 2026-08-26 for
     # "changing no plan". The statement, the measurement and the size cost sit
     # beside the CREATE in `schema.sql`, following v31 and v37; what belongs

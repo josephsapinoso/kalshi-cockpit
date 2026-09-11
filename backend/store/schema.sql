@@ -1993,6 +1993,94 @@ CREATE TABLE IF NOT EXISTS manual_orders (
     -- and "the lookup blew up" are different facts about the record.
     consensus_absent_reason     TEXT,
 
+    -- ------------------------------------------------------------------
+    -- What the VENUE said it did (schema v40, 2026-09-11).
+    -- ------------------------------------------------------------------
+    --
+    -- 40 was taken at the merge commit, after `git fetch`, with
+    -- `SCHEMA_VERSION` at 39 on `main`. `lane-b-window-index` carried 40 as a
+    -- placeholder too and was still unmerged, so that lane renumbers to 41.
+    -- `db.SCHEMA_VERSION`, the `_MIGRATIONS` key and this line are ONE number.
+    -- See `docs/adr/README.md`.
+    --
+    -- **Every price column above this block is the ask the desk SENT.**
+    -- `limit_price_tenths` is `OrderRequest.fill_price_tenths` -- "what one
+    -- contract of our side costs at the price being sent" -- frozen at intent
+    -- time by `_insert_intent`, before the request left the process. It is
+    -- not what Kalshi charged, and no column on this table was, which is one
+    -- of the two independent reasons `/hedge`'s figure is an upper bound
+    -- rather than an exact lock (ADR 0078; `core/hedge.py`'s own docstring).
+    --
+    -- These three carry the venue's answer instead. They come straight off
+    -- the V2 create-order response (`OrderOutcome.fill_count`,
+    -- `.average_fill_price_dollars`, `.average_fee_paid_dollars`) and are
+    -- stamped by `store/manual_orders.record_outcome`.
+    --
+    -- **Why here and not left to `fills`.** The same three numbers reach
+    -- `fills` through the portfolio poller, but `fills` is retention-eligible
+    -- on a ~3-month window while `manual_orders` is permanent. Joe's first
+    -- real fills landed 2026-09-08, so the venue-side truth about them starts
+    -- dropping off the record around December. A permanent row that records
+    -- only what we asked for, beside a temporary one that records what we
+    -- were charged, is a record that forgets the half that cost money.
+    --
+    -- **NULL means "the venue told us nothing", never zero**, and the three
+    -- ways that happens are genuinely different facts:
+    --   dry run   -- `OrderPlacer.place` builds the outcome with all three
+    --                unset. No request left, so there is nothing to record.
+    --   rejected  -- the POST raised. The order may even have reached Kalshi;
+    --                what is certain is that we never read a response.
+    --   zero fill -- an IOC that matched no one. `venue_fill_count` is a real
+    --                observed `0.0` and the two money columns stay NULL,
+    --                because "nothing filled" is not "the venue charged
+    --                nothing at a price of nothing".
+    -- The count being 0 while the money is NULL is the whole distinction;
+    -- a 0 in either money column would be a settled-outcome price and a
+    -- free trade, both of which are lies rather than gaps.
+    --
+    -- No CHECK constraints, for the reason the consensus block gives: SQLite
+    -- refuses `ALTER TABLE ... DROP COLUMN` on a column named by any CHECK,
+    -- and `tests/test_store.py::_v1_database` winds the schema back by
+    -- dropping exactly these.
+
+    -- Contracts the venue says filled. REAL, per this file's QUANTITIES
+    -- convention and `fills.count`: V2 counts are fixed-point strings
+    -- ("1.00") and the venue supports fractional contracts to 0.01, so an
+    -- INTEGER here would truncate. Negative or non-finite refuses to NULL.
+    venue_fill_count            REAL,
+    -- The venue's volume-weighted average fill price, per contract, in
+    -- integer tenths of a cent on the same 0-1000 scale as
+    -- `limit_price_tenths` -- so the two are directly comparable, which is
+    -- the entire point of storing it. Converted by
+    -- `core.prices.dollars_to_tenths`, the same reader
+    -- `portfolio_poll.parse_fill` uses for `fills.price_tenths`; the venue
+    -- sends a 4dp dollar string ("0.0200") and 4dp IS tenths of a cent, so
+    -- for any price a single fill can take the conversion is exact. It is a
+    -- half-up ROUNDING on a multi-fill order, where the volume-weighted mean
+    -- can land between tenths ("0.2005") -- a twentieth of a cent, recorded
+    -- rather than refused, and said out loud here rather than discovered by
+    -- someone comparing this against `fills` and finding them off by one.
+    -- A value outside the tradeable range refuses to NULL rather than being
+    -- clamped: 0 and 1000 are settled outcomes, not prices anyone paid.
+    venue_avg_fill_price_tenths INTEGER,
+    -- The venue's volume-weighted average fee, per contract, in DOLLARS.
+    --
+    -- **The one money column here that is not tenths, and it follows an
+    -- existing exception rather than opening a new one.** `fills.fee_actual`
+    -- is REAL dollars because `core.fees.calculate_fee` returns dollars and
+    -- `gate._fee_model_verified` compares in dollars
+    -- (`backend/portfolio_poll.py`, `parse_fill`: "the one money field in
+    -- this module not stored in tenths, and that is the existing table's
+    -- contract, not a new decision"). The same holds here, and there is a
+    -- second reason that does not apply to the price: a per-contract fee is
+    -- BELOW the resolution of a tenth. The observed fee on the C0 capture is
+    -- "0.0014" -- 1.4 tenths, which `dollars_to_tenths` would write as 1, a
+    -- 29% understatement of the only number on this row that says what the
+    -- venue actually charged. The name spells `_dollars` for the reason
+    -- `portfolio_poll` insists on: a tenths value in a dollars comparison is
+    -- 1000x out and reads as a fee-model mismatch rather than a unit error.
+    venue_avg_fee_dollars       REAL,
+
     CHECK (side IN ('yes', 'no')),
     CHECK (action = 'buy'),
     CHECK (count > 0),
