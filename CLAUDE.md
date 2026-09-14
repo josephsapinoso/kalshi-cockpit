@@ -176,10 +176,22 @@ together or the screen lies in the interval
 - **Hand-bet path: armed, and used.** `MANUAL_ORDERS_ARE_DRY_RUNS = False`
   (`backend/store/manual_orders.py`) since 2026-08-26; `POST /api/manual-orders`
   sends real immediate-or-cancel orders at Joe's tap with his own typed
-  estimate. First two real fills 2026-09-08 (KXMVE combos, shard 1, ADR 0113);
-  **four by 2026-09-09** — ADR 0129 works from `parlay_lookups.hold` = 0.170,
-  0.063, 0.209, 0.174. This line read "two" until 2026-09-10, and it is the
-  count every claim about the transacted path is reasoned from.
+  estimate. First two real fills 2026-09-08 (KXMVE combos, shard 1, ADR 0113).
+  **Three quantities circulate as the count of the transacted path and they
+  are not the same number — name the table.** Read off live 2026-09-14:
+
+      manual_orders     7 rows, dry_run = 0   ids 1-2 filled 09-08, id 3 unfilled
+                                              09-09, id 4 filled 09-09, ids 5-7
+                                              filled 09-10 15:59-16:00Z
+      filled orders     6                     status = 'filled'
+      parlay_positions  4 rows                orders 4-7; the position recorder
+                                              postdates orders 1-2
+
+  This line read "two" until 2026-09-10 and "four by 2026-09-09" until
+  2026-09-14; the "four" was ADR 0129's four *orders* (three filled, one
+  not), and it was then re-read as four fills and as four positions. It is
+  the count every claim about the transacted path is reasoned from, so
+  quote it with its table.
   The five brakes are gone (ADR 0112) and **no ceiling of ours bounds a hand
   bet**; what remains is the desk lockout, idempotency, the KXMVE
   acknowledgement, the price ceiling, depth at the ask, the netting guard, the
@@ -250,8 +262,8 @@ terms and they point both ways**, none measured on a single row:
 ADR 0145 and is not edited; the hedge price being a live ask is a fifth,
 unsigned term it does not list.) Net is now inside a few tenths a contract
 with indeterminate sign. **`/hedge` has produced zero locks in its life**
-(2026-09-11: 0 `hedge_lock` notifications, all four real positions
-`STATE_DEAD`), so E3 did no realised harm and the fix is validated on
+(2026-09-11: 0 `hedge_lock` notifications, all four `parlay_positions`
+rows `STATE_DEAD`), so E3 did no realised harm and the fix is validated on
 synthetic rows only. **The flattering error is calling the figure cautious,
 a floor, or "at least"** — the words to refuse are ceiling, floor,
 conservative, at least, can only be smaller/larger. The stake basis:
@@ -263,7 +275,9 @@ column** — this paragraph named one until 2026-09-11. The column is
 the price being sent" — `OrderOutcome` has no such property. Since ADR 0143
 (schema v40, 2026-09-11) `record_outcome` also keeps the venue's own
 `venue_fill_count`, `venue_avg_fill_price_tenths` and `venue_avg_fee_dollars`
-on the permanent row; **all four real fills predate it and carry NULL there.**
+on the permanent row; **all seven real `manual_orders` rows (six filled)
+predate it and carry NULL there** — Joe's next fill is the first that will
+carry them, and reading that row once is worth more than any build.
 `_record_combo_position` (`backend/api/routes.py:3959`) still feeds
 `parlay_positions.stake_tenths` from the sent price (`contracts *
 fill_price_tenths`, `:4318`); rewiring it is deferred by ADR 0143 §4 and is

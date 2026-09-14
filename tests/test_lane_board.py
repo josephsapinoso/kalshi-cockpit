@@ -700,6 +700,21 @@ class TestTheInstrumentCannotDriftFromTheGuard:
         assert "--no-optional-locks" in source.splitlines()[direct[0]]
 
 
+def _checkout_has_branch(repo: Path, name: str) -> bool:
+    """Does `refs/heads/<name>` exist in this checkout's ref store?
+
+    Worktrees share refs, so a lane worktree beside a `main` checkout
+    answers True; a single-branch CI clone of a lane answers False.
+    """
+    probe = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", f"refs/heads/{name}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return probe.returncode == 0
+
+
 class TestTheRealRepoIsStillReadable:
     """Vacuity guard, in the spirit of the existing collision file's.
 
@@ -709,6 +724,15 @@ class TestTheRealRepoIsStillReadable:
     """
 
     def test_the_integration_tree_is_found_and_carries_an_adr_baseline(self):
+        # A CI checkout of a lane branch (`actions/checkout`, depth 1, only
+        # the pushed ref) has no `refs/heads/main` at all, so this test was
+        # red on every branch run by construction (run 34616576251) and
+        # branch CI carried no signal. Skip only when the checkout holds no
+        # integration branch to read; the predicate is git's, not
+        # `lane_board`'s, so a resolver that stopped matching on `main`
+        # still fails here instead of skipping.
+        if not _checkout_has_branch(REPO, "main"):
+            pytest.skip("no local `main` in this checkout: nothing to read")
         lanes, _ = lane_board.collect(REPO, main_ref="main")
         main = next((lane for lane in lanes if lane.is_main), None)
         assert main is not None, "no lane on the integration branch"

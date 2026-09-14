@@ -16,6 +16,51 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-14 (second) - A load-bearing count is named with its table, because collapsed quantities survive review by looking consistent
+
+CLAUDE.md said the hand-bet path had "four" real fills by 2026-09-09, that
+"all four real fills" carried NULL venue columns, and that "all four real
+positions" were dead. Read off live today: `manual_orders` has **seven**
+real rows, **six** of them filled (three by the end of 09-09, three more on
+09-10), and `parlay_positions` has **four**, because the position recorder
+postdates the first two orders. The "four" was ADR 0129's four *orders* on
+09-09 (three filled, one not). It was then re-read as four fills, and again
+as four positions, and each re-reading agreed with the last, so the sentence
+survived two audits of the paragraph it sits in.
+
+The spine already documents this failure for `actionable` — three row
+counts, one word — and it recurred on a second quantity within a week.
+A count that reads consistently across three sentences is not evidence the
+three sentences count the same thing; it is what a collapsed quantity looks
+like from the outside. The tell is a number with no table beside it.
+
+The same shape showed up in CI the same day: one test was red on every
+branch run *by construction* (a lane checkout has no `main`), so "CI green"
+on a branch meant nothing and "CI red" meant nothing either, and the
+reading "branch CI is red, that's the known one" was the collapsed
+quantity — it hid whether anything else had failed.
+
+Three rules:
+
+- **Quote a count with the table it was counted in.** Orders, fills and
+  positions are three tables with three numbers; "four" without a table is
+  a sentence waiting to be re-read.
+- **When a number is corrected, check whether the *same* number appears
+  elsewhere counting something else.** The second and third sentences were
+  written by copying the first, and a correction that touches one of them
+  makes the other two wrong in a new way.
+- **A check that fails by construction carries no signal in either
+  direction.** Fix it so that the case with nothing to read skips in words,
+  and prove by mutation that the case with something to read still fails.
+
+Where it went: CLAUDE.md's hand-bet paragraph now carries the three counts
+with their tables and the date they were read; the lane-board guard skips
+when the checkout holds no `refs/heads/main` (verified: old file red on a
+single-branch clone, new file skips there, and a mutated `is_main` on
+`main` is still red).
+
+---
+
 ## 2026-09-14 - A wall-clock time in a registration is not a schedule; it is a person, and the person must be named
 
 Arm D of the combo-exit registration fixed five captures at five UTC minutes

@@ -119,6 +119,115 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-14 (fifteenth session) — three counts had collapsed into one word; branch CI now carries a signal; /hedge cannot raise on a live row
+
+**The session's finding is that the transacted-path count in CLAUDE.md was
+three numbers wearing one word.** Read off live at session start
+(`manual_orders` and `parlay_positions`, bounded by id): **7 real orders, 6
+filled, 4 positions.** CLAUDE.md said "four by 2026-09-09" (live: three
+filled by then; the four were ADR 0129's four *orders*, one unfilled), "all
+four real fills predate v40" (six do), and "all four real positions dead"
+(right — the position recorder postdates orders 1–2). Each re-reading
+agreed with the last, which is why it survived two audits of that
+paragraph. The same failure shape the spine already records for
+`actionable`. Corrected with a three-line table naming each table and the
+read date; the pattern is in `tasks/lessons.md` (2026-09-14, second).
+
+**STATE at close.** `main` = live (deployed with
+`-e GIT_SHA="$(git rev-parse HEAD)"`, read back off `/api/health`); clean
+tree, no lanes, no branches; recorder writing (sweep-log 'skipped' rows
+through 17:11Z, next slot MLB 21:26Z); arming unchanged (hand path armed,
+engine and bids dry); schema v41; **zero Dependabot alerts; zero open map
+tickets; credits: zero spent.** Every live call was read-only and
+id-bounded. The partner's read at start, adopted: a near-nothing day; do
+not manufacture a lane. Next ADR **0147**.
+
+### What shipped, in the partner's order
+
+1. **CLAUDE.md counts corrected** (above). ADR 0143 §"fills is
+   retention-eligible" and ADR 0145 still say "four"; ADRs are not edited,
+   and each was true of its own table on its own date.
+2. **The lane-board guard skips off-main instead of failing by
+   construction.** `test_the_integration_tree_is_found_and_carries_an_adr_baseline`
+   asserted a lane named `main` exists; a CI checkout of a lane branch
+   (`actions/checkout`, depth 1, only the pushed ref) has no
+   `refs/heads/main`, so it was red on every branch run and branch CI
+   verified nothing (run 34616576251). Now `pytest.skip`s, in words, when
+   `git rev-parse --verify refs/heads/main` fails in the checkout — git's
+   predicate, not `lane_board`'s, so a resolver that stopped matching on
+   `main` still fails. **Verified three ways**: the old file fails on a
+   single-branch clone of a probe branch exactly as CI did; the new file
+   skips there; and on `main` with `is_main=` mutated to never match, the
+   new file is red, not skipped (first mutation, on `_integration_path`,
+   missed the guard — the test reads `is_main` — and was redone). The
+   `lookup-scout` confirmed this was the **only** test structurally red
+   off-main: `test_no_draft_reaches_the_integration_branch` fails closed
+   on detached HEAD but only trips on a real `DRAFT-` file. Probe branch
+   and clone deleted.
+3. **`/hedge` pre-flight before tonight — `runtime-realist`, read-only,
+   no raise path found.** Traced `/api/hedge` and `hedge_watch` through
+   `assess`, `combo_entry_fee_tenths`, `hedge_lock`/`derisk` and the book
+   reads, and ran the arithmetic over 15 synthetic rows shaped like the
+   real ones. Every abnormal state the schema permits renders as a
+   `Refusal`. The only raise sites need inputs the live table's CHECKs
+   forbid (`stake_tenths > 0`, `return_tenths > stake_tenths`, `side IN
+   ('yes','no')` — **confirmed on the live `sqlite_master`, not just
+   `schema.sql`**) or a non-numeric `*_size_fp` from Kalshi (NaN passes
+   `parse_quantity` and raises at `int()`; no fixture has ever carried
+   one). The four real rows: stake/return 1640/4000, 1785/7000,
+   1946/14000, 2106/6000 — all far above the `MIN_DECIMAL_ODDS` edge where
+   ADR 0145's sunk fee could turn a legal row into an `UNREADABLE_TICKET`
+   refusal.
+
+### Known and declined — added this session, so nobody promotes them
+
+- **The way `/hedge` actually blanks is a timeout, not the arithmetic.**
+  `get_conn`'s 25 s budget is per-connection; `build_payload` reads Kalshi
+  sequentially per ticker (5 s timeout, 4 retries, `Retry-After` honoured
+  to 60 s) and then runs three more sqlite statements. One throttled
+  ticker can exhaust the budget, the next statement raises `interrupted`,
+  the route returns 503, and `page.tsx` renders the whole screen as
+  "Backend unreachable." The watcher takes the same latency with no
+  consequence. Not built: no such blank has been observed, and moving the
+  sqlite reads ahead of the venue reads is a change to a path that has
+  produced zero locks.
+- **`assess` picks the weakest leg before checking book status**, so a
+  settled leg priced lowest makes the whole block a `market_closed`
+  refusal even with a hedgeable live leg beside it. Words, not a raise.
+  Unruled.
+- **A `None` entry fee is silent on the card** (`entry_fee_display: null`
+  is dropped), while the refusal a step later speaks. Cosmetic.
+- Carried unchanged: `parlay_positions.status` never advances; no
+  hedge-evaluation table; `int(fill_count)` truncation; the
+  API-unreachable alert's exception class is not recorded (the partner
+  dropped it again — no named consumer).
+
+### The partner's message for Joe, relayed
+
+The desk is finished for what it is for. Seven orders, six fills, four
+positions, all by hand, all through the cockpit, none of them something the
+tool told him to do — which is the design. Nothing runs between sessions
+(ADR 0146), so what earns now happens at his keyboard: bet tonight if he
+wants to, and let the record accumulate. **The one ask: after his next
+fill, have a session read that `manual_orders` row** — it will be the first
+ever to carry `venue_fill_count`, `venue_avg_fill_price_tenths` and
+`venue_avg_fee_dollars`, and confirming that write once is worth more than
+any of the items above. If he wants something built, he names it.
+
+### Still open, in order
+
+1. **Read the next real fill's row** (above). Whoever is at the keyboard in
+   the first session after it lands; there is no scheduler.
+2. **The census** — first session after the 10th real manual order (at 7)
+   or 2026-11-01. Runnable as written; may not be cited for or against
+   ADR 0143 or 0145.
+3. **Reservations:** none live. Next ADR **0147**; schema v41.
+
+**Struck this session:** the lane-board guard's structural red (fixed);
+the CLAUDE.md count drift (fixed). The code list is still empty.
+
+---
+
 ## 2026-09-14 (fourteenth session) — Arm D never ran because nothing runs between sessions; both lanes are merged and live; #36 closed on zero credits
 
 **The session's finding is that "a scheduled run" was a person nobody named.**
