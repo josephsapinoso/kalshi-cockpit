@@ -287,6 +287,68 @@ class TestTheAmountIsTypedInDollars:
         # striking.
         assert "your per-bet cap, not your typed amount" not in ticket
 
+    def test_the_too_small_sentence_is_chosen_on_the_typed_amount_not_the_ceiling(
+        self,
+    ):
+        """The 2026-09-14 defect, pinned at its predicate.
+
+        `contracts` is `affordable` AFTER the shard/depth ceiling. Choosing
+        the "not enough" sentence on it meant that a $1.00 typed against a
+        25.7c ask on an empty shard rendered *"one contract costs 25.7c, so
+        the smallest bet here is $0.26"* — accusing Joe of typing too little
+        while his dollar covered three contracts. He read it, concluded the
+        desk was broken, and placed that bet directly on Kalshi instead.
+
+        The two questions are different and only one may pick this sentence:
+        `affordable` answers "do his dollars cover a contract", `contracts`
+        answers "will this order go". So the guard is structural rather than
+        textual — the branch must test `affordable`, and the `contracts >= 1`
+        arm must not be the only thing standing between him and the
+        accusation.
+        """
+        ticket = " ".join(source("components/ManualTicket.tsx").split())
+        assert "affordable !== null && affordable >= 1 ?" in ticket, (
+            "the sentence blaming the typed amount must be reachable only "
+            "when the typed amount is actually the binding constraint"
+        )
+        # And the affordable-but-unbuyable arm must say so in Joe's words.
+        assert "your typed amount is not the reason" in ticket
+
+    def test_an_unpayable_bet_names_the_shard_the_balance_and_the_remedy(self):
+        """`authorised_binding: "shard"` told the client which bound bit; the
+        copy named no wallet, no figure and no fix, so a reader with a funded
+        account took it as a statement about what he typed.
+
+        `POST /api/manual-orders` check 9a has carried all three facts since
+        2026-09-08 — but only after he has typed an amount and confirmed.
+        This is the same three, one screen earlier.
+        """
+        ticket = " ".join(source("components/ManualTicket.tsx").split())
+        assert "shard {shard.index}" in ticket
+        assert "{shard.available_display}" in ticket
+        assert "kalshi.com/account/exchange-indexes" in ticket
+        # The venue's rule, never a brake of ours (ADR 0112).
+        assert "not a cap of the desk" in ticket
+
+    def test_an_unreadable_wallet_is_not_rendered_as_an_empty_one(self):
+        """`Unreadable resolves to None, never to 0` reaches the screen.
+
+        A zero balance is a fact ("your money is gone"); an unread one is
+        not, and this is the path where confusing them would send Joe to
+        Kalshi to look for money that is sitting there.
+        """
+        ticket = " ".join(source("components/ManualTicket.tsx").split())
+        assert "could not be read" in ticket
+        assert "shard.index === null || shard.available_display === null" in ticket
+
+    def test_the_trim_sentence_does_not_double_up_with_the_zero_case(self):
+        """Joe got both sentences in one paragraph, with opposite causes:
+        "the smallest bet here is $0.26" followed by "Trimmed to 0 — the book
+        or your Kalshi wallet ... set the size". The trim line is for an order
+        that was cut down, not for one that cannot be placed at all."""
+        ticket = " ".join(source("components/ManualTicket.tsx").split())
+        assert "capped && ceiling !== null && ceiling >= 1 &&" in ticket
+
     def test_the_confirm_button_carries_the_dollar_cost(self):
         ticket = source("components/ManualTicket.tsx")
         assert "for ${dollars(" in ticket

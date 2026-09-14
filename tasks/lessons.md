@@ -16,6 +16,65 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-14 (third) - A sentence that explains a number must be selected by the predicate that produced it, and a refusal's remedy has to travel to the screen that shows it
+
+Joe tried to buy a 25.7c combination through the cockpit with $1.00 typed and
+945 contracts resting. The ticket told him *"Not enough: one contract costs
+25.7c, so the smallest bet here is $0.26"*, and directly under it *"Trimmed to
+0 — the book or your Kalshi wallet, not your typed amount, set the size."* Two
+sentences, one paragraph, opposite causes. He concluded the desk was broken and
+placed the bet **directly on Kalshi**.
+
+The code computed two numbers and selected on the wrong one:
+
+    affordable = floor(amount / ask)     // $1.00 / 25.7c = 3
+    contracts  = min(affordable, ceiling) // min(3, 0)    = 0
+
+`affordable` answers *do his dollars cover a contract*. `contracts` answers
+*will this order go*. The "not enough" sentence is a claim about the first and
+was branched on the second, so it fired whenever **anything** zeroed the size
+and then blamed the typed amount for it. The true cause was Kalshi's per-shard
+collateral: the market's wallet held nothing while the account was funded.
+
+The second half is the one that would have prevented it anyway. `POST
+/api/manual-orders` check 9a has named the shard, its balance and the
+allocation URL since 2026-09-08. The **ticket** was sent only
+`authorised_binding: "shard"` — a code — so the best sentence it could form was
+"that is what this market's Kalshi wallet can pay for": true, unactionable, and
+indistinguishable to a reader from an accusation about what he typed. The three
+facts existed one route away and were never served. `combo_orders.
+check_affordable`'s own docstring had already written the rule: *"only the desk
+is in a position to say so."*
+
+Three rules:
+
+- **Branch a sentence on the quantity it asserts about.** When two numbers
+  differ by a clamp, the pre-clamp one explains the input and the post-clamp
+  one explains the outcome, and using either to select the other's copy
+  produces a confident falsehood. Grep for `min(`/`Math.min` on a money path
+  and check what the failure branch below it claims.
+- **A refusal code is not a refusal.** If the route can say *what to do*, the
+  screen must receive the facts to say it too — the number, the amount and the
+  remedy, not the enum. A screen that renders a code into prose is inventing
+  the prose.
+- **Two rendered sentences that can both be true at once must be checked
+  together.** Each was individually guarded by a test; nothing asserted they
+  never co-render. When adding copy to an existing paragraph, read the whole
+  paragraph in every state, not the branch being edited.
+
+Where the cost landed: a real bet left the tool. That is the first measured
+instance of the cockpit *causing* a bypass rather than failing to attract
+one — the 2026-09-04 presence measurement returned UNRESOLVED with no
+mechanism to point at, and this is a mechanism.
+
+Where it went: ADR 0148, the `shard` block on `GET /api/manual/market/`, a
+third render branch selected on `affordable`, `exchange-shard` in the
+glossary, and four guards verified by disabling. Not fixed:
+`venue_balance_snapshots` still stores only the account total, so which wallet
+was funded on any past date is unanswerable — ADR 0148 §6.
+
+---
+
 ## 2026-09-14 (second) - A load-bearing count is named with its table, because collapsed quantities survive review by looking consistent
 
 CLAUDE.md said the hand-bet path had "four" real fills by 2026-09-09, that

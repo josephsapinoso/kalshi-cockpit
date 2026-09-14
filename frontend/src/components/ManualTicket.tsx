@@ -94,6 +94,7 @@ import {
   placeManualOrder,
   refusalText,
   type ManualMarket,
+  type ManualMarketSide,
   type ManualOrderPlaced,
 } from "@/lib/api";
 import {
@@ -439,9 +440,18 @@ function TicketBody({
   // the terms rather than handed them, so each says what to DO about it --
   // the remedies genuinely differ, and the old copy called every one of them
   // "your per-bet cap", which is now the one thing none of them is.
+  //
+  // **The shard line carries its figures.** It used to read only "that is
+  // what this market's Kalshi wallet can pay for" — true, and useless: no
+  // shard number, no balance, no remedy, so a reader with a funded account
+  // takes it as a statement about what he typed. It now names the wallet and
+  // what is in it, and `ShardRemedy` below the amount box carries the link.
   const boundReason: Record<string, string> = {
     depth: "that is all that is resting at the ask right now",
-    shard: "that is what this market's Kalshi wallet can pay for",
+    shard:
+      market.shard.index === null || market.shard.available_display === null
+        ? "this market's Kalshi wallet could not be read"
+        : `this market draws on Kalshi shard ${market.shard.index}, which holds ${market.shard.available_display}`,
     structural: "that is this path's built-in ceiling, not a limit on the bet",
     price_grid: "the price grid will not express a larger order",
   };
@@ -529,6 +539,8 @@ function TicketBody({
         askTenths={facts.ask_tenths}
         askDisplay={facts.ask_display}
         ceiling={ceiling}
+        binding={facts.authorised_binding}
+        shard={market.shard}
         contracts={contracts}
         setContracts={setContracts}
         disabled={sending}
@@ -669,6 +681,55 @@ function dollars(tenths: number): string {
   });
 }
 
+/** Why an otherwise-affordable bet is unpayable, and what to do about it.
+ *
+ *  Kalshi splits an account across **exchange shards** — separate wallets,
+ *  numbered — and every market settles on exactly one. The venue will not
+ *  move money between them to pay for an order, so a bet can be unpayable
+ *  while the account total looks fine. Measured on this account twice:
+ *  $21.40 stranded on shard 0 against a shard-1 order (2026-08-30), and
+ *  shard 1 $22.24 / shard 0 $0.00 (2026-09-08).
+ *
+ *  `POST /api/manual-orders` check 9a has said all of this since 2026-09-08.
+ *  The ticket did not, so the refusal only arrived after Joe had typed an
+ *  amount and tapped confirm — and in a form that blamed the amount. This is
+ *  the same three facts, one screen earlier.
+ *
+ *  An unreadable shard renders as ignorance, never as a zero balance. */
+function ShardRemedy({ shard }: { shard: ManualMarket["shard"] }) {
+  if (shard.index === null || shard.available_display === null) {
+    return (
+      <>
+        Kalshi keeps money in a separate wallet per market, and this one&apos;s
+        could not be read — so the desk will not say whether the bet is
+        payable.
+      </>
+    );
+  }
+  return (
+    <>
+      Kalshi keeps your money in a separate wallet per market — it calls them{" "}
+      <Term k="exchange-shard">exchange shards</Term> — and this market draws
+      on <span className="font-semibold text-foreground">shard {shard.index}</span>
+      , which holds{" "}
+      <span className="font-semibold text-foreground">
+        {shard.available_display}
+      </span>
+      . The venue will not move money between wallets to pay for an order, so
+      it has to be allocated there first, at{" "}
+      <a
+        className="underline"
+        href="https://kalshi.com/account/exchange-indexes"
+        target="_blank"
+        rel="noreferrer"
+      >
+        kalshi.com/account/exchange-indexes
+      </a>
+      . That is the venue&apos;s rule, not a cap of the desk&apos;s.
+    </>
+  );
+}
+
 /** The amount control, in dollars, because that is how Joe thinks about a
  *  bet ("about five bucks on this"), while the venue transacts in contracts
  *  that each cost the ask. The conversion is shown, never hidden: the point
@@ -678,6 +739,8 @@ function DollarAmount({
   askTenths,
   askDisplay,
   ceiling,
+  binding,
+  shard,
   contracts,
   setContracts,
   disabled,
@@ -685,6 +748,8 @@ function DollarAmount({
   askTenths: number | null;
   askDisplay: string | null;
   ceiling: number | null;
+  binding: ManualMarketSide["authorised_binding"];
+  shard: ManualMarket["shard"];
   contracts: number;
   setContracts: (n: number) => void;
   disabled: boolean;
@@ -753,13 +818,51 @@ function DollarAmount({
               the fee. Whole contracts only, rounded down — the rest of your{" "}
               {dollars(amountTenths)} stays in your pocket.
             </>
+          ) : affordable !== null && affordable >= 1 ? (
+            /* **The typed amount is FINE and something else took it to
+               zero.** This branch used to not exist: the "not enough" copy
+               below was chosen on `contracts`, which is `affordable` AFTER
+               the ceiling, so a $1.00 typed against a 25.7c ask on an empty
+               shard rendered "one contract costs 25.7c, so the smallest bet
+               here is $0.26" — accusing him of typing too little while his
+               dollar bought three. He read it, believed the desk was broken,
+               and placed the bet directly on Kalshi (2026-09-14).
+
+               The repo's named failure: one predicate with two spellings and
+               the screen naming the wrong one. `affordable` answers "do his
+               dollars cover a contract"; `contracts` answers "will this
+               order go". Only the first may choose this sentence. */
+            <>
+              Your {dollars(amountTenths)} covers {affordable}{" "}
+              <Term k="contract">
+                {affordable === 1 ? "contract" : "contracts"}
+              </Term>{" "}
+              at {askDisplay} — but none can be bought here right now, and
+              your typed amount is not the reason.{" "}
+              {binding === "shard" ? (
+                <ShardRemedy shard={shard} />
+              ) : binding === "depth" ? (
+                <>Nothing is resting at the ask to fill it.</>
+              ) : binding === "shard_unreadable" ? (
+                <>
+                  Your Kalshi wallet for this market could not be read, so the
+                  desk will not guess whether the bet is payable.
+                </>
+              ) : (
+                <>The book or your Kalshi wallet set the size, not you.</>
+              )}
+            </>
           ) : (
             <>
               Not enough: one contract costs {askDisplay}, so the smallest
               bet here is {dollars(askTenths)}.
             </>
           )}
-          {capped && ceiling !== null && (
+          {/* Only when something was actually bought and then trimmed. When
+              the ceiling is 0 the branch above says it in full, and printing
+              both gave Joe two sentences with opposite causes in one
+              paragraph. */}
+          {capped && ceiling !== null && ceiling >= 1 && (
             <>
               {" "}
               Trimmed to {ceiling} — the book or your Kalshi wallet, not your

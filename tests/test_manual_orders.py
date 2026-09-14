@@ -1536,6 +1536,47 @@ class TestTheManualMarketRead:
         # says dry while the route sends is the worst wrong answer available.
         assert body["dry_run"] is False
 
+    async def test_the_read_says_which_wallet_and_what_is_in_it(self, tmp_path):
+        """Joe's 2026-09-14 bet, reproduced at the route.
+
+        A shard-1 combination at 25.7c against a wallet holding nothing. The
+        ticket used to learn only `authorised_contracts: 0` and
+        `authorised_binding: "shard"` and could say no more than "that is what
+        this market's Kalshi wallet can pay for" — which, to a reader who had
+        just added a dollar, reads as an accusation about the dollar. He
+        placed the bet directly on Kalshi instead.
+
+        `POST /api/manual-orders` check 9a has named the shard, the balance
+        and `kalshi.com/account/exchange-indexes` since 2026-09-08. These are
+        the same three facts, served before he types an amount.
+        """
+        quotes = StubQuotes(
+            _payload(no_bid_tenths=743, exchange_index=1), shard_tenths=0
+        )
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        body = (await get(app, f"/api/manual/market/{TICKER}")).json()
+        assert body["sides"]["yes"]["ask_tenths"] == 257
+        assert body["sides"]["yes"]["authorised_contracts"] == 0
+        assert body["sides"]["yes"]["authorised_binding"] == "shard"
+        assert body["shard"] == {
+            "index": 1,
+            "available_tenths": 0,
+            "available_display": "$0.00",
+        }
+
+    async def test_an_unreadable_wallet_is_served_as_null_and_never_as_zero(
+        self, tmp_path
+    ):
+        """`Unreadable resolves to None, never to 0` — at the route, because
+        `$0.00` on the screen says his money is gone and an unread balance
+        does not say that."""
+        quotes = StubQuotes(_payload(exchange_index=1), balance_payload={})
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        body = (await get(app, f"/api/manual/market/{TICKER}")).json()
+        assert body["shard"]["available_tenths"] is None
+        assert body["shard"]["available_display"] is None
+        assert body["sides"]["yes"]["authorised_binding"] == "shard_unreadable"
+
     async def test_an_unknown_ticker_is_a_404(self, tmp_path):
         quotes = StubQuotes(
             fetch_error=QuoteUnavailable("never heard of it", permanent=True)

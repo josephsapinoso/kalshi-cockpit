@@ -2969,6 +2969,23 @@ export type ManualMarket = {
   reachable: boolean;
   unreachable_reason: string | null;
   sides: { yes: ManualMarketSide; no: ManualMarketSide };
+  /**
+   * The exchange shard this market settles on, and what that shard holds.
+   *
+   * Kalshi keeps collateral per shard and will not move it to pay for an
+   * order, so the account total is the wrong number and a bet can be
+   * unpayable while the account is funded. `authorised_binding: "shard"`
+   * says that bound bit; these are the figures that make it actionable.
+   *
+   * Every field is `null` when the shard could not be read. An unreadable
+   * balance is not a zero one -- `0` is a real balance, and rendering it
+   * would tell Joe his money is gone.
+   */
+  shard: {
+    index: number | null;
+    available_tenths: number | null;
+    available_display: string | null;
+  };
   price_grid: string | null;
   caps: {
     derived: boolean;

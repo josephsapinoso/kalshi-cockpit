@@ -231,6 +231,17 @@ export const GLOSSARY = {
       "included. Hold two $20 bets and you are $40 exposed. Nothing caps " +
       "it on a bet you place by hand — that is why the ticket shows it.",
   },
+  "exchange-shard": {
+    label: "exchange shard",
+    definition:
+      "Kalshi does not keep your money in one pot. It splits it across " +
+      "numbered wallets it calls exchange indexes, and every market settles " +
+      "on exactly one of them. The venue will not move money between " +
+      "wallets to pay for an order, so a $1 deposit sitting in the wrong " +
+      "wallet cannot buy a 25¢ contract in another — the account total says " +
+      "you can afford it and the order is still refused. You move it " +
+      "yourself at kalshi.com/account/exchange-indexes.",
+  },
   kelly: {
     label: "quarter-Kelly",
     definition:

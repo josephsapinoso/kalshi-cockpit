@@ -3160,6 +3160,32 @@ def create_app(
             "reachable": unreachable is None,
             "unreachable_reason": unreachable,
             "sides": sides,
+            # **The shard, and what it holds, so the screen can say the
+            # sentence the POST route already says.** Added 2026-09-14 after
+            # Joe read `authorised_contracts: 0` on a shard-1 combination,
+            # was told "your $1 is not enough" for a 25.7c contract, and went
+            # and placed the bet directly on Kalshi instead.
+            #
+            # `authorised_binding: "shard"` already told the client WHICH
+            # bound bit, and the client said so -- but "that is what this
+            # market's Kalshi wallet can pay for" names no shard, no figure
+            # and no remedy, so it reads as an accusation about the typed
+            # amount rather than as "your money is in the other pocket".
+            # The POST refusal at check 9a has had the full sentence since
+            # 2026-09-08; this is the same three facts, served early enough
+            # that he never reaches the refusal. `None` where unreadable --
+            # unreadable resolves to `None`, never to `0`, because `0` is a
+            # real balance and telling him his money is gone is worse than
+            # telling him nothing.
+            "shard": {
+                "index": shard_index,
+                "available_tenths": shard_available_tenths,
+                "available_display": (
+                    None
+                    if shard_available_tenths is None
+                    else f"${shard_available_tenths / 1000:.2f}"
+                ),
+            },
             "price_grid": (
                 None if quote.price_grid is None else quote.price_grid.describe()
             ),
