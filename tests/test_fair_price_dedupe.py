@@ -36,9 +36,6 @@ WHAT THIS FILE DOES NOT ESTABLISH
 
 from __future__ import annotations
 
-import subprocess
-from pathlib import Path
-
 import pytest
 
 import backend.runner as runner_mod
@@ -46,7 +43,6 @@ from backend.core.devig import consensus_devig
 from backend.runner import write_fair_price
 from backend.store import db
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
@@ -404,45 +400,12 @@ class TestTheComparisonKeyCannotDriftFromTheInsert:
         assert len(runner_mod._FAIR_PRICE_INSERT_COLUMNS) == 17
 
 
-class TestTheFreezeIsRespected:
-    """The odds path is frozen until 10:00Z 2026-09-14 to protect a
-    credit-convergence readout (partner ruling, three conditions). This
-    checks condition 1 mechanically: no file under `backend/odds/`, and not
-    `backend/scheduler.py`, differs from this lane's merge-base with `main`.
-
-    Best-effort: skips rather than fails when git cannot answer (a shallow
-    clone with no local `main`, or no `.git` at all) -- the same posture
-    `tests/test_parallel_lanes_do_not_collide.py` takes for the same reason,
-    and for the same reason a SKIP here is not a pass: read the skip reason.
-    """
-
-    def _changed_files(self) -> list[str] | None:
-        try:
-            merge_base = subprocess.run(
-                ["git", "--no-optional-locks", "merge-base", "HEAD", "main"],
-                cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=15,
-            )
-            if merge_base.returncode != 0:
-                return None
-            base = merge_base.stdout.strip()
-            diff = subprocess.run(
-                ["git", "--no-optional-locks", "diff", "--name-only", base],
-                cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=15,
-            )
-            if diff.returncode != 0:
-                return None
-            return [line for line in diff.stdout.splitlines() if line]
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-
-    def test_no_odds_file_and_no_scheduler_file_changed(self):
-        changed = self._changed_files()
-        if changed is None:
-            pytest.skip("git could not establish a merge-base with main here")
-        forbidden = [
-            path for path in changed
-            if path.startswith("backend/odds/") or path == "backend/scheduler.py"
-        ]
-        assert forbidden == [], (
-            f"the odds-path freeze was crossed: {forbidden}"
-        )
+# `TestTheFreezeIsRespected` lived here from 2026-09-10 to 2026-09-14. It
+# checked, mechanically, that no file under `backend/odds/` and not
+# `backend/scheduler.py` differed from the merge-base with `main`, for the
+# credit-convergence readout's freeze (partner ruling, three conditions).
+# The freeze ended at 10:00Z 2026-09-14 and the guard carried no expiry, so
+# it tripped on the first post-freeze change (#37, `backend/odds/client.py`)
+# and would have tripped on every one after. Retired that day rather than
+# dated: a guard that guards nothing is decoration, and a future freeze
+# should come with its own end time in the assertion.

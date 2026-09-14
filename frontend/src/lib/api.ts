@@ -2196,8 +2196,13 @@ export type RefreshableSport = {
   sport_key: string;
   /** Credits one team-lines refresh costs, from the deployed config. */
   team_credits: number;
-  /** Credits one fixture's props cost — including the team call that finds it. */
-  prop_credits: number;
+  /** Credits one fixture's props cost — including the team call that finds
+   * it. `null` when this desk has no prop markets for the sport (#37): the
+   * server refuses such a tap, so there is no price to show. */
+  prop_credits: number | null;
+  /** Whether a prop tap on this sport can buy anything. The only prop keys
+   * the desk requests are baseball markets. */
+  prop_markets_available: boolean;
   fixtures: RefreshableFixture[];
 };
 

@@ -136,6 +136,27 @@ PROP_MARKETS = frozenset(PROP_BASE_MARKETS) | {
     f"{m}{ALTERNATE_SUFFIX}" for m in PROP_BASE_MARKETS
 }
 
+# The sport those keys belong to. **Not a per-sport key map** -- that is the
+# NFL build ticket #36 declined -- only the fact a refusal needs: every key in
+# `PROP_BASE_MARKETS` is a baseball market, so a prop request on any other
+# sport asks the provider for batter markets against a football game. The
+# provider answers with nothing useful and may still bill the call (#37).
+PROP_MARKET_SPORTS = frozenset({"baseball_mlb"})
+
+
+def sport_has_prop_markets(sport_key: str) -> bool:
+    """Whether `prop_market_keys()` means anything for this sport.
+
+    `prop_market_keys()` is sport-unaware by design (one definition, because
+    the count is a price). This is the companion question every prop *buyer*
+    must ask first: `/api/odds/refresh` refuses a prop tap on a sport whose
+    props it cannot buy, `/api/odds/refreshable` quotes no prop price for it,
+    and `runner.fetch_and_store_props` will not call the provider for it even
+    when handed a named fixture. Three callers, one predicate, so the day an
+    NFL key set lands here is the day all three open together.
+    """
+    return sport_key in PROP_MARKET_SPORTS
+
 
 def prop_market_keys() -> list[str]:
     """The keys `fetch_props` requests, in request order.

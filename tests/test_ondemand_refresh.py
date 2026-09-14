@@ -659,6 +659,34 @@ class TestTheEndpoint:
         assert props["accepted"] is True
         assert props["estimated_credits"] > team["estimated_credits"]
 
+    async def test_a_prop_tap_on_a_sport_with_no_prop_markets_is_refused(
+        self, live_app, app_db
+    ):
+        """#37. The desk's prop keys are baseball markets; a prop tap on a
+        football fixture would ask the provider for batter lines against it
+        and may still bill. Refused at the tap, in words, with no credit
+        estimate -- and the team refresh for the same sport still goes."""
+        c = db.init_db(app_db)
+        add_fixture(
+            c, sport_key="americanfootball_ncaaf", odds_event_id="f1",
+            commence_ms=db.now_ms() + 3 * HOUR, fetched_ms=db.now_ms(),
+        )
+        c.close()
+        props = (
+            await self._post(
+                live_app, sport_key="americanfootball_ncaaf", odds_event_id="f1"
+            )
+        ).json()
+        assert props["accepted"] is False, (
+            "a prop tap on a sport with no prop markets was accepted; the "
+            "runner would request MLB batter markets against a football game"
+        )
+        assert props["estimated_credits"] == 0
+        assert "no player-prop markets for americanfootball_ncaaf" in props["detail"]
+        assert "baseball" in props["detail"]
+        team = (await self._post(live_app, sport_key="americanfootball_ncaaf")).json()
+        assert team["accepted"] is True, "the team refresh must not be caught by it"
+
     async def test_it_never_claims_the_odds_were_fetched(self, live_app):
         """This process cannot fetch anything.
 
@@ -883,6 +911,37 @@ class TestTheRefreshableEndpointStatesTheSpend:
         assert payload["day_credits_spent"] == 0
         assert payload["day_credits_budget"] == 600
         assert payload["day_credits_remaining"] == 600
+
+    async def test_a_sport_with_no_prop_markets_quotes_no_prop_price(
+        self, live_app, app_db
+    ):
+        """#37. A price is a promise of a purchase; the POST refuses a prop
+        tap on this sport, so the list must not price one. `None`, not 0 --
+        0 would read as free."""
+        c = db.init_db(app_db)
+        add_fixture(
+            c, sport_key="americanfootball_ncaaf", odds_event_id="f1",
+            commence_ms=db.now_ms() + 3 * HOUR, fetched_ms=db.now_ms(),
+        )
+        c.close()
+        by_sport = {
+            s["sport_key"]: s for s in (await self._get(live_app)).json()["sports"]
+        }
+        from backend.config import OddsConfig
+        from backend.odds.client import prop_market_keys
+
+        mlb, ncaaf = by_sport["baseball_mlb"], by_sport["americanfootball_ncaaf"]
+        assert mlb["prop_markets_available"] is True
+        # The team half plus one credit per prop key per region -- the same
+        # arithmetic `test_odds.py` pins at the deployed lists; here the lists
+        # are whatever this test process was configured with, so the claim is
+        # the relation, not the 14.
+        assert mlb["prop_credits"] == mlb["team_credits"] + sweep_cost(
+            prop_market_keys(), OddsConfig.load().regions
+        )
+        assert ncaaf["prop_markets_available"] is False
+        assert ncaaf["prop_credits"] is None
+        assert ncaaf["team_credits"] == mlb["team_credits"]
 
     async def test_an_accepted_tap_moves_the_manual_tally(self, live_app, app_db):
         response = await self._get(live_app)

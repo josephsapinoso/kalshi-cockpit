@@ -189,9 +189,8 @@ export default async function RefreshOddsPanel({
             </>
           ) : (
             <>
-              The <span className="font-semibold">slow hourly buy</span>{" "}
-              carries the slate from here, whether or not you are looking —
-              next about{" "}
+              The <span className="font-semibold">slow hourly buy</span> carries
+              the slate from here, whether or not you are looking — next about{" "}
               <span className="font-semibold">
                 {formatClock(reading.floor_resumes_ms)}
               </span>
@@ -216,62 +215,77 @@ export default async function RefreshOddsPanel({
         </p>
       )}
 
-      {data.sports.map((sport) => (
-        <div key={sport.sport_key} className="mt-4 border-t pt-4">
-          {/* The league in a bettor's words; the vendor key survives in
+      {data.sports.map((sport) => {
+        // A const so the null check narrows inside the fixture list below;
+        // `sport.prop_credits` itself does not narrow across that closure.
+        const propCredits = sport.prop_credits;
+        return (
+          <div key={sport.sport_key} className="mt-4 border-t pt-4">
+            {/* The league in a bettor's words; the vendor key survives in
               title= for anyone debugging the feed (2026-08-22 review). */}
-          <h3 className="text-sm font-semibold" title={sport.sport_key}>
-            {leagueLabel(sport.sport_key)}
-          </h3>
+            <h3 className="text-sm font-semibold" title={sport.sport_key}>
+              {leagueLabel(sport.sport_key)}
+            </h3>
 
-          <RefreshOddsButton
-            className="mt-2"
-            sportKey={sport.sport_key}
-            label="Team lines, whole slate"
-            credits={sport.team_credits}
-          />
+            <RefreshOddsButton
+              className="mt-2"
+              sportKey={sport.sport_key}
+              label="Team lines, whole slate"
+              credits={sport.team_credits}
+            />
 
-          <details className="mt-3">
-            <summary className="cursor-pointer text-sm font-semibold">
-              Player props, one game at a time ({sport.prop_credits} credits
-              each)
-            </summary>
-            <p className="mt-2 max-w-prose text-xs text-muted">
-              Props are billed per game, so this is the expensive half and is
-              deliberately not a single button for the slate. Refreshing all{" "}
-              {sport.fixtures.length} would cost{" "}
-              {sport.fixtures.length * sport.prop_credits} credits.
-            </p>
-            <ul className="mt-2 space-y-3">
-              {sport.fixtures.map((fixture) => (
-                <li key={fixture.odds_event_id}>
-                  <RefreshOddsButton
-                    sportKey={sport.sport_key}
-                    oddsEventId={fixture.odds_event_id}
-                    label={`${fixture.title} — ${formatClock(
-                      fixture.commence_ms,
-                    )}`}
-                    credits={sport.prop_credits}
-                  />
-                </li>
-              ))}
-            </ul>
-          </details>
-        </div>
-      ))}
+            {propCredits === null || !sport.prop_markets_available ? (
+              // #37: the desk's prop keys are baseball markets, so a prop tap
+              // on this sport would pay for nothing and the server refuses it.
+              // No button, and the reason in words rather than a disabled
+              // control that looks like a budget problem.
+              <p className="mt-3 max-w-prose text-xs text-muted">
+                No player-prop refresh for {leagueLabel(sport.sport_key)}: the
+                only prop markets this desk can buy are baseball markets, so a
+                prop tap here would pay for nothing. Team lines still refresh.
+              </p>
+            ) : (
+              <details className="mt-3">
+                <summary className="cursor-pointer text-sm font-semibold">
+                  Player props, one game at a time ({propCredits} credits each)
+                </summary>
+                <p className="mt-2 max-w-prose text-xs text-muted">
+                  Props are billed per game, so this is the expensive half and
+                  is deliberately not a single button for the slate. Refreshing
+                  all {sport.fixtures.length} would cost{" "}
+                  {sport.fixtures.length * propCredits} credits.
+                </p>
+                <ul className="mt-2 space-y-3">
+                  {sport.fixtures.map((fixture) => (
+                    <li key={fixture.odds_event_id}>
+                      <RefreshOddsButton
+                        sportKey={sport.sport_key}
+                        oddsEventId={fixture.odds_event_id}
+                        label={`${fixture.title} — ${formatClock(
+                          fixture.commence_ms,
+                        )}`}
+                        credits={propCredits}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
+        );
+      })}
 
       {/* Demoted from the top of the panel on 2026-08-28. A caption, not a
           headline: whether *this* tap will be refused is answered by whether
           the button is disabled and by the verbatim refusal it returns. */}
       <p className="mt-4 max-w-prose text-xs text-muted">
         {data.note} Taps have reserved {data.manual_credits_spent_today} of{" "}
-        {data.manual_daily_credits} credits set aside for them today, kept
-        apart from the scheduled windows — those are what build the record.
-        The whole day has spent {data.day_credits_spent} of{" "}
-        {data.day_credits_budget}. The same button waits{" "}
-        {Math.round(data.cooldown_ms / 60000)} minutes between taps, because
-        the books&apos; own scrape is slower than that and a second call would
-        buy the same numbers at the same age.
+        {data.manual_daily_credits} credits set aside for them today, kept apart
+        from the scheduled windows — those are what build the record. The whole
+        day has spent {data.day_credits_spent} of {data.day_credits_budget}. The
+        same button waits {Math.round(data.cooldown_ms / 60000)} minutes between
+        taps, because the books&apos; own scrape is slower than that and a
+        second call would buy the same numbers at the same age.
       </p>
 
       <p className="mt-2 text-xs text-muted">

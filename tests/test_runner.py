@@ -2483,6 +2483,52 @@ class TestScheduledPropBuyingIsOffByDefault:
             f"the tap did not buy its named fixture; got {odds.prop_calls}"
         )
 
+    async def test_a_named_fixture_on_a_sport_with_no_prop_markets_is_not_bought(
+        self, conn, kalshi_events, kalshi_prop_capture, prop_commence_ms
+    ):
+        """#37. A named set bypasses the schedule guards on purpose, so it
+        must not bypass this one: the keys the provider would be asked for
+        are baseball markets, and a football fixture named by a tap would
+        buy batter lines against it. No call is made, and the skip is
+        recorded so the tap does not vanish."""
+        from backend.kalshi.discovery import discover_from_events
+        from backend.odds.client import store_quotes
+        from backend.odds.timing import MANUAL
+        from backend.runner import fetch_and_store_props
+
+        helper = TestIngestActuallyBuysTheProps()
+        now = prop_commence_ms - 30 * 60 * 1000
+        quotes = helper._quotes(commence_ms=prop_commence_ms, fetched_ms=now)
+        store_quotes(conn, quotes)
+        discovered = discover_from_events(
+            _prop_slate(kalshi_events, kalshi_prop_capture, prop_commence_ms)
+        )
+        odds = helper.FakePropOdds(quotes)
+        stored = await fetch_and_store_props(
+            conn,
+            odds,
+            events=discovered,
+            quotes=quotes,
+            sport_key="americanfootball_nfl",
+            now=now,
+            slot=None,
+            trigger=MANUAL,
+            only_events=("odds-1",),
+            scheduled_prop_sports=set(),
+        )
+        assert stored == 0
+        assert odds.prop_calls == [], (
+            "a prop call was made for a sport whose prop keys are baseball "
+            f"markets: {odds.prop_calls}"
+        )
+        row = conn.execute(
+            "SELECT outcome, detail FROM odds_sweep_log "
+            "WHERE sport_key = 'americanfootball_nfl' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert row is not None and row["outcome"] == "skipped"
+        assert "no player-prop markets for americanfootball_nfl" in row["detail"]
+        assert "odds-1" in row["detail"]
+
 
 class TestTheQuotePassWalksOnlyPriceableSeries:
     """The narrowed walk (ADR 0053), which is what stopped the quote pass

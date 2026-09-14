@@ -727,6 +727,19 @@ class TestTheAlternateFeedIsNotBought:
             "10 credits at us,eu -- was 20 while the alternates were bought"
         )
 
+    def test_the_prop_keys_belong_to_exactly_one_sport(self):
+        """#37. Every key `prop_market_keys()` returns is a baseball market,
+        and `sport_has_prop_markets` is the fact a buyer must check first.
+        The day a second sport's keys land, both halves of this move
+        together; until then a football prop request buys batter lines."""
+        from backend.odds.client import PROP_MARKET_SPORTS, sport_has_prop_markets
+
+        assert PROP_MARKET_SPORTS == frozenset({"baseball_mlb"})
+        assert sport_has_prop_markets("baseball_mlb") is True
+        for sport in ("americanfootball_nfl", "americanfootball_ncaaf", "basketball_nba"):
+            assert sport_has_prop_markets(sport) is False, sport
+        assert all(k.startswith(("pitcher_", "batter_")) for k in prop_market_keys())
+
     def test_a_whole_prop_tap_is_the_team_sweep_plus_the_props(self):
         """The number a person actually spends, in one place that can fail.
 

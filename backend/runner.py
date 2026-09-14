@@ -124,6 +124,7 @@ from .odds.client import (
     PROP_MARKETS,
     OddsQuote,
     prop_market_keys,
+    sport_has_prop_markets,
     store_quotes,
 )
 from .odds.sweeplog import NO_DATA, REFUSED, SERVED, SKIPPED, record_sweep_outcome
@@ -2675,6 +2676,25 @@ async def fetch_and_store_props(
     Returns the number of prop quotes stored.
     """
     named = [e for e in dict.fromkeys(only_events) if e]
+
+    if not sport_has_prop_markets(sport_key):
+        # #37. Before every other guard, named set or not: the keys
+        # `prop_market_keys()` would request are baseball markets, so a prop
+        # call for any other sport asks the provider for batter lines against
+        # a football game and may bill for the answer. The tap route refuses
+        # this first; this is the guard for anything that reaches the inbox
+        # some other way, and for a scheduled window on a sport whose Kalshi
+        # ladder was discovered but whose odds-side keys do not exist.
+        record_sweep_outcome(
+            conn, pass_ms=now, sport_key=sport_key, outcome=SKIPPED,
+            detail=(
+                f"props: this desk has no player-prop markets for "
+                f"{sport_key}; the only prop keys it can buy are baseball "
+                f"markets, so no prop call was made"
+                + (f" for {', '.join(named)}" if named else "")
+            ),
+        )
+        return 0
 
     if not named and scheduled_prop_sports is not None:
         if sport_key not in scheduled_prop_sports:
