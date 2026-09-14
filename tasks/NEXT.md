@@ -119,6 +119,118 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-14 (fourteenth session) — Arm D never ran because nothing runs between sessions; both lanes are merged and live; #36 closed on zero credits
+
+**The session's finding is that "a scheduled run" was a person nobody named.**
+Arm D — five captures at five UTC minutes on Sunday 2026-09-13
+(`docs/measurements/2026-09-09-preregistration-combo-exit-nfl-sunday.md` §7)
+— took **0 of 5**. No session was open on Sunday; nothing in this repo opens
+one; a timer set in a session dies with it. Four consecutive entries in this
+file called it *"a scheduled run, not a task to plan."* By the registration's
+own §7 every slot is MISSING, collection closed 01:15Z today, and no later
+look may be taken. **Joe stayed off combos all weekend to protect a sampling
+frame that was never sampled.** He was told plainly this morning, and told
+the hold is lifted. The partner's reading, adopted: the look is void and
+**has no successor** — the universal claim was already falsified by the
+2026-09-10 disclosed look (two shard-1 books, one resting YES level of 10
+each), the owed screen correction shipped before C1, and the only branch
+with a live consequence (`EXIT_AT_CEILING`, a 250-contract bid) had size 10
+against it. A rate was lost, not a finding. Written as
+`docs/measurements/2026-09-13-combo-exit-nfl-sunday-result.md` (five slots
+MISSING, void), **ADR 0146**, and a lesson (a wall-clock time in a
+registration is a person, and the person must be named; a constraint on Joe
+expires with the window and he is told when it closes).
+
+**STATE at close.** `main` pushed, live = main (deployed with
+`-e GIT_SHA="$(git rev-parse HEAD)"` in one command and read back off
+`/api/health` against `git rev-parse HEAD`); recorder writing, live quotes
+up, arming unchanged (hand path armed, engine and bids dry). **Schema v41 on
+the volume** (`meta.schema_version = 41`, `idx_odds_window` present, planner
+reports `SEARCH ... USING COVERING INDEX idx_odds_window`), migration
+`v40 -> v41` in **2m05s** at boot (15:23:46Z–15:25:51Z), inside the 2–4 min
+budget; the 600 s grace untouched. ADRs **0144** (lane B), **0145** (lane C)
+and **0146** (Arm D void) taken. Odds path untouched all session; the freeze
+lifted 10:00Z and nothing under `backend/odds/` changed anyway. **Credits:
+zero spent.** No lookup minted; combo taps are Joe's own from here.
+No lane worktrees remain; both lane branches deleted locally and on origin.
+One empty OS-held shell directory (`agent-a11b77117a02ff6c8`) still cannot
+be removed.
+
+### What shipped, in the partner's order
+
+1. **Lane B merged — `909632c`, ADR 0144, schema v41.** Merged at the
+   branch's final v41 state rather than rebased: the rebase conflicted at the
+   branch's *first* commit, which still carried the v40 placeholder, so a
+   merge resolved once (db.py: both migration blocks kept, 40 then 41, lane
+   B's placeholder sentences replaced with the allocation) instead of three
+   times. Full suite green on the merged tree (exit 0), ruff clean. Deployed;
+   the first `/api/parlays` after the index build read **17.4 s** (cold page
+   cache on a 6.0 GB file, right after a two-minute index build) and
+   **0.60–0.66 s** warm; `/api/window` **0.84–1.03 s** warm. **No
+   before/after on live is claimed** — the pre-index live route was never
+   timed under this method; what is established is that the planner uses the
+   index and the routes are inside their historic best bands.
+2. **Lane C merged — fast-forward to `bff16db`, ADR 0145.** One correction on
+   the way in: the DRAFT→0145 H1 edit was made in the lane worktree but
+   `git mv` staged the *index* content, so the numbering commit carried the
+   old header and `test_every_file_declares_a_number_this_test_understands`
+   went red on the combined suite (1 failed, 7,087 passed). Fixed on main and
+   the unpushed commit amended. **Pattern: edit, then `git add`, then
+   `git mv` — or check `git show HEAD:<path> | head -1` before pushing a
+   rename.** Full suite on the combined tree: that one failure and nothing
+   else; guards re-run green after the amend.
+3. **#36 closed on the partner's reading, zero credits spent.** The scout
+   found the only prop-buying path (`POST /api/odds/refresh` with an
+   `odds_event_id`) calls `prop_market_keys()`, which returns the five
+   **MLB** keys for every sport; `STAGED_PROP_CARD.markets` is
+   `MLB_PROP_MARKETS`; MLB's season ends in about two weeks. So a sweep could
+   not change a decision — an MLB result expires with the season and an NFL
+   sweep needs a build first — and the partner ruled: close, spend nothing,
+   no build. Joe's "spend the credits" answer stands as given; the premise
+   changed and the closing comment says he can reopen by saying so. Written
+   on the ticket: the operative threshold (**≥2 distinct fixtures** each
+   with a fresh, two-sided, devigged prop leg and a Kalshi rung —
+   `min_legs = 2`, one leg per fixture), so a reopener does not re-derive it.
+4. **#37 opened** under map #3: a prop refresh on a non-MLB fixture requests
+   MLB markets against it and may still bill — a live defect on a route Joe
+   can tap today. The asked-for fix is a **refusal** for sports with no prop
+   keys, not a sport-aware build. Not folded into #36's closure on purpose.
+5. **Housekeeping.** `tasks/LANES.md` ledger closed for both lanes, board
+   regenerated (no lanes, no findings). Lesson and result doc as above.
+
+### The 2026-09-12 "Cockpit API unreachable" alert — assessed, not fixed
+
+One notification at 21:01:09Z on a routine quote pass, `detail = "health
+probe failed"`. Every neighbouring pass and venue poll succeeded, no loop
+failure, no machine restart since the 09-11 deploy, health's own DB reads are
+sub-millisecond and the WAL was 1.9 MB. Most likely a briefly saturated box:
+NCAAF kickoff cluster, a 5,000-quote sweep just written, and `/parlays` open
+(attention rows at 20:38Z and 21:02Z) on a 2-vCPU shared machine against a
+6.0 GB I/O-bound file. **Not provable**: the loop's exception detail goes
+only to the 100-line log stream. Known and declined: recording the exception
+class on the notification row would make the next one diagnosable.
+
+### Still open, in order
+
+1. **#37** — refuse a prop refresh for a sport with no prop keys. Small,
+   unowned, the only code item on the list.
+2. **The census** — first session after the 10th real manual order or
+   2026-11-01. Runnable as written; may not be cited for or against ADR 0143
+   or 0145.
+3. **Known and declined, carried so nobody promotes them:**
+   `parlay_positions.status` never advances; no hedge-evaluation table;
+   `int(fill_count)` truncation (`routes.py:3952`, noted in ADR 0145);
+   the API-unreachable alert's cause is not recorded; the lane-board
+   integration-tree guard is red on every branch CI run by construction
+   (passes at merge).
+4. **Reservations:** none live. Next ADR is **0147**; schema is v41.
+
+**Struck this session:** Arm D (void, ADR 0146 — never again "scheduled"
+without a name), lane B and lane C (merged), #36 (closed), the weekend
+"nothing money-touching" hold (its window closed).
+
+---
+
 ## 2026-09-11 (thirteenth session) — E3 is fixed on a branch without touching a column, `/hedge` has never produced a lock, and Monday now merges two lanes
 
 **The session's finding is that the "money-path defect" was a read-site

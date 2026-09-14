@@ -16,6 +16,48 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-14 - A wall-clock time in a registration is not a schedule; it is a person, and the person must be named
+
+Arm D of the combo-exit registration fixed five captures at five UTC minutes
+on Sunday 2026-09-13. `tasks/NEXT.md` carried it for four sessions as *"a
+scheduled run, not a task to plan."* Nothing in this repo runs a command at a
+minute: there is no scheduler, no cron reaching `scripts/`, and a timer set in
+a session dies with the session. No session was open on Sunday. Zero of five
+captures were taken and the look is void by its own §7.
+
+The word *scheduled* named a mechanism that did not exist, and it survived
+four reviews because it read like a decision already made. A stopping rule
+fixed to a clock time carries an unnamed dependency — a human at a keyboard
+at that minute — and writing "scheduled" converts a missing owner into an
+assumed one.
+
+Where the cost actually landed: Joe was asked to take no combo taps all
+weekend so the measurement's sampling frame stayed clean. The frame was never
+sampled. He paid the wait in full and got nothing for it, and nothing told
+him when the window closed.
+
+Three rules:
+
+- **Name the person, or write a rule a session can reach.** Either the
+  registration says who is at the keyboard at each minute and how that
+  session comes to exist, or the stopping rule is one any later session can
+  satisfy (*n* captures at least *X* minutes apart, first session on or after
+  date *D*). "Scheduled" with no scheduler is neither.
+- **A constraint imposed on Joe to protect a future measurement expires with
+  the window, and he is told the moment it closes, pass or fail.** Otherwise
+  the abstention outlives its reason silently, the same way a stale
+  justification does.
+- **When a plan item names a date, ask what happens on that date and who does
+  it.** If the answer is "it just runs", find the thing that runs it. If
+  there is no such thing, the item is a task, and it goes to whoever will be
+  awake.
+
+Where it went: `docs/measurements/2026-09-13-combo-exit-nfl-sunday-result.md`
+(five slots MISSING, void), ADR 0146 (no successor; the question was already
+answered by the 2026-09-10 disclosed look), and the hold on combo taps lifted.
+
+---
+
 ## 2026-09-11 - Before a missing number becomes a migration, check whether the row already determines it
 
 E3 — the entry fee absent from `parlay_positions.stake_tenths` — arrived
