@@ -927,18 +927,18 @@ class TestTheRefreshableEndpointStatesTheSpend:
         by_sport = {
             s["sport_key"]: s for s in (await self._get(live_app)).json()["sports"]
         }
-        from backend.config import OddsConfig
         from backend.odds.client import prop_market_keys
 
         mlb, ncaaf = by_sport["baseball_mlb"], by_sport["americanfootball_ncaaf"]
         assert mlb["prop_markets_available"] is True
         # The team half plus one credit per prop key per region -- the same
-        # arithmetic `test_odds.py` pins at the deployed lists; here the lists
-        # are whatever this test process was configured with, so the claim is
-        # the relation, not the 14.
-        assert mlb["prop_credits"] == mlb["team_credits"] + sweep_cost(
-            prop_market_keys(), OddsConfig.load().regions
-        )
+        # arithmetic `test_odds.py` pins at the deployed lists. Here the
+        # region list is whatever this process was configured with (CI has
+        # no `.env`, so it is not loaded), so the claim is the relation: the
+        # prop half is a whole number of regions times the key count.
+        prop_half = mlb["prop_credits"] - mlb["team_credits"]
+        assert prop_half > 0
+        assert prop_half % len(prop_market_keys()) == 0
         assert ncaaf["prop_markets_available"] is False
         assert ncaaf["prop_credits"] is None
         assert ncaaf["team_credits"] == mlb["team_credits"]
