@@ -909,6 +909,49 @@ class TestThePayload:
         block = self._payload(conn, live, {CIN: book(status="settled")})["hedge"]
         assert block is not None and block["refusal"] is not None
 
+    def test_the_weakest_leg_is_selected_even_when_its_book_has_gone_terminal(
+        self, conn
+    ):
+        """ADR 0147. Two legs, both `pending`, both quoted: the weakest one's
+        market has stopped trading, the other is live and hedgeable.
+
+        `assess` picks the weakest by price BEFORE `refusal()` looks at
+        status, so the whole block refuses `market_closed` and names the
+        terminal leg. That is deliberate and this test is what stops it being
+        "fixed": falling through to the second-weakest would price a hedge on
+        the healthy leg while the leg that endangers the ticket sits
+        un-hedgeable — spending real money on the leg that was never the
+        problem, one cycle before `resolve_from_venue` writes the loss and the
+        ticket renders `STATE_DEAD`.
+
+        The window is a clock skew, not a settled leg: a settled leg would
+        already have been resolved and short-circuited to `STATE_DEAD`.
+        `parlay_position_legs.outcome` comes from `kalshi_markets.result`
+        (written only by `market_results.py`'s pass); `HedgeQuote.status` is
+        read fresh from the venue on this cycle.
+        """
+        position_id = record(conn)
+        payload = self._payload(
+            conn,
+            position_id,
+            {
+                CIN: book(yes_bid=20, status="settled"),
+                LAD: book(ticker=LAD, yes_bid=800, no_bid=150),
+            },
+        )
+        refusal = payload["hedge"]["refusal"]
+        # Stated first and separately: falling through to the second-weakest
+        # leg prices a real hedge here, so the failure reads as "a hedge was
+        # offered" rather than as a TypeError three lines down.
+        assert refusal is not None, (
+            "a hedge was priced on the live leg while the weakest leg's "
+            "market had gone terminal — see ADR 0147"
+        )
+        assert refusal["reason"] == core_hedge.MARKET_CLOSED
+        # The terminal leg, not the live one beside it.
+        assert CIN in refusal["detail"] and LAD not in refusal["detail"]
+        assert "ask_display" not in payload["hedge"]
+
     def test_a_leg_with_no_bid_shows_no_percentage_rather_than_zero(self, conn):
         position_id = record(conn)
         payload = self._payload(
