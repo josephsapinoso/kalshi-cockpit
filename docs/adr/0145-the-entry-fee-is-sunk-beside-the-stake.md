@@ -1,9 +1,8 @@
-# DRAFT — The entry fee is sunk beside the stake, at the read site
+# 0145 — The entry fee is sunk beside the stake, at the read site
 
-Written by lane C (`lane-c-hedge-entry-fee`) with no ordinal; the number is
-taken at the merge commit after `git fetch`, per `docs/adr/README.md`.
-Reserved for **0145** in `tasks/LANES.md` (0144 is lane B's). **No schema
-change.**
+Written by lane C (`lane-c-hedge-entry-fee`) with no ordinal; **0145 taken at
+the merge on 2026-09-14** after `git fetch`, with 0144 on `main` (lane B,
+merged the same morning), per `docs/adr/README.md`. **No schema change.**
 
 Date: 2026-09-11
 Status: proposed
