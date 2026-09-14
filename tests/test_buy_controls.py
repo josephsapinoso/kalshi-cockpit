@@ -338,11 +338,33 @@ class TestTheAmountIsTypedInDollars:
         ticket = " ".join(source("components/ManualTicket.tsx").split())
         assert "shard {shard.index}" in ticket
         assert "{shard.available_display}" in ticket
-        # Where it CAN be placed, and that the desk will not move his money.
-        assert "it does not do that for this tool" in ticket
-        assert "placeable on kalshi.com and not here" in ticket
-        # The venue's rule, never a brake of ours (ADR 0112).
-        assert "not a cap of the desk" in ticket
+        # What is actually wrong: the wallet is empty, not the path closed.
+        assert "has to hold the money before you tap" in ticket
+        # Never a brake of ours on the SIZE of the bet (ADR 0112). Matched
+        # case-insensitively: the sentence has opened the clause and started
+        # mid-sentence across three rewrites today, and the claim is the
+        # words, not where the full stop happens to fall.
+        assert "cap of the desk" in ticket.lower()
+
+    def test_the_refusal_does_not_claim_combos_cannot_be_bought_here(self):
+        """**ADR 0150.** For one deploy this screen said the bet was
+        "placeable on kalshi.com and not here", off three `insufficient_balance`
+        probes taken while shard 1 held a cent.
+
+        Six of Joe's seven real `manual_orders` rows are filled
+        `KXMVECROSSCATEGORY-SHARD1` combinations placed through this very
+        path on 09-08, 09-09 and 09-10, when that wallet was funded. Three
+        refusals measured an empty wallet, not a closed path, and the copy
+        turned a state into a property.
+
+        A screen that tells him his own past bets were impossible teaches him
+        to stop believing the screen.
+        """
+        ticket = " ".join(source("components/ManualTicket.tsx").split())
+        assert "placeable on kalshi.com and not here" not in ticket
+        assert "cannot be placed here" not in ticket
+        # The positive claim that keeps it honest: it HAS worked when funded.
+        assert "whenever it was funded" in ticket
 
     def test_the_dead_allocation_page_is_not_offered_as_a_remedy(self):
         """The page still loads; it just cannot move money any more (measured

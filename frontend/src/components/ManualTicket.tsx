@@ -715,13 +715,16 @@ function ShardRemedy({ shard }: { shard: ManualMarket["shard"] }) {
       <span className="font-semibold text-foreground">
         {shard.available_display}
       </span>
-      . Kalshi&apos;s own app moves money into a wallet for you as you bet;{" "}
+      . Kalshi&apos;s own app shifts money into a wallet for you as you bet
+      there; it does not do that for an order sent by this tool, so{" "}
       <span className="font-semibold text-foreground">
-        it does not do that for this tool
+        this wallet has to hold the money before you tap
       </span>
-      , and the desk will not move your money itself. So this bet is placeable
-      on kalshi.com and not here — measured 2026-09-14, three refusals out of
-      three. That is the venue&apos;s rule, not a cap of the desk&apos;s.
+      . Bets on this shard have gone through from here whenever it was
+      funded. The desk will not move your money for you — that is a rule of
+      ours, not of the venue&apos;s — so fund it yourself and come back, or
+      place this one on kalshi.com. Not a cap of the desk&apos;s on the size
+      of the bet.
     </>
   );
 }

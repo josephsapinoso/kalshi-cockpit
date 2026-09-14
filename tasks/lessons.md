@@ -16,6 +16,57 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-14 (fifth) - A measurement of a state is not a property of the system, and the tell is a sentence with no "while" in it
+
+Three 2c probes on a live combination came back `insufficient_balance`. That
+went onto the screen as *"this bet is placeable on kalshi.com and not here"*
+and into an ADR as *"a combination bet cannot be placed through this cockpit at
+all."* Joe rejected it from memory of his own fills. He was right: six of his
+seven real `manual_orders` rows are filled `KXMVECROSSCATEGORY-SHARD1`
+combinations placed through that exact path, and the audit proving it had been
+run **at the start of the same session**. The only difference was that the
+shard held $22 then and a cent now.
+
+The probes were fine. The generalisation was not. Three refusals support
+*"while shard 1 holds a cent"* and support nothing whatever about *"at all"*.
+
+It was the third instance of the same shape in one day - an inference about
+where a deposit went, never observed; an argument that a venue "could not have
+shipped" a stranding product, from a false premise; and this. Each took one
+reading of one state and restated it as how the system works. Each reached a
+user-facing surface before it was checked.
+
+Four rules:
+
+- **Before writing a capability claim, grep the local record for a
+  counterexample.** "Has this ever worked?" is a query, not a memory. Fills,
+  orders and captures are right there, and a claim that the tool cannot do X
+  is refuted by one row where it did.
+- **Put the condition in the sentence.** If the honest form needs "while", "when"
+  or "as long as", the unconditioned form is false. A sentence that cannot
+  take the qualifier is a property; one that can and does not is an
+  overreach.
+- **Negative results generalise worst.** N failures under one configuration
+  bound that configuration. Positive results at least prove the thing is
+  reachable.
+- **On a transparency surface, an overreach costs more than an error.** A
+  screen that tells the operator his own past actions were impossible teaches
+  him to stop believing the screen, and that is the whole product (ADR 0071
+  §2.2).
+
+Where the cost landed: one deploy carried a screen contradicting Joe's own
+betting history, and he had to correct the agent to get it fixed. What it
+bought: the funding mechanism was found - the shard axis lives on
+`intra_exchange_instance_transfer`'s optional `*_exchange_shard` fields, which
+the account page does not surface, which is why its absence from the UI looked
+like the capability being gone.
+
+Where it went: ADR 0150, corrected copy, two inverted guards ("placeable on
+kalshi.com and not here" now forbidden, "whenever it was funded" required),
+and `--transfer` on `set_target_balance_allocation.py` for Joe to run.
+
+---
+
 ## 2026-09-14 (fourth) - A remedy is a claim about the world, and it decays faster than the code that names it
 
 ADR 0148 shipped a refusal that named its remedy: the shard is empty, go

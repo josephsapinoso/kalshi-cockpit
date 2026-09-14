@@ -85,6 +85,23 @@ MOVE_FLAG = "--i-am-joe-and-this-moves-money"
 
 ALLOCATION_PATH = "/portfolio/target_balance_allocation"
 BALANCE_PATH = "/portfolio/balance"
+TRANSFER_PATH = "/portfolio/intra_exchange_instance_transfer"
+
+#: Kalshi's own unit on the transfer endpoint: hundredths of a cent.
+#:
+#: NOT this project's tenths (`core/prices.py`). $1.00 = 10,000 centicents =
+#: 1,000 tenths, so the two differ by exactly 10 and a confusion between them
+#: moves ten times too much or too little. Converted in one place, here.
+CENTICENTS_PER_DOLLAR = 10_000
+
+#: The instance side. `event_contract` is Predictions; `margined` is Perpetual
+#: Futures. The account page exposes ONLY this axis -- which is why Joe saw
+#: "transfer between predictions and perpetuals" and concluded funds could no
+#: longer be moved between shards. The shard axis is the pair of optional
+#: `*_exchange_shard` fields on this same call, and the UI simply does not
+#: surface it. A same-side transfer (event_contract -> event_contract) across
+#: two shards is the documented way to fund a shard.
+INSTANCE_EVENT_CONTRACT = "event_contract"
 
 EXIT_OK = 0
 EXIT_REFUSED = 2
@@ -193,6 +210,63 @@ def print_breakdown(label: str, payload: Any) -> None:
     print(f"   {label}: " + ", ".join(parts))
 
 
+async def transfer_between_shards(
+    api: KalshiRestClient,
+    capture: Capture,
+    *,
+    dollars: float,
+    source_shard: int,
+    destination_shard: int,
+) -> int:
+    """Move Predictions money from one exchange shard to another.
+
+    **This is the call ADR 0084 declined to build into the DESK, and it is
+    still not in the desk.** 0084's objection is Kalshi's own warning that a
+    cross-shard transfer "run[s] in up to three non-atomic steps" whose
+    completed steps are not undone on failure -- so an automatic, per-order
+    transfer on the money path could strand funds with nobody watching. A
+    one-off, operator-run, captured transfer is a different object: Joe types
+    the amount, sees the before and after, and is present for the failure.
+
+    The transfer is processed ASYNCHRONOUSLY: a 200 returns a `transfer_id`,
+    not a moved balance. Read the balance again afterwards rather than
+    trusting the response.
+    """
+    amount = int(round(dollars * CENTICENTS_PER_DOLLAR))
+    if amount <= 0:
+        print(f"   ${dollars:.2f} is not a positive amount")
+        return EXIT_REFUSED
+
+    before = await raw_request(api, "GET", BALANCE_PATH)
+    capture.add({"step": "1_balance_before", **before})
+    print_breakdown("balance before", before["body"])
+
+    body = {
+        "source": INSTANCE_EVENT_CONTRACT,
+        "destination": INSTANCE_EVENT_CONTRACT,
+        "amount": amount,
+        "source_exchange_shard": source_shard,
+        "destination_exchange_shard": destination_shard,
+    }
+    print(
+        f"   about to MOVE ${dollars:.2f} ({amount} centicents) "
+        f"from shard {source_shard} to shard {destination_shard}"
+    )
+    moved = await raw_request(api, "POST", TRANSFER_PATH, body)
+    capture.add({"step": "2_transfer", **moved})
+    print(f"   transfer: status {moved['status']}")
+    print(f"   {json.dumps(moved['body'])}")
+    if moved["status"] >= 400:
+        return EXIT_REFUSED
+
+    after = await raw_request(api, "GET", BALANCE_PATH)
+    capture.add({"step": "3_balance_after", **after})
+    print_breakdown("balance after", after["body"])
+    print("   (the transfer is asynchronous -- an unchanged balance here is "
+          "not yet a failure; read again in a few seconds)")
+    return EXIT_OK
+
+
 async def run(
     api: KalshiRestClient,
     capture: Capture,
@@ -264,6 +338,13 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         "--reservation", default="sum", choices=["sum", "max"],
         help="how resting orders reserve margin (default: sum).",
     )
+    parser.add_argument(
+        "--transfer", type=float, metavar="DOLLARS",
+        help="move this many dollars of Predictions money between shards. "
+             "Needs --from-shard and --to-shard.",
+    )
+    parser.add_argument("--from-shard", type=int, help="source exchange shard")
+    parser.add_argument("--to-shard", type=int, help="destination exchange shard")
     return parser.parse_args(argv)
 
 
@@ -271,9 +352,34 @@ async def amain(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
     configure_logging()
 
-    if not args.read and args.allocate is None:
-        print("Nothing to do. Pass --read, or --allocate 0=80,1=20.")
+    if not args.read and args.allocate is None and args.transfer is None:
+        print("Nothing to do. Pass --read, --allocate 0=80,1=20, or "
+              "--transfer 5 --from-shard 0 --to-shard 1.")
         return EXIT_REFUSED
+
+    if args.transfer is not None:
+        if args.from_shard is None or args.to_shard is None:
+            print("--transfer needs --from-shard and --to-shard.")
+            return EXIT_REFUSED
+        if args.from_shard == args.to_shard:
+            print("--from-shard and --to-shard are the same shard.")
+            return EXIT_REFUSED
+        if not args.move_acknowledged:
+            print(f"This moves real money. Re-run with {MOVE_FLAG}.")
+            return EXIT_REFUSED
+        config = KalshiConfig.load()
+        capture = Capture(capture_path())
+        print(f"capture -> {capture.path}")
+        try:
+            async with KalshiRestClient(config) as api:
+                return await transfer_between_shards(
+                    api, capture,
+                    dollars=args.transfer,
+                    source_shard=args.from_shard,
+                    destination_shard=args.to_shard,
+                )
+        finally:
+            print(f"\ncapture written to {capture.path}")
 
     allocations: Optional[list[dict[str, int]]] = None
     if args.allocate is not None:

@@ -119,26 +119,46 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-14 (sixteenth session) — the cockpit cannot place a combination bet at all, and that is why Joe's betting leaves the desk
+## 2026-09-14 (sixteenth session) — a combo bet needs its shard funded, the auto-management toggle is what hides the funding control, and "cannot be placed here" was an overreach Joe caught
 
-**The session's finding is a mechanism, not a defect.** Every combination bet
-sent through this cockpit is refused by Kalshi for shard collateral, while the
-identical bet fills on Kalshi's own website. Combinations are what Joe
-actually bets — all seven real `manual_orders` rows are
-`KXMVECROSSCATEGORY-SHARD1`. Measured today, four ways: the account's
-allocation page is now **read-only** (read in his browser — four balance
-cards and the auto-management toggle, no transfer control); auto-management
-was **ON** and still left the Combos shard at one cent; a 2c GTC probe on a
-live shard-1 combination returned **400 `insufficient_balance` three times out
-of three** (`scripts/probe_resting_combo_order.py`, free — a refused order
-moves no money); and `GET /portfolio/target_balance_allocation` returned
-**`{"allocations": []}`**, so nothing was ever going to fund that shard.
-Kalshi's docs say it outright: *"Programmatic traders must preallocate
-collateral on a given exchange shard before order placement."*
+**The finding, in its corrected form — read ADR 0150 before ADR 0149.** An
+API order is refused when its exchange shard is underfunded, and Kalshi's own
+app funds the shard for you as you bet there while this tool does not. That
+is the whole mechanism. **It is a state, not a closed path**, and the
+difference is the entire lesson of this session.
+
+Established, in order: the account page showed **no transfer control** while
+"Disable balance management" was OFF; auto-management still left Combos at
+one cent against $22.68 on Default; a 2c GTC probe on a live shard-1
+combination returned **400 `insufficient_balance` 3 of 3**
+(`scripts/probe_resting_combo_order.py` — free, a refused order moves no
+money); `GET /portfolio/target_balance_allocation` returned
+**`{"allocations": []}`**. Kalshi's docs: *"Programmatic traders must
+preallocate collateral on a given exchange shard before order placement."*
+
+**Then it was over-generalised, shipped, and refuted by Joe.** Those three
+refusals were written up — in ADR 0149 and on the live ticket — as "a
+combination bet cannot be placed through this cockpit at all." **False.**
+Six of the seven real `manual_orders` rows are *filled*
+`KXMVECROSSCATEGORY-SHARD1` combinations placed through that exact path on
+09-08/09/10, when the shard was funded ($22.24 on 09-08, $14.17 on 09-09);
+the audit proving it was run at the **start of this same session**. Joe
+rejected the claim from memory of his own fills. ADR 0150 corrects it and the
+copy; the forbidden strings are guarded.
+
+**Then Joe settled it himself.** He toggled "Disable balance management" ON
+and moved the whole balance to Exchange 1 — **so the transfer control exists
+and appears once auto-management is off.** Shard 1 read $22.68, and the same
+probe that had refused three times returned **201 accepted**. Combos work
+through the cockpit. (The probe's cancel then 404'd because it omits
+`?exchange_index` — a failure `rest.py` documented on 2026-08-30 and the
+script never adopted; the order was cancelled by hand,
+`reduced_by 1.00`, nothing left resting. **Fixing that script is open work.**)
+
 `docs/measurements/2026-09-04-presence-at-the-moment-of-a-bet-result.md`
-returned UNRESOLVED with no mechanism to point at. **It has one now — and
-that measurement is NOT reopened by this and may not be cited as though it
-were.**
+returned UNRESOLVED with no mechanism to point at. It has a candidate one now
+— an unfunded shard refusing his combo taps — but **that measurement is NOT
+reopened by this and may not be cited as though it were.**
 
 **Check 9a is CORRECT and stays.** It was suspected mid-session of being a
 false brake — refusing bets the venue would take, the ADR 0112 failure, which
@@ -157,13 +177,23 @@ refused him. The whole session came from the question, not from the backlog.
 read back off `/api/health`; clean tree, no lanes, no branches; recorder
 writing; arming unchanged (hand path armed, engine and bids dry); schema v41;
 zero Dependabot alerts; zero open map tickets; **odds credits: zero spent.**
-Next ADR **0150**.
+Next ADR **0151**.
 
-**One account setting was changed, on Joe's explicit yes:** a target balance
-allocation of `0=80, 1=20` is now set (was `[]`). **It is stored and inert** —
-the balance had not moved after ~4 minutes, ~24 cycles of the documented
-10-second rebalance clock. Unset it with
-`scripts/set_target_balance_allocation.py --allocate "" --i-am-joe-and-this-moves-money`.
+**ACCOUNT STATE AT CLOSE — read this before advising anything.** Joe has
+"Disable balance management" **ON** (manual mode) and the **entire balance on
+Exchange 1 (Combos)**: shard 1 $22.68, shard 0 $0.0065. So combos are
+placeable from the cockpit and **singles are not** — a single-market bet
+draws on shard 0, which is empty. Moving money between shards is the
+operator's own action in the UI, or
+`scripts/set_target_balance_allocation.py --transfer N --from-shard A
+--to-shard B --i-am-joe-and-this-moves-money` (the agent is refused this by
+policy; Joe runs it).
+
+**The target allocation is CLEARED** — `{"allocations": []}`, read back, on
+Joe's instruction. It had been set to `0=80, 1=20` earlier in the session
+while it was inert under auto-management; under manual mode it could have
+pulled 80% back to Default and undone his move. Automatic rebalancing is off
+and the balance stays where he put it.
 
 ### What shipped
 
@@ -198,28 +228,31 @@ right; a successor must re-argue it rather than cite 0084.
 
 ### Still open, in order
 
-1. **The toggle test — the one thing that could make combos placeable here.**
-   Turn "Disable balance management" ON, watch whether the standing allocation
-   funds shard 1, re-run the 2c probe. Deferred **by Joe** tonight because
-   turning it off may also stop Kalshi covering his *website* bets, which is
-   the path that currently works, and the window overlapped first pitch.
-   **His call, not a task to schedule** — ADR 0146's rule.
-2. **`read_shard_funds` may read a gross number.** It reads
+1. **Fix `probe_resting_combo_order.py`'s cancel.** It omits
+   `?exchange_index`, so a *successful* probe leaves a real order resting and
+   404s on the way out — which happened tonight and was cancelled by hand
+   (`reduced_by 1.00`). `rest.py:655-670` documents the fix and the script
+   never adopted it. Verify by disabling. The orders-list read returned
+   **401** in the same run, unexplained; worth one look.
+2. **Check nothing else still asserts combos cannot be placed here.** ADR
+   0149 §1 and §4 are superseded by ADR 0150 (ADRs are not edited), but copy,
+   comments or CLAUDE.md may have picked the claim up.
+3. **`read_shard_funds` may read a gross number.** It reads
    `balance_breakdown[].balance`; Kalshi defines spendable as balance minus
    resting-order value and now publishes `resting_order_value_breakdown`. If
    gross, 9a is *permissive*, not a brake. One capture settles it.
-3. **`backend/kalshi/rest.py:57-60`'s shard map is stale.** Read off the live
+4. **`backend/kalshi/rest.py:57-60`'s shard map is stale.** Read off the live
    account page today: shard 2 is "Crypto **& Commodities**", shard 3 is
    "Tennis, Baseball, **Basketball**". Nothing computes off the comment; it is
    what a future session reasons from.
-4. **Read the next real fill's row** — still 7 `manual_orders` rows, 6 filled,
+5. **Read the next real fill's row** — still 7 `manual_orders` rows, 6 filled,
    last submitted 2026-09-10T16:00Z. Unchanged today.
-5. **The census** — first session after the 10th real manual order (at 7) or
+6. **The census** — first session after the 10th real manual order (at 7) or
    2026-11-01.
-6. Carried: `parlay_positions.status` never advances; no hedge-evaluation
+7. Carried: `parlay_positions.status` never advances; no hedge-evaluation
    table; `int(fill_count)` truncation; the API-unreachable alert's exception
    class; `/hedge`'s 25 s `get_conn` timeout as its real blanking mode.
-7. **Reservations:** none live. Next ADR **0150**; schema v41.
+8. **Reservations:** none live. Next ADR **0151**; schema v41.
 
 **Struck this session:** the `/hedge` weakest-leg item (ruled, ADR 0147); the
 typed-amount defect (fixed, ADR 0148); the false remedy (corrected, ADR 0149);
