@@ -210,24 +210,46 @@ NCAAF kickoff cluster, a 5,000-quote sweep just written, and `/parlays` open
 only to the 100-line log stream. Known and declined: recording the exception
 class on the notification row would make the next one diagnosable.
 
+### Later the same day — #37 fixed and live, and the freeze guard retired
+
+Joe asked for #37 by name. One predicate, `sport_has_prop_markets()` beside
+`PROP_BASE_MARKETS` in `backend/odds/client.py` (`PROP_MARKET_SPORTS =
+{"baseball_mlb"}` — the sport those keys belong to, **not** a per-sport key
+map, which is the NFL build #36 declined), asked by three callers before
+spending: `POST /api/odds/refresh` refuses a prop tap on such a sport in
+words with `estimated_credits = 0` (the team refresh still goes);
+`GET /api/odds/refreshable` quotes `prop_credits: null` (never 0) plus
+`prop_markets_available`, and the panel offers no prop button and says why;
+`runner.fetch_and_store_props` refuses before every other guard, named set
+or not, and records the skip in `odds_sweep_log`. Verified by disabling:
+the predicate returning `True` turns the four new tests red. Commit
+`1e65bfd`, deployed and read back off `/api/health`.
+
+**The full suite found one thing, and it was not #37's.**
+`TestTheFreezeIsRespected` (`tests/test_fair_price_dedupe.py`) asserted no
+file under `backend/odds/` differed from the merge-base with `main` — with
+**no expiry**, so it tripped on the first post-freeze change and would have
+on every one after, forever, while CI could never see it (on `main` the
+diff is empty by construction). Retired with a dated note in its place. A
+future freeze puts its end time in the assertion.
+
 ### Still open, in order
 
-1. **#37** — refuse a prop refresh for a sport with no prop keys. Small,
-   unowned, the only code item on the list.
-2. **The census** — first session after the 10th real manual order or
+1. **The census** — first session after the 10th real manual order or
    2026-11-01. Runnable as written; may not be cited for or against ADR 0143
    or 0145.
-3. **Known and declined, carried so nobody promotes them:**
+2. **Known and declined, carried so nobody promotes them:**
    `parlay_positions.status` never advances; no hedge-evaluation table;
    `int(fill_count)` truncation (`routes.py:3952`, noted in ADR 0145);
    the API-unreachable alert's cause is not recorded; the lane-board
    integration-tree guard is red on every branch CI run by construction
    (passes at merge).
-4. **Reservations:** none live. Next ADR is **0147**; schema is v41.
+3. **Reservations:** none live. Next ADR is **0147**; schema is v41.
 
 **Struck this session:** Arm D (void, ADR 0146 — never again "scheduled"
-without a name), lane B and lane C (merged), #36 (closed), the weekend
-"nothing money-touching" hold (its window closed).
+without a name), lane B and lane C (merged), #36 (closed), #37 (fixed,
+live), the freeze guard (retired), the weekend "nothing money-touching"
+hold (its window closed). **The code list is empty.**
 
 ---
 
