@@ -16,6 +16,57 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-14 (fourth) - A remedy is a claim about the world, and it decays faster than the code that names it
+
+ADR 0148 shipped a refusal that named its remedy: the shard is empty, go
+allocate funds at `kalshi.com/account/exchange-indexes`. A test *required* the
+URL, on the sound-sounding rule that a refusal must say what to do about
+itself. Hours later Joe said he could not move funds any more. Opening the page
+in his browser: it still loads, and it is now four read-only balance cards and
+one toggle. No transfer control. The sentence had been instructing an
+impossible action from the moment it deployed, and a guard was holding it in
+place.
+
+Then the reasoning went wrong in the other direction. From "there is no manual
+control" I argued Kalshi could not possibly leave API users stranded, therefore
+auto-management must now cover the API, therefore the desk's collateral check
+was a false brake on the money path. Every step felt forced. The premise was
+false: two documented transfer endpoints exist, so API users are not stranded
+and the argument collapses. Three live probes then refused `insufficient_balance`
+outright — the check was right all along, and the *comfortable* conclusion
+(our code is fine) happened to be the true one, reached only by measuring.
+
+Four rules:
+
+- **A refusal may name a remedy only if the remedy has been seen to work.**
+  "The venue's docs mention a page" is not that. A URL in user-facing copy is
+  an assertion about a third party's UI, which changes without telling you and
+  which no test in your repo can observe.
+- **Prefer telling the reader where the thing CAN be done over telling them
+  how to fix it.** "This is placeable on kalshi.com and not here" stays true
+  through a UI redesign; "go to /account/exchange-indexes and allocate" does
+  not.
+- **When a required-string guard turns out to pin a falsehood, invert it
+  rather than delete it.** The dead URL is now forbidden by test, on both
+  surfaces that carried it — the same move as the dead per-bet cap.
+- **An argument from "they could not have shipped that" is not evidence.**
+  It reasons from a product's coherence to a fact, and it will mislead you
+  exactly when your model of the product is incomplete. Reach for the cheapest
+  observation instead: three refused orders cost nothing, because a refused
+  order moves no money.
+
+Where the cost landed: nothing, this time — the probes were free and the false
+copy lived for about two hours in front of the one person who already knew it
+was false. What it bought: the mechanism pushing Joe's betting off the desk is
+now named. Every combination bet through the cockpit is refused for shard
+collateral while the same bet fills on Kalshi's site, and combinations are all
+seven of his real orders.
+
+Where it went: ADR 0149, corrected ticket copy, an inverted guard, and
+`scripts/set_target_balance_allocation.py` (read-first, money behind a flag).
+
+---
+
 ## 2026-09-14 (third) - A sentence that explains a number must be selected by the predicate that produced it, and a refusal's remedy has to travel to the screen that shows it
 
 Joe tried to buy a 25.7c combination through the cockpit with $1.00 typed and

@@ -119,6 +119,114 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-14 (sixteenth session) — the cockpit cannot place a combination bet at all, and that is why Joe's betting leaves the desk
+
+**The session's finding is a mechanism, not a defect.** Every combination bet
+sent through this cockpit is refused by Kalshi for shard collateral, while the
+identical bet fills on Kalshi's own website. Combinations are what Joe
+actually bets — all seven real `manual_orders` rows are
+`KXMVECROSSCATEGORY-SHARD1`. Measured today, four ways: the account's
+allocation page is now **read-only** (read in his browser — four balance
+cards and the auto-management toggle, no transfer control); auto-management
+was **ON** and still left the Combos shard at one cent; a 2c GTC probe on a
+live shard-1 combination returned **400 `insufficient_balance` three times out
+of three** (`scripts/probe_resting_combo_order.py`, free — a refused order
+moves no money); and `GET /portfolio/target_balance_allocation` returned
+**`{"allocations": []}`**, so nothing was ever going to fund that shard.
+Kalshi's docs say it outright: *"Programmatic traders must preallocate
+collateral on a given exchange shard before order placement."*
+`docs/measurements/2026-09-04-presence-at-the-moment-of-a-bet-result.md`
+returned UNRESOLVED with no mechanism to point at. **It has one now — and
+that measurement is NOT reopened by this and may not be cited as though it
+were.**
+
+**Check 9a is CORRECT and stays.** It was suspected mid-session of being a
+false brake — refusing bets the venue would take, the ADR 0112 failure, which
+would have outranked everything. Three probes at the venue say no. The
+2026-08-30 observation it was built on never recorded the toggle state; today's
+does.
+
+**How the session started, and why that matters.** The partner opened with 48
+commits / 5 ADRs / 2 migrations since the last fill against **0 bets**, and
+ruled: a near-nothing day, do not manufacture a lane. That was right on the
+evidence it had. What changed it was **asking Joe one question** — had he bet,
+and did it go through the tool. He had bet, directly, because the cockpit
+refused him. The whole session came from the question, not from the backlog.
+
+**STATE at close.** `main` = live, deployed with `-e GIT_SHA=<full sha>` and
+read back off `/api/health`; clean tree, no lanes, no branches; recorder
+writing; arming unchanged (hand path armed, engine and bids dry); schema v41;
+zero Dependabot alerts; zero open map tickets; **odds credits: zero spent.**
+Next ADR **0150**.
+
+**One account setting was changed, on Joe's explicit yes:** a target balance
+allocation of `0=80, 1=20` is now set (was `[]`). **It is stored and inert** —
+the balance had not moved after ~4 minutes, ~24 cycles of the documented
+10-second rebalance clock. Unset it with
+`scripts/set_target_balance_allocation.py --allocate "" --i-am-joe-and-this-moves-money`.
+
+### What shipped
+
+1. **ADR 0147** — the `/hedge` weakest-leg ordering ruled **deliberate and
+   declined**, the last unruled item on the board. The item's stated cause was
+   wrong (a settled leg short-circuits to `STATE_DEAD` first); the real window
+   is a clock skew between `kalshi_markets.result` and the live quote status.
+   The obvious fall-through fix would price a hedge on the healthy leg one
+   cycle before the ticket dies. Pinning test added, mutation-verified.
+2. **ADR 0148** — the ticket blamed Joe's typed amount for an empty wallet.
+   `affordable` (3 contracts) vs `contracts` (0 after the ceiling): the
+   "Not enough, the smallest bet here is $0.26" sentence was branched on the
+   second while asserting about the first, and the contradicting "Trimmed to
+   0 — your Kalshi wallet set the size" rendered right under it. Fixed with a
+   third branch, the shard block on `GET /api/manual/market/`, and
+   `exchange-shard` in the glossary.
+3. **ADR 0149** — §1 above. Ticket copy corrected again (see below),
+   `scripts/set_target_balance_allocation.py` added read-first.
+
+### Corrected within the session — read this before trusting ADR 0148 §4
+
+ADR 0148 shipped a remedy — *"allocate at kalshi.com/account/exchange-indexes"*
+— that **the page cannot perform**, and a test *required* the URL. It was
+instructing an impossible action from the moment it deployed. The guard is now
+**inverted**: the URL is forbidden on both surfaces that carried it (the ticket
+and the glossary). ADRs are not edited; 0148 stands as written and 0149
+supersedes its §4. Lesson: `tasks/lessons.md` 2026-09-14 (fourth).
+
+**ADR 0084's premise is void.** It ruled the desk never moves money *because
+the operator can do it at that page*. He cannot. The conclusion may still be
+right; a successor must re-argue it rather than cite 0084.
+
+### Still open, in order
+
+1. **The toggle test — the one thing that could make combos placeable here.**
+   Turn "Disable balance management" ON, watch whether the standing allocation
+   funds shard 1, re-run the 2c probe. Deferred **by Joe** tonight because
+   turning it off may also stop Kalshi covering his *website* bets, which is
+   the path that currently works, and the window overlapped first pitch.
+   **His call, not a task to schedule** — ADR 0146's rule.
+2. **`read_shard_funds` may read a gross number.** It reads
+   `balance_breakdown[].balance`; Kalshi defines spendable as balance minus
+   resting-order value and now publishes `resting_order_value_breakdown`. If
+   gross, 9a is *permissive*, not a brake. One capture settles it.
+3. **`backend/kalshi/rest.py:57-60`'s shard map is stale.** Read off the live
+   account page today: shard 2 is "Crypto **& Commodities**", shard 3 is
+   "Tennis, Baseball, **Basketball**". Nothing computes off the comment; it is
+   what a future session reasons from.
+4. **Read the next real fill's row** — still 7 `manual_orders` rows, 6 filled,
+   last submitted 2026-09-10T16:00Z. Unchanged today.
+5. **The census** — first session after the 10th real manual order (at 7) or
+   2026-11-01.
+6. Carried: `parlay_positions.status` never advances; no hedge-evaluation
+   table; `int(fill_count)` truncation; the API-unreachable alert's exception
+   class; `/hedge`'s 25 s `get_conn` timeout as its real blanking mode.
+7. **Reservations:** none live. Next ADR **0150**; schema v41.
+
+**Struck this session:** the `/hedge` weakest-leg item (ruled, ADR 0147); the
+typed-amount defect (fixed, ADR 0148); the false remedy (corrected, ADR 0149);
+the "is 9a a false brake" question (answered: no, 3/3 at the venue).
+
+---
+
 ## 2026-09-14 (fifteenth session) — three counts had collapsed into one word; branch CI now carries a signal; /hedge cannot raise on a live row
 
 **The session's finding is that the transacted-path count in CLAUDE.md was

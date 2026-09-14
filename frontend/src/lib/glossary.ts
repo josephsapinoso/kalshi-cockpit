@@ -239,8 +239,10 @@ export const GLOSSARY = {
       "on exactly one of them. The venue will not move money between " +
       "wallets to pay for an order, so a $1 deposit sitting in the wrong " +
       "wallet cannot buy a 25¢ contract in another — the account total says " +
-      "you can afford it and the order is still refused. You move it " +
-      "yourself at kalshi.com/account/exchange-indexes.",
+      "you can afford it and the order is still refused. Kalshi's own app " +
+      "shifts the money for you as you bet there; it does not do that for " +
+      "orders sent by a tool like this one, and as of 2026-09-14 the account " +
+      "page shows the wallets without offering a way to move between them.",
   },
   kelly: {
     label: "quarter-Kelly",

@@ -314,21 +314,51 @@ class TestTheAmountIsTypedInDollars:
         # And the affordable-but-unbuyable arm must say so in Joe's words.
         assert "your typed amount is not the reason" in ticket
 
-    def test_an_unpayable_bet_names_the_shard_the_balance_and_the_remedy(self):
+    def test_an_unpayable_bet_names_the_shard_the_balance_and_where_it_can_be_placed(
+        self,
+    ):
         """`authorised_binding: "shard"` told the client which bound bit; the
-        copy named no wallet, no figure and no fix, so a reader with a funded
-        account took it as a statement about what he typed.
+        copy named no wallet and no figure, so a reader with a funded account
+        took it as a statement about what he typed.
 
-        `POST /api/manual-orders` check 9a has carried all three facts since
-        2026-09-08 — but only after he has typed an amount and confirmed.
-        This is the same three, one screen earlier.
+        **Re-pointed 2026-09-14 (ADR 0149), claim strengthened.** For a few
+        hours this required the string `kalshi.com/account/exchange-indexes`,
+        on the argument that a refusal must name its remedy. Measured the same
+        evening: that page is now READ-ONLY — four balance cards and the
+        auto-management toggle, no transfer control — so the sentence
+        instructed an action Joe could not perform. A remedy that cannot be
+        carried out is worse than no remedy, because it sends him away to
+        fail rather than to the venue that will take the bet.
+
+        What the refusal must still do: name the wallet, name what is in it,
+        and say where the bet can actually be placed. The URL is now
+        *forbidden* rather than required — the same shape as the dead
+        per-bet cap in `test_whatever_trimmed_the_size_names_itself`.
         """
         ticket = " ".join(source("components/ManualTicket.tsx").split())
         assert "shard {shard.index}" in ticket
         assert "{shard.available_display}" in ticket
-        assert "kalshi.com/account/exchange-indexes" in ticket
+        # Where it CAN be placed, and that the desk will not move his money.
+        assert "it does not do that for this tool" in ticket
+        assert "placeable on kalshi.com and not here" in ticket
         # The venue's rule, never a brake of ours (ADR 0112).
         assert "not a cap of the desk" in ticket
+
+    def test_the_dead_allocation_page_is_not_offered_as_a_remedy(self):
+        """The page still loads; it just cannot move money any more (measured
+        2026-09-14, and the API refused 3/3 with `insufficient_balance` while
+        the account held $22 elsewhere). Telling Joe to go there is telling
+        him to go and fail.
+
+        Asserted across BOTH surfaces that carried it, because the sentence
+        was copied into the glossary as well and a guard on one file would
+        have left the other lying.
+        """
+        for module in ("components/ManualTicket.tsx", "lib/glossary.ts"):
+            body = " ".join(source(module).split())
+            assert "kalshi.com/account/exchange-indexes" not in body, (
+                f"{module} sends Joe to a page that can no longer move funds"
+            )
 
     def test_an_unreadable_wallet_is_not_rendered_as_an_empty_one(self):
         """`Unreadable resolves to None, never to 0` reaches the screen.
