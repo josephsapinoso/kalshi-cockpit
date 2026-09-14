@@ -106,7 +106,19 @@ from ..core.prices import is_valid_price
 #: with `SCHEMA_VERSION` at 39 on `main` -- so it creates no hole.
 #: `lane-b-window-index` carried 40 as a placeholder too and was still
 #: unmerged, so THAT lane renumbers to 41; this one does not.
-SCHEMA_VERSION = 40
+#:
+#: v41 `idx_odds_window`, the covering index for `/api/window`'s freshness
+#: query. The statement, the timing and the size cost sit beside the CREATE in
+#: `schema.sql`.
+#:
+#: **41 was taken at the merge commit on 2026-09-14**, after `git fetch`,
+#: with `SCHEMA_VERSION` at 40 on `main` -- so it creates no hole. The lane
+#: wrote 40 as a placeholder, lane D merged first and took 40 (ADR 0143),
+#: and the lane renumbered to 41 on 2026-09-11 (`1b96b7c`); this merge
+#: confirmed 41 was still free. This constant, the `_MIGRATIONS` key
+#: below, the `schema v41` line in `schema.sql` and
+#: `tests/test_window_freshness_index.py` are ONE number.
+SCHEMA_VERSION = 41
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -975,6 +987,48 @@ _MIGRATIONS: dict[int, _Migration] = {
             ("manual_orders", "venue_avg_fill_price_tenths", "INTEGER"),
             ("manual_orders", "venue_avg_fee_dollars", "REAL"),
         ),
+    ),
+    # `idx_odds_window`, the covering index for `/api/window`. **41, taken at
+    # the merge commit 2026-09-14** after `git fetch`, with `SCHEMA_VERSION`
+    # at 40 on `main` (lane D took 40 first, ADR 0143; see
+    # `SCHEMA_VERSION`). The
+    # statement, the before/after timing at live's shape and the size cost sit
+    # beside the CREATE in `schema.sql`, following v31, v37 and v39; what
+    # belongs here is only why the step is needed at all.
+    #
+    # It is needed because `odds/timing.py::fixture_freshness` is the dominant
+    # continuous read on this box. Replayed read-only on live 2026-09-10,
+    # `window_status` took 0.95 s of which 0.91 s was its one `GROUP BY
+    # odds_event_id` over `odds_snapshots` -- and `/api/window` is fetched by
+    # four server-rendered pages on load, polled every 3 s for 30 s and then
+    # every 10 s by `RefreshWhenPriced`, polled by `Nav.tsx` on every visible
+    # tab, and called by `run_loop.py`. v39's `idx_odds_event_commence` cannot
+    # help: this query needs `market`, `fetched_ms` and `book_updated_ms` and
+    # that index carries none of them.
+    #
+    # **`schema.sql` cannot reach an existing volume**, same as v31, v37 and
+    # v39: `executescript` would create the index on open, so this step looks
+    # redundant and is not. Without a version bump nothing CHECKS, and
+    # `scripts/migrate_db.py` verifies at boot, by name, only the indexes a
+    # declared step names. The `indexes` tuple is what makes a migration that
+    # reported success while doing nothing visible.
+    #
+    # **Not free on the live volume, and more expensive than v39's**: a full
+    # five-column index build over the highest-volume table (3,696,485 rows,
+    # ~263 MB by the local measurement against v39's ~190 MB), taken once at
+    # boot before uvicorn starts, which is where a slow one-off belongs. Budget
+    # two to four minutes against the 600 s health grace, by analogy with v37's
+    # comparably-sized build (172 s on the volume). Do not trim the grace.
+    #
+    # No `columns`, so dropping the declared index is the whole undo and
+    # `undo_statements` stays empty.
+    41: _Migration(
+        statements=(
+            "CREATE INDEX IF NOT EXISTS idx_odds_window "
+            "ON odds_snapshots(market, odds_event_id, fetched_ms DESC, "
+            "commence_ms, book_updated_ms)",
+        ),
+        indexes=("idx_odds_window",),
     ),
     # `idx_odds_event_commence`, restoring an index removed on 2026-08-26 for
     # "changing no plan". The statement, the measurement and the size cost sit
