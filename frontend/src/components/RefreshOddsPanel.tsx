@@ -2,6 +2,7 @@ import {
   DISPLAY_TIME_ZONE,
   fetchRefreshable,
   formatClock,
+  formatKickoff,
   formatUntil,
 } from "@/lib/api";
 import type { ActionableWindow, Refreshable } from "@/lib/api";
@@ -130,15 +131,43 @@ export default async function RefreshOddsPanel({
     // only lists a fixture inside 24 hours of kickoff, so a league whose
     // next game is further out than that has nothing to buy yet — and the
     // way out is the chip, not a wait for the recorder.
+    //
+    // **The next kickoff is named when the desk has one stored** (Joe,
+    // 2026-09-15: "make the props tap show the next NFL kickoff time").
+    // `enters_ms` is the server's own kickoff-less-horizon, so the hour
+    // the tap appears is the route's arithmetic and not this file's. A
+    // league with nothing stored at all says that instead — off-season is
+    // a different fact from "further out than a day".
+    const next =
+      data.beyond_horizon.find((b) => b.sport_key === cut.league) ?? null;
     return (
       <section className="mt-6 rounded-xl border p-4">
         <h2 className="text-sm font-bold">Refresh the odds</h2>
         <p className="mt-2 max-w-prose text-sm text-muted">
           No {leagueLabel(cut.league)} game kicks off inside the next 24
           hours, so there is nothing {leagueLabel(cut.league)} to buy a price
-          for yet. A game enters this card once its kickoff is inside 24
-          hours; prices bought earlier would be stale before you could use
-          them.{" "}
+          for yet.{" "}
+          {next === null ? (
+            <>
+              The desk has no {leagueLabel(cut.league)} game stored at all
+              right now.
+            </>
+          ) : (
+            <>
+              The next one stored is{" "}
+              <span className="font-semibold text-foreground">
+                {next.title}
+              </span>
+              , {formatKickoff(next.commence_ms)} {DISPLAY_TIME_ZONE}; its
+              team-lines and props taps appear here{" "}
+              <span className="font-semibold text-foreground">
+                {formatKickoff(next.enters_ms)}
+              </span>
+              , 24 hours before kickoff.
+            </>
+          )}{" "}
+          Prices bought earlier than that would be stale before you could
+          use them.{" "}
           {allLeaguesHref !== null ? (
             <>
               {cut.others === 1 ? "One other league has" : `${cut.others} other leagues have`}{" "}

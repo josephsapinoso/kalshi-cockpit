@@ -999,3 +999,74 @@ class TestTheRefreshableEndpointStatesTheSpend:
             "refuses against -- an accepted tap that does not move it means "
             "two counts of one day"
         )
+
+
+class TestTheRefreshableEndpointNamesTheNextKickoffPastTheHorizon:
+    """`beyond_horizon`: for each in-scope league with nothing inside the
+    24-hour horizon, the first stored kickoff past it (Joe, 2026-09-15 --
+    with the NFL chip up the card said NFL had no game inside 24 hours, and
+    he asked when the props tap would appear).
+
+    **What this does not establish.** Nothing about the cost of the read on
+    live -- the route's comment claims one index seek per league, and the
+    plan is the thing to check if that ever matters; nothing about the
+    screen's wording.
+    """
+
+    async def _get(self, app):
+        import httpx
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            return (await client.get("/api/odds/refreshable")).json()
+
+    async def test_a_league_outside_the_horizon_names_its_earliest_fixture(
+        self, live_app, app_db
+    ):
+        """Two NFL games at three and four days out, one MLB game tonight.
+        NFL is beyond the horizon and its entry is the EARLIER game; MLB is
+        inside the horizon and is not in the list at all. Mutations: drop
+        `ORDER BY` and the later game can win; drop the `> horizon` bound
+        and the MLB game appears as its own league's next kickoff; drop the
+        `- inside` set difference and MLB appears with its second fixture."""
+        now = db.now_ms()
+        c = db.init_db(app_db)
+        add_fixture(
+            c, sport_key="americanfootball_nfl", odds_event_id="n_later",
+            commence_ms=now + 4 * 24 * HOUR, fetched_ms=now,
+        )
+        add_fixture(
+            c, sport_key="americanfootball_nfl", odds_event_id="n_first",
+            commence_ms=now + 3 * 24 * HOUR, fetched_ms=now,
+        )
+        add_fixture(
+            c, sport_key="baseball_mlb", odds_event_id="m_tonight",
+            commence_ms=now + 3 * HOUR, fetched_ms=now,
+        )
+        add_fixture(
+            c, sport_key="baseball_mlb", odds_event_id="m_later",
+            commence_ms=now + 2 * 24 * HOUR, fetched_ms=now,
+        )
+        c.close()
+        payload = await self._get(live_app)
+        assert [s["sport_key"] for s in payload["sports"]] == ["baseball_mlb"]
+        beyond = {b["sport_key"]: b for b in payload["beyond_horizon"]}
+        assert set(beyond) == {"americanfootball_nfl"}
+        nfl = beyond["americanfootball_nfl"]
+        assert nfl["odds_event_id"] == "n_first"
+        assert nfl["commence_ms"] == now + 3 * 24 * HOUR
+        assert nfl["enters_ms"] == nfl["commence_ms"] - 24 * HOUR
+        assert nfl["title"] == "Away at Home"
+
+    async def test_a_league_with_nothing_stored_is_absent_not_null(
+        self, live_app, app_db
+    ):
+        """Off-season is "nothing stored", not "next game: null". The screen
+        tells those apart, so the payload must too. `app_db` seeds one MLB
+        game tonight and nothing else: five in-scope leagues have nothing
+        stored, and none of them appears."""
+        payload = await self._get(live_app)
+        assert [s["sport_key"] for s in payload["sports"]] == ["baseball_mlb"]
+        assert payload["beyond_horizon"] == []

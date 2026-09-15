@@ -2210,8 +2210,24 @@ export type RefreshableSport = {
   fixtures: RefreshableFixture[];
 };
 
+/**
+ * A league with no fixture inside the card's 24-hour horizon, and the first
+ * one it has stored past it. Absent (not null) for a league with nothing
+ * stored at all, and absent for a league that is in `sports` -- the card
+ * lists that league's taps instead.
+ */
+export type RefreshableBeyondHorizon = {
+  sport_key: string;
+  odds_event_id: string;
+  commence_ms: number;
+  /** When this fixture enters the tap list: kickoff less the horizon. */
+  enters_ms: number;
+  title: string;
+};
+
 export type Refreshable = {
   sports: RefreshableSport[];
+  beyond_horizon: RefreshableBeyondHorizon[];
   manual_daily_credits: number;
   /** What today's taps have already reserved against that ceiling. Counted at
       accept time, served or not, so it can only overstate — the safe error. */

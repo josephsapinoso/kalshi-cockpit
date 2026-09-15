@@ -12,6 +12,7 @@ from __future__ import annotations
 from fastapi import Depends, FastAPI
 
 from ...config import AppConfig, OddsConfig
+from ...kalshi.discovery import IN_SCOPE_LEAGUES
 from ...odds import ondemand
 from ...odds.budget import CreditBudget, sweep_cost
 from ...odds.client import (
@@ -85,6 +86,45 @@ def register(
                 }
             )
 
+        # **The first stored kickoff past the horizon, per league that has
+        # nothing inside it** (Joe, 2026-09-15: with the NFL chip up the card
+        # said NFL had no game inside 24 hours and he asked when the tap
+        # would appear). One `idx_odds_sport_commence` seek per in-scope
+        # league -- the index leads `(sport_key, commence_ms)`, so each read
+        # is one probe and `LIMIT 1`, never a GROUP BY over the table
+        # (`odds_snapshots` is ~10M rows on live and a full read there costs
+        # the desk 75 s of cache afterwards). Leagues with a fixture inside
+        # the horizon are skipped: their taps are listed, and the "next"
+        # game beyond the window is not a question the card asks for them.
+        # A league with nothing stored at all is simply absent, which is a
+        # different state from "stored, but further out" and the screen
+        # says so.
+        inside = set(by_sport)
+        beyond_horizon = []
+        for sport in sorted(set(IN_SCOPE_LEAGUES.values()) - inside):
+            nxt = conn.execute(
+                "SELECT o.odds_event_id, o.commence_ms, o.home_team, "
+                "o.away_team FROM odds_snapshots o "
+                "WHERE o.sport_key = ? AND o.commence_ms > ? "
+                "ORDER BY o.commence_ms LIMIT 1",
+                (sport, now + horizon_ms),
+            ).fetchone()
+            if nxt is None:
+                continue
+            beyond_horizon.append(
+                {
+                    "sport_key": sport,
+                    "odds_event_id": nxt["odds_event_id"],
+                    "commence_ms": nxt["commence_ms"],
+                    # When this fixture enters the tap list: the same
+                    # horizon the list above is cut at, so the screen and
+                    # the route cannot disagree about the hour.
+                    "enters_ms": nxt["commence_ms"] - horizon_ms,
+                    "title": f"{nxt['away_team']} at {nxt['home_team']}",
+                }
+            )
+
+
         return {
             "sports": [
                 {
@@ -109,6 +149,7 @@ def register(
                 }
                 for sport, fixtures in sorted(by_sport.items())
             ],
+            "beyond_horizon": beyond_horizon,
             # Surfaced so a screen can say what it is protecting rather than
             # only reporting a refusal after the fact.
             "manual_daily_credits": ondemand.DEFAULT_MANUAL_DAILY_CREDITS,
