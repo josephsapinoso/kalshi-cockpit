@@ -178,24 +178,29 @@ together or the screen lies in the interval
   sends real immediate-or-cancel orders at Joe's tap with his own typed
   estimate. First two real fills 2026-09-08 (KXMVE combos, shard 1, ADR 0113).
   **Three quantities circulate as the count of the transacted path and they
-  are not the same number — name the table.** Read off live 2026-09-14:
+  are not the same number — name the table.** Read off live 2026-09-15
+  (~16:00Z), each with its instrument:
 
-      manual_orders     13 rows, dry_run = 0  read off live 2026-09-15 15:00Z
-                        (12 filled, 1 unfilled) (`manual-orders-audit`); the line
-                                              below is the 2026-09-14 read and the
-                                              other two tables were NOT re-read
-      manual_orders     7 rows, dry_run = 0   ids 1-2 filled 09-08, id 3 unfilled
-                                              09-09, id 4 filled 09-09, ids 5-7
-                                              filled 09-10 15:59-16:00Z
-      filled orders     6                     status = 'filled'
-      parlay_positions  4 rows                orders 4-7; the position recorder
-                                              postdates orders 1-2
+      manual_orders     13 rows, dry_run = 0  `manual-orders-audit`: ids 1-7 as
+                                              read 2026-09-14 (1-2 filled 09-08,
+                                              3 unfilled 09-09, 4 filled 09-09,
+                                              5-7 filled 09-10), then six more
+                                              09-15 00:35Z and 12:10-12:12Z
+      filled orders     12                    status = 'filled'; 1 unfilled
+      parlay_positions  10 OPEN rows, ids 1-10 `/api/hedge`, which lists
+                                              status = 'open' only: 5 live
+                                              (derisk), 5 dead, all
+                                              source = kalshi_combo; a closed
+                                              row would not show, and ids 1-10
+                                              are contiguous
 
-  This line read "two" until 2026-09-10 and "four by 2026-09-09" until
-  2026-09-14; the "four" was ADR 0129's four *orders* (three filled, one
-  not), and it was then re-read as four fills and as four positions. It is
-  the count every claim about the transacted path is reasoned from, so
-  quote it with its table.
+  This line read "two" until 2026-09-10, "four by 2026-09-09" until
+  2026-09-14 and "7 rows / 6 filled / 4 positions" until 2026-09-15 —
+  the census that day found the 7 was six orders stale. The "four" was
+  ADR 0129's four *orders* (three filled, one not), and it was then
+  re-read as four fills and as four positions. It is the count every claim
+  about the transacted path is reasoned from, so quote it with its table
+  and its date.
   The five brakes are gone (ADR 0112) and **no ceiling of ours bounds a hand
   bet**; what remains is the desk lockout, idempotency, the KXMVE
   acknowledgement, the price ceiling, depth at the ask, the netting guard, the
@@ -272,9 +277,10 @@ ADR 0145 and is not edited; the hedge price being a live ask is a fifth,
 unsigned term it does not list.) Net sign is indeterminate; E2 alone was
 observed at 22 tenths a contract on one row of 12, so "a few tenths" no
 longer bounds it. **`/hedge` has produced zero locks in its life**
-(2026-09-11: 0 `hedge_lock` notifications, all four `parlay_positions`
-rows `STATE_DEAD`), so E3 did no realised harm and the fix is validated on
-synthetic rows only. **The flattering error is calling the figure cautious,
+(2026-09-15: no `hedge_lock` kind in `notifications` at all, the four
+`position_state` rows are the only position kind; 10 open
+`parlay_positions` rows, 5 in `derisk` and 5 dead, none locked), so E3 did
+no realised harm and the fix is validated on synthetic rows only. **The flattering error is calling the figure cautious,
 a floor, or "at least"** — the words to refuse are ceiling, floor,
 conservative, at least, can only be smaller/larger. The stake basis:
 **`manual_orders` has no `fill_price_tenths`
