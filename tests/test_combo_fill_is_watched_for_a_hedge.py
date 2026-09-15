@@ -586,6 +586,9 @@ class TestTheLookupRecordsWhatThePositionNeeds:
         ] == {
             "side": "yes",
             "label": "Detroit to win",
+            # Since 2026-09-15: a total's label names no game, so the
+            # position needs the title too (`tests/test_under_legs.py`).
+            "event_title": "Detroit at Green Bay",
             "league": "nfl",
             "commence_ms": 1_700_000_500_000,
         }
