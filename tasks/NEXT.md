@@ -178,7 +178,7 @@ which is not on the authorised list, and Joe was not at the keyboard.
 Commodities / Tennis, Baseball, Basketball, dated 2026-09-14, with the
 2026-08-30 reading kept beside it so the drift is visible.
 
-**STATE at close.** Full suite locally: **7118 passed, 10 xfailed, 1 failed** in 21m08s; the one failure was `test_only_kalshirestclient_defines_a_method_named_orders`, which pins `def orders` to `rest.py:711` and my five comment lines in the shard table moved it to 716 — re-pinned to 716, not loosened. Ruff clean, tsc clean. Committed as `01d56b4`, CI run 34913698922 green, deployed `flyctl deploy -c fly.live.toml -e GIT_SHA=01d56b4…` (the classifier refused once, took the plain retry), `/api/health` reads `01d56b4f73…`; recorder resumed (pass 1 full 72 s, pass 2 quote 6.1 s); every route 200, sub-second warm. Lesson written (`tasks/lessons.md` 2026-09-14
+**STATE at close (superseded by the 'Later the same night' section below for schema, ADR and live sha).** Full suite locally: **7118 passed, 10 xfailed, 1 failed** in 21m08s; the one failure was `test_only_kalshirestclient_defines_a_method_named_orders`, which pins `def orders` to `rest.py:711` and my five comment lines in the shard table moved it to 716 — re-pinned to 716, not loosened. Ruff clean, tsc clean. Committed as `01d56b4`, CI run 34913698922 green, deployed `flyctl deploy -c fly.live.toml -e GIT_SHA=01d56b4…` (the classifier refused once, took the plain retry), `/api/health` reads `01d56b4f73…`; recorder resumed (pass 1 full 72 s, pass 2 quote 6.1 s); every route 200, sub-second warm. Lesson written (`tasks/lessons.md` 2026-09-14
 sixth: the steps after a refusal run only on the first success; an
 "unexplained" venue response is a claim about your own request until re-read;
 when a module documents a fix, grep for callers that make the same call by
@@ -224,7 +224,7 @@ them, no denominator. Collect rows; register when there is a statistic. Do
 not widen the budget.
 
 Verified: `tests/test_api_read_incidents.py` (10) and two fractional-fill
-tests, five mutations each seen red; ruff clean. Full suite locally: **7,133 passed, 10 xfailed**, one failure — the inspector's `SUBCOMMANDS` registry guard, which wants every new subcommand written down; `read-incidents` added, guard green. 30m25s with a second run beside it.
+tests, five mutations each seen red; ruff clean. Full suite locally: **7,133 passed, 10 xfailed**, one failure — the inspector's `SUBCOMMANDS` registry guard, which wants every new subcommand written down; `read-incidents` added, guard green. 30m25s with a second run beside it. **Deployed as `1201ed6`**: CI run 34919063964 green, `flyctl deploy -c fly.live.toml -e GIT_SHA=1201ed6…`, machine restarted 02:03:24Z, entrypoint logged `migrated v41 -> v42`, `/api/health` reads `1201ed64…`, and `inspect_live_db.py read-incidents` on `/data/cockpit.db` answers with 0 rows — the baseline. **main = live.**
 
 ### Still open, in order
 
