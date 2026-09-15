@@ -222,8 +222,12 @@ docstring):**
 0. ~~`manual_orders` rows 8–13~~ — read, as the registered census (above).
 1. `read-incidents -n 5`: no `read_budget` row after the deploy. Then the
    NFL chip with Joe's eyes.
-2. The eighteenth entry's first reads 1–2 still stand (the 21:25Z totals
-   slot; `unmatched`).
+2. ~~The 21:25Z totals slot~~ — answered early, 17:28Z read of `credits-tail`:
+   every MLB call today carried `h2h,spreads,totals` at **6** credits — the
+   hourly floor at 14:18Z, 15:18Z, 16:18Z and three attention buys 12:21Z–13:02Z
+   — so the first totals purchase was the floor's, not the 21:25Z slot; the
+   "Three totals" card built from them at ~14:20Z. Vendor month to date 5,018
+   of 20,000. The eighteenth entry's read 2 (`unmatched`) still stands.
 3. **One NFL prop tap from Wed 16 Sep 20:15 ET** (the horizon), on the
    DET@BUF game: team 6 + props 6 = 12 credits.
 4. One more "Price on Kalshi" on the totals card, for the second point on
