@@ -137,6 +137,16 @@ class TestVIsChosenByTheRegisteredPrecedence:
         assert by[7000]["endpoints_disagree"] == 1
         assert by[1000]["endpoints_disagree"] is None, "one source is not a disagreement"
 
+    def test_exactly_one_tenth_apart_is_not_a_disagreement(self, conn):
+        """A7.4: 'a disagreement of 1 tenth or less ... opens nothing'. At
+        exactly 1 a `>=` slip would flag it; this is the anchor."""
+        _order(conn, oid="o8", submitted_ms=9000, ticker="KXMVE-I", sent=400,
+               fill_count=5.0, avg_price=401)
+        _fill(conn, fill_id="f8", order_id="o8", ticker="KXMVE-I", count=5, price=400)
+        conn.commit()
+        by = {r["submitted_ms"]: r for r in census.read_rows(conn)}
+        assert by[9000]["endpoints_disagree"] == 0
+
 
 class TestTheSideConventionRuleIsTheRegisteredOne:
     def test_a_flipped_row_is_ambiguous_not_falsified(self):
@@ -148,6 +158,12 @@ class TestTheSideConventionRuleIsTheRegisteredOne:
     def test_everything_else_is_comparable(self):
         assert census.classify(450, 455) == "comparable"
         assert census.classify(300, 350) == "comparable"
+
+    def test_the_tolerance_is_inclusive_at_exactly_ten_tenths(self):
+        """A4.3 fixes `<= 10`. At exactly 10 the candidate errors (`<`)
+        give a different answer, so this is the anchor."""
+        assert census.classify(300, 710) == "side_convention_ambiguous"
+        assert census.classify(300, 711) == "comparable"
 
 
 class TestTheCountsAdmitOnlyWhatTheRegistrationAdmits:

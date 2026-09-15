@@ -82,6 +82,19 @@ WHAT THIS DOES NOT ESTABLISH (§11, as corrected by A9)
   on retention before this look, in either direction.
 - **Nothing that authorises a change to money-touching code** (§8.4, §11.9).
 - **Nothing about the contract-count factor** of the stake (A9 §13).
+- **Nothing about the completeness of `fills`** (§11.7). V is a
+  count-weighted mean over the rows the mirror holds; an absent fill is not
+  a fill that did not happen, and this harness does not compare the summed
+  fill quantity against the order's `count`. A dropped fill changes V and
+  `multi_fill` with no visible symptom.
+- **Nothing about future fills** (§11.3): a thin-book stratum cannot speak
+  for a deep one.
+- **A zero in the combo stratum is close to mechanical** (§11.4) and is not
+  evidence the recorder is accurate.
+- `submitted_iso` in the row table is a rendering of `submitted_ms`, not a
+  column beyond A5's list; `n_equal` is equality to the tenth (the mean is
+  rounded to one place before the test), exact whenever every joined row
+  is single-fill.
 - **`sent_tenths` is `limit_price_tenths`**, the ask the desk SENT (A1.1),
   written at intent time -- not a fill report. That is the whole reason the
   comparison exists.

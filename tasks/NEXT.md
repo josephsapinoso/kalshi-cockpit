@@ -215,15 +215,11 @@ docstring):**
   short-circuit for the rows that fail it; asymmetric latency on one
   parameter is the tell; read `read-incidents` before the screen.
 
-**STATE at close.** Deployed twice: `747c4f6` (~14:15Z) then `12aaaf6` (~14:33Z, the `: Total Runs` suffix); `/api/health` reads `12aaaf68…`, no migration (v42). CI 34979713549 and 34981144720 green; 34978416813 was red on one blob-shape test 2d8de82 had not run locally, fixed in 747c4f6. Live reads after each deploy, zero odds credits: the NFL cut answered 200 in 15.9 s on the first read after the restart (cold page cache, still under the 25 s budget) and 0.8–0.9 s warm, 67–71 rows, `hidden` 181; the MLB cut 1.3 s; `read-incidents` unchanged at the six pre-fix rows. The totals card built at ~14:20Z with `event_title` on every leg ("Baltimore vs New York M: Total Runs") and its Under legs quoting 54c/55c with their own depth; by 14:35Z the consensus was past 15 min again and the card empty, so **the rendered game line was not seen on live** — the strip was exercised on the live title locally and the next fresh slate is the look. **Then, on Joe's word ("add the hedge schema column so totals parlays name the game"): ADR 0153, schema v43** — `parlay_position_legs.event_title`, written from the lookup blob, served by `/api/hedge`, drawn under the label on `/hedge`; NULL prints as nothing. Committed `f220f65`, CI 34983740120 green, deployed ~14:56Z; `/api/health` reads `f220f650…`, `/api/hedge` 200 with `event_title: null` on every served leg (all predate the column). Four guards seen red once (ADR 0153 §4). **Read off live in the same pass, `manual-orders-audit`: `manual_orders` has 13 rows, 13 real, 12 `filled`, 1 `unfilled`, last submitted 2026-09-15T12:12:47Z** — CLAUDE.md's "7 rows" was read 2026-09-14 and six real orders have landed since, the first rows ever to carry ADR 0143's venue columns. Not read further this session; it is the first read below. Next ADR **0154**; schema **v43**; arming unchanged (hand path armed, engine and bids dry).
+**STATE at close.** Deployed twice: `747c4f6` (~14:15Z) then `12aaaf6` (~14:33Z, the `: Total Runs` suffix); `/api/health` reads `12aaaf68…`, no migration (v42). CI 34979713549 and 34981144720 green; 34978416813 was red on one blob-shape test 2d8de82 had not run locally, fixed in 747c4f6. Live reads after each deploy, zero odds credits: the NFL cut answered 200 in 15.9 s on the first read after the restart (cold page cache, still under the 25 s budget) and 0.8–0.9 s warm, 67–71 rows, `hidden` 181; the MLB cut 1.3 s; `read-incidents` unchanged at the six pre-fix rows. The totals card built at ~14:20Z with `event_title` on every leg ("Baltimore vs New York M: Total Runs") and its Under legs quoting 54c/55c with their own depth; by 14:35Z the consensus was past 15 min again and the card empty, so **the rendered game line was not seen on live** — the strip was exercised on the live title locally and the next fresh slate is the look. **Then, on Joe's word ("add the hedge schema column so totals parlays name the game"): ADR 0153, schema v43** — `parlay_position_legs.event_title`, written from the lookup blob, served by `/api/hedge`, drawn under the label on `/hedge`; NULL prints as nothing. Committed `f220f65`, CI 34983740120 green, deployed ~14:56Z; `/api/health` reads `f220f650…`, `/api/hedge` 200 with `event_title: null` on every served leg (all predate the column). Four guards seen red once (ADR 0153 §4). **Read off live in the same pass, `manual-orders-audit`: `manual_orders` has 13 rows, 13 real, 12 `filled`, 1 `unfilled`, last submitted 2026-09-15T12:12:47Z** — CLAUDE.md's "7 rows" was read 2026-09-14 and six real orders have landed since, the first rows ever to carry ADR 0143's venue columns. **Then, on Joe's word, the registered census was taken — the one look A8 allows, spent 2026-09-15T15:42:38Z** through `scripts/census_recorded_fill_vs_venue.py` (committed `b3fc100`, CI 34988981124 green, deployed and invoked by path; the legal form §0.2(b) names). Result: `docs/measurements/2026-09-15-recorded-fill-vs-venue-charge-census-result.md`. 13 rows, all S1 (KXMVE), S2 empty; `n_joined` 12 (all `fills`-sourced), `unjoined_unknown` 1, refusal branch not fired; `n_comparable` 12, `n_equal` 11, `n_sent_above` 1, **`n_sent_below` 0 — H1 stands**, A7.3 opens nothing; six rows carry both endpoints, 0 disagree within the 1-tenth tolerance (all single-fill YES rows, so not corroboration of either reader), A7.4 opens nothing; every order YES so A4.3 was never exercised; `max_abs_sent_minus_venue_tenths` 22 on one row (sent above venue). CLAUDE.md's E2 line corrected from "0–10 tenths". The per-row table stays out of the repo on the 2026-08-20 ruling, recorded as a deviation from §10 (verbatim output under gitignored `data/`). The measurement-skeptic's audit caught a flipped sign, a `parlay_positions` claim the census never reads, depth inferred from equality, and three missing §11 caveats before entry; all applied, listed in the result's §8. **Stale in CLAUDE.md, not re-read:** "all four `parlay_positions` rows" (:271) and the 2026-09-14 transacted-path block — the census establishes only 13 real orders / 12 joined; `filled` status and the positions count need their own read. Next ADR **0154**; schema **v43**; arming unchanged (hand path armed, engine and bids dry).
 
 **First reads for the next session, in order:**
 
-0. **`manual_orders` rows 8–13** (`manual-orders-audit`, then the row
-   read ADR 0143 §4 asks for): the first real fills carrying
-   `venue_fill_count`, `venue_avg_fill_price_tenths`,
-   `venue_avg_fee_dollars`. CLAUDE.md said "reading that row once is worth
-   more than any build"; six of them exist now.
+0. ~~`manual_orders` rows 8–13~~ — read, as the registered census (above).
 1. `read-incidents -n 5`: no `read_budget` row after the deploy. Then the
    NFL chip with Joe's eyes.
 2. The eighteenth entry's first reads 1–2 still stand (the 21:25Z totals
@@ -239,10 +235,13 @@ docstring):**
 2. ~~`parlay_position_legs.event_title`~~ — built, ADR 0153, schema v43,
    live `f220f65`.
 3. **Run the fixed probe once, with Joe at the keyboard** (carried).
-4. **Read the next real fill's row** — now 13 `manual_orders` rows; see
-   first read 0.
-5. **The census** — first session after the 10th real manual order or
-   2026-11-01.
+4. ~~Read the next real fill's row~~ — done inside the census: the six
+   post-v40 rows carry the venue's price and it agreed with `fills` within
+   the registered 1-tenth tolerance on all six — single-fill YES rows, where
+   the open side question cannot bite, so not corroboration of either reader.
+5. ~~The census~~ — **taken 2026-09-15, spent.** A second look needs a dated
+   amendment. Open from it: a future S2 (single-market) hand bet and any
+   `side = no` order are populations this look never saw.
 6. Carried: `user_not_found` on shard 3 only; the 25 s read budget
    (instrumented by ADR 0151, not registered — and it just caught its
    first real one).

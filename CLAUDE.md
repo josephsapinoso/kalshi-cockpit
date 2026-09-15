@@ -251,7 +251,8 @@ a bound.** This line said "exact" until 2026-09-10, "an upper bound" until
 lock sits at or below the true one" in one paragraph, then concluded nothing
 shown to Joe was flattering. Audited 2026-09-11 (measurement-skeptic, against
 `core/hedge.py` source): the displayed figure carries **at least four error
-terms and they point both ways**, none measured on a single row:
+terms and they point both ways**; three are unmeasured and E2 was measured
+on 12 rows of one stratum by the registered census, 2026-09-15:
 
     E3  entry fee, charged at 0.071 too LOW    ~1% of the fee (≈1 tenth a position); ADR 0145
         (was ABSENT from S until ADR 0145 — too HIGH by ~17 tenths/contract at
@@ -259,13 +260,18 @@ terms and they point both ways**, none measured on a single row:
         still writes contracts × price with no fee; `backend/hedge.py:assess` now
         sinks `core/hedge.py:combo_entry_fee_tenths` beside it at read time)
     E1  settlement fee, H4 untested too HIGH   0 if H4 holds; ADR 0027
-    E2  sent price vs fill price    too LOW    0–10 tenths, ~0 on a one-level KXMVE book
+    E2  sent price vs fill price    too LOW    0 tenths/contract on 11 of 12 joined rows,
+                                              +22 tenths/contract on 1 — registered census
+                                              2026-09-15, n = 12, S1/KXMVE only, every order
+                                              YES; counts, not a rate, and nothing about the
+                                              next fill ("0–10 tenths" stood here until then)
     E4  hedge fee at flat 0.070     too LOW    ~9 tenths × n; measured baseball k ≈ 0.035
 
 (The registration's Amendment 1 §A6 is the canonical table as it stood before
 ADR 0145 and is not edited; the hedge price being a live ask is a fifth,
-unsigned term it does not list.) Net is now inside a few tenths a contract
-with indeterminate sign. **`/hedge` has produced zero locks in its life**
+unsigned term it does not list.) Net sign is indeterminate; E2 alone was
+observed at 22 tenths a contract on one row of 12, so "a few tenths" no
+longer bounds it. **`/hedge` has produced zero locks in its life**
 (2026-09-11: 0 `hedge_lock` notifications, all four `parlay_positions`
 rows `STATE_DEAD`), so E3 did no realised harm and the fix is validated on
 synthetic rows only. **The flattering error is calling the figure cautious,
@@ -285,7 +291,7 @@ carry them, and reading that row once is worth more than any build.
 `_record_combo_position` (`backend/api/routes.py:3959`) still feeds
 `parlay_positions.stake_tenths` from the sent price (`contracts *
 fill_price_tenths`, `:4318`); rewiring it is deferred by ADR 0143 §4 and is
-not a cleanup. E2 is the only term the registered census can pin
+not a cleanup. E2 is the only term the registered census can pin — and it was pinned 2026-09-15 (`docs/measurements/2026-09-15-recorded-fill-vs-venue-charge-census-result.md`; the look is spent)
 (`docs/measurements/2026-09-10-preregistration-recorded-fill-vs-venue-charge.md`,
 Amendment 1); it is a census, not an estimate, n is a handful and one stratum
 is mechanically pinned to zero.
