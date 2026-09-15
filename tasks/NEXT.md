@@ -227,7 +227,19 @@ docstring):**
    hourly floor at 14:18Z, 15:18Z, 16:18Z and three attention buys 12:21Z–13:02Z
    — so the first totals purchase was the floor's, not the 21:25Z slot; the
    "Three totals" card built from them at ~14:20Z. Vendor month to date 5,018
-   of 20,000. The eighteenth entry's read 2 (`unmatched`) still stands.
+   of 20,000. **The eighteenth entry's read 2 (`unmatched`) is answered**,
+   17:30Z, `list_unmatched.py` on live (2,098 open items, grouped locally):
+   `expected 2 sides` on game-total identifiers **stopped at 05:17Z**, the
+   last pass before the 05:27Z deploy — NCAAF 344 items, MLB 202, NFL 49,
+   WNBA 5, none seen since — and continues only on `*TEAMTOTAL*` (NCAAF
+   146, MLB 105, NFL 38, last seen 17:18Z), out of scope by design. What
+   totals accrue now is `no linked game event` (NCAAF 57, WNBA 5, MLB 3):
+   a total whose parent game is itself unmatched, which is the derived
+   link doing what ADR 0152 says. `event_links.total_fixture_segment` was
+   not re-counted (no whitelisted query counts it; the eighteenth entry's
+   45 stands as the deploy-day read). Beside it, unrelated and large: 542
+   NCAAF `KX*GAME` items with no sportsbook fixture, the alias work the
+   queue exists for, untouched.
 3. **One NFL prop tap from Wed 16 Sep 20:15 ET** (the horizon), on the
    DET@BUF game: team 6 + props 6 = 12 credits.
 4. One more "Price on Kalshi" on the totals card, for the second point on
