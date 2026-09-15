@@ -507,7 +507,9 @@ class TestHonesty:
         app = build(lambda conn: None)
         body = (await get(app, "/api/parlays")).json()
         notes = body["notes"]
-        assert set(notes) == {"chance", "fair_value", "unquoted", "fee"}
+        assert set(notes) == {
+            "chance", "fair_value", "unquoted", "tap_outcome", "fee",
+        }
         # Asserted against the census CONSTANTS, never against the digits.
         # The previous version of this test read `assert "40 of 40" in
         # notes["enter_only"]`, and when the 2026-08-30 census refuted that
@@ -529,6 +531,22 @@ class TestHonesty:
         # reader cannot tell which one describes the bet he is about to place.
         assert "readable ask" in notes["unquoted"]
         assert "hitting an offer" in notes["unquoted"]
+        # The FOURTH population (ADR 0156): what a tap has actually returned.
+        # Sourced from the constants for the same reason as every block above.
+        assert str(parlays.TAP_CENSUS_TAPS) in notes["tap_outcome"]
+        assert str(parlays.TAP_CENSUS_PRICED) in notes["tap_outcome"]
+        assert str(parlays.TAP_CENSUS_BOOK_EMPTY) in notes["tap_outcome"]
+        assert parlays.TAP_CENSUS_DATE in notes["tap_outcome"]
+        # It must say the empty book is the VENUE, not the card -- otherwise
+        # the honest rate reads as "this desk is broken".
+        assert "not a fault in the card" in notes["tap_outcome"]
+        # And it must refuse to become an ordering. One lifetime figure, no
+        # per-card rate: per-card n runs 2-30 and `totals` at 0 of 3 cannot be
+        # separated from the base rate, so a per-card number would be a
+        # ranking dressed as a fact (ADR 0071 s2.5).
+        assert "which card is better" in notes["tap_outcome"]
+        for card in ("totals", "props", "lottery", "safe"):
+            assert card not in notes["tap_outcome"], card
         # The exit half survives the amendment untouched: no combination book
         # this repo has read has ever carried a YES bid, and the census
         # measured ENTRY. Dropping this sentence would sell a bet with no way

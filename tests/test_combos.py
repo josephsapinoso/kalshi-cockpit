@@ -195,7 +195,7 @@ class TestMarketCreationGuard:
         """POST .../lookup creates a market on the exchange. No money moves,
         but it is an outward-facing write, so it is not a default."""
         with pytest.raises(MarketCreationRefused) as exc:
-            await lookup_combo(None, "KXMVENBASINGLEGAME-X", [("E", "M")])
+            await lookup_combo(None, "KXMVENBASINGLEGAME-X", [("E", "M")], side="yes")
         assert "creates a market" in str(exc.value)
         assert "allow_market_creation=True" in str(exc.value)
 

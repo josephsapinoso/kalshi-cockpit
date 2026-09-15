@@ -570,8 +570,22 @@ CREATE TABLE IF NOT EXISTS api_credits (
     endpoint            TEXT NOT NULL,
     sport_key           TEXT,
     markets             TEXT,
+    -- What SCOPED the request, and since ADR 0155 these are alternatives, not
+    -- a pair: a call sends `bookmakers` OR `regions`, never both, because the
+    -- vendor lets `bookmakers` win when given both.
+    --
+    -- `bookmakers` NULL (v44) means the call bought whole regions -- true of
+    -- every row before 2026-09-15 and not the same as "bought no books".
+    -- `regions` keeps its configured value on a named-book row so a pre-0155
+    -- row reads exactly as it always did; read `bookmakers` first, and only
+    -- fall back to `regions` when it is NULL.
     regions             TEXT,
-    cost                INTEGER NOT NULL,   -- what we predicted: markets x regions
+    bookmakers          TEXT,               -- v44; NULL = this call bought regions
+    -- What we predicted. `markets x regions`, or `markets x ceil(books/10)`
+    -- when `bookmakers` is set -- the vendor bills every group of ten named
+    -- books as one region. Computing this from `markets` and `regions` alone
+    -- on a named-book row gives double the truth.
+    cost                INTEGER NOT NULL,
     remaining_reported  INTEGER,            -- x-requests-remaining header
     used_reported       INTEGER,            -- x-requests-used header
     trigger             TEXT,               -- 'manual' or NULL; see above

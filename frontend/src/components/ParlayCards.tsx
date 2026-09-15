@@ -92,6 +92,7 @@ export default function ParlayCards({
       <section className="max-w-[65ch] space-y-2 text-xs leading-snug text-muted">
         <p>{ladder.notes.fair_value}</p>
         <p>{ladder.notes.unquoted}</p>
+        <p>{ladder.notes.tap_outcome}</p>
         <p>{ladder.notes.fee}</p>
       </section>
     </div>

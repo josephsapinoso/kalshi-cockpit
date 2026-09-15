@@ -130,7 +130,7 @@ logger = logging.getLogger(__name__)
 #: minute during a busy window: three hits that blanked the Games screen
 #: were gone before anyone could read them. A warning that is not
 #: persisted is the same warning.
-SCHEMA_VERSION = 43
+SCHEMA_VERSION = 44
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1058,6 +1058,30 @@ _MIGRATIONS: dict[int, _Migration] = {
     # the generic column drop, so `undo_statements` stays empty.
     43: _Migration(
         columns=(("parlay_position_legs", "event_title", "TEXT"),),
+    ),
+    # `api_credits.bookmakers`, so a spend row says what it actually bought.
+    #
+    # ADR 0155 started sending named books INSTEAD of regions, and the vendor
+    # bills `markets x ceil(books/10)`. The row kept recording `regions` --
+    # the configured value, not the sent one -- so the first named-book sweep
+    # landed on live as `regions = "us,eu"` with `cost = 3`, and the table's
+    # own rule (`cost` is "what we predicted: markets x regions") reads
+    # 3 x 2 = 6 against it. A ledger row describing a purchase that did not
+    # happen.
+    #
+    # The reconciliation this module opens by claiming as its central safety
+    # property -- our tally against `x-requests-used` -- never drifted, because
+    # `cost` was right all along. What was wrong is the only column that says
+    # WHY the cost is what it is, which is the first thing anyone debugging a
+    # drift would read.
+    #
+    # **Additive, and old rows are left alone.** NULL here means "this call
+    # bought regions", which is true of every row written before ADR 0155 and
+    # is not the same as "bought no books" -- the distinction `_int_or_none`
+    # exists for elsewhere. `regions` keeps being written, so a pre-0155 row
+    # reads exactly as it always did. The undo is the generic column drop.
+    44: _Migration(
+        columns=(("api_credits", "bookmakers", "TEXT"),),
     ),
     # `idx_odds_event_commence`, restoring an index removed on 2026-08-26 for
     # "changing no plan". The statement, the measurement and the size cost sit

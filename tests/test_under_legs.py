@@ -139,7 +139,9 @@ class TestTheVenueIsAskedForEachLegsOwnSide:
             {"event_ticker": "E1", "market_ticker": "M1", "side": "yes"},
             {"event_ticker": "E2", "market_ticker": "M2", "side": "yes"},
         ]}}
-        echo = echoed_legs([("E1", "M1", "yes"), ("E2", "M2", "no")], response)
+        echo = echoed_legs(
+            [("E1", "M1", "yes"), ("E2", "M2", "no")], response, side="yes"
+        )
         assert echo.is_mismatch
         assert "M2" in echo.detail
 
@@ -148,7 +150,9 @@ class TestTheVenueIsAskedForEachLegsOwnSide:
             {"event_ticker": "E2", "market_ticker": "M2", "side": "no"},
             {"event_ticker": "E1", "market_ticker": "M1", "side": "yes"},
         ]}}
-        echo = echoed_legs([("E1", "M1", "yes"), ("E2", "M2", "no")], response)
+        echo = echoed_legs(
+            [("E1", "M1", "yes"), ("E2", "M2", "no")], response, side="yes"
+        )
         assert echo.verdict == "match"
 
 
@@ -304,3 +308,69 @@ class TestAnUnderPropCarriesItsOwnVerdict:
 
         with pytest.raises(ValueError):
             _verdict_facts_for_side(dict(_NO_FACTS), "maybe")
+
+
+class TestTheMintPathWillNotGuessASide:
+    """A leg's direction is stated on the mint path, never defaulted — ADR 0156.
+
+    `echoed_legs` and `lookup_combo` carried `side: str = "yes"` keyword
+    defaults. Every live caller passes explicit 3-tuples, so the default was
+    unreached — but this is the path that CREATES a market on the exchange,
+    and the failure it would produce is the one ADR 0154 and `2d8de82` both
+    produced elsewhere: a NO thing silently treated as YES, wrong only on the
+    rows that are not YES.
+
+    Two holes, closed together:
+
+        the default   a caller passing bare 2-tuples got "yes" without
+                      typing it. The side is now a required keyword, so the
+                      fallback for a 2-tuple is always something a caller
+                      chose.
+        the echo      `leg.get("side", side)` fell back to the POSTED side,
+                      so an echo that omits the field compared EQUAL for an
+                      all-YES card — agreement reported on a direction Kalshi
+                      never stated. That is the "unreadable read as agreement"
+                      error `echoed_legs`' own docstring refuses for the field
+                      as a whole, one level down.
+
+    Mutations observed red, one per test: restoring `side: str = "yes"`;
+    restoring `leg.get("side", side)`; dropping the yes/no check in
+    `_leg_sides`.
+    """
+
+    def test_the_side_must_be_stated_not_defaulted(self):
+        import inspect
+
+        from backend.kalshi.combos import echoed_legs, lookup_combo
+
+        for fn in (echoed_legs, lookup_combo):
+            param = inspect.signature(fn).parameters["side"]
+            assert param.default is inspect.Parameter.empty, fn.__name__
+            assert param.kind is inspect.Parameter.KEYWORD_ONLY, fn.__name__
+
+    def test_an_echo_that_omits_a_side_is_unreadable_not_a_match(self):
+        """The flattering half: an all-YES card would have compared equal."""
+        from backend.kalshi.combos import echoed_legs
+
+        response = {"market": {"mve_selected_legs": [
+            {"event_ticker": "E1", "market_ticker": "M1"},
+        ]}}
+        echo = echoed_legs([("E1", "M1", "yes")], response, side="yes")
+        assert echo.verdict == "unreadable"
+        assert not echo.is_mismatch
+
+    def test_a_side_that_is_neither_is_refused_before_it_reaches_the_venue(self):
+        from backend.kalshi.combos import _leg_sides
+
+        with pytest.raises(ValueError, match="'yes' or 'no'"):
+            _leg_sides([("E1", "M1", "maybe")], "yes")
+        with pytest.raises(ValueError, match="'yes' or 'no'"):
+            _leg_sides([("E1", "M1")], "maybe")
+
+    def test_a_stated_side_still_travels_per_leg(self):
+        from backend.kalshi.combos import _leg_sides
+
+        assert _leg_sides([("E1", "M1", "no"), ("E2", "M2")], "yes") == [
+            ("E1", "M1", "no"),
+            ("E2", "M2", "yes"),
+        ]

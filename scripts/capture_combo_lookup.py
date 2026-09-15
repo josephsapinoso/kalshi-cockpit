@@ -105,6 +105,7 @@ async def capture() -> int:
                 api,
                 collection.collection_ticker,
                 selected,
+                side="yes",
                 allow_market_creation=True,
             )
             RESPONSE_PATH.write_text(

@@ -16,6 +16,45 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-15 (eighth) - When a call changes what it SENDS, the row that records it is part of the change
+
+ADR 0155 switched the odds feed from buying regions to naming ten
+bookmakers, and got the arithmetic exactly right: `sweep_cost` billed
+`markets x ceil(books/10)`, the vendor agreed, and the first live sweep
+cost 3 instead of 6. The row recording it still wrote `regions = "us,eu"`,
+because nothing in the change touched the writer. So the ledger said a
+three-market, two-region call had cost 3 - and the table's own documented
+rule turns that into 3 x 2 = 6.
+
+Nothing was mis-billed; `cost` was right throughout, and the
+reconciliation against `x-requests-used` never drifted. What broke was the
+only column that says WHY the cost is what it is, which is the first
+column anyone reads when a drift shows up. The instrument had the same
+hole: `inspect_live_db_feed._CREDIT_COLUMNS` did not select the new field
+and its comment still asserted `cost = markets x regions`, so the tool
+built to catch config drift would have shown the misleading row and
+nothing else.
+
+This is the third instance in one day of one shape: a value and its
+description drifting apart, with only the description ever read. The other
+two were a comment asserting a property the function had lost in the same
+commit that wrote it (ADR 0154), and CLAUDE.md's transacted-path counts
+going six orders stale inside a day.
+
+Three rules:
+
+- **A change to what goes on the wire is not done until the recording
+  matches.** Grep the writer, the schema comment and the inspector in the
+  same change as the call. If the row cannot express the new thing, that is
+  a migration, not a footnote.
+- **When two fields become alternatives, say which is authoritative and
+  what NULL means.** `bookmakers` NULL means "bought regions", not "bought
+  no books"; without that sentence the next reader picks whichever column
+  is populated and is right half the time.
+- **Check the instrument in the same pass as the data.** A query whose
+  column list predates the column is blind in exactly the place the change
+  happened, and it reports confidently.
+
 ## 2026-09-15 (seventh) - A cost lever is proposed from the formula and must be validated against the data; the multiplier may be carrying something
 
 `sweep_cost` is `len(markets) * len(regions)`, so when `ODDS_MARKETS` gained

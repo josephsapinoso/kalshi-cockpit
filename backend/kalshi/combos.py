@@ -387,11 +387,25 @@ def _leg_sides(
     selected_markets: Sequence[tuple], default_side: str
 ) -> list[tuple[str, str, str]]:
     """Each leg as `(event, market, side)`: a 2-tuple takes `default_side`,
-    a 3-tuple carries its own. One reader for both callers below."""
+    a 3-tuple carries its own. One reader for both callers below.
+
+    **A side that is neither `yes` nor `no` is refused, not passed through.**
+    It would otherwise reach Kalshi's body as a leg direction, and the venue's
+    answer to a misspelled side is not something this code should discover by
+    minting a market with it. The same refusal as `_ask_facts_for_side` and
+    `_verdict_facts_for_side` in `parlays.py` (ADR 0154), for the same reason:
+    on a path where `yes` is the common value, a defaulted or unvalidated side
+    is wrong silently and only on the rows that are not `yes`.
+    """
     out: list[tuple[str, str, str]] = []
     for entry in selected_markets:
         event, market, *rest = entry
-        out.append((str(event), str(market), str(rest[0]) if rest else default_side))
+        side = str(rest[0]) if rest else default_side
+        if side not in ("yes", "no"):
+            raise ValueError(
+                f"leg {event}/{market} has side {side!r}; a leg is 'yes' or 'no'"
+            )
+        out.append((str(event), str(market), side))
     return out
 
 
@@ -399,7 +413,7 @@ def echoed_legs(
     selected_markets: Sequence[tuple],
     response: Mapping[str, Any],
     *,
-    side: str = "yes",
+    side: str,
 ) -> LegEcho:
     """Compare `mve_selected_legs` in a mint response to what was posted.
 
@@ -444,11 +458,17 @@ def echoed_legs(
         )
 
     try:
+        # **`side` is read, never defaulted.** It used to fall back to the
+        # posted `side`, which made an echo that omits the field compare EQUAL
+        # for an all-YES card -- reporting agreement on a direction Kalshi
+        # never stated. That is the same "unreadable read as agreement" this
+        # function's own docstring refuses for the field as a whole, one level
+        # down. A leg without a side is unreadable.
         got = {
             (
                 str(leg["event_ticker"]),
                 str(leg["market_ticker"]),
-                str(leg.get("side", side)),
+                str(leg["side"]),
             )
             for leg in raw
         }
@@ -473,7 +493,7 @@ async def lookup_combo(
     collection_ticker: str,
     selected_markets: Sequence[tuple],
     *,
-    side: str = "yes",
+    side: str,
     allow_market_creation: bool = False,
 ) -> dict[str, Any]:
     """Resolve a specific combination to its market ticker, and thus its price.

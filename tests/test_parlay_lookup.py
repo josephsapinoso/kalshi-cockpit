@@ -1394,7 +1394,7 @@ class TestTheMintedLegsAreCheckedAgainstWhatWasAsked:
         )
         for call in ("first_call", "second_call"):
             assert echoed_legs(
-                request, self.CAPTURE[call]["response"]
+                request, self.CAPTURE[call]["response"], side="yes"
             ).verdict == "match"
 
     def test_the_posted_collection_is_not_what_binds(self):
@@ -1418,7 +1418,7 @@ class TestTheMintedLegsAreCheckedAgainstWhatWasAsked:
             for event, market in request
         ]
         assert wrong != request
-        echo = echoed_legs(wrong, self.CAPTURE["first_call"]["response"])
+        echo = echoed_legs(wrong, self.CAPTURE["first_call"]["response"], side="yes")
         assert echo.is_mismatch
         assert "CLE" in echo.detail
 
@@ -1436,12 +1436,14 @@ class TestTheMintedLegsAreCheckedAgainstWhatWasAsked:
     def test_a_missing_field_is_unreadable_not_agreement(self):
         """Three values, not a boolean. `unreadable` must never silently pass:
         that is how an absent field becomes a check nobody notices died."""
-        echo = echoed_legs([("E", "M")], {"market_ticker": "X"})
+        echo = echoed_legs([("E", "M")], {"market_ticker": "X"}, side="yes")
         assert echo.verdict == "unreadable"
         assert not echo.is_mismatch
 
     def test_a_malformed_leg_list_is_unreadable(self):
-        echo = echoed_legs([("E", "M")], {"market": {"mve_selected_legs": [1]}})
+        echo = echoed_legs(
+            [("E", "M")], {"market": {"mve_selected_legs": [1]}}, side="yes"
+        )
         assert echo.verdict == "unreadable"
 
 

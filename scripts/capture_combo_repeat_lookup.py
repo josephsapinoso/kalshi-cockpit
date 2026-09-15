@@ -75,7 +75,7 @@ async def _attempt(api, collection_ticker, legs) -> dict:
     """
     try:
         response = await lookup_combo(
-            api, collection_ticker, legs, allow_market_creation=True
+            api, collection_ticker, legs, side="yes", allow_market_creation=True
         )
     except KalshiAPIError as exc:
         return {

@@ -51,14 +51,21 @@ from inspect_live_db_common import (
 # rows were taps reads exactly like a day that swept -- an instrument blind to
 # the one clause under investigation. See `tasks/lessons.md`.
 _CREDIT_COLUMNS = (
-    'called_ms, endpoint, sport_key, markets, regions, cost, '
+    'called_ms, endpoint, sport_key, markets, regions, bookmakers, cost, '
     'remaining_reported, used_reported, "trigger"'
 )
-# `markets` and `regions` are here for the same reason `trigger` is, and the
-# omission had the same shape. `cost` is `len(markets) * len(regions)`, so a row
-# recording 6 credits was bought under three markets and one recording 2 under
-# one -- but reading the *cost* to infer the *config* is an inference, and the
-# row carries both directly. When `ODDS_MARKETS` changed from three markets to
+# `markets`, `regions` and `bookmakers` are here for the same reason `trigger`
+# is, and the omission had the same shape. `cost` is `len(markets) *
+# len(regions)` -- or `len(markets) * ceil(len(bookmakers)/10)` once a row
+# names books (ADR 0155, v44) -- so a row recording 6 credits was bought under
+# three markets and one recording 2 under one; but reading the *cost* to infer
+# the *config* is an inference, and the row carries all three directly.
+#
+# **Read `bookmakers` FIRST, and `regions` only when it is NULL.** A named-book
+# row still carries its configured `regions`, so an instrument showing
+# `regions` alone reports `us,eu` beside `cost = 3` and invites the reader to
+# compute 3 x 2 = 6 -- the exact arithmetic that made the column necessary.
+# NULL there means the call bought regions, not that it bought no books. When `ODDS_MARKETS` changed from three markets to
 # `h2h` on 2026-08-16, the only available confirmation that the deployed image
 # had picked it up was the machine's environment, which says what the process
 # was started with rather than what it sent. These two columns say what was

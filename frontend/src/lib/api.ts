@@ -1036,6 +1036,10 @@ export type ParlayLadder = {
     chance: string;
     fair_value: string;
     unquoted: string;
+    /** What a "Price on Kalshi" tap has actually returned, as a lifetime
+     *  rate. One overall figure, never per card: per-card counts are 2-30
+     *  and would read as an ordering (ADR 0156). */
+    tap_outcome: string;
     fee: string;
   };
   /** The #15 cut, echoed. Absent when the pool was not cut. */

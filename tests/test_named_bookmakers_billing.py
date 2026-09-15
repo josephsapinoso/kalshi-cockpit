@@ -181,3 +181,95 @@ class TestTheLiveDeployNamesTenBooksAndKeepsTheSharps:
 
     def test_the_live_sweep_is_three_credits_not_six(self):
         assert sweep_cost(THREE, ("us", "eu"), self._live_books()) == 3
+
+
+class TestTheSpendRowSaysWhatItBought:
+    """`api_credits.bookmakers`, schema v44 — ADR 0156.
+
+    ADR 0155 started sending named books INSTEAD of regions, and the row kept
+    recording only `regions` — the configured value, not the sent one. The
+    first named-book sweep landed on live as `regions = "us,eu"` with
+    `cost = 3`, and this table's own rule (`cost` is "what we predicted:
+    markets x regions") turns that into 3 x 2 = 6. A ledger row describing a
+    purchase that did not happen.
+
+    `cost` was right throughout, so the reconciliation against
+    `x-requests-used` never drifted. What was wrong is the only column that
+    says WHY the cost is what it is — the first thing anyone debugging a
+    drift would read.
+
+    Mutations observed red, one per test: `record` dropping the `bookmakers`
+    argument from the INSERT; the client not passing it.
+    """
+
+    def _conn(self, tmp_path):
+        from backend.store import db as store
+
+        return store.init_db(tmp_path / "credits.db")
+
+    def test_a_named_book_call_records_the_books(self, tmp_path):
+        from backend.odds.budget import CreditBudget
+
+        conn = self._conn(tmp_path)
+        CreditBudget(conn, daily_budget=700).record(
+            called_ms=1, endpoint="/sports/x/odds", cost=3,
+            markets=list(THREE), regions=["us", "eu"], bookmakers=list(TEN),
+        )
+        row = conn.execute("SELECT * FROM api_credits").fetchone()
+        assert row["bookmakers"] == ",".join(TEN)
+        assert row["cost"] == 3
+        # The row is now self-consistent: cost == markets x ceil(books/10).
+        books = row["bookmakers"].split(",")
+        assert row["cost"] == sweep_cost(row["markets"].split(","), [], books)
+        conn.close()
+
+    def test_a_region_call_leaves_the_column_null(self, tmp_path):
+        """NULL means 'this call bought regions' — every row before v44 — and
+        is not the same as 'bought no books'."""
+        from backend.odds.budget import CreditBudget
+
+        conn = self._conn(tmp_path)
+        CreditBudget(conn, daily_budget=700).record(
+            called_ms=1, endpoint="/sports/x/odds", cost=6,
+            markets=list(THREE), regions=["us", "eu"],
+        )
+        row = conn.execute("SELECT * FROM api_credits").fetchone()
+        assert row["bookmakers"] is None
+        assert row["regions"] == "us,eu"
+        assert row["cost"] == sweep_cost(
+            row["markets"].split(","), row["regions"].split(",")
+        )
+        conn.close()
+
+    def test_the_schema_is_v44(self):
+        from backend.store.db import SCHEMA_VERSION, _MIGRATIONS
+
+        assert SCHEMA_VERSION == 44
+        assert ("api_credits", "bookmakers", "TEXT") in _MIGRATIONS[44].columns
+
+    def test_the_migration_reaches_an_existing_database(self, tmp_path):
+        """v44 must add the column to a database that predates it, not only
+        appear in a freshly created one."""
+        import sqlite3
+
+        from backend.store import db as store
+
+        conn = self._conn(tmp_path)
+        conn.execute("ALTER TABLE api_credits DROP COLUMN bookmakers")
+        store._set_meta(conn, "schema_version", "43")
+        conn.commit()
+        assert "bookmakers" not in store._columns(conn, "api_credits")
+        ran = store.migrate(conn)
+        assert 44 in ran
+        assert "bookmakers" in store._columns(conn, "api_credits")
+        conn.close()
+
+    def test_the_inspector_reads_the_new_column(self):
+        """An instrument blind to the column cannot show the row it explains."""
+        import sys
+        from pathlib import Path
+
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+        import inspect_live_db_feed as feed
+
+        assert "bookmakers" in feed._CREDIT_COLUMNS

@@ -178,6 +178,7 @@ async def run(started_event: str, *, authorized: bool) -> int:
                     api,
                     collection.collection_ticker,
                     selected,
+                    side="yes",
                     allow_market_creation=True,
                 )
             except Exception as exc:                             # noqa: BLE001

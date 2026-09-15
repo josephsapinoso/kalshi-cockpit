@@ -132,6 +132,26 @@ COMBO_CENSUS_BOOKS_NON_EMPTY = 0
 #: Both are true and they are not about the same population, so the note names
 #: both and the constants keep them apart. The single non-taker is the one
 #: tool-placed resting bid (ADR 0084).
+#: The TAP census -- the fourth population, and the only one about what
+#: happens when Joe presses the button. The three above describe books and
+#: fills; this one counts the OUTCOME of every "Price on Kalshi" tap in
+#: `parlay_lookups`, which is the thing he actually experiences and the thing
+#: nobody had ever quoted as a rate (ADR 0156, read off live 2026-09-15).
+#:
+#: **One lifetime figure and no per-card breakdown, deliberately.** Per card
+#: the counts run 2 to 30, and `totals` at 0 of 3 would read as a totals
+#: defect when P(3 of 3 | base rate) is about 0.19 -- indistinguishable from
+#: the whole. A per-card figure here would be an ordering dressed as a fact,
+#: which ADR 0071 section 2.5 forbids.
+#:
+#: It reports what HAS happened and promises nothing about the next tap: the
+#: sentence "you can buy in" is pinned absent for the same reason it is on
+#: the note above.
+TAP_CENSUS_DATE = "2026-09-15"
+TAP_CENSUS_TAPS = 77
+TAP_CENSUS_PRICED = 28
+TAP_CENSUS_BOOK_EMPTY = 44
+
 PARLAY_CENSUS_DATE = "2026-09-06"
 PARLAY_CENSUS_POSITIONS = 52
 PARLAY_CENSUS_TAKER_FILLS = 51
@@ -287,6 +307,15 @@ NOTES: dict[str, str] = {
         f"{COMBO_EXIT_SHARD_YES_BID_SIZE_CONTRACTS} contracts at a single "
         f"price on each -- so a way out exists and is tiny. How often is "
         f"unmeasured. Plan to hold to settlement or to hedge a leg."
+    ),
+    "tap_outcome": (
+        f"Pressing “Price on Kalshi” often comes back with no price. "
+        f"Of the {TAP_CENSUS_TAPS} taps this desk has made up to "
+        f"{TAP_CENSUS_DATE}, {TAP_CENSUS_PRICED} returned a price and "
+        f"{TAP_CENSUS_BOOK_EMPTY} found nothing resting on the combination — "
+        f"the “no one is selling it” answer. That is the venue’s book "
+        f"being empty, not a fault in the card, and tapping again later is "
+        f"what usually works. It says nothing about which card is better."
     ),
     "fee": (
         "Kalshi's combo fee model is unverified. Every combo fill ever "

@@ -267,6 +267,7 @@ class CreditBudget:
         sport_key: Optional[str] = None,
         markets: Optional[Sequence[str]] = None,
         regions: Optional[Sequence[str]] = None,
+        bookmakers: Optional[Sequence[str]] = None,
         remaining_reported: Optional[int] = None,
         used_reported: Optional[int] = None,
         trigger: Optional[str] = None,
@@ -288,6 +289,15 @@ class CreditBudget:
         row, and `_SERVED_SWEEP` coalesces it to 200 so those keep counting as
         they always did.
 
+        **`bookmakers` is what the call actually asked for, when it asked by
+        name.** Since ADR 0155 a call sends `bookmakers` OR `regions`, never
+        both, and the bill follows whichever was sent. Recording only
+        `regions` left the first named-book sweep reading
+        `regions = "us,eu"` beside `cost = 3`, which this table's own rule
+        turns into 3 x 2 = 6 -- a row describing a purchase that did not
+        happen. NULL (v44) means the call bought regions, which is every row
+        before 2026-09-15 and is not the same as "bought no books".
+
         **`trigger` is written to be excluded.** `'manual'` marks an on-demand
         refresh, which makes the identical request at the identical cost as a
         planned sweep and must not be read as one -- `_SERVED_SWEEP` in
@@ -297,15 +307,16 @@ class CreditBudget:
         """
         self.conn.execute(
             "INSERT INTO api_credits (called_ms, endpoint, sport_key, markets, "
-            "regions, cost, remaining_reported, used_reported, trigger, "
-            "http_status) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "regions, bookmakers, cost, remaining_reported, used_reported, "
+            "trigger, http_status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 called_ms,
                 endpoint,
                 sport_key,
                 ",".join(markets) if markets else None,
                 ",".join(regions) if regions else None,
+                ",".join(bookmakers) if bookmakers else None,
                 cost,
                 remaining_reported,
                 used_reported,
