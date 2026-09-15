@@ -30,7 +30,9 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from inspect_live_db_common import (
+    _MS_PER_DAY,
     Section,
+    _day_bounds,
     _derive_iso,
     _fetch,
     _iso,
@@ -82,15 +84,35 @@ _SQL_SERIES = (
 # quotes no props, or because it quotes props this instance never asked for on a
 # fixture it never swept. Read the bookmaker list against the region each book
 # is known to serve; do not read an absence as a refusal.
+# **Bounded on `commence_ms`, and that bound is the point.** This query was a
+# bare `GROUP BY bookmaker` over every row of `odds_snapshots` with the only
+# predicate on `outcome_description`, which no index leads with -- a full scan
+# of the largest table on the box. On live that evicts the page cache the desk
+# is reading through, and the cost lands on Joe's next tap, not on the session
+# that ran it (`tasks/lessons.md`, the 75-second read). `commence_ms >= :since`
+# rides `idx_odds_commence`, or `idx_odds_sport_commence` when `--sport` names
+# one, so the scan is a slice instead of the table.
+#
+# The window is in the section title for the same reason the row count is: a
+# windowed count and a lifetime count are different numbers and this repo has
+# already paid for confusing two quantities that shared a name.
 _SQL_PROP_BOOKMAKERS = (
     "SELECT bookmaker, COUNT(*) AS quotes, "
     "COUNT(DISTINCT odds_event_id) AS events, "
     "COUNT(DISTINCT market) AS market_keys, "
+    "COUNT(DISTINCT sport_key) AS sports, "
     "MIN(fetched_ms) AS first_fetched_ms, MAX(fetched_ms) AS last_fetched_ms "
     "FROM odds_snapshots "
-    "WHERE outcome_description IS NOT NULL "
+    "WHERE commence_ms >= :since "
+    "  AND (:sport IS NULL OR sport_key = :sport) "
+    "  AND outcome_description IS NOT NULL "
     "GROUP BY bookmaker ORDER BY quotes DESC"
 )
+
+#: Default lookback for `prop-bookmakers`, in days of `commence_ms`. Seven
+#: covers a full sports week including the weekend that follows, which is the
+#: population anyone asking "which books quote props" means.
+_PROP_BOOKMAKERS_DEFAULT_DAYS = 7
 
 
 # ---------------------------------------------------------------------------
@@ -819,16 +841,56 @@ def _q_prop_bookmakers(conn: sqlite3.Connection, args) -> list[Section]:
     prop's outcome is `(player, side, line)` and the player has nowhere else to
     live. Selecting on it rather than on a hardcoded list of the ten prop market
     keys keeps this query from drifting out of step with `PROP_MARKETS`.
+
+    `--since YYYYMMDD` moves the `commence_ms` floor; `--sport` cuts to one
+    `sport_key`. Both are bounds before they are filters -- see the comment on
+    the SQL.
+
+    What this does not establish
+    ----------------------------
+    - **Nothing about books that were never asked for.** A book absent here is
+      absent from the *response*, and since ADR 0155 the request names ten
+      books by key: a book outside that ten cannot appear however many props it
+      quotes. Read this beside `ODDS_BOOKMAKERS`, never alone.
+    - **Nothing about a misspelled key.** A key the vendor does not recognise
+      is silently absent from the response and still consumes one of the ten
+      slots, so it reads here exactly like a book that quotes no props.
+    - **Nothing about price quality** -- presence, not correctness, and a book
+      quoting one side of one line counts the same as one quoting every rung.
     """
+    since_ms = _prop_since_ms(args)
+    scope = f"sport_key = {args.sport!r}" if getattr(args, "sport", None) else "every sport"
     return [
+        _window_section(
+            "prop-bookmakers window (commence_ms floor)", since_ms, None
+        ),
         _fetch(
             conn,
             _SQL_PROP_BOOKMAKERS,
-            (),
-            title="odds_snapshots: books that returned a player prop",
+            {"since": since_ms, "sport": getattr(args, "sport", None)},
+            title=(
+                "odds_snapshots: books that returned a player prop, "
+                f"{scope}, commencing at or after {_iso(since_ms)}"
+            ),
             cap=args.limit,
-        )
+        ),
     ]
+
+
+def _prop_since_ms(args) -> int:
+    """The `commence_ms` floor for `prop-bookmakers`.
+
+    Defaults to a window rather than to no bound: an unbounded default is one a
+    session reaches for during a game, which is when it costs the most.
+    """
+    value = getattr(args, "since", None)
+    if value is None:
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        return now_ms - _PROP_BOOKMAKERS_DEFAULT_DAYS * _MS_PER_DAY
+    try:
+        return _day_bounds(value, args.day_start_hour)[0]
+    except ValueError as exc:
+        raise ValueError(f"--since must be YYYYMMDD, got {value!r}") from exc
 
 
 def _q_actionable_audit(conn: sqlite3.Connection, args) -> list[Section]:

@@ -2313,9 +2313,16 @@ def leg_details_for(selected: Sequence[CandidateLeg]) -> dict[tuple[str, str], d
     `event_title` since 2026-09-15: a total's label is Kalshi's subtitle
     ("Under 8.5 runs scored") and names no game, and a prop's names a
     player, so a position built from the label alone cannot say which game
-    it rides on. Carried in the blob now; `parlay_position_legs` has no
-    column for it yet, so `/hedge` still prints the label alone until that
-    schema step lands (`tasks/NEXT.md`).
+    it rides on. Carried in the blob, and **persisted**:
+    `parlay_position_legs.event_title` since ADR 0153 / schema v43
+    (`backend/store/schema.sql:2483`), served at `backend/hedge.py:1026`
+    and drawn at `HedgePositions.tsx:272`. NULL on rows recorded before v43.
+
+    (Until 2026-09-15 this paragraph ended "`parlay_position_legs` has no
+    column for it yet ... until that schema step lands (`tasks/NEXT.md`)".
+    The step landed the same day and the sentence did not, so the queue --
+    which is seeded from prose -- carried a phantom item. A comment naming
+    future work has to be struck by the change that does the work.)
     """
     return {
         (leg.kalshi_event_ticker, leg.kalshi_market_ticker): {

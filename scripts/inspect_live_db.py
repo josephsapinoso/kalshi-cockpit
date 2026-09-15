@@ -468,9 +468,10 @@ QUERIES: dict[str, QueryDef] = {
     ),
     "prop-bookmakers": QueryDef(
         "odds_snapshots rows carrying outcome_description (i.e. player props), "
-        "grouped by bookmaker with quote/event/market-key counts and the "
-        "fetched_ms range. Answers: does any EU book quote props, or is half "
-        "of every 20-credit prop event buying nothing?",
+        "grouped by bookmaker with quote/event/market-key/sport counts and the "
+        "fetched_ms range. Answers: does any sharp book quote props, or are "
+        "slots of the named ten buying nothing? Bounded by a commence_ms "
+        "floor (--since YYYYMMDD, default 7 days) and optionally --sport.",
         _q_prop_bookmakers,
     ),
     "fair-prices-by-market": QueryDef(
@@ -748,6 +749,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--book",
         default=None,
         help="bookmaker key for book-rows (e.g. everygame)",
+    )
+    parser.add_argument(
+        "--sport",
+        default=None,
+        help=(
+            "prop-bookmakers: restrict to one odds_snapshots.sport_key (e.g. "
+            "americanfootball_nfl). Default None means every sport, which is "
+            "still bounded by the --since commence_ms floor"
+        ),
     )
     parser.add_argument(
         "--limit",

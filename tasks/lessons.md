@@ -16,6 +16,47 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-15 (ninth) - A comment that names future work becomes a phantom backlog item the moment that work ships
+
+A partner pass over seven open NEXT.md items found three of them already
+built. Two had been closed hours earlier by ADRs written the same day, and
+one -- `parlay_position_legs.event_title` -- was closed by ADR 0153 and
+schema v43 while its own source comment still said the step had not landed:
+
+    Carried in the blob now; `parlay_position_legs` has no column for it
+    yet, so `/hedge` still prints the label alone until that schema step
+    lands (`tasks/NEXT.md`).
+
+The column exists (`schema.sql:2483`), the migration runs
+(`db.py:1059`), `/hedge` serves it (`hedge.py:1026`) and the screen draws
+it (`HedgePositions.tsx:272`). Nothing was broken. What was broken is that
+the comment pointed at `tasks/NEXT.md`, the queue is seeded from prose
+like it, and the next session dutifully re-entered a finished task. Three
+of seven items on a drained queue were phantoms; the cost is a whole
+planning pass spent on work that does not exist, which is the most
+expensive kind because it looks exactly like work that does.
+
+This is the *inverse* of the shape already recorded here (a comment
+asserting a property the code has lost). That one flatters the code; this
+one flatters the backlog. Both are a description outliving the thing it
+described, and in both the description is the only half anyone reads.
+
+Three rules:
+
+- **A comment that names a future task is a to-do with no owner and no
+  expiry. The change that does the task must delete the sentence** -- grep
+  the codebase for the feature's name, not just the file you edited. If
+  the sentence cites `tasks/NEXT.md`, the NEXT.md item is its twin and
+  both are struck in one edit.
+- **Before planning a queue item, verify it at source.** Three greps
+  settled all three tonight -- the symbol, the migration, the renderer.
+  A summary of the backlog is not evidence about the backlog, and the item
+  most worth checking is the one whose wording you inherited verbatim.
+- **Prefer "here is where it landed" to "this is not done yet."** A
+  comment recording a shipped fact with its file references stays true and
+  costs the same to write; a comment recording an intention has to be
+  maintained by someone who will never be told it came true.
+
 ## 2026-09-15 (eighth) - When a call changes what it SENDS, the row that records it is part of the change
 
 ADR 0155 switched the odds feed from buying regions to naming ten

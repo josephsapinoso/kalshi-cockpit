@@ -119,6 +119,217 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-15 (twenty-first session) — three of seven open items were already built, the props finding does not survive its own fixture, and an instrument was charging its cost to Joe
+
+Joe: *"Read next.md and continue."* Not a named errand, so a partner pass
+ran. Every named queue was drained at open: **no** open Dependabot alerts,
+**no** open unblocked sub-issues on map #3 (the frontier query returns
+nothing at all), tree clean, nothing unpushed, live `/api/health` =
+`d817273` = main's last code commit, schema v44, recorder 20.9 s.
+CI 35027687263 green on `d817273`.
+
+**Zero odds credits spent this session.** Every live call was a `GET`, or a
+bounded read-only `inspect_live_db.py` query. Today's spend closed at
+**108 of 700** — 15 calls at 6 credits, then 6 at 3 since `6e00db1`.
+
+### The queue was a third phantom, and prose is why
+
+**Items 3, 4 and the `event_title` item were all already built.** Verified at
+source, not taken on the partner's word:
+
+- **Item 4 (`side: str = "yes"` on the mint path) — CLOSED by ADR 0156 §2.**
+  `side` is keyword-only and required on both `echoed_legs`
+  (`combos.py:413`) and `lookup_combo` (`:493`), and `_leg_sides` refuses a
+  third value before it reaches the venue body.
+- **Item 3 (`book_empty` rate on the card) — CLOSED by ADR 0156 §3, and
+  deliberately.** `notes.tap_outcome` ships the lifetime census; the
+  per-card breakdown was **refused** because per-card n runs 2–30 and
+  `totals` at 0-of-3 has P ≈ 0.19 under the 57% base rate. That refusal is
+  correct (ADR 0071 §2.5). **Do not reopen it — the per-card version is the
+  defect, not the missing feature.**
+- **`parlay_position_legs.event_title` — CLOSED by ADR 0153 / schema v43,
+  the same day it was written down as open.** Column `schema.sql:2483`,
+  migration `db.py:1059`, served `hedge.py:1026`, drawn
+  `HedgePositions.tsx:272`.
+
+The third one is the instructive one. It was re-entered on the queue because
+a docstring at `backend/parlays.py:2313` still read *"`parlay_position_legs`
+has no column for it yet ... until that schema step lands
+(`tasks/NEXT.md`)"* — a comment naming future work, pointing at the queue,
+outliving the work by hours. The queue is seeded from prose, so the prose
+manufactured the item. Fixed: the docstring now records **where it landed**,
+with file references, and says why it was rewritten.
+
+Lesson `tasks/lessons.md` 2026-09-15 (ninth): **a comment that names future
+work becomes a phantom backlog item the moment that work ships.** It is the
+inverse of the shape already recorded there (a comment asserting a property
+the code has *lost*): that one flatters the code, this one flatters the
+backlog. Prefer "here is where it landed" to "this is not done yet."
+
+### The spine's credit arithmetic was stale by two revisions
+
+CLAUDE.md and the `fly.live.toml` comment block both read **4 credits a
+call**. That was already wrong at 6 when ADR 0152 added `totals`, and is now
+wrong at 3 since ADR 0155 named ten books. Both tables corrected, with the
+derivation written beside them so the next move recomputes instead of
+inheriting:
+
+    idle floor, 4 sports    ~384/day  ->  ~288/day   24h x 4 sports x 3
+    kickoff cluster           28      ->    21       7 calls x 3
+
+**Also corrected in CLAUDE.md, both stale counts:**
+
+- `position_state` said **four**; live says **8**, all `delivered = 1`,
+  newest 18:29:46Z. Still **no `hedge_lock` kind at all**, so zero locks
+  holds.
+- "all seven real `manual_orders` rows predate v40 and carry NULL there —
+  Joe's next fill is the first that will carry them, and reading that row
+  once is worth more than any build." **That has happened and has been
+  read.** 13 real rows, 12 filled, 1 unfilled (`manual-orders-audit`, live
+  ~22:20Z); the **six 2026-09-15 orders postdate v40 and carry both
+  endpoints**, and the registered census read exactly those (§2 of its
+  result doc). The one unjoined row is 2026-09-09T00:34:30Z, pre-v40. **Do
+  not carry this as pending work** — and do not re-run the census, the look
+  is spent.
+
+**Added to CLAUDE.md, because it is a live hazard nobody had written down:**
+the kickoff loop's projection carries `prop_tail = prop_cost_per_event ×
+slot.games_covered` (`timing.py:2168`), which its own comment
+(`:2200`) calls a 20× multiplier that can empty the budget. It is zero today
+**only** because `ODDS_BUY_PROPS_ON_SCHEDULE = "false"` leaves `prop_sports`
+empty (`runner.py:2758`). **Do not turn scheduled props on without redoing
+the day's sum first**, and especially not this weekend.
+
+### The props finding does not survive its own fixture — REFUSED, not deferred
+
+The partner proposed: no sharp book quotes player props, so 4 of the 10
+named books (`pinnacle`, `matchbook`, `betfair_ex_eu`, `sport888`) are dead
+weight on the prop endpoint, and a per-endpoint list would take props from 6
+books to 9 **at identical cost**. Read against the fixture it rests on, it
+does not hold:
+
+    odds_mlb_h2h_spreads_totals.json   has "params": {"regions": ["us","eu"]}
+                                       -> all four sharps present on team markets
+    odds_mlb_player_props.json         has NO params envelope at all
+                                       -> 9 books returned, every one a US book
+
+Nine US books and no EU book is **exactly what `regions=us` returns**, so
+"EU books do not quote props" and "that capture never asked for EU" produce
+the identical file. One event, one date, one sport, one market family
+(`pitcher_strikeouts`), and the missing evidence is the parameter that
+decides it. **Nothing was changed on its strength.** The confound is the
+durable part, not the conclusion.
+
+(A verbatim capture of one endpoint recording its request parameters while a
+verbatim capture of another does not is itself the defect: the envelope is
+what makes an *absence* in a capture readable.)
+
+### Built — ADR 0157, an instrument may not charge its cost to the desk
+
+The query that would settle it, `prop-bookmakers`, was a `GROUP BY
+bookmaker` over `odds_snapshots` whose only predicate was
+`outcome_description IS NOT NULL` — a column no index leads with, so the one
+available plan is a **full scan of the largest table on the box**, which is
+exempt from retention pruning and only grows. It was 22:35Z with MLB first
+pitch at 22:40Z, so **it was not run**: the cost lands on whoever touches the
+desk next (the 75-second page-cache eviction in `tasks/lessons.md`), not on
+the session that ran it. An instrument whose expense is paid by a different
+party, minutes later, is one nobody attributes correctly.
+
+Built instead:
+
+- `WHERE commence_ms >= :since AND (:sport IS NULL OR sport_key = :sport)`.
+  `idx_odds_commence` serves the range; `idx_odds_sport_commence` serves it
+  with `--sport`.
+- **The default is a seven-day window, not the epoch.** The default matters
+  more than the flag — the unbounded call is the one a session reaches for
+  mid-game, when it is dearest. A malformed `--since` raises rather than
+  falling back: a silently ignored bound is an unbounded query wearing a flag.
+- The window prints as its own section beside the counts, so a windowed
+  count cannot be quoted as a lifetime one.
+- A **What this does not establish** block on the docstring, because the
+  wrong reading is specific: since ADR 0155 the request names ten books, so
+  an absent book may never have been *asked for*, and a **misspelled or
+  sport-absent key is silently absent from the response while still
+  consuming one of the ten slots** — indistinguishable here from a book that
+  quotes no props. Read it beside `ODDS_BOOKMAKERS`, never alone.
+
+`book-rows` needed nothing; it was already bounded on `commence_ms >= :at`.
+
+Three mutations each seen red (ADR 0157 §Guards); mutation 1 reddens **both**
+`EXPLAIN QUERY PLAN` guards, so the plan tests genuinely detect the scan.
+Mutations were applied against a **copy**, not reverted through `git
+checkout` — a prior session lost real uncommitted work in the same file that
+way.
+
+### STATE at close
+
+Local: `tests/test_prop_bookmakers_is_bounded.py` 11 passed;
+`test_inspect_live_db.py` + the new file 304 passed; the ADR/lane/session-file
+guards 139 passed; **ruff clean**. Full suite and tsc: left to CI.
+Next ADR **0158**; schema **v44** (no migration this session); arming
+unchanged — hand path armed, engine and bids dry.
+
+**`tasks/NEXT.md` is at 224,146 bytes against a 262,144-byte ceiling (85.5%).
+The next session should plan a split before writing its entry** —
+`wc -c` first, cut on a date boundary, move the index lines in the same
+edit, verify by md5 (`tasks/archive/next-split-log.md`).
+
+### First reads for the next session, in order
+
+1. **Run the now-bounded `prop-bookmakers` against the weekend** — free, and
+   it is the decisive read the fixture could not give:
+
+       inspect_live_db.py prop-bookmakers --since 20260917
+       inspect_live_db.py prop-bookmakers --since 20260917 --sport americanfootball_nfl
+
+   Two questions at once: does any sharp book quote props (the refused
+   finding), and **did every one of the ten named keys come back on NCAAF,
+   NFL and WNBA** — a misspelled or sport-absent key costs a slot silently.
+   Read it beside `ODDS_BOOKMAKERS`. If a gap is real, it is a decision
+   about what the desk buys, so it goes to Joe with the numbers, not
+   straight to a config edit.
+2. **One "Price on Kalshi" on the props card — JOE ONLY, confirmed.** It
+   reaches `parlays.py:2911`, which passes `allow_market_creation=True` into
+   `lookup_combo`: **it mints a market on the exchange.** A session must not
+   do it. Worth his tap — the props card has 0 taps in 77 lifetime lookups
+   and is the card ADR 0154 just fixed; it also adds a fourth point to the
+   `book_empty` rate.
+3. `read-incidents`: **answered this session** — still exactly the six
+   pre-fix rows, 12:16–12:21Z, none after `2d8de82`/`4bf5f5b`. Nothing left
+   to read unless a new symptom appears.
+4. **Recapture `odds_mlb_player_props.json` with a `params` envelope** —
+   only if item 1 leaves the question open, because it costs credits and the
+   live table answers it free.
+
+### Still open, in order
+
+1. Items 1, 2 and 4 above.
+2. **The NFL prop tap (DET@BUF, from Wed 16 Sep 20:15 ET) — DOWNGRADED, not
+   dropped.** Its stated price was stale (3 + 3 = **6** credits now, not 12),
+   and the coverage question it was meant to answer is answered free by item
+   1, because `odds_snapshots.bookmaker` records every returned key per sport
+   per fetch. Tap only if item 1 leaves a gap. Not Joe-only — it is an odds
+   fetch, not an exchange action.
+3. **Run the fixed probe once, with Joe at the keyboard** (carried). The
+   partner again recommends **PARKING it with an ADR**: it settles
+   gross-vs-net on `read_shard_funds`, the two differ only by resting-order
+   value, Joe never rests (ADR 0115 disarmed the bid path on exactly that
+   ground), and answering it needs an order rested — manufacturing the one
+   state he never occupies. Failure mode if wrong is permissive (a venue
+   400), not a missed bet. **Joe's call**, and it has now survived several
+   sessions unchallenged.
+4. **Struck from the queue as already built** (see above): the old items 3
+   and 4, and the `event_title` schema step. The old item 1(a), the credits
+   decision, was already struck. The old item 5's bookkeeping strike (the
+   nineteenth entry's "Props have the same gap") stands.
+5. Carried: `user_not_found` on shard 3 only (PARK — everything is on shard
+   1 and an empty shard is a state, ADR 0150); the 25 s read budget
+   (instrument kept, diagnosis parked).
+6. **Reservations:** none live. Next ADR **0158**; schema **v44**.
+
+---
+
 ## 2026-09-15 (twentieth session) — yesterday's wrong-side fix had a second reader in the same function; and dropping `eu` would delete every sharp book the desk has
 
 Joe: *"Read next.md and start. Use partner agent if needed."* Not a named

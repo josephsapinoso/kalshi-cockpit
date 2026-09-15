@@ -302,10 +302,18 @@ primary_region = "ord"
   # a guess about how long the page is actually open, and this file is not the
   # place to record a guess as a number. What is knowable:
   #
-  #   idle floor, 4 sports        ~384/day    24h x 4 sports x 4 credits
+  #   idle floor, 4 sports        ~288/day    24h x 4 sports x 3 credits
   #   attention, capped           <=300/day   ODDS_ATTENTION_DAILY_CREDITS
-  #   kickoff windows             UNCAPPED    clusters x 7 calls x 4 credits
+  #   kickoff windows             UNCAPPED    clusters x 7 calls x 3 credits
   #   the only real ceiling        700/day    ODDS_DAILY_CREDIT_BUDGET
+  #
+  # **The per-call figure is 3 and it has moved twice.** This table read 4
+  # from 2026-09-06; ADR 0152 added `totals` and made it 6 without touching
+  # the table, and ADR 0155 named ten bookmakers in place of regions and made
+  # it 3. `sweep_cost` is `len(markets) x ceil(len(bookmakers)/10)` when books
+  # are named (`backend/odds/budget.py:87`). Re-derive every row here the day
+  # ODDS_MARKETS or ODDS_BOOKMAKERS moves -- the arithmetic is one line and
+  # nothing recomputes it for you.
   #
   # **The third row is the correction and it is the whole point.** This table
   # read `worst case ~684/day inside the 700 daily cap`, and `timing.py` and
@@ -324,8 +332,8 @@ primary_region = "ord"
   # 10:00Z boundary. Bounded to under 24 hours, and not a throttle.
   #
   # The kickoff-window term is per-day, not a constant: a full 60-minute window
-  # at the 10-minute refresh is SEVEN calls, so 28 credits a cluster at today's
-  # cost of 4. An NFL Sunday plans 3 clusters (the season's worst is 4).
+  # at the 10-minute refresh is SEVEN calls, so 21 credits a cluster at today's
+  # cost of 3. An NFL Sunday plans 3 clusters (the season's worst is 4).
   #
   # The old window's 576/day was a floor on spend. The actual figure is
   # measured, not predicted -- but NOT from `api_credits` by `trigger`, which

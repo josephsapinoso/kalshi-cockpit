@@ -141,17 +141,33 @@ cadence while a page is open, hourly otherwise for a sport with a fixture
 inside twelve hours, and the attended cadence is tiered by horizon
 (ADR 0111 — ten minutes inside twelve hours, hourly beyond, never dropped).
 
-    idle floor, 4 sports         ~384/day
+**A call costs 3 credits, not 4 and not 6** (ADR 0155, 2026-09-15). The feed
+buys **ten named `bookmakers` instead of `regions`**, and the vendor bills
+`ceil(books / 10)` region-equivalents, so `sweep_cost` is
+`len(markets) × ceil(10/10)` = 3 at three markets
+(`backend/odds/budget.py:87`). Every table below was written at 4 and was
+already wrong at 6 when ADR 0152 added `totals`; re-derive from 3, and
+re-derive again the day the book list or the market list moves.
+
+    idle floor, 4 sports         ~288/day    24h x 4 sports x 3 credits
     attention, capped            <=300/day   ODDS_ATTENTION_DAILY_CREDITS
-    kickoff windows              UNCAPPED    clusters x 7 calls x 4 credits
+    kickoff windows              UNCAPPED    clusters x 7 calls x 3 credits
     the only real ceiling         700/day    ODDS_DAILY_CREDIT_BUDGET
 
 **The day is safe by the cap, not by construction.** The kickoff-window loop
 (its only gate is `credits_left`, `backend/odds/timing.py:2381`) was 67% of
 September's spend. When the 700 binds, `decide_sweeps` returns `fire=()` and
 **every** sport stops until the next 10:00Z boundary. A full 60-minute window
-is **seven** calls (28 credits a cluster); an NFL Sunday plans 3 clusters, the
-season's worst 4 (`tests/test_sweep_timing.py` pins the seven).
+is **seven** calls (21 credits a cluster at 3); an NFL Sunday plans 3 clusters,
+the season's worst 4 (`tests/test_sweep_timing.py` pins the seven).
+
+**The 700 is not spare headroom — it is a cap that truncates the day, and one
+flag can bind it.** The kickoff loop's projection carries a `prop_tail` term,
+`prop_cost_per_event × slot.games_covered` (`backend/odds/timing.py:2168`),
+which its own comment calls a 20× multiplier that can empty the budget. It is
+zero today only because `ODDS_BUY_PROPS_ON_SCHEDULE = "false"`
+(`fly.live.toml`) leaves `prop_sports` empty (`backend/runner.py:2758`).
+**Do not turn scheduled props on without redoing the day's sum first.**
 
 The slice is a **ceiling, not an off switch**: past it a sport falls through to
 the floor's hourly timetable, stamped `DESK`, and floor and slice are
@@ -277,8 +293,10 @@ ADR 0145 and is not edited; the hedge price being a live ask is a fifth,
 unsigned term it does not list.) Net sign is indeterminate; E2 alone was
 observed at 22 tenths a contract on one row of 12, so "a few tenths" no
 longer bounds it. **`/hedge` has produced zero locks in its life**
-(2026-09-15: no `hedge_lock` kind in `notifications` at all, the four
-`position_state` rows are the only position kind; 10 open
+(re-read live 2026-09-15 ~22:30Z: no `hedge_lock` kind in `notifications` at
+all, the **8** `position_state` rows — all `delivered = 1`, newest 18:29:46Z —
+are the only position kind; this line said "four" and went stale in five days;
+10 open
 `parlay_positions` rows, 5 in `derisk` and 5 dead, none locked), so E3 did
 no realised harm and the fix is validated on synthetic rows only. **The flattering error is calling the figure cautious,
 a floor, or "at least"** — the words to refuse are ceiling, floor,
@@ -291,9 +309,15 @@ column** — this paragraph named one until 2026-09-11. The column is
 the price being sent" — `OrderOutcome` has no such property. Since ADR 0143
 (schema v40, 2026-09-11) `record_outcome` also keeps the venue's own
 `venue_fill_count`, `venue_avg_fill_price_tenths` and `venue_avg_fee_dollars`
-on the permanent row; **all seven real `manual_orders` rows (six filled)
-predate it and carry NULL there** — Joe's next fill is the first that will
-carry them, and reading that row once is worth more than any build.
+on the permanent row. **That has happened and has been read — do not carry
+this as pending work.** This line said "all seven real rows predate it and
+carry NULL there — Joe's next fill is the first that will carry them, and
+reading that row once is worth more than any build" until 2026-09-15 ~22:30Z.
+The population is now **13 real rows, 12 filled, 1 unfilled**
+(`manual-orders-audit`, live, 2026-09-15 ~22:20Z), and the **six 2026-09-15
+orders postdate v40 and carry both endpoints** — the registered census read
+exactly those and is spent (§2 of its result doc). The one unjoined row is the
+2026-09-09T00:34:30Z order, pre-v40, no `venue_fill_count` and no `fills` row.
 `_record_combo_position` (`backend/api/routes.py:3959`) still feeds
 `parlay_positions.stake_tenths` from the sent price (`contracts *
 fill_price_tenths`, `:4318`); rewiring it is deferred by ADR 0143 §4 and is
