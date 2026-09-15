@@ -237,6 +237,75 @@ from 22:40Z. All nine parlay cards are currently empty on
 `stale_consensus: 76` / `kickoff_outside_window: 198` — benign, the
 15-minute freshness limit, not a defect.
 
+**Then, on Joe's word ("Proceed with this option: Verify and build the
+bookmakers cut"): ADR 0155, `6e00db1`, live.** The premise was verified
+against the vendor's own counter **before any code was written** — one
+paid call, bracketed by the free `/v4/sports` probe:
+
+    before   used=5048  remaining=14952
+    odds call 200          x-requests-last: 3
+    after    used=5051  remaining=14949
+    MEASURED COST = 3      10 books asked, 10 returned, none missing
+
+So ten named books at three markets is **3 credits, not 6** — the same
+halving the `eu` drop would have bought, with the sharp anchor intact.
+The vendor's rule is "every group of 10 bookmakers is the equivalent of
+1 region" and "if both `bookmakers` and `regions` are specified,
+`bookmakers` takes priority".
+
+The ten, and why: `pinnacle` + `matchbook` (sharp, all three markets),
+`betfair_ex_eu` (sharp, **h2h ONLY** — 0 spreads, 0 totals, so spreads
+and totals anchor on two books, which was already true and is now
+written down), then the seven highest-coverage books across all three
+markets (`fanduel`, `draftkings`, `williamhill_us`, `fanatics`,
+`sport888`, `bovada`, `betmgm`). **`betfair_ex_uk` is in `SHARP_BOOKS`
+and deliberately absent** — it returned nothing in the last 40k
+snapshots and an absent book still costs a slot. **Ten is a cliff, not a
+budget:** an eleventh name doubles the bill.
+
+Built: `sweep_cost` gains `bookmakers` and bills `ceil(n/10)` when set,
+not consulting `regions` at all; `_region_params` sends **exactly one**
+of the two keys, so the request and the bill cannot disagree the day
+someone edits one; `OddsConfig.bookmakers` defaults empty so an unset
+deployment is unchanged; all six real call sites pass it. No cap moved —
+700 × 30 = 21,000 against a monthly 18,000, so the daily never bounded
+the month and relaxing it would move the bind somewhere that blacks out
+until the calendar rolls.
+
+**The suite caught one thing and it was worth catching.** The first full
+run came back 1 failed:
+`test_the_runner_hands_the_planner_that_figure`, a source-transcription
+guard pinning the literal call text, which a second argument had pushed
+onto three lines. No logic broke, but reading it found a real gap:
+passing `regions` alone to `max_prop_cost_per_event` reserves **10
+against a true cost of 5** — *over*-reserving, the safe direction, so
+nothing would ever have gone red while it quietly wasted exactly the
+headroom this change buys. `test_the_reserve_follows_the_named_books_too`
+now pins it, and the transcription check normalises whitespace so it
+survives the next line wrap.
+
+Six mutations seen red across the two files (ADR 0155 §Guards, plus the
+two reserve guards).
+`TestTheLiveDeployNamesTenBooksAndKeepsTheSharps` reads `fly.live.toml`
+itself, so the deployed list cannot drift past ten, gain a duplicate or
+lose a sharp without a red test.
+
+**Verified on live after the deploy**, reading `OddsConfig.load()` inside
+the container: `markets ['h2h','spreads','totals']`, `bookmakers` all ten,
+`credits_per_sweep_per_sport` **3**, sharps named
+`['betfair_ex_eu','matchbook','pinnacle']`. `/api/health` reads
+`6e00db17…`; the recorder's `age_ms` was 520,051 on the first read (the
+restart gap) and 41,073 on the next — recovered, not stuck.
+`failure-journal` shows nothing newer than 2026-08-31.
+
+**Not established, and both want a live read:** the **prop** endpoint
+under `bookmakers` — it shares `sweep_cost` and is billed the same by
+documentation, but the verification call was the team path on MLB only,
+so the NFL prop tap is the measurement; and per-sport spelling beyond
+MLB, because **a misspelled or sport-absent key is silently absent from
+the response and still costs a slot**. Read the returned book set on the
+first NCAAF, NFL and WNBA call.
+
 **STATE at close.** Full suite locally **7,268 passed, 10 xfailed** in
 11m17s; ruff clean, tsc clean. Committed `4bf5f5b`, CI 35014483274 green,
 deployed ~19:50Z; `/api/health` reads `4bf5f5baf36f…`, no migration (v43).
@@ -250,18 +319,24 @@ zero odds credits: NFL cut 12.6 s on the first read after the restart
 (cold page cache, under the 25 s budget) and 1.1 s warm. Odds credits
 spent this session: **zero** — every live call was a `GET`, an SSR read,
 or a bounded read-only `inspect_live_db.py` query. Today's spend stands
-at 84 of 700; vendor month to date 5,048 of 20,000. Next ADR **0155**;
-schema **v43**; arming unchanged (hand path armed, engine and bids dry).
+at 84 of 700 (all at 6 credits; the next sweep is the first at 3); vendor
+month to date 5,051 of 20,000 — **3 credits were spent this session**, the
+single ADR 0155 verification call, and nothing else. Final suite after
+ADR 0155: **7,290 passed, 10 xfailed** in 10m41s, ruff clean, tsc clean;
+CI 35019039996 green; live is `6e00db1`. Next ADR **0156**; schema
+**v43**; arming unchanged (hand path armed, engine and bids dry).
 
 **First reads for the next session, in order:**
 
-1. **The credits decision is Joe's and it has a Saturday deadline.**
-   Three options put to him and not yet answered: (a) verify and build
-   the `bookmakers` cut, (b) keep `eu` and cut call COUNT instead — the
-   kickoff-window loop was 67% of September's spend and its only gate is
-   `credits_left`, (c) ship the `eu` drop anyway knowing it zeroes the
-   sharp anchor. **Do not pull (c) without him re-answering with the
-   sharp-book fact in front of him.**
+1. ~~The credits decision~~ — **answered: (a), built and live as ADR
+   0155.** What is left is the confirming read: the **21:25Z–22:25Z MLB
+   slot** on 2026-09-15 is the first purchase billed under named books,
+   and `credits-day --date 20260915` should show it at **`cost = 3`**
+   against the day's 84 already spent at 6. If it reads 6, the config
+   did not reach the client — read `OddsConfig.load().bookmakers` inside
+   the container before touching anything else. Then read the stored
+   `bookmaker` set for that sweep: a misspelled or sport-absent key is
+   silently missing and still costs a slot.
 2. **One NFL prop tap from Wed 16 Sep 20:15 ET** (the 24 h horizon), on
    DET@BUF: team 6 + props 6 = 12 credits. Measures NFL prop coverage
    and whether `_alternate` is needed for NFL.
@@ -304,7 +379,7 @@ refuted; he simply does not want it watched. Reopening needs him to ask.
    is on shard 1, and an empty shard is a state, ADR 0150); the 25 s read
    budget (instrument kept, diagnosis parked — it caught a query-plan bug,
    not memory pressure).
-7. **Reservations:** none live. Next ADR **0155**; schema **v43**.
+7. **Reservations:** none live. Next ADR **0156**; schema **v43**.
 
 ---
 
