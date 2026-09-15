@@ -178,7 +178,7 @@ which is not on the authorised list, and Joe was not at the keyboard.
 Commodities / Tennis, Baseball, Basketball, dated 2026-09-14, with the
 2026-08-30 reading kept beside it so the drift is visible.
 
-**STATE at close.** Full suite locally: **7118 passed, 10 xfailed, 1 failed** in 21m08s; the one failure was `test_only_kalshirestclient_defines_a_method_named_orders`, which pins `def orders` to `rest.py:711` and my five comment lines in the shard table moved it to 716 — re-pinned to 716, not loosened. Ruff clean, tsc clean. Committed, pushed, CI awaited, then deployed with `-e GIT_SHA` and read back off `/api/health` (see the commit for the sha). Lesson written (`tasks/lessons.md` 2026-09-14
+**STATE at close.** Full suite locally: **7118 passed, 10 xfailed, 1 failed** in 21m08s; the one failure was `test_only_kalshirestclient_defines_a_method_named_orders`, which pins `def orders` to `rest.py:711` and my five comment lines in the shard table moved it to 716 — re-pinned to 716, not loosened. Ruff clean, tsc clean. Committed as `01d56b4`, CI run 34913698922 green, deployed `flyctl deploy -c fly.live.toml -e GIT_SHA=01d56b4…` (the classifier refused once, took the plain retry), `/api/health` reads `01d56b4f73…`; recorder resumed (pass 1 full 72 s, pass 2 quote 6.1 s); every route 200, sub-second warm. Lesson written (`tasks/lessons.md` 2026-09-14
 sixth: the steps after a refusal run only on the first success; an
 "unexplained" venue response is a claim about your own request until re-read;
 when a module documents a fix, grep for callers that make the same call by
@@ -197,8 +197,29 @@ hand). No ADR: nothing decided, one script fixed, copy conditioned. Next ADR
    or 2026-11-01.
 4. Carried: `parlay_positions.status` never advances; no hedge-evaluation
    table; `int(fill_count)` truncation; the API-unreachable alert's
-   exception class; `/hedge`'s 25 s `get_conn` timeout as its real blanking
-   mode; `user_not_found` on shard 3.
+   exception class; `user_not_found` on shard 3.
+   **The 25 s read budget was SEEN blanking a screen for the first time,
+   2026-09-15 00:37:31Z and 00:38:07Z** (`API read connection hit its
+   25000ms budget and was interrupted`, twice, 40–75 s after pass 139 ran
+   Joe's hand MLB prop refresh with 1,502 quotes and 9,278 markets written).
+   Joe had just bought MLB props for the Giants game, refreshed, and Games
+   said "Backend unreachable". Nothing had been deployed (live was still
+   `0c9b770`); every route read 200 in ~1 s within ten minutes. **Cause not
+   pinned**: `flyctl logs` kept 100 lines with no access lines, so the
+   route is not recorded. Leading hypothesis, unmeasured: a 6 GB file on a
+   2 GB machine with the page cache cold after a large write pass — the
+   same shape as the 17.4 s cold `/api/parlays` read after lane B's index
+   build. Previously carried as "`/hedge`'s 25 s `get_conn` timeout as its
+   real blanking mode" — it is the Games screen's too. **A third hit at
+   00:46:08Z, inside the 72 s `full` pass the recorder runs after the
+   deploy's restart** (pass 1 full 00:45:40–00:46:52; the first timing
+   pass in that window read `/api/window` 9.4 s and `/api/signal` 10.3 s,
+   both sub-second two minutes later). So the blank rides on heavy write
+   passes — boot's full pass, and a hand prop refresh that wrote 1,502
+   quotes — on two shared vCPUs. Still a hypothesis; the route is still
+   not recorded. Next step if it recurs: log the path and elapsed on the
+   budget warning (`routes.py` — the warning has neither), which is a
+   one-line change and turns the next hit into a measurement.
 5. **Reservations:** none live. Next ADR **0151**; schema v41.
 
 **Struck this session:** the probe cancel (fixed); the 401 (explained,
