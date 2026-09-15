@@ -16,6 +16,42 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-15 (seventh) - A cost lever is proposed from the formula and must be validated against the data; the multiplier may be carrying something
+
+`sweep_cost` is `len(markets) * len(regions)`, so when `ODDS_MARKETS` gained
+`totals` and every call went 4 -> 6 credits against an unchanged cap, cutting
+`ODDS_REGIONS` from `us,eu` to `us` was the obvious halving. It was offered
+to Joe in those terms - "at the cost of the EU books in the consensus" - and
+he approved it.
+
+The check that had not been run: WHICH books `eu` carries. `SHARP_BOOKS` is
+`{pinnacle, betfair_ex_eu, betfair_ex_uk, matchbook}`, `consensus_devig`
+selects on it exclusively when any member is present, and all three sharps
+the feed actually carries are EU-region; none is offered in `us`. So
+`regions = "us"` makes `sharp = {}` on every row. Measured: 22,850 of the
+last 40,000 `fair_prices` rows (57%) are `anchored_on_sharp = 1`, and the
+cut takes that to zero. The lever would have deleted the sharp anchor - the
+thing the desk exists to price against - to save three credits a call.
+
+Two queries settled it and neither was expensive: one GROUP BY over
+`odds_snapshots.bookmaker`, one over `fair_prices.anchored_on_sharp`. The
+arithmetic that made the lever look free was visible in a single line of
+source, which is exactly why nobody looked further.
+
+Three rules:
+
+- **Read what is on a knob before quoting its price.** A config value that
+  appears in a cost formula as a plain multiplier is still a *selector* over
+  real data. Name the rows it selects and count them before offering the cut.
+- **An approval inherits the framing it was given.** When a check after the
+  approval changes the size or the sign of the cost, the approval is void -
+  take the corrected number back to him rather than shipping what he said
+  yes to. He said yes to "lose the EU books", not to "lose the sharp anchor".
+- **Look for the lever that keeps both before accepting the trade.** Here it
+  was the vendor's `bookmakers` parameter, billed per group of ten - same
+  halving, sharps intact. It was one documentation page away and the trade
+  had already been framed as unavoidable.
+
 ## 2026-09-15 (sixth) - Fix every reader in the function, not the one whose symptom you saw; the card that would have shown the other one may be the card nobody taps
 
 `2d8de82` fixed a wrong-side read this morning: `leg_facts` was keyed by

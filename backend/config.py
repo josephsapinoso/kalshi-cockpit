@@ -309,6 +309,24 @@ class OddsConfig:
     daily_credit_budget: int
     regions: list[str]
     markets: list[str]
+    # Named books to buy instead of whole regions. **Empty means "use
+    # `regions`"**, which is the behaviour every deployment had before
+    # ADR 0155. When set it REPLACES `regions` -- at the vendor ("if both
+    # `bookmakers` and `regions` are both specified, `bookmakers` takes
+    # priority") and in `sweep_cost`, which bills ceil(n/10) region
+    # equivalents.
+    #
+    # The point is not fewer books, it is the same sharp anchor for half the
+    # credits: `runner.SHARP_BOOKS` is what `consensus_devig` selects on when
+    # present, and all three sharps the feed actually carries
+    # (`pinnacle`, `matchbook`, `betfair_ex_eu`) are EU-region books. Dropping
+    # `eu` to save credits would have taken `anchored_on_sharp` from 57% of
+    # `fair_prices` to zero; naming the books keeps them at 3 credits a call.
+    #
+    # **Every name here must be a book the vendor actually returns for these
+    # sports.** A misspelled key is not an error -- it is silently absent, and
+    # it still costs a slot toward the next group of ten.
+    bookmakers: list[str] = field(default_factory=list)
     # Our own monthly ceiling, distinct from the plan's. `None` means uncapped
     # by us -- the provider's `x-requests-remaining` is still authoritative and
     # still refuses. It exists because the daily cap bounds a month only if you
@@ -383,6 +401,13 @@ class OddsConfig:
             daily_credit_budget=_int("ODDS_DAILY_CREDIT_BUDGET", 16),
             monthly_credit_budget=_int_or_none("ODDS_MONTHLY_CREDIT_BUDGET"),
             regions=[r for r in _optional("ODDS_REGIONS", "us,eu").split(",") if r],
+            # Empty by default: an unconfigured deployment keeps buying whole
+            # regions exactly as before. `fly.live.toml` names the ten.
+            bookmakers=[
+                b.strip()
+                for b in _optional("ODDS_BOOKMAKERS", "").split(",")
+                if b.strip()
+            ],
             markets=[
                 # The code default stays `h2h`; live sets "h2h,spreads" in
                 # `fly.live.toml` (ADR 0070 -- the parlay desk's spread
@@ -419,6 +444,13 @@ class OddsConfig:
             daily_credit_budget=_int("ODDS_DAILY_CREDIT_BUDGET", 16),
             monthly_credit_budget=_int_or_none("ODDS_MONTHLY_CREDIT_BUDGET"),
             regions=[r for r in _optional("ODDS_REGIONS", "us,eu").split(",") if r],
+            # Empty by default: an unconfigured deployment keeps buying whole
+            # regions exactly as before. `fly.live.toml` names the ten.
+            bookmakers=[
+                b.strip()
+                for b in _optional("ODDS_BOOKMAKERS", "").split(",")
+                if b.strip()
+            ],
             markets=[
                 # The code default stays `h2h`; live sets "h2h,spreads" in
                 # `fly.live.toml` (ADR 0070 -- the parlay desk's spread
@@ -445,8 +477,16 @@ class OddsConfig:
 
     @property
     def credits_per_sweep_per_sport(self) -> int:
-        """The Odds API charges markets x regions per /odds call."""
-        return len(self.markets) * len(self.regions)
+        """The Odds API charges markets x regions per /odds call.
+
+        Routed through `sweep_cost` rather than multiplying here, so the
+        named-book billing rule lives in exactly one place. This property
+        multiplied `markets x regions` directly until ADR 0155, which would
+        have reported 6 while the vendor charged 3.
+        """
+        from .odds.budget import sweep_cost
+
+        return sweep_cost(self.markets, self.regions, self.bookmakers)
 
 
 # The risk profile the **evidence record** is scored against, fixed in code.

@@ -65,7 +65,7 @@ def register(
             (now, now + horizon_ms),
         ).fetchall()
 
-        team_credits = sweep_cost(odds.markets, odds.regions)
+        team_credits = sweep_cost(odds.markets, odds.regions, odds.bookmakers)
         # The same construction the POST refuses with, never a second count.
         budget_state = CreditBudget(
             conn,
@@ -140,7 +140,9 @@ def register(
                     # here would be a price for a purchase that cannot happen.
                     "prop_credits": (
                         team_credits
-                        + sweep_cost(prop_market_keys(sport), odds.regions)
+                        + sweep_cost(
+                            prop_market_keys(sport), odds.regions, odds.bookmakers
+                        )
                         if sport_has_prop_markets(sport)
                         else None
                     ),
@@ -264,9 +266,9 @@ def register(
             }
 
         cost = ondemand.manual_cost(
-            team_cost=sweep_cost(odds.markets, odds.regions),
+            team_cost=sweep_cost(odds.markets, odds.regions, odds.bookmakers),
             prop_cost_per_event=sweep_cost(
-                prop_market_keys(request.sport_key), odds.regions
+                prop_market_keys(request.sport_key), odds.regions, odds.bookmakers
             ),
             odds_event_id=request.odds_event_id,
         )

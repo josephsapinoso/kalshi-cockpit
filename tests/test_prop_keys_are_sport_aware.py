@@ -103,12 +103,38 @@ class TestThePlannerNeverReservesLessThanAnySportSpends:
             assert reserve >= sweep_cost(prop_market_keys(sport), regions), sport
         assert reserve == 10  # MLB's five keys x two regions
 
+    def test_the_reserve_follows_the_named_books_too(self):
+        """ADR 0155: ten named books are one region-equivalent, so the reserve
+        halves with the bill.
+
+        Passing `regions` alone here would reserve 10 against a true cost of
+        5 — over-reserving, which is the SAFE direction and therefore silent,
+        and which wastes exactly the headroom the named-book cut buys.
+        """
+        regions = ["us", "eu"]
+        books = [f"book{i}" for i in range(10)]
+        reserve = max_prop_cost_per_event(regions, books)
+        for sport in PROP_MARKET_SPORTS:
+            assert reserve >= sweep_cost(
+                prop_market_keys(sport), regions, books
+            ), sport
+        assert reserve == 5  # MLB's five keys x one region-equivalent
+
     def test_the_runner_hands_the_planner_that_figure(self):
         """Source check: the planner's argument comes from the one helper,
-        not from a sport-specific list that would under-reserve the other."""
+        not from a sport-specific list that would under-reserve the other.
+
+        Whitespace is normalised before matching so the claim survives a line
+        wrap — it broke once on exactly that, when ADR 0155 added a second
+        argument and pushed the call onto three lines.
+        """
         import inspect
+        import re
 
         from backend import runner
 
-        src = inspect.getsource(runner.fetch_and_store_odds)
-        assert "prop_cost_per_event=max_prop_cost_per_event(config.regions)" in src
+        src = re.sub(r"\s+", "", inspect.getsource(runner.fetch_and_store_odds))
+        assert "prop_cost_per_event=max_prop_cost_per_event(config.regions" in src
+        # And the books travel with it: billing the reserve on regions while
+        # the call itself is billed on books is the silent over-reserve above.
+        assert "max_prop_cost_per_event(config.regions,config.bookmakers)" in src

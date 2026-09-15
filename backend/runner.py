@@ -2762,12 +2762,14 @@ async def fetch_and_store_odds(
         conn,
         in_scope=soonest_by_sport(events),
         budget=budget,
-        cost=sweep_cost(config.markets, config.regions),
+        cost=sweep_cost(config.markets, config.regions, config.bookmakers),
         now_ms=now,
         max_odds_age_ms=max_odds_age_ms,
         # One figure for every sport: the dearest. Over-reserving for MLB
         # (5 keys) against an NFL event (3) is the safe direction.
-        prop_cost_per_event=max_prop_cost_per_event(config.regions),
+        prop_cost_per_event=max_prop_cost_per_event(
+            config.regions, config.bookmakers
+        ),
         prop_sports=prop_sports,
         allow_bootstrap=allow_bootstrap,
         manual=manual,

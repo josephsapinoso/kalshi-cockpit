@@ -436,6 +436,32 @@ primary_region = "ord"
 
   ODDS_REGIONS = "us,eu"
 
+  # **ADR 0155: named books REPLACE regions, and halve the bill.** The vendor
+  # charges ceil(n/10) region-equivalents, so these ten cost ONE -- 3 credits a
+  # call at three markets, against 6 for `us,eu`. Measured against their own
+  # counter 2026-09-15: `x-requests-last: 3`, used 5048 -> 5051, all ten books
+  # returned.
+  #
+  # **The first three are the point.** `runner.SHARP_BOOKS` is what
+  # `consensus_devig` selects on when present, and every sharp book this feed
+  # actually carries is EU-region: dropping `eu` to save the same credits would
+  # have taken `anchored_on_sharp` from 57 percent of `fair_prices` to zero.
+  # Naming them keeps the anchor and pays half.
+  #
+  # `betfair_ex_uk` is in SHARP_BOOKS and is NOT here: it returned nothing in
+  # the last 40k snapshots, and an absent book still costs a slot toward the
+  # next group of ten. `betfair_ex_eu` quotes h2h ONLY (0 spreads, 0 totals),
+  # so spreads and totals are anchored by `pinnacle` + `matchbook` alone.
+  #
+  # The other seven are the highest-coverage books across all three markets
+  # (~1100 h2h / ~1100 spreads / ~420 totals each in the last 60k snapshots).
+  # They matter only where no sharp quotes -- `consensus_devig` uses
+  # `sharp or usable` -- plus `book_count` and `market_width`, which feed
+  # `score_trust`. `SuppressionConfig.min_book_count` is 2, so ten is ample.
+  #
+  # **Adding an eleventh doubles the bill.** Ten is a cliff, not a budget.
+  ODDS_BOOKMAKERS = "pinnacle,matchbook,betfair_ex_eu,fanduel,draftkings,williamhill_us,fanatics,sport888,bovada,betmgm"
+
   # **CORRECTED 2026-08-23 (ADR 0070): spreads are back, deliberately.**
   # The block below was written 2026-08-16 and its "nor could they be used"
   # paragraph is now false in exactly the way it anticipated: the parlay

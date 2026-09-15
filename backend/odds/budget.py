@@ -63,9 +63,32 @@ def _utc_month_start_ms(now_ms: int) -> int:
     return int(start.timestamp() * 1000)
 
 
-def sweep_cost(markets: Sequence[str], regions: Sequence[str]) -> int:
-    """Credits for one `/odds` call. The Odds API charges markets x regions."""
-    return max(1, len(markets) * len(regions))
+#: How many named bookmakers the vendor bills as one region. Their wording:
+#: "Every group of 10 bookmakers is the equivalent of 1 region." Measured
+#: against the live counter 2026-09-15 (ADR 0155): 10 books x 3 markets
+#: returned `x-requests-last: 3`, and `x-requests-used` moved 5048 -> 5051.
+BOOKMAKERS_PER_REGION = 10
+
+
+def sweep_cost(
+    markets: Sequence[str],
+    regions: Sequence[str],
+    bookmakers: Sequence[str] = (),
+) -> int:
+    """Credits for one `/odds` call. The Odds API charges markets x regions.
+
+    **`bookmakers` REPLACES `regions` when set, at the vendor and here.** Their
+    docs: "If both `bookmakers` and `regions` are both specified, `bookmakers`
+    takes priority." So a caller that passes a non-empty `bookmakers` is billed
+    on `ceil(len(bookmakers) / 10)` region-equivalents and the `regions`
+    argument is not consulted -- passing both and charging for `regions` would
+    over-count by exactly the factor the named-book cut exists to save.
+    """
+    if bookmakers:
+        units = -(-len(bookmakers) // BOOKMAKERS_PER_REGION)  # ceil
+    else:
+        units = len(regions)
+    return max(1, len(markets) * units)
 
 
 @dataclass(frozen=True)

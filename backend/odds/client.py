@@ -244,7 +244,20 @@ def prop_market_keys(sport_key: str) -> list[str]:
     return list(PROP_MARKET_KEYS_BY_SPORT.get(sport_key, ()))
 
 
-def max_prop_cost_per_event(regions) -> int:
+def _region_params(regions, bookmakers) -> dict:
+    """The half of an /odds query that says WHOSE prices to return.
+
+    **Exactly one of the two is sent.** The vendor accepts both and lets
+    `bookmakers` win; sending both anyway would leave the request saying one
+    thing and `sweep_cost` billing another the day someone edits one of them.
+    One key, chosen here, read by both fetch paths.
+    """
+    if bookmakers:
+        return {"bookmakers": ",".join(bookmakers)}
+    return {"regions": ",".join(regions)}
+
+
+def max_prop_cost_per_event(regions, bookmakers=()) -> int:
     """The dearest prop event any sport can bill, for the planner's reserve.
 
     `decide_sweeps` takes one `prop_cost_per_event` for every sport. Reserving
@@ -255,7 +268,10 @@ def max_prop_cost_per_event(regions) -> int:
     from .budget import sweep_cost
 
     return max(
-        (sweep_cost(keys, regions) for keys in PROP_MARKET_KEYS_BY_SPORT.values()),
+        (
+            sweep_cost(keys, regions, bookmakers)
+            for keys in PROP_MARKET_KEYS_BY_SPORT.values()
+        ),
         default=0,
     )
 
@@ -417,7 +433,8 @@ class OddsClient:
         """
         markets = list(markets or self.config.markets)
         regions = list(regions or self.config.regions)
-        cost = sweep_cost(markets, regions)
+        bookmakers = list(self.config.bookmakers)
+        cost = sweep_cost(markets, regions, bookmakers)
 
         refusal = self.budget.refusal_reason(cost, now_ms)
         if refusal is not None:
@@ -434,7 +451,7 @@ class OddsClient:
         url = f"{self.base_url}{path}"
         params = {
             "apiKey": self.config.api_key,
-            "regions": ",".join(regions),
+            **_region_params(regions, bookmakers),
             "markets": ",".join(markets),
             "oddsFormat": "decimal",
             "dateFormat": "iso",
@@ -529,7 +546,8 @@ class OddsClient:
         """
         markets = list(markets or prop_market_keys(sport_key))
         regions = list(regions or self.config.regions)
-        per_event_cost = sweep_cost(markets, regions)
+        bookmakers = list(self.config.bookmakers)
+        per_event_cost = sweep_cost(markets, regions, bookmakers)
 
         quotes: list[OddsQuote] = []
         for event_id in odds_event_ids:
@@ -548,7 +566,7 @@ class OddsClient:
             url = f"{self.base_url}{path}"
             params = {
                 "apiKey": self.config.api_key,
-                "regions": ",".join(regions),
+                **_region_params(regions, bookmakers),
                 "markets": ",".join(markets),
                 "oddsFormat": "decimal",
                 "dateFormat": "iso",
