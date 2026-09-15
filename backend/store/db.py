@@ -130,7 +130,7 @@ logger = logging.getLogger(__name__)
 #: minute during a busy window: three hits that blanked the Games screen
 #: were gone before anyone could read them. A warning that is not
 #: persisted is the same warning.
-SCHEMA_VERSION = 42
+SCHEMA_VERSION = 43
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1041,6 +1041,23 @@ _MIGRATIONS: dict[int, _Migration] = {
             "commence_ms, book_updated_ms)",
         ),
         indexes=("idx_odds_window",),
+    ),
+    # `parlay_position_legs.event_title` -- the game a recorded leg rides on.
+    # A team leg's label names its team ("Detroit to win"); a total's label
+    # is Kalshi's subtitle ("Under 8.5 runs scored") and a prop's names a
+    # player, so a recorded totals parlay on `/hedge` was three identical
+    # lines with no way to tell which game was which (Joe, 2026-09-15, on
+    # the parlay card first; the position screen has the same gap).
+    # `leg_details_for` has carried the title in `parlay_lookups
+    # .selected_legs` since 2d8de82; this column is where `record_position`
+    # keeps it. NULL on the rows that predate it and on a hand-typed slip,
+    # and the screen prints the label alone for those -- never a guess.
+    #
+    # **Additive bookkeeping only.** `gate.py` still never reads this table,
+    # and nothing about what is priced, hedged or sent changes. The undo is
+    # the generic column drop, so `undo_statements` stays empty.
+    43: _Migration(
+        columns=(("parlay_position_legs", "event_title", "TEXT"),),
     ),
     # `idx_odds_event_commence`, restoring an index removed on 2026-08-26 for
     # "changing no plan". The statement, the measurement and the size cost sit

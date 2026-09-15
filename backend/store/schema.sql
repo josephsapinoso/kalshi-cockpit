@@ -2461,6 +2461,12 @@ CREATE TABLE IF NOT EXISTS parlay_position_legs (
     event_ticker    TEXT,
     league          TEXT,
     commence_ms     INTEGER,
+    -- The game, as Kalshi titles the event ("Baltimore vs New York M: Total
+    -- Runs"). A team leg's label names its team; a total's label is Kalshi's
+    -- subtitle ("Under 8.5 runs scored") and a prop's names a player, so
+    -- without this a recorded totals parlay on /hedge was three identical
+    -- lines. NULL on rows recorded before v43 and on a hand-typed slip.
+    event_title     TEXT,
     outcome         TEXT NOT NULL,
     resolved_ms     INTEGER,
     resolved_source TEXT,

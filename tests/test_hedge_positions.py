@@ -1401,3 +1401,93 @@ class _FakeQuote:
         self.observed_ms = observed_ms
         self.status = "active"
         self.market = _FakeMarket()
+
+
+class TestARecordedLegNamesItsGame:
+    """Schema v43: `parlay_position_legs.event_title`.
+
+    A total's label is Kalshi's subtitle ("Under 8.5 runs scored") and a
+    prop's names a player, so a recorded totals parlay on `/hedge` was three
+    identical lines (Joe, 2026-09-15). The lookup blob has carried the title
+    since 2d8de82; this is the column and the two ends that read and write
+    it. Mutations observed red: the column dropped from the INSERT; the step
+    removed from `_MIGRATIONS`; `event_title` dropped from `_leg_payload`.
+    """
+
+    def test_record_position_keeps_it_and_the_payload_shows_it(self, conn):
+        position_id = record(
+            conn,
+            legs=[
+                {
+                    "ticker": CIN,
+                    "side": "no",
+                    "label": "Under 8.5 runs scored",
+                    "event_title": "Cincinnati vs San Francisco: Total Runs",
+                },
+                {"ticker": LAD, "side": "yes", "label": "Los Angeles to win"},
+            ],
+        )
+        legs = hedge.legs_for(conn, position_id)
+        assert legs[0]["event_title"] == "Cincinnati vs San Francisco: Total Runs"
+        assert legs[1]["event_title"] is None, "a hand-typed leg has no game to claim"
+        payload = [
+            hedge._leg_payload(leg, {}, hedge_leg_id=None, now_ms=NOW_MS)
+            for leg in legs
+        ]
+        assert [p["event_title"] for p in payload] == [
+            "Cincinnati vs San Francisco: Total Runs",
+            None,
+        ]
+
+    def test_the_lookup_blob_feeds_it_through(self):
+        from backend.parlays import legs_for_position
+        import json
+
+        parsed = legs_for_position(json.dumps([
+            {
+                "event_ticker": "KXMLBTOTAL-X",
+                "market_ticker": "KXMLBTOTAL-X-9",
+                "side": "no",
+                "label": "Under 8.5 runs scored",
+                "event_title": "Baltimore vs New York M: Total Runs",
+            },
+            # A blob written before 2d8de82: no title, and none invented.
+            {"event_ticker": "KXMLBGAME-Y", "market_ticker": "KXMLBGAME-Y-A",
+             "side": "yes", "label": "A to win"},
+        ]))
+        assert parsed is not None
+        assert [leg["event_title"] for leg in parsed.legs] == [
+            "Baltimore vs New York M: Total Runs",
+            None,
+        ]
+
+    def test_one_migration_step_adds_the_column_to_an_existing_volume(self, tmp_path):
+        """Keyed on the column, never the version number (the venue-fill
+        columns' test set the pattern). Then executed: a database whose
+        legs table predates the column, stamped one version back, gains it
+        on the boot path and is stamped current."""
+        owning = [
+            v for v, step in db._MIGRATIONS.items()
+            if ("parlay_position_legs", "event_title") in {
+                (t, c) for t, c, _ in step.columns
+            }
+        ]
+        assert len(owning) == 1, owning
+        assert owning[0] <= db.SCHEMA_VERSION
+
+        path = tmp_path / "pre.db"
+        connection = db.init_db(path)
+        connection.execute("ALTER TABLE parlay_position_legs DROP COLUMN event_title")
+        db._set_meta(connection, "schema_version", str(owning[0] - 1))
+        connection.commit()
+        connection.close()
+        reopened = db.init_db(path)
+        try:
+            columns = {
+                row[1]
+                for row in reopened.execute("PRAGMA table_info(parlay_position_legs)")
+            }
+            assert "event_title" in columns
+            assert db.get_meta(reopened, "schema_version") == str(db.SCHEMA_VERSION)
+        finally:
+            reopened.close()

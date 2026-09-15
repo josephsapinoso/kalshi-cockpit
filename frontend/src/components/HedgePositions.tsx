@@ -261,6 +261,19 @@ function Leg({ leg, maxQuoteAgeMs }: { leg: HeldLeg; maxQuoteAgeMs: number }) {
             hedge here
           </span>
         )}
+        {/*
+          The game, under the label. A total's label is Kalshi's subtitle
+          ("Under 8.5 runs scored") and names no teams, so a recorded totals
+          parlay read as three identical lines (2026-09-15). Absent on a leg
+          recorded before schema v43 or typed by hand -- then the label
+          stands alone, never a game guessed from the ticker. The ": Total
+          Runs" suffix is the market kind, dropped as on the parlay card.
+        */}
+        {leg.event_title !== null && (
+          <span className="block text-[11px] text-muted" data-testid="held-leg-game">
+            {leg.event_title.replace(/:\s*Total(?:\s+\w+)?$/i, "").trim()}
+          </span>
+        )}
       </span>
       {/*
         A percentage or "--". Never 0%: an absent bid and a leg nobody wants

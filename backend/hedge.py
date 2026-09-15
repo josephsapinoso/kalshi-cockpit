@@ -372,8 +372,8 @@ def record_position(
             """
             INSERT INTO parlay_position_legs (
                 position_id, leg_index, ticker, side, label, event_ticker,
-                league, commence_ms, outcome
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                league, commence_ms, event_title, outcome
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
             """,
             (
                 position_id,
@@ -387,6 +387,10 @@ def record_position(
                 leg.get("event_ticker") or event_ticker_for(leg.get("ticker")),
                 leg.get("league"),
                 leg.get("commence_ms"),
+                # The game, from the lookup blob (`leg_details_for`). `None`
+                # on a hand-typed slip; the screen then prints the label
+                # alone rather than a title derived from a ticker.
+                leg.get("event_title") or None,
             ),
         )
     conn.commit()
@@ -1017,6 +1021,9 @@ def _leg_payload(
         "side": str(leg["side"]),
         "league": leg["league"],
         "commence_ms": leg["commence_ms"],
+        # The game, as Kalshi titles it. `None` on rows recorded before v43
+        # and on a hand-typed slip; the screen prints the label alone then.
+        "event_title": leg["event_title"],
         "outcome": str(leg["outcome"]),
         "resolved_ms": leg["resolved_ms"],
         "resolved_source": leg["resolved_source"],

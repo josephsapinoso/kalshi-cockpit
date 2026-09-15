@@ -2297,6 +2297,9 @@ def legs_for_position(selected_legs_json: Optional[str]) -> Optional[PositionLeg
             # restating the definition rather than assuming a side.
             "side": entry.get("side") or "yes",
             "label": label,
+            # Absent on a blob written before 2d8de82; the position then
+            # carries no game and the screen prints the label alone.
+            "event_title": entry.get("event_title") or None,
             "league": entry.get("league"),
             "commence_ms": entry.get("commence_ms"),
         })

@@ -3121,6 +3121,9 @@ export type HeldLeg = {
   side: "yes" | "no";
   league: string | null;
   commence_ms: number | null;
+  /** The game, as Kalshi titles the event. `null` on a leg recorded before
+   *  schema v43 or typed by hand; the row then shows the label alone. */
+  event_title: string | null;
   outcome: "pending" | "won" | "lost" | "void";
   resolved_ms: number | null;
   /** `venue` is the exchange's own result; `manual` is Joe's word. */
