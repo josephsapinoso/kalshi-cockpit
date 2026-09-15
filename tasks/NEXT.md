@@ -119,6 +119,133 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-15 (nineteenth session) — the NFL chip was a 25 s walk of the wrong index, an Under leg was printing the Over's price, and the venue mints a three-NO-leg combo
+
+Joe's report, in his words: *"i saw a 3-leg parlay for unders, but only
+saw that they were mlb games. I could not see the team names. I also
+tried buying it, but ran into an error that said that i was unable to do
+so because no one was selling it (an old bug). ... I went to the games
+tab, and only saw MLB games. I also only saw an option to buy mlb props.
+when I selected NFL games, I got a backend error."* Three errands he
+named himself, so no partner pass. Chrome's extension was not connected;
+everything below was read off live through the session cookie
+(`GET` only) and `inspect_live_db.py`, zero odds credits.
+
+**What each one was.**
+
+1. **NFL chip → "Backend unreachable."** Not a Python error and not a
+   422: `read-incidents` held six `read_budget` rows, 12:16–12:21Z, every
+   one `GET /api/slate?league=americanfootball_nfl` at 25,00x ms. The
+   league cut was `EXISTS (... o.odds_event_id = l.odds_event_id AND
+   o.sport_key = ?)`. `sport_key` is in no index that leads with
+   `odds_event_id`, so SQLite took `idx_odds_sport_commence (sport_key=?)`
+   and walked the whole NFL slice of `odds_snapshots` once per
+   NON-matching window row (~350, mostly MLB), in both statements. The MLB
+   chip was fast because most rows match on the first probe. The route's
+   docstring said "an indexed SEARCH on `odds_event_id`" — the plan does
+   say SEARCH; the v39 lesson again (method, not rows). Latent since
+   ticket #15; f8d2e02 did not touch it. **"Only MLB games" is the same
+   fault:** NFL rows are in the window (the cut returns DET@BUF) but sit
+   below the 100-row cap, and the cut built to reach them was the thing
+   timing out.
+2. **Totals legs with no teams.** A total's label is Kalshi's subtitle
+   ("Under 8.5 runs scored"); `event_title` ("Baltimore vs New York
+   Mets: Total") has been on every leg of the wire since ADR 0051 and was
+   drawn nowhere on the parlay path — four renderers print `leg.label`
+   alone. Props have the same gap (a player, no game).
+3. **"No one is selling."** Not the 2026-09-08 copy bug. `parlay_lookups`
+   76 (12:12:59Z, card `totals`, three `side: "no"` `KXMLBTOTAL` legs):
+   status `book_empty`, Kalshi **minted**
+   `KXMVECROSSCATEGORY-SHARD1-S2026F28F6402132-D586AC0CA93`, book
+   `yes_bid=none yes_levels=0 no_levels=0`. The only producer of that
+   sentence is `ask_tenths is None` on the minted market's book. **So the
+   venue accepts a three-NO-leg totals combination** (first-read #4 of
+   the eighteenth entry, answered on the accept side, n = 1); whether a
+   fresh NO-leg combo gets a resting NO bid is the half one tap cannot
+   settle — the YES-leg taps in the five minutes before it that the read
+   could see (72 lottery, 73 longshot, the two-spread card) all came back
+   `priced`; one of the five rows was truncated in the read and is not
+   counted. Recorded on #38. Asking again costs nothing and mints nothing.
+4. **No NFL props tap.** `/api/odds/refreshable` lists only sports with a
+   fixture inside a hard 24 h horizon (`routers/odds.py:58`). First NFL
+   kickoff on record is DET@BUF 2026-09-18 00:15Z (Thu 17 Sep 20:15 ET),
+   so NFL enters the tap list **Wed 16 Sep 20:15 ET**. Design, not a
+   defect; left alone (odds bought days early are stale at the 15-min
+   limit anyway).
+
+**Found beside them, and the one that mattered most:** `leg_facts` was
+keyed by ticker and hardcoded `ask_for_side(quote, "yes")` /
+`no_bid_qty`, so an Under leg's `ask_display`, `depth_at_ask`,
+`ask_probability` and the trust depth input were the **Over side's** —
+the wrong price on the screen whose job is price transparency (ADR
+0071). Shipped in the same change as the Under legs (f8d2e02) and never
+seen, because the first totals card was also the first time anyone
+looked.
+
+**Built — `2d8de82`, every guard seen red once (mutation in each test's
+docstring):**
+
+- `_slate_filter_sql`'s league predicate is `(SELECT o.sport_key FROM
+  odds_snapshots o WHERE o.odds_event_id = l.odds_event_id ORDER BY
+  o.commence_ms LIMIT 1) = ?` — one entry of `idx_odds_event_commence`
+  per row, whichever league. `tests/test_slate_league_cut_is_bounded.py`
+  pins the index AND the bound and documents the old plan;
+  `test_list_filters.py` gains the exact case (in-scope league, zero
+  rows, 200 not 503), and the "orders nothing" guard cuts the bounded
+  read out by its exact text before checking. Live-shaped throwaway DB
+  (800 fixtures × 1,400 rows, 350 window rows), best of three, warm,
+  local — a floor on the live win, not an estimate:
+
+      americanfootball_nfl   old EXISTS   73.1 ms     new   0.5 ms
+      baseball_mlb           old EXISTS   12.8 ms     new   0.6 ms
+
+- `_NO_FACTS` carries both sides (flat `no_ask_*` keys, not a nested
+  dict — `dict(_NO_FACTS)` is a shallow copy and `scout_flags` already
+  paid for that once); `_ask_facts_for_side(facts, leg.side)` picks, and
+  refuses a third value rather than defaulting to YES.
+  `tests/test_under_legs.py::TestAnUnderLegQuotesTheUnderSide`.
+- `LegGame` draws `event_title` (suffix `: Total` stripped) under the
+  label of a team-less leg in all four leg renderers of
+  `ParlayCards.tsx`; `tests/test_parlay_cards_show_the_game.py` is a
+  source scan (no component harness in `frontend/`). `leg_details_for`
+  carries `event_title` into the lookup blob. **`parlay_position_legs`
+  has no column for it**, so `/hedge` still prints a recorded total's
+  label alone — a schema step, its own item below.
+- Lesson: `tasks/lessons.md` 2026-09-15 (fourth) — EXISTS does not
+  short-circuit for the rows that fail it; asymmetric latency on one
+  parameter is the tell; read `read-incidents` before the screen.
+
+**STATE at close.** Deployed twice: `747c4f6` (~14:15Z) then `12aaaf6` (~14:33Z, the `: Total Runs` suffix); `/api/health` reads `12aaaf68…`, no migration (v42). CI 34979713549 and 34981144720 green; 34978416813 was red on one blob-shape test 2d8de82 had not run locally, fixed in 747c4f6. Live reads after each deploy, zero odds credits: the NFL cut answered 200 in 15.9 s on the first read after the restart (cold page cache, still under the 25 s budget) and 0.8–0.9 s warm, 67–71 rows, `hidden` 181; the MLB cut 1.3 s; `read-incidents` unchanged at the six pre-fix rows. The totals card built at ~14:20Z with `event_title` on every leg ("Baltimore vs New York M: Total Runs") and its Under legs quoting 54c/55c with their own depth; by 14:35Z the consensus was past 15 min again and the card empty, so **the rendered game line was not seen on live** — the strip was exercised on the live title locally and the next fresh slate is the look. Next ADR **0153**; schema **v42**; arming unchanged (hand path armed, engine and bids dry).
+
+**First reads for the next session, in order:**
+
+1. `read-incidents -n 5`: no `read_budget` row after the deploy. Then the
+   NFL chip with Joe's eyes.
+2. The eighteenth entry's first reads 1–2 still stand (the 21:25Z totals
+   slot; `unmatched`).
+3. **One NFL prop tap from Wed 16 Sep 20:15 ET** (the horizon), on the
+   DET@BUF game: team 6 + props 6 = 12 credits.
+4. One more "Price on Kalshi" on the totals card, for the second point on
+   whether a fresh NO-leg combo is ever quoted. Record on #38 either way.
+
+### Still open, in order
+
+1. Items 1–4 above.
+2. **`parlay_position_legs.event_title`** — schema v43, one column, and
+   `HedgePositions.tsx` draws it under a team-less leg's label. Small,
+   and not a cleanup: a recorded totals parlay on `/hedge` is three
+   "Under 8.5 runs scored" rows until it lands.
+3. **Run the fixed probe once, with Joe at the keyboard** (carried).
+4. **Read the next real fill's row** — still 7 `manual_orders` rows.
+5. **The census** — first session after the 10th real manual order or
+   2026-11-01.
+6. Carried: `user_not_found` on shard 3 only; the 25 s read budget
+   (instrumented by ADR 0151, not registered — and it just caught its
+   first real one).
+7. **Reservations:** none live. Next ADR **0153**; schema **v42**.
+
+---
+
 ## 2026-09-15 (eighteenth session) — over/unders and player props are parlay legs, both sides, on two cards of their own; two ADR 0110 refusals fell to their own premises
 
 Joe's ask, verbatim: *"add the capability to assess and bet on other odds
