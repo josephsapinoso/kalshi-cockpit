@@ -16,6 +16,44 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-15 (fifth) - A write-up drifts toward the flattering sign; a count copied from the spine is a count nobody re-read
+
+The registered fill-vs-venue census was taken today and its first draft
+carried three errors, all found by the measurement-skeptic before entry
+and none by the author. The stake being overstated makes the hedge figure
+run *low*; the draft said *high* - the sign that reads as "the number Joe
+sees is generous". The draft asserted a `parlay_positions.stake_tenths`
+figure for the one non-zero row; the census never opens that table, and
+the row predates the position recorder, so no such row exists - the claim
+was reasoned from CLAUDE.md's "4 rows", which the same afternoon's read
+found to be 10 open rows, as its "7 orders" was 13. And eleven equalities
+were read as "a one-level book"; the registration's own A5 runs one way
+(a one-level book produces equality) and the census read no book.
+
+The shape: the prose around a measurement is written by someone who
+already believes the result, so every ambiguity resolves toward the
+reassuring reading, and every count it borrows from the spine is quoted,
+not re-read. The spine's transacted-path block had been corrected four
+times in a week and was still six orders stale, because Joe bets and
+nothing tells the file.
+
+Three rules:
+
+- **Every sign in a write-up is derived, not remembered.** Write the
+  formula the term enters (`W - S - Wq - fee`), put the error in, read the
+  direction off. A direction stated from memory is the flattering one
+  about half the time and nobody can tell which half.
+- **A claim about a table the instrument did not open is not a finding.**
+  If the harness reads `manual_orders` and `fills`, the write-up may not
+  name `parlay_positions`; a sentence that crosses from the recording into
+  the money path needs its own read.
+- **Re-read a count before quoting it; CLAUDE.md is a cache with no
+  invalidation.** Any count of Joe's transacted path is stale the moment
+  he bets, and the instrument for each count is one line away
+  (`manual-orders-audit`, `/api/hedge`, `notifications`). Quote the count
+  with its table, its instrument and its date, and treat a count without
+  a date as unread.
+
 ## 2026-09-15 (fourth) - EXISTS does not short-circuit for the rows that fail it; when one parameter value is fast and its sibling times out, the plan is walking the non-matches
 
 The Games screen's NFL chip said "Backend unreachable" six times in five
