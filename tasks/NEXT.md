@@ -306,6 +306,65 @@ MLB, because **a misspelled or sport-absent key is silently absent from
 the response and still costs a slot**. Read the returned book set on the
 first NCAAF, NFL and WNBA call.
 
+**Then, on Joe's word (two decisions answered in one batch, plus "go
+ahead" on the third): ADR 0156, schema v44, `d817273`, live.** Three
+corrections sharing one shape — *a value that was right became a
+description that was wrong*.
+
+1. **The ledger.** ADR 0155 began sending `bookmakers` INSTEAD of
+   `regions` and `record` kept writing only `regions`, so the first
+   named-book sweep landed on live as `regions=us,eu cost=3` — which
+   the table's own rule ("cost is markets × regions") turns into
+   3 × 2 = 6. **`cost` was right throughout**, so the reconciliation
+   against `x-requests-used` never drifted; what was wrong is the only
+   column that says WHY the cost is what it is. `api_credits.bookmakers`
+   (v44, additive); **NULL means "this call bought regions"**, not
+   "bought no books". The inspector had the same hole —
+   `_CREDIT_COLUMNS` predated the column and its comment still asserted
+   `cost = markets × regions` — so the instrument for debugging a credit
+   drift would have shown the misleading row and nothing else.
+2. **The mint path.** `echoed_legs` / `lookup_combo` carried
+   `side: str = "yes"` defaults; unreached (every live caller passes
+   3-tuples) but this is the path that CREATES a market on the exchange.
+   `side` is now required. **Found beside it and worse:** the echo read
+   `leg.get("side", side)`, falling back to the POSTED side, so an echo
+   omitting the field compared **EQUAL** for an all-YES card —
+   agreement reported on a direction Kalshi never stated. That is the
+   "unreadable read as agreement" error `echoed_legs`' own docstring
+   refuses, one level down. A leg without a side is now `unreadable`;
+   `_leg_sides` refuses a side that is neither `yes` nor `no`.
+3. **The tap rate.** Joe hit `book_empty` this morning and nobody had
+   quoted it as a rate. `notes.tap_outcome` on `/parlays`, built from
+   `TAP_CENSUS_*` so a stale census goes red. **One lifetime figure, no
+   per-card breakdown** — per-card n runs 2–30 and `totals` at 0 of 3
+   cannot be separated from the base rate, so a per-card number would be
+   an ordering dressed as a fact (ADR 0071 §2.5). It names the venue as
+   the cause, and a test asserts no card name appears in it.
+
+Five mutations each seen red once. The migration test drops the column
+and stamps the database back to 43: a migration that only runs against a
+freshly created schema proves nothing about the live volume.
+
+**Verified on live after the deploy:** `schema_version` **44** and
+`api_credits.bookmakers` present on the real volume; `/api/parlays`
+serves five note keys including `tap_outcome`; `/api/health` reads
+`d8172737…`, recorder 36 s, arming unchanged. The first post-v44 spend
+row carries all ten books —
+`cost=3 books=10 bookmakers=pinnacle,matchbook,betfair_ex_eu,…` — so
+`cost = 3 markets × ceil(10/10)` now reads true off the row itself.
+
+**Two tool misfires this session, both caught before they shipped, both
+worth not repeating.** A `git checkout backend/store/db.py` run to undo
+a mutation also reverted the real v44 work in the same file — verify the
+file after reverting a mutation, or back it up by copy rather than
+reverting through git. And a watcher's threshold was written as
+`1789503000` against 13-digit millisecond timestamps, so every
+historical row passed and it reported a "confirmation" that was three
+pre-deploy rows; the correction is in `tasks/lessons.md`'s spirit —
+**a filter that cannot fail is not a filter.** A third, benign:
+`scripts/inspect_live_db_feed.py` is **CRLF** while the rest of the repo
+is LF, so a `\n`-joined patch pattern silently matches nothing there.
+
 **STATE at close.** Full suite locally **7,268 passed, 10 xfailed** in
 11m17s; ruff clean, tsc clean. Committed `4bf5f5b`, CI 35014483274 green,
 deployed ~19:50Z; `/api/health` reads `4bf5f5baf36f…`, no migration (v43).
@@ -322,21 +381,19 @@ or a bounded read-only `inspect_live_db.py` query. Today's spend stands
 at 84 of 700 (all at 6 credits; the next sweep is the first at 3); vendor
 month to date 5,051 of 20,000 — **3 credits were spent this session**, the
 single ADR 0155 verification call, and nothing else. Final suite after
-ADR 0155: **7,290 passed, 10 xfailed** in 10m41s, ruff clean, tsc clean;
-CI 35019039996 green; live is `6e00db1`. Next ADR **0156**; schema
-**v43**; arming unchanged (hand path armed, engine and bids dry).
+ADR 0156: **7,300 passed, 10 xfailed** in 10m34s, ruff clean, tsc clean;
+CI 35027687263 green; **live is `d817273`, schema v44**. Three ADRs
+shipped and verified live this session (0154, 0155, 0156). Next ADR
+**0157**; schema **v44**; arming unchanged (hand path armed, engine and
+bids dry).
 
 **First reads for the next session, in order:**
 
-1. ~~The credits decision~~ — **answered: (a), built and live as ADR
-   0155.** What is left is the confirming read: the **21:25Z–22:25Z MLB
-   slot** on 2026-09-15 is the first purchase billed under named books,
-   and `credits-day --date 20260915` should show it at **`cost = 3`**
-   against the day's 84 already spent at 6. If it reads 6, the config
-   did not reach the client — read `OddsConfig.load().bookmakers` inside
-   the container before touching anything else. Then read the stored
-   `bookmaker` set for that sweep: a misspelled or sport-absent key is
-   silently missing and still costs a slot.
+1. ~~The credits decision~~ — **answered, built, live and CONFIRMED.**
+   The 21:10:43Z MLB sweep billed **`cost = 3`** and stored exactly the
+   ten books, none absent, none extra; `betfair_ex_eu` returned h2h only
+   as predicted. The first post-v44 row carries its `bookmakers` list.
+   Nothing left to read here.
 2. **One NFL prop tap from Wed 16 Sep 20:15 ET** (the 24 h horizon), on
    DET@BUF: team 6 + props 6 = 12 credits. Measures NFL prop coverage
    and whether `_alternate` is needed for NFL.
@@ -379,7 +436,7 @@ refuted; he simply does not want it watched. Reopening needs him to ask.
    is on shard 1, and an empty shard is a state, ADR 0150); the 25 s read
    budget (instrument kept, diagnosis parked — it caught a query-plan bug,
    not memory pressure).
-7. **Reservations:** none live. Next ADR **0156**; schema **v43**.
+7. **Reservations:** none live. Next ADR **0157**; schema **v44**.
 
 ---
 
