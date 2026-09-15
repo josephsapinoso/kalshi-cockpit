@@ -171,7 +171,13 @@ everything below was read off live through the session cookie
    kickoff on record is DET@BUF 2026-09-18 00:15Z (Thu 17 Sep 20:15 ET),
    so NFL enters the tap list **Wed 16 Sep 20:15 ET**. Design, not a
    defect; left alone (odds bought days early are stale at the 15-min
-   limit anyway).
+   limit anyway). **Joe raised it again 2026-09-15 ~18:30Z** with the NFL
+   chip selected and the card still listing only MLB props, and asked
+   for the card to follow the chip: `c4db0f0`, live. The horizon is
+   unchanged; the card now cuts to the chip's league and, when that
+   league has nothing inside 24 h while others do, says so and links to
+   every league (`lib/refreshableCut.ts`, node-tested). The Board has no
+   bar and lists every league as before.
 
 **Found beside them, and the one that mattered most:** `leg_facts` was
 keyed by ticker and hardcoded `ask_for_side(quote, "yes")` /
