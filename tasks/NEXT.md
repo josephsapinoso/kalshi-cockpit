@@ -119,6 +119,192 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-15 (twentieth session) — yesterday's wrong-side fix had a second reader in the same function; and dropping `eu` would delete every sharp book the desk has
+
+Joe: *"Read next.md and start. Use partner agent if needed."* Not a named
+errand, so a partner pass ran. The named queues were drained — no open
+Dependabot alerts, no open unblocked sub-issues on map #3, CI green,
+tree clean at `42e0374`, live at `22e34bd` (= main's last code commit).
+
+**First read 1 — answered, clean.** `read-incidents` holds exactly the
+six pre-fix rows (12:16–12:21Z, all `GET /api/slate?league=americanfootball_nfl`,
+25,00x ms). **Nothing after the fix across five deploys.** The NFL chip
+was then exercised through the session cookie rather than Joe's eyes:
+
+    ?league=americanfootball_nfl   200   2.8 s cold / 1.1 s warm   100 rows, 28 NFL games
+    ?league=baseball_mlb           200   0.9 s                     100 rows, 13 games
+    ?league=basketball_wnba        200   0.4 s                     0 rows (absent by schedule)
+    unfiltered                     200   0.8 s   100 of 443: MLB 56 / NFL 33 / NCAAF 11
+
+**"Only MLB games" is fixed on BOTH paths** — the default view now
+carries NFL and NCAAF rows, not just the chip. Zero odds credits.
+
+**First read 4 — answered at n = 3, without Joe's hands.** `parlay_lookups`
+holds 77 lifetime taps; the newest is `totals`, `book_empty`, **18:24:59Z
+today**, which postdates the nineteenth entry's write-up. So three totals
+taps, all `book_empty`. **That does not separate totals from the base
+rate** and must not be reported as a totals-specific defect: the lifetime
+split is 28 `priced`, **44 `book_empty`**, 3 `error`, 2 `refused`, so
+`book_empty` is the base rate at **57%** and P(3 of 3) ≈ 0.19. Both
+`side = "no"` rows in the table (ids 75, 76) are `book_empty`, 0 priced —
+same caveat, n = 2. Per card, read off live:
+
+    safe 30 (16 priced / 13 empty)   middle 17 (8/8)    lottery 11 (1/8)
+    short_spreads 6 (1/5)            longshot 6 (1/4)   totals 3 (0/3)
+    agreed 2 (0/2)                   soon 2 (1/1)       props 0 taps
+
+**The desk's core interaction fails more often than it works (57%), and
+nobody has ever quoted that as a rate.** Not surfaced on the screen yet —
+it is a per-row fact, never a ranking (ADR 0071).
+
+**Built — ADR 0154, `4bf5f5b`, live.** The partner pass found that
+`2d8de82` fixed *one* wrong-side reader in `leg_facts` and left the other.
+Three lines below the repaired ask, the skeptic's verdict was still
+`WHERE ticker IN (...) AND side = 'yes'`, keyed by ticker. Two silent
+misreadings on a prop Under leg: it showed the **Over's**
+`suppressed_reason` (on the row *and* into `score_trust`,
+`parlays.py:1493`), and a YES row's mere existence stamped
+`skeptic = "checked"` on a side the skeptic never scored — the flattering
+half, and the misreading `leg_facts`' own docstring forbids in the other
+direction. **Totals are immune for an UNRELATED reason**
+(`_price_totals_event` writes no `recommendations` row), while
+`_price_prop_event` writes one per side, so it bites on exactly one card:
+`props`, with **0 taps in 77 lookups** — wrong on first use, exactly as
+the totals card was. Fix: `(ticker, side)` keying with `PARTITION BY
+ticker, side` (partitioning by ticker alone would return whichever side
+was written last — a quieter version of the same defect),
+`_verdict_facts_for_side` as the sibling of `_ask_facts_for_side`
+refusing a third value, and a side with no row staying `absent`, never
+inferred from its sibling. No schema change; `recommendations` already
+carried `side`. Four mutations each seen red once (ADR 0154 §Guards).
+Lesson `tasks/lessons.md` 2026-09-15 (sixth): fix every reader in the
+function, not the one whose symptom you saw — and the card that would
+have shown the other one may be the card nobody taps.
+
+**The credits finding, and the lever that must NOT be pulled.**
+ADR 0152 set `ODDS_MARKETS = "h2h,spreads,totals"`; `sweep_cost =
+len(markets) * len(regions)` (`backend/odds/budget.py:66`) = **6 credits
+a call, up from 4**. The 700/day cap was sized for 4 (`fly.live.toml:248`,
+raised 600→700 on 2026-08-23). Every historical day replayed at its own
+**call count** × 6, with the 300-credit attention cap applied (attention
+buys fewer calls at 6c, so the naive replay overstates it — two days
+drop out once corrected):
+
+    2026-08-24 Mon  141 calls  actual 564  ->  846   OVER
+    2026-08-23 Sun  139        actual 290  ->  834   OVER
+    2026-09-12 Sat  133        actual 532  ->  798   OVER
+    2026-09-05 Sat  124        actual 496  ->  744   OVER
+    2026-08-28 Fri  120        actual 480  ->  708   OVER
+    2026-08-29 Sat  118        actual 472  ->  708   OVER
+
+**Six days in the last month would have blown the cap**, and all six are
+floor+kickoff days, which the attention cap does *not* bound. Every one
+had ≤3 sports; **this weekend is the first 4-sport weekend** (WNBA Thu 17,
+NCAAF Sat 19, NFL Sun 20, MLB throughout). When 700 binds, `decide_sweeps`
+returns `fire=()` and **every** sport stops until the next 10:00Z boundary.
+
+Joe's answer was *"drop eu regions and ship it"*. **It was not shipped,
+and must not be.** `SHARP_BOOKS` is `{pinnacle, betfair_ex_eu,
+betfair_ex_uk, matchbook}` (`runner.py:165`); the last 40k
+`odds_snapshots` carry three of them — `pinnacle`, `matchbook`,
+`betfair_ex_eu` — and **all three are EU-region books, none offered in
+`us`**. `regions = "us"` makes `sharp = {}` in `consensus_devig`, so
+`selected` falls back to the full retail set on every row. Size of the
+loss, read off live: **22,850 of the last 40,000 `fair_prices` rows
+(57%) are `anchored_on_sharp = 1`; dropping `eu` takes that to 0.** That
+trades the thing the desk exists for against 3 credits a call. The
+offer was made before that check had been run — the error was mine, and
+the fix is to check which books a region carries before pricing a region.
+
+**Unverified candidate, not built:** The Odds API takes a `bookmakers`
+parameter in place of `regions`, documented as billing per group of ten
+books. A hand-picked ~10 (the three sharps plus the US books worth
+pricing against) would be one region-equivalent — **3 credits a call at
+three markets, half of today's, sharp anchor intact**. This repo has
+never used it (`backend/odds/client.py` sends `regions` only) and the
+billing claim is from the vendor's docs, not measured here. **Verify
+before trusting the number.**
+
+**Also answered, and both are negatives worth not re-deriving.**
+`notifications` by kind: `position_state` is **8 rows, all
+`delivered = 1`**, newest 18:29:46Z today — the Discord webhook is alive
+and hedge pushes are not silently failing. (CLAUDE.md says "four
+`position_state` rows"; it is 8. The count went stale within a day again.)
+No `hedge_lock` kind at all, so **zero locks is still true**. And
+`sweep-log` shows the floor is healthy: last buy 18:55Z (attention, Joe's
+page open 18:23–18:55Z), next slot **21:25Z–22:25Z** for 15 MLB games
+from 22:40Z. All nine parlay cards are currently empty on
+`stale_consensus: 76` / `kickoff_outside_window: 198` — benign, the
+15-minute freshness limit, not a defect.
+
+**STATE at close.** Full suite locally **7,268 passed, 10 xfailed** in
+11m17s; ruff clean, tsc clean. Committed `4bf5f5b`, CI 35014483274 green,
+deployed ~19:50Z; `/api/health` reads `4bf5f5baf36f…`, no migration (v43).
+**The first deploy attempt passed a FABRICATED `GIT_SHA` tail** (a
+hand-typed hex string, not `git rev-parse`) and was immediately
+redeployed with the real one — `/api/health` is what a session trusts to
+identify what is live, so never hand-type that value; `$(git rev-parse
+HEAD)` in a compound command trips the auto-mode classifier, so read the
+sha in one call and paste it in the next. Live reads after the deploy,
+zero odds credits: NFL cut 12.6 s on the first read after the restart
+(cold page cache, under the 25 s budget) and 1.1 s warm. Odds credits
+spent this session: **zero** — every live call was a `GET`, an SSR read,
+or a bounded read-only `inspect_live_db.py` query. Today's spend stands
+at 84 of 700; vendor month to date 5,048 of 20,000. Next ADR **0155**;
+schema **v43**; arming unchanged (hand path armed, engine and bids dry).
+
+**First reads for the next session, in order:**
+
+1. **The credits decision is Joe's and it has a Saturday deadline.**
+   Three options put to him and not yet answered: (a) verify and build
+   the `bookmakers` cut, (b) keep `eu` and cut call COUNT instead — the
+   kickoff-window loop was 67% of September's spend and its only gate is
+   `credits_left`, (c) ship the `eu` drop anyway knowing it zeroes the
+   sharp anchor. **Do not pull (c) without him re-answering with the
+   sharp-book fact in front of him.**
+2. **WNBA bootstrap, ~02:00Z Wed 16 Sep** (~10 PM ET Tue). Kalshi lists
+   five `KXWNBAGAME` events, all 26SEP17; the bootstrap wants Kalshi's
+   kickoff inside 48 h and `occurrence_datetime` runs three hours late.
+   If WNBA is still absent from Games on Wednesday morning, that IS a
+   defect — check `sweep-log` for a BOOTSTRAP refusal.
+3. **One NFL prop tap from Wed 16 Sep 20:15 ET** (the 24 h horizon), on
+   DET@BUF: team 6 + props 6 = 12 credits. Measures NFL prop coverage
+   and whether `_alternate` is needed for NFL.
+4. **One "Price on Kalshi" on the props card** — it has never been
+   tapped, and it is the card ADR 0154 just fixed. A tap also adds the
+   fourth point to the `book_empty` rate.
+5. `read-incidents -n 5`: still no `read_budget` row after `4bf5f5b`.
+
+### Still open, in order
+
+1. Items 1–5 above.
+2. **Run the fixed probe once, with Joe at the keyboard** (carried).
+   The partner recommends **PARKING it with an ADR** so it stops being
+   re-carried: it settles gross-vs-net on `read_shard_funds`, the two
+   differ only by resting-order value, Joe never rests (ADR 0115
+   disarmed the bid path on exactly that ground), the account carries no
+   `resting_order_value_breakdown` field, and answering it needs an order
+   rested — manufacturing the one state he never occupies. Failure mode
+   if wrong is permissive (a venue 400), not a missed bet. **Joe's call.**
+3. **Surface the `book_empty` rate on the card** (partner's Lane C,
+   sequenced after ADR 0154 because it touches `parlays.py`). A per-row
+   fact, never an ordering.
+4. `backend/kalshi/combos.py:402,476` carry `side: str = "yes"` defaults
+   on `echoed_legs`/`lookup_combo`. Unreached today (every live caller
+   passes explicit 3-tuples), same bug class as ADR 0154, **on the mint
+   path**. Recorded so it is not re-derived; not fixed.
+5. **Strike from the record:** the nineteenth entry's "Props have the
+   same gap (a player, no game)" is refuted — `CandidateLeg.event_title`
+   (`core/ladder.py:353`) was always required and set unconditionally at
+   `parlays.py:1080`; `LegGame` covers props and totals identically.
+6. Carried: `user_not_found` on shard 3 only (partner: PARK — everything
+   is on shard 1, and an empty shard is a state, ADR 0150); the 25 s read
+   budget (instrument kept, diagnosis parked — it caught a query-plan bug,
+   not memory pressure).
+7. **Reservations:** none live. Next ADR **0155**; schema **v43**.
+
+---
+
 ## 2026-09-15 (nineteenth session) — the NFL chip was a 25 s walk of the wrong index, an Under leg was printing the Over's price, and the venue mints a three-NO-leg combo
 
 Joe's report, in his words: *"i saw a 3-leg parlay for unders, but only
