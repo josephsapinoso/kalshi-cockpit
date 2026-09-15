@@ -119,6 +119,115 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-15 (eighteenth session) — over/unders and player props are parlay legs, both sides, on two cards of their own; two ADR 0110 refusals fell to their own premises
+
+Joe's ask, verbatim: *"add the capability to assess and bet on other odds
+and props. not just spreads and moneylines, but also over/unders, and
+props. for example, if there is a good chance of a particular player going
+over or under a certain number of rushing yards, that should be a whole
+other set of parlays."* Single errand named by him, so no partner pass
+(CLAUDE.md step 0's exception). He answered the four decisions it needed in
+one interview: add `totals` to the feed now; NFL props on tap per game;
+new cards only; Under legs in the same work, Overs first.
+
+**The session's finding is that both blockers were refusals whose premises
+the record had already falsified.** ADR 0110 §1 killed props because a
+prop key "multiplies every call by the roster"; the vendor bills per market
+key per region, and ADR 0079 had measured it (five keys × two regions = 10
+credits an event). ADR 0110 §2 refused totals on 496 × 1.5 = 744 > 700; the
+NFL Sunday it was written to protect was read off live this session
+(`credits-day --date 20260913`): **236 credits, 59 calls × 4**, month to
+date 4,982 of the vendor's 20,000. Ticket #36 closed on the inherited kill.
+Lesson written (`tasks/lessons.md` 2026-09-15 third: a refusal carries its
+premise; re-read the premise, not the request). ADR **0152** names each
+overturned premise beside the fact that overturns it; #38 supersedes #36 in
+part and #36 carries the comment.
+
+**Built, five slices, every guard seen red once (mutation list in ADR 0152
+§2 and in each test's docstring):**
+
+1. **Totals pricing arm.** `backend/kalshi/totals.py` (`"Over N.5 <unit>
+   scored"` reader, `runs`/`points` whitelist, `total_book_point(line) ==
+   line` written once), `runner.totals_quotes_for_event` +
+   `_price_totals_event` (fair rows only, both sides at the shared point,
+   no `recommendations`). **Total events now inherit their game's link**
+   (`TOTAL_LINK_METHOD`, `DERIVED_LINK_METHODS`); until this deploy every
+   `KX*TOTAL` event was refused by the two-team bijection on every pass
+   into `unmatched_items`. `TEAMTOTAL` out of scope, said in the module.
+2. **NFL props, both halves in one change.** `PROP_SERIES` gains
+   `KXNFLPASSYDS/RECYDS/RSHYDS`; `prop_market_keys(sport_key)` (required
+   argument) reads `PROP_MARKET_KEYS_BY_SPORT`, NFL = 3 yardage keys =
+   `NFL_PROP_SERIES.values()` (pinned). Planner reserves the dearest sport
+   (`max_prop_cost_per_event`); tap and `/api/odds/refreshable` quote the
+   exact one (NFL team+6, MLB team+10). ADR 0032 stands: on tap only.
+3. **Two new cards, their own set.** `props` ("Three props", MLB ∪ NFL
+   keys) and `totals` ("Three totals"), 2–3 legs, floor 0.20, not pushed to
+   the phone. `CANDIDATE_SQL` admits `POOL_MARKETS` (one constant — the
+   inspector's transcription is pinned to it and moved with it). Existing
+   cards keep `TEAM_MARKETS_ONLY`; `test_totals_in_the_pool_change_no_team_card`
+   is the sibling of the props one. Refresh panel mounted on `/parlays`.
+   Glossary: `total`, `player_prop`, `line`. Every reason code the pool can
+   count now has words (`tests/test_parlay_exclusion_words.py`, a source
+   scan; four prop codes had none since the prop arm landed).
+4. **Under legs.** `CandidateLeg.side`; the Under row is a NO leg on the
+   same Kalshi market with the Under row's own consensus, label "Under 8.5
+   runs scored" / "NO on Anthony Kay: 6+ strikeouts". Side travels through
+   `_serialise_leg`, `PriceOnKalshi`'s echo, `ParlayLookupLeg.side`
+   (default `"yes"`), `resolve_requested_legs` (side is part of the leg's
+   identity), `lookup_combo`'s body (per-leg), `echoed_legs`,
+   `parlay_lookups.selected_legs`, `RecordParlay` and the per-leg ticket
+   (`preferSide`). `_joint_key` carries the side. **Unmeasured: whether any
+   Kalshi collection accepts a NO leg** — the fixtures show one minted
+   (`no Over 8.5 runs scored`); the first "Price on Kalshi" on the totals
+   card is the measurement.
+5. **`fly.live.toml` `ODDS_MARKETS = "h2h,spreads,totals"`.** Every
+   scheduled call 4 → 6 credits. Registered check: `credits-day --date
+   20260920` beside 20260913's 236.
+
+**STATE at close.** Full suite locally **7,207 passed, 10 xfailed** in
+31m41s; the one failure was `TestTheCandidateScanCopyDoesNotDrift` (the
+inspector's transcription of the widened scan — updated, guard green).
+Ruff clean, tsc clean, `next build` green. Committed `f8d2e02`, CI run 34932126648 green.
+Deployed `flyctl deploy -c fly.live.toml -e GIT_SHA=f8d2e02…`, machine restarted 05:27:04Z, `/api/health` reads `f8d2e022…`, no migration (v42 already). Recorder: pass 1 full 101.4 s, `dropped_unknown_total_unit: 0`; **45 total events linked under `total_fixture_segment`** (MLB 12, NCAAF 17, NFL 16) where the pre-deploy read had 0; the 887 `expected 2 sides` refusals on `*TOTAL*` identifiers stopped accruing for every game-total series (`KXMLBTOTAL`, `KXNCAAFTOTAL`, `KXNFLTOTAL`, `KXWNBATOTAL` all `seen_this_pass=False`) and continue only on `*TEAMTOTAL*`, which is out of scope by design; **130 NFL prop markets admitted** (was 0); `/api/parlays` serves nine cards, the two new ones with their own thin-slate sentence; `/api/odds/refreshable` quotes MLB team 6 / prop 16 (three keys × two regions; five prop keys × two). `fair_prices` carries **0** `totals` rows yet — nothing has bought them, the 21:25Z slot is the first. Odds credits spent this session: **zero**
+(every live call was `GET /api/health`, an SSR read, or a read-only,
+bounded `inspect_live_db.py` query). Next ADR **0153**; schema **v42**;
+arming unchanged (hand path armed, engine and bids dry).
+
+**First reads for the next session, in order:**
+
+1. `sweep-log` after the 21:25Z MLB slot on 2026-09-15: the served rows
+   should carry `h2h,spreads,totals` at **6** credits. That is the first
+   totals purchase in the desk's life; then `/parlays` "Three totals" either
+   builds or says why in `excluded`.
+2. `inspect_live_db.py unmatched` (or the equivalent read): `*TOTAL*`
+   refusals stop accruing after the deploy's full pass; `event_links`
+   gains `total_fixture_segment` rows.
+3. One NFL prop tap on a game Joe is looking at (team 6 + props 6 = 12
+   credits): measures NFL prop coverage and whether `_alternate` is needed
+   for NFL (ADR 0079's MLB finding is not assumed to carry).
+4. One "Price on Kalshi" on the props card and one on the totals card:
+   the venue's answer on prop legs, total legs and NO legs. Record the
+   answer on #38 whichever way it goes.
+
+### Still open, in order
+
+1. Items 1–4 above (reads, then two taps Joe chooses).
+2. **Run the fixed probe once, with Joe at the keyboard** (carried from the
+   seventeenth entry).
+3. **Read the next real fill's row** — still 7 `manual_orders` rows.
+4. **The census** — first session after the 10th real manual order or
+   2026-11-01.
+5. Carried: `user_not_found` on shard 3 only; the 25 s read budget
+   (instrumented by ADR 0151, not registered).
+6. **Reservations:** none live. Next ADR **0153**; schema **v42**.
+
+**Struck this session:** #36 (superseded in part by #38); ADR 0110 §1 and
+§2 (overturned by ADR 0152 on their own premises); the "Over sides only"
+caption (shipped and removed inside the same session — slice 4 landed
+before the deploy).
+
+---
+
 ## 2026-09-14 (seventeenth session) — the probe cancels on its shard, the "unexplained 401" was the script signing a query string, and the closed-path claim survives nowhere but the ADR that made it
 
 Four named errands from the sixteenth entry, worked in order, no partner
