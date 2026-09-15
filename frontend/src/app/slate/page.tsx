@@ -264,7 +264,7 @@ export default async function SlatePage({
         rows,
         data.staleness.max_odds_age_s * 1000,
         slate.is_current,
-      ) && <RefreshOddsPanel actionable={actionable} />}
+      ) && <RefreshOddsPanel actionable={actionable} filter={filter} pathname="/slate" />}
 
       {/* Who's likely to win tonight (ADR 0067) — above the rows, below the
           urgent-refresh slot, so a stale slate still leads with its fix. */}
@@ -353,7 +353,7 @@ export default async function SlatePage({
         rows,
         data.staleness.max_odds_age_s * 1000,
         slate.is_current,
-      ) && <RefreshOddsPanel actionable={actionable} />}
+      ) && <RefreshOddsPanel actionable={actionable} filter={filter} pathname="/slate" />}
 
       {/* The way in to a market no row here carries — a prop ladder rung the
           recorder never priced, a series this instance does not walk.

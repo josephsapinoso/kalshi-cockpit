@@ -962,4 +962,6 @@ class TestThePanelStatesWhichOfThreeStatesItIsIn:
         same in all three states, so the fix can only ever remove a false
         reason to wait."""
         src = self.PANEL.read_text(encoding="utf-8")
-        assert "reading" not in src.split("data.sports.map")[1]
+        # The map draws the chip-cut list since 2026-09-15 (`cut.sports`,
+        # `lib/refreshableCut.ts`); the guard is the same one.
+        assert "reading" not in src.split("cut.sports.map")[1]

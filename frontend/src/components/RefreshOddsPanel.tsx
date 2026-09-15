@@ -5,9 +5,13 @@ import {
   formatUntil,
 } from "@/lib/api";
 import type { ActionableWindow, Refreshable } from "@/lib/api";
+import type { ListFilter } from "@/lib/api";
+import { listFilterQuery } from "@/lib/api";
+import Link from "next/link";
 import RefreshOddsButton from "@/components/RefreshOddsButton";
 import { leagueLabel } from "@/lib/leagueLabel";
 import { readNextWindow } from "@/lib/nextOddsWindow";
+import { cutRefreshable } from "@/lib/refreshableCut";
 
 /**
  * The way out of a slate that is grey because of a clock.
@@ -68,6 +72,8 @@ import { readNextWindow } from "@/lib/nextOddsWindow";
  */
 export default async function RefreshOddsPanel({
   actionable,
+  filter = null,
+  pathname = null,
 }: {
   /**
    * The sweep timetable, passed down rather than fetched again. The panel
@@ -77,6 +83,18 @@ export default async function RefreshOddsPanel({
    * placed anywhere a layout needs it; one that borrows them cannot.
    */
   actionable: ActionableWindow | null;
+  /**
+   * The list screen's chip cut, when the panel sits under one. The card
+   * follows the league chip (Joe, 2026-09-15; `lib/refreshableCut.ts`): a
+   * screen cut to NFL lists NFL taps or says why there are none, never the
+   * MLB slate. `null` on a screen with no bar (the Board), which lists
+   * every league as before. The kickoff-window chip is not applied — the
+   * card's horizon is the server's 24 hours, and a tap buys a whole
+   * slate's team lines regardless of the window shown above.
+   */
+  filter?: ListFilter | null;
+  /** The screen's own path, for the link that clears the chip. */
+  pathname?: string | null;
 }) {
   let data: Refreshable;
   try {
@@ -87,13 +105,54 @@ export default async function RefreshOddsPanel({
     return null;
   }
 
-  if (data.sports.length === 0) {
+  const league = filter?.league ?? null;
+  const cut = cutRefreshable(data.sports, league);
+
+  if (cut.kind === "nothing_stored") {
     return (
       <section className="mt-6 rounded-xl border p-4">
         <h2 className="text-sm font-bold">Refresh the odds</h2>
         <p className="mt-2 text-sm text-muted">
           No fixture is stored inside the next 24 hours, so there is no slate to
           buy a price for.
+        </p>
+      </section>
+    );
+  }
+
+  const allLeaguesHref =
+    pathname === null || filter === null
+      ? null
+      : `${pathname}${listFilterQuery({ ...filter, league: null })}`;
+
+  if (cut.kind === "league_outside_horizon") {
+    // The chosen league is not the same as an empty horizon. The odds feed
+    // only lists a fixture inside 24 hours of kickoff, so a league whose
+    // next game is further out than that has nothing to buy yet — and the
+    // way out is the chip, not a wait for the recorder.
+    return (
+      <section className="mt-6 rounded-xl border p-4">
+        <h2 className="text-sm font-bold">Refresh the odds</h2>
+        <p className="mt-2 max-w-prose text-sm text-muted">
+          No {leagueLabel(cut.league)} game kicks off inside the next 24
+          hours, so there is nothing {leagueLabel(cut.league)} to buy a price
+          for yet. A game enters this card once its kickoff is inside 24
+          hours; prices bought earlier would be stale before you could use
+          them.{" "}
+          {allLeaguesHref !== null ? (
+            <>
+              {cut.others === 1 ? "One other league has" : `${cut.others} other leagues have`}{" "}
+              games inside that window:{" "}
+              <Link
+                href={allLeaguesHref}
+                prefetch={false}
+                className="font-semibold text-foreground hover:underline"
+              >
+                show every league
+              </Link>
+              .
+            </>
+          ) : null}
         </p>
       </section>
     );
@@ -215,7 +274,23 @@ export default async function RefreshOddsPanel({
         </p>
       )}
 
-      {data.sports.map((sport) => {
+      {league !== null && allLeaguesHref !== null && (
+        // The cut is stated on the card itself, not borrowed from the bar
+        // above it, so a reader scrolled past the bar still knows this is
+        // one league's taps and not the whole slate's.
+        <p className="mt-3 text-xs text-muted">
+          {leagueLabel(league)} only, following the league chip.{" "}
+          <Link
+            href={allLeaguesHref}
+            prefetch={false}
+            className="font-semibold text-foreground hover:underline"
+          >
+            Every league
+          </Link>
+        </p>
+      )}
+
+      {cut.sports.map((sport) => {
         // A const so the null check narrows inside the fixture list below;
         // `sport.prop_credits` itself does not narrow across that closure.
         const propCredits = sport.prop_credits;

@@ -179,7 +179,7 @@ export default async function ParlaysPage({
         <summary className="cursor-pointer text-sm font-semibold">
           Refresh the odds
         </summary>
-        <RefreshOddsPanel actionable={actionable} />
+        <RefreshOddsPanel actionable={actionable} filter={filter} pathname="/parlays" />
       </details>
     </Shell>
   );
