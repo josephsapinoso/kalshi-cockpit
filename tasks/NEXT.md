@@ -215,10 +215,15 @@ docstring):**
   short-circuit for the rows that fail it; asymmetric latency on one
   parameter is the tell; read `read-incidents` before the screen.
 
-**STATE at close.** Deployed twice: `747c4f6` (~14:15Z) then `12aaaf6` (~14:33Z, the `: Total Runs` suffix); `/api/health` reads `12aaaf68…`, no migration (v42). CI 34979713549 and 34981144720 green; 34978416813 was red on one blob-shape test 2d8de82 had not run locally, fixed in 747c4f6. Live reads after each deploy, zero odds credits: the NFL cut answered 200 in 15.9 s on the first read after the restart (cold page cache, still under the 25 s budget) and 0.8–0.9 s warm, 67–71 rows, `hidden` 181; the MLB cut 1.3 s; `read-incidents` unchanged at the six pre-fix rows. The totals card built at ~14:20Z with `event_title` on every leg ("Baltimore vs New York M: Total Runs") and its Under legs quoting 54c/55c with their own depth; by 14:35Z the consensus was past 15 min again and the card empty, so **the rendered game line was not seen on live** — the strip was exercised on the live title locally and the next fresh slate is the look. Next ADR **0153**; schema **v42**; arming unchanged (hand path armed, engine and bids dry).
+**STATE at close.** Deployed twice: `747c4f6` (~14:15Z) then `12aaaf6` (~14:33Z, the `: Total Runs` suffix); `/api/health` reads `12aaaf68…`, no migration (v42). CI 34979713549 and 34981144720 green; 34978416813 was red on one blob-shape test 2d8de82 had not run locally, fixed in 747c4f6. Live reads after each deploy, zero odds credits: the NFL cut answered 200 in 15.9 s on the first read after the restart (cold page cache, still under the 25 s budget) and 0.8–0.9 s warm, 67–71 rows, `hidden` 181; the MLB cut 1.3 s; `read-incidents` unchanged at the six pre-fix rows. The totals card built at ~14:20Z with `event_title` on every leg ("Baltimore vs New York M: Total Runs") and its Under legs quoting 54c/55c with their own depth; by 14:35Z the consensus was past 15 min again and the card empty, so **the rendered game line was not seen on live** — the strip was exercised on the live title locally and the next fresh slate is the look. **Then, on Joe's word ("add the hedge schema column so totals parlays name the game"): ADR 0153, schema v43** — `parlay_position_legs.event_title`, written from the lookup blob, served by `/api/hedge`, drawn under the label on `/hedge`; NULL prints as nothing. Committed `f220f65`, CI 34983740120 green, deployed ~14:56Z; `/api/health` reads `f220f650…`, `/api/hedge` 200 with `event_title: null` on every served leg (all predate the column). Four guards seen red once (ADR 0153 §4). **Read off live in the same pass, `manual-orders-audit`: `manual_orders` has 13 rows, 13 real, 12 `filled`, 1 `unfilled`, last submitted 2026-09-15T12:12:47Z** — CLAUDE.md's "7 rows" was read 2026-09-14 and six real orders have landed since, the first rows ever to carry ADR 0143's venue columns. Not read further this session; it is the first read below. Next ADR **0154**; schema **v43**; arming unchanged (hand path armed, engine and bids dry).
 
 **First reads for the next session, in order:**
 
+0. **`manual_orders` rows 8–13** (`manual-orders-audit`, then the row
+   read ADR 0143 §4 asks for): the first real fills carrying
+   `venue_fill_count`, `venue_avg_fill_price_tenths`,
+   `venue_avg_fee_dollars`. CLAUDE.md said "reading that row once is worth
+   more than any build"; six of them exist now.
 1. `read-incidents -n 5`: no `read_budget` row after the deploy. Then the
    NFL chip with Joe's eyes.
 2. The eighteenth entry's first reads 1–2 still stand (the 21:25Z totals
@@ -231,18 +236,17 @@ docstring):**
 ### Still open, in order
 
 1. Items 1–4 above.
-2. **`parlay_position_legs.event_title`** — schema v43, one column, and
-   `HedgePositions.tsx` draws it under a team-less leg's label. Small,
-   and not a cleanup: a recorded totals parlay on `/hedge` is three
-   "Under 8.5 runs scored" rows until it lands.
+2. ~~`parlay_position_legs.event_title`~~ — built, ADR 0153, schema v43,
+   live `f220f65`.
 3. **Run the fixed probe once, with Joe at the keyboard** (carried).
-4. **Read the next real fill's row** — still 7 `manual_orders` rows.
+4. **Read the next real fill's row** — now 13 `manual_orders` rows; see
+   first read 0.
 5. **The census** — first session after the 10th real manual order or
    2026-11-01.
 6. Carried: `user_not_found` on shard 3 only; the 25 s read budget
    (instrumented by ADR 0151, not registered — and it just caught its
    first real one).
-7. **Reservations:** none live. Next ADR **0153**; schema **v42**.
+7. **Reservations:** none live. Next ADR **0154**; schema **v43**.
 
 ---
 

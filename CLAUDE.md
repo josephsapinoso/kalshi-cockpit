@@ -180,6 +180,10 @@ together or the screen lies in the interval
   **Three quantities circulate as the count of the transacted path and they
   are not the same number — name the table.** Read off live 2026-09-14:
 
+      manual_orders     13 rows, dry_run = 0  read off live 2026-09-15 15:00Z
+                        (12 filled, 1 unfilled) (`manual-orders-audit`); the line
+                                              below is the 2026-09-14 read and the
+                                              other two tables were NOT re-read
       manual_orders     7 rows, dry_run = 0   ids 1-2 filled 09-08, id 3 unfilled
                                               09-09, id 4 filled 09-09, ids 5-7
                                               filled 09-10 15:59-16:00Z
