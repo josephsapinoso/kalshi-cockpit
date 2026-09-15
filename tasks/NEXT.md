@@ -262,22 +262,25 @@ schema **v43**; arming unchanged (hand path armed, engine and bids dry).
    `credits_left`, (c) ship the `eu` drop anyway knowing it zeroes the
    sharp anchor. **Do not pull (c) without him re-answering with the
    sharp-book fact in front of him.**
-2. **WNBA bootstrap, ~02:00Z Wed 16 Sep** (~10 PM ET Tue). Kalshi lists
-   five `KXWNBAGAME` events, all 26SEP17; the bootstrap wants Kalshi's
-   kickoff inside 48 h and `occurrence_datetime` runs three hours late.
-   If WNBA is still absent from Games on Wednesday morning, that IS a
-   defect — check `sweep-log` for a BOOTSTRAP refusal.
-3. **One NFL prop tap from Wed 16 Sep 20:15 ET** (the 24 h horizon), on
+2. **One NFL prop tap from Wed 16 Sep 20:15 ET** (the 24 h horizon), on
    DET@BUF: team 6 + props 6 = 12 credits. Measures NFL prop coverage
    and whether `_alternate` is needed for NFL.
-4. **One "Price on Kalshi" on the props card** — it has never been
+3. **One "Price on Kalshi" on the props card** — it has never been
    tapped, and it is the card ADR 0154 just fixed. A tap also adds the
    fourth point to the `book_empty` rate.
-5. `read-incidents -n 5`: still no `read_budget` row after `4bf5f5b`.
+4. `read-incidents -n 5`: still no `read_budget` row after `4bf5f5b`.
+
+**DROPPED — the WNBA bootstrap watch, on Joe's word 2026-09-15 ~20:10Z**
+("Don't worry about the wnba thing anymore"). The nineteenth entry's
+item 5 said "if WNBA is still absent from Games on Wednesday morning,
+that IS a defect — check `sweep-log` for a BOOTSTRAP refusal", and the
+~02:00Z Wed bootstrap was the look that would have settled it. **Do not
+re-arm either from that entry.** Nothing was measured and nothing was
+refuted; he simply does not want it watched. Reopening needs him to ask.
 
 ### Still open, in order
 
-1. Items 1–5 above.
+1. Items 1–4 above.
 2. **Run the fixed probe once, with Joe at the keyboard** (carried).
    The partner recommends **PARKING it with an ADR** so it stops being
    re-carried: it settles gross-vs-net on `read_shard_funds`, the two
