@@ -251,7 +251,9 @@ docstring):**
    class the YAML header says is not fixable there. Zero credits: the
    queue carries the book spelling, so `capture_team_names.py` was not
    re-run; `test_no_alias_entry_is_decoration` now admits a pinned
-   `QUEUE_DERIVED` table as the second evidence source.
+   `QUEUE_DERIVED` table as the second evidence source. Committed
+   `68f0923`, CI 35002402759 green, deployed ~17:50Z, `/api/health` reads
+   `68f09230…` — live is now this commit.
 3. **One NFL prop tap from Wed 16 Sep 20:15 ET** (the horizon), on the
    DET@BUF game: team 6 + props 6 = 12 credits.
 4. One more "Price on Kalshi" on the totals card, for the second point on
