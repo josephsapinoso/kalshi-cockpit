@@ -820,7 +820,8 @@ export type ParlayCardLeg = {
   ticker: string;
   event_ticker: string;
   event_title: string;
-  /** The team whose YES this is. `null` on a player prop, which has no team. */
+  /** The team whose YES this is. `null` on a player prop and on a total,
+   *  which have no team -- the card draws `event_title` under those. */
   team: string | null;
   /** The player, on a prop leg only. Never a stand-in for `team`. */
   player: string | null;

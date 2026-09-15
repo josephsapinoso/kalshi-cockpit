@@ -1374,6 +1374,11 @@ def _serialise_leg(
     `tests/test_parlays_api.py` walks the keys to keep it that way.
     """
     facts = facts or dict(_NO_FACTS)
+    # The leg's OWN side of the ticker. An Under is NO on the Over's market,
+    # so its ask is `1000 - best YES bid` and its depth the resting YES qty;
+    # reading the YES keys here printed the Over's price on the Under's row
+    # until 2026-09-15 (`tests/test_under_legs.py` pins the side).
+    ask_tenths, ask_display, depth_at_ask = _ask_facts_for_side(facts, leg.side)
     # A spread or total leg has no `recommendations` row by construction,
     # so "no verdict" means the checks did not run rather than that they
     # passed.
@@ -1401,8 +1406,8 @@ def _serialise_leg(
         "side": leg.side,
         "fair_percent_display": _percent(leg.p_conservative),
         # --- What Kalshi charges, beside what the consensus says it is worth.
-        "ask_display": facts["ask_display"],
-        "depth_at_ask": facts["depth_at_ask"],
+        "ask_display": ask_display,
+        "depth_at_ask": depth_at_ask,
         "quote_age_ms": facts["quote_age_ms"],
         # --- Where the fair number came from.
         "method_spread_display": (
@@ -1455,9 +1460,7 @@ def _serialise_leg(
         # forbidden is a DIRECTION on this tick or an ordering by the gap
         # between it and the readings above.
         "ask_probability": (
-            facts["ask_tenths"] / PRICE_MAX
-            if facts["ask_tenths"] is not None
-            else None
+            ask_tenths / PRICE_MAX if ask_tenths is not None else None
         ),
         # --- The sweet spot: how much this number deserves to be acted on.
         #
@@ -1482,7 +1485,7 @@ def _serialise_leg(
                 book_count=leg.book_count,
                 market_width=leg.market_width,
                 method_spread_points=_method_spread_points(leg),
-                depth_at_ask=facts["depth_at_ask"],
+                depth_at_ask=depth_at_ask,
                 skeptic=skeptic,
                 suppressed_reason=facts["suppressed_reason"],
                 scout=facts["scout"],
@@ -1585,9 +1588,20 @@ def _serialise_card(
 #: absent rather than zeroed -- an ask of 0 is a free contract and a book count
 #: of 0 is "no consensus", and neither is what "we did not look" means.
 _NO_FACTS: dict = {
+    # The YES side of the ticker: what one contract of YES costs at the
+    # derived ask (`1000 - best NO bid`) and how many rest there.
     "ask_tenths": None,
     "ask_display": None,
     "depth_at_ask": None,
+    # The NO side of the same ticker (`1000 - best YES bid`, resting YES
+    # qty). An Under leg buys NO on the Over's market
+    # (`CandidateLeg.side`), and until 2026-09-15 its row printed the YES
+    # numbers -- the Over's price on the Under's line. Flat keys rather
+    # than a nested dict, because `dict(_NO_FACTS)` is a shallow copy and
+    # a shared inner dict is the bug `scout_flags` already had once.
+    "no_ask_tenths": None,
+    "no_ask_display": None,
+    "no_depth_at_ask": None,
     "quote_age_ms": None,
     "skeptic": "absent",
     "suppressed_reason": None,
@@ -1598,6 +1612,24 @@ _NO_FACTS: dict = {
     "scout_age_ms": None,
     "scout_ticker": None,
 }
+
+
+def _ask_facts_for_side(facts: dict, side: str) -> tuple:
+    """`(ask_tenths, ask_display, depth_at_ask)` for the side a leg buys.
+
+    `"yes"` reads the plain keys, `"no"` the `no_`-prefixed ones; anything
+    else is refused rather than defaulted to YES, which is the substitution
+    that put the Over's price on the Under's row.
+    """
+    if side == "yes":
+        return facts["ask_tenths"], facts["ask_display"], facts["depth_at_ask"]
+    if side == "no":
+        return (
+            facts["no_ask_tenths"],
+            facts["no_ask_display"],
+            facts["no_depth_at_ask"],
+        )
+    raise ValueError(f"a leg's side is 'yes' or 'no', not {side!r}")
 
 #: The scout half of `_NO_FACTS`, named once so `scouting_facts` cannot return
 #: a different set of keys from the one `_serialise_leg` reads.
@@ -1819,10 +1851,10 @@ def leg_facts(conn, tickers: Sequence[str], *, now_ms: int) -> dict[str, dict]:
         for row in conn.execute(
             f"""
             SELECT ticker, observed_ms, confirmed_ms, yes_bid_tenths,
-                   no_bid_tenths, no_bid_qty
+                   yes_bid_qty, no_bid_tenths, no_bid_qty
             FROM (
               SELECT ticker, observed_ms, confirmed_ms, yes_bid_tenths,
-                     no_bid_tenths, no_bid_qty,
+                     yes_bid_qty, no_bid_tenths, no_bid_qty,
                      ROW_NUMBER() OVER (
                        PARTITION BY ticker ORDER BY observed_ms DESC
                      ) AS rn
@@ -1862,10 +1894,20 @@ def leg_facts(conn, tickers: Sequence[str], *, now_ms: int) -> dict[str, dict]:
         facts.update(scouting[ticker])
         quote = quotes.get(ticker)
         if quote is not None:
+            # Both sides, one derivation each. The leg picks its own in
+            # `_serialise_leg` by `CandidateLeg.side`; the depth at a side's
+            # ask is the OTHER side's resting bid, which is the same identity
+            # the ask itself comes from.
             ask = ask_for_side(quote, "yes")
             facts["ask_tenths"] = ask
             facts["ask_display"] = format_price(ask) if ask is not None else None
             facts["depth_at_ask"] = quote["no_bid_qty"]
+            no_ask = ask_for_side(quote, "no")
+            facts["no_ask_tenths"] = no_ask
+            facts["no_ask_display"] = (
+                format_price(no_ask) if no_ask is not None else None
+            )
+            facts["no_depth_at_ask"] = quote["yes_bid_qty"]
             # `confirmed_ms` when present: a quote re-observed and unchanged is
             # current, not stale, and ADR 0055 only writes a row when it moves.
             seen = quote["confirmed_ms"] or quote["observed_ms"]
@@ -2182,11 +2224,19 @@ def leg_details_for(selected: Sequence[CandidateLeg]) -> dict[tuple[str, str], d
     spread leg, `"no"` on the Under of a total or prop, and it is exactly the
     side posted to Kalshi for that leg. Since 2026-09-14; before that every
     leg was YES by construction.
+
+    `event_title` since 2026-09-15: a total's label is Kalshi's subtitle
+    ("Under 8.5 runs scored") and names no game, and a prop's names a
+    player, so a position built from the label alone cannot say which game
+    it rides on. Carried in the blob now; `parlay_position_legs` has no
+    column for it yet, so `/hedge` still prints the label alone until that
+    schema step lands (`tasks/NEXT.md`).
     """
     return {
         (leg.kalshi_event_ticker, leg.kalshi_market_ticker): {
             "side": leg.side,
             "label": leg.label,
+            "event_title": leg.event_title,
             "league": leg.league,
             "commence_ms": leg.commence_ms,
         }

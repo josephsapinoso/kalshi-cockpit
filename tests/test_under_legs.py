@@ -150,3 +150,71 @@ class TestTheVenueIsAskedForEachLegsOwnSide:
         ]}}
         echo = echoed_legs([("E1", "M1", "yes"), ("E2", "M2", "no")], response)
         assert echo.verdict == "match"
+
+
+class TestAnUnderLegQuotesTheUnderSide:
+    """The card's ask and depth on an Under leg are the NO side's.
+
+    Until 2026-09-15 `leg_facts` was keyed by ticker and read the YES side
+    for every leg, so an Under printed the Over's price and the Over's depth
+    on its own row -- the wrong price, on the screen whose job is price
+    transparency (ADR 0071). Mutation observed red: `_ask_facts_for_side`
+    returning the YES triple for `"no"`.
+    """
+
+    def _quote(self, conn, ticker):
+        # yes_bid 400 / qty 7  ->  NO ask = 600, depth 7
+        # no_bid  450 / qty 12 -> YES ask = 550, depth 12
+        conn.execute(
+            "INSERT INTO kalshi_quotes (ticker, observed_ms, confirmed_ms, seq, "
+            "source, yes_bid_tenths, yes_bid_qty, no_bid_tenths, no_bid_qty) "
+            "VALUES (?, ?, ?, NULL, 'rest', 400, 7.0, 450, 12.0)",
+            (ticker, now_ms(), now_ms()),
+        )
+        conn.commit()
+
+    def test_over_and_under_of_one_market_print_different_asks(self, conn):
+        from backend.parlays import leg_facts
+
+        seed_total(conn, game="g1", line=8.5, p=0.56)
+        conn.commit()
+        legs, _ = ladder_candidates(conn, now_ms=now_ms(), max_odds_age_ms=900_000)
+        totals = {l.side: l for l in legs if l.market == "totals"}
+        ticker = totals["yes"].kalshi_market_ticker
+        self._quote(conn, ticker)
+        facts = leg_facts(conn, [ticker], now_ms=now_ms())[ticker]
+        over = _serialise_leg(totals["yes"], facts)
+        under = _serialise_leg(totals["no"], facts)
+        assert (over["ask_display"], over["depth_at_ask"]) == ("55c", 12.0)
+        assert (under["ask_display"], under["depth_at_ask"]) == ("60c", 7.0)
+        assert over["ask_probability"] == 0.55
+        assert under["ask_probability"] == 0.6
+
+    def test_a_side_that_is_neither_is_refused_not_defaulted(self):
+        from backend.parlays import _NO_FACTS, _ask_facts_for_side
+
+        with pytest.raises(ValueError):
+            _ask_facts_for_side(dict(_NO_FACTS), "maybe")
+
+
+class TestATeamLessLegCarriesItsGame:
+    """A total's label names no game; `event_title` is where the game is.
+
+    The card serialised it since ADR 0051 and drew it nowhere; on 2026-09-15
+    the totals card showed three "Under 8.5 runs scored" rows Joe could not
+    tell apart. The wire keeps carrying it, and the lookup blob a position
+    is recorded from now carries it too.
+    """
+
+    def test_the_wire_and_the_lookup_blob_carry_the_event_title(self, conn):
+        seed_total(conn, game="g1", line=8.5, p=0.56)
+        conn.commit()
+        legs, _ = ladder_candidates(conn, now_ms=now_ms(), max_odds_age_ms=900_000)
+        under = next(l for l in legs if l.side == "no")
+        assert under.team is None
+        wire = _serialise_leg(under)
+        assert wire["event_title"] and wire["event_title"] != under.label
+        details = leg_details_for([under])[
+            (under.kalshi_event_ticker, under.kalshi_market_ticker)
+        ]
+        assert details["event_title"] == wire["event_title"]

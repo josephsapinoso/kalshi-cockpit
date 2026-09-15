@@ -240,6 +240,7 @@ function Card({
                 <span className="tabular text-xs text-muted">
                   {leg.fair_percent_display}
                 </span>
+                <LegGame leg={leg} />
                 <LegFacts leg={leg} />
               </li>
             ))}
@@ -414,6 +415,7 @@ function LegProvenance({ card }: { card: ParlayCardData }) {
         {card.legs.map((leg) => (
           <li key={leg.ticker} className="text-[11px] leading-relaxed">
             <span className="font-semibold">{leg.label}</span>
+            <LegGame leg={leg} />
             <span className="block text-muted">
               {leg.book_count === null
                 ? "Book count unreadable."
@@ -613,6 +615,7 @@ function LegOrigins({ card }: { card: ParlayCardData }) {
         {card.legs.map((leg) => (
           <li key={`origin-${leg.ticker}`}>
             <span className="text-[11px] font-semibold">{leg.label}</span>
+            <LegGame leg={leg} />
             <DispersionStrip
               variant="chart"
               /* Null by design — see this component's docstring. */
@@ -651,6 +654,7 @@ function LegBuys({ card }: { card: ParlayCardData }) {
               <span className="tabular text-xs text-muted">
                 {leg.fair_percent_display} fair
               </span>
+              <LegGame leg={leg} />
             </div>
             <ManualTicket
               ticker={leg.ticker}
@@ -943,6 +947,37 @@ function kickoff(ms: number | null): string {
 /** " O " on a YES leg, " U " on a NO leg -- the over/under of its line. */
 function overUnder(leg: ParlayCardLeg): string {
   return leg.side === "no" ? " U " : " O ";
+}
+
+/**
+ * The game a team-less leg belongs to, or `null` when the label already
+ * names it.
+ *
+ * A moneyline label is "Cincinnati Reds to win" and a spread label is
+ * "Milwaukee wins by over 1.5 runs" -- the team is in the words. A total's
+ * label is Kalshi's own subtitle, "Under 8.5 runs scored", and a prop's is
+ * "Anthony Kay: 6+ strikeouts": neither says which game, and on
+ * 2026-09-15 the totals card showed Joe three "Under 8.5 runs scored" rows
+ * he could not tell apart. `event_title` has carried the game on every leg
+ * since the card grew provenance (ADR 0051) and was never drawn. Kalshi
+ * titles a total event "Indiana vs Chicago: Total"; the suffix is the
+ * market kind, already on the tag beside it, so it is dropped here.
+ */
+function legGame(leg: ParlayCardLeg): string | null {
+  if (leg.team !== null) return null;
+  const title = leg.event_title.replace(/:\s*Total$/i, "").trim();
+  return title.length > 0 ? title : null;
+}
+
+/** The game line under a team-less leg's label; nothing on a team leg. */
+function LegGame({ leg }: { leg: ParlayCardLeg }) {
+  const game = legGame(leg);
+  if (game === null) return null;
+  return (
+    <span className="block w-full truncate text-[11px] text-muted" data-testid="leg-game">
+      {game}
+    </span>
+  );
 }
 
 /**

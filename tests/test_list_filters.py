@@ -224,7 +224,10 @@ class TestTheSlateSqlCutsAndNeverOrders:
         sql, params = _slate_filter_sql(
             parse_list_filter("baseball_mlb", 3, now_ms=1_000)
         )
-        assert "o.sport_key = ?" in sql
+        # The fixture's key, read off one snapshot row (since 2026-09-15 the
+        # first entry of `idx_odds_event_commence`, not an `EXISTS` with the
+        # sport in its WHERE -- `tests/test_slate_league_cut_is_bounded.py`).
+        assert "SELECT o.sport_key FROM odds_snapshots o" in sql
         assert "l.league" not in sql, (
             "`event_links.league` is Kalshi's 'Pro Baseball', not the key"
         )
@@ -232,9 +235,20 @@ class TestTheSlateSqlCutsAndNeverOrders:
         assert params == ["baseball_mlb", 1_000, 1_000 + 3 * HOUR_MS]
 
     def test_the_sql_orders_nothing_and_reads_no_edge(self):
+        """A filter removes rows; it never reorders them (ADR 0071 §2.5).
+
+        The one `ORDER BY ... LIMIT 1` the suffix carries sits INSIDE the
+        league predicate's scalar subquery, where it bounds a read of
+        `odds_snapshots` to one index entry; it orders nothing the list
+        shows. It is cut out by its exact text before the check, so any
+        other ORDER BY or LIMIT that arrives here still fails.
+        """
         sql, _ = _slate_filter_sql(parse_list_filter("baseball_mlb", 3, now_ms=0))
-        assert "ORDER BY" not in sql.upper()
-        assert "LIMIT" not in sql.upper()
+        bounded_read = "ORDER BY o.commence_ms LIMIT 1"
+        assert sql.count(bounded_read) == 1
+        outer = sql.replace(bounded_read, "")
+        assert "ORDER BY" not in outer.upper()
+        assert "LIMIT" not in outer.upper()
         for stem in FORBIDDEN_STEMS:
             assert stem not in sql.lower(), stem
 
@@ -276,6 +290,26 @@ class TestTheSlateIsCutNotReordered:
         assert payload["slate"]["returned"] == 2
         assert payload["slate"]["truncated"] is False
         assert payload["slate"]["older_than_window"] == 0
+
+    async def test_an_in_scope_league_with_no_rows_is_an_empty_list_not_an_error(
+        self, slate_app
+    ):
+        """The combination Joe hit on 2026-09-15: a league the desk prices
+        (`americanfootball_nfl`) that matches none of the rows in the window.
+        On live it was a 503 from the 25 s read budget, six times in five
+        minutes, because the old `EXISTS` walked every non-matching fixture's
+        whole league partition (`tests/test_slate_league_cut_is_bounded.py`).
+        The answer is an empty cut with every row counted as hidden -- and it
+        is 200, so the screen draws the bar and not "Backend unreachable"."""
+        response = await get(
+            slate_app, "/api/slate", params={"league": "americanfootball_nfl"}
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["rows"] == []
+        assert payload["filter"]["league"] == "americanfootball_nfl"
+        assert payload["filter"]["hidden"] == 4
+        assert payload["slate"]["in_window"] == 0
 
     async def test_the_league_is_the_fixtures_not_the_links_label(self, slate_app):
         """Every seeded link says 'Pro Something'; the fixtures say

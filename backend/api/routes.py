@@ -4467,26 +4467,46 @@ def _slate_filter_sql(list_filter: Optional[ListFilter]) -> tuple[str, list]:
     query has `event_links` aliased `l`, and both resolve through the row's
     linked odds fixture:
 
-    - league: `EXISTS` a snapshot of that fixture under the requested
-      `sport_key`. `odds_snapshots.sport_key` rather than `event_links
-      .league`, because the parameter names the odds feed's key and the link
-      stores Kalshi's competition string (see `backend/list_filters.py`).
+    - league: the fixture's `sport_key`, read from ONE snapshot row.
+      `odds_snapshots.sport_key` rather than `event_links.league`, because
+      the parameter names the odds feed's key and the link stores Kalshi's
+      competition string (see `backend/list_filters.py`). A fixture's
+      `sport_key` is constant across its rows (the vendor's event id is
+      per sport), so the first entry of the fixture's group answers it.
+
+      **Not `EXISTS (... AND o.sport_key = ?)`, and that is a measured
+      change.** Until 2026-09-15 the predicate was an `EXISTS` with the
+      sport in its WHERE. `sport_key` is in no index that leads with
+      `odds_event_id`, so SQLite took `idx_odds_sport_commence (sport_key=?)`
+      and, for every window row whose fixture is NOT in the requested
+      league, walked that league's whole partition of the table before
+      returning false -- once per row, in both statements. The MLB chip was
+      fast only because most rows match on the first probe; the NFL chip
+      tripped the 25 s read budget six times in five minutes
+      (`api_read_incidents`, 2026-09-15 12:16-12:21Z, every row
+      `/api/slate?league=americanfootball_nfl`) and the Games screen said
+      "Backend unreachable". `ORDER BY commence_ms LIMIT 1` pins the read to
+      the first entry of `idx_odds_event_commence (odds_event_id,
+      commence_ms)` and one table fetch, whichever league is asked for;
+      `tests/test_slate_league_cut_is_bounded.py` pins the plan.
     - kickoff: `MIN(commence_ms)` per fixture, `BETWEEN` the window's bounds.
       The same definition the route's `kickoffs` read and its sort key use,
       so the row is cut on the clock it prints. An unlinked row's subquery is
       `NULL`, and `NULL BETWEEN` is not true -- the refusal, in SQL.
 
     Each subquery is an indexed SEARCH on `odds_event_id`
-    (`idx_odds_event`), one per row in the window, not a derived table over
-    every fixture in the history.
+    (`idx_odds_event_commence`), one per row in the window, not a derived
+    table over every fixture in the history -- and, for the league, one
+    index entry per row, not one group.
     """
     if list_filter is None:
         return "", []
     sql, params = "", []
     if list_filter.league is not None:
         sql += (
-            " AND EXISTS (SELECT 1 FROM odds_snapshots o "
-            "WHERE o.odds_event_id = l.odds_event_id AND o.sport_key = ?)"
+            " AND (SELECT o.sport_key FROM odds_snapshots o "
+            "WHERE o.odds_event_id = l.odds_event_id "
+            "ORDER BY o.commence_ms LIMIT 1) = ?"
         )
         params.append(list_filter.league)
     if list_filter.kickoff_until_ms is not None:

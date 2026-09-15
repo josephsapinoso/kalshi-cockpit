@@ -16,6 +16,40 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-15 (fourth) - EXISTS does not short-circuit for the rows that fail it; when one parameter value is fast and its sibling times out, the plan is walking the non-matches
+
+The Games screen's NFL chip said "Backend unreachable" six times in five
+minutes while the MLB chip answered at once. Same route, same statement,
+one parameter. The league cut was `EXISTS (SELECT 1 FROM odds_snapshots o
+WHERE o.odds_event_id = l.odds_event_id AND o.sport_key = ?)`, and
+`sport_key` is in no index that leads with `odds_event_id`, so SQLite took
+the index that leads with `sport_key` and, for every outer row whose
+fixture is NOT in the asked-for league, read that league's entire slice of
+a ten-million-row table before it could say no. The MLB chip was fast
+because most rows match on the first probe; the NFL chip paid the full
+walk ~350 times per statement, twice per request. Local, live-shaped: 73 ms
+to 0.5 ms. Live: 25 s to under a second. The docstring beside it said
+"an indexed SEARCH on `odds_event_id`", and the plan did say SEARCH.
+
+The shape: "EXISTS stops at the first match" is true and is the wrong half
+of the cost. The rows that FAIL an EXISTS are the ones that read the whole
+group, and a filter's job is to make most rows fail. The tell is
+asymmetry - one value of a parameter cheap, another ruinous, on one
+statement.
+
+Three rules:
+
+- **When a group has one value of a column, read the group's first entry
+  and compare; do not ask EXISTS to find it.** `(SELECT col FROM t WHERE
+  key = ? ORDER BY <leading index column> LIMIT 1) = ?` touches one entry
+  whichever way the answer goes.
+- **A plan test pins the index AND the bound.** `SEARCH ... USING INDEX`
+  says how the rows are reached, never how many; the `LIMIT 1` is what
+  bounds it, and the v39 index note already paid for learning that once.
+- **"Backend unreachable" is read from `read-incidents` first**, never
+  from the screen. The row carries the path with its query string, which
+  is the parameter that failed - the diagnosis was one column wide.
+
 ## 2026-09-15 (third) - A refusal carries its premise; before inheriting the refusal, re-read the premise against what the record now holds
 
 Two refusals stood between Joe and the over/under and player-prop parlays
