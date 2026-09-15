@@ -177,7 +177,26 @@ everything below was read off live through the session cookie
    unchanged; the card now cuts to the chip's league and, when that
    league has nothing inside 24 h while others do, says so and links to
    every league (`lib/refreshableCut.ts`, node-tested). The Board has no
-   bar and lists every league as before.
+   bar and lists every league as before. Then "make the props tap show
+   the next NFL kickoff time": `22e34bd`, live. `/api/odds/refreshable`
+   gains `beyond_horizon` (first stored kickoff past 24 h per in-scope
+   league with nothing inside it, plus `enters_ms`; one index seek per
+   league, `LIMIT 1`, never a GROUP BY over `odds_snapshots`); the card
+   names the game, its kickoff, and the hour its taps appear. Read off
+   live at ~19:00Z: NCAAF Syracuse at Pittsburgh enters Wed 23:30Z, NFL
+   DET@BUF enters Thu 00:15Z; **no WNBA row in either list**.
+5. **"I don't see any WNBA games at all, even after selecting the next 2
+   nights."** Read 2026-09-15 ~19:05Z: `credits-by-sport` shows no WNBA
+   purchase since the window opened 09-08; `/api/slate?league=basketball_wnba`
+   returns 0 rows (443 hidden); Kalshi's public `/events` lists exactly
+   five `KXWNBAGAME` events, **all 26SEP17**, none before — so "the next 2
+   nights" genuinely hold no WNBA game. The desk has not bootstrapped
+   them because `decide_sweeps`' bootstrap wants Kalshi's kickoff inside
+   `DEFAULT_HORIZON_MS` (48 h) and Kalshi's `occurrence_datetime` runs
+   three hours late (~02:00Z Fri for a 7 PM ET Thu tip), so the first
+   WNBA buy is due ~02:00Z Wed 16 Sep (~10 PM ET Tue). Not a defect;
+   nothing changed. If WNBA is still absent from Games on Wednesday
+   morning, that IS a defect: check `sweep-log` for a BOOTSTRAP refusal.
 
 **Found beside them, and the one that mattered most:** `leg_facts` was
 keyed by ticker and hardcoded `ask_for_side(quote, "yes")` /
