@@ -589,3 +589,53 @@ class TestTheLookupRecordsWhatThePositionNeeds:
             "league": "nfl",
             "commence_ms": 1_700_000_500_000,
         }
+
+
+class TestAFractionalFillIsRefusedNotTruncated:
+    """ADR 0151. `contracts=int(filled)` truncated: a venue-reported 2.5 became
+    a 2-contract holding, understating the stake and flattering the `/hedge`
+    figure -- the direction this repo refuses by policy. No real fill has ever
+    been fractional; this exists so the first one is said out loud instead of
+    rounded.
+
+    Mutation seen red: the `fractional_fill` branch removed (the pre-2026-09-15
+    `int(filled)` path) -- a 2-contract position then lands and the note is
+    the "being watched" sentence."""
+
+    async def test_a_fractional_fill_records_no_position_and_says_why(
+        self, tmp_path, fills_for_real
+    ):
+        fills_for_real(fill_count=2.5)
+        path = _base_db(tmp_path)
+        _seed_lookup(path)
+        quotes = StubQuotes(
+            _payload(ticker=COMBO_TICKER, yes_ask_size=1000.0, exchange_index=1)
+        )
+        app = _app(path, quotes=quotes)
+
+        body = (await _buy_combo(app)).json()
+
+        assert _positions(path) == []
+        assert body["hedge_position_id"] is None
+        note = body["hedge_position_note"]
+        assert "NOT being watched" in note and "2.5" in note
+        assert "fractional" in note
+
+    async def test_an_integral_float_fill_is_still_a_position(
+        self, tmp_path, fills_for_real
+    ):
+        # `4.0` is what the wire carries for four contracts; the refusal must
+        # not mistake a float for a fraction.
+        fills_for_real(fill_count=4.0)
+        path = _base_db(tmp_path)
+        _seed_lookup(path)
+        quotes = StubQuotes(
+            _payload(ticker=COMBO_TICKER, yes_ask_size=1000.0, exchange_index=1)
+        )
+        app = _app(path, quotes=quotes)
+
+        body = (await _buy_combo(app)).json()
+
+        assert body["hedge_position_id"] is not None
+        assert len(_positions(path)) == 1
+

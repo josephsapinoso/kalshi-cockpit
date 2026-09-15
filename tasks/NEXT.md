@@ -183,7 +183,48 @@ sixth: the steps after a refusal run only on the first success; an
 "unexplained" venue response is a claim about your own request until re-read;
 when a module documents a fix, grep for callers that make the same call by
 hand). No ADR: nothing decided, one script fixed, copy conditioned. Next ADR
-**0151**; schema v41; arming unchanged; odds credits: zero spent.
+**0152** (0151 taken later the same night); schema v42; arming unchanged; odds credits: zero spent.
+
+### Later the same night — the partner pass, and the code backlog emptied (ADR 0151, schema v42)
+
+Joe asked for one partner pass to rule every carried code item build-now or
+strike-for-good. The partner ruled, and **first corrected this entry's
+"the next hit is a measurement"**: it measured Fly's log retention on the
+live app at 100 lines, forty seconds during a busy window, because each
+pass emits a ~900-char INFO dict every ~20 s. The three 00:37–00:46Z hits
+were already gone. Rewording the warning changed what was lost, not
+whether it was. Lesson: `tasks/lessons.md` 2026-09-15.
+
+**Built, in the partner's order, sequential on main, no lanes:**
+
+0. **`api_read_incidents` — schema v42, ADR 0151.** Every read-budget 503
+   and every failed loopback health probe leaves a row: kind, method, path
+   with query, elapsed_ms, exception class, budget. Best-effort writer with
+   a one-second lock wait, never raises; a count is a FLOOR. Read it with
+   `scripts/inspect_live_db.py read-incidents`. The health probe runs every
+   pass at a 2 s threshold against a route that opens the DB — the
+   sensitive instrument for the "reads crawl during heavy write passes"
+   hypothesis, and it had been throwing its answer away.
+1. **6d — the API-unreachable alert carries the probe's exception class and
+   elapsed** (`ReadTimeout` = slow box, `ConnectError` = dead box), on the
+   phone and in the row.
+2. **6c — `int(fill_count)` truncation is a refusal, not a rounding.** A
+   non-integral fill records no position and says so on the ticket; `4.0`
+   is still four. Truncation understated the stake and flattered `/hedge`.
+
+**Struck for good, reasons in ADR 0151 §4:** 6a `parlay_positions.status`
+never advances (it advances at Joe's tap; an automatic close would have to
+pick which signal ends a position and the venue can settle a combo before
+its legs) and 6b the hedge-evaluation table (a recorder over a source that
+has produced zero locks in its life).
+
+**Not registered:** the 25 s hypothesis. Two mechanisms (writer contention
+vs. CPU starvation on two shared vCPUs), no instrument that separates
+them, no denominator. Collect rows; register when there is a statistic. Do
+not widen the budget.
+
+Verified: `tests/test_api_read_incidents.py` (10) and two fractional-fill
+tests, five mutations each seen red; ruff clean. Full suite locally: **7,133 passed, 10 xfailed**, one failure — the inspector's `SUBCOMMANDS` registry guard, which wants every new subcommand written down; `read-incidents` added, guard green. 30m25s with a second run beside it.
 
 ### Still open, in order
 
@@ -195,9 +236,9 @@ hand). No ADR: nothing decided, one script fixed, copy conditioned. Next ADR
    filled, last submitted 2026-09-10T16:00Z.
 3. **The census** — first session after the 10th real manual order (at 7)
    or 2026-11-01.
-4. Carried: `parlay_positions.status` never advances; no hedge-evaluation
-   table; `int(fill_count)` truncation; the API-unreachable alert's
-   exception class; `user_not_found` on shard 3.
+4. Carried: `user_not_found` on shard 3 only. (`parlay_positions.status`
+   and the hedge-evaluation table are STRUCK, ADR 0151 §4; the truncation
+   and the alert's exception class are BUILT, ADR 0151 §5 and §2.)
    **The 25 s read budget was SEEN blanking a screen for the first time,
    2026-09-15 00:37:31Z and 00:38:07Z** (`API read connection hit its
    25000ms budget and was interrupted`, twice, 40–75 s after pass 139 ran
@@ -223,7 +264,7 @@ hand). No ADR: nothing decided, one script fixed, copy conditioned. Next ADR
    method, path with query, and elapsed
    (`test_the_warning_names_the_route_and_how_long_it_had_run`, two
    mutations seen red). The next hit is a measurement.
-5. **Reservations:** none live. Next ADR **0151**; schema v41.
+5. **Reservations:** none live. Next ADR **0152**; schema **v42**.
 
 **Struck this session:** the probe cancel (fixed); the 401 (explained,
 ours); the "combos cannot be placed here" sweep (clean; its mirror image

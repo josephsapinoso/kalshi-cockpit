@@ -445,14 +445,31 @@ def create_app(
         elapsed_s = (
             time.monotonic() - started if isinstance(started, float) else None
         )
+        full_path = request.url.path + (
+            f"?{request.url.query}" if request.url.query else ""
+        )
         logger.warning(
             "API read connection hit its %sms budget and was interrupted: "
             "%s %s after %s",
             app_config.api_read_budget_ms,
             request.method,
-            request.url.path
-            + (f"?{request.url.query}" if request.url.query else ""),
+            full_path,
             f"{elapsed_s:.1f}s" if elapsed_s is not None else "an unstamped wait",
+        )
+        # Persisted because the log is not retained: Fly kept under a minute
+        # of lines during the busy window in which the first three hits
+        # blanked the Games screen (2026-09-15, ADR 0151). Best effort, own
+        # one-second-lock connection, never raises -- the database is
+        # contended right now, which is why we are here.
+        await run_in_threadpool(
+            db.record_api_read_incident,
+            app_config.db_path,
+            kind=db.API_INCIDENT_READ_BUDGET,
+            method=request.method,
+            path=full_path,
+            elapsed_ms=None if elapsed_s is None else int(elapsed_s * 1000),
+            error=f"{type(exc).__name__}: {exc}",
+            budget_ms=app_config.api_read_budget_ms,
         )
         return JSONResponse(
             status_code=503,
@@ -4005,7 +4022,31 @@ def create_app(
         position_id = None
         position_note = None
         filled = outcome.fill_count
-        if combo and not outcome.dry_run and filled is not None and filled > 0:
+        # `fill_count` is a float off the wire (`fill_count_fp`-shaped), and a
+        # position is an integer number of contracts. Until 2026-09-15 this was
+        # `int(filled)`, which TRUNCATES: 2.5 became 2, understating the
+        # holding, so the stake, so the `/hedge` figure -- the flattering
+        # direction, refused by policy (ADR 0151; the shape of "unreadable
+        # resolves to None, never 0"). A non-integral fill is recorded as no
+        # position at all and said out loud, exactly as `unrecognised_response`
+        # is twelve lines above. No real fill has ever been fractional; the
+        # refusal exists so the first one cannot be silently rounded.
+        fractional_fill = (
+            filled is not None and filled > 0 and float(filled) != int(filled)
+        )
+        if combo and not outcome.dry_run and fractional_fill:
+            logger.error(
+                "manual order row %d filled on combo %s with a NON-INTEGRAL "
+                "fill_count %r; no hedge position recorded rather than a "
+                "truncated one.", row_id, ticker, filled,
+            )
+            position_note = (
+                f"This combination is NOT being watched for a hedge — the venue "
+                f"reported a fractional fill of {filled} contracts, which the "
+                f"desk will not round into a holding. Record it by hand on "
+                f"/hedge with the count Kalshi shows."
+            )
+        elif combo and not outcome.dry_run and filled is not None and filled > 0:
             try:
                 position_id = await run_in_threadpool(
                     _record_combo_position,

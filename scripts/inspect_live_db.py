@@ -263,6 +263,7 @@ from inspect_live_db_loop import (  # noqa: E402,F401
     _q_loop_rss,
     _q_notifications,
     _q_pass_gaps,
+    _q_read_incidents,
     _q_walk_log,
     loop_rss_path,
 )
@@ -384,6 +385,15 @@ QUERIES: dict[str, QueryDef] = {
         "paginating ~14,000 events. `prev_discovered` falling off a cliff is a "
         "classification regression; decaying is an emptying slate.",
         _q_walk_log,
+    ),
+    "read-incidents": QueryDef(
+        "The last N api_read_incidents rows (-n, default 5), newest first, "
+        "beside a per-kind count. read_budget = the API's 25 s statement "
+        "budget fired (a 503; screens say 'Backend unreachable'); health_probe "
+        "= the loop's 2 s loopback probe failed, checked every pass. Path, "
+        "elapsed_ms and the exception class are the reading; the count is a "
+        "FLOOR because the writer is best-effort under contention.",
+        _q_read_incidents,
     ),
     "failure-journal": QueryDef(
         "Every pass failure as `loop_failures.jsonl` saw it, beside what the "

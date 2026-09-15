@@ -16,6 +16,45 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-15 - A warning improved but not persisted is the same warning; when you fix what a log line says, ask what retains it
+
+Three API reads hit their 25 s budget and blanked the Games screen in front
+of Joe. The warning said only that something was interrupted, so the same
+night it was reworded to carry the method, the path with its query and the
+elapsed time, and the handoff said "the next hit is a measurement". The
+partner then measured the thing the sentence assumed: Fly's log retained a
+hundred lines, forty seconds' worth during a busy window, because every
+scheduler pass emits a ~900-character INFO dict every ~20 s. The three hits
+that motivated the rewording had already scrolled off before it deployed.
+The next hit at 03:00Z while Joe slept would have produced exactly what the
+last three did: nothing.
+
+It is the two-limits-on-one-quantity failure this repo keeps meeting, on a
+log instead of a budget: the wording was the limit that got attention and
+the retention was the limit that bound.
+
+Three rules:
+
+- **A log line is an instrument only for as long as it is retained.** Before
+  calling a warning "the measurement", find the retention window and put
+  the next expected event inside it. If you cannot, the line is not the
+  record; a row is.
+- **When the row is written on the failure path, the writer must survive
+  the failure.** A best-effort insert with a short lock wait that logs the
+  row on refusal, never a raise, never a five-second wait on the way out of
+  a 503 - and the resulting count is a FLOOR, said beside the count.
+- **Look for the more sensitive instrument already deployed.** The loop's 2 s
+  loopback probe of `/api/health` had been running every pass for weeks,
+  twelve times more sensitive than the route budget, and threw its answer
+  away as the constant "health probe failed". The new detector was not the
+  fix; wiring the old one was.
+
+Where the cost landed: one commit that changed what was lost rather than
+whether it was, caught the same night. Where it went: ADR 0151, schema v42
+`api_read_incidents`, `scripts/inspect_live_db.py read-incidents`.
+
+---
+
 ## 2026-09-14 (sixth) - The steps after a refusal run only on the first success, and an "unexplained" venue response is a claim about your own request until you have re-read it
 
 `scripts/probe_resting_combo_order.py` had two defects in its last three

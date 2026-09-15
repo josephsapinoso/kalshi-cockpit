@@ -1306,7 +1306,12 @@ class Alerter:
         )
 
     async def check_feed(
-        self, *, now_ms: int, hub_running: Optional[bool], markets_priced: int
+        self,
+        *,
+        now_ms: int,
+        hub_running: Optional[bool],
+        markets_priced: int,
+        probe_detail: Optional[str] = None,
     ) -> Optional[bool]:
         """Alert when the live feed is down while there is something to feed.
 
@@ -1354,7 +1359,11 @@ class Alerter:
                     "may be frozen, and a frozen price renders exactly like a "
                     "fresh one.",
                 ),
-                detail="health probe failed",
+                # The probe's own words when it has them -- the exception
+                # class and elapsed time -- because "health probe failed" hid
+                # the difference between a slow box (ReadTimeout) and a dead
+                # one (ConnectError) from every reading after the fact.
+                detail=probe_detail or "health probe failed",
                 now_ms=now_ms,
             )
         if hub_running:

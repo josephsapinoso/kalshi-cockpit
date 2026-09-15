@@ -143,6 +143,7 @@ SUBCOMMANDS = (
     "prop-bookmakers",
     "prop-rungs",
     "prune-frontier",
+    "read-incidents",
     "results-for-pull",
     "series",
     "study-stop",

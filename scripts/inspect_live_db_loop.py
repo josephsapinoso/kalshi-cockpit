@@ -871,3 +871,44 @@ def _q_pass_gaps(conn: sqlite3.Connection, args) -> list[Section]:
         requested=args.tail,
     )
     return [gaps, _derive_iso(failures, "failed_ms", "failed_iso")]
+
+
+_SQL_READ_INCIDENTS = (
+    "SELECT seen_ms, kind, method, path, elapsed_ms, error, budget_ms "
+    "FROM api_read_incidents ORDER BY seen_ms DESC"
+)
+
+_SQL_READ_INCIDENTS_BY_KIND = (
+    "SELECT kind, count(*) AS n, min(seen_ms) AS first_ms, max(seen_ms) AS last_ms, "
+    "max(elapsed_ms) AS worst_elapsed_ms FROM api_read_incidents GROUP BY kind"
+)
+
+
+def _q_read_incidents(conn: sqlite3.Connection, args) -> list[Section]:
+    """The last N `api_read_incidents` rows (-n), newest first, beside a
+    per-kind count. `read_budget` is the API's 25 s statement budget firing
+    (a 503, which the screens render as "Backend unreachable"); `health_probe`
+    is the loop's 2 s loopback probe failing, every pass, and is the sensitive
+    instrument. The writer is best-effort with a one-second lock wait, so a
+    count here is a FLOOR: a hit under hard contention may have no row and
+    only a log line, and the log lives under a minute."""
+    tail = _fetch(
+        conn,
+        _SQL_READ_INCIDENTS,
+        (),
+        title=f"api_read_incidents: last {args.tail} rows, newest first",
+        cap=args.limit,
+        requested=args.tail,
+    )
+    by_kind = _fetch(
+        conn,
+        _SQL_READ_INCIDENTS_BY_KIND,
+        (),
+        title="api_read_incidents: count per kind (a FLOOR -- see the writer)",
+        cap=args.limit,
+    )
+    return [
+        _derive_iso(tail, "seen_ms", "seen_iso"),
+        _derive_iso(by_kind, "last_ms", "last_iso"),
+    ]
+

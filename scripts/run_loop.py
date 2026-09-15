@@ -77,7 +77,7 @@ import sys
 import traceback
 import time
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 import httpx
 
@@ -667,7 +667,45 @@ HEALTH_TIMEOUT_S = 2.0
 _log = logging.getLogger("run_loop")
 
 
-async def probe_hub_running(client) -> Optional[bool]:
+class ProbeResult(NamedTuple):
+    """What the loopback health probe found, and -- when it found nothing --
+    exactly why, so the alert and the durable record can say which."""
+
+    hub_running: Optional[bool]
+    #: `None` on a readable answer. Otherwise the failure in words:
+    #: `"health probe failed: ReadTimeout: ... after 2003ms"`. `ReadTimeout`
+    #: is "the box is slow"; `ConnectError` is "the box is down". Until
+    #: 2026-09-15 both reached the phone as the one string "health probe
+    #: failed" and the log line that knew the difference lived under a
+    #: minute.
+    detail: Optional[str]
+
+
+def _record_probe_failure(
+    db_path: Optional[str], *, error: str, elapsed_ms: int
+) -> None:
+    """Persist a failed probe as an `api_read_incidents` row. Never raises.
+
+    This probe runs every pass at a 2 s threshold against a route that opens
+    the database, so it is the most sensitive instrument this box has for
+    "API reads crawl while a heavy write pass runs" (ADR 0151) -- twelve
+    times more sensitive than the 25 s route budget, and the row is what
+    turns a recurrence into a measurement.
+    """
+    if db_path is None:
+        return
+    db.record_api_read_incident(
+        db_path,
+        kind=db.API_INCIDENT_HEALTH_PROBE,
+        method="GET",
+        path=HEALTH_URL,
+        elapsed_ms=elapsed_ms,
+        error=error,
+        budget_ms=int(HEALTH_TIMEOUT_S * 1000),
+    )
+
+
+async def probe_hub_running(client, *, db_path: Optional[str] = None) -> ProbeResult:
     """Is the quote hub running? `None` when the question could not be asked.
 
     The WebSocket lives in the uvicorn process and the notifier lives in this
@@ -679,19 +717,31 @@ async def probe_hub_running(client) -> Optional[bool]:
     missing field all mean "the state is unknown", which is a different alert
     from "the hub is down"; reporting a dead feed because a probe timed out is
     the flattering-in-reverse version of the same defect. See `tasks/lessons.md`.
+
+    A failure is returned WITH its exception class and elapsed time, and is
+    written to `api_read_incidents` when `db_path` is given.
     """
+    started = time.monotonic()
     try:
         response = await client.get(HEALTH_URL, timeout=HEALTH_TIMEOUT_S)
         if response.status_code >= 400:
-            _log.warning("health probe returned HTTP %d", response.status_code)
-            return None
+            elapsed_ms = int((time.monotonic() - started) * 1000)
+            error = f"HTTP {response.status_code}"
+            detail = f"health probe returned {error} after {elapsed_ms}ms"
+            _log.warning("%s", detail)
+            _record_probe_failure(db_path, error=error, elapsed_ms=elapsed_ms)
+            return ProbeResult(None, detail)
         value = response.json().get("live_quotes_available")
-    except Exception:                                          # noqa: BLE001
-        _log.warning("health probe failed", exc_info=True)
-        return None
+    except Exception as exc:                                   # noqa: BLE001
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        error = f"{type(exc).__name__}: {exc}"
+        detail = f"health probe failed: {error} after {elapsed_ms}ms"
+        _log.warning("%s", detail, exc_info=True)
+        _record_probe_failure(db_path, error=error, elapsed_ms=elapsed_ms)
+        return ProbeResult(None, detail)
     # A missing key is unknown, not false. An older image that does not publish
     # the field must not be reported to a phone as a dead feed.
-    return None if value is None else bool(value)
+    return ProbeResult(None if value is None else bool(value), None)
 
 
 async def main() -> int:
@@ -1210,10 +1260,12 @@ async def main() -> int:
             # wrote this pass, so zero means there was nothing to feed rather
             # than nothing arriving. Without it the watchdog buzzes every night
             # and the channel gets muted, which is worse than no channel.
+            probe = await probe_hub_running(health_client, db_path=args.db)
             await alerter.check_feed(
                 now_ms=stamp,
-                hub_running=await probe_hub_running(health_client),
+                hub_running=probe.hub_running,
                 markets_priced=counts.markets_quoted,
+                probe_detail=probe.detail,
             )
             # `budget.state(stamp).remaining_today`, not `budget.remaining_today()`
             # -- `remaining_today` is a PROPERTY on `BudgetState`, which

@@ -16,6 +16,7 @@ direction that makes everything look cheap.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -23,6 +24,8 @@ from pathlib import Path
 from typing import Optional
 
 from ..core.prices import is_valid_price
+
+logger = logging.getLogger(__name__)
 
 #: v22 adds `loop_failures`, v23 adds `parlay_card_candidates`, and v24 adds
 #: `parlay_positions` + `parlay_position_legs` (ADR 0078). **None of the three
@@ -118,7 +121,16 @@ from ..core.prices import is_valid_price
 #: confirmed 41 was still free. This constant, the `_MIGRATIONS` key
 #: below, the `schema v41` line in `schema.sql` and
 #: `tests/test_window_freshness_index.py` are ONE number.
-SCHEMA_VERSION = 41
+#:
+#: v42 `api_read_incidents` -- a pure new table, so it sits in
+#: `_TABLELESS_VERSIONS`, no step. Written on `main` with no lane open,
+#: 2026-09-15 (ADR 0151). It exists because the 25 s read-budget warning
+#: was improved the same night to name its route and elapsed, and the
+#: partner then measured Fly's log retention on the live app at under a
+#: minute during a busy window: three hits that blanked the Games screen
+#: were gone before anyone could read them. A warning that is not
+#: persisted is the same warning.
+SCHEMA_VERSION = 42
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -941,12 +953,12 @@ _PARLAY_LOOKUPS_ADMIT_REFUSED_UNDO = (
 #:
 #: - v22 `loop_failures`, v23 `parlay_card_candidates`, v24 the hedge tables,
 #:   v27 `combo_eligible_events`, v29 `manual_order_refusals`,
-#:   v30 `combo_orders`.
+#:   v30 `combo_orders`, v42 `api_read_incidents`.
 #:
 #: v33 is NOT here although it adds a table (`venue_positions`): it also adds
 #: a column to `poll_log`, which makes it a step. A version is one or the
 #: other, never both.
-_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30)
+_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
@@ -2410,6 +2422,99 @@ def loop_failures_since(
             "SELECT failed_ms, pass_number, consecutive_failures, pass_kind, "
             "error FROM loop_failures WHERE failed_ms >= ? "
             "ORDER BY failed_ms ASC",
+            (int(since_ms),),
+        )
+    )
+
+
+#: The two things that write `api_read_incidents`. `read_budget` is the API's
+#: own 25 s per-statement budget firing (`routes._sqlite_operational_error`);
+#: `health_probe` is the recording loop's 2 s loopback probe of `/api/health`
+#: failing (`scripts/run_loop.py:probe_hub_running`). The second is the more
+#: sensitive instrument for the same hypothesis -- API reads crawling while a
+#: heavy write pass runs -- because it fires every pass at a 2 s threshold.
+API_INCIDENT_READ_BUDGET = "read_budget"
+API_INCIDENT_HEALTH_PROBE = "health_probe"
+
+#: How long the incident writer will wait for the write lock. Short on
+#: purpose: the incident happens BECAUSE the database is contended, and a
+#: writer that waits the default five seconds on the way out of a 503 handler
+#: would hold the request open for exactly the wait the budget exists to end.
+API_INCIDENT_WRITE_TIMEOUT_S = 1.0
+
+
+def record_api_read_incident(
+    db_path: str | Path,
+    *,
+    kind: str,
+    method: Optional[str],
+    path: Optional[str],
+    elapsed_ms: Optional[int],
+    error: str,
+    budget_ms: Optional[int] = None,
+    seen_ms: Optional[int] = None,
+) -> bool:
+    """Persist one API read incident. Best effort; NEVER raises.
+
+    The row exists because the log did not: Fly retained under a minute of
+    lines during the busy window in which three read-budget hits blanked the
+    Games screen (2026-09-15), so a warning, however well worded, was not an
+    instrument. Returns `True` if the row landed and `False` if it did not --
+    and a `False` is logged with every field, so the log line is the fallback
+    record rather than a second silence.
+
+    Opens its own short-lived write connection with a one-second lock wait
+    (`API_INCIDENT_WRITE_TIMEOUT_S`) rather than riding the caller's, because
+    the caller's connection is read-only and already interrupted, and because
+    the contention that caused the incident may refuse this write too. That
+    refusal is the one outcome this function must survive silently-in-the-DB
+    and loudly-in-the-log.
+    """
+    row = (
+        int(seen_ms if seen_ms is not None else now_ms()),
+        kind,
+        method,
+        path,
+        None if elapsed_ms is None else int(elapsed_ms),
+        error,
+        None if budget_ms is None else int(budget_ms),
+    )
+    try:
+        conn = sqlite3.connect(str(db_path), timeout=API_INCIDENT_WRITE_TIMEOUT_S)
+        try:
+            conn.execute(
+                "INSERT INTO api_read_incidents (seen_ms, kind, method, path, "
+                "elapsed_ms, error, budget_ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                row,
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return True
+    except Exception as exc:                                   # noqa: BLE001
+        logger.warning(
+            "api_read_incidents row could not be written (%s: %s); the row "
+            "was seen_ms=%s kind=%s method=%s path=%s elapsed_ms=%s "
+            "error=%s budget_ms=%s",
+            type(exc).__name__, exc, *row,
+        )
+        return False
+
+
+def api_read_incidents_since(
+    conn: sqlite3.Connection, *, since_ms: int
+) -> list[sqlite3.Row]:
+    """Every recorded API read incident at or after `since_ms`, oldest first.
+
+    The read side `tests/test_api_read_incidents.py` observes the writer
+    through; the inspector (`scripts/inspect_live_db.py read-incidents`)
+    carries its own SQL because that script imports nothing from `backend`
+    by design, the same standing as `loop_failures_since`.
+    """
+    return list(
+        conn.execute(
+            "SELECT seen_ms, kind, method, path, elapsed_ms, error, budget_ms "
+            "FROM api_read_incidents WHERE seen_ms >= ? ORDER BY seen_ms ASC",
             (int(since_ms),),
         )
     )

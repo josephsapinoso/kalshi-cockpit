@@ -2542,3 +2542,51 @@ CREATE TABLE IF NOT EXISTS combo_orders (
 
 CREATE INDEX IF NOT EXISTS idx_combo_orders_status
     ON combo_orders(status, placed_ms DESC);
+
+
+-- ============================================================================
+-- API read incidents -- schema v42 (ADR 0151). A pure new table: no step.
+-- ============================================================================
+--
+-- One row per time an API read was too slow to serve, written by the thing
+-- that noticed: the API's own 25 s per-statement budget firing
+-- (`kind = 'read_budget'`, `backend/api/routes.py`), or the recording loop's
+-- 2 s loopback probe of `/api/health` failing (`kind = 'health_probe'`,
+-- `scripts/run_loop.py`). The second fires every pass at a 2 s threshold and
+-- is the sensitive instrument; the first is the one that blanks a screen.
+--
+-- Why a table and not the log: on 2026-09-15 three read-budget hits blanked
+-- the Games screen in front of Joe right after he bought MLB props, and by
+-- the time anyone looked Fly's log had kept under a minute of lines. The
+-- warning was reworded the same night to carry the route and elapsed time;
+-- that changed what was lost, not whether it was.
+--
+-- The writer is best-effort with a one-second lock wait and never raises:
+-- the incident happens BECAUSE the database is contended, and the row must
+-- not become a second stall on the way out of a 503. A row that could not
+-- be written is logged with every field, so a count here is a FLOOR.
+--
+-- Read with `scripts/inspect_live_db.py read-incidents`. Nothing in the
+-- gate, the order path or the pricing reads this table.
+CREATE TABLE IF NOT EXISTS api_read_incidents (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    seen_ms     INTEGER NOT NULL,
+    kind        TEXT    NOT NULL,
+    -- HTTP method and path WITH query, as the request carried them; NULL
+    -- for a probe that never got a request object (a connect failure).
+    method      TEXT,
+    path        TEXT,
+    -- Wall-clock from request start (API) or probe start (loop) to the
+    -- failure. NULL when the request was never stamped.
+    elapsed_ms  INTEGER,
+    -- `type(exc).__name__: exc`, matching `loop_failures.error`'s spelling.
+    -- For a read-budget hit this is the sqlite `interrupted` error; for a
+    -- probe it is the httpx class -- `ReadTimeout` is "the box is slow",
+    -- `ConnectError` is "the box is down", and the two used to be one word.
+    error       TEXT    NOT NULL,
+    -- The budget that fired, in ms, when there was one.
+    budget_ms   INTEGER,
+    CHECK (kind IN ('read_budget', 'health_probe'))
+);
+CREATE INDEX IF NOT EXISTS idx_api_read_incidents_time
+    ON api_read_incidents(seen_ms DESC);
