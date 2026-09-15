@@ -960,12 +960,14 @@ function overUnder(leg: ParlayCardLeg): string {
  * 2026-09-15 the totals card showed Joe three "Under 8.5 runs scored" rows
  * he could not tell apart. `event_title` has carried the game on every leg
  * since the card grew provenance (ADR 0051) and was never drawn. Kalshi
- * titles a total event "Indiana vs Chicago: Total"; the suffix is the
- * market kind, already on the tag beside it, so it is dropped here.
+ * titles a total event "Indiana vs Chicago: Total" in the captured
+ * fixture and "Baltimore vs New York M: Total Runs" on live 2026-09-15;
+ * the suffix is the market kind, already on the tag beside it, so
+ * ": Total" with or without a unit word is dropped here.
  */
 function legGame(leg: ParlayCardLeg): string | null {
   if (leg.team !== null) return null;
-  const title = leg.event_title.replace(/:\s*Total$/i, "").trim();
+  const title = leg.event_title.replace(/:\s*Total(?:\s+\w+)?$/i, "").trim();
   return title.length > 0 ? title : null;
 }
 
