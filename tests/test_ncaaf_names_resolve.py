@@ -178,6 +178,10 @@ class TestTheAliasFileIsLoadBearing:
 
         decorative: list[str] = []
         for key in list(full.mapping):
+            if key in QUEUE_DERIVED:
+                # Earns its place on the live queue's record instead
+                # (`TestQueueDerivedEntries`), not on the 2026-08-26 slate.
+                continue
             reduced = TeamAliases(
                 sport_key=SPORT_KEY,
                 mapping={k: v for k, v in full.mapping.items() if k != key},
@@ -191,6 +195,57 @@ class TestTheAliasFileIsLoadBearing:
             f"scripts/capture_team_names.py --league ncaaf -- an entry kept 'just in case' "
             f"is how a short file becomes a long one."
         )
+
+
+#: Entries derived from the live `unmatched_items` queue rather than the
+#: 2026-08-26 capture: the Kalshi sides and the in-window book fixture exactly
+#: as `list_unmatched.py` printed them on the box, 2026-09-15. Keyed by the
+#: normalised alias key so `test_no_alias_entry_is_decoration` can tell these
+#: apart from entries the captured slate must justify.
+QUEUE_DERIVED: dict[str, tuple[list[str], str, str]] = {
+    normalise("Central Connecticut St."): (
+        ["Toledo", "Central Connecticut St."],
+        "Central Connecticut Blue Devils",   # away
+        "Toledo Rockets",                    # home
+    ),
+    normalise("Tennessee-Martin"): (
+        ["West Virginia", "Tennessee-Martin"],
+        "UT Martin Skyhawks",
+        "West Virginia Mountaineers",
+    ),
+}
+
+
+class TestQueueDerivedEntries:
+    """An entry read off the live queue earns its place the same way: the
+    fixture refuses without it and links with it. Mutation observed red:
+    deleting either entry from the YAML."""
+
+    @pytest.mark.parametrize("key", sorted(QUEUE_DERIVED))
+    def test_the_entry_is_in_the_file(self, key):
+        assert key in load_aliases(SPORT_KEY).mapping, key
+
+    @pytest.mark.parametrize("key", sorted(QUEUE_DERIVED))
+    def test_the_fixture_refuses_without_it_and_links_with_it(self, key):
+        sides, away, home = QUEUE_DERIVED[key]
+        candidate = MatchCandidate(
+            odds_event_id="x", commence_ms=0, home_team=home, away_team=away
+        )
+        full = load_aliases(SPORT_KEY)
+        without = TeamAliases(
+            sport_key=SPORT_KEY,
+            mapping={k: v for k, v in full.mapping.items() if k != key},
+        )
+        assert not _bijection(sides, candidate, without), (
+            f"{key} resolves without its entry -- the entry is decoration"
+        )
+        assert _bijection(sides, candidate, full), (
+            f"{key} still refuses with its entry -- the value is not the "
+            f"book's full string"
+        )
+
+    def test_the_queue_table_names_only_entries_the_file_has(self):
+        assert set(QUEUE_DERIVED) <= set(load_aliases(SPORT_KEY).mapping)
 
 
 class TestTheResolverStillRefusesWhatItShould:

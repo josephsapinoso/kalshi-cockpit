@@ -238,8 +238,20 @@ docstring):**
    link doing what ADR 0152 says. `event_links.total_fixture_segment` was
    not re-counted (no whitelisted query counts it; the eighteenth entry's
    45 stands as the deploy-day read). Beside it, unrelated and large: 542
-   NCAAF `KX*GAME` items with no sportsbook fixture, the alias work the
-   queue exists for, untouched.
+   NCAAF `KX*GAME` items with no sportsbook fixture — scope, not names
+   (`NOT_CARRIED`; no alias can help). **Then, on Joe's word, the alias
+   work:** of the 15 NCAAF `no team-pair bijection` rows, 13 were a prefix
+   falsely sharing one side (Texas/Texas Tech, Michigan/Michigan State,
+   Arkansas St./Arkansas State, Idaho St./San Diego State, Portland St./
+   North Dakota State) or the pinned Iowa/Iowa St. class; **two were real**
+   and are in `americanfootball_ncaaf.yaml`: `Central Connecticut St.` →
+   Central Connecticut Blue Devils, `Tennessee-Martin` → UT Martin
+   Skyhawks, each verified False→True on `_bijection`. The 92 `ambiguous`
+   rows (56 games: Virginia/West Virginia, USC/Louisiana…) are the resolver
+   class the YAML header says is not fixable there. Zero credits: the
+   queue carries the book spelling, so `capture_team_names.py` was not
+   re-run; `test_no_alias_entry_is_decoration` now admits a pinned
+   `QUEUE_DERIVED` table as the second evidence source.
 3. **One NFL prop tap from Wed 16 Sep 20:15 ET** (the horizon), on the
    DET@BUF game: team 6 + props 6 = 12 credits.
 4. One more "Price on Kalshi" on the totals card, for the second point on

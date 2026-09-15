@@ -36,6 +36,25 @@ teams:
   # go stale in the other direction one day, which is why it is commented.
   Houston Christian: Houston Baptist Huskies
 
+  # --- Derived from the live `unmatched_items` queue, 2026-09-15 -----------
+  # A second derivation source, zero credits: `scripts/list_unmatched.py`
+  # on the live box prints each `no team-pair bijection` refusal WITH the
+  # in-window book fixture that shared a side, so both spellings are read
+  # off the linker's own record of what it saw. Of 15 such NCAAF rows that
+  # day, 13 were a prefix falsely sharing one side (Texas / Texas Tech,
+  # Michigan / Michigan State, Arkansas St. / Arkansas State) or the
+  # same-state class below, and no alias can help those. These two are the
+  # same fixture under two spellings, and `_bijection` is False without each
+  # and True with it (`tests/test_ncaaf_names_resolve.py::
+  # TestQueueDerivedEntries`). Both games were 2026-09-12 and are past; the
+  # entries are for the next time these teams are listed.
+  #
+  # "St." is not the problem in either: "st" is a token-prefix of "state",
+  # so "Iowa St." already resolves to "Iowa State Cyclones". What fails
+  # here is a mascot with no "State" in it, and a hyphenated campus name.
+  Central Connecticut St.: Central Connecticut Blue Devils
+  Tennessee-Martin: UT Martin Skyhawks
+
 # ---------------------------------------------------------------------------
 # NOT FIXABLE HERE, and listed so nobody tries.
 #
