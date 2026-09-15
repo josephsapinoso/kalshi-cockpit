@@ -281,8 +281,10 @@ def check_affordable(
             f"{funds.exchange_index}, which holds "
             f"${funds.available_tenths / 1000:.2f}. Kalshi keeps collateral "
             f"per shard and will not move it for an order, so the money has "
-            f"to be allocated to that shard first "
-            f"(kalshi.com/account/exchange-indexes). Nothing was sent.",
+            f"to be moved to that shard first — on "
+            f"kalshi.com/account/exchange-indexes, where the transfer control "
+            f"appears only while 'Disable balance management' is on. "
+            f"Nothing was sent.",
         )
 
 

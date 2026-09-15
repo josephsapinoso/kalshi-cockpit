@@ -2,14 +2,22 @@
 
 Why this script exists
 ----------------------
-**Kalshi's API refuses an order whose exchange shard is underfunded, and as of
-2026-09-14 there is no way to fund a shard by hand.**
+**Kalshi's API refuses an order whose exchange shard is underfunded, and the
+tool does not fund one for you.** Joe can, by hand, in two ways: on
+`kalshi.com/account/exchange-indexes` once "Disable balance management" is ON
+(the transfer control is hidden while Kalshi manages the balance -- ADR 0150
+§6, done by him 2026-09-14), or with this script's `--transfer`.
 
-Measured today, in this order:
+**Superseded on 2026-09-14, kept so the correction is visible:** the first
+draft of this docstring read "there is no way to fund a shard by hand", off
+item 1 below, which was measured with the toggle OFF. That was a state
+restated as a property (ADR 0150 §4).
 
-1. `kalshi.com/account/exchange-indexes` still loads, but it is now READ-ONLY:
-   four balance cards and the "Disable balance management" toggle, then the
-   footer. No transfer control anywhere on the page.
+Measured 2026-09-14, in this order:
+
+1. `kalshi.com/account/exchange-indexes` with "Disable balance management"
+   OFF: four balance cards and the toggle, then the footer. No transfer
+   control on the page IN THAT STATE.
 2. "Disable balance management" was OFF, i.e. automatic management ON, and the
    Combos shard still held one cent while the Default shard held the rest.
    So auto-management does not keep a shard funded AT REST.

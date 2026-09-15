@@ -24,10 +24,19 @@ football game is the "built but never called" failure with money attached.
 
 So this asks one question, in four steps, for at most a few cents:
 
-  1. read the combination's book (expected: empty on both sides)
+  1. read the market (its price grid AND its `exchange_index`) and its book
+     (expected: empty on both sides)
   2. POST a GTC limit buy, 1 contract, at a price far below fair value
   3. read `/portfolio/orders` -- did it actually REST, with what status?
-  4. DELETE it, and read the orders list again -- is it gone?
+  4. DELETE it **with `?exchange_index=<the market's shard>`**, and read the
+     orders list again -- is it gone?
+
+Two defects this script carried until 2026-09-14, both of which a successful
+run exposed twice (2026-08-30 and 2026-09-14) and neither of which a refused
+run can reach: the cancel omitted the shard and 404'd, leaving a real order
+resting to be taken back by hand; and the orders-list read signed its query
+string and 401'd. `request_url`, `cancel_params` and `shard_of` are the
+fixes, and `tests/test_probe_resting_combo_order.py` pins them.
 
 WHAT THIS DOES NOT ESTABLISH
 ----------------------------
@@ -63,6 +72,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlencode
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -70,9 +80,13 @@ if str(ROOT) not in sys.path:
 
 from backend.config import KalshiConfig                       # noqa: E402
 from backend.kalshi.auth import signed_path                   # noqa: E402
+from backend.kalshi.discovery import _exchange_index          # noqa: E402
 from backend.kalshi.grid import parse_price_grid              # noqa: E402
 from backend.kalshi.orders import ORDERS_PATH, OrderRequest   # noqa: E402
-from backend.kalshi.rest import KalshiRestClient              # noqa: E402
+from backend.kalshi.rest import (                             # noqa: E402
+    EXCHANGE_INDEX_PARAM,
+    KalshiRestClient,
+)
 from backend.logging_setup import configure_logging           # noqa: E402
 
 # The flag, spelled once. argparse turns the dashes into underscores.
@@ -133,23 +147,69 @@ class Capture:
         )
 
 
+def request_url(base_url: str, path: str, params: Optional[dict[str, Any]]) -> str:
+    """The URL actually sent: the query goes HERE and nowhere near the signature.
+
+    Kalshi signs the path only (`backend/kalshi/auth.py:SIGN_QUERY_STRING`,
+    verified 2026-08-06). Until 2026-09-14 this script built its orders-list
+    read as `path="/portfolio/orders?ticker=..."` and signed that whole string,
+    so steps 3 and 5 returned 401 `INCORRECT_API_KEY_SIGNATURE` on every run
+    that reached them (2026-08-30 and 2026-09-14 captures, both) while the
+    query-free steps beside them returned 200. The "unexplained 401" was this
+    script signing a query string; the venue did nothing odd.
+    """
+    query = urlencode({k: v for k, v in (params or {}).items() if v is not None})
+    return f"{base_url}{path}" + (f"?{query}" if query else "")
+
+
+def cancel_params(exchange_index: int) -> dict[str, Any]:
+    """The query the cancel must carry, spelled once.
+
+    `DELETE /portfolio/events/orders/{id}` without `?exchange_index=` looks on
+    shard 0 and answers 404 `not_found` for an order resting on shard 1
+    (`backend/kalshi/rest.py:cancel_order`, measured 2026-08-30 and again
+    2026-09-14 -- both times by this script, which had not adopted the fix
+    `rest.py` recorded). A 404 on the way out leaves a REAL order resting.
+    """
+    return {EXCHANGE_INDEX_PARAM: exchange_index}
+
+
+def shard_of(market: dict[str, Any]) -> Optional[int]:
+    """The market's own `exchange_index`, or `None` when it cannot be read.
+
+    Read off the market, never inferred from the ticker: the `SHARD1` in a
+    `KXMVECROSSCATEGORY-SHARD1-...` ticker happens to agree today and the docs
+    say ticker formats are unaffected by sharding. Same reader the discovery
+    path uses, so a bool or a negative resolves to `None`, not to a shard.
+    """
+    return _exchange_index(market)
+
+
 async def raw_request(
     api: KalshiRestClient,
     method: str,
     path: str,
     json_body: Optional[dict[str, Any]] = None,
+    params: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """One signed request, returning status + full body, raising on nothing.
 
     Bypasses `KalshiRestClient.post` for the reason the C0 probe does: a
     capture must keep the whole error body, and must never retry over its own
     order.
+
+    `path` must be the bare endpoint; a query string goes in `params`, which is
+    sent on the URL and kept out of the signed path (see `request_url`).
     """
+    if "?" in path:
+        raise ValueError(
+            f"query string in path {path!r}: pass it as params=, or it is "
+            "signed and the venue answers 401"
+        )
     await asyncio.sleep(0.25)
     headers = api.auth.get_rest_headers(method, signed_path(api.base_url, path))
-    response = await api.client.request(
-        method, f"{api.base_url}{path}", headers=headers, json=json_body
-    )
+    url = request_url(api.base_url, path, params)
+    response = await api.client.request(method, url, headers=headers, json=json_body)
     try:
         body: Any = response.json()
     except ValueError:
@@ -157,6 +217,7 @@ async def raw_request(
     return {
         "method": method,
         "path": path,
+        "params": params,
         "request": json_body,
         "status": response.status_code,
         "body": body,
@@ -186,6 +247,18 @@ async def run_probe(
         market.get("price_ranges"),
         structure=market.get("price_level_structure"),
     )
+
+    # 1a'. The SHARD, read before anything is sent. The cancel in step 4 needs
+    #      it, and an order that cannot be cancelled must not be placed: the
+    #      2026-09-14 run left a real order resting for want of this number
+    #      and it was taken back by hand.
+    shard = shard_of(market)
+    if shard is None:
+        print(f"   GET /markets/{ticker} carries no readable 'exchange_index'. "
+              "The cancel needs it, so nothing was sent.")
+        capture.add({"step": "2_create", "refused": "exchange_index unreadable"})
+        return EXIT_REFUSED
+    print(f"   shard: exchange_index {shard}")
 
     # 1b. The book. Expected empty on both sides -- that is the whole reason
     #     this probe exists -- but read rather than assumed, because a book
@@ -246,7 +319,9 @@ async def run_probe(
     # 3. Did it rest? A 201 says the venue accepted it; the orders list says
     #    whether it is actually working. Those are different claims and a
     #    combination is exactly where they might diverge.
-    resting = await raw_request(api, "GET", f"/portfolio/orders?ticker={ticker}")
+    resting = await raw_request(
+        api, "GET", "/portfolio/orders", params={"ticker": ticker}
+    )
     capture.add({"step": "3_orders_after_create", **resting})
     print(f"   orders list: status {resting['status']}")
 
@@ -255,15 +330,33 @@ async def run_probe(
               "itself. Cancel the 2c order in the Kalshi app.")
         return EXIT_REFUSED
 
-    # 4. Give it back.
-    cancelled = await raw_request(api, "DELETE", f"{ORDERS_PATH}/{order_id}")
+    # 3b. The shard's balance WHILE the order rests. This is the one moment
+    #     this repo ever has a known resting order, and it is the capture
+    #     that settles whether `balance_breakdown[].balance` is gross or net
+    #     of resting-order value (NEXT.md 2026-09-14 item 3): compare with
+    #     `scripts/set_target_balance_allocation.py --read` taken before.
+    #     Neither capture from 2026-09-14 could answer it, because neither
+    #     was taken at a second the order was known to be resting.
+    while_resting = await raw_request(
+        api, "GET", "/portfolio/balance", params={EXCHANGE_INDEX_PARAM: shard}
+    )
+    capture.add({"step": "3b_balance_while_resting", **while_resting})
+    print(f"   balance while resting: status {while_resting['status']}")
+
+    # 4. Give it back -- ON ITS SHARD. Without the query this 404s and the
+    #    order stays resting (2026-08-30, 2026-09-14).
+    cancelled = await raw_request(
+        api, "DELETE", f"{ORDERS_PATH}/{order_id}", params=cancel_params(shard)
+    )
     capture.add({"step": "4_cancel", **cancelled})
     print(f"   cancel: status {cancelled['status']}")
     if cancelled["status"] >= 400:
         print("   !! the cancel FAILED. The 2c order may still be resting -- "
               "cancel it in the Kalshi app.")
 
-    after = await raw_request(api, "GET", f"/portfolio/orders?ticker={ticker}")
+    after = await raw_request(
+        api, "GET", "/portfolio/orders", params={"ticker": ticker}
+    )
     capture.add({"step": "5_orders_after_cancel", **after})
     print(f"   orders after cancel: status {after['status']}")
     return EXIT_OK

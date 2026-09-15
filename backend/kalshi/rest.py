@@ -54,10 +54,15 @@ ORDERS_PATH = "/portfolio/events/orders"
 #: collateral on a given exchange shard before order placement"*
 #: (`docs.kalshi.com/getting_started/exchange_sharding`).
 #:
-#:     0  everything else, including WNBA
-#:     1  Exotics -- the KXMVE combinations this desk mints
-#:     2  Crypto
-#:     3  Sports, tennis and baseball ONLY, moved 2026-08-24 12:00 ET
+#:     0  Default -- everything else, including WNBA
+#:     1  Combos  -- the KXMVE combinations this desk mints
+#:     2  Crypto & Commodities   (commodities added since the 2026-08-30 read)
+#:     3  Tennis, Baseball, Basketball   (basketball moved here since then)
+#:
+#: Read off the live account page 2026-09-14. The previous read (2026-08-30)
+#: had 2 as "Crypto" and 3 as "tennis and baseball ONLY, moved 2026-08-24";
+#: nothing computes off this table, but it is what a session reasons from,
+#: and the split keeps moving.
 #:
 #: **Read it off the market, never inferred from the ticker.** The docs call
 #: `exchange_index` "the authoritative source of truth" and say ticker formats

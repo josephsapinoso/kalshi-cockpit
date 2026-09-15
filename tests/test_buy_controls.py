@@ -366,11 +366,17 @@ class TestTheAmountIsTypedInDollars:
         # The positive claim that keeps it honest: it HAS worked when funded.
         assert "whenever it was funded" in ticket
 
-    def test_the_dead_allocation_page_is_not_offered_as_a_remedy(self):
-        """The page still loads; it just cannot move money any more (measured
-        2026-09-14, and the API refused 3/3 with `insufficient_balance` while
-        the account held $22 elsewhere). Telling Joe to go there is telling
-        him to go and fail.
+    def test_the_allocation_page_is_not_offered_as_a_bare_remedy(self):
+        """Whether that page can move money depends on a toggle Joe sets
+        there: with "Disable balance management" OFF it is four balance cards
+        and no control (measured 2026-09-14 morning); with it ON the transfer
+        control appears (he used it that evening, ADR 0150 §6). A bare URL in
+        the copy is therefore the ADR 0148 §4 remedy again — an instruction
+        that works in one state and sends him to fail in the other — so both
+        surfaces name the condition and neither names the page.
+
+        This docstring said "cannot move money any more" until 2026-09-14
+        (sixteenth session); that was a state restated as a property.
 
         Asserted across BOTH surfaces that carried it, because the sentence
         was copied into the glossary as well and a guard on one file would
@@ -379,7 +385,7 @@ class TestTheAmountIsTypedInDollars:
         for module in ("components/ManualTicket.tsx", "lib/glossary.ts"):
             body = " ".join(source(module).split())
             assert "kalshi.com/account/exchange-indexes" not in body, (
-                f"{module} sends Joe to a page that can no longer move funds"
+                f"{module} names the page without the toggle state it needs"
             )
 
     def test_an_unreadable_wallet_is_not_rendered_as_an_empty_one(self):

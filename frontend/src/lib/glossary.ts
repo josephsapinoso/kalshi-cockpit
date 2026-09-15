@@ -241,8 +241,10 @@ export const GLOSSARY = {
       "wallet cannot buy a 25¢ contract in another — the account total says " +
       "you can afford it and the order is still refused. Kalshi's own app " +
       "shifts the money for you as you bet there; it does not do that for " +
-      "orders sent by a tool like this one, and as of 2026-09-14 the account " +
-      "page shows the wallets without offering a way to move between them.",
+      "orders sent by a tool like this one. You move it yourself on Kalshi's " +
+      "account page, and the control to do so appears only while balance " +
+      "management is switched off there — while Kalshi manages the balance " +
+      "for you the page shows the wallets and no way to move between them.",
   },
   kelly: {
     label: "quarter-Kelly",

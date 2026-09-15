@@ -3735,9 +3735,11 @@ def create_app(
                         f"shard {shard}, which holds "
                         f"${funds.available_tenths / 1000:.2f}. Kalshi keeps "
                         f"collateral per shard and will not move it for an "
-                        f"order, so it has to be allocated there first "
-                        f"(kalshi.com/account/exchange-indexes). This is the "
-                        f"venue's rule, not a cap of yours. Nothing was sent."
+                        f"order, so it has to be moved there first — on "
+                        f"kalshi.com/account/exchange-indexes, where the "
+                        f"transfer control appears only while 'Disable "
+                        f"balance management' is on. This is the venue's "
+                        f"rule, not a cap of yours. Nothing was sent."
                     ),
                 )
 

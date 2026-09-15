@@ -158,9 +158,9 @@ class TestTheDefinitionAssumptionStillHolds:
                     and node.name == "orders"
                 ):
                     definitions.append(f"{rel}:{node.lineno}")
-        assert definitions == [f"{_DEFINING_MODULE}:711"], (
+        assert definitions == [f"{_DEFINING_MODULE}:716"], (
             f"expected exactly one `def orders(` at "
-            f"{_DEFINING_MODULE}:711 (`KalshiRestClient.orders`), found "
+            f"{_DEFINING_MODULE}:716 (`KalshiRestClient.orders`), found "
             f"{definitions}. A second definition means the call-site scan "
             f"above can no longer assume `<expr>.orders(...)` reaches "
             f"`KalshiRestClient.orders` specifically."

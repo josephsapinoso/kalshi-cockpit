@@ -119,6 +119,95 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-14 (seventeenth session) — the probe cancels on its shard, the "unexplained 401" was the script signing a query string, and the closed-path claim survives nowhere but the ADR that made it
+
+Four named errands from the sixteenth entry, worked in order, no partner
+run (Joe's instruction). Read ADR 0150 before 0149; the account state at the
+top of the previous entry still holds and is the thing to advise from:
+toggle ON, everything on shard 1, combos placeable here, **singles not**.
+
+**Item 1 — done, and the 401 is explained.** `scripts/probe_resting_combo_order.py`
+now reads `exchange_index` off the step-1a market payload (same reader as
+discovery, so a bool or a negative is unreadable), **refuses before the POST
+if it cannot** — an order that cannot be cancelled is not placed — and sends
+`?exchange_index=<shard>` on the DELETE. The "unexplained" 401 on the
+orders-list read was **ours**: `raw_request` signed
+`"/portfolio/orders?ticker=..."` whole, and `backend/kalshi/auth.py:74`
+records that Kalshi signs the path only (verified 2026-08-06 with this exact
+symptom). Both captures that ever reached that step — 2026-08-30 and
+2026-09-14 — show `INCORRECT_API_KEY_SIGNATURE` on the two query-carrying
+calls and 200 on the four beside them. The venue did nothing odd; there is
+no judgment-on-live-data question here and no reason to switch models.
+`raw_request` now takes `params=` and refuses a `?` in its path.
+`tests/test_probe_resting_combo_order.py`: 15 tests, venue faked at the
+`auth`/`client` surface, **eight mutations each seen red** (cancel without
+the shard, `cancel_params` → `{}`, the pre-POST refusal deleted, `shard_of`
+unchecked, the query signed, the `?` guard deleted, shard hardcoded to 1,
+the while-resting balance read deleted).
+
+**Item 2 — the literal claim is gone; its mirror image was not.** Nothing
+in code, copy, docs, tasks or CLAUDE.md asserts combos cannot be placed here
+except ADR 0149 (not edited) and places that quote it as false. But the
+**opposite** overreach from the same morning — "the account page is
+read-only / there is no way to fund a shard by hand", measured with the
+toggle OFF and stated without the condition — was still on four surfaces,
+and ADR 0150 §6 had already overturned it. Corrected: the glossary's
+`exchange-shard` entry (live copy), the docstring of
+`set_target_balance_allocation.py`, the docstring and name of the
+`test_buy_controls` guard (`test_the_allocation_page_is_not_offered_as_a_bare_remedy`
+— the URL stays forbidden on the ticket and glossary, now for the true
+reason: whether it works depends on a toggle), and my own memory file. The
+two route refusals that name the page (`POST /api/manual-orders` 422 and
+`check_affordable`) now carry the condition — *"where the transfer control
+appears only while 'Disable balance management' is on"* — which the tests
+requiring the URL still pass.
+
+**Item 3 — NOT settled, but instrumented.** Both 2026-09-14 balance captures
+carry `balance_breakdown[].balance` and **no `resting_order_value_breakdown`
+field at all** on this account. The 23:34:43Z read shows shard 1 unchanged
+after the 23:28:57Z 201, which would prove gross **if** the 2c order was
+still resting at that second — and nothing records when Joe's hand cancel
+landed, so the window may not contain the input. The fixed probe now reads
+`/portfolio/balance?exchange_index=<shard>` between its create and its
+cancel — the only second this repo ever has a known resting order — so
+**the next run answers it**: compare with `set_target_balance_allocation.py
+--read` taken just before. Not run this session: it places a real order,
+which is not on the authorised list, and Joe was not at the keyboard.
+
+**Item 4 — done.** `rest.py`'s shard table reads Default / Combos / Crypto &
+Commodities / Tennis, Baseball, Basketball, dated 2026-09-14, with the
+2026-08-30 reading kept beside it so the drift is visible.
+
+**STATE at close.** Full suite locally: **7118 passed, 10 xfailed, 1 failed** in 21m08s; the one failure was `test_only_kalshirestclient_defines_a_method_named_orders`, which pins `def orders` to `rest.py:711` and my five comment lines in the shard table moved it to 716 — re-pinned to 716, not loosened. Ruff clean, tsc clean. Committed, pushed, CI awaited, then deployed with `-e GIT_SHA` and read back off `/api/health` (see the commit for the sha). Lesson written (`tasks/lessons.md` 2026-09-14
+sixth: the steps after a refusal run only on the first success; an
+"unexplained" venue response is a claim about your own request until re-read;
+when a module documents a fix, grep for callers that make the same call by
+hand). No ADR: nothing decided, one script fixed, copy conditioned. Next ADR
+**0151**; schema v41; arming unchanged; odds credits: zero spent.
+
+### Still open, in order
+
+1. **Run the fixed probe once, with Joe at the keyboard**, on a live
+   shard-1 combination: it now settles item 3 (gross vs net shard balance)
+   and proves the cancel path end-to-end at the venue for the first time.
+   Cost: a 2c resting order for a few seconds. Read `--read` first.
+2. **Read the next real fill's row** — still 7 `manual_orders` rows, 6
+   filled, last submitted 2026-09-10T16:00Z.
+3. **The census** — first session after the 10th real manual order (at 7)
+   or 2026-11-01.
+4. Carried: `parlay_positions.status` never advances; no hedge-evaluation
+   table; `int(fill_count)` truncation; the API-unreachable alert's
+   exception class; `/hedge`'s 25 s `get_conn` timeout as its real blanking
+   mode; `user_not_found` on shard 3.
+5. **Reservations:** none live. Next ADR **0151**; schema v41.
+
+**Struck this session:** the probe cancel (fixed); the 401 (explained,
+ours); the "combos cannot be placed here" sweep (clean; its mirror image
+corrected on four surfaces); `read_shard_funds` gross-or-net (instrumented,
+not answered); the stale shard map (updated).
+
+---
+
 ## 2026-09-14 (sixteenth session) — a combo bet needs its shard funded, the auto-management toggle is what hides the funding control, and "cannot be placed here" was an overreach Joe caught
 
 **The finding, in its corrected form — read ADR 0150 before ADR 0149.** An

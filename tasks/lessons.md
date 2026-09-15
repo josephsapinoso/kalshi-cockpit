@@ -16,6 +16,53 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-14 (sixth) - The steps after a refusal run only on the first success, and an "unexplained" venue response is a claim about your own request until you have re-read it
+
+`scripts/probe_resting_combo_order.py` had two defects in its last three
+steps: the cancel omitted `?exchange_index=` and 404'd, leaving a real order
+resting; and the orders-list read carried its query string inside the signed
+path and 401'd. Both were visible in the capture of 2026-08-30, the first run
+that reached those steps. Both were still there on 2026-09-14, the second.
+`rest.py` had documented the cancel fix on 2026-08-30, in the same session
+the probe first showed it, and the script never took it. The 401 was logged as
+"unexplained" both times and handed forward as a question about what the
+venue was doing.
+
+Neither was mysterious. `backend/kalshi/auth.py` says on line 74 that Kalshi
+signs the path only, verified 2026-08-06 with exactly this symptom; the
+probe built `path="/portfolio/orders?ticker=..."` and signed the whole thing.
+A refusal at step 2 exits before steps 3-5, so every `insufficient_balance`
+run - five of the seven ever taken - exercised nothing after the create. The
+script was "run many times" and its tail had executed twice.
+
+Three rules:
+
+- **A script's steps after its usual exit point have run as many times as it
+  has succeeded, not as many times as it has run.** Count successes before
+  trusting the tail. A probe that mostly refuses has a tail that is mostly
+  untested, and the tail is where the money is put back.
+- **When a venue response looks odd, re-read your own request before you
+  call it the venue's.** `INCORRECT_API_KEY_SIGNATURE` on two calls in a run
+  whose other four calls signed fine is a fact about the two calls. The
+  question "what is Kalshi doing" was never the question.
+- **When a module documents a defect and its fix, grep for every caller
+  that makes the same call.** `cancel_order` grew the `exchange_index`
+  parameter and a docstring naming the 404; the one script that had ever
+  cancelled anything still built the DELETE by hand and was never listed.
+
+Where the cost landed: one real order resting on the live account until Joe
+cancelled it by hand, twice over two weeks, and a "worth one look" item
+carried across a session boundary for a defect a grep would have found.
+What it bought: `raw_request` now refuses a `?` in its path, the shard is
+read off the market before anything is sent (an order that cannot be
+cancelled is not placed), and the fixed probe reads the shard balance while
+its order rests, which is the capture item 3 needs.
+
+Where it went: `scripts/probe_resting_combo_order.py`,
+`tests/test_probe_resting_combo_order.py` (eight mutations, each seen red).
+
+---
+
 ## 2026-09-14 (fifth) - A measurement of a state is not a property of the system, and the tell is a sentence with no "while" in it
 
 Three 2c probes on a live combination came back `insufficient_balance`. That
