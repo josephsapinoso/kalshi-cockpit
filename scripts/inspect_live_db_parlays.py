@@ -126,9 +126,7 @@ _SQL_PARLAY_CANDIDATES = """
             WHERE odds_event_id IN (SELECT odds_event_id FROM event_links)
             GROUP BY odds_event_id
         ) o ON o.odds_event_id = l.odds_event_id
-        WHERE f.market IN ('h2h', 'spreads', 'pitcher_strikeouts',
-                          'batter_total_bases', 'batter_hits',
-                          'batter_home_runs', 'batter_rbis')
+        WHERE f.market IN ('h2h', 'spreads', 'totals', 'pitcher_strikeouts', 'batter_total_bases', 'batter_hits', 'batter_home_runs', 'batter_rbis', 'player_pass_yds', 'player_reception_yds', 'player_rush_yds')
           -- **Either stamp, since the ladder-scan-keys-on-the-confirmed-
           -- stamp fix.** `computed_ms` freezes at first appearance (ADR
           -- 0133) and only `confirmed_ms` moves on a row that keeps getting

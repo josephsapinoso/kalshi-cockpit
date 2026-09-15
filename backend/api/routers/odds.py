@@ -14,7 +14,11 @@ from fastapi import Depends, FastAPI
 from ...config import AppConfig, OddsConfig
 from ...odds import ondemand
 from ...odds.budget import CreditBudget, sweep_cost
-from ...odds.client import prop_market_keys, sport_has_prop_markets
+from ...odds.client import (
+    PROP_MARKET_SPORTS,
+    prop_market_keys,
+    sport_has_prop_markets,
+)
 from ...store import db
 from ..schemas import OddsRefreshRequest
 
@@ -61,7 +65,6 @@ def register(
         ).fetchall()
 
         team_credits = sweep_cost(odds.markets, odds.regions)
-        prop_credits = sweep_cost(prop_market_keys(), odds.regions)
         # The same construction the POST refuses with, never a second count.
         budget_state = CreditBudget(
             conn,
@@ -96,7 +99,8 @@ def register(
                     # cannot buy (#37): the POST refuses such a tap, so a price
                     # here would be a price for a purchase that cannot happen.
                     "prop_credits": (
-                        team_credits + prop_credits
+                        team_credits
+                        + sweep_cost(prop_market_keys(sport), odds.regions)
                         if sport_has_prop_markets(sport)
                         else None
                     ),
@@ -199,20 +203,20 @@ def register(
         if request.odds_event_id is not None and not sport_has_prop_markets(
             request.sport_key
         ):
-            # #37. The prop keys this desk can request are baseball markets
-            # (`PROP_BASE_MARKETS`), so a prop tap on any other sport would ask
-            # the provider for batter lines against a football game -- nothing
-            # useful comes back and the call may still bill. Refused here, at
+            # #37. A sport outside `PROP_MARKET_SPORTS` has no prop keys, so a
+            # prop tap on it would ask the provider for markets that do not
+            # exist for that game -- nothing useful comes back and the call
+            # may still bill. Refused here, at
             # the tap, and again in `runner.fetch_and_store_props` for any
             # request that reaches the inbox some other way.
             return {
                 "accepted": False,
                 "detail": (
                     f"this desk has no player-prop markets for "
-                    f"{request.sport_key}: the only prop keys it can buy are "
-                    f"baseball markets, so a prop refresh here would pay for "
-                    f"nothing. Team lines for {request.sport_key} can still be "
-                    f"refreshed."
+                    f"{request.sport_key}: the sports it can buy props for are "
+                    f"{', '.join(sorted(PROP_MARKET_SPORTS))}, so a prop "
+                    f"refresh here would pay for nothing. Team lines for "
+                    f"{request.sport_key} can still be refreshed."
                 ),
                 "estimated_credits": 0,
                 "retry_after_ms": 0,
@@ -220,7 +224,9 @@ def register(
 
         cost = ondemand.manual_cost(
             team_cost=sweep_cost(odds.markets, odds.regions),
-            prop_cost_per_event=sweep_cost(prop_market_keys(), odds.regions),
+            prop_cost_per_event=sweep_cost(
+                prop_market_keys(request.sport_key), odds.regions
+            ),
             odds_event_id=request.odds_event_id,
         )
         budget = CreditBudget(

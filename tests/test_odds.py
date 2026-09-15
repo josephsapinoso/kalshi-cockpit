@@ -26,6 +26,7 @@ from backend.odds.client import (
     ALTERNATE_SUFFIX,
     EXCLUDED_MARKETS,
     PRICEABLE_MARKETS,
+    MLB_PROP_BASE_MARKETS,
     PROP_BASE_MARKETS,
     PROP_MARKETS,
     OddsAPIError,
@@ -715,30 +716,36 @@ class TestTheAlternateFeedIsNotBought:
     """
 
     def test_the_request_list_is_base_keys_only(self):
-        keys = prop_market_keys()
-        assert keys == list(PROP_BASE_MARKETS)
+        keys = prop_market_keys("baseball_mlb")
+        assert keys == list(MLB_PROP_BASE_MARKETS)
         assert not [k for k in keys if k.endswith(ALTERNATE_SUFFIX)], (
             "an _alternate key here doubles the price of every prop event "
             "and buys no consensus line"
         )
 
     def test_a_prop_event_costs_one_credit_per_base_key_per_region(self):
-        assert sweep_cost(prop_market_keys(), ["us", "eu"]) == 10, (
+        assert sweep_cost(prop_market_keys("baseball_mlb"), ["us", "eu"]) == 10, (
             "10 credits at us,eu -- was 20 while the alternates were bought"
         )
 
-    def test_the_prop_keys_belong_to_exactly_one_sport(self):
-        """#37. Every key `prop_market_keys()` returns is a baseball market,
-        and `sport_has_prop_markets` is the fact a buyer must check first.
-        The day a second sport's keys land, both halves of this move
-        together; until then a football prop request buys batter lines."""
+    def test_the_prop_keys_are_per_sport(self):
+        """#37, and its successor. `sport_has_prop_markets` is the fact a
+        buyer must check first, and it is the key map's own key set: MLB buys
+        batter and pitcher keys, NFL buys yardage keys, and a sport outside
+        the map buys nothing rather than another sport's markets."""
         from backend.odds.client import PROP_MARKET_SPORTS, sport_has_prop_markets
 
-        assert PROP_MARKET_SPORTS == frozenset({"baseball_mlb"})
+        assert PROP_MARKET_SPORTS == frozenset({"baseball_mlb", "americanfootball_nfl"})
         assert sport_has_prop_markets("baseball_mlb") is True
-        for sport in ("americanfootball_nfl", "americanfootball_ncaaf", "basketball_nba"):
+        assert sport_has_prop_markets("americanfootball_nfl") is True
+        for sport in ("americanfootball_ncaaf", "basketball_nba", "basketball_wnba"):
             assert sport_has_prop_markets(sport) is False, sport
-        assert all(k.startswith(("pitcher_", "batter_")) for k in prop_market_keys())
+            assert prop_market_keys(sport) == []
+        assert all(
+            k.startswith(("pitcher_", "batter_"))
+            for k in prop_market_keys("baseball_mlb")
+        )
+        assert all(k.startswith("player_") for k in prop_market_keys("americanfootball_nfl"))
 
     def test_a_whole_prop_tap_is_the_team_sweep_plus_the_props(self):
         """The number a person actually spends, in one place that can fail.
@@ -755,7 +762,7 @@ class TestTheAlternateFeedIsNotBought:
         original figure wrong.
         """
         team = sweep_cost(["h2h", "spreads"], ["us", "eu"])
-        props = sweep_cost(prop_market_keys(), ["us", "eu"])
+        props = sweep_cost(prop_market_keys("baseball_mlb"), ["us", "eu"])
         assert team == 4
         assert manual_cost(
             team_cost=team, prop_cost_per_event=props, odds_event_id=None
@@ -790,7 +797,7 @@ class TestTheAlternateFeedIsNotBought:
         from backend.odds import client as client_mod
 
         src = inspect.getsource(client_mod.OddsClient.fetch_props)
-        assert "markets or prop_market_keys()" in src, (
+        assert "markets or prop_market_keys(sport_key)" in src, (
             "the default must be the same list the planner reserves for"
         )
 

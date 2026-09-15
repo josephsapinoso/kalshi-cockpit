@@ -143,6 +143,11 @@ PROP_LINK_METHOD = "prop_fixture_segment"
 # auditing prop links must not have spread rows hiding inside the count.
 SPREAD_LINK_METHOD = "spread_fixture_segment"
 
+# And for a game-total event, which has the same rung-subtitle shape
+# ("Over 8.5 runs scored") and the same shared fixture segment. Its own name
+# for the same auditing reason.
+TOTAL_LINK_METHOD = "total_fixture_segment"
+
 # `event_links.method` for a link that did pass it. Named rather than repeated
 # as a literal, because a prop is only allowed to inherit from this kind and a
 # reader comparing two spellings of one string cannot tell that rule is holding.
@@ -462,7 +467,7 @@ def link_prop_event(
     linked_fixtures: Iterable[LinkedFixture],
     method: str = PROP_LINK_METHOD,
 ) -> MatchResult:
-    """Resolve a prop (or spread) event by inheriting its own game's link.
+    """Resolve a prop, spread or total event by inheriting its game's link.
 
     **Why props cannot go through `link_event`.** That function matches on a
     two-team bijection built from `yes_sub_title`. A prop event's subtitles are

@@ -167,20 +167,20 @@ class TestTheTouchdownSeriesCarryNoRung:
         assert captured["observed_full_response"]["KXNFLANYTD"]["events"] == 0
 
 
-class TestTheLiveAllowlistHasNotMoved:
-    """NFL is staged, not enabled. This is the guard on that.
-
-    Merging `NFL_PROP_SERIES` into `PROP_SERIES` changes what `discovery.py`
-    admits on live, and the buy side cannot follow until `backend/odds/` thaws
-    at 10:00Z 2026-09-14. These tests fail the moment someone flips one half.
+class TestTheLiveAllowlistIsMlbAndNfl:
+    """NFL was staged 2026-09-10 and enabled 2026-09-14, both halves in one
+    change: `PROP_SERIES` gained the three yardage ladders and the feed's key
+    map gained their book keys (`tests/test_prop_keys_are_sport_aware.py`
+    pins that the two agree). These fail the moment someone reverts one
+    half.
     """
 
-    def test_prop_series_is_still_mlb_only(self) -> None:
-        assert PROP_SERIES == MLB_PROP_SERIES
+    def test_prop_series_is_mlb_and_nfl(self) -> None:
+        assert PROP_SERIES == {**MLB_PROP_SERIES, **NFL_PROP_SERIES}
 
-    def test_no_nfl_series_is_admitted_by_discovery_yet(self) -> None:
+    def test_every_nfl_yardage_series_is_admitted_by_discovery(self) -> None:
         for series in NFL_PROP_SERIES:
-            assert not is_prop_series(series)
+            assert is_prop_series(series)
 
     def test_the_no_strike_series_are_admitted_by_nothing(self) -> None:
         for series in PROP_SERIES_NO_STRIKE:

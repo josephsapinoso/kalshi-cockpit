@@ -387,8 +387,9 @@ class OddsConfig:
                 # The code default stays `h2h`; live sets "h2h,spreads" in
                 # `fly.live.toml` (ADR 0070 -- the parlay desk's spread
                 # pricing path consumes `spreads`; spread events inherit
-                # their game's link by fixture segment). `totals` still has
-                # no consumer anywhere. Each extra key multiplies
+                # their game's link by fixture segment). `totals` is
+                # consumed by `runner._price_totals_event` (fair rows for
+                # the parlay desk's totals card). Each extra key multiplies
                 # `sweep_cost` for every sport on every refresh.
                 m for m in _optional("ODDS_MARKETS", "h2h").split(",") if m
             ],
@@ -422,8 +423,9 @@ class OddsConfig:
                 # The code default stays `h2h`; live sets "h2h,spreads" in
                 # `fly.live.toml` (ADR 0070 -- the parlay desk's spread
                 # pricing path consumes `spreads`; spread events inherit
-                # their game's link by fixture segment). `totals` still has
-                # no consumer anywhere. Each extra key multiplies
+                # their game's link by fixture segment). `totals` is
+                # consumed by `runner._price_totals_event` (fair rows for
+                # the parlay desk's totals card). Each extra key multiplies
                 # `sweep_cost` for every sport on every refresh.
                 m for m in _optional("ODDS_MARKETS", "h2h").split(",") if m
             ],

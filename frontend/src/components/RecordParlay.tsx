@@ -48,7 +48,7 @@ export type RecordParlayPrefill = {
   source?: "sportsbook" | "kalshi_combo";
   label?: string;
   book?: string;
-  legs?: { label: string; ticker: string }[];
+  legs?: { label: string; ticker: string; side?: "yes" | "no" }[];
 };
 
 const BLANK_LEGS = [
@@ -87,7 +87,9 @@ export default function RecordParlay({
   const [book, setBook] = useState(prefill?.book ?? "");
   const [stake, setStake] = useState("");
   const [payout, setPayout] = useState("");
-  const [legs, setLegs] = useState<{ label: string; ticker: string }[]>(
+  const [legs, setLegs] = useState<
+    { label: string; ticker: string; side?: "yes" | "no" }[]
+  >(
     prefill?.legs && prefill.legs.length > 0 ? prefill.legs : BLANK_LEGS,
   );
   const [busy, setBusy] = useState(false);
@@ -118,10 +120,11 @@ export default function RecordParlay({
       .filter((leg) => leg.label.trim().length > 0)
       .map((leg) => ({
         label: leg.label.trim(),
-        // Every recorded leg is the side that has to WIN for the ticket to
-        // pay, which is the YES side of its own market. The hedge is the
-        // other one, and the server picks it.
-        side: "yes",
+        // The side that has to WIN for the ticket to pay: YES on a team,
+        // spread or Over leg; NO on an Under, which Kalshi lists only as the
+        // NO of its Over market. A leg typed by hand is YES. The hedge is
+        // the other one, and the server picks it.
+        side: leg.side ?? "yes",
         ticker: leg.ticker.trim().toUpperCase() || null,
       }));
 

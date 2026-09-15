@@ -235,14 +235,14 @@ export default async function RefreshOddsPanel({
             />
 
             {propCredits === null || !sport.prop_markets_available ? (
-              // #37: the desk's prop keys are baseball markets, so a prop tap
-              // on this sport would pay for nothing and the server refuses it.
+              // #37: this sport has no prop keys on the feed side, so a prop tap
+              // on it would pay for nothing and the server refuses it.
               // No button, and the reason in words rather than a disabled
               // control that looks like a budget problem.
               <p className="mt-3 max-w-prose text-xs text-muted">
-                No player-prop refresh for {leagueLabel(sport.sport_key)}: the
-                only prop markets this desk can buy are baseball markets, so a
-                prop tap here would pay for nothing. Team lines still refresh.
+                No player-prop refresh for {leagueLabel(sport.sport_key)}: this
+                desk has no player-prop markets for this league, so a prop tap
+                here would pay for nothing. Team lines still refresh.
               </p>
             ) : (
               <details className="mt-3">

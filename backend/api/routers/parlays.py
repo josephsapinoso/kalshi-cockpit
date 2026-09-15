@@ -302,7 +302,8 @@ def register(
                 card_key=request.card_key,
                 stake_cents=request.stake_cents,
                 requested_legs=[
-                    (l.event_ticker, l.market_ticker) for l in request.legs
+                    (l.event_ticker, l.market_ticker, l.side)
+                    for l in request.legs
                 ],
                 now_ms=now,
                 max_odds_age_ms=staleness.max_odds_age_s * 1000,

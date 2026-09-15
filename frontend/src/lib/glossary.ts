@@ -304,6 +304,30 @@ export const GLOSSARY = {
       "that side to hit — win by 3 and it misses even though the Rams won " +
       "the game.",
   },
+  total: {
+    label: "total",
+    definition:
+      "The combined score of both teams. An over/under bet is whether it " +
+      "lands above or below a line the book sets — “over 47.5” hits at 48 " +
+      "or more. The line is placed so either side is close to a coin flip, " +
+      "which is why totals rarely carry a big favorite.",
+  },
+  player_prop: {
+    label: "player prop",
+    definition:
+      "A bet on one player's number rather than the game's result — " +
+      "rushing yards, strikeouts, total bases. “Henry over 74.5 rushing " +
+      "yards” hits at 75 or more, whoever wins. On Kalshi each rung is its " +
+      "own market: 75+ yards is one, 100+ is another.",
+  },
+  line: {
+    label: "line",
+    definition:
+      "The number a total or prop is measured against — the 47.5 in “over " +
+      "47.5”. The half-point means it cannot land exactly on the line, so " +
+      "the bet cannot tie. On a Kalshi rung the line is the strike in its " +
+      "title.",
+  },
   consensus_chance: {
     label: "chance to win",
     definition:

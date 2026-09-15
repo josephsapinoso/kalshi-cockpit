@@ -383,8 +383,20 @@ class LegEcho:
         return self.verdict == "mismatch"
 
 
+def _leg_sides(
+    selected_markets: Sequence[tuple], default_side: str
+) -> list[tuple[str, str, str]]:
+    """Each leg as `(event, market, side)`: a 2-tuple takes `default_side`,
+    a 3-tuple carries its own. One reader for both callers below."""
+    out: list[tuple[str, str, str]] = []
+    for entry in selected_markets:
+        event, market, *rest = entry
+        out.append((str(event), str(market), str(rest[0]) if rest else default_side))
+    return out
+
+
 def echoed_legs(
-    selected_markets: Sequence[tuple[str, str]],
+    selected_markets: Sequence[tuple],
     response: Mapping[str, Any],
     *,
     side: str = "yes",
@@ -407,8 +419,10 @@ def echoed_legs(
     same capture the request order is `[PITBUF, NECLE]` and the echo order is
     `[NECLE, PITBUF]`. A list comparison would report every tap as a mismatch.
 
-    `side` is compared too: the desk posts all-YES, and a leg echoed back as
-    `no` is a different bet, not a different spelling.
+    `side` is compared too, per leg: a leg posted as `no` (the Under of a
+    total or prop, since 2026-09-14) echoed back as `yes` is a different
+    bet, not a different spelling. `selected_markets` entries are
+    `(event, market)` -- taking `side` -- or `(event, market, side)`.
 
     What this does not establish
     ----------------------------
@@ -441,7 +455,7 @@ def echoed_legs(
     except (KeyError, TypeError) as exc:
         return LegEcho("unreadable", f"malformed mve_selected_legs: {exc!r}")
 
-    want = {(event, market_t, side) for event, market_t in selected_markets}
+    want = set(_leg_sides(selected_markets, side))
     if got == want:
         return LegEcho("match")
 
@@ -457,16 +471,20 @@ def echoed_legs(
 async def lookup_combo(
     api: KalshiRestClient,
     collection_ticker: str,
-    selected_markets: Sequence[tuple[str, str]],
+    selected_markets: Sequence[tuple],
     *,
     side: str = "yes",
     allow_market_creation: bool = False,
 ) -> dict[str, Any]:
     """Resolve a specific combination to its market ticker, and thus its price.
 
-    `selected_markets` is `(event_ticker, market_ticker)` per leg; `side`
-    applies to every leg (the parlay desk's cards are all-YES by
-    construction, matching `is_all_yes` collections).
+    `selected_markets` is `(event_ticker, market_ticker)` per leg, taking
+    `side`, or `(event_ticker, market_ticker, side)` with its own -- the
+    Under of a total or prop is the NO of Kalshi's Over market and posts as
+    `"no"` (2026-09-14). Whether a given collection accepts a mixed-side
+    card is the venue's answer, not assumed here: `is_all_yes` collections
+    are named as such in the fixtures, and the first NO-leg lookup is the
+    measurement.
 
     **The wire format was re-measured 2026-08-23.** The path this function
     used since 2026-08-07 -- `POST .../{ticker}/lookup` -- was never actually
@@ -509,8 +527,8 @@ async def lookup_combo(
 
     body = {
         "selected_markets": [
-            {"event_ticker": event, "market_ticker": market, "side": side}
-            for event, market in selected_markets
+            {"event_ticker": event, "market_ticker": market, "side": leg_side}
+            for event, market, leg_side in _leg_sides(selected_markets, side)
         ],
         "with_market_payload": True,
     }

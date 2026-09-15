@@ -131,9 +131,14 @@ export default function ManualTicket({
   variant = "section",
   openLabel,
   note,
+  preferSide,
 }: {
   ticker: string;
   variant?: BuyVariant;
+  /** The side the surface is about -- a parlay leg that is the Under of a
+   *  total opens on NO. Only honoured when that side has an ask; the
+   *  reader can still switch. Absent means "whichever side has an ask". */
+  preferSide?: "yes" | "no";
   /** Overrides the open affordance's words on a crowded surface. */
   openLabel?: string;
   /** An extra sentence this surface must say before a bet — the parlay
@@ -250,7 +255,11 @@ export default function ManualTicket({
     // `test_the_estimate_route_reports_no_cooloff_either`. The DESK LOCKOUT
     // above is untouched — Joe removed the cool-off, not the lockout.
     const defaultSide: "yes" | "no" =
-      market.sides.yes.ask_tenths !== null ? "yes" : "no";
+      preferSide !== undefined && market.sides[preferSide].ask_tenths !== null
+        ? preferSide
+        : market.sides.yes.ask_tenths !== null
+          ? "yes"
+          : "no";
     setSide(defaultSide);
     setComboOk(false);
     // 0 until a dollar amount is typed: the confirm stays disabled, so an

@@ -2487,10 +2487,11 @@ class TestScheduledPropBuyingIsOffByDefault:
         self, conn, kalshi_events, kalshi_prop_capture, prop_commence_ms
     ):
         """#37. A named set bypasses the schedule guards on purpose, so it
-        must not bypass this one: the keys the provider would be asked for
-        are baseball markets, and a football fixture named by a tap would
-        buy batter lines against it. No call is made, and the skip is
-        recorded so the tap does not vanish."""
+        must not bypass this one: a sport outside `PROP_MARKET_SPORTS` has no
+        prop keys, and a fixture named by a tap would ask the provider for
+        another sport's markets against it. No call is made, and the skip is
+        recorded so the tap does not vanish. (NFL was the example until it
+        gained keys on 2026-09-14; NCAAF has none.)"""
         from backend.kalshi.discovery import discover_from_events
         from backend.odds.client import store_quotes
         from backend.odds.timing import MANUAL
@@ -2509,7 +2510,7 @@ class TestScheduledPropBuyingIsOffByDefault:
             odds,
             events=discovered,
             quotes=quotes,
-            sport_key="americanfootball_nfl",
+            sport_key="americanfootball_ncaaf",
             now=now,
             slot=None,
             trigger=MANUAL,
@@ -2518,15 +2519,15 @@ class TestScheduledPropBuyingIsOffByDefault:
         )
         assert stored == 0
         assert odds.prop_calls == [], (
-            "a prop call was made for a sport whose prop keys are baseball "
-            f"markets: {odds.prop_calls}"
+            "a prop call was made for a sport with no prop keys: "
+            f"{odds.prop_calls}"
         )
         row = conn.execute(
             "SELECT outcome, detail FROM odds_sweep_log "
-            "WHERE sport_key = 'americanfootball_nfl' ORDER BY id DESC LIMIT 1"
+            "WHERE sport_key = 'americanfootball_ncaaf' ORDER BY id DESC LIMIT 1"
         ).fetchone()
         assert row is not None and row["outcome"] == "skipped"
-        assert "no player-prop markets for americanfootball_nfl" in row["detail"]
+        assert "no player-prop markets for americanfootball_ncaaf" in row["detail"]
         assert "odds-1" in row["detail"]
 
 

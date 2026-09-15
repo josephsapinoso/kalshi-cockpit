@@ -102,10 +102,19 @@ from .kalshi.spreads import (
     spread_margin_agrees,
     unrecognised_spread_unit,
 )
+from .kalshi.totals import (
+    MARKET_TYPE_TOTAL,
+    TOTALS_MARKET,
+    parse_total_subtitle,
+    total_book_point,
+    total_line_agrees,
+    unrecognised_total_unit,
+)
 from .match.linker import (
     EXACT_ALIAS_PAIR,
     PROP_LINK_METHOD,
     SPREAD_LINK_METHOD,
+    TOTAL_LINK_METHOD,
     LinkedFixture,
     MatchCandidate,
     TeamAliases,
@@ -121,8 +130,10 @@ from .match.linker import (
 from .odds.budget import sweep_cost
 from .odds.client import (
     PROP_BASE_MARKETS,
+    PROP_MARKET_SPORTS,
     PROP_MARKETS,
     OddsQuote,
+    max_prop_cost_per_event,
     prop_market_keys,
     sport_has_prop_markets,
     store_quotes,
@@ -197,6 +208,11 @@ class PassCounts:
     # `ODDS_MARKETS = "h2h,spreads"` keeps paying the doubled credit for it.
     # Pooled, the new league is invisible. 2026-08-24 code review, finding 8.
     dropped_unknown_spread_unit: int = 0
+    # The same split for a game total (`kalshi/totals.py`): a subtitle
+    # that fits `"Over N <unit> scored"` in a unit the whitelist does not
+    # carry. Counted apart for the same reason, and reported at zero for
+    # the same reason.
+    dropped_unknown_total_unit: int = 0
     # A candidate the pricing engine REFUSED to price, by raising. Counted
     # rather than allowed to propagate, and counted rather than swallowed --
     # the two failure modes are opposite and both have happened here.
@@ -442,6 +458,7 @@ class PassCounts:
         # unreadable", and the day it is non-zero is the day a sport joined
         # scope with nothing to show for its credits.
         "dropped_unknown_spread_unit",
+        "dropped_unknown_total_unit",
         "sweep_decision",
         "leg_walk_ms",
         "leg_parse_ms",
@@ -908,6 +925,125 @@ def spread_quotes_for_event(
     return lines
 
 
+#: The two sides of a game total, in the order the devig sees them. Fixed as
+#: a constant for the reason `PROP_SIDES` is: the books name them, nobody has
+#: to discover them by first appearance.
+TOTAL_SIDES = ("Over", "Under")
+
+
+@dataclass(frozen=True)
+class TotalLine:
+    """One game-total rung of one game, ready to devig.
+
+    `point` is the line both sides share -- a total is one number, unlike a
+    spread where each team carries its own signed point. `outcomes` is
+    always `TOTAL_SIDES`.
+    """
+
+    outcomes: tuple[str, str]
+    point: float
+    books: BookConsensusInput
+
+
+def totals_quotes_for_event(
+    conn, odds_event_id: str, *, now: int
+) -> list[TotalLine]:
+    """Stored game-total odds for one fixture, one entry per line.
+
+    The spread path's argument, one market along: `book_quotes_for_event`
+    would pool every `totals` row of the event into one outcome list and
+    devig books at 8.5 together with books at 9.0. The grouping key is the
+    line, so each is its own rung.
+
+    **A book is admitted to a rung only two-sided** -- both `Over` and
+    `Under` at one point. A one-sided total has no overround to remove; a
+    book carrying two lines in one sweep is dropped whole rather than paired
+    by guess. Reads one sweep via `MAX(fetched_ms)`, for the team path's
+    reason.
+    """
+    latest = conn.execute(
+        "SELECT MAX(fetched_ms) AS m FROM odds_snapshots "
+        "WHERE odds_event_id = ? AND market = ?",
+        (odds_event_id, TOTALS_MARKET),
+    ).fetchone()
+    if latest is None or latest["m"] is None:
+        return []
+
+    rows = conn.execute(
+        "SELECT bookmaker, outcome_name, outcome_point, price_decimal, "
+        "book_updated_ms, fetched_ms, commence_ms "
+        "FROM odds_snapshots WHERE odds_event_id = ? AND fetched_ms = ? "
+        "AND market = ?",
+        (odds_event_id, latest["m"], TOTALS_MARKET),
+    ).fetchall()
+    if not rows:
+        return []
+
+    by_book: dict[str, list] = {}
+    for row in rows:
+        if row["outcome_point"] is None or row["outcome_name"] not in TOTAL_SIDES:
+            # Unreadable resolves to nothing: a total row without its line
+            # names no rung, and a side that is neither Over nor Under is a
+            # wire shape this code has never seen.
+            continue
+        by_book.setdefault(row["bookmaker"], []).append(row)
+
+    grouped: dict[float, dict] = {}
+    for book, book_rows in by_book.items():
+        if len(book_rows) != 2:
+            continue
+        a, b = book_rows
+        if float(a["outcome_point"]) != float(b["outcome_point"]):
+            continue
+        if a["outcome_name"] == b["outcome_name"]:
+            continue
+
+        point = float(a["outcome_point"])
+        entry = grouped.setdefault(
+            point,
+            {
+                "by_book": {},
+                "ages": {},
+                "estimated": set(),
+                "commence_ms": int(a["commence_ms"]),
+            },
+        )
+        prices = {r["outcome_name"]: float(r["price_decimal"]) for r in book_rows}
+        # Positional safety: prices are listed in `TOTAL_SIDES` order, the
+        # same tuple the devig is handed, so Over and Under cannot swap.
+        entry["by_book"][book] = [prices[o] for o in TOTAL_SIDES]
+
+        ages = []
+        for r in book_rows:
+            if r["book_updated_ms"] is None:
+                entry["estimated"].add(book)
+            basis = (
+                r["book_updated_ms"]
+                if r["book_updated_ms"] is not None
+                else r["fetched_ms"]
+            )
+            ages.append(now - int(basis))
+        entry["ages"][book] = max(ages)
+
+    lines: list[TotalLine] = []
+    for point, entry in grouped.items():
+        lines.append(
+            TotalLine(
+                outcomes=TOTAL_SIDES,
+                point=point,
+                books=BookConsensusInput(
+                    outcomes=TOTAL_SIDES,
+                    quotes_by_book=entry["by_book"],
+                    oldest_book_age_ms=max(entry["ages"].values()),
+                    books_dropped=(),
+                    books_with_estimated_age=tuple(sorted(entry["estimated"])),
+                    commence_ms=entry["commence_ms"],
+                ),
+            )
+        )
+    return lines
+
+
 #: The exact columns `write_fair_price`'s INSERT names, in order. **The single
 #: source of truth**: the INSERT statement below is built by joining this
 #: tuple, and the identity/payload split just under it is COMPUTED from it
@@ -1350,6 +1486,104 @@ def _price_spread_event(
                 devigged[key] = (result, metadata, fair_ids)
 
 
+def _price_totals_event(
+    conn,
+    event: DiscoveredEvent,
+    *,
+    link_id: int,
+    stamp: int,
+    counts: PassCounts,
+    odds_event_id: str,
+) -> None:
+    """Price one game-total event: one devig per line, `fair_prices` only.
+
+    **Deliberately writes no `recommendations` row**, for the reason the
+    spread arm gives (ADR 0070): the parlay desk reads fair rows, and
+    keeping totals off the recommendation, gate and board path keeps ADR
+    0038's evidence record single-regime and the gate untouched.
+
+    **The join carries no arithmetic.** A Kalshi rung says "Over L <unit>
+    scored" (`floor_strike` = L); the books quote the same rung as
+    `("Over", point = L)`. The subtitle's L is cross-checked against
+    `strike`, and a disagreement refuses the market. Kalshi YES is the Over;
+    NO is the book's `("Under", L)`. Both sides' fair rows are written at the
+    one shared point.
+    """
+    lines = totals_quotes_for_event(conn, odds_event_id, now=stamp)
+    if not lines:
+        counts.dropped_no_books += 1
+        return
+
+    by_point = {line.point: line for line in lines}
+    devigged: dict[float, Optional[tuple]] = {}
+
+    for market in event.markets:
+        if market.market_type != MARKET_TYPE_TOTAL:
+            continue
+        parsed = parse_total_subtitle(market.yes_side)
+        if parsed is None:
+            unit = unrecognised_total_unit(market.yes_side)
+            if unit is not None:
+                counts.dropped_unknown_total_unit += 1
+            else:
+                counts.dropped_unresolved_outcome += 1
+            continue
+        if market.strike is None:
+            counts.dropped_unresolved_outcome += 1
+            continue
+        if not total_line_agrees(parsed, market.strike):
+            counts.errors.append(
+                f"{market.ticker}: subtitle line {parsed} != "
+                f"floor_strike {market.strike}"
+            )
+            continue
+
+        line = by_point.get(total_book_point(parsed))
+        if line is None:
+            # The books quote no two-sided price at this line.
+            counts.dropped_unresolved_outcome += 1
+            continue
+
+        books = line.books
+        if books.commence_ms is not None and books.commence_ms <= stamp:
+            counts.dropped_game_started += 1
+            continue
+
+        if line.point not in devigged:
+            try:
+                result, metadata = consensus_devig(
+                    books.outcomes, books.quotes_by_book, sharp_books=SHARP_BOOKS
+                )
+            except DevigError as exc:
+                counts.errors.append(f"{market.ticker}: {exc}")
+                devigged[line.point] = None
+            else:
+                fair_ids = write_fair_price(
+                    conn,
+                    link_id=link_id,
+                    devig_result=result,
+                    metadata=metadata,
+                    computed_ms=stamp,
+                    market=TOTALS_MARKET,
+                    outcome_point=line.point,
+                    oldest_book_age_ms=books.oldest_book_age_ms,
+                )
+                counts.fair_prices_written += len(fair_ids)
+                devigged[line.point] = (result, metadata, fair_ids)
+
+
+#: Event types that inherit their game's link by fixture segment instead
+#: of passing the two-team bijection, and the `event_links.method` each
+#: is stamped with. One table, so the partition in `link_discovered_events`
+#: and the method choice cannot disagree about which types are derived.
+DERIVED_LINK_METHODS: dict[str, str] = {
+    MARKET_TYPE_PROP: PROP_LINK_METHOD,
+    MARKET_TYPE_SPREAD: SPREAD_LINK_METHOD,
+    MARKET_TYPE_TOTAL: TOTAL_LINK_METHOD,
+}
+DERIVED_MARKET_TYPES: frozenset[str] = frozenset(DERIVED_LINK_METHODS)
+
+
 # The threshold a `link slow` line is emitted above. 8s because the fast state
 # measured 2.0-2.4s across 29 consecutive live passes and the slow state 12.7s
 # and up, so this sits in the empty gap between two well-separated clusters
@@ -1448,13 +1682,15 @@ def link_discovered_events(
     # refused every one, every pass, with "expected 2 sides, got N" -- a
     # standing `unmatched_items` population describing a failure that was
     # never a failure. Their ticker shares the game's fixture segment.
+    # A total event has the same shape again: 6-10 rung subtitles
+    # ("Over 8.5 runs scored"), one fixture segment shared with its game.
     games = [
         e for e in events
-        if e.market_type not in (MARKET_TYPE_PROP, MARKET_TYPE_SPREAD)
+        if e.market_type not in DERIVED_MARKET_TYPES
     ]
     derived = [
         e for e in events
-        if e.market_type in (MARKET_TYPE_PROP, MARKET_TYPE_SPREAD)
+        if e.market_type in DERIVED_MARKET_TYPES
     ]
 
     for event in games:
@@ -1516,11 +1752,7 @@ def link_discovered_events(
                 kalshi_event_ticker=event.event_ticker,
                 kalshi_commence_ms=event.commence_ms,
                 linked_fixtures=fixtures,
-                method=(
-                    SPREAD_LINK_METHOD
-                    if event.market_type == MARKET_TYPE_SPREAD
-                    else PROP_LINK_METHOD
-                ),
+                method=DERIVED_LINK_METHODS[event.market_type],
             )
             if result.matched:
                 link_id = record_link(conn, result, event.league, now)
@@ -2174,6 +2406,18 @@ def run_pricing_pass(
             )
             continue
 
+        if event.market_type == MARKET_TYPE_TOTAL:
+            # Fair rows only, like spreads: the parlay desk's supply line.
+            _price_totals_event(
+                conn,
+                event,
+                link_id=link_id,
+                stamp=stamp,
+                counts=counts,
+                odds_event_id=odds_event_id,
+            )
+            continue
+
         books = book_quotes_for_event(conn, odds_event_id, now=stamp)
         if books is None:
             counts.dropped_no_books += 1
@@ -2521,7 +2765,9 @@ async def fetch_and_store_odds(
         cost=sweep_cost(config.markets, config.regions),
         now_ms=now,
         max_odds_age_ms=max_odds_age_ms,
-        prop_cost_per_event=sweep_cost(prop_market_keys(), config.regions),
+        # One figure for every sport: the dearest. Over-reserving for MLB
+        # (5 keys) against an NFL event (3) is the safe direction.
+        prop_cost_per_event=max_prop_cost_per_event(config.regions),
         prop_sports=prop_sports,
         allow_bootstrap=allow_bootstrap,
         manual=manual,
@@ -2678,10 +2924,10 @@ async def fetch_and_store_props(
     named = [e for e in dict.fromkeys(only_events) if e]
 
     if not sport_has_prop_markets(sport_key):
-        # #37. Before every other guard, named set or not: the keys
-        # `prop_market_keys()` would request are baseball markets, so a prop
-        # call for any other sport asks the provider for batter lines against
-        # a football game and may bill for the answer. The tap route refuses
+        # #37. Before every other guard, named set or not: a sport outside
+        # `PROP_MARKET_SPORTS` has no prop keys, so a prop call for it asks
+        # the provider for markets that do not exist for that game and may
+        # bill for the answer. The tap route refuses
         # this first; this is the guard for anything that reaches the inbox
         # some other way, and for a scheduled window on a sport whose Kalshi
         # ladder was discovered but whose odds-side keys do not exist.
@@ -2689,8 +2935,9 @@ async def fetch_and_store_props(
             conn, pass_ms=now, sport_key=sport_key, outcome=SKIPPED,
             detail=(
                 f"props: this desk has no player-prop markets for "
-                f"{sport_key}; the only prop keys it can buy are baseball "
-                f"markets, so no prop call was made"
+                f"{sport_key}; the sports it can buy props for are "
+                f"{', '.join(sorted(PROP_MARKET_SPORTS))}, so no prop call "
+                f"was made"
                 + (f" for {', '.join(named)}" if named else "")
             ),
         )
@@ -2810,7 +3057,7 @@ async def fetch_and_store_props(
         )
         return 0
 
-    markets = prop_market_keys()
+    markets = prop_market_keys(sport_key)
     prop_quotes = await odds_client.fetch_props(
         sport_key, pre_game, now_ms=now, markets=markets,
         trigger=MANUAL if trigger == MANUAL else None,

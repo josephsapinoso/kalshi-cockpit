@@ -110,6 +110,7 @@ export default function PriceOnKalshi({
         card.legs.map((l) => ({
           event_ticker: l.event_ticker,
           market_ticker: l.ticker,
+          side: l.side,
         })),
         horizon,
       );

@@ -1056,9 +1056,10 @@ class TestActionableWindow:
         **The 2 is the deployed cost, and this used to say 6.** A sweep is
         `len(markets) * len(regions)`; live sets neither variable, so it takes
         the `h2h` default against `us,eu`. The 6 came from a developer `.env`
-        carrying `h2h,spreads,totals` -- a configuration that runs on no
-        instance. `conftest.py` now pins both, so this figure is one the
-        deployed system would actually report.
+        carrying `h2h,spreads,totals` -- which ran on no instance when this
+        was written (live has carried it since 2026-09-14, ADR 0152, and
+        reports 6 there). `conftest.py` pins `h2h` and `us,eu`, so this
+        figure is the code default's, stated as such.
         """
         body = (await get(fresh_app, "/api/window")).json()
         assert body["spent_today"] == 12

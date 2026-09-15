@@ -128,6 +128,15 @@ function Card({
         would have been. Server-worded like every other string here.
       */}
       <p className="mt-1 text-xs leading-snug text-muted">{card.what_it_is}</p>
+      {(card.key === "props" || card.key === "totals") && (
+        /* A beginner reads "under" on a leg and needs to know what that
+           buys on Kalshi: the NO of the Over market, which the lookup and
+           the per-leg ticket both ask for on his behalf. */
+        <p className="mt-1 max-w-[60ch] text-xs leading-snug text-muted">
+          An under here is the NO side of Kalshi&apos;s over market. The
+          desk asks for that side when you price or bet the leg.
+        </p>
+      )}
 
       {card.not_built_reason !== null ? (
         <p className="mt-3 text-sm text-muted">
@@ -200,6 +209,23 @@ function Card({
                     <>
                       <Term k="spread">SPREAD</Term>
                       {leg.point !== null ? ` ${signedPoint(leg.point)}` : ""}
+                    </>
+                  ) : leg.market === "totals" ? (
+                    <>
+                      <Term k="total">TOTAL</Term>
+                      {leg.point !== null ? (
+                        <>
+                          {overUnder(leg)}
+                          <Term k="line">{String(leg.point)}</Term>
+                        </>
+                      ) : (
+                        ""
+                      )}
+                    </>
+                  ) : leg.player !== null ? (
+                    <>
+                      <Term k="player_prop">PROP</Term>
+                      {leg.point !== null ? `${overUnder(leg)}${leg.point}` : ""}
                     </>
                   ) : (
                     legKindLabel(leg)
@@ -291,6 +317,7 @@ function Card({
               legs: card.legs.map((leg) => ({
                 label: leg.label,
                 ticker: leg.ticker,
+                side: leg.side,
               })),
             }}
           />
@@ -431,8 +458,8 @@ function SkepticNote({ leg }: { leg: ParlayCardLeg }) {
   if (leg.skeptic === "not_on_this_path") {
     return (
       <>
-        This is a spread rung. The skeptic&apos;s checks run on the moneyline
-        path only, so they did not run here.
+        This is a spread or total rung. The skeptic&apos;s checks run on the
+        moneyline path only, so they did not run here.
       </>
     );
   }
@@ -627,6 +654,7 @@ function LegBuys({ card }: { card: ParlayCardData }) {
             </div>
             <ManualTicket
               ticker={leg.ticker}
+              preferSide={leg.side}
               variant="inline"
               openLabel="Bet this leg"
               note="One leg, on its own. This is not the parlay above it — it wins or loses by itself."
@@ -889,6 +917,16 @@ const EXCLUSION_WORDS: Record<string, string> = {
   market_closed: "sides whose Kalshi market is already closed",
   kickoff_outside_window: "games starting outside the chosen window",
   kalshi_will_not_combine: "games Kalshi trades but will not combine",
+  fair_probability_not_positive:
+    "sides whose consensus came back as zero — a bug, not a long shot",
+  spread_margin_disagrees:
+    "spread rungs whose Kalshi wording and strike disagree",
+  prop_row_missing_player_or_line: "prop rows with no player or no line",
+  prop_title_unreadable: "prop rungs Kalshi titled unreadably",
+  prop_no_kalshi_rung: "player props with no matching Kalshi rung",
+  total_row_missing_line: "total rows with no line",
+  total_line_disagrees: "total rungs whose Kalshi wording and strike disagree",
+  total_no_kalshi_rung: "game totals with no matching Kalshi rung",
 };
 
 /** Pacific, matching the slate rows' kickoff column. */
@@ -900,6 +938,11 @@ function kickoff(ms: number | null): string {
     minute: "2-digit",
     hour12: false,
   });
+}
+
+/** " O " on a YES leg, " U " on a NO leg -- the over/under of its line. */
+function overUnder(leg: ParlayCardLeg): string {
+  return leg.side === "no" ? " U " : " O ";
 }
 
 /**
@@ -914,15 +957,15 @@ function signedPoint(point: number): string {
 }
 
 /**
- * The leg-kind tag for every market OTHER than a spread (which wraps
- * "SPREAD" in a glossary `<Term>` inline, above): "WIN" for a plain
- * moneyline, "PROP <line>" for anything else -- sport-neutral, so a
- * beginner can tell a spread pick from a plain win from a prop without
- * opening the leg's own market page. Never derived from `leg.label`,
- * which is Kalshi's own subtitle and phrases every market differently
- * ("wins by over 3.5 points" vs "wins by over 1.5 runs").
+ * The leg-kind tag for a market the inline branches above do not name
+ * (spread, total and player prop each wrap their word in a glossary
+ * `<Term>` there): "WIN" for a plain moneyline, and otherwise the market
+ * key itself. **No "everything else is a prop" fallback** -- that read
+ * every unknown market as a prop, which is a confident wrong label on the
+ * screen where a beginner learns the words. Never derived from `leg.label`,
+ * which is Kalshi's own subtitle and phrases every market differently.
  */
 function legKindLabel(leg: ParlayCardLeg): string {
   if (leg.market === "h2h") return "WIN";
-  return `PROP${leg.point !== null ? ` ${signedPoint(leg.point)}` : ""}`;
+  return leg.market.toUpperCase();
 }

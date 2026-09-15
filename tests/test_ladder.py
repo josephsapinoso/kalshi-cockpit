@@ -251,8 +251,9 @@ class TestCardInvariants:
                 legs=(leg("g"),), not_built_reason="no",
             )
 
-    def test_the_shapes_are_the_seven_registered_cards(self):
-        """Seven since 2026-09-10 (`short_spreads` joined the original six).
+    def test_the_shapes_are_the_nine_registered_cards(self):
+        """Nine since 2026-09-14 (`props` and `totals` joined; `short_spreads`
+        had joined the original six on 2026-09-10).
         This is the one assertion that catches a recipe added or dropped by
         accident, so it pins the identities and the lengths rather than just
         the count.
@@ -270,6 +271,8 @@ class TestCardInvariants:
             ("soon", 2, 3),
             ("agreed", 2, 3),
             ("short_spreads", 2, 2),
+            ("props", 2, 3),
+            ("totals", 2, 3),
         ]
         assert next(r for r in CARD_SHAPES if r.key == "lottery").title == (
             "Long ladder"
@@ -514,6 +517,22 @@ class TestEveryRecipeInheritsTheGuards:
                     ticker=f"S{i}",
                 )
             )
+            # A prop rung and a total rung per game too, so the prop and
+            # totals cards (2026-09-14) build here and inherit the guard.
+            candidates.append(
+                replace(
+                    leg(f"g{i}", p=0.62, market="batter_hits", point=0.5,
+                        ticker=f"P{i}"),
+                    player=f"Player {i}", team=None,
+                )
+            )
+            candidates.append(
+                replace(
+                    leg(f"g{i}", p=0.53, market="totals", point=8.5,
+                        ticker=f"T{i}"),
+                    team=None,
+                )
+            )
         return candidates
 
     @pytest.mark.parametrize("key", [r.key for r in CARD_SHAPES])
@@ -639,9 +658,33 @@ class TestRecipesAreGatedToTheirMarkets:
 
         assert [c.key for c in without.cards] == [c.key for c in with_props.cards]
         for a, b in zip(without.cards, with_props.cards):
+            if a.key == "props":
+                continue  # the one card that is SUPPOSED to move
             assert [x.kalshi_market_ticker for x in a.legs] == [
                 x.kalshi_market_ticker for x in b.legs
             ], f"card {a.key} moved when props entered the pool"
+
+    def test_totals_in_the_pool_change_no_team_card(self):
+        """The same equality for game totals. A total sits near a coin flip,
+        which is BELOW most favourites and ABOVE most dogs, so an ungated
+        `longshot` or `safe` would quietly start taking them. Mutation: set
+        any team card's `markets=None`."""
+        games = [leg(f"g{i}", p=0.80 - i * 0.05) for i in range(8)]
+        totals = [
+            leg("g0", p=0.55, market="totals", point=8.5, ticker="T-g0"),
+            leg("g1", p=0.52, market="totals", point=47.5, ticker="T-g1"),
+            leg("g2", p=0.30, market="totals", point=9.5, ticker="T-g2"),
+        ]
+        without = build(games)
+        with_totals = build(games + totals)
+
+        assert [c.key for c in without.cards] == [c.key for c in with_totals.cards]
+        for a, b in zip(without.cards, with_totals.cards):
+            if a.key == "totals":
+                continue
+            assert [x.kalshi_market_ticker for x in a.legs] == [
+                x.kalshi_market_ticker for x in b.legs
+            ], f"card {a.key} moved when totals entered the pool"
 
     def test_an_ungated_longshot_would_take_the_dead_rung(self, monkeypatch):
         """The guard is real because disabling it changes the answer.

@@ -80,7 +80,7 @@ DEFAULT_COOLDOWN_MS = 120_000
 # figure**, because every time it has been it went stale:
 #
 #     team tap     sweep_cost(ODDS_MARKETS, ODDS_REGIONS)
-#     prop tap     the above + sweep_cost(prop_market_keys(), ODDS_REGIONS)
+#     prop tap     the above + sweep_cost(prop_market_keys(sport), ODDS_REGIONS)
 #
 # and `sweep_cost` is `markets x regions` (`budget.py:66`). The prop tap is
 # what sizes the slice, because it is the dearer of the two. Both are DERIVED
@@ -96,7 +96,7 @@ DEFAULT_COOLDOWN_MS = 120_000
 # three more.
 #
 # So the numbers live in `tests/test_odds.py` instead, where a change to
-# `ODDS_MARKETS` or `prop_market_keys()` makes a test fail rather than making a
+# `ODDS_MARKETS` or `prop_market_keys(sport)` makes a test fail rather than making a
 # comment wrong. Read them there, or compute them; do not add them back here.
 #
 # **Not a forecast and not a target.** A planned MLB + WNBA evening spends

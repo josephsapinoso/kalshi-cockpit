@@ -144,7 +144,7 @@ TEAM_MARKETS_ONLY: frozenset[str] = frozenset({"h2h", "spreads"})
 #: `backend.*` imports at all — it is the pure core the rest of the desk calls
 #: into — and reaching into `backend/odds/client.py` for five strings would
 #: couple the card recipes to the feed client, in the one direction ADR 0140
-#: says the dependency already runs. `tests/test_staged_prop_card.py` pins
+#: says the dependency already runs. `tests/test_prop_and_total_cards.py` pins
 #: these against `PROP_BASE_MARKETS`, which is the same guarantee without the
 #: edge, and is how `backend/config.py` cross-checks its own duplicated
 #: threshold.
@@ -159,47 +159,86 @@ MLB_PROP_MARKETS: frozenset[str] = frozenset(
 )
 
 
-#: A prop-bearing card. **DEFINED, AND DELIBERATELY NOT IN `CARD_SHAPES`.**
+#: The three NFL yardage prop markets, spelled here for the reason
+#: `MLB_PROP_MARKETS` is: the pure core imports nothing from `backend.*`.
+#: `tests/test_prop_and_total_cards.py` pins these against
+#: `odds/client.NFL_PROP_BASE_MARKETS`.
+NFL_PROP_MARKETS: frozenset[str] = frozenset(
+    {"player_pass_yds", "player_reception_yds", "player_rush_yds"}
+)
+
+#: Every player-prop market a card may draw from. Sport-neutral on purpose:
+#: the card is "three props", and which sport supplies them is whatever the
+#: slate carries.
+PROP_MARKETS_ALL: frozenset[str] = MLB_PROP_MARKETS | NFL_PROP_MARKETS
+
+#: The game-total market (`fair_prices.market = 'totals'`), the one key the
+#: books publish an over/under under. Spelled here for the same no-imports
+#: reason; `backend/kalshi/totals.TOTALS_MARKET` is the other copy and the
+#: same test pins them together.
+TOTALS_ONLY: frozenset[str] = frozenset({"totals"})
+
+#: The floor every prop or total card carries. **Required, not decorative.**
+#: `min_leg_probability` exists for these cards (see the field's own
+#: comment): the fair side has no other bound, so a card of three 0.2% legs
+#: renders an eight-figure payout beside a fair cost of 0c. At 0.20 the worst
+#: case is a joint of 0.008 -- about 125x, so $12,500 on a $100 stake --
+#: which is the same order as `longshot`, a card already on the desk. It is a
+#: backstop rather than a filter: ranked likeliest, a prop or total leg is
+#: typically 0.5-0.85 and the floor never binds.
+PROP_AND_TOTAL_FLOOR = 0.20
+
+#: The prop card and the totals card. **Registered 2026-09-14 on Joe's word**
+#: ("that should be a whole other set of parlays"). The prop card was staged
+#: here as `STAGED_PROP_CARD` from 2026-09-10, unregistered because the feed
+#: bought no prop rows (the newest MLB prop row was 600 hours old under
+#: `ODDS_MARKETS = 'h2h,spreads'`); what changed is the feed, not the card:
+#: NFL props are now bought on tap (`odds/client.PROP_MARKET_KEYS_BY_SPORT`)
+#: and `totals` is bought on every sweep (`fly.live.toml`). ADR 0140 is why
+#: those were feed decisions and not screen ones.
 #:
-#: Staged the way `NFL_PROP_SERIES` is staged (`8d5dd1c`): complete, tested,
-#: and reachable by nothing, so enabling it later is one visible edit rather
-#: than a design session.
+#: **Both cards are their own set.** Neither existing card admits a prop or a
+#: total (`TEAM_MARKETS_ONLY` stays as it was), and neither of these admits a
+#: team market -- the per-card `markets` gate, exactly as ADR 0139's
+#: `short_spreads` uses it. Widening `safe` or `lottery` to totals would be a
+#: separate, visible, per-card edit.
 #:
-#: **Why it is not registered: there is no data, and a registered card would
-#: lie about that.** Measured on live 2026-09-10 — `ODDS_MARKETS` is
-#: `'h2h,spreads'`, the newest MLB prop row in `fair_prices` was computed
-#: **600 hours** earlier, and the last seven days hold **zero**. So this card
-#: would render "needs 2 fresh games and the slate has 0" on every load,
-#: forever, which reads as a thin slate rather than as a market the desk does
-#: not buy. A permanently-unbuildable card is worse than no card.
+#: **Both sides.** The ladder's prop and totals arms emit the Over row as a
+#: YES leg and the Under row as a NO leg of the same Kalshi market
+#: (`CandidateLeg.side`), so a "likeliest" card is not a lean to overs; the
+#: side travels through the lookup to the venue and into the recorded
+#: position. Until 2026-09-14 the Under was dropped without a count.
 #:
-#: Registering it is correct only once a sweep has actually bought prop rows —
-#: which costs credits on every sweep thereafter and edits `backend/odds/`
-#: (frozen to 10:00Z 2026-09-14). ADR 0140 is why that is a feed decision and
-#: not a screen one.
-#:
-#: **The floor is required, not decorative.** `min_leg_probability` exists for
-#: exactly this card (see the field's own comment): the fair side has no other
-#: bound, so a card of three 0.2% legs renders an eight-figure payout beside a
-#: fair cost of 0c. At 0.20 the worst case is a joint of 0.008 — about 125x,
-#: so $12,500 on a $100 stake — which is the same order as `longshot`, a card
-#: already on the desk. It is a backstop rather than a filter: ranked
-#: likeliest, a prop leg is typically 0.6–0.85 and the floor never binds.
-#:
-#: Same-game correlation needs nothing here — `_best_per_game` takes at most
-#: one leg per fixture and is the structural guard, so two props from one game
-#: cannot both be selected however this recipe is tuned.
-STAGED_PROP_CARD: Recipe = Recipe(
+#: Same-game correlation needs nothing here -- `_best_per_game` takes at most
+#: one leg per fixture and is the structural guard, so two props (or a prop
+#: and a total) from one game cannot both be selected however these are
+#: tuned.
+PROP_CARD: Recipe = Recipe(
     key="props",
-    markets=MLB_PROP_MARKETS,
+    markets=PROP_MARKETS_ALL,
     title="Three props",
     what_it_is=(
-        "the 3 likeliest player props on the slate, one per game"
+        "the 3 likeliest player props on the slate, one per game, over or "
+        "under"
     ),
     min_legs=2,
     max_legs=3,
-    min_leg_probability=0.20,
+    min_leg_probability=PROP_AND_TOTAL_FLOOR,
     pool_words="fresh games with a player prop",
+)
+
+TOTALS_CARD: Recipe = Recipe(
+    key="totals",
+    markets=TOTALS_ONLY,
+    title="Three totals",
+    what_it_is=(
+        "the 3 likeliest game totals on the slate, one per game, over or "
+        "under"
+    ),
+    min_legs=2,
+    max_legs=3,
+    min_leg_probability=PROP_AND_TOTAL_FLOOR,
+    pool_words="fresh games with a total",
 )
 
 
@@ -288,12 +327,21 @@ CARD_SHAPES: tuple[Recipe, ...] = (
         max_spread_margin=3.5,
         pool_words="fresh games with a short spread",
     ),
+    PROP_CARD,
+    TOTALS_CARD,
 )
 
 
 @dataclass(frozen=True)
 class CandidateLeg:
-    """One buyable YES side, with its consensus and its freshness.
+    """One buyable side of one Kalshi market, with its consensus and freshness.
+
+    `side` is the side of the market this leg BUYS -- `"yes"` for a team to
+    win, a favourite to cover, an Over; `"no"` for the Under of a total or a
+    prop, which Kalshi lists only as the NO of its Over market (2026-09-14).
+    Every team and spread leg is `"yes"`; only the prop and totals arms emit
+    `"no"`. The consensus on a `"no"` leg is the Under row's own
+    `p_conservative`, never one minus the Over's.
 
     `odds_age_now_ms` is the leg's LIVE consensus age — `(now - computed_ms)
     + oldest_book_age_ms` — and `None` means the row predates v20 and its true
@@ -308,12 +356,14 @@ class CandidateLeg:
     odds_event_id: str
     league: str
     commence_ms: int
-    market: str                   # "h2h" | "spreads" | an MLB prop key
-    #: The team whose YES this is. **`None` on a prop**, which carries no team
-    #: — and never the player name in its place: substituting one identifier
-    #: for another is how an unparsed field becomes a confident wrong answer.
+    market: str                   # "h2h" | "spreads" | "totals" | a prop key
+    #: The team whose YES this is. **`None` on a prop and on a total**, which
+    #: carry no team — and never the player name or "Over" in its place:
+    #: substituting one identifier for another is how an unparsed field
+    #: becomes a confident wrong answer.
     team: Optional[str]
-    #: The spread rung, or the prop's line. `None` on a moneyline.
+    #: The spread rung, the total's line, or the prop's line. `None` on a
+    #: moneyline.
     point: Optional[float]
     p_conservative: float
     p_by_method: Mapping[str, Optional[float]]
@@ -344,6 +394,9 @@ class CandidateLeg:
     #: THINNER fair value rather than a better one, and the wording must never
     #: imply otherwise.
     anchored_on_sharp: Optional[bool] = None
+    #: Which side of `kalshi_market_ticker` this leg buys. See the class
+    #: docstring. Defaulted so every existing constructor stays a YES leg.
+    side: str = "yes"
 
 
 @dataclass(frozen=True)
@@ -502,6 +555,10 @@ def _joint_key(selected: Sequence[CandidateLeg]) -> tuple:
     return tuple(
         (
             leg.kalshi_market_ticker,
+            # The YES and NO of one market are different bets with different
+            # probabilities; a key without the side would serve one card's
+            # joint to the other.
+            leg.side,
             leg.odds_event_id,
             leg.league,
             leg.commence_ms,

@@ -278,10 +278,18 @@ class TestTheLadderBuilds:
         assert all(
             c["not_built_reason"] is None
             for c in body["cards"]
-            if c["key"] != "short_spreads"
+            if c["key"] not in ("short_spreads", "props", "totals")
         )
         assert by_key["short_spreads"]["not_built_reason"] == (
             "needs 2 fresh games with a short spread and the slate has 0"
+        )
+        # The two cards of their own set (2026-09-14) read as thin, in their
+        # own words, on a moneyline-only slate -- never as a blank.
+        assert by_key["props"]["not_built_reason"] == (
+            "needs 2 fresh games with a player prop and the slate has 0"
+        )
+        assert by_key["totals"]["not_built_reason"] == (
+            "needs 2 fresh games with a total and the slate has 0"
         )
 
     async def test_the_wire_carries_every_registered_card(self, build):
@@ -664,10 +672,13 @@ class TestAZeroFairProbabilityNeverReachesArithmetic:
         legs, excluded = ladder_candidates(
             conn, now_ms=now_ms(), max_odds_age_ms=900_000
         )
-        assert [l for l in legs if l.player] == [], (
+        # The Over row is the zero and must not enter; the Under row of the
+        # same rung is a healthy NO leg (its own consensus, 0.98) and does.
+        assert [l.side for l in legs if l.player] == ["no"], (
             "a leg with no fair probability entered the pool; the joint is a "
             "product, so it takes every card it touches to zero"
         )
+        assert all(l.p_conservative > 0 for l in legs)
         assert excluded.get("fair_probability_not_positive") == 1, excluded
 
     def test_a_healthy_leg_beside_it_still_enters(self, conn):
@@ -683,7 +694,9 @@ class TestAZeroFairProbabilityNeverReachesArithmetic:
         legs, excluded = ladder_candidates(
             conn, now_ms=now_ms(), max_odds_age_ms=900_000
         )
-        assert [l.player for l in legs if l.player] == ["Tarik Skubal"]
+        assert [l.player for l in legs if l.player and l.side == "yes"] == [
+            "Tarik Skubal"
+        ]
         assert excluded.get("fair_probability_not_positive") == 1, excluded
 
     def test_the_stake_row_refuses_a_zero_joint_rather_than_dividing(self):
@@ -712,6 +725,179 @@ class TestAZeroFairProbabilityNeverReachesArithmetic:
         assert row["payout_display"] != "\u2014"
 
 
+def seed_total(
+    conn,
+    *,
+    game: str,
+    line: float,
+    p: float,
+    subtitle: str | None = None,
+    strike: float | None = None,
+    book_point: float | None = None,
+    oldest_book_age_ms: int | None = 5_000,
+    commence_ms: int | None = None,
+) -> None:
+    """One linked MLB game total: a Kalshi `*TOTAL` rung and its consensus
+    row, both sides. The total EVENT is its own Kalshi event, linked by
+    fixture-segment inheritance, sharing the game's `odds_event_id` exactly
+    as `link_prop_event` produces in production.
+
+    `strike` and `book_point` default to `line` because they are one number
+    by identity (`kalshi/totals.total_book_point`); passing them apart is how
+    a test asks whether anything derives one from the other.
+    """
+    total_event = f"KXMLBTOTAL-{game}"
+    ticker = f"{total_event}-{line}"
+    commence = (
+        commence_ms
+        if commence_ms is not None
+        else min(now_ms() + 3_600_000, end_of_desk_day_ms(now_ms()) - 60_000)
+    )
+    kalshi_strike = line if strike is None else strike
+    point = line if book_point is None else book_point
+    computed_ms = now_ms()
+
+    conn.execute(
+        "INSERT OR IGNORE INTO kalshi_events (event_ticker, title, "
+        "first_seen_ms, last_seen_ms) VALUES (?, ?, 0, 0)",
+        (total_event, "Chicago WS vs Detroit: Total runs"),
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO kalshi_markets (ticker, event_ticker, title, "
+        "yes_side_team, market_type, strike, status, first_seen_ms, "
+        "last_seen_ms) VALUES (?, ?, ?, ?, 'total', ?, 'active', 0, 0)",
+        (
+            ticker,
+            total_event,
+            f"Over {line} runs scored?",
+            subtitle or f"Over {line} runs scored",
+            kalshi_strike,
+        ),
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO event_links (kalshi_event_ticker, "
+        "odds_event_id, league, method, commence_skew_ms, linked_ms) "
+        "VALUES (?, ?, 'Pro Baseball', 'total_fixture_segment', 0, 0)",
+        (total_event, game),
+    )
+    link_id = conn.execute(
+        "SELECT id FROM event_links WHERE kalshi_event_ticker = ?",
+        (total_event,),
+    ).fetchone()["id"]
+    conn.execute(
+        "INSERT INTO odds_snapshots (fetched_ms, sport_key, odds_event_id, "
+        "commence_ms, home_team, away_team, bookmaker, market, outcome_name, "
+        "outcome_point, price_decimal) "
+        "VALUES (?, 'baseball_mlb', ?, ?, 'Detroit', 'Chicago WS', 'pinnacle', "
+        "'totals', 'Over', ?, 1.9)",
+        (computed_ms, game, commence, point),
+    )
+    for outcome, prob in (("Over", p), ("Under", 1 - p - 0.02)):
+        conn.execute(
+            "INSERT INTO fair_prices (computed_ms, link_id, market, "
+            "outcome_name, outcome_point, "
+            "p_multiplicative, p_additive, p_power, p_shin, "
+            "p_conservative, book_count, books_used, anchored_on_sharp, "
+            "oldest_book_age_ms) "
+            "VALUES (?, ?, 'totals', ?, ?, ?, ?, ?, ?, ?, 3, '[]', 1, ?)",
+            (
+                computed_ms, link_id, outcome, point,
+                prob + 0.02, prob + 0.01, prob + 0.015, prob + 0.005,
+                prob, oldest_book_age_ms,
+            ),
+        )
+
+
+class TestTotalLegsEnterThePool:
+    """Game-total (over/under) rungs as parlay candidates, 2026-09-14.
+
+    Read through `ladder_candidates` (the pool). The `totals` card is the
+    only recipe that admits them; `test_ladder.py`'s
+    `test_totals_in_the_pool_change_no_team_card` pins that no other card
+    moves when they enter.
+    """
+
+    def test_a_total_over_row_matches_its_kalshi_rung_on_the_line(self, conn):
+        seed_total(conn, game="g1", line=8.5, p=0.56)
+        conn.commit()
+        legs, excluded = ladder_candidates(
+            conn, now_ms=now_ms(), max_odds_age_ms=900_000
+        )
+        totals = [l for l in legs if l.market == "totals" and l.side == "yes"]
+        assert len(totals) == 1
+        leg = totals[0]
+        assert leg.point == 8.5
+        assert leg.kalshi_market_ticker == "KXMLBTOTAL-g1-8.5"
+        assert leg.label == "Over 8.5 runs scored"
+        assert "total_no_kalshi_rung" not in excluded, excluded
+
+    def test_a_total_leg_carries_no_team_and_no_player(self, conn):
+        """A total is not a side of the game. `team` must not hold "Over"
+        and `player` must not hold anything."""
+        seed_total(conn, game="g1", line=8.5, p=0.56)
+        conn.commit()
+        legs, _ = ladder_candidates(conn, now_ms=now_ms(), max_odds_age_ms=900_000)
+        for leg in (l for l in legs if l.market == "totals"):
+            assert leg.team is None
+            assert leg.player is None
+
+    def test_the_under_side_is_a_no_leg_on_the_same_market(self, conn):
+        """Kalshi sells the total as YES = Over; the Under is that market's
+        NO and is a leg with `side = "no"` (2026-09-14)."""
+        seed_total(conn, game="g1", line=8.5, p=0.56)
+        conn.commit()
+        legs, excluded = ladder_candidates(
+            conn, now_ms=now_ms(), max_odds_age_ms=900_000
+        )
+        sides = sorted(l.side for l in legs if l.market == "totals")
+        assert sides == ["no", "yes"]
+        assert "total_no_kalshi_rung" not in excluded, excluded
+
+    def test_the_line_is_never_derived(self, conn):
+        """`floor_strike` and the book's point are one number. A rung at 9.0
+        must not match a consensus at 8.5. Mutation: negate or shift
+        `total_book_point` and this fails."""
+        seed_total(conn, game="g1", line=8.5, p=0.56, strike=9.0,
+                   subtitle="Over 9.0 runs scored", book_point=8.5)
+        conn.commit()
+        legs, excluded = ladder_candidates(
+            conn, now_ms=now_ms(), max_odds_age_ms=900_000
+        )
+        assert not [l for l in legs if l.market == "totals"]
+        # Both sides of the line are refused, one count each.
+        assert excluded.get("total_no_kalshi_rung") == 2, excluded
+
+    def test_a_subtitle_strike_disagreement_is_counted_by_name(self, conn):
+        """The runner's cross-check, repeated at the reader: a rung whose
+        subtitle and strike disagree is refused here too, so a fair row
+        priced from the subtitle cannot match a market whose strike moved."""
+        seed_total(conn, game="g1", line=8.5, p=0.56, strike=9.5,
+                   subtitle="Over 8.5 runs scored")
+        conn.commit()
+        legs, excluded = ladder_candidates(
+            conn, now_ms=now_ms(), max_odds_age_ms=900_000
+        )
+        assert not [l for l in legs if l.market == "totals"]
+        # Both sides meet the disagreement, one count each -- and then fall
+        # through to "no rung", the same double the spread arm records.
+        assert excluded.get("total_line_disagrees") == 2, excluded
+
+    async def test_a_total_leg_says_the_skeptic_did_not_run(self, build):
+        """Totals write no `recommendations` row (the spread rule), so the
+        leg reports `not_on_this_path`, never a silent `absent`."""
+        def seed(conn):
+            for i in range(3):
+                seed_total(conn, game=f"g{i}", line=8.5 + i, p=0.60 - i * 0.02)
+        app = build(seed)
+        body = (await get(app, "/api/parlays")).json()
+        card = next(c for c in body["cards"] if c["key"] == "totals")
+        assert card["not_built_reason"] is None, card
+        assert len(card["legs"]) == 3
+        assert all(l["skeptic"] == "not_on_this_path" for l in card["legs"])
+        assert all(l["team"] is None and l["player"] is None for l in card["legs"])
+        assert all(l["market"] == "totals" for l in card["legs"])
+
+
 class TestPropLegsEnterThePool:
     """MLB player-prop rungs as parlay candidates.
 
@@ -736,7 +922,7 @@ class TestPropLegsEnterThePool:
         conn.commit()
 
         legs, _ = ladder_candidates(conn, now_ms=now_ms(), max_odds_age_ms=900_000)
-        players = sorted(l.player for l in legs if l.player)
+        players = sorted(l.player for l in legs if l.player and l.side == "yes")
         assert players == ["Anthony Kay", "Tarik Skubal"], players
 
     def test_a_prop_leg_carries_no_team_and_kalshis_own_label(self, conn):
@@ -750,18 +936,17 @@ class TestPropLegsEnterThePool:
         assert leg.point == 5.5
         assert leg.market == "pitcher_strikeouts"
 
-    def test_the_under_side_is_skipped_without_a_count(self, conn):
-        """Kalshi sells the rung as YES = Over; the Under is that market's NO.
-
-        Skipped the way the +S spread side is -- structurally not a candidate,
-        so counting it would inflate every refusal tally on every pass.
-        """
+    def test_the_under_side_is_a_no_leg_on_the_same_market(self, conn):
+        """Kalshi sells the rung as YES = Over; the Under is that market's NO,
+        and since 2026-09-14 it is a leg too (`side = "no"`), not a skip.
+        Neither side is a refusal, so the tally stays clean."""
         seed_prop(conn, game="g1", player="Anthony Kay", strike=5.5, p=0.55)
         conn.commit()
         legs, excluded = ladder_candidates(
             conn, now_ms=now_ms(), max_odds_age_ms=900_000
         )
-        assert len([l for l in legs if l.player]) == 1
+        sides = sorted(l.side for l in legs if l.player)
+        assert sides == ["no", "yes"]
         assert "prop_no_kalshi_rung" not in excluded, excluded
 
     def test_an_accented_player_joins_through_the_shared_fold(self, conn):
@@ -778,7 +963,9 @@ class TestPropLegsEnterThePool:
         )
         conn.commit()
         legs, _ = ladder_candidates(conn, now_ms=now_ms(), max_odds_age_ms=900_000)
-        assert [l.player for l in legs if l.player] == ["Jos\u00e9 Ram\u00edrez"]
+        assert [l.player for l in legs if l.player and l.side == "yes"] == [
+            "Jos\u00e9 Ram\u00edrez"
+        ]
 
     def test_the_strike_is_never_derived(self, conn):
         """`floor_strike` and the book's point are one number, not two.
@@ -796,7 +983,8 @@ class TestPropLegsEnterThePool:
             conn, now_ms=now_ms(), max_odds_age_ms=900_000
         )
         assert not [l for l in legs if l.player]
-        assert excluded.get("prop_no_kalshi_rung") == 1, excluded
+        # Both sides of the rung are refused, one count each.
+        assert excluded.get("prop_no_kalshi_rung") == 2, excluded
 
     def test_a_prop_row_with_unmeasurable_age_is_refused(self, conn):
         """ADR 0070 s2.6 reaches the prop path, and is not re-implemented.
@@ -816,11 +1004,12 @@ class TestPropLegsEnterThePool:
         # where that refuses. Asserted at the layer the guard lives on rather
         # than the layer the row appears on -- a test that checked only the
         # pool would pass even if the refusal were deleted.
-        leg = next(l for l in legs if l.player)
-        assert leg.odds_age_now_ms is None, "must be None, never aged zero"
+        for leg in (l for l in legs if l.player):
+            assert leg.odds_age_now_ms is None, "must be None, never aged zero"
 
         ladder = build_ladder(legs, max_odds_age_ms=900_000, now_ms=now_ms())
-        assert ladder.excluded.get("age_unmeasurable") == 1, ladder.excluded
+        # Both sides of the rung carry the unmeasurable age.
+        assert ladder.excluded.get("age_unmeasurable") == 2, ladder.excluded
 
     def test_a_prop_and_its_own_game_never_share_a_card(self, conn):
         """The safety property the whole design rests on.

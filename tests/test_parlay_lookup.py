@@ -220,9 +220,12 @@ def build(tmp_path, monkeypatch):
             if response is not None:
                 return response
             payload = json.loads(json.dumps(CAPTURED_RESPONSE))
+            # Each leg carries its own side since 2026-09-14 (an Under is
+            # the NO of its Over market); a bare pair means `side`.
             payload["market"]["mve_selected_legs"] = [
-                {"event_ticker": e, "market_ticker": m, "side": side}
-                for e, m in reversed(list(legs))
+                {"event_ticker": e, "market_ticker": m,
+                 "side": rest[0] if rest else side}
+                for e, m, *rest in reversed(list(legs))
             ]
             return payload
 
@@ -971,6 +974,93 @@ class TestPricing:
             assert leg["label"] != leg["market_ticker"]
             assert leg["league"]
             assert isinstance(leg["commence_ms"], int)
+
+
+class TestAnUnderLegReachesTheVenueAsNo:
+    """The side travels: tap -> `resolve_requested_legs` -> `lookup_combo`
+    body -> `parlay_lookups.selected_legs`. Mutation observed red: the route
+    dropping `l.side` from the tuple -- the Under request then resolves to
+    the Over leg of the same market and the row records "yes"."""
+
+    async def test_the_tapped_side_is_posted_and_recorded(
+        self, build, tmp_path, monkeypatch
+    ):
+        from tests.test_parlays_api import seed_total
+
+        events = ("KXMLBTOTAL-t0", "KXMLBTOTAL-t1")
+        app, _, path = build(
+            book_payload=POPULATED_BOOK,
+            collections=[FakeCollections(events)],
+        )
+        conn = store.connect(path)
+        # Under likelier on both, so the card's likeliest legs are NO legs.
+        seed_total(conn, game="t0", line=8.5, p=0.40)
+        seed_total(conn, game="t1", line=9.5, p=0.38)
+        conn.commit()
+        conn.close()
+
+        posted: list = []
+        real = parlays.lookup_combo
+
+        async def recording(api, collection_ticker, legs, **kw):
+            posted.append(list(legs))
+            return await real(api, collection_ticker, legs, **kw)
+
+        monkeypatch.setattr(parlays, "lookup_combo", recording)
+
+        body = (await get(app, "/api/parlays")).json()
+        card = next(c for c in body["cards"] if c["key"] == "totals")
+        assert card["not_built_reason"] is None, card
+        assert {l["side"] for l in card["legs"]} == {"no"}
+        legs = [
+            {"event_ticker": l["event_ticker"], "market_ticker": l["ticker"],
+             "side": l["side"]}
+            for l in card["legs"]
+        ]
+        result = (await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "totals", "legs": legs}, headers=HEADERS,
+        )).json()
+        assert result["status"] == "priced", result
+
+        assert posted and all(side == "no" for _, _, side in posted[0])
+        recorded = json.loads(_lookup_rows(path)[-1]["selected_legs"])
+        assert {l["side"] for l in recorded} == {"no"}
+        assert all(l["label"].startswith("Under ") for l in recorded)
+
+    async def test_asking_for_the_side_the_desk_did_not_serve_is_refused(
+        self, build
+    ):
+        """The Under is served; the YES of the same market is a different
+        bet. A client that names the market with the wrong side is refused
+        by name rather than quietly priced on the other side."""
+        from tests.test_parlays_api import seed_total
+
+        events = ("KXMLBTOTAL-t0", "KXMLBTOTAL-t1")
+        app, _, path = build(collections=[FakeCollections(events)])
+        conn = store.connect(path)
+        seed_total(conn, game="t0", line=8.5, p=0.40)
+        seed_total(conn, game="t1", line=9.5, p=0.38)
+        conn.commit()
+        conn.close()
+        body = (await get(app, "/api/parlays")).json()
+        card = next(c for c in body["cards"] if c["key"] == "totals")
+        legs = [
+            {"event_ticker": l["event_ticker"], "market_ticker": l["ticker"],
+             "side": "yes"}
+            for l in card["legs"]
+        ]
+        # The YES legs of these markets ARE in the pool (the Over rows), so
+        # this prices the overs -- a different card, but each leg is one the
+        # desk serves. What must not happen is silent side substitution.
+        result = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "totals", "legs": legs}, headers=HEADERS,
+        )
+        assert result.status_code == 200
+        recorded = json.loads(_lookup_rows(path)[-1]["selected_legs"])
+        assert {l["side"] for l in recorded} == {"yes"}
+        assert all(l["label"].startswith("Over ") for l in recorded)
 
 
 class TestThePayoutCannotExceedTheBook:

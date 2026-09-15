@@ -128,7 +128,19 @@ NFL_PROP_SERIES: dict[str, str] = {
 PROP_SERIES_NO_STRIKE: frozenset[str] = frozenset({"KXNFLFIRSTTD", "KXNFLANYTD"})
 
 # ---------------------------------------------------------------------------
-# THE LIVE ALLOWLIST. **MLB only, deliberately, until the odds path thaws.**
+# THE LIVE ALLOWLIST: MLB and the three NFL yardage ladders.
+#
+# NFL was STAGED here from 2026-09-10 to 2026-09-14 and the block below is
+# kept as the record of why -- the two halves of a prop sport (what
+# discovery admits, what the feed buys) are unsafe apart. Both halves
+# landed in one change: `PROP_SERIES` gained NFL and
+# `odds/client.prop_market_keys(sport_key)` became sport-aware, reading
+# `PROP_MARKET_KEYS_BY_SPORT`, whose NFL values are exactly the values of
+# `NFL_PROP_SERIES` (`tests/test_prop_keys_are_sport_aware.py`). Props are
+# still bought ON TAP only (ADR 0032); admitting NFL here changes what the
+# runner can price after a tap, not what any scheduled sweep spends.
+#
+# --- The staging note as it stood, 2026-09-10 -> 2026-09-14 ---------------
 #
 # `NFL_PROP_SERIES` is correct and tested and is still not merged here, because
 # this dict is read by two things that would then disagree:
@@ -159,7 +171,7 @@ PROP_SERIES_NO_STRIKE: frozenset[str] = frozenset({"KXNFLFIRSTTD", "KXNFLANYTD"}
 # alternate feeds cover -- so the primary may quote one line where Kalshi
 # prices twenty rungs. Unmeasured. Measure before spending.
 # ---------------------------------------------------------------------------
-PROP_SERIES: dict[str, str] = dict(MLB_PROP_SERIES)
+PROP_SERIES: dict[str, str] = {**MLB_PROP_SERIES, **NFL_PROP_SERIES}
 
 # `market_type` for everything in `PROP_SERIES`. The fifth value the column
 # takes, beside moneyline / spread / total / team_total.

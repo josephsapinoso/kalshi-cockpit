@@ -938,10 +938,41 @@ class TestTheRefreshableEndpointStatesTheSpend:
         # prop half is a whole number of regions times the key count.
         prop_half = mlb["prop_credits"] - mlb["team_credits"]
         assert prop_half > 0
-        assert prop_half % len(prop_market_keys()) == 0
+        assert prop_half % len(prop_market_keys("baseball_mlb")) == 0
         assert ncaaf["prop_markets_available"] is False
         assert ncaaf["prop_credits"] is None
         assert ncaaf["team_credits"] == mlb["team_credits"]
+
+    async def test_the_prop_price_is_per_sport_not_the_union(
+        self, live_app, app_db
+    ):
+        """NFL buys three yardage keys, MLB five. Quoting the union (eight)
+        would overstate an NFL tap by the five MLB keys it does not buy.
+        Mutation: `prop_market_keys` returning `PROP_BASE_MARKETS` makes the
+        two prop halves equal and this fails."""
+        c = db.init_db(app_db)
+        add_fixture(
+            c, sport_key="americanfootball_nfl", odds_event_id="n1",
+            commence_ms=db.now_ms() + 3 * HOUR, fetched_ms=db.now_ms(),
+        )
+        add_fixture(
+            c, sport_key="baseball_mlb", odds_event_id="m1",
+            commence_ms=db.now_ms() + 3 * HOUR, fetched_ms=db.now_ms(),
+        )
+        c.close()
+        by_sport = {
+            s["sport_key"]: s for s in (await self._get(live_app)).json()["sports"]
+        }
+        from backend.odds.client import prop_market_keys
+
+        nfl, mlb = by_sport["americanfootball_nfl"], by_sport["baseball_mlb"]
+        assert nfl["prop_markets_available"] is True
+        nfl_half = nfl["prop_credits"] - nfl["team_credits"]
+        mlb_half = mlb["prop_credits"] - mlb["team_credits"]
+        regions = mlb_half // len(prop_market_keys("baseball_mlb"))
+        assert regions >= 1
+        assert nfl_half == regions * len(prop_market_keys("americanfootball_nfl"))
+        assert nfl_half < mlb_half
 
     async def test_an_accepted_tap_moves_the_manual_tally(self, live_app, app_db):
         response = await self._get(live_app)

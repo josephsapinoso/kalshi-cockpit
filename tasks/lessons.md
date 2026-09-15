@@ -16,6 +16,45 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-15 (third) - A refusal carries its premise; before inheriting the refusal, re-read the premise against what the record now holds
+
+Two refusals stood between Joe and the over/under and player-prop parlays
+he asked for today, and both were inherited rather than re-read. ADR 0110
+"killed, not deferred" player props because a prop key "multiplies every
+call by the roster" - but this vendor bills a prop event per market key per
+region, and ADR 0079 in the same repo had measured it (five keys, two
+regions, ten credits) two weeks earlier. ADR 0110 refused totals "this
+season" on a projection - the largest observed day times 1.5 crosses the
+cap - and the NFL Sunday it was written to protect had by now been measured
+at 236 credits, one third of the cap, with the number sitting in
+`api_credits` where one `credits-day` call reads it. Ticket #36 then closed
+on the inherited kill without opening either premise.
+
+The shape: a refusal is written with a premise (a billing rule, a
+projection) and later readers inherit the refusal without the premise,
+because the refusal is the sentence that gets quoted. A premise can be
+falsified by the repo's own record - a measurement doc, an earlier ADR, a
+table - without anyone noticing, because nothing links the refusal to the
+fact it rests on.
+
+Three rules:
+
+- **Quote a refusal with its premise, never alone.** "ADR 0110 killed
+  props" is incomplete; "ADR 0110 killed props because it believed props
+  bill per player" is checkable in a grep.
+- **A refusal on a projection names the measurement that would overturn
+  it, and the date it becomes available.** ADR 0110 SS2 named 2026-09-13's
+  Sunday in its own text and nobody read the number back against it.
+- **When a request collides with a refusal, check the premise first, not
+  the request.** Half of today's plan was reading two ADRs against one
+  billing constant and one `credits-day` output; the build followed from
+  that, not from arguing the request.
+
+Where the cost landed: two ADR sections and a closed ticket that said the
+opposite of what the record supported for four days. Where it went: ADR
+0152 SS1, which names each overturned premise beside the fact that
+overturns it; this entry.
+
 ## 2026-09-15 (second) - A guard that pins a coordinate goes red on an unrelated edit; update the pin, never loosen the guard, and say in the pin what it is really guarding
 
 Two guards went red tonight on commits that did not touch what they guard.

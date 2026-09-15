@@ -18,7 +18,7 @@ first of the server-side checks.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -214,6 +214,10 @@ class ParlayRequest(BaseModel):
 class ParlayLookupLeg(BaseModel):
     event_ticker: str
     market_ticker: str
+    #: Which side of the market the leg buys. `"no"` is the Under of a total
+    #: or prop (2026-09-14); defaulted to `"yes"` so a client that never
+    #: learned the field still means what it always meant.
+    side: Literal["yes", "no"] = "yes"
 
 
 class ComboBidRequest(BaseModel):

@@ -493,7 +493,19 @@ primary_region = "ord"
   # rewritten first, and that is a separate decision with its own ADR.
   #
   # `docs/measurements/2026-08-16-nfl-ncaaf-scope-and-cost.md`.
-  ODDS_MARKETS = "h2h,spreads"
+  #
+  # **`totals` added 2026-09-14 on Joe's word (ADR 0152).** Everything above
+  # about totals having no consumer was true until that day and is kept as
+  # the record; the consumer is now `runner._price_totals_event` (fair rows
+  # for the parlay desk's "Three totals" card) and total events inherit
+  # their game's link (`TOTAL_LINK_METHOD`). Every scheduled call is now
+  # 3 x 2 = 6 credits. The measured NFL Sunday before this (2026-09-13) was
+  # 236 credits at 4 a call, so ~354 here; the largest observed day (496,
+  # 2026-09-05) would have been ~744 against this file's 700 cap, and when
+  # the cap binds every sport stops. Registered check: `credits-day
+  # --date 20260920`, beside 20260913. ADR 0110 SS2 refused this on the
+  # projection; ADR 0152 SS1 takes it on the measurement.
+  ODDS_MARKETS = "h2h,spreads,totals"
 
   # **Scheduled prop buying, and it is OFF.** ADR 0032.
   #

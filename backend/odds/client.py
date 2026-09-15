@@ -125,50 +125,92 @@ TEAM_MARKETS = frozenset({"h2h", "spreads", "totals"})
 # These are **per-event** markets: they are not returned by `/sports/{k}/odds`
 # and must be requested through `fetch_props`. Kept in one set so the parser's
 # "every market key is explicitly classified" rule still holds for them.
-PROP_BASE_MARKETS = (
+#: The five MLB prop keys. The sport's Kalshi ladders are
+#: `kalshi/props.MLB_PROP_SERIES`, whose values are exactly these.
+MLB_PROP_BASE_MARKETS = (
     "pitcher_strikeouts",
     "batter_total_bases",
     "batter_hits",
     "batter_home_runs",
     "batter_rbis",
 )
+
+#: The three NFL yardage keys, the vendor's own spelling (read from its market
+#: table 2026-09-10; a wrong key does not error, it buys nothing). Their
+#: Kalshi ladders are `kalshi/props.NFL_PROP_SERIES`, whose values are exactly
+#: these -- `tests/test_prop_keys_are_sport_aware.py` pins the two together,
+#: because the feed side and the discovery side of a prop sport must open in
+#: the same change (ADR 0140 SS4.2).
+NFL_PROP_BASE_MARKETS = (
+    "player_pass_yds",
+    "player_reception_yds",
+    "player_rush_yds",
+)
+
+#: **The per-sport key map. The count per sport is that sport's price.**
+#:
+#: `prop_market_keys(sport_key)` reads this. It is a map rather than one flat
+#: list because The Odds API bills a prop event at one credit per market key
+#: per region, and a flat list would buy NFL keys on every MLB event (five to
+#: eight, three of them returning nothing) and MLB keys on every NFL event.
+#: `PROP_MARKET_SPORTS` is its key set, so "can this sport buy props" and
+#: "which keys" cannot disagree.
+PROP_MARKET_KEYS_BY_SPORT: dict[str, tuple[str, ...]] = {
+    "baseball_mlb": MLB_PROP_BASE_MARKETS,
+    "americanfootball_nfl": NFL_PROP_BASE_MARKETS,
+}
+
+#: Every base prop key any sport buys, flat. **This is the parser's and the
+#: pool's set, not a request list**: `PROP_MARKETS` (with the `_alternate`
+#: twins, for reading stored rows) and `PRICEABLE_MARKETS` derive from it, and
+#: `parlays._PROP_MARKETS` gates the ladder's prop arm on it. Nothing requests
+#: it whole -- requests go through `prop_market_keys(sport_key)`.
+PROP_BASE_MARKETS: tuple[str, ...] = tuple(
+    k for keys in PROP_MARKET_KEYS_BY_SPORT.values() for k in keys
+)
 PROP_MARKETS = frozenset(PROP_BASE_MARKETS) | {
     f"{m}{ALTERNATE_SUFFIX}" for m in PROP_BASE_MARKETS
 }
 
-# The sport those keys belong to. **Not a per-sport key map** -- that is the
-# NFL build ticket #36 declined -- only the fact a refusal needs: every key in
-# `PROP_BASE_MARKETS` is a baseball market, so a prop request on any other
-# sport asks the provider for batter markets against a football game. The
-# provider answers with nothing useful and may still bill the call (#37).
-PROP_MARKET_SPORTS = frozenset({"baseball_mlb"})
+# The sports whose prop keys this desk can buy. A prop request on any other
+# sport would ask the provider for markets that do not exist for that game;
+# the provider answers with nothing useful and may still bill the call (#37).
+PROP_MARKET_SPORTS = frozenset(PROP_MARKET_KEYS_BY_SPORT)
 
 
 def sport_has_prop_markets(sport_key: str) -> bool:
-    """Whether `prop_market_keys()` means anything for this sport.
+    """Whether `prop_market_keys(sport_key)` names anything for this sport.
 
-    `prop_market_keys()` is sport-unaware by design (one definition, because
-    the count is a price). This is the companion question every prop *buyer*
-    must ask first: `/api/odds/refresh` refuses a prop tap on a sport whose
-    props it cannot buy, `/api/odds/refreshable` quotes no prop price for it,
-    and `runner.fetch_and_store_props` will not call the provider for it even
-    when handed a named fixture. Three callers, one predicate, so the day an
-    NFL key set lands here is the day all three open together.
+    The companion question every prop *buyer* must ask first:
+    `/api/odds/refresh` refuses a prop tap on a sport whose props it cannot
+    buy, `/api/odds/refreshable` quotes no prop price for it, and
+    `runner.fetch_and_store_props` will not call the provider for it even when
+    handed a named fixture. Three callers, one predicate, and the predicate is
+    the key map's own key set, so a sport cannot be "available" with no keys.
     """
     return sport_key in PROP_MARKET_SPORTS
 
 
-def prop_market_keys() -> list[str]:
-    """The keys `fetch_props` requests, in request order.
+def prop_market_keys(sport_key: str) -> list[str]:
+    """The keys `fetch_props` requests for one sport, in request order.
 
-    **One definition, because the count is a price.** The Odds API bills a prop
-    event at one credit per market key per region, so `len()` of this list is
-    half of what a prop event costs. It has two callers that must agree:
-    `runner.fetch_and_store_props`, which requests them, and
+    **One definition per sport, because the count is a price.** The Odds API
+    bills a prop event at one credit per market key per region, so `len()` of
+    this list is half of what a prop event costs. It has two callers that
+    must agree: `runner.fetch_and_store_props`, which requests them, and
     `odds.timing.decide_sweeps`, which reserves credits for them before
     authorising the sweep that triggers the request. A planner reserving for
     five keys against a fetch requesting ten is the shape of the 2026-08-15
-    outage, one level up.
+    outage, one level up. (The planner takes one figure for every sport and is
+    handed the largest; over-reserving is the safe direction.)
+
+    The argument is required: a call without a sport was the shape that
+    bought batter markets against football games (#37), and there is no
+    sport-free answer to "what does a prop event cost".
+
+    An empty list for a sport with no keys -- the caller must have asked
+    `sport_has_prop_markets` first, and a request for zero markets is refused
+    by `fetch_props` before any call.
 
     **The `_alternate` twins are NOT requested, and this halves the price of a
     prop event.** They were, until 2026-08-27. Counted off the committed dump
@@ -199,7 +241,23 @@ def prop_market_keys() -> list[str]:
     rows must stay readable: this stops us *buying* them, not *understanding*
     them.
     """
-    return list(PROP_BASE_MARKETS)
+    return list(PROP_MARKET_KEYS_BY_SPORT.get(sport_key, ()))
+
+
+def max_prop_cost_per_event(regions) -> int:
+    """The dearest prop event any sport can bill, for the planner's reserve.
+
+    `decide_sweeps` takes one `prop_cost_per_event` for every sport. Reserving
+    the maximum over-reserves for the cheaper sport, which is the safe
+    direction (the 2026-08-15 outage was the other one). The exact per-sport
+    figure is what the tap route and `/api/odds/refreshable` quote.
+    """
+    from .budget import sweep_cost
+
+    return max(
+        (sweep_cost(keys, regions) for keys in PROP_MARKET_KEYS_BY_SPORT.values()),
+        default=0,
+    )
 
 PRICEABLE_MARKETS = TEAM_MARKETS | PROP_MARKETS
 
@@ -469,7 +527,7 @@ class OddsClient:
         whose call failed at transport level is logged and skipped rather than
         aborting the batch -- one bad event must not cost the other thirteen.
         """
-        markets = list(markets or prop_market_keys())
+        markets = list(markets or prop_market_keys(sport_key))
         regions = list(regions or self.config.regions)
         per_event_cost = sweep_cost(markets, regions)
 

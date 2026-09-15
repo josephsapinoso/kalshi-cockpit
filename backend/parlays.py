@@ -67,6 +67,12 @@ from backend.kalshi.spreads import (
 )
 from backend.match.linker import load_aliases, resolve_outcome
 from backend.odds.client import PROP_BASE_MARKETS
+from backend.kalshi.totals import (
+    TOTALS_MARKET,
+    parse_total_subtitle,
+    total_book_point,
+    total_line_agrees,
+)
 from backend.store.db import ask_for_side
 
 logger = logging.getLogger(__name__)
@@ -364,6 +370,18 @@ def _live_age_ms(row, *, now_ms: int) -> Optional[int]:
 _TEAM_MARKETS: frozenset[str] = frozenset({"h2h", "spreads"})
 _PROP_MARKETS: frozenset[str] = frozenset(PROP_BASE_MARKETS)
 
+#: Every `fair_prices.market` the candidate scan admits, in the order the
+#: SQL names them. **One list, interpolated into `CANDIDATE_SQL` once**,
+#: so adding a prop sport's keys (`PROP_BASE_MARKETS` grows) or a market
+#: class widens the scan without a hand-typed second copy that can lag it
+#: -- `tests/test_ladder_query_is_indexed.py` caught exactly that lag when
+#: NFL keys landed. The values are string literals with no user input, so
+#: the interpolation is a build-time constant, not a query parameter.
+POOL_MARKETS: tuple[str, ...] = (
+    "h2h", "spreads", TOTALS_MARKET, *PROP_BASE_MARKETS,
+)
+_POOL_MARKETS_SQL: str = ", ".join(f"'{m}'" for m in POOL_MARKETS)
+
 
 #: How far back `ladder_candidates` reads `fair_prices` at all.
 #:
@@ -608,9 +626,7 @@ CANDIDATE_SQL = """
             WHERE odds_event_id IN (SELECT odds_event_id FROM event_links)
             GROUP BY odds_event_id
         ) o ON o.odds_event_id = l.odds_event_id
-        WHERE f.market IN ('h2h', 'spreads', 'pitcher_strikeouts',
-                          'batter_total_bases', 'batter_hits',
-                          'batter_home_runs', 'batter_rbis')
+        WHERE f.market IN (__POOL_MARKETS__)
           -- **Either stamp, since the ladder-scan-keys-on-the-confirmed-
           -- stamp fix.** `computed_ms` freezes at first appearance (ADR
           -- 0133) and only `confirmed_ms` moves on a row that keeps getting
@@ -628,7 +644,7 @@ CANDIDATE_SQL = """
         )
         WHERE rn = 1
         ORDER BY computed_ms DESC
-        """
+        """.replace("__POOL_MARKETS__", _POOL_MARKETS_SQL)
 
 
 class CandidatePool(NamedTuple):
@@ -745,7 +761,7 @@ def candidate_pool(
             "strike, status "
             "FROM kalshi_markets WHERE event_ticker = ? "
             "AND ("
-            "  (market_type IN ('moneyline', 'spread') "
+            "  (market_type IN ('moneyline', 'spread', 'total') "
             "   AND yes_side_team IS NOT NULL)"
             "  OR (market_type = 'prop' AND player_name IS NOT NULL "
             "      AND strike IS NOT NULL)"
@@ -913,12 +929,17 @@ def ladder_candidates(
         # `outcomes_by_link` as a pick.
         matched = None
         label = f"{outcome} to win"
+        # Which side of the matched market this row buys. Team and spread rows
+        # are YES by construction; a prop or total row is YES on its Over and
+        # NO on its Under -- the same Kalshi market, the other side.
+        side = "yes"
         if market in _PROP_MARKETS:
-            # Kalshi sells the ladder rung as YES = Over (`runner.py:1524`).
-            # The Under is that market's NO, not a leg — skipped without a
-            # count, exactly as the +S spread side is below.
-            if outcome != "Over":
+            # Kalshi sells the ladder rung as YES = Over (`runner.py:1524`);
+            # the Under is that market's NO, and since 2026-09-14 it is a
+            # leg too, bought as `side = "no"`.
+            if outcome not in ("Over", "Under"):
                 continue
+            side = "yes" if outcome == "Over" else "no"
             if player is None or point is None:
                 count("prop_row_missing_player_or_line")
                 continue
@@ -937,6 +958,43 @@ def ladder_candidates(
                     matched = None
                 else:
                     label = raw.rstrip("?").strip()
+                    if side == "no":
+                        # Kalshi's own phrasing, prefixed so the reader sees
+                        # the bet is AGAINST the rung: "NO on Anthony Kay: 6+
+                        # strikeouts" is the under at 5.5.
+                        label = f"NO on {label}"
+        elif market == TOTALS_MARKET:
+            # Kalshi sells the total as YES = Over ("Over 8.5 runs scored");
+            # the Under is that market's NO, bought as `side = "no"`.
+            if outcome not in ("Over", "Under"):
+                continue
+            side = "yes" if outcome == "Over" else "no"
+            if point is None:
+                count("total_row_missing_line")
+                continue
+            for m in markets_by_event.get(row["kalshi_event_ticker"], []):
+                if m["market_type"] != "total" or m["strike"] is None:
+                    continue
+                parsed_line = parse_total_subtitle(m["yes_side_team"])
+                if parsed_line is None:
+                    continue
+                # The subtitle's line cross-checked against `floor_strike`,
+                # then through the ONE identity (`totals.total_book_point`)
+                # -- the same discipline as the spread arm, for the same
+                # reason.
+                if not total_line_agrees(parsed_line, m["strike"]):
+                    count("total_line_disagrees")
+                    continue
+                if total_book_point(parsed_line) != float(point):
+                    continue
+                matched = m
+                # Kalshi's own phrasing, verbatim -- and for the NO side,
+                # Kalshi's phrasing with "Over" turned to "Under", which is
+                # what buying NO on "Over 8.5 runs scored" pays on.
+                label = m["yes_side_team"]
+                if side == "no":
+                    label = "Under " + label[len("Over "):]
+                break
         elif market == "spreads":
             point_val = float(point) if point is not None else None
             if point_val is None or point_val >= 0:
@@ -980,8 +1038,12 @@ def ladder_candidates(
                     matched = m
                     break
         if matched is None:
-            count("prop_no_kalshi_rung" if market in _PROP_MARKETS
-                  else "no_kalshi_market")
+            if market in _PROP_MARKETS:
+                count("prop_no_kalshi_rung")
+            elif market == TOTALS_MARKET:
+                count("total_no_kalshi_rung")
+            else:
+                count("no_kalshi_market")
             continue
         if (matched["status"] or "").lower() in _TERMINAL_STATUSES:
             count("market_closed")
@@ -1022,8 +1084,13 @@ def ladder_candidates(
                 league=league,
                 commence_ms=row["commence_ms"],
                 market=market,
-                # A prop has no team, and the player never stands in for one.
-                team=None if market in _PROP_MARKETS else outcome,
+                # A prop has no team, and the player never stands in for one;
+                # a total has no team either, and "Over" is not one.
+                team=(
+                    None
+                    if market in _PROP_MARKETS or market == TOTALS_MARKET
+                    else outcome
+                ),
                 point=point,
                 # **Kalshi's spelling, not the book's.** The two genuinely
                 # disagree on diacritics -- `norm` folds them so the join
@@ -1045,6 +1112,7 @@ def ladder_candidates(
                 book_count=row["book_count"],
                 books_used_json=row["books_used"],
                 anchored_on_sharp=bool(row["anchored_on_sharp"]),
+                side=side,
             )
         )
 
@@ -1306,10 +1374,11 @@ def _serialise_leg(
     `tests/test_parlays_api.py` walks the keys to keep it that way.
     """
     facts = facts or dict(_NO_FACTS)
-    # A spread leg has no `recommendations` row by construction, so "no
-    # verdict" means the checks did not run rather than that they passed.
+    # A spread or total leg has no `recommendations` row by construction,
+    # so "no verdict" means the checks did not run rather than that they
+    # passed.
     skeptic = facts["skeptic"]
-    if skeptic == "absent" and leg.market == "spreads":
+    if skeptic == "absent" and leg.market in ("spreads", TOTALS_MARKET):
         skeptic = "not_on_this_path"
     return {
         "ticker": leg.kalshi_market_ticker,
@@ -1326,6 +1395,10 @@ def _serialise_leg(
         "commence_ms": leg.commence_ms,
         "market": leg.market,
         "point": leg.point,
+        #: Which side of `ticker` this leg buys -- "yes", or "no" on the
+        #: Under of a total or prop. The lookup tap echoes it back with the
+        #: tickers, and the venue is asked for exactly that side.
+        "side": leg.side,
         "fair_percent_display": _percent(leg.p_conservative),
         # --- What Kalshi charges, beside what the consensus says it is worth.
         "ask_display": facts["ask_display"],
@@ -2105,14 +2178,14 @@ def leg_details_for(selected: Sequence[CandidateLeg]) -> dict[tuple[str, str], d
     combination bought through the desk can be recorded as a position without
     a second lookup call -- see `_record_lookup`.
 
-    `side` is `"yes"` and is **structural, not a guess**: `CandidateLeg` is
-    "one buyable YES side" by its own definition, and `echoed_legs(...,
-    side="yes")` is what this repo puts on the wire to Kalshi. A combination
-    leg has no other side to be on.
+    `side` is the leg's own (`CandidateLeg.side`): `"yes"` on every team and
+    spread leg, `"no"` on the Under of a total or prop, and it is exactly the
+    side posted to Kalshi for that leg. Since 2026-09-14; before that every
+    leg was YES by construction.
     """
     return {
         (leg.kalshi_event_ticker, leg.kalshi_market_ticker): {
-            "side": "yes",
+            "side": leg.side,
             "label": leg.label,
             "league": leg.league,
             "commence_ms": leg.commence_ms,
@@ -2306,6 +2379,19 @@ def _commence_ms_for_tickers(
     return {row["ticker"]: row["commence_ms"] for row in rows}
 
 
+def _with_sides(legs: Sequence[tuple]) -> list[tuple[str, str, str]]:
+    """`(event, market)` or `(event, market, side)` -> always three.
+
+    A missing side is `"yes"`: every leg was YES before 2026-09-14, and a
+    caller still speaking that shape means the same thing it always did.
+    """
+    out: list[tuple[str, str, str]] = []
+    for entry in legs:
+        event, market, *rest = entry
+        out.append((str(event), str(market), str(rest[0]) if rest else "yes"))
+    return out
+
+
 def commence_for_tickers_sql(n: int) -> str:
     """The statement `_commence_ms_for_tickers` issues, for `n` tickers.
 
@@ -2331,12 +2417,18 @@ def resolve_requested_legs(
     *,
     conn,
     card_key: str,
-    requested_legs: Sequence[tuple[str, str]],
+    requested_legs: Sequence[tuple],
     max_odds_age_ms: int,
     now_ms: int,
     horizon: str = DEFAULT_HORIZON,
 ) -> list[CandidateLeg]:
     """The legs the reader tapped, checked one at a time, or a refusal.
+
+    Each requested leg is `(event_ticker, market_ticker)` or
+    `(event_ticker, market_ticker, side)`; a missing side means `"yes"`, the
+    only side there was before 2026-09-14. The side is part of the leg's
+    identity here: a NO leg the pool serves is not the same leg as the YES
+    of the same market, and asking for the wrong one is refused by name.
 
     **This replaces a set-equality check, and the reason is a bug Joe hit on
     2026-08-30.** The old rule was `served == requested`: the ladder was
@@ -2375,7 +2467,7 @@ def resolve_requested_legs(
     desk serves; see that fork below for the three sentences and why there
     are only three.
     """
-    requested = list(dict.fromkeys(requested_legs))
+    requested = list(dict.fromkeys(_with_sides(requested_legs)))
     if not requested:
         raise LookupRefused(400, "no legs were sent to price.")
 
@@ -2391,7 +2483,7 @@ def resolve_requested_legs(
         )
 
     by_key = {
-        (leg.kalshi_event_ticker, leg.kalshi_market_ticker): leg
+        (leg.kalshi_event_ticker, leg.kalshi_market_ticker, leg.side): leg
         for leg in candidates
     }
     # **Only for legs the pool cannot answer for**, and only their kickoffs --
@@ -2402,14 +2494,14 @@ def resolve_requested_legs(
     # still ask for is when the game the ticker names actually kicks off.
     missing_tickers = [
         market_ticker
-        for event_ticker, market_ticker in requested
-        if (event_ticker, market_ticker) not in by_key
+        for event_ticker, market_ticker, side in requested
+        if (event_ticker, market_ticker, side) not in by_key
     ]
     kickoffs = _commence_ms_for_tickers(conn, missing_tickers)
     selected: list[CandidateLeg] = []
     refusals: list[str] = []
-    for event_ticker, market_ticker in requested:
-        leg = by_key.get((event_ticker, market_ticker))
+    for event_ticker, market_ticker, side in requested:
+        leg = by_key.get((event_ticker, market_ticker, side))
         if leg is None:
             # Absent from the pool entirely. Until 2026-09-10 this guessed
             # "the game has started, or it is past tonight's last game" for
@@ -2503,7 +2595,7 @@ async def price_card_on_kalshi(
     *,
     card_key: str,
     stake_cents: int,
-    requested_legs: Sequence[tuple[str, str]],
+    requested_legs: Sequence[tuple],
     now_ms: int,
     max_odds_age_ms: int,
     api,
@@ -2570,19 +2662,29 @@ async def price_card_on_kalshi(
         # reader.
         _record_lookup(
             conn, now_ms=now_ms, card_key=card_key, stake_cents=stake_cents,
-            legs=list(requested_legs), status="refused", error=exc.detail,
+            legs=[(e, m) for e, m, _ in _with_sides(requested_legs)],
+            status="refused", error=exc.detail,
             leg_details={
-                (e, m): {"horizon": horizon} for e, m in requested_legs
+                (e, m): {"horizon": horizon, "side": s}
+                for e, m, s in _with_sides(requested_legs)
             },
         )
         raise
     served = {(l.kalshi_event_ticker, l.kalshi_market_ticker) for l in selected}
+    # The side each served leg buys, for the wire. Keyed on the pair because
+    # `resolve_requested_legs` already refused two legs on one market.
+    sides = {
+        (l.kalshi_event_ticker, l.kalshi_market_ticker): l.side for l in selected
+    }
 
     # `sorted`, not `list`: `served` is a set, so its iteration order varies
     # by hash seed across processes. That order is what goes on the wire to
     # Kalshi and into `selected_legs`, which makes the audit table's rows
     # incomparable between restarts for no reason at all.
     legs = sorted(served)
+    # What goes to Kalshi: each leg with its own side. `legs` (pairs) stays
+    # the audit table's shape; the side rides in `leg_details`.
+    wire_legs = [(e, m, sides[(e, m)]) for e, m in legs]
     try:
         collections = await _collections(api, now_ms=now_ms)
     except LookupRefused as exc:
@@ -2667,7 +2769,7 @@ async def price_card_on_kalshi(
 
     try:
         response = await lookup_combo(
-            api, collection.collection_ticker, legs,
+            api, collection.collection_ticker, wire_legs,
             side="yes", allow_market_creation=True,
         )
     except Exception as exc:  # noqa: BLE001 -- recorded, then re-raised as words
@@ -2716,7 +2818,7 @@ async def price_card_on_kalshi(
     # proceeds, because the market exists either way and refusing would lose a
     # real ticker off the audit table for a field Kalshi merely stopped
     # sending. A mismatch is different and does refuse.
-    echo = echoed_legs(legs, response, side="yes")
+    echo = echoed_legs(wire_legs, response, side="yes")
     if echo.verdict != "match":
         logger.warning(
             "combo leg echo %s on %s: %s", echo.verdict, minted, echo.detail

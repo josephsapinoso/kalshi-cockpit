@@ -10,6 +10,7 @@ import {
 import FilterBar from "@/components/FilterBar";
 import WindowPicker from "@/components/WindowPicker";
 import ParlayCards from "@/components/ParlayCards";
+import RefreshOddsPanel from "@/components/RefreshOddsPanel";
 import Term from "@/components/Term";
 
 export const dynamic = "force-dynamic";
@@ -167,6 +168,19 @@ export default async function ParlaysPage({
         actionable={actionable}
         refreshable={refreshable}
       />
+      {/*
+        The prop card's door is the per-game prop tap (ADR 0032: props are
+        bought on tap, never on the schedule), and until 2026-09-14 that tap
+        lived only on /board and /slate. Mounted here, collapsed, below the
+        cards, so "needs 2 fresh games with a player prop" sits above the
+        control that buys one.
+      */}
+      <details className="mt-8 rounded border border-border p-3">
+        <summary className="cursor-pointer text-sm font-semibold">
+          Refresh the odds
+        </summary>
+        <RefreshOddsPanel actionable={actionable} />
+      </details>
     </Shell>
   );
 }

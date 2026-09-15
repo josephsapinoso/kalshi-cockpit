@@ -829,6 +829,9 @@ export type ParlayCardLeg = {
   commence_ms: number;
   market: string;
   point: number | null;
+  /** Which side of `ticker` this leg buys: "no" is the Under of a total or
+   *  prop, the NO of Kalshi's Over market. Echoed back on the lookup tap. */
+  side: "yes" | "no";
   fair_percent_display: string;
   /** Kalshi's derived ask. `null` when the book is one-sided — no price to pay. */
   ask_display: string | null;
@@ -1148,7 +1151,7 @@ export type ParlayLookupResult =
 export async function lookupParlay(
   cardKey: string,
   stakeCents: number,
-  legs: { event_ticker: string; market_ticker: string }[],
+  legs: { event_ticker: string; market_ticker: string; side: "yes" | "no" }[],
   horizon?: ParlayHorizon,
 ): Promise<
   { ok: true; value: ParlayLookupResult } | { ok: false; refusal: string }
