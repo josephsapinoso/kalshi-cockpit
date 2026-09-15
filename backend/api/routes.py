@@ -18,6 +18,7 @@ import json
 import logging
 import secrets
 import sqlite3
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Annotated, Optional
@@ -404,6 +405,18 @@ def create_app(
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def _stamp_request_start(request: Request, call_next):
+        """Wall-clock start of every request, for the budget warning below.
+
+        The budget is per statement and the exception handler has no view of
+        when the request began, so "after 27.3s" needs a stamp taken before
+        any dependency runs. Middleware wraps the exception handler, so the
+        stamp is visible there.
+        """
+        request.state.started_at = time.monotonic()
+        return await call_next(request)
+
     @app.exception_handler(sqlite3.OperationalError)
     async def _sqlite_operational_error(
         request: Request, exc: sqlite3.OperationalError
@@ -422,9 +435,24 @@ def create_app(
         """
         if "interrupted" not in str(exc):
             raise exc
+        # The path and the elapsed time are here because the first three
+        # hits ever seen (2026-09-15 00:37-00:46Z, each inside a heavy write
+        # pass) left a log that said only that *something* was interrupted,
+        # and Fly keeps 100 lines with no request lines beside it. The stamp
+        # is set by `_stamp_request_start` below; `None` if the request never
+        # passed through it, which is not a reason to skip the warning.
+        started = getattr(request.state, "started_at", None)
+        elapsed_s = (
+            time.monotonic() - started if isinstance(started, float) else None
+        )
         logger.warning(
-            "API read connection hit its %sms budget and was interrupted",
+            "API read connection hit its %sms budget and was interrupted: "
+            "%s %s after %s",
             app_config.api_read_budget_ms,
+            request.method,
+            request.url.path
+            + (f"?{request.url.query}" if request.url.query else ""),
+            f"{elapsed_s:.1f}s" if elapsed_s is not None else "an unstamped wait",
         )
         return JSONResponse(
             status_code=503,

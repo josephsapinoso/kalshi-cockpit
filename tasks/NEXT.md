@@ -217,9 +217,12 @@ hand). No ADR: nothing decided, one script fixed, copy conditioned. Next ADR
    both sub-second two minutes later). So the blank rides on heavy write
    passes — boot's full pass, and a hand prop refresh that wrote 1,502
    quotes — on two shared vCPUs. Still a hypothesis; the route is still
-   not recorded. Next step if it recurs: log the path and elapsed on the
-   budget warning (`routes.py` — the warning has neither), which is a
-   one-line change and turns the next hit into a measurement.
+   not recorded. **Done on Joe's word the same night:** the budget
+   warning now reads `... interrupted: GET /api/slate after 27.3s` — a
+   stamp middleware records each request's start and the handler logs
+   method, path with query, and elapsed
+   (`test_the_warning_names_the_route_and_how_long_it_had_run`, two
+   mutations seen red). The next hit is a measurement.
 5. **Reservations:** none live. Next ADR **0151**; schema v41.
 
 **Struck this session:** the probe cancel (fixed); the 401 (explained,

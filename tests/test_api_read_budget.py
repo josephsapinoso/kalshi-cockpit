@@ -156,6 +156,26 @@ class TestTheRouteAnswersAReadBudgetWith503:
         assert body["budget_ms"] == 1
         assert "read budget" in body["detail"]
 
+    async def test_the_warning_names_the_route_and_how_long_it_had_run(
+        self, budget_app, caplog
+    ):
+        """The first three budget hits ever seen (2026-09-15, each inside a
+        heavy write pass) logged only that *something* was interrupted, and
+        Fly keeps 100 log lines with no request lines beside them, so the
+        route that blanked the Games screen is unrecorded. Mutations seen
+        red: the `%s %s after %s` arguments dropped from the warning; the
+        `_stamp_request_start` middleware deleted (elapsed then reads "an
+        unstamped wait", which the regex below refuses)."""
+        import re
+
+        with caplog.at_level("WARNING", logger="backend.api.routes"):
+            resp = await get(budget_app, "/api/window?days=2")
+        assert resp.status_code == 503
+        hits = [r.getMessage() for r in caplog.records if "budget" in r.getMessage()]
+        assert len(hits) == 1, hits
+        assert "GET /api/window?days=2" in hits[0], hits[0]
+        assert re.search(r"after \d+\.\ds", hits[0]), hits[0]
+
     async def test_other_operational_errors_are_not_reported_as_budget_hits(
         self, tmp_path_factory, monkeypatch
     ):
