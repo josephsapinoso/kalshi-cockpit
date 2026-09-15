@@ -120,6 +120,44 @@ The mutations were applied against a **copy** of the file, not reverted through
 `git checkout`: a prior session lost real uncommitted work in the same file
 that way (`tasks/lessons.md`).
 
+## Verified on live
+
+Deployed at `197e438`; `/api/health` reads it back and the recorder was 30.7 s.
+The bounded query ran twice on the box:
+
+    prop-bookmakers --sport baseball_mlb     0 rows   (7-day default window)
+    prop-bookmakers --since 20260901         0 rows   (every sport, 2 weeks)
+
+**Zero player-prop rows on any sport for at least two weeks** -- consistent
+with `ODDS_BUY_PROPS_ON_SCHEDULE = "false"` and 0 taps on the props card in 77
+lifetime lookups, and corroborated by today's `api_credits` rows being
+entirely `/sports/{sport}/odds`, the team path. It does not establish that no
+prop row has ever existed; that costs a scan, which is what this ADR exists to
+avoid.
+
+This reframes the finding in Context section 1 a second time: four dead book
+slots on the prop endpoint cost nothing while the prop endpoint is not being
+called.
+
+## Found while verifying, and deliberately not fixed
+
+`_SQL_PROP_RUNGS` has the same shape and a worse version of it: the `prop` CTE
+scans `odds_snapshots` unbounded, and `--odds-event-id` filters at the *outer*
+level, after that scan -- a flag that looks like a bound and is not one.
+
+It is left alone because it feeds a registered measurement harness
+(`scripts/analyze_prop_onesided.py`), so **a window would change a registered
+population**. That is a pre-registration question, not a cleanup. The
+push-down of `:event` into the CTE is separable and population-preserving and
+can be done on its own; the default window cannot. Recorded in `tasks/NEXT.md`
+with both halves named.
+
+Fixing one reader and leaving its sibling is the error this repo recorded
+earlier the same day (ADR 0154, and `tasks/lessons.md` 2026-09-15 sixth). The
+difference here is that the sibling's constraint is stated rather than
+overlooked -- which is the only form of "not yet" that does not decay into a
+phantom.
+
 ## What this does not decide
 
 - Whether any sharp book quotes player props. Unverified; see Context §1.

@@ -275,20 +275,70 @@ The next session should plan a split before writing its entry** —
 `wc -c` first, cut on a date boundary, move the index lines in the same
 edit, verify by md5 (`tasks/archive/next-split-log.md`).
 
+### Ran the bounded query on live, and the answer reframes the whole question
+
+Deployed and read back, twice, at 23:0xZ:
+
+    prop-bookmakers --sport baseball_mlb          0 rows   (7-day default window)
+    prop-bookmakers --since 20260901              0 rows   (every sport, 2 weeks)
+
+**The desk has stored ZERO player-prop rows, on any sport, for at least two
+weeks.** That is consistent and expected rather than broken:
+`ODDS_BUY_PROPS_ON_SCHEDULE = "false"`, so props are bought only on an
+explicit tap, and the props card has **0 taps in 77 lifetime lookups**
+(ADR 0154). Today's `api_credits` rows are all `/sports/{sport}/odds`, the
+team path; not one prop-endpoint call.
+
+**So the partner's proposal is answered in the opposite direction from the
+one it assumed.** Four "dead" book slots on the prop endpoint cost exactly
+nothing today, because **the prop endpoint is essentially never called.**
+Re-picking the ten books for props optimises a call that is not being made.
+The question only becomes live if scheduled props are turned on — which is
+the thing CLAUDE.md now says not to do without redoing the day's sum — or if
+Joe starts tapping the props card.
+
+**What the 0 does NOT establish:** that no prop row has *ever* existed. The
+window is two weeks by construction and finding out costs a scan, which is
+the thing ADR 0157 exists to avoid. It is not worth a scan to learn.
+
+### Found while verifying, and NOT fixed — `prop-rungs` has the same defect, worse
+
+`_SQL_PROP_RUNGS` (`inspect_live_db_decisions.py:603`) opens
+`WITH prop AS (SELECT ... FROM odds_snapshots WHERE outcome_description IS
+NOT NULL)` with **no bound**, and its `latest` CTE then does a `GROUP BY`
+over that. Its `--odds-event-id` filter is applied at the **outer** level,
+after the CTE has already scanned the table — so the flag looks like a bound
+and is not one, which is the sharpest form of "a silently ignored bound is an
+unbounded query wearing a flag."
+
+**It was deliberately not fixed, and the reason is the whole point.** This
+query feeds a registered measurement harness
+(`scripts/analyze_prop_onesided.py`; the commentary moved to that document's
+appendix on 2026-09-06, and the query's own comment says to read it before
+changing anything). **Adding a `commence_ms` floor changes the population of
+a registered analysis**, so it is a pre-registration question, not a cleanup.
+
+Two separable pieces for whoever picks it up:
+
+- **Safe and population-preserving:** push `(:event IS NULL OR
+  p.odds_event_id = :event)` down into the `prop` CTE. Identical rows when
+  `:event` is NULL, identical rows when it is set, far less scanned — it just
+  makes the existing flag real. Wants its own test.
+- **Registration-gated:** any default window. Take it to `pre-registrar`
+  first, because the harness's population is the thing being changed.
+
+**Until one of those lands, do not run `prop-rungs` on live during a slate.**
+
 ### First reads for the next session, in order
 
-1. **Run the now-bounded `prop-bookmakers` against the weekend** — free, and
-   it is the decisive read the fixture could not give:
-
-       inspect_live_db.py prop-bookmakers --since 20260917
-       inspect_live_db.py prop-bookmakers --since 20260917 --sport americanfootball_nfl
-
-   Two questions at once: does any sharp book quote props (the refused
-   finding), and **did every one of the ten named keys come back on NCAAF,
-   NFL and WNBA** — a misspelled or sport-absent key costs a slot silently.
-   Read it beside `ODDS_BOOKMAKERS`. If a gap is real, it is a decision
-   about what the desk buys, so it goes to Joe with the numbers, not
-   straight to a config edit.
+1. **`prop-bookmakers --since <the weekend> --sport <each>`, IF and only if
+   props start being bought** — it is free and bounded now, but it returned 0
+   rows tonight and will keep returning 0 while the prop endpoint is not
+   called. The live question it can still answer for free the moment any
+   sweep runs: **did every one of the ten named keys come back on NCAAF, NFL
+   and WNBA** — a misspelled or sport-absent key is silently absent and still
+   costs a slot. That one applies to the *team* path too, and the team path
+   is running: read it there.
 2. **One "Price on Kalshi" on the props card — JOE ONLY, confirmed.** It
    reaches `parlays.py:2911`, which passes `allow_market_creation=True` into
    `lookup_combo`: **it mints a market on the exchange.** A session must not
