@@ -1379,10 +1379,13 @@ def _serialise_leg(
     # reading the YES keys here printed the Over's price on the Under's row
     # until 2026-09-15 (`tests/test_under_legs.py` pins the side).
     ask_tenths, ask_display, depth_at_ask = _ask_facts_for_side(facts, leg.side)
+    # The leg's OWN side again. A prop ticker carries a `recommendations` row
+    # per side, so reading the plain keys here reported the Over's verdict --
+    # and its `checked` -- on the Under's row until 2026-09-15.
+    skeptic, suppressed_reason = _verdict_facts_for_side(facts, leg.side)
     # A spread or total leg has no `recommendations` row by construction,
     # so "no verdict" means the checks did not run rather than that they
     # passed.
-    skeptic = facts["skeptic"]
     if skeptic == "absent" and leg.market in ("spreads", TOTALS_MARKET):
         skeptic = "not_on_this_path"
     return {
@@ -1429,7 +1432,7 @@ def _serialise_leg(
         "odds_age_ms": leg.odds_age_now_ms,
         # --- What the twelve mechanical checks said, or why they are silent.
         "skeptic": skeptic,
-        "suppressed_reason": facts["suppressed_reason"],
+        "suppressed_reason": suppressed_reason,
         # --- Where the number came from, as NUMBERS rather than a summary.
         #
         # `method_spread_display` above is a summary of a distribution the
@@ -1487,7 +1490,7 @@ def _serialise_leg(
                 method_spread_points=_method_spread_points(leg),
                 depth_at_ask=depth_at_ask,
                 skeptic=skeptic,
-                suppressed_reason=facts["suppressed_reason"],
+                suppressed_reason=suppressed_reason,
                 scout=facts["scout"],
                 scout_flags=facts["scout_flags"],
             ).as_payload()
@@ -1605,6 +1608,14 @@ _NO_FACTS: dict = {
     "quote_age_ms": None,
     "skeptic": "absent",
     "suppressed_reason": None,
+    # The skeptic's verdict on the NO side of the same ticker. `_price_prop_event`
+    # writes a `recommendations` row per side (`runner.py:2017`), so an Under
+    # prop leg has a verdict of its own; reading the YES keys here stamped the
+    # OVER's verdict on the Under's row, and stamped `checked` on a NO side the
+    # skeptic had never seen, until 2026-09-15 (ADR 0154). Flat keys for the
+    # same shallow-copy reason as the `no_ask_*` block above.
+    "no_skeptic": "absent",
+    "no_suppressed_reason": None,
     # --- What the scout desk knows about this leg's GAME. See `_leg_scouting`.
     "scout": "absent",
     "scout_headline": None,
@@ -1630,6 +1641,31 @@ def _ask_facts_for_side(facts: dict, side: str) -> tuple:
             facts["no_depth_at_ask"],
         )
     raise ValueError(f"a leg's side is 'yes' or 'no', not {side!r}")
+
+
+def _verdict_facts_for_side(facts: dict, side: str) -> tuple:
+    """`(skeptic, suppressed_reason)` for the side a leg buys.
+
+    The sibling of `_ask_facts_for_side`, and it exists for the same reason:
+    a prop's Over and Under are two `recommendations` rows on ONE ticker
+    (`runner.py:2017` builds a `Candidate` per side), so a verdict read by
+    ticker alone is the Over's. Two ways that misreads, both silent:
+
+        the reason      an Under row showing the OVER's `suppressed_reason`
+        the `checked`   a YES row's mere existence stamped `checked` on the
+                        Under, claiming twelve mechanical checks ran on a
+                        side the skeptic never scored
+
+    `"yes"` reads the plain keys, `"no"` the `no_`-prefixed ones; a third
+    value is refused rather than defaulted to YES, which is the substitution
+    that put the Over's price on the Under's row on 2026-09-15.
+    """
+    if side == "yes":
+        return facts["skeptic"], facts["suppressed_reason"]
+    if side == "no":
+        return facts["no_skeptic"], facts["no_suppressed_reason"]
+    raise ValueError(f"a leg's side is 'yes' or 'no', not {side!r}")
+
 
 #: The scout half of `_NO_FACTS`, named once so `scouting_facts` cannot return
 #: a different set of keys from the one `_serialise_leg` reads.
@@ -1817,7 +1853,8 @@ def leg_facts(conn, tickers: Sequence[str], *, now_ms: int) -> dict[str, dict]:
     `skeptic` is three-valued, and the third value is why this is not a
     boolean:
 
-        checked            a `recommendations` row exists; its verdict stands
+        checked            a `recommendations` row exists FOR THIS LEG'S SIDE;
+                           its verdict stands
         not_on_this_path   a SPREAD leg. ADR 0070 keeps spread rows off the
                            recommendations path entirely ("Fair rows only, no
                            recommendations", `runner.py:1882-1884`), so the
@@ -1840,6 +1877,15 @@ def leg_facts(conn, tickers: Sequence[str], *, now_ms: int) -> dict[str, dict]:
     skeptic genuinely did check -- the same misreading as the blank, pointing
     the other way: a measurement that *did* happen, reported as one that never
     ran. `tests/test_parlay_leg_facts.py` pins both directions.
+
+    **And a prop's two sides are two rows on ONE ticker.** `_price_prop_event`
+    builds a `Candidate` for `"yes"` and for `"no"` (`runner.py:2017`), so the
+    verdict is keyed by `(ticker, side)` here and served through
+    `_verdict_facts_for_side`, exactly as the ask is. Keying by ticker alone
+    put the Over's `suppressed_reason` on the Under's row AND stamped
+    `checked` on a side the skeptic had never scored -- a measurement that
+    never ran, reported as one that did. ADR 0154;
+    `tests/test_under_legs.py::TestAnUnderPropCarriesItsOwnVerdict`.
     """
     if not tickers:
         return {}
@@ -1866,17 +1912,22 @@ def leg_facts(conn, tickers: Sequence[str], *, now_ms: int) -> dict[str, dict]:
         ).fetchall()
     }
 
+    # **Keyed by `(ticker, side)`, and the PARTITION carries the side too.**
+    # One prop ticker holds two `recommendations` rows, one per side, so
+    # `WHERE side = 'yes'` returned the Over's verdict for an Under leg and
+    # `PARTITION BY ticker` alone would return whichever side was written last.
+    # Both are the same substitution the `no_ask_*` keys were added to stop.
     suppressed = {
-        row["ticker"]: row["suppressed_reason"]
+        (row["ticker"], row["side"]): row["suppressed_reason"]
         for row in conn.execute(
             f"""
-            SELECT ticker, suppressed_reason FROM (
-              SELECT ticker, suppressed_reason,
+            SELECT ticker, side, suppressed_reason FROM (
+              SELECT ticker, side, suppressed_reason,
                      ROW_NUMBER() OVER (
-                       PARTITION BY ticker ORDER BY created_ms DESC
+                       PARTITION BY ticker, side ORDER BY created_ms DESC
                      ) AS rn
               FROM recommendations
-              WHERE ticker IN ({placeholders}) AND side = 'yes'
+              WHERE ticker IN ({placeholders})
             ) WHERE rn = 1
             """,
             unique,
@@ -1912,9 +1963,14 @@ def leg_facts(conn, tickers: Sequence[str], *, now_ms: int) -> dict[str, dict]:
             # current, not stale, and ADR 0055 only writes a row when it moves.
             seen = quote["confirmed_ms"] or quote["observed_ms"]
             facts["quote_age_ms"] = max(0, now_ms - seen) if seen else None
-        if ticker in suppressed:
+        # Both sides, one verdict each, and a side with no row stays `absent`.
+        # The leg picks its own in `_serialise_leg` by `CandidateLeg.side`.
+        if (ticker, "yes") in suppressed:
             facts["skeptic"] = "checked"
-            facts["suppressed_reason"] = suppressed[ticker]
+            facts["suppressed_reason"] = suppressed[(ticker, "yes")]
+        if (ticker, "no") in suppressed:
+            facts["no_skeptic"] = "checked"
+            facts["no_suppressed_reason"] = suppressed[(ticker, "no")]
         out[ticker] = facts
     return out
 

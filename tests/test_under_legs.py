@@ -218,3 +218,89 @@ class TestATeamLessLegCarriesItsGame:
             (under.kalshi_event_ticker, under.kalshi_market_ticker)
         ]
         assert details["event_title"] == wire["event_title"]
+
+
+class TestAnUnderPropCarriesItsOwnVerdict:
+    """The skeptic's verdict on an Under prop is the Under's, not the Over's.
+
+    `2d8de82` made the ASK side-aware and left the VERDICT reader in the same
+    function keyed by ticker with `side = 'yes'` hardcoded. A prop is the one
+    market where that bites: `_price_prop_event` writes a `recommendations`
+    row per side (`runner.py:2017`), while `_price_totals_event` writes none
+    at all, so totals were immune for an unrelated reason and the surviving
+    half stayed invisible. Two misreadings, both silent:
+
+        the reason    the Under's row showed the OVER's `suppressed_reason`,
+                      which `score_trust` also consumes
+        the `checked` a YES row's mere existence stamped `checked` on a side
+                      the skeptic had never scored -- a measurement that never
+                      ran, reported as one that did
+
+    Mutations observed red, one per test: `_verdict_facts_for_side` returning
+    the YES pair for `"no"`; and the `(ticker, "no")` branch of `leg_facts`
+    deleted.
+    """
+
+    def _recommend(self, conn, ticker, side, reason):
+        conn.execute(
+            "INSERT OR IGNORE INTO strategy_configs (version, created_ms, "
+            "effective_from_ms, config_json, rationale) "
+            "VALUES (1, ?, ?, '{}', 'test')",
+            (now_ms(), now_ms()),
+        )
+        conn.execute(
+            "INSERT INTO recommendations (created_ms, strategy_config_version, "
+            "ticker, side, entry_ask_tenths, fair_probability, edge_tenths, "
+            "fee_predicted, ev_net_dollars, kelly_fraction, suggested_contracts, "
+            "kalshi_quote_age_ms, odds_age_ms, reason_text, suppressed_reason) "
+            "VALUES (?, 1, ?, ?, 500, 0.5, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, "
+            "'No edge.', ?)",
+            (now_ms(), ticker, side, reason),
+        )
+        conn.commit()
+
+    def _sides(self, conn):
+        legs, _ = ladder_candidates(conn, now_ms=now_ms(), max_odds_age_ms=900_000)
+        return {l.side: l for l in legs if l.player}
+
+    def test_each_side_of_a_prop_reports_its_own_suppression(self, conn):
+        from backend.parlays import leg_facts
+
+        seed_prop(conn, game="g1", player="Anthony Kay", strike=5.5, p=0.55)
+        conn.commit()
+        props = self._sides(conn)
+        ticker = props["yes"].kalshi_market_ticker
+        self._recommend(conn, ticker, "yes", "too_few_books")
+        self._recommend(conn, ticker, "no", "stale_odds")
+        facts = leg_facts(conn, [ticker], now_ms=now_ms())[ticker]
+        over = _serialise_leg(props["yes"], facts)
+        under = _serialise_leg(props["no"], facts)
+        assert (over["skeptic"], over["suppressed_reason"]) == (
+            "checked",
+            "too_few_books",
+        )
+        assert (under["skeptic"], under["suppressed_reason"]) == (
+            "checked",
+            "stale_odds",
+        )
+
+    def test_a_side_the_skeptic_never_scored_is_absent_not_checked(self, conn):
+        """The flattering half: `checked` claims twelve checks that never ran."""
+        from backend.parlays import leg_facts
+
+        seed_prop(conn, game="g1", player="Anthony Kay", strike=5.5, p=0.55)
+        conn.commit()
+        props = self._sides(conn)
+        ticker = props["yes"].kalshi_market_ticker
+        self._recommend(conn, ticker, "yes", None)
+        facts = leg_facts(conn, [ticker], now_ms=now_ms())[ticker]
+        assert _serialise_leg(props["yes"], facts)["skeptic"] == "checked"
+        under = _serialise_leg(props["no"], facts)
+        assert under["skeptic"] == "absent"
+        assert under["suppressed_reason"] is None
+
+    def test_a_side_that_is_neither_is_refused_not_defaulted(self):
+        from backend.parlays import _NO_FACTS, _verdict_facts_for_side
+
+        with pytest.raises(ValueError):
+            _verdict_facts_for_side(dict(_NO_FACTS), "maybe")

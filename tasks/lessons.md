@@ -16,6 +16,42 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-15 (sixth) - Fix every reader in the function, not the one whose symptom you saw; the card that would have shown the other one may be the card nobody taps
+
+`2d8de82` fixed a wrong-side read this morning: `leg_facts` was keyed by
+ticker and hardcoded the YES ask, so an Under leg printed the Over's price.
+The fix added `no_ask_*` keys and `_ask_facts_for_side`. Three lines below
+the repaired ask, a second reader in the same function was still keyed by
+ticker with `side = 'yes'` hardcoded - the skeptic's verdict. It survived
+the fix by eight hours and was found by a partner pass, not by the tests.
+
+Two things hid it. The comment the fix itself added directly above the
+surviving defect said "Both sides, one derivation each", asserting a
+property the function did not have - a justification stale in the commit
+that wrote it. And the only card anyone exercised was totals, which is
+immune for an *unrelated* reason (`_price_totals_event` writes no
+`recommendations` row at all), while props - which write a row per side, and
+which had 0 taps in 77 lifetime lookups - was the card that would have shown
+it. "It worked when we looked" measured which card was convenient.
+
+The verdict half was also the flattering half: a YES row's mere existence
+stamped `checked` on the Under, claiming twelve mechanical checks on a side
+the skeptic never scored. The same function's docstring already forbids that
+misreading in the other direction.
+
+Three rules:
+
+- **A wrong-side read is a class, not an incident. Grep the whole function
+  for every read keyed by the thing that was wrong** - here, every `ticker`
+  key and every literal `'yes'` - and fix them in one change. The second
+  reader's symptom is identical to the first's and equally silent.
+- **A test that names the side must exist for each reader.** The 2d8de82
+  guard called `seed_total` and never `seed_prop`, so it pinned the arm that
+  could not break and left the arm that could.
+- **When a fix leaves a comment asserting the new property, check the
+  comment's scope against the code under it.** "Both sides, one derivation
+  each" was true of the eight lines above it and false of the twenty below.
+
 ## 2026-09-15 (fifth) - A write-up drifts toward the flattering sign; a count copied from the spine is a count nobody re-read
 
 The registered fill-vs-venue census was taken today and its first draft
