@@ -16,6 +16,46 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-15 (second) - A guard that pins a coordinate goes red on an unrelated edit; update the pin, never loosen the guard, and say in the pin what it is really guarding
+
+Two guards went red tonight on commits that did not touch what they guard.
+`test_only_kalshirestclient_defines_a_method_named_orders` pins `def orders`
+to `backend/kalshi/rest.py:711`; five comment lines added to the shard table
+above it moved the definition to 716 and the guard failed on a comment. The
+inspector's `SUBCOMMANDS` registry in `test_inspect_live_db_modules.py`
+refused `read-incidents` because a new subcommand had appeared without being
+written down. Both were the guard working. Neither was about the change
+being made, and both cost a full-suite cycle (21 and 30 minutes) to learn
+the name of the test, because the run was started with a tail that kept
+only the summary line.
+
+The shape: a guard that pins a **coordinate** (a line number, a count, a
+list of names) rather than an **identity** (a symbol, a predicate) goes red
+whenever the coordinate moves, and the coordinate moves on edits that have
+nothing to do with the claim. That is not a defect in the guard - a
+line-number pin is how `test_only_kalshirestclient_...` makes "exactly one
+definition, here" checkable - but it is a cost every edit above it pays.
+
+Three rules:
+
+- **Update the pin, never loosen the guard.** 711 became 716; `read-incidents`
+  went into the list. Rewriting the assertion to "any line in that file" or
+  "any subset of QUERIES" would keep the test green and delete the claim.
+- **When you add lines above a pinned symbol, expect the pin to move and fix
+  it in the same commit.** Grep the tests for the file's name and a colon
+  before running the suite: `rg "rest.py:[0-9]+" tests` finds a line pin in
+  a second; the suite finds it in twenty minutes.
+- **Run a background suite with `-rf` (or keep the whole output), never with
+  a tail that keeps one line.** A summary that says "1 failed" and nothing
+  else costs a second full run to name the failure. Tonight it cost two.
+
+Where the cost landed: two extra suite cycles, about fifty minutes of wall
+clock, on a night with three deploys. Where it went: the pin at
+`tests/test_bid_path_arming_requires_order_reconciliation.py` reads 716;
+`read-incidents` is in `SUBCOMMANDS`; this entry.
+
+---
+
 ## 2026-09-15 - A warning improved but not persisted is the same warning; when you fix what a log line says, ask what retains it
 
 Three API reads hit their 25 s budget and blanked the Games screen in front
