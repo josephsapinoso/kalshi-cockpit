@@ -16,6 +16,52 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-16 (eleventh) - A median does not bound a tail, so a measurement of the centre cannot falsify a condition written about the worst case; and the regime you can measure cheaply is usually the one where the effect is known not to occur
+
+A park carried a trigger: "unpark only if a route-latency read shows a desk
+route over the 25 s read budget." A latency read on a warm box returned
+medians of 75 ms to 1,727 ms, and the conclusion written was "the first
+conjunct is measured false, delete the park." A skeptic pass refused it and
+was right on every point.
+
+Three failures, and they compound:
+
+- **The budget fires on the slowest request; every number taken was a
+  median of three.** The harness kept only median and min, so the run's
+  actual maxima were unrecoverable after the fact. 0 events in 39 draws
+  bounds the rate no tighter than 7.7% (rule of three) -- which is the
+  honest summary, and it is not reassuring. **Record per-rep values in any
+  harness whose result will be compared against a ceiling.**
+- **The cheap regime was the wrong regime.** Warm is what a session can
+  measure in a minute; the budget had only ever fired cold or after a cache
+  eviction. The draft stated this in its own "does not establish" list and
+  then let the conclusion range over a regime the measurement never touched.
+  **When the caveat section and the conclusion disagree, the caveat is
+  right.**
+- **The search stopped at the first explanation.** Six recorded incidents
+  were found, traced to a fixed defect, and the question felt closed. A
+  second budget event -- a 503 on a different route, structural and
+  unfixed -- was in this project's own memory and was never looked for,
+  because one confirmed story is where looking stops.
+
+Two corollaries worth their own line:
+
+- **An incident count whose writer is best-effort under contention is
+  censored in the direction that matters.** The unrecorded hits are the
+  ones under hard load, which is when the ceiling is likeliest to be hit.
+  Such a count is a floor biased low in exactly the worst conditions, and
+  "no rows since the fix" is therefore not evidence of health.
+- **A ratio is not banked just because it sits in an ADR.** The 3.37x cited
+  as fact came from a rehearsal whose own ADR rejects its timing method and
+  records the same query varying 3.04x on cache residency alone. What was
+  banked was the qualitative finding beside it. **Before quoting a
+  magnitude from a document, check whether that document trusts it.**
+
+And the disposal itself was the tell: deleting a park is the one action the
+condition's falsity would authorise, and also the only action a session can
+take alone. `docs/measurements/2026-09-16-desk-route-latency-warm-box.md`,
+ticket #51.
+
 ## 2026-09-16 (tenth) - A copy guard that pins a field by NAME pins the name, not the claim; and a correction trail that quotes the killed phrase re-triggers the guard while a line-wrapped one dodges it
 
 Three ways a word-guard over user-facing copy lied this session, all on the
