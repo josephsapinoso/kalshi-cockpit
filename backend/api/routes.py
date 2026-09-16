@@ -4569,10 +4569,33 @@ def _record_combo_position(
         parsed = parlays.legs_for_position(lookup["selected_legs"])
         if parsed is None:
             return None
-        # Stake is what he paid; return is what the venue pays a winning
-        # contract, $1.00 each. Both in tenths of a cent, integer, per
-        # CLAUDE.md -- and `return > stake` holds by construction because a
-        # price is 1..999 tenths, which is what the table's CHECK requires.
+        # **Stake here is the price the desk SENT, and it is not necessarily
+        # the price the venue charged.** Until 2026-09-16 this comment said
+        # the opposite -- that the number below was what he had paid -- and
+        # that was false. (The dead sentence is not reproduced here: a
+        # correction trail that quotes the killed wording re-trips the guard
+        # that killed it, `tasks/lessons.md` 2026-09-16 tenth.)
+        #
+        # `fill_price_tenths` is `OrderRequest.fill_price_tenths`, what one
+        # contract of our side costs at the price being SENT, fixed at
+        # intent time before anything matched. What the venue charged
+        # arrives separately, on this same order's row, as
+        # `manual_orders.venue_avg_fill_price_tenths` (schema
+        # v40, ADR 0143). On the registered census's twelve joined rows the
+        # two were equal on eleven and 22 tenths a contract apart on the
+        # twelfth, with the sent price above the venue's.
+        #
+        # The sent price stays the number written here on purpose. `/hedge`
+        # re-reads the stake at the venue's own price when it builds the
+        # screen (`hedge.stake_bases`), so the correction lives on the read
+        # and this permanent row keeps the number the desk actually sent --
+        # which is the one a later audit needs to compare against. Nothing on
+        # the armed order path was changed to do it.
+        #
+        # Return is what the venue pays a winning contract, $1.00 each. Both
+        # in tenths of a cent, integer, per CLAUDE.md -- and `return > stake`
+        # holds by construction because a price is 1..999 tenths, which is
+        # what the table's CHECK requires.
         stake_tenths = contracts * fill_price_tenths
         return_tenths = contracts * 1000
         note = (

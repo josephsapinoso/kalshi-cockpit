@@ -1061,6 +1061,13 @@ class TestThePayload:
 #: available" and the caption "whichever way the last leg goes" called an
 #: estimate a lock, and "roughly a cent a contract" was the caveat's own
 #: grain until the 2026-09-15 census observed 2.2c on one of twelve rows.
+#:
+#: And one more the same day, issue #49 answered A: the caveat asserted
+#: unconditionally that the stake the figure subtracts is not the price
+#: Kalshi charged. Since `hedge.stake_bases` it is that price wherever the
+#: venue reported one, so the universal is dead and the sentence is
+#: conditional. The killed wording is listed here, in the file the guard
+#: scans, and is never reproduced in a comment beside the copy itself.
 KILLED_LOCK_CLAIMS = (
     "can only be smaller",
     "can only be larger",
@@ -1071,6 +1078,7 @@ KILLED_LOCK_CLAIMS = (
     "lock available",
     "whichever way the last leg goes",
     "roughly a cent",
+    "not the price Kalshi charged",
 )
 
 HEDGE_PAGE = ROOT / "frontend" / "src" / "app" / "hedge" / "page.tsx"
@@ -1097,9 +1105,12 @@ class TestTheLockCaveatClaimsNoDirection:
         assert "does not subtract" not in note
         # ... the settlement charge is still named as unverified ...
         assert "pays out" in note and "unverified" in note
-        # ... as is the sent-vs-charged stake ...
-        assert "price the desk sent" in note
-        assert "not the price Kalshi charged" in note
+        # ... the stake says WHOSE price it is, both ways round. Since issue
+        # #49 the figure is built on Kalshi's own fill price wherever the
+        # venue reported one and on the sent price only where it did not, so
+        # the note must state the condition rather than either universal ...
+        assert "Kalshi's own fill price where the venue reported one" in note
+        assert "the price the desk sent where it did not" in note
         # ... and the figure is an estimate with a stated grain, not a bound.
         assert "estimate" in note and "not a guaranteed amount" in note, (
             "the lock caveat has gone back to claiming a direction; four "

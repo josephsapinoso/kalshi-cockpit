@@ -315,9 +315,19 @@ def combo_entry_fee_tenths(stake_tenths: int, return_tenths: int) -> Optional[in
         fee = k * stake_dollars * (1 - stake / return)
 
     which is algebraically the same number and needs no contract count. That
-    matters: `routes._record_combo_position` truncates a fractional venue
-    fill count to an integer today, and recovering `C` from `return / 1000`
-    would inherit that truncation the day it is fixed.
+    stays true whatever the stake is read at: `hedge.stake_bases` may hand
+    this a stake priced at the venue's own average fill rather than the ask
+    the desk sent, and the collapsed form takes the fee on the number it is
+    given without needing to know which.
+
+    **A second reason stood here until 2026-09-16 and had stopped being
+    true.** It said the route rounded a fractional venue fill count down
+    into an integer, so recovering `C` from `return / 1000` would inherit
+    that. The route now refuses to record a position at all on a
+    non-integral fill rather than rounding one (ADR 0151), so there is no
+    truncation left to inherit. The argument above never rested on it --
+    the collapsed form needs no `C` either way -- so the stale half is
+    removed rather than re-derived.
 
     `COMBO_TAKER_COEFFICIENT` (0.071), not the flat 0.070: 0.070 undercharged
     four of the eight measured combo fills, and 0.071 exceeds every implied

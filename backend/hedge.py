@@ -41,6 +41,13 @@ What this module does NOT establish
   and that is the whole failure mode of an operator-entered record.
 - That a quote could be filled at size. Depth is read off the book and reported;
   nothing models the next level down.
+- **That a `venue_fill` stake is the whole of what the venue charged.** It is
+  the venue's average fill price times the count it reported, and nothing
+  else: the fee on that entry is still `combo_entry_fee_tenths`' modelled
+  number at 0.071 (ADR 0145), not `manual_orders.venue_avg_fee_dollars`,
+  which nothing here reads. The figure remains an estimate pinned in neither
+  direction, with at least four error terms; this closes none of them and
+  narrows only the stake's own price.
 """
 
 from __future__ import annotations
@@ -57,6 +64,7 @@ from .core.hedge import (
     HedgeQuote,
     Lock,
     Refusal,
+    SETTLEMENT_TENTHS,
     UNREADABLE_TICKET,
     combo_entry_fee_tenths,
     derisk,
@@ -116,16 +124,28 @@ NOTES: dict[str, str] = {
     # carries the counts -- eleven at zero, one at 2.2c -- and says what they
     # are not: a rate, or anything about the next fill (§6.2, §6.3 of the
     # result). Issue #43, answered A by Joe 2026-09-16.
+    #
+    # The stake clause was an unconditional claim that the figure subtracts
+    # the SENT price until 2026-09-16, and issue #49 (answered A the same
+    # day) falsified it: `stake_bases` now reads the stake at the venue's
+    # own fill price wherever the venue gave one. A caveat that names a
+    # condition is falsified by fixing the condition, so this sentence ships
+    # in the commit that fixes it -- otherwise the screen tells him the
+    # figure carries an error it no longer carries. The condition that
+    # remains is real and is named: a bet placed before schema v40
+    # (2026-09-11) has no venue price on its row.
     "upper_bound": (
         "Every figure here charges the fee on this hedge, and on a Kalshi "
         "combo it also subtracts the fee you already paid to enter the "
         "ticket, at the measured combo rate — which has run about a percent "
         "above what Kalshi charged on every fill seen. It assumes Kalshi "
         "charges nothing when the market pays out, which is unverified. The "
-        "stake it subtracts is the price the desk sent, not the price Kalshi "
-        "charged: of the twelve hand-bet fills read against the venue's own "
-        "price on 2026-09-15, eleven matched it and one was 2.2 cents a "
-        "contract off — twelve fills of one kind of ticket, not a rate, and "
+        "stake it subtracts is Kalshi's own fill price where the venue "
+        "reported one, and the price the desk sent where it did not — a bet "
+        "placed before 2026-09-11 has no price from the venue on record. "
+        "Read against each other on 2026-09-15, the two matched on eleven of "
+        "the twelve hand-bet fills and were 2.2 cents a contract apart on "
+        "the twelfth — twelve fills of one kind of ticket, not a rate, and "
         "nothing about the next fill. It is an estimate, not a guaranteed "
         "amount."
     ),
@@ -420,6 +440,272 @@ def entry_fee_tenths(position: Mapping[str, Any]) -> Optional[int]:
     return combo_entry_fee_tenths(
         int(position["stake_tenths"]), int(position["return_tenths"])
     )
+
+
+# --------------------------------------------------------------------------
+# The stake basis: whose price the sunk stake is
+# --------------------------------------------------------------------------
+#
+# **Two prices exist for every hand bet and they are not the same number.**
+# `manual_orders.limit_price_tenths` is the ask the desk SENT, written at
+# intent time before anything filled; `manual_orders.venue_avg_fill_price_
+# tenths` (schema v40, ADR 0143) is what Kalshi said it charged. Until Joe
+# answered ticket #49 nothing that runs read the second one: the only
+# readers in the tree were the spent registered census and its tests, and
+# `parlay_positions.stake_tenths` -- the number every rung, every entry fee
+# and the screen's stake line are computed from -- was the sent price times
+# the contract count.
+#
+# The census (`docs/measurements/2026-09-15-recorded-fill-vs-venue-charge-
+# census-result.md`) found the two equal on 11 of 12 joined rows and apart
+# by 22 tenths a contract on the twelfth, with the sent price ABOVE the
+# venue's. n is 12, every row is one stratum (`S1`/`KXMVE`) and every order
+# is `side = yes`; that look is spent and nothing here generalises from it.
+# It is the reason the correction is small in the rows seen so far and not a
+# reason to skip it.
+#
+# **The resolution is at READ time and the written row is never rewritten.**
+# ADR 0145 set the precedent in `assess` itself: the entry fee is sunk beside
+# the stake when the screen is built, not written into `stake_tenths`. Three
+# further reasons here:
+#
+# - `POST /api/manual-orders` is the ARMED path. A correction that runs
+#   there is a change to code that sends real money; one that runs on the
+#   read is not, and this one buys nothing that the read cannot do.
+# - `parlay_positions` has no column for the marker and no `manual_order_id`
+#   to join on, so recording the basis at write time needs a schema version.
+#   Derived here, the join IS the marker.
+# - The ten rows already open keep their stored `stake_tenths` byte for
+#   byte. Nothing backfills, so nothing has to be unwound; deleting this
+#   block restores the previous figures exactly.
+
+#: The stake is the venue's own average fill price times the contract count.
+STAKE_BASIS_VENUE_FILL = "venue_fill"
+#: The stake is `parlay_positions.stake_tenths` as written -- the sent price
+#: for a combination bought through the desk, Joe's typed figure for a slip.
+STAKE_BASIS_AS_RECORDED = "as_recorded"
+
+
+@dataclass(frozen=True)
+class StakeBasis:
+    """What a position's sunk stake is, and whose number it came from.
+
+    `reason` is `None` on `venue_fill` and names the refusal otherwise. It is
+    a vocabulary rather than prose because the caller that most needs it is a
+    future audit, and a fact behind a parser is not queryable -- the same rule
+    `schema.sql` states over `parlay_position_legs`.
+
+    **`stake_tenths` is never smaller than it has to be by guesswork.** Every
+    branch below that cannot read the venue's price falls back to the number
+    already on the row; none substitutes a zero, and none averages the two.
+    """
+
+    stake_tenths: int
+    basis: str
+    reason: Optional[str] = None
+
+
+def stake_basis_for(
+    position: Mapping[str, Any], order: Optional[Mapping[str, Any]]
+) -> StakeBasis:
+    """Which price this position's stake should be read at.
+
+    `order` is the `manual_orders` row that created it, or `None` when no
+    single row could be identified. Every refusal below returns the recorded
+    stake with a named reason; **`venue_fill` is returned only when the
+    venue's number is readable AND provably about this position.**
+
+    The guards, and why each exists:
+
+    - **`not_a_kalshi_combo`** -- a sportsbook slip has no order row and no
+      venue price; the stake is the figure Joe typed and always was.
+    - **`no_order_row` / `ambiguous_order_rows`** -- the join key is
+      `(combo_ticker, placed_ms)`, and `placed_ms` is the same
+      `submitted_ms` the route wrote on the order in the same request
+      (`routes.py`, `_write_manual_intent` and `_record_combo_position` take
+      one variable). Zero matches or more than one means the link is
+      unreadable, and an unreadable link resolves to the recorded number,
+      never to a plausible one.
+    - **`side_convention_unresolved`** -- `limit_price_tenths` is our side's
+      price (`OrderRequest.fill_price_tenths` reflects a NO onto the YES
+      book); `venue_avg_fill_price_tenths` is `average_fill_price` verbatim,
+      with no reflection applied. On a `side = 'yes'` order the two are one
+      convention. On a `side = 'no'` order which book the venue quoted has
+      never been established -- the census's A4.3 rule was written for it and
+      never exercised, because all thirteen real orders are YES. Reading the
+      venue's number there could halve or double the stake, so it is refused
+      until something settles it, not guessed.
+    - **`no_venue_price` / `no_venue_fill_count`** -- a pre-v40 row, or a row
+      whose outcome write failed. The columns say the venue told us
+      nothing, which is not the same as a price of zero.
+    - **`venue_fill_count_unusable`** -- a count that is present and cannot
+      be a holding: zero (an IOC that matched no one), negative, or not
+      finite. Distinct from the two above, because a column that answered
+      and a column that stayed silent are different facts.
+    - **`fractional_venue_fill_count`** -- the route refuses to record a
+      position at a truncated size (ADR 0151); this refuses to re-price one
+      at a size it cannot reproduce, for the same reason and in the same
+      direction.
+    - **`contract_count_disagrees`** -- the proof that the joined order is
+      the order behind THIS position. `_record_combo_position` writes
+      `return_tenths = contracts * 1000` from the same fill count the venue
+      reported, so `int(venue_fill_count) * 1000` must equal the stored
+      return. When it does not, the row found is about some other holding
+      and the count the stake would be multiplied by is not this position's.
+
+    **The venue's fee is deliberately not read.** `venue_avg_fee_dollars` is
+    on the same row and stays out: it is REAL dollars, its rounding onto
+    integer tenths is undecided, and deciding it here would be a money
+    change made in passing. The entry fee stays `combo_entry_fee_tenths`'s
+    modelled number (ADR 0145), charged at 0.071 on the stake this function
+    returns.
+    """
+    recorded = int(position["stake_tenths"])
+    if str(position["source"]) != "kalshi_combo":
+        return StakeBasis(recorded, STAKE_BASIS_AS_RECORDED, "not_a_kalshi_combo")
+    if order is None:
+        return StakeBasis(recorded, STAKE_BASIS_AS_RECORDED, "no_order_row")
+    if str(order["side"]) != "yes":
+        return StakeBasis(
+            recorded, STAKE_BASIS_AS_RECORDED, "side_convention_unresolved"
+        )
+    price = order["venue_avg_fill_price_tenths"]
+    if price is None:
+        return StakeBasis(recorded, STAKE_BASIS_AS_RECORDED, "no_venue_price")
+    count = order["venue_fill_count"]
+    if count is None:
+        return StakeBasis(recorded, STAKE_BASIS_AS_RECORDED, "no_venue_fill_count")
+    count = float(count)
+    if not math.isfinite(count) or count <= 0:
+        return StakeBasis(
+            recorded, STAKE_BASIS_AS_RECORDED, "venue_fill_count_unusable"
+        )
+    if count != int(count):
+        return StakeBasis(
+            recorded, STAKE_BASIS_AS_RECORDED, "fractional_venue_fill_count"
+        )
+    contracts = int(count)
+    if contracts * SETTLEMENT_TENTHS != int(position["return_tenths"]):
+        return StakeBasis(
+            recorded, STAKE_BASIS_AS_RECORDED, "contract_count_disagrees"
+        )
+    return StakeBasis(contracts * int(price), STAKE_BASIS_VENUE_FILL, None)
+
+
+#: More than one `manual_orders` row answered to a position's join key. A
+#: distinct value from `None` (no row at all) because the two are different
+#: facts and the screen's reason vocabulary names them separately.
+_AMBIGUOUS = object()
+
+
+def _order_key(position: Mapping[str, Any]) -> Optional[tuple[str, int]]:
+    """`(combo_ticker, placed_ms)` for a combination bought through the desk,
+    or `None` for anything that cannot have an order row behind it.
+
+    Both halves come from one request: the route takes `submitted_ms` once,
+    writes it on the `manual_orders` row and passes the same variable to
+    `_record_combo_position` as `placed_ms`. The ticker alone would not do --
+    the same combination can be bought twice.
+    """
+    if str(position["source"]) != "kalshi_combo":
+        return None
+    if not position["combo_ticker"] or position["placed_ms"] is None:
+        return None
+    return (str(position["combo_ticker"]), int(position["placed_ms"]))
+
+
+def stake_bases(
+    conn: sqlite3.Connection, positions: Sequence[Mapping[str, Any]]
+) -> dict[int, StakeBasis]:
+    """`stake_basis_for` over a screenful of positions, in one bounded read.
+
+    The read is bounded twice -- by the open positions' own tickers and by
+    their own `placed_ms` -- so it can never widen into a scan of the order
+    history as `manual_orders` grows. There is no index on that table today
+    and it held thirteen real rows on 2026-09-15; if it ever grows enough for
+    the scan to matter, an index is the fix and a version bump is its price.
+
+    A row that cannot be joined is simply absent from the order map, and
+    `stake_basis_for` returns the recorded stake with `no_order_row`. This
+    function raises nothing: a bookkeeping read must not be able to take the
+    hedge screen down.
+    """
+    bases: dict[int, StakeBasis] = {}
+    wanted = {k for k in (_order_key(p) for p in positions) if k is not None}
+    orders: dict[tuple[str, int], Any] = {}
+    if wanted:
+        tickers = sorted({t for t, _ in wanted})
+        stamps = sorted({ms for _, ms in wanted})
+        try:
+            rows = conn.execute(
+                "SELECT ticker, submitted_ms, side, venue_fill_count, "
+                "venue_avg_fill_price_tenths FROM manual_orders "
+                "WHERE dry_run = 0 "
+                f"AND ticker IN ({','.join('?' * len(tickers))}) "
+                f"AND submitted_ms IN ({','.join('?' * len(stamps))})",
+                (*tickers, *stamps),
+            ).fetchall()
+        except sqlite3.Error:
+            logger.exception(
+                "the manual-order rows behind the open positions could not be "
+                "read; every stake falls back to the figure recorded with it."
+            )
+            rows = []
+        for row in rows:
+            key = (str(row["ticker"]), int(row["submitted_ms"]))
+            if key not in wanted:
+                continue
+            # A second row on the same key makes the link unreadable. The
+            # sentinel says so rather than letting the last row win, which is
+            # how a stake gets built on some other bet's fill.
+            orders[key] = _AMBIGUOUS if key in orders else row
+    for position in positions:
+        key = _order_key(position)
+        order = orders.get(key) if key is not None else None
+        if order is _AMBIGUOUS:
+            bases[int(position["id"])] = StakeBasis(
+                int(position["stake_tenths"]),
+                STAKE_BASIS_AS_RECORDED,
+                "ambiguous_order_rows",
+            )
+            continue
+        bases[int(position["id"])] = stake_basis_for(position, order)
+    return bases
+
+
+def _optional(position: Mapping[str, Any], key: str) -> Any:
+    """A field that exists only on a mapping `position_at_basis` built.
+
+    `None` on a raw `parlay_positions` row, which is the truth about it: that
+    row was never resolved against an order, so nothing here knows whose
+    price its stake is. It is not a claim that the stake is the venue's.
+    """
+    if isinstance(position, sqlite3.Row):
+        return position[key] if key in position.keys() else None
+    try:
+        return position[key]
+    except (KeyError, IndexError):
+        return None
+
+
+def position_at_basis(
+    position: Mapping[str, Any], basis: StakeBasis
+) -> dict[str, Any]:
+    """The position row with its stake read at `basis`, for everything
+    downstream.
+
+    A plain dict rather than a second parameter threaded through `assess`,
+    `entry_fee_tenths` and `serialise_position`: those three must agree about
+    what the stake is, and three ways of being told is three ways to drift.
+    The swap is not silent -- `stake_basis` and `stake_basis_reason` travel in
+    the same mapping and out to `/api/hedge`, so a reader can always tell
+    which number the figures were built on.
+    """
+    resolved = dict(position)
+    resolved["stake_tenths"] = int(basis.stake_tenths)
+    resolved["stake_basis"] = basis.basis
+    resolved["stake_basis_reason"] = basis.reason
+    return resolved
 
 
 def open_positions(conn: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -760,12 +1046,20 @@ def assess(
     """
     position_id = int(position["id"])
     # The sunk stake is what left the account: the contracts at their price
-    # PLUS the taker fee the venue charged on entry, which `stake_tenths`
-    # does not carry (`routes._record_combo_position` writes price times
-    # contracts). Left out, every branch of every rung reads too high by
-    # the fee -- ~17 tenths a contract at 41c, the size of the smallest
-    # floors `Lock.is_guaranteed_profit` fires on. ADR 0145. A sportsbook
-    # slip has no separate fee: its vig is inside the price already typed.
+    # PLUS the taker fee the venue charged on entry, which the stored
+    # `stake_tenths` does not carry -- `routes._record_combo_position` writes
+    # a price times a count and no fee. Left out, every branch of every rung
+    # reads too high by the fee -- ~17 tenths a contract at 41c, the size of
+    # the smallest floors `Lock.is_guaranteed_profit` fires on. ADR 0145. A
+    # sportsbook slip has no separate fee: its vig is inside the price
+    # already typed.
+    #
+    # **Which price the stake itself is at was decided by the caller**, not
+    # here: `build_payload` runs `stake_bases` and hands this a mapping whose
+    # `stake_tenths` is the venue's own fill price where that was readable
+    # and the recorded figure otherwise, with `stake_basis` beside it saying
+    # which. A mapping that never went through `position_at_basis` -- a raw
+    # row, in a test -- reads exactly as it did before, the number as stored.
     stake = int(position["stake_tenths"]) + (entry_fee_tenths(position) or 0)
     payout = int(position["return_tenths"])
 
@@ -969,15 +1263,25 @@ def estimate_grain(position: Mapping[str, Any], outcome: Lock) -> Optional[str]:
     honestly per position is what one term would come to HERE if it ran as
     observed, and which term that is depends on the ticket:
 
-    - **A Kalshi combo** carries E2, the sent-versus-charged stake: the
-      census observed it at 22 tenths a contract on one of twelve rows and
-      zero on the other eleven, and it is the largest measured term (the
-      result doc, §5). `return_tenths` is `contracts * 1000` on a recorded
-      combo (`routes._record_combo_position`), so the contract count is
-      read back from it and the observed gap is dollarised for this ticket.
-      A return that is not a whole number of contracts was typed by hand
-      and the count is unreadable; the sentence then carries the
-      per-contract figure and no dollar figure, rather than a rounded one.
+    - **A Kalshi combo whose stake is still the price the desk sent**
+      carries E2, the sent-versus-charged stake: the census observed it at
+      22 tenths a contract on one of twelve rows and zero on the other
+      eleven, and it is the largest measured term (the result doc, §5).
+      `return_tenths` is `contracts * 1000` on a recorded combo
+      (`routes._record_combo_position`), so the contract count is read back
+      from it and the observed gap is dollarised for this ticket. A return
+      that is not a whole number of contracts was typed by hand and the
+      count is unreadable; the sentence then carries the per-contract figure
+      and no dollar figure, rather than a rounded one.
+    - **A Kalshi combo whose stake is the venue's own fill price**
+      (`stake_basis == STAKE_BASIS_VENUE_FILL`) does not carry E2 at all:
+      the figure was built on what Kalshi charged, so quoting the gap
+      between the sent price and the charge would name an error that is not
+      on this ticket. It falls through to E4 with the slips, which is then
+      its largest measured term. **This branch and the stake basis ship
+      together** -- a caveat naming a condition is falsified by fixing the
+      condition, and the fix and the copy go in one commit or the screen
+      lies in between.
     - **A sportsbook slip** has no sent price -- the stake is what Joe typed
       -- so E2 is not a term on it. Its measured term is E4, the hedge fee
       charged at the flat 0.070 where nine baseball fills pinned k at half
@@ -991,7 +1295,10 @@ def estimate_grain(position: Mapping[str, Any], outcome: Lock) -> Optional[str]:
     rung = outcome.best_available
     if rung is None:
         return None
-    if str(position["source"]) == "kalshi_combo":
+    if (
+        str(position["source"]) == "kalshi_combo"
+        and _optional(position, "stake_basis") != STAKE_BASIS_VENUE_FILL
+    ):
         return_tenths = int(position["return_tenths"])
         observed = (
             f"one of {_WORDS[E2_CENSUS_ROWS]} fills read was "
@@ -1163,6 +1470,16 @@ def serialise_position(
         "placed_ms": position["placed_ms"],
         "combo_ticker": position["combo_ticker"],
         "stake_display": format_dollars(int(position["stake_tenths"])),
+        # WHOSE price that stake is. `venue_fill` means Kalshi's own average
+        # fill price times the contract count it reported; `as_recorded`
+        # means the figure stored with the position -- the ask the desk sent,
+        # or Joe's typed stake on a slip -- and `stake_basis_reason` names
+        # why the venue's number could not be used. Two prices exist for
+        # every hand bet (ADR 0143 §4, and the ticket Joe closed with it) and
+        # a stake that does not say which one it is cannot be audited.
+        # `None` on a mapping that never went through `position_at_basis`.
+        "stake_basis": _optional(position, "stake_basis"),
+        "stake_basis_reason": _optional(position, "stake_basis_reason"),
         # The entry fee the arithmetic sinks beside the stake (ADR 0145), or
         # `None` on a sportsbook slip. Shown so the screen's stake line and
         # the lock figure reconcile: the lock is net of BOTH numbers.
@@ -1246,7 +1563,16 @@ async def build_payload(
     `venue_settlement` (whether and how this record's own ticket is still
     there). Neither is used to close or reorder anything here.
     """
-    positions = open_positions(conn)
+    # The sunk stake is read at the venue's own fill price where the venue
+    # gave one and the link to it is provable, and at the figure recorded
+    # with the position otherwise. Resolved once, here, so `assess`,
+    # `entry_fee_tenths` and the screen's stake line cannot disagree about
+    # which number they are on. Nothing is written back.
+    stored = open_positions(conn)
+    bases = stake_bases(conn, stored)
+    positions = [
+        position_at_basis(p, bases[int(p["id"])]) for p in stored
+    ]
     books = await read_books(
         watched_tickers(conn), now_ms=now_ms, fetch_quote=fetch_quote
     )
