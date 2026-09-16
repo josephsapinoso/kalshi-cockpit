@@ -4081,8 +4081,9 @@ def create_app(
                 position_note = (
                     "This combination is NOT being watched for a hedge — its "
                     "legs could not be recovered, so record it by hand on "
-                    "/hedge. A combination is enter-only; the hedge is its "
-                    "only exit."
+                    "/hedge. A combination is enter-only in practice — any "
+                    "way out by selling is small and unmeasured — and the "
+                    "hedge is the exit the desk watches."
                 )
             else:
                 position_note = (
@@ -4426,7 +4427,8 @@ def _record_combo_position(
         return_tenths = contracts * 1000
         note = (
             "Recorded automatically from the hand-bet path: a combination is "
-            "enter-only, so this is the only exit it has."
+            "enter-only in practice — any way out by selling is small and "
+            "unmeasured — and a hedge is the exit the desk watches."
         )
         if parsed.labels_are_tickers:
             note += (
