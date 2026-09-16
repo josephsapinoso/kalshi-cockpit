@@ -119,6 +119,117 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-16 (twenty-fourth session, continued) — Joe answered the anchor question, the slate got a base-rate block, and the partner found why that question had gone unasked for three sessions
+
+Continuation of the entry below, same session. Joe asked "what's next?", which
+is the planning question the partner owns, so a partner pass ran.
+
+### HIS ANSWER — option A, and it is built
+
+Put to him as a lettered question: on NCAAF spreads/totals the "no sharp book"
+warning will fire on ~7 rows in 10 on Saturday, every row is already marked,
+so what should the desk do about the base rate? **He chose A: show the base
+rate up top.** Shipped in `432cbb9`.
+
+`frontend/src/components/AnchorBaseRate.tsx` renders, above the slate rows,
+one line per (league, market family) counting how many of the rows **on this
+screen** had a sharp book behind them. Three properties, each pinned by
+`tests/test_anchor_base_rate.py` and each with a mutation observed red:
+
+- **Per (league, market family), never per league.** NCAAF `h2h` anchors ~84%,
+  NCAAF `spreads` ~30%; pooling describes neither (CLAUDE.md, "a pooled number
+  is not a finding until the parts agree"). This is the only reason
+  `f.market AS consensus_market` was added to the slate payload.
+- **Every group listed, including the fully anchored ones.** Rendering only the
+  thin ones would be a warning that fires on bad news and stays quiet
+  otherwise — the exact `ParlayCards` defect fixed the day before.
+- **Counts, never a percentage; unknown counted apart.** "3 of 10" carries its
+  denominator. `null` is the join missing, not "no sharp book", and a group
+  with no readable row prints no fraction because a denominator of zero is not
+  a rate.
+
+Computed from the rows already on screen, so it needs no new query, no window
+choice, no credits, and cannot go stale. `sharp_book` joins the glossary.
+
+**The surface-enumeration guard from the previous entry fired on the new
+component** and was not worked around: `allowed_unlisted` means "renders
+nothing", which is false here, so `AGGREGATE_SURFACES` is a second category
+that **must be named by another guard**
+(`test_an_aggregate_surface_is_checked_somewhere`, mutation 6).
+
+### THE PARTNER'S FINDING, which is bigger than the ticket
+
+**The question had been open for three sessions and had quietly stopped being
+a question.** The twenty-second session filed open item 1 as *"The NCAAF anchor
+question is for Joe. Nothing to build until he answers."* The twenty-third
+replaced it with "run `sharp-anchor-census` Saturday". I inherited that,
+re-filed it the same way, and then defended it to the partner as correctly
+calendar-gated. It was not: the structural half is true on a Wednesday.
+
+**Why it will recur unless something changes:** the infra queue refills itself
+— every measurement produces a successor — while the decision queue only
+refills when someone writes a ticket. **Map issue #3 has 37 sub-issues and all
+37 are closed.** The decision queue is not thin, it is empty. Lesson written,
+2026-09-16 (eighth).
+
+**The durable fix is NOT yet built** and is open item 1 below: a measurement
+that produces a question for Joe must open a map #3 ticket in the same session,
+or the question does not exist. A line in this file is not a durable home,
+because the next session rewrites this list and what survives a rewrite is
+whatever can be executed without him.
+
+### STATE at close
+
+`main` = `432cbb9`; **CI was still running on it at handoff — check it before
+anything else.** Live = `5b91dae`, so **this build is NOT deployed yet**;
+`432cbb9` is the first commit in three with real runtime changes (the slate
+payload gained a field). Clean local full suite **7538 passed, 10 xfailed, 0
+failed**; ruff clean; tsc clean; `next build` green.
+
+`SCHEMA_VERSION` **44**, next ADR **0160**, schema **v45 unallocated**, no lane
+reservations. Arming unchanged: hand path armed, engine and bid paths dry.
+**Zero odds credits spent by this session.** No open Dependabot alerts.
+
+### Still open, in order
+
+1. **Deploy `432cbb9`** once CI is green, and verify by machine version rather
+   than a green health check. **WNBA is Thu 17 and NCAAF Sat 19** — the
+   base-rate block wants to be live before the slate it was built for. Use
+   `gh workflow run deploy.yml -f instance=live -f confirm_live=kalshi-cockpit`;
+   the local `flyctl deploy` is refused by the classifier and the two surfaces
+   are gated separately.
+2. **Build the durable fix for question-decay** (above): a measurement that
+   raises a question for Joe opens a map #3 ticket in the same session. Put the
+   rule where a session will hit it — `CLAUDE.md` workflow, beside "record
+   decisions in `docs/adr/`" — not only in `tasks/lessons.md`.
+3. **Saturday 19 — `sharp-anchor-census` on the live NCAAF slate**, with
+   `team-bookmakers --since` beside it. Its job is now demoted to *verifying*
+   the magnitude behind a decision already taken, and to closing the rival
+   explanation the twenty-second session left open: `matchbook` on 3 of 57
+   NCAAF events means "thin book" explains the result as well as "thin sport".
+   Bound the rows — a full-table read on live costs the desk 75 s afterwards.
+4. **Monday 21 — `credits-day --date 20260920`**, the registered check beside
+   `20260913`. Take the measurement; do not re-derive the projection.
+5. **One "Price on Kalshi" tap on the props card — JOE ONLY, unchanged.** It
+   mints a market on the exchange. A session must not do it.
+6. **Offered and not taken: a route-latency read on live**
+   (`scripts/time_live_routes.py`). The partner's argument is fair — a session
+   optimised an instrument Joe runs a few times a week while nobody has the
+   desk's real per-request numbers, and the only figure anywhere near the
+   screen is `warm_read_path` returning in 12.4 s, which is **not** a
+   per-request figure and must not be quoted as one. Cheap, bounded, free.
+7. **PARKED with unpark conditions, not "later":** the successor ANALYZE run
+   (interleaved arms; 3.37x on a query run a handful of times a week) and
+   ANALYZE for the rest of the database. Unpark only if item 6 shows a desk
+   route over the 25 s read budget **and** the plan implicates `fair_prices`.
+   The finding itself — live has no table statistics at all — is already
+   banked in ADR 0159 and needs nothing.
+8. Carried parks: the shard probe (**ADR 0158**); `user_not_found` on shard 3;
+   the 25 s read budget.
+9. **Reservations:** none live. Next ADR **0160**; schema **v45 unallocated**.
+
+---
+
 ## 2026-09-16 (twenty-fourth session) — the index Joe approved was measured and REFUSED; the census is bounded, ANALYZE is the real lever, and the deploy is blocked on his say-so
 
 Joe: *"Read NEXT.md and start. Main job this session: the index rebuild I

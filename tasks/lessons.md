@@ -16,6 +16,50 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-16 (eighth) - An unasked question decays into the measurement that produced it, because the measurement is the part a session can execute alone
+
+The twenty-second session measured the sharp-anchor rate, found NCAAF spreads
+and totals at about 30%, and filed open item **1** as:
+
+> **The NCAAF anchor question is for Joe.** Nothing to build until he answers;
+> the flag is already on the row.
+
+One session later that item was gone. In its place: "run `sharp-anchor-census`
+Saturday." The session after that -- mine -- inherited the new wording and
+re-filed it the same way, and I then defended it to the partner agent as
+correctly calendar-gated. It was not. The structural half of the finding
+(`SHARP_BOOKS` has four members, `betfair_ex_uk` is unpurchased,
+`betfair_ex_eu` quotes h2h only, and the devig runs per rung) is true on a
+Wednesday. A live slate moves the percentage; it cannot remove the population.
+
+**The question decayed into the measurement that produced it, twice, in three
+sessions.** Nobody deleted it. It was replaced by the nearest thing a session
+could do without waiting for a human -- and re-running an instrument always
+looks like progress on the question the instrument first raised.
+
+The structural reason it will happen again unless something changes: the
+infrastructure queue **refills itself** (every measurement produces a successor
+measurement, a cleanup, an index to price) while the decision queue only
+refills when somebody writes a ticket. Checked 2026-09-16: map issue #3 has 37
+sub-issues and every one is closed. One queue is self-replicating and the other
+is structurally empty, so drift toward infrastructure is the default and no
+individual session is at fault for it.
+
+Three rules:
+
+- **A measurement that produces a question for Joe opens a ticket in the same
+  session, or the question does not exist.** A line in `tasks/NEXT.md` is not
+  a durable home: the next session rewrites that list, and what survives a
+  rewrite is whatever can be executed.
+- **When an item says "ask Joe", check whether it still does.** If the wording
+  has become "run X", read the entry it came from before accepting the new
+  wording. `git log -p tasks/NEXT.md` is the instrument; the entry is verbatim
+  in the archive.
+- **A question is calendar-gated only if the ANSWER changes with the
+  calendar.** More data almost always sharpens a number without changing the
+  decision the number feeds, and "wait for the slate" is the most comfortable
+  way to not ask.
+
 ## 2026-09-16 (seventh) - A before/after measurement taken thirty minutes apart is a drift measurement; interleave the arms or do not compare them
 
 Two instruments were written the same day for the same decision.
