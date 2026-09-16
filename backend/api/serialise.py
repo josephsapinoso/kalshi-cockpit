@@ -318,6 +318,20 @@ def _serialise(
                 if row["anchored_on_sharp"] is None
                 else bool(row["anchored_on_sharp"])
             ),
+            # The Odds API market family the consensus was built from, so a
+            # screen can report the anchor base rate per (league, family)
+            # rather than per league. The two are not interchangeable: on
+            # NCAAF, `h2h` anchors ~84% of the time and `spreads` ~30%, and a
+            # per-league figure pools them into a number describing neither.
+            #
+            # `None` when the LEFT JOIN missed, never a placeholder string --
+            # a row whose family is unknown must be countable as unknown, not
+            # silently filed under one.
+            "consensus_market": (
+                row["consensus_market"]
+                if "consensus_market" in row.keys()
+                else None
+            ),
         }
         if "book_count" in row.keys()
         else {}

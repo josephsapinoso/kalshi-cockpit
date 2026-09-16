@@ -24,6 +24,7 @@ import {
 import { refreshIsUrgent } from "@/lib/refreshUrgency";
 import Link from "next/link";
 
+import AnchorBaseRate from "@/components/AnchorBaseRate";
 import CrewBubble from "@/components/CrewBubble";
 import DispersionStrip from "@/components/DispersionStrip";
 import FilterBar from "@/components/FilterBar";
@@ -300,18 +301,25 @@ export default async function SlatePage({
           — it is not the same as every candidate being refused.
         </p>
       ) : (
-        <ul className="mt-8 divide-y divide-border">
-          {rows.map((row) => (
-            <li key={row.id}>
-              <Row
-                row={row}
-                driftWindowMs={data.drift_window_ms}
-                maxQuoteAgeMs={data.staleness.max_kalshi_quote_age_s * 1000}
-                maxOddsAgeMs={data.staleness.max_odds_age_s * 1000}
-              />
-            </li>
-          ))}
-        </ul>
+        <>
+          {/* Above the rows, because its job is to set an expectation BEFORE
+              the per-row warnings start arriving. On NCAAF spreads that
+              warning fires on about seven rows in ten, and a caveat read
+              seven times stops being read — Joe's option A, 2026-09-16. */}
+          <AnchorBaseRate rows={rows} />
+          <ul className="mt-8 divide-y divide-border">
+            {rows.map((row) => (
+              <li key={row.id}>
+                <Row
+                  row={row}
+                  driftWindowMs={data.drift_window_ms}
+                  maxQuoteAgeMs={data.staleness.max_kalshi_quote_age_s * 1000}
+                  maxOddsAgeMs={data.staleness.max_odds_age_s * 1000}
+                />
+              </li>
+            ))}
+          </ul>
+        </>
       )}
 
       {/*

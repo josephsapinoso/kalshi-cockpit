@@ -195,6 +195,15 @@ export const GLOSSARY = {
       "true price. An estimate, not a fact: the books can all be wrong " +
       "together.",
   },
+  sharp_book: {
+    label: "sharp book",
+    definition:
+      "A sportsbook that takes big bets from professionals and moves its " +
+      "price first — Pinnacle and Matchbook here. Their prices are the " +
+      "reference. When none of them quoted the exact line you are looking " +
+      "at, the fair value falls back to the recreational books, which is a " +
+      "wider and weaker consensus wearing the same name.",
+  },
   devig: {
     label: "devig",
     definition:

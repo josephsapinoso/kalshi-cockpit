@@ -1322,7 +1322,17 @@ def create_app(
                 "       f.p_multiplicative, f.p_additive, f.p_power, f.p_shin, "
                 "       f.p_conservative, "
                 "       f.market_width, f.book_count, f.books_used, "
+                # `f.market` is the ODDS API market family the consensus was
+                # built from -- h2h, spreads, totals, or a prop key -- and it
+                # is aliased because `market` alone reads as Kalshi's market on
+                # a row that already carries `market_title` and `market_type`.
+                # Needed because anchoring rates differ by market family and
+                # not by league: NCAAF `h2h` anchors on a sharp book about 84%
+                # of the time and its `spreads` about 30%, so a per-league
+                # number pools two populations that disagree (CLAUDE.md, "a
+                # pooled number is not a finding until the parts agree").
                 "       f.anchored_on_sharp, f.outcome_name, "
+                "       f.market AS consensus_market, "
                 "       l.odds_event_id, l.league "
                 "FROM recommendations r "
                 "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "

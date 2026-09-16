@@ -40,6 +40,7 @@ Mutations, each observed red:
   4. move `Anchor`'s null guard below its truthiness branch, so an unknown row
      renders as a measured absence
   5. drop a surface from `PRICE_SURFACES` while it still reads the flag
+  6. park a surface in `AGGREGATE_SURFACES` with no guard naming it
 """
 
 from __future__ import annotations
@@ -71,6 +72,26 @@ PRICE_SURFACES = [
     pytest.param(PICKS, id="GoodChancePicks"),
     pytest.param(CONSENSUS, id="ConsensusPanel"),
 ]
+
+#: Surfaces that read the flag to AGGREGATE it rather than to price a row.
+#:
+#: `AnchorBaseRate` counts how many of the rows on screen had a sharp book
+#: behind them; it shows no price, so "does it mark the soft case on this row"
+#: is not a question it can answer, and the assertions above do not apply to
+#: it. It is not therefore exempt: `test_anchor_base_rate.py` holds its
+#: properties, and `test_an_aggregate_surface_is_checked_somewhere` below
+#: refuses to let this list be a place things are parked.
+#:
+#: **A second category rather than a second entry in `allowed_unlisted`**,
+#: because that set means "renders nothing" — which is true of `api.ts` and
+#: false of this. An exemption whose stated reason is wrong is how the next
+#: unchecked surface gets in.
+ANCHOR_BASE_RATE = FRONTEND / "components" / "AnchorBaseRate.tsx"
+AGGREGATE_SURFACES = {ANCHOR_BASE_RATE}
+
+#: The file that must mention an aggregate surface by name for it to count as
+#: checked. Named here so the pointer is a test rather than a comment.
+AGGREGATE_GUARD = ROOT / "tests" / "test_anchor_base_rate.py"
 
 
 def source(path: Path) -> str:
@@ -214,9 +235,26 @@ class TestTheSurfaceListCannotSilentlyBecomeASubset:
             for path in FRONTEND.rglob("*.ts*")
             if "anchored_on_sharp" in code_only(path.read_text(encoding="utf-8"))
         }
-        unlisted = found - listed - allowed_unlisted
+        unlisted = found - listed - allowed_unlisted - AGGREGATE_SURFACES
         assert not unlisted, (
             f"{sorted(p.name for p in unlisted)} read anchored_on_sharp and "
-            "are not in PRICE_SURFACES, so nothing checks that they mark the "
-            "soft case"
+            "are in neither PRICE_SURFACES nor AGGREGATE_SURFACES, so nothing "
+            "checks what they do with the flag"
         )
+
+    def test_an_aggregate_surface_is_checked_somewhere(self):
+        """`AGGREGATE_SURFACES` must not become a parking space.
+
+        Moving a file into that set exempts it from every assertion in this
+        module, which is the same hole `ParlayCards` fell through. The cost of
+        the exemption is that the other guard has to name the file.
+        """
+        assert AGGREGATE_GUARD.exists(), f"{AGGREGATE_GUARD} is missing"
+        guard = AGGREGATE_GUARD.read_text(encoding="utf-8")
+        for path in AGGREGATE_SURFACES:
+            assert path.exists(), f"{path} is listed but does not exist"
+            assert path.name in guard, (
+                f"{path.name} is exempt from this module's assertions but "
+                f"{AGGREGATE_GUARD.name} does not mention it, so nothing "
+                "checks it at all"
+            )

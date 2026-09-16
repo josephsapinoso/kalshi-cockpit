@@ -77,6 +77,20 @@ export type ConsensusProvenance = {
    * `null` means the join missed. The column is `NOT NULL` in the database.
    */
   anchored_on_sharp: boolean | null;
+
+  /**
+   * The Odds API market family the consensus was built from: `h2h`,
+   * `spreads`, `totals`, or a prop key.
+   *
+   * Present so a screen can report the anchor base rate per (league, family).
+   * Per league alone would pool populations that disagree — measured on live
+   * 2026-09-16, NCAAF `h2h` anchored on a sharp book about 84% of the time
+   * and NCAAF `spreads` about 30%.
+   *
+   * `null` means the join missed, and a row with a null family must be
+   * counted as unknown rather than filed under any family.
+   */
+  consensus_market: string | null;
 };
 
 /**
