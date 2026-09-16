@@ -465,3 +465,17 @@ build steps. See `backend/kalshi/combos.py` and `tasks/lessons.md`.
 5. **Capture lessons.** After any correction, write the *pattern* to
    `tasks/lessons.md` — not the incident.
 6. **Record decisions** in `docs/adr/` so no future session re-derives them.
+7. **A question for Joe is a ticket, not a line.** A measurement, review or
+   audit that raises a decision only he can make — including a user-facing
+   sentence found to contradict this repo's own measured record, which is
+   where three of the first five tickets under this rule came from — opens a
+   sub-issue of map #3
+   **in the same session** (recipe: `docs/agents/issue-tracker.md`, "Open a
+   ticket for Joe"), and the handoff names it as
+   `Question for Joe: <one sentence> — #NN`. **Without the ticket the question
+   does not exist**: the next session rewrites the Open list and keeps what it
+   can execute alone, so "ask Joe" decays into "re-run the instrument" — it
+   did, twice, in three sessions (`tasks/lessons.md` 2026-09-16 eighth). The
+   map is the only queue that does not refill itself. An empty frontier is a
+   finding, not a clean desk. `tests/test_a_question_for_joe_has_a_ticket.py`
+   refuses the marker without a number and refuses `#3` (the map) as the number.

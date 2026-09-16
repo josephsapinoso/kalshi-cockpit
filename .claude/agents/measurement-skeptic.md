@@ -108,6 +108,22 @@ the candidate errors give **different** answers. `clv_tenths(500, 500, "no")`
 passes under both the right and the wrong convention, because 50c is exactly
 where that error vanishes.
 
+### 11. Does the finding hand a decision to Joe — and does that decision have a ticket?
+
+A measurement that ends "this is Joe's call" has produced two things: a number
+and a question. The number goes in the record. **The question goes on map
+issue #3 as a sub-issue, in the same session, or it does not exist** —
+CLAUDE.md workflow step 7. Checked 2026-09-16: a question filed as a line in
+`tasks/NEXT.md` was rewritten into "re-run the instrument" within one session
+and re-filed the same way the session after, because the instrument is the
+part a session can execute alone.
+
+So when the claim you are auditing says *for Joe*, *Joe's call*, *until he
+answers*: require the ticket number in the write-up, as
+`Question for Joe: <sentence> — #NN`. If it is absent, the claim is not ready
+to enter the record — say **NO TICKET** beside the verdict and name the
+question the ticket must carry. `#3` is the map, not a ticket.
+
 ## How to report
 
 State a verdict, then the reasoning. One of:

@@ -89,7 +89,14 @@ unassigned `-`, first in map order wins):
 
 Conventions: `docs/agents/issue-tracker.md`. Claim a ticket by assigning it to
 yourself before any work; resolve one per session. The map produces
-*decisions*, not builds. **The `/wayfinder` skill that drew the map is not
+*decisions*, not builds. **An empty frontier is a finding, not a clean desk**
+(2026-09-16): the map is the only queue that does not refill itself, and a
+question for Joe that is not a sub-issue of #3 decays into the instrument
+that raised it. Write one as `Question for Joe: <sentence> — #NN` (recipe:
+"Open a ticket for Joe" in the conventions file);
+`tests/test_a_question_for_joe_has_a_ticket.py` refuses the marker without a
+number and refuses any Still-open item that says *for Joe* / *Joe's call* /
+*until he answers* with no ticket. **The `/wayfinder` skill that drew the map is not
 installed in this plugin version** — nothing can invoke it, and the map is
 read with `gh` only.
 
@@ -118,6 +125,149 @@ live. The terminal spread/total look was **VETOED by Joe 2026-08-21 16:11Z**
 nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
+
+## 2026-09-16 (twenty-fifth session) — the question-decay rule is a contract with a test, and the decision queue went from 0 to 9 tickets about the confirm path
+
+Joe: *"Main job: open item 1, the durable fix for question-decay … Put the
+rule in CLAUDE.md's workflow where a session will hit it, not just in
+lessons.md. Then tell me what you think should go on the decision queue …
+I'd rather spend this one on something that changes what I see when I'm
+about to place a bet."* The first half was a named errand and was built
+directly; the second half is the partner's question, so a partner pass and
+a sharp-bettor pass ran in parallel on the confirm path.
+
+### THE RULE — CLAUDE.md workflow step 7, and it has teeth
+
+**A question for Joe is a ticket, not a line.** A measurement, review or
+audit that raises a decision only he can make opens a sub-issue of map #3 in
+the same session, written in the handoff as a `Question for Joe` line
+that ends in the ticket number. Without the ticket the question does
+not exist. Four places a session hits it, and one guard:
+
+- `CLAUDE.md` workflow step 7, beside "record decisions in `docs/adr/`".
+- `docs/agents/issue-tracker.md`, "Open a ticket for Joe": the three
+  commands, and the third is the one that was missing from the repo —
+  linking the child as a sub-issue by **database id**, without which the
+  frontier query cannot see it. **Verified this session**: nine tickets
+  created through it and all nine appear on the frontier.
+- `.claude/agents/measurement-skeptic.md` check 11: a claim that says *for
+  Joe* without a ticket number gets **NO TICKET** beside its verdict.
+- `.claude/agents/partner.md` rule 5: it owns the queues, reads the frontier
+  every pass, and treats an empty one as its first finding.
+- `tests/test_a_question_for_joe_has_a_ticket.py`: refuses a
+  `Question for Joe` marker without a number, refuses `#3` (the map) as the
+  number, and refuses any item in the latest entry's **Still open** list
+  that says *for Joe* / *Joe's call* / *until he answers* / *ask Joe* with no
+  ticket. That list is scoped because it is the exact place the rewrite
+  happens. Both mutations observed red **on the real file** (a ticketless
+  marker inserted into this file; a ticketless measurement doc dated inside
+  the rule), restored md5-identical. It also fired, correctly, on the
+  previous entry's open item 1 — the rule statement itself said "question
+  for Joe" beside "map #3" and nothing else — which is why that item is
+  closed rather than re-worded.
+
+The partner widened it by one clause and the clause is in: a **user-facing
+sentence found to contradict this repo's measured record** opens a ticket
+too. Three of the first five tickets below came from reading source against
+the record, not from a measurement, and the rule as first drafted would have
+caught none of them.
+
+### THE QUEUE — nine tickets, #39 to #47, all decisions, all free, none waiting on Saturday
+
+Both passes put the same thing first, independently: **the Confirm button
+quotes contracts × ask and the fee is not in it** (`ManualTicket.tsx:626-631`);
+the fee-inclusive figure exists (`orders.py:307`, `routes.py:2984-3010`) and
+is computed **after** submission. On a thesis whose whole headroom is 0.63
+points, the fee is the number, and it is the one number he never sees before
+tapping. Every file:line in the tickets was re-read on `main` before it was
+written; two historical claims (the 2026-09-10 resting YES bids at size 10;
+the 2026-09-14 refusal that read as an accusation) were found in the record.
+
+    Question for Joe: should the fee be on the Confirm button, with break-even beside it — #39
+    Question for Joe: should the ticket's ask carry an age and a re-read, with the limit re-pinned — #40
+    Question for Joe: what should the combo checkbox say now that "no way out" is falsified — #41
+    Question for Joe: should the ticket and Picks say the game has started — #42
+    Question for Joe: what should the hedge headline call a figure that is not a lock — #43
+    Question for Joe: should a refusal carry the Kalshi link — #44
+    Question for Joe: should the not-tonight strip be on the game screen — #45
+    Question for Joe: show today's realised P&L on the ticket, or stop computing it — #46
+    Question for Joe: what should a stale Picks row show instead of "ask not current" — #47
+
+Put to him as one lettered artifact, recommendation first, terms defined:
+https://claude.ai/artifact/8jFGgXCHdjGSiTqsTMppHt. If he agrees with every
+recommendation the whole reply is `39A 40A 41A 42A 43A 44A 45A 46C 47A`.
+
+**Killed, with reasons, so nobody re-proposes them:** sportsbook line
+movement beside Kalshi drift (allowed as a per-row fact; the sharp-bettor
+could not show it changes a wager, so it stays off); populating the
+single-market fill stratum (needs Joe to place a single through the tool —
+manufacturing action, ADR 0071); "the slate row has no consensus age" and
+"sharp anchor missing from the game screen" (both false on read); the
+"authorises N contracts" fog entry (answered by a build,
+`ManualTicket.tsx:458-467`). Infrastructure in disguise, dropped from any UI
+queue: the 768–1280px band, agent page-loads against the attention slice,
+`/api/slate`'s N+1, the ANALYZE successor.
+
+**Two things the passes found that are builds, not decisions**, filed
+below: `AnchorBaseRate` renders only on Games (Picks shows the per-row marker
+with no denominator; principle settled in `432cbb9`); and the **public demo
+deploy is serving pre-ADR-0131 copy** — the Games buy block still reads
+"type it anyway", removed 2026-09-09. That is a portfolio URL.
+
+**Decoration, per the sharp-bettor, recorded not acted on:**
+`losing_run_probability` / `sd_dollars` (`serialise.py:498-510`,
+`OpportunityCard.tsx:208-218`) is a precise statement about an edge measured
+negative; the Games row states the freshness fact four times; the Games page
+is ~16,900px tall at 390px for 11 games. And on yesterday's ship: *it is a
+good panel and it does not change a wager* — keep it, do not build three more
+like it.
+
+### Also found
+
+Issue **#38** ("Totals and player props are parlay legs, both sides — built")
+is open and is **not** a sub-issue of #3. It records a build, not a question;
+left as is, noted so the frontier's "9" is not read as "all open issues".
+
+### STATE at close
+
+`main` = this entry, on top of `80fbe63`. **Live unchanged at `c9cd519`** —
+nothing in this session is runtime. No deploy. `SCHEMA_VERSION` **44**, next
+ADR **0160**, schema **v45 unallocated**, no lane reservations. Arming
+unchanged: hand path armed, engine and bid paths dry. **Zero odds credits
+spent.** No open Dependabot alerts at open.
+
+### Still open, in order
+
+1. **Joe's nine answers** — tickets #39–#47, artifact above. Each answer is a
+   build; claim the ticket, build it, close it with the answer quoted. #39
+   needs a one-paragraph ADR 0062 amendment (a fee is the venue's charge, not
+   the tool's opinion) or the next session re-litigates it. #41 and #43 ship
+   their missing test and the stale caveat correction whichever letter he
+   picks.
+2. **Saturday 19 — `sharp-anchor-census` on the live NCAAF slate**, with
+   `team-bookmakers --since` beside it. Verifies the magnitude behind a
+   decision already taken (option A, `432cbb9`) and closes the rival
+   explanation: `matchbook` on 3 of 57 NCAAF events means "thin book"
+   explains the result as well as "thin sport". Bound the rows.
+3. **Monday 21 — `credits-day --date 20260920`**, the registered check beside
+   `20260913`. Take the measurement; do not re-derive the projection.
+4. **Redeploy the public demo.** It serves copy removed 2026-09-09. Not
+   urgent for the desk; it is the portfolio URL.
+5. **`AnchorBaseRate` on Picks** — a build, decided in principle
+   (`432cbb9`); wherever a list of priced rows renders.
+6. **One "Price on Kalshi" tap on the props card — JOE ONLY, unchanged.** It
+   mints a market on the exchange. A session must not do it.
+7. **Offered and not taken: a route-latency read on live**
+   (`scripts/time_live_routes.py`). Cheap, bounded, free; nobody has the
+   desk's real per-request numbers.
+8. **PARKED with unpark conditions:** the successor ANALYZE run and ANALYZE
+   for the rest of the database — only if item 7 shows a desk route over the
+   25 s read budget **and** the plan implicates `fair_prices`. Carried parks:
+   the shard probe (**ADR 0158**); `user_not_found` on shard 3; the 25 s
+   read budget.
+9. **Reservations:** none live. Next ADR **0160**; schema **v45 unallocated**.
+
+---
 
 ## 2026-09-16 (twenty-fourth session, continued) — Joe answered the anchor question, the slate got a base-rate block, and the partner found why that question had gone unasked for three sessions
 

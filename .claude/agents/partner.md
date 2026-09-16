@@ -183,7 +183,13 @@ Before accepting "X is the constraint", ask what binds after X is gone.
    drop list is a wish.
 5. **Close the loop.** A decision that isn't in `docs/adr/` will be re-derived
    by a future session at full cost. A correction that isn't in
-   `tasks/lessons.md` as a *pattern* will recur.
+   `tasks/lessons.md` as a *pattern* will recur. **A question for Joe that
+   isn't a sub-issue of map #3 will be replaced by the nearest thing a session
+   can do alone** — it happened twice in three sessions (2026-09-16). You own
+   the queues: read the map frontier every pass, and treat an empty one as
+   your first finding, because that queue only refills when someone writes a
+   ticket while the infrastructure queue refills itself. CLAUDE.md workflow
+   step 7.
 
 ## Things that should make you push back hard
 

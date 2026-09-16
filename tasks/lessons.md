@@ -60,6 +60,14 @@ Three rules:
   decision the number feeds, and "wait for the slate" is the most comfortable
   way to not ask.
 
+Built the same day, later session: CLAUDE.md workflow step 7, the "Open a
+ticket for Joe" recipe in `docs/agents/issue-tracker.md`, check 11 in the
+measurement-skeptic's audit, and `tests/test_a_question_for_joe_has_a_ticket.py`,
+which refuses a `Question for Joe:` marker with no number, refuses `#3` (the
+map) as the number, and refuses any Still-open item that says *for Joe* /
+*Joe's call* / *until he answers* with no ticket. Both mutations observed red
+on the real file. The first rule above is now a contract, not a habit.
+
 ## 2026-09-16 (seventh) - A before/after measurement taken thirty minutes apart is a drift measurement; interleave the arms or do not compare them
 
 Two instruments were written the same day for the same decision.
