@@ -119,6 +119,145 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-16 (twenty-fourth session) — the index Joe approved was measured and REFUSED; the census is bounded, ANALYZE is the real lever, and the deploy is blocked on his say-so
+
+Joe: *"Read NEXT.md and start. Main job this session: the index rebuild I
+approved (open item 1). Schema v45 + ADR 0159. Rehearse it in the container on
+a paced copy before touching live, and tell me before and after you deploy
+it."* A single-item errand he named, so no partner pass.
+
+### THE HEADLINE: the planner never picks the index, and what was missing was statistics
+
+ADR 0141 requires an index to be bought on a timing, so the timing came before
+the migration. `scripts/measure_fair_price_window_index.py`, 10,112,298
+modelled rows at live's shape, 8 MB page cache, seven-day window, round-robin,
+five rounds:
+
+    unbounded (today)                    17,270 ms     1.00x        —
+    + window, no statistics                 883 ms    19.56x     free
+    + window + the APPROVED index           883 ms    19.57x   154 MB
+    + window + covering index               958 ms    18.03x   255 MB
+    + window + ANALYZE, no new index        259 ms    66.70x     free
+    + window + index + ANALYZE              240 ms    71.99x   154 MB
+    + covering + INDEXED BY                  76 ms   226.01x   255 MB
+
+**The planner declines the new index in every arm.** It keeps
+`idx_fair_market_computed`, which leads with `market` and satisfies the
+`GROUP BY` — so the 154 MB arm and the free arm are the same number twice.
+With `sqlite_stat1` present it runs that same index as a **skip-scan**,
+`ANY(market) AND computed_ms>?`, because `market` has a handful of distinct
+values.
+
+**Nothing in `backend/` has ever run `ANALYZE`.** The live planner has chosen
+from built-in defaults since first boot. That is the finding, and it is bigger
+than this one query.
+
+So the index is **refused, not deferred** (ADR 0159), `SCHEMA_VERSION` stays
+**44**, and **schema v45 stays unallocated** — claiming a global counter for an
+unrehearsed change is exactly what `docs/adr/README.md` warns about. Next ADR
+is **0160**.
+
+### The brief was wrong in a second place too
+
+`odds_snapshots` "needs no new index because `idx_odds_commence` serves a
+`commence_ms` bound". It does for `prop-bookmakers`. It does **not** here:
+`idx_odds_window` (v41) leads with `market`, covers section A's select list and
+satisfies its `GROUP BY`, so the planner scans it whole and `commence_ms` — its
+fourth column — is a filter. `ANALYZE` does not change that; measured both
+ways. It is called a filter in the code, the tests and the ADR, never a bound.
+
+And a third hazard nobody had named: **section A bounds on `commence_ms` while
+REPORTING `fetched_ms`**. Its `first_ms` is not the window and must never be
+read as one. In the docstring now.
+
+### Landed — `45b60b9`, CI green
+
+Both halves bounded at a seven-day default; a window section per half naming
+its own column (one instant, two clocks); `_fair_prices_since_ms`; the
+docstring corrections including that `first_ms` has changed meaning; ADR 0159;
+`tasks/lessons.md` 2026-09-16 (fifth).
+
+`tests/test_fair_prices_by_market_is_bounded.py` — 12 tests, four mutations
+each observed red, run against a **backup copy** of the module rather than
+`git checkout`. Mutation 4 first anchored on the `raise` line alone and
+silently hit `_bookmakers_since_ms`, whose `try/except` is byte-identical: the
+suite stayed green, which is what a decorative guard looks like from outside.
+Two tests assert the pessimistic case deliberately, and
+`test_no_new_index_is_needed_for_that_seek` pins the **absence** of the refused
+index, because an absence with no test reads exactly like a forgotten task.
+
+**The full suite's one failure was the valuable part.** `1 failed, 7519 passed,
+10 xfailed` — and the failure was
+`TestTheSshInvokedScriptsSurviveDockerignore`: `rehearse_fair_price_window.py`
+was not in the `.dockerignore` allowlist, so it would have been absent from the
+image and the rehearsal would have died on `No such file or directory` at the
+ssh prompt. That allowlist has now failed **six** times and this is the first
+time its own derivation caught it instead of a person hitting the error on the
+box.
+
+### BLOCKED — the deploy needs Joe
+
+The live deploy (`-c fly.live.toml`, with `GIT_SHA` substituted from
+`git rev-parse HEAD` in the same command) is refused by the auto-mode
+classifier, reason `[Production Deploy]`. Retried once as a single command per
+the retry-once rule; it is the deploy itself, not the compound form. **Not
+worked around.** The classifier also refuses any `Bash` call whose *text*
+contains that command, which is why this entry describes it rather than
+quoting it and why it was written with `Edit`.
+
+The rehearsal cannot run until the script is in the image, so the `ANALYZE`
+half is stalled behind that one command.
+
+### STATE at close
+
+`main` = `45b60b9` plus the NEXT/WAL-caveat commit; **CI green on `45b60b9`**;
+live = `81e9ab6`, now four commits behind, and **every one of them is comments,
+tests, docs and inspector scripts — no runtime behaviour**. `SCHEMA_VERSION`
+44, next ADR **0160**, schema **v45 unallocated**. Arming unchanged: hand path
+armed, engine and bid paths dry. **Zero odds credits spent by this session** —
+every live call was a `GET /api/health` or one `df -h` over ssh.
+
+Live volume read 2026-09-16 ~04:55Z: `/dev/vdc 20G, 5.9G used, 13G avail`. The
+rehearsal's own guard demands the file's size free twice over (11.8 GB), so it
+clears with ~1.2 GB spare. No open Dependabot alerts.
+
+### Still open, in order
+
+1. **Deploy `main`, then run the rehearsal.** One command Joe has to permit —
+   the live deploy described above. Then, on a quiet clock, over
+   `flyctl ssh console -a kalshi-cockpit -C ...`:
+
+       python /app/scripts/rehearse_fair_price_window.py
+       python /app/scripts/warm_read_path.py --db /data/cockpit.db
+
+   **The second is not optional.** The rehearsal copies and reads a ~6 GB file
+   through a page cache that holds at most ~27% of it, so it leaves the desk
+   cold — it is itself the expense ADR 0157 names, which is why it prints that
+   reminder at the end of its own output.
+
+   If it comes back clean, `ANALYZE fair_prices` under
+   `PRAGMA analysis_limit=1000` becomes schema **v45** as a `_Migration` with
+   `statements=`, and ADR **0160** records it. If `CANDIDATE_SQL` or the
+   runner's dedupe lookup regresses, the census keeps the 19.6x the bound alone
+   bought and that is the end of it.
+
+2. **`sharp-anchor-census` once the NCAAF slate is live Saturday** — free and
+   bounded. Tonight's ~30% may be a pre-slate artefact of thin early lines.
+3. **`credits-day --date 20260920` Monday** — the registered check, beside
+   `20260913`. Take the measurement; do not re-derive the projection.
+4. **One "Price on Kalshi" tap on the props card — JOE ONLY, unchanged.** It
+   mints a market on the exchange. A session must not do it.
+5. Carried parks: the shard probe (**ADR 0158**, with unpark conditions);
+   `user_not_found` on shard 3; the 25 s read budget.
+6. **Worth its own look, and bigger than this ticket:** the live database has
+   **no table statistics at all**, so every plan on the box is chosen from
+   SQLite's built-in guesses. ADR 0159 rehearses `ANALYZE` on one table.
+   Whether the others want it is a separate question with a wider blast radius,
+   and it has never been asked.
+7. **Reservations:** none live. Next ADR **0160**; schema **v45 unallocated**.
+
+---
+
 ## 2026-09-16 (twenty-third session) — Joe answered three questions; item 6 is done, the parlay card stopped flattering, and the index rebuild is the next job
 
 Continuation of the twenty-second session, same day, after the queue was put to

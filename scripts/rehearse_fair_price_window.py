@@ -52,6 +52,14 @@ What this does NOT establish
   table the recorder writes to continuously.
 - **The copy is quiescent and live is not.** Every timing here runs with no
   concurrent writer, so it is a floor on the real cost and never a ceiling.
+- **The copy may lag the live file by up to a checkpoint.** The source is
+  opened `mode=ro`, and this repo has recorded that a read-only connection
+  cannot read the WAL
+  (`docs/measurements/2026-08-19-the-prune-loses-to-the-writer.md`). So rows
+  written since the last checkpoint are absent from the copy. That is
+  immaterial to every timing here -- a few minutes of recorder output against
+  ten million rows changes no plan and no distribution -- but the row counts
+  printed below are NOT the live counts, and must not be quoted as them.
 - **It does not prove the census is worth running at all.** It prices making
   it cheap, which is a different question from whether anyone should.
 
