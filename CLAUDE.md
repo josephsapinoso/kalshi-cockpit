@@ -259,7 +259,8 @@ The first two fills through the tool landed 2026-09-08.
 
 **`/hedge` watches what Joe already holds — ADR 0078.** It records a parlay he
 placed, reads its legs' live Kalshi prices while the game runs, and says what
-hedging the endangered leg would do — the only exit an enter-only combo has.
+hedging the endangered leg would do — the exit the desk watches (any way
+out by selling is small and unmeasured; #41, 2026-09-16).
 No model, no tokens, no credits (asserted over the source of `core/hedge.py`,
 `hedge.py`, `hedge_watch.py`); no `recommendations` row and no gate read. With
 one leg live there is a figure and it is pushed to the phone; with several

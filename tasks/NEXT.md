@@ -222,6 +222,71 @@ is ~16,900px tall at 390px for 11 games. And on yesterday's ship: *it is a
 good panel and it does not change a wager* — keep it, do not build three more
 like it.
 
+### JOE ANSWERED WITHIN THE HOUR, AND ALL NINE ARE BUILT
+
+His reply, verbatim: `39A 40A 41A 42A 43A 44A 45A 46C 47A` — every
+recommendation. Each ticket is closed with the letter quoted and the map's
+Decisions-so-far carries all nine. Four lanes in worktrees, all merged:
+
+- **Lane 1 (`eb08b12`) — the ticket.** Confirm reads
+  `buy N YES for at most $X (ask $A + fee $F)`; the fee is one integer per
+  contract served by the preflight from the fee module (`calculate_fee` /
+  `combo_taker_fee`, ceiled onto a tenth, `N × ceil(x) ≥ ceil(N × x)`), and
+  break-even is served as `(ask + fee)/1000`. Age beside each ask on a
+  one-second tick and a "Re-read the book" button that re-pins the limit —
+  informs, never blocks. `commence_ms` joins the payload from the
+  **sportsbook** clock (never `kalshi_events`, 3h late) and an in-play line
+  renders only on a known past kickoff. `KalshiLink` in blocked, refused
+  and beside depth. `venue_daily_pnl_dollars` and its read are gone from
+  the preflight (46C). ADR 0062 **Amendment 1**: a fee is the venue's
+  charge, not the tool's opinion. 28 tests, 11 mutations red.
+- **Lane 2 (`33fd590`) — the checkbox**, ParlayCards, two server-composed
+  notes, and the sweep test
+  `test_combo_exit_copy_is_small_and_unmeasured_on_every_surface.py` (11
+  surfaces enumerated, strays fail). 7 mutations red. CLAUDE.md's own
+  `/hedge` paragraph carried the dead universal too; corrected.
+- **Lane 3 (`daef131`, `c47c69e`) — the hedge figure.** Heading "one leg
+  left", figure "about $X either way — an estimate: <grain>" with the grain
+  at the same type size (`uncertainty_display`, E2 dollarised for this
+  ticket's count); `NOTES["upper_bound"]` carries the census counts instead
+  of "roughly a cent"; and the **Discord push** that repeated "Locks /
+  whichever way" now says what the screen says. 13 mutations red. Wire
+  names (`guaranteed`, state `lock`) kept, with a render-site comment saying
+  why.
+- **Lane 4 (`e655fbe`) — Picks and the game screen.** `TonightStrip` on
+  `/market/[ticker]` above the ticket, fed by the slate's own `tonight`
+  block; a stale Picks row reads `ask 12 min old — refresh the books, or
+  open the game screen` (the server still drops the stale ask on purpose);
+  started rows carry `started 41 min ago` and **nothing reorders** — a test
+  pins a started favourite keeping its place. 12 mutations red.
+
+**The kalshi-platform review found the arithmetic correct and two rendering
+defects, both fixed on `main` before deploy:**
+
+1. **"at most" was not at most once the Max-price stepper was raised** —
+   the receipt prices the worst case at the SENT limit
+   (`orders.py:worst_case_cost_dollars`), so the button off the ask alone
+   was false by `(max − ask) × N` plus the fee delta, $50 at 500 contracts.
+   Now the preflight also serves `fee_ceiling_per_contract_tenths` (the fee
+   at 50c, the curve's peak, a bound at any price) and the button prices off
+   `max(ask, max price)` with that ceiling when raised, saying "your max
+   price … fee up to". Four mutations red.
+2. **Break-even printed 51.7% for a 51.75% bar** — `toFixed(1)` in
+   JavaScript rounds 51.749999… down, toward the bet, and both docstrings
+   claimed a display the code could not produce. `toFixed(2)`.
+
+The review also named, and did not build for: the fee breakdown ignores the
+snap the order path takes `max` over, unreachable on every captured grid
+(all `linear_cent`, ≤ $0.21 at the size ceiling if a non-linear grid
+exists); `MIN(commence_ms)` over all snapshots keeps a postponed fixture's
+earliest kickoff (same choice `parlays.py:2498` documents); the started
+comparison uses the unclamped client clock. All three informational.
+
+**Session-limit hazard, recorded:** all four lanes were killed mid-run by
+the account's session limit. Their uncommitted work survived in the
+worktrees, and `SendMessage` to each agent id resumed it with context
+intact once the limit reset. Memory updated.
+
 ### Also found
 
 Issue **#38** ("Totals and player props are parlay legs, both sides — built")
@@ -230,20 +295,25 @@ left as is, noted so the frontier's "9" is not read as "all open issues".
 
 ### STATE at close
 
-`main` = this entry, on top of `80fbe63`. **Live unchanged at `c9cd519`** —
-nothing in this session is runtime. No deploy. `SCHEMA_VERSION` **44**, next
-ADR **0160**, schema **v45 unallocated**, no lane reservations. Arming
+`main` = the rule commit `43422c4`, four lane merges (`3db962d`, `24699ce`,
+`02943b2`, `35534cf`) and the review fixes in this entry's commit. Deploy to
+live via the workflow after CI — see the next entry's STATE line for the
+verified sha; do not trust this one. `SCHEMA_VERSION` **44**, next ADR
+**0160**, schema **v45 unallocated**, no lane reservations. Arming
 unchanged: hand path armed, engine and bid paths dry. **Zero odds credits
-spent.** No open Dependabot alerts at open.
+spent.** No open Dependabot alerts at open. Full suite on the merged tree
+before the review fixes: lane 1 read 7576 passed, 8 skipped, 10 xfailed;
+tsc clean; `next build` green on `main`.
 
 ### Still open, in order
 
-1. **Joe's nine answers** — tickets #39–#47, artifact above. Each answer is a
-   build; claim the ticket, build it, close it with the answer quoted. #39
-   needs a one-paragraph ADR 0062 amendment (a fee is the venue's charge, not
-   the tool's opinion) or the next session re-litigates it. #41 and #43 ship
-   their missing test and the stale caveat correction whichever letter he
-   picks.
+1. **Verify the deploy on live**: `/api/health` `build.git_sha` = `origin/main`,
+   then open one ticket on the phone or via `scripts/time_live_routes.py`'s
+   cookie and read the served `fee_per_contract_tenths`,
+   `fee_ceiling_per_contract_tenths`, `breakeven_probability`, `commence_ms`
+   off `/api/manual/market/<ticker>` — the "verification methods that lie"
+   rule satisfied, not asserted. The Confirm button on live should read
+   "for at most".
 2. **Saturday 19 — `sharp-anchor-census` on the live NCAAF slate**, with
    `team-bookmakers --since` beside it. Verifies the magnitude behind a
    decision already taken (option A, `432cbb9`) and closes the rival

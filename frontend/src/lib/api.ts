@@ -3009,6 +3009,14 @@ export type ManualMarketSide = {
    */
   fee_per_contract_tenths: number | null;
   /**
+   * The venue's charge on one contract at 50c -- the peak of the fee
+   * curve, so a bound on the fee at any price. The ticket prices the
+   * button off it when the max price is raised above the ask, because
+   * the receipt prices the worst case at the sent limit. `null` with
+   * the fee.
+   */
+  fee_ceiling_per_contract_tenths: number | null;
+  /**
    * How often a bet at this ask has to win to come out even, fee included,
    * as a fraction. Served, not divided out here, so 50c reads 51.75% and not
    * the rounded tenth's 51.8%. `null` with the fee.

@@ -768,7 +768,7 @@ function TicketBody({
         <p className="max-w-[65ch] text-xs leading-relaxed">
           You need this to happen more than{" "}
           <span className="font-semibold tabular">
-            {(facts.breakeven_probability * 100).toFixed(1)}%
+            {(facts.breakeven_probability * 100).toFixed(2)}%
           </span>{" "}
           of the time to <Term k="breakeven">break even</Term> — that is the{" "}
           <Term k="ask">ask</Term> plus Kalshi&rsquo;s{" "}
@@ -776,6 +776,22 @@ function TicketBody({
         </p>
       )}
 
+      {/* "at most" must survive the Max-price stepper. The receipt prices
+          the worst case at the SENT limit, so once he raises the max above
+          the ask the stake basis is the max and the fee basis is the
+          served 50c ceiling (the fee curve's peak, so a bound at any
+          price). At the ask, both are the ask's own served figures.
+          kalshi-platform review, 2026-09-16. */}
+      {(() => {
+        const raised =
+          facts.ask_tenths !== null &&
+          maxPriceTenths !== null &&
+          maxPriceTenths > facts.ask_tenths;
+        const priceBasisTenths = raised ? maxPriceTenths : facts.ask_tenths;
+        const feeBasisTenths = raised
+          ? facts.fee_ceiling_per_contract_tenths
+          : facts.fee_per_contract_tenths;
+        return (
       <button
         onClick={onConfirm}
         disabled={!canConfirm}
@@ -789,19 +805,22 @@ function TicketBody({
             An unreadable fee is said, never priced at zero. */}
         {sending
           ? "Sending…"
-          : contracts >= 1 && facts.ask_tenths !== null
-            ? facts.fee_per_contract_tenths === null
+          : contracts >= 1 && priceBasisTenths !== null
+            ? feeBasisTenths === null
               ? `Confirm — buy ${contracts} ${side.toUpperCase()} for ${dollars(
-                  contracts * facts.ask_tenths,
+                  contracts * priceBasisTenths,
                 )} plus a fee the server could not price`
               : `Confirm — buy ${contracts} ${side.toUpperCase()} for at most ${dollars(
-                  contracts * facts.ask_tenths +
-                    contracts * facts.fee_per_contract_tenths,
-                )} (ask ${dollars(contracts * facts.ask_tenths)} + fee ${dollars(
-                  contracts * facts.fee_per_contract_tenths,
+                  contracts * priceBasisTenths + contracts * feeBasisTenths,
+                )} (${raised ? "your max price" : "ask"} ${dollars(
+                  contracts * priceBasisTenths,
+                )} + fee ${raised ? "up to " : ""}${dollars(
+                  contracts * feeBasisTenths,
                 )})`
             : `Confirm — buy ${side.toUpperCase()}`}
       </button>
+        );
+      })()}
     </div>
   );
 }

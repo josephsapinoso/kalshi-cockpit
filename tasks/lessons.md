@@ -16,6 +16,52 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-16 (tenth) - A copy guard that pins a field by NAME pins the name, not the claim; and a correction trail that quotes the killed phrase re-triggers the guard while a line-wrapped one dodges it
+
+Three ways a word-guard over user-facing copy lied this session, all on the
+hedge screen's "lock" wording and the Discord push that repeated it:
+
+- A rendered-output test that selects a field with
+  `next(f for f in fields if f["name"] == "Locks")` pins the **name**. When
+  the name changes the test goes red for the wrong reason; when the claim
+  moves under a new name it stays green. Pair every by-name pin with a
+  source-level word guard over the strings the builder emits.
+- The docstring carried "capped at one
+ * contract" past a guard that
+  refused "capped at one contract" for a week. A guard over source text must
+  either collapse whitespace before matching or scan at the token level.
+- A correction-trail comment that quotes the killed phrase verbatim -- "this
+  read 'lock available' until 2026-09-16" -- is caught by the same guard.
+  Describe the old copy in a file the guard scans; never reproduce it.
+
+## 2026-09-16 (ninth) - When a universal dies, a test on one surface certifies nothing about the others; enumerate every surface that carries the sentence and sweep for strays
+
+"No way out of a combination except the outcome" was falsified on 2026-09-10.
+The correction landed on the fallback paragraph and the price-lookup note,
+and the only test asserted one word ("exit") in one of those files. The
+checkbox six lines below the fallback -- the sentence Joe actually ticks to
+spend money -- kept the dead claim for six days, and so did the parlay card,
+two server-composed notes, and CLAUDE.md's own `/hedge` paragraph.
+
+A fallback branch is the least-rendered place a correction can land, and a
+comment saying "a fallback is where a falsified sentence survives longest"
+was sitting directly above the surviving one.
+
+Rules:
+
+- **When a universal dies, grep both trees for every phrasing of it** -- the
+  absolute ("only exit", "no way out", "cannot exit"), not just the sentence
+  you remember -- and list every hit in the commit that kills it.
+- **One test enumerates the surfaces and sweeps for strays**
+  (`tests/test_combo_exit_copy_is_small_and_unmeasured_on_every_surface.py`,
+  modelled on the soft-fallback surface test): the listed surfaces must
+  carry the new truth, and any file containing the vocabulary outside a
+  listed slice fails. A test that asserts one surface is a test of one
+  surface.
+- **State the size in words and no rate.** "Seen on two books, ten
+  contracts each, and how often has never been measured" is what an
+  existence proof supports; a digit invites a percentage.
+
 ## 2026-09-16 (eighth) - An unasked question decays into the measurement that produced it, because the measurement is the part a session can execute alone
 
 The twenty-second session measured the sharp-anchor rate, found NCAAF spreads

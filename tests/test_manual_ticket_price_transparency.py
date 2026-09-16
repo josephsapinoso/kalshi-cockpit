@@ -204,11 +204,50 @@ class TestTheFeeOnTheButtonIsTheServers:
         button = code[code.index("onClick={onConfirm}"):]
         button = button[: button.index("</button>")]
         assert "for at most ${dollars(" in button
-        assert "contracts * facts.fee_per_contract_tenths" in button
-        assert "+ fee ${dollars(" in button
+        assert "contracts * feeBasisTenths" in button
+        assert "+ fee ${" in button
         # An unreadable fee is said, never priced at zero.
-        assert "facts.fee_per_contract_tenths === null" in button
+        assert "feeBasisTenths === null" in button
         assert "could not price" in button
+
+    def test_a_raised_max_price_prices_the_button_off_the_max(self):
+        """The receipt prices the worst case at the SENT limit
+        (`orders.py:worst_case_cost_dollars`), so once the Max-price stepper
+        is above the ask, "at most" off the ask is false by (max - ask) x N
+        plus the fee delta -- kalshi-platform review, 2026-09-16. The stake
+        basis becomes the max and the fee basis the served 50c ceiling.
+        Mutations observed red: basis fixed to the ask; fee basis fixed to
+        the ask's fee."""
+        code = ticket_code()
+        start = code.index("const raised =")
+        block = code[start : code.index("</button>", start)]
+        assert "maxPriceTenths > facts.ask_tenths" in block
+        assert "raised ? maxPriceTenths : facts.ask_tenths" in block
+        assert "facts.fee_ceiling_per_contract_tenths" in block
+        assert "contracts * priceBasisTenths + contracts * feeBasisTenths" in block
+        assert "your max price" in block
+
+    async def test_the_fee_ceiling_is_the_charge_at_fifty_cents(self, tmp_path):
+        """P*(1-P) peaks at 50c, so the fee there bounds the fee at any
+        price; the ticket uses it once the max price is raised. Same
+        combo/single choice as the ask's own fee."""
+        app = _app(_base_db(tmp_path))
+        body = (await get(app, f"/api/manual/market/{TICKER}")).json()
+        for side in ("yes", "no"):
+            facts = body["sides"][side]
+            cap, _ = _fee_tenths_and_breakeven(500, combo=False)
+            assert facts["fee_ceiling_per_contract_tenths"] == cap
+            assert cap >= facts["fee_per_contract_tenths"]
+            for ask in range(10, 1000, 10):
+                assert _fee_tenths_and_breakeven(ask, combo=False)[0] <= cap
+
+    def test_the_break_even_prints_hundredths_so_the_bar_is_not_rounded_toward_the_bet(self):
+        """`(0.5175 * 100).toFixed(1)` is "51.7" in JavaScript -- the bar
+        rounded DOWN, toward the bet, and a display the served exact figure
+        was meant to avoid. Two decimals print the applied bar as 51.75%."""
+        code = ticket_code()
+        assert "(facts.breakeven_probability * 100).toFixed(2)" in code
+        assert ".toFixed(1)}%" not in code
 
     def test_the_ticket_reimplements_no_fee_curve(self):
         """No coefficient in an expression, no `P * (1 - P)`, no `Math.ceil`
@@ -220,12 +259,22 @@ class TestTheFeeOnTheButtonIsTheServers:
         for banned in ("* 0.07", "0.07 *", "* 0.071", "0.071 *", "(1 - ", "Math.ceil"):
             assert banned not in code, f"a fee curve is being priced here: {banned!r}"
         # The one place the fee is touched is a multiplication by the count.
-        uses = re.findall(r"[^\n]*fee_per_contract_tenths[^\n]*", code)
+        uses = re.findall(r"[^\n]*fee(?:_ceiling)?_per_contract_tenths[^\n]*", code)
         assert uses, "the served fee is never read"
         for use in uses:
+            # Either a served figure is chosen as the basis, or the basis is
+            # multiplied by the count. Nothing else touches it.
             assert (
-                "contracts * facts.fee_per_contract_tenths" in use
+                "? facts.fee_ceiling_per_contract_tenths" in use
+                or ": facts.fee_per_contract_tenths" in use
                 or "=== null" in use
+            ), use
+        basis_uses = re.findall(r"[^\n]*feeBasisTenths[^\n]*", code)
+        for use in basis_uses:
+            assert (
+                "contracts * feeBasisTenths" in use
+                or "=== null" in use
+                or "const feeBasisTenths" in use
             ), use
 
     def test_the_break_even_line_is_served_and_sits_above_the_confirm(self):

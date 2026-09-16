@@ -3297,6 +3297,18 @@ def create_app(
                 if ask is None
                 else _manual_fee_per_contract(ask, combo=_is_combo(quote.ticker))
             )
+            # The fee at 50c is the peak of P*(1-P), so it bounds the fee at
+            # ANY price on the grid. The ticket needs it when Joe raises the
+            # max price above the ask: the receipt prices the worst case at
+            # the SENT limit (`orders.py:worst_case_cost_dollars`), so "at
+            # most" off the ask alone would be false by (max - ask) x N plus
+            # the fee delta -- kalshi-platform review, 2026-09-16. Combo or
+            # single, the same choice as the ask's own fee.
+            fee_ceiling_tenths, _ = (
+                (None, None)
+                if ask is None
+                else _manual_fee_per_contract(500, combo=_is_combo(quote.ticker))
+            )
             sides[side] = {
                 "ask_tenths": ask,
                 "ask_display": None if ask is None else format_price(ask),
@@ -3308,6 +3320,7 @@ def create_app(
                 # ask or the fee is unreadable -- never `0`, which would show
                 # a free bet.
                 "fee_per_contract_tenths": fee_tenths,
+                "fee_ceiling_per_contract_tenths": fee_ceiling_tenths,
                 "breakeven_probability": breakeven,
                 # "of N authorised" — the server's ceiling, never a client
                 # sum. `None` means it could not be derived, which the ticket
