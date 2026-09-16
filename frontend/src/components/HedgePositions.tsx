@@ -42,19 +42,26 @@ function describeQuoteAge(ms: number | null | undefined): string | null {
  *
  * Two states render completely differently and that is the whole design:
  *
- * **A lock** — one leg live, every other already won — carries a dollar figure
- * that is true whichever way the last leg goes. It is arithmetic on two
- * observed numbers, so it is stated plainly.
+ * **One leg live, every other already won** — carries a dollar figure for
+ * what a hedge would come to either way. It is arithmetic on two observed
+ * numbers, and it is an ESTIMATE: four terms of mixed sign sit on it
+ * (CLAUDE.md, E1–E4), so the screen says "about $X either way — an
+ * estimate" and sets the size of the largest measured term beside the
+ * number, at the number's size. Issue #43, answer A (Joe, 2026-09-16): until
+ * then the heading called the figure a lock and the caption promised it
+ * either way the leg went, and both phrases are on the killed-claims list
+ * in `tests/test_hedge_positions.py` now.
  *
  * **A de-risk** — several legs live — carries no such figure and never
  * pretends to. Both branches are shown so the shape of the choice is visible,
  * and the payload does not even have a `guaranteed` field to render as false.
  *
- * **There is no buy button, deliberately.** The manual door is capped at one
- * contract with a ten-minute cool-off (ADR 0073), so a thirty-contract hedge
- * cannot go through it — it would take five hours. The screen gives the size,
- * the price and a link into the Kalshi app, and Joe places it there. A control
- * that could only ever buy 1/30th of the hedge would be worse than none.
+ * **There is no buy button, deliberately.** The screen gives the size, the
+ * price and a link into the Kalshi app, and Joe places it there; the manual
+ * door is for singles and combos he chose himself, not for a hedge sized by
+ * this screen. (This paragraph carried a one-contract cap on the door until
+ * 2026-09-16, wrapped so the killed-claims guard could not see it; ADR 0112
+ * took every cap off on 2026-09-08.)
  *
  * **No ordering here is a judgement.** Positions come back in the order they
  * were recorded (ADR 0071 §2.5).
@@ -418,21 +425,21 @@ function Hedge({
 
   return (
     <div className="mt-3 rounded border border-border p-3">
-      <h3 className="text-xs font-semibold uppercase tracking-widest">
-        <Term k="lock">lock</Term> available
-      </h3>
-      {block.guaranteed && block.guaranteed_display ? (
-        <p className="mt-1 text-lg font-semibold tabular">
-          {block.guaranteed_display}{" "}
-          <span className="text-xs font-normal text-muted">
-            whichever way the last leg goes
-          </span>
-        </p>
-      ) : (
-        <p className="mt-1 text-sm text-muted">
-          No size you could buy right now locks a gain.
-        </p>
-      )}
+      {/* The payload field is still named `guaranteed` -- it is the alert
+          predicate's name (`Lock.is_guaranteed_profit`) and `notify/alerts.py`,
+          `notify/discord.py` and the tests read it. The figure it flags is
+          rendered as "about $X either way -- an estimate", and that is not a
+          mismatch to fix: the name means "the best fillable rung comes out
+          ahead in both branches", and the figure is an estimate of by how
+          much. Issue #43, answer A. */}
+      <EstimateHeadline
+        figure={
+          block.guaranteed && block.guaranteed_display
+            ? block.guaranteed_display
+            : null
+        }
+        grain={block.uncertainty_display ?? null}
+      />
       {block.full_hedge_is_out_of_reach && block.equalising && (
         <p className="mt-1 text-xs text-muted">
           The full hedge is {block.equalising.contracts} contracts costing{" "}
@@ -445,6 +452,46 @@ function Hedge({
       <p className="mt-1 text-xs leading-snug text-muted">{notes.upper_bound}</p>
       <Ladder block={block} position={position} />
     </div>
+  );
+}
+
+/**
+ * The figure, called what it is.
+ *
+ * "about $X either way — an estimate", then the size of the largest measured
+ * error term on THIS ticket (`grain`, rendered server-side; see
+ * `hedge.estimate_grain`), in the same element and at the same type size as
+ * the number. Joe's answer A to issue #43 asked for exactly that: not "lock",
+ * not "whichever way", and the uncertainty beside the number rather than in
+ * smaller type underneath. `tests/test_hedge_headline_calls_the_figure_an_estimate.py`
+ * reads this function's source and refuses the old words.
+ *
+ * With no fillable size that comes out ahead there is no figure, and the
+ * sentence says so without promising one.
+ */
+function EstimateHeadline({
+  figure,
+  grain,
+}: {
+  figure: string | null;
+  grain: string | null;
+}) {
+  return (
+    <>
+      <h3 className="text-xs font-semibold uppercase tracking-widest">
+        one leg left
+      </h3>
+      {figure ? (
+        <p className="mt-1 text-lg leading-snug tabular">
+          <span className="font-semibold">about {figure} either way</span>
+          {" "}&mdash; an estimate{grain ? `: ${grain}` : ""}
+        </p>
+      ) : (
+        <p className="mt-1 text-sm text-muted">
+          No size you could buy right now comes out ahead either way.
+        </p>
+      )}
+    </>
   );
 }
 
