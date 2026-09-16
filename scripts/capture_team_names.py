@@ -69,6 +69,22 @@ What this does not establish
   two genuinely different fixtures inside a four-hour window. The printed
   reason carries the near misses so a human can tell.
 - **Anything about spreads or totals.** Names only.
+
+**Both artefacts record their request, and cannot be written without it.** The
+writes go through `scripts/capture_envelope.write_capture`, which refuses a
+document with no `request` block (ADR 0157). A *reduced* capture drops more than
+a full one does, so its request matters more, not less: `--league` picks both
+the Kalshi series and the Odds API sport key and `--limit` truncates the page
+walk, so without those three written down a team missing from the file could be
+a team Kalshi does not list, a team past the limit, or a league nobody asked
+for. The Odds API credential is omitted from the record rather than blanked, and
+`request_envelope` refuses it by name -- writing down every parameter you sent
+is precisely how that key leaked once (`tasks/lessons.md`).
+
+The four files already on disk predate this and carry no `request` block; they
+are named as exceptions in `tests/test_captures_carry_their_request.py` with the
+cost of lifting each one. Re-capturing them spends Odds API credits and is the
+operator's call.
 """
 
 from __future__ import annotations
@@ -94,6 +110,10 @@ from backend.kalshi.discovery import (                          # noqa: E402
     parse_ms,
 )
 from backend.logging_setup import configure_logging             # noqa: E402
+from scripts.capture_envelope import (                          # noqa: E402
+    request_envelope,
+    write_capture,
+)
 from backend.match.linker import (                              # noqa: E402
     MatchCandidate,
     TeamAliases,
@@ -448,46 +468,80 @@ def main() -> int:
         # price, size or book field. And this repo is public while Kalshi's
         # Developer Agreement s3.1 limits redistributing API-derived data, so
         # the smallest fixture that still pins the behaviour is the right one.
-        (out / f"{prefix}_kalshi.json").write_text(
-            json.dumps(
-                {
-                    "captured_note": (
-                        "Reduced capture: team names and kickoff only, for "
-                        "alias resolution. No prices, no market payloads."
+        # ADR 0157: a reduced capture drops more than a full one does, so its
+        # request record matters MORE, not less. `--league` picks both the
+        # Kalshi series and the Odds API sport key, and `--limit` truncates the
+        # Kalshi page walk -- without those three written down, a team absent
+        # from this file could be a team Kalshi does not list, a team past the
+        # limit, or a league nobody asked for.
+        write_capture(
+            out / f"{prefix}_kalshi.json",
+            {
+                "captured_note": (
+                    "Reduced capture: team names and kickoff only, for "
+                    "alias resolution. No prices, no market payloads."
+                ),
+                "request": request_envelope(
+                    method="GET",
+                    endpoint=KALSHI_EVENTS,
+                    params={
+                        "series_ticker": series,
+                        "status": "open",
+                        "limit": 200,
+                        "with_nested_markets": "true",
+                        "cursor": "followed to exhaustion or to --limit",
+                    },
+                    note=(
+                        f"--league {args.league} --limit {args.limit}. Events "
+                        "past --limit are truncated away, so an absence here "
+                        "is not an absence at Kalshi."
                     ),
-                    "events": [
-                        {
-                            "event_ticker": event.get("event_ticker"),
-                            "commence_ms": event_commence_ms(event),
-                            "teams": kalshi_sides(event),
-                        }
-                        for event in kalshi
-                    ],
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
+                ),
+                "events": [
+                    {
+                        "event_ticker": event.get("event_ticker"),
+                        "commence_ms": event_commence_ms(event),
+                        "teams": kalshi_sides(event),
+                    }
+                    for event in kalshi
+                ],
+            },
         )
-        (out / f"{prefix}_books.json").write_text(
-            json.dumps(
-                {
-                    "captured_note": (
-                        "Reduced capture: fixture id, kickoff and the two team "
-                        "names as the books spell them. No odds."
+        write_capture(
+            out / f"{prefix}_books.json",
+            {
+                "captured_note": (
+                    "Reduced capture: fixture id, kickoff and the two team "
+                    "names as the books spell them. No odds."
+                ),
+                # `/v4/sports/{key}/events` takes the sport key in the PATH and
+                # nothing else but the credential, which is omitted rather than
+                # blanked -- `request_envelope` refuses it by name, because
+                # writing down every parameter you sent is how the Odds API key
+                # leaked once (`tasks/lessons.md`).
+                "request": request_envelope(
+                    method="GET",
+                    endpoint=ODDS_EVENTS,
+                    params={
+                        "sport_key": sport_key,
+                        "regions": "none -- this endpoint returns fixtures, not odds",
+                        "markets": "none -- no odds are requested and none are stored",
+                    },
+                    note=(
+                        f"--league {args.league}. The credential parameter is "
+                        "omitted from this record, not blanked."
                     ),
-                    "fixtures": [
-                        {
-                            "id": book.get("id"),
-                            "commence_ms": parse_ms(book.get("commence_time")),
-                            "home_team": book.get("home_team"),
-                            "away_team": book.get("away_team"),
-                        }
-                        for book in books
-                    ],
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
+                ),
+                "fixtures": [
+                    {
+                        "id": book.get("id"),
+                        "commence_ms": parse_ms(book.get("commence_time")),
+                        "home_team": book.get("home_team"),
+                        "away_team": book.get("away_team"),
+                    }
+                    for book in books
+                ],
+            },
         )
         print(f"wrote {out / f'{prefix}_kalshi.json'}")
         print(f"wrote {out / f'{prefix}_books.json'}")

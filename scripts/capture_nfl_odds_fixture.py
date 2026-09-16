@@ -39,6 +39,15 @@ read, logged, or serialised; and the artefact is asserted free of both the key
 and the string `apiKey` *before* it is written. **This repo is public and the
 file is world-readable the moment it is pushed.**
 
+**The artefact records the request, and cannot be written without it.** The
+write goes through `scripts/capture_envelope.write_capture`, which refuses a
+document with no `request` block. ADR 0157: the sibling prop capture
+(`tests/fixtures/odds_mlb_player_props.json`) has no such block, and because of
+that "no EU book quotes props" and "that capture never asked for EU" produce the
+byte-identical file. The credential is omitted from the recorded parameters
+rather than blanked, and `request_envelope` refuses it by name -- writing down
+every parameter you sent is exactly the move that leaked the key once.
+
 **What this script does not do.** It captures and stops -- no test, no analysis,
 no assertion about content. `tests/test_odds_nfl_wire.py` reads the file
 offline, forever, at zero credit cost. That split is deliberate: a bug in an
@@ -64,6 +73,7 @@ import httpx  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 
 from backend.logging_setup import configure_logging  # noqa: E402
+from scripts.capture_envelope import request_envelope, write_capture  # noqa: E402
 
 # `.env` is loaded for ODDS_API_KEY ONLY. The request shape below is pinned to
 # live's, never taken from it -- see the module docstring.
@@ -198,14 +208,43 @@ def main() -> int:
             "Cost 4 credits, spent from a laptop and therefore ABSENT from the "
             "api_credits ledger -- see scripts/capture_nfl_odds_fixture.py."
         ),
+        # Kept verbatim: `scripts/census_odds_stamps.py` and the wire tests read
+        # this key on the two odds fixtures already on disk. The `request` block
+        # below is the canonical record (ADR 0157); this one is its legacy
+        # spelling and is written from the same constants, so they cannot drift.
         "params": {"regions": REGIONS, "markets": MARKETS, "oddsFormat": ODDS_FORMAT},
+        # The request record. Built from the SAME module constants the fetch
+        # uses, never from the environment -- an envelope assembled separately
+        # from the call it describes is a second thing that can be wrong.
+        # `apiKey` is deliberately absent and `request_envelope` refuses it: the
+        # Odds API takes its credential as a query parameter and this repo is
+        # public.
+        "request": request_envelope(
+            method="GET",
+            endpoint=f"https://api.the-odds-api.com/v4/sports/{SPORT_KEY}/odds",
+            params={
+                "sport": SPORT_KEY,
+                "regions": ",".join(REGIONS),
+                "markets": ",".join(MARKETS),
+                "oddsFormat": ODDS_FORMAT,
+            },
+            note=(
+                "The credential parameter is omitted, not blanked. Cost "
+                f"{EXPECTED_COST} credits = len(regions) x len(markets)."
+            ),
+        ),
         "credit_headers": headers,
         "events": events,
     }
 
-    serialised = json.dumps(artefact, indent=1, sort_keys=True)
-    assert_no_credential(serialised, api_key, what=str(FIXTURE))
-    FIXTURE.write_text(serialised, encoding="utf-8")
+    # `write_capture` refuses a document with no `request` block, and hands the
+    # exact text about to hit disk to this script's own credential scan first.
+    write_capture(
+        FIXTURE,
+        artefact,
+        indent=1,
+        before_write=lambda text: assert_no_credential(text, api_key, what=str(FIXTURE)),
+    )
 
     books = sorted({b["key"] for e in events for b in e.get("bookmakers", [])})
     market_keys = sorted(
