@@ -180,11 +180,20 @@ whatever can be executed without him.
 
 ### STATE at close
 
-`main` = `432cbb9`; **CI was still running on it at handoff — check it before
-anything else.** Live = `5b91dae`, so **this build is NOT deployed yet**;
-`432cbb9` is the first commit in three with real runtime changes (the slate
-payload gained a field). Clean local full suite **7538 passed, 10 xfailed, 0
-failed**; ruff clean; tsc clean; `next build` green.
+`main` = `c9cd519`, CI green on `432cbb9`. **DEPLOYED and verified**: live reads
+`c9cd519` on machine `01M2N89BMJAG3WMAFD7SAADMR7` (was `01M2MCRGVF…`), recorder
+writing 30 s after boot, arming unchanged.
+
+**The new field was read off the SERVED payload, not reconstructed from the
+database** — `fetch_live_route.py /api/slate` returns
+`"anchored_on_sharp":true,"consensus_market":"h2h"` with
+`books_used:["betfair_ex_eu","matchbook","pinnacle"]`, which is the
+"verification methods that lie" rule satisfied rather than asserted. (That
+script caps stdout at 100,000 bytes by design, so a full slate cannot come
+through it; the per-row check above is what it can answer.)
+
+Clean local full suite **7538 passed, 10 xfailed, 0 failed**; ruff clean; tsc
+clean; `next build` green.
 
 `SCHEMA_VERSION` **44**, next ADR **0160**, schema **v45 unallocated**, no lane
 reservations. Arming unchanged: hand path armed, engine and bid paths dry.
@@ -192,41 +201,35 @@ reservations. Arming unchanged: hand path armed, engine and bid paths dry.
 
 ### Still open, in order
 
-1. **Deploy `432cbb9`** once CI is green, and verify by machine version rather
-   than a green health check. **WNBA is Thu 17 and NCAAF Sat 19** — the
-   base-rate block wants to be live before the slate it was built for. Use
-   `gh workflow run deploy.yml -f instance=live -f confirm_live=kalshi-cockpit`;
-   the local `flyctl deploy` is refused by the classifier and the two surfaces
-   are gated separately.
-2. **Build the durable fix for question-decay** (above): a measurement that
+1. **Build the durable fix for question-decay** (above): a measurement that
    raises a question for Joe opens a map #3 ticket in the same session. Put the
    rule where a session will hit it — `CLAUDE.md` workflow, beside "record
    decisions in `docs/adr/`" — not only in `tasks/lessons.md`.
-3. **Saturday 19 — `sharp-anchor-census` on the live NCAAF slate**, with
+2. **Saturday 19 — `sharp-anchor-census` on the live NCAAF slate**, with
    `team-bookmakers --since` beside it. Its job is now demoted to *verifying*
    the magnitude behind a decision already taken, and to closing the rival
    explanation the twenty-second session left open: `matchbook` on 3 of 57
    NCAAF events means "thin book" explains the result as well as "thin sport".
    Bound the rows — a full-table read on live costs the desk 75 s afterwards.
-4. **Monday 21 — `credits-day --date 20260920`**, the registered check beside
+3. **Monday 21 — `credits-day --date 20260920`**, the registered check beside
    `20260913`. Take the measurement; do not re-derive the projection.
-5. **One "Price on Kalshi" tap on the props card — JOE ONLY, unchanged.** It
+4. **One "Price on Kalshi" tap on the props card — JOE ONLY, unchanged.** It
    mints a market on the exchange. A session must not do it.
-6. **Offered and not taken: a route-latency read on live**
+5. **Offered and not taken: a route-latency read on live**
    (`scripts/time_live_routes.py`). The partner's argument is fair — a session
    optimised an instrument Joe runs a few times a week while nobody has the
    desk's real per-request numbers, and the only figure anywhere near the
    screen is `warm_read_path` returning in 12.4 s, which is **not** a
    per-request figure and must not be quoted as one. Cheap, bounded, free.
-7. **PARKED with unpark conditions, not "later":** the successor ANALYZE run
+6. **PARKED with unpark conditions, not "later":** the successor ANALYZE run
    (interleaved arms; 3.37x on a query run a handful of times a week) and
    ANALYZE for the rest of the database. Unpark only if item 6 shows a desk
    route over the 25 s read budget **and** the plan implicates `fair_prices`.
    The finding itself — live has no table statistics at all — is already
    banked in ADR 0159 and needs nothing.
-8. Carried parks: the shard probe (**ADR 0158**); `user_not_found` on shard 3;
+7. Carried parks: the shard probe (**ADR 0158**); `user_not_found` on shard 3;
    the 25 s read budget.
-9. **Reservations:** none live. Next ADR **0160**; schema **v45 unallocated**.
+8. **Reservations:** none live. Next ADR **0160**; schema **v45 unallocated**.
 
 ---
 
