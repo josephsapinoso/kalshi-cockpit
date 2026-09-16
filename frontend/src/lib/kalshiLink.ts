@@ -19,6 +19,11 @@
  * that admits it is one beats a deep link that lies.
  */
 
+/** Where a ticker with no deep link lands. Exported so a caller can say
+ *  "the market list" rather than "this market" when that is where it goes
+ *  -- the fallback admits it is one, and its label should too. */
+export const KALSHI_MARKETS_INDEX = "https://kalshi.com/markets";
+
 export function kalshiMarketUrl(ticker: string): string {
   const segments = ticker.split("-");
   if (segments.length === 3) {
@@ -26,5 +31,5 @@ export function kalshiMarketUrl(ticker: string): string {
     const event = `${segments[0]}-${segments[1]}`.toLowerCase();
     return `https://kalshi.com/markets/${series}/game/${event}`;
   }
-  return "https://kalshi.com/markets";
+  return KALSHI_MARKETS_INDEX;
 }

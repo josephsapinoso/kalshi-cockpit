@@ -408,8 +408,11 @@ class TestTheAmountIsTypedInDollars:
         assert "capped && ceiling !== null && ceiling >= 1 &&" in ticket
 
     def test_the_confirm_button_carries_the_dollar_cost(self):
+        """Strengthened 2026-09-16 (ticket #39): the figure is fee-inclusive
+        and says "at most". `tests/test_manual_ticket_price_transparency.py`
+        pins that the fee inside it is served, not priced here."""
         ticket = source("components/ManualTicket.tsx")
-        assert "for ${dollars(" in ticket
+        assert "for at most ${dollars(" in ticket
 
     def test_the_money_math_is_integer_tenths(self):
         """`core/prices.py`'s rule reaches the client: the conversion is

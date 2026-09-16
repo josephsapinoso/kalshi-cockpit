@@ -21,6 +21,7 @@ import sqlite3
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from decimal import ROUND_CEILING, Decimal
 from typing import Annotated, Optional
 
 import httpx
@@ -47,7 +48,7 @@ from ..config import (
     retired_settings_present,
 )
 from ..core.ev import breakeven_win_rate, edge_after_fees_tenths
-from ..core.fees import combo_taker_fee
+from ..core.fees import calculate_fee, combo_taker_fee
 from ..core.prices import (
     PRICE_MAX,
     format_price,
@@ -3009,6 +3010,55 @@ def create_app(
             return None
         return stake + max(sent, asked)
 
+    def _manual_fee_per_contract(
+        ask_tenths: int, *, combo: bool
+    ) -> tuple[Optional[int], Optional[float]]:
+        """The venue's charge on ONE contract at this ask, and the bar it sets.
+
+        Served on the preflight so the ticket can put the fee on the Confirm
+        button BEFORE the tap (ticket #39, Joe's answer A, 2026-09-16) without
+        a second fee model in TypeScript. `serialise.py`'s rule, stated
+        beside `total_cost_dollars`: the fee curve is the server's, and a copy
+        in the browser is two money calculations one refresh apart. The
+        choice between a per-contract figure and a table is settled for the
+        per-contract figure: one integer, in tenths, that the client only
+        multiplies by the typed count and hands to its `dollars()` formatter.
+        A table keyed by count would have to be re-served every time the
+        count changed, and the count changes on every keystroke.
+
+        **Why one integer times N is still "at most".** The charge is
+        `ceil(k * C * P * (1-P))` per ORDER onto a $0.0001 grid, and for an
+        integer count `N * ceil(x) >= ceil(N * x)`; rounding the per-contract
+        figure up again onto a whole tenth only widens that. So the product
+        the button shows never sits below what `_manual_worst_case_dollars`
+        will compute at confirm for the same ask. It is the same coefficient
+        the order path applies -- `calculate_fee` flat at 0.070 with no series
+        multiplier (ADR 0058), `combo_taker_fee` at 0.071 on a combination
+        (ADR 0073) -- so the button and the receipt cannot disagree about
+        which model they ran. It is a bound on the desk's own arithmetic at
+        THIS ask, not a promise about the venue: a moved ask is a different
+        fee, which is what the age beside the ask is for (ticket #40).
+
+        **The break-even is served, not derived on the client.** It is
+        `(ask + fee) / PRICE_MAX` with the fee at its $0.0001 precision rather
+        than the ceiled tenth, so 50c reads 51.75% -- the applied bar the
+        spine quotes -- and not 51.8%. A client dividing two served integers
+        would print the latter, and that would be the desk's rounding wearing
+        the venue's name.
+
+        `(None, None)` when the fee is unreadable. Never `(0, 0.5)`: a zero
+        fee on a screen that exists to show the fee is a free bet fabricated
+        out of an unreadable price, which is the one thing `calculate_fee`
+        refuses to do and this must not undo.
+        """
+        fee = (combo_taker_fee if combo else calculate_fee)(ask_tenths, 1)
+        if fee is None:
+            return None, None
+        exact_tenths = Decimal(str(fee)) * PRICE_MAX
+        fee_tenths = int(exact_tenths.to_integral_value(rounding=ROUND_CEILING))
+        breakeven = float((Decimal(ask_tenths) + exact_tenths) / PRICE_MAX)
+        return fee_tenths, breakeven
+
     def _manual_authorised_count(
         *,
         ticker: str,
@@ -3124,6 +3174,25 @@ def create_app(
         left to mask for, and a flag saying otherwise would be the screen
         enforcing a rule the route had dropped. See
         `docs/adr/0131.md`.
+
+        **A fee is not an opinion** (ADR 0062 Amendment 1, ticket #39). Each
+        side now carries `fee_per_contract_tenths` and `breakeven_probability`
+        -- the venue's charge at that side's ask and the win rate it implies
+        -- so the Confirm button can say "at most" with the fee inside it
+        before the tap instead of in the receipt after. Both are computed
+        here, by `_manual_fee_per_contract`, and its docstring says why a
+        per-contract integer was chosen over a table and why the break-even
+        is served rather than divided out on the client. Neither is a fair
+        value, an edge or a verdict; the no-opinion rule above stands.
+
+        **`commence_ms` is the sportsbook's clock, or `None`** (ticket #42).
+        It joins `kalshi_markets -> event_links -> odds_snapshots`, the same
+        `MIN(commence_ms)` per fixture `/api/market/{ticker}` and the slate
+        take, and never falls back to `kalshi_events.commence_ms`, which
+        stores Kalshi's `occurrence_datetime` raw and about three hours late
+        (ADR 0006) -- a fallback would report a first quarter as not yet
+        started. Unlinked, unrecorded or a combination: `None`, and the
+        ticket renders nothing, never "not started".
         """
         unreachable = _manual_reachable()
         now = db.now_ms()
@@ -3186,10 +3255,23 @@ def create_app(
                 )
             elif ask is not None:
                 binding = "no_price_grid"
+            fee_tenths, breakeven = (
+                (None, None)
+                if ask is None
+                else _manual_fee_per_contract(ask, combo=_is_combo(quote.ticker))
+            )
             sides[side] = {
                 "ask_tenths": ask,
                 "ask_display": None if ask is None else format_price(ask),
                 "depth_at_ask": depth,
+                # The venue's charge on one contract at this ask, in integer
+                # tenths, rounded up; and the win rate that ask-plus-fee
+                # implies. The client multiplies the first by the typed count
+                # and formats; it computes neither. `None` where there is no
+                # ask or the fee is unreadable -- never `0`, which would show
+                # a free bet.
+                "fee_per_contract_tenths": fee_tenths,
+                "breakeven_probability": breakeven,
                 # "of N authorised" — the server's ceiling, never a client
                 # sum. `None` means it could not be derived, which the ticket
                 # renders as a refusal.
@@ -3209,11 +3291,28 @@ def create_app(
                 "authorised_binding": binding,
             }
 
+        # The sportsbook's kickoff for this market, via the link table. An
+        # unlinked ticker (every combination, anything discovery has not
+        # walked) aggregates to a row holding NULL rather than to no row, so
+        # the emptiness is read off the value. Indexed on both hops --
+        # `kalshi_markets` by primary key, `odds_snapshots` leads with
+        # `odds_event_id` -- so this is a seek, not a scan of the snapshot
+        # history.
+        commence_ms = conn.execute(
+            "SELECT MIN(o.commence_ms) AS commence_ms "
+            "FROM kalshi_markets m "
+            "JOIN event_links l ON l.kalshi_event_ticker = m.event_ticker "
+            "JOIN odds_snapshots o ON o.odds_event_id = l.odds_event_id "
+            "WHERE m.ticker = ?",
+            (quote.ticker,),
+        ).fetchone()["commence_ms"]
+
         return {
             "ticker": quote.ticker,
             "observed_ms": quote.observed_ms,
             "reachable": unreachable is None,
             "unreachable_reason": unreachable,
+            "commence_ms": commence_ms,
             "sides": sides,
             # **The shard, and what it holds, so the screen can say the
             # sentence the POST route already says.** Added 2026-09-14 after
@@ -3263,17 +3362,18 @@ def create_app(
             # has hit three times. The KEY stays so the wire shape and the
             # frontend type do not churn; only the answer changes.
             "cooloff_until_ms": None,
-            # **The counter Joe kept when he removed the switch.** Answer 4 of
-            # the 2026-09-08 interview: the desk still counts his Kalshi
-            # losses, including the ones he places in the venue's own app,
-            # because `venue_settlements` sees both. Nothing refuses on it —
-            # it is shown, which is the job ADR 0071 names. `None` means the
-            # venue mirror is stale or unpolled and is rendered as unknown,
-            # never as zero: "cannot read the losses" must not read as "no
-            # losses" even when nothing acts on the answer (ADR 0064).
-            "venue_daily_pnl_dollars": bets_module.venue_daily_realised_pnl_dollars(
-                conn, now_ms=now, day_start_hour=odds.budget_day_start_utc_hour
-            ),
+            # **No realised P&L on this read, on purpose** (ticket #46, Joe's
+            # answer C, 2026-09-16). Until then this payload carried
+            # `venue_daily_pnl_dollars` under a comment saying "it is shown".
+            # It was rendered nowhere -- absent from the frontend type and
+            # from the ticket -- and the reason it must stay absent is not
+            # tidiness: a signed running P&L on the screen where a bet is
+            # decided is the chase trigger this repo has deleted twice
+            # (`TonightStrip.tsx`'s "Unsigned" rule), so the read is gone
+            # rather than left for a future session to wire up. The counter
+            # itself is untouched: the POST receipt still carries the figure
+            # after the order, and `/bets` shows the signed record after
+            # settlement.
             "lockout_until_ms": bet_estimates.lockout_until(conn, now_ms=now),
             "dry_run": manual_store.MANUAL_ORDERS_ARE_DRY_RUNS,
             # The path's own size ceiling, served rather than mirrored: a

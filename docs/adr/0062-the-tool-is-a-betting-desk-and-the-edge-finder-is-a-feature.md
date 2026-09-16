@@ -92,3 +92,31 @@ The betting-desk work list (his-record screen, refusal-on-real-data, CLV on
 his own bets, scout-desk metering-then-promotion, landing-screen strip) is
 direction from the 2026-08-21 partner ruling, recorded in `tasks/NEXT.md` —
 not decided here. Each item lands on its own evidence.
+
+## Amendment 1 (2026-09-16) — the fee is the venue's charge, not the tool's opinion
+
+**Status of the amendment:** Accepted, on Joe's answer to ticket #39 —
+*"A. Fee on the Confirm button as an all-in figure, break-even on the line
+above it, both server-computed."*
+**Amends:** nothing in §2. It states what §2's "no opinion" rule does and
+does not reach, because the manual ticket's preflight cited it to keep the
+fee off the button.
+
+`GET /api/manual/market/{ticker}` is "quote + book only — no fair value, no
+edge, no opinion (ADR 0062)", and that rule stands: the read still serves no
+consensus, no edge and no verdict, and the ticket still ranks nothing. But
+the rule was being read as if a fee were an opinion, so the ticket showed
+`Confirm — buy 3 YES for $1.35` with the fee left out, and the only
+fee-inclusive figure — `worst_case_cost_dollars`, computed since ADR 0063 —
+arrived in the receipt, after the tap. **A fee is not an opinion.** It is
+the venue's charge at the ask, priced with the same coefficient the order
+path applies, and ADR 0071 §2.2 names price transparency at the moment of a
+bet as the desk's whole job at that moment: *what Kalshi charges* is half of
+that sentence, and the fee is part of what Kalshi charges. The preflight now
+serves, per side, the venue's charge on one contract in integer tenths and
+the break-even it implies; the ticket multiplies by the typed count and
+formats, and reimplements no fee curve (`serialise.py`'s rule, beside
+`total_cost_dollars`). The button says "at most", on singles and
+combinations alike, and the line above it says how often the bet must win
+to come out even — and nothing about whether it will. That last clause is
+where the no-opinion rule lives, and it is untouched.
