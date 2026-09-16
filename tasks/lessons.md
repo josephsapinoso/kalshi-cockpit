@@ -16,6 +16,39 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-16 (fourth) - A merged lane is not a finished lane; do not remove a worktree until its agent has reported
+
+Four lanes ran in parallel worktrees. Three had reported, so their worktrees
+were removed and their branches deleted -- and the fourth's was removed in the
+same sweep, because `git worktree list` showed it and `git log` showed its
+commit already merged into `main`. Merged is not the same as done.
+
+That lane was still running. From inside, its directory was wiped mid-run: the
+working tree emptied, the worktree deregistered, and the branch ref it had
+committed to deleted underneath it. It recovered -- the commit object lives in
+the shared object store, so it recreated the ref and handed back correctly, and
+`git merge-base --is-ancestor` confirmed afterwards that nothing was lost. It
+also reported a full-suite run showing mass failures, which was not a
+regression at all: that run was reading a filesystem being deleted around it.
+
+Nothing was lost this time. What it cost was a scare and a misleading test
+result, and both were avoidable by waiting for a notification that was already
+coming.
+
+Three rules:
+
+- **The completion notification is the signal, not the merge.** An agent's
+  commit appearing on `main` says its work is safe; it says nothing about
+  whether the agent is still writing, still running tests, or about to write
+  its report. Reap worktrees when the task-notification arrives.
+- **`--force` on a worktree removal silences the one check that would have
+  caught this.** Plain `git worktree remove` refuses a dirty tree, and a
+  running agent's tree is usually dirty. Reach for `--force` only after the
+  owner has reported.
+- **A test result from an agent whose environment was being torn down is not
+  evidence.** When a report carries both a clean run and a catastrophic one,
+  the question is what changed underneath it -- not which result to believe.
+
 ## 2026-09-16 (first) - A bound you can read in the SQL is a hypothesis about the planner; EXPLAIN the before, the after, AND the no-flag case
 
 ADR 0157, written the day before with care, recorded `prop-rungs` as having a

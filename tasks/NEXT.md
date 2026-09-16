@@ -135,6 +135,15 @@ Four lanes ran in parallel worktrees, all merged: **ADR 0158** (lane D),
 the credit arithmetic (lane B), the capture-envelope ratchet (lane C), and
 the anchor work on `main`.
 
+**One self-inflicted scare, recorded because it was avoidable.** Lane C's
+worktree was removed with `--force` while that lane was still running, on the
+reasoning that its commit was already merged. Merged is not finished: from
+inside, its tree emptied and its branch ref vanished mid-run, and the
+full-suite run it was executing at the time reported mass failures that were
+purely an artefact of the filesystem disappearing under it. Nothing was lost
+(`git merge-base --is-ancestor c7c8c80 HEAD` confirms), but **reap a worktree
+on the task-notification, not on the merge.** Lesson written.
+
 ### THE HEADLINE: NCAAF spreads and totals mostly have no sharp book behind them
 
 `fair_prices.anchored_on_sharp`, read live through `sharp-anchor-census` on
@@ -377,6 +386,11 @@ the same edit). Three lessons written.
    `tests/test_odds.py:766-775` asserts `team == 4`. Both are the
    "restate it in a test so it goes red" mitigation, defeated by hardcoding the
    inputs — `ondemand.py` points readers at one of them as the authority.
+   And one more, found by lane C outside its own scope:
+   `scripts/capture_nfl_odds_fixture.py` computes its spend guard as
+   `len(REGIONS) x len(MARKETS) = 4`, so it will refuse a correct
+   `--confirm-spend-N` derived at 3. Harmless until someone tries to
+   re-capture — which is exactly open item 7.
 5. **The `prop-rungs` default window is still registration-gated** and that is
    unchanged: a window changes the population of
    `scripts/analyze_prop_onesided.py`. Take it to `pre-registrar` or leave it.
