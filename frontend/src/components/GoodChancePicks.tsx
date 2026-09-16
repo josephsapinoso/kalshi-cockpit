@@ -31,6 +31,18 @@ import Term from "@/components/Term";
  *   not become a chase surface.
  * - Games the server could not rank are counted in words — "no pick" and
  *   "no measurement" are different facts.
+ * - **A stale ask says its age and the remedy** (#47, Joe's A). The server
+ *   withholds `ask_display` once the recorded Kalshi quote is past the
+ *   staleness limit (an hours-old ask beside a live chance reads as a
+ *   quote) and sends `quote_age_now_ms` beside it. The row prints that age
+ *   — the server's clock, never a number derived from a price — and what
+ *   to do: refresh the books, or open the game screen, whose ticket reads
+ *   the live quote. An unreadable age prints nothing, never "0 min".
+ * - **A started game is marked, not moved** (#42, the Picks half). The
+ *   list is sorted by chance, so the kickoff column cannot be scanned for
+ *   what is already in play; a row whose `started_ago_ms` the server sent
+ *   says so in the same muted register. Nothing is reordered, filtered or
+ *   gated on it (ADR 0067: the order is `fair_probability` alone).
  */
 export default function GoodChancePicks({
   picks,
@@ -62,6 +74,11 @@ export default function GoodChancePicks({
               <span className="tabular w-12 shrink-0 font-mono text-xs text-muted">
                 {kickoff(pick.commence_ms)}
               </span>
+              {typeof pick.started_ago_ms === "number" && (
+                <span className="text-xs text-muted">
+                  started {ageWords(pick.started_ago_ms)} ago
+                </span>
+              )}
               <LeagueTag league={pick.league} />
               <Link
                 href={`/market/${encodeURIComponent(pick.ticker)}`}
@@ -72,11 +89,18 @@ export default function GoodChancePicks({
               <span className="tabular text-sm font-semibold">
                 {pick.fair_percent_display ?? "—"}
               </span>
-              <span className="tabular text-xs text-muted">
-                {pick.ask_display === null
-                  ? "ask not current"
-                  : `${pick.ask_display} ask`}
-              </span>
+              {pick.ask_display === null ? (
+                <span className="text-xs text-muted">
+                  {typeof pick.quote_age_now_ms === "number"
+                    ? `ask ${ageWords(pick.quote_age_now_ms)} old`
+                    : "ask of unknown age"}
+                  {" "}&mdash; refresh the books, or open the game screen
+                </span>
+              ) : (
+                <span className="tabular text-xs text-muted">
+                  {`${pick.ask_display} ask`}
+                </span>
+              )}
               {pick.anchored_on_sharp === false && (
                 <span className="text-xs text-accent-2">soft fallback</span>
               )}
@@ -112,6 +136,17 @@ export default function GoodChancePicks({
       </p>
     </section>
   );
+}
+
+/**
+ * A server-sent duration in plain words: "40 s", "12 min", "1.3 h". Every
+ * input here is a number the server measured on its own clock; nothing on
+ * this screen subtracts two timestamps to make one.
+ */
+function ageWords(ms: number): string {
+  if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1000))} s`;
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)} min`;
+  return `${(ms / 3_600_000).toFixed(1)} h`;
 }
 
 /** Pacific, matching the slate rows' kickoff column. */

@@ -39,6 +39,7 @@ def _pick_row(
     odds_event_id: str | None = None,
     market_type: str | None = None,
     player_name: str | None = None,
+    commence_ms: int | None = None,
 ) -> None:
     """One recommendation shaped for the picks block, positioned in time.
 
@@ -48,6 +49,11 @@ def _pick_row(
 
     `market_type` and `player_name` are the two columns the runner writes on
     a player prop (`runner.py:3322`); both stay NULL on a team market.
+
+    `commence_ms` (with `odds_event_id`) seeds one `odds_snapshots` row so the
+    fixture has a kickoff -- the same `MIN(commence_ms)` the slate, the detail
+    screen and the scorer read (ticket #26). Without it a linked row has no
+    kickoff, which is the unlinked state the route must also handle.
     """
     conn.execute(
         "INSERT OR IGNORE INTO kalshi_markets (ticker, first_seen_ms, "
@@ -57,6 +63,15 @@ def _pick_row(
     link_id = None
     if odds_event_id is not None:
         event_ticker = f"EVT-{odds_event_id}"
+        if commence_ms is not None:
+            conn.execute(
+                "INSERT INTO odds_snapshots (fetched_ms, sport_key, "
+                "odds_event_id, commence_ms, home_team, away_team, bookmaker, "
+                "market, outcome_name, price_decimal) "
+                "VALUES (?, 'baseball_mlb', ?, ?, 'Home', 'Away', "
+                "'pinnacle', 'h2h', 'Home', 1.9)",
+                (created_ms, odds_event_id, commence_ms),
+            )
         conn.execute(
             "INSERT OR IGNORE INTO kalshi_events (event_ticker, first_seen_ms, "
             "last_seen_ms) VALUES (?, ?, ?)",
@@ -310,3 +325,107 @@ class TestTheBlockIsHonestAboutWhatItIsNot:
         picks = (await get(app, "/api/slate")).json()["picks"]
         assert len(picks["ranked"]) == 1
         assert picks["ranked"][0]["ask_display"] is None
+
+
+class TestAStaleAskSaysItsAgeAndAStartedGameSaysSo:
+    """Tickets #47 and #42 (the Picks half), Joe's A on both, 2026-09-16.
+
+    The ask is still withheld when the Kalshi quote is stale -- that refusal
+    is deliberate and stays (`test_a_stale_kalshi_quote_withholds_the_ask`)
+    -- but the row now carries the quote's live age so the screen can say
+    *how* stale and what to do, and a started game carries how long ago it
+    started so the chance-sorted list can be read for what is in play. Both
+    are the server's clock; the screen subtracts nothing.
+
+    Mutations, each observed red:
+      1. drop `quote_age_now_ms` from the pick -> `KeyError`
+      2. serve `started_ago_ms` for a future kickoff -> not None
+      3. sort `ranked` by `started_ago_ms` -> order changes
+    """
+
+    async def test_a_stale_row_carries_the_quotes_live_age(self, build):
+        """Stored 60s old, written five minutes ago: the served age is the
+        stored age plus the elapsed wall-clock, the same reconstruction
+        `_live_ages` makes -- never a number derived from the price."""
+        base = now_ms() - 5 * 60_000
+        app = build(lambda conn: [
+            _pick_row(conn, ticker="KXA-1", created_ms=base, fair=0.66,
+                      quote_age_ms=60_000, odds_age_ms=1_000),
+        ])
+        [pick] = (await get(app, "/api/slate")).json()["picks"]["ranked"]
+        assert pick["ask_display"] is None
+        age = pick["quote_age_now_ms"]
+        assert isinstance(age, int)
+        # 60s stored + ~5min elapsed; a minute of slack for a slow runner.
+        assert 6 * 60_000 <= age <= 7 * 60_000
+
+    async def test_a_fresh_row_carries_the_age_too(self, build):
+        """The age rides every pick, not only the withheld ones: the screen
+        decides what to print, and a key that appears only on the bad rows
+        is a key the type cannot describe."""
+        app = build(lambda conn: [
+            _pick_row(conn, ticker="KXA-2", created_ms=now_ms() - 5_000,
+                      fair=0.66, quote_age_ms=1_000, odds_age_ms=1_000),
+        ])
+        [pick] = (await get(app, "/api/slate")).json()["picks"]["ranked"]
+        assert pick["ask_display"] is not None
+        assert isinstance(pick["quote_age_now_ms"], int)
+
+    async def test_a_started_game_says_how_long_ago_on_the_request_clock(
+        self, build
+    ):
+        now = now_ms()
+        app = build(lambda conn: [
+            _pick_row(conn, ticker="KXB-1", created_ms=now - 60_000, fair=0.6,
+                      odds_event_id="started", commence_ms=now - 41 * 60_000),
+        ])
+        [pick] = (await get(app, "/api/slate")).json()["picks"]["ranked"]
+        assert pick["commence_ms"] == now - 41 * 60_000
+        assert 41 * 60_000 <= pick["started_ago_ms"] <= 42 * 60_000
+
+    async def test_a_game_still_ahead_carries_none_not_a_negative_age(
+        self, build
+    ):
+        now = now_ms()
+        app = build(lambda conn: [
+            _pick_row(conn, ticker="KXB-2", created_ms=now - 60_000, fair=0.6,
+                      odds_event_id="ahead", commence_ms=now + 90 * 60_000),
+        ])
+        [pick] = (await get(app, "/api/slate")).json()["picks"]["ranked"]
+        assert pick["started_ago_ms"] is None
+
+    async def test_an_unknown_kickoff_carries_none(self, build):
+        """No fixture, no clock to measure from: `None`, which the screen
+        renders as nothing -- never "started 0 min ago"."""
+        app = build(lambda conn: [
+            _pick_row(conn, ticker="KXB-3", created_ms=now_ms() - 60_000,
+                      fair=0.6),
+        ])
+        [pick] = (await get(app, "/api/slate")).json()["picks"]["ranked"]
+        assert pick["commence_ms"] is None
+        assert pick["started_ago_ms"] is None
+
+    async def test_a_started_game_keeps_its_place_in_the_ranking(self, build):
+        """ADR 0067: the order is `fair_probability` descending and nothing
+        is added to it. A started favourite still ranks above an unstarted
+        one with a lower chance, and an unstarted one above a started one --
+        the mark is a fact on the row, not a sort key or a filter."""
+        now = now_ms()
+        app = build(lambda conn: [
+            _pick_row(conn, ticker="KXC-STARTED-TOP", created_ms=now - 60_000,
+                      fair=0.72, odds_event_id="c1",
+                      commence_ms=now - 30 * 60_000),
+            _pick_row(conn, ticker="KXC-AHEAD-MID", created_ms=now - 60_000,
+                      fair=0.61, odds_event_id="c2",
+                      commence_ms=now + 60 * 60_000),
+            _pick_row(conn, ticker="KXC-STARTED-LOW", created_ms=now - 60_000,
+                      fair=0.55, odds_event_id="c3",
+                      commence_ms=now - 5 * 60_000),
+        ])
+        ranked = (await get(app, "/api/slate")).json()["picks"]["ranked"]
+        assert [p["ticker"] for p in ranked] == [
+            "KXC-STARTED-TOP", "KXC-AHEAD-MID", "KXC-STARTED-LOW"
+        ]
+        assert [p["started_ago_ms"] is not None for p in ranked] == [
+            True, False, True
+        ]

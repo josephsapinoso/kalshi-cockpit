@@ -1685,6 +1685,21 @@ export type SlatePick = {
   commence_ms: number | null;
   fair_percent_display: string | null;
   ask_display: string | null;
+  /**
+   * How old the recorded Kalshi quote is, on the server's clock at the
+   * request (`_live_ages`). Served whether or not `ask_display` survived, so
+   * a row whose ask was withheld can say how stale it is and what to do
+   * about it (#47). `null` is an unreadable clock and renders as nothing --
+   * never "0 min". Optional for a backend one version behind.
+   */
+  quote_age_now_ms?: number | null;
+  /**
+   * How long ago the game started, on the server's clock; `null` when the
+   * fixture is unknown or still ahead (#42, the Picks half). A fact the row
+   * wears, never a sort key: the order is `fair_probability` alone
+   * (ADR 0067). Optional for a backend one version behind.
+   */
+  started_ago_ms?: number | null;
   anchored_on_sharp: boolean | null;
 };
 
@@ -2779,6 +2794,13 @@ export type MarketDetail = {
    * behind; `null` when the server had nothing honest to score.
    */
   trust?: TrustScore | null;
+  /**
+   * Tonight's commitment and the "not tonight" release -- the slate's own
+   * block, served here too (#45) so the game screen, where the ticket is,
+   * carries the control Games and Picks both have. One helper, one day
+   * roll, one lockout table. Optional for a backend one version behind.
+   */
+  tonight?: TonightActivity | null;
 };
 
 /** `null` when the record has no row for this ticker — a market the runner
