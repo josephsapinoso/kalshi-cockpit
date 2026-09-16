@@ -295,25 +295,33 @@ left as is, noted so the frontier's "9" is not read as "all open issues".
 
 ### STATE at close
 
-`main` = the rule commit `43422c4`, four lane merges (`3db962d`, `24699ce`,
-`02943b2`, `35534cf`) and the review fixes in this entry's commit. Deploy to
-live via the workflow after CI — see the next entry's STATE line for the
-verified sha; do not trust this one. `SCHEMA_VERSION` **44**, next ADR
-**0160**, schema **v45 unallocated**, no lane reservations. Arming
-unchanged: hand path armed, engine and bid paths dry. **Zero odds credits
-spent.** No open Dependabot alerts at open. Full suite on the merged tree
-before the review fixes: lane 1 read 7576 passed, 8 skipped, 10 xfailed;
-tsc clean; `next build` green on `main`.
+`main` = `b932306` (the rule commit `43422c4`, four lane merges, the review
+fixes `4ab830a`, and a 57→49-word glossary trim that was CI's only failure).
+**CI green on `b932306`: 7634 passed, 21 skipped, 10 xfailed.** **DEPLOYED
+and verified**: `/api/health` `build.git_sha` = `b932306`, and the served
+preflight was read off live with the session cookie (`time_live_routes.py`'s
+minting, not a database reconstruction) for `KXMLBGAME-26SEP161840LADCIN-LAD`:
+
+    yes  ask 670  fee_per_contract_tenths 16  fee_ceiling 18  breakeven 0.6855
+    no   ask 340  fee_per_contract_tenths 16  fee_ceiling 18  breakeven 0.3558
+    commence_ms 1789598460000 (18:41Z, the sportsbook clock)   venue_daily_pnl_dollars ABSENT
+    /api/market/<ticker> carries `tonight` {as_of_ms, bets, day_start_ms, lockout_until_ms, staked_*}
+
+0.070 × 0.67 × 0.33 = 1.547c → 16 tenths, ceiled; the 50c ceiling is 18.
+`SCHEMA_VERSION` **44**, next ADR **0160**, schema **v45 unallocated**, no
+lane reservations; all four lane worktrees reaped. Arming unchanged: hand
+path armed, engine and bid paths dry. **Zero odds credits spent.** No open
+Dependabot alerts at open. `fetch_live_route.py`'s allowlist does not carry
+`/api/manual/market` or `/api/market/<ticker>` — the cookie route is how
+those two were read.
 
 ### Still open, in order
 
-1. **Verify the deploy on live**: `/api/health` `build.git_sha` = `origin/main`,
-   then open one ticket on the phone or via `scripts/time_live_routes.py`'s
-   cookie and read the served `fee_per_contract_tenths`,
-   `fee_ceiling_per_contract_tenths`, `breakeven_probability`, `commence_ms`
-   off `/api/manual/market/<ticker>` — the "verification methods that lie"
-   rule satisfied, not asserted. The Confirm button on live should read
-   "for at most".
+1. **Joe: open one ticket on the phone and read the button.** It should say
+   "for at most $X (ask $A + fee $F)" with the break-even line above it, the
+   ask's age ticking beside it, and "Re-read the book". The served numbers
+   are verified above; what a tap renders is the one thing a session cannot
+   read. Nothing to build until he has looked.
 2. **Saturday 19 — `sharp-anchor-census` on the live NCAAF slate**, with
    `team-bookmakers --since` beside it. Verifies the magnitude behind a
    decision already taken (option A, `432cbb9`) and closes the rival
