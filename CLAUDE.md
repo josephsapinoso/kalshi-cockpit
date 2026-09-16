@@ -278,12 +278,18 @@ on 12 rows of one stratum by the registered census, 2026-09-15:
 
     E3  entry fee, charged at 0.071 too LOW    ~1% of the fee (≈1 tenth a position); ADR 0145
         (was ABSENT from S until ADR 0145 — too HIGH by ~17 tenths/contract at
-        41c, the largest term and the only one that ran optimistic. `routes.py:4318`
+        41c, the largest term and the only one that ran optimistic. `routes.py:4598`
         still writes contracts × price with no fee; `backend/hedge.py:assess` now
         sinks `core/hedge.py:combo_entry_fee_tenths` beside it at read time)
     E1  settlement fee, H4 untested too HIGH   0 if H4 holds; ADR 0027
-    E2  sent price vs fill price    too LOW    0 tenths/contract on 11 of 12 joined rows,
-                                              +22 tenths/contract on 1 — registered census
+    E2  sent price vs fill price    GONE on a `venue_fill` position (ADR 0160, 2026-09-16):
+                                              the stake IS the venue's charge, so the term is
+                                              zero by construction, not estimated. Still live,
+                                              too LOW, on an `as_recorded` one — a pre-v40 bet,
+                                              a sportsbook slip, a NO order (refused, not
+                                              guessed) or an unreadable link. Measured while it
+                                              applied to every row: 0 tenths/contract on 11 of
+                                              12 joined rows, +22 on 1 — registered census
                                               2026-09-15, n = 12, S1/KXMVE only, every order
                                               YES; counts, not a rate, and nothing about the
                                               next fill ("0–10 tenths" stood here until then)
@@ -319,10 +325,21 @@ The population is now **13 real rows, 12 filled, 1 unfilled**
 orders postdate v40 and carry both endpoints** — the registered census read
 exactly those and is spent (§2 of its result doc). The one unjoined row is the
 2026-09-09T00:34:30Z order, pre-v40, no `venue_fill_count` and no `fills` row.
-`_record_combo_position` (`backend/api/routes.py:3959`) still feeds
-`parlay_positions.stake_tenths` from the sent price (`contracts *
-fill_price_tenths`, `:4318`); rewiring it is deferred by ADR 0143 §4 and is
-not a cleanup. E2 is the only term the registered census can pin — and it was pinned 2026-09-15 (`docs/measurements/2026-09-15-recorded-fill-vs-venue-charge-census-result.md`; the look is spent)
+`_record_combo_position` still **writes** `parlay_positions.stake_tenths` from
+the sent price (`contracts * fill_price_tenths`, `routes.py:4598`) and always
+will — but since **ADR 0160** (2026-09-16, Joe's `49A`) **nothing reads that
+number raw.** `hedge.build_payload` resolves each open position's stake at
+READ time to the venue's own `venue_avg_fill_price_tenths` where the link is
+provable, and to the recorded figure with a named reason where it is not
+(`stake_basis` ∈ {`venue_fill`, `as_recorded`}, served on `/api/hedge`). The
+order path is untouched — that file's diff was comment-only, deliberately,
+because `POST /api/manual-orders` is the armed path. **A `side = 'no'` order
+is refused**, not guessed: our price reflects a NO onto the YES book and the
+venue's is stored verbatim, and which book it quoted has never been
+established. ADR 0143 §4's deferral is discharged; do not carry it as pending.
+**No backfill** — the ten open rows keep their stored number, because the one
+row where the two disagreed had the sent price *above* the venue's, so
+rewriting them would move a live figure in the flattering direction. E2 is the only term the registered census can pin — and it was pinned 2026-09-15 (`docs/measurements/2026-09-15-recorded-fill-vs-venue-charge-census-result.md`; the look is spent)
 (`docs/measurements/2026-09-10-preregistration-recorded-fill-vs-venue-charge.md`,
 Amendment 1); it is a census, not an estimate, n is a handful and one stratum
 is mechanically pinned to zero.

@@ -1,4 +1,4 @@
-# 0160. The stake is read at the venue's own fill price, on the read
+# 0160 — The stake is read at the venue's own fill price, on the read
 
 Written by lane B (`lane/stake-basis-venue-fill`) with no ordinal; **0160 was
 taken at the merge commit after `git fetch`**, per `docs/adr/README.md`.
