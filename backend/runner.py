@@ -17,8 +17,9 @@ Two passes, deliberately separable:
 
 **Ingest** (`run_ingest_pass`) touches the network -- discovery, an odds sweep
 inside the credit budget, and an orderbook read for the markets that survived
-linking. Kalshi REST is cheap and The Odds API is not: the free tier is ~16
-credits a day and one sweep costs `markets x regions`, so linking happens
+linking. Kalshi REST is cheap and The Odds API is not: one sweep costs whatever
+`odds/budget.py:sweep_cost` says (markets x region-equivalents, where ten named
+bookmakers are one equivalent), against a metered daily cap, so linking happens
 *before* quoting and the sweep is planned against the budget rather than
 attempted and refused. *When* to spend those two calls is `odds/timing.py`'s
 decision, not this module's: a sweep makes the slate bettable for fifteen

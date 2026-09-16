@@ -49,6 +49,14 @@ moment a caller can spend 10x per call, which is what the historical endpoints
 do (`10 x markets x regions`), so a single backfill loop could spend the month
 between two daily resets without the daily cap ever objecting.
 
+(**No caller for those endpoints exists in `backend/` today** -- checked
+2026-09-16 -- so that multiplier is a hazard this guard exists to survive
+rather than one anything currently triggers. Whether named bookmakers change
+the historical rate the way they changed the live one is **unverified**: the
+vendor's rule is stated for regions and nothing here has measured the
+historical endpoint under `bookmakers`. Anyone wiring one up measures it
+against `x-requests-last` first, the way ADR 0155 did.)
+
 **Allocation is not decided here.** It used to be: `plan_sweep` ranked sports
 by soonest kickoff and returned everything the budget allowed, so the day's
 credits went on the first pass that had any -- which on 2026-08-07 meant 19:32Z,

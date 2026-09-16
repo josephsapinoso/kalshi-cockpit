@@ -158,13 +158,14 @@ class RefreshRequest:
 
     sport_key: str
     # `None` means team lines only -- `h2h`/`spreads`/`totals` for the whole
-    # slate, one call, `markets x regions` credits. Set means *additionally*
-    # buy player props for this one fixture, which is where the money is.
+    # slate, one call, `sweep_cost(...)` credits. Set means *additionally* buy
+    # player props for this one fixture, which is where the money is.
     odds_event_id: Optional[str]
     requested_ms: int
-    # What the API charged its own ceiling for this request, computed from the
-    # deployed market and region lists at submit time. Carried so the runner's
-    # log and the API's refusal can quote the same number.
+    # What the API charged its own ceiling for this request, computed at submit
+    # time from the deployed market list and whichever of the bookmaker or
+    # region lists the vendor will bill on. Carried so the runner's log and the
+    # API's refusal can quote the same number.
     estimated_credits: int
 
     @property

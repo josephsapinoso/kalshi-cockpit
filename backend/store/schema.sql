@@ -522,8 +522,13 @@ CREATE INDEX IF NOT EXISTS idx_odds_window
     ON odds_snapshots(market, odds_event_id, fetched_ms DESC, commence_ms,
                       book_updated_ms);
 
--- Credit accounting. The free tier is 500/month and cost = markets x regions,
--- so an unmetered poll loop drains the month in a day. Every call is recorded
+-- Credit accounting. Cost is `markets x region-equivalents` -- see
+-- `backend/odds/budget.py:sweep_cost`, and the `cost` column's own comment
+-- below, which carries the named-bookmaker rule. An unmetered poll loop drains
+-- the month in a day at any of the rates this repo has run at. (This line said
+-- "the free tier is 500/month and cost = markets x regions" until 2026-09-16;
+-- the free tier was replaced on 2026-08-09 and the formula at ADR 0155.)
+-- Every call is recorded
 -- with what the API said remained, so the budget is reconciled against the
 -- server's count rather than our own optimistic tally.
 --
