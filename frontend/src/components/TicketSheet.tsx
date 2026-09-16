@@ -777,10 +777,22 @@ function Placed({ order }: { order: OrderPlaced }) {
         ) : order.limit_price_cents !== undefined ? (
           <Figure label="Limit" value={`${order.limit_price_cents}c`} />
         ) : null}
+        {/* The label is what the number is: `fill_price_tenths` is written
+            at intent time and is what one contract of our side costs at the
+            price being SENT. `OrderOutcome` carries no such property, so a
+            label naming an outcome was describing a different number than
+            the one underneath it (issue #50, answered A). The glossary's
+            `fill` entry is correct and stays; it is rendered here to say
+            what this figure is not. */}
         {order.fill_price_display !== undefined && (
           <Figure
-            label={<Term k="fill">Fill</Term>}
+            label="Sent price"
             value={String(order.fill_price_display)}
+            unit={
+              <>
+                the price sent, not the <Term k="fill">fill</Term>
+              </>
+            }
           />
         )}
         {order.worst_case_cost_dollars !== undefined && (
