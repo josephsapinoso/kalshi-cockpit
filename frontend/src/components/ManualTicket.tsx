@@ -601,9 +601,14 @@ function TicketBody({
               disabled={sending}
               className="mt-0.5 h-5 w-5 shrink-0"
             />
+            {/* Joe's own words, issue #41 answer A (2026-09-16). It read
+                "no way out of this bet except the outcome" until then -- the
+                universal two shard-1 YES bids killed on 2026-09-10 -- and
+                the fallback paragraph above had been corrected while this
+                line, six lines below it, kept the dead claim. */}
             <span>
-              I understand there is no way out of this bet except the
-              outcome.
+              I understand I may not be able to get out of this bet, and any
+              way out is small and unmeasured.
             </span>
           </label>
           <p className="mt-2 max-w-[65ch] text-xs text-muted">

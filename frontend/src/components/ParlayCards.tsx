@@ -177,10 +177,19 @@ function Card({
                 nothing on average, so you need <strong>better</strong> than
                 it. Kalshi quotes this combination itself — a resting NO bid
                 is the ask you pay, and nobody has to be selling it to you at
-                the moment you tap — but nobody bids to buy it back, so the
-                only exit once you own it is the outcome. This is still the
-                number to take to wherever you can actually place the bet.
+                the moment you tap — but once you own it, any way out is
+                small and unmeasured: a resting bid to buy it back has been
+                seen on two books, ten contracts each, and how often one is
+                there has never been measured. This is still the number to
+                take to wherever you can actually place the bet.
               </p>
+              {/* "nobody bids to buy it back, so the only exit once you own
+                  it is the outcome" stood here until 2026-09-16, six days
+                  after two shard-1 books were read carrying resting YES bids
+                  of ten contracts (ADR 0146 killed the frequency question;
+                  `docs/measurements/2026-09-13-combo-exit-nfl-sunday-result.md`
+                  §4). Issue #41, answer A. Size in words, no digit, and no
+                  rate: an existence proof supplies none. */}
             </div>
           )}
           <p className="mt-3 text-xs text-muted">
