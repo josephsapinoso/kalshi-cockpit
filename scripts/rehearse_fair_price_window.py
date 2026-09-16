@@ -76,6 +76,7 @@ import argparse
 import os
 import pathlib
 import shutil
+import signal
 import sqlite3
 import sys
 import time
@@ -97,11 +98,36 @@ from scripts import inspect_live_db_decisions as decisions  # noqa: E402
 
 LIVE_DB = "/data/cockpit.db"
 
-#: Pages per `backup` step and the pause between steps. Verbatim from the v37
-#: rehearsal: the point is to leave the disk to the recorder and the desk
-#: between bursts, not to finish quickly.
-BACKUP_PAGES = 2_000
-BACKUP_SLEEP_S = 0.020
+#: **`sqlite3.backup` is not usable here, and finding out cost a live run.**
+#:
+#: The v37 rehearsal
+#: (`docs/measurements/2026-09-10-the-ladder-floor-oom-cycles-the-recorder.md`
+#: §6) copied 5.17 GB in 640 s with `sqlite3.backup`, paced 2,000 pages per
+#: 20 ms, and that worked. Repeating it on 2026-09-16 against 6.32 GB did not,
+#: and the way it failed is the part worth keeping: **SQLite restarts a backup
+#: from page 1 whenever the source is written by another connection.** The
+#: recorder writes every ~900 s; this copy needs ~1,200 s; so it restarted
+#: forever. From outside it looked like a working copy -- the destination's
+#: mtime advanced the whole time -- while its size sat frozen at the
+#: high-water mark of the best attempt, 2,744,320,000 bytes, for six minutes.
+#: There is no error and no progress output. It would have run until the ssh
+#: session was killed.
+#:
+#: `VACUUM INTO` has no such semantics: it is one statement under one read
+#: transaction, so a concurrent writer cannot restart it. Pacing and the
+#: deadline come from a progress handler instead, which does fire during
+#: `VACUUM INTO` (measured: 544 calls in 3.1 s at 50,000 opcodes) and can
+#: abort it cleanly.
+#:
+#: **What that costs the measurement, and in which direction.** `VACUUM INTO`
+#: writes a COMPACTED copy: the b-trees come out defragmented, so a scan on
+#: the copy is more sequential than the same scan on live. That makes scans
+#: relatively cheaper, which **understates** the benefit of turning a scan
+#: into a seek -- the conservative direction, and the reason it is acceptable
+#: here. The before/after ratio is unaffected either way, because both arms
+#: run against the same copy.
+VACUUM_PACE_OPCODES = 50_000
+VACUUM_PACE_SLEEP_S = 0.001
 
 ANALYZE_STEPS = ("PRAGMA analysis_limit=1000", "ANALYZE fair_prices")
 
@@ -188,16 +214,39 @@ def timed(conn: sqlite3.Connection, sql: str, params, reps: int) -> float:
     return best or 0.0
 
 
-def paced_copy(src: str, dst: pathlib.Path) -> float:
-    """`sqlite3.backup` at 2,000 pages per 20 ms. Returns seconds elapsed."""
+def snapshot_copy(src: str, dst: pathlib.Path, deadline_s: float,
+                  pace_sleep_s: float) -> float:
+    """`VACUUM INTO`, paced and deadline-guarded. Returns seconds elapsed.
+
+    See the note beside `VACUUM_PACE_OPCODES` for why this is not
+    `sqlite3.backup`. The progress handler does three jobs: it yields the disk
+    back between bursts, it enforces a wall-clock deadline so a pathology
+    ABORTS instead of running until someone notices, and it prints progress so
+    a stall is visible while it is happening rather than afterwards.
+    """
     source = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
-    target = sqlite3.connect(dst)
     t0 = time.perf_counter()
-    source.backup(target, pages=BACKUP_PAGES, sleep=BACKUP_SLEEP_S)
-    elapsed = time.perf_counter() - t0
-    target.close()
-    source.close()
-    return elapsed
+    last_print = [t0]
+
+    def handler() -> int:
+        now = time.perf_counter()
+        if now - t0 > deadline_s:
+            return 1  # aborts the statement; sqlite3 raises OperationalError
+        if now - last_print[0] >= 30.0:
+            last_print[0] = now
+            size = dst.stat().st_size if dst.exists() else 0
+            print(f"    ... {now - t0:5.0f} s, {size / 1e9:5.2f} GB written",
+                  flush=True)
+        time.sleep(pace_sleep_s)
+        return 0
+
+    source.set_progress_handler(handler, VACUUM_PACE_OPCODES)
+    try:
+        source.execute("VACUUM INTO ?", (str(dst),))
+    finally:
+        source.set_progress_handler(None, 0)
+        source.close()
+    return time.perf_counter() - t0
 
 
 def free_bytes(path: str) -> int:
@@ -227,6 +276,12 @@ def main() -> int:
     ap.add_argument("--copy-to", default="/data/rehearse-fair-prices.db")
     ap.add_argument("--days", type=int, default=7)
     ap.add_argument("--reps", type=int, default=3)
+    ap.add_argument("--deadline-s", type=float, default=1800.0,
+                    help="abort the copy after this many seconds rather than "
+                         "letting a pathology run unbounded (default 1800)")
+    ap.add_argument("--pace-sleep-s", type=float, default=VACUUM_PACE_SLEEP_S,
+                    help="seconds slept per progress-handler call, to leave "
+                         "the disk to the recorder; 0 copies flat out")
     ap.add_argument("--cache-kib", type=int, default=8_000,
                     help="SQLite page cache per connection, small on purpose: "
                          "this box has 2.0 GB and no swap")
@@ -241,6 +296,25 @@ def main() -> int:
     since = now_ms - args.days * 86_400_000
     src = pathlib.Path(args.db)
     dst = pathlib.Path(args.copy_to)
+
+    # **A dropped ssh must not leave a multi-gigabyte orphan on the volume.**
+    # `finally` does not run when the process is signalled, and on 2026-09-16
+    # that left `/data` holding a 2.7 GB file that `df` still counted after it
+    # was unlinked, because the surviving process had it open. These turn a
+    # signal into a normal exit so the `finally` below fires.
+    def _bail(signum, _frame):
+        print(f"\nsignal {signum}: deleting the copy and exiting")
+        unlink_all(dst)
+        raise SystemExit(130)
+
+    for name in ("SIGTERM", "SIGHUP", "SIGINT"):
+        sig = getattr(signal, name, None)
+        if sig is not None:
+            try:
+                signal.signal(sig, _bail)
+            except (ValueError, OSError):
+                # Not the main thread, or not supported on this platform.
+                pass
 
     print(f"sqlite {sqlite3.sqlite_version}   python {sys.version.split()[0]}")
     if tuple(int(n) for n in sqlite3.sqlite_version.split(".")) < (3, 32, 0):
@@ -295,12 +369,35 @@ def main() -> int:
               "wizard.sh` -- not by shaving the margin.")
         return 1
 
-    print(f"\ncopying to {dst}, {BACKUP_PAGES} pages per "
-          f"{BACKUP_SLEEP_S * 1000:.0f} ms ...")
+    # **Printed so the copy can be killed from another shell.** A dropped
+    # `flyctl ssh` does NOT take this process with it: on 2026-09-16 the client
+    # was killed and PID 722 kept looping on the box, holding 2.7 GB of deleted
+    # file open so the volume did not reclaim it. The signal handlers below are
+    # the fix; the PID is the fallback when the signal never arrives.
+    print(f"\npid {os.getpid()}")
+    print(f"copying to {dst} with VACUUM INTO, deadline {args.deadline_s:.0f} s "
+          f"...")
     try:
-        elapsed = paced_copy(str(src), dst)
-        print(f"copied {dst.stat().st_size:,} bytes in {elapsed:.0f} s; "
-              f"free now {free_bytes(str(dst.parent)):,} bytes")
+        try:
+            elapsed = snapshot_copy(str(src), dst, args.deadline_s,
+                                    args.pace_sleep_s)
+        except sqlite3.OperationalError as exc:
+            # The deadline aborts the statement as `interrupted`. Say which
+            # it was: a genuine SQLite error and a hit deadline read the same
+            # from here, and only one of them means "re-run with more time".
+            print(f"\nREFUSED: the copy did not finish -- {exc}. If that says "
+                  f"'interrupted', the {args.deadline_s:.0f} s deadline fired; "
+                  "re-run with --deadline-s raised, on a quieter clock. "
+                  "Nothing was measured.")
+            return 1
+        copied = dst.stat().st_size
+        print(f"copied {copied:,} bytes in {elapsed:.0f} s "
+              f"({copied / max(elapsed, 1e-9) / 1e6:.1f} MB/s); "
+              f"source was {src.stat().st_size:,}, so the copy is "
+              f"{100 * copied / max(src.stat().st_size, 1):.1f}% of it -- "
+              "VACUUM INTO compacts, which is why it is smaller and why its "
+              "scans are more sequential than live's")
+        print(f"free now {free_bytes(str(dst.parent)):,} bytes")
 
         conn = sqlite3.connect(dst)
         conn.execute("PRAGMA cache_size = %d" % -args.cache_kib)

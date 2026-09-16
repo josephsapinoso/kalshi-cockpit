@@ -16,6 +16,59 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-16 (sixth) - A copy that restarts whenever its source is written cannot outlast the writer's cadence, and it reports the restart as progress
+
+The v37 rehearsal copied the live database with `sqlite3.backup`, paced at
+2,000 pages per 20 ms: 5.17 GB in 640 s. The same code was re-run on 2026-09-16
+against 6.32 GB and never finished.
+
+**SQLite restarts a backup from page 1 whenever the source is written through
+another connection.** The recorder writes every ~900 s. This copy needed
+~1,200 s. So every pass was thrown away and begun again, forever.
+
+What makes it worth an entry is how it presented. There was no error, no
+warning and no progress output. The destination's **mtime advanced the whole
+time**, so every liveness check said "still working", while its **size sat
+frozen** at 2,744,320,000 bytes -- the high-water mark of the best attempt --
+for six minutes. The first two size readings were taken 20 s apart, showed no
+change, and were dismissed as sampling noise; the third, three minutes later,
+showed growth and "confirmed" it was fine. It was a restart cycle.
+
+The v37 run did not succeed because the approach was sound. It succeeded
+because 640 s happened to be less than 900 s, and nobody wrote down that the
+margin was the load-bearing part.
+
+Then killing it made a second mess. **`flyctl ssh console -C` does not take
+the remote process with it when the client dies.** PID 722 kept looping on the
+box; `rm` on the copy returned cleanly and `df` still showed the 2.7 GB gone
+missing, because the surviving process held the unlinked file open. The volume
+only reclaimed it after the process was killed through `/proc`.
+
+Four rules:
+
+- **Before copying a live database, ask what the writer does to the copier.**
+  `sqlite3.backup` restarts; `VACUUM INTO` is one statement under one read
+  transaction and cannot be restarted by a concurrent writer. The choice is
+  not about speed.
+- **A long operation with no progress output and no deadline cannot be
+  distinguished from a hung one.** Both were added: a progress handler that
+  prints bytes written every 30 s, and a wall-clock deadline that ABORTS. A
+  guard that only exists to be hit once is still cheaper than the run it saves.
+- **mtime is liveness, not progress.** A process rewriting the same region
+  forever looks identical to one making headway. Measure the quantity that is
+  supposed to grow, and sample it far enough apart that a plateau is not
+  mistaken for jitter -- or better, have the program print its own progress.
+- **A remote command needs a signal handler if it creates anything large.**
+  `finally` does not run on SIGTERM. Trap SIGTERM/SIGHUP/SIGINT, delete what
+  you made, and print the PID at startup so it can be reached from another
+  shell when the signal never arrives.
+
+A fifth, about the number rather than the mechanism: **`VACUUM INTO` compacts,
+so the copy is defragmented and its scans are more sequential than live's.**
+That understates the benefit of replacing a scan with a seek, which is the
+conservative direction and the only reason it is acceptable. Say which way an
+artefact pushes, every time.
+
 ## 2026-09-16 (fifth) - The planner can DECLINE an index; before pricing one, check which plan it actually picks -- and ask whether what is missing is statistics
 
 An approved piece of work was "add an index on `fair_prices(computed_ms)` so a
