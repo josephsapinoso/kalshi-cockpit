@@ -425,8 +425,27 @@ function LegProvenance({ card }: { card: ParlayCardData }) {
                       ? `: ${leg.books_used.join(", ")}`
                       : ""
                   }.`}
+              {/* BOTH values, and the `false` half is the one that was
+                  missing. Until 2026-09-16 this line rendered only on
+                  `=== true`: the card told you when the anchor was GOOD and
+                  said nothing when there was none, which is the flattering
+                  asymmetry `tasks/lessons.md` records from ADR 0154. The
+                  slate and picks screens already marked the soft case; the
+                  parlay cards, which are the ones actually tapped, did not.
+                  Measured 2026-09-16: about two of three NCAAF spread and
+                  totals rows have no sharp book behind them. `null` stays
+                  silent — it means the join missed, not that the anchor is
+                  absent. */}
               {leg.anchored_on_sharp === true &&
                 " Anchored on sharp books, which selects at most three of them — a thinner reading, not a better one."}
+              {leg.anchored_on_sharp === false && (
+                <span className="font-semibold text-accent-2">
+                  {" "}
+                  No sharp book quoted this leg, so the fair value fell back to
+                  the full soft-book set — a wide consensus wearing a sharp
+                  consensus&apos;s name.
+                </span>
+              )}
               {leg.market_width_display &&
                 ` Books disagree by ${leg.market_width_display}.`}
               {leg.method_spread_display &&
