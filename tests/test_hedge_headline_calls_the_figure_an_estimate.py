@@ -30,10 +30,12 @@ What this does NOT establish
   `tests/test_soft_fallback_is_shown_on_every_price_surface.py`: a green suite
   says the component contains these words and lacks those, not that the page
   renders, wraps legibly at 390px, or that Joe reads it.
-- **Nothing about the Discord push.** `notify/discord.py` still titles its
-  field "Locks" and says "whichever way it goes"; #43 decided the screen
-  headline and three tests in `test_hedge_alerts.py` pin the embed by name.
-  That is a separate surface and, as of this test, a separate open question.
+- **The Discord push's RENDERED output** is `tests/test_hedge_alerts.py`
+  (`TestTheHedgeAvailableEmbed`, `TestTheLegsInPlayEmbed`). What this file
+  adds for it (`TestTheDiscordCopyAgrees`) is the source-level guard: every
+  string literal the two embed builders and `_estimate_field` carry, read
+  with `ast`, refuses the struck words -- so a reworded field cannot come
+  back under a name no rendered test happens to select.
 - **Nothing about the grain's content.** What `uncertainty_display` says, and
   that it refuses the same words, is `tests/test_hedge_positions.py`.
 
@@ -43,16 +45,34 @@ Mutations, each observed red on a backup copy (2026-09-16):
   3. `grain` moved out of the figure's <p> into a `text-xs` line under it
   4. caller passes `grain={null}` instead of `block.uncertainty_display`
   5. glossary `lock` definition back to "arithmetic, not a guess"
+  6. discord.py: `_estimate_field` titled "Locks" again
+  7. discord.py: `hedge_lock` description back to "a known answer in both branches"
+  8. discord.py: `_estimate_field` value back to "... whichever way it goes"
+  9. discord.py: `position_state` renders its own "Locks" field instead of `_estimate_field`
 """
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CARDS = ROOT / "frontend" / "src" / "components" / "HedgePositions.tsx"
 GLOSSARY = ROOT / "frontend" / "src" / "lib" / "glossary.ts"
+DISCORD = ROOT / "backend" / "notify" / "discord.py"
+
+#: The functions in `discord.py` whose string literals are the push's copy.
+EMBED_BUILDERS = ("hedge_lock", "position_state", "_estimate_field")
+
+#: Literals that are wire names, not copy: the state a block reports and the
+#: flag the alert predicate is named for. Exact matches only, so "lock" the
+#: key passes and "Locks" the field title does not.
+WIRE_NAMES = {"lock", "guaranteed", "guaranteed_display", "uncertainty_display", "hedge_lock"}
+
+#: The one sentence in the many-live branch that may say "locks", because it
+#: says nothing does. Pinned by name in `test_hedge_alerts.py`.
+MANY_LIVE_BOILERPLATE = "No figure locks"
 
 #: Words the headline may not use, from CLAUDE.md's `/hedge` paragraph plus
 #: the two Joe struck. Matched at word boundaries, case-insensitively.
@@ -144,3 +164,75 @@ class TestTheGlossaryEntryAgrees:
         assert "estimate" in entry
         assert "not a guess" not in entry
         assert "whichever" not in entry
+
+
+def _embed_literals(name: str) -> list[str]:
+    """Every string literal inside `name`'s body, docstring excluded."""
+    tree = ast.parse(DISCORD.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            body = node.body[1:] if ast.get_docstring(node) else node.body
+            return [
+                n.value
+                for stmt in body
+                for n in ast.walk(stmt)
+                if isinstance(n, ast.Constant) and isinstance(n.value, str)
+            ]
+    raise AssertionError(f"{name} is not defined in discord.py")
+
+
+class TestTheDiscordCopyAgrees:
+    """The push carries the screen's words, at the source.
+
+    Read with `ast` rather than as raw text so the code around the copy --
+    `block.get("kind") != "lock"`, `block.get("guaranteed")` -- is not a false
+    hit and cannot be a hiding place either: every literal is checked except
+    the exact wire names.
+    """
+
+    def test_every_builder_is_present_and_carries_copy(self):
+        # Vacuity guard: a renamed builder would make the scan below scan nothing.
+        for name in EMBED_BUILDERS:
+            assert len(_embed_literals(name)) > 3, name
+
+    def test_the_figure_line_is_about_either_way_an_estimate(self):
+        literals = " ".join(_embed_literals("_estimate_field"))
+        assert "either way — an estimate" in literals
+        assert "Comes to" in literals
+        # Both embeds reach the figure through the one helper.
+        for name in ("hedge_lock", "position_state"):
+            src = DISCORD.read_text(encoding="utf-8")
+            start = src.index(f"async def {name}(")
+            end = src.find("\n    async def ", start + 1)
+            assert "_estimate_field(block)" in src[start : end if end > 0 else None], name
+
+    def test_the_copy_refuses_the_struck_words(self):
+        struck = (
+            r"\bLocks\b",
+            r"\block available\b",
+            r"\block in\b",
+            r"\blocked\b",
+            r"\bwhichever\b",
+            r"\bknown answer\b",
+            r"\bguaranteed\b",
+            r"\bceiling\b",
+            r"\bfloor\b",
+            r"\bconservative\b",
+            r"\bat least\b",
+            r"\bcan only be\b",
+        )
+        for name in EMBED_BUILDERS:
+            for literal in _embed_literals(name):
+                if literal in WIRE_NAMES or literal == MANY_LIVE_BOILERPLATE:
+                    continue
+                if "locks nothing" in literal:
+                    # The many-live sentence: "buying one side of one leg
+                    # locks nothing". A refusal, not a claim; its field is
+                    # `MANY_LIVE_BOILERPLATE` and it is pinned by name.
+                    continue
+                for pattern in struck:
+                    assert not re.search(pattern, literal), (
+                        f"discord.py {name} says {pattern!r} again in {literal!r}. "
+                        "Joe struck it on 2026-09-16 (#43, A); the push is the "
+                        "first place he reads the figure."
+                    )

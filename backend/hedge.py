@@ -129,8 +129,10 @@ NOTES: dict[str, str] = {
         "nothing about the next fill. It is an estimate, not a guaranteed "
         "amount."
     ),
+    # "would lock in" until 2026-09-16 (issue #43): the same word the
+    # headline lost, on the screen's header and in both embeds' footers.
     "not_advice": (
-        "This is what a hedge would lock in at the price showing right now. "
+        "This is what a hedge would come to at the price showing right now. "
         "It is not a claim that the price will get worse, or that taking it "
         "beats holding — the hedge price is the market's own number and "
         "nothing here beats it."
