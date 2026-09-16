@@ -53,10 +53,9 @@ export const GLOSSARY = {
     label: "lock",
     definition:
       "A hedge big enough that you end up with about the same amount " +
-      "either way the last leg goes. Only possible when every other leg " +
-      "has already won. The figure the desk shows for one is an estimate: " +
-      "the fees and the stake it charges are not exactly what Kalshi " +
-      "charged, and the differences run both ways.",
+      "either way the last leg goes, possible only once every other leg " +
+      "has won. The figure shown is an estimate: its fees and stake are " +
+      "not exactly what Kalshi charged, and the differences run both ways.",
   },
   derisk: {
     label: "de-risk",
