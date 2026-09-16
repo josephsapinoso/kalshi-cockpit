@@ -150,13 +150,29 @@ primary_region = "ord"
   MANUAL_ORDERS_ENABLED = "true"
   LIVE_GATE_MIN_SCORED_RECOMMENDATIONS = "300"
 
-  # 20K tier, 20,000 credits/month (2026-08-09). A sweep costs markets x
-  # regions -- since 2026-08-16 that is 1 x 2 = **2** (`h2h` only; the "= 6"
-  # this line carried until 2026-08-21 described the retired three-market
-  # fetch, contradicting the ODDS_MARKETS note further down this same file).
+  # 20K tier, 20,000 credits/month (2026-08-09). **A sweep is NOT markets x
+  # regions any more.** Since ADR 0155 this deploy names ten `ODDS_BOOKMAKERS`,
+  # and `bookmakers` takes priority over `regions` at the vendor, so
+  # `sweep_cost` is `len(markets) x ceil(len(bookmakers) / 10)`
+  # (`backend/odds/budget.py:87`):
   #
-  # 600/day (raised from 400; the paragraphs below argued about 400 and the
-  # arithmetic in them is per-sweep, so it survives the raise). Briefly set to 16 on 2026-08-09 and reverted the same day, because
+  #     TODAY   3 markets x ceil(10 books / 10) = **3 credits a call**
+  #
+  # Measured against the vendor's own counter 2026-09-15, not inferred:
+  # `x-requests-last: 3`, used 5048 -> 5051, all ten books returned.
+  #
+  # **This one line has carried four different numbers, so derive, never
+  # inherit.** "= 6" until 2026-08-21 (the retired three-market fetch at two
+  # regions), "1 x 2 = 2" from 2026-08-16 (`h2h` only), silently 6 again from
+  # 2026-09-14 when ADR 0152 added `totals`, and 3 since ADR 0155. Anything
+  # below this line that states a per-call cost of 2, 4 or 6 is either
+  # marked historical or is a bug. Re-derive the day ODDS_MARKETS or
+  # ODDS_BOOKMAKERS moves; nothing recomputes it for you.
+  #
+  # 600/day AT THE TIME, raised from 400 -- **it is 700 today**, raised again
+  # 2026-08-23; the note just above the variable carries that. (The paragraphs
+  # below argued about 400 and the arithmetic in them is per-sweep, so it
+  # survives both raises.) Briefly set to 16 on 2026-08-09 and reverted the same day, because
   # on a flat-fee plan the cap saves nothing: **the scheduler, not the budget,
   # decides what gets spent.**
   #
@@ -164,11 +180,14 @@ primary_region = "ord"
   # right. It read "MIN_SLOT_SEPARATION_MS gives each sport at most 12 useful
   # slots a day, so six leagues cannot exceed ~432/day". True and irrelevant:
   # the real bound is how many kickoff *clusters* a slate has, which is three
-  # per sport. A full August slate plans **six** sweeps -- 36 credits, not 400.
+  # per sport. A full August slate plans **six** sweeps -- 36 credits at that
+  # month's 6-credit call (18 at today's 3), not 400.
   #
   # So the cap is ~11x above what the schedule can spend, and lowering it only
   # starts biting well below that. Measured, not argued
-  # (`scripts/measure_slot_coverage.py --date 20260809`, free):
+  # (`scripts/measure_slot_coverage.py --date 20260809`, free). The game
+  # counts are measured; the credit columns are that day's 6-credit call and
+  # are HISTORICAL -- halve them for today's 3 if you need a current figure:
   #
   #     2 sweeps/day  ->  16 of 19 games      (~360 credits/month)
   #     6 sweeps/day  ->  18 of 19 games    (~1,100 credits/month, 5.6% of plan)
@@ -185,16 +204,21 @@ primary_region = "ord"
   # It said "it is not a cost control on the live loop, which cannot reach it".
   # **That stopped being true well before 2026-08-16, and props are why.**
   # Measured on this instance on the 2026-08-16 budget day, one 13-game MLB
-  # cluster:
+  # cluster. **HISTORICAL, at that day's rates: a team call billed 6
+  # (3 markets x 2 regions) and a prop event billed 20 (10 keys x 2 regions,
+  # `_alternate` twins still bought). Do NOT re-derive these at today's 3 --
+  # they are what the meter recorded, not a projection:**
   #
   #     /sports/baseball_mlb/odds                  1 call     6 credits
   #     /sports/baseball_mlb/events/<13 fixtures>  13 calls  260 credits
   #                                                          266 total
   #
-  # The rolling refresh (`docs/adr/0030`) adds 6 credits per 10 minutes.
+  # The rolling refresh (`docs/adr/0030`) buys one team call per sport per 10
+  # minutes: **6 credits per 10 minutes at that day's rate, 3 today.**
   #
   # **The +36 figure that stood here was 2x low, and the error is instructive.**
-  # It priced ONE 60-minute window: 6 calls x 6 credits. Measured on this
+  # It priced ONE 60-minute window: 6 calls x 6 credits (HISTORICAL rate --
+  # the same window is 6 x 3 = 18 today). Measured on this
   # instance for the 2026-08-16 budget day, the tail was **12 calls / 72
   # credits**, running 17:16Z to 19:19Z -- **123 minutes**, not 60.
   #
@@ -202,12 +226,16 @@ primary_region = "ord"
   # rolling slate the next cluster's slot is already due before the previous
   # one's closes (19:11Z and 19:41Z kickoffs both had windows open this
   # evening), so the refresh runs continuously for as long as *some* slot is
-  # due. On a full slate that is most of the night: **~36 credits an hour, for
-  # as long as games keep starting.**
+  # due. On a full slate that is most of the night: **~36 credits an hour
+  # AT THAT DAY'S 6-credit call (6 calls/hour x 6), for as long as games keep
+  # starting. Today the same six calls an hour bill ~18 (6 x 3).**
   #
-  # So the measured day was **338 = 266 opening + 72 refresh**, one cluster.
-  # Budget accordingly: a five-hour evening of refresh alone is ~180 credits
-  # before a single opening call.
+  # So the measured day was **338 = 266 opening + 72 refresh**, one cluster --
+  # HISTORICAL, at 6 a team call and 20 a prop event.
+  # Budget accordingly, and the budgeting half IS re-derived at today's rate:
+  # a five-hour evening of refresh alone is **~90 credits** today
+  # (5h x 6 calls/hour x 3 credits) before a single opening call. It was ~180
+  # when this paragraph was written at 6.
   #
   # This is the same shape as the note four paragraphs down -- a cost model that
   # prices one call but not the call it triggers. Here it priced one window but
@@ -218,10 +246,19 @@ primary_region = "ord"
   # them off, **the refresh becomes the whole bill**, so this number stops being
   # a footnote and starts being the budget.
   #
-  # At 600 that is 2 clusters a day. It was also 2 at the old one-buy-per-cluster
+  # At 600 that was 2 clusters a day. It was also 2 at the old one-buy-per-cluster
   # cost; what bought the second one is raising this from 400, not the refresh.
   # If more clusters a day are wanted, the lever is `prop_market_keys()` and
   # whether that ladder is earning -- nothing in the odds schedule.
+  #
+  # **HISTORICAL: that "2" divides the old 600 cap by a props-ON cluster priced
+  # at the 2026-08 rates (6 a team call, 20 a prop event).** It is deliberately
+  # NOT re-derived at 700 and 3, because props are off
+  # (ODDS_BUY_PROPS_ON_SCHEDULE below) and re-derived arithmetic here would
+  # read as a budget for turning them back on. Turning that flag on means
+  # re-summing the whole day first -- the `prop_tail` term in
+  # `odds/timing.py:2168` is a 20x multiplier that is zero only because the
+  # flag is false.
   #
   # **Do not restate a cost here that has not been reconciled against
   # `api_credits`.** The line above this one previously claimed 42 credits a
@@ -230,12 +267,22 @@ primary_region = "ord"
   # variable means the default applies, not that the feature is off.
   #
   # **The interaction with the monthly cap, stated because it is not obvious.**
-  # 600 x 31 = 18,600, which exceeds ODDS_MONTHLY_CREDIT_BUDGET of 13,000. The
+  # TODAY: **700 x 31 = 21,700, which exceeds ODDS_MONTHLY_CREDIT_BUDGET of
+  # 18,000** -- and 18,000 is itself under the plan's 20,000. (This paragraph
+  # read "600 x 31 = 18,600 ... exceeds 13,000" until 2026-09-15; both caps
+  # were raised on 2026-08-23 and the sentence did not follow. The shape of
+  # the conclusion is unchanged, which is exactly why nobody noticed.) The
   # daily cap therefore no longer bounds the month by arithmetic. That is fine
-  # and is why the monthly cap exists as a separate guard -- expected spend
-  # (~5,000-7,500/month) sits well inside it -- but if the daily ceiling is ever
-  # actually reached for three weeks running, the month runs out around day 21
-  # and every sweep stops. `api_credits` is where that would show first.
+  # and is why the monthly cap exists as a separate guard -- but if the daily
+  # ceiling is ever actually reached day after day, **18,000 / 700 means the
+  # month runs out around day 26** and every sweep stops. (It read "day 21",
+  # which is 13,000 / 600.) `api_credits` is where that would show first.
+  #
+  # The "expected spend (~5,000-7,500/month)" that sat in the sentence above
+  # is **struck, not re-derived**: it was a forecast at a two-market,
+  # two-region call and nothing in this repo re-measured it after ADR 0152 or
+  # ADR 0155. The measured figure is what `scripts/inspect_live_db.py
+  # credits-day` reports; do not replace a measurement with a guess here.
   #
   # An earlier note here claimed 16/day "cost" stale_odds on 256 of 265 rows.
   # That does not survive `docs/adr/0014`: most of those passes had no window
@@ -246,9 +293,11 @@ primary_region = "ord"
   # because it was measured against one-buy-per-cluster.
   #
   # Raised 600 -> 700 on 2026-08-23 with ODDS_MARKETS = "h2h,spreads" (ADR
-  # 0070): the desk window alone is now 576/day, and a 600 cap would have let
+  # 0070): the desk window alone was **576/day at that day's 4-credit call**,
+  # and a 600 cap would have let
   # one kickoff-slot sweep or odds refresh stop every sport for the day. The
-  # arithmetic and the four-sport warning live beside ODDS_DESK_WINDOW_UTC.
+  # arithmetic and the four-sport warning live beside ODDS_DESK_WINDOW_UTC --
+  # which is UNSET now, so that 576 is history twice over.
   ODDS_DAILY_CREDIT_BUDGET = "700"
 
   # Our own monthly ceiling, below the plan's 20,000. The daily cap bounds a
@@ -270,7 +319,11 @@ primary_region = "ord"
   # 600 daily credits spent.
   #
   # **Re-done 2026-08-23 for `ODDS_MARKETS = "h2h,spreads"` (ADR 0070), which
-  # doubled a sweep from 2 credits to 4.** The window is now 2 sports x
+  # doubled a sweep from 2 credits to 4. Every figure in this paragraph is
+  # HISTORICAL, priced at that day's 4-credit call, and describes a setting
+  # that has been UNSET since 2026-08-25 (see below). Left at 4 on purpose:
+  # re-deriving a dead window at today's 3 would invent a number nobody
+  # measured.** The window was then 2 sports x
   # 4 credits x 12h x 6/hour = **576/day, ~17,300/month**. That broke the old
   # 13,000 monthly self-cap on paper around day 22, so the caps below were
   # raised the same day: monthly 13,000 -> 18,000 (the paid tier is 20,000 --
@@ -317,7 +370,9 @@ primary_region = "ord"
   #
   # **The third row is the correction and it is the whole point.** This table
   # read `worst case ~684/day inside the 700 daily cap`, and `timing.py` and
-  # `CLAUDE.md` carried the same figure. 384 + 300 counts the floor and the
+  # `CLAUDE.md` carried the same figure. 384 + 300 (the 384 is the idle floor
+  # at the 4-credit call of 2026-09-06: 24h x 4 sports x 4; today's row is
+  # 288) counts the floor and the
   # attention slice and omits the kickoff-window loop -- the largest of the
   # three, **67.0% of September's actual spend** (319 of 476 served sweeps),
   # gated by nothing but `credits_left` and therefore by the 700 itself.
@@ -347,8 +402,12 @@ primary_region = "ord"
   # above is safe (ADR 0071 section 2.6, Joe's answer 2026-08-25).
   #
   # The new design's WORST case is worse than the one it replaces: one tab left
-  # open and visible for 24h is 1,152 credits/day at two sports and 2,304 at
-  # four -- double the fixed window, past the whole 20,000/month tier. The
+  # open and visible for 24h is **864 credits/day at two sports and 1,728 at
+  # four** -- 24h x 6 calls/hour x 3 credits x sports, at today's 3-credit
+  # call. (It read 1,152 and 2,304, the same arithmetic at the 4-credit call
+  # of 2026-08-25.) Still double the fixed window it replaced, and 1,728/day
+  # is ~51,800 a month, still past the whole 20,000/month tier -- which is the
+  # load-bearing half and survives the cheaper call. The
   # `document.visibilityState` check in `Nav.tsx` is what should prevent that;
   # this is what does. A guard a browser bug can defeat must not be the only
   # thing between a design and its worst case.
@@ -485,8 +544,12 @@ primary_region = "ord"
   # **`h2h` only, and this is a 3x cost cut that loses nothing.** Changed
   # 2026-08-16 from `h2h,spreads,totals`.
   #
-  # A team sweep costs `len(markets) * len(regions)` -- `odds/budget.py:66-68`
-  # -- so three keys across two regions was 6 credits per sport per refresh.
+  # A team sweep cost `len(markets) * len(regions)` -- the 2026-08 formula --
+  # so three keys across two regions was 6 credits per sport per refresh.
+  # **That formula is retired: since ADR 0155 it is
+  # `len(markets) * ceil(len(bookmakers) / 10)` (`odds/budget.py:87`), and the
+  # same three keys bill 3.** Kept in the old form because the paragraph that
+  # follows is the 2026-08 record and its arithmetic only reads at 6.
   # **Two of those three keys were consumed by nothing** -- true in 2026-08;
   # corrected 2026-09-10, see the ADR 0070 note above: `spreads` is no longer
   # one of them, `totals` still is. The pricing path is
@@ -512,7 +575,9 @@ primary_region = "ord"
   # and always have been, and total has never priced for ANY sport. Buying
   # total odds alone is buying the input to a feature that does not exist.
   #
-  # **What it buys back.** 6 credits/call -> 2. The measured collision was an
+  # **What it buys back.** 6 credits/call -> 2. HISTORICAL, all of it: the
+  # rates are 2026-08's and the cap named below is the 600 of that day, not
+  # today's 700. The measured collision was an
   # NCAAF Saturday (12.5 open hours) landing on an MLB evening: 630-700 credits
   # against this file's 600 daily cap. When the cap binds, `decide_sweeps`
   # returns `remaining == 0` and **every sport stops** (`timing.py:1023-1033`),
@@ -532,11 +597,29 @@ primary_region = "ord"
   # about totals having no consumer was true until that day and is kept as
   # the record; the consumer is now `runner._price_totals_event` (fair rows
   # for the parlay desk's "Three totals" card) and total events inherit
-  # their game's link (`TOTAL_LINK_METHOD`). Every scheduled call is now
-  # 3 x 2 = 6 credits. The measured NFL Sunday before this (2026-09-13) was
-  # 236 credits at 4 a call, so ~354 here; the largest observed day (496,
-  # 2026-09-05) would have been ~744 against this file's 700 cap, and when
-  # the cap binds every sport stops. Registered check: `credits-day
+  # their game's link (`TOTAL_LINK_METHOD`).
+  #
+  # **A scheduled call is 3 credits, and this sentence said 6 for one day.**
+  # ADR 0152 wrote "3 x 2 = 6" on 2026-09-14, which was right for exactly as
+  # long as the feed bought regions; ADR 0155 named ten books the next day and
+  # `ceil(10/10) = 1` replaced the 2, so it is `3 markets x 1 = 3`
+  # (`odds/budget.py:87`).
+  #
+  # The two measurements and the two projections, kept apart on purpose --
+  # **the measurements are at 4 a call and are NOT restated at 3**, because
+  # re-deriving a meter reading falsifies it:
+  #
+  #   MEASURED  2026-09-13 NFL Sunday      236 credits   at 4 a call
+  #   MEASURED  2026-09-05 largest day     496 credits   at 4 a call
+  #   PROJECTED the same 09-13 shape today ~177          236 x 3/4
+  #   PROJECTED the same 09-05 shape today ~372          496 x 3/4
+  #
+  # So the worst day this deploy has ever recorded projects to ~372 against
+  # the 700 cap. **That is not headroom to spend.** ADR 0152 projected the
+  # same day at ~744 (496 x 6/4) and took the change knowing it would bind;
+  # ADR 0155 halved the call, not the risk -- the kickoff-window loop is
+  # gated by `credits_left` alone, so the cap is still what stops the day, and
+  # when it binds every sport stops. Registered check: `credits-day
   # --date 20260920`, beside 20260913. ADR 0110 SS2 refused this on the
   # projection; ADR 0152 SS1 takes it on the measurement.
   ODDS_MARKETS = "h2h,spreads,totals"
@@ -548,20 +631,35 @@ primary_region = "ord"
   # a money switch should be readable. The previous line above this one is the
   # reason: props came from a code default with no environment variable, the
   # absence was read as the feature being off, and it meant the default applied
-  # -- 260 credits a cluster nobody had budgeted. An explicit `false` cannot be
+  # -- 260 credits a cluster nobody had budgeted (2026-08's rate: 13 events x
+  # 20; the same cluster is 5 x 13 = 65 today). An explicit `false` cannot be
   # misread in either direction.
   #
-  # What it saves and what it costs, both measured rather than argued:
+  # What it saves and what it costs, both measured rather than argued.
+  # **HISTORICAL, at 6 a team call and 20 a prop event (2026-08, two regions,
+  # `_alternate` keys still bought):**
   #
   #   on   6 + 20x13 = 266 opening, ~302 with the refresh tail  -> 2 clusters/day
   #   off  6 + ~36 refresh tail    = ~42                        -> ~14 clusters/day
   #
   # **Both rows are pre-2026-08-27 arithmetic and the `on` row has halved
-  # since.** The `_alternate` prop keys are no longer bought (they carried no
-  # Under on 35,448 of 35,448 rungs and contributed 0 of 3,940 usable
-  # consensus lines), so a prop event is 10 credits, not 20: the `on` row is
-  # now `4 + 10x13 = 134` opening. The rows are kept as written because ADR
-  # 0032's decision was taken against them.
+  # twice since.** The `_alternate` prop keys are no longer bought (they
+  # carried no Under on 35,448 of 35,448 rungs and contributed 0 of 3,940
+  # usable consensus lines), which took a prop event from 10 keys to 5; then
+  # ADR 0155 took the region multiplier from 2 to `ceil(10 books/10) = 1`.
+  # Derived from today's config, NOT from the rows above:
+  #
+  #   TODAY, if it were on   3 + 5x13 = **68** opening for a 13-game MLB
+  #                          cluster (`3` = the team call, `5` = 5 MLB base
+  #                          prop keys x 1; NFL is 3 keys, so 3 + 3 = 6 an
+  #                          event). It read `4 + 10x13 = 134` until
+  #                          2026-09-15.
+  #
+  # The historical rows are kept as written because ADR
+  # 0032's decision was taken against them. **68 is not a reason to turn this
+  # on**: the figure that binds is `prop_tail` in `odds/timing.py:2168`, which
+  # multiplies a per-event cost by every game a slot covers, and the day must
+  # be re-summed before the flag moves.
   #
   # **This does NOT re-open the decision.** ADR 0032's annotation says
   # scheduled props are "explicitly killed, not deferred", and a halved price
@@ -576,9 +674,17 @@ primary_region = "ord"
   # constraint on the gate; props were consuming the budget that buys them.
   #
   # **Props are not gone.** `POST /api/odds/refresh` buys one fixture's ladder
-  # for 14 credits (ADR 0031; the figure read 26 until 2026-08-24 and 24 until
-  # 2026-08-27 -- first from before `ODDS_MARKETS` gained `spreads` (ADR 0071
-  # section 4), then from before the `_alternate` keys came off), which is where the
+  # for **8 credits on MLB and 6 on NFL** at today's config -- `manual_cost`
+  # is the team sweep plus that sport's prop keys, so 3 + 5 and 3 + 3
+  # (`odds/ondemand.py:174`). **This figure has gone stale three times before
+  # this one:** it read 26 until 2026-08-24 (before `ODDS_MARKETS` gained
+  # `spreads`, ADR 0071 section 4), 24 until 2026-08-27 (before the
+  # `_alternate` prop keys came off), and 14 until 2026-09-15 (before ADR 0152
+  # added `totals` and ADR 0155 named the books). It is DERIVED from
+  # `ODDS_MARKETS` and `prop_market_keys(sport)`; `odds/ondemand.py` refuses
+  # to restate it for exactly this reason, and the only reason it is restated
+  # here is that a money figure belongs in the deploy file. Recompute it, do
+  # not quote it. (ADR 0031.) This is where the
   # expensive purchase now lives:
   # bought for a game somebody is looking at, rather than for all thirteen in
   # advance. Turning this back on is a deliberate act, not a default.
