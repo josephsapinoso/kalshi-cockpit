@@ -1,10 +1,26 @@
 """Credit accounting and allocation for The Odds API.
 
 The plan is the **20K tier: 20,000 credits a month** (bought 2026-08-09,
-replacing the 500/month free tier). A call costs `len(markets) x len(regions)`,
-so h2h + spreads + totals across `us` and `eu` is **6 credits per sport per
-sweep**. An unmetered poll loop over four leagues still drains the month in
-under a week.
+replacing the 500/month free tier).
+
+**A call costs what `sweep_cost` below says it costs, and this paragraph is not
+the authority -- the function is.** It is `len(markets) x units`, where `units`
+is `ceil(len(bookmakers) / 10)` when `bookmakers` is set and `len(regions)`
+otherwise, because the vendor lets named books replace regions and bills every
+group of ten as one region-equivalent. The deployed config names ten books
+across three markets, so **the live call is 3 credits** (ADR 0155, measured
+against the vendor's own counter). It was 6 while `ODDS_MARKETS` was three
+markets bought across two regions, and 4 before `totals` was added -- all three
+figures are in this repo's history and only one of them is current.
+
+This docstring asserted the 6 as current until 2026-09-16, nine lines above a
+function that had already stopped agreeing with it. **Do not restate a cost
+here.** Read `sweep_cost`, and re-derive from the deployed `[env]` in
+`fly.live.toml`, which `tests/test_deployed_credit_arithmetic_is_current.py`
+pins by computing rather than by quoting.
+
+An unmetered poll loop over four leagues still drains the month in under a
+week, and that has been true at every one of those rates.
 
 **Why the tier changed, because it is the reason any of this matters.** On the
 free tier the meter allowed ~2 sweeps a day, each opening a 15-minute window of
@@ -26,8 +42,9 @@ A budget that logs a warning and proceeds is not a budget.
 
 **It caps the month as well as the day.** `spent_this_month` was computed from
 the first version of this module and never checked by anything -- a number on a
-dashboard, not a guard. That was survivable while every call cost 6 credits and
-the daily cap bounded the month by arithmetic. It stops being survivable the
+dashboard, not a guard. That was survivable **at the time, when every call cost
+6 credits** (a historical rate, not today's) and the daily cap bounded the month
+by arithmetic. It stops being survivable the
 moment a caller can spend 10x per call, which is what the historical endpoints
 do (`10 x markets x regions`), so a single backfill loop could spend the month
 between two daily resets without the daily cap ever objecting.
@@ -75,7 +92,7 @@ def sweep_cost(
     regions: Sequence[str],
     bookmakers: Sequence[str] = (),
 ) -> int:
-    """Credits for one `/odds` call. The Odds API charges markets x regions.
+    """Credits for one `/odds` call: `len(markets) x units`.
 
     **`bookmakers` REPLACES `regions` when set, at the vendor and here.** Their
     docs: "If both `bookmakers` and `regions` are both specified, `bookmakers`

@@ -748,31 +748,70 @@ class TestTheAlternateFeedIsNotBought:
         assert all(k.startswith("player_") for k in prop_market_keys("americanfootball_nfl"))
 
     def test_a_whole_prop_tap_is_the_team_sweep_plus_the_props(self):
-        """The number a person actually spends, in one place that can fail.
+        """`manual_cost` composes the two halves, at ANY configuration.
 
-        `backend/odds/ondemand.py`'s comment carried this figure and got it
-        wrong four times running -- 26, then 24, while ADR 0079 made it 14 in
-        the same commit that left the comment saying 24. The comment now points
-        here and states no number, because a stale comment is silent and a
-        stale assertion is red.
+        `backend/odds/ondemand.py`'s comment carried a figure and got it wrong
+        four times running -- 26, then 24, while ADR 0079 made it 14 in the
+        same commit that left the comment saying 24. The comment then pointed
+        here and stated no number, "because a stale comment is silent and a
+        stale assertion is red".
 
-        Both halves, deliberately: a prop tap buys the team lines too
-        (`manual_cost`'s own docstring says why), so quoting only the 10 would
-        understate what a tap costs by the same reasoning that made the
+        **The assertion went stale anyway, and the way it did is the lesson.**
+        It hand-built `["h2h", "spreads"] x ["us", "eu"]`, asserted `team == 4`,
+        and described that as "the deployed config". It stayed green through
+        ADR 0152 adding `totals` and ADR 0155 replacing regions with ten named
+        books, because it was never reading the deployed config at all -- it was
+        constructing the old one and checking its own arithmetic. A test that
+        builds its inputs cannot notice that the real inputs moved.
+
+        So the two claims are now separated:
+
+        - **This test owns the RELATIONSHIP**, which is config-independent: a
+          prop tap is the team sweep plus that sport's prop keys, and a
+          team-only tap is the team sweep alone. Fixed inputs are correct here
+          -- it is a unit test of `manual_cost` -- and no sentence claims they
+          are what is deployed.
+        - **`tests/test_deployed_credit_arithmetic_is_current.py` owns TODAY'S
+          FIGURE**, computed from `fly.live.toml`'s own `[env]` through
+          `sweep_cost`. That is the test that goes red when the config moves.
+
+        Both halves of the relationship, deliberately: a prop tap buys the team
+        lines too (`manual_cost`'s own docstring says why), so quoting only the
+        prop half would understate a tap by the same reasoning that made the
         original figure wrong.
         """
-        team = sweep_cost(["h2h", "spreads"], ["us", "eu"])
-        props = sweep_cost(prop_market_keys("baseball_mlb"), ["us", "eu"])
-        assert team == 4
+        markets = ["h2h", "spreads"]
+        regions = ["us", "eu"]
+        team = sweep_cost(markets, regions)
+        props = sweep_cost(prop_market_keys("baseball_mlb"), regions)
+        assert team == len(markets) * len(regions), "arbitrary inputs, not the deploy"
+
         assert manual_cost(
             team_cost=team, prop_cost_per_event=props, odds_event_id=None
-        ) == 4, "a team-only tap"
+        ) == team, "a team-only tap buys the team sweep and nothing else"
         assert manual_cost(
             team_cost=team, prop_cost_per_event=props, odds_event_id="evt"
-        ) == 14, (
-            "a prop tap on the deployed h2h,spreads x us,eu config -- 24 while "
-            "the alternates were bought, and ADR 0079 is what moved it"
-        )
+        ) == team + props, "a prop tap buys the team lines as well as the props"
+
+    def test_the_relationship_holds_under_named_bookmakers_too(self):
+        """The billing mode that actually ships, exercised for its shape.
+
+        Ten named books bill as one region-equivalent, so the `regions`
+        argument stops being consulted. If `manual_cost` composed its halves
+        only under region billing, the switch in ADR 0155 would have changed
+        what a tap costs without any test noticing.
+        """
+        books = [f"book{i}" for i in range(10)]
+        team = sweep_cost(["h2h", "spreads", "totals"], ["us", "eu"], books)
+        props = sweep_cost(prop_market_keys("baseball_mlb"), ["us", "eu"], books)
+        assert team == 3, "3 markets x ceil(10/10) -- regions ignored"
+
+        assert manual_cost(
+            team_cost=team, prop_cost_per_event=props, odds_event_id=None
+        ) == team
+        assert manual_cost(
+            team_cost=team, prop_cost_per_event=props, odds_event_id="evt"
+        ) == team + props
 
     def test_the_stored_alternate_rows_are_still_readable(self):
         """Stop buying them; keep understanding them.

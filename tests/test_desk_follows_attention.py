@@ -39,12 +39,15 @@ WHAT THESE TESTS DO NOT ESTABLISH
 
 from __future__ import annotations
 
+import re
+import tomllib
+
 from pathlib import Path
 
 import pytest
 
 from backend.odds import attention, ondemand
-from backend.odds.budget import CreditBudget
+from backend.odds.budget import CreditBudget, sweep_cost
 from backend.odds.timing import (
     ATTENTION,
     DEFAULT_ATTENTION_DAILY_CREDITS,
@@ -68,6 +71,38 @@ NOW = 1_787_680_800_000  # 2026-08-25T18:00:00Z
 MAX_ODDS_AGE_MS = 900_000
 REFRESH_MS = 600_000
 SPORT = "baseball_mlb"
+
+#: The deploy file, read rather than quoted.
+#:
+#: The budget-ceiling test below used to hardcode its sweep cost with a comment
+#: naming the config it was built from, and stayed green through two changes to
+#: that config -- it was checking its own arithmetic while citing a file it
+#: never opened. Everything it asserts about the deployed day now comes through
+#: here. Same approach as
+#: `tests/test_deployed_credit_arithmetic_is_current.py`, which owns the
+#: derivations written INTO the file; this one owns the ceiling argument.
+_LIVE_TOML = Path(__file__).resolve().parents[1] / "fly.live.toml"
+
+
+def _deployed_env() -> dict[str, str]:
+    return tomllib.loads(_LIVE_TOML.read_text(encoding="utf-8"))["env"]
+
+
+def _split_env(raw: str) -> list[str]:
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def _states_the_idle_floor(expected: int) -> bool:
+    """Does the deploy file's idle-floor row state `expected` per day?
+
+    Matched loosely on purpose: the row is prose with a derivation beside it,
+    and pinning its exact wording would make every editorial pass red. What
+    must not drift is the NUMBER, because that is the one a reader quotes.
+    """
+    text = _LIVE_TOML.read_text(encoding="utf-8")
+    return re.search(
+        rf"idle floor.*?~?{expected}\s*/\s*day", text, re.IGNORECASE
+    ) is not None
 
 
 @pytest.fixture
@@ -571,11 +606,25 @@ class TestAttentionAddsToTheFloorRatherThanReplacingIt:
         conn.commit()
         assert attention_credits_spent_today(conn, since_ms=start) == before
 
-    def test_the_two_capped_terms_are_384_and_300_and_are_not_a_worst_case(
+    def test_the_two_capped_terms_are_derived_and_are_not_a_worst_case(
         self,
     ):
-        """**The budget argument, computed from the constants rather than
-        quoted from the deploy file.**
+        """**The budget argument, computed from the DEPLOYED config.**
+
+        **Renamed and re-derived 2026-09-16, and the hardcoding was the
+        defect.** This was `..._are_384_and_300_...` and it opened
+        `sweep = 4  # sweep_cost(["h2h", "spreads"], ["us", "eu"])`, then
+        asserted `floor_ceiling == 384, "fly.live.toml's idle-floor row"`.
+        It stayed green through ADR 0152 adding `totals` (4 -> 6) and ADR 0155
+        replacing regions with ten named books (6 -> 3), because it never read
+        the deploy file it was citing -- it constructed the old config and
+        checked its own arithmetic. The row it named now reads **288**.
+        A test that builds its inputs cannot notice that the real inputs moved,
+        and it names a file in its own failure message, which is what makes the
+        staleness read as verification.
+
+        So the inputs come from `fly.live.toml` through `sweep_cost` now, the
+        way `tests/test_deployed_credit_arithmetic_is_current.py` does it.
 
         **Renamed 2026-09-06, and the old name was the defect.** This was
         `test_the_worst_case_day_with_the_fall_through_stays_inside_the_cap`
@@ -604,8 +653,8 @@ class TestAttentionAddsToTheFloorRatherThanReplacingIt:
           buy is stamped `DESK` and adds nothing to it.
 
         Four sports is the maximum `fly.live.toml` plans for (NCAAF and NFL
-        entering scope beside MLB and WNBA), and the deployed sweep is 4
-        credits (`h2h,spreads` x `us,eu`). The two bounds are additive and
+        entering scope beside MLB and WNBA), and the deployed sweep is read
+        from the file rather than stated here. The two bounds are additive and
         independent, which is what makes the sum a genuine ceiling.
 
         **What this does not count, and it is the LARGEST term:** the slot
@@ -614,28 +663,43 @@ class TestAttentionAddsToTheFloorRatherThanReplacingIt:
         the 700 is enforced by the cap rather than by construction -- and when
         it binds, `decide_sweeps` returns `fire=()` and every sport stops.
 
-        A cluster's window is 7 calls, so 28 credits at the deployed cost; an
-        NFL Sunday plans 3 clusters. That term alone is comfortably larger than
-        the 16-credit gap between 684 and 700, which is why the gap was never
-        headroom.
+        A cluster's window is 7 calls. **At the previous 6-credit call the
+        kickoff term alone exceeded the gap under the cap, and that was the
+        argument this test used to make. It no longer holds arithmetically, and
+        the conclusion survives for a different reason** -- see the assertions
+        at the end. ADR 0155 turned the day from "not bounded by construction"
+        into "fits the modelled load with a margin"; what keeps that from being
+        a guarantee is that the cluster COUNT is a model of a slate, gated by
+        `credits_left` and nothing else, not that the arithmetic overflows.
 
         Mutation observed red: charge the floor at `refresh_interval_ms`
-        instead (24 -> 144 buys a sport) and the worst case is 2,604.
+        instead (24 -> 144 buys a sport) and the floor term alone passes the
+        cap.
         """
         sports = 4
-        sweep = 4  # sweep_cost(["h2h", "spreads"], ["us", "eu"])
-        daily_cap = 700  # ODDS_DAILY_CREDIT_BUDGET on live
-        slice_cap = DEFAULT_ATTENTION_DAILY_CREDITS  # 300, and live agrees
+        env = _deployed_env()
+        sweep = sweep_cost(
+            _split_env(env["ODDS_MARKETS"]),
+            _split_env(env.get("ODDS_REGIONS", "")),
+            _split_env(env.get("ODDS_BOOKMAKERS", "")),
+        )
+        daily_cap = int(env["ODDS_DAILY_CREDIT_BUDGET"])
+        slice_cap = DEFAULT_ATTENTION_DAILY_CREDITS
 
         floor_buys_per_sport = _DAY_MS // DESK_FLOOR_INTERVAL_MS
         assert floor_buys_per_sport == 24
 
         floor_ceiling = floor_buys_per_sport * sports * sweep
-        assert floor_ceiling == 384, "fly.live.toml's idle-floor row"
-        assert slice_cap == 300, "fly.live.toml's attention row"
+        assert floor_ceiling == 24 * sports * sweep
+        assert _states_the_idle_floor(floor_ceiling), (
+            f"fly.live.toml's idle-floor row must state {floor_ceiling}/day, "
+            f"derived as 24h x {sports} sports x {sweep} credits"
+        )
+        assert slice_cap == int(env["ODDS_ATTENTION_DAILY_CREDITS"]), (
+            "the attention slice constant and fly.live.toml must agree"
+        )
 
         capped_terms = floor_ceiling + slice_cap
-        assert capped_terms == 684
         assert capped_terms <= daily_cap
         # The tap reserve is a sub-ceiling *inside* the 700 rather than a
         # carve-out from it (`ondemand.DEFAULT_MANUAL_DAILY_CREDITS`), so it is
@@ -643,16 +707,42 @@ class TestAttentionAddsToTheFloorRatherThanReplacingIt:
         # `credits_left` is what refuses the loser.
         assert capped_terms + ondemand.DEFAULT_MANUAL_DAILY_CREDITS > daily_cap
 
-        # **The assertion the old name was missing.** One NFL Sunday's
-        # kickoff-window demand -- three clusters, seven calls each -- already
-        # exceeds what is left between the two capped terms and the cap. So
-        # `capped_terms` cannot be a worst case, and no reader may treat
-        # `daily_cap - capped_terms` as spare capacity for another market key.
+        # **`capped_terms` is still not a worst case, and the reason CHANGED.**
+        # At 6 credits a call, one NFL Sunday's kickoff demand exceeded the gap
+        # under the cap outright, and that arithmetic was the argument. At the
+        # deployed 3 it does not: the modelled season's-worst slate fits, with
+        # a margin. Asserting the old inequality would now be asserting
+        # something false, so what is pinned instead is the STRUCTURAL claim,
+        # which is the one that was always doing the work -- the kickoff term
+        # has no ceiling of its own, so no sum of the two capped terms bounds a
+        # day, whatever the margin looks like today.
         one_cluster = 7 * sweep
-        assert one_cluster == 28
         nfl_sunday_windows = 3 * one_cluster
-        assert nfl_sunday_windows == 84
-        assert nfl_sunday_windows > daily_cap - capped_terms
+        worst_slate_windows = 4 * one_cluster
+
+        # The margin is real today and it is thin. Printed as an assertion so
+        # it goes red when it stops being true, rather than living in prose.
+        assert capped_terms + worst_slate_windows <= daily_cap, (
+            f"floor {floor_ceiling} + slice {slice_cap} + 4 clusters "
+            f"{worst_slate_windows} = {capped_terms + worst_slate_windows} "
+            f"against {daily_cap}"
+        )
+        assert daily_cap - (capped_terms + worst_slate_windows) < slice_cap, (
+            "what is left over is smaller than a single capped term, so it is "
+            "not capacity for another market key or another sport"
+        )
+
+        # The structural claim: nothing bounds the kickoff term but the cap.
+        # `decide_sweeps` gates it on `credits_left` alone, so a slate with
+        # more clusters than the season's worst is not refused by any ceiling
+        # computed here -- it is refused by the day running out, which stops
+        # EVERY sport until the next 10:00Z boundary.
+        assert nfl_sunday_windows < worst_slate_windows
+        unbounded_slate = 12 * one_cluster
+        assert capped_terms + unbounded_slate > daily_cap, (
+            "no ceiling in this test bounds the kickoff loop; only the cap "
+            "does, and when it binds every sport stops"
+        )
 
     def test_the_day_cap_still_refuses_a_fall_through_it_cannot_afford(
         self, conn

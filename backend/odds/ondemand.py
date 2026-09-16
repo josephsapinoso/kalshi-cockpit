@@ -76,15 +76,22 @@ DEFAULT_COOLDOWN_MS = 120_000
 
 # Credits a budget day may spend on taps, out of `ODDS_DAILY_CREDIT_BUDGET`.
 #
-# 150 of 700 (`fly.live.toml:222`). What that buys is **not written here as a
-# figure**, because every time it has been it went stale:
+# 150 of 700. What that buys is **not written here as a figure**, because every
+# time it has been it went stale:
 #
-#     team tap     sweep_cost(ODDS_MARKETS, ODDS_REGIONS)
-#     prop tap     the above + sweep_cost(prop_market_keys(sport), ODDS_REGIONS)
+#     team tap     sweep_cost(ODDS_MARKETS, ODDS_REGIONS, ODDS_BOOKMAKERS)
+#     prop tap     the above
+#                  + sweep_cost(prop_market_keys(sport), ODDS_REGIONS,
+#                               ODDS_BOOKMAKERS)
 #
-# and `sweep_cost` is `markets x regions` (`budget.py:66`). The prop tap is
-# what sizes the slice, because it is the dearer of the two. Both are DERIVED
-# from configuration; neither is set anywhere.
+# The prop tap is what sizes the slice, because it is the dearer of the two.
+# Both are DERIVED from configuration; neither is set anywhere.
+#
+# **Read `sweep_cost` for the rule and do not restate it here either.** This
+# comment said `markets x regions` until 2026-09-16, which stopped being the
+# whole rule at ADR 0155: named bookmakers replace regions and bill
+# `ceil(len(bookmakers) / 10)` region-equivalents. The line reference that used
+# to follow it was stale too -- so the function is named and the line is not.
 #
 # **This comment has now drifted four times, and the fourth was written by the
 # commit that caused it.** It read "26 and 6" until 2026-08-24 (ADR 0071 SS4),
@@ -95,9 +102,22 @@ DEFAULT_COOLDOWN_MS = 120_000
 # derived number in a comment is how all three drifted", and then restated
 # three more.
 #
-# So the numbers live in `tests/test_odds.py` instead, where a change to
-# `ODDS_MARKETS` or `prop_market_keys(sport)` makes a test fail rather than making a
-# comment wrong. Read them there, or compute them; do not add them back here.
+# So the numbers live in tests instead, where a change makes something fail
+# rather than making a comment wrong. Read them there, or compute them; do not
+# add them back here. **Which test depends on what you are asking, and that
+# split was itself a repair (2026-09-16):**
+#
+#     the RELATIONSHIP, at any config      tests/test_odds.py
+#     what the DEPLOYED config costs       tests/test_deployed_credit_
+#                                          arithmetic_is_current.py
+#
+# `test_odds.py` alone was the pointer until then, and it had gone stale in the
+# way this comment keeps going stale: it hand-built `h2h,spreads x us,eu`,
+# asserted `team == 4`, and called that "the deployed config" -- so it stayed
+# green through ADR 0152 and ADR 0155 while describing a config that no longer
+# existed. **A test that builds its own inputs cannot notice that the real
+# inputs moved**, which makes "the numbers live in a test" a mitigation only if
+# that test reads the deploy.
 #
 # **Not a forecast and not a target.** A planned MLB + WNBA evening spends
 # ~300-500 on the schedule (`fly.live.toml` carries the reconciled figure), so

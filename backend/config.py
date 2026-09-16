@@ -351,15 +351,26 @@ class OddsConfig:
     # prop row on a game that already has a moneyline row adds no cluster to the
     # 300-game floor.
     #
-    # Off, a cluster costs ~42 credits instead of ~302, and the 600-credit day
-    # buys roughly 14 clusters instead of 2. Games are the binding constraint on
-    # the gate; props were consuming the budget that buys them.
+    # Off, a cluster cost ~42 credits instead of ~302, and the 600-credit day
+    # bought roughly 14 clusters instead of 2 -- **both figures are historical,
+    # at the rate and the cap of the day they were measured** (the cap is 700
+    # now). Games are the binding constraint on the gate; props were consuming
+    # the budget that buys them. That argument is unchanged by any later rate.
     #
     # **This does not remove props.** `POST /api/odds/refresh` buys one
-    # fixture's ladder on demand for 26 credits (ADR 0031), which is the tier-2
-    # half of the funnel and is deliberately where the expensive purchase now
-    # lives -- bought for a game someone is looking at, rather than for all
-    # thirteen in advance.
+    # fixture's ladder on demand (ADR 0031), which is the tier-2 half of the
+    # funnel and is deliberately where the expensive purchase now lives --
+    # bought for a game someone is looking at, rather than for all thirteen in
+    # advance.
+    #
+    # **No figure for that tap is stated here, on purpose.** This comment said
+    # "26 credits" until 2026-09-16, three revisions after it stopped being
+    # true (26 -> 24 at ADR 0079, -> 14 at ADR 0152, -> 8 on MLB and 6 on NFL
+    # at ADR 0155). It is `manual_cost(team_cost, prop_cost_per_event)` and is
+    # derived from `ODDS_MARKETS`, `ODDS_BOOKMAKERS` and the sport's prop keys;
+    # `tests/test_odds.py` pins the relationship and
+    # `tests/test_deployed_credit_arithmetic_is_current.py` pins what the
+    # deployed config makes of it. Compute it, or read it there.
     #
     # **Named explicitly in `fly.live.toml` even though it equals this default.**
     # `tasks/lessons.md` records the inverse error costing a session: props came
@@ -477,7 +488,7 @@ class OddsConfig:
 
     @property
     def credits_per_sweep_per_sport(self) -> int:
-        """The Odds API charges markets x regions per /odds call.
+        """Credits per `/odds` call, from `sweep_cost` and nowhere else.
 
         Routed through `sweep_cost` rather than multiplying here, so the
         named-book billing rule lives in exactly one place. This property
