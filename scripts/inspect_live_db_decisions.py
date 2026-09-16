@@ -1696,11 +1696,41 @@ def _q_kalshi_quotes_band(conn: sqlite3.Connection, args) -> list[Section]:
 # no standard error -- and no ratio between them is printed. The comparison is
 # made by the reader, with both denominators on the screen.
 
+#: Default lookback for both halves of `fair-prices-by-market`, in days.
+#:
+#: Seven, matching `_BOOKMAKERS_DEFAULT_DAYS` rather than
+#: `_SHARP_ANCHOR_DEFAULT_DAYS`' two, and for a reason that is about the
+#: question rather than about the table: section A reads the same rows on the
+#: same clock as `team-bookmakers`, and a reader comparing "what came back" to
+#: "what was consumed" across the two commands must not be comparing two
+#: windows. Seven days also spans one full weekly sports cycle, so a market
+#: bought only on NFL Sunday is inside it on a Wednesday.
+_FAIR_PRICES_DEFAULT_DAYS = 7
+
+#: **The two sections are bounded on DIFFERENT CLOCKS, and it is not a
+#: sloppiness that could be tidied away.**
+#:
+#: Section B keys on `computed_ms` -- when *we* devigged -- because that is the
+#: only time column `fair_prices` has, and `idx_fair_market_computed` is the
+#: index a bound there can be served from. Section A keys on `commence_ms` --
+#: when the *game* starts -- because `idx_odds_commence` is the only index on
+#: `odds_snapshots` that a floor can seek, `fetched_ms` leads none of them, and
+#: an instrument that scans the largest table on the box to save retyping one
+#: column name is the thing ADR 0157 forbids.
+#:
+#: So a row can be in A's window and out of B's, or the reverse: a fixture
+#: bought on Monday for a Sunday game is inside A's seven days from Monday
+#: *and* from the following Saturday, while the `fair_price` computed from it
+#: leaves B's window seven days after the devig. The two windows are printed as
+#: their own sections, each naming its clock, for exactly this reason -- and no
+#: ratio between the sections is computed here, which was already true for the
+#: row-grain reason and is now true twice over.
 _SQL_FAIR_PRICES_BY_MARKET = (
     "SELECT market, COUNT(*) AS rows_n, "
     "COUNT(DISTINCT link_id) AS links, "
     "MIN(computed_ms) AS first_ms, MAX(computed_ms) AS last_ms "
-    "FROM fair_prices GROUP BY market ORDER BY rows_n DESC, market"
+    "FROM fair_prices WHERE computed_ms >= :since "
+    "GROUP BY market ORDER BY rows_n DESC, market"
 )
 
 _SQL_ODDS_SNAPSHOTS_BY_MARKET = (
@@ -1708,8 +1738,32 @@ _SQL_ODDS_SNAPSHOTS_BY_MARKET = (
     "COUNT(DISTINCT odds_event_id) AS fixtures, "
     "COUNT(DISTINCT bookmaker) AS books, "
     "MIN(fetched_ms) AS first_ms, MAX(fetched_ms) AS last_ms "
-    "FROM odds_snapshots GROUP BY market ORDER BY rows_n DESC, market"
+    "FROM odds_snapshots WHERE commence_ms >= :since "
+    "GROUP BY market ORDER BY rows_n DESC, market"
 )
+
+
+def _fair_prices_since_ms(args) -> int:
+    """The floor both halves of `fair-prices-by-market` are bounded by.
+
+    One helper and one value for the two sections, for the reason
+    `_bookmakers_since_ms` is one helper for two subcommands: a floor that
+    drifted between them would make the two sections' counts incomparable, and
+    comparing them is the entire purpose of the command. The COLUMN each
+    section applies it to differs -- see the note above the statements -- and
+    that is stated rather than hidden.
+
+    A malformed `--since` raises rather than falling back: a silently ignored
+    bound is an unbounded query wearing a flag (ADR 0157).
+    """
+    value = getattr(args, "since", None)
+    if value is None:
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        return now_ms - _FAIR_PRICES_DEFAULT_DAYS * _MS_PER_DAY
+    try:
+        return _day_bounds(value, args.day_start_hour)[0]
+    except ValueError as exc:
+        raise ValueError(f"--since must be YYYYMMDD, got {value!r}") from exc
 
 
 def _q_fair_prices_by_market(conn: sqlite3.Connection, args) -> list[Section]:
@@ -1725,6 +1779,11 @@ def _q_fair_prices_by_market(conn: sqlite3.Connection, args) -> list[Section]:
     weeks old was consumed by a code path that has since stopped running, and
     a count alone reports that as healthy.
 
+    `--since YYYYMMDD` moves the floor; it defaults to seven days. Both
+    sections take the same instant and apply it to a different column --
+    A to `commence_ms`, B to `computed_ms` -- and each window is printed as
+    its own section saying which. ADR 0159.
+
     What this does not establish
     ----------------------------
     - **Nothing about cost.** `market` here is the Odds API market key; what
@@ -1735,20 +1794,43 @@ def _q_fair_prices_by_market(conn: sqlite3.Connection, args) -> list[Section]:
       the recommendation survived suppression, and not that the number was
       any good. This is a reachability check, and reachability is the
       weakest of those four claims.
-    - **Nothing about retention.** `odds_snapshots` and `fair_prices` are
-      pruned on different schedules, so `first_ms` is where the surviving
-      record starts and not where the feed started. Do not read a later
-      `first_ms` in one section as a later start.
+    - **Nothing about retention, and since ADR 0159 not even about the
+      surviving record.** `first_ms` used to be where the surviving rows
+      started; it is now the window floor or the first row after it, which is
+      a different quantity wearing the same column name. A lifetime census
+      needs `--since` set back explicitly and costs what an unbounded scan
+      costs. `odds_snapshots` and `fair_prices` are also pruned on different
+      schedules, so a later `first_ms` in one section was never a later start
+      either.
+    - **Nothing that compares the two sections' windows.** They are one
+      instant applied to two clocks, so a fixture can be inside A's and
+      outside B's, or the reverse. A market thin in B and fat in A may be an
+      input with no reader -- the finding this command exists for -- or may be
+      a market whose devig happened to fall outside seven days. Widen
+      `--since` before believing the first reading.
+    - **In section A, the column BOUNDED and the columns REPORTED are not the
+      same column.** The floor is on `commence_ms`; `first_ms` and `last_ms`
+      are `fetched_ms`. So a row fetched three months ago for a fixture that
+      started yesterday is inside the window, and A's `first_ms` can be far
+      older than the floor printed above it. That pairing is deliberate --
+      "when did we last buy this market" is the health question, and
+      `commence_ms` is the only column an index can bound -- but `first_ms`
+      here is NOT the window and must never be read as one. Section B has one
+      column doing both jobs and does not have this hazard.
     - **No ratio between the sections**, deliberately. They have different
       row grains -- A is per book per outcome, B is per devigged outcome --
       so their counts are not comparable and dividing them would invent a
       quantity neither table supports.
     """
+    since_ms = _fair_prices_since_ms(args)
     bought = _fetch(
         conn,
         _SQL_ODDS_SNAPSHOTS_BY_MARKET,
-        (),
-        title="A. BOUGHT -- odds_snapshots by market (per book, per outcome)",
+        {"since": since_ms},
+        title=(
+            "A. BOUGHT -- odds_snapshots by market (per book, per outcome), "
+            f"fixtures commencing at or after {_iso(since_ms)}"
+        ),
         cap=args.limit,
     )
     bought = _derive_iso(bought, "first_ms", "first_iso")
@@ -1757,10 +1839,29 @@ def _q_fair_prices_by_market(conn: sqlite3.Connection, args) -> list[Section]:
     consumed = _fetch(
         conn,
         _SQL_FAIR_PRICES_BY_MARKET,
-        (),
-        title="B. CONSUMED -- fair_prices by market (per devigged outcome)",
+        {"since": since_ms},
+        title=(
+            "B. CONSUMED -- fair_prices by market (per devigged outcome), "
+            f"computed at or after {_iso(since_ms)}"
+        ),
         cap=args.limit,
     )
     consumed = _derive_iso(consumed, "first_ms", "first_iso")
     consumed = _derive_iso(consumed, "last_ms", "last_iso")
-    return [bought, consumed]
+    return [
+        _window_section(
+            "A's window -- odds_snapshots.commence_ms floor (when the GAME "
+            "starts)",
+            since_ms,
+            None,
+        ),
+        bought,
+        _window_section(
+            "B's window -- fair_prices.computed_ms floor (when WE devigged). "
+            "Same instant as A, different COLUMN, so a fixture can be inside "
+            "one window and outside the other",
+            since_ms,
+            None,
+        ),
+        consumed,
+    ]

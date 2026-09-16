@@ -16,6 +16,58 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-16 (fifth) - The planner can DECLINE an index; before pricing one, check which plan it actually picks -- and ask whether what is missing is statistics
+
+An approved piece of work was "add an index on `fair_prices(computed_ms)` so a
+`--since` bound becomes seekable". The reasoning behind it was correct at every
+step: the query was an unbounded `GROUP BY` over a ten-million-row table, none
+of the table's three indexes leads with `computed_ms`, so a bound added today
+would filter after the scan. All true.
+
+ADR 0141 requires an index to be bought on a timing, so the timing was taken
+before the index was written. Modelled at live's shape, seven-day window,
+round-robin:
+
+    bounded, no index, no statistics      883.0 ms
+    bounded, WITH the approved index      882.6 ms    <- 154 MB for nothing
+    bounded, no index, after ANALYZE      258.9 ms    <- free
+
+**The planner never chose the new index, in any arm.** It kept
+`idx_fair_market_computed`, which leads with `market` and satisfies the
+`GROUP BY` -- and once `sqlite_stat1` existed it ran that same index as a
+SKIP-SCAN (`ANY(market) AND computed_ms>?`), because `market` has a handful of
+distinct values. The bound was never waiting on an index. It was waiting on
+table statistics, and **nothing in `backend/` has ever run `ANALYZE`**, so the
+live planner has been choosing from built-in defaults since first boot.
+
+The same run killed a second premise the same way: the sibling section's
+`commence_ms` bound does not seek either, because a *different* covering index
+(`idx_odds_window`, added for an unrelated query) wins the plan and applies
+`commence_ms` -- its fourth column -- as a filter.
+
+Four rules:
+
+- **Before pricing an index, print the plan the query picks WITHOUT it, and
+  check whether some other index already satisfies the shape.** "No index
+  leads with this column" is a fact about the schema. "The planner will
+  therefore use mine" is a guess about the optimiser, and it is the guess that
+  was wrong. An index the planner declines is zero benefit at full price.
+- **An absent bound and an absent `sqlite_stat1` produce the identical
+  symptom.** Both read as `SCAN ... USING INDEX <something>`. Adding an index
+  is the expensive remedy and running `ANALYZE` is the free one, and nothing in
+  the plan line tells you which you need -- only trying both does. Check
+  whether the database has ever been analysed BEFORE designing an index for it.
+- **ADR 0141 cuts both ways, and this is the first time it cut this way.**
+  "Buy an index on a timing" has only ever been used to justify one. The same
+  rule refuses one, and refusing is the harder direction to reach, because by
+  then the work is approved, the schema version is reserved and the migration
+  is the obvious next thing to type.
+- **A cheaper remedy is not automatically the shippable one.** Statistics are a
+  GLOBAL planner input, and the two hottest readers of that table earned their
+  plans without any. The free fix has the wider blast radius, so it ships
+  behind a rehearsal on a copy of the live file that diffs those plans, while
+  the bound -- which is free AND local -- ships immediately.
+
 ## 2026-09-16 (fourth) - A merged lane is not a finished lane; do not remove a worktree until its agent has reported
 
 Four lanes ran in parallel worktrees. Three had reported, so their worktrees

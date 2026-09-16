@@ -410,7 +410,46 @@ class TestCreditsRate:
                 assert "mean" not in column and "avg" not in column, column
 
 
+#: `fair-prices-by-market` with a window that contains the fixture.
+#:
+#: The rows here are stamped `DAY_START_MS` (2026-08-27), and ADR 0159 gave
+#: both halves of the command a seven-day default -- so the default call
+#: returns nothing and every assertion below would pass vacuously on empty
+#: sections. Naming the floor is not a workaround for the bound; it is the
+#: test saying which population it means, which is what the bound exists to
+#: make explicit. `--day-start-hour 0` so the floor is midnight UTC and does
+#: not move with the budget-day flag.
+def _CENSUS_ARGV(db):
+    return [
+        "fair-prices-by-market", "--db", str(db),
+        "--since", "20260801", "--day-start-hour", "0",
+    ]
+
+
 class TestFairPricesByMarket:
+    def test_the_default_window_excludes_the_fixture_entirely(self, db, capsys):
+        """The bound, at this call site, in the only form that can fail.
+
+        Every other test in this class names a floor. If the default ever
+        stopped being a window, they would all still pass -- so the default
+        needs an assertion of its own, and this is it: rows stamped 2026-08-27
+        are outside seven days of any date this suite will ever run on.
+        """
+        payload = _run(capsys, ["fair-prices-by-market", "--db", str(db)])
+        assert _section(payload, "A. BOUGHT")["rows"] == []
+        assert _section(payload, "B. CONSUMED")["rows"] == []
+
+    def test_the_two_windows_name_their_own_columns(self, db, capsys):
+        """One instant, two clocks. A reader who misses that reads a market
+        thin in B and fat in A as an input with no reader, when it may only be
+        a devig that fell outside the window."""
+        payload = _run(capsys, _CENSUS_ARGV(db))
+        titles = [s["title"] for s in payload["sections"]]
+        a_window = next(t for t in titles if "commence_ms" in t)
+        b_window = next(t for t in titles if "computed_ms" in t)
+        assert "computed_ms" not in a_window
+        assert "commence_ms" not in b_window
+
     def test_a_market_bought_and_never_consumed_shows_in_A_and_not_B(
         self, db, capsys
     ):
@@ -419,7 +458,7 @@ class TestFairPricesByMarket:
         `spreads` has three `odds_snapshots` rows and no `fair_prices` row:
         an input the feed was paid for and nothing read.
         """
-        payload = _run(capsys, ["fair-prices-by-market", "--db", str(db)])
+        payload = _run(capsys, _CENSUS_ARGV(db))
         bought = _section(payload, "A. BOUGHT")
         consumed = _section(payload, "B. CONSUMED")
 
@@ -431,7 +470,7 @@ class TestFairPricesByMarket:
 
         Without `last_iso` on both sides the query reports that as healthy.
         """
-        payload = _run(capsys, ["fair-prices-by-market", "--db", str(db)])
+        payload = _run(capsys, _CENSUS_ARGV(db))
         for fragment in ("A. BOUGHT", "B. CONSUMED"):
             section = _section(payload, fragment)
             assert "first_iso" in section["columns"]
@@ -439,7 +478,7 @@ class TestFairPricesByMarket:
 
     def test_no_ratio_between_the_sections_is_printed(self, db, capsys):
         """Their row grains differ, so a ratio would invent a quantity."""
-        payload = _run(capsys, ["fair-prices-by-market", "--db", str(db)])
+        payload = _run(capsys, _CENSUS_ARGV(db))
         for section in payload["sections"]:
             for column in section["columns"]:
                 assert "share" not in column and "ratio" not in column, column

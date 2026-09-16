@@ -222,6 +222,8 @@ from inspect_live_db_decisions import (  # noqa: E402,F401
     _QW_WINDOW_END_MS,
     _QW_WINDOW_START_MS,
     _BOOKMAKERS_DEFAULT_DAYS,
+    _FAIR_PRICES_DEFAULT_DAYS,
+    _SHARP_ANCHOR_DEFAULT_DAYS,
     _SQL_ACTIONABLE_FAIR,
     _SQL_ACTIONABLE_ROWS,
     _q_actionable_audit,
@@ -522,7 +524,10 @@ QUERIES: dict[str, QueryDef] = {
         "reader -- this is what settled whether the `spreads` half of "
         "ODDS_MARKETS reaches a decision. Read last_ms, not just the count: "
         "a large count whose newest row is weeks old is a path that stopped "
-        "running. No ratio between the sections; their row grains differ.",
+        "running. No ratio between the sections; their row grains differ. "
+        "Bounded by --since YYYYMMDD (default 7 days), applied to "
+        "commence_ms in A and computed_ms in B -- one instant, two clocks, "
+        "each printed as its own window section.",
         _q_fair_prices_by_market,
     ),
     "prop-rungs": QueryDef(
@@ -755,7 +760,11 @@ def _build_parser() -> argparse.ArgumentParser:
             "day to read, as YYYYMMDD (default: the last "
             f"{_VISIT_SINCE_DEFAULT_DAYS} days). prop-bookmakers and "
             "team-bookmakers: the commence_ms floor, same format, default the "
-            f"last {_BOOKMAKERS_DEFAULT_DAYS} days. Malformed is refused, not "
+            f"last {_BOOKMAKERS_DEFAULT_DAYS} days. sharp-anchor-census: the "
+            f"computed_ms floor, default the last {_SHARP_ANCHOR_DEFAULT_DAYS} "
+            "days. fair-prices-by-market: ONE instant applied to TWO clocks -- "
+            "commence_ms in section A, computed_ms in section B -- default the "
+            f"last {_FAIR_PRICES_DEFAULT_DAYS} days. Malformed is refused, not "
             "ignored -- a silently dropped bound is an unbounded query wearing "
             "a flag"
         ),

@@ -166,6 +166,23 @@ scripts/*
 # declares `/app/scripts/list_unmatched.py`, so the derivation above demands
 # this line; it is not kept by hand any more than the others are.
 !scripts/list_unmatched.py
+# Added 2026-09-16 (ADR 0159), and it is the SIXTH failure of this allowlist --
+# caught by `TestTheSshInvokedScriptsSurviveDockerignore` in the same commit
+# that wrote the script, which is the first time the derivation has fired
+# before a human hit `No such file or directory` at an ssh prompt.
+#
+# It prices `ANALYZE fair_prices` on a paced `sqlite3.backup` copy of the live
+# file: the statistics are a GLOBAL planner input and `CANDIDATE_SQL`'s
+# `MULTI-INDEX OR` (ADR 0134) was arrived at without them, so the blast radius
+# can only be read on live's real cardinality. Imports `backend.parlays`,
+# `backend.runner` (both shipped as the app) and `inspect_live_db_decisions`,
+# which the `inspect_live_db_*` glob above ships.
+#
+# `scripts/measure_fair_price_window_index.py` is its laptop-side sibling and
+# is deliberately NOT here: it builds a synthetic table and names no
+# `/app/scripts/` path, so the derivation does not demand it and it must not
+# be added by hand.
+!scripts/rehearse_fair_price_window.py
 
 *.md
 !README.md
