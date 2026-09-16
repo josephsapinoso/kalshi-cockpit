@@ -119,6 +119,272 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-16 (twenty-second session) — the sharp anchor is thinnest where the slate is biggest, and two "safe fixes" inherited from yesterday's ADR were measured and were not fixes
+
+Joe: *"Read next.md and start."* Not a named errand, so a partner pass ran.
+Every named queue was drained at open: **no** open Dependabot alerts, **no**
+open unblocked sub-issues on map #3, tree clean, CI green on `987560e`, live
+`/api/health` = `197e438` = main's last code commit, schema v44.
+
+**Zero odds credits spent by this session.** Every live call was a `GET`, a
+`flyctl ssh` read of a bounded query, or a deploy. The budget day closed the
+reading at **180 of 700** (`used_reported` 4964 → 5144), comfortably inside the
+cap on the night before the first four-sport weekend.
+
+Four lanes ran in parallel worktrees, all merged: **ADR 0158** (lane D),
+the credit arithmetic (lane B), the capture-envelope ratchet (lane C), and
+the anchor work on `main`.
+
+### THE HEADLINE: NCAAF spreads and totals mostly have no sharp book behind them
+
+`fair_prices.anchored_on_sharp`, read live for rows computed since
+2026-09-16T00:00Z, via the new `sharp-anchor-census`:
+
+    league              market   anchored  total   links (anchored / not)
+    NCAA Football       spreads    46       148      23 / 45
+    NCAA Football       totals     50       176      25 / 50
+    NCAA Football       h2h       110       124      55 /  7
+    Pro Football        h2h        32        64      16 / 16
+    Pro Football        spreads    22        44      11 /  8
+    Pro Baseball        spreads    96       113      15 /  3
+    Pro Baseball        totals     94       114      14 /  7
+    Pro Basketball (W)  h2h        16        16       8 /  0
+    Pro Basketball (W)  spreads     4        10       2 /  3
+
+**NCAAF spreads and totals run about 30% anchored, on the two largest cells in
+the table, and NCAAF is Saturday.** When no purchased sharp book reaches a
+rung, `consensus_devig` (`backend/core/devig.py:288`) reads
+`selected = sharp or usable` and the consensus falls back to the full book set,
+soft books included. It raises nothing and logs nothing — **but it is not
+silent**: the row carries `anchored_on_sharp` (`devig.py:331` →
+`runner.py:1231`) and the screen renders it (`serialise.py:316`, ADR 0068).
+
+Why it is structural rather than a fault: `SHARP_BOOKS` (`runner.py:165`) has
+four members, `betfair_ex_uk` is not purchased, and `betfair_ex_eu` quotes
+**h2h only**. So spreads and totals can only ever anchor on `pinnacle` and
+`matchbook` — and the devig runs **per rung**, admitting a book only if it
+quoted *that exact line* two-sided in the same sweep (`runner.py:1465`,
+`:1552`, `:862-875`, `:992-999`). Each book returns one main line per fixture,
+so a Kalshi rung at a different margin has no sharp quote to match.
+
+**This is a question for Joe, not a bug to fix** (ADR 0071: the desk's job at
+the moment of a bet is price transparency, and what it buys is his call). The
+open decision: *is a ~30%-anchored NCAAF spread worth showing the same way as
+an 85%-anchored MLB one?* The flag is already on the row; nothing ranks by it
+and nothing should.
+
+### The claim this started as was OVERSTATED, and the skeptic caught it
+
+The first draft, from the *input* side, said WNBA was the worst-covered sport —
+one sweep, `matchbook` absent, `pinnacle` on 5 of 8 fixtures — and concluded
+"3 of 8 WNBA fixtures have no sharp anchor". A `measurement-skeptic` pass
+returned **OVERSTATED** and reading the column inverted it: **WNBA `h2h` is
+anchored on every row**, and its unanchored cells hold 6 and 2 rows against
+NCAAF's 95.
+
+What was wrong, each worth keeping:
+
+- **Wrong grain.** "3 of 8 fixtures" is a unit the measurement does not have;
+  anchoring lives at (fixture × market × rung × outcome).
+- **Wrong n.** 48 rows from one vendor response are **one** observation. All
+  nine WNBA rows carried `first_fetched_ms == last_fetched_ms`.
+- **Selection on the max.** Four sports were examined and the worst reported —
+  and `matchbook` was on only 3 of 57 NCAAF events too, so *thin book* explains
+  it at least as well as *thin WNBA*.
+- **Wrong week.** 2026-09-16 is a **Wednesday**. `--since 20260916` is a
+  `commence_ms` floor with no upper bound, not "this weekend".
+- **"Silently" was wrong.** The outcome is recorded and displayed.
+
+`sweep-log` was checked before diagnosing, per CLAUDE.md: **2 refusals in the
+log's entire life, both 2026-08-15.** The single WNBA sweep is its fixtures
+just entering the buying horizon, not the cap binding.
+
+### Built — `sharp-anchor-census` and `team-bookmakers`, and why they are two
+
+No query in the repo reported bookmaker coverage per sport on the **team**
+path, which is the path that runs (`prop-bookmakers` filters
+`outcome_description IS NOT NULL` and returned 0 rows on every sport for a
+fortnight). `team-bookmakers` is its mirror across the discriminator, grouped
+by `sport_key` **and** `bookmaker`, with `GROUP_CONCAT(DISTINCT market)`.
+
+`sharp-anchor-census` reads the outcome. Keeping them separate is the point:
+**presence is a strict upper bound on anchoring**, never a lower one, and the
+four gaps all run the same way. `team-bookmakers`' docstring now says so, and
+also that its `markets` column names a *market* and never a *rung*.
+
+Named `-census`, not `-rate`, after being drafted as the latter: it is a
+per-bucket split, which `inspect_live_db.py`'s docstring forbids with two
+stated exemptions, and this is a third on the same census argument. Both values
+of the flag are rows so the denominator is always on screen, and no ratio is
+printed. A query whose name promises the one quantity it must not emit is one
+somebody eventually makes emit it.
+
+Also in `team-bookmakers`: it **echoes `ODDS_BOOKMAKERS` from the process
+environment beside the response**, and computes no "missing" column. Three
+different things make a key absent — the book quotes nothing, the sport had no
+fixture in the window, the key is misspelled and was dropped while still
+costing one of the ten slots — and this table cannot separate them, so a
+column asserting "missing" would name one of the three. Unset resolves to a
+section saying so, never to an inferred list.
+
+**Live coverage read, all ten keys present on the team path**, so no slot is
+being wasted on a misspelling: `pinnacle`, `matchbook` and `betfair_ex_eu`
+(h2h only) all returned on NCAAF, NFL and MLB; `matchbook` returned nothing on
+the one WNBA sweep and on only 3 of 57 NCAAF fixtures.
+
+### Two "safe fixes" from ADR 0157 were measured, and neither was one
+
+**1. The `prop-rungs` push-down is a no-op.** ADR 0157 named
+`(:event IS NULL OR odds_event_id = :event)` in the CTE as the
+population-preserving half. It preserves the population and **changes no plan
+at all** — byte-identical to having no predicate, for a named fixture and for
+no flag. SQLite cannot know a parameter's nullity at plan time. What seeks is a
+hard equality, so it is now two statements from one template:
+`_SQL_PROP_RUNGS` (the registered population, character for character
+unchanged) and `_SQL_PROP_RUNGS_ONE_EVENT`.
+
+Why nobody caught it: the **unbounded** plan already contains
+`SEARCH odds_snapshots ... (odds_event_id=?)` — that is the join on
+`l.odds_event_id`, not the flag. The evidence for the flag working and the
+evidence for it doing nothing are the same line. Lesson written.
+
+**2. `fair-prices-by-market` is not the shape ADR 0157 outlawed** — the partner
+called it "the exact shape", and it is not:
+
+    SCAN fair_prices    USING INDEX idx_fair_market_computed
+    SCAN odds_snapshots USING INDEX idx_odds_window
+
+Index scans, not bare table scans. Still whole-index walks with temp B-trees
+for the `DISTINCT`s, so still worth bounding — but **`fair_prices` has no index
+leading with `computed_ms`** (only `idx_fair_link`, `idx_fair_market_computed`,
+`idx_fair_market_confirmed`, all leading with something else). A `--since`
+there would filter after the scan: a flag that looks like a bound and is not
+one, which is the defect above wearing a different hat. **Deferred rather than
+half-built** — it is a schema question (see open item 3).
+
+### Lane B — the deploy file stated three different per-call costs as current
+
+`sweep_cost` is `len(markets) × ceil(len(bookmakers)/10)` when `bookmakers` is
+set, so the live team sweep is **3**. `fly.live.toml` carried claims at 2, 4
+and 6 as if all were current. Every TODAY claim re-derived at 3 with its
+derivation beside it; every HISTORICAL one marked historical **with the rate it
+was measured at and deliberately not restated** — re-deriving a meter reading
+at today's price falsifies a measurement.
+
+The partner's line numbers were wrong and the lane checked rather than trusted
+them: `190-209` and `515-520` are measured budget days, while the genuinely
+stale ones it missed were `153-156`, `233`, `237`, `349-351`, `488`, `563`,
+`579`. Two figures were **refused** rather than re-derived: a monthly forecast
+nothing has re-measured since ADR 0152, and a clusters-per-day number that
+divides the cap by a **props-ON** cluster cost — a fresh figure there would
+read as a budget for turning props on.
+
+Comments only, verified on `main` by diffing every non-comment line to empty.
+The guard computes the cost through `sweep_cost` from the file's own `[env]`
+rather than hardcoding it, which is the inversion that matters: **two existing
+tests assert 4-credit arithmetic and stay green precisely because they hardcode
+their inputs** (open item 4).
+
+### Lane C — a capture without its request cannot make an absence readable
+
+ADR 0157 named this defect and left it. All 36 fixtures audited: ten record
+their request, seven are not captures, **nineteen are real captures with no
+request record**, each now in a `DISPOSITIONS` table with its reason, the cost
+of lifting it, and its writer. The ratchet is fail-closed and enumerates rather
+than remembers: an unclassified fixture fails, a row naming a deleted file
+fails, the nineteen are frozen by equality, and a script writing into
+`tests/fixtures/` must be classified.
+
+**Recording query parameters is the move that leaked the Odds API key once** —
+that vendor takes its credential as a query parameter and this repo is public.
+`scripts/capture_envelope.py` therefore **refuses** a credential-shaped
+parameter and any value matching a live credential env var. It does not redact:
+a redacted envelope is a partial record claiming to be a whole one. The MLBAM
+exception (CLAUDE.md, ADR 0035) is preserved — the ratchet must not demand a
+request record for a payload that may not exist.
+
+**Nothing was re-captured.** The nineteen files are untouched; spending credits
+on the prop fixture over the first four-sport weekend is Joe's call.
+
+### Lane D — ADR 0158, the shard-balance probe is parked
+
+Carried as a task in **five** consecutive entries and as a question in six,
+never run, never argued against. It needs an account state Joe never occupies
+(a resting order; ADR 0115 disarmed the bid path on exactly that ground), and
+the failure mode if the assumption is wrong is permissive. **The ADR does not
+record a decision Joe made** — he has not ruled, every entry said "Joe's call",
+and the Status block says so. Three unpark conditions are named.
+
+Its §7 carries the soft spot the lane could not close: the repo can show the
+desk cannot rest an order *for* Joe, but it cannot see his kalshi.com activity,
+and a GTC he places by hand would satisfy the probe's precondition invisibly.
+
+### STATE at close
+
+`main` = this entry; ADR **0158** taken at merge; next ADR **0159**; schema
+**v44**, no migration. Arming unchanged — hand path armed, engine and bid paths
+dry. `tasks/NEXT.md` was split before anything was written (226,964 →
+85,889 bytes, 32.8%, `archive/next-2026-09-15.md`, md5 verified, index moved in
+the same edit). Three lessons written.
+
+### First reads for the next session, in order
+
+1. **`sharp-anchor-census` after the NCAAF slate starts Saturday.** Free,
+   bounded, and the one number worth watching this weekend. The question is
+   whether NCAAF spreads/totals stay near 30% once the full slate is priced, or
+   whether tonight's figure is a pre-slate artefact of thin early lines.
+2. **`credits-day --date 20260920`, Monday** — the registered check
+   (`fly.live.toml`, ADR 0152 §1), beside `20260913`. Take the measurement; do
+   not re-derive the projection. `api_credits` is not pruned, so it will keep.
+3. `team-bookmakers --since <Saturday>` beside it, to see whether `matchbook`'s
+   thinness on NCAAF (3 of 57 tonight) persists on a full slate.
+
+### Still open, in order
+
+1. **The NCAAF anchor question is for Joe** (headline above). Nothing to build
+   until he answers; the flag is already on the row.
+2. **One "Price on Kalshi" tap on the props card — JOE ONLY, unchanged.** It
+   reaches `parlays.py:2911` with `allow_market_creation=True`: **it mints a
+   market on the exchange.** A session must not do it.
+3. **Bounding `fair-prices-by-market` needs a schema decision, not a cleanup.**
+   `fair_prices` has no `computed_ms`-leading index, so a `--since` there
+   filters after the scan. Either add the index (a build that reads the whole
+   6.5M-row table once — ADR 0134 measured 181.8 s cold for the comparable
+   one) or leave it unbounded and say so in its docstring. Also unbounded:
+   `_SQL_ODDS_SNAPSHOTS_BY_MARKET` and the three reads in
+   `inspect_live_db_parlays.py`. The durable form is one ratchet test over
+   every SQL constant touching a hot table, with a `DISPOSITIONS` table — the
+   shape `test_has_callers.py` and lane C both arrived at.
+4. **Stale credit claims lane B found and did not own.**
+   `backend/odds/budget.py:4-7` and `:29` — the authority's own module
+   docstring contradicts `sweep_cost` sixty lines below it;
+   `backend/odds/ondemand.py:82-85` (stale formula and stale line ref);
+   `backend/config.py:359` ("26 credits", three revisions behind) and `:480`.
+   And the two tests that stay green by hardcoding:
+   `tests/test_desk_follows_attention.py:606-635` asserts
+   `floor_ceiling == 384` against a file whose row now reads 288, and
+   `tests/test_odds.py:766-775` asserts `team == 4`. Both are the
+   "restate it in a test so it goes red" mitigation, defeated by hardcoding the
+   inputs — `ondemand.py` points readers at one of them as the authority.
+5. **The `prop-rungs` default window is still registration-gated** and that is
+   unchanged: a window changes the population of
+   `scripts/analyze_prop_onesided.py`. Take it to `pre-registrar` or leave it.
+   The `--odds-event-id` half landed tonight, so a bounded run is now possible;
+   **the unfiltered call still walks the whole index — do not run it on live
+   during a slate.**
+6. **KILLED:** the NFL prop tap (DET@BUF). It cost 6 credits to answer a
+   coverage question `team-bookmakers` answered free and more completely.
+   Removed from the queue rather than downgraded again.
+7. **Re-capturing `odds_mlb_player_props.json` with a request envelope** —
+   Joe's call, costs credits, and ADR 0157 already answers the props question
+   from live `odds_snapshots` for free. Lane C recorded it as a disposition
+   rather than doing it.
+8. Carried parks: the shard probe (**now ADR 0158**, with unpark conditions —
+   stop re-typing it); `user_not_found` on shard 3 only; the 25 s read budget.
+9. **Reservations:** none live. Next ADR **0159**; schema **v44**.
+
+---
+
 ## 2026-09-15 (twenty-first session) — three of seven open items were already built, the props finding does not survive its own fixture, and an instrument was charging its cost to Joe
 
 Joe: *"Read next.md and continue."* Not a named errand, so a partner pass

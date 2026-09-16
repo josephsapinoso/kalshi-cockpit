@@ -16,6 +16,102 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-16 (first) - A bound you can read in the SQL is a hypothesis about the planner; EXPLAIN the before, the after, AND the no-flag case
+
+ADR 0157, written the day before with care, recorded `prop-rungs` as having a
+flag that looks like a bound and is not one, and named the fix: push
+`(:event IS NULL OR odds_event_id = :event)` down into the CTE, called "safe
+and population-preserving". It is population-preserving. It is also a
+**complete no-op** -- the plan with it is byte-identical to the plan without
+it, for a named fixture and for no flag:
+
+    CO-ROUTINE latest
+    SCAN odds_snapshots USING INDEX idx_odds_event_commence   <- still whole
+    SCAN l
+    SEARCH odds_snapshots USING INDEX idx_odds_event_commence (odds_event_id=?)
+
+SQLite cannot know a bound parameter's nullity when it plans the statement, so
+it must emit a plan correct for NULL, and that plan is a scan. Only a hard
+equality seeks -- which means two statements, not one with a switch inside it.
+
+**The second half is why nobody caught it.** That `SEARCH ... (odds_event_id=?)`
+line is in the UNBOUNDED plan too. It comes from the join on
+`l.odds_event_id`, not from the flag. Anyone checking "does `--odds-event-id`
+bound this" sees a seek keyed on exactly the column they filtered by, and stops
+looking. The evidence for the flag working and the evidence for it doing
+nothing are the same line.
+
+Three rules:
+
+- **The baseline for a bound is the plan with NO flag, not the plan before your
+  edit.** A bound that "adds a seek" has added nothing if the seek was already
+  there. Print both and diff them.
+- **`(:p IS NULL OR col = :p)` is a filter, never a bound.** It reads like one
+  in every language most of us think in. If the optional case must also be
+  cheap, that is two statements built from one template, and the template is
+  what keeps them from drifting.
+- **A fix named in an ADR is a hypothesis until someone runs it.** This one was
+  reasoned from correct premises by a careful session and was wrong, and it was
+  about to be implemented on that ADR's authority. Cite the ADR for the defect;
+  measure the remedy yourself.
+
+## 2026-09-16 (second) - When an input and its measurement both exist, read the measurement; the input can only flatter or frighten
+
+A new query reported which bookmakers came back per sport, and its worst cell
+was WNBA: one sweep, `matchbook` absent, `pinnacle` on 5 of 8 fixtures. That
+was written up as "3 of 8 WNBA fixtures have no sharp anchor on spreads and
+totals". The column that actually records the outcome,
+`fair_prices.anchored_on_sharp`, says WNBA `h2h` is anchored on **every** row
+and the worst cells in the table are NCAAF `spreads` and `totals` at about
+30% -- which are also the **largest** cells in it. The draft led with the sport
+whose unanchored cells hold 6 and 2 rows and missed the one holding 95.
+
+The input could not have predicted the output, and the gaps run one way. A book
+"present on spreads" means it quoted *some* spread line; the devig runs per
+**rung** and admits a book only if it quoted *that* line two-sided in the same
+sweep. Add books that fail the devig and games that have started, and presence
+is a strict upper bound on anchoring -- never a lower one, never an estimate.
+
+The instrument's own docstring said this, in the section headed "What this does
+not establish", and the session that wrote the docstring is the session that
+then ignored it.
+
+Three rules:
+
+- **If a column records the answer, the answer is that column.** Reasoning
+  forward from inputs is for when there is no column. Ask "what does the code
+  write down when this happens" before building the inference.
+- **State the direction of every gap between a proxy and its measurement.** An
+  upper bound and an estimate license different sentences, and "roughly
+  indicates" hides which one you have. All four gaps here ran the same way,
+  which is the only reason the proxy was worth keeping at all.
+- **A "worst cell" chosen across several groups is a max statistic.** Report
+  which groups were looked at, and check n: the worst-looking cell is
+  disproportionately the smallest one, and here it held four rows.
+
+## 2026-09-16 (third) - A dispatch whose branches return identical results cannot be guarded by a test that reads the results
+
+Two SQL statements were introduced that return the same rows on purpose -- one
+bounded, one not -- and a function chose between them. The tests for that
+choice asserted on the returned rows, and the mutation (`use the unbounded
+statement for both branches`) was measured **STILL GREEN**. It had to be: the
+equivalence of the two statements is the thing the rest of the file proves, so
+no assertion about rows can distinguish them.
+
+The guard had to observe the *statement*, by capturing what the function handed
+to `_fetch`. That felt like testing an implementation detail, and it is not:
+once the outputs are proven equal, which statement runs is the entire remaining
+behaviour, because the difference between them is cost.
+
+Two rules:
+
+- **Run the mutation before believing the test.** This test was written by
+  someone who had just written the paragraph explaining why the two statements
+  are equivalent, and still expected a row assertion to tell them apart.
+- **When a choice is invisible in the output, the choice itself is the
+  observable.** Otherwise the branch is decoration, and the next session
+  deletes it as redundant -- correctly, on the evidence available to them.
+
 ## 2026-09-15 (ninth) - A comment that names future work becomes a phantom backlog item the moment that work ships
 
 A partner pass over seven open NEXT.md items found three of them already
