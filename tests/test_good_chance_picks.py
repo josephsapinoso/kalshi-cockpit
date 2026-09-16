@@ -97,3 +97,86 @@ class TestTheSlatePageCarriesIt:
         whole; deriving picks client-side from the rows would be a second
         ranking implementation that could disagree with the first."""
         assert "picks={data.picks}" in source(SLATE_PAGE)
+
+
+class TestAStaleRowSaysTheAgeAndTheRemedy:
+    """Ticket #47, Joe's A (2026-09-16). "ask not current" named a state and
+    no way out. The server still withholds the ask (deliberate: an hours-old
+    ask beside a live chance reads as a quote) and now sends the quote's
+    live age beside it; the row prints that age and what to do about it.
+
+    Mutations, each observed red:
+      1. restore the literal "ask not current"
+      2. print the age off `Date.now() - something` instead of the served
+         `quote_age_now_ms`
+      3. drop the remedy sentence
+    """
+
+    def test_the_old_wording_is_gone(self):
+        assert "ask not current" not in code_only(source(PICKS))
+
+    def test_the_age_is_the_served_quote_age_under_a_number_guard(self):
+        """Rendered only when the server sent a number -- an unknown age
+        prints no figure, never "0 min"."""
+        text = code_only(source(PICKS))
+        assert 'typeof pick.quote_age_now_ms === "number"' in text
+        assert "ageWords(pick.quote_age_now_ms)" in text
+
+    def test_the_remedy_is_named_on_the_row(self):
+        text = code_only(source(PICKS))
+        assert "refresh the books" in text
+        assert "open the game screen" in text
+
+    def test_no_age_is_computed_on_the_screen(self):
+        """Every duration here is one the server measured on its own clock.
+        The component subtracts no two timestamps and reads no wall clock."""
+        text = code_only(source(PICKS))
+        assert "Date.now()" not in text
+        assert "- pick.commence_ms" not in text
+        assert "pick.commence_ms -" not in text
+
+    def test_a_duration_never_prints_as_zero_minutes(self):
+        """`ageWords` takes the seconds branch below a minute, so no served
+        age can print as "0 min"; and the literal is nowhere in the file."""
+        text = code_only(source(PICKS))
+        body = text.split("function ageWords(")[1].split("}")[0]
+        assert "ms < 60_000" in body
+        assert "0 min" not in text
+
+
+class TestAStartedRowIsMarkedNotMoved:
+    """Ticket #42, the Picks half, Joe's A (2026-09-16). The list is sorted
+    by chance, so the kickoff column cannot be scanned for what is already
+    in play; a started row says so, in the same muted register, and keeps
+    its place.
+
+    Mutations, each observed red:
+      1. drop the `started_ago_ms` branch
+      2. `ranked.filter(...)` out the started rows before mapping
+      3. `[...ranked].sort(...)` by anything before mapping
+    """
+
+    def test_the_mark_reads_the_served_field_under_a_number_guard(self):
+        text = code_only(source(PICKS))
+        assert 'typeof pick.started_ago_ms === "number"' in text
+        assert "started {ageWords(pick.started_ago_ms)} ago" in text
+
+    def test_the_mark_is_muted_not_urgent(self):
+        """The same register as the kickoff beside it -- not accent ink,
+        which on this product is money or a warning (ADR 0061)."""
+        text = code_only(source(PICKS))
+        span = text.split("started {ageWords(pick.started_ago_ms)} ago")[0]
+        opener = span[span.rindex("<span"):]
+        assert "text-muted" in opener
+        assert "accent" not in opener
+
+    def test_nothing_reorders_filters_or_gates_the_ranking(self):
+        """ADR 0067: the server's order is `fair_probability` alone and the
+        screen renders it whole. `ranked.map(` is the only traversal."""
+        text = code_only(source(PICKS))
+        for banned in (
+            "ranked.sort(", "ranked].sort(", ".toSorted(", "ranked.filter(",
+            "ranked].filter(", "started_ago_ms ?", "started_ago_ms &&",
+        ):
+            assert banned not in text, f"{banned!r} touches the ranking"
+        assert "ranked.map(" in text

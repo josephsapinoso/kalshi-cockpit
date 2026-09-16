@@ -56,6 +56,7 @@ import PriceChart from "@/components/PriceChart";
 import ScoutDesk from "@/components/ScoutDesk";
 import SkepticPanel from "@/components/SkepticPanel";
 import Term from "@/components/Term";
+import TonightStrip from "@/components/TonightStrip";
 import TrustNote from "@/components/TrustNote";
 import { SHELL_WIDTH } from "@/lib/shell";
 import { kalshiMarketUrl } from "@/lib/kalshiLink";
@@ -401,6 +402,17 @@ export default function MarketPage() {
           below still renders from that one function; `askIsVisible` went
           with its only caller, so there is no second reader left to
           disagree with it. */}
+      {/* Tonight's commitment and the "Not tonight" control, directly above
+          the ticket (#45, Joe's A, 2026-09-16). Games and Picks carry this
+          strip; the game screen -- the one with the buy button on it -- did
+          not, so the reader deciding here could not see what was already
+          staked tonight or say "not tonight" without leaving the page. Same
+          component, same payload block (`detail.tonight` is the slate's
+          `tonight`, served by `/api/market/{ticker}` from the one helper). A
+          control Joe already has, on a screen that lacked it -- not a
+          restored brake (ADR 0112): the lockout is his own tap, and the
+          server enforced it here already. */}
+      {detail?.tonight && <TonightStrip tonight={detail.tonight} />}
       <ManualTicket ticker={ticker} />
 
       {/* The calm alternative (ADR 0066): a quiet row below the ticket's

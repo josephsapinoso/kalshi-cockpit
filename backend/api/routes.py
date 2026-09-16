@@ -1621,6 +1621,27 @@ def create_app(
                             if best["price_is_current"]
                             else None
                         ),
+                        # How old the recorded Kalshi quote is, moved to
+                        # now by `_live_ages` -- served whether or not the
+                        # ask above survived, so a row whose ask was
+                        # withheld can say *how* stale it is and what to
+                        # do about it (ticket #47) rather than "not
+                        # current". The screen never derives an age from a
+                        # price; `None` is an unreadable clock and renders
+                        # as nothing, never as "0 min".
+                        "quote_age_now_ms": best["quote_age_now_ms"],
+                        # How long ago the game started, on the request
+                        # clock, or `None` when the fixture is unknown or
+                        # still ahead (ticket #42, the Picks half). A fact
+                        # for the row to wear, not a sort key: the ranking
+                        # above is `fair_probability` alone (ADR 0067) and
+                        # a started game keeps its place in it.
+                        "started_ago_ms": (
+                            now - best["commence_ms"]
+                            if best["commence_ms"] is not None
+                            and best["commence_ms"] <= now
+                            else None
+                        ),
                         "anchored_on_sharp": best["anchored_on_sharp"],
                     },
                 )
@@ -1982,6 +2003,22 @@ def create_app(
         detail["gauntlet"]["judged_ms"] = detail.get(
             "freshness_measured_from_ms"
         )
+
+        # **Tonight's commitment and the "not tonight" release, the slate's
+        # own block** (ticket #45, Joe's A, 2026-09-16). The game screen is
+        # where the ticket is, and it was the one deciding screen that could
+        # not say what was already staked tonight or carry the control Games
+        # and Picks both have. Same helper, same day roll, same lockout
+        # table as `/api/slate` -- one definition of "tonight", read here
+        # rather than copied. A control Joe already has on two screens, on
+        # the third; not a restored brake (ADR 0112).
+        tonight = bets_module.tonight_activity(
+            conn, now_ms=now, day_start_hour=odds.budget_day_start_utc_hour
+        )
+        tonight["lockout_until_ms"] = bet_estimates.lockout_until(
+            conn, now_ms=now
+        )
+        detail["tonight"] = tonight
         return detail
 
     # Handlers that moved out from here under the Read-tool ceiling. Each

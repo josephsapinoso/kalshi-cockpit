@@ -1001,6 +1001,37 @@ class TestMarketDetail:
         body = (await get(demo_app, f"/api/market/{ticker}")).json()
         assert "breakeven_win_rate" not in body
 
+    async def test_it_carries_the_slates_tonight_block(self, demo_app):
+        """Ticket #45 (Joe's A, 2026-09-16): the game screen mounts
+        `TonightStrip`, so this route serves the same `tonight` block
+        `/api/slate` does -- same keys, same helper, one definition of
+        "tonight". Mutation observed red: delete the `detail["tonight"]`
+        assignment."""
+        board = (await get(demo_app, "/api/board")).json()
+        ticker = sized_rows(board)[0]["ticker"]
+        body = (await get(demo_app, f"/api/market/{ticker}")).json()
+        slate = (await get(demo_app, "/api/slate")).json()
+        assert set(body["tonight"]) == set(slate["tonight"]) == {
+            "day_start_ms", "as_of_ms", "bets", "staked_tenths",
+            "staked_display", "lockout_until_ms",
+        }
+
+    async def test_the_lockout_reads_back_on_the_game_screen(self, live_app):
+        """One table, one clock, three screens: a lockout tapped anywhere
+        is the release the game screen's strip renders."""
+        headers = {"Authorization": "Bearer secret-token"}
+        transport = httpx.ASGITransport(app=live_app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            board = (await client.get("/api/board")).json()
+            ticker = sized_rows(board)[0]["ticker"]
+            until = (
+                await client.post("/api/desk/lockout", headers=headers)
+            ).json()["until_ms"]
+            detail = (await client.get(f"/api/market/{ticker}")).json()
+        assert detail["tonight"]["lockout_until_ms"] == until
+
 
 class TestActionableWindow:
     """Whether a pick can be acted on, which the Board could not previously say.
