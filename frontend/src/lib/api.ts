@@ -2977,6 +2977,21 @@ export type ManualMarketSide = {
   ask_tenths: number | null;
   ask_display: string | null;
   depth_at_ask: number | null;
+  /**
+   * The venue's charge on ONE contract at this side's ask, in integer
+   * tenths, rounded up (ticket #39). The ticket multiplies it by the typed
+   * count and formats; it never prices a fee itself -- the fee curve is the
+   * server's (`serialise.py`, beside `total_cost_dollars`), and a copy here
+   * would be two money calculations one refresh apart. `null` when there is
+   * no ask or the fee is unreadable, never `0`.
+   */
+  fee_per_contract_tenths: number | null;
+  /**
+   * How often a bet at this ask has to win to come out even, fee included,
+   * as a fraction. Served, not divided out here, so 50c reads 51.75% and not
+   * the rounded tenth's 51.8%. `null` with the fee.
+   */
+  breakeven_probability: number | null;
   authorised_contracts: number | null;
   /**
    * WHICH bound produced `authorised_contracts`, so the ticket can name it.
@@ -3003,9 +3018,17 @@ export type ManualMarketSide = {
 
 export type ManualMarket = {
   ticker: string;
+  /** When the server read the book. The ticket ages it on a tick and offers
+   *  a re-read (ticket #40); nothing on the ticket is gated on it. */
   observed_ms: number;
   reachable: boolean;
   unreachable_reason: string | null;
+  /**
+   * The sportsbook's kickoff for this market, or `null` when the ticker is
+   * unlinked, unrecorded or a combination (ticket #42). `null` renders
+   * nothing -- never "not started", which an unknown does not establish.
+   */
+  commence_ms: number | null;
   sides: { yes: ManualMarketSide; no: ManualMarketSide };
   /**
    * The exchange shard this market settles on, and what that shard holds.

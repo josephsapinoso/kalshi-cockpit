@@ -83,6 +83,20 @@
  * pattern `/parlay-bid` and `/refresh-odds` already used; the manual ticket
  * was the outlier, and the asymmetry was drift rather than a decision. Auth at
  * the API is unchanged — `require_auth` still guards every mutating route.
+ *
+ * **FOUR MORE FACTS ON THE TICKET, NONE OF THEM A GATE** (Joe's answers of
+ * 2026-09-16 on tickets #39, #40, #42, #44). The fee is on the Confirm button
+ * with the break-even above it, both served by the preflight and multiplied
+ * here by the typed count and nothing more — the fee curve is the server's
+ * (ADR 0062 Amendment 1: a fee is the venue's charge, not the tool's opinion).
+ * The ask carries its age on a one-second tick, and "re-read the book" fetches
+ * the preflight again and re-pins the max price to the new ask; the old
+ * ticket pinned it to the opening ask and never refreshed. A started game says
+ * so above the confirm, off the sportsbook's kickoff, and an unknown kickoff
+ * says nothing. And every state the ticket can end in — open, blocked,
+ * refused — carries a plain link out to kalshi.com that says it leaves.
+ * `canConfirm` reads none of these; ADR 0112 removed the brakes and a
+ * staleness or in-play gate would be a sixth under a new name.
  */
 
 import { useCallback, useEffect, useId, useState } from "react";
@@ -91,6 +105,8 @@ import {
   DISPLAY_TIME_ZONE,
   fetchExposure,
   fetchManualMarket,
+  formatAge,
+  formatDuration,
   placeManualOrder,
   refusalText,
   type ManualMarket,
@@ -102,7 +118,11 @@ import {
   exposureWords,
   type ExposureWords,
 } from "@/lib/exposureLine";
+import { KALSHI_MARKETS_INDEX, kalshiMarketUrl } from "@/lib/kalshiLink";
 import Term from "@/components/Term";
+
+/** How often the ask's age and the in-play clock advance. */
+const TICKET_TICK_MS = 1_000;
 
 function releaseClock(ms: number): string {
   return new Date(ms).toLocaleTimeString("en-US", {
@@ -159,6 +179,11 @@ export default function ManualTicket({
   // that is neither a figure nor a refusal, and must not be rendered as
   // either. It never reaches `canConfirm`.
   const [exposure, setExposure] = useState<ExposureWords | null>(null);
+  // Why the last re-read did not land, in the server's words. A failed
+  // re-read leaves the ticket open on the book it already had: the old ask
+  // is still a real ask with a real age beside it, and closing the ticket
+  // over a network error would be a brake.
+  const [rereadNote, setRereadNote] = useState<string | null>(null);
 
   const close = useCallback(() => {
     setPhase({ name: "closed" });
@@ -167,6 +192,7 @@ export default function ManualTicket({
     // Dropped with everything else: a figure read for the last ticket is a
     // stamp that goes on being true-looking while the next one opens.
     setExposure(null);
+    setRereadNote(null);
   }, []);
 
   useEffect(() => {
@@ -266,6 +292,41 @@ export default function ManualTicket({
     // untouched ticket cannot buy "1" by default.
     setContracts(0);
     setMaxPriceTenths(market.sides[defaultSide].ask_tenths);
+    setRereadNote(null);
+    setPhase({ name: "ticket", market });
+  };
+
+  // Re-read the book (ticket #40, Joe's answer A). The same preflight the
+  // open took, and the max price re-pinned to the NEW ask on the side he is
+  // on -- until 2026-09-16 the pin was the opening ask forever, so a ticket
+  // left open through a price move sent a ceiling the route would refuse and
+  // a Confirm figure the venue would not charge. The intent key is kept: it
+  // is one ticket and one order, however many times the book is read. The
+  // typed dollars survive too; `DollarAmount` recomputes the count from the
+  // new ask. A side whose ask has gone falls to whichever side still has one.
+  // Nothing here is automatic and nothing here gates: no auto-refresh, and a
+  // stale ask stays confirmable with its age beside it.
+  const reread = async () => {
+    setRereadNote(null);
+    let market: ManualMarket;
+    try {
+      market = await fetchManualMarket(ticker);
+    } catch (error) {
+      setRereadNote(
+        error instanceof Error
+          ? `The book could not be re-read: ${error.message}`
+          : "The book could not be re-read.",
+      );
+      return;
+    }
+    const nextSide: "yes" | "no" =
+      market.sides[side].ask_tenths !== null
+        ? side
+        : market.sides.yes.ask_tenths !== null
+          ? "yes"
+          : "no";
+    setSide(nextSide);
+    setMaxPriceTenths(market.sides[nextSide].ask_tenths);
     setPhase({ name: "ticket", market });
   };
 
@@ -341,9 +402,15 @@ export default function ManualTicket({
       )}
 
       {phase.name === "blocked" && (
-        <p className="mt-3 max-w-[65ch] text-sm leading-relaxed text-muted">
-          {phase.words}
-        </p>
+        <div className="mt-3 max-w-[65ch] text-sm leading-relaxed text-muted">
+          <p>{phase.words}</p>
+          {/* The way out when the desk cannot open the ticket (ticket #44).
+              Joe bets by hand whether or not this exists (ADR 0071); a
+              refusal that names no venue sends him to find the tab himself. */}
+          <p className="mt-2 text-xs">
+            <KalshiLink ticker={ticker} />
+          </p>
+        </div>
       )}
 
       {(phase.name === "ticket" || phase.name === "sending") && (
@@ -365,6 +432,8 @@ export default function ManualTicket({
           exposure={exposure}
           sending={phase.name === "sending"}
           onConfirm={() => void confirm(phase.market)}
+          onReread={() => void reread()}
+          rereadNote={rereadNote}
         />
       )}
 
@@ -381,6 +450,11 @@ export default function ManualTicket({
           </p>
           <p className="mt-2 max-w-[65ch] text-xs text-muted">
             Nothing was placed{phase.status === 0 ? " — the request never left" : ""}.
+          </p>
+          {/* Same link as the blocked state, for the same reason: the
+              refusal is the route's and the bet is still his to place. */}
+          <p className="mt-2 max-w-[65ch] text-xs text-muted">
+            <KalshiLink ticker={ticker} />
           </p>
         </div>
       )}
@@ -410,6 +484,8 @@ function TicketBody({
   exposure,
   sending,
   onConfirm,
+  onReread,
+  rereadNote,
 }: {
   market: ManualMarket;
   side: "yes" | "no";
@@ -427,8 +503,24 @@ function TicketBody({
   exposure: ExposureWords | null;
   sending: boolean;
   onConfirm: () => void;
+  /** Fetch the preflight again and re-pin the max price (ticket #40). */
+  onReread: () => void;
+  /** Why the last re-read failed, or `null`. Rendered, never gated on. */
+  rereadNote: string | null;
 }) {
   const facts = market.sides[side];
+  // One clock for the ask's age and the in-play line, advancing every second
+  // so a ticket left open shows the minutes pass rather than freezing at the
+  // age it opened with. Clamped at zero for display only: a client clock
+  // behind the server's would otherwise print a negative age.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    tick();
+    const timer = setInterval(tick, TICKET_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+  const quoteAge = formatAge(Math.max(0, now - market.observed_ms));
   // Two ceilings, and the smaller wins: what the server authorises for this
   // side, and what this path is armed for. The server serves the second so
   // the client cannot hold a stale copy of a constant that exists to be
@@ -489,8 +581,36 @@ function TicketBody({
             <span className="ml-2 font-mono">
               {market.sides[s].ask_display ?? "no ask"}
             </span>
+            {/* The age beside EACH ask, not once for the ticket: the price
+                is what he reads, so the clock sits on the price. Both sides
+                share one read and so one age. */}
+            {market.sides[s].ask_display !== null && (
+              <span className="ml-2 text-[11px] font-normal text-muted">
+                {quoteAge}
+              </span>
+            )}
           </button>
         ))}
+      </div>
+
+      {/* Ticket #40. The re-read is a control, not a refresh loop: nothing
+          fires on its own, and an old ask stays confirmable with its age in
+          plain view. A gate here would be the sixth brake. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+        <span>
+          Read from Kalshi&rsquo;s book {quoteAge}. The max price is pinned to
+          the ask as read.
+        </span>
+        <button
+          onClick={onReread}
+          disabled={sending}
+          className="min-h-9 rounded-lg border px-3 py-1.5 text-xs font-semibold text-foreground disabled:opacity-40"
+        >
+          Re-read the book
+        </button>
+        {rereadNote !== null && (
+          <span className="text-accent-2">{rereadNote}</span>
+        )}
       </div>
 
       {facts.ask_tenths === null && (
@@ -514,6 +634,8 @@ function TicketBody({
         {ceiling !== null && boundWhy !== null && ` — ${boundWhy}`}
         {market.dry_run &&
           " · this path runs DRY — the order is recorded, not sent"}
+        {" · "}
+        <KalshiLink ticker={market.ticker} />
       </p>
 
       {/* The one moment the reader has to know money moves, said BEFORE the
@@ -573,9 +695,12 @@ function TicketBody({
           <p className="mt-2 max-w-[65ch] text-xs text-muted">
             The order goes out at the live ask, immediate-or-cancel, and is
             refused — never re-priced — if the ask has moved above this. The
-            server prices the fee-inclusive worst case when you confirm and
-            says &ldquo;at most&rdquo;, because the exact fee on this venue
-            is still being measured.
+            fee on the Confirm button is the venue&rsquo;s charge at the ask
+            as read, priced with a coefficient the desk keeps deliberately
+            high (a flat 0.070, where baseball has been measured at half
+            that), which is why the button says &ldquo;at most&rdquo;: the
+            figure is a ceiling on the desk&rsquo;s own arithmetic at this
+            ask, and the charge on the fill is what the record keeps.
           </p>
         </div>
       </details>
@@ -617,17 +742,59 @@ function TicketBody({
           that is about the rest of the book rather than this market. */}
       <Exposure words={exposure} />
 
+      {/* Ticket #42, the ticket half. The sportsbook's kickoff has passed, so
+          the ask is an in-play price and any number the books gave is from
+          before the game. Rendered only when the kickoff is KNOWN and past:
+          `null` says nothing, because an unknown kickoff does not establish
+          "not started". Informs, in the exposure line's register; never
+          gates. */}
+      {market.commence_ms !== null && market.commence_ms <= now && (
+        <p className="max-w-[65ch] rounded-xl border border-accent-2/50 bg-accent-2-soft px-3 py-2 text-xs leading-relaxed text-accent-2">
+          Started {formatDuration(now - market.commence_ms)} ago — this is
+          in-play. The books&rsquo; number is from before kickoff.
+        </p>
+      )}
+
+      {/* Ticket #39. The bar the ask-plus-fee sets, served by the preflight
+          and printed, not divided out here. It says how often the bet must
+          win and nothing about whether it will -- that is the no-opinion rule
+          the preflight keeps (ADR 0062 Amendment 1). */}
+      {facts.breakeven_probability !== null && (
+        <p className="max-w-[65ch] text-xs leading-relaxed">
+          You need this to happen more than{" "}
+          <span className="font-semibold tabular">
+            {(facts.breakeven_probability * 100).toFixed(1)}%
+          </span>{" "}
+          of the time to <Term k="breakeven">break even</Term> — that is the{" "}
+          <Term k="ask">ask</Term> plus Kalshi&rsquo;s{" "}
+          <Term k="fee">fee</Term>, and nothing about whether it will.
+        </p>
+      )}
+
       <button
         onClick={onConfirm}
         disabled={!canConfirm}
         className="min-h-12 w-full rounded-xl bg-accent-fill px-4 py-3 text-sm font-semibold text-white disabled:opacity-40 sm:w-auto sm:px-8"
       >
+        {/* The fee is INSIDE the figure on the button (ticket #39). The
+            server serves one integer per contract; this multiplies it by the
+            count and formats -- no fee curve here, ever. "at most" holds on
+            singles and combinations alike because the served figure is
+            rounded up per contract (`routes.py:_manual_fee_per_contract`).
+            An unreadable fee is said, never priced at zero. */}
         {sending
           ? "Sending…"
           : contracts >= 1 && facts.ask_tenths !== null
-            ? `Confirm — buy ${contracts} ${side.toUpperCase()} for ${dollars(
-                contracts * facts.ask_tenths,
-              )}`
+            ? facts.fee_per_contract_tenths === null
+              ? `Confirm — buy ${contracts} ${side.toUpperCase()} for ${dollars(
+                  contracts * facts.ask_tenths,
+                )} plus a fee the server could not price`
+              : `Confirm — buy ${contracts} ${side.toUpperCase()} for at most ${dollars(
+                  contracts * facts.ask_tenths +
+                    contracts * facts.fee_per_contract_tenths,
+                )} (ask ${dollars(contracts * facts.ask_tenths)} + fee ${dollars(
+                  contracts * facts.fee_per_contract_tenths,
+                )})`
             : `Confirm — buy ${side.toUpperCase()}`}
       </button>
     </div>
@@ -677,6 +844,29 @@ function Exposure({ words }: { words: ExposureWords | null }) {
         <span className="text-muted"> ({words.stamp})</span>
       )}
     </p>
+  );
+}
+
+/** The way out to the venue (ticket #44), on the open ticket and on both
+ *  refusal states. A plain link and not a button: it leaves the cockpit and
+ *  says so, and a button would read as one more thing the desk does for him.
+ *  A ticker with no deep link -- every combination -- goes to the market
+ *  list, and the label says that rather than calling the list "this market". */
+function KalshiLink({ ticker }: { ticker: string }) {
+  const href = kalshiMarketUrl(ticker);
+  const deep = href !== KALSHI_MARKETS_INDEX;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="underline decoration-dotted underline-offset-2"
+    >
+      {deep
+        ? "Open this market on kalshi.com"
+        : "Open Kalshi's market list (this ticker has no direct link)"}
+      {" — leaves the cockpit"}
+    </a>
   );
 }
 
