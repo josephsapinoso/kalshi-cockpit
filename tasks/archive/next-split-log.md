@@ -82,3 +82,21 @@ line ending in the file, so a seven-entry move renders as a whole-file diff
 and the one thing a reviewer needs to see — that nothing outside the moved
 range changed — becomes invisible. Read bytes, slice bytes, write bytes,
 and hash the slice.
+
+**Split again 2026-09-15, at 226,964 bytes — 86.6%, checked before writing.**
+The four 2026-09-14, three 2026-09-11 and five 2026-09-10 entries moved to
+`archive/next-2026-09-15.md`, verbatim, leaving **85,889 bytes — 32.8%**
+(88,564 once the index section was written). Date boundary: everything
+2026-09-14 and earlier moved, so the four 2026-09-15 entries stay together.
+md5 `a8a994f86c9063ecea5210ffcdae684f`; index lines in the same edit; binary
+throughout, and `git diff --stat` showed **2,266 deletions and zero
+insertions**, which is the check that the binary rule bought.
+
+**What this one taught, and it is about the depth rather than the trigger:**
+the partner pass proposed a cut leaving **51.8%** and it was overruled on the
+log's own record. Every split since 2026-09-06 has left 22-45%, and the
+reasoning is written down twice here — a split is cheapest at the start of a
+session and dearest in the middle of one, so clearing well under the line
+buys one more split rather than several. **The trigger is a ceiling, not a
+target, and so is the halfway mark.** A cut that leaves the file above half
+is a cut that has to be taken again in two sessions.
