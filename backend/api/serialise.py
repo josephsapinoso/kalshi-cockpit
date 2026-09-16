@@ -20,8 +20,6 @@ arithmetic.
 from __future__ import annotations
 
 import json
-import math
-from statistics import NormalDist
 from typing import Optional
 
 from ..config import StalenessConfig
@@ -86,38 +84,6 @@ def _live_ages(
         "freshness_confirmed": ages.confirmed,
         "freshness_measured_from_ms": ages.measured_from_ms,
     }
-
-
-# A week of betting at the rate this tool could ever support. Stated as a
-# constant and sent with the probability it produces, so the screen cannot
-# report the number against a different run length than the one it was
-# computed for.
-LOSING_RUN_BETS = 10
-
-
-def _losing_run_probability(ev_dollars: float, sd_dollars: float) -> Optional[float]:
-    """How often `LOSING_RUN_BETS` bets of this shape end down, edge and all.
-
-    Normal approximation to the sum of ten independent bets, each with mean
-    `ev_dollars` and deviation `sd_dollars`:
-    ``P(sum < 0) = Phi(-sqrt(k) * mu / sigma)``.
-
-    **`None` when there is no position**, never 0.5 and never 0. A row the
-    engine did not size has no run to lose, and an unmeasurable probability
-    that renders as a number is the failure this repo has recorded twice.
-
-    Verified against the demo: its best-sized row is +$0.0135 with a $0.4728
-    deviation, which gives 0.464.
-
-    **The review quoted 45.6%, off a $0.2619 expectation and a $7.4778
-    deviation. Those were 17 contracts at a $1,000 bankroll no instance
-    deploys** -- see ADR 0041's 2026-08-18 amendment. The ratio barely moves
-    because both terms scale with size; what moved is which row is "best" once
-    the deployed caps flatten every size to 1.
-    """
-    if sd_dollars <= 0:
-        return None
-    return NormalDist().cdf(-math.sqrt(LOSING_RUN_BETS) * ev_dollars / sd_dollars)
 
 
 def _decode_books_used(raw) -> Optional[list[str]]:
@@ -222,14 +188,6 @@ def _serialise(
     live = _live_ages(row, now_ms=now_ms, staleness=staleness)
     contracts = row["suggested_contracts"] or 0
     fee = row["fee_predicted"] or 0.0
-    # A binary contract settles at $1 or $0, so one contract's payoff has a
-    # spread of exactly $1 and a standard deviation of sqrt(p(1-p)). The fee is
-    # deterministic and adds no variance, so the position's deviation is just
-    # that times the size. Reproduced against the demo's best row before
-    # anything derived from it was rendered: 15 contracts at p=0.5385 gives
-    # $7.478, against $0.262 expected -- 29 times the mean.
-    fair = row["fair_probability"]
-    sd = contracts * math.sqrt(max(0.0, fair * (1.0 - fair)))
     # Cost stays in integer tenths until the last step. `ask * contracts` is
     # exact; `tenths_to_dollars(ask) * contracts` is not.
     stake = tenths_to_dollars(ask * contracts)
@@ -489,7 +447,7 @@ def _serialise(
         # including 0.0, which is a legitimate anchor and must never be tested
         # for truthiness.
         "clv_horizon_hours": row["clv_horizon_hours"],
-        # -- what it costs, and what it costs you when it loses ---------------
+        # -- what it costs ----------------------------------------------------
         #
         # The card showed `COST` as stake alone and `FEE` beside it with no
         # total anywhere, which understates what leaves the account by 3.6% at
@@ -499,13 +457,4 @@ def _serialise(
         # calculations one refresh apart.
         "stake_dollars": stake,
         "total_cost_dollars": stake + fee,
-        "sd_dollars": sd,
-        # How often a run of `LOSING_RUN_BETS` bets this shape ends down, if the
-        # edge is entirely real. The answer on the demo's best row is 46%, and
-        # that is the number a beginner does not supply from memory: without it
-        # a losing week reads as a broken tool or an invitation to double up.
-        "losing_run_bets": LOSING_RUN_BETS,
-        "losing_run_probability": _losing_run_probability(
-            row["ev_net_dollars"], sd
-        ),
     }

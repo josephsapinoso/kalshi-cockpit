@@ -84,10 +84,8 @@ export default function HowToRead() {
             The swing is far larger than the edge, every time.
           </span>{" "}
           A bet worth twenty-six cents in expectation still moves seven or eight
-          dollars either way when it settles. Ten bets like that end the week
-          down almost half the time <em>with the edge completely real</em>, so a
-          losing week is not evidence the tool is broken and is not a reason to
-          bet bigger.
+          dollars either way when it settles, so a losing week is not evidence
+          the tool is broken and is not a reason to bet bigger.
         </li>
       </ul>
     </section>

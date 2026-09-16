@@ -169,13 +169,14 @@ export const GLOSSARY = {
       "+$0.10 expected on a $2 bet means that, on average, such bets earn " +
       "ten cents — any single one still just wins or loses.",
   },
-  sd: {
-    label: "swing",
-    definition:
-      "How far one normal result lands from the average — one standard " +
-      "deviation. A $2 bet with a $1 swing routinely finishes a dollar " +
-      "richer or poorer than expected. Bigger swing, bumpier ride.",
-  },
+  // `sd` (swing) was removed 2026-09-16 with the two figures that were the
+  // only things rendering it. Issue #48, answered A: the swing and the
+  // run-length sentence beside it were both computed from the
+  // consensus-vs-Kalshi gap, which this repo has measured twice and both
+  // times below the no-signal threshold, so the pair of them offered
+  // variance as the only way to lose. Deleted rather than parked: the
+  // orphan rule below is use-it-or-delete-it.
+  // `tests/test_no_priced_surface_claims_the_edge_is_real.py` keeps it gone.
   // `drift` and `candlestick` were removed 2026-08-22: the Drift chip
   // teaches in place with the row's own numbers (components/Hint.tsx), and
   // the candles view left the chart in the 2026-08-21 rebuild. A definition
