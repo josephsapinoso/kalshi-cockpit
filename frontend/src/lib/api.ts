@@ -181,22 +181,6 @@ export type Recommendation = Partial<DevigMethods> &
   stake_dollars: number;
   /** Stake plus fee: what actually leaves the account, and the loss if wrong. */
   total_cost_dollars: number;
-  /**
-   * One standard deviation of this position's outcome, in dollars.
-   *
-   * `contracts * sqrt(p(1-p))` — a contract settles at $1 or $0, so its payoff
-   * spread is exactly $1, and the fee is deterministic and adds no variance.
-   * Zero on an unsized row, which is a real answer rather than a missing one.
-   */
-  sd_dollars: number;
-  /** The run length `losing_run_probability` is computed for. */
-  losing_run_bets: number;
-  /**
-   * How often that many bets of this shape end down, with the edge entirely
-   * real. **`null` when there is no position** — there is no run to lose, and
-   * a number there would be a claim nothing measured.
-   */
-  losing_run_probability: number | null;
   suggested_contracts: number;
   /**
    * The same decision sized at the **fixed reference bankroll**, which is what

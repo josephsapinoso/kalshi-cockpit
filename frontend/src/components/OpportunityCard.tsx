@@ -185,17 +185,6 @@ export default function OpportunityCard({
             value={`${rec.ev_net_dollars >= 0 ? "+" : ""}$${rec.ev_net_dollars.toFixed(2)}`}
             tone={rec.ev_net_dollars >= 0 ? "positive" : "negative"}
           />
-          {/* What happens when it is wrong, which nothing on this card said.
-              One standard deviation of the position, computed on the server
-              from the same fair probability the edge came from. */}
-          <Figure
-            label={
-              <>
-                <Term k="sd">Swing</Term>, 1 SD
-              </>
-            }
-            value={`$${rec.sd_dollars.toFixed(2)}`}
-          />
         </div>
       )}
 
@@ -205,21 +194,6 @@ export default function OpportunityCard({
           the contracts and{" "}
           <span className="font-mono">${rec.fee_predicted.toFixed(2)}</span> in
           fees. All of it is lost if this settles the other way.
-          {rec.losing_run_probability !== null && (
-            <>
-              {" "}
-              The swing is{" "}
-              <span className="font-mono">
-                {(rec.sd_dollars / Math.max(1e-9, Math.abs(rec.ev_net_dollars))).toFixed(0)}
-              </span>
-              × the expected value, so {rec.losing_run_bets} bets this shape end
-              down{" "}
-              <span className="font-mono">
-                {Math.round(rec.losing_run_probability * 100)}%
-              </span>{" "}
-              of the time — with the edge completely real.
-            </>
-          )}
         </p>
       )}
 

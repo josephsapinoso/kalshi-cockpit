@@ -362,13 +362,6 @@ export default function TicketSheet({
                     }
                     muted={resized}
                   />
-                  {/* Not the fee, and not scaled by anything here. The one
-                      number on this sheet that says what being wrong costs. */}
-                  <Figure
-                    label={<Term k="sd">Swing, 1 SD</Term>}
-                    value={resized ? "—" : dollars(rec.sd_dollars)}
-                    muted={resized}
-                  />
                 </div>
                 {resized && (
                   <p className="mt-3 text-xs leading-relaxed text-muted">
