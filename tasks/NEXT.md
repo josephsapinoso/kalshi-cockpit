@@ -119,6 +119,138 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-16 (twenty-third session) — Joe answered three questions; item 6 is done, the parlay card stopped flattering, and the index rebuild is the next job
+
+Continuation of the twenty-second session, same day, after the queue was put to
+Joe in plain language. **He asked for the questions to be simpler** — record
+that as a standing preference: lettered options, jargon defined, recommendation
+first. `[[joe-is-not-a-pro-teach-the-terms]]` already says this; it applies to
+queue questions and not only to the UI.
+
+### HIS THREE ANSWERS — two done, one is the next session's job
+
+**(a) Mark the weak prices on screen — DONE, `4c31266`.** Mostly a phantom:
+the slate page, `GoodChancePicks` and `ConsensusPanel` already marked the soft
+fallback. **`ParlayCards.tsx` did not, and it was wrong in the flattering
+direction** — it rendered a note only on `anchored_on_sharp === true` and
+printed nothing when no sharp book backed the leg. A warning that fires only on
+good news reads as a check that passed. Fixed in the same accent ink the slate
+uses; `null` stays silent everywhere (it means the join missed, not that the
+anchor is absent). Five mutations red. New guard
+`tests/test_soft_fallback_is_shown_on_every_price_surface.py` enumerates the
+surfaces rather than remembering them, and caught a gap in **its own list** on
+first run.
+
+**(b) Do the index rebuild — NOT STARTED. This is the next session's main
+job.** Joe overrode the recommendation to leave it, so build it. Full context
+in "The rebuild, as briefed" below.
+
+**(c) Re-capture the props fixture — REFUSED by Joe. Struck from the queue.**
+Do not re-raise it; ADR 0157 answers the props question from live
+`odds_snapshots` for free.
+
+### Item 6 is finished — `04b970e`, `1d24ee0`, both CI-green
+
+Five stale credit claims were handed over; a repo-wide grep found **ten**. The
+handed-over list was the ones someone happened to notice.
+
+The two tests were the interesting half. Both were the "restate it in a test so
+it goes red" mitigation and both were defeated the same way: they built the old
+config, checked their own arithmetic, and named a file they never opened.
+`test_odds.py` asserted `team == 4` calling it "the deployed config";
+`test_desk_follows_attention.py` asserted `floor_ceiling == 384` against a row
+that reads 288.
+
+**One conclusion genuinely flipped, and it is not cosmetic.** The attention
+test argued the capped terms cannot be a worst case *because* one NFL Sunday's
+kickoff demand exceeds the gap under the cap: 84 > 700 - 684. At the deployed 3
+credits it is 63 against 112 — **false**. ADR 0155 turned the day from "not
+bounded by construction" into "fits the modelled load with a thin margin":
+floor 288 + slice 300 + four clusters 84 = **672 of 700**. The structural claim
+is what is pinned now (the kickoff term has no ceiling of its own), because
+asserting the old inequality would be asserting something untrue.
+
+Also fixed: `.env.example` — **the contract file** — told a new operator
+`cost per call = markets x regions ... 6 credits` and said nothing about
+`ODDS_BOOKMAKERS` silently overriding `ODDS_REGIONS` at the vendor.
+`store/schema.sql` contradicted itself three lines apart. `budget.py`'s module
+docstring asserted 6 nine lines above a `sweep_cost` that disagreed.
+`runner.py`, `ondemand.py`, `config.py` likewise.
+
+**Deliberately NOT changed:** `db.py:1068` quotes the old rule *inside* the
+passage explaining why it was wrong; the ADRs and `docs/decisions`, which are
+dated records. And the four `10 x markets x regions` warnings are about the
+**historical endpoints, which have no caller in `backend/`** — whether named
+books change that rate is **unverified** and is written down as unverified
+rather than quietly corrected.
+
+### The rebuild, as briefed — START HERE
+
+**What Joe approved:** making `fair-prices-by-market` fast, at the cost of a
+one-time index build on live of roughly three minutes.
+
+**What is actually true, measured this session and not inherited:**
+
+- `_SQL_FAIR_PRICES_BY_MARKET` and `_SQL_ODDS_SNAPSHOTS_BY_MARKET`
+  (`inspect_live_db_decisions.py`) are **index scans, not bare table scans** —
+  `SCAN fair_prices USING INDEX idx_fair_market_computed` and
+  `SCAN odds_snapshots USING INDEX idx_odds_window`. The partner called them
+  "the exact shape ADR 0157 outlawed"; they are not. They are still whole-index
+  walks with temp B-trees for the `DISTINCT`s.
+- **`fair_prices` has no index leading with `computed_ms`.** Its three indexes
+  (`idx_fair_link`, `idx_fair_market_computed`, `idx_fair_market_confirmed`)
+  all lead with something else, so a `--since` added today would filter *after*
+  the scan — a flag that looks like a bound and is not one, which is the exact
+  defect `prop-rungs` was just fixed for.
+- `odds_snapshots` needs **no** new index: `idx_odds_commence` already serves a
+  `commence_ms` bound.
+
+**So the job is:** schema **v45** — an index on `fair_prices` that makes a
+time bound seekable — plus the migration in `db.py`, plus bounding both
+queries with a default window, plus the plan guards. Next ADR **0159**.
+
+**Cost precedent to respect:** ADR 0134's comparable index build read the whole
+table once at **181.8 s cold**, which is why the boot health grace went
+120 s -> 600 s. Rehearse in the container on a paced copy before deploying,
+the way that session did. The box is 2 GB and has OOM-cycled before.
+
+**Timing:** do it on a quiet clock. WNBA is Thu 17, NCAAF Sat 19, NFL Sun 20.
+
+**The trap, from tonight:** `(:p IS NULL OR col = :p)` is a filter and never a
+bound — SQLite cannot know a parameter's nullity at plan time. If the bounded
+and unbounded cases must both be cheap, that is two statements from one
+template. And the baseline for "does this bound anything" is the plan with NO
+flag, not the plan before the edit.
+
+### STATE at close
+
+`main` = `4c31266`; **CI green on `04b970e` and `1d24ee0`**; clean local full
+suite **7490 passed, 10 xfailed, 0 failed**; tsc clean. Live = `81e9ab6`, three
+commits behind, and **the difference is comments, tests and one screen string**
+— no runtime behaviour. Next ADR **0159**; schema **v45** when the rebuild
+lands. Arming unchanged: hand path armed, engine and bid paths dry.
+
+**Zero odds credits spent across both of today's sessions.** Budget day closed
+the last reading at 180 of 700.
+
+### Still open, in order
+
+1. **The index rebuild (b) above.** The one real build.
+2. **`sharp-anchor-census` once the NCAAF slate is live Saturday** — free and
+   bounded. Tonight's ~30% may be a pre-slate artefact of thin early lines.
+3. **`credits-day --date 20260920` Monday** — the registered check, beside
+   `20260913`. Take the measurement; do not re-derive the projection.
+4. **One "Price on Kalshi" tap on the props card — JOE ONLY, unchanged.** It
+   mints a market on the exchange. A session must not do it.
+5. **Deploy at some point** so `/api/health` matches `origin/main`. Nothing
+   urgent rides on it.
+6. Carried parks: the shard probe (**ADR 0158**, with unpark conditions — stop
+   re-typing it); `user_not_found` on shard 3; the 25 s read budget.
+7. **Reservations:** none live. Next ADR **0159**; schema **v44** until the
+   rebuild.
+
+---
+
 ## 2026-09-16 (twenty-second session) — the sharp anchor is thinnest where the slate is biggest, and two "safe fixes" inherited from yesterday's ADR were measured and were not fixes
 
 Joe: *"Read next.md and start."* Not a named errand, so a partner pass ran.
