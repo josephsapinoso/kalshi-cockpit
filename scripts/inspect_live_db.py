@@ -122,6 +122,16 @@ What this does not establish
   *require* the largest contributor's share beside any aggregate. That query
   is otherwise structure and counts only, and what it may never report is
   written into its own docstring rather than left to this paragraph.
+- **The third exemption: `sharp-anchor-census` is a per-bucket split**, by
+  `(league, market, anchored_on_sharp)`, which the rule above would forbid.
+  Same census argument -- an exhaustive `COUNT(*)` over a bounded window under
+  three keys, no sample, no null, no standard error. **It prints no ratio, and
+  the name says census for that reason**: it was drafted as `sharp-anchor-rate`
+  and renamed, because a query whose name promises the one quantity it must not
+  emit is a query someone will eventually make emit it. Both values of the flag
+  are rows, so the denominator is always on the screen. What it may never be
+  read as -- a rate over `rows_n`, which is passes x rungs and not a count of
+  opportunities -- is written into its own docstring.
 """
 
 from __future__ import annotations
@@ -226,6 +236,7 @@ from inspect_live_db_decisions import (  # noqa: E402,F401
     _q_prop_rungs,
     _q_results_for_pull,
     _q_series,
+    _q_sharp_anchor_census,
     _q_team_bookmakers,
     _qw_verdict,
 )
@@ -475,6 +486,19 @@ QUERIES: dict[str, QueryDef] = {
         "slots of the named ten buying nothing? Bounded by a commence_ms "
         "floor (--since YYYYMMDD, default 7 days) and optionally --sport.",
         _q_prop_bookmakers,
+    ),
+    "sharp-anchor-census": QueryDef(
+        "How often the consensus actually HAD a sharp book to anchor on: "
+        "fair_prices joined to event_links, counted by (league, market, "
+        "anchored_on_sharp). This is the MEASUREMENT that team-bookmakers is "
+        "only the input to -- book presence is an upper bound on anchoring, "
+        "because devig runs per rung and a book must have quoted that exact "
+        "line two-sided. Both values of the flag are emitted so the "
+        "denominator is on the screen; no ratio is printed. Read `links`, not "
+        "`rows_n`: rungs within a fixture are not independent. Bounded by a "
+        "computed_ms floor (--since YYYYMMDD, default 2 days) and optionally "
+        "--league (Kalshi's string, e.g. 'NCAA Football').",
+        _q_sharp_anchor_census,
     ),
     "team-bookmakers": QueryDef(
         "The mirror of prop-bookmakers across the same discriminator: "
@@ -777,6 +801,17 @@ def _build_parser() -> argparse.ArgumentParser:
             "odds_snapshots.sport_key (e.g. americanfootball_nfl). Default "
             "None means every sport, which is still bounded by the --since "
             "commence_ms floor"
+        ),
+    )
+    parser.add_argument(
+        "--league",
+        default=None,
+        help=(
+            "sharp-anchor-census: restrict to one event_links.league. This is "
+            "KALSHI's own string, not the Odds API sport_key -- 'NCAA "
+            "Football', 'Pro Football', 'Pro Baseball', 'Pro Basketball (W)'. "
+            "An unrecognised value returns no rows, which reads exactly like a "
+            "league with none, so run it unfiltered first"
         ),
     )
     parser.add_argument(

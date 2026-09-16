@@ -3,7 +3,8 @@
 Queries: `decision-dump`, `actionable-audit`, `clv-signal-pull`,
 `clv-coverage`, `results-for-pull`, `events-for-pull`,
 `closing-lines-for-pull`, `series`, `prop-bookmakers`, `team-bookmakers`,
-`prop-rungs`, `kalshi-quotes-band`, `fair-prices-by-market`.
+`sharp-anchor-census`, `prop-rungs`, `kalshi-quotes-band`,
+`fair-prices-by-market`.
 
 Everything the strategy wrote down and everything used to judge it. Two
 properties travel with the whole module and neither may be relaxed: these
@@ -159,6 +160,66 @@ _SQL_TEAM_BOOKMAKERS = (
     "  AND outcome_description IS NULL "
     "GROUP BY sport_key, bookmaker ORDER BY sport_key, quotes DESC"
 )
+
+# How often the consensus actually had a sharp book to anchor on, per league
+# per market -- the MEASUREMENT that `team-bookmakers` is only the input to.
+#
+# **This exists because book presence overstates anchoring, and a session
+# inferred the wrong answer from it on 2026-09-16.** The input side said WNBA
+# was the worst-covered sport; the column says WNBA `h2h` is anchored on every
+# row and **NCAAF `spreads` and `totals` are the worst cells in the table**, on
+# the largest counts in it. Four gaps separate presence from anchoring and
+# every one runs the same way -- presence can only overstate:
+#
+#   1. `consensus_devig` runs once per RUNG (`runner.py:1465`, `:1552`), not
+#      per fixture, and a book joins a rung only if it quoted that exact line
+#      two-sided and complementary in the same sweep (`runner.py:862-875`,
+#      `:992-999`). A book that quoted *some* spread did not necessarily quote
+#      the one Kalshi lists.
+#   2. One-sided or multi-line quotes are dropped whole.
+#   3. A book that fails `devig` drops out of `usable` (`devig.py:280-286`).
+#   4. `commence_ms <= stamp` drops started games.
+#
+# **Counts, never a rate.** Both values of `anchored_on_sharp` are emitted as
+# their own rows so the denominator is on the screen beside the numerator; this
+# module emits rows and no aggregate, and a ratio computed here would be the
+# decision rule rather than the evidence. `links` is the clustering unit --
+# rungs within one fixture are not independent observations, and the `rows_n`
+# column will always be the flattering one to quote.
+#
+# **`league` comes from `event_links`, which is Kalshi's own string**
+# (`discovery.py:240`), not the Odds API's `sport_key`: `fair_prices` carries
+# no sport. The four live values are `Pro Baseball`, `NCAA Football`,
+# `Pro Basketball (W)`, `Pro Football`. An unrecognised `--league` returns no
+# rows, which reads identically to a league with no anchored rows, so the
+# unfiltered call prints every league and `--league` is for narrowing a known
+# answer rather than for discovering one.
+#
+# Bounded on `computed_ms` with `market` pinned to the three team markets, so
+# `idx_fair_market_computed` -- which leads with `market` -- seeks rather than
+# scans: `SEARCH f USING INDEX idx_fair_market_computed (market=? AND
+# computed_ms>?)`. Measured, not assumed.
+_SQL_SHARP_ANCHOR_CENSUS = (
+    "SELECT e.league AS league, f.market AS market, "
+    "  f.anchored_on_sharp AS anchored_on_sharp, "
+    "  COUNT(*) AS rows_n, "
+    "  COUNT(DISTINCT f.link_id) AS links, "
+    "  MIN(f.computed_ms) AS first_ms, MAX(f.computed_ms) AS last_ms "
+    "FROM fair_prices f JOIN event_links e ON e.id = f.link_id "
+    "WHERE f.market IN ('h2h', 'spreads', 'totals') "
+    "  AND f.computed_ms >= :since "
+    "  AND (:league IS NULL OR e.league = :league) "
+    "GROUP BY e.league, f.market, f.anchored_on_sharp "
+    "ORDER BY e.league, f.market, f.anchored_on_sharp"
+)
+
+#: Default lookback for `sharp-anchor-census`, in days of `computed_ms`.
+#:
+#: Shorter than the seven days `team-bookmakers` uses, and deliberately: a
+#: `fair_price` is recomputed every pass, so two days is already many rows per
+#: fixture, and the question ("is the anchor holding on the slate in front of
+#: me") is about the current slate rather than the season.
+_SHARP_ANCHOR_DEFAULT_DAYS = 2
 
 #: The variable naming the books the request asks for, read from the same
 #: environment the deployed loop reads it in.
@@ -660,11 +721,59 @@ _SQL_CLV_LINK_FANOUT = (
 # **The rest of the commentary that stood here moved to that document's
 # appendix on 2026-09-06**, verbatim, because this file crossed the Read-tool
 # ceiling. Read it there before changing the query below.
-_SQL_PROP_RUNGS = (
+#
+# **`--odds-event-id` never bounded this query, and the obvious fix does not
+# either. Measured 2026-09-15, not reasoned about.**
+#
+# The defect as recorded in ADR 0157: the `prop` CTE selects every row carrying
+# an `outcome_description`, `latest` groups over that, and `:event` was applied
+# only at the OUTER level -- so naming a fixture discarded the other fixtures'
+# rows after everything had already been read. The proposed fix was to push
+# `(:event IS NULL OR odds_event_id = :event)` down into the CTE.
+#
+# That push-down **changes no plan at all.** With the OR-form in the CTE,
+# `EXPLAIN QUERY PLAN` is byte-identical to the version without it, for both a
+# named fixture and no flag:
+#
+#     CO-ROUTINE latest
+#     SCAN odds_snapshots USING INDEX idx_odds_event_commence   <- still whole
+#     SCAN l
+#     SEARCH odds_snapshots USING INDEX idx_odds_event_commence (odds_event_id=?)
+#
+# SQLite cannot turn `(:param IS NULL OR col = :param)` into a seek, because
+# the parameter's nullity is unknown when the statement is planned; it must
+# emit a plan that is correct for NULL, and that plan is a scan. (The `SEARCH`
+# line above is the JOIN on `l.odds_event_id`, not the flag -- it is there with
+# no flag too, which is what makes the flag's uselessness invisible.)
+#
+# The form that does seek is a **hard equality**, so the two cases are two
+# statements rather than one with a switch in it:
+#
+#     CO-ROUTINE latest
+#     SEARCH odds_snapshots USING INDEX idx_odds_event_commence (odds_event_id=?)
+#     SEARCH odds_snapshots USING INDEX idx_odds_event_commence (odds_event_id=?)
+#
+# Both are constants; `_q_prop_rungs` picks by whether `--odds-event-id` is
+# given, and the shared body is written once so the two cannot drift.
+#
+# **Population-preserving, which is why it needs no registration.** With a
+# fixture named, the outer predicate had already discarded every other
+# fixture, and `latest` keys `MAX(fetched_ms)` per `odds_event_id`, so
+# restricting the CTE cannot move which `(event, fetched_ms)` pair wins. The
+# unfiltered statement is unchanged, character for character.
+#
+# **What was NOT done, and it is not an oversight.** The unfiltered call still
+# walks the whole index. A default window would change the population of a
+# REGISTERED analysis (`scripts/analyze_prop_onesided.py`), which is a
+# pre-registration question and not a cleanup (ADR 0157, "Found while
+# verifying"). **Do not run `prop-rungs` without `--odds-event-id` on live
+# during a slate.**
+_PROP_RUNGS_TEMPLATE = (
     "WITH prop AS ("
     "  SELECT odds_event_id, bookmaker, market, outcome_name, "
     "         outcome_description, outcome_point, price_decimal, fetched_ms "
     "  FROM odds_snapshots WHERE outcome_description IS NOT NULL"
+    "{cte_event}"
     "), "
     "latest AS ("
     "  SELECT odds_event_id, MAX(fetched_ms) AS m FROM prop "
@@ -694,6 +803,17 @@ _SQL_PROP_RUNGS = (
     "         p.outcome_description, p.outcome_point "
     "ORDER BY p.odds_event_id, p.bookmaker, base_market, is_alternate, "
     "         p.outcome_description, p.outcome_point"
+)
+
+#: The registered population: every fixture, no bound. Character-for-character
+#: what it has always been -- the empty substitution changes nothing.
+_SQL_PROP_RUNGS = _PROP_RUNGS_TEMPLATE.format(cte_event="")
+
+#: One fixture, seeking rather than scanning. Same rows as running
+#: `_SQL_PROP_RUNGS` and keeping the `:event` rows, which is what the tests
+#: assert rather than assume.
+_SQL_PROP_RUNGS_ONE_EVENT = _PROP_RUNGS_TEMPLATE.format(
+    cte_event="    AND odds_event_id = :event"
 )
 
 
@@ -1005,6 +1125,76 @@ def _requested_books_section() -> Section:
     )
 
 
+def _sharp_anchor_since_ms(args) -> int:
+    """The `computed_ms` floor for `sharp-anchor-census`.
+
+    A window by default, for the reason `_bookmakers_since_ms` is: the
+    unbounded call is the one a session reaches for mid-slate. A malformed
+    `--since` raises rather than falling back -- a silently ignored bound is an
+    unbounded query wearing a flag.
+    """
+    value = getattr(args, "since", None)
+    if value is None:
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        return now_ms - _SHARP_ANCHOR_DEFAULT_DAYS * _MS_PER_DAY
+    try:
+        return _day_bounds(value, args.day_start_hour)[0]
+    except ValueError as exc:
+        raise ValueError(f"--since must be YYYYMMDD, got {value!r}") from exc
+
+
+def _q_sharp_anchor_census(conn: sqlite3.Connection, args) -> list[Section]:
+    """How often the consensus had a sharp book to anchor on, per league/market.
+
+    One row per `(league, market, anchored_on_sharp)`, so both the numerator and
+    its denominator are on the screen and no ratio is computed here. `links` is
+    the clustering unit: rungs inside one fixture are not independent, and
+    `rows_n` is the number that will always look larger.
+
+    `--since YYYYMMDD` moves the `computed_ms` floor (default two days);
+    `--league` cuts to one `event_links.league`.
+
+    What this does not establish
+    ----------------------------
+    - **Nothing about WHY a row is unanchored.** The column records that no
+      purchased sharp book contributed to that rung. It does not say whether
+      the book quoted a different line, quoted one side, failed the devig, or
+      never returned at all. `team-bookmakers` is the input side of that and
+      is an upper bound on this, never a lower one.
+    - **Nothing that a rate over `rows_n` would mean.** A fixture contributes
+      one row per rung per pass, so `rows_n` is passes x rungs and is not a
+      count of opportunities. Read `links` beside it, and read neither as a
+      sample.
+    - **Nothing about whether an unanchored price is WRONG.** The fallback is
+      the full usable book set, which is a worse consensus and not a missing
+      one; ADR 0068 already shows the flag on the row. This counts how often
+      the fallback fired.
+    - **Nothing about a league absent from the output.** `--league` takes
+        Kalshi's own string and an unrecognised one returns nothing, which
+        reads exactly like a league with no rows. Run it unfiltered first.
+    """
+    since_ms = _sharp_anchor_since_ms(args)
+    league = getattr(args, "league", None)
+    scope = f"league = {league!r}" if league else "every league"
+    return [
+        _window_section(
+            "sharp-anchor-census window (computed_ms floor)", since_ms, None
+        ),
+        _fetch(
+            conn,
+            _SQL_SHARP_ANCHOR_CENSUS,
+            {"since": since_ms, "league": league},
+            title=(
+                "fair_prices x event_links: rows by anchored_on_sharp, per "
+                f"league and market, {scope}, computed at or after "
+                f"{_iso(since_ms)}. Both values are listed; the denominator "
+                "is their sum and no ratio is printed here"
+            ),
+            cap=args.limit,
+        ),
+    ]
+
+
 def _q_team_bookmakers(conn: sqlite3.Connection, args) -> list[Section]:
     """Which books returned TEAM markets, per sport, and on which markets.
 
@@ -1027,10 +1217,25 @@ def _q_team_bookmakers(conn: sqlite3.Connection, args) -> list[Section]:
       the sport had no fixture inside the window, or the key is misspelled and
       the vendor dropped it silently while still charging one of the ten slots.
       A misspelling is the one worth ruling out by eye against slot list.
-    - **Nothing about the sharp anchor's verdict.** It reports which books came
-      back; whether `consensus_devig` then anchored on a sharp one is recorded
-      per row in `fair_prices.anchored_on_sharp`, and that column is the
-      measurement. This is the input to it, not a substitute.
+    - **`markets` names a market, never a RUNG, and the rung is what anchoring
+      turns on.** The column is `GROUP_CONCAT(DISTINCT market)`, so `spreads`
+      here means "quoted some spread line" and never "quoted the line Kalshi
+      lists". `consensus_devig` runs once per rung (`runner.py:1465`, `:1552`)
+      and a book joins a rung only if it quoted that exact line two-sided in
+      the same sweep (`runner.py:862-875`, `:992-999`). A book can therefore
+      be present on every market here and anchor nothing.
+    - **Nothing about the sharp anchor's verdict, and this is an UPPER BOUND on
+      it.** It reports which books came back; whether `consensus_devig` then
+      anchored on a sharp one is recorded per row in
+      `fair_prices.anchored_on_sharp`, and `sharp-anchor-census` reads that
+      column. Four gaps separate the two -- rung mismatch, one-sided quotes,
+      devig failures, commenced games -- and every one can only make the
+      measurement smaller than this. Read the measurement; this is its input.
+    - **One sweep is one observation.** A fetch that returns 48 rows is one
+      vendor response, not 48 observations, and a sport whose fixtures just
+      entered the buying horizon will have exactly one. Read `first_fetched_ms`
+      against `last_fetched_ms` on every row before quoting `quotes` or
+      `events`: when they are equal, both columns describe a single instant.
     - **Nothing about price quality** -- presence, not correctness. A book
       returning one stale outcome counts the same as one quoting every market.
     - **Nothing about a market this instance never buys.** `ODDS_MARKETS`
@@ -1278,10 +1483,17 @@ def _q_prop_rungs(conn: sqlite3.Connection, args) -> list[Section]:
     """
     event = args.odds_event_id
     scope = f"odds_event_id = {event}" if event else "all fixtures"
+    # Two statements, not one with a switch: SQLite cannot seek on the
+    # `(:event IS NULL OR ...)` form, so the bounded case needs a hard
+    # equality in the CTE. See the comment on `_PROP_RUNGS_TEMPLATE` -- the
+    # plans were measured, and the OR-form's is identical to no predicate at
+    # all. The unfiltered statement is the registered population and is
+    # unchanged.
+    sql = _SQL_PROP_RUNGS_ONE_EVENT if event else _SQL_PROP_RUNGS
     return [
         _fetch(
             conn,
-            _SQL_PROP_RUNGS,
+            sql,
             {"event": event},
             title=(
                 "odds_snapshots: prop rungs at the latest sweep per fixture "
