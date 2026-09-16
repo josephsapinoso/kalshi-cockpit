@@ -197,6 +197,57 @@ task.
 name a floor, and without this one the default could stop being a window and
 every one of them would still pass.
 
+## Verified on live — 2026-09-16, and the bound is worth far more than modelled
+
+Deployed at `45b60b9`/`5b91dae`; rehearsed in the container on a `VACUUM INTO`
+copy of the live file. Full numbers and caveats:
+`docs/measurements/2026-09-16-fair-prices-census-bound-and-the-analyze-rehearsal.md`.
+
+    census, UNBOUNDED (what live ran until today)   208,289.1 ms
+    census, BOUNDED   (this ADR)                        645.8 ms      322x
+
+**208 seconds.** The bench predicted 19.6x and live gave 322x — the modelled
+window held 1.42% of rows where live holds 6.267%, and the box is I/O-bound
+against 6.3 GB with 2.0 GB of RAM. ADR 0141's rule that a benchmark gives a
+direction and a floor, never a magnitude, held in the generous direction this
+time.
+
+Live's shape, read rather than assumed: **10,131,885 rows**, **8** distinct
+`market` values (so the skip-scan premise transfers), and **`sqlite_stat1`
+ABSENT** — confirming that the live planner has chosen every plan it has ever
+chosen from built-in guesses.
+
+§4 is settled by measurement: forcing `INDEXED BY idx_odds_commence` on section
+A read 1,421.6 ms against the covering scan's 1,459.8 ms — within noise,
+because the forced plan trades the scan for a `TEMP B-TREE FOR GROUP BY`.
+**Section A stays a filter.**
+
+## ANALYZE is still not shipped, and now for a measured reason
+
+The rehearsal did what it was built to do, including to itself.
+
+    census, bounded + ANALYZE     645.8 ms -> 191.9 ms   3.37x   plan CHANGED to skip-scan
+    CANDIDATE_SQL               1,177.0 ms -> 1,157.5 ms  1.02x   plan UNCHANGED
+    section A, UNBOUNDED        2,812.0 ms -> 7,168.2 ms  0.39x   plan UNCHANGED
+
+The middle line is the good news and it is the one this ADR most wanted:
+**ADR 0134's `MULTI-INDEX OR` survives `ANALYZE`**, line for line.
+
+The last line is why nothing ships. A plan-unchanged 2.5x slowdown is not
+caused by statistics — it is caused by the instrument. This ADR's rehearsal
+times every "before" statement, then runs `ANALYZE`, then times every "after"
+statement, roughly **thirty minutes apart**, while its sibling
+`measure_fair_price_window_index.py` interleaves arms round-robin in one
+process and documents why (the same query read 1,283 ms and 3,904 ms in two
+sessions on cache residency alone). ADR 0144 is titled *a single arm timing is
+not evidence*.
+
+So the guard fired and is honoured rather than argued with: `SCHEMA_VERSION`
+stays **44**, schema **v45 stays unallocated**, and the next ADR is **0160**.
+A successor must interleave the two states — `sqlite_stat1` can be dropped and
+rebuilt on a copy, so the pairing is available — and may reasonably drop the
+arm that regressed, since this ADR deleted the statement it times.
+
 ## What this does not decide
 
 - **Whether `ANALYZE` ships.** §"What is NOT in this ADR". If the rehearsal is

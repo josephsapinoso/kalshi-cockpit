@@ -16,6 +16,51 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-16 (seventh) - A before/after measurement taken thirty minutes apart is a drift measurement; interleave the arms or do not compare them
+
+Two instruments were written the same day for the same decision.
+`measure_fair_price_window_index.py` times its arms **round-robin in one
+process**, and its docstring says why: the identical query over the identical
+data read 1,283 ms in one session and 3,904 ms in the next, purely on how much
+of the file the page cache still held.
+
+`rehearse_fair_price_window.py` -- written hours later, by the same reasoning,
+to answer the harder question on live -- does not. It times every "before"
+statement, runs `ANALYZE`, then times every "after" statement. On live that put
+the two halves of each pair **thirty minutes apart**, on a box that was running
+the recorder and had just had its cache scoured by three 208-second reads in
+between.
+
+It produced exactly the artefact you would predict: one arm came out 2.5x
+slower "after", with its query plan **byte-identical**. Statistics cannot slow
+a query down without changing its plan, so the number was about the clock, not
+the change.
+
+The rule was known, written down, and applied in the sibling file. It was lost
+in the second instrument because that one is shaped like a *procedure* -- copy,
+measure, change, measure, clean up -- and the procedure's natural order is
+exactly the wrong order.
+
+Three rules:
+
+- **Pair the arms in time, not in narrative order.** "Before" and "after" are
+  a story; a measurement needs them adjacent. If the change can be undone on
+  the copy -- and `sqlite_stat1` can be dropped and rebuilt -- then interleave
+  and take several rounds.
+- **A plan-unchanged timing change is a fact about the environment.** Read it
+  as a bug in the harness before reading it as a finding. It is one of the few
+  places where "that cannot be right" is a sound first reaction.
+- **When a second instrument answers the same question as a first, copy its
+  caveats deliberately.** The gap here was not ignorance; the constraint was
+  two files away in a docstring written the same day. Re-read the sibling's
+  "what this does not establish" before trusting the new one.
+
+And the outcome rule, which is the reason this entry is short on regret: **the
+guard fired and was honoured.** The other rows were attractive -- a 322x win
+already banked, a 3.37x further gain, the feared plan intact -- and that is
+exactly the condition under which a flagged regression gets explained away.
+Nothing shipped.
+
 ## 2026-09-16 (sixth) - A copy that restarts whenever its source is written cannot outlast the writer's cadence, and it reports the restart as progress
 
 The v37 rehearsal copied the live database with `sqlite3.backup`, paced at
