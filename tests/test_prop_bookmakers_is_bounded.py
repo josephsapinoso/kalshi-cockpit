@@ -26,7 +26,7 @@ WHAT THIS DOES NOT ESTABLISH
 Mutations, one per test, each observed red:
   1. drop ` AND commence_ms >= :since ` from `_SQL_PROP_BOOKMAKERS`
   2. drop ` AND (:sport IS NULL OR sport_key = :sport) `
-  3. `_prop_since_ms` returning `0` when `--since` is absent
+  3. `_bookmakers_since_ms` returning `0` when `--since` is absent
 """
 
 from __future__ import annotations
@@ -180,11 +180,11 @@ class TestTheSportCutIsOptionalAndExact:
 
 
 class TestTheDefaultIsAWindowNotTheWholeTable:
-    """Mutation: `_prop_since_ms` returning 0 when `--since` is absent."""
+    """Mutation: `_bookmakers_since_ms` returning 0 when `--since` is absent."""
 
     def test_an_absent_since_still_produces_a_recent_floor(self):
-        floor = decisions._prop_since_ms(_Args())
-        expected = decisions._PROP_BOOKMAKERS_DEFAULT_DAYS * DAY_MS
+        floor = decisions._bookmakers_since_ms(_Args())
+        expected = decisions._BOOKMAKERS_DEFAULT_DAYS * DAY_MS
         # Within a day of "now minus the default window", not near the epoch.
         assert floor > 1_700_000_000_000, floor
         now_ms = floor + expected
@@ -193,7 +193,7 @@ class TestTheDefaultIsAWindowNotTheWholeTable:
     def test_a_malformed_since_is_refused_rather_than_ignored(self):
         """A silently ignored bound is an unbounded query wearing a flag."""
         with pytest.raises(ValueError, match="YYYYMMDD"):
-            decisions._prop_since_ms(_Args(since="last-tuesday"))
+            decisions._bookmakers_since_ms(_Args(since="last-tuesday"))
 
 
 class TestThePlanDoesNotScanTheTable:

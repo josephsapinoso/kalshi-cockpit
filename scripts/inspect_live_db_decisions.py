@@ -2,8 +2,8 @@
 
 Queries: `decision-dump`, `actionable-audit`, `clv-signal-pull`,
 `clv-coverage`, `results-for-pull`, `events-for-pull`,
-`closing-lines-for-pull`, `series`, `prop-bookmakers`, `prop-rungs`,
-`kalshi-quotes-band`, `fair-prices-by-market`.
+`closing-lines-for-pull`, `series`, `prop-bookmakers`, `team-bookmakers`,
+`prop-rungs`, `kalshi-quotes-band`, `fair-prices-by-market`.
 
 Everything the strategy wrote down and everything used to judge it. Two
 properties travel with the whole module and neither may be relaxed: these
@@ -24,6 +24,7 @@ that file's docstring.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -109,10 +110,69 @@ _SQL_PROP_BOOKMAKERS = (
     "GROUP BY bookmaker ORDER BY quotes DESC"
 )
 
-#: Default lookback for `prop-bookmakers`, in days of `commence_ms`. Seven
-#: covers a full sports week including the weekend that follows, which is the
-#: population anyone asking "which books quote props" means.
-_PROP_BOOKMAKERS_DEFAULT_DAYS = 7
+#: Default lookback for `prop-bookmakers` and `team-bookmakers`, in days of
+#: `commence_ms`. Seven covers a full sports week including the weekend that
+#: follows, which is the population anyone asking "which books quote this"
+#: means.
+_BOOKMAKERS_DEFAULT_DAYS = 7
+
+
+# The same question on the OTHER side of the discriminator: which books came
+# back on the team markets, per sport.
+#
+# **Why it is separate from `prop-bookmakers` rather than a flag on it.** The
+# prop path is essentially never called -- `ODDS_BUY_PROPS_ON_SCHEDULE` is
+# `"false"` and the props card has 0 taps in 77 lifetime lookups -- so
+# `prop-bookmakers` returned 0 rows on every sport over a fortnight. The team
+# path is the one that runs. Everything the desk prices is priced off these
+# rows, and nothing in this repo could report them per sport.
+#
+# **What makes it worth a subcommand: an absent sharp book raises nothing.**
+# `consensus_devig` (`backend/core/devig.py:288-289`) reads
+#
+#     sharp = {b: r for b, r in usable.items() if sharp_books and b in sharp_books}
+#     selected = sharp or usable
+#
+# so a sport no sharp book quotes does not fail, and does not log: `sharp` is
+# empty and the consensus silently falls back to every book it has, soft ones
+# included. The row carries `anchored_on_sharp = 0` and nothing else says so.
+# Three sharps are bought (`pinnacle`, `matchbook`, `betfair_ex_eu`), one of
+# which is known to quote `h2h` ONLY, so spreads and totals already anchor on
+# two. NCAAF and NFL are new to the slate and nobody has checked that those
+# two cover them.
+#
+# `GROUP_CONCAT(DISTINCT market)` is here for exactly that: a book present on
+# a sport but absent from `spreads` is the case that matters, and a query that
+# only counted quotes would report it as present.
+#
+# Bounded on `commence_ms` for the reason `_SQL_PROP_BOOKMAKERS` is, and the
+# reason is not negotiable on this table: see ADR 0157.
+_SQL_TEAM_BOOKMAKERS = (
+    "SELECT sport_key, bookmaker, "
+    "COUNT(*) AS quotes, "
+    "COUNT(DISTINCT odds_event_id) AS events, "
+    "GROUP_CONCAT(DISTINCT market) AS markets, "
+    "MIN(fetched_ms) AS first_fetched_ms, MAX(fetched_ms) AS last_fetched_ms "
+    "FROM odds_snapshots "
+    "WHERE commence_ms >= :since "
+    "  AND (:sport IS NULL OR sport_key = :sport) "
+    "  AND outcome_description IS NULL "
+    "GROUP BY sport_key, bookmaker ORDER BY sport_key, quotes DESC"
+)
+
+#: The variable naming the books the request asks for, read from the same
+#: environment the deployed loop reads it in.
+#:
+#: Echoed beside the response because the whole difficulty of reading an
+#: absence here is that two different things produce one: a book that quotes
+#: nothing, and a book that was never asked for. Since ADR 0155 the request
+#: names ten keys and the vendor returns only those, so the response alone
+#: cannot tell them apart. Printing the request turns a cross-source join --
+#: the kind a reader does from memory and gets wrong -- into two adjacent
+#: sections.
+#:
+#: Unset resolves to a section that says so, never to an inferred list.
+_ODDS_BOOKMAKERS_ENV = "ODDS_BOOKMAKERS"
 
 
 # ---------------------------------------------------------------------------
@@ -858,7 +918,7 @@ def _q_prop_bookmakers(conn: sqlite3.Connection, args) -> list[Section]:
     - **Nothing about price quality** -- presence, not correctness, and a book
       quoting one side of one line counts the same as one quoting every rung.
     """
-    since_ms = _prop_since_ms(args)
+    since_ms = _bookmakers_since_ms(args)
     scope = f"sport_key = {args.sport!r}" if getattr(args, "sport", None) else "every sport"
     return [
         _window_section(
@@ -877,20 +937,128 @@ def _q_prop_bookmakers(conn: sqlite3.Connection, args) -> list[Section]:
     ]
 
 
-def _prop_since_ms(args) -> int:
-    """The `commence_ms` floor for `prop-bookmakers`.
+def _bookmakers_since_ms(args) -> int:
+    """The `commence_ms` floor for `prop-bookmakers` and `team-bookmakers`.
 
     Defaults to a window rather than to no bound: an unbounded default is one a
     session reaches for during a game, which is when it costs the most.
+
+    One helper, because the two subcommands ask the same question of opposite
+    sides of one discriminator and a floor that drifted between them would make
+    their row counts incomparable. It was named `_prop_since_ms` while only the
+    prop side existed; the rename went in with the second caller rather than
+    leaving a shared helper named for one of its two users.
     """
     value = getattr(args, "since", None)
     if value is None:
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        return now_ms - _PROP_BOOKMAKERS_DEFAULT_DAYS * _MS_PER_DAY
+        return now_ms - _BOOKMAKERS_DEFAULT_DAYS * _MS_PER_DAY
     try:
         return _day_bounds(value, args.day_start_hour)[0]
     except ValueError as exc:
         raise ValueError(f"--since must be YYYYMMDD, got {value!r}") from exc
+
+
+def _requested_bookmakers() -> list[str]:
+    """The keys `ODDS_BOOKMAKERS` names, in the order the request sends them.
+
+    Empty list means the variable is unset or blank, which is a real state and
+    not a failure: with it unset the client falls back to buying `regions`, and
+    then the response is not restricted to a named ten at all. The caller says
+    which of those two it is; this returns what is there and infers nothing.
+    """
+    raw = os.environ.get(_ODDS_BOOKMAKERS_ENV, "").strip()
+    return [key.strip() for key in raw.split(",") if key.strip()]
+
+
+def _requested_books_section() -> Section:
+    """The request's own book list, printed beside the response.
+
+    A key here and absent from the data section below is the reading this
+    query exists to support -- and it is deliberately NOT computed. Three
+    different things put a key here and not there (the book quotes nothing on
+    that sport, the sport had no fixture in the window, the key is misspelled
+    and the vendor silently dropped it) and they are indistinguishable in this
+    table. A column asserting "missing" would name one of the three.
+    """
+    keys = _requested_bookmakers()
+    if not keys:
+        return Section(
+            title=(
+                f"{_ODDS_BOOKMAKERS_ENV} is unset or blank in THIS process's "
+                "environment -- so either the request buys regions rather than "
+                "named books, or this script is not running where the loop "
+                "runs. Nothing is inferred; read the deployed config."
+            ),
+            columns=("slot", "bookmaker"),
+            rows=[],
+        )
+    return Section(
+        title=(
+            f"{_ODDS_BOOKMAKERS_ENV}: the {len(keys)} keys the request asks "
+            "for. A key absent from the section below was asked for and did "
+            "not come back -- which is NOT the same as a book that quotes "
+            "nothing (see the docstring)."
+        ),
+        columns=("slot", "bookmaker"),
+        rows=[(i, key) for i, key in enumerate(keys, start=1)],
+    )
+
+
+def _q_team_bookmakers(conn: sqlite3.Connection, args) -> list[Section]:
+    """Which books returned TEAM markets, per sport, and on which markets.
+
+    The mirror of `prop-bookmakers` across `outcome_description`: NULL on every
+    team market, populated on every prop, per that column's own comment in
+    `store/schema.sql`. Selecting on the discriminator rather than on a list of
+    market keys keeps this from drifting out of step with `ODDS_MARKETS`.
+
+    `--since YYYYMMDD` moves the `commence_ms` floor (default seven days);
+    `--sport` cuts to one `sport_key`. Both are bounds before they are filters.
+
+    Three sections: the window, the keys the REQUEST named, and the response.
+    The middle one exists because an absence here has more than one cause and
+    the response alone cannot say which.
+
+    What this does not establish
+    ----------------------------
+    - **Nothing about why a book is absent.** Three causes are
+      indistinguishable in this table: the book quotes nothing on that sport,
+      the sport had no fixture inside the window, or the key is misspelled and
+      the vendor dropped it silently while still charging one of the ten slots.
+      A misspelling is the one worth ruling out by eye against slot list.
+    - **Nothing about the sharp anchor's verdict.** It reports which books came
+      back; whether `consensus_devig` then anchored on a sharp one is recorded
+      per row in `fair_prices.anchored_on_sharp`, and that column is the
+      measurement. This is the input to it, not a substitute.
+    - **Nothing about price quality** -- presence, not correctness. A book
+      returning one stale outcome counts the same as one quoting every market.
+    - **Nothing about a market this instance never buys.** `ODDS_MARKETS`
+      bounds the `markets` column from the request side exactly as
+      `ODDS_BOOKMAKERS` bounds the book list.
+    """
+    since_ms = _bookmakers_since_ms(args)
+    scope = (
+        f"sport_key = {args.sport!r}"
+        if getattr(args, "sport", None)
+        else "every sport"
+    )
+    return [
+        _window_section(
+            "team-bookmakers window (commence_ms floor)", since_ms, None
+        ),
+        _requested_books_section(),
+        _fetch(
+            conn,
+            _SQL_TEAM_BOOKMAKERS,
+            {"since": since_ms, "sport": getattr(args, "sport", None)},
+            title=(
+                "odds_snapshots: books that returned a team market, per sport, "
+                f"{scope}, commencing at or after {_iso(since_ms)}"
+            ),
+            cap=args.limit,
+        ),
+    ]
 
 
 def _q_actionable_audit(conn: sqlite3.Connection, args) -> list[Section]:

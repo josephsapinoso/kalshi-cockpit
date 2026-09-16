@@ -211,6 +211,7 @@ from inspect_live_db_decisions import (  # noqa: E402,F401
     _QW_SERIES_ORDER,
     _QW_WINDOW_END_MS,
     _QW_WINDOW_START_MS,
+    _BOOKMAKERS_DEFAULT_DAYS,
     _SQL_ACTIONABLE_FAIR,
     _SQL_ACTIONABLE_ROWS,
     _q_actionable_audit,
@@ -225,6 +226,7 @@ from inspect_live_db_decisions import (  # noqa: E402,F401
     _q_prop_rungs,
     _q_results_for_pull,
     _q_series,
+    _q_team_bookmakers,
     _qw_verdict,
 )
 from inspect_live_db_feed import (  # noqa: E402,F401
@@ -474,6 +476,19 @@ QUERIES: dict[str, QueryDef] = {
         "floor (--since YYYYMMDD, default 7 days) and optionally --sport.",
         _q_prop_bookmakers,
     ),
+    "team-bookmakers": QueryDef(
+        "The mirror of prop-bookmakers across the same discriminator: "
+        "odds_snapshots rows with outcome_description NULL (i.e. h2h, spreads "
+        "and totals), grouped by sport_key AND bookmaker, with the distinct "
+        "market keys each book returned. Answers: did all ten named books come "
+        "back on each sport, and on which markets? That matters because a "
+        "sport no sharp book quotes does not fail and does not log -- "
+        "consensus_devig falls back to every book it has, soft ones included. "
+        "Three sections: the window, the keys ODDS_BOOKMAKERS asked for, the "
+        "response. Bounded by a commence_ms floor (--since YYYYMMDD, default "
+        "7 days) and optionally --sport.",
+        _q_team_bookmakers,
+    ),
     "fair-prices-by-market": QueryDef(
         "Is a bought input actually consumed at runtime? Section A is what "
         "was BOUGHT (odds_snapshots by market, per book per outcome), "
@@ -714,7 +729,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "visit-freshness, credits-by-sport, credits-rate: first budget "
             "day to read, as YYYYMMDD (default: the last "
-            f"{_VISIT_SINCE_DEFAULT_DAYS} days)"
+            f"{_VISIT_SINCE_DEFAULT_DAYS} days). prop-bookmakers and "
+            "team-bookmakers: the commence_ms floor, same format, default the "
+            f"last {_BOOKMAKERS_DEFAULT_DAYS} days. Malformed is refused, not "
+            "ignored -- a silently dropped bound is an unbounded query wearing "
+            "a flag"
         ),
     )
     parser.add_argument(
@@ -754,9 +773,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--sport",
         default=None,
         help=(
-            "prop-bookmakers: restrict to one odds_snapshots.sport_key (e.g. "
-            "americanfootball_nfl). Default None means every sport, which is "
-            "still bounded by the --since commence_ms floor"
+            "prop-bookmakers and team-bookmakers: restrict to one "
+            "odds_snapshots.sport_key (e.g. americanfootball_nfl). Default "
+            "None means every sport, which is still bounded by the --since "
+            "commence_ms floor"
         ),
     )
     parser.add_argument(
