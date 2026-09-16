@@ -208,6 +208,28 @@ class TestLinksIsCarriedBesideRows:
         assert row[i["rows_n"]] == 2
         assert row[i["links"]] == 2
 
+    def test_a_split_fixture_is_counted_in_BOTH_link_columns(self, conn):
+        """`links` does not partition, and the docstring says so because this
+        is the easiest wrong reading available.
+
+        One fixture with one anchored rung and one unanchored rung appears in
+        both rows with `links = 1`. Summing them gives 2 for a single fixture,
+        so `anchored_links / (anchored_links + unanchored_links)` is not a
+        proportion of fixtures and must never be quoted as one.
+        """
+        _link(conn, link_id=7, league="Pro Football")
+        _fair(conn, link_id=7, market="spreads", anchored=1)
+        _fair(conn, link_id=7, market="spreads", anchored=0, outcome="Away")
+        section = _data(decisions._q_sharp_anchor_census(
+            conn, _Args(since="20260901")
+        ))
+        i = {name: n for n, name in enumerate(section.columns)}
+        links = {
+            r[i["anchored_on_sharp"]]: r[i["links"]] for r in section.rows
+        }
+        assert links == {0: 1, 1: 1}
+        assert sum(links.values()) == 2, "one fixture, counted twice"
+
     def test_two_rungs_of_one_fixture_are_two_rows_and_one_link(self, conn):
         _link(conn, link_id=9, league="Pro Football")
         _fair(conn, link_id=9, market="totals", anchored=0)

@@ -1164,7 +1164,16 @@ def _q_sharp_anchor_census(conn: sqlite3.Connection, args) -> list[Section]:
     - **Nothing that a rate over `rows_n` would mean.** A fixture contributes
       one row per rung per pass, so `rows_n` is passes x rungs and is not a
       count of opportunities. Read `links` beside it, and read neither as a
-      sample.
+      sample. The two can disagree violently and the disagreement is the
+      finding: 902 unanchored `spreads` rows over 17 links is a handful of
+      fixtures re-priced many times, not a broad failure.
+    - **`links` DOES NOT PARTITION, and this is the easiest mistake here.**
+      It is `COUNT(DISTINCT link_id)` computed separately for each value of
+      the flag, so a fixture with some anchored rungs and some unanchored ones
+      is counted in **both** rows. `23 / 46` is not "23 of 69 fixtures"; the
+      two do not sum to a fixture count and their ratio is not a proportion of
+      fixtures. Answering "how many fixtures had no sharp anchor anywhere"
+      needs a different query, and this one deliberately does not pretend to.
     - **Nothing about whether an unanchored price is WRONG.** The fallback is
       the full usable book set, which is a worse consensus and not a missing
       one; ADR 0068 already shows the flag on the row. This counts how often

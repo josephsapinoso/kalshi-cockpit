@@ -137,22 +137,33 @@ the anchor work on `main`.
 
 ### THE HEADLINE: NCAAF spreads and totals mostly have no sharp book behind them
 
-`fair_prices.anchored_on_sharp`, read live for rows computed since
-2026-09-16T00:00Z, via the new `sharp-anchor-census`:
+`fair_prices.anchored_on_sharp`, read live through `sharp-anchor-census` on
+its **two-day default window** (rows computed since 2026-09-14T02:59Z):
 
-    league              market   anchored  total   links (anchored / not)
-    NCAA Football       spreads    46       148      23 / 45
-    NCAA Football       totals     50       176      25 / 50
-    NCAA Football       h2h       110       124      55 /  7
-    Pro Football        h2h        32        64      16 / 16
-    Pro Football        spreads    22        44      11 /  8
-    Pro Baseball        spreads    96       113      15 /  3
-    Pro Baseball        totals     94       114      14 /  7
-    Pro Basketball (W)  h2h        16        16       8 /  0
-    Pro Basketball (W)  spreads     4        10       2 /  3
+    league              market   anchored/rows   anchored/not, by link
+    NCAA Football       spreads     46 / 153          23 / 46
+    NCAA Football       totals      50 / 176          25 / 50
+    NCAA Football       h2h        110 / 131          55 / 12
+    Pro Football        spreads    118 / 1020         15 / 17
+    Pro Football        h2h        693 / 907          17 / 28
+    Pro Football        totals      20 / 44            9 / 10
+    Pro Baseball        spreads    988 / 1778         33 / 30
+    Pro Baseball        h2h       1251 / 1882         33 / 24
+    Pro Baseball        totals     458 / 745          24 / 21
+    Pro Basketball (W)  h2h         16 / 16            8 /  0
+    Pro Basketball (W)  spreads      4 / 10            2 /  3
 
-**NCAAF spreads and totals run about 30% anchored, on the two largest cells in
-the table, and NCAAF is Saturday.** When no purchased sharp book reaches a
+**Read the link columns, and read them carefully.** `rows_n` is passes x rungs,
+so NFL `spreads` at 118/1020 rows (12%) is **not** a broad failure — it is 902
+unanchored rows over **17** links, a few fixtures re-priced many times. And
+`links` **does not partition**: it is `COUNT(DISTINCT link_id)` per flag value,
+so a fixture with some anchored rungs and some unanchored ones is counted in
+*both* columns. `23 / 46` is not "23 of 69 fixtures". Guarded by
+`test_a_split_fixture_is_counted_in_BOTH_link_columns`; answering "how many
+fixtures had no sharp anchor anywhere" needs a query that does not exist yet.
+
+**On both measures NCAAF `spreads` and `totals` are the thinnest — about 30%
+of rows and about a third of links — and NCAAF is Saturday.** When no purchased sharp book reaches a
 rung, `consensus_devig` (`backend/core/devig.py:288`) reads
 `selected = sharp or usable` and the consensus falls back to the full book set,
 soft books included. It raises nothing and logs nothing — **but it is not
