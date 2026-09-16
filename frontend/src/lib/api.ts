@@ -3231,9 +3231,11 @@ export type HedgeRefusal = { reason: string; detail: string };
 /**
  * What hedging would do, or why it cannot be priced.
  *
- * `kind` separates the two states that must never render alike: a `lock` has a
- * floor that is true whichever way the last leg goes, and a `derisk` has none
- * — it carries no `guaranteed` field at all, rather than a false one.
+ * `kind` separates the two states that must never render alike: a `lock` has
+ * a figure for what a hedge comes to either way — an estimate, four terms of
+ * mixed sign sit on it — and a `derisk` has none; it carries no `guaranteed`
+ * field at all, rather than a false one. (`lock` is the wire name of the
+ * state and the alert predicate; the screen does not use the word.)
  */
 export type HedgeBlock = {
   refusal: HedgeRefusal | null;
@@ -3248,6 +3250,11 @@ export type HedgeBlock = {
   best_available?: HedgeRung | null;
   guaranteed?: boolean;
   guaranteed_display?: string | null;
+  /** The largest measured error term on this ticket's figure, in dollars for
+   * this ticket, as one sentence (`hedge.estimate_grain`). Rendered beside the
+   * figure at the figure's size; never computed with. `null` when there is
+   * no figure to set it beside. */
+  uncertainty_display?: string | null;
   full_hedge_is_out_of_reach?: boolean;
   // derisk only
   live_legs?: number;

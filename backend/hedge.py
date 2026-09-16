@@ -107,6 +107,15 @@ NOTES: dict[str, str] = {
     # into the sunk stake) push it up -- so it is an estimate, and neither
     # a ceiling nor a floor. Wording per the measurement-skeptic's audit,
     # 2026-09-11, amended for ADR 0145.
+    #
+    # It ended "good to roughly a cent a contract" until 2026-09-16. The
+    # registered census of 2026-09-15 (`docs/measurements/2026-09-15-recorded-
+    # fill-vs-venue-charge-census-result.md`) read the sent price against
+    # the venue's on the twelve joined hand-bet fills and found one 22
+    # tenths a contract off, so "a cent" was flattering. The sentence now
+    # carries the counts -- eleven at zero, one at 2.2c -- and says what they
+    # are not: a rate, or anything about the next fill (§6.2, §6.3 of the
+    # result). Issue #43, answered A by Joe 2026-09-16.
     "upper_bound": (
         "Every figure here charges the fee on this hedge, and on a Kalshi "
         "combo it also subtracts the fee you already paid to enter the "
@@ -114,11 +123,16 @@ NOTES: dict[str, str] = {
         "above what Kalshi charged on every fill seen. It assumes Kalshi "
         "charges nothing when the market pays out, which is unverified. The "
         "stake it subtracts is the price the desk sent, not the price Kalshi "
-        "charged. Treat it as an estimate good to roughly a cent a contract, "
-        "not a guaranteed amount."
+        "charged: of the twelve hand-bet fills read against the venue's own "
+        "price on 2026-09-15, eleven matched it and one was 2.2 cents a "
+        "contract off — twelve fills of one kind of ticket, not a rate, and "
+        "nothing about the next fill. It is an estimate, not a guaranteed "
+        "amount."
     ),
+    # "would lock in" until 2026-09-16 (issue #43): the same word the
+    # headline lost, on the screen's header and in both embeds' footers.
     "not_advice": (
-        "This is what a hedge would lock in at the price showing right now. "
+        "This is what a hedge would come to at the price showing right now. "
         "It is not a claim that the price will get worse, or that taking it "
         "beats holding — the hedge price is the market's own number and "
         "nothing here beats it."
@@ -834,8 +848,8 @@ def assess(
             affordable_contracts=affordable,
         )
         detail = (
-            "One leg left and every other has won, so a hedge here has a "
-            "known answer whichever way it goes."
+            "One leg left and every other has won, so a hedge here has an "
+            "answer either way — an estimate, not an exact one."
         )
         state = STATE_LOCK
     else:
@@ -931,7 +945,73 @@ def _rung_payload(rung) -> dict:
     }
 
 
-def _hedge_payload(assessment: Assessment) -> Optional[dict]:
+#: E2 as the registered census of 2026-09-15 found it: on the twelve
+#: hand-bet fills that carried a venue price, the price the desk sent was
+#: the venue's on eleven and 22 tenths a contract above it on one. Counts,
+#: not a rate -- twelve rows, one stratum (`KXMVE` shard 1, every order
+#: YES), and nothing about the next fill. The result doc (§5) and CLAUDE.md
+#: carry the same three numbers; change them there and here together.
+E2_CENSUS_ROWS = 12
+E2_CENSUS_ROWS_AT_ZERO = 11
+E2_CENSUS_MAX_TENTHS_PER_CONTRACT = 22
+
+_WORDS = {11: "eleven", 12: "twelve"}
+
+
+def estimate_grain(position: Mapping[str, Any], outcome: Lock) -> Optional[str]:
+    """The size of the largest MEASURED error term on this ticket's figure,
+    in dollars for this ticket, as one sentence the screen sets beside the
+    number at the number's own size. Issue #43, answer A.
+
+    **Not a combined error bar, and not a bound.** Four terms sit on the
+    figure (CLAUDE.md, E1-E4) and they do not share a sign, so no single
+    number is the figure's uncertainty and none is offered. What can be said
+    honestly per position is what one term would come to HERE if it ran as
+    observed, and which term that is depends on the ticket:
+
+    - **A Kalshi combo** carries E2, the sent-versus-charged stake: the
+      census observed it at 22 tenths a contract on one of twelve rows and
+      zero on the other eleven, and it is the largest measured term (the
+      result doc, §5). `return_tenths` is `contracts * 1000` on a recorded
+      combo (`routes._record_combo_position`), so the contract count is
+      read back from it and the observed gap is dollarised for this ticket.
+      A return that is not a whole number of contracts was typed by hand
+      and the count is unreadable; the sentence then carries the
+      per-contract figure and no dollar figure, rather than a rounded one.
+    - **A sportsbook slip** has no sent price -- the stake is what Joe typed
+      -- so E2 is not a term on it. Its measured term is E4, the hedge fee
+      charged at the flat 0.070 where nine baseball fills pinned k at half
+      that (ADR 0028). The fee the rung already charges is named in dollars.
+
+    `None` when there is no figure to set it beside (`best_available` is
+    `None`) -- the screen shows no number then and owes no grain for one.
+    The words to refuse (ceiling, floor, conservative, at least, can only be
+    smaller/larger) are refused by `tests/test_hedge_positions.py`.
+    """
+    rung = outcome.best_available
+    if rung is None:
+        return None
+    if str(position["source"]) == "kalshi_combo":
+        return_tenths = int(position["return_tenths"])
+        observed = (
+            f"one of {_WORDS[E2_CENSUS_ROWS]} fills read was "
+            f"{E2_CENSUS_MAX_TENTHS_PER_CONTRACT / 10:g}c a contract off the "
+            f"price the desk sent and {_WORDS[E2_CENSUS_ROWS_AT_ZERO]} matched it"
+        )
+        if return_tenths <= 0 or return_tenths % 1000 != 0:
+            return observed
+        contracts = return_tenths // 1000
+        gap = format_dollars(E2_CENSUS_MAX_TENTHS_PER_CONTRACT * contracts)
+        return f"{observed}; on this ticket's {contracts} contracts that is {gap}"
+    return (
+        f"the hedge fee here, {format_dollars(rung.fee_tenths)}, is the flat "
+        "rate; the nine baseball fills measured paid half that rate"
+    )
+
+
+def _hedge_payload(
+    assessment: Assessment, position: Mapping[str, Any]
+) -> Optional[dict]:
     """The hedge block, or `None` when the ticket has nothing to hedge.
 
     `None` and a refusal are different answers and both are rendered: a ticket
@@ -964,12 +1044,20 @@ def _hedge_payload(assessment: Assessment) -> Optional[dict]:
                     if outcome.best_available is not None
                     else None
                 ),
+                # `guaranteed` is the alert predicate's name (`Lock.
+                # is_guaranteed_profit`; `notify/alerts.py`, `notify/discord.py`
+                # and the tests read it) and it survived issue #43 for that
+                # blast radius. The screen renders the figure it flags as
+                # "about $X either way — an estimate", never as guaranteed.
                 "guaranteed": outcome.is_guaranteed_profit,
                 "guaranteed_display": (
                     format_dollars(outcome.best_available.floor_tenths)
                     if outcome.best_available is not None
                     else None
                 ),
+                # Rendered beside the figure at the figure's size. See
+                # `estimate_grain` for what it is and is not.
+                "uncertainty_display": estimate_grain(position, outcome),
                 "full_hedge_is_out_of_reach": (
                     outcome.best_available is None
                     or outcome.best_available.contracts
@@ -1104,7 +1192,7 @@ def serialise_position(
             )
             for leg in legs
         ],
-        "hedge": _hedge_payload(assessment),
+        "hedge": _hedge_payload(assessment, position),
     }
 
 

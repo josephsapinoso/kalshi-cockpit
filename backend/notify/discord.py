@@ -425,13 +425,20 @@ class DiscordNotifier:
         )
 
     async def hedge_lock(self, position: dict, *, notes: dict) -> bool:
-        """A hedge that locks a known amount on a ticket Joe holds (ADR 0078).
+        """A hedge whose figure is about the same either way, on a ticket Joe
+        holds (ADR 0078). The method and the `notifications.kind` keep the
+        name `hedge_lock`; the copy does not use the word.
 
-        **This is the only alert in the product that names a dollar figure it
-        stands behind**, and it can because the figure is not a forecast: with
-        one leg live and every other already won, buying `n` contracts of the
-        other side has a known answer in both branches. Two observed numbers
-        and some algebra.
+        **This is the only alert in the product that names a dollar figure**,
+        and it can because the figure is not a forecast: with one leg live and
+        every other already won, buying `n` contracts of the other side comes
+        to about the same either way. Two observed numbers and some algebra --
+        and an ESTIMATE, not a guarantee: four terms of mixed sign sit on it
+        (CLAUDE.md, E1-E4), so this embed says "about $X either way -- an
+        estimate" with the grain beside it, word for word what the screen
+        says (`_estimate_field`; issue #43, answer A, Joe 2026-09-16). Until
+        then the field was titled with a promise and the description said the
+        figure was known in both branches.
 
         **Every string arrives pre-rendered**, exactly as `parlay_card` does
         and for its reason: the screen and the embed must not be able to
@@ -465,11 +472,7 @@ class DiscordNotifier:
             return False
 
         fields = [
-            _field(
-                "Locks",
-                f"{block['guaranteed_display']} whichever way it goes",
-                inline=False,
-            ),
+            _estimate_field(block),
             _field(
                 "Buy",
                 f"{rung['contracts']} x {block.get('side', '').upper()} "
@@ -497,7 +500,8 @@ class DiscordNotifier:
                 "title": f"Hedge available — {position.get('label')}",
                 "description": (
                     "Every other leg has won. Buying the other side of the "
-                    "last one now has a known answer in both branches."
+                    "last one comes to about the same either way — an "
+                    "estimate, not an exact figure."
                 ),
                 "url": f"{self.config.cockpit_base_url}/hedge",
                 # Deliberately NOT the palette's opportunity green. Green is
@@ -607,16 +611,9 @@ class DiscordNotifier:
             block = position.get("hedge") or {}
             if block.get("kind") == "lock" and block.get("guaranteed"):
                 # The one figure this embed is allowed to state, and it is
-                # the exact fact `hedge_lock` already stands behind -- never
-                # invented here, only carried.
-                fields.append(
-                    _field(
-                        "Locks",
-                        f"{block.get('guaranteed_display')} whichever way "
-                        "the last leg goes",
-                        inline=False,
-                    )
-                )
+                # the same estimate `hedge_lock` states -- never invented
+                # here, only carried, in the same words.
+                fields.append(_estimate_field(block))
             # Otherwise: no guarantee to state and no line about one. A
             # `False` flag here would invite "not guaranteed" beside a
             # number as though one were coming -- the same ruling
@@ -804,6 +801,25 @@ class DiscordNotifier:
             f"cannot fire again, so past the last byte this is ENOSPC, and "
             f"ENOSPC is a hard down that a restart does not clear.",
         )
+
+
+def _estimate_field(block: dict) -> dict:
+    """The figure, called what it is: "about $X either way — an estimate", with
+    the grain (`uncertainty_display`, rendered by `hedge.estimate_grain`)
+    beside it when the payload carries one.
+
+    One helper for both embeds (`hedge_lock`, `position_state`) so the push
+    and the screen cannot drift apart by a word: the wording is Joe's answer A
+    to issue #43, and `tests/test_hedge_headline_calls_the_figure_an_estimate.py`
+    refuses the old words in this module's copy as it does in the component's.
+    `guaranteed_display` keeps its payload name; nothing here renders it as a
+    guarantee.
+    """
+    value = f"about {block.get('guaranteed_display')} either way — an estimate"
+    grain = block.get("uncertainty_display")
+    if grain:
+        value += f": {grain}"
+    return _field("Comes to", value, inline=False)
 
 
 def _field(name: str, value: str, *, inline: bool = True) -> dict:

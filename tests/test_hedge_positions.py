@@ -869,6 +869,81 @@ class TestThePayload:
         assert block["equalising"]["affordable"] is False
         assert block["full_hedge_is_out_of_reach"] is True
 
+    def _lock_payload(self, conn, position_id, **kwargs):
+        legs = hedge.legs_for(conn, position_id)
+        hedge.resolve_leg(
+            conn,
+            leg_id=int(legs[1]["id"]),
+            outcome="won",
+            now_ms=NOW_MS,
+            source="manual",
+        )
+        return self._payload(conn, position_id, {CIN: book()}, **kwargs)
+
+    def test_a_combo_names_the_observed_fill_gap_in_dollars_for_this_ticket(
+        self, conn
+    ):
+        """Issue #43, answer A: the uncertainty beside the number, for THIS
+        ticket. A Kalshi combo's return is `contracts * 1000`, so a $100
+        return is 100 contracts, and the census's 22 tenths a contract comes
+        to $2.20 on it. Counts travel with it -- one of twelve, eleven
+        matched -- and no rate.
+        """
+        position_id = record(conn, source="kalshi_combo", stake=5_000, payout=100_000)
+        block = self._lock_payload(conn, position_id)["hedge"]
+        assert block["kind"] == hedge.STATE_LOCK
+        grain = block["uncertainty_display"]
+        assert "one of twelve" in grain and "eleven matched" in grain
+        assert "2.2c a contract" in grain
+        assert "100 contracts" in grain and "$2.20" in grain
+
+    def test_a_combo_with_an_unreadable_contract_count_gives_no_dollar_figure(
+        self, conn
+    ):
+        # $99.90 back is not a whole number of $1 contracts: hand-typed, so
+        # the count is not read back and no dollar figure is rounded from it.
+        position_id = record(conn, source="kalshi_combo", stake=5_000, payout=99_900)
+        grain = self._lock_payload(conn, position_id)["hedge"]["uncertainty_display"]
+        assert "2.2c a contract" in grain
+        assert "$" not in grain and "contracts that is" not in grain
+
+    def test_a_sportsbook_slip_names_the_hedge_fee_instead(self, conn):
+        """A slip has no sent price -- Joe typed the stake -- so E2 is not a
+        term on it. The measured term it does carry is the hedge fee at the
+        flat rate (E4), and the rung's own fee is the dollar figure."""
+        position_id = record(conn, source="sportsbook", stake=5_000, payout=100_000)
+        block = self._lock_payload(conn, position_id)["hedge"]
+        grain = block["uncertainty_display"]
+        assert block["best_available"]["fee_display"] in grain
+        assert "flat rate" in grain and "baseball" in grain
+        assert "fills read" not in grain
+
+    def test_the_grain_refuses_the_words_that_flatter(self, conn):
+        for source in ("kalshi_combo", "sportsbook"):
+            position_id = record(conn, source=source, stake=5_000, payout=100_000)
+            grain = self._lock_payload(conn, position_id)["hedge"]["uncertainty_display"]
+            for word in (
+                "ceiling", "floor", "conservative", "at least", "can only be",
+                "lock", "whichever", "guarantee", "%", "rate of",
+            ):
+                assert word not in grain, (source, word, grain)
+
+    def test_no_figure_means_no_grain_beside_it(self, conn):
+        # Nothing fillable: `best_available` is None, the screen shows no
+        # number, and there is no grain for a number that is not shown.
+        position_id = record(conn, source="kalshi_combo", stake=5_000, payout=100_000)
+        block = self._lock_payload(conn, position_id, spendable=0)["hedge"]
+        assert block["guaranteed_display"] is None
+        assert block["uncertainty_display"] is None
+
+    def test_a_derisk_has_no_grain_key_either(self, conn):
+        # Same ruling as `guaranteed`: several legs live means no figure, and
+        # no key for a grain the figure would have had.
+        position_id = record(conn, source="kalshi_combo")
+        payload = self._payload(conn, position_id, {CIN: book(), LAD: book(ticker=LAD)})
+        assert payload["hedge"]["kind"] == hedge.STATE_DERISK
+        assert "uncertainty_display" not in payload["hedge"]
+
     def test_a_derisk_has_no_guarantee_key_at_all(self, conn):
         # Not `guaranteed: false`. A ticket with several legs live does not
         # have a guarantee that happens to be absent; it has none to have.
@@ -981,6 +1056,11 @@ class TestThePayload:
 #: error is calling it a floor. "capped at one contract" is a separate
 #: falsehood: ADR 0112 took the caps off on 2026-09-08. Same shape as
 #: `KILLED_EXPOSURE_CLAIMS` in `test_manual_ticket_exposure.py`.
+#:
+#: Three more on 2026-09-16, issue #43 answered A by Joe: the heading "lock
+#: available" and the caption "whichever way the last leg goes" called an
+#: estimate a lock, and "roughly a cent a contract" was the caveat's own
+#: grain until the 2026-09-15 census observed 2.2c on one of twelve rows.
 KILLED_LOCK_CLAIMS = (
     "can only be smaller",
     "can only be larger",
@@ -988,6 +1068,9 @@ KILLED_LOCK_CLAIMS = (
     "exact answer",
     "exact lock",
     "capped at one contract",
+    "lock available",
+    "whichever way the last leg goes",
+    "roughly a cent",
 )
 
 HEDGE_PAGE = ROOT / "frontend" / "src" / "app" / "hedge" / "page.tsx"
@@ -1022,6 +1105,29 @@ class TestTheLockCaveatClaimsNoDirection:
             "the lock caveat has gone back to claiming a direction; four "
             "terms of mixed sign sit on the figure and it is an estimate"
         )
+
+    def test_the_grain_is_the_census_counts_and_not_a_cent(self):
+        """The 2026-09-15 census, in the caveat: counts, not a rate.
+
+        `docs/measurements/2026-09-15-recorded-fill-vs-venue-charge-census-result.md`
+        §3: twelve joined rows, eleven with the sent price equal to the
+        venue's, one 22 tenths a contract above it. The caveat said "good to
+        roughly a cent a contract" until 2026-09-16, which the one row
+        exceeds by more than double -- the flattering direction. It now
+        carries the three counts, names the date, and says what the counts
+        are not (§6.2, §6.3 of the result: not a rate, nothing about the
+        next fill).
+        """
+        note = hedge.NOTES["upper_bound"]
+        assert "twelve" in note and "eleven" in note and "2.2 cents" in note
+        assert "2026-09-15" in note
+        assert "not a rate" in note
+        assert "nothing about the next fill" in note
+        assert "roughly a cent" not in note
+        # The constants the payload's per-ticket grain is built from say the
+        # same three numbers, so the caveat and the headline cannot drift.
+        assert (hedge.E2_CENSUS_ROWS, hedge.E2_CENSUS_ROWS_AT_ZERO) == (12, 11)
+        assert hedge.E2_CENSUS_MAX_TENTHS_PER_CONTRACT == 22
 
     def test_the_no_button_note_claims_only_what_is_so(self):
         note = hedge.NOTES["no_button"]

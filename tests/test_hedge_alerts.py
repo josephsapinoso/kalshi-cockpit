@@ -371,6 +371,57 @@ class TestWhatReachesThePhone:
         assert result.sent == ()
 
 
+class TestTheHedgeAvailableEmbed:
+    """`DiscordNotifier.hedge_lock`, rendered over the wire.
+
+    Nothing rendered this embed before issue #43; the two tests below it
+    only exercised its refusals, so the "Locks … whichever way it goes"
+    field was never read by a test in its life. Now it is.
+    """
+
+    @respx.mock
+    async def test_the_figure_is_about_x_either_way_an_estimate(
+        self, discord_notifier
+    ):
+        route = respx.post(DISCORD_API).mock(
+            return_value=httpx.Response(200, json={})
+        )
+        async with discord_notifier as n:
+            assert await n.hedge_lock(position(), notes=dict(hedge.NOTES))
+        embed = json.loads(route.calls.last.request.read())["embeds"][0]
+        names = [f["name"] for f in embed["fields"]]
+        assert names[0] == "Comes to" and "Locks" not in names
+        assert embed["fields"][0]["value"] == "about $43.27 either way — an estimate"
+        assert "either way" in embed["description"]
+        assert "estimate" in embed["description"]
+        text = _rendered_text(embed)
+        for word in KILLED_FIGURE_WORDS:
+            assert word not in text, word
+        # And the caveats still ride in the footer, unchanged.
+        assert hedge.NOTES["upper_bound"] in embed["footer"]["text"]
+
+    @respx.mock
+    async def test_the_grain_rides_beside_the_figure_when_the_payload_has_one(
+        self, discord_notifier
+    ):
+        route = respx.post(DISCORD_API).mock(
+            return_value=httpx.Response(200, json={})
+        )
+        p = position()
+        p["hedge"]["uncertainty_display"] = (
+            "the hedge fee here, $1.73, is the flat rate; the nine baseball "
+            "fills measured paid half that rate"
+        )
+        async with discord_notifier as n:
+            assert await n.hedge_lock(p, notes=dict(hedge.NOTES))
+        embed = json.loads(route.calls.last.request.read())["embeds"][0]
+        assert embed["fields"][0]["value"] == (
+            "about $43.27 either way — an estimate: the hedge fee here, "
+            "$1.73, is the flat rate; the nine baseball fills measured paid "
+            "half that rate"
+        )
+
+
 class TestTheEmbedRefusesWhatThePolicyRefuses:
     """The transport guards the same condition the policy does.
 
@@ -781,8 +832,8 @@ def _rendered_text(embed: dict, *, exclude_fields: tuple[str, ...] = ()) -> str:
 
     **Deliberately excludes the footer.** The footer carries `hedge.NOTES`
     verbatim -- the same pre-approved boilerplate `hedge_lock`'s footer
-    already ships unchanged, including the phrase "right now" and the verb
-    "lock in". The forbidden-word contract is about the language THIS
+    already ships unchanged, including the phrase "right now" (and, until
+    issue #43, the verb "lock in"). The forbidden-word contract is about the language THIS
     feature invents for its title, description and fields, not about
     re-litigating text ADR 0078 already settled and ships elsewhere
     unmodified.
@@ -818,8 +869,16 @@ ALWAYS_FORBIDDEN = (
 #: Forbidden only while more than one leg is live -- see `hedge._hedge_payload`:
 #: a derisk block carries no `guaranteed` key at all, and these three words are
 #: the ones that would invite a screen to render "not guaranteed" beside a
-#: number as though one were coming.
+#: number as though one were coming. (Since issue #43 the one-leg copy does
+#: not use them either; the many-live ban is kept because it guards a
+#: different failure -- a figure stated where there is none to state.)
 MANY_LIVE_FORBIDDEN = ("guaranteed", "locked", "lock")
+
+#: The words issue #43 (answer A, 2026-09-16) struck from the figure's copy on
+#: every surface. `TestTheHedgeAvailableEmbed` and the one-leg `position_state`
+#: test refuse them in the rendered embed; the source-level guard is in
+#: `test_hedge_headline_calls_the_figure_an_estimate.py`.
+KILLED_FIGURE_WORDS = ("whichever", "known answer", "locks", "lock in", "guaranteed")
 
 
 class TestTheLegsInPlayEmbed:
@@ -933,6 +992,7 @@ class TestTheLegsInPlayEmbed:
         names = [f["name"] for f in embed["fields"]]
         assert "No figure locks" in names
         assert "Locks" not in names
+        assert "Comes to" not in names
 
     @respx.mock
     async def test_one_live_leg_with_a_guaranteed_lock_states_it(
@@ -951,9 +1011,13 @@ class TestTheLegsInPlayEmbed:
                 as_of_ms=NOW_MS,
             )
         embed = json.loads(route.calls.last.request.read())["embeds"][0]
-        locks = next(f for f in embed["fields"] if f["name"] == "Locks")
-        assert "$43.27" in locks["value"]
-        assert "last leg" in locks["value"]
+        # The field was titled "Locks" and captioned "whichever way the last
+        # leg goes" until issue #43; it now says what the screen says.
+        comes_to = next(f for f in embed["fields"] if f["name"] == "Comes to")
+        assert comes_to["value"] == "about $43.27 either way — an estimate"
+        assert "Locks" not in [f["name"] for f in embed["fields"]]
+        for word in KILLED_FIGURE_WORDS:
+            assert word not in _rendered_text(embed), word
 
     @respx.mock
     async def test_one_live_leg_without_a_lock_has_no_guarantee_line(
@@ -969,7 +1033,7 @@ class TestTheLegsInPlayEmbed:
                 as_of_ms=NOW_MS,
             )
         embed = json.loads(route.calls.last.request.read())["embeds"][0]
-        assert not any(f["name"] == "Locks" for f in embed["fields"])
+        assert not any(f["name"] in ("Locks", "Comes to") for f in embed["fields"])
 
     @respx.mock
     async def test_the_footer_carries_the_two_notes_verbatim(
@@ -1068,18 +1132,22 @@ class TestTheForbiddenWords:
             assert word not in text, word
 
     @respx.mock
-    async def test_a_single_guaranteed_lock_is_not_bound_by_the_many_live_list(
+    async def test_a_single_live_leg_states_the_figure_as_an_estimate(
         self, discord_notifier
     ):
-        # The inverse check: with exactly one leg live, "guaranteed",
-        # "locked" and "lock" are NOT forbidden -- that is the one figure
-        # this embed is allowed to state -- so a naive universal ban would
-        # be wrong here rather than merely unnecessary.
+        # The inverse check: with exactly one leg live there IS a figure to
+        # state, so the many-live gate must not swallow it -- and since
+        # issue #43 it is stated as an estimate, with the grain beside it
+        # when the payload carries one. (This test asserted `"lock" in text`
+        # until then: the figure was the one place the word was allowed.)
         route = respx.post(DISCORD_API).mock(
             return_value=httpx.Response(200, json={})
         )
         block = {
             "kind": "lock", "guaranteed": True, "guaranteed_display": "$43.27",
+            "uncertainty_display": "one of twelve fills read was 2.2c a "
+            "contract off the price the desk sent and eleven matched it; on "
+            "this ticket's 100 contracts that is $2.20",
         }
         async with discord_notifier as n:
             await n.position_state(
@@ -1089,7 +1157,10 @@ class TestTheForbiddenWords:
             )
         embed = json.loads(route.calls.last.request.read())["embeds"][0]
         text = _rendered_text(embed)
-        assert "lock" in text
+        assert "about $43.27 either way — an estimate: one of twelve" in text
+        assert "$2.20" in text
+        for word in KILLED_FIGURE_WORDS:
+            assert word not in text, word
 
 
 class TestTheWatcherMergesBothPushes:
