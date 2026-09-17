@@ -307,6 +307,13 @@ export const GLOSSARY = {
       "knowing it gains you nothing. Only news newer than the line can " +
       "matter.",
   },
+  moneyline: {
+    label: "moneyline",
+    definition:
+      "Just picking who wins the game — no handicap and no score line, " +
+      "unlike a spread or a total. On Kalshi it is the “will this team " +
+      "win” market, and the price alone carries how likely that is.",
+  },
   spread: {
     label: "spread",
     definition:

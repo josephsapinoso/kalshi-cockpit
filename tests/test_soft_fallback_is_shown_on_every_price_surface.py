@@ -86,8 +86,16 @@ PRICE_SURFACES = [
 #: because that set means "renders nothing" — which is true of `api.ts` and
 #: false of this. An exemption whose stated reason is wrong is how the next
 #: unchecked surface gets in.
+#:
+#: `PicksAnchorBaseRate` is the same shape on the Picks screen (Joe's `54A`,
+#: ticket #54, 2026-09-17): same aggregate, grouped by league alone because
+#: every pick that screen ranks is a moneyline, and saying so in the sentence
+#: is what keeps the count from reading as a claim about the league's spreads
+#: and totals. Registered here rather than in `PRICE_SURFACES` for the reason
+#: above -- it shows no price -- and checked by the same guard file.
 ANCHOR_BASE_RATE = FRONTEND / "components" / "AnchorBaseRate.tsx"
-AGGREGATE_SURFACES = {ANCHOR_BASE_RATE}
+PICKS_ANCHOR_BASE_RATE = FRONTEND / "components" / "PicksAnchorBaseRate.tsx"
+AGGREGATE_SURFACES = {ANCHOR_BASE_RATE, PICKS_ANCHOR_BASE_RATE}
 
 #: The file that must mention an aggregate surface by name for it to count as
 #: checked. Named here so the pointer is a test rather than a comment.
