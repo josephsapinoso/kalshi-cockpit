@@ -16,6 +16,43 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-17 (sixteenth) - A census of the surface you happen to read is not a census of the mechanism; an empty book can mean "quoted elsewhere"
+
+Joe was refused a combination buy because its order book was empty on both
+sides. The desk's copy told him nobody would sell it. The venue prices
+combinations by **RFQ** (`/communications/rfqs`): liquidity is summoned on
+request and prints to the book afterwards, so an empty combo book is the
+*resting* state, not an absence of sellers. Twenty-seven RFQs existed on that
+exact ticker the same day, and 79 distinct combo tickers carried RFQs in one
+25-minute window.
+
+Every claim this repo built on the lit book inherited the error. `40 of 40
+KXMVE books carry no resting YES bid` became **"combinations are enter-only"**
+in CLAUDE.md -- a statement about *exit liquidity* resting on a measurement
+that could only ever see one of the venue's two pricing surfaces. It was never
+refuted; it was never supported. `POST /api/manual-orders` check 8 refuses on
+`depth_at_ask`, which for a combination is testing a surface the trade does not
+use.
+
+**The pattern.** Before a census becomes a claim, ask what *other* surface
+could carry the thing being counted, and say in the harness docstring which
+surfaces were read and which were not. "We read the order book and found
+nothing" licenses "the order book was empty" and nothing more. The tell here
+was a paradox the record had already written down and filed as two
+populations: *0 of 61 combos had an ask, yet 51 of 52 of Joe's fills were
+takers.* A contradiction that gets an explanation instead of an investigation
+is a mechanism nobody has looked for.
+
+**Corollary, for delegated API work.** A subagent reported "27 RFQs on this
+ticker" and the count was right, but the first re-check appeared to refute it
+because `KalshiRestClient.get(path, **params)` takes **kwargs**, and
+`get(path, params={...})` silently ships `?params={'limit': 100}` -- an ignored
+filter returning an unfiltered page that looks like a valid answer. Confirm a
+server-side filter was honoured (distinct values of the filtered field == 1)
+before believing either the count or its refutation.
+
+---
+
 ## 2026-09-17 (fifteenth) - A document that must describe a guarded format will quote it and then claim it did not; name the canonical file instead of restating the form
 
 Twice in twenty-four hours, a registration wrote the `Question for Joe`
