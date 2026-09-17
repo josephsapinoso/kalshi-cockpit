@@ -16,6 +16,43 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-17 (seventeenth) - A state whose name sounds final is not evidence of the thing it sounds like; only the state that moves money is
+
+The RFQ accept path shipped with `QUOTE_FILLED_STATUSES = (confirmed,
+executed)`. The first live accept went `accepted` -> `confirmed` in **32
+milliseconds** -- and then `cancelled` 1.7 seconds later, with no fill, no
+position change and no balance change. The desk would have told Joe the trade
+went through on a trade that never happened.
+
+`confirmed` means the maker agreed. **Execution is a separate step about 1.1
+seconds behind it**, and the quote can die in between. Only `executed` is a
+fill. The 204 on the accept call is not one either.
+
+**The pattern.** When a protocol hands you a lifecycle, find which state is
+the one with the consequence and treat every earlier state as a promise.
+`confirmed`, `accepted`, `acknowledged`, `200 OK` -- all of them *sound* like
+completion and none of them is. Ask what would be different in the world if
+the process stopped at this state: if the answer is "nothing", it is not the
+finish line. Here the check was free and decisive -- the balance and
+`/portfolio/fills` both said no money had moved while the status said
+`confirmed`.
+
+**The corollary that made this cheap.** The probe that found it was designed
+so the wrong answer was affordable: one contract, on a market quoted 0.4c
+against 99.6c, so the two hypotheses were ~250x apart and the downside was
+about a dollar. A bounded probe answers a question a green test suite cannot
+-- both readings of `accepted_side` are the code doing exactly what it was
+told -- and it found a bug nobody was looking for as a side effect. Cost of
+the whole exercise: **$0.0043**.
+
+**And the discipline that kept it honest.** The first run also *withdrew* the
+RFQ just before the cancellation, so withdrawal is a plausible cause. One
+trial each way is not a controlled comparison, and the ADR and measurement
+both say "not established" rather than telling a clean story. The product
+stopped withdrawing on the weaker and true ground that there is no reason to.
+
+---
+
 ## 2026-09-17 (sixteenth) - A census of the surface you happen to read is not a census of the mechanism; an empty book can mean "quoted elsewhere"
 
 Joe was refused a combination buy because its order book was empty on both
