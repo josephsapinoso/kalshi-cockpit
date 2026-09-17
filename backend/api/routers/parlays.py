@@ -17,6 +17,7 @@ from typing import Optional
 from fastapi import Depends, FastAPI, HTTPException, Query
 
 from ...combo_bids import place_resting_bid
+from ...combo_rfq import ask_market_to_price
 from ...config import AppConfig, ConfigError, StalenessConfig
 from ...core.correlation import CorrelationRefused
 from ...core.parlay import (
@@ -60,6 +61,7 @@ from ...store.combo_orders import (
 from ..schemas import (
     ComboBidCancelRequest,
     ComboBidRequest,
+    ComboRfqRequest,
     ParlayLookupRequest,
     ParlayRequest,
 )
@@ -313,6 +315,50 @@ def register(
                 # calling different ages current.
                 max_kalshi_quote_age_ms=staleness.max_kalshi_quote_age_s * 1000,
                 horizon=request.horizon,
+                api=api,
+            )
+        except LookupRefused as exc:
+            raise HTTPException(
+                status_code=exc.status_code, detail=exc.detail
+            ) from exc
+        finally:
+            write_conn.close()
+
+    @app.post("/api/parlays/rfq", dependencies=[Depends(require_auth)])
+    async def parlay_rfq(request: ComboRfqRequest) -> dict:
+        """Ask the market what this combination costs, and say what it said.
+
+        **This is how a combination is actually priced.** Its order book is
+        empty by design between requests, so `/api/parlays/lookup` -- which
+        reads that book -- reported "nothing is resting" on markets makers
+        were quoting all day. This route asks them.
+
+        Auth-gated and outward-facing: it creates a real RFQ on the exchange.
+        **No money moves.** Only accepting a quote binds the requester, and
+        this route has no accept path; it captures the quotes, withdraws the
+        request, and returns.
+
+        Synchronous and a few seconds long by design -- the makers on the one
+        RFQ this repo has fired answered in 107ms, and the wait is several
+        times that so a slow maker is not read as silence.
+        """
+        try:
+            api = combo_api()
+        except ConfigError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"no Kalshi credentials on this instance: {exc}",
+            ) from exc
+
+        # Its own writable connection, like every mutating route: `get_conn`
+        # is read-only, and this one records the ask and its quotes.
+        write_conn = db.open_db(app_config.db_path)
+        try:
+            return await ask_market_to_price(
+                write_conn,
+                market_ticker=request.market_ticker,
+                target_cost_dollars=request.target_cost_dollars,
+                now_ms=db.now_ms(),
                 api=api,
             )
         except LookupRefused as exc:

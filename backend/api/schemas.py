@@ -260,6 +260,33 @@ class ComboBidCancelRequest(BaseModel):
     reason: str = "cancelled from the desk"
 
 
+class ComboRfqRequest(BaseModel):
+    """One "ask the market what this costs" tap.
+
+    **Deliberately almost empty.** The only things the screen supplies are
+    which combination to ask about and how much to spend. The legs, the
+    collection and the fair value are read server-side from that ticker's own
+    `parlay_lookups` row, because a money-adjacent route that accepts them
+    from its caller is one where the screen decides what the server believes.
+
+    `target_cost_dollars` is Kalshi's own fixed-point dollar string, passed
+    through rather than converted, so the number the venue sizes against is
+    the number that was sent. Bounded here because an RFQ for more than the
+    account holds wastes a request and reads to a maker as noise.
+    """
+
+    market_ticker: str = Field(min_length=1, max_length=128)
+    target_cost_dollars: str = Field(pattern=r"^\d{1,6}\.\d{1,4}$")
+
+    @field_validator("target_cost_dollars")
+    @classmethod
+    def _above_zero(cls, value: str) -> str:
+        """A zero-dollar request is not a question, it is a malformed one."""
+        if float(value) <= 0:
+            raise ValueError("target_cost_dollars must be above zero")
+        return value
+
+
 class ParlayLookupRequest(BaseModel):
     """One "Price on Kalshi" tap (ADR 0070).
 
