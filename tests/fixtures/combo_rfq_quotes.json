@@ -1,12 +1,24 @@
 {
-  "_capture": {
-    "source": "GET /communications/quotes?rfq_user_filter=self&limit=100",
-    "captured": "2026-09-17T15:50:47Z",
-    "rfq": "POST /communications/rfqs?exchange_index=1, target_cost_dollars 5.0000, 3 legs (PITT/ATL/LV all yes) on KXMVECROSSCATEGORY-R",
-    "note": "Real maker quotes on a combination whose order book was empty on BOTH sides at the same moment. See docs/measurements/2026-09-17-a-combo-rfq-returns-a-real-takeable-price.md",
-    "redaction": "Every id is a documented placeholder. `rfq_creator_id` and `rfq_creator_user_id` were Joe's account identifiers and this repo is public -- operator data never enters the repo. The maker `creator_id` values identified third-party market participants and are replaced for the same reason. PRICES, QUANTITIES, TIMESTAMPS, FIELD NAMES AND STRUCTURE ARE VERBATIM, and they are what these fixtures exist to pin.",
-    "incomplete": "A third quote was observed in the same window at no_bid_dollars 0.3900 / no_contracts_fp 7.97 / updated_ts 15:50:47.684847Z. Its `id` and `creator_id` were lost to console truncation, so it is NOT reconstructed here -- a hand-filled row would be a fabricated capture. Two complete rows is what was captured complete."
+  "endpoint": "GET /trade-api/v2/communications/quotes?rfq_user_filter=self&limit=100",
+  "params": {
+    "rfq_user_filter": "self",
+    "limit": 100,
+    "rfq_created_by": "POST /trade-api/v2/communications/rfqs?exchange_index=1",
+    "rfq_request_body": {
+      "market_ticker": "KXMVECROSSCATEGORY-S20264E0CD4DDEA6-BBE0304F0C9",
+      "rest_remainder": false,
+      "mve_collection_ticker": "KXMVECROSSCATEGORY-R",
+      "mve_selected_legs": [
+        {"event_ticker": "KXNCAAFGAME-26SEP17SYRPITT", "market_ticker": "KXNCAAFGAME-26SEP17SYRPITT-PITT", "side": "yes"},
+        {"event_ticker": "KXWNBAGAME-26SEP17CONNATL", "market_ticker": "KXWNBAGAME-26SEP17CONNATL-ATL", "side": "yes"},
+        {"event_ticker": "KXWNBAGAME-26SEP17LVSEA", "market_ticker": "KXWNBAGAME-26SEP17LVSEA-LV", "side": "yes"}
+      ],
+      "target_cost_dollars": "5.0000"
+    }
   },
+  "note": "Captured 2026-09-17T15:50:47Z. Real maker quotes on a combination whose PUBLIC ORDER BOOK was empty on BOTH sides at the same instant -- the desk had refused to sell Joe this exact card on that basis hours earlier. A combination's book is empty by design between RFQs; its price lives in these private quotes. See docs/measurements/2026-09-17-a-combo-rfq-returns-a-real-takeable-price.md and ADR 0164. The RFQ was withdrawn immediately; nothing was accepted and no money moved.",
+  "redaction": "Every id below is a documented placeholder. `rfq_creator_id` and `rfq_creator_user_id` were Joe's own account identifiers and this repo is public -- operator data never enters the repo. The maker `creator_id` values identified third-party market participants and are replaced for the same reason. PRICES, QUANTITIES, TIMESTAMPS, FIELD NAMES AND STRUCTURE ARE VERBATIM, and they are what this fixture exists to pin.",
+  "incomplete": "A third quote was observed in the same window at no_bid_dollars 0.3900 / no_contracts_fp 7.97 / updated_ts 15:50:47.684847Z. Its `id` and `creator_id` were lost to console truncation, so it is NOT reconstructed here -- a hand-filled row would be a fabricated capture. Two complete rows is what was captured complete, and the measurement doc says 'at least three' for the same reason.",
   "quotes": [
     {
       "contracts_fp": "0.00",

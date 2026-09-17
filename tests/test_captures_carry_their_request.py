@@ -181,6 +181,21 @@ class RequestUnrecorded:
 # --------------------------------------------------------------------------
 DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
     # -- Records its request -------------------------------------------------
+    # ADR 0164 -- the first capture of a Kalshi COMBINATION's real price. It
+    # records the read AND the write that produced it, because the quotes
+    # cannot be re-fetched: withdrawing the RFQ destroys the venue's copy, so
+    # an unrecorded request here could never be reconstructed by asking again.
+    "combo_rfq_quotes.json": RecordsItsRequest(
+        params_in=("params",),
+        param_names=("rfq_user_filter", "limit", "exchange_index"),
+        endpoint_in=("endpoint",),
+        how="A `params` mapping carrying the quote read, plus the full body of "
+            "the `POST /communications/rfqs` that drew these quotes -- the "
+            "write matters as much as the read, since `exchange_index=1` is "
+            "what makes the create succeed at all. Account identifiers are "
+            "replaced by documented placeholders: this repo is public and "
+            "operator data never enters it. Prices and structure are verbatim.",
+    ),
     "odds_mlb_h2h_spreads_totals.json": RecordsItsRequest(
         params_in=("params",),
         param_names=("regions", "markets", "oddsFormat"),

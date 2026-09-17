@@ -51,6 +51,13 @@ TOKEN_HANDLERS = (
     "lockout",
     "pass",
     "parlay-lookup",
+    # ADR 0164 -- asking the makers what a combination costs. Outward-facing
+    # (it creates a real RFQ on the exchange) and **it cannot spend**: only
+    # accepting a quote binds the requester, and no accept handler exists.
+    # It sits beside `parlay-lookup` because it replaces that route's dead
+    # end -- a combination's order book is empty by design between requests,
+    # so reading it was never going to find the price.
+    "parlay-rfq",
     "desk-attention",
     # ADR 0078 -- the held-parlay record. None of the three reaches a venue or
     # moves money; they are gated because every mutating route is.
