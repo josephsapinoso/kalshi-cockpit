@@ -195,3 +195,92 @@ def quotes_for(conn: sqlite3.Connection, rfq_id: str) -> list[sqlite3.Row]:
             (rfq_id,),
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# The acceptance. This is the half that spends.
+# ---------------------------------------------------------------------------
+
+
+def record_accept_intent(
+    conn: sqlite3.Connection,
+    *,
+    rfq_id: str,
+    quote_id: str,
+    accepted_side: str,
+    expected_ask_tenths: Optional[int],
+    accepted_ms: int,
+    dry_run: bool,
+) -> None:
+    """Write that we are ABOUT to accept, before the venue is called.
+
+    **The ordering is the guard, and it is not the usual one.** Most of this
+    repo records after the fact. Here the record goes first, because the RFQ
+    path has **no client-generated idempotency key** -- Kalshi assigns
+    `client_order_id` after execution, so unlike `OrderRequest` there is
+    nothing to deduplicate a retry against. An accept whose response is lost
+    is therefore an UNKNOWN that must be resolved by reading the venue, never
+    by sending it again.
+
+    A row that says "we were about to accept this" and carries no outcome is
+    exactly the trail that makes that resolution possible. No row at all is
+    indistinguishable from never having tried.
+
+    `expected_ask_tenths` is what the screen showed when Joe tapped. Stored so
+    that a fill at some other number is a detectable fact afterwards rather
+    than an argument.
+    """
+    conn.execute(
+        """
+        UPDATE combo_rfq_quotes
+           SET accepted_ms = ?, accepted_side = ?, expected_ask_tenths = ?,
+               accept_dry_run = ?
+         WHERE rfq_id = ? AND quote_id = ?
+        """,
+        (
+            accepted_ms, accepted_side, expected_ask_tenths,
+            1 if dry_run else 0, rfq_id, quote_id,
+        ),
+    )
+
+
+def record_accept_outcome(
+    conn: sqlite3.Connection,
+    *,
+    rfq_id: str,
+    quote_id: str,
+    outcome_status: Optional[str],
+    outcome_ms: int,
+) -> None:
+    """What the quote's status was when last read after accepting.
+
+    `None` is a legitimate value and means the venue no longer listed the
+    quote — which is an observation, not a failure, and is stored as NULL
+    rather than as a guessed `cancelled`. What a maker's non-confirmation
+    looks like to a REST reader is **not documented**; inventing a status
+    here would put a guess on the permanent record.
+    """
+    conn.execute(
+        """
+        UPDATE combo_rfq_quotes
+           SET outcome_status = ?, outcome_ms = ?
+         WHERE rfq_id = ? AND quote_id = ?
+        """,
+        (outcome_status, outcome_ms, rfq_id, quote_id),
+    )
+
+
+def quote_row(
+    conn: sqlite3.Connection, *, rfq_id: str, quote_id: str
+) -> Optional[sqlite3.Row]:
+    """One captured quote, or None.
+
+    The accept path reads the price from HERE, not from the request and not
+    from a fresh venue read: the price being accepted must be the price that
+    was shown, and our copy is the only record of what that was once the RFQ
+    is withdrawn.
+    """
+    return conn.execute(
+        "SELECT * FROM combo_rfq_quotes WHERE rfq_id = ? AND quote_id = ?",
+        (rfq_id, quote_id),
+    ).fetchone()

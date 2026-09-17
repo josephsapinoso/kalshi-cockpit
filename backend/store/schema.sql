@@ -2686,6 +2686,28 @@ CREATE TABLE IF NOT EXISTS combo_rfq_quotes (
     contracts       REAL,
     status          TEXT,
     created_ts      TEXT,
+    -- The acceptance, schema v46. Columns HERE and in `_MIGRATIONS`,
+    -- never as an ALTER in this file: `schema.sql` is re-run on every
+    -- open and `ADD COLUMN` is not idempotent.
+    --
+    -- **`accepted_ms` is written BEFORE the venue call, `outcome_status`
+    -- after.** That ordering is the point: the RFQ path has no
+    -- client-generated idempotency key (Kalshi assigns
+    -- `client_order_id` after the fact), so an accept whose response is
+    -- lost cannot be safely retried. A row saying "we were about to
+    -- accept this" with no outcome is the signal to go and READ the
+    -- venue, which is recoverable. No row at all is not.
+    accepted_ms         INTEGER,
+    accepted_side       TEXT,
+    -- What the screen showed Joe when he tapped, in tenths, so a fill
+    -- at a different number is detectable rather than arguable.
+    expected_ask_tenths INTEGER,
+    -- The quote's status last read AFTER accepting. NULL means never
+    -- read back -- which is a state, not a zero.
+    outcome_status      TEXT,
+    outcome_ms          INTEGER,
+    -- 1 until the accept path is armed. Mirrors `manual_orders.dry_run`.
+    accept_dry_run      INTEGER,
     UNIQUE (rfq_id, quote_id)
 );
 CREATE INDEX IF NOT EXISTS idx_combo_rfq_quotes_rfq

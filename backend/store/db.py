@@ -138,7 +138,7 @@ logger = logging.getLogger(__name__)
 #: reading the empty book and telling Joe the bet could not be placed.
 #: The quote table is the ONLY copy -- quotes vanish from the venue the
 #: moment the RFQ is deleted, so a quote not written there is gone.
-SCHEMA_VERSION = 45
+SCHEMA_VERSION = 46
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1091,6 +1091,30 @@ _MIGRATIONS: dict[int, _Migration] = {
     # reads exactly as it always did. The undo is the generic column drop.
     44: _Migration(
         columns=(("api_credits", "bookmakers", "TEXT"),),
+    ),
+    # The acceptance, on `combo_rfq_quotes` (v46, 2026-09-17, ADR 0164).
+    #
+    # v45 created that table one commit earlier, so on `main` this step runs
+    # against a table that is always empty -- but it is a COLUMN step and not
+    # tableless, because a database created between the two versions has the
+    # table without the columns. Folding them back into v45 would leave such a
+    # database stamped 45 and missing what 45 now claims to contain.
+    #
+    # Six nullable columns, no default, no backfill, no CHECK. Every existing
+    # row reads NULL, which is the truth: those quotes were captured before
+    # anything could be accepted. `accept_dry_run` is nullable rather than
+    # `DEFAULT 1` deliberately -- NULL means "no acceptance was attempted",
+    # and a default of 1 would say "a dry-run acceptance happened", which is a
+    # different and false claim about every row already on disk.
+    46: _Migration(
+        columns=(
+            ("combo_rfq_quotes", "accepted_ms", "INTEGER"),
+            ("combo_rfq_quotes", "accepted_side", "TEXT"),
+            ("combo_rfq_quotes", "expected_ask_tenths", "INTEGER"),
+            ("combo_rfq_quotes", "outcome_status", "TEXT"),
+            ("combo_rfq_quotes", "outcome_ms", "INTEGER"),
+            ("combo_rfq_quotes", "accept_dry_run", "INTEGER"),
+        ),
     ),
     # `idx_odds_event_commence`, restoring an index removed on 2026-08-26 for
     # "changing no plan". The statement, the measurement and the size cost sit

@@ -287,6 +287,24 @@ class ComboRfqRequest(BaseModel):
         return value
 
 
+class ComboRfqAcceptRequest(BaseModel):
+    """The second tap: take this quote.
+
+    **Carries no price, and that is the design (#60/#59, B = (ii)).** An RFQ
+    hands you the maker's price *after* you ask, so a ceiling typed in advance
+    would be a guess at a number you are about to be told. What guards the
+    spend is that Joe has already seen this exact quote on screen and tapped
+    again; the server reads the price from its own record of it, so the thing
+    accepted is the thing shown.
+
+    No `side` either. Which side is lifted is a property of buying YES, not a
+    choice the screen gets to make -- see `ACCEPT_SIDE_FOR_BUYING_YES`.
+    """
+
+    rfq_id: str = Field(min_length=1, max_length=64)
+    quote_id: str = Field(min_length=1, max_length=64)
+
+
 class ParlayLookupRequest(BaseModel):
     """One "Price on Kalshi" tap (ADR 0070).
 

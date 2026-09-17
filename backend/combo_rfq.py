@@ -49,7 +49,18 @@ from typing import Optional
 from backend.core.prices import probability_to_tenths
 from backend.kalshi.orderbook import OrderBook
 from backend.kalshi.rest import EXCHANGE_INDEX_COMBOS
-from backend.kalshi.rfq import RfqQuote, RfqRefused, create_rfq, delete_rfq, read_quotes
+from backend.kalshi.rfq import (
+    ACCEPT_SIDE_FOR_BUYING_YES,
+    QUOTE_DEAD_STATUSES,
+    QUOTE_FILLED_STATUSES,
+    RfqQuote,
+    RfqRefused,
+    accept_quote,
+    create_rfq,
+    delete_rfq,
+    read_quote,
+    read_quotes,
+)
 from backend.parlays import LookupRefused, _cost_per_contract
 from backend.store import combo_rfqs as store
 
@@ -120,14 +131,20 @@ async def ask_market_to_price(
     target_cost_dollars: str,
     now_ms: int,
     api,
+    hold_open: bool = True,
 ) -> dict:
-    """Fire one RFQ, capture what comes back, and withdraw it.
+    """Fire one RFQ, capture what comes back, and usually leave it standing.
 
-    **The RFQ is withdrawn before returning**, which is right while nothing
-    can accept a quote: an RFQ left open consumes one of the venue's 100 open
-    slots for a price nobody can take. When the confirm step lands it takes
-    over the lifecycle -- the quotes vanish at delete, so accepting requires
-    holding the RFQ open across the second tap.
+    **`hold_open` defaults True and that is what makes a second tap possible.**
+    Withdrawing an RFQ destroys the venue's copy of every quote, so a screen
+    that shows a price and then asks Joe to confirm it must keep the request
+    alive in between — otherwise the thing he confirms no longer exists.
+
+    The cost of holding is one of the venue's 100 open RFQ slots, and the
+    quotes observed on 2026-09-17 were still `open` forty seconds after they
+    arrived. The cost of NOT holding is that the accept path cannot exist.
+
+    Pass `hold_open=False` for a price you have no intention of taking.
     """
     lookup = _recorded_lookup(conn, market_ticker)
     legs = json.loads(lookup["selected_legs"] or "[]")
@@ -206,9 +223,10 @@ async def ask_market_to_price(
             conn, rfq_id=rfq_id, quotes=seen.values(), captured_ms=now_ms
         )
         conn.commit()
-        await delete_rfq(api, rfq_id)
-        store.mark_deleted(conn, rfq_id=rfq_id, deleted_ms=now_ms)
-        conn.commit()
+        if not hold_open:
+            await delete_rfq(api, rfq_id)
+            store.mark_deleted(conn, rfq_id=rfq_id, deleted_ms=now_ms)
+            conn.commit()
 
     quotes = sorted(seen.values(), key=lambda q: q.yes_ask_tenths)
     fair = lookup["fair_joint_conservative"]
@@ -220,6 +238,12 @@ async def ask_market_to_price(
         "fair": {"conservative": fair},
         # What the public book said at the same instant. Expected to be null.
         "book_yes_ask_tenths": book_ask,
+        # **Whether the button below this will actually spend.** Surfaced with
+        # the price, not discovered after the tap: a control that says "Take
+        # it" and then does nothing is this repo's named failure -- a screen
+        # promising an action the server does not perform -- and it has
+        # already run three times here.
+        "accepts_are_armed": not RFQ_ACCEPTS_ARE_DRY_RUNS,
         # Display strings are rendered HERE, through `_cost_per_contract`,
         # for the reason every price in this repo is: money is integer tenths
         # of a cent and there is one renderer. A second implementation in
@@ -277,4 +301,187 @@ def _words(quotes: list[RfqQuote], *, book_ask: Optional[int]) -> str:
         f"{len(quotes)} maker(s) answered.{spread_line} {book_line} "
         "A quote is an offer, not a fill: the maker still has a few seconds "
         "to confirm and may decline."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Accepting. The spend.
+# ---------------------------------------------------------------------------
+
+#: **The arming switch for the accept path.** True means no acceptance ever
+#: reaches Kalshi; the route runs end to end and records the intent.
+#:
+#: It stays True until ONE question is settled by measurement, and the
+#: question is not about this code. `accepted_side` names the maker's side
+#: being lifted -- so buying YES means sending `"no"` -- and that is stated
+#: outright only on Kalshi's FIX page. The REST reference defines the field as
+#: "the side that was accepted" without saying whose. On the quote captured
+#: 2026-09-17 the two readings are **buying YES at 10.8c or buying NO at
+#: 92.4c**: nine times the spend, on the opposite contract.
+#:
+#: The falsifier is cheap and bounded: one minimum-size accept, then read
+#: `GET /portfolio/fills` and check the side and price against
+#: `1 - no_bid_dollars`. Until that has been done once, arming this is
+#: betting real money on a documentation inference. Flipping it is Joe's, the
+#: way `MANUAL_ORDERS_ARE_DRY_RUNS` was (ADR 0112 s5).
+RFQ_ACCEPTS_ARE_DRY_RUNS = True
+
+#: How long to watch for the maker's confirmation, and how often.
+#:
+#: A combination is a High Volatility Market: the maker has **3 seconds** to
+#: confirm and 1 more to execute, against 30/15 elsewhere. Ten seconds is
+#: therefore generous by design -- the whole handshake resolves in about four
+#: -- because the failure being avoided is reporting "no fill" on a trade that
+#: did happen. Polling at 500ms rather than waiting once, so a fast confirm is
+#: seen as fast.
+#:
+#: **There is no `quote_confirmed` WebSocket event**, so REST polling is the
+#: only way to observe the confirmed state. Documented, not chosen.
+CONFIRM_WATCH_S = 10.0
+CONFIRM_POLL_S = 0.5
+
+
+async def accept_quote_for_joe(
+    conn: sqlite3.Connection,
+    *,
+    rfq_id: str,
+    quote_id: str,
+    now_ms: int,
+    api,
+    dry_run: bool = RFQ_ACCEPTS_ARE_DRY_RUNS,
+) -> dict:
+    """Lift one maker's bid, then watch for the confirmation.
+
+    **The second tap of B = (ii).** Joe has already seen this exact quote; no
+    ceiling is typed, because an RFQ hands you the price after you ask and a
+    number typed in advance would be a guess at it.
+
+    The price accepted is read from OUR record of the quote, never from the
+    request and never from a fresh venue read. Two reasons, and the second is
+    the one that bites: the price must be the price he was shown, and once the
+    RFQ is withdrawn our copy is the only record of what that was.
+    """
+    quote = store.quote_row(conn, rfq_id=rfq_id, quote_id=quote_id)
+    if quote is None:
+        raise LookupRefused(
+            404,
+            "That quote is not in this desk's record, so there is nothing to "
+            "accept. Ask for a price again -- a quote cannot be re-fetched "
+            "once its request is withdrawn.",
+        )
+    if quote["accepted_ms"] is not None:
+        # Not an idempotent replay: there is no key to deduplicate against, so
+        # a second accept is a second real trade. Refusing is the only safe
+        # answer, and the words say what to do instead.
+        raise LookupRefused(
+            409,
+            "This quote was already accepted at "
+            f"{quote['accepted_ms']}. It is not re-sent, because an RFQ "
+            "acceptance carries no idempotency key and a retry would be a "
+            "second real trade. Read its outcome rather than tapping again.",
+        )
+
+    side = ACCEPT_SIDE_FOR_BUYING_YES
+    expected = quote["yes_ask_tenths"]
+
+    # Intent first, outcome second. See `record_accept_intent`.
+    store.record_accept_intent(
+        conn, rfq_id=rfq_id, quote_id=quote_id, accepted_side=side,
+        expected_ask_tenths=expected, accepted_ms=now_ms, dry_run=dry_run,
+    )
+    conn.commit()
+
+    try:
+        sent = await accept_quote(
+            api, rfq_id=rfq_id, quote_id=quote_id,
+            accepted_side=side, dry_run=dry_run,
+        )
+    except Exception as exc:  # noqa: BLE001 -- an UNKNOWN, not a refusal
+        # **Deliberately not re-raised as a refusal.** The request may have
+        # reached the venue; "it failed" and "we do not know" are different
+        # claims and only one of them is true here. The intent row is already
+        # on disk, so the outcome is recoverable by reading.
+        logger.error("rfq %s: accept of %s failed in flight (%s)",
+                     rfq_id, quote_id, exc)
+        store.record_accept_outcome(
+            conn, rfq_id=rfq_id, quote_id=quote_id,
+            outcome_status=None, outcome_ms=now_ms,
+        )
+        conn.commit()
+        raise LookupRefused(
+            502,
+            f"The acceptance could not be completed ({exc}). **It may still "
+            "have reached Kalshi** -- an RFQ acceptance carries no "
+            "idempotency key, so this desk will not re-send it. Check the "
+            "position in the Kalshi app before tapping anything again.",
+        ) from exc
+
+    status: Optional[str] = None
+    if sent["sent"]:
+        deadline = time.monotonic() + CONFIRM_WATCH_S
+        while time.monotonic() < deadline:
+            try:
+                row = await read_quote(api, rfq_id=rfq_id, quote_id=quote_id)
+            except Exception as exc:  # noqa: BLE001 -- keep watching
+                logger.warning("rfq %s: status read failed (%s)", rfq_id, exc)
+                await asyncio.sleep(CONFIRM_POLL_S)
+                continue
+            status = row.get("status") or None
+            if status in QUOTE_FILLED_STATUSES or status in QUOTE_DEAD_STATUSES:
+                break
+            await asyncio.sleep(CONFIRM_POLL_S)
+
+    store.record_accept_outcome(
+        conn, rfq_id=rfq_id, quote_id=quote_id,
+        outcome_status=status, outcome_ms=now_ms,
+    )
+    conn.commit()
+
+    filled = status in QUOTE_FILLED_STATUSES
+    return {
+        "status": status or "unknown",
+        "filled": filled,
+        "dry_run": dry_run,
+        "rfq_id": rfq_id,
+        "quote_id": quote_id,
+        "accepted_side": side,
+        "expected_ask_tenths": expected,
+        "expected_ask_display": (
+            None if expected is None else _cost_per_contract(expected)
+        ),
+        "words": _accept_words(status, filled=filled, dry_run=dry_run),
+    }
+
+
+def _accept_words(status: Optional[str], *, filled: bool, dry_run: bool) -> str:
+    """What the screen says about an acceptance.
+
+    Never claims a fill it has not seen, and never calls a maker's
+    non-confirmation a failure at Joe's end.
+    """
+    if dry_run:
+        return (
+            "Nothing was sent: the accept path is not armed yet. Everything "
+            "up to the moment of spending ran, and the intent is on the "
+            "record. Arming it is one line and one decision."
+        )
+    if filled:
+        return (
+            "The maker confirmed and the trade went through. The price you "
+            "accepted is the price above; what Kalshi actually charged, fees "
+            "included, is on the fill and is the number to trust."
+        )
+    if status in QUOTE_DEAD_STATUSES:
+        return (
+            "The maker did not confirm, so nothing was bought and nothing is "
+            "owed. That is a normal outcome -- they have about three seconds "
+            "to stand behind a quote on a combination -- and not a fault at "
+            "this end. Ask for a price again if you still want it."
+        )
+    return (
+        "Your acceptance was sent and the outcome is NOT yet known -- the "
+        "quote is neither confirmed nor cancelled as far as this desk can "
+        "see. It will not be sent again, because an acceptance carries no "
+        "idempotency key and a retry would be a second real trade. Check the "
+        "Kalshi app before doing anything else."
     )

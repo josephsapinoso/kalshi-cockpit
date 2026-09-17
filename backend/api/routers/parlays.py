@@ -17,7 +17,7 @@ from typing import Optional
 from fastapi import Depends, FastAPI, HTTPException, Query
 
 from ...combo_bids import place_resting_bid
-from ...combo_rfq import ask_market_to_price
+from ...combo_rfq import accept_quote_for_joe, ask_market_to_price
 from ...config import AppConfig, ConfigError, StalenessConfig
 from ...core.correlation import CorrelationRefused
 from ...core.parlay import (
@@ -65,6 +65,7 @@ from ...store.combo_orders import (
 from ..schemas import (
     ComboBidCancelRequest,
     ComboBidRequest,
+    ComboRfqAcceptRequest,
     ComboRfqRequest,
     ParlayLookupRequest,
     ParlayRequest,
@@ -362,6 +363,49 @@ def register(
                 write_conn,
                 market_ticker=request.market_ticker,
                 target_cost_dollars=request.target_cost_dollars,
+                now_ms=db.now_ms(),
+                api=api,
+            )
+        except LookupRefused as exc:
+            raise HTTPException(
+                status_code=exc.status_code, detail=exc.detail
+            ) from exc
+        finally:
+            write_conn.close()
+
+    @app.post("/api/parlays/rfq/accept", dependencies=[Depends(require_auth)])
+    async def parlay_rfq_accept(request: ComboRfqAcceptRequest) -> dict:
+        """Take a quote Joe has already been shown. **This is the spend.**
+
+        The second tap of B = (ii). It carries no price and no side: the price
+        is read from this desk's own record of the quote, so what is accepted
+        is what was displayed, and the side is a property of buying YES rather
+        than a choice the screen makes.
+
+        **Disarmed until one measurement lands.** `RFQ_ACCEPTS_ARE_DRY_RUNS`
+        is True, so the route runs end to end and sends nothing. The reason is
+        in that constant: whether `accepted_side` names the maker's side or
+        the requester's is documented only on Kalshi's FIX page, and on a real
+        captured quote the two readings differ by 9x on the opposite contract.
+
+        A failed accept is reported as an UNKNOWN, never as a refusal, and is
+        never retried: an RFQ acceptance carries no idempotency key, so a
+        second attempt is a second real trade.
+        """
+        try:
+            api = combo_api()
+        except ConfigError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"no Kalshi credentials on this instance: {exc}",
+            ) from exc
+
+        write_conn = db.open_db(app_config.db_path)
+        try:
+            return await accept_quote_for_joe(
+                write_conn,
+                rfq_id=request.rfq_id,
+                quote_id=request.quote_id,
                 now_ms=db.now_ms(),
                 api=api,
             )

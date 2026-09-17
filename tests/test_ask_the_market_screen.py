@@ -106,25 +106,41 @@ class TestTheScreenMakesNoClaimItCannotKeep:
         """
         assert forbidden not in _prose(ASK).lower()
 
-    def test_it_says_plainly_that_it_cannot_take_the_quote_yet(self):
-        """Asking is built; accepting is not.
+    def test_the_take_button_does_not_appear_while_the_path_is_unarmed(self):
+        """A control labelled "Take it" that silently does nothing is this
+        repo's named failure, run a fourth time.
 
-        A screen implying it can buy would be the fourth instance of this
-        repo's named failure -- one predicate with two spellings, and the
-        screen believing the wrong one.
-        """
-        assert "asking is built, accepting is not" in _prose(ASK)
-
-    def test_it_does_not_promise_the_quote_is_still_standing(self):
-        """The RFQ is withdrawn as soon as it is read.
-
-        What is on screen is a price that WAS offered. The retry stays
-        reachable after a good answer for exactly this reason, which is the
-        opposite of the priced branch's rule.
+        So the armed state travels WITH the price (`accepts_are_armed`) and
+        the component refuses rather than rendering a dead button. Pinning
+        the guard, not the wording: what must not happen is the button
+        existing unconditionally.
         """
         prose = _prose(ASK)
-        assert "were offering a moment ago" in prose
-        assert "Ask again" in prose
+        assert "if (!armed)" in prose, (
+            "the take control is not gated on the armed flag"
+        )
+        assert "built but not switched on" in prose
+
+    def test_the_take_path_never_offers_a_retry(self):
+        """Every other refusal on this screen offers "Ask again".
+
+        This one must not: an RFQ acceptance carries no idempotency key, so a
+        second tap after a lost response is a second real trade. A retry
+        button is an invitation to make one.
+        """
+        source = _read(ASK)
+        take = source[source.index("function TakeIt("):]
+        assert "RetryButton" not in take, (
+            "the accept path offers a retry; a second accept is a second trade"
+        )
+
+    def test_it_does_not_promise_the_quote_is_still_standing(self):
+        """The retry stays reachable after a good answer.
+
+        A quote is live state with a maker behind it, and the request is
+        withdrawn the moment anything else happens to it.
+        """
+        assert "Ask again" in _prose(ASK)
 
 
 class TestTheDoorIsRegistered:

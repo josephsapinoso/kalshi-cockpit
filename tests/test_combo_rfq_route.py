@@ -229,6 +229,27 @@ class TestWhatComesBack:
 
 
 class TestTheOrderOfOperations:
+    async def test_the_rfq_is_left_standing_so_a_second_tap_can_take_it(
+        self, build
+    ):
+        """**The default changed when the accept path landed.**
+
+        Withdrawing an RFQ destroys the venue's copy of every quote, so a
+        screen that shows a price and then asks Joe to confirm it must keep
+        the request alive in between -- otherwise the thing he confirms no
+        longer exists. The cost is one of the venue's 100 open RFQ slots.
+        """
+        app, fake, path = build(quotes=[_quote_row("q1", "0.4070")])
+        await _post(app, _body())
+        assert "delete" not in fake.calls, (
+            "the RFQ was withdrawn, so the quote the screen is showing is "
+            "already gone and the second tap cannot take it"
+        )
+        conn = store.open_db(path, read_only=True)
+        row = conn.execute("SELECT deleted_ms FROM combo_rfqs").fetchone()
+        conn.close()
+        assert row["deleted_ms"] is None
+
     async def test_a_delete_before_the_read_loses_every_price(self, build):
         """Withdrawing destroys the venue's copy of every quote.
 
@@ -243,7 +264,20 @@ class TestTheOrderOfOperations:
         nothing. The claim was corrected rather than the test weakened.
         """
         app, fake, path = build(quotes=[_quote_row("q1", "0.4070")])
-        await _post(app, _body())
+        # `hold_open=False` is the path that still withdraws -- a price nobody
+        # intends to take. The ordering guard lives here because this is the
+        # only branch where a delete happens at all.
+        import backend.combo_rfq as combo_rfq
+        from backend.store import db as store_db
+
+        conn = store_db.open_db(path)
+        try:
+            await combo_rfq.ask_market_to_price(
+                conn, market_ticker=TICKER, target_cost_dollars="5.0000",
+                now_ms=1_000, api=fake, hold_open=False,
+            )
+        finally:
+            conn.close()
 
         assert "delete" in fake.calls
         assert fake.calls.index("read") < fake.calls.index("delete")
@@ -262,7 +296,9 @@ class TestTheOrderOfOperations:
         assert row["status"] == "no_quotes"
         assert row["exchange_index"] == 1
         assert row["target_cost_dollars"] == "5.0000"
-        assert row["deleted_ms"] is not None
+        # `deleted_ms` stays NULL now: the RFQ is held open for the second
+        # tap. It is stamped only on the `hold_open=False` path.
+        assert row["deleted_ms"] is None
 
     async def test_the_book_is_read_for_context_before_the_rfq_is_created(self, build):
         """Both numbers, same instant -- otherwise proving the two surfaces

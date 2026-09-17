@@ -64,6 +64,11 @@ const JSON_ROUTE_HANDLERS = new Set([
   // the entry an unauthenticated POST gets an HTML login redirect that
   // a `fetch` reads as success.
   "/parlay-rfq",
+  // Takes a quote. **This one spends**, which is why it is a separate
+  // handler from `/parlay-rfq` rather than a flag on it: the asking
+  // path commits to nothing and should never share a door with the
+  // path that does.
+  "/parlay-rfq-accept",
   // The hand bet. Spends real money, and since 2026-09-08 the session cookie
   // is the only credential in front of it (the typed bearer token was removed
   // on Joe's word) -- so this entry is what stands between an unauthenticated

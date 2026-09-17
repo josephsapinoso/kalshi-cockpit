@@ -1189,6 +1189,14 @@ export type ComboRfqResult = {
   book_yes_ask_tenths: number | null;
   quotes: ComboRfqQuote[];
   words: string;
+  /**
+   * Whether taking a quote will actually spend.
+   *
+   * False while the accept path is unarmed. Surfaced WITH the price rather
+   * than discovered after the tap, so the button can say what it does
+   * before it is pressed.
+   */
+  accepts_are_armed: boolean;
 };
 
 /**
@@ -1204,6 +1212,77 @@ export type ComboRfqResult = {
  * legs, the collection and the fair value from the ticker's own recorded
  * lookup, so this call cannot talk it into pricing something else.
  */
+export type ComboRfqAcceptResult = {
+  /** The venue's own quote status: `confirmed`, `executed`, `cancelled`, or
+   *  `unknown` when the outcome could not be observed. */
+  status: string;
+  /** True only when the venue said so. Never inferred from a 204. */
+  filled: boolean;
+  /** True while the accept path is unarmed — nothing reached Kalshi. */
+  dry_run: boolean;
+  rfq_id: string;
+  quote_id: string;
+  accepted_side: string;
+  expected_ask_tenths: number | null;
+  expected_ask_display: string | null;
+  words: string;
+};
+
+/**
+ * Take a quote. **This is the one call in this file that spends money.**
+ *
+ * The second tap of B = (ii): no price and no side are sent, because Joe has
+ * already seen this exact quote and the server reads the price from its own
+ * record of it. Nothing the browser sends can change what is bought.
+ *
+ * A failure here is an **unknown**, not a refusal — the acceptance may have
+ * reached Kalshi, and an RFQ acceptance carries no idempotency key, so
+ * nothing retries it.
+ */
+export async function acceptComboQuote(
+  rfqId: string,
+  quoteId: string,
+): Promise<
+  { ok: true; value: ComboRfqAcceptResult } | { ok: false; refusal: string }
+> {
+  let response: Response;
+  try {
+    response = await fetch("/parlay-rfq-accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ rfq_id: rfqId, quote_id: quoteId }),
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      refusal:
+        `The acceptance did not complete (${
+          error instanceof Error ? error.message : "network error"
+        }). It may still have reached Kalshi — this desk will not send it ` +
+        "again. Check the Kalshi app before tapping anything else.",
+    };
+  }
+
+  const body: unknown = await response.json().catch(() => null);
+  if (response.ok) {
+    if (body && typeof body === "object" && "status" in body) {
+      return { ok: true, value: body as ComboRfqAcceptResult };
+    }
+    return {
+      ok: false,
+      refusal:
+        "The answer came back in a shape this screen cannot read. Check the " +
+        "Kalshi app rather than trusting anything shown here.",
+    };
+  }
+  const detail =
+    body && typeof body === "object" && "detail" in body
+      ? String((body as { detail: unknown }).detail)
+      : `HTTP ${response.status}`;
+  return { ok: false, refusal: detail };
+}
+
 export async function askMarketToPrice(
   marketTicker: string,
   targetCostDollars: string,

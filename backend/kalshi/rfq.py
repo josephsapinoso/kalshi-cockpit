@@ -273,3 +273,131 @@ async def delete_rfq(api: KalshiRestClient, rfq_id: str) -> None:
     except Exception as exc:  # noqa: BLE001 -- tidy-up, not the caller's problem
         logger.warning("rfq: could not delete %s (%s); it will close on its own",
                        rfq_id, exc)
+
+
+# ---------------------------------------------------------------------------
+# Accepting a quote. THIS IS THE SPEND.
+# ---------------------------------------------------------------------------
+#
+# Everything above asks. This section commits money, and it carries one
+# unresolved question that is worth more than the rest of the file.
+
+#: **Which side to name when Joe is BUYING the YES side of a combination.**
+#:
+#: A quote carries both a `yes_bid_dollars` and a `no_bid_dollars` -- what the
+#: maker would pay for each side. `accepted_side` says which of the maker's
+#: bids you are lifting, so **buying YES means accepting the maker's NO bid**,
+#: which is the derived-ask identity this repo uses everywhere else:
+#: `yes_ask = complement(no_bid)`.
+#:
+#: **DOCUMENTED for FIX, INFERRED for REST, and the inference is expensive if
+#: it is wrong.** Kalshi's FIX page states it outright -- "For AcceptQuote,
+#: BUY accepts the maker's NO quote and SELL accepts the maker's YES quote" --
+#: but the REST reference defines `accepted_side` only as "the side that was
+#: accepted (yes or no)", which does not say whose side. On the quote captured
+#: 2026-09-17 (`no_bid 0.8920`, `yes_bid 0.0760`) the two readings are buying
+#: YES at 10.8c versus buying NO at 92.4c: **roughly nine times the intended
+#: spend, on the wrong contract.**
+#:
+#: So this constant is not used by anything that sizes a bet until one real,
+#: minimum-size accept has been read back out of `GET /portfolio/fills` and
+#: the side and price confirmed. `accept_quote` refuses to run unarmed, and
+#: the arming decision names this measurement as its precondition.
+ACCEPT_SIDE_FOR_BUYING_YES = "no"
+ACCEPT_SIDE_FOR_BUYING_NO = "yes"
+
+#: Quote lifecycle, complete, from the venue's reference.
+#:
+#: `accepted` is NOT a fill: the maker still has to confirm, and on a
+#: combination (a High Volatility Market) the window is **3 seconds**, against
+#: 30 elsewhere. `confirmed` and then `executed` are the states that mean
+#: money moved. A 204 on the accept call means "your acceptance was received",
+#: nothing more, and treating it as a fill is the single most dangerous
+#: misreading available on this path.
+QUOTE_STATUS_OPEN = "open"
+QUOTE_STATUS_ACCEPTED = "accepted"
+QUOTE_STATUS_CONFIRMED = "confirmed"
+QUOTE_STATUS_EXECUTED = "executed"
+QUOTE_STATUS_CANCELLED = "cancelled"
+
+#: The states in which money has definitely moved.
+QUOTE_FILLED_STATUSES = (QUOTE_STATUS_CONFIRMED, QUOTE_STATUS_EXECUTED)
+
+#: The states in which it definitely has not.
+QUOTE_DEAD_STATUSES = (QUOTE_STATUS_CANCELLED,)
+
+
+class QuoteAcceptRefused(RuntimeError):
+    """The acceptance was not sent, or the venue would not take it.
+
+    **Never raised once an accept has reached the venue.** A request that was
+    sent and whose response was lost is an UNKNOWN, not a refusal, and the
+    caller must go and read the quote's status rather than retry: the RFQ path
+    has no client-generated idempotency key (Kalshi assigns
+    `client_order_id` after the fact), so a retry is a second real order.
+    """
+
+
+async def accept_quote(
+    api: KalshiRestClient,
+    *,
+    rfq_id: str,
+    quote_id: str,
+    accepted_side: str,
+    dry_run: bool,
+) -> dict:
+    """Lift one maker's bid. **Spends real money when `dry_run` is False.**
+
+    Returns `{"sent": bool, "accepted_side": str}`. There is no fill in the
+    response and there cannot be: the venue answers **204 No Content**, and
+    the maker's confirmation happens afterwards. Read the quote's status to
+    learn what became of it.
+
+    `dry_run` is passed explicitly rather than read from config here, so that
+    every caller has to state which it means and no default can arm this by
+    omission.
+    """
+    if accepted_side not in ("yes", "no"):
+        raise QuoteAcceptRefused(
+            f"accepted_side must be 'yes' or 'no', got {accepted_side!r}"
+        )
+    if dry_run:
+        logger.info(
+            "rfq: DRY RUN, not accepting quote %s on rfq %s (side %s)",
+            quote_id, rfq_id, accepted_side,
+        )
+        return {"sent": False, "accepted_side": accepted_side}
+
+    # The nested form. The flat `PUT /communications/quotes/{id}/accept` still
+    # works and is marked deprecated, with worse rate limits.
+    path = f"{_RFQS}/{rfq_id}/quotes/{quote_id}/accept"
+    # `exchange_index` is INFERRED here, not documented -- the accept spec
+    # lists no such parameter. But it lists none on create or delete either,
+    # and both measurably require it. Query params are not signed
+    # (`SIGN_QUERY_STRING = False`), so adding it cannot break the signature,
+    # and the failure it prevents is a 404 on a trade Joe is waiting for.
+    await api.request("PUT", path, params=_SHARD, json_body={
+        "accepted_side": accepted_side,
+    })
+    return {"sent": True, "accepted_side": accepted_side}
+
+
+async def read_quote(api: KalshiRestClient, *, rfq_id: str, quote_id: str) -> dict:
+    """One quote's current row, or `{}` if the venue no longer lists it.
+
+    The only way to learn whether a maker confirmed: there is no
+    `quote_confirmed` WebSocket event, so the confirmed state is visible
+    solely as REST `status` / `confirmed_ts`.
+
+    An empty dict is deliberately not an error. A quote that has vanished is
+    a real outcome and the caller decides what it means; the one thing this
+    must never do is invent a status.
+    """
+    payload = await api.request(
+        "GET", _QUOTES,
+        params={"rfq_user_filter": "self", "rfq_id": rfq_id, "limit": 500},
+    )
+    for row in payload.get("quotes") or ():
+        if row.get("id") == quote_id:
+            return row
+    return {}

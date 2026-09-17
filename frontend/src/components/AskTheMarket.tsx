@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 
-import { askMarketToPrice } from "@/lib/api";
-import type { ComboRfqResult } from "@/lib/api";
+import { acceptComboQuote, askMarketToPrice } from "@/lib/api";
+import type { ComboRfqAcceptResult, ComboRfqResult } from "@/lib/api";
 
 /**
  * "Nobody is selling this" was wrong, and this is the control that fixes it.
@@ -18,9 +18,17 @@ import type { ComboRfqResult } from "@/lib/api";
  * prices that come back.
  *
  * **Asking is free and commits nothing.** Only accepting a quote binds the
- * requester, and no accept path exists yet. The button says so before it is
- * tapped, because the previous version of this screen sent Joe to the Kalshi
- * app to do by hand what it could have done itself.
+ * requester. The button says so before it is tapped, because the previous
+ * version of this screen sent Joe to the Kalshi app to do by hand what it
+ * could have done itself.
+ *
+ * **Taking a quote is built, and switched off.** `<TakeIt>` below is the
+ * second tap of B = (ii) — Joe sees the maker's price, then confirms it, with
+ * no ceiling typed in advance because an RFQ tells you the price *after* you
+ * ask. It renders as a refusal, not a button, while
+ * `RFQ_ACCEPTS_ARE_DRY_RUNS` is True: a control labelled "Take it" that
+ * silently does nothing is this repo's named failure, and the armed state
+ * travels with the price so the screen can say which it is up front.
  *
  * **What this must never become.** The gap between a quote and the card's
  * fair value is the consensus-vs-Kalshi gap under another name, and
@@ -166,14 +174,122 @@ function Quotes({ value }: { value: ComboRfqResult }) {
 
       <p className="text-[11px] leading-snug text-muted">{value.words}</p>
 
-      {/* The honest state of the build. Saying "buy" here would be the fourth
-          instance of this repo's named failure -- a screen promising an action
-          the server does not perform. */}
-      <p className="text-[11px] leading-snug text-accent-2">
-        This desk cannot take the quote for you yet: asking is built, accepting
-        is not. To act on this, buy the combination in the Kalshi app &mdash;
-        the price above is what its makers were offering a moment ago, so you
-        now know what it should cost before you look.
+      {/* The second tap. It is a separate component because it SPENDS and the
+          block above does not, and because its result has states the price
+          block has never had -- a maker who does not confirm, and an outcome
+          nobody can see. */}
+      <TakeIt
+        rfqId={value.rfq_id}
+        quote={best}
+        armed={value.accepts_are_armed}
+      />
+    </div>
+  );
+}
+
+/**
+ * The second tap of B = (ii): Joe has seen the quote, now he takes it.
+ *
+ * **No typed ceiling, by his decision.** An RFQ hands you the maker's price
+ * *after* you ask, so a number typed in advance would be a guess at the one
+ * you are about to be told. What guards the spend is that the price on screen
+ * is the price the server accepts — it reads its own record of this quote and
+ * ignores anything the browser might send.
+ *
+ * **Three outcomes, and only one of them is a fill.** A maker has about three
+ * seconds to stand behind a quote on a combination; they may decline, and
+ * that is normal rather than a fault. And an acceptance whose answer is lost
+ * is an *unknown* — the RFQ path has no idempotency key, so nothing here ever
+ * retries, and the words say to go and look instead.
+ */
+function TakeIt({
+  rfqId,
+  quote,
+  armed,
+}: {
+  rfqId: string;
+  quote: ComboRfqResult["quotes"][number];
+  /** False while the accept path is unarmed — the button says so up front. */
+  armed: boolean;
+}) {
+  const [state, setState] = useState<
+    | { kind: "idle" }
+    | { kind: "sending" }
+    | { kind: "done"; value: ComboRfqAcceptResult }
+    | { kind: "refused"; words: string }
+  >({ kind: "idle" });
+
+  const take = async () => {
+    setState({ kind: "sending" });
+    try {
+      const result = await acceptComboQuote(rfqId, quote.quote_id);
+      setState(
+        result.ok
+          ? { kind: "done", value: result.value }
+          : { kind: "refused", words: result.refusal },
+      );
+    } catch (error) {
+      setState({
+        kind: "refused",
+        words:
+          `The acceptance did not complete (${
+            error instanceof Error ? error.message : "unknown error"
+          }). It may still have reached Kalshi — check the app before ` +
+          "tapping anything else.",
+      });
+    }
+  };
+
+  if (state.kind === "done") {
+    return (
+      <p
+        className={`mt-2 text-xs leading-snug ${
+          state.value.filled ? "font-semibold" : "text-accent-2"
+        }`}
+      >
+        {state.value.words}
+      </p>
+    );
+  }
+
+  if (state.kind === "refused") {
+    // No retry button, deliberately. Every other refusal on this screen offers
+    // one; this is the only path where a second tap could be a second real
+    // trade, and a button is an invitation.
+    return (
+      <p className="mt-2 text-xs leading-snug text-accent-2">{state.words}</p>
+    );
+  }
+
+  // **Unarmed: say so instead of offering the button.** A control labelled
+  // "Take it" that silently does nothing is the failure this repo has named
+  // and repeated three times — a screen promising an action the server does
+  // not perform. While `RFQ_ACCEPTS_ARE_DRY_RUNS` is True there is nothing to
+  // offer, so nothing is offered.
+  if (!armed) {
+    return (
+      <p className="mt-2 text-[11px] leading-snug text-accent-2">
+        Taking a quote is built but not switched on, so this desk cannot buy
+        it for you yet. The price above is real: buy the combination in the
+        Kalshi app and you now know what it should cost before you look.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-2">
+      <button
+        onClick={take}
+        disabled={state.kind === "sending"}
+        className="rounded bg-accent-fill px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-60"
+      >
+        {state.kind === "sending"
+          ? "Taking it…"
+          : `Take it at ${quote.ask_display}`}
+      </button>
+      <p className="mt-1 text-[11px] leading-snug text-muted">
+        Buys this combination at the price above. The maker has a few seconds
+        to confirm and may decline, which costs you nothing.
       </p>
     </div>
   );
