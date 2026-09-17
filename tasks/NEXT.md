@@ -196,33 +196,58 @@ Measured against a real build, `APP_AUTH_TOKEN` set, no cookie:
    at eight times the size. The hexes now live once in `frontend/src/lib/theme.ts`
    and a test pins them against `--background` in both themes.
 
+### Deployed and verified on live
+
+`f1449d5` is live — `/api/health` `git_sha`
+`f1449d54e478c924afbcf3adef2100f97564a049`, machine `7812601a239428`, ord.
+Read against `https://kalshi-cockpit.fly.dev` with **no cookie**:
+
+    /manifest.webmanifest  200      /apple-icon  200 (180x180 PNG)
+    /icon.svg              200      /  307 -> /login
+                                    /picks  307 -> /login?next=%2Fpicks
+
+and the served `<head>` carries all five tags — `rel="manifest"`,
+`rel="apple-touch-icon"` at `/apple-icon?<hash>` `sizes="180x180"`,
+`mobile-web-app-capable`, the legacy `apple-mobile-web-app-capable`, and the
+two media-keyed `theme-color`s.
+
+**That also settles the one risk the plan could not close by reading.**
+`@vercel/og`'s wasm tracing into `.next/standalone` was untested; the icon
+route answers 200 from inside the container, so the runtime never needs
+Satori and no committed PNG fallback is required. Do not carry it as open.
+
+The generated K was looked at, not assumed: legible, full-bleed indigo,
+**lighter than the favicon's bold serif** because Satori ships one weight and
+`fontWeight: 700` has nothing to resolve to. Said aloud in `apple-icon.tsx`.
+
 ### Still open
 
-1. **Nothing has been deployed.** `6948e37` is on `main` locally; live still
-   runs `9d10f8e`. Nothing about this is true of the live instance yet.
-2. **The install has not been done on the handset, and that is the only
-   verification that counts.** Everything so far is source tests plus curls
-   against a local build. What a real Add to Home Screen decides: whether the
-   sheet offers the indigo tile or a screenshot of the page; whether the label
-   reads "Cockpit"; whether the launch has no Safari chrome; and whether the
-   status bar follows a *forced* theme (the `theme-color` metas are keyed on
+1. **The install has not been done on the handset, and that is the only
+   verification left that counts.** Everything above is curls and source
+   tests. What a real Share → Add to Home Screen decides: whether the sheet
+   offers the indigo tile or a screenshot of the page; whether the label reads
+   "Cockpit"; whether the launch has no Safari chrome; and whether the status
+   bar follows a **forced** theme — the `theme-color` metas are keyed on
    `prefers-color-scheme`, which cannot see `localStorage.theme`, so the
-   pre-paint script repaints them — untested on a real handset).
-3. **`/apple-icon` inside the container is untested.** `next build` reports it
-   as prerendered static content, so the runtime should never invoke Satori —
-   but the `@vercel/og` wasm tracing into `.next/standalone` was not checked in
-   a built image. First curl after deploy answers it. If it 500s, the fallback
-   is a committed 180×180 PNG in `frontend/public`, which would be this repo's
-   first binary file.
-4. **What the generated K looks like is unknown.** Satori has one bundled font
-   and has never heard of Georgia. Look at the PNG before trusting it.
-5. **`tasks/lessons.md`'s pattern index is stale by 52 entries.** Its own header
-   says to regenerate it in the same edit as the entry; the newest date it
-   carries is 2026-09-08, and every entry since — 52 of them, including this
-   session's — is absent. Not fixed here, because adding only today's would
-   make the gap look like one line instead of two weeks. Someone should
-   regenerate the whole thing or amend the rule to say the index covers
-   archives only.
+   pre-paint script repaints them, and that path has run in no real browser.
+   Joe has the handset; nobody else can take this reading.
+2. **The installed app is a second login.** iOS gives a home-screen web app
+   its own cookie jar, so the first launch asks for the token again. `/login`
+   is `autoComplete="current-password"` so the keychain fills it, and the
+   cookie is good for 30 days — but there is **no sliding expiry**
+   (`issueSession` is called only at login), so it hard-expires 30 days after
+   that first sign-in whatever the use. Not a bug today; it is the thing that
+   will look like one in October.
+3. **Android and desktop install are untargeted, not blocked.** Chrome will
+   offer an install and will scale `/icon.svg`; nobody has looked at what it
+   produces, because nobody uses it. The manifest carries no 192/512 or
+   maskable PNG.
+4. **`tasks/lessons.md`'s pattern index is stale by 52 entries.** Its own
+   header says to regenerate it in the same edit as the entry; the newest date
+   it carries is 2026-09-08, and every entry since — including this session's —
+   is absent. Not fixed here, because adding only today's would make two weeks
+   of gap look like one line. Someone should regenerate the whole thing or
+   amend the rule to say the index covers archives only.
 
 ---
 
