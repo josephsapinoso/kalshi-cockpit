@@ -49,11 +49,19 @@ class TestTheCapturedQuotes:
         assert cheapest.yes_ask_tenths == complement(cheapest.no_bid_tenths)
 
     def test_quotes_come_back_cheapest_first(self):
-        """3.80 cents separated the makers, so the order is worth money."""
-        quotes = parse_quotes(_payload())
-        asks = [q.yes_ask_tenths for q in quotes]
-        assert asks == sorted(asks)
-        assert asks == [593, 631]
+        """3.80 cents separated the makers, so the order is worth money.
+
+        **Fed in the WRONG order deliberately.** The captured payload happens
+        to arrive cheapest-first already, so asserting against it unmodified
+        passed with the sort deleted -- the mutation was run and the test
+        stayed green. A guard that cannot fail is decoration.
+        """
+        payload = _payload()
+        payload["quotes"].reverse()
+        assert [float(r["no_bid_dollars"]) for r in payload["quotes"]] == [0.369, 0.407]
+
+        asks = [q.yes_ask_tenths for q in parse_quotes(payload)]
+        assert asks == [593, 631], "expensive quote came back first"
         assert asks[-1] - asks[0] == 38  # 3.8 cents, the measured spread
 
     def test_the_quoted_size_survives(self):
