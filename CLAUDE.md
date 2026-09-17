@@ -125,16 +125,34 @@ fair value of 57.8c, makers 3.80c apart.
 This explains the paradox the record already carried — *0 of 61 combos had an
 ask, yet 51 of 52 of Joe's fills were takers*. Those were RFQ executions.
 
-**"Combinations are enter-only" is UNSUPPORTED, not refuted, and must not be
-repeated as fact.** It rested on `yes_dollars` being empty on 40 of 40 KXMVE
-books (three runs, two dates, pinned by `tests/test_combo_book_depth_claims.py`;
-33 of those 40 carried a resting NO bid, which *is* the ask you buy at). That
-is a true statement about the **lit book** and it was promoted into a claim
-about **exit liquidity**, which the lit book cannot see. Whether a *sell-side*
-RFQ draws bids has never been tested — it needs a position Joe holds and is
-his call. ADR 0078's hedge and the tighter combination ceiling stand on their
-own; they are not evidence for the exit claim. About a fifth of quoted combos
-have ever traded; the sample cannot narrow that, and
+**"Combinations are enter-only" is REFUTED — tested 2026-09-17, do not
+restate it.** Sell-side RFQs on **all three combinations Joe actually holds**
+drew bids for the side he holds: **16 of 44 quotes carried a YES bid, on 3 of
+3 positions**, every one at the full size asked. Best exits 7.60c, 4.70c and
+0.14c a contract. An RFQ has no side field, so a maker's `yes_bid_dollars` is
+literally what they would pay him — the exit.
+`docs/measurements/2026-09-17-combinations-can-be-exited.md`.
+
+**The 40-of-40 "no resting YES bid" finding is also dead as a general claim.**
+Two of those three positions carry a resting YES bid on the **public book**
+right now, 38,709 and 24,900 contracts deep against holdings of 8.22 and
+60.97. `tests/test_combo_book_depth_claims.py` still passes and should — it
+pins what those 40 captures contained, which is still true *of those
+captures*. What died is the inference.
+
+**Neither surface dominates: an exit check must read BOTH.** On the two
+quoted books the **book beat the RFQ** (5.10c vs 4.70c; 0.32c vs 0.14c); on
+the empty one the RFQ was the only exit. A desk reading one surface will
+sometimes report no exit when there is one, and sometimes take the worse
+price.
+
+**An exit existing is not an exit being good.** Every best bid sat *below*
+his cost basis (7.60 vs 10.20, 4.70 vs 5.70, 0.14 vs 0.38). Nothing was
+accepted, so no fill is proven, and n = 3 positions at one moment is not a
+rate. ADR 0078's hedge is not invalidated — hedging a leg and selling the
+combination are different actions — but its premise "the only exit an
+enter-only combination has" is wrong and is amended, not deleted. About a
+fifth of quoted combos have ever traded; the sample cannot narrow that, and
 `backend/kalshi/combos.py`'s calendar caveat (no NBA/NFL in the captures) is
 still open.
 
@@ -300,8 +318,17 @@ The first two fills through the tool landed 2026-09-08.
 
 **`/hedge` watches what Joe already holds — ADR 0078.** It records a parlay he
 placed, reads its legs' live Kalshi prices while the game runs, and says what
-hedging the endangered leg would do — the exit the desk watches (any way
-out by selling is small and unmeasured; #41, 2026-09-16).
+hedging the endangered leg would do — the exit the desk *watches*, which
+since 2026-09-17 is no longer the only exit that **exists**. "Any way out by
+selling is small and unmeasured" (#41, 2026-09-16) was measured and is wrong:
+all three held combinations drew sell-side bids, two of them on the public
+book at 38,709 and 24,900 contracts of depth. The hedge is still the exit the
+desk *watches* and ADR 0078 still stands — hedging a leg and selling the
+combination are different actions at different costs — but the screen must
+not tell Joe selling is unavailable. **Three user-facing sentences say
+otherwise and are now false (the confirm checkbox, its fallback note and
+the parlay card) — Question for Joe: what should the combination checkbox
+say now? — #60.**
 No model, no tokens, no credits (asserted over the source of `core/hedge.py`,
 `hedge.py`, `hedge_watch.py`); no `recommendations` row and no gate read. With
 one leg live there is a figure and it is pushed to the phone; with several

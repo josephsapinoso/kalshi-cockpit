@@ -43,8 +43,11 @@ On the exact combination the desk refused (PITT / ATL / LV,
 - The Parlays tap census (ADR 0156) counts lit-book presence and read to Joe
   as "this combination cannot be bought". It never supported that.
 - **CLAUDE.md's "combinations are enter-only"** rests on `yes_dollars` empty
-  on 40 of 40 books. That measured the lit book. **Exit via RFQ has never been
-  tested, so the claim is unsupported — not refuted, unsupported.**
+  on 40 of 40 books. That measured the lit book, so as of this decision the
+  claim was **unsupported — not refuted, unsupported**. *(It was refuted
+  hours later, once Joe authorised the sell-side RFQ; see the last entry
+  under Consequences. This line is left as it stood because it records what
+  was known when the decision was taken, which is the point of an ADR.)*
 - The standing paradox — *0 of 61 combinations had an ask, yet 51 of 52 of
   Joe's fills were takers* — is explained. Those were RFQ executions printing
   to the book afterwards, not takes off a resting ask.
@@ -104,6 +107,17 @@ name and `beta = -0.141`. Tests pin "edge", "cheap" and "good price" absent.
   belongs with the accept slice, where it will matter.
 - A new outward-facing write exists on the live instance. It is auth-gated,
   demo-refused, and cannot spend.
-- **The exit question is now open rather than settled.** "Enter-only" was
-  never measured against the surface combinations actually trade on. Testing
-  it needs a sell-side RFQ on a position Joe holds — his call, not a session's.
+- **The exit question was opened and then ANSWERED the same day.** Joe
+  authorised the sell-side RFQ within the hour. All three combinations he
+  holds drew bids for the side he holds (16 of 44 quotes, 3 of 3 positions,
+  every bid at the full size asked), and two of the three also carry a
+  resting YES bid on the public book with 38,709 and 24,900 contracts of
+  depth. **"Enter-only" is refuted, not merely unsupported.** Neither surface
+  dominates: on the two quoted books the book beat the RFQ, and on the empty
+  one the RFQ was the only exit — so an exit check must read both.
+  `docs/measurements/2026-09-17-combinations-can-be-exited.md`.
+
+  This does not invalidate ADR 0078's hedge (hedging a leg and selling the
+  combination are different actions at different costs), and it is not a
+  claim that the exit is *good*: every best bid sat below Joe's cost basis.
+  It does falsify three user-facing sentences, which is **#60**.
