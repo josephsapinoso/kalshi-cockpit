@@ -16,6 +16,42 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-17 (fifteenth) - A document that must describe a guarded format will quote it and then claim it did not; name the canonical file instead of restating the form
+
+Twice in twenty-four hours, a registration wrote the `Question for Joe`
+marker form with a placeholder where a ticket number belongs, and
+`tests/test_a_question_for_joe_has_a_ticket.py` refused the file. The second
+time the author **had been warned about the first in its own brief**, and
+still produced this, one line apart:
+
+    **The marker form is `Question for Joe: <one sentence> - #NN`** ...
+    **This document deliberately does not write the marker**, with or
+    without a placeholder
+
+The claim and its refutation in the same paragraph. That is the tell that
+this is structural rather than careless: **a document whose job is to
+describe a format is under pressure to instantiate it**, and the author
+believes the surrounding disclaimer neutralises the instance. It does not,
+because a guard reads text and not intent.
+
+Two conclusions, and the second is the one that generalises:
+
+- **The rule is: never quote a guarded format; name the file that defines
+  it.** "The marker form is the one `docs/agents/issue-tracker.md` defines
+  under 'Open a ticket for Joe'" carries the same information, costs a
+  reader one hop, and cannot trip the guard. A warning in a brief did not
+  prevent the repeat; a rule that removes the need to quote does.
+- **Do not relax the guard to admit an obvious template.** The temptation is
+  strong the second time it fires, and it is exactly backwards: a guard that
+  cannot distinguish a template from a real marker is correct not to try,
+  because a template is how a real marker gets missed. A guard that fires
+  twice on the same construct is working.
+
+Corollary worth its own line: **a sentence asserting a property of the
+document it sits in is not evidence of that property.** "This document does
+not X" is a claim to check, not a fact, and is most likely to be false
+precisely when someone felt the need to write it.
+
 ## 2026-09-17 (fourteenth) - A deploy verified at the moment it happened stops being true if anything merges after it; and "the executable queue is empty" is a claim about how many queues you read
 
 Three failures this session, and the first two are the same shape: a state

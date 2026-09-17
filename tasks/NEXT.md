@@ -126,6 +126,174 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-17 (twenty-eighth session) — all four answers built; I gave Joe a wrong number and a pre-registrar caught it; and the instrument fixed yesterday found the desk's worst latency on its first run
+
+Joe answered `54A 55E 56A 57A` — every recommendation, as usual, within hours.
+All four are done. **The two most important things this session are a mistake
+of mine and a finding neither of us was looking for.**
+
+### THE MISTAKE — I put a wrong number in front of him and he answered against it
+
+#55's option E, which I *added* after a partner pass said the ticket omitted a
+free option, described a `fair_prices` dedup that would shrink the database to
+~2.9 GB. Sent to write its registration, the `pre-registrar` **refused the
+assignment** and was right twice over:
+
+1. **The dedup already shipped** — 2026-09-09, ADR 0133, `e8ec6ff`. Verified:
+   `write_fair_price` looks the key up (`runner.py:1082`) and `UPDATE`s
+   `confirmed_ms` instead of inserting (`:1246`). It has run in production for
+   eight days. I presented a deployed change as an opportunity.
+2. **A dedup does not shrink anything.** §B6.3 of the source document,
+   verbatim: *"It reclaims none. A dedupe **deletes nothing** … It changes the
+   slope, not the level."* And §B6.4 is titled *"It does not establish a byte
+   figure at all, and none may be quoted from it."* **I quoted one.**
+
+His answer survives in substance — the two halves were always separable, half
+one rests on residency arithmetic alone — but he chose with a false row on the
+screen. #55 Amendment 2 says so plainly rather than quietly fixing it.
+
+**And the free verdict that came out of it matters more than the error:**
+
+    dedup does nothing        326.6 MB/day     5.9 days to 50% residency
+    dedup works perfectly     141.0 MB/day    13.7 days
+    a 30-day billing month   <=64.3 MB/day    unreachable
+
+**No achievable dedup result buys one billing month of ≥50% residency on a
+4 GB box.** The box is a stopgap measured in weeks. `odds_snapshots` is the
+residual at ~141 MB/day and **has no retention rule** — verified, there is no
+`DELETE` against it anywhere, while `kalshi_quotes` and `fair_prices` both have
+one. It grows forever by default rather than by decision. That is **ticket
+#58**, and it exists because I recommended a purchase on partly wrong
+reasoning.
+
+### THE FINDING — `/api/signal` costs 3–14 s on a cache miss, on Board and Slate
+
+`docs/measurements/2026-09-17-the-signal-cache-miss-is-the-desks-worst-latency.md`.
+
+Yesterday's instrument change (keep per-rep maxima) paid for itself on its
+first run: `/api/signal` med **108 ms**, MAX **13,475 ms**. It recurred at
+**13,776 ms** the next day on a *different box size*, which is not what a
+network hiccup looks like.
+
+A 40-rep probe found **zero** slow reps — and that was the wrong conclusion,
+because it ran inside a cache window the sweep had just warmed. The cause is in
+the source: `SIGNAL_CACHE_TTL_MS = 300_000`, and a miss re-runs a scan of
+`recommendations` with a correlated subquery into `kalshi_quotes`. **The median
+is the cache hit and the maximum is the cache miss; their median describes
+neither.**
+
+Predicted and confirmed on demand — waited out the TTL, got 5,231 ms then
+3,101 ms then back to ~100 ms. **Two slow reps, not one, is a second finding:**
+`_signal_cache` is module state in one process, so the misses per window equal
+the number of workers.
+
+**It reaches Joe.** `board/page.tsx:62` and `slate/page.tsx:113` both `await
+fetchSignal()` in `force-dynamic` server components. 13,776 ms is **55% of the
+25 s read budget** on the two most-visited screens.
+
+**Why nobody saw it, and this is the uncomfortable part:** the sweep iterates
+`APIS + PAGES`, so it warms the signal cache and *then* times the pages that
+depend on it. That is written verbatim in the docstring I added yesterday, and
+I read the sweep as covering the pages anyway. **A caveat that is true,
+documented and ignored is worth as much as an absent one.**
+
+Not claimed: no production incident names this route, and the 4 GB box neither
+fixes nor caused it (the 13,776 ms reading is *from* the 4 GB box).
+
+### THE FOUR BUILDS
+
+- **#54A (lane, merged)** — `PicksAnchorBaseRate`, grouped **by league** with
+  `moneyline` named in every count, because on Picks the approved
+  (league, market family) grouping degenerates into the pooling he was shown
+  evidence against. The lane **traced the constancy instead of trusting the
+  brief**: the spread/totals arms write `fair_prices` and no `recommendations`
+  row (ADR 0070), so every Picks row is `h2h` by construction. **No total
+  across leagues** — that would be both the headline #8 forbids and the pooled
+  number the block refuses. Verified by *rendering* under
+  `renderToStaticMarkup`, not by grepping source. 13 mutations red.
+  Wording differs from his example on purpose (`leagueLabel()` maps "Pro
+  Baseball" → "MLB" everywhere else); flagged to him rather than left silent.
+- **#56A (lane, merged)** — a tenth stake-basis reason,
+  `hand_recorded_position`. `no_order_row` keeps its case **byte-identical**,
+  with a mutation proving the guard bites. The lane **improved on the brief**:
+  it split on the whole join key rather than "both columns absent", because
+  half a key runs no lookup either — and a pre-existing test already called
+  that case "recorded by hand" while asserting the old reason. Derived marker,
+  so no schema bump and no backfill. ADR 0160 Amendment 2.
+- **#55E** — `fly.live.toml` `memory` 2gb → **4gb**, ADR **0163**. Verified on
+  the box: `MemAvailable` **1.49 GB → 3.24 GB**, residency ceiling ~29% → ~64%.
+  Not 8 GB — that is the ~$31/mo already declined once as disproportionate.
+  The 2gb rationale is kept **verbatim** because it predicted this: *"this buys
+  headroom; it does not fix the growth."*
+- **#57A** — closed with a **deadline**, which is the whole point: press it by
+  **Monday 2026-09-22** or it is retired and recorded as decided. "No deadline"
+  is what produced three silent carries.
+
+### The marker-template collision fired again, 24 hours later
+
+`tests/test_a_question_for_joe_has_a_ticket.py` refused the dedup registration
+for quoting the marker form with a placeholder — the same defect as yesterday,
+by an author **whose brief warned about it**. It wrote the template one line
+above a sentence claiming it had not. **The durable rule is now written down:
+never quote a guarded format, name the file that defines it.** The guard is
+NOT relaxed — a guard that cannot tell a template from the real thing is right
+not to try. `tasks/lessons.md` 2026-09-17 (fifteenth).
+
+### STATE at close
+
+`main` = live = demo, all three; verified on `/api/health` rather than assumed.
+Full suite green on the merged tree. `SCHEMA_VERSION` **44**, next ADR
+**0164**, schema **v45 unallocated**, all lane worktrees reaped. Arming
+unchanged: hand path armed, engine and bid dry. **Zero odds credits spent** —
+every live call a GET.
+
+New instrument: `scripts/probe_signal_cache.py` (single route, per-rep, prints
+the rule-of-three bound when it sees nothing). Runs locally, so no
+`.dockerignore` entry — guard verified.
+
+### Still open, in order
+
+1. **#58 IS WITH JOE** — the 4 GB box buys weeks, and `odds_snapshots` has no
+   retention rule. Recommendation **A**: let tomorrow's registered read report
+   first, then decide. It is the only ticket open.
+
+2. **Friday 18, 07:00Z–11:00Z — the registered dedup-effect read.** Two bounded
+   queries, threshold `rho <= 0.25` fixed in advance, expiry 2026-09-25.
+   Nobody has checked whether ADR 0133 did anything — the last `db-sizes`
+   reading predates the dedup commit by two hours. It feeds #58.
+
+3. **Sunday 20, 07:00Z–11:00Z — the NCAAF sharp-anchor census**, registered
+   `6dc6449`. Not Saturday. Its own registration shows **nothing changes on
+   screen under any outcome**; #54 is now answered, so re-read whether the run
+   still earns its place before taking it.
+
+4. **The `/api/signal` cache miss — a build, unowned, not yet ticketed.**
+   Options with real trade-offs: precompute on the recorder's cycle, share the
+   cache across workers, or stop awaiting it in the server component. The
+   300 s TTL's own rationale is still sound, so this is not a bug to fix
+   quickly. **Do not ticket it to Joe until someone can say what changes on
+   screen** — he does not see milliseconds, he sees a page that loads.
+
+5. **Queue 3, still unbuilt:** `#21 item 4` (mark open combo positions
+   unsettled on `/bets`), `#33` (the indigo `Stat` variant), `#36` (the
+   authorised ~14-credit MLB prop sweep, never run — late-season, check it is
+   still meaningful before spending). Fix **#27's ticket SHA** (`228f716` →
+   `d325ed1`) in passing.
+
+6. **Raised by the #54 lane, not fixed, worth a ticket if anyone cares:** the
+   *Games* block's justification ("NCAAF h2h ~84% vs spreads ~30%") may
+   describe a population that screen does not show, by the same ADR 0070 chain.
+   Nothing on screen is wrong; the reason written beside it may be.
+
+7. **Monday 21 — `credits-day --date 20260920`.** Two minutes. Not a work item.
+
+8. **PARKED, with the ADR that parked them:** the shard probe (**ADR 0158**);
+   `user_not_found` on shard 3; the 25 s read budget.
+
+9. **Reservations:** none live. Next ADR **0164**; schema **v45 unallocated**.
+
+---
+
 ## 2026-09-17 (twenty-seventh session) — the live desk was two commits behind with a false label on the money path; the four tickets went to Joe with a free option the ticket had left out; and the third queue turned out not to be empty
 
 Joe: *"Read next.md and start"* — the planning question, so a partner pass ran.

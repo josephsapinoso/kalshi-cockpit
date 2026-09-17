@@ -626,11 +626,20 @@ Per CLAUDE.md workflow step 7, the session that writes the result document
 `docs/agents/issue-tracker.md`, "Open a ticket for Joe") and names it in the
 handoff.
 
-**The marker form is `Question for Joe: <one sentence> — #NN`**, where `NN` is
-the number the tracker returns when the sub-issue is created.
-**This document deliberately does not write the marker**, with or without a
-placeholder: `tests/test_a_question_for_joe_has_a_ticket.py` refuses a marker
-without a number and refuses `#3` as the number, and writing one with a
+**The marker form is the one `docs/agents/issue-tracker.md` defines under "Open
+a ticket for Joe"** — a one-sentence marker ending in the number the tracker
+returns when the sub-issue is created. It is named there and not restated here,
+on purpose: see below.
+**This document deliberately does not write the marker, and the first draft of
+this very paragraph did** — it quoted the form with a placeholder one line
+above the sentence claiming it had not, and
+`tests/test_a_question_for_joe_has_a_ticket.py` caught it. That guard refuses a
+marker without a number and refuses `#3` as the number. The same collision hit
+the sharp-anchor registration the day before, whose author had also been warned
+about it. **The durable rule for a measurement doc is therefore: never quote
+the marker form, name the conventions file instead** — a guard cannot tell a
+template from the real thing, and it should not learn to, because a template is
+exactly how a real marker gets missed. Writing one with a
 placeholder cost a fix yesterday.
 
 The one sentence differs by branch, and that difference is §1.3's
