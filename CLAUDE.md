@@ -87,7 +87,10 @@ planning, treat the signal as settled negative.**
 **The gate stays exactly where it is.** It is the live-trading interlock, it is
 never lowered or bypassed, and "the gate will open" is not a step in any plan —
 its 300 counts *actionable* games and the record has 2 in its whole life, both
-soft-book fallbacks.
+soft-book fallbacks (per the 2026-08 audits cited above; this is the same
+shape of decaying live count ADR 0162 covers for the transacted path — re-read
+the Gate screen's game count before trusting "2" in a session more than a
+couple of weeks old).
 
 ## The hunt is closed — ADR 0038
 
@@ -194,38 +197,37 @@ together or the screen lies in the interval
   sends real immediate-or-cancel orders at Joe's tap with his own typed
   estimate. First two real fills 2026-09-08 (KXMVE combos, shard 1, ADR 0113).
   **Three quantities circulate as the count of the transacted path and they
-  are not the same number — name the table.** Read off live 2026-09-17
-  (~00:40Z), each with its instrument:
+  are not the same number — name the table, never a bare digit.**
+  `manual_orders` (every row, `dry_run = 0`) is read with
+  `inspect_live_db.py manual-orders-audit`; filled orders are the
+  `status = 'filled'` subset of that same read; open `parlay_positions` are
+  read from `/api/hedge`, which lists `status = 'open'` only, so a closed row
+  would not show at all. **Any number quoted for these three is stale on
+  sight — Joe keeps betting, that is the point of the tool — so this file
+  does not state one.** Re-run the instrument above for a current count; the
+  last dated reading is a snapshot in
+  `docs/measurements/2026-09-17-transacted-path-census.md`, which is allowed
+  to go stale because nothing here is told to trust it (ADR 0162).
 
-      manual_orders     16 rows, dry_run = 0  `manual-orders-audit`: 16 distinct
-                                              tickers, all KXMVE, first 09-08
-                                              19:41Z, newest 09-17 00:37Z
-      filled orders     14                    status = 'filled'; 2 unfilled
-      parlay_positions  17 OPEN rows, ids 1-17 `/api/hedge`. **More positions
-                                              than orders**, and the two tables
-                                              do not correspond row for row:
-                                              ids 1-2's orders have NO position
-                                              (they predate the writer,
-                                              `combo-position-gaps`), and ids
-                                              11-15 are hand-recorded positions
-                                              with NO order — `combo_ticker` and
-                                              `placed_ms` both NULL
+  **The two tables do not correspond row for row, by design, not by
+  bookkeeping failure — do not infer one count from another.**
+  `record_position` (`backend/hedge.py:350`) has two callers:
+  `routers/hedge.py:73`, where Joe types a ticket by hand for a bet placed
+  elsewhere and both join columns (`combo_ticker`, `placed_ms`) default to
+  `None`, and `routes.py:4612` on the order path, which always sets them. So
+  an order can exist with no position (the earliest orders predate the
+  position writer) and a position can exist with no order (a hand-recorded
+  slip) — a `kalshi_combo` position with a NULL `combo_ticker` is a
+  **designed state**, and ADR 0160's read correctly refuses to join it
+  (`no_order_row`) rather than guessing.
 
-  **Do not infer one count from another.** `record_position`
-  (`backend/hedge.py:350`) has two callers: `routers/hedge.py:73`, where Joe
-  types a ticket by hand and both join columns default to `None`, and
-  `routes.py:4612` on the order path, which sets them. So a `kalshi_combo`
-  position with no ticker is a **designed state**, not a bookkeeping failure,
-  and ADR 0160's read correctly refuses it (`no_order_row`).
-
-  This line read "two" until 2026-09-10, "four by 2026-09-09" until
-  2026-09-14, "7 rows / 6 filled / 4 positions" until 2026-09-15 and
-  "13 / 12 / 10" until 2026-09-17 — the census on 09-15 found the 7 was six
-  orders stale, and two days later the 13 was three orders and seven
-  positions stale. The "four" was ADR 0129's four *orders* (three filled, one
-  not), and it was then re-read as four fills and as four positions. **This
-  number goes stale in days, not weeks. Re-read it before quoting it**, with
-  its table and its date.
+  **This paragraph's own number was corrected four times in nine days** —
+  2026-09-10, -14, -15 and -17, the last found stale two days after it was
+  written — always because Joe placed more orders between one session
+  reading it and the next quoting it. That recurrence, not any one of the
+  numbers, is why the paragraph no longer carries one: a count that decays
+  by design does not belong in a document every session is told to trust
+  (ADR 0162).
   The five brakes are gone (ADR 0112) and **no ceiling of ours bounds a hand
   bet**; what remains is the desk lockout, idempotency, the KXMVE
   acknowledgement, the price ceiling, depth at the ask, the netting guard, the
@@ -308,12 +310,15 @@ on 12 rows of one stratum by the registered census, 2026-09-15:
 ADR 0145 and is not edited; the hedge price being a live ask is a fifth,
 unsigned term it does not list.) Net sign is indeterminate; E2 alone was
 observed at 22 tenths a contract on one row of 12, so "a few tenths" no
-longer bounds it. **`/hedge` has produced zero locks in its life**
-(re-read live 2026-09-15 ~22:30Z: no `hedge_lock` kind in `notifications` at
-all, the **8** `position_state` rows — all `delivered = 1`, newest 18:29:46Z —
-are the only position kind; this line said "four" and went stale in five days;
-10 open
-`parlay_positions` rows, 5 in `derisk` and 5 dead, none locked), so E3 did
+longer bounds it. **`/hedge` has produced zero locks in its life** —
+`notifications` has never carried a `hedge_lock` kind, only `position_state`
+rows, checked most recently 2026-09-15. This is the same decaying-count shape
+the transacted-path paragraph names (ADR 0162): the open-position breakdown
+that used to sit here (a `derisk`/dead split) was already stale relative to
+this file's own later transacted-path reading, so it is not restated —
+re-check `notifications` for `hedge_lock` and read open positions from
+`/api/hedge` before trusting the zero if it has been more than a session or
+two. So E3 did
 no realised harm and the fix is validated on synthetic rows only. **The flattering error is calling the figure cautious,
 a floor, or "at least"** — the words to refuse are ceiling, floor,
 conservative, at least, can only be smaller/larger. The stake basis:
@@ -329,12 +334,12 @@ on the permanent row. **That has happened and has been read — do not carry
 this as pending work.** This line said "all seven real rows predate it and
 carry NULL there — Joe's next fill is the first that will carry them, and
 reading that row once is worth more than any build" until 2026-09-15 ~22:30Z.
-The population is now **16 real rows, 14 filled, 2 unfilled**
-(`manual-orders-audit`, live, 2026-09-17 ~00:40Z; it read 13/12/1 on
-2026-09-15). The **six 2026-09-15 orders postdate v40 and carry both
+The `manual_orders` population keeps growing — see the transacted-path
+paragraph above for the instrument, not a restated count here (ADR 0162).
+The **six 2026-09-15 orders postdate v40 and carry both
 endpoints** — the registered census read exactly those and is spent (§2 of its
-result doc), so the three orders placed since (09-15 and 09-17) are **outside**
-it and no look is owed on them. The one unjoined row is the
+result doc); any order placed after 2026-09-15 is **outside** it and no look
+is owed on it. The one unjoined row is the
 2026-09-09T00:34:30Z order, pre-v40, no `venue_fill_count` and no `fills` row.
 `_record_combo_position` still **writes** `parlay_positions.stake_tenths` from
 the sent price (`contracts * fill_price_tenths`, `routes.py:4598`) and always
