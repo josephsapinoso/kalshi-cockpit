@@ -1156,6 +1156,101 @@ export type ParlayLookupResult =
  * happening — the POST may have reached Kalshi and minted the market — so
  * the words say so rather than inviting a blind retry.
  */
+/** One maker's private offer on a combination, as `/api/parlays/rfq` sends it. */
+export type ComboRfqQuote = {
+  quote_id: string;
+  /**
+   * What one contract of YES costs, in integer tenths of a cent. DERIVED
+   * server-side as the complement of the maker's NO bid, because Kalshi
+   * publishes bids and a resting NO bid IS the ask you buy at.
+   */
+  yes_ask_tenths: number;
+  no_bid_tenths: number;
+  contracts: number | null;
+  /** Rendered server-side, through the ONE price renderer. */
+  ask_display: string;
+};
+
+export type ComboRfqResult = {
+  status: "quoted" | "no_quotes";
+  rfq_id: string;
+  market_ticker: string;
+  target_cost_dollars: string;
+  fair: { conservative: number | null };
+  /** The same fair value as a string, or null when it was unreadable. */
+  fair_display: string | null;
+  /**
+   * What the PUBLIC order book said at the same instant, or null.
+   *
+   * Null is the expected value and means the book carried no ask -- the
+   * normal resting state of a combination, not a fault. It is the number
+   * that made this desk tell Joe a combination could not be bought.
+   */
+  book_yes_ask_tenths: number | null;
+  quotes: ComboRfqQuote[];
+  words: string;
+};
+
+/**
+ * Ask the makers what this combination costs.
+ *
+ * **This is how a combination is actually priced.** `lookupParlay` above
+ * reads the public order book, which for a combination is empty by design
+ * between requests -- so it reported "nothing is resting" on markets that
+ * were being quoted all day. This fires a real Request for Quote.
+ *
+ * **No money moves.** Only accepting a quote binds the requester, and there
+ * is no accept path. The request is deliberately tiny: the backend reads the
+ * legs, the collection and the fair value from the ticker's own recorded
+ * lookup, so this call cannot talk it into pricing something else.
+ */
+export async function askMarketToPrice(
+  marketTicker: string,
+  targetCostDollars: string,
+): Promise<
+  { ok: true; value: ComboRfqResult } | { ok: false; refusal: string }
+> {
+  let response: Response;
+  try {
+    response = await fetch("/parlay-rfq", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        market_ticker: marketTicker,
+        target_cost_dollars: targetCostDollars,
+      }),
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      refusal:
+        `The request did not reach the cockpit (${
+          error instanceof Error ? error.message : "network error"
+        }). Nothing was bought and nothing is resting -- asking for a price ` +
+        "never commits you to anything.",
+    };
+  }
+
+  const body: unknown = await response.json().catch(() => null);
+  if (response.ok) {
+    if (body && typeof body === "object" && "status" in body) {
+      return { ok: true, value: body as ComboRfqResult };
+    }
+    return {
+      ok: false,
+      refusal:
+        "The answer came back in a shape this screen cannot read. Nothing " +
+        "is shown rather than a price that might be wrong.",
+    };
+  }
+  const detail =
+    body && typeof body === "object" && "detail" in body
+      ? String((body as { detail: unknown }).detail)
+      : `HTTP ${response.status}`;
+  return { ok: false, refusal: detail };
+}
+
 export async function lookupParlay(
   cardKey: string,
   stakeCents: number,

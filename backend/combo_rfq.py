@@ -46,10 +46,11 @@ import sqlite3
 import time
 from typing import Optional
 
+from backend.core.prices import probability_to_tenths
 from backend.kalshi.orderbook import OrderBook
 from backend.kalshi.rest import EXCHANGE_INDEX_COMBOS
 from backend.kalshi.rfq import RfqQuote, RfqRefused, create_rfq, delete_rfq, read_quotes
-from backend.parlays import LookupRefused
+from backend.parlays import LookupRefused, _cost_per_contract
 from backend.store import combo_rfqs as store
 
 logger = logging.getLogger(__name__)
@@ -219,12 +220,22 @@ async def ask_market_to_price(
         "fair": {"conservative": fair},
         # What the public book said at the same instant. Expected to be null.
         "book_yes_ask_tenths": book_ask,
+        # Display strings are rendered HERE, through `_cost_per_contract`,
+        # for the reason every price in this repo is: money is integer tenths
+        # of a cent and there is one renderer. A second implementation in
+        # TypeScript is how two surfaces start disagreeing about what 59.3c
+        # means on a market that ticks in deci-cents.
+        "fair_display": (
+            None if fair is None
+            else _cost_per_contract(probability_to_tenths(fair))
+        ),
         "quotes": [
             {
                 "quote_id": q.quote_id,
                 "yes_ask_tenths": q.yes_ask_tenths,
                 "no_bid_tenths": q.no_bid_tenths,
                 "contracts": q.contracts,
+                "ask_display": _cost_per_contract(q.yes_ask_tenths),
             }
             for q in quotes
         ],

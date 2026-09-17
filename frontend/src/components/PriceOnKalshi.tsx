@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { formatAge, lookupParlay } from "@/lib/api";
 import type { ParlayCardData, ParlayHorizon, ParlayLookupResult } from "@/lib/api";
+import AskTheMarket from "@/components/AskTheMarket";
 import ManualTicket from "@/components/ManualTicket";
 import Term from "@/components/Term";
 
@@ -70,8 +71,24 @@ import Term from "@/components/Term";
  *
  * So the depth check does not kill nearly every combo order, and a screen
  * telling Joe to expect refusal was steering him off a book that was quoted
- * five times in six. It renders only on `status === "priced"`; when the book
- * is genuinely empty the existing words already say so.
+ * five times in six. It renders only on `status === "priced"`.
+ *
+ * **An empty book is no longer a dead end — corrected 2026-09-17.** Every
+ * paragraph above reasons about the ORDER BOOK, and for a combination that is
+ * the wrong surface: its book is empty *by design between requests*, because
+ * its price lives in private maker quotes answering a Request for Quote. The
+ * claims above that "there is nothing to buy there" and that the empty-book
+ * words "say it better than a disabled button would" were both inferences
+ * from that wrong surface.
+ *
+ * On 2026-09-17 the exact card this screen refused drew **three maker quotes
+ * in 107ms**, best ask 59.3c against the card's own fair value of 57.8c,
+ * while its book read empty on both sides. So `status === "book_empty"` now
+ * renders `<AskTheMarket>`, which asks.
+ *
+ * The 40-of-40 exit finding above is untouched by this and also unsupported
+ * by it: it measured resting YES bids on the book, and whether a SELL-side
+ * RFQ draws bids has never been tested.
  */
 export default function PriceOnKalshi({
   card,
@@ -249,9 +266,27 @@ function Result({ value }: { value: ParlayLookupResult }) {
   // Every non-priced status must be listed here. The fallthrough below reads
   // `value.quoted`, which only `priced` has, so a status missing from this
   // guard does not degrade -- it renders undefined into the price line.
+  // **An empty book is no longer a dead end.** It used to render `words` and
+  // stop, sending Joe to the Kalshi app -- on markets that makers were
+  // pricing all day. A combination's book is empty by design between
+  // requests; its price lives in private quotes answering an RFQ. So this
+  // branch now offers the ask.
+  if (value.status === "book_empty") {
+    return (
+      <div className="space-y-2">
+        <p className="text-sm text-muted">{value.words}</p>
+        <AskTheMarket
+          marketTicker={value.minted_market_ticker}
+          // Kalshi's own fixed-point dollar string. The five dollars is the
+          // size the ONE measured RFQ was fired at; it is a request for a
+          // price, not a commitment to spend it.
+          targetCostDollars="5.0000"
+        />
+      </div>
+    );
+  }
   if (
     value.status === "no_collection" ||
-    value.status === "book_empty" ||
     value.status === "legs_not_combinable"
   ) {
     return <p className="text-sm text-muted">{value.words}</p>;

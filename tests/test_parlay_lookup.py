@@ -778,9 +778,21 @@ class TestHorizonTravelsWithTheTap:
 
 
 class TestTheCapturedShapes:
-    async def test_an_empty_book_is_an_honest_refusal_not_a_price(self, build):
-        """The captured reality: a freshly minted combo's book is empty on
-        both sides. The response says so in words and records the row."""
+    async def test_an_empty_book_says_so_without_claiming_nobody_will_sell(
+        self, build
+    ):
+        """The captured reality: a combination's book is empty on both sides.
+
+        **This test used to pin the sentence "no price you could actually pay"
+        and was renamed on 2026-09-17**, because that sentence was an
+        inference from the empty book and the inference is false. A
+        combination's book is empty *by design between requests* -- its price
+        lives in private maker quotes answering an RFQ, and the exact card
+        this copy refused drew three quotes in 107ms.
+
+        So the empty book is still stated, and the conclusion drawn from it is
+        now pinned ABSENT. `<AskTheMarket>` renders under these words.
+        """
         app, fake_api, path = build()
         legs = await _served_legs(app)
         response = await post(
@@ -791,11 +803,27 @@ class TestTheCapturedShapes:
         body = response.json()
         assert body["status"] == "book_empty"
         assert body["minted_market_ticker"] == CAPTURED_RESPONSE["market_ticker"]
-        assert "no price you could actually pay" in body["words"]
-        assert "try again shortly" not in body["words"].lower(), (
-            "this desk's own record has no case of an empty combo book "
-            "turning into a quoted one on a later ask -- the words must not "
-            "promise waiting helps"
+        words = body["words"]
+        # The fact still gets stated.
+        assert "nothing is resting in its public order book" in words
+        # And it is named as normal, so the reader does not read it as a fault.
+        assert "normal state of a combination" in words
+
+        # **The refuted conclusions, pinned absent.** Each of these was in the
+        # shipped copy and each was wrong: the first two assert that an empty
+        # book means no seller, and the third sent Joe to the Kalshi app to do
+        # by hand what the desk can now do itself.
+        for refuted in (
+            "no price you could actually pay",
+            "no one is offering to sell",
+            "Build it in the Kalshi app",
+        ):
+            assert refuted not in words, refuted
+
+        assert "try again shortly" not in words.lower(), (
+            "re-reading the BOOK still never helps -- it is the wrong "
+            "surface, not a stale one. The words must point at asking, not "
+            "at waiting."
         )
         rows = _lookup_rows(path)
         assert [r["status"] for r in rows] == ["book_empty"]

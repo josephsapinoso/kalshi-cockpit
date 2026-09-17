@@ -57,6 +57,13 @@ const JSON_ROUTE_HANDLERS = new Set([
   // set and fall through to the HTML login redirect a fetch reads as success.
   "/parlay-bid",
   "/parlay-bid-cancel",
+  // Asks the makers what a combination costs. Outward-facing -- it
+  // creates a real RFQ on the exchange -- but no money moves, because
+  // only accepting a quote binds the requester and no accept route
+  // exists. It is listed here for the same reason as the rest: without
+  // the entry an unauthenticated POST gets an HTML login redirect that
+  // a `fetch` reads as success.
+  "/parlay-rfq",
   // The hand bet. Spends real money, and since 2026-09-08 the session cookie
   // is the only credential in front of it (the typed bearer token was removed
   // on Joe's word) -- so this entry is what stands between an unauthenticated

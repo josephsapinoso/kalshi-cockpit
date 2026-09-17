@@ -3092,17 +3092,28 @@ async def price_card_on_kalshi(
             # record does establish: zero of the repeat reads in this table
             # ever found an empty book quoted, including one combination
             # re-read across 6h44m.
+            # **This sentence was wrong for six weeks and the correction
+            # ships with the fix.** It read: "no one is offering to sell this
+            # combination, so there is no price you could actually pay right
+            # now... Build it in the Kalshi app instead." Every clause after
+            # the first was an inference from an empty order book, and the
+            # inference does not hold: a combination's book is empty *by
+            # design between requests*, because its price lives in private
+            # maker quotes answering an RFQ. On 2026-09-17 the exact card
+            # this text refused drew three maker quotes in 107ms, best ask
+            # 59.3c against a fair value of 57.8c.
+            #
+            # Copy that names a condition to wait for is falsified by fixing
+            # the condition, so this could not be left to a later pass: the
+            # screen would have lied in the interval. `<AskTheMarket>`
+            # renders directly beneath these words.
             "words": (
-                "Kalshi created the market, but nothing is resting in its "
-                "book -- no one is offering to sell this combination, so "
-                "there is no price you could actually pay right now. The "
-                "app may show a number, but a number nobody will trade at "
-                "is not a cost. Asking again costs nothing and mints "
-                "nothing new -- it just re-reads this same market's book -- "
-                "but nothing in this desk's own record shows an empty combo "
-                "book turning into a quoted one on a later ask. Build it in "
-                "the Kalshi app instead and compare its quote to the fair "
-                "value on the card."
+                "Kalshi created the market, and nothing is resting in its "
+                "public order book -- which is the normal state of a "
+                "combination, not a sign that nobody will sell it. A "
+                "combination is priced by asking: market makers quote you "
+                "privately, and their prices never appear in the book. "
+                "Re-reading the book will keep saying this, so ask instead."
             ),
         }
 
