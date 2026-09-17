@@ -183,8 +183,24 @@ async def ask_market_to_price(
                 logger.warning("rfq %s: quote read failed (%s)", rfq_id, exc)
             await asyncio.sleep(QUOTE_POLL_S)
     finally:
-        # Capture BEFORE withdrawing. Deleting the RFQ destroys the venue's
-        # copy of every quote, so this order is load-bearing, not tidiness.
+        # **The load-bearing order is READ-then-delete, and the poll loop
+        # above is what enforces it** -- not the two statements below.
+        #
+        # This comment claimed that writing to disk before deleting was the
+        # critical ordering. It is not: `seen` is already in memory here, so
+        # swapping these two changes nothing, and the mutation meant to prove
+        # it stayed green. Corrected rather than defended.
+        #
+        # What *does* lose every price is withdrawing the RFQ before or during
+        # the loop, because the venue drops its copy of the quotes at delete
+        # (measured 2026-09-17: a re-read returned zero) and there is no
+        # second chance to fetch them. `test_a_delete_before_the_read_loses_
+        # every_price` pins that, and the fake models the venue by serving
+        # nothing once deleted.
+        #
+        # Writing first is still the right habit -- it keeps the disk copy
+        # ahead of the irreversible call -- but it is a habit, not a guard,
+        # and saying so is the point.
         store.record_quotes(
             conn, rfq_id=rfq_id, quotes=seen.values(), captured_ms=now_ms
         )

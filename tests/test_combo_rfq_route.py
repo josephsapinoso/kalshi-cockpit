@@ -2,9 +2,8 @@
 
 What these tests establish: the route is auth-gated; it refuses a ticker this
 desk has no record of minting rather than taking the legs from the request;
-it records the ask BEFORE any quote arrives; it captures quotes before
-withdrawing the RFQ, in that order, because withdrawing destroys the venue's
-copy; a book that was empty at the same instant is stored as NULL, not zero;
+it records the ask BEFORE any quote arrives; it reads every quote before
+withdrawing the RFQ, because withdrawing destroys the venue's copy; a book that was empty at the same instant is stored as NULL, not zero;
 and nobody answering is a stated outcome rather than an error.
 
 What they do not establish
@@ -58,14 +57,15 @@ def _pem(tmp_path: Path) -> Path:
 class FakeApi:
     """Stands in for `KalshiRestClient`, recording the order of calls.
 
-    `calls` is the point of this class: the capture-then-delete ordering is a
-    correctness property, not a style choice, and only the sequence proves it.
+    `calls` is the point of this class: read-before-delete is a correctness
+    property, not a style choice, and only the sequence proves it.
     """
 
     def __init__(self, *, quotes=None, book=None):
         self.calls: list[str] = []
         self._quotes = quotes if quotes is not None else []
         self._book = book if book is not None else {"yes_dollars": [], "no_dollars": []}
+        self.deleted = False
 
     async def orderbook(self, ticker, depth=10):
         self.calls.append("orderbook")
@@ -78,9 +78,15 @@ class FakeApi:
             return {"id": "rfq-test"}
         if method == "GET" and path.endswith("/quotes"):
             self.calls.append("read")
-            return {"quotes": self._quotes}
+            # **Models the venue, not a convenience.** Deleting an RFQ drops
+            # its quotes: measured 2026-09-17, a re-read after DELETE came
+            # back empty. A fake that kept serving them would make
+            # delete-before-read look harmless, which is exactly the bug the
+            # ordering exists to prevent.
+            return {"quotes": [] if self.deleted else self._quotes}
         if method == "DELETE":
             self.calls.append("delete")
+            self.deleted = True
             return {}
         raise AssertionError(f"unexpected {method} {path}")
 
@@ -223,12 +229,18 @@ class TestWhatComesBack:
 
 
 class TestTheOrderOfOperations:
-    async def test_quotes_are_captured_before_the_rfq_is_withdrawn(self, build):
+    async def test_a_delete_before_the_read_loses_every_price(self, build):
         """Withdrawing destroys the venue's copy of every quote.
 
-        Measured 2026-09-17: a re-read after DELETE returned zero. If delete
-        ran first the desk would hold an RFQ row with no prices and no way to
-        recover them, which is indistinguishable from nobody answering.
+        Measured 2026-09-17: a re-read after DELETE returned zero. So the
+        load-bearing order is READ-then-delete, enforced by the poll loop.
+        The fake models that -- it serves nothing once deleted -- and the
+        mutation that moves `delete_rfq` above the loop turns this red.
+
+        **An earlier version of this test asserted that the disk WRITE
+        happened before the delete and was green with the two swapped**: the
+        quotes are already in memory by then, so that ordering guards
+        nothing. The claim was corrected rather than the test weakened.
         """
         app, fake, path = build(quotes=[_quote_row("q1", "0.4070")])
         await _post(app, _body())
