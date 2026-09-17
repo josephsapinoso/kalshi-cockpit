@@ -52,6 +52,24 @@ MUTATIONS, each applied to the guarded code and observed red on 2026-09-16
   8. remove the two field declarations from `api.ts`
   9. the fallback sentence swaps "not been checked" for a claim that the
      stake is the venue's
+
+ISSUE #56 (answered A, 2026-09-17) -- the tenth refusal
+-------------------------------------------------------
+`stake_basis_for` used one reason for two different facts: a position whose
+join key could not be formed (nothing was ever looked up -- a ticket Joe
+recorded by hand) and one whose key WAS formed and matched nothing (a gap in
+the books). Five of seventeen open positions were the first wearing the
+second's sentence, so a genuine gap had nowhere to stand out. The count above
+is now ten, and the `no_order_row` sentence is unchanged by design.
+
+MUTATIONS for that split, each observed red on 2026-09-17
+---------------------------------------------------------
+ 10. `stake_basis_for` drops the `_order_key` branch and returns
+     `no_order_row` for both -- the pre-fix behaviour
+ 11. the `hand_recorded_position` entry is deleted from `STAKE_BASIS_GLOSS`
+ 12. the hand-recorded sentence is given wording that reports a search
+ 13. the `no_order_row` sentence is softened into the hand-recorded one --
+     the sentence this ticket promises NOT to change
 """
 
 from __future__ import annotations
@@ -89,10 +107,11 @@ def refusal_names() -> set[str]:
     """Every reason `stake_basis_for` (and `stake_bases`) can name.
 
     Read out of the source rather than by calling the function, because the
-    set depends on which branch each input takes and two of the nine --
+    set depends on which branch each input takes and two of the ten --
     `no_order_row` and `ambiguous_order_rows` -- are raised by different
     callers. Every one of them is written as a literal beside
-    `STAKE_BASIS_AS_RECORDED`, which is the shape matched here.
+    `STAKE_BASIS_AS_RECORDED`, which is the shape matched here, and grepping
+    one function misses `ambiguous_order_rows` entirely.
     """
     source = HEDGE_PY.read_text(encoding="utf-8")
     found = set(re.findall(r'STAKE_BASIS_AS_RECORDED,\s*"([a-z_]+)"', source))
@@ -139,12 +158,16 @@ class TestTheTwoVocabulariesMatch:
             "returns"
         )
 
-    def test_there_are_nine_of_them(self):
+    def test_there_are_ten_of_them(self):
         """The anchor. Both assertions above pass on two empty sets, which is
-        also what a moved file or a broken regex produces. Nine is what ADR
-        0160 §3 decided; a tenth is a decision, not a refactor."""
-        assert len(refusal_names()) == 9
-        assert len(glossed_names()) == 9
+        also what a moved file or a broken regex produces.
+
+        Nine was what ADR 0160 §3 decided, and the tenth arrived as a
+        decision rather than a refactor: issue #56, answered A by Joe on
+        2026-09-17, split `hand_recorded_position` out of `no_order_row`
+        (ADR 0160, Amendment 2). An eleventh needs the same."""
+        assert len(refusal_names()) == 10
+        assert len(glossed_names()) == 10
 
     def test_the_good_case_is_spelled_the_same_on_both_sides(self):
         """The one string the card compares against. A typo here renders the
@@ -204,6 +227,34 @@ class TestTheSentencesSayWhatTheyMay:
         for name, text in sentences().items():
             assert len(text) <= 180, f"the {name} sentence is {len(text)} chars"
             assert text.endswith("."), f"the {name} sentence is not a sentence"
+
+    def test_the_hand_recorded_line_does_not_report_a_search(self):
+        """Issue #56. The whole point of the split is that only one of these
+        two describes a lookup. A ticket with no join key was never looked
+        for, so its line may not say that nothing matched -- that wording is
+        what made five designed states read as five near-misses."""
+        texts = sentences()
+        assert "hand_recorded_position" in texts, (
+            "the tenth refusal has no sentence; `stake_basis_for` can return "
+            "it and the card would fall through to the unnamed line"
+        )
+        hand = texts["hand_recorded_position"].lower()
+        for phrase in ("no kalshi order", "matches", "cannot be read"):
+            assert phrase not in hand, (
+                f"the hand-recorded sentence says {phrase!r}, which reports a "
+                "lookup that never ran"
+            )
+
+    def test_the_missing_order_line_still_reads_like_a_bookkeeping_gap(self):
+        """The sentence issue #56 deliberately did NOT touch. With the five
+        false alarms moved off it, it fires only when the key WAS formed and
+        the lookup found nothing, and that is a real gap -- so it has to keep
+        saying a search came up empty rather than being softened into the
+        hand-recorded one."""
+        assert (
+            "no kalshi order matches this ticket"
+            in sentences()["no_order_row"].lower()
+        )
 
     def test_the_unnamed_sentence_claims_only_that_nothing_was_checked(self):
         """Mutation 9. It is what renders when the reason is one this build

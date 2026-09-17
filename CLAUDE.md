@@ -219,7 +219,11 @@ together or the screen lies in the interval
   position writer) and a position can exist with no order (a hand-recorded
   slip) — a `kalshi_combo` position with a NULL `combo_ticker` is a
   **designed state**, and ADR 0160's read correctly refuses to join it
-  (`no_order_row`) rather than guessing.
+  (`hand_recorded_position`) rather than guessing. That reason is its own
+  since ADR 0160 Amendment 2 (Joe's `56A`, 2026-09-17); it used to share
+  `no_order_row` with the case where the join key WAS formed and matched
+  nothing, which is a bookkeeping gap and could not be seen while the two
+  said the same thing.
 
   **This paragraph's own number was corrected four times in nine days** —
   2026-09-10, -14, -15 and -17, the last found stale two days after it was

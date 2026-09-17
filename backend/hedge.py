@@ -505,6 +505,35 @@ class StakeBasis:
     reason: Optional[str] = None
 
 
+def _order_key(position: Mapping[str, Any]) -> Optional[tuple[str, int]]:
+    """`(combo_ticker, placed_ms)` for a combination bought through the desk,
+    or `None` for anything that cannot have an order row behind it.
+
+    Both halves come from one request: the route takes `submitted_ms` once,
+    writes it on the `manual_orders` row and passes the same variable to
+    `_record_combo_position` as `placed_ms`. The ticker alone would not do --
+    the same combination can be bought twice.
+
+    **`None` is also the marker for a ticket Joe recorded by hand**, derived
+    rather than stored (issue #56, answered A on 2026-09-17). `record_position`
+    has exactly two callers: the order path, which always sets both columns,
+    and `POST /api/hedge/positions`, which takes them from the request -- and
+    the form behind it sends neither. So a combination he typed in has no key,
+    and no lookup over `manual_orders` is possible at all. That is a different
+    fact from a key that WAS formed and matched nothing, and `stake_basis_for`
+    names the two separately rather than sharing one sentence between them.
+
+    It is derived here rather than stamped on the row for ADR 0160's own
+    reason: the marker IS the join, so a column for it would buy a schema
+    version and nothing else.
+    """
+    if str(position["source"]) != "kalshi_combo":
+        return None
+    if not position["combo_ticker"] or position["placed_ms"] is None:
+        return None
+    return (str(position["combo_ticker"]), int(position["placed_ms"]))
+
+
 def stake_basis_for(
     position: Mapping[str, Any], order: Optional[Mapping[str, Any]]
 ) -> StakeBasis:
@@ -519,13 +548,22 @@ def stake_basis_for(
 
     - **`not_a_kalshi_combo`** -- a sportsbook slip has no order row and no
       venue price; the stake is the figure Joe typed and always was.
+    - **`hand_recorded_position`** -- a Kalshi combination Joe typed into
+      `/hedge` himself rather than buying through the desk. `_order_key`
+      cannot be formed, so no order was ever looked for and nothing is
+      missing; the stake is the figure he typed. Split out of `no_order_row`
+      by issue #56 (answered A, 2026-09-17), because five of his seventeen
+      open positions were being told a search had come up empty when no
+      search had run -- and a genuine gap could not be seen among them.
     - **`no_order_row` / `ambiguous_order_rows`** -- the join key is
       `(combo_ticker, placed_ms)`, and `placed_ms` is the same
       `submitted_ms` the route wrote on the order in the same request
       (`routes.py`, `_write_manual_intent` and `_record_combo_position` take
-      one variable). Zero matches or more than one means the link is
-      unreadable, and an unreadable link resolves to the recorded number,
-      never to a plausible one.
+      one variable). **Both mean the key WAS formed and the lookup DID run**:
+      zero matches or more than one means the link is unreadable, and an
+      unreadable link resolves to the recorded number, never to a plausible
+      one. A position with no key at all is the bullet above, not this one --
+      that distinction is the whole of issue #56.
     - **`side_convention_unresolved`** -- `limit_price_tenths` is our side's
       price (`OrderRequest.fill_price_tenths` reflects a NO onto the YES
       book); `venue_avg_fill_price_tenths` is `average_fill_price` verbatim,
@@ -564,6 +602,13 @@ def stake_basis_for(
     if str(position["source"]) != "kalshi_combo":
         return StakeBasis(recorded, STAKE_BASIS_AS_RECORDED, "not_a_kalshi_combo")
     if order is None:
+        # Which of the two: a key that could not be formed means no lookup
+        # ever ran, and a key that was formed and matched nothing is a gap in
+        # the books. One sentence for both hid the second among the first.
+        if _order_key(position) is None:
+            return StakeBasis(
+                recorded, STAKE_BASIS_AS_RECORDED, "hand_recorded_position"
+            )
         return StakeBasis(recorded, STAKE_BASIS_AS_RECORDED, "no_order_row")
     if str(order["side"]) != "yes":
         return StakeBasis(
@@ -598,22 +643,6 @@ def stake_basis_for(
 _AMBIGUOUS = object()
 
 
-def _order_key(position: Mapping[str, Any]) -> Optional[tuple[str, int]]:
-    """`(combo_ticker, placed_ms)` for a combination bought through the desk,
-    or `None` for anything that cannot have an order row behind it.
-
-    Both halves come from one request: the route takes `submitted_ms` once,
-    writes it on the `manual_orders` row and passes the same variable to
-    `_record_combo_position` as `placed_ms`. The ticker alone would not do --
-    the same combination can be bought twice.
-    """
-    if str(position["source"]) != "kalshi_combo":
-        return None
-    if not position["combo_ticker"] or position["placed_ms"] is None:
-        return None
-    return (str(position["combo_ticker"]), int(position["placed_ms"]))
-
-
 def stake_bases(
     conn: sqlite3.Connection, positions: Sequence[Mapping[str, Any]]
 ) -> dict[int, StakeBasis]:
@@ -626,9 +655,10 @@ def stake_bases(
     the scan to matter, an index is the fix and a version bump is its price.
 
     A row that cannot be joined is simply absent from the order map, and
-    `stake_basis_for` returns the recorded stake with `no_order_row`. This
-    function raises nothing: a bookkeeping read must not be able to take the
-    hedge screen down.
+    `stake_basis_for` returns the recorded stake with `no_order_row` -- or
+    with `hand_recorded_position`, when the position had no key to look one
+    up by. This function raises nothing: a bookkeeping read must not be able
+    to take the hedge screen down.
     """
     bases: dict[int, StakeBasis] = {}
     wanted = {k for k in (_order_key(p) for p in positions) if k is not None}

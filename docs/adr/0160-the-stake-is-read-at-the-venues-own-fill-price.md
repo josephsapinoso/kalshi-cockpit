@@ -374,3 +374,102 @@ matter most: rendering the line only when `stake_basis === "as_recorded"` (the
 silent) and returning `null` from `stakeBasisNote` for an unknown reason.
 Each mutated file was restored from a byte backup and verified md5-identical
 afterwards; `git checkout` was not used, because it erases uncommitted work.
+---
+
+## Amendment 2 (2026-09-17) — a ticket with no join key was never looked up, and says so
+
+**§3's table gains a tenth row and nothing else in this ADR moves.** The
+read-time join, the join key, the no-backfill decision, the NO-side refusal
+and Amendment 1's asymmetry are all untouched; the order path is untouched
+again, and no schema version is claimed. What changes is that one reason was
+carrying two different facts.
+
+Ticket: issue #56, answered `56A` by Joe on 2026-09-17.
+
+### A2.1 The defect
+
+`no_order_row` fired in two situations that are not the same:
+
+- the join key **could not be formed** — a Kalshi combination Joe typed into
+  `/hedge` himself, where `combo_ticker` and `placed_ms` are both absent
+  because `record_position`'s hand-record caller takes them from a request the
+  form does not put them in. Nothing was ever looked up. Nothing is missing.
+- the join key **was formed and matched nothing** — a row off the order path
+  whose `manual_orders` row is gone, or a dry run. A search ran and came up
+  empty, which is a gap in the books.
+
+On live, five of seventeen open positions were the first wearing the second's
+sentence, which reported a search that had never run. That is a false alarm on
+29% of the screen, and the cost is not the wording: **a genuine gap had
+nowhere to stand out.** Four of the five carry labels Joe wrote himself
+("Three totals", "Safe", "Next 3 hours"), so the state is recognisably his own
+entry and not a failure.
+
+The option he was offered to leave it (B) is recorded in the ticket and
+refused: the line is not false, but it describes our records rather than his
+bet, and a reader has to know the schema to take it that way.
+
+### A2.2 The decision
+
+**A tenth reason, `hand_recorded_position`, for a position whose join key
+cannot be formed. `no_order_row` keeps the case it was written for and its
+sentence is unchanged.**
+
+It is **derived, not stored**. `_order_key` already returns `None` for exactly
+this state, so the marker IS the join — the same argument §2.1 used to refuse
+a write-time basis column, applied to the marker rather than the number. No
+`SCHEMA_VERSION`, no migration, no backfill, and the undo is deleting one
+branch.
+
+The split is on the **whole key**, not on `combo_ticker` alone. A ticker with
+no `placed_ms` is reachable — `HeldPositionRequest` admits `combo_ticker` and
+`RecordParlay` never sends one, but `curl` can — and half a key runs no lookup
+either, so it is hand-recorded too. This is a deliberate and known divergence
+from `scripts/inspect_live_db_parlays.py`'s `combo-position-orphans`, which
+splits its two sections on `combo_ticker IS NULL` and asks the weaker question
+"does any order name this ticker". That instrument is not extended and not
+changed: it answers an audit's question, this answers a screen's, and the two
+differ only on a row neither the form nor the order path can produce.
+
+### A2.3 The sentence
+
+Joe's own wording from the ticket, kept:
+
+> You recorded this one by hand, so the stake above is the figure you typed in
+> — not Kalshi's record of what it charged.
+
+It may not report a lookup, and a test refuses the phrases that would. The
+`no_order_row` sentence is **deliberately not softened**: with the five false
+alarms moved off it, it now fires only on a real gap and has to keep reading
+like one, which is also pinned.
+
+### A2.4 What this does not establish
+
+- **Nothing about the hedge figure.** §6 stands word for word: at least four
+  error terms of mixed sign, and naming whose price the stake is narrows none
+  of them. Renaming a refusal narrows less than that.
+- **That any of the five positions is correctly recorded.** It says only that
+  nothing was searched for, which is what the code can prove. Whether the
+  stake Joe typed matches what Kalshi charged him is unreadable from here and
+  is E2 on an `as_recorded` row, exactly as before.
+- **That a `no_order_row` row is a lost write.** It now means the key was
+  formed and matched nothing, which a hand-typed `combo_ticker` naming a real
+  market also produces. `combo-position-orphans`' own "cannot tell which"
+  caveat applies unchanged.
+- **That anything renders.** Source text, a node-executed `stakeBasisNote`,
+  and `tsc`; no browser, the same limit every guard on this screen has.
+
+### A2.5 Verification
+
+`tests/test_stake_basis_is_the_venue_fill.py` (27) and
+`tests/test_the_hedge_card_names_the_fallback_reason.py` (19) green, `tsc`
+exit 0 from the lane. Four mutations were applied to the guarded code and
+every one turned the suite red: the `_order_key` branch removed from
+`stake_basis_for` so both facts share `no_order_row` again (the pre-fix
+behaviour), the `hand_recorded_position` entry deleted from the gloss, the
+hand-recorded sentence given wording that reports a search, and the
+`no_order_row` sentence softened into the hand-recorded one -- the last
+because a guard over a sentence this ADR promises NOT to change is the one
+most likely to be decoration. Each file was
+restored from a byte backup and verified md5-identical afterwards; `git
+checkout` was not used, because it erases uncommitted work.

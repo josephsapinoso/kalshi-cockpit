@@ -14,6 +14,12 @@ applies; the stored row is never rewritten, so nothing is backfilled and
 nothing has to be unwound; and `venue_avg_fee_dollars` is not read by this
 module at all.
 
+Issue #56 (answered A, 2026-09-17) added the tenth reason,
+`hand_recorded_position`, and these tests keep it apart from the ninth: a
+ticket with no join key was never looked up, while `no_order_row` means the
+key was formed, the lookup ran and nothing answered. The second is a
+bookkeeping gap and could not be seen while both said the same sentence.
+
 What they do not establish:
 
 - **That the hedge figure is now correct.** ADR 0145's table lists at least
@@ -268,7 +274,11 @@ class TestTheRecordedStakeStandsAndSaysWhy:
         assert basis.reason == "venue_fill_count_unusable"
         assert basis.stake_tenths == STAKE_AT_SENT
 
-    def test_a_position_with_no_order_row_keeps_its_own_figure(self, conn):
+    def test_a_key_that_found_nothing_is_a_gap_in_the_books(self, conn):
+        """Both join columns are set, so this row came off the order path,
+        the lookup RAN, and nothing answered it. That is a real bookkeeping
+        failure and issue #56 exists to keep it looking like one -- it is the
+        case the `no_order_row` sentence was written for and keeps."""
         position_id = a_position(conn)
 
         basis = basis_of(conn, position_id)
@@ -276,14 +286,35 @@ class TestTheRecordedStakeStandsAndSaysWhy:
         assert basis.reason == "no_order_row"
         assert basis.stake_tenths == STAKE_AT_SENT
 
-    def test_a_position_recorded_by_hand_has_no_order_to_join(self, conn):
-        """`POST /api/hedge/positions` writes a ticket with no `placed_ms`
-        the route controls, so there is no key and nothing to look up."""
+    def test_a_hand_recorded_combination_is_not_a_missing_order(self, conn):
+        """Issue #56, answered A by Joe on 2026-09-17.
+
+        Five of his seventeen open positions are Kalshi combinations he typed
+        into `/hedge` himself -- no ticker and no timestamp, because
+        `RecordParlay` sends neither. Nothing was ever looked for, so this
+        may not report a lookup that came up empty. A designed state, not a
+        defect: `record_position`'s two callers are the order path, which
+        always sets both columns, and the hand-record route, which takes them
+        from a request that does not carry them."""
+        position_id = a_position(conn, combo_ticker=None, placed_ms=None)
+
+        basis = basis_of(conn, position_id)
+
+        assert basis.reason == "hand_recorded_position"
+        assert basis.stake_tenths == STAKE_AT_SENT
+
+    def test_half_a_join_key_is_no_join_key(self, conn):
+        """`HeldPositionRequest` admits `combo_ticker` and the form never
+        sends one, but a caller with `curl` can. The lookup is
+        `(combo_ticker, placed_ms)` and one half cannot run it, so no order
+        was searched for here either -- this is the hand-recorded sentence,
+        not the missing-order one. Pinned because the difference between the
+        two is the only thing issue #56 bought."""
         position_id = a_position(conn, placed_ms=None)
 
         basis = basis_of(conn, position_id)
 
-        assert basis.reason == "no_order_row"
+        assert basis.reason == "hand_recorded_position"
         assert basis.stake_tenths == STAKE_AT_SENT
 
     def test_a_sportsbook_slip_is_the_figure_joe_typed(self, conn):
@@ -376,6 +407,29 @@ class TestThePayloadSaysWhichPriceItIsOn:
         row = next(p for p in payload["positions"] if p["id"] == position_id)
         assert row["stake_basis"] == hedge.STAKE_BASIS_AS_RECORDED
         assert row["stake_basis_reason"] == "no_venue_price"
+        assert row["stake_display"] == "$1.64"
+
+    async def test_a_hand_recorded_ticket_says_so_on_the_wire(self, conn):
+        """The live shape issue #56 is about: a Kalshi combination with both
+        join columns absent, end to end through `build_payload`. The reason
+        the card glosses is the one the payload carries, so this is what
+        five of Joe's seventeen open tickets will read."""
+        position_id = a_position(conn, combo_ticker=None, placed_ms=None)
+
+        async def no_quote(_ticker, *, observed_ms):
+            raise QuoteUnavailable("no book in this test")
+
+        payload = await hedge.build_payload(
+            conn,
+            now_ms=NOW_MS,
+            max_quote_age_ms=30_000,
+            spendable_tenths=None,
+            fetch_quote=no_quote,
+        )
+
+        row = next(p for p in payload["positions"] if p["id"] == position_id)
+        assert row["stake_basis"] == hedge.STAKE_BASIS_AS_RECORDED
+        assert row["stake_basis_reason"] == "hand_recorded_position"
         assert row["stake_display"] == "$1.64"
 
     def test_a_raw_row_claims_no_basis_at_all(self, conn):
