@@ -918,7 +918,49 @@ primary_region = "ord"
   # (ADR 0055, and the prune ceiling item it explicitly leaves open). A larger
   # index eats a larger cache. If this line ever needs raising again, that is
   # the thing to fix rather than this number.
-  memory = "2gb"
+  #
+  # **4gb since 2026-09-17, on Joe's answer `55E`, and the paragraph above
+  # called this correctly.** It has needed raising again, for exactly the
+  # reason it named: the growth, not the number. The 2gb line above is kept
+  # verbatim because its reasoning is still the reasoning -- what changed is
+  # the database, not the argument.
+  #
+  # **The failure it buys off is real and has happened in production.** On
+  # 2026-09-10 `/api/parlays` -- the positions screen, the one he opens while a
+  # game is running -- returned 503 `read_budget_exceeded`; `ladder_candidates`
+  # took **74.8 s against the 25 s ceiling** (ADR 0135). Nothing was broken.
+  # The box holds 2 GB, the database is 5.07 GB, the page cache tops out near
+  # 1.49 GB, so **at most ~29% of the file can ever be resident**. Resident, the
+  # query is ~2 s; not resident, 75. Two consequences from that arithmetic:
+  # every restart is a coin flip on a 503 and every deploy is a restart, and
+  # any large read elsewhere evicts the cache -- on 2026-09-10 a background
+  # analysis read a big table and his next tap paid for it minutes later.
+  #
+  # 4 GB roughly doubles what stays cached (~29% -> ~69%). **Not 8 GB**: that
+  # lands near the ~$31/month the `size` comment above already declined once as
+  # disproportionate against a $100 deployed bankroll, and nothing has shown
+  # 4 GB insufficient. Same discipline as `shared-cpu-2x`: buy the step that is
+  # measured, not the step that feels safe.
+  #
+  # **This still does not fix the growth, and that is why `55E` is two
+  # things.** Paying moves residency once; the file keeps growing. The other
+  # half of his answer is a registered measurement of a NON-destructive
+  # `fair_prices` dedup -- that family is 2,409,955,328 B, **47.53% of the
+  # file**, and consecutive rows for one key were observed value-identical
+  # ~99.7% on one MLB day. That observation **authorises nothing**: it is
+  # recorded-not-registered, its cluster is the day, and no threshold was named
+  # before it was computed, which is why it gets its own registration rather
+  # than a build. The DESTRUCTIVE downsample is a different thing and stays
+  # closed -- declined at §6 NOT WORTH ARMING when the family was 2.68x
+  # smaller, and that registration forbids raising its constant after the fact.
+  #
+  # **Verify the spend, do not assume it.** The cold path was never measured --
+  # every timing on the record is from a warm box, and the budget has only ever
+  # fired cold. Re-measure after this lands (`scripts/time_live_routes.py`,
+  # which since 2026-09-17 keeps per-rep maxima instead of discarding them) and
+  # record whether residency actually moved. A bigger box that did not help is
+  # a fact worth having, and it is reversible in one line.
+  memory = "4gb"
 
 [checks.health]
   type = "http"
