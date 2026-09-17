@@ -10,6 +10,7 @@ import type { ActionableWindow, Slate } from "@/lib/api";
 
 import FilterBar from "@/components/FilterBar";
 import GoodChancePicks from "@/components/GoodChancePicks";
+import PicksAnchorBaseRate from "@/components/PicksAnchorBaseRate";
 import RefreshWhenPriced from "@/components/RefreshWhenPriced";
 import TonightStrip from "@/components/TonightStrip";
 import RecordParlay from "@/components/RecordParlay";
@@ -251,7 +252,20 @@ export default async function PicksPage({
           </p>
         </section>
       ) : (
-        <GoodChancePicks picks={picks} />
+        <>
+          {/* Above the list, because its job is to set the expectation
+              BEFORE the per-row "soft fallback" markers start arriving —
+              the same reason the Games slate puts its own version above the
+              rows. Joe's `54A`, 2026-09-17 (ticket #54): grouped by league,
+              and the word "moneyline" said out loud, because every row this
+              screen ranks is a moneyline favourite and an unqualified
+              fraction would read as a claim about the league's spreads and
+              totals too. The block prints no total across leagues — that
+              would be both the pooled number it exists to refuse and the
+              ranked-count headline #8 forbids on this screen. */}
+          <PicksAnchorBaseRate ranked={picks.ranked} />
+          <GoodChancePicks picks={picks} />
+        </>
       )}
 
       {/* The self-heal, beneath the block that names the games it is waiting
