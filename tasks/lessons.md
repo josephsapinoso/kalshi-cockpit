@@ -16,6 +16,40 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-17 (thirteenth) - Before extending an instrument, read what its tests FORBID it from emitting; a registered instrument's scope is a contract, and the obvious extension is the one that breaks it
+
+Asked to make `combo-position-gaps` detect the inverse direction, the
+obvious move is to add a section. It would have been wrong:
+`tests/test_inspect_live_db.py:3706` pins that query to emit **zero**
+`parlay_positions` columns, because a registered measurement computes a
+statistic over that table and "a later convenience column cannot quietly
+turn an operational instrument into an interim look." The lane read the
+test first and built a **sibling query** instead. I would have extended it.
+
+The general shape: **a test that asserts an absence is a scope contract,
+and scope contracts are invisible to anyone who reads only the code the
+feature lives in.** Before adding to any instrument that feeds a
+registration, grep its tests for what they refuse, not just what they
+require. The tell is a test class named for what the thing *cannot* do.
+
+Two corollaries from the same round:
+
+- **A fact with three possible causes needs three strings, not two.** A
+  fill count is `None` because a dry run sent nothing, `None` because the
+  venue's reply was unreadable, and `0` because a real order matched no
+  one. Collapsing any pair loses the distinction that matters. "Unreadable
+  resolves to `None`, never `0`" **cuts both ways** — reporting a real zero
+  as "unknown" hides a fill that is known to be empty behind one that
+  might not be.
+- **A number that decays by design does not belong in a document sessions
+  are told to trust.** The transacted-path count was corrected four times
+  in nine days; each correction was a fresh number that guaranteed the
+  next one. The fix is not a better number, it is naming the instrument
+  and saying the figure is stale on sight (ADR 0162). The tell that it was
+  structural rather than careless: the same count lived in **three** places
+  in one file, one of them already contradicting another, so every past
+  correction fixed a third of it.
+
 ## 2026-09-16 (twelfth) - A mutation that changes nothing reports the same green as a guard that is watching; the harness has to refuse the no-op, and a mutation that only ADDS to a pattern has not disabled it
 
 Eleven mutations were run against a screen guard. Three came back wrong, and

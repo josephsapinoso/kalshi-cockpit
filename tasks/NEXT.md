@@ -209,11 +209,64 @@ at **1.02x with the plan UNCHANGED** — a ratio-≈1.0 plan-unchanged result do
 not inherit the interleaving defect. ADR 0161 §4 carries the caveat so an empty
 queue is not read as a healthy cold path.
 
+### AFTER THE ANSWERS — the desk is deployed and four more tickets are open
+
+`53A 52A 51A` came back the same evening, so the session ran a second build
+round and then a second partner pass.
+
+- **#53A / #52A** (lane, `36605c2`): the hedge card names its fallback reason
+  in small type; the Board bullet teaches variance without presupposing an
+  edge. **The brief said eight reasons and there are nine** —
+  `ambiguous_order_rows` is raised in a different function, so grepping one
+  function misses it. An unknown or missing `stake_basis` renders the fallback
+  line, **not silence**, and `stake_basis_reason` is typed `string` rather than
+  a union so a server ahead of the build is representable instead of a
+  compile-time lie. The per-reason line is deliberately **not** on the Discord
+  push, with a falsifier attached (ADR 0160 Amendment 1 §A1.3).
+- **#51A** — **ADR 0161**, above.
+- **THE DESK IS DEPLOYED**: live `36605c2`, machine `01M2PMD01C…`, verified on
+  **rendered pages**: the fallback line renders, `Swing, 1 SD` and "completely
+  real" are **0** on `/hedge`, and the new Board bullet renders with the old
+  one at 0. *The `/api/board` field check was vacuous — it returned 0 rows, so
+  it establishes nothing; the rendered pages are the evidence.*
+- **ADR 0162** (lane): `CLAUDE.md` stops carrying the transacted-path count.
+  It had been corrected **four times in nine days**, and the fix applied earlier
+  that evening (10 → 17) would have guaranteed a fifth. The spine now names the
+  instrument and says any figure is stale on sight; the dated reading lives in
+  `docs/measurements/2026-09-17-transacted-path-census.md`. The lane found two
+  further copies of the same count elsewhere in the file — one of them **already
+  self-contradictory** — which is why every past correction fixed only half.
+- **The receipt's `Contracts` figure** stopped calling the sent size a filled
+  size, and `combo-position-orphans` now detects positions with no order.
+  Extending `combo-position-gaps` would have **violated its own registered
+  contract** (`tests/test_inspect_live_db.py:3706` pins it to emit zero
+  `parlay_positions` columns); the lane built a sibling instead. `fill_count`
+  renders three **distinct** facts — dry run, unreadable, and a real `0` — on
+  the reading that "unreadable resolves to None, never 0" cuts both ways.
+
+**The `no_order_row` finding, diagnosed and closed:** live showed 17 open
+positions against 16 orders, with ids 11-15 resolving `as_recorded`. Read from
+source, not assumed: `record_position` has two callers, and the hand-record
+route leaves both join columns `None`. **A ticker-less position is a designed
+state** and ADR 0160 is right to refuse it. The only defect is the *sentence* —
+ticket #56.
+
 ### STATE at close
 
-`main` = `2b1f5c6` + this entry; **CI green on `2b1f5c6`: 7693 passed, 2
-skipped, 10 xfailed, 0 failed**; ruff clean; tsc exit 0. Live is **`5f4d1de`**
-— the six builds are NOT on the desk yet.
+`main` = `88b5ed0` + this entry. Live = **`36605c2`**, demo = **`2b1f5c6`**.
+Local full suite on the merged tree before the last two merges: **7713 passed,
+2 skipped, 10 xfailed, 0 failed**; ruff clean; tsc exit 0. **CI green on
+`36605c2`.** The two final merges (`48af9ef`, `88b5ed0`) had green lane suites
+(7698 and 7724) and a full run on `main` was in flight at close — **the next
+session must read `gh run list` and confirm CI on `88b5ed0` before building.**
+
+**The public demo is redeployed and verified**: `2b1f5c6`, up from `69ba254`
+(206 commits, nine days). Checked against the **served payloads**:
+`sd_dollars` / `losing_run_*` absent from `/api/board`, and `"completely real"`,
+`"type it anyway"`, `"end the week down"` all **0** on the rendered `/board`
+and `/slate`. The portfolio URL had been publishing the edge claim to
+visitors — verified rendering it at `contracts=1 sd=0.498 lrp=0.456` before the
+fix.
 
 **The public demo is redeployed and verified**: `2b1f5c6`, up from `69ba254`
 (206 commits, nine days). Checked against the **served payloads**, not the
@@ -223,52 +276,71 @@ rendered `/board` and `/slate`. The portfolio URL had been publishing the edge
 claim to visitors — verified rendering it at `contracts=1 sd=0.498 lrp=0.456`
 before the fix.
 
-`SCHEMA_VERSION` **44**, next ADR **0162**, schema **v45 unallocated**.
+`SCHEMA_VERSION` **44**, next ADR **0163**, schema **v45 unallocated**.
 Arming unchanged: hand path armed, engine and bid paths dry. **Zero odds
 credits spent by this session** — every live call a GET or a bounded ssh read.
 
 ### Still open, in order
 
-1. **Deploy the desk.** Live is `5f4d1de`; `main` is six builds ahead and CI is
-   green. Nothing blocks it but Joe's word on timing — he read the Confirm
-   button on the phone mid-session and reported nothing wrong.
-2. **Saturday 19 — `sharp-anchor-census` on the live NCAAF slate**, with
-   `team-bookmakers --since` beside it, **and re-time the NCAAF league chip**.
-   It read 1,098 ms then 3,951 ms on consecutive Wednesday reads; that 3.6x is
-   unexplained at n = 2, it is the largest figure in the latency measurement,
-   and it is on the route class that tripped the budget. Bound the rows.
-   Before it runs, name in writing what changes on screen under each outcome —
-   if the answer is "nothing", it does not run.
-3. **Monday 21 — `credits-day --date 20260920`**, the registered check beside
-   `20260913`. Take the measurement; do not re-derive the projection.
-4. **Two instrument gaps, recorded and not fixed**
-   (`docs/measurements/2026-09-16-desk-route-latency-warm-box.md`):
-   `time_live_routes.py` has **no league-filtered route**, so the route class
-   that has actually failed in production is not on the standing timing list;
-   its module docstring has **no "what this does not establish" section**,
-   which CLAUDE.md requires; and it records no per-rep maxima, which is what
-   made the median-vs-tail error possible. Section B's harness is a curl loop
-   that exists nowhere in the repo.
-5. **`AnchorBaseRate` on Picks is NOT decided in principle** — the previous
-   entry filed it as though it were. `anchored_on_sharp` reaches the Picks
-   payload (`routes.py:1646`) but `consensus_market` does not, and Picks ranks
-   one row per game, always the moneyline favourite, so the (league, market
-   family) grouping Joe approved **degenerates to grouping by league** there.
-   He answered about the **Games** slate; Picks was not that population.
-   **Question for Joe: what should the base rate show on Picks — #54.**
-   Every Picks row is a moneyline, so the (league, market family) grouping he
-   approved degenerates to per-league there. Do not build it before he answers.
-6. **A second mislabel of the #50 family, found by a lane and not fixed:** the
-   receipt's `Contracts` figure carries `unit="filled size"` but is served from
-   `order.count` (`routes.py:2838`), the *requested* size. `OrderOutcome.fill_count`
-   exists and is not in the body. Applying #50A's principle to it is executing
-   a decision Joe already made, not a new question.
-7. **One "Price on Kalshi" tap on the props card — JOE ONLY, unchanged.** It
-   mints a market on the exchange. A session must not do it.
-8. **Carried parks:** the shard probe (**ADR 0158**); `user_not_found` on
-   shard 3; the 25 s read budget. **The ANALYZE park is GONE — ADR 0161.**
-   Do not re-add it; its caveat about the cold-start 503 lives in §4 there.
-9. **Reservations:** none live. Next ADR **0162**; schema **v45 unallocated**.
+0. **FIRST: confirm CI on `88b5ed0`** (`gh run list --limit 5`). The final
+   full-suite run on `main` was in flight when the session closed. Do not build
+   on an unverified tree.
+
+1. **FOUR TICKETS ARE WAITING ON JOE — #54, #55, #56, #57.** He answered six in
+   one day, twice, within the hour. **Put them to him as one lettered artifact
+   before anything else**: an unattended day with four unanswered questions is
+   four wasted days, and this is the queue that does not refill itself.
+   **#55 is the important one** — `/api/parlays`, the positions screen, has
+   returned 503 in production and the cause is structural (2 GB RAM against a
+   5.43 GB database, ~27% maximum page-cache residency). One branch costs money,
+   which is why it is his.
+
+2. **Thursday 17 — write the Saturday pre-registration**, with the
+   `pre-registrar` agent. The census does not run without one, by this file's
+   own rule: it must state **in writing, beforehand, what changes on screen
+   under each outcome**. A pre-registration is the one artifact where a wrong
+   answer is invisible and enters the record as fact, so it wants a fresh
+   session, not a tired one.
+
+3. **Saturday 19 — `sharp-anchor-census` on the live NCAAF slate**, with
+   `team-bookmakers --since` beside it. Bound the rows. It feeds #54: if the
+   anchor reaches a small fraction of NCAAF rows, that ticket may answer itself
+   with evidence instead of waiting on him.
+   **The NCAAF league-chip re-time is KILLED, not deferred.** n = 2 with an
+   unexplained 3.6x spread (1,098 ms then 3,951 ms) does not become a
+   measurement by adding a third point on a different day under different load;
+   that is n = 3 with uncontrolled conditions. And it fails Joe's own bar — he
+   does not see milliseconds, he sees a page that loads or one that 503s.
+   Timing a chip moves #55 nothing. If the tail is wanted, the instrument must
+   record per-rep maxima and run enough reps in one sitting to see one, which
+   is a different job whose conclusion is "the box is too small" — already
+   known, already ticketed.
+
+4. **Monday 21 — `credits-day --date 20260920`.** A two-minute instrument run,
+   the registered check beside `20260913`. Not a work item; do not let it
+   occupy a rank.
+
+5. **One instrument gap worth fixing, and only one:** `time_live_routes.py`
+   records **no per-rep maxima** (`:76` keeps median and min only), which is
+   what made this session's median-vs-tail error possible. Fold it in next time
+   that script is touched, and commit the ad-hoc curl loop from §B of the
+   measurement at the same time. The "no league-filtered route" gap dies with
+   the re-time above; the missing "what this does not establish" docstring is a
+   five-line edit to do in passing, not a work item. **Do not bundle these into
+   an instrument-hardening epic** — that is how all three stay undone.
+
+6. **One "Price on Kalshi" tap on the props card — JOE ONLY.** Now **#57**,
+   which asks whether it is still wanted at all. It mints a market on the
+   exchange; a session must not do it.
+
+7. **PARKED, with the ADR that parked them — not open work, do not re-list as
+   work:** the shard probe (**ADR 0158**); `user_not_found` on shard 3; the
+   25 s read budget. **The ANALYZE park is GONE — ADR 0161**, and its caveat
+   about the cold-start 503 lives in §4 there. Re-listing a park every session
+   is how a settled decision gets re-derived at full cost.
+
+8. **Reservations:** none live. Next ADR **0163**; schema **v45 unallocated**.
+   All lane worktrees reaped.
 
 ---
 
