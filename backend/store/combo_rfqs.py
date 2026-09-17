@@ -1,0 +1,197 @@
+"""Recording what the market said when asked to price a combination.
+
+**This table is the only copy.** A combination's price is never public: makers
+quote privately to the requester, and those quotes disappear from
+`GET /communications/quotes?rfq_user_filter=self` the instant the RFQ is
+deleted (measured 2026-09-17 -- a re-read returned zero). Nothing downstream
+may re-fetch a quote. A quote not written here is gone, and with it the only
+evidence of what the desk was actually offered.
+
+That is a sharper obligation than `parlay_lookups` carries. A book read can be
+taken again; a quote cannot.
+
+What this module does not do
+----------------------------
+- **It does not decide.** No "best" column, no EV, no ranking beyond storing
+  the price each maker named. The one RFQ this repo has fired had makers 3.80
+  cents apart, which is a fact worth recording and not a signal worth acting
+  on.
+- **It does not spend.** Recording an ask is not placing a bet; acceptance is
+  a separate call with its own arming decision.
+- **It never fails a purchase.** Every write here is best-effort from the
+  caller's point of view -- see `ADR 0125`'s lesson, where a bookkeeping
+  writer wrapped in a bare `except` meant nothing raised when it broke. The
+  difference here: failures are **logged loudly and counted**, not swallowed
+  silently, because a silent bookkeeping failure on the only copy of a price
+  is indistinguishable from "no maker answered".
+"""
+from __future__ import annotations
+
+import json
+import logging
+import sqlite3
+from typing import Iterable, Optional, Sequence
+
+from backend.kalshi.rfq import RfqQuote
+
+logger = logging.getLogger(__name__)
+
+#: Statuses `combo_rfqs.status` may hold, matching the CHECK in `schema.sql`.
+#:
+#: `quoted` and `no_quotes` are deliberately different rows rather than a
+#: count of zero. "We asked and nobody answered" is a measurement about the
+#: market; "we asked and never read the answer" is a bug in us, and a single
+#: `asked` status with `quote_count = 0` cannot tell them apart.
+STATUS_ASKED = "asked"
+STATUS_QUOTED = "quoted"
+STATUS_NO_QUOTES = "no_quotes"
+STATUS_ERROR = "error"
+
+
+def record_rfq(
+    conn: sqlite3.Connection,
+    *,
+    rfq_id: str,
+    requested_ms: int,
+    ticker: str,
+    collection_ticker: str,
+    legs: Sequence[dict],
+    exchange_index: int,
+    card_key: Optional[str] = None,
+    target_cost_dollars: Optional[str] = None,
+    contracts_requested: Optional[int] = None,
+    fair_joint: Optional[float] = None,
+    book_yes_ask_tenths: Optional[int] = None,
+    status: str = STATUS_ASKED,
+    error_text: Optional[str] = None,
+) -> None:
+    """Write the ask itself, before any quote is read.
+
+    Written FIRST and separately from the quotes, for the reason
+    `lookup_combo` learned the hard way: the RFQ is already live on the venue
+    by the time a quote could arrive, so a failure while reading quotes must
+    not lose the fact that we asked. An `asked` row with no quotes is a
+    readable state; a missing row is not.
+
+    `book_yes_ask_tenths` is what the ORDER BOOK said at the same instant.
+    NULL is the expected value and means the book was empty -- the normal
+    resting state of a combination, not a fault. It is stored so the two
+    surfaces can be compared later without running a second experiment.
+    """
+    # **`ON CONFLICT(rfq_id) DO NOTHING`, never `INSERT OR IGNORE`.**
+    # They read as synonyms and are not: `OR IGNORE` swallows *every*
+    # constraint failure, so a row with a bad `status` or a missing NOT NULL
+    # column silently writes nothing and the caller is told it recorded the
+    # ask. On the only copy of a price, a write that vanishes without raising
+    # is the worst available failure. This form ignores exactly the
+    # re-ask-the-same-RFQ collision it is there for and lets the CHECK raise.
+    # Caught by `test_an_unknown_status_is_refused_by_the_schema`, which was
+    # green against `OR IGNORE` for the wrong reason.
+    conn.execute(
+        """
+        INSERT INTO combo_rfqs (
+            rfq_id, requested_ms, card_key, ticker, collection_ticker,
+            selected_legs, exchange_index, target_cost_dollars,
+            contracts_requested, fair_joint, book_yes_ask_tenths,
+            quote_count, status, error_text
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        ON CONFLICT(rfq_id) DO NOTHING
+        """,
+        (
+            rfq_id, requested_ms, card_key, ticker, collection_ticker,
+            json.dumps(list(legs)), exchange_index, target_cost_dollars,
+            contracts_requested, fair_joint, book_yes_ask_tenths,
+            status, error_text,
+        ),
+    )
+
+
+def record_quotes(
+    conn: sqlite3.Connection,
+    *,
+    rfq_id: str,
+    quotes: Iterable[RfqQuote],
+    captured_ms: int,
+) -> int:
+    """Persist the quotes and stamp the RFQ's outcome. Returns rows written.
+
+    `ON CONFLICT(rfq_id, quote_id) DO NOTHING`: a caller that polls will see
+    the same quote repeatedly, and a quote seen twice is one quote. Spelled
+    that way rather than `INSERT OR IGNORE` for the reason given in
+    `record_rfq` -- `OR IGNORE` would also discard a malformed quote in
+    silence, and this table is the only copy.
+
+    **`quote_count` is set from the table, not from `len(quotes)`.** Those
+    differ exactly when a write failed, which is the case this count exists to
+    make visible -- deriving it from the argument would report success for
+    rows that never landed.
+    """
+    written = 0
+    for quote in quotes:
+        cur = conn.execute(
+            """
+            INSERT INTO combo_rfq_quotes (
+                rfq_id, quote_id, captured_ms, maker_id,
+                yes_ask_tenths, no_bid_tenths, contracts, status, created_ts
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(rfq_id, quote_id) DO NOTHING
+            """,
+            (
+                rfq_id, quote.quote_id, captured_ms, quote.maker_id,
+                quote.yes_ask_tenths, quote.no_bid_tenths, quote.contracts,
+                quote.status, quote.created_ts,
+            ),
+        )
+        written += cur.rowcount or 0
+
+    stored = conn.execute(
+        "SELECT COUNT(*) FROM combo_rfq_quotes WHERE rfq_id = ?", (rfq_id,)
+    ).fetchone()[0]
+    conn.execute(
+        "UPDATE combo_rfqs SET quote_count = ?, status = ? WHERE rfq_id = ?",
+        (stored, STATUS_QUOTED if stored else STATUS_NO_QUOTES, rfq_id),
+    )
+    return written
+
+
+def mark_deleted(conn: sqlite3.Connection, *, rfq_id: str, deleted_ms: int) -> None:
+    """Stamp when the RFQ was withdrawn.
+
+    Worth its own column because it bounds the window in which a quote could
+    still have been accepted. After this instant the quotes are unreachable at
+    the venue, so a later "why didn't we take it" has a hard answer.
+    """
+    conn.execute(
+        "UPDATE combo_rfqs SET deleted_ms = ? WHERE rfq_id = ?",
+        (deleted_ms, rfq_id),
+    )
+
+
+def mark_error(
+    conn: sqlite3.Connection, *, rfq_id: str, error_text: str
+) -> None:
+    """Record that reading or handling this RFQ failed."""
+    conn.execute(
+        "UPDATE combo_rfqs SET status = ?, error_text = ? WHERE rfq_id = ?",
+        (STATUS_ERROR, error_text, rfq_id),
+    )
+
+
+def quotes_for(conn: sqlite3.Connection, rfq_id: str) -> list[sqlite3.Row]:
+    """What we captured, cheapest YES ask first.
+
+    The read the confirm step uses. It reads OUR record rather than the venue
+    because the venue's copy may already be gone -- and because the price a
+    reader is confirming must be the price they were shown, not a re-read that
+    may have moved underneath them.
+    """
+    return list(
+        conn.execute(
+            """
+            SELECT * FROM combo_rfq_quotes
+             WHERE rfq_id = ?
+             ORDER BY yes_ask_tenths ASC, captured_ms ASC
+            """,
+            (rfq_id,),
+        )
+    )

@@ -241,11 +241,22 @@ class TestTheSpendRowSaysWhatItBought:
         )
         conn.close()
 
-    def test_the_schema_is_v44(self):
+    def test_v44_is_the_bookmakers_column_and_is_never_renumbered(self):
+        """v44 owns `api_credits.bookmakers`, whatever the head version is.
+
+        This asserted `SCHEMA_VERSION == 44` until 2026-09-17 and went red on
+        the next bump (v45, the combination RFQ tables) although nothing it
+        guards had changed. A test that fails on an unrelated migration
+        teaches the next author to edit the assertion rather than read it.
+
+        What actually matters is that **44 keeps meaning this column** -- a
+        renumbering would leave live databases stamped past a step they never
+        ran. The head version only has to be at or above it.
+        """
         from backend.store.db import SCHEMA_VERSION, _MIGRATIONS
 
-        assert SCHEMA_VERSION == 44
         assert ("api_credits", "bookmakers", "TEXT") in _MIGRATIONS[44].columns
+        assert SCHEMA_VERSION >= 44
 
     def test_the_migration_reaches_an_existing_database(self, tmp_path):
         """v44 must add the column to a database that predates it, not only

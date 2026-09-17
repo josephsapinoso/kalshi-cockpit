@@ -130,7 +130,15 @@ logger = logging.getLogger(__name__)
 #: minute during a busy window: three hits that blanked the Games screen
 #: were gone before anyone could read them. A warning that is not
 #: persisted is the same warning.
-SCHEMA_VERSION = 44
+#:
+#: v45 `combo_rfqs` and `combo_rfq_quotes` -- two pure new tables, so
+#: they sit in `_TABLELESS_VERSIONS`, no step. Written on `main`,
+#: 2026-09-17. A combination's price does not live in its order book: it
+#: lives in private maker quotes answering an RFQ, and the desk had been
+#: reading the empty book and telling Joe the bet could not be placed.
+#: The quote table is the ONLY copy -- quotes vanish from the venue the
+#: moment the RFQ is deleted, so a quote not written there is gone.
+SCHEMA_VERSION = 45
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -953,12 +961,13 @@ _PARLAY_LOOKUPS_ADMIT_REFUSED_UNDO = (
 #:
 #: - v22 `loop_failures`, v23 `parlay_card_candidates`, v24 the hedge tables,
 #:   v27 `combo_eligible_events`, v29 `manual_order_refusals`,
-#:   v30 `combo_orders`, v42 `api_read_incidents`.
+#:   v30 `combo_orders`, v42 `api_read_incidents`,
+#:   v45 `combo_rfqs` and `combo_rfq_quotes`.
 #:
 #: v33 is NOT here although it adds a table (`venue_positions`): it also adds
 #: a column to `poll_log`, which makes it a step. A version is one or the
 #: other, never both.
-_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42)
+_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45)
 
 
 _MIGRATIONS: dict[int, _Migration] = {

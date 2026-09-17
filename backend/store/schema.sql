@@ -2615,3 +2615,78 @@ CREATE TABLE IF NOT EXISTS api_read_incidents (
 );
 CREATE INDEX IF NOT EXISTS idx_api_read_incidents_time
     ON api_read_incidents(seen_ms DESC);
+
+
+-- ---------------------------------------------------------------------------
+-- Combination RFQs -- schema v45. Two pure new tables: no migration step.
+-- ---------------------------------------------------------------------------
+--
+-- **Why these exist at all.** A KXMVE combination's order book is empty by
+-- design between RFQs; its price lives in private maker quotes that are
+-- visible only to the requester. `parlay_lookups` records what the BOOK said
+-- and therefore recorded "nothing" for six weeks on markets that were being
+-- actively quoted. These two tables record the other surface.
+--
+-- **The quote table is not a convenience -- it is the only copy.** Quotes
+-- disappear from `GET /communications/quotes?rfq_user_filter=self` the moment
+-- the RFQ is deleted (measured 2026-09-17: a re-read returned zero). Nothing
+-- downstream may re-fetch a quote, so a quote not written here is gone.
+CREATE TABLE IF NOT EXISTS combo_rfqs (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The venue's own uuid. UNIQUE so a retry cannot double-record one ask.
+    rfq_id               TEXT NOT NULL UNIQUE,
+    requested_ms         INTEGER NOT NULL,
+    card_key             TEXT,
+    -- The minted combination, and the collection it was minted from.
+    ticker               TEXT NOT NULL,
+    collection_ticker    TEXT NOT NULL,
+    -- JSON array of {event_ticker, market_ticker, side}: the same shape
+    -- `parlay_lookups.selected_legs` carries, so the two surfaces join.
+    selected_legs        TEXT NOT NULL,
+    -- Recorded rather than re-derived, for the same reason `combo_orders`
+    -- does it: the delete needs it as a query parameter and the venue 404s
+    -- without it.
+    exchange_index       INTEGER NOT NULL,
+    -- Exactly one of these is set; the venue accepts either.
+    target_cost_dollars  TEXT,
+    contracts_requested  INTEGER,
+    -- The card's conservative joint at ASK time, frozen. Not a pointer:
+    -- `fair_prices` moves, and a fair value re-derived later is a different
+    -- number presented as the same one (the ADR 0082 lesson).
+    fair_joint           REAL,
+    -- **What the ORDER BOOK said at the same instant**, so the two surfaces
+    -- can be compared without a second experiment. NULL is the expected
+    -- value and means the book was empty -- which is the normal resting
+    -- state of a combination, not a fault.
+    book_yes_ask_tenths  INTEGER,
+    quote_count          INTEGER NOT NULL DEFAULT 0,
+    status               TEXT NOT NULL,
+    error_text           TEXT,
+    deleted_ms           INTEGER,
+    CHECK (status IN ('asked', 'quoted', 'no_quotes', 'error'))
+);
+CREATE INDEX IF NOT EXISTS idx_combo_rfqs_time
+    ON combo_rfqs(requested_ms DESC);
+
+CREATE TABLE IF NOT EXISTS combo_rfq_quotes (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    rfq_id          TEXT NOT NULL,
+    quote_id        TEXT NOT NULL,
+    captured_ms     INTEGER NOT NULL,
+    -- Which maker. Kept because the makers on the one RFQ this repo has
+    -- fired were 3.80 cents apart: whether that spread is stable, and
+    -- whether one maker is consistently best, is a question this column
+    -- makes answerable later. It is NOT a number to rank a bet by.
+    maker_id        TEXT,
+    -- What one contract of YES costs. DERIVED: the complement of the
+    -- maker's NO bid, through `core.prices.complement`, because Kalshi
+    -- publishes bids and a resting NO bid IS the YES ask.
+    yes_ask_tenths  INTEGER NOT NULL,
+    no_bid_tenths   INTEGER NOT NULL,
+    contracts       REAL,
+    status          TEXT,
+    created_ts      TEXT,
+    UNIQUE (rfq_id, quote_id)
+);
+CREATE INDEX IF NOT EXISTS idx_combo_rfq_quotes_rfq
+    ON combo_rfq_quotes(rfq_id);
