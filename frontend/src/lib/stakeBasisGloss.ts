@@ -57,6 +57,8 @@ export const STAKE_BASIS_VENUE_FILL = "venue_fill";
 export const STAKE_BASIS_GLOSS: Record<string, string> = {
   not_a_kalshi_combo:
     "A sportsbook slip — there was never a Kalshi order behind it, so the stake above is the figure you typed in.",
+  hand_recorded_position:
+    "You recorded this one by hand, so the stake above is the figure you typed in — not Kalshi's record of what it charged.",
   no_order_row:
     "No Kalshi order matches this ticket, so the stake above is the price recorded with it, not Kalshi's own record of the fill.",
   ambiguous_order_rows:
