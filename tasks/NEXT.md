@@ -241,11 +241,24 @@ not to try. `tasks/lessons.md` 2026-09-17 (fifteenth).
 
 ### STATE at close
 
-`main` = live = demo, all three; verified on `/api/health` rather than assumed.
-Full suite green on the merged tree. `SCHEMA_VERSION` **44**, next ADR
-**0164**, schema **v45 unallocated**, all lane worktrees reaped. Arming
-unchanged: hand path armed, engine and bid dry. **Zero odds credits spent** —
-every live call a GET.
+**`main` = live = demo = `1d3918a`**, each read off `/api/health` rather than
+assumed; live machine `01M2QHAE4094Q71C5F7A7QVPZ5`, `memory = 4096`. Clean full
+suite **7764 passed, 1 skipped, 10 xfailed, 0 failed** (35m08s); ruff clean;
+tsc exit 0. `SCHEMA_VERSION` **44**, next ADR **0164**, schema **v45
+unallocated**, all lane worktrees reaped. Arming unchanged: hand path armed,
+engine and bid dry. **Zero odds credits spent** — every live call a GET.
+
+**#56A is verified on the RENDERED page, not just the sha:** `/hedge` on live
+carries *"recorded this one by hand"* **5 times** and *"No Kalshi order matches
+this ticket"* **0 times** — exactly the five positions the ticket described.
+
+**#54A is NOT verified on live, and this is a limit rather than a doubt.**
+`/api/slate`'s `picks.ranked` is **0 rows** right now, so the block correctly
+renders nothing and the check establishes nothing either way — the same
+zero-denominator trap this file's own lesson names. It is verified by tests and
+by the lane's offline `renderToStaticMarkup` proof against a fixture.
+**Re-check it on a night with ranked picks**; until then nobody has seen it on
+the real screen.
 
 New instrument: `scripts/probe_signal_cache.py` (single route, per-rep, prints
 the rule-of-three bound when it sees nothing). Runs locally, so no
@@ -274,7 +287,12 @@ the rule-of-three bound when it sees nothing). Runs locally, so no
    quickly. **Do not ticket it to Joe until someone can say what changes on
    screen** — he does not see milliseconds, he sees a page that loads.
 
-5. **Queue 3, still unbuilt:** `#21 item 4` (mark open combo positions
+5. **Re-check `PicksAnchorBaseRate` on a live night with ranked picks.** Two
+   minutes with the session cookie; grep the rendered `/picks` for
+   `moneyline picks had a sharp book`. It has never been seen on the real
+   screen — the slate was empty at close.
+
+6. **Queue 3, still unbuilt:** `#21 item 4` (mark open combo positions
    unsettled on `/bets`), `#33` (the indigo `Stat` variant), `#36` (the
    authorised ~14-credit MLB prop sweep, never run — late-season, check it is
    still meaningful before spending). Fix **#27's ticket SHA** (`228f716` →
