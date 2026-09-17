@@ -138,11 +138,18 @@ second behind it**, and a quote can die in between. This is the shape this
 repo keeps relearning: a state whose name sounds final is not evidence of the
 thing it sounds like.
 
-Whether withdrawing the RFQ *caused* the first cancellation, or merely
-coincided with that RFQ's own ~2-second expiry, is **not established** — the
-second run did not withdraw and did execute, and one trial each way is not a
-controlled comparison. The product path no longer withdraws after accepting,
-on the weaker ground that there is no reason to.
+Whether withdrawing the RFQ *caused* the first cancellation is **not
+established** — the second run did not withdraw and did execute, and one
+trial each way is not a controlled comparison. The product path no longer
+withdraws after accepting, on the weaker ground that there is no reason to.
+
+**The "~2-second expiry" this paragraph originally offered as the alternative
+explanation is refuted.** RFQ `3d6697ac` was created 19:33:42Z and was still
+`open` when re-read at 20:47Z — over an hour. That guess came from a delete
+that returned `expired`, which evidently meant something else. So the
+coincidence story has lost its mechanism, and what remains is simply: one
+run withdrew and did not execute, one did not withdraw and did. Still not a
+comparison, and now without even a plausible confound to name.
 
 ### What arming does and does not mean
 

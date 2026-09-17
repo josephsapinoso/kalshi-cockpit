@@ -68,10 +68,15 @@ Two things follow, and both are now in the code:
    execution is a separate step about **1.1 seconds** behind it, and a quote
    can be cancelled in between.
 2. **Do not withdraw an RFQ you have just accepted.** Whether the withdrawal
-   caused the cancellation or merely coincided with the RFQ's own ~2-second
-   expiry is **not established** — the second run simply did not withdraw, and
-   executed. One trial each way is not a controlled comparison and this
-   document does not claim one.
+   caused the cancellation is **not established** — the second run simply did
+   not withdraw, and executed. One trial each way is not a controlled
+   comparison and this document does not claim one.
+
+   **The "~2-second expiry" offered here as the rival explanation is
+   refuted (2026-09-17, later the same day).** RFQ `3d6697ac` was created at
+   19:33:42Z and was still `open` at 20:47Z, over an hour later. RFQs are
+   long-lived; that guess came from a delete returning `expired`, which meant
+   something else.
 
 ## What this does NOT establish
 
