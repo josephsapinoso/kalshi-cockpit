@@ -116,6 +116,7 @@ SUBCOMMANDS = (
     "clv-signal-pull",
     "combo-bids-tail",
     "combo-position-gaps",
+    "combo-position-orphans",
     "credits-by-sport",
     "credits-day",
     "credits-month",

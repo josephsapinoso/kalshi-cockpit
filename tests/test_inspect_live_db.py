@@ -3748,3 +3748,159 @@ class TestTheGapQueryCannotServeTheRegisteredStatistic:
             title = section["title"].lower()
             assert "no verdict" in title, section["title"]
             assert "section 8 read" in title, section["title"]
+
+
+# The inverse of the gap fixture above: positions with no order behind them,
+# rather than orders with no position. One ticker only it removes, per
+# predicate.
+_ORPHAN_TICKER = "KXMVECROSSCATEGORY-SHARD1-ORPHAN"
+_TRACED_TICKER = "KXMVECROSSCATEGORY-SHARD1-TRACED"
+_SETTLED_ORPHAN_TICKER = "KXMVECROSSCATEGORY-SHARD1-SETTLEDORPHAN"
+
+
+@pytest.fixture
+def orphans_db(live_db) -> Path:
+    """`parlay_positions` rows with and without a `manual_orders` row behind them.
+
+    Six rows, each removed (or kept) by exactly one predicate:
+    - a `sportsbook` hand-entry (no ticker) -- expected, reported apart
+    - a `kalshi_combo` hand-entry (no ticker) -- same bucket, different source
+    - a ticketed position with NO matching order -- the alarm
+    - a ticketed position WITH a matching order -- must appear nowhere
+    - a CLOSED hand-entry -- removed by `status = 'open'`
+    - a SETTLED ticketed-orphan -- removed by the same filter, other section
+    """
+    conn = sqlite3.connect(live_db)
+    conn.executemany(
+        "INSERT INTO parlay_positions (created_ms, source, label,"
+        " stake_tenths, return_tenths, placed_ms, status, combo_ticker)"
+        " VALUES (?,?,?,?,?,?,?,?)",
+        [
+            (1, "sportsbook", "book slip", 1000, 2000, None, "open", None),
+            (2, "kalshi_combo", "logged by hand", 1000, 2000, None, "open", None),
+            (3, "kalshi_combo", "orphan", 1000, 2000, 3000, "open", _ORPHAN_TICKER),
+            (4, "kalshi_combo", "traced", 1000, 2000, 4000, "open", _TRACED_TICKER),
+            (5, "sportsbook", "closed slip", 1000, 2000, None, "closed", None),
+            (
+                6, "kalshi_combo", "settled orphan", 1000, 2000, 6000, "settled",
+                _SETTLED_ORPHAN_TICKER,
+            ),
+        ],
+    )
+    conn.execute(
+        "INSERT INTO manual_orders (id, client_order_id, submitted_ms, ticker,"
+        " side, action, count, max_price_tenths, p_yes_bp, status,"
+        " request_body_json, dry_run) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        _manual_order(_TRACED_TICKER, "filled", 0, 1),
+    )
+    conn.commit()
+    conn.close()
+    return live_db
+
+
+class TestAPositionWithNoOrderIsFound:
+    """`combo-position-orphans` names positions `manual_orders` cannot trace.
+
+    The inverse of `combo-position-gaps`. A hand-recorded position (no
+    `combo_ticker`) is the expected shape of a `POST /api/hedge/positions`
+    entry and is reported without alarm; a position that HAS a ticker and
+    still finds no order is the one worth an eyebrow, in its own section.
+
+    Mutations, each changing WHICH positions come back:
+    - drop `combo_ticker IS NULL` from the hand-recorded query -> ticketed
+      rows leak into the hand-recorded section
+    - drop `combo_ticker IS NOT NULL` from the ticketed-orphan query -> the
+      hand-recorded rows leak into the ticketed section (`NULL = NULL` is
+      never true in SQL, so `NOT EXISTS` alone does not stop this)
+    - drop `NOT EXISTS` from the ticketed-orphan query -> the traced,
+      properly-ordered position appears
+    - drop `status = 'open'` from either query -> the closed / settled row
+      for that side appears
+    """
+
+    def _section(self, capsys, orphans_db, fragment: str) -> dict:
+        payload = _run_json(
+            capsys, ["combo-position-orphans", "--db", str(orphans_db), "--date", DAY]
+        )
+        return _named(payload, fragment)
+
+    def _hand_recorded_ids(self, capsys, orphans_db) -> set:
+        section = self._section(capsys, orphans_db, "hand-recorded")
+        idx = section["columns"].index("position_id")
+        return {row[idx] for row in section["rows"]}
+
+    def _ticketed_orphan_tickers(self, capsys, orphans_db) -> set:
+        section = self._section(capsys, orphans_db, "either a lost write")
+        idx = section["columns"].index("combo_ticker")
+        return {row[idx] for row in section["rows"]}
+
+    def _ticketed_orphan_ids(self, capsys, orphans_db) -> set:
+        section = self._section(capsys, orphans_db, "either a lost write")
+        idx = section["columns"].index("position_id")
+        return {row[idx] for row in section["rows"]}
+
+    def test_a_sportsbook_hand_entry_is_reported_without_alarm(
+        self, capsys, orphans_db
+    ):
+        assert 1 in self._hand_recorded_ids(capsys, orphans_db)
+
+    def test_a_kalshi_combo_hand_entry_is_the_same_bucket(self, capsys, orphans_db):
+        assert 2 in self._hand_recorded_ids(capsys, orphans_db)
+
+    def test_a_ticketed_position_with_no_order_is_the_alarm(
+        self, capsys, orphans_db
+    ):
+        assert _ORPHAN_TICKER in self._ticketed_orphan_tickers(capsys, orphans_db)
+
+    def test_a_position_traced_to_a_real_order_appears_nowhere(
+        self, capsys, orphans_db
+    ):
+        assert _TRACED_TICKER not in self._ticketed_orphan_tickers(
+            capsys, orphans_db
+        )
+        payload = _run_json(
+            capsys, ["combo-position-orphans", "--db", str(orphans_db), "--date", DAY]
+        )
+        for section in payload["sections"]:
+            if "combo_ticker" in section["columns"]:
+                idx = section["columns"].index("combo_ticker")
+                assert _TRACED_TICKER not in {row[idx] for row in section["rows"]}
+
+    def test_a_ticketed_position_never_appears_in_the_hand_recorded_section(
+        self, capsys, orphans_db
+    ):
+        """The two sections are a partition, not two overlapping views.
+
+        3 (orphan) and 4 (traced) both carry a `combo_ticker` -- if the
+        `combo_ticker IS NULL` filter on the hand-recorded query were ever
+        dropped, both would leak in here even though neither is a hand entry.
+        """
+        found = self._hand_recorded_ids(capsys, orphans_db)
+        assert 3 not in found
+        assert 4 not in found
+
+    def test_a_hand_recorded_position_never_appears_in_the_ticketed_section(
+        self, capsys, orphans_db
+    ):
+        """The other half of the partition.
+
+        `NULL = NULL` is never true in SQL, so `NOT EXISTS (... m.ticker =
+        p.combo_ticker)` is TRUE for every hand-recorded row regardless of
+        `manual_orders` -- the `combo_ticker IS NOT NULL` filter is the ONLY
+        thing keeping ids 1 and 2 out of the alarm section.
+        """
+        found = self._ticketed_orphan_ids(capsys, orphans_db)
+        assert 1 not in found
+        assert 2 not in found
+
+    def test_a_closed_hand_entry_is_not_reported(self, capsys, orphans_db):
+        assert 5 not in self._hand_recorded_ids(capsys, orphans_db)
+
+    def test_a_settled_ticketed_orphan_is_not_reported(self, capsys, orphans_db):
+        assert _SETTLED_ORPHAN_TICKER not in self._ticketed_orphan_tickers(
+            capsys, orphans_db
+        )
+
+    def test_the_description_names_what_it_cannot_tell_apart(self):
+        text = QUERIES["combo-position-orphans"].description.lower()
+        assert "hand-typed" in text or "lost write" in text

@@ -729,6 +729,8 @@ const RENDERED_KEYS = new Set([
   "side",
   "book_side",
   "contracts",
+  "fill_count",
+  "fill_count_display",
   "limit_price_dollars",
   "limit_price_cents",
   "fill_price_tenths",
@@ -761,11 +763,22 @@ function Placed({ order }: { order: OrderPlaced }) {
       </p>
 
       <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-4 border-t pt-4">
+        {/* `order.contracts` is what was SENT -- authorised, then resized at
+            the live ask -- never what filled. It was labelled "filled size"
+            until this fix, the same defect issue #50 answered on the price
+            figure below (50A): label the number for what it is. The venue's
+            own count lives in `fill_count_display`, folded into this unit
+            line rather than a second Figure so a short "0" or "unknown"
+            never has to carry a full sentence in the bold value slot. */}
         {order.contracts !== undefined && (
           <Figure
             label="Contracts"
             value={`${order.contracts}`}
-            unit="filled size"
+            unit={
+              order.fill_count_display !== undefined
+                ? `sent size — filled: ${order.fill_count_display}`
+                : "sent size, not filled"
+            }
           />
         )}
         {/* Two units, never converted. `limit_price_dollars` and
