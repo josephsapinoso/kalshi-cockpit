@@ -126,6 +126,103 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-17 (twenty-ninth session) — Joe was right and the desk was wrong: a combination is priced by ASKING, and the screen had been reading a surface combinations do not trade on
+
+**Joe tried to buy a combo through the cockpit and was refused. He said he can
+do it on kalshi.com and the cockpit is merely faster. He was right.**
+
+Kalshi prices KXMVE by **RFQ**: you ask, makers quote you *privately*, you
+accept one, and the trade prints to the public order book afterwards. A
+combination's book is therefore empty **by design between requests** — and
+`/communications/rfqs` appeared nowhere in this repo. The desk read that empty
+book and told him "no one is offering to sell this combination" for six weeks.
+
+**Measured, on the exact card it had just refused him:** book empty both
+sides (read three times); **27 RFQs on that ticker the same day**;
+exchange-wide **100 RFQs in 25 minutes across 79 combination tickers**. One
+RFQ of our own, on Joe's authorisation, drew **three maker quotes in ~107ms**
+— best YES ask **59.3c** against the card's own fair value of **57.8c**,
+makers **3.80c apart**. Withdrawn, nothing accepted, no money moved.
+`docs/measurements/2026-09-17-a-combo-rfq-returns-a-real-takeable-price.md`,
+ADR 0164.
+
+This also explains a paradox the record already carried and had filed as "two
+populations": *0 of 61 combos had an ask, yet 51 of 52 of Joe's fills were
+takers.* Those were RFQ executions. **A contradiction that gets an
+explanation instead of an investigation is a mechanism nobody has looked
+for** — `tasks/lessons.md`, 2026-09-17 sixteenth.
+
+### What shipped
+
+`backend/kalshi/rfq.py` (the wire) → `backend/combo_rfq.py` (the desk's use)
+→ `POST /api/parlays/rfq` → `/parlay-rfq` proxy → `<AskTheMarket>`, rendering
+where the dead end was. Schema **v45**: `combo_rfqs` + `combo_rfq_quotes`,
+**the only copy of a price nobody else can see** — quotes vanish from the
+venue the moment the RFQ is withdrawn. The server copy asserting nobody would
+sell shipped corrected in the same commit, with the refuted sentences pinned
+ABSENT.
+
+### What Joe has already decided, and what is still open
+
+- **A = yes** (fire one real RFQ, let it expire) — **spent**, above.
+- **B = (ii)** show the quote, second tap to confirm, **no typed ceiling** —
+  he corrected himself from (i) twice, so this one is firm. Not yet built.
+- **Question for Joe: may a sell-side RFQ be fired on a position he holds, to test whether combinations can be exited? — #59.** This is the live one.
+
+### Still open
+
+1. **Accepting a quote is not built.** Joe has already chosen the guard —
+   B = (ii), show the quote and require a second tap, no typed ceiling. The
+   maker has a 3-second confirmation window and may decline, so the screen
+   needs a "maker did not confirm" state. This is the slice that finishes what
+   he actually asked for.
+2. **Question for Joe: may a sell-side RFQ be fired on a position he holds, to test whether combinations can be exited? — #59.** Nothing else can settle the exit question, and it needs his word because it is an outward-facing write against a real position.
+3. **`check 8` (`depth_at_ask`) is wrong for combinations** and was left alone
+   on purpose — it guards the order-book path, not the RFQ path. It must be
+   revisited with the accept slice, not before.
+4. **How often makers answer, and how far apart, is n = 1.** Three quotes,
+   one card, one moment, ~8h before kickoff. `combo_rfqs.book_yes_ask_tenths`
+   stores the book beside every ask so this can be answered from the record
+   later rather than by a new experiment. No rate may be quoted until then.
+
+### Read this before touching combinations
+
+**"Combinations are enter-only" is UNSUPPORTED, not refuted.** It was built
+on `yes_dollars` empty on 40 of 40 books — a true statement about the **lit
+book**, promoted into a claim about **exit liquidity**, which the lit book
+cannot see. ADR 0078's hedge and the tighter combination ceiling stand on
+their own; they are not evidence for it. Do not repeat it as fact and do not
+delete the underlying census — it is still true about what it measured.
+
+**`POST /api/manual-orders` check 8 (`depth_at_ask`) is still wrong for
+combinations** and was deliberately NOT changed. It guards the order-book
+path, which the RFQ path does not use. Rewriting it belongs with the accept
+slice, where it will actually matter.
+
+### Two venue facts that each cost a session
+
+- **`exchange_index=1` is required on every RFQ write.** Without it the create
+  returns a Kalshi-JSON `404 not_found` — which reads as "retail keys cannot
+  do this" and is not. `rest.py:78-84` had recorded the identical failure for
+  a shard-1 *cancel* on 2026-08-30 and it was never generalised, so it was
+  paid for twice.
+- **`market_ticker` and `rest_remainder` are required on create**, with the
+  `mve_*` fields *additional* to them. The API reference documents neither
+  mve field; only the prose guide does.
+
+### Two guards that were decoration and one claim that was overstated
+
+Caught by running the mutations, all three:
+- The cheapest-first sort test passed with `out.sort` deleted — the captured
+  payload already arrives in order. It now feeds the rows reversed.
+- `INSERT OR IGNORE` swallows **every** constraint failure, so a row with a
+  bad status wrote nothing while telling the caller it had recorded. Now
+  `ON CONFLICT(...) DO NOTHING`, which ignores only the collision it is for.
+- I claimed writing quotes to disk before deleting the RFQ was load-bearing.
+  It is not — `seen` is already in memory. The real guard is
+  **read-before-delete**, enforced by the poll loop, and the test fake now
+  models the venue by serving nothing once deleted.
+
 ## 2026-09-17 (twenty-eighth session) — all four answers built; I gave Joe a wrong number and a pre-registrar caught it; and the instrument fixed yesterday found the desk's worst latency on its first run
 
 Joe answered `54A 55E 56A 57A` — every recommendation, as usual, within hours.

@@ -100,7 +100,7 @@ Every quadrant this instance can reach has answered:
 |---|---|---|
 | Consensus vs Kalshi's close | `beta = -0.141` | ADR 0021, 0034 |
 | In-house model vs Kalshi's price | our error > the disagreement | ADR 0036, 0037 |
-| `KXMVE` combos | **exit-only problem** — see below | ADR 0012 §5, E2/E3 |
+| `KXMVE` combos | **reopened 2026-09-17** — priced by RFQ, see below | ADR 0164 |
 | Speed / stale-quote pick-off | edge lives at ~400ms | predecessor |
 | Cost headroom | a **discount, not a signal** | ADR 0027, 0028 |
 
@@ -111,15 +111,41 @@ open. A proposal to reopen must name which row it overturns, and with what
 measurement. This bounds what the **tool** may claim; it reaches nothing Joe
 does by hand.
 
-**Combinations are enter-only.** `yes_dollars` is empty on 40 of 40 KXMVE books
-this repo has read (three runs, two dates, pinned by
-`tests/test_combo_book_depth_claims.py`); 33 of those 40 carried a resting NO
-bid, and a resting NO bid *is* the ask you buy at. Zero resting YES bids over
-36 levels: you can enter and may not be able to exit at size, which is why
-combination orders are held to a tighter ceiling and why ADR 0078's hedge
-exists. About a fifth of quoted combos have ever traded; the sample cannot
-narrow that, and `backend/kalshi/combos.py`'s calendar caveat (no NBA/NFL in
-the captures) is still open.
+**A combination is priced by ASKING, not by reading its book — ADR 0164.**
+Kalshi prices KXMVE by **RFQ**: you request, makers quote *privately*, you
+accept one, and the trade prints to the public book afterwards. So a
+combination's book is empty **by design between requests**, and every number
+below was read off a surface combinations do not trade on. Measured
+2026-09-17 on the exact card the desk had just refused Joe: book empty both
+sides, **27 RFQs on that ticker the same day**, and one RFQ of our own drew
+**three maker quotes in ~107ms** — best YES ask 59.3c against the card's own
+fair value of 57.8c, makers 3.80c apart.
+`docs/measurements/2026-09-17-a-combo-rfq-returns-a-real-takeable-price.md`.
+
+This explains the paradox the record already carried — *0 of 61 combos had an
+ask, yet 51 of 52 of Joe's fills were takers*. Those were RFQ executions.
+
+**"Combinations are enter-only" is UNSUPPORTED, not refuted, and must not be
+repeated as fact.** It rested on `yes_dollars` being empty on 40 of 40 KXMVE
+books (three runs, two dates, pinned by `tests/test_combo_book_depth_claims.py`;
+33 of those 40 carried a resting NO bid, which *is* the ask you buy at). That
+is a true statement about the **lit book** and it was promoted into a claim
+about **exit liquidity**, which the lit book cannot see. Whether a *sell-side*
+RFQ draws bids has never been tested — it needs a position Joe holds and is
+his call. ADR 0078's hedge and the tighter combination ceiling stand on their
+own; they are not evidence for the exit claim. About a fifth of quoted combos
+have ever traded; the sample cannot narrow that, and
+`backend/kalshi/combos.py`'s calendar caveat (no NBA/NFL in the captures) is
+still open.
+
+**What is built: asking. What is not: accepting.** `POST /api/parlays/rfq`
+and `<AskTheMarket>` fire a real RFQ and show the quotes; creating one
+obligates nothing. There is **no accept path** — that is the spend, and Joe
+has already chosen its guard (show the quote, second tap, no typed ceiling).
+Two venue facts that cost a session each: **`exchange_index=1` is required on
+every RFQ write** (without it the create 404s `not_found`, which reads as a
+permissions problem and is not), and `market_ticker` + `rest_remainder` are
+required on create with the `mve_*` fields *additional* to them.
 
 **The cost bars.** Kalshi's advantage is cost, not information: prices are
 accurate to ~2c and sports is the most bot-contested corner of the venue.
