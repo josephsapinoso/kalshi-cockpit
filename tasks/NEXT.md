@@ -126,6 +126,152 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-16 (twenty-sixth session) — six more tickets, all answered the same day; the screen stopped claiming the edge is real, and a convenient conclusion of mine was refused by the instrument that exists to refuse it
+
+Joe: *"read next.md and tell me what is next?"* — the planning question, so a
+partner pass ran. It found the thing that reordered the list, and the session
+became build-decide-build twice over.
+
+### THE FINDING AT OPEN — the frontier was empty, and that was the first result
+
+All 46 sub-issues of map #3 closed; no Dependabot alerts; `main` = live =
+`5f4d1de`. Per this file's own rule an empty frontier is a finding. The
+previous entry had filed **three user-facing problems under "Decoration,
+recorded not acted on"** (`:217-223`) and opened zero tickets for them — one
+day after shipping the rule that forbids exactly that. The decay pattern,
+caught at one day's remove instead of three sessions'.
+
+### SIX TICKETS, TWO ANSWERS, ALL SIX BUILT
+
+`48A 49A 50A` came back inside the hour; `53A 52A 51A` the same evening. Every
+recommendation taken.
+
+- **#48A — the card stopped telling him the edge is real.** `OpportunityCard`
+  ended *"— with the edge completely real"*, computed from `ev_net_dollars`
+  and `sd_dollars`, both functions of the gap measured at `beta = -0.141`.
+  Removed end to end: the clause, the swing multiple, the `Swing, 1 SD`
+  figures on card and bet slip, `LOSING_RUN_BETS`,
+  `_losing_run_probability`, the three payload keys, the `api.ts` fields, and
+  the whole `TestTheRowSaysWhatHappensWhenItLoses` class — removed, not
+  weakened, because its docstring carried the claim too. The cost block's
+  first two sentences stay: a fact about the money, not a claim about the edge.
+  **`tests/test_trust_surfaces.py` had already refused this exact composite**
+  for the evidence score, in a docstring, and nobody had connected the two.
+- **#50A — the receipt calls the sent price a sent price.** `fill_price_display`
+  is `OrderRequest.fill_price_tenths`, written at intent time, under a glossary
+  term promising "what you truly paid". Relabelled; the definition is
+  **untouched and re-homed as the figure's caption** — *"the price sent, not
+  the fill"* — so a correct definition stays load-bearing and says what the
+  number is not.
+- **#49A — ADR 0160, the hedge stake is read at the venue's own fill price.**
+  Since v40 `venue_avg_fill_price_tenths` sat on the permanent row and
+  **nothing running read it**. Resolved at READ time, never at write: `POST
+  /api/manual-orders` is the armed path and `routes.py`'s diff is
+  **comment-only, verified zero executable lines**. **Forward-only, no
+  backfill** — the census's one disagreeing row had the sent price *above* the
+  venue's, so rewriting the ten open rows would move a live figure in the
+  flattering direction. Marker derivable, so **no schema bump**. And a
+  `side = 'no'` order is **refused, not guessed**: our price reflects a NO onto
+  the YES book, the venue's is stored verbatim, and which book it quoted has
+  never been established.
+- **#53A, #52A** — the hedge card names the fallback reason in small type; the
+  Board's losing-week bullet teaches variance without presupposing an edge.
+  Lane C at close of this entry; see the next entry for what landed.
+- **#51A — ADR 0161, the ANALYZE line is retired and its park deleted.**
+
+### THE CORRECTION THAT MATTERS MORE THAN THE BUILDS
+
+The route-latency read (free, zero credits, thirteen routes) came back
+75 ms–1,727 ms against a 25,000 ms budget, and **I concluded the park's
+trigger was measured false and deleted it.** A `measurement-skeptic` pass —
+run *because* the result was convenient — refused that, and every load-bearing
+point was verified against source before the rewrite:
+
+- **"Slowest: 1,727 ms" was a median of three.** The budget fires on the
+  slowest request. `time_live_routes.py:76` keeps only median and min, so the
+  run's maxima are unrecoverable. 0 trips in 39 draws bounds the rate no
+  tighter than **7.7%**.
+- **The budget has been reached TWICE.** I found the 2026-09-15 league-cut
+  defect (fixed `2d8de82` at 13:57Z, an ancestor of live) and stopped looking.
+  **`/api/parlays` returned 503 `read_budget_exceeded` on 2026-09-10** after a
+  page-cache eviction, `ladder_candidates` at **74.8 s cold** — 3x the budget.
+  It was in this project's own memory. Structural and unfixed: 2 GB RAM,
+  5.43 GB database, ~27% maximum residency.
+- **I measured the one regime where the budget was known not to fire**, said so
+  in my own caveats, and let the conclusion range over a regime never touched.
+- **ADR 0159's 3.37x is not banked** — that ADR disowns its own rehearsal's
+  timing and records the same query swinging 3.04x on cache alone.
+
+The park was kept. **Deleting it was the one action the false conclusion
+authorised and also the only one a session can take alone.** It is now deleted
+by ADR 0161, on a different argument that survives a cold box: `CANDIDATE_SQL`
+at **1.02x with the plan UNCHANGED** — a ratio-≈1.0 plan-unchanged result does
+not inherit the interleaving defect. ADR 0161 §4 carries the caveat so an empty
+queue is not read as a healthy cold path.
+
+### STATE at close
+
+`main` = `2b1f5c6` + this entry; **CI green on `2b1f5c6`: 7693 passed, 2
+skipped, 10 xfailed, 0 failed**; ruff clean; tsc exit 0. Live is **`5f4d1de`**
+— the six builds are NOT on the desk yet.
+
+**The public demo is redeployed and verified**: `2b1f5c6`, up from `69ba254`
+(206 commits, nine days). Checked against the **served payloads**, not the
+health line: `sd_dollars` / `losing_run_*` absent from `/api/board`, and
+`"completely real"`, `"type it anyway"`, `"end the week down"` all **0** on the
+rendered `/board` and `/slate`. The portfolio URL had been publishing the edge
+claim to visitors — verified rendering it at `contracts=1 sd=0.498 lrp=0.456`
+before the fix.
+
+`SCHEMA_VERSION` **44**, next ADR **0162**, schema **v45 unallocated**.
+Arming unchanged: hand path armed, engine and bid paths dry. **Zero odds
+credits spent by this session** — every live call a GET or a bounded ssh read.
+
+### Still open, in order
+
+1. **Deploy the desk.** Live is `5f4d1de`; `main` is six builds ahead and CI is
+   green. Nothing blocks it but Joe's word on timing — he read the Confirm
+   button on the phone mid-session and reported nothing wrong.
+2. **Saturday 19 — `sharp-anchor-census` on the live NCAAF slate**, with
+   `team-bookmakers --since` beside it, **and re-time the NCAAF league chip**.
+   It read 1,098 ms then 3,951 ms on consecutive Wednesday reads; that 3.6x is
+   unexplained at n = 2, it is the largest figure in the latency measurement,
+   and it is on the route class that tripped the budget. Bound the rows.
+   Before it runs, name in writing what changes on screen under each outcome —
+   if the answer is "nothing", it does not run.
+3. **Monday 21 — `credits-day --date 20260920`**, the registered check beside
+   `20260913`. Take the measurement; do not re-derive the projection.
+4. **Two instrument gaps, recorded and not fixed**
+   (`docs/measurements/2026-09-16-desk-route-latency-warm-box.md`):
+   `time_live_routes.py` has **no league-filtered route**, so the route class
+   that has actually failed in production is not on the standing timing list;
+   its module docstring has **no "what this does not establish" section**,
+   which CLAUDE.md requires; and it records no per-rep maxima, which is what
+   made the median-vs-tail error possible. Section B's harness is a curl loop
+   that exists nowhere in the repo.
+5. **`AnchorBaseRate` on Picks is NOT decided in principle** — the previous
+   entry filed it as though it were. `anchored_on_sharp` reaches the Picks
+   payload (`routes.py:1646`) but `consensus_market` does not, and Picks ranks
+   one row per game, always the moneyline favourite, so the (league, market
+   family) grouping Joe approved **degenerates to grouping by league** there.
+   He answered about the **Games** slate; Picks was not that population.
+   **Question for Joe: what should the base rate show on Picks — #54.**
+   Every Picks row is a moneyline, so the (league, market family) grouping he
+   approved degenerates to per-league there. Do not build it before he answers.
+6. **A second mislabel of the #50 family, found by a lane and not fixed:** the
+   receipt's `Contracts` figure carries `unit="filled size"` but is served from
+   `order.count` (`routes.py:2838`), the *requested* size. `OrderOutcome.fill_count`
+   exists and is not in the body. Applying #50A's principle to it is executing
+   a decision Joe already made, not a new question.
+7. **One "Price on Kalshi" tap on the props card — JOE ONLY, unchanged.** It
+   mints a market on the exchange. A session must not do it.
+8. **Carried parks:** the shard probe (**ADR 0158**); `user_not_found` on
+   shard 3; the 25 s read budget. **The ANALYZE park is GONE — ADR 0161.**
+   Do not re-add it; its caveat about the cold-start 503 lives in §4 there.
+9. **Reservations:** none live. Next ADR **0162**; schema **v45 unallocated**.
+
+---
+
 ## 2026-09-16 (twenty-fifth session) — the question-decay rule is a contract with a test, and the decision queue went from 0 to 9 tickets about the confirm path
 
 Joe: *"Main job: open item 1, the durable fix for question-decay … Put the
