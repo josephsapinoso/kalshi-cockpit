@@ -218,6 +218,8 @@ async def ask_market_to_price(
     # Recorded the instant it exists, before any quote can arrive: the RFQ is
     # live on the venue now, and a failure below must not lose the fact that
     # we asked.
+    # `INSERT ... ON CONFLICT DO NOTHING`, so re-asking on a reused RFQ keeps
+    # the original row and its first-asked timestamp rather than rewriting it.
     store.record_rfq(
         conn,
         rfq_id=rfq_id,

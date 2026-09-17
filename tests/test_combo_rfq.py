@@ -22,6 +22,14 @@ import pytest
 from backend.core.prices import complement
 from backend.kalshi.rfq import RfqRefused, create_rfq, parse_quotes
 
+
+class _Err(RuntimeError):
+    """Stands in for `KalshiAPIError`: carries `status_code` and `body`."""
+
+    def __init__(self, status_code, body):
+        super().__init__(f"HTTP {status_code}: {body}")
+        self.status_code, self.body = status_code, body
+
 FIXTURE = Path(__file__).parent / "fixtures" / "combo_rfq_quotes.json"
 
 
@@ -238,4 +246,83 @@ class TestTheWriteRoutesToTheCombinationShard:
                 FakeApi(), market_ticker="T", collection_ticker="C",
                 legs=[{"market_ticker": "L", "side": "yes"}],
                 target_cost_dollars="5.0000",
+            )
+
+
+class TestAskingTwiceAboutTheSameCombination:
+    """**The bug Joe hit on 2026-09-17, and a consequence of `hold_open`.**
+
+    This desk holds RFQs open so a second tap can accept a quote. Kalshi
+    allows one live RFQ per market per requester and answers a second create
+    with `409 already_exists` -- so simply asking again about the same
+    combination failed, which is exactly what a reader does when the first
+    answer scrolls away.
+
+    The recovery reuses the open RFQ rather than deleting and recreating,
+    because deleting destroys the quotes it is holding and those may be the
+    ones on screen with a confirm pending.
+    """
+
+    class _Api:
+        def __init__(self, *, open_id="rfq-open", ticker="T"):
+            self.open_id, self.ticker, self.calls = open_id, ticker, []
+
+        async def request(self, method, path, *, params=None, json_body=None):
+            self.calls.append((method, path))
+            if method == "POST":
+                raise _Err(409, '{"error":{"code":"already_exists"}}')
+            if method == "GET":
+                return {"rfqs": [
+                    {"id": "rfq-dead", "market_ticker": self.ticker,
+                     "status": "closed"},
+                    {"id": self.open_id, "market_ticker": self.ticker,
+                     "status": "open"},
+                    {"id": "someone-elses", "market_ticker": "OTHER",
+                     "status": "open"},
+                ]}
+            raise AssertionError(method)
+
+    async def test_it_reuses_the_open_rfq_instead_of_refusing(self):
+        api = self._Api()
+        got = await create_rfq(
+            api, market_ticker="T", collection_ticker="C",
+            legs=[{"market_ticker": "L", "side": "yes"}],
+            target_cost_dollars="5.0000",
+        )
+        assert got == "rfq-open"
+        assert not any(m == "DELETE" for m, _ in api.calls), (
+            "deleting would destroy the quotes the open RFQ is holding"
+        )
+
+    async def test_it_does_not_pick_a_closed_one_or_another_market(self):
+        api = self._Api(open_id="rfq-open", ticker="T")
+        assert await create_rfq(
+            api, market_ticker="T", collection_ticker="C",
+            legs=[{"market_ticker": "L", "side": "yes"}], contracts=1,
+        ) == "rfq-open"
+
+    async def test_a_409_with_nothing_open_still_refuses(self):
+        """Recovery is for the case it was written for, not a blanket retry."""
+        class Empty(self._Api):
+            async def request(self, method, path, *, params=None, json_body=None):
+                self.calls.append((method, path))
+                if method == "POST":
+                    raise _Err(409, '{"error":{"code":"already_exists"}}')
+                return {"rfqs": []}
+
+        with pytest.raises(RfqRefused, match="already_exists"):
+            await create_rfq(
+                Empty(), market_ticker="T", collection_ticker="C",
+                legs=[{"market_ticker": "L", "side": "yes"}], contracts=1,
+            )
+
+    async def test_a_different_409_is_not_swallowed(self):
+        class Other(self._Api):
+            async def request(self, method, path, *, params=None, json_body=None):
+                raise _Err(409, '{"error":{"code":"market_closed"}}')
+
+        with pytest.raises(RfqRefused, match="market_closed"):
+            await create_rfq(
+                Other(), market_ticker="T", collection_ticker="C",
+                legs=[{"market_ticker": "L", "side": "yes"}], contracts=1,
             )

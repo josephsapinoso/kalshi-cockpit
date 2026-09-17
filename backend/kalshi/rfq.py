@@ -189,6 +189,38 @@ def parse_quotes(payload: dict, *, rfq_id: Optional[str] = None) -> tuple[RfqQuo
     return tuple(out)
 
 
+async def open_rfq_for(api: KalshiRestClient, market_ticker: str) -> Optional[str]:
+    """Our own still-open RFQ on this market, if there is one.
+
+    **Needed because this desk now holds RFQs open across the second tap.**
+    Kalshi allows one live RFQ per market per requester and answers a second
+    create with `409 already_exists`, so asking twice about the same
+    combination -- which is exactly what a reader does when the first answer
+    scrolls off, or when they come back a minute later -- fails unless the
+    existing request is found and reused.
+
+    Reusing rather than replacing is deliberate: deleting an RFQ destroys its
+    quotes, and the one being replaced may be the very one on screen with a
+    confirm pending against it.
+
+    `None` when nothing is open, which sends the caller back to creating one.
+    """
+    try:
+        payload = await api.request(
+            "GET", _RFQS,
+            params={"market_ticker": market_ticker, "limit": 100},
+        )
+    except Exception as exc:  # noqa: BLE001 -- recovery path, not the answer
+        logger.warning("rfq: could not list RFQs on %s (%s)", market_ticker, exc)
+        return None
+    for row in payload.get("rfqs") or ():
+        if row.get("market_ticker") != market_ticker:
+            continue
+        if row.get("status") == "open" and row.get("id"):
+            return str(row["id"])
+    return None
+
+
 async def create_rfq(
     api: KalshiRestClient,
     *,
@@ -234,7 +266,19 @@ async def create_rfq(
 
     try:
         created = await api.request("POST", _RFQS, params=_SHARD, json_body=body)
-    except Exception as exc:  # noqa: BLE001 -- re-raised with the venue's words
+    except Exception as exc:  # noqa: BLE001 -- one recoverable case, then raise
+        # **`already_exists` is not a failure, it is our own open request.**
+        # Kalshi allows one live RFQ per market per requester, and this desk
+        # holds them open so a second tap can accept a quote. So a repeat ask
+        # on the same combination lands here, and the right answer is to hand
+        # back the RFQ that already exists rather than to refuse -- or to
+        # delete it, which would destroy the quotes it is holding.
+        if "already_exists" in str(getattr(exc, "body", "") or exc):
+            existing = await open_rfq_for(api, market_ticker)
+            if existing is not None:
+                logger.info("rfq: reusing our open RFQ %s on %s",
+                            existing, market_ticker)
+                return existing
         raise RfqRefused(f"Kalshi would not create the RFQ: {exc}") from exc
 
     rfq = created.get("rfq") if isinstance(created.get("rfq"), dict) else created
