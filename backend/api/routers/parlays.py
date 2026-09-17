@@ -33,6 +33,10 @@ from ...core.teaser import find_wong_candidates
 from ...core.trust import TrustThresholds
 from ...list_filters import MAX_WITHIN_HOURS, FilterRefused, parse_list_filter
 from ...parlays import (
+    COMBO_EXIT_RFQ_BIDS_BELOW_BASIS,
+    COMBO_EXIT_RFQ_POSITIONS_WITH_BID,
+    COMBO_EXIT_RFQ_POSITIONS,
+    COMBO_EXIT_RFQ_DATE,
     COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID,
     COMBO_EXIT_CENSUS_BOOKS_READ,
     COMBO_EXIT_CENSUS_SERIES,
@@ -399,22 +403,17 @@ def register(
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    f"a combination is close to enter-only: "
-                    f"{COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID} of "
-                    f"{COMBO_EXIT_CENSUS_BOOKS_READ} combination books this "
-                    f"repo read had no YES bid on the other side. All of "
-                    f"those were "
-                    f"{' and '.join(COMBO_EXIT_CENSUS_SERIES)}, and "
-                    f"{COMBO_EXIT_CENSUS_SHARD_BOOKS_READ} were on "
-                    f"{COMBO_EXIT_CENSUS_SHARD_SERIES}. On "
-                    f"{COMBO_EXIT_SHARD_YES_BID_DATE}, "
-                    f"{COMBO_EXIT_SHARD_YES_BID_BOOKS} books on that shard "
-                    f"did carry a resting YES bid of "
-                    f"{COMBO_EXIT_SHARD_YES_BID_SIZE_CONTRACTS} contracts at "
-                    f"a single price, so an exit exists, is small, and its "
-                    f"frequency is unmeasured. The fee model is "
-                    f"unverified (ADR 0046). Send `combo_acknowledged` only if "
-                    f"that is understood."
+                    f"a combination can be sold back, but not necessarily "
+                    f"for what you paid: on {COMBO_EXIT_RFQ_DATE}, "
+                    f"{COMBO_EXIT_RFQ_POSITIONS_WITH_BID} of "
+                    f"{COMBO_EXIT_RFQ_POSITIONS} combinations this desk held "
+                    f"drew a bid for the side held when the makers were "
+                    f"asked, every one at the full size asked — and all "
+                    f"{COMBO_EXIT_RFQ_BIDS_BELOW_BASIS} of those best bids "
+                    f"were BELOW what had been paid. So selling back may "
+                    f"cost more than holding to the outcome (ADR 0164). The "
+                    f"fee model is unverified (ADR 0046). Send "
+                    f"`combo_acknowledged` only if that is understood."
                 ),
             )
         try:

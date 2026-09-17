@@ -177,19 +177,27 @@ function Card({
                 nothing on average, so you need <strong>better</strong> than
                 it. Kalshi quotes this combination itself — a resting NO bid
                 is the ask you pay, and nobody has to be selling it to you at
-                the moment you tap — but once you own it, any way out is
-                small and unmeasured: a resting bid to buy it back has been
-                seen on two books, ten contracts each, and how often one is
-                there has never been measured. This is still the number to
-                take to wherever you can actually place the bet.
+                the moment you tap — and once you own it you can sell it back,
+                which was measured on 2026-09-17 on all three combinations
+                this desk held. The catch is the price, not the door: every
+                best bid was below what had been paid, so selling back may
+                cost you more than holding it to the outcome. This is still
+                the number to take to wherever you can actually place the bet.
               </p>
-              {/* "nobody bids to buy it back, so the only exit once you own
-                  it is the outcome" stood here until 2026-09-16, six days
-                  after two shard-1 books were read carrying resting YES bids
-                  of ten contracts (ADR 0146 killed the frequency question;
-                  `docs/measurements/2026-09-13-combo-exit-nfl-sunday-result.md`
-                  §4). Issue #41, answer A. Size in words, no digit, and no
-                  rate: an existence proof supplies none. */}
+              {/* Third rewrite of this sentence, and the first that is not
+                  about availability. "Nobody bids to buy it back, so the only
+                  exit once you own it is the outcome" stood until 2026-09-16;
+                  "any way out is small and unmeasured: a resting bid has been
+                  seen on two books, ten contracts each" replaced it (#41
+                  answer A) and lasted one day. Sell-side RFQs on 2026-09-17
+                  drew a bid on 3 of 3 held combinations, and two of those
+                  carried resting YES bids 38,709 and 24,900 contracts deep --
+                  "ten contracts each" was off by three orders of magnitude.
+
+                  Issue #60, answer (a): say what the exit COSTS, not how
+                  often it is there. The frequency has been wrong three times;
+                  every best bid being below basis has been true every time.
+                  `docs/measurements/2026-09-17-combinations-can-be-exited.md` */}
             </div>
           )}
           <p className="mt-3 text-xs text-muted">

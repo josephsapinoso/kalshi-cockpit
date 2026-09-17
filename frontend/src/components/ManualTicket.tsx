@@ -714,9 +714,12 @@ function TicketBody({
                 A fallback is exactly where a falsified sentence survives
                 longest, because it renders only when something else broke. */}
             {market.combo_note ??
-              "This is a combination market. You can enter it, and getting " +
-                "out is small and unmeasured — plan to hold it to the " +
-                "outcome or to hedge a leg."}
+              "This is a combination market. You can enter it and you can " +
+                "sell it back — on 2026-09-17 all three combinations this " +
+                "desk held drew a bid for the side held. The catch is the " +
+                "price, not the door: every one of those bids was below " +
+                "what had been paid, so selling back may cost you more " +
+                "than holding it to the outcome."}
           </p>
           <label className="mt-2 flex items-start gap-2 text-xs font-semibold">
             <input
@@ -726,14 +729,26 @@ function TicketBody({
               disabled={sending}
               className="mt-0.5 h-5 w-5 shrink-0"
             />
-            {/* Joe's own words, issue #41 answer A (2026-09-16). It read
-                "no way out of this bet except the outcome" until then -- the
-                universal two shard-1 YES bids killed on 2026-09-10 -- and
-                the fallback paragraph above had been corrected while this
-                line, six lines below it, kept the dead claim. */}
+            {/* Joe's own words, issue #60 answer (a), 2026-09-17. The fourth
+                version of this sentence and the first that is not about
+                whether a way out EXISTS.
+
+                It read "no way out of this bet except the outcome" until
+                2026-09-10, then "I may not be able to get out of this bet,
+                and any way out is small and unmeasured" (#41 answer A). Both
+                asserted a frequency, and the frequency kept moving: sell-side
+                RFQs on 2026-09-17 drew a bid on 3 of 3 held combinations, two
+                of them also carrying resting YES bids 38,709 and 24,900
+                contracts deep.
+
+                So this version asserts the one thing true in every reading
+                taken so far -- every best bid sat BELOW the cost basis -- and
+                says nothing about availability, which is what kept decaying.
+                A sentence about price survives the next measurement; a
+                sentence about frequency has now failed three times. */}
             <span>
-              I understand I may not be able to get out of this bet, and any
-              way out is small and unmeasured.
+              I understand selling this back may cost me more than holding it
+              to the outcome.
             </span>
           </label>
           <p className="mt-2 max-w-[65ch] text-xs text-muted">

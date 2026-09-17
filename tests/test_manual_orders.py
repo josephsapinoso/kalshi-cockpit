@@ -559,7 +559,10 @@ class TestTheGuardsRefuse:
         )
         assert response.status_code == 422
         detail = response.json()["detail"]
-        assert "enter" in detail
+        # Was `"enter" in detail` -- the refusal used to say a combination
+        # was close to enter-only. The exit was measured on 2026-09-17 and
+        # exists; the refusal now names what selling back may COST.
+        assert "selling back may cost more than holding" in detail
         assert "acknowledgement" in detail
         # The exit census, in its own digits -- asserted against the constants
         # and never against the literals. This is the third of the three
@@ -580,15 +583,20 @@ class TestTheGuardsRefuse:
         # keep asserting a falsified one. The refusal keeps its force by
         # naming the size instead -- ten contracts at a single price -- and
         # still refuses to imply a rate, which Arm D measures on 2026-09-13.
-        assert str(parlays.COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID) in detail
-        assert str(parlays.COMBO_EXIT_CENSUS_BOOKS_READ) in detail
-        assert "NO YES BID" in detail
-        assert str(parlays.COMBO_EXIT_SHARD_YES_BID_BOOKS) in detail
-        assert str(parlays.COMBO_EXIT_SHARD_YES_BID_SIZE_CONTRACTS) in detail
-        # Both halves of the replacement, so neither can be dropped: the
-        # entry door is still open, and the way out is small and unmeasured.
-        assert "you can enter" in detail
-        assert "small and unmeasured" in detail
+        assert str(parlays.COMBO_EXIT_RFQ_POSITIONS_WITH_BID) in detail
+        assert str(parlays.COMBO_EXIT_RFQ_POSITIONS) in detail
+        assert parlays.COMBO_EXIT_RFQ_DATE in detail
+        assert "drew a bid for the side held" in detail
+        assert str(parlays.COMBO_EXIT_RFQ_BIDS_BELOW_BASIS) in detail
+        # **Both halves of the replacement, so neither can be dropped: the
+        # exit EXISTS, and using it may cost more than holding.** Until
+        # 2026-09-17 this asserted "you can enter" and "small and unmeasured",
+        # and the shard-book digits beside them. Those came from the LIT BOOK
+        # and the exit was then measured on the surface combinations actually
+        # trade on: 3 of 3 held combinations drew a bid. The digits that
+        # matter now are the RFQ census's, above.
+        assert "you can sell it back" in detail
+        assert "selling back may cost more than holding" in detail
         # The killed universal must not return.
         assert "cannot exit" not in detail
 
@@ -647,8 +655,8 @@ class TestTheGuardsRefuse:
         digits = [ch for ch in stripped if ch.isdigit()]
         assert not digits, f"a census number is typed in: {rendered}"
         names = {n.id for n in ast.walk(detail) if isinstance(n, ast.Name)}
-        assert "COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID" in names
-        assert "COMBO_EXIT_CENSUS_BOOKS_READ" in names
+        assert "COMBO_EXIT_RFQ_POSITIONS_WITH_BID" in names
+        assert "COMBO_EXIT_RFQ_POSITIONS" in names
 
     async def test_a_combination_keeps_a_tighter_structural_ceiling(
         self, tmp_path
@@ -1627,21 +1635,28 @@ class TestTheManualMarketRead:
         body = (await get(app, f"/api/manual/market/{COMBO_TICKER}")).json()
         note = body["combo_note"]
         assert note
-        assert str(parlays.COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID) in note
-        assert str(parlays.COMBO_EXIT_CENSUS_BOOKS_READ) in note
-        assert "no YES" in note
-        # The falsifying observation, in the census's own sourcing style.
-        assert str(parlays.COMBO_EXIT_SHARD_YES_BID_BOOKS) in note
-        assert str(parlays.COMBO_EXIT_SHARD_YES_BID_SIZE_CONTRACTS) in note
-        assert parlays.COMBO_EXIT_SHARD_YES_BID_DATE in note
+        assert str(parlays.COMBO_EXIT_RFQ_POSITIONS_WITH_BID) in note
+        assert str(parlays.COMBO_EXIT_RFQ_POSITIONS) in note
+        assert parlays.COMBO_EXIT_RFQ_DATE in note
+        assert "drew a bid for the side held" in note
+        # The cost, sourced the same way -- it is the claim the note rests on
+        # now that availability has been settled.
+        assert str(parlays.COMBO_EXIT_RFQ_BIDS_BELOW_BASIS) in note
         # The exit claim itself, in words, so the numbers cannot survive the
-        # sentence they belong to being softened out from under them. The
-        # size and the ignorance are BOTH load-bearing: drop "small" and the
-        # note reads as an exit being available, drop "never been measured"
-        # and it implies a rate nobody has measured.
-        assert "small" in note
-        assert "never been measured" in note
-        assert "hold it to the outcome" in note
+        # sentence they belong to being softened out from under them.
+        #
+        # **Both halves are still load-bearing; which two halves changed on
+        # 2026-09-17.** It was "small" + "never been measured", and both are
+        # now false: 3 of 3 held combinations drew a bid for the side held,
+        # and two of them carried resting YES bids 38,709 and 24,900
+        # contracts deep. The pair that replaces them is availability + cost
+        # — drop the first and the note reads as no exit at all, drop the
+        # second and it reads as a free one.
+        assert "sell a combination back" in note
+        assert "may cost you more than holding" in note
+        # The refuted pair, pinned absent so it cannot creep back.
+        assert "small" not in note
+        assert "never been measured" not in note
         # And the killed universal must not creep back in any form.
         assert "cannot exit" not in note
         assert "only way out" not in note
@@ -1691,8 +1706,8 @@ class TestTheManualMarketRead:
         names = {
             n.id for n in ast.walk(note) if isinstance(n, ast.Name)
         }
-        assert "COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID" in names
-        assert "COMBO_EXIT_CENSUS_BOOKS_READ" in names
+        assert "COMBO_EXIT_RFQ_POSITIONS_WITH_BID" in names
+        assert "COMBO_EXIT_RFQ_POSITIONS" in names
 
 
 class TestTheRowRecordsWhatTheDeskWasShowing:

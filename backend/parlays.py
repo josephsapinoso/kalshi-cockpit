@@ -259,6 +259,38 @@ COMBO_EXIT_SHARD_YES_BID_DATE = "2026-09-10"
 COMBO_EXIT_SHARD_YES_BID_BOOKS = 2
 COMBO_EXIT_SHARD_YES_BID_SIZE_CONTRACTS = 10
 
+#: **The exit, measured properly at last -- 2026-09-17, ADR 0164.**
+#:
+#: Every constant above reads the LIT BOOK, which is the wrong surface: a
+#: combination is priced by RFQ, and an RFQ carries no side field, so a
+#: maker's `yes_bid_dollars` is literally what they would pay Joe for the
+#: side he holds. Sell-side RFQs on all three combinations he actually holds,
+#: at the size he holds, answered the question the 40-book census never
+#: could.
+#:
+#: **"Enter-only" is refuted.** 3 of 3 positions drew a bid for his side,
+#: every one at the full size asked. Two of those three also carried a
+#: resting YES bid on the PUBLIC book, 38,709 and 24,900 contracts deep
+#: against holdings of 8.22 and 60.97 -- so the "no resting YES bid" finding
+#: is dead as a general claim too.
+#:
+#: **What the copy may NOT say any more**: that the way out is small, or that
+#: its frequency is unmeasured as though that were the risk. What it SAYS
+#: instead is Joe's own answer to #60: selling back may cost more than
+#: holding. That is the one thing true in every reading -- all three best
+#: bids sat BELOW his cost basis -- and unlike a frequency it does not decay.
+#:
+#: `docs/measurements/2026-09-17-combinations-can-be-exited.md`.
+COMBO_EXIT_RFQ_DATE = "2026-09-17"
+COMBO_EXIT_RFQ_POSITIONS = 3
+COMBO_EXIT_RFQ_POSITIONS_WITH_BID = 3
+COMBO_EXIT_RFQ_QUOTES = 44
+COMBO_EXIT_RFQ_QUOTES_WITH_YES_BID = 16
+#: Best bids were 7.60c / 4.70c / 0.14c against bases of 10.20c / 5.70c /
+#: 0.38c. Every one below. Stored as a count, not the prices, because the
+#: prices are one moment and the COUNT is the claim the copy rests on.
+COMBO_EXIT_RFQ_BIDS_BELOW_BASIS = 3
+
 NOTES: dict[str, str] = {
     "chance": (
         "Chance every leg hits, by the books' consensus — not an edge. A "
@@ -300,13 +332,15 @@ NOTES: dict[str, str] = {
         f"this desk's own combination fills found "
         f"{PARLAY_CENSUS_TAKER_FILLS} of {PARLAY_CENSUS_POSITIONS} positions "
         f"were entered by hitting an offer, not by resting a bid. Getting "
-        f"out is the half that is barely seen: on "
-        f"{COMBO_EXIT_SHARD_YES_BID_DATE}, "
-        f"{COMBO_EXIT_SHARD_YES_BID_BOOKS} books on "
-        f"{COMBO_EXIT_CENSUS_SHARD_SERIES} did carry a resting YES bid, "
-        f"{COMBO_EXIT_SHARD_YES_BID_SIZE_CONTRACTS} contracts at a single "
-        f"price on each -- so a way out exists and is tiny. How often is "
-        f"unmeasured. Plan to hold to settlement or to hedge a leg."
+        f"out works too, and that was measured on {COMBO_EXIT_RFQ_DATE}: "
+        f"{COMBO_EXIT_RFQ_POSITIONS_WITH_BID} of "
+        f"{COMBO_EXIT_RFQ_POSITIONS} combinations this desk holds drew a "
+        f"bid for the side held when the makers were asked, every one at "
+        f"the full size asked -- so you can sell it back. The catch is the "
+        f"price, not the door: "
+        f"all {COMBO_EXIT_RFQ_BIDS_BELOW_BASIS} best bids were BELOW what "
+        f"was paid, so selling back may cost you more than holding it to "
+        f"the outcome."
     ),
     "tap_outcome": (
         f"Pressing “Price on Kalshi” often comes back with no price. "

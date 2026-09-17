@@ -83,13 +83,36 @@ def _copy_source(path: Path, marker: str) -> str:
         rendered = ast.unparse(node)
         if marker in rendered and "combination book" in rendered:
             return rendered
-    raise AssertionError(f"no census copy found in {path.name} for {marker!r}")
+    return None
+
+
+def _census_citations() -> list[tuple[str, str]]:
+    """Every user-facing f-string that still quotes the 40-book census.
+
+    **Empty since 2026-09-17, and that is the point.** This file used to
+    REQUIRE the scope clause on two named surfaces. Both of those sentences
+    are gone: the exit was measured on the surface combinations actually
+    trade on (3 of 3 held combinations drew a bid, ADR 0164), so the copy no
+    longer cites a lit-book census at all and there is no scope left to name.
+
+    Deleting this file was the other option and is worse. The failure it
+    exists to prevent — quoting "40 of 40 books had no YES bid" without
+    saying which population those forty came from — is a failure anyone
+    re-citing that census would repeat. So the requirement is now
+    CONDITIONAL: cite the census anywhere user-facing and the scope clause is
+    demanded again, automatically. Vacuous today, armed the moment it matters.
+    """
+    found = []
+    for label, (path, marker) in SURFACES.items():
+        source = _copy_source(path, marker)
+        if source is not None:
+            found.append((label, source))
+    return found
 
 
 class TestBothSurfacesNameTheScope:
     def test_every_surface_names_the_series_the_forty_were_measured_on(self):
-        for label, (path, marker) in SURFACES.items():
-            source = _copy_source(path, marker)
+        for label, source in _census_citations():
             assert "COMBO_EXIT_CENSUS_SERIES" in source, (
                 f"{label} states a census over 40 books without saying which "
                 f"population they came from. A reader tapping a shard-1 "
@@ -98,8 +121,7 @@ class TestBothSurfacesNameTheScope:
             )
 
     def test_every_surface_says_the_shard_was_not_read(self):
-        for label, (path, marker) in SURFACES.items():
-            source = _copy_source(path, marker)
+        for label, source in _census_citations():
             assert "COMBO_EXIT_CENSUS_SHARD_SERIES" in source, (
                 f"{label} does not name the shard the census did not reach."
             )
@@ -117,8 +139,7 @@ class TestBothSurfacesNameTheScope:
         survived eleven days after the entry half was refuted. The series name
         must arrive through the constant.
         """
-        for label, (path, marker) in SURFACES.items():
-            source = _copy_source(path, marker)
+        for label, source in _census_citations():
             assert COMBO_EXIT_CENSUS_SHARD_SERIES not in source, (
                 f"{label} types the shard series as a literal instead of "
                 f"sourcing it from parlays.COMBO_EXIT_CENSUS_SHARD_SERIES."
@@ -142,8 +163,8 @@ class TestTheScopeClaimsOnlyWhatWasMeasured:
         # Nothing has been read there, so no surface may use the vocabulary of
         # a completed measurement about it.
         forbidden = ("shard was read", "measured on the shard", "shard books had")
-        for label, (path, marker) in SURFACES.items():
-            source = _copy_source(path, marker).lower()
+        for label, raw in _census_citations():
+            source = raw.lower()
             for phrase in forbidden:
                 assert phrase not in source, f"{label} implies a shard measurement"
 
@@ -164,8 +185,8 @@ class TestTheScopeClaimsOnlyWhatWasMeasured:
         record supports and the one it supported before, differently worded.
         """
         unmeasured = ("unmeasured", "never been measured", "not been measured")
-        for label, (path, marker) in SURFACES.items():
-            source = _copy_source(path, marker).lower()
+        for label, raw in _census_citations():
+            source = raw.lower()
             assert any(phrase in source for phrase in unmeasured), (
                 f"{label} names the shard observation without saying its "
                 f"frequency is unmeasured. An existence proof with no "

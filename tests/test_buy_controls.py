@@ -143,8 +143,14 @@ class TestTheWordsThatCarryTheClaim:
         # green. A claim about the screen has to be tested against the screen.
         words = note[note.index('note="') + len('note="') :]
         words = words[: words.index('"')]
-        assert "exit" in words, (
-            "the combination buy does not say the book has no way out"
+        # **The claim changed on 2026-09-17 and so did this assertion.** It
+        # asserted the word "exit", which the note no longer needs: the exit
+        # was measured and exists (3 of 3 held combinations drew a bid), so
+        # the sentence is now about what selling back COSTS. Asserting "exit"
+        # would pass on a note that said the exit was impossible, which is
+        # exactly the claim that died.
+        assert "cost you more than holding" in words, (
+            "the combination buy does not say what selling back may cost"
         )
 
     def test_no_surface_hands_the_ticket_a_masked_ask_flag(self):

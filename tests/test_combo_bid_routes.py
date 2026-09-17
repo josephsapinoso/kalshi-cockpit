@@ -240,7 +240,10 @@ class TestTheDoorIsGuarded:
         )
         assert response.status_code == 422
         detail = response.json()["detail"]
-        assert "enter-only" in detail
+        # Was `"enter-only" in detail`. Refuted 2026-09-17: 3 of 3 held
+        # combinations drew a bid for the side held. The refusal now
+        # names the COST of selling back, not its availability.
+        assert "selling back may cost more than holding" in detail
         # The exit census, in its own digits -- asserted against the constants
         # and never against the literals, for the reason
         # `backend/parlays.py`'s census block records: a test that pins the
@@ -252,9 +255,10 @@ class TestTheDoorIsGuarded:
         # combination book this repo has read has carried a resting YES bid,
         # so the refusal stays exactly as strong as it is; ADR 0085
         # Amendment 1 §A1.4 is what forbids softening it.
-        assert str(parlays.COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID) in detail
-        assert str(parlays.COMBO_EXIT_CENSUS_BOOKS_READ) in detail
-        assert "no YES bid" in detail
+        assert str(parlays.COMBO_EXIT_RFQ_POSITIONS_WITH_BID) in detail
+        assert str(parlays.COMBO_EXIT_RFQ_POSITIONS) in detail
+        assert parlays.COMBO_EXIT_RFQ_DATE in detail
+        assert "drew a bid for the side held" in detail
         assert api.created == [], "nothing may reach the venue"
 
     def test_no_census_number_in_the_bid_refusal_is_typed_rather_than_sourced(
@@ -302,7 +306,7 @@ class TestTheDoorIsGuarded:
             if isinstance(inner, ast.Raise) and isinstance(inner.exc, ast.Call)
             for kw in inner.exc.keywords
             if kw.arg == "detail"
-            and "enter-only" in ast.unparse(kw.value)
+            and "can be sold back" in ast.unparse(kw.value)
         )
         rendered = ast.unparse(detail)
         # An ADR citation, section number and all -- see the docstring.
@@ -310,8 +314,8 @@ class TestTheDoorIsGuarded:
         digits = [ch for ch in stripped if ch.isdigit()]
         assert not digits, f"a census number is typed in: {rendered}"
         names = {n.id for n in ast.walk(detail) if isinstance(n, ast.Name)}
-        assert "COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID" in names
-        assert "COMBO_EXIT_CENSUS_BOOKS_READ" in names
+        assert "COMBO_EXIT_RFQ_POSITIONS_WITH_BID" in names
+        assert "COMBO_EXIT_RFQ_POSITIONS" in names
 
 
 class TestTheShardIsWhatPaysForIt:

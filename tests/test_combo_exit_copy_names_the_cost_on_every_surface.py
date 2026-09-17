@@ -1,58 +1,65 @@
-"""Every sentence about getting out of a combination says the way out is small and unmeasured.
+"""Every sentence about getting out of a combination says what it COSTS.
 
-The universal -- *no combination book has ever carried a resting YES bid, so
-the only exit is the outcome* -- died on 2026-09-10 when two
-`KXMVECROSSCATEGORY-SHARD1` books were read carrying resting YES bids of ten
-contracts each (`backend/parlays.py`, `COMBO_EXIT_SHARD_YES_BID_*`;
-`docs/measurements/2026-09-13-combo-exit-nfl-sunday-result.md` §4). An
-existence proof kills a universal and supplies no rate: ADR 0146 killed the
-frequency question, so "how often" is unmeasured and no screen may imply a
-rate in either direction.
+Renamed from `..._is_small_and_unmeasured_on_every_surface.py` on 2026-09-17.
+That name was the old contract, and the old contract is refuted.
+
+THE CLAIM, AND WHY IT IS ABOUT PRICE
+------------------------------------
+Sell-side RFQs on **all three combinations Joe holds** drew a bid for the side
+he holds -- 16 of 44 quotes, 3 of 3 positions, every bid at the full size
+asked -- and two of those three also carry a resting YES bid on the PUBLIC
+book, 38,709 and 24,900 contracts deep against holdings of 8.22 and 60.97
+(`docs/measurements/2026-09-17-combinations-can-be-exited.md`, ADR 0164). So
+"the way out is small" is false and "how often is unmeasured" is stale.
+
+**This is the fourth version of this sentence and the first that is not about
+availability.** The three before it each asserted a FREQUENCY and each was
+falsified within days:
+
+  1. "no way out except the outcome"            -- dead 2026-09-10
+  2. "any way out is small and unmeasured"      -- #41 answer A, dead 2026-09-17
+  3. "a resting bid ... two books, ten contracts each" -- off by 3 orders of
+     magnitude on the same day
+
+Issue #60, answer (a): say what the exit **costs**, not how often it is there.
+Every best bid on every position has sat BELOW the cost basis in every reading
+ever taken, and unlike a frequency that does not decay with the next
+measurement.
 
 THE DEFECT THIS PINS
 --------------------
-The correction landed on 2026-09-10 on the surfaces someone was looking at
-(the server's `combo_note`, the bid route's refusal, the `/parlays` lede, the
-`PriceOnKalshi` buy note) and on the buy ticket's FALLBACK paragraph -- and
-not on the checkbox six lines below that paragraph, which Joe reads and ticks
-on every combination he buys, nor on the parlay card's price-to-beat note.
-Both kept the dead claim for six days. The one test on this claim,
-`tests/test_buy_controls.py::test_the_combo_buy_names_the_missing_exit`,
-asserted the word "exit" in one note and touched neither -- a slice narrow
-enough to stay green while the claim was false two files away. Issue #41,
-answered A by Joe on 2026-09-16, supplied the checkbox's words.
+Not one sentence -- the *set*. The 2026-09-10 correction landed on the four
+surfaces someone was looking at and missed the checkbox six lines below one of
+them, which Joe ticks on every combination he buys. That checkbox kept a dead
+claim for six days while a green suite watched, because the only test on it
+asserted the word "exit" in a different file. The sweep at the bottom exists
+so a *new* exit sentence cannot appear anywhere without being enumerated here.
 
-The shape is the one `tasks/lessons.md` records from ADR 0154: fix every
-reader, not the one whose symptom you saw. And the flattering half is the one
-that survives -- here "flattering" ran the CAUTIOUS way (Joe was told a bet
-was less exitable than it may be), which is exactly why nobody hurried.
+The shape is `tasks/lessons.md`'s ADR 0154 entry: fix every reader, not the
+one whose symptom you saw. And the surviving error runs CAUTIOUS -- Joe was
+told a bet was less exitable than it is -- which is exactly why nobody hurried.
 
 WHAT THIS DOES NOT ESTABLISH
 ----------------------------
-- **Source text, not rendering.** Same instrument and same limit as
+- **Source text, not rendering.** Same instrument and limit as
   `test_soft_fallback_is_shown_on_every_price_surface.py`: a green suite says
   the words are in the file, not that they render, fit a phone, or are read.
-- **Nothing about whether the exit claim is true.** `test_combo_book_depth_claims`
-  owns the 40-book census; the two shard-1 books are a disclosed unregistered
-  look and nothing here measures them again.
+- **Nothing about whether the exit claim is true.** The measurement owns that;
+  this file owns only that every surface states it consistently. n = 3
+  positions at one moment, and nothing here re-measures them.
 - **Nothing about the digits.** Whether a census number is sourced or typed is
   `test_the_exit_census_copy_names_its_scope.py` and its `ast` siblings.
-- **Nothing about Joe's ratified lede.** `/parlays` says "hardly anyone is
-  bidding to buy it back" in words he re-ratified on 2026-09-10; this file
-  checks only that it carries no absolute, and leaves its wording to
-  `test_tab_ledes.py`.
+- **Nothing about Joe's ratified lede.** `/parlays` keeps wording he
+  re-ratified; this file checks only that it carries no absolute and leaves
+  its words to `test_tab_ledes.py`.
 
-Mutations, each observed red on 2026-09-16:
-  1. restore "no way out of this bet except the outcome" on the checkbox
-  2. restore "nobody bids to buy it back, so the only exit once you own it is
-     the outcome" on ParlayCards
-  3. drop "unmeasured" from the PriceOnKalshi `note=`
-  4. restore "you cannot exit it" in the ManualTicket fallback paragraph
-  5. restore "the hedge is its only exit" in `routes.py`'s position note
-  6. remove the ParlayCards entry from `FRONTEND_SURFACES` while the sentence
-     is still there (the sweep names the orphaned sentence)
-  7. add a fresh "a combination has no exit" string to `backend/api/routes.py`
-     outside any listed marker (the sweep names it)
+Mutations observed red on 2026-09-17:
+  1. restore "any way out is small and unmeasured" on the checkbox
+  2. drop the cost clause from the `PriceOnKalshi` `note=`
+  3. drop the cost clause from `routes.py`'s `combo_note`
+  4. restore "an exit is not impossible -- it is small" in `routes.py`
+  5. remove a surface from the lists while its sentence is still there
+     (the sweep names the orphan)
 """
 
 from __future__ import annotations
@@ -94,16 +101,34 @@ ABSOLUTE = re.compile(
     re.IGNORECASE,
 )
 
-#: What every exit sentence owes the reader: that the way out is SMALL and
-#: that its FREQUENCY is unmeasured. Two words rather than one phrase, because
-#: the surfaces say it in their own sentences ("small and unmeasured", "tiny.
-#: How often is unmeasured", "small, and its frequency is unmeasured") and a
-#: single literal would force every surface to be rewritten to satisfy a
-#: grep, or -- the way it actually goes -- would be satisfied by one surface
-#: and never applied to the rest.
-SIZE = re.compile(r"\bsmall\b|\btiny\b", re.IGNORECASE)
-UNMEASURED = re.compile(
-    r"unmeasured|never been measured|not been measured", re.IGNORECASE
+#: **The requirement, since issue #60 answer (a) on 2026-09-17.** Every exit
+#: sentence must say that selling back may COST more than holding. Not that a
+#: way out exists, and not how often one is there — the cost.
+COST = re.compile(
+    r"cost (?:you |me |more)|more than holding|below what (?:had been |was |you )?paid"
+    r"|BELOW what",
+    re.IGNORECASE,
+)
+
+#: **The newly-forbidden claim, and the reason this file was renamed.**
+#:
+#: It *required* "small" and "unmeasured" until 2026-09-17, when sell-side
+#: RFQs on all three combinations Joe holds drew a bid for the side he holds —
+#: two of them also carrying resting YES bids 38,709 and 24,900 contracts deep
+#: against holdings of 8.22 and 60.97. "Ten contracts each" was off by three
+#: orders of magnitude, so "small" is false and "unmeasured" is stale.
+#:
+#: **The pattern this file has now demonstrated three times: every version of
+#: this sentence that asserted a FREQUENCY was wrong within days.** The cost
+#: claim replaces it because it has held in every reading ever taken — every
+#: best bid, on every position, sat below the cost basis.
+UNDERSIZED = re.compile(
+    r"way out is small"
+    r"|is small and unmeasured"
+    r"|a way out exists and is tiny"
+    r"|is small, and its frequency is unmeasured"
+    r"|getting out is small",
+    re.IGNORECASE,
 )
 
 #: The vocabulary of a sentence about leaving a combination. Anything in the
@@ -193,10 +218,11 @@ FRONTEND_SURFACES = [
 #: and never read back today -- still authored copy, still on the record).
 BACKEND_SURFACES = [
     pytest.param(
-        BackendSurface(ROUTES, "hold it to the outcome"), id="routes-combo_note"
+        BackendSurface(ROUTES, "You can sell a combination back"),
+        id="routes-combo_note",
     ),
     pytest.param(
-        BackendSurface(ROUTES, "getting out is small"),
+        BackendSurface(ROUTES, "need the acknowledgement"),
         id="routes-acknowledgement-refusal",
     ),
     pytest.param(
@@ -208,10 +234,11 @@ BACKEND_SURFACES = [
         id="routes-recorded-position-note",
     ),
     pytest.param(
-        BackendSurface(BID_ROUTER, "close to enter-only"), id="bid-router-422"
+        BackendSurface(BID_ROUTER, "a combination can be sold back"),
+        id="bid-router-422",
     ),
     pytest.param(
-        BackendSurface(PARLAYS, "Getting out is the half"),
+        BackendSurface(PARLAYS, "Getting out works too"),
         id="parlays-NOTES-unquoted",
     ),
 ]
@@ -320,16 +347,17 @@ class TestNoSurfaceStillAssertsTheDeadUniversal:
             )
 
 
-class TestEverySurfaceSaysTheWayOutIsSmallAndUnmeasured:
-    """Mutation 3, and the requirement the checkbox never had.
+class TestEverySurfaceNamesWhatTheExitCosts:
+    """The requirement since #60 answer (a), 2026-09-17.
 
-    Both halves, separately, so neither can be dropped: "an exit exists"
-    without its size is an availability claim, and "small" without
-    "unmeasured" is a rate nobody measured.
+    Two halves, separately, so neither can be dropped: every surface must SAY
+    the cost, and no surface may still call the way out small. The second is
+    not implied by the first — the shipped ParlayCards sentence carried both
+    a size claim and a measurement in the same breath.
     """
 
     @pytest.mark.parametrize("surface", FRONTEND_SURFACES)
-    def test_the_screen_names_the_size_and_disclaims_the_rate(self, surface):
+    def test_the_screen_says_selling_back_may_cost_more(self, surface):
         if surface.ratified:
             pytest.skip(f"Joe's wording; pinned by {surface.owner}")
         words = frontend_slice(surface)
@@ -339,36 +367,55 @@ class TestEverySurfaceSaysTheWayOutIsSmallAndUnmeasured:
             # but the attribute is what renders and is what to read.
             words = words[words.index('note="') + len('note="') :]
             words = words[: words.index('"')]
-        assert SIZE.search(words), (
-            f"{surface.path.name}: the exit sentence does not say the way "
-            "out is small"
-        )
-        assert UNMEASURED.search(words), (
-            f"{surface.path.name}: the exit sentence does not say how often "
-            "a way out is there is unmeasured"
+        assert COST.search(words), (
+            f"{surface.path.name}: the exit sentence does not say that "
+            "selling back may cost more than holding"
         )
 
     @pytest.mark.parametrize("surface", BACKEND_SURFACES)
-    def test_the_server_names_the_size_and_disclaims_the_rate(self, surface):
+    def test_the_server_says_selling_back_may_cost_more(self, surface):
         words = backend_slice(surface)
-        assert SIZE.search(words), (
-            f"{surface.path.name}: {surface.marker!r} does not say the way "
-            "out is small"
-        )
-        assert UNMEASURED.search(words), (
-            f"{surface.path.name}: {surface.marker!r} does not say how often "
-            "a way out is there is unmeasured"
+        assert COST.search(words), (
+            f"{surface.path.name}: {surface.marker!r} does not say that "
+            "selling back may cost more than holding"
         )
 
+    @pytest.mark.parametrize("surface", FRONTEND_SURFACES)
+    def test_the_screen_no_longer_calls_the_way_out_small(self, surface):
+        """Refuted 2026-09-17 — two held positions had 38,709 and 24,900
+        contracts resting on the public book, against holdings of 8 and 61."""
+        text = code_only(surface.path.read_text(encoding="utf-8"))
+        hit = UNDERSIZED.search(text)
+        assert hit is None, (
+            f"{surface.path.name} still says {hit.group(0)!r}: the exit was "
+            "measured on 3 of 3 held combinations and is not small"
+        )
+
+    @pytest.mark.parametrize("surface", BACKEND_SURFACES)
+    def test_the_server_no_longer_calls_the_way_out_small(self, surface):
+        for s in backend_strings(surface.path):
+            hit = UNDERSIZED.search(s)
+            assert hit is None, (
+                f"{surface.path.name} composes {hit.group(0)!r}: {s[:120]!r}"
+            )
+
     def test_the_checkbox_carries_joes_words(self):
-        """Issue #41, answer A, verbatim -- the sentence Joe ticks."""
+        """Issue #60, answer (a), verbatim — the sentence Joe ticks.
+
+        The fourth version, and the first that is about price rather than
+        availability. The previous three each asserted a frequency and each
+        was falsified: "no way out except the outcome" (dead 2026-09-10),
+        "any way out is small and unmeasured" (#41 answer A, dead
+        2026-09-17), and the ParlayCards "ten contracts each" that went with
+        it. This one makes no claim that a later measurement can move.
+        """
         words = frontend_slice(
             FrontendSurface(MANUAL_TICKET, "checked={comboOk}", "</label>")
         )
         words = re.sub(r"\s+", " ", words)
         assert (
-            "I understand I may not be able to get out of this bet, and any "
-            "way out is small and unmeasured." in words
+            "I understand selling this back may cost me more than holding it "
+            "to the outcome." in words
         )
 
     def test_the_ratified_lede_is_pinned_where_this_file_says_it_is(self):

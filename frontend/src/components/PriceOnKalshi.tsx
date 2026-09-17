@@ -349,7 +349,7 @@ function Result({ value }: { value: ParlayLookupResult }) {
            tool read none — but a true premise no longer licenses that
            conclusion, and stating the premise alone would imply it. How
            often a bid is there is what Arm D measures on 2026-09-13. */
-        note="One combination, one contract. This tool has read no resting YES bid on a combination book, and on 2026-09-10 two were seen elsewhere on this shard at ten contracts apiece — so an exit is small and its frequency unmeasured. Expect to hold to the outcome or hedge a leg, and the fee here is a ceiling, not a quote."
+        note="One combination, one contract. You can sell it back — on 2026-09-17 all three combinations this desk held drew a bid for the side held, every one at the full size asked. The catch is the price, not the door: every one of those bids was below what had been paid, so selling back may cost you more than holding to the outcome. The fee here is a ceiling, not a quote."
       />
     </div>
   );

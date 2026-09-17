@@ -93,6 +93,10 @@ from ..odds.timing import (
 from .. import hedge as held_parlays
 from .. import parlays
 from ..parlays import (
+    COMBO_EXIT_RFQ_BIDS_BELOW_BASIS,
+    COMBO_EXIT_RFQ_POSITIONS_WITH_BID,
+    COMBO_EXIT_RFQ_POSITIONS,
+    COMBO_EXIT_RFQ_DATE,
     COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID,
     COMBO_EXIT_CENSUS_BOOKS_READ,
     COMBO_EXIT_CENSUS_SERIES,
@@ -3526,22 +3530,15 @@ def create_app(
             # and §11.3 forbids the screens implying a frequency until it
             # does.
             "combo_note": (
-                f"Across three runs on two dates, "
-                f"{COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID} of "
-                f"{COMBO_EXIT_CENSUS_BOOKS_READ} combination books this repo "
-                f"read carried no YES bid. All of them were "
-                f"{' and '.join(COMBO_EXIT_CENSUS_SERIES)}, and "
-                f"{COMBO_EXIT_CENSUS_SHARD_BOOKS_READ} were on "
-                f"{COMBO_EXIT_CENSUS_SHARD_SERIES} — the shard this order "
-                f"is on. That shard has since been seen quoted: on "
-                f"{COMBO_EXIT_SHARD_YES_BID_DATE}, "
-                f"{COMBO_EXIT_SHARD_YES_BID_BOOKS} of its books carried a "
-                f"resting YES bid of "
-                f"{COMBO_EXIT_SHARD_YES_BID_SIZE_CONTRACTS} contracts at a "
-                f"single price. So an exit is not impossible — it is small, "
-                f"and how often one is there has never been measured. Buy "
-                f"this expecting to hold it to the outcome or to hedge a "
-                f"leg, not to sell it back. The fee is "
+                f"You can sell a combination back. On "
+                f"{COMBO_EXIT_RFQ_DATE} the makers were asked for a price on "
+                f"all {COMBO_EXIT_RFQ_POSITIONS} combinations this desk "
+                f"held, and {COMBO_EXIT_RFQ_POSITIONS_WITH_BID} of them drew "
+                f"a bid for the side held, every one at the full size asked. "
+                f"The catch is the price, not the door: all "
+                f"{COMBO_EXIT_RFQ_BIDS_BELOW_BASIS} of those best bids were "
+                f"BELOW what had been paid, so selling back may cost you "
+                f"more than holding to the outcome. The fee is "
                 f"priced through a hedged coefficient because the measured "
                 f"model undercharges on combos, so the cost shown is a "
                 f"ceiling and not a quote."
@@ -3727,18 +3724,18 @@ def create_app(
                     status_code=422,
                     detail=(
                         f"combination (KXMVE) markets need the acknowledgement "
-                        f"before this door opens: "
-                        f"{COMBO_EXIT_CENSUS_BOOKS_NO_YES_BID} of "
-                        f"{COMBO_EXIT_CENSUS_BOOKS_READ} combination books "
-                        f"this repo read across three runs on two dates had "
-                        f"NO YES BID, and on "
-                        f"{COMBO_EXIT_SHARD_YES_BID_DATE} the "
-                        f"{COMBO_EXIT_SHARD_YES_BID_BOOKS} that did carry "
-                        f"one held only "
-                        f"{COMBO_EXIT_SHARD_YES_BID_SIZE_CONTRACTS} "
-                        f"contracts at a single price — so you can enter, "
-                        f"and getting out is small and unmeasured "
-                        f"(ADR 0012 §5). The fee model also "
+                        f"before this door opens: on "
+                        f"{COMBO_EXIT_RFQ_DATE}, "
+                        f"{COMBO_EXIT_RFQ_POSITIONS_WITH_BID} of "
+                        f"{COMBO_EXIT_RFQ_POSITIONS} combinations this desk "
+                        f"held drew a bid for the side held when the makers "
+                        f"were asked, every one at the full size asked — so "
+                        f"you can sell it back. The catch is the price, not "
+                        f"the door: all "
+                        f"{COMBO_EXIT_RFQ_BIDS_BELOW_BASIS} of those best "
+                        f"bids were BELOW what had been paid, so selling "
+                        f"back may cost more than holding to the outcome "
+                        f"(ADR 0164). The fee model also "
                         f"undercharges on combos (ADR 0046); a hedged coefficient "
                         f"prices this order and it is not a measurement of what "
                         f"Kalshi charges. Send `combo_acknowledged` only if that "
@@ -4268,9 +4265,10 @@ def create_app(
                 position_note = (
                     "This combination is NOT being watched for a hedge — its "
                     "legs could not be recovered, so record it by hand on "
-                    "/hedge. A combination is enter-only in practice — any "
-                    "way out by selling is small and unmeasured — and the "
-                    "hedge is the exit the desk watches."
+                    "/hedge. You can also sell a combination back, though "
+                    "selling back may cost more than holding it to the "
+                    "outcome; the hedge is the exit the desk watches, not "
+                    "the only one that exists."
                 )
             else:
                 position_note = (
@@ -4636,9 +4634,10 @@ def _record_combo_position(
         stake_tenths = contracts * fill_price_tenths
         return_tenths = contracts * 1000
         note = (
-            "Recorded automatically from the hand-bet path: a combination is "
-            "enter-only in practice — any way out by selling is small and "
-            "unmeasured — and a hedge is the exit the desk watches."
+            "Recorded automatically from the hand-bet path. A combination can "
+            "be sold back, though selling back may cost more than holding it "
+            "to the outcome; a hedge is the exit the desk watches, not the "
+            "only one that exists."
         )
         if parsed.labels_are_tickers:
             note += (

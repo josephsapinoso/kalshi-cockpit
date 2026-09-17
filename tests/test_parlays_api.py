@@ -551,7 +551,12 @@ class TestHonesty:
         # this repo has read has ever carried a YES bid, and the census
         # measured ENTRY. Dropping this sentence would sell a bet with no way
         # out as a bet with one.
-        assert "hold to settlement" in notes["unquoted"]
+        # **Was "hold to settlement" until 2026-09-17.** That phrasing was
+        # the old exit claim's tail -- plan to hold, because the way out is
+        # small. The exit was then measured on 3 of 3 held combinations and
+        # exists; what the note owes the reader now is the COST of using it
+        # (#60 answer (a)), which is the half that has held in every reading.
+        assert "may cost you more than holding it to the outcome" in notes["unquoted"]
         # The refuted half, pinned absent. The note reports a measured rate
         # and may never go back to promising a buy-in -- Amendment 1 §A1.4
         # keeps this forbidden precisely because the entry finding makes the
