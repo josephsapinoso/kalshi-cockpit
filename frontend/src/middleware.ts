@@ -34,6 +34,26 @@ const PUBLIC_PATHS = new Set([
   "/favicon.ico",
   "/icon.svg",
   "/robots.txt",
+  // The two files that make this installable to an iPhone home screen, and
+  // they are here because of HOW the browser asks for them.
+  //
+  // A web app manifest is fetched with credentials OMITTED unless its link tag
+  // carries `crossorigin="use-credentials"`, and Next emits that attribute
+  // only on Vercel previews. So the request arrives with no cookie no matter
+  // who is signed in. Gated, it would answer a 302 to `/login` -- and nothing
+  // would look broken: Safari silently degrades to treating the site as a
+  // bookmark and screenshots the page for the icon. Same for the touch icon.
+  //
+  // Neither carries anything private: `manifest.ts` is a name, a colour and a
+  // start URL, and `apple-icon` is a letter on a square. `/icon.svg` above has
+  // been public since the gate was built for the same reason.
+  //
+  // **Both are exact pathnames and both are load-bearing.** Next serves the
+  // manifest at `/manifest.webmanifest` (it special-cases that route name) and
+  // the generated icon at `/apple-icon`, with its cache-busting hash in the
+  // QUERY. An entry written `/apple-icon.png` matches nothing.
+  "/manifest.webmanifest",
+  "/apple-icon",
 ]);
 
 /**

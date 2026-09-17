@@ -302,7 +302,22 @@ body {
   max-height: 88dvh;
 }
 
-/* Keeps the action bar clear of the home indicator on a notched handset. */
+/* The action bar's bottom padding.
+
+   **The `env()` term is inert, and has been since the day it was written.**
+   `safe-area-inset-*` resolves to 0 unless the viewport declares
+   `viewport-fit=cover`, and nothing here does -- so this has always computed
+   to `0.75rem`. The comment used to say it "keeps the action bar clear of the
+   home indicator on a notched handset", which was a claim about a value that
+   was never non-zero.
+
+   Nothing is broken by that: iOS lays a standalone web app's content inside
+   the safe area on its own, so the bar was never under the home indicator.
+   `cover` was considered when the app was made installable (2026-09-17, ADR
+   0166) and declined -- it goes full-bleed in ordinary Safari too, and the
+   element nearest the bottom edge here is the confirm button that spends
+   money. The `max()` stays so that the day someone does declare `cover`, this
+   bar is already correct. */
 .sheet-safe-bottom {
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
 }

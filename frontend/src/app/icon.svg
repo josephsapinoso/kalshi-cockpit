@@ -1,6 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- The nav logo tile, at favicon size: accent crimson, rounded-lg. -->
-  <rect width="32" height="32" rx="7" fill="#aa0000"/>
+  <!-- The nav logo tile at favicon size. The fill tracks --accent-fill in the
+       LIGHT theme (globals.css): a favicon has no media query, so it cannot
+       follow the toggle, and the light value is the one most tab strips sit on.
+
+       IT WAS #aa0000 UNTIL 2026-09-17 AND THAT WAS ADR 0081 RESIDUE. That ADR
+       gave up the brand crimson so red could mean *lose*: --negative is
+       #aa0000 now, and the nav tile it claims to mirror (Nav.tsx, the
+       bg-accent-fill span) went indigo with it. The favicon was missed, so for
+       three weeks the tab badge wore the colour that means a loss. Do not
+       "restore" it. -->
+  <rect width="32" height="32" rx="7" fill="#2f3d8f"/>
   <text x="16" y="22" font-family="Georgia, serif" font-size="19"
         font-weight="700" fill="#fbfaf8" text-anchor="middle">K</text>
 </svg>

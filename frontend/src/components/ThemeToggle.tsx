@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import { applyThemeColor } from "@/lib/theme";
+
 /**
  * Three-state theme control, matching the personal site: follow system by
  * default, with an explicit override persisted to localStorage.
@@ -26,6 +28,11 @@ export default function ThemeToggle() {
     setTheme(next);
     localStorage.setItem("theme", next);
     document.documentElement.dataset.theme = next;
+    // The status bar of an installed app, and the browser chrome tint
+    // elsewhere. The `<meta name="theme-color">` pair in `app/layout.tsx` is
+    // keyed on `prefers-color-scheme`, which cannot see a forced theme, so a
+    // toggle that skipped this would leave a black bar over a cream page.
+    applyThemeColor(next);
   }
 
   return (
