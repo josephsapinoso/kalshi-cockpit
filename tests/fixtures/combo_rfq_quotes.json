@@ -1,0 +1,44 @@
+{
+  "_capture": {
+    "source": "GET /communications/quotes?rfq_user_filter=self&limit=100",
+    "captured": "2026-09-17T15:50:47Z",
+    "rfq": "POST /communications/rfqs?exchange_index=1, target_cost_dollars 5.0000, 3 legs (PITT/ATL/LV all yes) on KXMVECROSSCATEGORY-R",
+    "note": "Real maker quotes on a combination whose order book was empty on BOTH sides at the same moment. See docs/measurements/2026-09-17-a-combo-rfq-returns-a-real-takeable-price.md",
+    "redaction": "Every id is a documented placeholder. `rfq_creator_id` and `rfq_creator_user_id` were Joe's account identifiers and this repo is public -- operator data never enters the repo. The maker `creator_id` values identified third-party market participants and are replaced for the same reason. PRICES, QUANTITIES, TIMESTAMPS, FIELD NAMES AND STRUCTURE ARE VERBATIM, and they are what these fixtures exist to pin.",
+    "incomplete": "A third quote was observed in the same window at no_bid_dollars 0.3900 / no_contracts_fp 7.97 / updated_ts 15:50:47.684847Z. Its `id` and `creator_id` were lost to console truncation, so it is NOT reconstructed here -- a hand-filled row would be a fabricated capture. Two complete rows is what was captured complete."
+  },
+  "quotes": [
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-17T15:50:47.631646Z",
+      "creator_id": "MAKER_A_REDACTED",
+      "id": "QUOTE_A_REDACTED",
+      "market_ticker": "KXMVECROSSCATEGORY-S20264E0CD4DDEA6-BBE0304F0C9",
+      "no_bid_dollars": "0.4070",
+      "no_contracts_fp": "8.19",
+      "rfq_creator_id": "REQUESTER_REDACTED",
+      "rfq_creator_user_id": "REQUESTER_USER_REDACTED",
+      "rfq_id": "RFQ_REDACTED",
+      "rfq_target_cost_dollars": "5.0000",
+      "status": "open",
+      "updated_ts": "2026-09-17T15:50:47.631646Z",
+      "yes_bid_dollars": "0.0000"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-17T15:50:47.577353Z",
+      "creator_id": "MAKER_B_REDACTED",
+      "id": "QUOTE_B_REDACTED",
+      "market_ticker": "KXMVECROSSCATEGORY-S20264E0CD4DDEA6-BBE0304F0C9",
+      "no_bid_dollars": "0.3690",
+      "no_contracts_fp": "7.72",
+      "rfq_creator_id": "REQUESTER_REDACTED",
+      "rfq_creator_user_id": "REQUESTER_USER_REDACTED",
+      "rfq_id": "RFQ_REDACTED",
+      "rfq_target_cost_dollars": "5.0000",
+      "status": "open",
+      "updated_ts": "2026-09-17T15:50:47.577353Z",
+      "yes_bid_dollars": "0.0000"
+    }
+  ]
+}
