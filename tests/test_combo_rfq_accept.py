@@ -85,9 +85,20 @@ class FakeApi:
 
 
 class TestNothingSpendsWhileUnarmed:
-    def test_the_default_is_a_dry_run(self):
-        """If this is ever False on `main` without an ADR, that is the bug."""
-        assert combo_rfq.RFQ_ACCEPTS_ARE_DRY_RUNS is True
+    def test_the_path_is_armed_and_that_was_a_decision(self):
+        """**Armed 2026-09-17** (ADR 0165 Amendment 1, Joe's #61 answer (a)).
+
+        This asserted `is True` until the probe settled what `accepted_side`
+        means. It is inverted rather than deleted on purpose: the flag is the
+        one line between a screen that shows prices and a screen that spends
+        Joe's money, and a test that names it makes flipping it back a
+        deliberate act rather than a silent one.
+        """
+        assert combo_rfq.RFQ_ACCEPTS_ARE_DRY_RUNS is False
+
+    async def test_a_dry_run_is_still_honoured_when_asked_for(self):
+        """The switch still works per-call, which is what the probe used."""
+        assert "dry_run" in combo_rfq.accept_quote_for_joe.__code__.co_varnames
 
     async def test_a_dry_run_reaches_the_venue_not_at_all(self, conn):
         fake = FakeApi()
@@ -201,14 +212,36 @@ class TestALostResponseIsAnUnknown:
 
 
 class TestTheOutcomeIsObservedNotAssumed:
-    async def test_a_confirmed_quote_is_a_fill(self, conn):
+    async def test_an_executed_quote_is_a_fill(self, conn):
         result = await combo_rfq.accept_quote_for_joe(
             conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
-            api=FakeApi(statuses=["confirmed"]), dry_run=False,
+            api=FakeApi(statuses=["executed"]), dry_run=False,
         )
         assert result["filled"] is True
-        assert result["status"] == "confirmed"
-        assert store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)["outcome_status"] == "confirmed"
+        assert result["status"] == "executed"
+        assert store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)["outcome_status"] == "executed"
+
+    async def test_a_CONFIRMED_quote_is_not_a_fill(self, conn, monkeypatch):
+        """**Observed live on the first probe, 2026-09-17.**
+
+        A quote went `accepted` -> `confirmed` in 32ms and then `cancelled`
+        1.7s later, with no fill, no position change and no balance change.
+        Confirmation is the maker agreeing; execution is a separate step with
+        its own one-second timer and it can fail to happen afterwards.
+
+        This test asserted the opposite until that probe ran. A screen built
+        on it would have reported a completed trade that never completed.
+        """
+        monkeypatch.setattr(combo_rfq, "CONFIRM_WATCH_S", 0.05)
+        monkeypatch.setattr(combo_rfq, "CONFIRM_POLL_S", 0.01)
+        result = await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
+            api=FakeApi(statuses=["confirmed"] * 20), dry_run=False,
+        )
+        assert result["filled"] is False, (
+            "a confirmation was read as a fill; the venue can cancel after it"
+        )
+        assert "NOT yet known" in result["words"]
 
     async def test_a_cancelled_quote_is_not_a_fill_and_not_an_error(self, conn):
         """A maker has ~3s to stand behind a quote on a combination.

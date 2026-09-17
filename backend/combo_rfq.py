@@ -308,23 +308,31 @@ def _words(quotes: list[RfqQuote], *, book_ask: Optional[int]) -> str:
 # Accepting. The spend.
 # ---------------------------------------------------------------------------
 
-#: **The arming switch for the accept path.** True means no acceptance ever
-#: reaches Kalshi; the route runs end to end and records the intent.
+#: **The arming switch for the accept path. ARMED 2026-09-17, on Joe's word
+#: and on a measurement, in that order.**
 #:
-#: It stays True until ONE question is settled by measurement, and the
-#: question is not about this code. `accepted_side` names the maker's side
-#: being lifted -- so buying YES means sending `"no"` -- and that is stated
-#: outright only on Kalshi's FIX page. The REST reference defines the field as
-#: "the side that was accepted" without saying whose. On the quote captured
-#: 2026-09-17 the two readings are **buying YES at 10.8c or buying NO at
-#: 92.4c**: nine times the spend, on the opposite contract.
+#: It was True until the question below was settled, and the question was
+#: never about this code. `accepted_side` names the maker's side being
+#: lifted -- so buying YES means sending `"no"` -- and that is stated
+#: outright only on Kalshi's FIX page. The REST reference says "the side that
+#: was accepted" without saying whose, and on a real quote the two readings
+#: were **buy YES at 0.40c or buy NO at 99.60c**.
 #:
-#: The falsifier is cheap and bounded: one minimum-size accept, then read
-#: `GET /portfolio/fills` and check the side and price against
-#: `1 - no_bid_dollars`. Until that has been done once, arming this is
-#: betting real money on a documentation inference. Flipping it is Joe's, the
-#: way `MANUAL_ORDERS_ARE_DRY_RUNS` was (ADR 0112 s5).
-RFQ_ACCEPTS_ARE_DRY_RUNS = True
+#: **Settled by one bounded accept (#61 option (a)), and it went our way:**
+#:
+#:     sent accepted_side="no" against a maker NO bid of 99.60c
+#:     accepted 17:53:28.0 -> confirmed 17:53:28.1 -> executed 17:53:29.25
+#:     fill: side "yes", action "buy", yes_price_dollars "0.0040"
+#:     balance 5.7899 -> 5.7856   ($0.0043, price plus fee)
+#:
+#: `docs/measurements/2026-09-17-accepted-side-names-the-makers-side.md`.
+#:
+#: **The first attempt did not execute and that is why this constant has a
+#: story.** It stopped watching at `confirmed` and withdrew the RFQ; the
+#: quote was cancelled 1.7s later with no fill. Confirmation is the maker
+#: agreeing, execution is a separate step about a second behind it, and
+#: `QUOTE_FILLED_STATUSES` said `confirmed` was a fill until that run.
+RFQ_ACCEPTS_ARE_DRY_RUNS = False
 
 #: How long to watch for the maker's confirmation, and how often.
 #:

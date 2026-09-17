@@ -58,6 +58,12 @@ TOKEN_HANDLERS = (
     # end -- a combination's order book is empty by design between requests,
     # so reading it was never going to find the price.
     "parlay-rfq",
+    # ADR 0165 -- taking a quote. **This one SPENDS**, and it is a
+    # separate handler from `parlay-rfq` for that reason: the asking
+    # path commits to nothing and must not share a door with the path
+    # that does. Armed 2026-09-17 after one bounded probe settled what
+    # `accepted_side` means.
+    "parlay-rfq-accept",
     "desk-attention",
     # ADR 0078 -- the held-parlay record. None of the three reaches a venue or
     # moves money; they are gated because every mutating route is.

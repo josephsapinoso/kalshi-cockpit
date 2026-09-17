@@ -398,7 +398,10 @@ class TestItRefusesToInventAPosition:
         assert _positions(path) == []
         assert body["hedge_position_id"] is None
         assert "NOT being watched" in body["hedge_position_note"]
-        assert "enter-only" in body["hedge_position_note"]
+        # Was `"enter-only" in note`. Refuted 2026-09-17: 3 of 3 held
+        # combinations drew a bid for the side held. The note now names
+        # what selling back COSTS, not whether it is possible.
+        assert "may cost more than holding" in body["hedge_position_note"]
 
     async def test_an_unpriced_lookup_is_not_used_to_build_a_position(
         self, tmp_path, fills_for_real

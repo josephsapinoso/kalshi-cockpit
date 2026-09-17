@@ -321,7 +321,24 @@ QUOTE_STATUS_EXECUTED = "executed"
 QUOTE_STATUS_CANCELLED = "cancelled"
 
 #: The states in which money has definitely moved.
-QUOTE_FILLED_STATUSES = (QUOTE_STATUS_CONFIRMED, QUOTE_STATUS_EXECUTED)
+#:
+#: **`confirmed` is NOT one of them, and this constant said it was until the
+#: first live probe on 2026-09-17.** That probe watched a quote go
+#: `accepted` -> `confirmed` in 32ms and then `cancelled` 1.7 seconds later,
+#: with no fill, no position change and no balance change:
+#:
+#:     accepted_ts  17:50:29.539
+#:     confirmed_ts 17:50:29.571
+#:     cancelled_ts 17:50:31.250   status: cancelled
+#:
+#: A confirmation is the maker agreeing; **execution is a separate step with
+#: its own timer** (1 second on a High Volatility Market) and it can fail to
+#: happen after a confirmation. Treating `confirmed` as a fill would have
+#: told Joe "the trade went through" about a trade that did not.
+#:
+#: The lesson is the one this repo keeps relearning: a state that *sounds*
+#: final is not evidence of the thing it sounds like. Only `executed` is.
+QUOTE_FILLED_STATUSES = (QUOTE_STATUS_EXECUTED,)
 
 #: The states in which it definitely has not.
 QUOTE_DEAD_STATUSES = (QUOTE_STATUS_CANCELLED,)

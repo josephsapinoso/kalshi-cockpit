@@ -169,30 +169,78 @@ ABSENT.
   he corrected himself from (i) twice, so this one is firm. Not yet built.
 - **Question for Joe: may a sell-side RFQ be fired on a position he holds, to test whether combinations can be exited? — #59.** This is the live one.
 
+### What landed after the first handoff, same session
+
+Joe answered three more times, each within minutes, and each answer became
+code before the next arrived.
+
+**The exit question — ANSWERED, and it reverses a standing claim.** He
+authorised the sell-side RFQ. Fired on all three combinations he holds, sized
+in `contracts` rather than `target_cost_dollars` so the request could not read
+as "I want to spend". **16 of 44 quotes carried a bid for the side he holds,
+on 3 of 3 positions**, every one at the full size asked. Two of those three
+also carry a resting YES bid on the **public book**, 38,709 and 24,900
+contracts deep against holdings of 8.22 and 60.97 — so "ten contracts each"
+was off by three orders of magnitude and the 40-of-40 finding is dead as a
+general claim. **Neither surface dominates**: on the two quoted books the book
+beat the RFQ; on the empty one the RFQ was the only exit. An exit check must
+read both. Every best bid sat BELOW his cost basis, which is the half that has
+held in every reading.
+`docs/measurements/2026-09-17-combinations-can-be-exited.md`.
+
+**#60 = (a), the copy now names the COST.** Six surfaces moved together —
+checkbox, fallback, parlay card, `combo_note`, bid refusal, `/parlays` note —
+plus the contract test, which was *renamed* because its old name
+(`..._is_small_and_unmeasured_...`) WAS the old contract. **This sentence has
+now been rewritten four times and every version that asserted a FREQUENCY was
+falsified within days.** The cost claim is the first that does not decay.
+
+**#61 = the accept path, built and DISARMED.** `POST /api/parlays/rfq/accept`,
+`<TakeIt>`, schema v46. B = (ii): no typed ceiling, the server reads the price
+from its own record of the quote Joe was shown. Disarmed on one undocumented
+field — see the spine and ADR 0165. **Do not arm it to make a test pass.**
+
+### Read before touching the accept path
+
+- **Nothing retries.** No idempotency key exists on this path. A lost response
+  is an UNKNOWN, not a failure; the intent row is written *before* the venue
+  call; a second tap is 409; the refusal state has no retry button.
+- **A 204 is not a fill.** The maker has ~3s to confirm on a combination.
+- **`outcome_status` is NULL when unobserved**, never a guessed `cancelled`.
+- **`accepts_are_armed` travels with the price**, so the button can say what
+  it does before it is tapped. A "Take it" button that silently does nothing
+  is this repo's named failure, run a fourth time.
+
+### Three more guards that were decoration
+
+All caught by running the mutation, all in one session:
+- the cheapest-first sort test passed with the sort deleted;
+- `INSERT OR IGNORE` swallowed every constraint failure, so a bad status wrote
+  nothing while reporting success;
+- I claimed write-before-delete was load-bearing and it is not — the real
+  guard is **read**-before-delete, and the fake now models the venue by
+  serving nothing once deleted.
+
 ### Still open
 
-1. **Accepting a quote is not built.** Joe has already chosen the guard —
-   B = (ii), show the quote and require a second tap, no typed ceiling. The
-   maker has a 3-second confirmation window and may decline, so the screen
-   needs a "maker did not confirm" state. This is the slice that finishes what
-   he actually asked for.
-2. **Question for Joe: may a sell-side RFQ be fired on a position he holds, to test whether combinations can be exited? — #59.** Nothing else can settle the exit question, and it needs his word because it is an outward-facing write against a real position.
+1. **The accept path is ARMED and a real combination has been bought through it.** #61 answered (a) and spent. `accepted_side` names the MAKER's side — sending `"no"` buys YES — measured by one 0.4-cent trade, total cost $0.0043. **Only `executed` is a fill; `confirmed` is not** (the first probe confirmed in 32ms then cancelled 1.7s later with no fill, and the code called that a fill at the time). What is NOT established: anything at size. One contract at 0.4c is the entire live record — no slippage, no partial fill, no maker behaviour on a quote worth real money.
+2. **The exit question is CLOSED — #59 answered and spent.** Combinations can be sold back; see the entry above. What remains from it is only the rate: how often a combination draws a bid at large is unmeasured, and n = 3 positions at one moment is not one.
 3. **`check 8` (`depth_at_ask`) is wrong for combinations** and was left alone
    on purpose — it guards the order-book path, not the RFQ path. It must be
    revisited with the accept slice, not before.
-4. **How often makers answer, and how far apart, is n = 1.** Three quotes,
-   one card, one moment, ~8h before kickoff. `combo_rfqs.book_yes_ask_tenths`
+4. **How often makers answer, and how far apart, is n = 4 RFQs.** One buy-side (3 quotes) and three sell-side (10, 18, 16). All shard 1, one account, one afternoon.
+   `combo_rfqs.book_yes_ask_tenths`
    stores the book beside every ask so this can be answered from the record
    later rather than by a new experiment. No rate may be quoted until then.
 
 ### Read this before touching combinations
 
-**"Combinations are enter-only" is UNSUPPORTED, not refuted.** It was built
-on `yes_dollars` empty on 40 of 40 books — a true statement about the **lit
-book**, promoted into a claim about **exit liquidity**, which the lit book
-cannot see. ADR 0078's hedge and the tighter combination ceiling stand on
-their own; they are not evidence for it. Do not repeat it as fact and do not
-delete the underlying census — it is still true about what it measured.
+**"Combinations are enter-only" is REFUTED.** Sell-side RFQs on all three
+held combinations drew a bid for the side held, and two of them carry resting
+YES bids on the public book 38,709 and 24,900 contracts deep. Do not restate
+the old claim. **Keep the 40-book census** — it is still true about what it
+measured, which was the lit book; what died is the inference drawn from it,
+and `tests/test_combo_book_depth_claims.py` still passes and should.
 
 **`POST /api/manual-orders` check 8 (`depth_at_ask`) is still wrong for
 combinations** and was deliberately NOT changed. It guards the order-book

@@ -156,10 +156,31 @@ fifth of quoted combos have ever traded; the sample cannot narrow that, and
 `backend/kalshi/combos.py`'s calendar caveat (no NBA/NFL in the captures) is
 still open.
 
-**What is built: asking. What is not: accepting.** `POST /api/parlays/rfq`
-and `<AskTheMarket>` fire a real RFQ and show the quotes; creating one
-obligates nothing. There is **no accept path** — that is the spend, and Joe
-has already chosen its guard (show the quote, second tap, no typed ceiling).
+**Both halves are armed — ADR 0164, 0165.** `POST /api/parlays/rfq` +
+`<AskTheMarket>` fire a real RFQ and show the quotes (asking commits to
+nothing); `POST /api/parlays/rfq/accept` + `<TakeIt>` take one, and that
+**spends**. B = (ii): no typed ceiling, because an RFQ hands you the price
+after you ask; the server accepts the price it recorded showing him.
+`RFQ_ACCEPTS_ARE_DRY_RUNS = False` since 2026-09-17, on Joe's word and on a
+measurement in that order.
+
+**`accepted_side` names the MAKER's side, so buying YES sends `"no"`** —
+measured, not inferred, by one 0.4-cent trade after Kalshi's REST docs
+declined to say (`docs/measurements/2026-09-17-accepted-side-names-the-makers-side.md`).
+The wrong reading would have bought the opposite contract at ~250x.
+
+**Only `executed` is a fill. `confirmed` is NOT.** The first probe went
+`accepted` → `confirmed` in 32ms → `cancelled` 1.7s later, no fill, no
+balance change, and `QUOTE_FILLED_STATUSES` called that a fill at the time.
+Execution is a separate step ~1.1s behind confirmation and a quote can die in
+between. A 204 on the accept is not a fill either.
+
+**Nothing on this path retries, ever.** Kalshi assigns `client_order_id`
+after execution, so there is no idempotency key and a second attempt is a
+second real trade. A lost response is an **UNKNOWN**, not a failure; the
+intent row is written before the venue call; a second tap is 409; and the
+refusal state offers no retry button, alone on that screen.
+
 Two venue facts that cost a session each: **`exchange_index=1` is required on
 every RFQ write** (without it the create 404s `not_found`, which reads as a
 permissions problem and is not), and `market_ticker` + `rest_remainder` are
