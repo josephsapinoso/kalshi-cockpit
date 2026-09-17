@@ -63,6 +63,7 @@ from backend.kalshi.rfq import (
 )
 from backend.parlays import LookupRefused, _cost_per_contract
 from backend.store import combo_rfqs as store
+from backend.store.combo_orders import read_shard_funds
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,14 @@ logger = logging.getLogger(__name__)
 #: second, and the cost of stopping early is telling Joe nobody answered when
 #: somebody did. **n = 1.** If a later reading shows makers routinely slower,
 #: this is the number to move, and it should move on evidence.
+#: How much of the combinations shard an RFQ may ask to spend.
+#:
+#: Not 1.0: Kalshi charges the taker fee **on top of** the contracts when the
+#: target is the default fee-inclusive kind, so a target equal to the balance
+#: leaves nothing for the fee and the accept is refused after the makers have
+#: already answered. 0.90 is a margin, not a measurement.
+SHARD_HEADROOM = 0.90
+
 QUOTE_WAIT_S = 4.0
 QUOTE_POLL_S = 0.4
 
@@ -157,13 +166,47 @@ async def ask_market_to_price(
 
     book_ask = await _book_ask_tenths(api, market_ticker)
 
+    # **Ask for a price you could actually pay.**
+    #
+    # This route asked for a flat $5.00 until 2026-09-17, and Joe hit
+    # `insufficient_balance` on the first combination cheap enough for it to
+    # matter: a 2.7c quote against a $5 target is **173 contracts**, and he
+    # had $3.94 on the shard. A quote is all-or-nothing at the size asked
+    # for, so an unaffordable target does not part-fill -- it is refused
+    # after 28 makers have done the work of answering.
+    #
+    # The shard is read, not assumed: combinations settle on their own
+    # collateral pool and the account total is the wrong number. Unreadable
+    # resolves to None and the caller's target stands, because refusing to
+    # ask for a price over a balance we could not parse would be worse than
+    # asking for one he might not be able to take.
+    target = target_cost_dollars
+    try:
+        funds = read_shard_funds(
+            await api.get("/portfolio/balance"),
+            exchange_index=EXCHANGE_INDEX_COMBOS,
+        )
+        available = funds.available_tenths
+    except Exception as exc:  # noqa: BLE001 -- context, not the answer
+        logger.warning("rfq: could not read the shard balance (%s)", exc)
+        available = None
+
+    if available is not None:
+        headroom_dollars = (available / 1000.0) * SHARD_HEADROOM
+        if headroom_dollars < float(target):
+            target = f"{max(headroom_dollars, 0.0):.4f}"
+            logger.info(
+                "rfq: target cost trimmed from %s to %s by the shard balance",
+                target_cost_dollars, target,
+            )
+
     try:
         rfq_id = await create_rfq(
             api,
             market_ticker=market_ticker,
             collection_ticker=lookup["collection_ticker"],
             legs=legs,
-            target_cost_dollars=target_cost_dollars,
+            target_cost_dollars=target,
         )
     except RfqRefused as exc:
         raise LookupRefused(
@@ -184,7 +227,7 @@ async def ask_market_to_price(
         collection_ticker=lookup["collection_ticker"],
         legs=legs,
         exchange_index=EXCHANGE_INDEX_COMBOS,
-        target_cost_dollars=target_cost_dollars,
+        target_cost_dollars=target,
         fair_joint=lookup["fair_joint_conservative"],
         book_yes_ask_tenths=book_ask,
     )
@@ -234,7 +277,10 @@ async def ask_market_to_price(
         "status": "quoted" if quotes else "no_quotes",
         "rfq_id": rfq_id,
         "market_ticker": market_ticker,
-        "target_cost_dollars": target_cost_dollars,
+        "target_cost_dollars": target,
+        # Stated when it differs, so a reader is never surprised by a size
+        # smaller than the one they asked for.
+        "target_cost_requested": target_cost_dollars,
         "fair": {"conservative": fair},
         # What the public book said at the same instant. Expected to be null.
         "book_yes_ask_tenths": book_ask,
@@ -404,24 +450,34 @@ async def accept_quote_for_joe(
             api, rfq_id=rfq_id, quote_id=quote_id,
             accepted_side=side, dry_run=dry_run,
         )
-    except Exception as exc:  # noqa: BLE001 -- an UNKNOWN, not a refusal
-        # **Deliberately not re-raised as a refusal.** The request may have
-        # reached the venue; "it failed" and "we do not know" are different
-        # claims and only one of them is true here. The intent row is already
-        # on disk, so the outcome is recoverable by reading.
-        logger.error("rfq %s: accept of %s failed in flight (%s)",
-                     rfq_id, quote_id, exc)
+    except Exception as exc:  # noqa: BLE001 -- refusal or unknown, split below
+        logger.error("rfq %s: accept of %s failed (%s)", rfq_id, quote_id, exc)
         store.record_accept_outcome(
             conn, rfq_id=rfq_id, quote_id=quote_id,
             outcome_status=None, outcome_ms=now_ms,
         )
         conn.commit()
+
+        # **A venue REFUSAL and an UNKNOWN are different, and saying "go check
+        # the app" about both is how a safety message stops being read.**
+        #
+        # Joe hit `insufficient_balance` on 2026-09-17 -- an HTTP 400 with the
+        # venue's own reason -- and was told the acceptance might have gone
+        # through. It could not have: a 4xx carrying a decision is the
+        # exchange declining, and nothing was placed. "It may still have
+        # reached Kalshi" belongs to a timeout or a dropped connection, where
+        # the request really may have landed.
+        refused = _venue_refusal_words(exc)
+        if refused is not None:
+            raise LookupRefused(400, refused) from exc
+
         raise LookupRefused(
             502,
             f"The acceptance could not be completed ({exc}). **It may still "
-            "have reached Kalshi** -- an RFQ acceptance carries no "
-            "idempotency key, so this desk will not re-send it. Check the "
-            "position in the Kalshi app before tapping anything again.",
+            "have reached Kalshi** -- this was not a refusal, so the request "
+            "may have landed, and an RFQ acceptance carries no idempotency "
+            "key, so this desk will not re-send it. Check the position in the "
+            "Kalshi app before tapping anything again.",
         ) from exc
 
     status: Optional[str] = None
@@ -459,6 +515,44 @@ async def accept_quote_for_joe(
         ),
         "words": _accept_words(status, filled=filled, dry_run=dry_run),
     }
+
+
+def _venue_refusal_words(exc: Exception) -> Optional[str]:
+    """Plain words for an exchange that declined, or None if it never answered.
+
+    **The distinction is the point.** A 4xx carrying a reason is the venue
+    saying no, and nothing was placed; a timeout, a 5xx or a dropped socket is
+    a request that may have landed. Only the second deserves "check the app",
+    and spending that warning on the first teaches Joe to ignore it.
+
+    Returns None for anything that is not an unambiguous refusal, which routes
+    the caller to the cautious branch: unreadable resolves to the careful
+    answer, not the convenient one.
+    """
+    status = getattr(exc, "status_code", None)
+    if status is None or not (400 <= int(status) < 500):
+        return None
+    body = str(getattr(exc, "body", "") or exc)
+
+    if "insufficient_balance" in body:
+        return (
+            "Kalshi refused this: not enough money on the combinations shard "
+            "for the size that was quoted. **Nothing was placed and nothing "
+            "was charged.** A quote is all-or-nothing at the size asked for, "
+            "so either ask for a price at a smaller amount, or add funds to "
+            "that shard."
+        )
+    if "expired" in body or "not_found" in body:
+        return (
+            "That quote is gone -- a maker price lives for a few seconds and "
+            "this one expired before the tap landed. **Nothing was placed "
+            "and nothing was charged.** Ask for a price again."
+        )
+    return (
+        f"Kalshi refused this acceptance ({body[:180]}). **Nothing was placed "
+        "and nothing was charged** -- the exchange declined rather than "
+        "failing to answer."
+    )
 
 
 def _accept_words(status: Optional[str], *, filled: bool, dry_run: bool) -> str:

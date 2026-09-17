@@ -16,6 +16,41 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-17 (eighteenth) - Commit BEFORE you mutate, every time; and a venue that says no is not a venue that went quiet
+
+Two things from the first hour of a live feature.
+
+**The mutation hazard, hit again.** `git checkout -- <file>` to undo a
+mutation reverts the file to the last COMMIT, which silently took two
+finished, unc0mmitted fixes with it. `tasks/lessons.md` and the memory note
+both already warn about this, and it still happened, because the mutation
+loop is written fast and the `checkout` reads as "undo my mutation" rather
+than "discard everything since the last commit". **The fix is mechanical, not
+attentional: commit the work first, then mutate.** A wip commit costs nothing
+and the amend tidies it. Do not rely on remembering.
+
+**A refusal and an unknown are different, and conflating them destroys the
+warning.** The accept path reported every failure as *"it may still have
+reached Kalshi -- check the app"*. Joe then hit an HTTP 400
+`insufficient_balance`: the exchange explicitly declined, nothing was placed,
+and the desk told him to go and check. That warning exists for a timeout or a
+dropped socket, where the request genuinely may have landed. Spending it on a
+clean refusal is how a safety message becomes noise that gets skipped -- and
+the same over-caution this repo keeps having to remove elsewhere.
+
+**The rule:** a 4xx carrying the venue's own reason code is a decision and the
+world is unchanged; a timeout, a 5xx or a dead connection is a question.
+Only the second gets the cautious words. Unreadable still resolves to the
+cautious branch, because the default when you cannot tell must stay careful.
+
+**And the bug underneath it.** The RFQ asked for a flat $5.00 regardless of
+the balance, which on a 2.7c combination is 173 contracts. A quote is
+all-or-nothing at the size asked for, so the unaffordable target was refused
+*after* 28 makers had answered. A size that ignores what the account can pay
+wastes the counterparty's work as well as the user's tap.
+
+---
+
 ## 2026-09-17 (seventeenth) - A state whose name sounds final is not evidence of the thing it sounds like; only the state that moves money is
 
 The RFQ accept path shipped with `QUOTE_FILLED_STATUSES = (confirmed,

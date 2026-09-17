@@ -33,6 +33,15 @@ from backend.kalshi.rfq import ACCEPT_SIDE_FOR_BUYING_YES, QuoteAcceptRefused, a
 from backend.parlays import LookupRefused
 from backend.store import combo_rfqs as store
 
+class _FakeApiError(RuntimeError):
+    """Stands in for `KalshiAPIError`: the refusal test reads `status_code`
+    and `body`, which is exactly what the real class carries."""
+
+    def __init__(self, status_code, body):
+        super().__init__(f"HTTP {status_code}: {body}")
+        self.status_code, self.body = status_code, body
+
+
 SCHEMA = Path(__file__).parent.parent / "backend" / "store" / "schema.sql"
 RFQ = "rfq-1"
 QUOTE = "q-1"
@@ -294,3 +303,71 @@ class TestTheWireCall:
         method, path = fake.calls[0]
         assert method == "PUT"
         assert path == f"/communications/rfqs/{RFQ}/quotes/{QUOTE}/accept"
+
+
+class TestARefusalIsNotAnUnknown:
+    """Joe hit `insufficient_balance` on 2026-09-17 and was told the
+    acceptance might have gone through. It could not have.
+
+    A 4xx carrying the venue's own reason is the exchange declining and
+    nothing was placed. "It may still have reached Kalshi" belongs to a
+    timeout or a dropped socket. Spending that warning on a clean refusal is
+    how a safety message stops being read.
+    """
+
+    class _Refuses:
+        def __init__(self, status, body):
+            self.status, self.body, self.calls = status, body, []
+
+        async def request(self, method, path, *, params=None, json_body=None):
+            self.calls.append(method)
+            if method == "PUT":
+                raise _FakeApiError(self.status, self.body)
+            return {"quotes": []}
+
+    async def test_insufficient_balance_says_nothing_was_charged(self, conn):
+        api = self._Refuses(400, '{"error":{"code":"insufficient_balance"}}')
+        with pytest.raises(LookupRefused) as exc:
+            await combo_rfq.accept_quote_for_joe(
+                conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000, api=api,
+                dry_run=False,
+            )
+        assert exc.value.status_code == 400
+        assert "Nothing was placed and nothing was charged" in exc.value.detail
+        assert "may still have reached" not in exc.value.detail
+        assert "not enough money" in exc.value.detail
+
+    async def test_an_expired_quote_says_ask_again(self, conn):
+        api = self._Refuses(400, '{"error":{"code":"expired"}}')
+        with pytest.raises(LookupRefused) as exc:
+            await combo_rfq.accept_quote_for_joe(
+                conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000, api=api,
+                dry_run=False,
+            )
+        assert "Ask for a price again" in exc.value.detail
+        assert "may still have reached" not in exc.value.detail
+
+    async def test_a_timeout_IS_still_an_unknown(self, conn):
+        """The cautious branch must survive: this is the case it is for."""
+        class Times:
+            calls = []
+            async def request(self, method, path, *, params=None, json_body=None):
+                raise RuntimeError("ReadTimeout")
+
+        with pytest.raises(LookupRefused) as exc:
+            await combo_rfq.accept_quote_for_joe(
+                conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000, api=Times(),
+                dry_run=False,
+            )
+        assert exc.value.status_code == 502
+        assert "may still have reached Kalshi" in exc.value.detail
+
+    async def test_a_5xx_is_an_unknown_not_a_refusal(self, conn):
+        api = self._Refuses(503, "gateway")
+        with pytest.raises(LookupRefused) as exc:
+            await combo_rfq.accept_quote_for_joe(
+                conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000, api=api,
+                dry_run=False,
+            )
+        assert exc.value.status_code == 502
+        assert "may still have reached Kalshi" in exc.value.detail

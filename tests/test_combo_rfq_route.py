@@ -66,10 +66,19 @@ class FakeApi:
         self._quotes = quotes if quotes is not None else []
         self._book = book if book is not None else {"yes_dollars": [], "no_dollars": []}
         self.deleted = False
+        self.shard1 = "50.0000"
 
     async def orderbook(self, ticker, depth=10):
         self.calls.append("orderbook")
         return self._book
+
+    async def get(self, path, **params):
+        """`/portfolio/balance`, so the RFQ can size itself to the shard."""
+        self.calls.append("balance")
+        return {"balance_breakdown": [
+            {"exchange_index": 0, "balance": "0.0065"},
+            {"exchange_index": 1, "balance": self.shard1},
+        ]}
 
     async def request(self, method, path, *, params=None, json_body=None):
         if method == "POST" and path.endswith("/rfqs"):
@@ -306,3 +315,50 @@ class TestTheOrderOfOperations:
         app, fake, _ = build(quotes=[_quote_row("q1", "0.4070")])
         await _post(app, _body())
         assert fake.calls.index("orderbook") < fake.calls.index("create")
+
+
+class TestTheAskFitsWhatIsOnTheShard:
+    """**The bug Joe hit on 2026-09-17.**
+
+    The route asked for a flat $5.00 regardless of his balance. On a 2.7c
+    combination that is 173 contracts; he had $3.94 on the shard, and the
+    accept was refused with `insufficient_balance` after 28 makers had
+    already answered. A quote is all-or-nothing at the size asked for, so an
+    unaffordable target is wasted on both sides.
+    """
+
+    async def test_the_target_is_trimmed_to_the_shard_balance(self, build):
+        app, fake, _ = build(quotes=[_quote_row("q1", "0.4070")])
+        fake.shard1 = "3.9359"
+        body = (await _post(app, _body(target_cost_dollars="5.0000"))).json()
+        assert float(body["target_cost_dollars"]) < 5.0
+        assert float(body["target_cost_dollars"]) <= 3.9359
+        # And it says what was asked for, so a smaller size is never a
+        # surprise.
+        assert body["target_cost_requested"] == "5.0000"
+
+    async def test_an_affordable_target_is_left_alone(self, build):
+        app, fake, _ = build(quotes=[_quote_row("q1", "0.4070")])
+        fake.shard1 = "50.0000"
+        body = (await _post(app, _body(target_cost_dollars="5.0000"))).json()
+        assert body["target_cost_dollars"] == "5.0000"
+
+    async def test_the_balance_is_read_before_the_rfq_is_created(self, build):
+        """Trimming after the ask would be trimming nothing."""
+        app, fake, _ = build(quotes=[_quote_row("q1", "0.4070")])
+        await _post(app, _body())
+        assert fake.calls.index("balance") < fake.calls.index("create")
+
+    async def test_an_unreadable_balance_leaves_the_target_standing(self, build):
+        """Refusing to ask for a price over a balance we could not parse
+        would be worse than asking for one he might not be able to take."""
+        app, fake, _ = build(quotes=[_quote_row("q1", "0.4070")])
+
+        async def boom(path, **params):
+            fake.calls.append("balance")
+            raise RuntimeError("no balance")
+
+        fake.get = boom
+        body = (await _post(app, _body(target_cost_dollars="5.0000"))).json()
+        assert body["target_cost_dollars"] == "5.0000"
+        assert body["status"] == "quoted"
