@@ -194,29 +194,38 @@ together or the screen lies in the interval
   sends real immediate-or-cancel orders at Joe's tap with his own typed
   estimate. First two real fills 2026-09-08 (KXMVE combos, shard 1, ADR 0113).
   **Three quantities circulate as the count of the transacted path and they
-  are not the same number — name the table.** Read off live 2026-09-15
-  (~16:00Z), each with its instrument:
+  are not the same number — name the table.** Read off live 2026-09-17
+  (~00:40Z), each with its instrument:
 
-      manual_orders     13 rows, dry_run = 0  `manual-orders-audit`: ids 1-7 as
-                                              read 2026-09-14 (1-2 filled 09-08,
-                                              3 unfilled 09-09, 4 filled 09-09,
-                                              5-7 filled 09-10), then six more
-                                              09-15 00:35Z and 12:10-12:12Z
-      filled orders     12                    status = 'filled'; 1 unfilled
-      parlay_positions  10 OPEN rows, ids 1-10 `/api/hedge`, which lists
-                                              status = 'open' only: 5 live
-                                              (derisk), 5 dead, all
-                                              source = kalshi_combo; a closed
-                                              row would not show, and ids 1-10
-                                              are contiguous
+      manual_orders     16 rows, dry_run = 0  `manual-orders-audit`: 16 distinct
+                                              tickers, all KXMVE, first 09-08
+                                              19:41Z, newest 09-17 00:37Z
+      filled orders     14                    status = 'filled'; 2 unfilled
+      parlay_positions  17 OPEN rows, ids 1-17 `/api/hedge`. **More positions
+                                              than orders**, and the two tables
+                                              do not correspond row for row:
+                                              ids 1-2's orders have NO position
+                                              (they predate the writer,
+                                              `combo-position-gaps`), and ids
+                                              11-15 are hand-recorded positions
+                                              with NO order — `combo_ticker` and
+                                              `placed_ms` both NULL
+
+  **Do not infer one count from another.** `record_position`
+  (`backend/hedge.py:350`) has two callers: `routers/hedge.py:73`, where Joe
+  types a ticket by hand and both join columns default to `None`, and
+  `routes.py:4612` on the order path, which sets them. So a `kalshi_combo`
+  position with no ticker is a **designed state**, not a bookkeeping failure,
+  and ADR 0160's read correctly refuses it (`no_order_row`).
 
   This line read "two" until 2026-09-10, "four by 2026-09-09" until
-  2026-09-14 and "7 rows / 6 filled / 4 positions" until 2026-09-15 —
-  the census that day found the 7 was six orders stale. The "four" was
-  ADR 0129's four *orders* (three filled, one not), and it was then
-  re-read as four fills and as four positions. It is the count every claim
-  about the transacted path is reasoned from, so quote it with its table
-  and its date.
+  2026-09-14, "7 rows / 6 filled / 4 positions" until 2026-09-15 and
+  "13 / 12 / 10" until 2026-09-17 — the census on 09-15 found the 7 was six
+  orders stale, and two days later the 13 was three orders and seven
+  positions stale. The "four" was ADR 0129's four *orders* (three filled, one
+  not), and it was then re-read as four fills and as four positions. **This
+  number goes stale in days, not weeks. Re-read it before quoting it**, with
+  its table and its date.
   The five brakes are gone (ADR 0112) and **no ceiling of ours bounds a hand
   bet**; what remains is the desk lockout, idempotency, the KXMVE
   acknowledgement, the price ceiling, depth at the ask, the netting guard, the
@@ -320,10 +329,12 @@ on the permanent row. **That has happened and has been read — do not carry
 this as pending work.** This line said "all seven real rows predate it and
 carry NULL there — Joe's next fill is the first that will carry them, and
 reading that row once is worth more than any build" until 2026-09-15 ~22:30Z.
-The population is now **13 real rows, 12 filled, 1 unfilled**
-(`manual-orders-audit`, live, 2026-09-15 ~22:20Z), and the **six 2026-09-15
-orders postdate v40 and carry both endpoints** — the registered census read
-exactly those and is spent (§2 of its result doc). The one unjoined row is the
+The population is now **16 real rows, 14 filled, 2 unfilled**
+(`manual-orders-audit`, live, 2026-09-17 ~00:40Z; it read 13/12/1 on
+2026-09-15). The **six 2026-09-15 orders postdate v40 and carry both
+endpoints** — the registered census read exactly those and is spent (§2 of its
+result doc), so the three orders placed since (09-15 and 09-17) are **outside**
+it and no look is owed on them. The one unjoined row is the
 2026-09-09T00:34:30Z order, pre-v40, no `venue_fill_count` and no `fills` row.
 `_record_combo_position` still **writes** `parlay_positions.stake_tenths` from
 the sent price (`contracts * fill_price_tenths`, `routes.py:4598`) and always
