@@ -16,6 +16,43 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-17 (nineteenth) - A resource the browser fetches WITHOUT the cookie is invisible to a cookie gate; and an `env()` safe-area term is 0 until something opts into it
+
+Both from making the cockpit installable to a phone home screen. Both are the
+same shape: a mechanism that is off, failing in a way that produces no error.
+
+**A cookie gate only sees requests that carry the cookie.** A web app manifest
+is fetched with credentials OMITTED unless its `<link>` carries
+`crossorigin="use-credentials"`, so it arrives at an authenticated app looking
+exactly like an anonymous stranger. Behind a middleware that redirects the
+unauthenticated to `/login`, the manifest answers a 302 - and **iOS reports
+nothing**. It silently degrades to installing a bookmark and screenshotting the
+page for the icon. You would see a slightly wrong icon and conclude that was
+the feature.
+
+The rule: **before gating a path, ask how the browser asks for it.** Manifests,
+some preload and prefetch requests, and anything fetched by a
+`crossorigin`-less tag are in this class. An auth allowlist has to name them,
+and the entry has to be the *exact* pathname the framework chose - here
+`/apple-icon`, extensionless, with the cache-busting hash in the QUERY where an
+exact-match `Set` cannot see it. `/apple-icon.png` would have matched nothing,
+and matching nothing is the failure that looks like success.
+
+**And a CSS `env(safe-area-inset-*)` is 0 unless the viewport declares
+`viewport-fit=cover`.** `padding-bottom: max(0.75rem, env(safe-area-inset-bottom))`
+had sat in `globals.css` since the ticket sheet was built, commented as keeping
+the confirm button clear of the home indicator. Nothing in the app had ever
+declared `cover`, so the term had always been zero and the class was a plain
+`0.75rem`. The comment described a value that never existed.
+
+The pattern is the one this file already carries about justifications decaying
+into reassurance, with an extra edge: **a defensive expression that depends on
+an opt-in somewhere else is not defending anything until you check the opt-in.**
+`max()`, `clamp()` and `@supports` all hide this the same way - they still
+compute, so nothing breaks and nothing tells you.
+
+---
+
 ## 2026-09-17 (eighteenth) - Commit BEFORE you mutate, every time; and a venue that says no is not a venue that went quiet
 
 Two things from the first hour of a live feature.

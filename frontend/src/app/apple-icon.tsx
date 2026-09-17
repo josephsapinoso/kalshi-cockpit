@@ -13,9 +13,15 @@
  * repeating it here would round an already-rounded corner and leave four
  * white notches on the home screen.
  *
- * The typeface is not Georgia. Satori (what `ImageResponse` draws with) has
- * only the font it bundles, and shipping a Georgia-metric webfont to paint one
- * letter at 180px is not worth the bytes. The mark is the indigo tile.
+ * **The typeface is not Georgia and the weight below does nothing.** Satori
+ * (what `ImageResponse` draws with) has exactly one font, the Geist Regular
+ * bundled with `next/og`, so `fontWeight: 700` has no heavier face to resolve
+ * to and the rendered K is lighter than the favicon's bold serif. Confirmed by
+ * looking at the PNG, not assumed. It is kept as the declared intent for the
+ * day a face is supplied, and said aloud here so the next reader does not
+ * believe a bold that is not there -- the same defect as the `env()` term in
+ * `.sheet-safe-bottom`. Shipping a webfont to paint one letter is not worth
+ * the bytes; the mark is the indigo tile.
  */
 
 import { ImageResponse } from "next/og";

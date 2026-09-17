@@ -126,6 +126,106 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-17 (thirtieth session) — the cockpit installs to the home screen, and the line that makes it work is one entry in the auth allowlist
+
+**Joe asked whether this could be a phone app, "similar to how some websites on
+Safari allow you to make an app shortcut on an iPhone".** It can, and now is.
+He chose the scope in a three-question interview: **installable shell only —
+iPhone only — and move the app icon off the retired brand crimson.**
+
+Shipped in `6948e37`, ADR 0166. `next build` green, `tsc` clean, `ruff` clean,
+11 of 11 mutations red.
+
+### What it does, and what it deliberately does not
+
+`display: "standalone"` drops Safari's URL bar and toolbar on launch — roughly
+110px back on a 390px handset, on the screen whose most crowded element is the
+ticket sheet. `app/apple-icon.tsx` renders the tile to the 180×180 PNG Safari
+needs (it will not use an SVG). `appleWebApp` names it **Cockpit** under the
+icon.
+
+**No service worker, no offline cache, no web push — refused, not deferred.**
+What a service worker would cache is prices, and `notify/discord.py` already
+says why that is the wrong thing to cache: a broken feed makes the Board look
+*calm*, because stale numbers render exactly like fresh ones. Push is Discord's
+job and stays Discord's job; iOS grants web push only to an installed app, so
+this change is its **precondition**, not its start. If anyone ever wants it,
+the question to answer first is which channel stops.
+
+**It does not change how an alert reaches him.** A link tapped in Discord opens
+Safari, not the installed app. The installed app is a second surface with its
+own cookie jar, so the first launch asks for the token again — `/login` is
+`autoComplete="current-password"`, the keychain fills it, and the cookie is
+good for 30 days.
+
+### The one line the feature rests on, and why it fails silently without it
+
+A web app manifest is fetched **with credentials omitted** unless its link tag
+carries `crossorigin="use-credentials"`, and Next 16 emits that only on Vercel
+previews (`next/dist/lib/metadata/metadata.js`, the manifest branch — read, not
+remembered). So it arrives at the gate looking anonymous. Gated, it 302s to
+`/login` and **iOS reports nothing**: it quietly installs a bookmark and
+screenshots the page for the icon. You would see a slightly wrong icon and
+conclude that was the feature.
+
+Both pathnames are chosen by Next and both are exact — `/manifest.webmanifest`,
+and `/apple-icon` with no extension and its hash in the **query**, where an
+exact-match `Set` cannot see it. `/apple-icon.png` would have matched nothing.
+Measured against a real build, `APP_AUTH_TOKEN` set, no cookie:
+
+    /manifest.webmanifest  200      /apple-icon  200      /icon.svg  200
+    /  307 -> /login                /picks  307 -> /login?next=%2Fpicks
+
+### Two things found on the way past
+
+1. **`.sheet-safe-bottom` has never done anything.** `globals.css` has carried
+   `padding-bottom: max(0.75rem, env(safe-area-inset-bottom))` since the ticket
+   sheet was built, commented as keeping the confirm button clear of the home
+   indicator. `env(safe-area-inset-*)` is **0** unless the viewport declares
+   `viewport-fit=cover`, and nothing ever did — so it has always been a flat
+   `0.75rem`. Harmless (iOS insets standalone content itself), so the **comment**
+   was corrected, not the CSS. `cover` was considered and declined: it goes
+   full-bleed in ordinary Safari too, and the element nearest the bottom edge is
+   the button that spends money. A test now refuses `viewportFit` anywhere under
+   `frontend/src`, so turning it on has to be deliberate.
+2. **The favicon was ADR 0081 residue.** That ADR retired the brand crimson so
+   red could mean *lose*; `--negative` is `#aa0000` now. It missed `icon.svg`,
+   the one file outside `globals.css` with a palette hex in it, so the tab badge
+   wore the loss colour beside a nav tile that had gone indigo. A home-screen
+   icon renders that mark at 180px, so it was fixed rather than institutionalised
+   at eight times the size. The hexes now live once in `frontend/src/lib/theme.ts`
+   and a test pins them against `--background` in both themes.
+
+### Still open
+
+1. **Nothing has been deployed.** `6948e37` is on `main` locally; live still
+   runs `9d10f8e`. Nothing about this is true of the live instance yet.
+2. **The install has not been done on the handset, and that is the only
+   verification that counts.** Everything so far is source tests plus curls
+   against a local build. What a real Add to Home Screen decides: whether the
+   sheet offers the indigo tile or a screenshot of the page; whether the label
+   reads "Cockpit"; whether the launch has no Safari chrome; and whether the
+   status bar follows a *forced* theme (the `theme-color` metas are keyed on
+   `prefers-color-scheme`, which cannot see `localStorage.theme`, so the
+   pre-paint script repaints them — untested on a real handset).
+3. **`/apple-icon` inside the container is untested.** `next build` reports it
+   as prerendered static content, so the runtime should never invoke Satori —
+   but the `@vercel/og` wasm tracing into `.next/standalone` was not checked in
+   a built image. First curl after deploy answers it. If it 500s, the fallback
+   is a committed 180×180 PNG in `frontend/public`, which would be this repo's
+   first binary file.
+4. **What the generated K looks like is unknown.** Satori has one bundled font
+   and has never heard of Georgia. Look at the PNG before trusting it.
+5. **`tasks/lessons.md`'s pattern index is stale by 52 entries.** Its own header
+   says to regenerate it in the same edit as the entry; the newest date it
+   carries is 2026-09-08, and every entry since — 52 of them, including this
+   session's — is absent. Not fixed here, because adding only today's would
+   make the gap look like one line instead of two weeks. Someone should
+   regenerate the whole thing or amend the rule to say the index covers
+   archives only.
+
+---
+
 ## 2026-09-17 (twenty-ninth session) — Joe was right and the desk was wrong: a combination is priced by ASKING, and the screen had been reading a surface combinations do not trade on
 
 **Joe tried to buy a combo through the cockpit and was refused. He said he can
