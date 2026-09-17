@@ -416,6 +416,11 @@ export type OrderPlaced = {
   side?: string;
   book_side?: string;
   contracts?: number;
+  /** The venue's own count, or `null` when the response was unreadable --
+   * never `0` for "unknown". `undefined` on a row placed before this field
+   * existed (a stale replay). See `fill_count_display` for the reason. */
+  fill_count?: number | null;
+  fill_count_display?: string;
   limit_price_dollars?: number;
   limit_price_cents?: number;
   fill_price_tenths?: number;

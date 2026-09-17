@@ -1,7 +1,7 @@
 """The parlay desk and the combination markets it touches.
 
 Queries: `parlay-candidates-timing`, `parlay-lookups-tail`,
-`combo-bids-tail`.
+`combo-bids-tail`, `combo-position-gaps`, `combo-position-orphans`.
 
 The candidate scan timed and EXPLAINed on the live database, the "Price on
 Kalshi" taps that minted a combination market -- the only record anywhere
@@ -490,3 +490,120 @@ def _q_combo_position_gaps(conn: sqlite3.Connection, args) -> list[Section]:
     )
     unresolved = _derive_iso(unresolved, "submitted_ms", "submitted_iso")
     return [gaps, unresolved]
+
+
+# ---------------------------------------------------------------------------
+# The inverse: positions with no order behind them (2026-09-17).
+# ---------------------------------------------------------------------------
+#
+# `combo-position-gaps` above answers "a real fill with nobody watching it".
+# Nothing answered the other direction -- "a watched position with no fill
+# traceable behind it" -- and live carries exactly that shape: read
+# 2026-09-17 ~00:40Z, 16 `manual_orders` rows against 17 open
+# `parlay_positions`. Ids 1-2's orders have no position (the gaps query
+# above); ids 11-15 are open positions with `combo_ticker` and `placed_ms`
+# both NULL.
+#
+# **That NULL pair is a DESIGNED state here, and this query must not blur it
+# with a real defect.** `hedge.record_position` (`backend/hedge.py:350`) has
+# two callers: `POST /api/hedge/positions` (`routers/hedge.py:73`), where Joe
+# types a ticket by hand and both join columns default to `None` -- every
+# `source = 'sportsbook'` row is shaped like this ALWAYS, because a
+# sportsbook slip has no Kalshi ticker to record, and a `kalshi_combo` row
+# can be too, if he logged a combination bought outside this desk's order
+# path -- and `_record_combo_position` (`backend/api/routes.py`, the fill
+# path), which always sets both together. So `combo_ticker IS NULL` is
+# reported as the expected, harmless case, in its own section; a position
+# that DOES carry a ticker and still joins to no order is the one worth an
+# eyebrow, and it gets a section of its own rather than a mixed list a
+# reader has to re-triage by eye.
+#
+# The join mirrors `_SQL_COMBO_POSITION_GAPS`'s own: ticker equality only, no
+# status or `dry_run` filter on the `manual_orders` side, because the
+# question here is whether an order ROW exists at all, not whether it filled.
+_SQL_POSITIONS_HAND_RECORDED = (
+    "SELECT p.id AS position_id, p.created_ms, p.source, p.label, "
+    "       p.stake_tenths, p.status "
+    "FROM parlay_positions p "
+    "WHERE p.status = 'open' "
+    "  AND p.combo_ticker IS NULL "
+    "ORDER BY p.created_ms DESC"
+)
+
+# `combo_ticker IS NOT NULL` and still no `manual_orders` row names it.
+# **Not proof of a defect on its own** -- `POST /api/hedge/positions` accepts
+# a caller-supplied `combo_ticker` (`request.combo_ticker`, `routers/hedge.py`),
+# so a hand-typed ticket that happens to name a real minted market is
+# indistinguishable here from a fill whose position-writer lost the row. This
+# section is the alarm nothing else raises; it is not a verdict on which of
+# the two happened.
+_SQL_POSITIONS_TICKETED_ORPHAN = (
+    "SELECT p.id AS position_id, p.created_ms, p.source, p.label, "
+    "       p.stake_tenths, p.placed_ms, p.status, p.combo_ticker "
+    "FROM parlay_positions p "
+    "WHERE p.status = 'open' "
+    "  AND p.combo_ticker IS NOT NULL "
+    "  AND NOT EXISTS (SELECT 1 FROM manual_orders m "
+    "                   WHERE m.ticker = p.combo_ticker) "
+    "ORDER BY p.created_ms DESC"
+)
+
+
+def _q_combo_position_orphans(conn: sqlite3.Connection, args) -> list[Section]:
+    """Open `parlay_positions` rows with no `manual_orders` row behind them.
+
+    The inverse of `combo-position-gaps`: that query finds a real fill with
+    no position watching it; this one finds a watched position with no order
+    row traceable behind it. Two sections, because the two ways
+    `combo_ticker` can fail to join are not the same fact:
+
+    - **hand-recorded** (`combo_ticker IS NULL`) is the ordinary shape of a
+      `POST /api/hedge/positions` entry -- every `source = 'sportsbook'` row
+      is like this always, since a sportsbook slip has no Kalshi ticker, and
+      a `kalshi_combo` row can be too, if Joe logged a combination he bought
+      without going through this desk's order path. Expected, not a defect.
+    - **ticketed** (`combo_ticker IS NOT NULL` and still no matching order)
+      is the one worth attention: either `_record_combo_position`'s write
+      genuinely never reached the table it targets, or Joe hand-typed a
+      `combo_ticker` on a `POST /api/hedge/positions` call that names a real
+      market but was never routed through `/api/manual-orders`. This query
+      cannot tell those apart -- see below.
+
+    What this does not establish
+    ----------------------------
+    - **Not that a "ticketed" row is a lost write.** `POST
+      /api/hedge/positions` takes a caller-supplied `combo_ticker`
+      (`routers/hedge.py`), so a hand-typed ticket naming a real minted
+      market is indistinguishable here from a fill whose position-writer
+      failed. Only reading `manual_orders` for that exact ticker by hand, or
+      asking Joe how the row was entered, resolves it.
+    - **Not whether a position is still open at the venue.** `status = 'open'`
+      is this table's own belief, never re-polled here.
+    - **Nothing about profit, outcome, or whether logging a position by hand
+      instead of through the order path was the right call.**
+    - **Not a count, a rate, or anything comparable across a run.** Bounded
+      by `--limit` like every query in this module; a truncated section says
+      so rather than pretending the population was smaller.
+    """
+    hand_recorded = _fetch(
+        conn, _SQL_POSITIONS_HAND_RECORDED, (),
+        title=(
+            "parlay_positions: OPEN, no combo_ticker -- hand-recorded, "
+            "expected to have no manual_orders row"
+        ),
+        cap=args.limit,
+    )
+    hand_recorded = _derive_iso(hand_recorded, "created_ms", "created_iso")
+
+    ticketed_orphan = _fetch(
+        conn, _SQL_POSITIONS_TICKETED_ORPHAN, (),
+        title=(
+            "parlay_positions: OPEN, HAS a combo_ticker, and NO manual_orders "
+            "row names it -- either a lost write or a hand-typed ticket; "
+            "this query cannot tell which"
+        ),
+        cap=args.limit,
+    )
+    ticketed_orphan = _derive_iso(ticketed_orphan, "created_ms", "created_iso")
+    ticketed_orphan = _derive_iso(ticketed_orphan, "placed_ms", "placed_iso")
+    return [hand_recorded, ticketed_orphan]

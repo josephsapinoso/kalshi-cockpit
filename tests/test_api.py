@@ -214,6 +214,68 @@ class TestHealth:
         assert "xQ2v9LmT4pR7wYzB1nK6sHf" not in body
 
 
+class TestFillCountDisplay:
+    """`fill_count_display` says what filled, or why that is not known yet.
+
+    Module level and tested directly for the same reason `recorder_fields`
+    is, above: the engine order path always builds its placer with
+    `ORDERS_ARE_DRY_RUNS = True`, so a test that only posts to `/api/orders`
+    can never reach the live-response branches and a guard nothing can make
+    fail is decoration.
+    """
+
+    def test_a_dry_run_says_so_rather_than_a_bare_unknown(self):
+        from backend.api.routes import fill_count_display
+
+        assert fill_count_display(True, None) == (
+            "unknown (dry run -- nothing was sent to fill)"
+        )
+
+    def test_a_dry_run_ignores_a_fill_count_if_one_were_ever_present(self):
+        """Dry-run status wins even over a non-`None` count.
+
+        No dry run has ever carried one -- `OrderPlacer.place` never sets
+        `fill_count` on the branch it takes when `dry_run` is `True` -- but
+        the function does not trust that from its own signature, and the
+        precedence is asserted rather than assumed.
+        """
+        from backend.api.routes import fill_count_display
+
+        assert fill_count_display(True, 4.0) == (
+            "unknown (dry run -- nothing was sent to fill)"
+        )
+
+    def test_an_unreadable_live_response_names_the_reason(self):
+        """`None` on a LIVE order is a different fact from `None` on a dry
+        run -- the venue answered and the answer could not be read -- and the
+        two must not collapse into the same word for different reasons."""
+        from backend.api.routes import fill_count_display
+
+        assert fill_count_display(False, None) == (
+            "unknown -- the venue's response could not be read"
+        )
+
+    def test_a_real_zero_fill_is_not_unknown(self):
+        """The wrinkle: an IOC that matched no one is a REAL, OBSERVED zero,
+        not an absence. Rendering it as "unknown" would repeat the mistake
+        "unreadable resolves to None, never 0" exists to forbid -- in the
+        other direction, hiding a known zero behind a word reserved for what
+        was never read at all."""
+        from backend.api.routes import fill_count_display
+
+        assert fill_count_display(False, 0.0) == "0"
+
+    def test_a_fractional_fill_is_shown_as_sent_by_the_venue(self):
+        from backend.api.routes import fill_count_display
+
+        assert fill_count_display(False, 2.5) == "2.5"
+
+    def test_a_whole_number_fill_has_no_trailing_point(self):
+        from backend.api.routes import fill_count_display
+
+        assert fill_count_display(False, 4.0) == "4"
+
+
 def sized_rows(board: dict) -> list[dict]:
     """Every row the engine sized, whether or not it is still bettable.
 

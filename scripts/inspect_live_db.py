@@ -303,6 +303,7 @@ from inspect_live_db_parlays import (  # noqa: E402,F401
     _SQL_PARLAY_CANDIDATES,
     _q_combo_bids_tail,
     _q_combo_position_gaps,
+    _q_combo_position_orphans,
     _q_parlay_candidates_timing,
     _q_parlay_lookups_tail,
 )
@@ -601,6 +602,22 @@ QUERIES: dict[str, QueryDef] = {
         "no verdict on the 2026-09-08 parlay-positions registration and is "
         "NOT its §8 read. Answers: is a live position unwatched right now?",
         _q_combo_position_gaps,
+    ),
+    "combo-position-orphans": QueryDef(
+        "The inverse of `combo-position-gaps`: OPEN `parlay_positions` rows "
+        "with no `manual_orders` row behind them, split into two sections. "
+        "`combo_ticker IS NULL` is hand-recorded via `POST "
+        "/api/hedge/positions` -- every `sportsbook` row is shaped like this "
+        "always -- and is reported as the expected, harmless case. "
+        "`combo_ticker IS NOT NULL` and still no matching order is the "
+        "section worth attention, and it is NOT proof of a lost write: that "
+        "route accepts a caller-supplied ticker, so a hand-typed one naming "
+        "a real market looks identical here to a fill whose position-writer "
+        "failed. Emits parlay_positions rows (this is the read gaps cannot "
+        "be, not the registered R/G statistic -- no rate, no count over a "
+        "run). Answers: is a position on /hedge's screen one this desk can "
+        "actually trace to a fill?",
+        _q_combo_position_orphans,
     ),
     "combo-bids-tail": QueryDef(
         "The last N resting bids the desk placed on a combination (-n, "

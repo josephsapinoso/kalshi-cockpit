@@ -182,6 +182,32 @@ def recorder_fields(last_ms, now_ms: int) -> dict:
     return {"last_write_ms": int(last_ms), "age_ms": max(0, now_ms - int(last_ms))}
 
 
+def fill_count_display(dry_run: bool, fill_count: Optional[float]) -> str:
+    """What actually filled, in words -- or why that is not known yet.
+
+    Module level and not inlined in the response body **because the two
+    `None` branches were otherwise untestable through the app**: the engine
+    order path always builds its placer with `ORDERS_ARE_DRY_RUNS` (`True`
+    today, CLAUDE.md "What is armed"), so a test that only posts to
+    `/api/orders` can never reach the live-response branch, and a guard that
+    cannot be made to fail is decoration (`recorder_fields`, above, is the
+    same fix for the same reason).
+
+    `fill_count` is `None` for two different reasons and this never guesses
+    which: a dry run never sent anything, and a live response the venue sent
+    back unreadable is a fact about the read, not about the fill. `0.0` is a
+    third, different fact -- a real IOC that matched no one -- and is never
+    collapsed into either `None` case: "unreadable resolves to None, never
+    0" cuts both ways, and reporting a real zero as "unknown" would hide a
+    fill that is known to be empty behind one that might not be.
+    """
+    if dry_run:
+        return "unknown (dry run -- nothing was sent to fill)"
+    if fill_count is None:
+        return "unknown -- the venue's response could not be read"
+    return f"{fill_count:g}"
+
+
 def cap_display(dollars: Optional[float]) -> Optional[str]:
     """A derived cap as Joe reads it: cents below a dollar, dollars above.
 
@@ -2836,6 +2862,17 @@ def create_app(
             "ticker": order.ticker,
             "side": order.side,
             "contracts": order.count,
+            # `order.count` is what was SENT -- authorised, then resized at
+            # the live ask -- never what filled; it was labelled "filled
+            # size" on the ticket until this fix, the same defect issue #50
+            # answered on the price figure below (50A): label the number for
+            # what it is. `fill_count` is the venue's own count -- see
+            # `fill_count_display`'s docstring for why it and its display
+            # string are computed the way they are.
+            "fill_count": outcome.fill_count,
+            "fill_count_display": fill_count_display(
+                outcome.dry_run, outcome.fill_count
+            ),
             # Both the YES-book price actually sent and what it costs on our
             # side. V2 quotes everything from the YES leg, so for a NO bet the
             # number in the request body is the complement of the price we pay

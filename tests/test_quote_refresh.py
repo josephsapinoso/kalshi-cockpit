@@ -1018,6 +1018,33 @@ class TestSizeIsRederivedNotCarried:
         assert body["contracts"] == body["quote"]["resized_contracts"]
 
 
+class TestContractsIsNotLabelledAsAFillOnThisPath:
+    """`contracts` is what was SENT, and the response says so honestly.
+
+    This route's placer always runs `ORDERS_ARE_DRY_RUNS = True`
+    (`backend/store/orders.py`), so every response through it carries
+    `fill_count: None` and a display string naming the dry run as the reason
+    -- proven wrong, not merely asserted, by the mutation below.
+    """
+
+    async def test_the_response_carries_a_fill_count_and_says_why_it_is_none(
+        self, armed_db
+    ):
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now)
+        quotes = FakeQuotes()
+
+        body = (await _order(_app(path, quotes), rec)).json()
+
+        assert body["fill_count"] is None
+        assert body["fill_count_display"] == (
+            "unknown (dry run -- nothing was sent to fill)"
+        )
+        # `contracts` is unchanged by this fix -- only its label moved, on the
+        # frontend. This pins the payload contract the frontend consumes.
+        assert isinstance(body["contracts"], int)
+
+
 class TestALargeApparentEdgeIsStillABug:
     """Re-sizing at the live ask is one-sided, and the missing half is the
     dangerous one.
