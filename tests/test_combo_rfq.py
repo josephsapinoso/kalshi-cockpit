@@ -326,3 +326,81 @@ class TestAskingTwiceAboutTheSameCombination:
                 Other(), market_ticker="T", collection_ticker="C",
                 legs=[{"market_ticker": "L", "side": "yes"}], contracts=1,
             )
+
+
+class TestAnOversizedOpenRfqIsReplacedNotReused:
+    """**Found by verifying the reuse fix on live, 2026-09-17.**
+
+    Reuse alone was not enough. Joe's balance fell during the session while
+    three RFQs created at the old flat $5.00 target stayed open, quoting 173
+    contracts against $3.94. Handing one of those back is a price that is
+    guaranteed to be refused on accept -- worse than the 409 the reuse was
+    added to avoid, because it looks like it worked.
+
+    Replacing costs the quotes it is holding, which is why it is not the
+    default: those quotes are only worthless when the size is unpayable.
+    """
+
+    class _Api:
+        def __init__(self, existing_target):
+            self.existing_target, self.calls = existing_target, []
+            self.posts = 0
+
+        async def request(self, method, path, *, params=None, json_body=None):
+            self.calls.append(method)
+            if method == "POST":
+                self.posts += 1
+                if self.posts == 1:
+                    raise _Err(409, '{"error":{"code":"already_exists"}}')
+                return {"id": "rfq-fresh"}
+            if method == "GET":
+                return {"rfqs": [{
+                    "id": "rfq-stale", "market_ticker": "T", "status": "open",
+                    "target_cost_dollars": self.existing_target,
+                }]}
+            if method == "DELETE":
+                return {}
+            raise AssertionError(method)
+
+    async def _ask(self, api, target):
+        return await create_rfq(
+            api, market_ticker="T", collection_ticker="C",
+            legs=[{"market_ticker": "L", "side": "yes"}],
+            target_cost_dollars=target,
+        )
+
+    async def test_an_oversized_one_is_withdrawn_and_replaced(self):
+        api = self._Api("5.0000")
+        got = await self._ask(api, "3.5424")
+        assert got == "rfq-fresh", "the stale oversized RFQ was handed back"
+        assert "DELETE" in api.calls
+        assert api.posts == 2, "no fresh RFQ was created"
+
+    async def test_one_within_budget_is_still_reused(self):
+        """Replacing destroys quotes, so it stays the exception."""
+        api = self._Api("2.0000")
+        got = await self._ask(api, "3.5424")
+        assert got == "rfq-stale"
+        assert "DELETE" not in api.calls
+
+    async def test_an_equal_target_counts_as_reusable(self):
+        api = self._Api("3.5424")
+        assert await self._ask(api, "3.5424") == "rfq-stale"
+        assert "DELETE" not in api.calls
+
+    async def test_an_unreadable_target_is_replaced_not_trusted(self):
+        """A fresh RFQ costs one call; a stale one costs a refused trade."""
+        api = self._Api("not-a-number")
+        assert await self._ask(api, "3.5424") == "rfq-fresh"
+        assert "DELETE" in api.calls
+
+    async def test_a_size_based_ask_still_reuses(self):
+        """`contracts=` carries no dollar target to compare, so the old
+        behaviour stands rather than deleting on every repeat ask."""
+        api = self._Api("5.0000")
+        got = await create_rfq(
+            api, market_ticker="T", collection_ticker="C",
+            legs=[{"market_ticker": "L", "side": "yes"}], contracts=1,
+        )
+        assert got == "rfq-stale"
+        assert "DELETE" not in api.calls

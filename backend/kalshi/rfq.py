@@ -189,19 +189,21 @@ def parse_quotes(payload: dict, *, rfq_id: Optional[str] = None) -> tuple[RfqQuo
     return tuple(out)
 
 
-async def open_rfq_for(api: KalshiRestClient, market_ticker: str) -> Optional[str]:
-    """Our own still-open RFQ on this market, if there is one.
+async def open_rfq_for(
+    api: KalshiRestClient, market_ticker: str
+) -> Optional[dict]:
+    """Our own still-open RFQ row on this market, if there is one.
 
-    **Needed because this desk now holds RFQs open across the second tap.**
-    Kalshi allows one live RFQ per market per requester and answers a second
-    create with `409 already_exists`, so asking twice about the same
-    combination -- which is exactly what a reader does when the first answer
-    scrolls off, or when they come back a minute later -- fails unless the
-    existing request is found and reused.
+    **Needed because this desk holds RFQs open across the second tap.** Kalshi
+    allows one live RFQ per market per requester and answers a second create
+    with `409 already_exists`, so asking twice about the same combination --
+    exactly what a reader does when the first answer scrolls off -- fails
+    unless the existing request is found.
 
-    Reusing rather than replacing is deliberate: deleting an RFQ destroys its
-    quotes, and the one being replaced may be the very one on screen with a
-    confirm pending against it.
+    Returns the whole row, not just the id, because the caller has to see the
+    size it was created at. An RFQ asked at a target the account can no
+    longer pay is not reusable: its quotes are for a size that will be
+    refused.
 
     `None` when nothing is open, which sends the caller back to creating one.
     """
@@ -217,8 +219,32 @@ async def open_rfq_for(api: KalshiRestClient, market_ticker: str) -> Optional[st
         if row.get("market_ticker") != market_ticker:
             continue
         if row.get("status") == "open" and row.get("id"):
-            return str(row["id"])
+            return row
     return None
+
+
+def _is_reusable(existing: dict, wanted_target: Optional[str]) -> bool:
+    """Whether an open RFQ can stand in for the one we were about to create.
+
+    **It cannot if it was asked at a bigger size than we can now pay.** Joe's
+    balance fell during a session and three RFQs created at the old flat
+    $5.00 target stayed open, quoting 173 contracts against $3.94 -- reusing
+    one hands back a price that is guaranteed to be refused on accept, which
+    is worse than the 409 it was fixed to avoid.
+
+    Reuse is still the default when the sizes are compatible, because
+    replacing means deleting, and deleting destroys quotes that may be on
+    screen with a confirm pending.
+
+    An unreadable target resolves to **not reusable**: a fresh RFQ costs one
+    call, and a stale one costs a refused trade.
+    """
+    if wanted_target is None:
+        return True
+    try:
+        return float(existing.get("target_cost_dollars") or 0) <= float(wanted_target)
+    except (TypeError, ValueError):
+        return False
 
 
 async def create_rfq(
@@ -276,9 +302,35 @@ async def create_rfq(
         if "already_exists" in str(getattr(exc, "body", "") or exc):
             existing = await open_rfq_for(api, market_ticker)
             if existing is not None:
-                logger.info("rfq: reusing our open RFQ %s on %s",
-                            existing, market_ticker)
-                return existing
+                if _is_reusable(existing, target_cost_dollars):
+                    logger.info("rfq: reusing our open RFQ %s on %s",
+                                existing.get("id"), market_ticker)
+                    return str(existing["id"])
+                # Too big to pay for. Withdraw it and ask again at the size
+                # we can afford -- its quotes are worthless either way,
+                # because accepting one of them would be refused.
+                logger.info(
+                    "rfq: replacing open RFQ %s on %s (asked at %s, we can "
+                    "pay %s)",
+                    existing.get("id"), market_ticker,
+                    existing.get("target_cost_dollars"), target_cost_dollars,
+                )
+                await delete_rfq(api, str(existing["id"]))
+                try:
+                    created = await api.request(
+                        "POST", _RFQS, params=_SHARD, json_body=body
+                    )
+                except Exception as retry_exc:  # noqa: BLE001
+                    raise RfqRefused(
+                        f"Kalshi would not create the RFQ after withdrawing "
+                        f"an oversized one: {retry_exc}"
+                    ) from retry_exc
+                rfq = (created.get("rfq") if isinstance(created.get("rfq"), dict)
+                       else created)
+                new_id = rfq.get("id") or created.get("id")
+                if not new_id:
+                    raise RfqRefused(f"Kalshi returned no RFQ id: {created!r}")
+                return str(new_id)
         raise RfqRefused(f"Kalshi would not create the RFQ: {exc}") from exc
 
     rfq = created.get("rfq") if isinstance(created.get("rfq"), dict) else created
