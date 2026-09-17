@@ -67,6 +67,23 @@ Mutations, each observed red on 2026-09-16:
      to name it
   7. neuter `EDGE_IS_REAL` to a pattern that matches nothing, which passes
      every prohibition above perfectly (the anchor names it)
+
+THE THIRD PATTERN (issue #52, answer A, Joe, 2026-09-16)
+--------------------------------------------------------
+`HowToRead`'s fifth bullet kept the premise after mutation 4 removed the run
+length: it said the swing was larger than *the* edge, and it offered a bad
+week as something that failed to show the tool was broken. Both grant an
+edge -- the second by making the week the thing that fails to reveal one. `A_BAD_RUN_EXONERATES` refuses
+that shape across the same three sweeps. The half of the sentence that warns
+against chasing losses is kept and is explicitly NOT matched: it is true
+whatever `beta` is, and a guard that ate it would leave the screen quieter
+about the one risk it can state.
+
+Mutations for that pattern, each observed red on 2026-09-16:
+  8. put the retired clause back in `HowToRead` -- the one that offered a
+     losing week as failing to show the tool was broken (described rather
+     than reproduced, per `tasks/lessons.md` 2026-09-16, tenth)
+  9. neuter `A_BAD_RUN_EXONERATES` to a pattern that matches nothing
 """
 
 from __future__ import annotations
@@ -119,6 +136,27 @@ EDGE_IS_REAL = re.compile(
     r"|(?:with|if|assuming|granting|even\s+if|because)\s+the\s+edge\s+"
     r"(?:is\s+|was\s+|were\s+)?real"
     r"|\bedge\s+is\s+real\b",
+    re.IGNORECASE,
+)
+
+#: The same premise worn the other way round: a bad stretch is offered as
+#: something that FAILS to disprove the edge. A sentence of that shape says
+#: nothing about variance and everything about what is assumed to be there --
+#: only a tool with an edge can have a losing week that fails to reveal it,
+#: and the reader is told what the week does not prove rather than what the
+#: record says. Retired from `HowToRead`'s fifth bullet by issue
+#: #52 (answer A, Joe, 2026-09-16); the protective half of that sentence --
+#: a losing week is not a reason to bet bigger -- is true whatever `beta` is
+#: and is deliberately NOT matched here.
+A_BAD_RUN_EXONERATES = re.compile(
+    r"\b(?:losing|lost|bad|down)\s+(?:week|month|run|streak|stretch|day)\b"
+    r"[^.]{0,80}?(?:is|are|was|were)\s+not\s+(?:evidence|proof|a\s+sign)"
+    r"|\b(?:losing|lost|bad|down)\s+(?:week|month|run|streak|stretch|day)\b"
+    r"[^.]{0,80}?(?:is|are|was|were)n['’]?t\s+(?:evidence|proof|a\s+sign)"
+    r"|\bnot\s+evidence\s+(?:that\s+)?(?:the\s+)?"
+    r"(?:tool|model|engine|system|desk)\s+is\s+broken"
+    r"|\b(?:does|do|did)\s+not\s+mean\s+(?:the\s+)?"
+    r"(?:tool|model|engine|system|desk)\s+is\s+broken",
     re.IGNORECASE,
 )
 
@@ -233,8 +271,21 @@ class TestTheScanReadsRealFiles:
         assert LOSING_RUN_CLAIM.search(run)
         assert LOSING_RUN_CLAIM.search("Ten bets like that end the week down")
         assert SWING_FIELDS.search('"sd_dollars": sd,')
+        exonerates = "so a losing week is not " + "evidence the tool is broken"
+        assert A_BAD_RUN_EXONERATES.search(exonerates)
+        assert A_BAD_RUN_EXONERATES.search("a bad run isn't evidence of much")
+        assert A_BAD_RUN_EXONERATES.search("that does not mean the model is broken")
         # And do not fire on the warning that says the opposite.
         assert not EDGE_IS_REAL.search("Real edges on this venue are 2-3 cents.")
+        # ... nor on the half of the retired sentence that was KEPT. It warns
+        # against chasing losses and grants nothing; a guard that swallowed it
+        # would push the screen toward saying less than it safely can.
+        assert not A_BAD_RUN_EXONERATES.search(
+            "a losing week is not a reason to bet bigger"
+        )
+        assert not A_BAD_RUN_EXONERATES.search(
+            "a week's results tell you almost nothing"
+        )
 
 
 class TestNoPricedSurfaceCarriesTheSwingFields:
@@ -272,6 +323,7 @@ class TestNoScreenSaysTheEdgeIsReal:
         for pattern, what in (
             (EDGE_IS_REAL, "grants that the edge is real"),
             (LOSING_RUN_CLAIM, "prices a run of bets off that edge"),
+            (A_BAD_RUN_EXONERATES, "offers a bad stretch as failing to disprove one"),
         ):
             hit = pattern.search(text)
             assert hit is None, (
@@ -284,7 +336,7 @@ class TestNoScreenSaysTheEdgeIsReal:
         offenders: list[str] = []
         for path in frontend_files():
             text = code_only(path)
-            for pattern in (EDGE_IS_REAL, LOSING_RUN_CLAIM):
+            for pattern in (EDGE_IS_REAL, LOSING_RUN_CLAIM, A_BAD_RUN_EXONERATES):
                 hit = pattern.search(text)
                 if hit is not None:
                     offenders.append(
@@ -300,7 +352,7 @@ class TestNoScreenSaysTheEdgeIsReal:
         offenders: list[str] = []
         for path in sorted(BACKEND.rglob("*.py")):
             for sentence in server_copy(path):
-                for pattern in (EDGE_IS_REAL, LOSING_RUN_CLAIM):
+                for pattern in (EDGE_IS_REAL, LOSING_RUN_CLAIM, A_BAD_RUN_EXONERATES):
                     hit = pattern.search(sentence)
                     if hit is not None:
                         offenders.append(

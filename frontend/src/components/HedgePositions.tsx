@@ -14,6 +14,7 @@ import {
   type UnrecordedAtVenue,
 } from "@/lib/api";
 import { kalshiMarketUrl } from "@/lib/kalshiLink";
+import { stakeBasisNote } from "@/lib/stakeBasisGloss";
 import Term from "@/components/Term";
 
 /**
@@ -173,6 +174,7 @@ function Position({
           &rarr; {position.return_display}
         </span>
       </header>
+      <StakeBasisLine position={position} />
       <p className="mt-1 text-xs leading-snug text-muted">
         {position.source === "kalshi_combo" ? "Kalshi combo" : "Sportsbook"}
         {position.book ? ` · ${position.book}` : ""} ·{" "}
@@ -195,6 +197,31 @@ function Position({
       <Close position={position} />
     </section>
   );
+}
+
+/**
+ * One small line under the stake, on the ticket whose stake is NOT Kalshi's
+ * own number — and nothing at all on the ticket whose stake is.
+ *
+ * Issue #53, answered A by Joe on 2026-09-16. ADR 0160 resolves each open
+ * position's stake at read time and serves `stake_basis` beside it;
+ * `lib/stakeBasisGloss.ts` turns the refusal that applied into a sentence.
+ *
+ * **The condition is the note's presence, never the basis's value**, and that
+ * is the whole guard. Rendering on `stake_basis === "as_recorded"` would put
+ * an unresolved ticket (`null`) on the same blank row as a checked one, which
+ * is the `ParlayCards` defect of 2026-09-15 in its other direction — there a
+ * note rendered only when `anchored_on_sharp === true` and a leg with no
+ * sharp book behind it said nothing. `stakeBasisNote` returns `null` for
+ * exactly one input and the component asks it rather than deciding again.
+ */
+function StakeBasisLine({ position }: { position: HeldPosition }) {
+  const note = stakeBasisNote(
+    position.stake_basis,
+    position.stake_basis_reason,
+  );
+  if (!note) return null;
+  return <p className="mt-1 text-xs leading-snug text-muted">{note}</p>;
 }
 
 /**

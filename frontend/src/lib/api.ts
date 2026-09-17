@@ -3277,6 +3277,26 @@ export type HeldPosition = {
   placed_ms: number | null;
   combo_ticker: string | null;
   stake_display: string;
+  /**
+   * WHOSE price `stake_display` is (ADR 0160). `"venue_fill"` means Kalshi's
+   * own average fill price times the count the venue reported;
+   * `"as_recorded"` means the figure stored with the position — the price the
+   * desk sent, or Joe's typed stake on a sportsbook slip. `null` only on a
+   * payload that never went through `hedge.build_payload`, and it is NOT a
+   * `"venue_fill"`: the card treats an absent basis as unchecked.
+   *
+   * Declared here as of issue #53 (Joe, 2026-09-16), which reversed ADR 0160
+   * §5 — that section left both fields off this file on the `floor_tenths`
+   * precedent, because nothing rendered them. `HedgePositions.tsx` now does.
+   */
+  stake_basis: "venue_fill" | "as_recorded" | null;
+  /**
+   * Which refusal sent the stake back to the recorded figure; `null` on a
+   * `"venue_fill"`. `string` rather than a union of the nine names on
+   * purpose: a server running a reason this build predates is a real state,
+   * and `lib/stakeBasisGloss.ts` renders it verbatim rather than hiding it.
+   */
+  stake_basis_reason: string | null;
   /** The entry fee the hedge arithmetic sinks beside the stake on a Kalshi
    * combo (ADR 0145); `null` on a sportsbook slip, whose vig is in its
    * price. Rendered, never computed with. */

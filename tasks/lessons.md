@@ -16,6 +16,32 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-16 (twelfth) - A mutation that changes nothing reports the same green as a guard that is watching; the harness has to refuse the no-op, and a mutation that only ADDS to a pattern has not disabled it
+
+Eleven mutations were run against a screen guard. Three came back wrong, and
+all three would have been read as "guard verified" by a harness that only
+applied a replacement and ran the tests:
+
+- **Two literals matched zero times**, because the files are CRLF here and
+  the mutation literals were written with `\n`. The edit applied nothing, the
+  suite stayed green, and the only reason that was visible is that the
+  harness asserts the literal occurs **exactly once** before writing. Without
+  that assertion the report would have said the guard was verified while the
+  file was never touched. The same fact that makes `Path.write_text` unsafe
+  here makes a multi-line mutation literal unsafe: normalise the line endings
+  to the file's own before matching.
+- **One "neutered" regex still worked.** The mutation prepended two dead
+  alternatives to an alternation and left the live ones in place, so the
+  pattern matched exactly as before and the anti-vacuity test passed --
+  correctly. Neutering an alternation means REPLACING it, not adding to it.
+  A mutation that comes back green is a claim about the mutation first and
+  the guard second (CLAUDE.md, Testing).
+
+The general form: **a verification step that cannot distinguish "the
+mutation did nothing" from "the guard caught it" verifies nothing.** Make the
+no-op loud -- count the matches, fail on anything but one, and print the
+md5 before and after so a restore that did not restore is visible too.
+
 ## 2026-09-16 (eleventh) - A median does not bound a tail, so a measurement of the centre cannot falsify a condition written about the worst case; and the regime you can measure cheaply is usually the one where the effect is known not to occur
 
 A park carried a trigger: "unpark only if a route-latency read shows a desk

@@ -711,18 +711,65 @@ class TestThePhoneReachesAPriceBeforeALesson:
 
     def test_the_copy_was_moved_and_not_rewritten(self):
         """The reviewer singled the writing out as good. The move (2026-08-2x)
-        touched the call site only; the one later edit to the component
-        (2026-09-03, below) grew the held-back bullet and rewrote nothing, so
-        every headline the reviewer read is still there verbatim."""
+        touched the call site only; the 2026-09-03 edit grew the held-back
+        bullet and rewrote nothing, so every headline the reviewer read is
+        still there verbatim.
+
+        **One headline has since been rewritten on purpose** (issue #52,
+        answered A by Joe 2026-09-16): the swing bullet said the swing was
+        larger than *the* edge, which presupposes one. It is pinned below in
+        its new form, with the presupposition refused, rather than dropped
+        from this list — the list is what stops the panel being reworded by
+        accident, and an edit Joe asked for is not an accident.
+        """
         component = source(FRONTEND / "components" / "HowToRead.tsx")
         assert "How to read this board" in component
         for phrase in (
             "You need to be right 52 times in 100 here, not 50.",
             "The price is the one in cents. The percentage is not a price.",
             "The biggest edge on the board is deliberately held back.",
-            "The swing is far larger than the edge, every time.",
+            "The swing is far larger than any edge on this screen.",
         ):
             assert phrase in component
+
+    def test_the_swing_bullet_presupposes_no_edge_for_it_to_be_larger_than(self):
+        """Issue #52, answer A. Both halves of the old sentence granted an
+        edge: "larger than *the* edge" named one, and "not evidence the tool
+        is broken" made a losing week the thing failing to reveal it. On the
+        measured record -- `beta_hat` -0.1412 and -0.0756, both always-valid
+        intervals entirely below the registered 0.40 NO-SIGNAL threshold --
+        there is no edge to be larger than, and CLAUDE.md says to treat the
+        signal as settled negative for planning.
+
+        The protective half is KEPT, because it is true whatever beta is: a
+        losing week is not a reason to bet bigger. What this does not
+        establish: that the new sentence reads well, or that anything
+        renders -- source text only, same limit as every guard in this file.
+
+        Whitespace is collapsed before matching, because Prettier wraps JSX
+        prose at 80 columns and a guard that matches a phrase only when it
+        fits on one line is a guard against short sentences
+        (`tasks/lessons.md`, 2026-09-16, tenth). The first run of this test
+        went red on "bet\\n bigger" for exactly that reason.
+        """
+        component = re.sub(
+            r"\s+", " ", source(FRONTEND / "components" / "HowToRead.tsx")
+        )
+        assert "a losing week is not a reason to bet bigger" in component, (
+            "the don't-chase-losses half went out with the presupposition; "
+            "it is true regardless of what beta is"
+        )
+        assert "week" in component and "tell you almost nothing" in component
+        for killed in (
+            "far larger than the edge",
+            "not evidence the tool is broken",
+            "is not evidence",
+        ):
+            assert killed not in component, (
+                f"HowToRead says {killed!r} again. A losing week failing to "
+                "disprove an edge is a claim that there is one; the record "
+                "says the signal is settled negative."
+            )
 
 
 class TestTheExplainerNamesEveryChipTheBoardDraws:
