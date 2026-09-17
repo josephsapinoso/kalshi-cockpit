@@ -273,3 +273,104 @@ payload's basis field, the option-B fee guard, the killed sentence in
 and — for the no-backfill claim, which is an assertion about an absence — an
 added `UPDATE parlay_positions` inside the read, which turned
 `TestNothingIsBackfilled` red as it must.
+
+---
+
+## Amendment 1 (2026-09-16) — the card says which price it is on, so the type declares it
+
+**§5's last bullet is superseded, and §5 is not rewritten.** Its reasoning was
+correct for the world it was written in: nothing rendered `stake_basis` or
+`stake_basis_reason`, so declaring them on `frontend/src/lib/api.ts` would
+have declared a field for an auditor, which is what `Rung.floor_tenths` is
+and why it stays undeclared. That bullet ended by naming the open question —
+*whether the hedge card should SAY which price its stake is on is a question
+for Joe, not a build* — and opened issue #53 for it. This amendment records
+his answer and what changed because of it. Nothing else in this ADR moves:
+the read-time join, the join key, the nine refusals, the no-backfill decision
+and the option-A scope are all untouched.
+
+### A1.1 The answer, and the principle he gave with it
+
+Joe answered `53A` on 2026-09-16 and the ticket is closed with his answer
+quoted:
+
+- a **`venue_fill`** ticket renders **nothing extra** — the stake is what
+  Kalshi charged and there is nothing to say about it;
+- an **`as_recorded`** ticket carries **one small line naming the specific
+  refusal**, in his language rather than the enum's, not a generic caveat.
+
+His reason is the load-bearing part, and it is why the words go on the less
+certain ticket: **a warning that fires only on the good case reads as a check
+that passed.** The inverse is a defect this repo has already shipped once —
+`ParlayCards` rendered a note only when `anchored_on_sharp === true` and said
+nothing at all when no sharp book backed the leg (fixed 2026-09-15) — so the
+render condition is the sentence's own presence, never a comparison against
+`"venue_fill"` in the component. `stakeBasisNote` returns `null` for exactly
+one input, and a missing basis is **not** that input: a payload that never
+went through `build_payload` does not know whose price its stake is, and
+silence is what a checked ticket looks like.
+
+### A1.2 What the build is
+
+- `frontend/src/lib/stakeBasisGloss.ts` (new) — nine sentences, one per
+  refusal, plus the sentence for a reason this build predates. The precedent
+  is `lib/suppressionGloss.ts`: a named vocabulary from the backend, glossed
+  in plain English on the screen, pinned in both directions by a Python test
+  that reads both sources. It parts company with that module in one place and
+  deliberately: an unknown code there glosses to `null` because the code
+  itself renders beside it, whereas here the sentence is the only thing on the
+  row, so an unknown reason renders the unnamed sentence **with the code
+  verbatim** rather than nothing.
+- `frontend/src/lib/api.ts` — `stake_basis` and `stake_basis_reason` are now
+  declared on `HeldPosition`. `stake_basis_reason` is typed `string`, not a
+  union of the nine names, because a server running a reason this build
+  predates is a real state and a union would only move the lie to compile
+  time. This is the §5 reversal, and the README's rule now bites in the
+  direction it was written for.
+- `frontend/src/components/HedgePositions.tsx` — `StakeBasisLine`, one small
+  line under the ticket's stake figure.
+- `tests/test_the_hedge_card_names_the_fallback_reason.py` — seventeen tests.
+  The vocabularies are pinned in both directions with a count as the vacuity
+  anchor, and the asymmetry is **executed** under node rather than asserted as
+  source text, because a substring assertion passes unchanged on a function
+  that is exactly inverted and an inverted function is the whole defect.
+
+### A1.3 The Discord push is deliberately left alone
+
+Both embeds that state a position's stake (`hedge_lock` and `position_state`,
+`backend/notify/discord.py`) already carry `NOTES["upper_bound"]` in their
+footer, and §4 of this ADR made that sentence conditional: *the stake it
+subtracts is Kalshi's own fill price where the venue reported one, and the
+price the desk sent where it did not*. So the push states **both** branches on
+**every** ticket. That is less precise than the screen and it is not the
+defect Joe's principle is about: the failure he named is asymmetry — a line
+that appears only on the good case — and an embed that says the same thing
+whichever branch applies has none. Two further reasons: the embed's job is to
+get him to `/hedge`, which is where the per-ticket resolution now is; and a
+second copy of a nine-entry vocabulary is a second thing to keep in step, and
+copy drift between the screen and the push is a bill this repo has paid
+before (ADR 0072 Decision 3 exists because of it).
+
+If a push ever states a stake **without** that footer, this decision is void
+and the line has to travel with it.
+
+### A1.4 What this amendment does not establish
+
+- **That the sentences are right.** They are a session's rendering of Joe's
+  answer, not ratified copy; the test guards what they may never say
+  (ceiling, floor, conservative, at least, can only be, guaranteed, exact) and
+  that each is one short line, not that any is well written.
+- **That anything renders.** Source text and a node-executed function, no
+  browser — the same limit every guard on this screen has.
+- **Nothing about the hedge figure's accuracy.** Naming whose price the stake
+  is narrows none of the four error terms; §6 stands unchanged.
+
+### A1.5 Verification
+
+Full suite green from the lane worktree. Nine mutations were applied to the
+guarded code and every one turned the suite red — including the two that
+matter most: rendering the line only when `stake_basis === "as_recorded"` (the
+`ParlayCards` defect in its other direction, which leaves an unresolved ticket
+silent) and returning `null` from `stakeBasisNote` for an unknown reason.
+Each mutated file was restored from a byte backup and verified md5-identical
+afterwards; `git checkout` was not used, because it erases uncommitted work.

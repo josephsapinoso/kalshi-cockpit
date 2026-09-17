@@ -81,11 +81,12 @@ export default function HowToRead() {
         </li>
         <li>
           <span className="font-semibold text-foreground">
-            The swing is far larger than the edge, every time.
+            The swing is far larger than any edge on this screen.
           </span>{" "}
           A bet worth twenty-six cents in expectation still moves seven or eight
-          dollars either way when it settles, so a losing week is not evidence
-          the tool is broken and is not a reason to bet bigger.
+          dollars either way when it settles &mdash; so a week&rsquo;s results
+          tell you almost nothing, and a losing week is not a reason to bet
+          bigger.
         </li>
       </ul>
     </section>
