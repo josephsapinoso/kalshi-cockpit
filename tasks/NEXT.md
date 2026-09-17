@@ -275,14 +275,23 @@ green after; that is better mutation evidence than a synthetic one.
 
 ### STATE at close
 
-`main` = `6dc6449` + this entry. **Live = `1cafcec`** (verified: sha, new
-machine version, recorder writing, arming unchanged). **Demo = `2b1f5c6`, nine
-commits behind.** ruff clean. Full suite run at close — read `gh run list`
-before building. `SCHEMA_VERSION` **44**, next ADR **0163**, schema **v45
-unallocated**, no lane reservations. **Zero odds credits spent** — every live
-call a GET; `time_live_routes.py` never touches the attention stamp
+**`main` = live = demo = `cada32c`** — all three, deliberately, because the
+gap between them is what this session opened by finding. Each verified on
+`/api/health`: live machine `01M2Q0Z9G1FRN2DC6405GQ65PX`, demo
+`01M2Q0X6J3X625P149W4H3Q7B5`, both recorders writing, arming unchanged (hand
+path armed, engine and bid dry).
+
+**CI green on `cada32c`** (run `35190024054`, 10m00s). Clean local full suite
+**7737 passed, 1 skipped, 10 xfailed, 0 failed** (33m44s); ruff clean.
+`SCHEMA_VERSION` **44**, next ADR **0163**, schema **v45 unallocated**, no lane
+reservations. **Zero odds credits spent** — every live call a GET;
+`time_live_routes.py` never touches the attention stamp
 (`POST /api/desk/attention` is the only writer, `Nav.tsx:217-234` its only
 caller), so its GETs buy nothing.
+
+**The demo redeploy that was open item 4 is done** — it had been nine commits
+behind. It is listed below as closed rather than deleted, so the next session
+does not re-derive whether it was wanted.
 
 ### Still open, in order
 
@@ -305,8 +314,8 @@ caller), so its GETs buy nothing.
    already behind them. **Fix #27's ticket SHA** (`228f716` → `d325ed1`) in
    passing.
 
-4. **Redeploy the public demo** — nine commits behind, and it is the portfolio
-   URL. Same workflow, `instance=demo`.
+4. ~~Redeploy the public demo~~ — **DONE this session**, `cada32c`, verified on
+   `/api/health`. Left here closed rather than deleted so it is not re-derived.
 
 5. **Monday 21 — `credits-day --date 20260920`.** Two-minute instrument run,
    the registered check beside `20260913`. Not a work item; do not rank it.
