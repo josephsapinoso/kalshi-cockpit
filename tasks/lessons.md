@@ -16,6 +16,48 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-17 (fourteenth) - A deploy verified at the moment it happened stops being true if anything merges after it; and "the executable queue is empty" is a claim about how many queues you read
+
+Three failures this session, and the first two are the same shape: a state
+that was true when written and false when read.
+
+- **The previous session deployed, then merged two more commits, and its
+  STATE block recorded the deploy.** Both statements were true when made.
+  The result was a day of the live receipt labelling the contracts **sent**
+  as `filled size` -- the exact defect the session had just fixed one figure
+  to the left. CLAUDE.md's rule (a fix and its copy ship together, or the
+  screen lies in the interval) is written as if the hazard lives inside one
+  commit. It does not: **the interval that matters is between the last
+  deploy and the last merge**, and nothing checks it. Diff the live sha
+  against `main` at session start, and read what is in the gap -- a
+  documentation-only gap is fine, and you cannot know which it is without
+  looking.
+- **An empty frontier proves nothing if you read two of three queues.** The
+  front door names three; I read the Open list and the map's tickets, found
+  four Joe-blocked tickets, and was one sentence from reporting the
+  executable queue empty. The third queue -- decided-not-yet-built -- had
+  three real items in it, one of them a specific spend Joe had explicitly
+  authorised and nobody ran. **A closed ticket is evidence a decision was
+  made, not evidence it was built**, and the two diverge silently because
+  closing is what the decider does and building is what someone else does.
+  The tell: a ticket closed with a comment that ratifies a *different*
+  capability than the one it authorised.
+- **A verification that scans zero things reports the same clean result as
+  one that scans everything and finds nothing.** A chunk scan for new copy
+  came back empty; the page it scanned had 307'd to `/login`, so it examined
+  nothing at all. Same shape as the CRLF mutation literal that matched zero
+  times. **Make the denominator part of the output** -- print how many
+  things were examined, and treat zero as a failure of the instrument rather
+  than a finding about the subject.
+
+And one that is about deferral rather than staleness: **"fold this in next
+time that file is touched" is a deletion with extra steps when nothing on
+any queue touches that file.** The condition is not a schedule, it is a
+hope. Either do it or record that it was declined -- the instrument gap here
+had been carried on exactly that wording, and the configuration it measures
+was about to change under every branch of an open decision, which would have
+destroyed the only baseline worth having.
+
 ## 2026-09-17 (thirteenth) - Before extending an instrument, read what its tests FORBID it from emitting; a registered instrument's scope is a contract, and the obvious extension is the one that breaks it
 
 Asked to make `combo-position-gaps` detect the inverse direction, the

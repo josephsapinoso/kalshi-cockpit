@@ -126,6 +126,205 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-17 (twenty-seventh session) — the live desk was two commits behind with a false label on the money path; the four tickets went to Joe with a free option the ticket had left out; and the third queue turned out not to be empty
+
+Joe: *"Read next.md and start"* — the planning question, so a partner pass ran.
+Three findings reordered the session, and two of them were corrections to me.
+
+### OPEN — item 0 discharged, and then a gap nobody had flagged
+
+CI green on `1cafcec` (run `35185615884`, 10m03s), `88b5ed0` an ancestor, clean
+tree, no Dependabot alerts. So the "do not build on an unverified tree" item
+was satisfied in one read.
+
+**Then: live was `36605c2` and `main` was `1cafcec`, and the two commits
+between them were not documentation.** `d56b7dc` changed `TicketSheet.tsx`,
+`routes.py` and `api.ts` — the previous session merged the receipt fix *after*
+it deployed and its STATE block recorded the deploy without noticing. So for a
+day the live receipt labelled the number of contracts **sent** as
+`filled size`, which is the exact defect ticket #50 had just been answered
+about on the price figure beside it. **This is CLAUDE.md's own rule** — a fix
+and its copy ship together or the screen lies in the interval — failing in the
+gap between a merge and a handoff rather than inside one commit.
+
+Deployed `1cafcec` via `gh workflow run deploy.yml` (the local surface is still
+classifier-refused; the workflow surface is not). Live now reads `1cafcec` on
+machine `01M2PYAKVD…`, arming unchanged: hand path armed, engine and bid dry.
+
+**The render is NOT verified and cannot be, and that is a limit rather than a
+task.** The `Placed` receipt renders only after a real order. A chunk scan
+against `/` returned zero hits and that scan established **nothing** — the root
+307s to `/login`, so it scanned zero chunks. Recorded so no session re-invents
+it: this waits for Joe's next fill, opportunistically.
+
+### THE FOUR TICKETS WENT OUT, AND #55 WAS AMENDED BEFORE THEY DID
+
+https://claude.ai/artifact/YaGLzQG5Qx1A65hxtQTCuM — reply `54A 55E 56A 57A`.
+
+**The partner's finding, and it is the one that mattered: #55 asked Joe to
+choose between four options while omitting a free one.** Verified against
+source before amending:
+
+- `fair_prices` is **2,409,955,328 B, 47.53%** of a 5,070,802,944 B file.
+- The destructive downsample (the ticket's option C) was measured, registered
+  and **declined** when that family was **2.68x smaller**, and that
+  registration forbids raising its pinned constant after the fact. C is closed
+  by a rule the ticket did not show him.
+- Consecutive `fair_prices` rows for one key are **value-identical 99.73% /
+  99.61% / 99.75%** across three windows. Dedup would shrink the file toward
+  ~2.9 GB **without deleting a fact**.
+
+**It authorises nothing and the amendment says so twice:** *recorded, not
+registered*, one day of one sport, the cluster is the day, and **no threshold
+was named before the 99.7% was computed**. It is a lead that needs its own
+registration, not a saving. So option **E** is "A now, and I go register the
+dedup" — because A alone *does not touch growth*, which `fly.live.toml:917`
+said the last time this box was sized: *"This buys headroom; it does not fix
+the growth … that is the thing to fix rather than this number."*
+
+Also put a real number on A (~$11/mo now, roughly +$5–10 for 4 GB, ~$31 for
+8 GB — the figure already declined once as disproportionate against a $100
+bankroll), flagged as derived from the per-GB rule rather than a line item.
+**The $100 bankroll figure is two weeks old and he has been betting** —
+re-read the balance before repeating it.
+
+#57 gained a deadline it did not have: press it this weekend or it is retired
+Monday and recorded as decided. "No deadline" is what produced three carries.
+
+### THE THIRD QUEUE WAS NEVER CHECKED, AND IT IS NOT EMPTY
+
+The front door names three queues; I read two and was about to call the
+executable queue empty. An audit of **all 49 closed sub-issues of #3** found
+**decided-but-not-built** work:
+
+- **#21 item 4** — `/bets` should mark open combo positions *unsettled*. Priced
+  out of the 21A build (ADR 0101: "which 21A did not price") and never built.
+- **#33** — the indigo `Stat` accent variant Joe approved. Only the surrounding
+  rationale comment was fixed; the variant was never added.
+- **#36** — his literal *"spend the credits"* authorised **one specific
+  ~14-credit MLB prop sweep**. It was never run; the ticket was closed with
+  zero credits spent. The broader props-as-legs capability shipped via a
+  different ticket, so the closure reads as satisfied and is not.
+- **#11** (partial) — `logEstimate()` has zero UI callers; the screen was
+  killed by ADR 0094 §11, so this is correctly dead, not a gap.
+
+Correctly unbuilt, not gaps: #5, #17, #19, #20, #31. Everything else confirmed
+built. **#27's ticket cites a wrong SHA** (`228f716` is unrelated; the real
+landing commit is `d325ed1`).
+
+### THE SATURDAY REGISTRATION IS WRITTEN AND COMMITTED — `6dc6449`
+
+`docs/measurements/2026-09-17-preregistration-sharp-anchor-census-ncaaf.md`,
+909 lines. Three bounds, each a protocol clause rather than a caveat:
+
+- **The exemption is named.** A split on `anchored_on_sharp` is refused by
+  default here; `sharp-anchor-census` is the third exemption
+  (`inspect_live_db.py:125`). It authorises the **split, not a ratio**, so
+  `inspect_live_db*.py` is not modified and both derived ratios live in the
+  write-up only.
+- **A CLOCK bound, and it is the improvement over the brief.** The read is
+  **2026-09-20T07:00Z–11:00Z**, early Sunday — after the last west-coast NCAAF
+  game settles, hours before NFL. Proximity in time to Joe's use is the hazard,
+  not concurrency; a row bound does not address it. **Nothing runs on the 19th
+  at all.** Miss the window and the outcome is NOT RUN.
+- **Four queries, `--since 20260919` mandatory on each** — omitting it is what
+  turns this into the full-table read that costs the desk 75 s.
+
+**Read its consequence column against interest: under EVERY registered
+outcome, nothing changes on screen.** Both live branches end at a ticket for
+Joe. The document says so in advance and offers the chance to kill the run
+rather than discover that afterwards — which is what writing consequences down
+before the numbers exist is *for*. Picks is scoped out entirely: slot `A1`
+waits on #54, and nothing ships there whatever the census returns.
+
+Contamination declared (§0.1): the author had seen the 2026-09-16 output before
+setting thresholds, so every threshold is a round number placed between the
+observed values, none within 0.10 of one.
+
+### THE INSTRUMENT GAP IS CLOSED — `62697fe`
+
+`time_live_routes.py` kept only `min` and `median` and discarded the per-rep
+vector. Now keeps every rep, reports `max_ms` and the full `all_ms`, prints
+`reps`, and says in words that MAX is not a bound below 20 reps. The
+"what this does not establish" docstring CLAUDE.md requires — and this harness
+never had — names the cold path, the rule of three, concurrent load, and the
+favourable ordering of `APIS` before `PAGES`. §B's league loop is committed as
+`LEAGUE_APIS` behind `--leagues`, **off the default sweep** so the killed NCAAF
+re-time is not quietly invited back.
+
+**Why now rather than "next time the script is touched": nothing on any queue
+touches that script, and #55 will change the box under every branch.** A tail
+baseline has to exist on the current box before the box stops existing. A
+deferral conditioned on an unscheduled event is a deletion with extra steps.
+
+**Recorded without attribution:** the first 3-rep run returned one
+`/api/signal` observation of **13,475 ms against a 98 ms median**. It did not
+reproduce in six further reps and is measured across the public internet, so it
+may be local rather than the box. One event in nine draws, establishes nothing
+— but it is precisely the class of observation the old harness discarded
+silently.
+
+### Also
+
+`tests/test_a_question_for_joe_has_a_ticket.py` **refused the new
+pre-registration**, correctly: two lines quoted the marker format with a
+literal placeholder. A guard cannot distinguish a template from a real marker
+and should not try — a template is how a real one gets missed. Both lines now
+describe the form instead of instantiating it. Observed red on the real file,
+green after; that is better mutation evidence than a synthetic one.
+
+### STATE at close
+
+`main` = `6dc6449` + this entry. **Live = `1cafcec`** (verified: sha, new
+machine version, recorder writing, arming unchanged). **Demo = `2b1f5c6`, nine
+commits behind.** ruff clean. Full suite run at close — read `gh run list`
+before building. `SCHEMA_VERSION` **44**, next ADR **0163**, schema **v45
+unallocated**, no lane reservations. **Zero odds credits spent** — every live
+call a GET; `time_live_routes.py` never touches the attention stamp
+(`POST /api/desk/attention` is the only writer, `Nav.tsx:217-234` its only
+caller), so its GETs buy nothing.
+
+### Still open, in order
+
+1. **FOUR TICKETS ARE WITH JOE — #54, #55, #56, #57**, sent as one lettered
+   artifact with the recommendation `54A 55E 56A 57A`. #55 carries the new
+   option E. Nothing to build until he replies; he has answered six in a day,
+   twice, within the hour.
+
+2. **Sunday 20, 07:00Z–11:00Z — run the census**, exactly as `6dc6449`
+   registers it. Not Saturday. Four queries, `--since 20260919` on every one.
+   Miss the window and write the NOT RUN result rather than rescheduling
+   informally. **Worth deciding before then, on its own terms:** the
+   registration shows nothing changes on screen under any outcome, so if #54
+   comes back answered, ask whether the run still earns its place.
+
+3. **Queue 3, newly visible and never listed:** `#21 item 4` (mark open combo
+   positions unsettled on `/bets`), `#33` (the indigo `Stat` variant), `#36`
+   (the authorised ~14-credit MLB prop sweep, never run — late-season, so check
+   it is still meaningful before spending). These are builds with decisions
+   already behind them. **Fix #27's ticket SHA** (`228f716` → `d325ed1`) in
+   passing.
+
+4. **Redeploy the public demo** — nine commits behind, and it is the portfolio
+   URL. Same workflow, `instance=demo`.
+
+5. **Monday 21 — `credits-day --date 20260920`.** Two-minute instrument run,
+   the registered check beside `20260913`. Not a work item; do not rank it.
+
+6. **PARKED, with the ADR that parked them — not open work:** the shard probe
+   (**ADR 0158**); `user_not_found` on shard 3; the 25 s read budget. The
+   ANALYZE park is gone (**ADR 0161**).
+
+7. **One ADR's worth of tidying, not a work item:** the deploy-authority rule.
+   Practice has settled (sessions deploy live via the workflow surface; the
+   local surface is classifier-refused) but no ADR says so, and a session that
+   reads only the older wording will stall on it.
+
+8. **Reservations:** none live. Next ADR **0163**; schema **v45 unallocated**.
+   All lane worktrees reaped.
+
+---
+
 ## 2026-09-16 (twenty-sixth session) — six more tickets, all answered the same day; the screen stopped claiming the edge is real, and a convenient conclusion of mine was refused by the instrument that exists to refuse it
 
 Joe: *"read next.md and tell me what is next?"* — the planning question, so a
