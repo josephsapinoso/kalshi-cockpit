@@ -11,8 +11,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import {
   COOKIE_NAME,
-  SESSION_MAX_AGE_S,
   issueSession,
+  sessionCookie,
   sessionSecret,
   tokenMatches,
 } from "@/lib/session";
@@ -58,17 +58,13 @@ export async function POST(request: NextRequest) {
   const destination = next.startsWith("/") && !next.startsWith("//") ? next : "/";
 
   const response = seeOther(destination);
-  response.cookies.set({
-    name: COOKIE_NAME,
-    value: await issueSession(secret),
-    httpOnly: true,
-    sameSite: "lax",
-    // Fly terminates TLS and `force_https` is on, so the cookie should never
-    // travel in clear. Relaxed off HTTPS only so a local `next dev` still works.
-    secure: request.nextUrl.protocol === "https:",
-    path: "/",
-    maxAge: SESSION_MAX_AGE_S,
-  });
+  // Attributes from `sessionCookie`, shared with the renewal in middleware, so
+  // a session that is kept alive can never be kept alive on weaker terms.
+  response.cookies.set(
+    sessionCookie(await issueSession(secret), {
+      secure: request.nextUrl.protocol === "https:",
+    }),
+  );
   return response;
 }
 

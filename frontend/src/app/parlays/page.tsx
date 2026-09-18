@@ -94,29 +94,37 @@ export default async function ParlaysPage({
             a second definition of `CARD_SHAPES`, kept in sync by memory, and
             memory is what let it go stale. Each card names its own cut.
 
-            Ticket #9's ratified Parlays lede (Joe, 2026-08-27), verbatim,
-            with `ladder.notes.chance` still appended. It adds the fact the
-            old sentence omitted and a novice most needs: a card is enter-only
-            -- no YES bid on 40 of 40 combination books this repo has read
-            (`parlays.py`, ADR 0012 §5) -- so once bought hardly anyone is
-            bidding to buy it back. No availability claim, deliberately (#9
-            records why).
+            Ticket #9's ratified Parlays lede (Joe, 2026-08-27), with
+            `ladder.notes.chance` still appended and its final clause replaced
+            by Joe on 2026-09-18 (issue #64, answer A).
 
-            **"nobody" became "hardly anyone" on 2026-09-10, and the change is
-            correctness rather than wording.** Two `KXMVECROSSCATEGORY-SHARD1`
-            books were read carrying resting YES bids ($10 at 0.0980 and $10 at
-            0.0570), so the universal is false; one counterexample ends it.
-            Joe ratifies wording and this sentence is still his, but a
-            ratified sentence does not get to stay false on the screen while
-            the answer is pending, which is CLAUDE.md's
-            fix-and-copy-ship-together rule. **He was asked on 2026-09-10 and
-            kept it:** given "hardly anyone" in place, the two shard-1 books
-            behind the change, and two alternatives, he re-ratified this
-            wording. It is his approved copy in full again, not a correctness
-            patch awaiting an answer. Everything else in
-            #9's sentence is untouched, and the replacement still makes no
-            availability claim and implies no rate: how OFTEN a bid is there
-            is what Arm D measures on 2026-09-13.
+            **The clause asserted a FREQUENCY, and every version of it was
+            falsified within days.** The history, because it is the argument:
+
+              - "nobody is bidding to buy it back" (#9, ratified 2026-08-27)
+                died on 2026-09-10, when two `KXMVECROSSCATEGORY-SHARD1` books
+                were read carrying resting YES bids. One counterexample ends a
+                universal.
+              - "hardly anyone is bidding to buy it back" replaced it and was
+                re-ratified by Joe the same day, given the counterexample and
+                two alternatives.
+              - It died on 2026-09-17. Sell-side RFQs drew a bid on **3 of 3**
+                held combinations -- 16 of 44 quotes, every one at the full
+                size asked -- and two of those also carried resting public-book
+                bids **38,709** and **24,900** contracts deep.
+
+            So the rule is Joe's own, settled twice: **say what an exit COSTS,
+            not how often it exists.** He answered (a) to #60 on 2026-09-17,
+            which fixed the other three false-availability sentences, and (A)
+            to #64 on 2026-09-18 for this one. The frequency has been wrong
+            three times; every measured best bid sitting below what had been
+            paid has been true every time.
+
+            The replacement therefore asserts no rate and cannot be falsified
+            by the next reading. Everything else in #9's sentence is
+            untouched, and changing it again is his call rather than a side
+            effect of shipping a feature.
+            `docs/measurements/2026-09-17-combinations-can-be-exited.md`
           */}
           {/*
             **This sentence is RATIFIED and is restored here after being
@@ -137,8 +145,8 @@ export default async function ParlaysPage({
           one pick per game, shown at the{" "}
           <Term k="fair_value">fair value</Term> the sportsbooks&rsquo; chances
           imply rather than at what Kalshi charges — a card pays only if every
-          pick on it wins, and once you own one hardly anyone is bidding to buy
-          it back.{" "}
+          pick on it wins, and selling one back before the outcome usually
+          costs more than holding it.{" "}
           {ladder.notes.chance}
         </p>
       </header>

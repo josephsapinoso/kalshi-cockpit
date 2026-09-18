@@ -17,7 +17,14 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 
-import { COOKIE_NAME, sessionSecret, verifySession } from "@/lib/session";
+import {
+  COOKIE_NAME,
+  issueSession,
+  renewalDue,
+  sessionCookie,
+  sessionSecret,
+  verifySession,
+} from "@/lib/session";
 
 /**
  * Paths that must answer without a session.
@@ -78,11 +85,12 @@ const JSON_ROUTE_HANDLERS = new Set([
   "/parlay-bid",
   "/parlay-bid-cancel",
   // Asks the makers what a combination costs. Outward-facing -- it
-  // creates a real RFQ on the exchange -- but no money moves, because
-  // only accepting a quote binds the requester and no accept route
-  // exists. It is listed here for the same reason as the rest: without
-  // the entry an unauthenticated POST gets an HTML login redirect that
-  // a `fetch` reads as success.
+  // creates a real RFQ on the exchange -- but no money moves here, because
+  // only accepting a quote binds the requester. (This said "and no accept
+  // route exists" until 2026-09-18; one has since ADR 0165 and it is the
+  // next entry.) It is listed for the same reason as the rest: without the
+  // entry an unauthenticated POST gets an HTML login redirect that a
+  // `fetch` reads as success.
   "/parlay-rfq",
   // Takes a quote. **This one spends**, which is why it is a separate
   // handler from `/parlay-rfq` rather than a flag on it: the asking
@@ -158,8 +166,34 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (PUBLIC_PATHS.has(pathname)) return withFrameHeaders(NextResponse.next());
 
-  if (await verifySession(request.cookies.get(COOKIE_NAME)?.value, secret)) {
-    return withFrameHeaders(NextResponse.next());
+  const cookie = request.cookies.get(COOKIE_NAME)?.value;
+  if (await verifySession(cookie, secret)) {
+    const response = withFrameHeaders(NextResponse.next());
+    // **The session slides** -- issue #65, answer (A). Any authenticated
+    // request more than a day after the cookie was issued pushes the expiry
+    // out another thirty days, so an app used daily never asks for the token
+    // again and thirty days of silence still does.
+    //
+    // Once a day, not once a request: a `Set-Cookie` on every response is an
+    // HMAC per request and a header on every page and API call. See
+    // `SESSION_RENEW_AFTER_S`.
+    //
+    // A renewal that fails must never cost him the request he made -- the
+    // cookie he already holds is still valid, and the worst case of doing
+    // nothing here is that he signs in again one day later than he would
+    // have.
+    if (renewalDue(cookie)) {
+      try {
+        response.cookies.set(
+          sessionCookie(await issueSession(secret), {
+            secure: request.nextUrl.protocol === "https:",
+          }),
+        );
+      } catch {
+        // Keeping him signed in is a convenience; failing to is not a failure.
+      }
+    }
+    return response;
   }
 
   // An API caller gets a status code it can act on. Redirecting these would

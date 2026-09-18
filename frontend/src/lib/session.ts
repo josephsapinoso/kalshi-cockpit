@@ -29,6 +29,50 @@ export const COOKIE_NAME = "cockpit_session";
  *  handset is the kind of friction that gets a login disabled entirely. */
 export const SESSION_MAX_AGE_S = 60 * 60 * 24 * 30;
 
+/**
+ * How stale a cookie must be before an authenticated request renews it.
+ *
+ * **The expiry SLIDES** -- issue #65, answered (A) by Joe on 2026-09-18. It
+ * used to be a hard thirty days from sign-in, however often he opened the
+ * app, so the installed home-screen app (which keeps its own cookie jar, and
+ * therefore its own clock) would have dropped him back at the login page in
+ * mid-October regardless of use.
+ *
+ * **Not renewed on every request, and that is the whole design of this
+ * constant.** A `Set-Cookie` on every response means an HMAC per request and
+ * a header on every page, image and API call, on a box whose page-cache
+ * behaviour was the subject of ADR 0167 a day earlier. Renewing once a day
+ * gives exactly the property Joe asked for -- daily use never expires,
+ * thirty days of silence does -- at one extra signature a day per device.
+ *
+ * The cost of the cheaper rule is that the real window is between 29 and 30
+ * days of silence rather than exactly 30. Stated rather than hidden.
+ */
+export const SESSION_RENEW_AFTER_S = 60 * 60 * 24;
+
+/**
+ * The cookie's attributes, in ONE place.
+ *
+ * Both writers -- the login exchange and the renewal in middleware -- take
+ * them from here. Two literals would be two places for `httpOnly` to drift,
+ * and a renewal that quietly dropped it would downgrade the security of a
+ * session just by keeping it alive.
+ */
+export function sessionCookie(value: string, { secure }: { secure: boolean }) {
+  return {
+    name: COOKIE_NAME,
+    value,
+    httpOnly: true,
+    sameSite: "lax" as const,
+    // Fly terminates TLS and `force_https` is on, so the cookie should never
+    // travel in clear. Relaxed off HTTPS only so a local `next dev` still
+    // works.
+    secure,
+    path: "/",
+    maxAge: SESSION_MAX_AGE_S,
+  };
+}
+
 /** The shared secret, or `null` on an instance that has none (the demo). */
 export function sessionSecret(): string | null {
   const token = process.env.APP_AUTH_TOKEN;
@@ -82,6 +126,34 @@ export async function verifySession(
 
   const expiresAt = Number(expiry);
   return Number.isFinite(expiresAt) && expiresAt > now;
+}
+
+/**
+ * Whether a VERIFIED cookie is old enough to be worth re-issuing.
+ *
+ * Called only after `verifySession` has returned true, so the expiry it reads
+ * has already been proved to be ours. It re-parses rather than being folded
+ * into `verifySession` because that function answers one question -- may this
+ * request through -- and a renewal decision riding inside an auth check is
+ * how the two start being changed together by accident.
+ *
+ * False on anything unreadable: a cookie whose age cannot be determined is
+ * left exactly as it is, which is the existing behaviour and cannot lock
+ * anybody out.
+ */
+export function renewalDue(
+  value: string | undefined,
+  now = Date.now(),
+): boolean {
+  if (!value) return false;
+  const separator = value.lastIndexOf(".");
+  if (separator <= 0) return false;
+  const expiresAt = Number(value.slice(0, separator));
+  if (!Number.isFinite(expiresAt)) return false;
+  // Issued at `expiresAt - MAX_AGE`, so this is "older than the renewal
+  // interval" written without a second timestamp in the cookie.
+  const issuedAt = expiresAt - SESSION_MAX_AGE_S * 1000;
+  return now - issuedAt >= SESSION_RENEW_AFTER_S * 1000;
 }
 
 /** Whether the supplied token is the shared secret. */
