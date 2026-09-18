@@ -158,16 +158,25 @@ class TestTheTwoVocabulariesMatch:
             "returns"
         )
 
-    def test_there_are_ten_of_them(self):
+    def test_there_are_eleven_of_them(self):
         """The anchor. Both assertions above pass on two empty sets, which is
         also what a moved file or a broken regex produces.
 
-        Nine was what ADR 0160 §3 decided, and the tenth arrived as a
-        decision rather than a refactor: issue #56, answered A by Joe on
-        2026-09-17, split `hand_recorded_position` out of `no_order_row`
-        (ADR 0160, Amendment 2). An eleventh needs the same."""
-        assert len(refusal_names()) == 10
-        assert len(glossed_names()) == 10
+        Nine was what ADR 0160 §3 decided. Each one since arrived as a
+        decision rather than a refactor, and the count is bumped here only
+        with the decision named:
+
+        - the tenth, `hand_recorded_position`, issue #56 answered A by Joe on
+          2026-09-17, split out of `no_order_row` (ADR 0160 Amendment 2);
+        - the eleventh, `rfq_accept`, issue #69 on 2026-09-18, for the same
+          reason applied to a second path -- taking a maker's quote writes a
+          position and no `manual_orders` row at all, so the join key is
+          formed and can never match, and `no_order_row` would report a
+          designed state as a bookkeeping gap.
+
+        A twelfth needs the same."""
+        assert len(refusal_names()) == 11
+        assert len(glossed_names()) == 11
 
     def test_the_good_case_is_spelled_the_same_on_both_sides(self):
         """The one string the card compares against. A typo here renders the

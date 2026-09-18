@@ -34,6 +34,7 @@ from pathlib import Path
 import pytest
 
 import backend.combo_rfq as combo_rfq
+import backend.hedge as hedge
 from backend.kalshi.rfq import ACCEPT_SIDE_FOR_BUYING_YES, QuoteAcceptRefused, accept_quote
 from backend.parlays import LookupRefused
 from backend.store import combo_rfqs as store
@@ -449,3 +450,247 @@ class TestTheShippedProseAgreesWithTheFlag:
         source = self._source("frontend/src/components/AskTheMarket.tsx")
         assert "if (!armed)" in source
         assert "armed={value.accepts_are_armed}" in source
+def _positions(conn):
+    return conn.execute(
+        "SELECT * FROM parlay_positions ORDER BY id"
+    ).fetchall()
+
+
+class TestAFillBecomesAWatchedPosition:
+    """Issue #69. The newest armed door was the one the record could not see.
+
+    Before this, `accept_quote_for_joe` wrote `combo_rfqs` rows and nothing
+    else: a combination bought here produced no `parlay_positions` row, so
+    `/hedge` could not watch it and `VenueCoverageBanner` reported the desk's
+    own purchase back as a Kalshi holding nobody had recorded.
+
+    What these do not establish
+    ---------------------------
+    - **Nothing about what Kalshi charged.** The stake written is the
+      accepted quote's ask times its size, before fees. Whether an RFQ fills
+      at its quoted price is measured at n = 1 and is not assumed here --
+      which is exactly why the position resolves `as_recorded`.
+    - **Nothing about a real venue.** The fake answers the statuses it is
+      given; that `executed` is the only status Kalshi fills on is pinned by
+      `QUOTE_FILLED_STATUSES` and the 2026-09-17 measurements, not here.
+    """
+
+    async def test_an_executed_accept_puts_the_combination_under_watch(self, conn):
+        result = await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
+            api=FakeApi(statuses=["executed"]), dry_run=False,
+        )
+        assert result["filled"] is True
+        rows = _positions(conn)
+        assert len(rows) == 1, "a filled accept must leave exactly one position"
+        row = rows[0]
+        assert result["position_id"] == row["id"]
+        assert row["source"] == "kalshi_combo"
+        assert row["combo_ticker"] == "KXMVE-X"
+        assert row["status"] == "open"
+        # 9 contracts at the 59.3c the screen showed, and $1.00 a contract back.
+        assert row["stake_tenths"] == 5_337
+        assert row["return_tenths"] == 9_000
+        # Both halves of `/hedge`'s join key, from the one `now_ms`.
+        assert row["placed_ms"] == 2_000
+
+    async def test_the_legs_travel_with_it(self, conn):
+        """A combination watched without all its legs is watched as if the
+        missing ones could not lose."""
+        await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
+            api=FakeApi(statuses=["executed"]), dry_run=False,
+        )
+        legs = conn.execute(
+            "SELECT * FROM parlay_position_legs ORDER BY leg_index"
+        ).fetchall()
+        assert [leg["ticker"] for leg in legs] == ["M1"]
+        assert [leg["outcome"] for leg in legs] == ["pending"]
+
+    async def test_a_maker_that_confirms_and_dies_leaves_no_position(self, conn):
+        """`confirmed` is not a fill. The first live accept went
+        `accepted` -> `confirmed` in 32ms and `cancelled` 1.7s later with no
+        money moving; a position written on confirmation would have been a
+        holding that never existed."""
+        result = await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
+            api=FakeApi(statuses=["confirmed", "cancelled"]), dry_run=False,
+        )
+        assert result["filled"] is False
+        assert result["position_id"] is None
+        assert _positions(conn) == []
+
+    async def test_a_dry_run_leaves_no_position(self, conn):
+        """Nothing was spent, so there is nothing to watch."""
+        result = await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
+            api=FakeApi(statuses=["executed"]), dry_run=True,
+        )
+        assert result["position_id"] is None
+        assert _positions(conn) == []
+
+
+class TestAFillThatCannotBeRecordedSaysSo:
+    """`None` is never an error the caller may hide: it means the money moved
+    and nothing is watching it."""
+
+    async def _fill(self, conn):
+        return await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
+            api=FakeApi(statuses=["executed"]), dry_run=False,
+        )
+
+    async def test_an_unreadable_size_is_refused_not_guessed(self, conn):
+        conn.execute("UPDATE combo_rfq_quotes SET contracts = NULL")
+        conn.commit()
+        result = await self._fill(conn)
+        assert result["filled"] is True, "the trade still happened"
+        assert result["position_id"] is None
+        assert _positions(conn) == []
+
+    async def test_a_size_that_cannot_be_a_holding_is_refused(self, conn):
+        conn.execute("UPDATE combo_rfq_quotes SET contracts = 0")
+        conn.commit()
+        assert (await self._fill(conn))["position_id"] is None
+
+    async def test_a_size_finer_than_a_tenth_is_refused_not_rounded(self, conn):
+        """A settlement is a whole 1000 tenths a contract, so a size with more
+        than two decimals cannot be reproduced in the unit the table stores.
+        Same direction as `fractional_venue_fill_count` on the order path."""
+        conn.execute("UPDATE combo_rfq_quotes SET contracts = 9.0005")
+        conn.commit()
+        assert (await self._fill(conn))["position_id"] is None
+
+    async def test_unreadable_legs_are_refused(self, conn):
+        conn.execute("UPDATE combo_rfqs SET selected_legs = 'not json'")
+        conn.commit()
+        assert (await self._fill(conn))["position_id"] is None
+
+    async def test_the_trade_survives_a_bookkeeping_failure(self, conn):
+        """The money is spent. A failure to write the books must not turn a
+        completed purchase into an error that tells Joe nothing happened."""
+        conn.execute("UPDATE combo_rfqs SET selected_legs = 'not json'")
+        conn.commit()
+        result = await self._fill(conn)
+        assert result["filled"] is True
+        assert result["status"] == "executed"
+
+    async def test_the_trade_survives_a_raise_from_inside_the_writer(self, conn):
+        """The branch above returns `None` politely; this one makes
+        `record_position` *raise*, which is the case the broad `except` on
+        `_record_accepted_position` exists for.
+
+        A price of 1000 tenths is a dollar a contract, so the stake equals the
+        return and `ticket_refusal` rejects the ticket as unwinnable. The
+        trade still happened, and saying otherwise would send Joe looking for
+        a position that is really there.
+        """
+        conn.execute("UPDATE combo_rfq_quotes SET yes_ask_tenths = 1000")
+        conn.commit()
+        result = await self._fill(conn)
+        assert result["filled"] is True
+        assert result["status"] == "executed"
+        assert result["position_id"] is None
+        assert "not on the watch list" in result["words"]
+        assert _positions(conn) == []
+
+    async def test_the_words_tell_him_it_is_not_being_watched(self, conn):
+        """Silence would read exactly like a bet under watch."""
+        conn.execute("UPDATE combo_rfq_quotes SET contracts = NULL")
+        conn.commit()
+        words = (await self._fill(conn))["words"]
+        assert "not on the watch list" in words
+
+    async def test_a_watched_fill_does_not_say_it_is_unwatched(self, conn):
+        words = (await self._fill(conn))["words"]
+        assert "not on the watch list" not in words
+
+
+class TestTheHedgeScreenNamesWhereTheStakeCameFrom:
+    """A position bought by RFQ has no `manual_orders` row **by
+    construction**, and its join key is formed -- so without a reason of its
+    own it would report `no_order_row`, which ADR 0160 Amendment 2 defines as
+    a bookkeeping gap. That is the same conflation issue #56 removed, on a
+    second path."""
+
+    async def test_an_rfq_position_is_not_reported_as_a_gap(self, conn):
+        await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
+            api=FakeApi(statuses=["executed"]), dry_run=False,
+        )
+        rows = _positions(conn)
+        bases = hedge.stake_bases(conn, rows)
+        basis = bases[int(rows[0]["id"])]
+        assert basis.reason == "rfq_accept"
+        assert basis.basis == hedge.STAKE_BASIS_AS_RECORDED
+        assert basis.stake_tenths == 5_337
+
+    async def test_a_dry_run_acceptance_never_explains_a_stake(self, conn):
+        """`accept_dry_run = 0` is part of the lookup: an unarmed tap records
+        an intent, and an intent must not be able to name the source of money
+        that was never spent."""
+        await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
+            api=FakeApi(statuses=["executed"]), dry_run=False,
+        )
+        conn.execute("UPDATE combo_rfq_quotes SET accept_dry_run = 1")
+        conn.commit()
+        rows = _positions(conn)
+        basis = hedge.stake_bases(conn, rows)[int(rows[0]["id"])]
+        assert basis.reason == "no_order_row"
+
+    async def test_a_quote_that_never_executed_never_explains_a_stake(self, conn):
+        await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
+            api=FakeApi(statuses=["executed"]), dry_run=False,
+        )
+        conn.execute("UPDATE combo_rfq_quotes SET outcome_status = 'cancelled'")
+        conn.commit()
+        rows = _positions(conn)
+        basis = hedge.stake_bases(conn, rows)[int(rows[0]["id"])]
+        assert basis.reason == "no_order_row"
+
+    async def test_a_position_with_no_acceptance_keeps_its_own_reason(self, conn):
+        """The acceptance explains ONE position, not the screenful.
+
+        `stake_bases` resolves every open position in one pass. A second
+        combination on the same screen with no RFQ behind it must still read
+        `no_order_row` -- a reason that spreads across the batch is how a
+        stake gets explained by some other bet's fill, which is the failure
+        `ambiguous_order_rows` exists for on the order side.
+        """
+        await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
+            api=FakeApi(statuses=["executed"]), dry_run=False,
+        )
+        conn.execute(
+            """
+            INSERT INTO parlay_positions (
+                created_ms, source, label, stake_tenths, return_tenths,
+                placed_ms, status, combo_ticker
+            ) VALUES (3000, 'kalshi_combo', 'other card', 500, 9000,
+                      3000, 'open', 'KXMVE-OTHER')
+            """
+        )
+        conn.commit()
+        rows = _positions(conn)
+        assert len(rows) == 2
+        bases = hedge.stake_bases(conn, rows)
+        reasons = {row["combo_ticker"]: bases[int(row["id"])].reason for row in rows}
+        assert reasons == {"KXMVE-X": "rfq_accept", "KXMVE-OTHER": "no_order_row"}
+
+    async def test_another_combinations_acceptance_does_not_answer_for_this_one(
+        self, conn
+    ):
+        """The lookup is on `(ticker, accepted_ms)`, both halves. A quote on a
+        different combination at the same instant must not explain this
+        stake -- that is how a figure gets built on some other bet."""
+        await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
+            api=FakeApi(statuses=["executed"]), dry_run=False,
+        )
+        conn.execute("UPDATE combo_rfqs SET ticker = 'KXMVE-OTHER'")
+        conn.commit()
+        rows = _positions(conn)
+        basis = hedge.stake_bases(conn, rows)[int(rows[0]["id"])]
+        assert basis.reason == "no_order_row"

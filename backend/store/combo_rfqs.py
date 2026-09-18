@@ -270,6 +270,19 @@ def record_accept_outcome(
     )
 
 
+def rfq_row(conn: sqlite3.Connection, rfq_id: str) -> Optional[sqlite3.Row]:
+    """The ask a quote belongs to, or None.
+
+    Read by the accept path to build the position a fill creates. The
+    combination's ticker and its legs live on the ASK, not on the quote, and
+    `selected_legs` is stored in `parlay_lookups`' own shape on purpose, so
+    `parlays.legs_for_position` parses it with no second parser.
+    """
+    return conn.execute(
+        "SELECT * FROM combo_rfqs WHERE rfq_id = ?", (rfq_id,)
+    ).fetchone()
+
+
 def quote_row(
     conn: sqlite3.Connection, *, rfq_id: str, quote_id: str
 ) -> Optional[sqlite3.Row]:

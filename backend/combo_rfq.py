@@ -42,10 +42,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import sqlite3
 import time
 from typing import Optional
 
+from backend.core.hedge import SETTLEMENT_TENTHS
 from backend.core.prices import probability_to_tenths
 from backend.kalshi.orderbook import OrderBook
 from backend.kalshi.rest import EXCHANGE_INDEX_COMBOS
@@ -61,6 +63,8 @@ from backend.kalshi.rfq import (
     read_quote,
     read_quotes,
 )
+import backend.hedge as held_parlays
+import backend.parlays as parlays
 from backend.parlays import LookupRefused, _cost_per_contract
 from backend.store import combo_rfqs as store
 from backend.store.combo_orders import read_shard_funds
@@ -504,10 +508,22 @@ async def accept_quote_for_joe(
     conn.commit()
 
     filled = status in QUOTE_FILLED_STATUSES
+
+    # Only a real fill writes a position. A dry run spent nothing, so there is
+    # nothing to watch, and `confirmed` is not a fill -- the first live accept
+    # went `accepted` -> `confirmed` -> `cancelled` with no money moving.
+    position_id: Optional[int] = None
+    if filled and not dry_run:
+        position_id = _record_accepted_position(
+            conn, rfq_id=rfq_id, quote=quote, now_ms=now_ms
+        )
+        conn.commit()
+
     return {
         "status": status or "unknown",
         "filled": filled,
         "dry_run": dry_run,
+        "position_id": position_id,
         "rfq_id": rfq_id,
         "quote_id": quote_id,
         "accepted_side": side,
@@ -515,8 +531,130 @@ async def accept_quote_for_joe(
         "expected_ask_display": (
             None if expected is None else _cost_per_contract(expected)
         ),
-        "words": _accept_words(status, filled=filled, dry_run=dry_run),
+        "words": _accept_words(
+            status, filled=filled, dry_run=dry_run, position_id=position_id
+        ),
     }
+
+
+def _record_accepted_position(
+    conn: sqlite3.Connection, *, rfq_id: str, quote: sqlite3.Row, now_ms: int
+) -> Optional[int]:
+    """Put a combination bought by RFQ under `/hedge`'s watch.
+
+    **The newest armed door was the one the record could not see.** Until
+    this existed, `accept_quote_for_joe` wrote `combo_rfqs` intent and
+    outcome rows and nothing else: a combination bought here created no
+    position, `/hedge` could not watch it, and the desk reported its own
+    purchase back to Joe through `VenueCoverageBanner` as a Kalshi holding
+    nobody had recorded. A bet the tool places and does not record can never
+    be scored against the closing line either.
+
+    Returns the new position's id, or **`None` when the position could not be
+    built honestly** -- `None` is never an error the caller may hide: it means
+    the money moved and nothing is watching it, so `_accept_words` says so on
+    the screen. Nothing here raises. The trade is done and the money is spent;
+    a bookkeeping failure must not turn a completed purchase into a 500 that
+    tells Joe nothing happened.
+
+    **The size is the quote's own `contracts`**, because a maker's quote is
+    all-or-nothing at the size asked for -- an `executed` quote filled at that
+    size or did not fill. It is a REAL column and a combination really is held
+    in fractions (8.22 and 60.97 contracts are two of Joe's), so it is
+    validated rather than trusted: absent, non-finite or non-positive resolves
+    to `None`, never to zero or to one.
+
+    **What this does NOT establish: that the stake is what Kalshi charged.**
+    The stake written here is the accepted quote's ask times that size. The
+    one executed accept this repo has measured filled at exactly its quoted
+    price (`docs/measurements/2026-09-17-accepted-side-names-the-makers-side.md`),
+    which is n = 1 and not a rule, and no fee is included (ADR 0145's
+    `combo_entry_fee_tenths` is sunk at read time, as on the order path). So
+    `/hedge` resolves this position's stake as `as_recorded` with the reason
+    `rfq_accept`, and the screen says which -- see `hedge.stake_basis_for`.
+    """
+    try:
+        ask = store.rfq_row(conn, rfq_id)
+        if ask is None:
+            logger.error("rfq %s: no ask row, so no position was built", rfq_id)
+            return None
+        parsed = parlays.legs_for_position(ask["selected_legs"])
+        if parsed is None:
+            logger.error("rfq %s: legs unreadable, so no position", rfq_id)
+            return None
+
+        contracts = quote["contracts"]
+        if contracts is None:
+            logger.error("rfq %s: quote carries no size, so no position", rfq_id)
+            return None
+        contracts = float(contracts)
+        if not math.isfinite(contracts) or contracts <= 0:
+            logger.error(
+                "rfq %s: quote size %r cannot be a holding, so no position",
+                rfq_id, contracts,
+            )
+            return None
+
+        price = quote["yes_ask_tenths"]
+        if price is None:
+            logger.error("rfq %s: quote carries no price, so no position", rfq_id)
+            return None
+
+        # A settlement is a whole 1000 tenths a contract, so a size carrying
+        # more than two decimals cannot be reproduced exactly in the unit the
+        # table stores. Refused rather than rounded, for the reason
+        # `stake_basis_for`'s `fractional_venue_fill_count` refuses the same
+        # shape on the order path: a size a later audit cannot reproduce is
+        # not a size to build a money figure on.
+        exact_return = contracts * SETTLEMENT_TENTHS
+        if abs(exact_return - round(exact_return)) > 1e-6:
+            logger.error(
+                "rfq %s: quote size %r is finer than a tenth, so no position",
+                rfq_id, contracts,
+            )
+            return None
+
+        # Rounded, and it is the only rounding here: the ask is per contract
+        # and the size is fractional, so the product is not integral in
+        # general. Half a tenth of a cent, once, on the entry figure.
+        stake_tenths = int(round(contracts * int(price)))
+        note = (
+            "Recorded automatically from a maker's quote you took on the "
+            "Parlays screen. The stake is the price you accepted times the "
+            "size quoted, before fees -- not Kalshi's own record of the fill, "
+            "which this path does not read."
+        )
+        if parsed.labels_are_tickers:
+            note += (
+                " Leg names are market tickers -- this combination was priced "
+                "before the desk began recording leg labels, and inventing "
+                "them was refused."
+            )
+        return held_parlays.record_position(
+            conn,
+            now_ms=now_ms,
+            source="kalshi_combo",
+            label=(ask["card_key"] or ask["ticker"]),
+            stake_tenths=stake_tenths,
+            return_tenths=int(round(exact_return)),
+            legs=parsed.legs,
+            # Both halves of `/hedge`'s join key, from one variable, as the
+            # order path does it. There is no `manual_orders` row to join TO
+            # -- that is the point of the `rfq_accept` reason -- but the key
+            # still says this was bought through the desk rather than typed
+            # in by hand, which is the distinction issue #56 bought.
+            placed_ms=now_ms,
+            combo_ticker=str(ask["ticker"]),
+            # No `parlay_lookup_id`: `combo_rfqs` does not carry one, and
+            # re-deriving it by ticker would join whichever lookup last
+            # minted that ticker, which is not necessarily the one asked.
+            note=note,
+        )
+    except Exception:  # noqa: BLE001 -- the trade is done; bookkeeping may not raise
+        logger.exception(
+            "rfq %s: the position for a filled accept could not be written", rfq_id
+        )
+        return None
 
 
 def _venue_refusal_words(exc: Exception) -> Optional[str]:
@@ -557,11 +695,22 @@ def _venue_refusal_words(exc: Exception) -> Optional[str]:
     )
 
 
-def _accept_words(status: Optional[str], *, filled: bool, dry_run: bool) -> str:
+def _accept_words(
+    status: Optional[str],
+    *,
+    filled: bool,
+    dry_run: bool,
+    position_id: Optional[int] = None,
+) -> str:
     """What the screen says about an acceptance.
 
     Never claims a fill it has not seen, and never calls a maker's
     non-confirmation a failure at Joe's end.
+
+    **A fill that produced no position says so.** `position_id is None` after
+    a real fill means the money moved and `/hedge` is not watching it, which
+    Joe can only act on if he is told -- silence there would read exactly like
+    a bet under watch.
     """
     if dry_run:
         return (
@@ -570,11 +719,18 @@ def _accept_words(status: Optional[str], *, filled: bool, dry_run: bool) -> str:
             "record. Arming it is one line and one decision."
         )
     if filled:
-        return (
+        words = (
             "The maker confirmed and the trade went through. The price you "
             "accepted is the price above; what Kalshi actually charged, fees "
             "included, is on the fill and is the number to trust."
         )
+        if position_id is None:
+            words += (
+                " **This one is not on the watch list.** The position could "
+                "not be built from the record, so Parlays will not track it "
+                "-- add it by hand on the hedge screen if you want it watched."
+            )
+        return words
     if status in QUOTE_DEAD_STATUSES:
         return (
             "The maker did not confirm, so nothing was bought and nothing is "

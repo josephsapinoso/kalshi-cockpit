@@ -72,6 +72,7 @@ from .core.hedge import (
     ticket_refusal,
 )
 from .core.fees import calculate_fee
+from .kalshi.rfq import QUOTE_FILLED_STATUSES
 from .core.prices import (
     format_dollars,
     format_price,
@@ -516,12 +517,18 @@ def _order_key(position: Mapping[str, Any]) -> Optional[tuple[str, int]]:
 
     **`None` is also the marker for a ticket Joe recorded by hand**, derived
     rather than stored (issue #56, answered A on 2026-09-17). `record_position`
-    has exactly two callers: the order path, which always sets both columns,
-    and `POST /api/hedge/positions`, which takes them from the request -- and
-    the form behind it sends neither. So a combination he typed in has no key,
-    and no lookup over `manual_orders` is possible at all. That is a different
-    fact from a key that WAS formed and matched nothing, and `stake_basis_for`
+    has three callers and only one of them leaves both columns empty: the
+    order path sets both, the RFQ accept path sets both (issue #69), and
+    `POST /api/hedge/positions` takes them from the request -- and the form
+    behind it sends neither. So a combination he typed in has no key, and no
+    lookup over `manual_orders` is possible at all. That is a different fact
+    from a key that WAS formed and matched nothing, and `stake_basis_for`
     names the two separately rather than sharing one sentence between them.
+
+    **A formed key does not promise a row exists to find.** The RFQ path
+    forms one and there is no `manual_orders` row behind it by construction;
+    `stake_basis_for` separates that from a genuine gap with `rfq_accept`,
+    which is the same split issue #56 bought, applied to a second path.
 
     It is derived here rather than stamped on the row for ADR 0160's own
     reason: the marker IS the join, so a column for it would buy a schema
@@ -535,7 +542,10 @@ def _order_key(position: Mapping[str, Any]) -> Optional[tuple[str, int]]:
 
 
 def stake_basis_for(
-    position: Mapping[str, Any], order: Optional[Mapping[str, Any]]
+    position: Mapping[str, Any],
+    order: Optional[Mapping[str, Any]],
+    *,
+    rfq_accepted: bool = False,
 ) -> StakeBasis:
     """Which price this position's stake should be read at.
 
@@ -555,6 +565,14 @@ def stake_basis_for(
       by issue #56 (answered A, 2026-09-17), because five of his seventeen
       open positions were being told a search had come up empty when no
       search had run -- and a genuine gap could not be seen among them.
+    - **`rfq_accept`** -- bought by taking a maker's quote on an RFQ, which
+      writes a position and no `manual_orders` row at all (issue #69). The
+      key IS formed, so this would otherwise report `no_order_row` -- a
+      bookkeeping gap -- on a path that is working exactly as designed. The
+      stake is the quote's ask times its size; what Kalshi charged is not
+      read on this path, so it is `as_recorded` and not `venue_fill`, and
+      upgrading it would need the venue's own fill for an RFQ, which nothing
+      here reads yet.
     - **`no_order_row` / `ambiguous_order_rows`** -- the join key is
       `(combo_ticker, placed_ms)`, and `placed_ms` is the same
       `submitted_ms` the route wrote on the order in the same request
@@ -602,13 +620,17 @@ def stake_basis_for(
     if str(position["source"]) != "kalshi_combo":
         return StakeBasis(recorded, STAKE_BASIS_AS_RECORDED, "not_a_kalshi_combo")
     if order is None:
-        # Which of the two: a key that could not be formed means no lookup
-        # ever ran, and a key that was formed and matched nothing is a gap in
-        # the books. One sentence for both hid the second among the first.
+        # Which of the three: a key that could not be formed means no lookup
+        # ever ran; a key formed on the RFQ path has nothing to find by
+        # construction; a key formed on the order path and matching nothing is
+        # a gap in the books. One sentence for all of them hides the gap among
+        # the designed states, which is the defect issue #56 fixed once.
         if _order_key(position) is None:
             return StakeBasis(
                 recorded, STAKE_BASIS_AS_RECORDED, "hand_recorded_position"
             )
+        if rfq_accepted:
+            return StakeBasis(recorded, STAKE_BASIS_AS_RECORDED, "rfq_accept")
         return StakeBasis(recorded, STAKE_BASIS_AS_RECORDED, "no_order_row")
     if str(order["side"]) != "yes":
         return StakeBasis(
@@ -657,8 +679,16 @@ def stake_bases(
     A row that cannot be joined is simply absent from the order map, and
     `stake_basis_for` returns the recorded stake with `no_order_row` -- or
     with `hand_recorded_position`, when the position had no key to look one
-    up by. This function raises nothing: a bookkeeping read must not be able
-    to take the hedge screen down.
+    up by, or with `rfq_accept`, when an executed RFQ acceptance answers the
+    same key and there was never a `manual_orders` row to find. This function
+    raises nothing: a bookkeeping read must not be able to take the hedge
+    screen down.
+
+    **The second read is bounded by the same two lists as the first**, so
+    adding it cannot turn this into a scan of the quote history as
+    `combo_rfq_quotes` grows -- the same discipline the order read is held
+    to, and the reason `/api/hedge` is not on the list of routes that walk a
+    table (ADR 0167, 0168).
     """
     bases: dict[int, StakeBasis] = {}
     wanted = {k for k in (_order_key(p) for p in positions) if k is not None}
@@ -689,6 +719,44 @@ def stake_bases(
             # sentinel says so rather than letting the last row win, which is
             # how a stake gets built on some other bet's fill.
             orders[key] = _AMBIGUOUS if key in orders else row
+    # Which of those keys an executed RFQ acceptance answers. Empty is the
+    # common case and costs one bounded read; it is read even when every key
+    # found an order, because a position answering both would be a fact worth
+    # seeing rather than one to resolve by ordering.
+    accepted: set[tuple[str, int]] = set()
+    if wanted:
+        marks = ",".join("?" * len(QUOTE_FILLED_STATUSES))
+        try:
+            quote_rows = conn.execute(
+                "SELECT r.ticker AS ticker, q.accepted_ms AS accepted_ms "
+                "FROM combo_rfq_quotes q "
+                "JOIN combo_rfqs r ON r.rfq_id = q.rfq_id "
+                "WHERE q.accept_dry_run = 0 "
+                f"AND q.outcome_status IN ({marks}) "
+                f"AND r.ticker IN ({','.join('?' * len(tickers))}) "
+                f"AND q.accepted_ms IN ({','.join('?' * len(stamps))})",
+                (*QUOTE_FILLED_STATUSES, *tickers, *stamps),
+            ).fetchall()
+        except sqlite3.Error:
+            logger.exception(
+                "the RFQ acceptances behind the open positions could not be "
+                "read; a position bought that way reports no_order_row, which "
+                "understates it as a gap rather than overstating its stake."
+            )
+            quote_rows = []
+        for row in quote_rows:
+            key = (str(row["ticker"]), int(row["accepted_ms"]))
+            # **Not a guard, and it is written down as one.** Mutating this
+            # filter away leaves the suite green, because the SQL is already
+            # bounded by the same two lists and a key that matches no open
+            # position is never looked up below. It mirrors the order read's
+            # identical line so the two halves of this function read the
+            # same; the real claim -- that one acceptance explains ONE
+            # position and not the screenful -- is the loop below and IS
+            # tested (`test_a_position_with_no_acceptance_keeps_its_own_reason`).
+            if key in wanted:
+                accepted.add(key)
+
     for position in positions:
         key = _order_key(position)
         order = orders.get(key) if key is not None else None
@@ -699,7 +767,9 @@ def stake_bases(
                 "ambiguous_order_rows",
             )
             continue
-        bases[int(position["id"])] = stake_basis_for(position, order)
+        bases[int(position["id"])] = stake_basis_for(
+            position, order, rfq_accepted=key is not None and key in accepted
+        )
     return bases
 
 
