@@ -284,9 +284,11 @@ warm.
 7. `odds_snapshots` still has no retention rule — and it is now the ONLY growth
    lever left, which is #58's substance.
 8. **Everything shipped tonight is DEPLOYED.** Live and main are both
-   `3c17f96`, schema **v48** (`combo_rfq_quotes.yes_bid_tenths` read back off
-   the box after the migration), recorder writing, `/api/health` ok. Two
-   deploys: `1be0f7c` at 09:37Z and `3c17f96` at 10:23Z. ADR 0168's
+   `c8111a2`, schema **v49**, read back off the box rather than assumed:
+   `priced_too_finely` in the CHECK, `refused_too_fine` present,
+   `schema_version 49`, and **all 15 `combo_rfqs` rows kept and unrewritten**
+   by the rebuild. Recorder writing, `/api/health` ok. Three deploys:
+   `1be0f7c` 09:37Z, `3c17f96` 10:23Z, `c8111a2` 11:0xZ. ADR 0168's
    `--i-accept-the-cache-flush` guard is therefore **on the box now** — it was
    in the repo and not on live until tonight.
    **Two notes on deploying, both learned the hard way tonight.** A bare
