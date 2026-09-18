@@ -16,6 +16,78 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-18 (twenty-second) - A stated blocker is an inference until it quotes the source; the answer is often already on disk; and a mutation that cannot change behaviour is not a weak test
+
+From a session that took a registered look whose window was open at the time,
+and shipped three tickets off the RFQ path. Five patterns, and the first two
+each saved a piece of work that had been queued as expensive.
+
+- **A handoff's stated blocker is an inference until it quotes the source.**
+  `NEXT.md` said a registered measurement was blocked because "its Q1/Q2 are
+  not implemented as whitelisted `QueryDef`s - that is the real blocker, not
+  the clock". The registration contains no such requirement: its P4 asks for
+  *"a single read-only session (`mode=ro`)"* with *"exactly `Q1` and `Q2`"*,
+  and a harness printing extra sections would arguably violate it. The
+  prerequisite was invented by an earlier session, and it deferred a
+  **non-recurring dated window twice**. Same shape as the ticket that said
+  "nobody has registered the dedup" when the dedup had shipped eight days
+  earlier. **Before treating a handoff's blocker as real, open the document it
+  names and find the sentence.** A blocker is the one claim in a handoff that
+  nobody re-checks, because acting on it means NOT doing the work, and not
+  doing work leaves no trace that argues back.
+
+- **Before calling a third party to answer a question, grep the repo for a
+  payload that already answers it.** Two tickets the same night each specified
+  a fetch, and neither needed one. One asked for *"one authenticated
+  `GET /portfolio/balance` captured into `tests/fixtures/`"* - and 72 real
+  payloads with that body were already on disk under `data/`, captured days
+  earlier by unrelated work, which answered it **more strongly** than a single
+  fresh call could: the top-level `balance` is cents, each
+  `balance_breakdown[].balance` is a 4dp dollar string, and the two agree with
+  each other to 0.0065 dollars while disagreeing by ~100x under any other
+  pairing. **One payload could not have settled that; the agreement between
+  two fields in the same payload did.** The other ticket said an endpoint "is
+  sitting unread" when a poller had been mirroring it into a table for weeks.
+  The tell in both: a ticket that names a *fetch* rather than a *question* has
+  usually not searched for the data.
+
+- **A mutation that cannot change behaviour is not a weak test, and the
+  difference is worth five minutes.** Substituting `0` for an unreadable price
+  - the exact thing this file forbids - stayed green, and re-checking showed
+  why: zero then failed a downstream `is_valid_price` and resolved back to
+  `None`. The mutation was **behaviour-preserving by construction**. Treating
+  it as a decorative test would have meant "fixing" a test that was fine and
+  writing a false line into an ADR. **When a mutation stays green, ask whether
+  the mutant is equivalent BEFORE concluding the test is decoration** - and
+  record which of the two it was, because they call for opposite actions.
+
+- **A mutation checked against a constant fake proves less than it looks.**
+  Replacing `|=` with `=` on a set accumulated across a poll loop stayed green,
+  because the fake returned the same row on every read and union and
+  replacement agree there. The test asserted the loop polled twice and that the
+  count was one - both true under the mutant. **To pin an ACCUMULATION,
+  successive reads must differ.** The replacement serves a different row per
+  poll, where replacing reports one and the truth is two. Related, and hit
+  twice in one session: **a mutation pattern that matches N times patches one
+  of N**, and which one is not the one you meant. Assert exactly one match
+  before writing the file.
+
+- **A content guard that scans whole files will match documentation of
+  itself.** A new synthetic fixture cited a prior ADR by the third party's name
+  to explain why it was synthetic, and the guard that refuses that third
+  party's payloads - which greps fixture TEXT, not fixture payloads - fired on
+  the sentence explaining the exemption. **And targeted tests are not the
+  suite:** a new FILE in a watched directory trips repo-wide guards that no
+  targeted selection runs, so adding a fixture, a migration or an ADR means
+  running the guards that enumerate those directories, not only the tests near
+  the change. CI caught it, which is the system working and is also a red main
+  for eight minutes.
+
+ADR 0172, 0173, 0169 (Amendment 2),
+`docs/measurements/2026-09-18-fair-prices-dedup-effect-result.md`,
+`2026-09-18-the-shard-balance-is-dollars.md`,
+`2026-09-18-can-an-rfq-quote-partially-fill.md`.
+
 ## 2026-09-18 (twenty-first) - Check a money claim against a captured payload, not against the tests; and a threshold taken from the wrong clock cannot ever be false
 
 Three patterns from reviewing an armed path, and the middle one is this

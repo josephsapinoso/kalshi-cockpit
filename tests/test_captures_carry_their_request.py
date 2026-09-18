@@ -285,6 +285,17 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
     ),
 
     # -- Not a capture: nothing third-party is stored verbatim ----------------
+    "portfolio_balance_shape.json": NotACapture(
+        reason="SYNTHETIC, and deliberately so. A real /portfolio/balance "
+               "body is Joe's account balance -- operator data, which never "
+               "enters this public repo even sanitized -- so this follows "
+               "ADR 0035's precedent: a synthetic payload plus a shape "
+               "assertion. There is no request because no call was made to "
+               "produce it. The SHAPE it asserts is not invented: it was "
+               "read off 72 real payloads held outside the repo under "
+               "data/ (gitignored), which returned exactly one shape. "
+               "docs/measurements/2026-09-18-the-shard-balance-is-dollars.md.",
+    ),
     "create_order_responses.json": NotACapture(
         reason="Hand-written SYNTHETIC payloads. Its own `_provenance` says so "
                "and names the runbook and the SHA-256 of the real C0 probe "

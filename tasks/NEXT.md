@@ -126,6 +126,152 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-18 (thirty-third session) — the registered look was taken in its window, the growth lever is spent, and two tickets asking for a venue call were already answered on disk
+
+Joe said "read next.md and start, I am going to sleep", so the partner agent
+ran. It made one correction that decided the night: **the dedup look's window
+was OPEN AT THAT MOMENT** (07:00Z–11:00Z, one dated slot, not recurring), and
+**the blocker this file stated for it does not exist** — the entry below said
+the look was waiting on `QueryDef`s that the registration never asks for. That
+invented prerequisite had deferred a non-recurring window twice.
+
+### What shipped
+
+| commit | what | ADR |
+|---|---|---|
+| `cf95687` | the registered dedup look, taken and audited | reg. Amd 1 |
+| `f72cdfa` | a centi-cent quote is no longer "nobody quoted" (#73) | 0172 |
+| `9cd093e` | the shard balance is dollars, measured (#75) | — |
+| `cb01480` | the sell side is kept (#76 s1) + the partial-fill answer (#74) | 0173, 0169 Amd 2 |
+
+### 1. DEDUP DELIVERING — and `fair_prices` is spent as a growth lever
+
+`rho ≈ 0.0044` against a 0.25 threshold fixed the day before. Parts on the same
+side, preservation probe 0 violations, P1–P5 all YES. **Every one of the six
+post-window days is at least 34x below the cut, and the worst of all 54
+day-pairings is 23x below** — a bound needing no pooling.
+
+**P2 earned its place.** §3.1/§3.2 used the dedup's COMMIT instant as a proxy
+for its DEPLOY instant and were wrong by a UTC day: the 2026-09-09 session
+closed with live still on `2126dde` and the schema change *"not yet deployed"*.
+Amendment 1 fills slot A1 with `G_pre = 9` / `G_post = 6` against an expected
+8 and 7 — **one day from INCONCLUSIVE**, since §4's floor is 6.
+
+**The excluded day does not say what it looks like it says.** 2026-09-10 came
+back at post-dedup magnitude for the *whole* day, which over-predicts a 04:36Z
+deploy boundary by **36x**. The 04:32Z deploy's own boot log reads `v36 -> v37`
+— the database was ALREADY at v36 — so the dedup reached live late on 09-09 by
+a deploy that left no `deploy.yml` record. Same UTC day, same windows, same
+verdict; recorded as an open fact about the deploy record, **not** acted on,
+because §6.3 forbids moving a boundary in response to a count.
+
+**Audited by `measurement-skeptic` before commit**, which is owed especially
+when the result is good news. It reproduced all nine figures and returned eight
+blockers, all resolved. The biggest: **this registration's declared blindness
+was already broken by us** — a `dbstat` walk ran earlier the same day and the
+6.3 GB / ~137 MB/day slope went into #58 five hours before `Q1`, and ~137 sits
+on the registration's own "dedup works" row. Threshold and windows predate it;
+the analyst did not. §0 of the result says so.
+
+Removed on its advice: "the true dedup effect is at least this strong", a
+flattering "lands essentially on the predicted ~0.004" that silently equated an
+insert-rate ratio with a suppression rate, three inferences from one query's
+wall time, and "the parts agree to 3 decimal places" when they differ by 6.9%.
+**One of the audit's own findings was corrected rather than adopted:** its
+credit-cap explanation for the excluded day cannot work in the pre-dedup
+regime, because the 15s quote pass inserted from stored odds.
+
+**Two caveats that must travel with the number.** It is **not** the duplication
+rate — `rho` is a ratio of *insert* rates and the pass-volume denominator was
+never counted (it would take a 1.76% collapse to overturn the verdict, which is
+not live). And the preservation probe's **pair denominator was never returned**,
+so "0 violations" is over an unknown number of pairs. Both are registration
+defects, recorded for a successor.
+
+#58 and #55 carry the result. **No plan may name `fair_prices` as a growth
+lever again.** The residual is `odds_snapshots`, unchanged.
+
+### 2. Three RFQ-path tickets, and two of them needed no venue call
+
+- **#73 (ADR 0172).** A maker quoting in hundredths of a cent was refused —
+  correctly, rounding a price onto the money path is worse — and the screen
+  then said *"Nobody quoted this combination"*. Makers had quoted. Now a third
+  status, `priced_too_finely`, and the words say the Kalshi app will show it.
+  The refusals carry **ids, not counts**, because the poll loop re-reads the
+  same RFQ. **Left standing and ticketed as #77:** `combo_rfqs.status` still
+  records `no_quotes` in the DATABASE for the same case, which contaminates any
+  later measurement of how often a combination goes unquoted. Its CHECK has no
+  third value, so it is a migration.
+- **#75.** The shard balance the RFQ wall measures against **is dollars** — the
+  wall is not 100x loose. **No venue call**: 72 real payloads were already on
+  disk under `data/`, and the payload cross-checks its own units (top level
+  cents, breakdown 4dp dollars, agreeing to 0.0065 dollars and ~100x apart
+  under any other pairing). One real change: `round` to `math.floor`, because a
+  4dp dollar figure is hundredths of a cent and rounding a *balance* up is a
+  money guard erring the flattering way.
+- **#76 slice 1 (ADR 0173, schema v48).** `parse_quotes` was discarding
+  `yes_bid_dollars` — what a maker would PAY Joe for a combination he holds.
+  The 2026-09-17 measurement that refuted "combinations are enter-only" had to
+  use a throwaway script because of it.
+- **#74's measurement half.** An RFQ accept **cannot** carry a quantity over
+  REST (one property, `accepted_side`), though the rulebook permits partial
+  acceptance; and whether an accepted quote can execute short is **undocumented
+  everywhere**. Against that silence: **11 of 11** executed acceptances filled
+  whole, a census. ADR 0169's decision stands; its stated ground is amended to
+  something narrower and checkable.
+
+**The RFQ accept path is in heavy use** — 11 executed acceptances between
+2026-09-17T20:43Z and 2026-09-18T08:15Z. Any count of it in this file or any
+other is stale on sight (ADR 0162).
+
+### 3. The un-restarted timing this file has been asking for
+
+Taken before the look (the look flushes the cache), on a box up 2.7 hours:
+
+    /api/window    101 ms     /api/parlays   712 ms     /api/slate  400 ms
+    /board         449 ms     /picks         408 ms     /hedge    2,103 ms
+    /api/hedge   2,090 ms  <- the slowest thing on the desk
+
+**ADR 0167's win is real and not a restart artifact** — 6,974 to 101 ms holds
+on a settled box. But `/api/hedge` was reported at 755 ms minutes after a
+restart and is **2,090 ms** here, which is the figure to plan against.
+`/api/signal` came back at 74 ms; the 13,776 ms cache miss did not reproduce
+warm.
+
+### Still open
+
+1. **#76 slice 2 is designed but not built, and two findings changed it**
+   (commented on the ticket). `parlay_positions` has **no contract count**, so
+   "cost basis beside the bids" has no denominator without adding a field to
+   `StakeBasis`, which every stake on the screen goes through. And `/api/hedge`
+   is polled and is already the slowest route, so a sequential venue read per
+   open combination is not free. Slice 3 (the ask-the-makers tap, and letting a
+   quote survive with only a YES bid) is untouched — that last part changes
+   what the ARMED accept path can be handed and wants the `kalshi-platform`
+   review before it ships.
+2. **#78 is a new question for Joe** — chaining rulebook 5.3(b)(e) and 5.10(a),
+   a short-filled RFQ acceptance would leave **a resting offer**, the behaviour
+   ADR 0115 removed on his word. Never observed (11 of 11 filled whole) and not
+   decidable from the docs.
+3. **#77** is the `combo_rfqs.status` migration above. #72 is untouched.
+4. **Read the FIX page before believing a Kalshi REST reference is complete.**
+   Second divergence on this same endpoint in two days: FIX tag 21015 reads
+   "Allow partial fills (default: N)" on the maker's Quote where REST describes
+   `rest_remainder` differently. The first such gap nearly bought the opposite
+   contract at 250x.
+5. `inspect_live_db.py window-freshness` still runs the v41-shaped statement.
+6. `idx_odds_window` still carries `commence_ms` for a filter nothing applies.
+7. `odds_snapshots` still has no retention rule — and it is now the ONLY growth
+   lever left, which is #58's substance.
+8. **ADR 0168's `--i-accept-the-cache-flush` guard is in the repo and not on
+   the box.** Nothing deployed tonight; live is `ffa0bcb` and main is ahead by
+   four commits of backend, test and doc changes that want a deploy — including
+   **schema v48**, which migrates at boot.
+9. Everything in the thirty-second session's Still-open list below stands,
+   except its item 2 (the dedup look), which is now done.
+
+Question for Joe: accepting a quote might leave a resting offer on the book — guard it, or accept the risk? — #78
+
 ## 2026-09-18 (thirty-second session) — Joe answered four tickets in one line, the RFQ path got the review it never had, and a venue check refuted a sentence this session had shipped an hour earlier
 
 Session opened on "read next.md and continue", so the partner agent ran
