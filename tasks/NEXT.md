@@ -179,6 +179,54 @@ established): the window's continuous index walk was evicting the pages
 Eight guards mutation-checked, two found decorative on the first pass and
 fixed (ADR 0167 table). Full suite green locally, CI green on the push.
 
+### Second slice, same night: the recorder's candidate scan moved onto the table -- `15c3014`, live
+
+The partner agent ranked it first on "what now?" and was right about the
+shape: `runner.MATCH_CANDIDATE_SQL` was the last continuous read of
+`odds_snapshots`, a covered walk of every stored row of every fixture in
+range, once per sport per pass, in the recorder's process. It now reads
+`odds_fixtures` (ADR 0167 Amendment 1; `tests/test_candidate_scan_plan.py`
+rewritten to the new claim, five mutations recorded, one of them the
+order-dependent case stated rather than hidden). Deployed via
+`gh workflow run`; `loop-rss` after boot: **`candidate_ms` 657-1,418 -> 1 ms**
+on the same 418 candidates; `leg_price_link_ms` 3.3-9.8 s -> 0.2-0.6 s,
+reported not attributed (restart). The partner's estimate that the scan WAS
+the link phase was too strong -- `candidate_ms` was ~1 s of a 3-10 s phase --
+so what the link phase's fall is made of is not established.
+
+### Also this session, after "what now?"
+
+- **#58 got the three facts it was missing** (comment, 2026-09-18): the
+  volume is 20 GB with `auto_extend_size_limit = 20GB`, so the net is
+  exhausted and disk (~100 days at ~137 MB/day, a two-point slope, not the
+  registered statistic) no longer self-heals; the page cache, not the disk,
+  is the near clock; pruning `odds_snapshots` destroys per-pass
+  `oldest_book_age_ms` reconstruction (dedup registration §7.3). Still owed
+  before it is answerable: the registered fair-prices dedup look, 07:00-11:00Z.
+- **CLAUDE.md stopped carrying #60 as open** (`e6e7bab`): Joe answered (a)
+  on 09-17 and `a09475e` shipped his words. The lede's own clause is #64.
+- **The map frontier was refilled from a sharp-bettor pass** over the RFQ
+  path -- the newest armed surface and the only one that spends on one tap,
+  with none of the review the order-book path got in #39-#47. Every claim
+  was verified against source before the ticket was opened. Questions for
+  Joe: `#62` (what size an RFQ asks for -- today `min($5, 90% of the shard)`,
+  hardcoded at `PriceOnKalshi.tsx:283` and `combo_rfq.py:85`, and the
+  Take-it button shows no dollars), `#63` (may `/hedge` fire a sell-side
+  RFQ, and is selling armed there), `#64` (the Parlays lede's "hardly anyone
+  is bidding to buy it back"), `#65` (the installed app's hard 30-day login
+  expiry). Builds, no decision needed: `#66` print the book ask beside the
+  best quote and allow asking on a priced book; `#67` quote age on the
+  RFQ surface; `#68` all-in figure on Take-it; `#69` record a Take-it fill
+  as a position; `#70` glossary entries for RFQ/maker/quote/shard.
+  **#66-#68 are one slice inside `<TakeIt>`/`Quotes()`.**
+- **Lane B (costly-instrument guard as a class)** ran in a worktree; see
+  the entry below this one if it merged, or `git worktree list` if not.
+
+Question for Joe: what size should the desk ask for when taking a maker's quote -- #62
+Question for Joe: may the hedge screen ask the makers what they would pay for a held combination, and is selling armed there -- #63
+Question for Joe: what should the Parlays lede say now that every held combination has drawn a bid -- #64
+Question for Joe: should the installed app's login renew on use, and for how long -- #65
+
 ### Owned: this session cost the box, once
 
 `inspect_live_db.py db-sizes` walks `dbstat` -- the whole 6.3 GB file
@@ -189,21 +237,25 @@ query is safe to type, not free to run.**
 
 ### Still open
 
-1. **If the pages drift slow again, time them on a box that has NOT just
+1. **Take the registered fair-prices dedup look in its 07:00-11:00Z
+   window** (`docs/measurements/2026-09-17-preregistration-fair-prices-dedup.md`;
+   §9 forbids `db-sizes` as part of it). It is what #58 waits on. A live read
+   flushes the cache, so do it BEFORE any re-timing, not after.
+2. **If the pages drift slow again, time them on a box that has NOT just
    restarted** before blaming anything: that is the only read that can
-   separate "the window walk was thrashing the cache" from "the restart
-   emptied it". `/api/parlays` at 658 ms and `/api/hedge` at 755 ms are the
-   page floors now.
-2. `inspect_live_db.py window-freshness` still runs the v41-shaped statement
+   separate "a walk was thrashing the cache" from "the restart emptied it".
+   `/api/parlays` at 658 ms and `/api/hedge` at 755 ms are the page floors
+   now, and both were read minutes after a restart.
+3. `inspect_live_db.py window-freshness` still runs the v41-shaped statement
    (a retrospective at `--at`; cannot be served by a current-state table).
    It is now the slow path on live: run it once, deliberately, expecting the
    desk to be slow after.
-3. `idx_odds_window` carries `commence_ms` for a range filter no statement
+4. `idx_odds_window` carries `commence_ms` for a range filter no statement
    applies any more. Dropping it rebuilds ~260 MB at boot; a timed decision
    of its own, not taken.
-4. `odds_snapshots` still has no retention rule. This change made the
+5. `odds_snapshots` still has no retention rule. This change made the
    window independent of its growth and nothing else.
-5. Everything in the thirtieth session's Still-open list below stands.
+6. Everything in the thirtieth session's Still-open list below stands.
 
 ## 2026-09-17 (thirtieth session) — the cockpit installs to the home screen, and the line that makes it work is one entry in the auth allowlist
 

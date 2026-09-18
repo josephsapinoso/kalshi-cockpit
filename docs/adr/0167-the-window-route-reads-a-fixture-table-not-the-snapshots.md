@@ -165,6 +165,10 @@ older row last, which is the case the clause exists for.
 `scripts/measure_odds_scan_index.py` now times a retyped copy of the v31
 statement and says so in its header; it no longer imports the runner's.
 
+Deployed as `15c3014`; `loop-rss` on the four passes after boot reads
+`candidate_ms` **1 ms** against 657-1,418 ms the day before, on the same
+418-row candidate population (§F of the measurement doc).
+
 ## Consequences
 
 - `/api/window`'s cost is now proportional to the fixture count. Whether

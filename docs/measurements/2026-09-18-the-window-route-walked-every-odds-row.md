@@ -240,3 +240,18 @@ the same factor. The deployed `candidate_ms` is the number to read, from
 `loop-rss`, after the deploy that carries this -- and it is the recorder's
 number, not a page's, so the page timings in §D are not expected to move
 much on their own account.
+
+Deployed as `15c30147db35b34290e40931553f9786e27ae76d` (03:1xZ, second
+restart of the night). `loop-rss`, the four quote passes after the first
+full pass, newest first:
+
+    iso                    candidate_rows  candidate_ms  leg_price_link_ms  leg_store_quotes_ms
+    03:22:43Z                     418             1              207                704
+    03:21:38Z                     418             1              306                618
+    03:20:33Z                     418             1              319               1652
+    03:19:27Z                     418             1              640               5673
+
+Against 2026-09-17's five passes: `candidate_ms` 657-1,418 -> **1 ms**,
+which is the number this amendment owns. `leg_price_link_ms` 3,276-9,755
+-> 207-640 ms is the whole link phase and sits on a restarted box, so it
+is reported, not attributed. RSS 239 MB, unchanged in kind.
