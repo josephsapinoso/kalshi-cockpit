@@ -1,0 +1,33 @@
+{
+  "_comment": [
+    "SYNTHETIC, and deliberately so -- the one exception this repo already",
+    "makes, for the same reason. A real `/portfolio/balance` payload is",
+    "operator data: it is Joe's account balance, and his standing ruling is",
+    "that account and fills data never enter this public repo, even",
+    "sanitized. So this follows the MLBAM precedent of ADR 0035: a synthetic",
+    "payload plus a SHAPE assertion, with the inconsistency recorded as the",
+    "decision rather than left as a bug to fix.",
+    "",
+    "The shape below is not invented. It was read off 72 real captured",
+    "payloads held OUTSIDE the repo under `data/` (gitignored), which",
+    "returned exactly one shape with no variation:",
+    "  - top-level `balance` is an INTEGER, and it is CENTS",
+    "  - each `balance_breakdown[].balance` is a STRING matching \\d+\\.\\d{4},",
+    "    and it is DOLLARS",
+    "Those two readings agree with each other to within 0.0065 dollars across",
+    "all 72; under any other pairing they disagree by a factor of ~100.",
+    "`docs/measurements/2026-09-18-the-shard-balance-is-dollars.md`.",
+    "",
+    "The figures here are round numbers chosen to make the unit test",
+    "arithmetic legible, and the cross-check holds on them too:",
+    "  1234 cents = $12.34 ; 12.3400 + 0.0100 + 0.0000 + 0.0000 = $12.35",
+    "(the 0.01 discrepancy is the same kind the real captures show)."
+  ],
+  "balance": 1234,
+  "balance_breakdown": [
+    { "balance": "12.3400", "exchange_index": 0 },
+    { "balance": "0.0100", "exchange_index": 1 },
+    { "balance": "0.0000", "exchange_index": 2 },
+    { "balance": "0.0000", "exchange_index": 3 }
+  ]
+}

@@ -45,6 +45,7 @@ WHAT THIS MODULE DOES NOT ESTABLISH
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
@@ -211,11 +212,32 @@ def read_shard_funds(payload: Any, *, exchange_index: int) -> ShardFunds:
             continue
         raw = row.get("balance")
         try:
-            # Dollars as a 4dp string, the shape the venue sends. Tenths of a
-            # cent is the project's unit, so dollars x 1000.
+            # **Dollars as a 4dp string, and that is now MEASURED rather than
+            # asserted** (#75, 2026-09-18). This comment used to claim the
+            # shape on no evidence while gating money, and the alternative
+            # mattered: Kalshi's TOP-LEVEL `balance` is an integer in CENTS,
+            # so a cents reading here would make `available_tenths` 100x high
+            # and the shard wall would never fire.
+            #
+            # Read off 72 real captured payloads: one shape, no variation --
+            # top level `int` (cents), every `balance_breakdown[].balance` a
+            # string matching `\d+\.\d{4}` (dollars). The two agree to within
+            # 0.0065 dollars on every payload, and disagree by ~100x under any
+            # other pairing, so the payload cross-checks itself.
+            # `docs/measurements/2026-09-18-the-shard-balance-is-dollars.md`.
+            #
+            # **FLOOR, not round, and the direction is the whole reason.** A
+            # 4dp dollar figure is hundredths of a cent -- finer than this
+            # project's tenth-of-a-cent unit, the same centi-cent resolution
+            # ADR 0172 found on combination quotes -- so a conversion here
+            # cannot be exact. `round` would round a balance UP by as much as
+            # half a tenth of a cent, which is a headroom check reporting
+            # money that is not there; the error is tiny and it points the
+            # flattering way, which is the one direction this repo refuses.
+            # Clamp what you trust.
             return ShardFunds(
                 exchange_index=exchange_index,
-                available_tenths=int(round(float(raw) * 1000)),
+                available_tenths=math.floor(float(raw) * 1000),
             )
         except (TypeError, ValueError):
             return ShardFunds(exchange_index=exchange_index, available_tenths=None)
