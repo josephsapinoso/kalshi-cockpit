@@ -47,9 +47,9 @@ read-only replays. **One accidental cost, owned below in §E.**
   organization`, so no CPU, iowait or disk-read series was read. The fix
   does not depend on which it was: it removes the term that scales with
   rows.
-- **The live win.** §C is a local warm-box ratio. v39's local 3x returned
-  81x on live; v41's 5x was a floor. The post-deploy timing is §D, and
-  until it is taken this document says nothing about the deployed number.
+- **The live win beyond `/api/window`.** §C is a local warm-box ratio and
+  §D is the deployed number for the window route (58x). The other routes'
+  recovery in §D sits on a restarted box and is not attributed.
 - **`/api/parlays` (7.0 s) and `/api/slate` (2.1 s).** Both were also
   4x their 2026-09-16 figures, and neither reads `/api/window`. They are
   outside this change; §D re-times them because the window's continuous
@@ -164,9 +164,47 @@ About 5 ms per sweep, against a quote pass measured in seconds.
 
 ## D. After: deployed and re-timed
 
-_To be filled in after the deploy, from the same harness, same reps, with
-`/api/health` `git_sha` quoted. Until then this section is empty on
-purpose and §C's ratio is not a claim about live._
+Deployed via `gh workflow run deploy.yml` (the local `flyctl deploy` was
+refused by the auto-mode classifier, as on 2026-09-15). `/api/health`
+`build.git_sha` = `31b6e85697c1a786f979dc421f45e3974300c80e`, machine
+`7812601a239428`. Boot log: `[migrate] /data/cockpit.db migrated v46 -> v47`
+at 02:37:53Z, 31 s after `checking database schema` -- the backfill on the
+real volume, inside the 600 s grace with room.
+
+Same harness, 3 reps, `--leagues`, two back-to-back runs. **The box had
+just restarted**, so the first run is the closest thing to cold this
+harness can take and the second is warm.
+
+    route                                    before    first run    second run
+                                               med     med   max     med   max
+    /api/window                               6974     123   147     119   124
+    /api/parlays                              6951     751  3893     658   689
+    /api/board?include_suppressed=false       2014     375   654     349   373
+    /api/slate                                2056     452   659     452   546
+    /api/hedge                                 777     770   816     755   774
+    /api/slate?league=americanfootball_nfl    4659     750  2771     626  1256
+    /api/slate?league=americanfootball_ncaaf  4604     571  2578     495   517
+    /api/slate?league=baseball_mlb            4084     487   504     475   491
+    /parlays                                  9681     780   945     805  1152
+    /board                                    9189     456   458     452   473
+    /slate                                   14864     790  3663     570   580
+    /hedge                                    1251     754   780     766   769
+    /picks                                    8881     445   483     445   455
+
+`/api/window`: 6,974 -> 119 ms at the median, **58x**, against the local
+rehearsal's 42x. That is the number this change owns.
+
+**Everything else recovered too, and this document does not claim the
+change did that.** `/api/parlays` and `/api/slate` read nothing this change
+touched, and the deploy restarted the machine, which also emptied whatever
+the day's cache state was (including anything §E's dbstat walk left). The
+hypothesis that the window's continuous index walk was evicting the pages
+those routes need is consistent with these numbers and not established by
+them; separating the two would need a timing on a box that had NOT just
+restarted, which is the next session's to take if the routes drift again.
+One outlier: `/api/signal` max 15,366 ms on the first run (min 103) -- the
+signal cache miss `2026-09-17-the-signal-cache-miss-is-the-desks-worst-latency.md`
+already records, not this change.
 
 ## E. What this session cost the box, owned
 

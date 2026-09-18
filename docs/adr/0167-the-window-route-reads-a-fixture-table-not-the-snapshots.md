@@ -101,11 +101,12 @@ answers compared elementwise and equal first:
     fixture_freshness          995 ms -> 24 ms    42x
     upcoming_fixtures_by_sport 1.2 ms -> 0.1 ms   10x
 
-**That is a floor and a direction, not the live number.** v39's local 3x
-returned 81x on live; v41's local 5x was the floor it was recorded as. The
-deployed figure is owed to §D of the measurement doc, from
-`scripts/time_live_routes.py`, with the sha quoted, and this ADR is not
-finished until it is there.
+**That was a floor and a direction, not the live number.** Deployed as
+`31b6e85`, migrated v46 -> v47 on the volume in 31 s, and re-timed with
+`scripts/time_live_routes.py` (§D of the measurement doc): `/api/window`
+**6,974 ms -> 119 ms at the median, 58x**, on a just-restarted box; the
+pages 9-15 s -> 0.45-0.8 s. The other routes recovered with it, and the
+restart is a confound for those -- the ADR claims the window figure only.
 
 ## Guards, each disabled and watched go red
 

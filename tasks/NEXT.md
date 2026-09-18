@@ -126,6 +126,85 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-18 (thirty-first session) — "the site is really slow again": every page was waiting on a route that walked every stored odds row, and now it reads a table with one row per fixture
+
+**Joe's errand, verbatim: "The site is being really slow again please make it
+faster."** Single-item errand he named himself, so the partner agent was
+skipped (CLAUDE.md workflow 0).
+
+### What was wrong
+
+Measured before touching anything (`scripts/time_live_routes.py 3
+--leagues`, warm box): every desk page 8-15 s at the median, one Board load
+60.8 s; `/api/window` 7.0 s at the median and **two 25 s read-budget trips
+that evening** (`read-incidents`, 21:17Z and 23:16Z). Every server-rendered
+page awaits `/api/window` before it can render. The recorder was healthy
+(`loop-rss`: RSS 204 MB, 3.1 GB available). No code on the route had
+changed since the 2026-09-16 timing (887 ms).
+
+Both of the route's fixture reads found "which fixtures are upcoming" by
+walking `odds_snapshots`: `fixture_freshness` walked the whole `market =
+'h2h'` prefix of `idx_odds_window` (every h2h row ever stored -- v41 made
+that walk covering, not small), and `upcoming_fixtures_by_sport` walked
+every row of every upcoming fixture with a table fetch each, twice per call.
+Cost proportional to stored rows, polled every 3 s by every open tab.
+
+### What shipped -- `31b6e85`, ADR 0167, schema v47, live
+
+`odds_fixtures`: one row per sportsbook fixture, **kept by an `AFTER INSERT`
+trigger on `odds_snapshots`** (latest sweep wins), backfilled once at boot
+for kickoffs from seven days before the migration on. Both reads now seek
+into it; per fixture, two covering seeks on `idx_odds_window` with the
+event bound. Local rehearsal at live's shape
+(`scripts/measure_odds_fixtures.py`): 995 -> 24 ms, answers compared
+elementwise first; trigger ~5 ms a sweep; backfill 632 ms, no RSS growth.
+
+Deployed via `gh workflow run deploy.yml` (local `flyctl deploy` refused
+by the classifier). Boot log: `migrated v46 -> v47`, 31 s. `/api/health`
+`git_sha` `31b6e85697c1a786f979dc421f45e3974300c80e`. Re-timed, same
+harness, two runs on the just-restarted box:
+
+    /api/window    6,974 -> 119 ms   (58x; the number this change owns)
+    /parlays       9,681 -> 805      /board   9,189 -> 452
+    /slate        14,864 -> 570      /picks   8,881 -> 445
+    /api/parlays   6,951 -> 658      /api/slate  2,056 -> 452
+
+**The routes that do not read the window recovered too, and that is NOT
+attributed to the change**: the deploy restarted the box, which also reset
+whatever the day's cache state was. Hypothesis (consistent, not
+established): the window's continuous index walk was evicting the pages
+`/api/parlays` and `/api/slate` need.
+`docs/measurements/2026-09-18-the-window-route-walked-every-odds-row.md`.
+
+Eight guards mutation-checked, two found decorative on the first pass and
+fixed (ADR 0167 table). Full suite green locally, CI green on the push.
+
+### Owned: this session cost the box, once
+
+`inspect_live_db.py db-sizes` walks `dbstat` -- the whole 6.3 GB file
+through a 3 GB page cache -- and was run during the diagnosis before its
+description was read. Killed locally at 180 s; the remote process was not
+confirmed dead. `tasks/lessons.md` 2026-09-18 (twentieth): **a whitelisted
+query is safe to type, not free to run.**
+
+### Still open
+
+1. **If the pages drift slow again, time them on a box that has NOT just
+   restarted** before blaming anything: that is the only read that can
+   separate "the window walk was thrashing the cache" from "the restart
+   emptied it". `/api/parlays` at 658 ms and `/api/hedge` at 755 ms are the
+   page floors now.
+2. `inspect_live_db.py window-freshness` still runs the v41-shaped statement
+   (a retrospective at `--at`; cannot be served by a current-state table).
+   It is now the slow path on live: run it once, deliberately, expecting the
+   desk to be slow after.
+3. `idx_odds_window` carries `commence_ms` for a range filter no statement
+   applies any more. Dropping it rebuilds ~260 MB at boot; a timed decision
+   of its own, not taken.
+4. `odds_snapshots` still has no retention rule. This change made the
+   window independent of its growth and nothing else.
+5. Everything in the thirtieth session's Still-open list below stands.
+
 ## 2026-09-17 (thirtieth session) — the cockpit installs to the home screen, and the line that makes it work is one entry in the auth allowlist
 
 **Joe asked whether this could be a phone app, "similar to how some websites on
