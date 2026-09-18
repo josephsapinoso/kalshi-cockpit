@@ -44,6 +44,7 @@ WHAT THESE TESTS DO NOT ESTABLISH
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import re
 import sqlite3
@@ -54,8 +55,14 @@ from typing import Any
 import pytest
 
 from scripts.inspect_live_db import (
+    ACCEPT_FLAG,
+    CHEAP,
+    COSTS,
     DEFAULT_ROW_CAP,
+    EXIT_REFUSED_ON_COST,
     QUERIES,
+    WALKS_THE_FILE,
+    QueryDef,
     _ACTIONABLE_PREDICATE,
     _SQL_ACTIONABLE_FAIR,
     _SQL_ACTIONABLE_ROWS,
@@ -889,6 +896,17 @@ class TestCreditsDaySaysWhetherTheCapBound:
         assert section["rows"] == []
 
 
+def _accept(name: str) -> list[str]:
+    """The cost flag, for a walk only.
+
+    A cheap query gets nothing, so the every-query runs below are also the
+    proof that a cheap query needs nothing; a walk gets the flag, so the same
+    runs prove the flag lets it through. Passing it unconditionally would make
+    both halves untestable here.
+    """
+    return [ACCEPT_FLAG] if QUERIES[name].cost == WALKS_THE_FILE else []
+
+
 class TestEveryWhitelistedQueryRunsAgainstTheRealSchema:
     """The queries name columns the live database has.
 
@@ -898,7 +916,9 @@ class TestEveryWhitelistedQueryRunsAgainstTheRealSchema:
 
     @pytest.mark.parametrize("name", sorted(QUERIES))
     def test_the_query_runs_and_exits_zero(self, name, live_db, capsys):
-        rc = main([name, "--db", str(live_db), "--date", DAY, "--json"])
+        rc = main(
+            [name, "--db", str(live_db), "--date", DAY, "--json", *_accept(name)]
+        )
         capsys.readouterr()
         assert rc == 0
 
@@ -913,9 +933,11 @@ class TestEveryWhitelistedQueryRunsAgainstTheRealSchema:
         long as *one* section says it. The equality is what makes dropping the
         empty branch -- or the populated one -- go red.
         """
-        rc_json = main([name, "--db", str(empty_db), "--date", DAY, "--json"])
+        rc_json = main(
+            [name, "--db", str(empty_db), "--date", DAY, "--json", *_accept(name)]
+        )
         payload = json.loads(capsys.readouterr().out)
-        rc_text = main([name, "--db", str(empty_db), "--date", DAY])
+        rc_text = main([name, "--db", str(empty_db), "--date", DAY, *_accept(name)])
         text = capsys.readouterr().out
         assert rc_json == 0 and rc_text == 0
         counted = [
@@ -926,6 +948,123 @@ class TestEveryWhitelistedQueryRunsAgainstTheRealSchema:
     def test_every_query_has_a_description(self):
         for name, defn in QUERIES.items():
             assert defn.description.strip(), name
+
+
+#: The three the 2026-09-18 lesson named, pinned by name so a reclassification
+#: of one of them is a deliberate edit here and not a drift in the registry.
+KNOWN_WALKS = ("db-sizes", "window-freshness", "book-rows")
+KNOWN_CHEAP = ("loop-rss", "read-incidents", "sweep-log", "credits-tail", "notifications")
+
+
+def _walks() -> list[str]:
+    return sorted(n for n, d in QUERIES.items() if d.cost == WALKS_THE_FILE)
+
+
+def _cheap() -> list[str]:
+    return sorted(n for n, d in QUERIES.items() if d.cost == CHEAP)
+
+
+class TestAWalkOfTheFileIsRefusedUnlessTheCallerAcceptsTheCost:
+    """A whitelisted query is safe to type, not free to run.
+
+    The class is the guard: a `WALKS_THE_FILE` query does not run without the
+    flag, a `CHEAP` one needs nothing, and no entry can omit the field. Each
+    claim was observed red under the mutation named beside it.
+    """
+
+    def test_every_query_declares_a_cost_from_the_closed_set(self):
+        """Mutation: set one entry's `cost` to `"free"` -- red at import."""
+        for name, defn in QUERIES.items():
+            assert defn.cost in COSTS, name
+
+    def test_the_cost_field_has_no_default(self):
+        """A default of CHEAP would let a new query skip the question.
+
+        Mutation: `cost: str = CHEAP` on the dataclass -- both halves red.
+        """
+        field = QueryDef.__dataclass_fields__["cost"]
+        assert field.default is dataclasses.MISSING
+        with pytest.raises(TypeError):
+            QueryDef("d", lambda conn, args: [])  # type: ignore[call-arg]
+
+    def test_a_cost_outside_the_closed_set_is_refused_at_construction(self):
+        """Mutation: delete `QueryDef.__post_init__` -- red."""
+        with pytest.raises(ValueError):
+            QueryDef("d", lambda conn, args: [], "free")
+
+    @pytest.mark.parametrize("name", KNOWN_WALKS)
+    def test_the_three_known_walks_are_classified_as_walks(self, name):
+        """Mutation: flip `db-sizes` to `cost=CHEAP` -- red."""
+        assert QUERIES[name].cost == WALKS_THE_FILE
+
+    @pytest.mark.parametrize("name", KNOWN_CHEAP)
+    def test_the_known_tails_are_classified_cheap(self, name):
+        assert QUERIES[name].cost == CHEAP
+
+    def test_both_classes_are_populated(self):
+        """A registry with every query in one class has not classified anything."""
+        assert _walks() and _cheap()
+
+    @pytest.mark.parametrize("name", _walks())
+    def test_a_walk_refuses_without_the_flag_and_prints_nothing_to_stdout(
+        self, name, live_db, capsys
+    ):
+        """Mutation: drop `and not args.i_accept_the_cache_flush` from `main`
+        (always run) -- red on every walk."""
+        rc = main([name, "--db", str(live_db), "--date", DAY, "--json"])
+        captured = capsys.readouterr()
+        assert rc == EXIT_REFUSED_ON_COST
+        assert captured.out == ""
+        assert name in captured.err
+
+    @pytest.mark.parametrize("name", _walks())
+    def test_a_walk_runs_with_the_flag(self, name, live_db, capsys):
+        """Mutation: `if query.cost == WALKS_THE_FILE:` (refuse regardless)
+        -- red on every walk."""
+        rc = main([name, "--db", str(live_db), "--date", DAY, "--json", ACCEPT_FLAG])
+        capsys.readouterr()
+        assert rc == 0
+
+    @pytest.mark.parametrize("name", _cheap())
+    def test_a_cheap_query_runs_without_the_flag(self, name, live_db, capsys):
+        """Mutation: `if not args.i_accept_the_cache_flush:` (refuse every
+        query without the flag) -- red on every cheap name."""
+        rc = main([name, "--db", str(live_db), "--date", DAY, "--json"])
+        capsys.readouterr()
+        assert rc == 0
+
+    def test_the_refusal_is_one_sentence_that_names_the_cost_and_the_flag(
+        self, live_db, capsys
+    ):
+        """Mutation: print `"refused"` alone -- red."""
+        main(["db-sizes", "--db", str(live_db)])
+        err = capsys.readouterr().err.strip()
+        assert err.count("\n") == 0
+        assert err.endswith(".")
+        assert "page cache" in err
+        assert "slow for minutes" in err
+        assert ACCEPT_FLAG in err
+        assert "db-sizes" in err
+
+    def test_the_refusal_happens_before_the_database_is_opened(self, tmp_path, capsys):
+        """A missing database is exit 3; a refused walk against a missing
+        database is exit 4, which can only be true if the cost check ran first.
+
+        Mutation: move the cost check below `connect_readonly` -- red (3).
+        """
+        missing = tmp_path / "absent.db"
+        rc = main(["db-sizes", "--db", str(missing)])
+        capsys.readouterr()
+        assert rc == EXIT_REFUSED_ON_COST
+        assert not missing.exists()
+
+    def test_the_listing_shows_the_cost_beside_every_name(self):
+        """Mutation: drop `{QUERIES[name].cost:<16}` from the epilog -- red."""
+        from scripts.inspect_live_db import _build_parser
+
+        epilog = _build_parser().epilog
+        for name, defn in QUERIES.items():
+            assert f"  {name:<24}{defn.cost:<16}" in epilog, name
 
 
 class TestTheHandBetAuditCannotLeakAResult:
@@ -2619,7 +2758,7 @@ class TestWindowFreshnessMirrorsTheProductionMeasure:
         payload = _run_json(
             capsys,
             [
-                "window-freshness",
+                "window-freshness", ACCEPT_FLAG,
                 "--db", str(_freshness_db(tmp_path)),
                 "--at", "2100000",
             ],
@@ -2638,7 +2777,7 @@ class TestWindowFreshnessMirrorsTheProductionMeasure:
         payload = _run_json(
             capsys,
             [
-                "window-freshness",
+                "window-freshness", ACCEPT_FLAG,
                 "--db", str(_freshness_db(tmp_path)),
                 "--at", "2100000",
             ],
@@ -2657,7 +2796,7 @@ class TestWindowFreshnessMirrorsTheProductionMeasure:
         payload = _run_json(
             capsys,
             [
-                "window-freshness",
+                "window-freshness", ACCEPT_FLAG,
                 "--db", str(_freshness_db(tmp_path)),
                 "--at", "2100000",
             ],
@@ -2672,7 +2811,7 @@ class TestWindowFreshnessMirrorsTheProductionMeasure:
         payload = _run_json(
             capsys,
             [
-                "window-freshness",
+                "window-freshness", ACCEPT_FLAG,
                 "--db", str(_freshness_db(tmp_path)),
                 "--at", "3600000",
             ],
@@ -2690,7 +2829,7 @@ class TestWindowFreshnessMirrorsTheProductionMeasure:
         payload = _run_json(
             capsys,
             [
-                "window-freshness",
+                "window-freshness", ACCEPT_FLAG,
                 "--db", str(_freshness_db(tmp_path)),
                 "--at", "1500000",
             ],
@@ -2707,7 +2846,7 @@ class TestWindowFreshnessMirrorsTheProductionMeasure:
         payload = _run_json(
             capsys,
             [
-                "window-freshness",
+                "window-freshness", ACCEPT_FLAG,
                 "--db", str(_freshness_db(tmp_path)),
                 "--at", "2100000",
             ],
@@ -2723,7 +2862,7 @@ class TestWindowFreshnessMirrorsTheProductionMeasure:
     ):
         rc = main(
             [
-                "window-freshness",
+                "window-freshness", ACCEPT_FLAG,
                 "--db", str(_freshness_db(tmp_path)),
                 "--at", "yesterdayish",
             ]
@@ -2736,11 +2875,11 @@ class TestWindowFreshnessMirrorsTheProductionMeasure:
         db = _freshness_db(tmp_path)
         iso = _run_json(
             capsys,
-            ["window-freshness", "--db", str(db), "--at", "1970-01-01T00:35:00Z"],
+            ["window-freshness", ACCEPT_FLAG, "--db", str(db), "--at", "1970-01-01T00:35:00Z"],
         )
         ms = _run_json(
             capsys,
-            ["window-freshness", "--db", str(db), "--at", "2100000"],
+            ["window-freshness", ACCEPT_FLAG, "--db", str(db), "--at", "2100000"],
         )
         assert iso["sections"] == ms["sections"]
 
@@ -2853,7 +2992,7 @@ class TestBookRowsShowsWhetherABookContributes:
         payload = _run_json(
             capsys,
             [
-                "book-rows",
+                "book-rows", ACCEPT_FLAG,
                 "--db", str(self._db(tmp_path)),
                 "--at", "2100000",
                 "--book", "onesided",
@@ -2871,7 +3010,7 @@ class TestBookRowsShowsWhetherABookContributes:
     def test_without_book_every_book_is_listed(self, tmp_path, capsys):
         payload = _run_json(
             capsys,
-            ["book-rows", "--db", str(self._db(tmp_path)), "--at", "2100000"],
+            ["book-rows", ACCEPT_FLAG, "--db", str(self._db(tmp_path)), "--at", "2100000"],
         )
         section = _named(payload, "h2h rows")
         cols = section["columns"]
@@ -2946,7 +3085,7 @@ class TestH4SectionsAreWindowedAndUnjoined:
     def _payload(self, tmp_path, capsys):
         return _run_json(
             capsys,
-            ["h4-settlement-balance", "--db", str(_h4_db(tmp_path))],
+            ["h4-settlement-balance", ACCEPT_FLAG, "--db", str(_h4_db(tmp_path))],
         )
 
     def test_a_holds_only_in_study_settlements_with_market_result(
@@ -3249,7 +3388,7 @@ def visit_db(tmp_path, monkeypatch) -> Path:
 
 def _visits(capsys, db: Path, *extra: str) -> list[dict[str, Any]]:
     payload = _run_json(
-        capsys, ["visit-freshness", "--db", str(db), "--since", "19700101", *extra]
+        capsys, ["visit-freshness", ACCEPT_FLAG, "--db", str(db), "--since", "19700101", *extra]
     )
     section = _named(payload, "one row per visit")
     return [dict(zip(section["columns"], row)) for row in section["rows"]]
@@ -3257,7 +3396,7 @@ def _visits(capsys, db: Path, *extra: str) -> list[dict[str, Any]]:
 
 def _summary(capsys, db: Path, *extra: str) -> dict[str, Any]:
     payload = _run_json(
-        capsys, ["visit-freshness", "--db", str(db), "--since", "19700101", *extra]
+        capsys, ["visit-freshness", ACCEPT_FLAG, "--db", str(db), "--since", "19700101", *extra]
     )
     section = _named(payload, "summary")
     return {row[0]: row[1] for row in section["rows"]}
@@ -3431,7 +3570,7 @@ class TestTheSummaryIsSharesOfVisitsAgainstTheDeployedLimit:
         assert len(rows) == 3
         payload = _run_json(
             capsys,
-            ["visit-freshness", "--db", str(visit_db), "--since", "19700102"],
+            ["visit-freshness", ACCEPT_FLAG, "--db", str(visit_db), "--since", "19700102"],
         )
         section = _named(payload, "one row per visit")
         # 1970-01-02T10:00Z is 122_400_000 ms: after visit 1 and 2, before 3.
@@ -3440,7 +3579,7 @@ class TestTheSummaryIsSharesOfVisitsAgainstTheDeployedLimit:
         ]
 
     def test_a_malformed_since_exits_2(self, visit_db, capsys):
-        rc = main(["visit-freshness", "--db", str(visit_db), "--since", "lastweek"])
+        rc = main(["visit-freshness", ACCEPT_FLAG, "--db", str(visit_db), "--since", "lastweek"])
         assert rc == 2
         assert "lastweek" in capsys.readouterr().err
 
@@ -3448,7 +3587,7 @@ class TestTheSummaryIsSharesOfVisitsAgainstTheDeployedLimit:
         """The refactor left `window-freshness`'s own reading unchanged."""
         payload = _run_json(
             capsys,
-            ["window-freshness", "--db", str(_freshness_db(tmp_path)), "--at", "2100000"],
+            ["window-freshness", ACCEPT_FLAG, "--db", str(_freshness_db(tmp_path)), "--at", "2100000"],
         )
         fixtures = _named(payload, "per fixture")
         by_id = {r[0]: r for r in fixtures["rows"]}
@@ -3589,7 +3728,7 @@ class TestAnUnwatchedCombinationIsFound:
 
     def _gap_tickers(self, capsys, gaps_db) -> set:
         payload = _run_json(
-            capsys, ["combo-position-gaps", "--db", str(gaps_db), "--date", DAY]
+            capsys, ["combo-position-gaps", ACCEPT_FLAG, "--db", str(gaps_db), "--date", DAY]
         )
         section = _named(payload, "NO parlay_positions row")
         idx = section["columns"].index("ticker")
@@ -3631,7 +3770,7 @@ class TestAnUnwatchedCombinationIsFound:
 
     def _exposure(self, capsys, gaps_db) -> dict:
         payload = _run_json(
-            capsys, ["combo-position-gaps", "--db", str(gaps_db), "--date", DAY]
+            capsys, ["combo-position-gaps", ACCEPT_FLAG, "--db", str(gaps_db), "--date", DAY]
         )
         section = _named(payload, "NO parlay_positions row")
         t = section["columns"].index("ticker")
@@ -3696,7 +3835,7 @@ class TestAnUnwatchedCombinationIsFound:
         """
         assert _UNKNOWN_TICKER not in self._gap_tickers(capsys, gaps_db)
         payload = _run_json(
-            capsys, ["combo-position-gaps", "--db", str(gaps_db), "--date", DAY]
+            capsys, ["combo-position-gaps", ACCEPT_FLAG, "--db", str(gaps_db), "--date", DAY]
         )
         unknown = _named(payload, "UNKNOWN")
         idx = unknown["columns"].index("ticker")
@@ -3716,7 +3855,7 @@ class TestTheGapQueryCannotServeTheRegisteredStatistic:
 
     def test_no_section_emits_a_parlay_positions_column(self, capsys, gaps_db):
         payload = _run_json(
-            capsys, ["combo-position-gaps", "--db", str(gaps_db), "--date", DAY]
+            capsys, ["combo-position-gaps", ACCEPT_FLAG, "--db", str(gaps_db), "--date", DAY]
         )
         for section in payload["sections"]:
             for column in section["columns"]:
@@ -3741,7 +3880,7 @@ class TestTheGapQueryCannotServeTheRegisteredStatistic:
         A1.5 of the 2026-09-08 parlay-positions registration.
         """
         payload = _run_json(
-            capsys, ["combo-position-gaps", "--db", str(gaps_db), "--date", DAY]
+            capsys, ["combo-position-gaps", ACCEPT_FLAG, "--db", str(gaps_db), "--date", DAY]
         )
         assert payload["sections"], "no sections to check"
         for section in payload["sections"]:
