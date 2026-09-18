@@ -8,6 +8,34 @@ split date, and regenerate the index from the headings.
 
 ---
 
+**Split 2026-09-18, at 225,816 bytes — 86.1%, under the 90% trigger and taken
+on Joe's instruction that a trigger handed forward fires one session late.**
+Everything 2026-09-15 and earlier — **51 lessons across five dates**
+(2026-09-15, -14, -11, -10, -09) — moved to
+`archive/lessons-2026-09-18.md`, verbatim, leaving **113,625 bytes — 43.3%**,
+inside the 40–45% band the 2026-09-11 split was aimed at. Binary throughout;
+the moved bytes hash to `06715950408225f41848e30be11bca05`, and the split was
+proved rather than asserted — the archive's tail was checked byte-for-byte
+against the removed block, then the block was spliced back into the new file
+and the result compared to the pre-split bytes, which it reproduced exactly.
+
+**The index was 77 lessons short — every unarchived lesson in the file.** It
+listed nothing newer than 2026-09-08 while the file above it held eight dates
+it never mentioned, so "every lesson ever written" was false of its own file
+for the *fourth* recorded time. The same edit regenerated all eight from the
+headings: the five moved dates pointing at the new archive, and 2026-09-18,
+-17 and -16 marked *in this file, above*. `git diff --stat` came back 93
+insertions, 2,151 deletions — the deletion plus the index block, nothing
+else touched.
+
+**That this keeps happening is the finding, not the fix.** Three earlier
+entries below record the same gap, and each one says to regenerate from the
+headings in the same edit as the lesson. It reappeared anyway, because the
+index is the half of the work that nothing goes red about: the 262,144-byte
+test guards the file's size and no test guards its table of contents. Until
+one does, regenerating the index is a step in the split recipe rather than a
+thing a session remembers.
+
 **Split 2026-09-11, at 180,535 bytes — 68.9%, well under the trigger.**
 Taken on a direct request to bring the file down toward 40–45% rather than
 on the alarm. The nine 2026-09-08, five 2026-09-07, eight 2026-09-06 and ten
