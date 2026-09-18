@@ -219,12 +219,29 @@ widened window still excluded it). Both beds were fixed; all eight now go red.
    captured fixture of a real sell-side quote in the same commit as the
    parser change. **Schema v50 is taken by #74**, so slice 3's rebuild of
    `yes_ask_tenths` is v51.
-4. **Live is six commits behind** (`c8111a2`). Nothing in them is a behaviour
-   change, but ADR 0177's fixed inspect script only ships in the image, so
-   window-freshness over ssh still runs the old walking statement. **If you
-   deploy, run `scripts/inspect_live_disk.py` immediately before and after** —
-   a restart tests the deleted-but-still-open-file hypothesis for the 882 MB
-   at zero cost.
+4. **DONE — live is at `04a960c`, deployed this session on Joe's word.** It
+   was **twelve** commits behind, not the six this file said; the stale
+   number was restated once in this session's own handoff before
+   `/api/health` was read. Deployed via `gh workflow run deploy.yml` so the
+   image is built from the commit rather than from a working tree. Schema
+   **v50 applied** — confirmed positively, not by the app merely serving:
+   `open_db` raises on a version mismatch and `/api/health` returns
+   `notifications.total_ever` and `recorder.last_write_ms`, both of which are
+   database reads taken after boot. Recorder age 65 s.
+
+   **The 882 MB is NOT a deleted-but-still-open file — refuted, not
+   unsupported.** Before/after across the restart: 882,346,650 → 882,346,308,
+   a 342-byte drift. **The control is `cockpit.db-shm` collapsing 1,114,112 →
+   65,536**, which is SQLite rebuilding the shared-memory index on the first
+   connection after the process exited — without it, "the number did not
+   move" would not distinguish a refutation from a machine that never
+   restarted. Remaining candidate is space `walk` structurally cannot reach,
+   most likely ext4's 5% reserved blocks (~1.0 GiB on 19.7 GiB, close to
+   841.5 MiB and fixed by construction), **unchecked against `tune2fs`**. If
+   that is it, the `/data` clock is unaffected — reserved blocks were never
+   available to `cockpit.db` — and what dies is the idea that the 882 MB is
+   recoverable. Addendum in
+   `docs/measurements/2026-09-18-where-the-database-bytes-are.md`.
 5. **`backend/scoring.py:172`/`:187` scans the whole 249 MB
    `idx_odds_event_commence`, covering, on every scoring pass, with no
    `WHERE` clause.** Same shape as the `/api/window` walk. Its own item.

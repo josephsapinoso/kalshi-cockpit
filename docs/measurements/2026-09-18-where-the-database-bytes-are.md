@@ -243,3 +243,51 @@ for "changes no plan" and had to restore it — commit `2e66f36`, *"the plan was
 never the cost."* **It needs a timing, not a plan comparison**, and it is a
 one-time level against a rule that changes the slope. It stays off the sheet
 until it has one.
+
+---
+
+## Addendum, 2026-09-18 — the 882 MB is NOT a deleted-but-still-open file
+
+The `/data` walk has been short by ~882 MB in every reading, and the standing
+explanation was a file unlinked while a process still held it open: its blocks
+stay allocated, `statvfs` counts them, and `walk` cannot see it because it has
+no directory entry. A container restart closes every handle, so a restart is a
+free falsification — which is why it was queued against the next deploy rather
+than paid for on its own.
+
+**The deploy of `04a960c` happened. The number did not move.**
+
+```
+                       before            after          delta
+unaccounted     882,346,650      882,346,308           −342
+free         13,739,470,848   13,740,232,704       +762,144
+cockpit.db    6,476,369,920    6,476,369,920              0
+cockpit.db-shm    1,114,112           65,536     −1,048,576
+```
+
+**The `-shm` collapse is the control, and without it this result says
+nothing.** SQLite rebuilds the shared-memory index file on the first connection
+after every process exits; 1,114,112 → 65,536 is that rebuild. So the machine
+really did stop and start — `git_sha` moved from `c8111a2` to `04a960c` and the
+machine id and version are both new — and every file handle the old process
+held was closed. A deleted-but-open file's blocks would have been reclaimed at
+that moment.
+
+They were not. **The hypothesis is refuted, not merely unsupported**, and the
+~342-byte drift is noise on a live volume, not a partial reclaim.
+
+**What it leaves.** The remaining candidates are things `walk` structurally
+cannot reach rather than things it happened to miss: space consumed below the
+mountpoint by the filesystem itself (ext4 metadata, journal, and the 5%
+reserved-blocks default, which on 19.7 GiB is ~1.0 GiB and is the closest
+single number to 841.5 MiB), or files under a path the walk does not descend.
+**The reserved-block explanation is a candidate and nothing more here** — it
+predicts a fixed quantity that never changes, which is consistent with two
+readings nine days apart differing by 8,699 bytes, and it has not been checked
+against `tune2fs`.
+
+**What changes if it is the filesystem's own reserve:** nothing about the
+clock. Reserved blocks were never available to `cockpit.db` in the first place,
+so `free` already excludes them and the ~38-day `/data` estimate stands. What
+dies is the idea that 882 MB might be *recoverable* — it is not, and the
+container root, not `/data`, remains the binding constraint.
