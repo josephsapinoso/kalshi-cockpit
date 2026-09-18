@@ -346,10 +346,15 @@ all three held combinations drew sell-side bids, two of them on the public
 book at 38,709 and 24,900 contracts of depth. The hedge is still the exit the
 desk *watches* and ADR 0078 still stands — hedging a leg and selling the
 combination are different actions at different costs — but the screen must
-not tell Joe selling is unavailable. **Three user-facing sentences say
-otherwise and are now false (the confirm checkbox, its fallback note and
-the parlay card) — Question for Joe: what should the combination checkbox
-say now? — #60.**
+not tell Joe selling is unavailable. Three user-facing sentences said
+otherwise; **#60 is CLOSED — Joe answered (a) on 2026-09-17 and the copy
+shipped in `a09475e`**: the checkbox now reads, in his words, "I understand
+selling this back may cost me more than holding it to the outcome" — what
+an exit *costs*, not how often it exists, because every earlier version
+asserted a frequency and was falsified within days. (This paragraph carried
+the question as open until 2026-09-18 and sent a session to re-do finished
+work.) The Parlays page lede still says "hardly anyone is bidding to buy it
+back" — that sentence is Joe's ratified copy and has its own ticket.
 No model, no tokens, no credits (asserted over the source of `core/hedge.py`,
 `hedge.py`, `hedge_watch.py`); no `recommendations` row and no gate read. With
 one leg live there is a figure and it is pushed to the phone; with several
