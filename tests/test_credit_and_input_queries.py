@@ -67,7 +67,7 @@ from typing import Any
 
 import pytest
 
-from scripts.inspect_live_db import QUERIES, main
+from scripts.inspect_live_db import ACCEPT_FLAG, QUERIES, WALKS_THE_FILE, main
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "backend" / "store" / "schema.sql"
@@ -195,6 +195,17 @@ def db(tmp_path) -> Path:
     return path
 
 
+def _accept(name: str) -> list[str]:
+    """The cost flag for a walk; nothing for a cheap query.
+
+    `fair-prices-by-market` reads a week of the two largest tables and is
+    classified `walks-the-file`, so `main` refuses it unasked. The flag is
+    passed only where the class says so, so the credits queries here still
+    prove a cheap query needs nothing.
+    """
+    return [ACCEPT_FLAG] if QUERIES[name].cost == WALKS_THE_FILE else []
+
+
 def _run(capsys, argv: list[str]) -> dict[str, Any]:
     rc = main([*argv, "--json"])
     payload = json.loads(capsys.readouterr().out)
@@ -237,7 +248,7 @@ class TestTheQueriesAreOnTheWhitelist:
         This is the assertion that catches a column the live database does
         not have -- here, rather than at an ssh prompt at 3am.
         """
-        payload = _run(capsys, [name, "--db", str(db)])
+        payload = _run(capsys, [name, *_accept(name), "--db", str(db)])
         assert payload["sections"]
 
     @pytest.mark.parametrize(
@@ -252,7 +263,7 @@ class TestTheQueriesAreOnTheWhitelist:
         conn.executescript(SCHEMA.read_text(encoding="utf-8"))
         conn.commit()
         conn.close()
-        payload = _run(capsys, [name, "--db", str(path)])
+        payload = _run(capsys, [name, *_accept(name), "--db", str(path)])
         assert all(s["empty"] or s["row_count"] > 0 for s in payload["sections"])
 
 
@@ -421,7 +432,7 @@ class TestCreditsRate:
 #: not move with the budget-day flag.
 def _CENSUS_ARGV(db):
     return [
-        "fair-prices-by-market", "--db", str(db),
+        "fair-prices-by-market", ACCEPT_FLAG, "--db", str(db),
         "--since", "20260801", "--day-start-hour", "0",
     ]
 
@@ -435,7 +446,7 @@ class TestFairPricesByMarket:
         needs an assertion of its own, and this is it: rows stamped 2026-08-27
         are outside seven days of any date this suite will ever run on.
         """
-        payload = _run(capsys, ["fair-prices-by-market", "--db", str(db)])
+        payload = _run(capsys, ["fair-prices-by-market", ACCEPT_FLAG, "--db", str(db)])
         assert _section(payload, "A. BOUGHT")["rows"] == []
         assert _section(payload, "B. CONSUMED")["rows"] == []
 

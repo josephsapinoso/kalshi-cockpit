@@ -47,11 +47,15 @@ CYCLE_MS = 300_000
 
 
 def _read(db_path: Path, *args: str) -> list[dict]:
-    from scripts.inspect_live_db import main
+    from scripts.inspect_live_db import ACCEPT_FLAG, main
 
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        rc = main(["lock-attribution", "--db", str(db_path), "--json", *args])
+        # `lock-attribution` walks the whole of poll_log and is classified
+        # `walks-the-file`; without the flag `main` refuses it (exit 4).
+        rc = main(
+            ["lock-attribution", ACCEPT_FLAG, "--db", str(db_path), "--json", *args]
+        )
     assert rc == 0, buf.getvalue()
     return json.loads(buf.getvalue())["sections"]
 

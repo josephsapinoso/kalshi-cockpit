@@ -73,6 +73,20 @@ import statements below rather than from anyone remembering. Ship this file
 alone and the box gets an inspector that dies on its first import line, at an
 ssh prompt, mid-incident.
 
+A whitelisted query is safe to type, not free to run
+--------------------------------------------------------
+The live file is several GB on a 4 GB box whose page cache is the desk's
+performance, and some names here -- `db-sizes` walks `dbstat` over every page;
+`window-freshness` and `book-rows` walk the whole h2h prefix of an index --
+read the entire file to answer, evicting the working set so that the desk is
+slow for minutes afterwards. One was run mid-diagnosis on 2026-09-18 because
+nothing at the point of invocation said so. Every `QueryDef` therefore carries
+a required `cost`, `cheap` or `walks-the-file`, classified from its SQL with
+the reason beside the entry; the listing below prints it beside every name,
+and `main` refuses a walk with exit 4 unless the caller passes
+`--i-accept-the-cache-flush`. The flag is the caller saying they read the
+cost. It does not make the query cheaper.
+
 What this does not establish
 ----------------------------
 - **Nothing about causation.** It reports rows. `credits-tail` showing a low
@@ -309,10 +323,87 @@ from inspect_live_db_parlays import (  # noqa: E402,F401
 )
 
 
+# ---------------------------------------------------------------------------
+# What a query costs the box, declared on the class rather than noted per query.
+# ---------------------------------------------------------------------------
+#
+# The live file is several GB on a 4 GB machine whose page cache IS the desk's
+# performance. A whitelisted query is safe to type -- it cannot write and it
+# cannot carry SQL -- but it is not free to run: one that walks the whole file
+# or a whole index prefix evicts the working set, and every read the desk makes
+# for minutes afterwards is a disk read. On 2026-09-18 `db-sizes` was run in
+# the middle of a latency diagnosis because nothing at the point of invocation
+# said it was expensive (tasks/lessons.md, 2026-09-18 twentieth). So the cost
+# is a REQUIRED field of `QueryDef`: an entry without one does not import, and
+# `main` refuses a `WALKS_THE_FILE` query unless the caller passes the flag
+# that names what they are accepting.
+#
+# Two values, deliberately, so the question is "does this scale with the
+# answer or with the data?" and not a tier to argue about:
+#
+#   CHEAP           bounded key range, a file tail, or an unbounded read of a
+#                   table whose size is bounded by something other than time
+#                   (one row per hand bet, per vendor call under a daily cap).
+#   WALKS_THE_FILE  `dbstat`; a GROUP BY / DISTINCT / COUNT over the whole of
+#                   odds_snapshots, fair_prices, kalshi_quotes or poll_log; a
+#                   window of days over a non-covering index on one of them;
+#                   or a scan with no bounded key at all. When unsure, this --
+#                   the comment beside the entry says why.
+#
+# The class is a property of the SQL, not of today's row count: a table that
+# was small when a query shipped and gains a row every poll is classified by
+# what the SQL lets it become.
+CHEAP = "cheap"
+WALKS_THE_FILE = "walks-the-file"
+COSTS = frozenset({CHEAP, WALKS_THE_FILE})
+
+#: The flag that lets a `WALKS_THE_FILE` query run. Named for what the caller
+#: is accepting, not for what they want, so it cannot be typed by habit.
+ACCEPT_FLAG = "--i-accept-the-cache-flush"
+
+#: Exit status when a walk is refused. 2 is a usage error, 3 an unopenable
+#: database; 4 is "refused on cost", so a wrapper can tell them apart.
+EXIT_REFUSED_ON_COST = 4
+
+#: What the box has to cache with. A 4 GB machine minus the runner and the
+#: OS; `docs/measurements/2026-09-18-the-window-route-walked-every-odds-row.md`
+#: read ~3.1 GB available with the file at 6.3 GB.
+PAGE_CACHE_GB = 3
+
+
 @dataclass(frozen=True)
 class QueryDef:
     description: str
     run: Callable[[sqlite3.Connection, Any], list[Section]]
+    # No default. A default of CHEAP would let a new query skip the question
+    # and be wrong silently, which is the failure this field exists to stop.
+    cost: str
+
+    def __post_init__(self) -> None:
+        if self.cost not in COSTS:
+            raise ValueError(
+                f"cost must be one of {sorted(COSTS)}, got {self.cost!r}"
+            )
+
+
+def refusal_sentence(name: str, db_path: str) -> str:
+    """The one sentence a refused walk prints: the cost, and what accepts it.
+
+    The file size is read with a `stat`, which touches no page of the file --
+    the sentence about the cache must not itself cost the cache anything.
+    Unreadable resolves to "the whole file", never to a number.
+    """
+    try:
+        size = os.path.getsize(db_path)
+    except OSError:
+        whole = "the whole file"
+    else:
+        whole = f"the whole {size / 1e9:.1f} GB file"
+    return (
+        f"{name} is refused without {ACCEPT_FLAG}: it walks {whole} through a "
+        f"page cache of about {PAGE_CACHE_GB} GB, and the desk will be slow "
+        f"for minutes afterwards."
+    )
 
 
 QUERIES: dict[str, QueryDef] = {
@@ -321,6 +412,7 @@ QUERIES: dict[str, QueryDef] = {
         "called_ms also rendered ISO-8601 UTC. Answers: what remaining_reported "
         "did the most recent response carry?",
         _q_credits_tail,
+        cost=CHEAP,
     ),
     "credits-day": QueryDef(
         "Every api_credits row in one budget day (--date YYYYMMDD, boundary "
@@ -331,6 +423,7 @@ QUERIES: dict[str, QueryDef] = {
         "at 15:40Z; did the daily cap bind, or was there nothing to buy? "
         "Exhaustion is an absence in api_credits and nowhere else.",
         _q_credits_day,
+        cost=CHEAP,
     ),
     "credits-month": QueryDef(
         "Month-to-date summed cost, and MIN/MAX of remaining_reported and "
@@ -339,6 +432,7 @@ QUERIES: dict[str, QueryDef] = {
         "reset and its MAX then describes a period that has ended -- run "
         "credits-reset before quoting either extreme.",
         _q_credits_month,
+        cost=CHEAP,
     ),
     "credits-reset": QueryDef(
         "Consecutive api_credits rows where used_reported fell by more than "
@@ -349,6 +443,10 @@ QUERIES: dict[str, QueryDef] = {
         "credits-month reported a max of 5,016 that no longer described the "
         "current period and nothing on the screen said so.",
         _q_credits_reset,
+        # Unbounded over api_credits, but that table is one row per vendor
+        # call under a 700-credit daily cap, so its size is bounded by the
+        # budget, not by time.
+        cost=CHEAP,
     ),
     "credits-by-sport": QueryDef(
         "Cost and call count per budget day per sport_key (--since YYYYMMDD, "
@@ -358,6 +456,7 @@ QUERIES: dict[str, QueryDef] = {
         "share is computed: day_cost and top_sport_cost are printed side by "
         "side and the division is the reader's.",
         _q_credits_by_sport,
+        cost=CHEAP,
     ),
     "credits-rate": QueryDef(
         "Calls and cost per UTC clock hour per sport (--since), then the "
@@ -367,17 +466,22 @@ QUERIES: dict[str, QueryDef] = {
         "produce no row; sweep-log and pass-gaps separate an idle floor from "
         "a dead recorder.",
         _q_credits_rate,
+        cost=CHEAP,
     ),
     "sweep-log": QueryDef(
         "odds_sweep_log: COUNT and pass_ms range grouped by outcome, then the "
         "last N rows in full (-n, default 5).",
         _q_sweep_log,
+        # All-time GROUP BY, over a table that gains one row per planner
+        # pass per sport -- a few hundred a day.
+        cost=CHEAP,
     ),
     "notifications": QueryDef(
         "What reached the phone: count and delivered by kind, then the last N "
         "rows (-n, default 5) with their dedupe keys. /api/health publishes a "
         "TOTAL only, which cannot say which kind moved.",
         _q_notifications,
+        cost=CHEAP,
     ),
     "loop-rss": QueryDef(
         "loop_rss.jsonl beside the database: the last N per-pass lines (-n, "
@@ -386,6 +490,7 @@ QUERIES: dict[str, QueryDef] = {
         "leg_price_link_ms/leg_store_quotes_ms. A null is 'this row predates "
         "the column', never 'the WAL is empty'.",
         _q_loop_rss,
+        cost=CHEAP,
     ),
     "pass-gaps": QueryDef(
         "Holes over --gap-ms (default 1200000) in the last N odds_sweep_log "
@@ -393,6 +498,7 @@ QUERIES: dict[str, QueryDef] = {
         "row. A gap WITH failures inside it was a failing loop; a gap with NONE "
         "never came back to raise. The pair is the reading; neither half is.",
         _q_pass_gaps,
+        cost=CHEAP,
     ),
     "walk-log": QueryDef(
         "Which catalogue walk each pass took, from loop_walk.jsonl beside the "
@@ -401,6 +507,7 @@ QUERIES: dict[str, QueryDef] = {
         "paginating ~14,000 events. `prev_discovered` falling off a cliff is a "
         "classification regression; decaying is an emptying slate.",
         _q_walk_log,
+        cost=CHEAP,
     ),
     "read-incidents": QueryDef(
         "The last N api_read_incidents rows (-n, default 5), newest first, "
@@ -410,6 +517,7 @@ QUERIES: dict[str, QueryDef] = {
         "elapsed_ms and the exception class are the reading; the count is a "
         "FLOOR because the writer is best-effort under contention.",
         _q_read_incidents,
+        cost=CHEAP,
     ),
     "failure-journal": QueryDef(
         "Every pass failure as `loop_failures.jsonl` saw it, beside what the "
@@ -423,6 +531,7 @@ QUERIES: dict[str, QueryDef] = {
         "with nothing open is a no-op. Section 5 is the newest traceback, "
         "which lives nowhere else.",
         _q_failure_journal,
+        cost=CHEAP,
     ),
     "forward-lock": QueryDef(
         "Did ADR 0091 close the `database is locked` symptom AFTER the "
@@ -435,6 +544,10 @@ QUERIES: dict[str, QueryDef] = {
         "block FIX CONFIRMED by design. Separate from lock-attribution, "
         "which answers a different, completed registration.",
         _q_forward_lock,
+        # `FROM poll_log GROUP BY polled_ms` with no bound: one row per venue
+        # poll, every cycle, since the table was created. Small when the
+        # registration ran; nothing in the SQL keeps it so.
+        cost=WALKS_THE_FILE,
     ),
     "lock-attribution": QueryDef(
         "Does each `database is locked` burst land inside a poller cycle? "
@@ -446,6 +559,9 @@ QUERIES: dict[str, QueryDef] = {
         "design can convict the poller and cannot clear it, because a "
         "small k is exactly what the null predicts.",
         _q_lock_attribution,
+        # `SELECT DISTINCT polled_ms FROM poll_log` and `COUNT(*)` over the
+        # same table, unbounded -- the same walk as forward-lock.
+        cost=WALKS_THE_FILE,
     ),
     "study-stop": QueryDef(
         "Has the $100 money arm fired? It gates POST /api/estimates with "
@@ -456,6 +572,7 @@ QUERIES: dict[str, QueryDef] = {
         "KNOW and never 'not stopped'. The self-lockout is a second, "
         "independent 423 and is reported beside it.",
         _q_study_stop,
+        cost=CHEAP,
     ),
     "prune-frontier": QueryDef(
         "How far prune_quotes has got: MIN(COALESCE(confirmed_ms, "
@@ -464,23 +581,31 @@ QUERIES: dict[str, QueryDef] = {
         "persisted nowhere. Take it either side of a window to say whether a "
         "prune ran inside one.",
         _q_prune_frontier,
+        # Three `COUNT(*)` and a `MIN` over the whole of kalshi_quotes
+        # (~400 MB, ~6M rows at last reading), each with a `NOT IN` against
+        # recommendations. Four full walks of the quote table.
+        cost=WALKS_THE_FILE,
     ),
     "results-for-pull": QueryDef(
         "kalshi_markets (incl. result) for the pinned recommendation "
         "population (--pin, default 1564). ~120 rows.",
         _q_results_for_pull,
+        cost=CHEAP,
     ),
     "events-for-pull": QueryDef(
         "kalshi_events reached through the pinned markets. ~60 rows.",
         _q_events_for_pull,
+        cost=CHEAP,
     ),
     "closing-lines-for-pull": QueryDef(
         "closing_lines for the pinned tickers. ~240 rows.",
         _q_closing_lines_for_pull,
+        cost=CHEAP,
     ),
     "series": QueryDef(
         "kalshi_series: series_ticker and league. ~10 rows.",
         _q_series,
+        cost=CHEAP,
     ),
     "prop-bookmakers": QueryDef(
         "odds_snapshots rows carrying outcome_description (i.e. player props), "
@@ -489,6 +614,10 @@ QUERIES: dict[str, QueryDef] = {
         "slots of the named ten buying nothing? Bounded by a commence_ms "
         "floor (--since YYYYMMDD, default 7 days) and optionally --sport.",
         _q_prop_bookmakers,
+        # Seven days of odds_snapshots by commence_ms through a non-covering
+        # index, then COUNT(DISTINCT) x3 GROUP BY bookmaker: every row of
+        # every fixture in the window is fetched from the table.
+        cost=WALKS_THE_FILE,
     ),
     "sharp-anchor-census": QueryDef(
         "How often the consensus actually HAD a sharp book to anchor on: "
@@ -502,6 +631,10 @@ QUERIES: dict[str, QueryDef] = {
         "computed_ms floor (--since YYYYMMDD, default 2 days) and optionally "
         "--league (Kalshi's string, e.g. 'NCAA Football').",
         _q_sharp_anchor_census,
+        # Two days of fair_prices through idx_fair_market_computed, which is
+        # not covering -- at the measured ~130 MB/day that is hundreds of MB
+        # of table pages, each joined to event_links.
+        cost=WALKS_THE_FILE,
     ),
     "team-bookmakers": QueryDef(
         "The mirror of prop-bookmakers across the same discriminator: "
@@ -515,6 +648,9 @@ QUERIES: dict[str, QueryDef] = {
         "response. Bounded by a commence_ms floor (--since YYYYMMDD, default "
         "7 days) and optionally --sport.",
         _q_team_bookmakers,
+        # Same shape as prop-bookmakers: seven days of odds_snapshots rows
+        # fetched through a non-covering index, GROUP_CONCAT(DISTINCT).
+        cost=WALKS_THE_FILE,
     ),
     "fair-prices-by-market": QueryDef(
         "Is a bought input actually consumed at runtime? Section A is what "
@@ -530,6 +666,10 @@ QUERIES: dict[str, QueryDef] = {
         "commence_ms in A and computed_ms in B -- one instant, two clocks, "
         "each printed as its own window section.",
         _q_fair_prices_by_market,
+        # Seven days of odds_snapshots AND seven days of fair_prices, each
+        # GROUP BY market with COUNT(DISTINCT): a week of the two largest
+        # tables, fetched row by row.
+        cost=WALKS_THE_FILE,
     ),
     "prop-rungs": QueryDef(
         "Raw player-prop rungs at the latest sweep per fixture, one row per "
@@ -538,6 +678,10 @@ QUERIES: dict[str, QueryDef] = {
         "arithmetic lives in scripts/analyze_prop_onesided.py. Narrow with "
         "--odds-event-id, or raise --limit; the whole record truncates.",
         _q_prop_rungs,
+        # `FROM odds_snapshots WHERE outcome_description IS NOT NULL` has no
+        # index and no time bound; only --odds-event-id narrows it, and the
+        # class is a property of the query, not of one flag.
+        cost=WALKS_THE_FILE,
     ),
     "actionable-audit": QueryDef(
         "Every row in the gate's `actionable` population -- the ones the "
@@ -546,6 +690,9 @@ QUERIES: dict[str, QueryDef] = {
         "readings, book_count, anchored_on_sharp, market_width). Prints rows "
         "and no verdict. Answers: did these clear a real bar, or land in a gap?",
         _q_actionable_audit,
+        # An `IS NULL` seek on idx_recs_open; fair_prices is reached by
+        # primary key only for the handful of rows that pass the predicate.
+        cost=CHEAP,
     ),
     "manual-orders-audit": QueryDef(
         "The hand-bet record (`manual_orders`), STRUCTURE AND COUNTS ONLY: "
@@ -560,6 +707,7 @@ QUERIES: dict[str, QueryDef] = {
         "chosen after the answer. Answers: how big is the record, and how "
         "much of it can be interpreted later?",
         _q_manual_orders_audit,
+        cost=CHEAP,
     ),
     "clv-signal-pull": QueryDef(
         "The CLV signal test's registered §2 population (horizon 0.0), one row "
@@ -569,6 +717,10 @@ QUERIES: dict[str, QueryDef] = {
         "[10,989], cluster key COALESCE(event_ticker, ticker). Emits rows and "
         "NO statistic; scripts/run_signal_test.py computes beta.",
         _q_clv_signal_pull,
+        # Every scored recommendation (no index serves `clv_scored_ms IS NOT
+        # NULL`), each with a correlated seek into kalshi_quotes: a walk of
+        # one table and a random read of another per row.
+        cost=WALKS_THE_FILE,
     ),
     "parlay-candidates-timing": QueryDef(
         "The parlay desk's candidate scan, timed and EXPLAINed on the live "
@@ -578,6 +730,10 @@ QUERIES: dict[str, QueryDef] = {
         "ladder's copulas cost under a second -- which half of this statement "
         "is it?",
         _q_parlay_candidates_timing,
+        # Runs the whole candidate scan, then the odds_snapshots
+        # `GROUP BY odds_event_id` on its own, to TIME them. Expensive by
+        # design: it exists to measure the walk.
+        cost=WALKS_THE_FILE,
     ),
     "parlay-lookups-tail": QueryDef(
         "The last N \"Price on Kalshi\" taps (-n, default 5), newest first: "
@@ -586,6 +742,7 @@ QUERIES: dict[str, QueryDef] = {
         "a given combination market exists on the exchange. No P&L, no "
         "outcome, no verdict.",
         _q_parlay_lookups_tail,
+        cost=CHEAP,
     ),
     "combo-position-gaps": QueryDef(
         "Combinations bought with REAL money that no `parlay_positions` row "
@@ -602,6 +759,10 @@ QUERIES: dict[str, QueryDef] = {
         "no verdict on the 2026-09-08 parlay-positions registration and is "
         "NOT its §8 read. Answers: is a live position unwatched right now?",
         _q_combo_position_gaps,
+        # Four correlated subqueries into venue_positions BY TICKER per
+        # KXMVE order, and venue_positions has no ticker index -- each is a
+        # full scan of a table that grows every positions poll.
+        cost=WALKS_THE_FILE,
     ),
     "combo-position-orphans": QueryDef(
         "The inverse of `combo-position-gaps`: OPEN `parlay_positions` rows "
@@ -618,6 +779,7 @@ QUERIES: dict[str, QueryDef] = {
         "run). Answers: is a position on /hedge's screen one this desk can "
         "actually trace to a fill?",
         _q_combo_position_orphans,
+        cost=CHEAP,
     ),
     "combo-bids-tail": QueryDef(
         "The last N resting bids the desk placed on a combination (-n, "
@@ -626,6 +788,7 @@ QUERIES: dict[str, QueryDef] = {
         "the bid will never be withdrawn automatically, which the screen "
         "promises it will be. No P&L, no outcome, no verdict.",
         _q_combo_bids_tail,
+        cost=CHEAP,
     ),
     "db-sizes": QueryDef(
         "Where the bytes went: file-level page counts with the amount a VACUUM "
@@ -633,6 +796,10 @@ QUERIES: dict[str, QueryDef] = {
         "(row counts as a labelled fallback if dbstat is not compiled in). "
         "Answers: prune a table, or buy a bigger volume?",
         _q_db_sizes,
+        # `dbstat` visits every page of every btree: it reads the entire
+        # file through the page cache. This is the query that was run
+        # mid-diagnosis on 2026-09-18 and slowed the desk for minutes.
+        cost=WALKS_THE_FILE,
     ),
     "decision-dump": QueryDef(
         "Every recommendation ever written, one row each, with its four devig "
@@ -642,6 +809,10 @@ QUERIES: dict[str, QueryDef] = {
         "falsification query and the anchored-vs-unanchored split. Raise "
         "--limit above the record size and check `truncated` before analysing.",
         _q_decision_dump,
+        # Every recommendation ever written, with a fair_prices seek per row
+        # into the largest table in the file. No bound but --limit, which the
+        # description tells the caller to raise.
+        cost=WALKS_THE_FILE,
     ),
     "clv-coverage": QueryDef(
         "Does CLV scoring reach props? Six sections: recommendations by "
@@ -652,6 +823,10 @@ QUERIES: dict[str, QueryDef] = {
         "Answers: are the prop rows unscorable, and is the 300-game floor "
         "counting one game more than once?",
         _q_clv_coverage,
+        # Section B joins `SELECT odds_event_id, MIN(commence_ms) FROM
+        # odds_snapshots GROUP BY odds_event_id`: a full walk of that table's
+        # index, plus unbounded GROUP BYs over recommendations.
+        cost=WALKS_THE_FILE,
     ),
     "window-freshness": QueryDef(
         "fixture_freshness recomputed at --at (ISO or epoch ms, default now): "
@@ -659,6 +834,10 @@ QUERIES: dict[str, QueryDef] = {
         "the same population by book, stalest first. Answers: which book's "
         "own last_update stamp closed the window mid-refresh-interval?",
         _q_window_freshness,
+        # Walks the h2h prefix of idx_odds_window twice -- every h2h row ever
+        # stored -- to find the fixtures upcoming at --at (the 2026-09-18
+        # lesson; /api/window itself was rewritten off this shape).
+        cost=WALKS_THE_FILE,
     ),
     "book-rows": QueryDef(
         "One bookmaker's h2h rows (--book, required) in the window-freshness "
@@ -666,6 +845,9 @@ QUERIES: dict[str, QueryDef] = {
         "runner's consensus, one = dropped as incomplete. Answers: did the "
         "laggard book's stamp age the consensus, or only the window flag?",
         _q_book_rows,
+        # The same `latest` CTE as window-freshness: the h2h prefix of
+        # idx_odds_window, walked in full, then joined back to the table.
+        cost=WALKS_THE_FILE,
     ),
     "visit-freshness": QueryDef(
         "desk_attention heartbeats clustered into visits (--since YYYYMMDD, "
@@ -675,6 +857,9 @@ QUERIES: dict[str, QueryDef] = {
         "sweeps, and which sports' windows were open. Answers: does a cold "
         "open meet the ~60-min worst case the design permits?",
         _q_visit_freshness,
+        # Runs the window-freshness query TWICE PER VISIT over --since
+        # (default seven days of visits): the h2h walk, multiplied.
+        cost=WALKS_THE_FILE,
     ),
     "h4-settlement-balance": QueryDef(
         "H4's raw material, four sections and NO join: A settlements since "
@@ -683,6 +868,10 @@ QUERIES: dict[str, QueryDef] = {
         "windows, D balance poll_log including ok. Emits rows, no delta; "
         "the subtraction is done by a human beside the stated confounds.",
         _q_h4_settlement_balance,
+        # Correlated EXISTS over venue_balance_snapshots and the balance rows
+        # of poll_log with no bound on the outer table -- one row per poll,
+        # walked in full to find the +/-900 s windows.
+        cost=WALKS_THE_FILE,
     ),
     "h4-balance-spans": QueryDef(
         "Look 2's span-design raw material (Amendment 1 A12.3), five "
@@ -692,6 +881,10 @@ QUERIES: dict[str, QueryDef] = {
         "(pre-study included, for the P_j sum). Emits rows, no delta; "
         "pairing and residuals belong to the registered analyzer.",
         _q_h4_balance_spans,
+        # Every section is an ordered index range from study start, so the
+        # row cap stops the read at cap+1 rows; venue_settlements is one row
+        # per settlement.
+        cost=CHEAP,
     ),
     "manual-order-refusals": QueryDef(
         "Every refused hand bet, newest first: which numbered check fired, "
@@ -699,6 +892,7 @@ QUERIES: dict[str, QueryDef] = {
         "brake has ever fired; a reported refusal missing here means the "
         "write fell back to /data/manual_order_refusals.jsonl.",
         _q_manual_order_refusals,
+        cost=CHEAP,
     ),
     "estimate-match-status": QueryDef(
         "Calibration §7.5 coverage: venue_settlements by estimate_match_status "
@@ -706,6 +900,7 @@ QUERIES: dict[str, QueryDef] = {
         "and bet_estimates by match_status. Answers: is the 0-position_unlogged "
         "cell real, or is a non-combo position sitting in out_of_scope?",
         _q_estimate_match_status,
+        cost=CHEAP,
     ),
     "kalshi-quotes-band": QueryDef(
         "Q-W: was a WNBA market in 270-390 tenths (excl. 300) with depth >= 1 "
@@ -713,6 +908,9 @@ QUERIES: dict[str, QueryDef] = {
         "2026-08-07 to 2026-08-10? Window, band, bars and series order are "
         "registered constants, not flags. Precondition for the fee round.",
         _q_kalshi_quotes_band,
+        # Per-ticker seeks on idx_quotes_ticker_time inside a fixed four-day
+        # observed_ms window, reached from the (small) markets of one series.
+        cost=CHEAP,
     ),
 }
 
@@ -735,7 +933,8 @@ def resolve_query(name: str) -> QueryDef:
 
 def _build_parser() -> argparse.ArgumentParser:
     listing = "\n".join(
-        f"  {name:<24}{QUERIES[name].description}" for name in sorted(QUERIES)
+        f"  {name:<24}{QUERIES[name].cost:<16}{QUERIES[name].description}"
+        for name in sorted(QUERIES)
     )
     parser = argparse.ArgumentParser(
         prog="inspect_live_db.py",
@@ -747,6 +946,16 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("query", metavar="QUERY", help="one of the names listed below")
+    parser.add_argument(
+        ACCEPT_FLAG,
+        action="store_true",
+        help=(
+            f"run a query listed as {WALKS_THE_FILE!r}. Without this a walk is "
+            f"refused with exit {EXIT_REFUSED_ON_COST}: it reads the whole file "
+            "through the page cache and the desk is slow for minutes afterwards. "
+            "Not needed for a query listed as 'cheap'"
+        ),
+    )
     parser.add_argument(
         "--db", default=DEFAULT_DB, help=f"database path (default {DEFAULT_DB})"
     )
@@ -857,6 +1066,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except UnknownQuery as exc:
         print(str(exc), file=sys.stderr)
         return 2
+
+    # Before the connection is opened, so a refusal touches no page of the
+    # file. The flag is the caller saying they read the cost, and the sentence
+    # is the cost, so the two are the same information in both directions.
+    if query.cost == WALKS_THE_FILE and not args.i_accept_the_cache_flush:
+        print(refusal_sentence(args.query, args.db), file=sys.stderr)
+        return EXIT_REFUSED_ON_COST
 
     try:
         conn = connect_readonly(args.db)
