@@ -155,13 +155,15 @@ def record_quotes(
             """
             INSERT INTO combo_rfq_quotes (
                 rfq_id, quote_id, captured_ms, maker_id,
-                yes_ask_tenths, no_bid_tenths, contracts, status, created_ts
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                yes_ask_tenths, no_bid_tenths, yes_bid_tenths, contracts,
+                status, created_ts
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(rfq_id, quote_id) DO UPDATE SET
                 captured_ms    = excluded.captured_ms,
                 maker_id       = excluded.maker_id,
                 yes_ask_tenths = excluded.yes_ask_tenths,
                 no_bid_tenths  = excluded.no_bid_tenths,
+                yes_bid_tenths = excluded.yes_bid_tenths,
                 contracts      = excluded.contracts,
                 status         = excluded.status,
                 created_ts     = excluded.created_ts
@@ -169,7 +171,8 @@ def record_quotes(
             """,
             (
                 rfq_id, quote.quote_id, captured_ms, quote.maker_id,
-                quote.yes_ask_tenths, quote.no_bid_tenths, quote.contracts,
+                quote.yes_ask_tenths, quote.no_bid_tenths,
+                quote.yes_bid_tenths, quote.contracts,
                 quote.status, quote.created_ts,
             ),
         )

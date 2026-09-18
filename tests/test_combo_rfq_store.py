@@ -42,6 +42,9 @@ def _quote(quote_id: str, no_bid: int, **kw) -> RfqQuote:
         market_ticker="KXMVE-X",
         yes_ask_tenths=1000 - no_bid,
         no_bid_tenths=no_bid,
+        # The sell side, v48. Defaults to absent, which is what most
+        # real quotes carry and what every pre-v48 row reads as.
+        yes_bid_tenths=kw.get("yes_bid_tenths"),
         contracts=kw.get("contracts", 8.19),
         status="open",
         created_ts="2026-09-17T15:50:47.631646Z",
@@ -170,3 +173,73 @@ class TestTheWindowIsBounded:
         row = conn.execute("SELECT * FROM combo_rfqs").fetchone()
         assert row["status"] == store.STATUS_ERROR
         assert "HTTP 500" in row["error_text"]
+class TestTheSellSideIsStoredAndReadBack:
+    """Schema v48, issue #76 slice 1.
+
+    Written because the mutation run caught the gap: dropping
+    `yes_bid_tenths` from the INSERT, and dropping it from the requote's
+    UPDATE list, both left the suite GREEN. Nothing read the column back out
+    of the database, so a column that was written nowhere would have looked
+    exactly like one that worked -- the same shape as the four modules this
+    repo built and never called.
+
+    What these do not establish
+    ---------------------------
+    - Nothing about a sell-side RFQ ever being fired. Nothing fires one.
+    - Nothing about the migration path. `tests/test_store.py` owns the v47 ->
+      v48 step and the wind-back.
+    """
+
+    def test_a_yes_bid_survives_the_round_trip(self, conn):
+        _ask(conn)
+        store.record_quotes(
+            conn, rfq_id="rfq-1", captured_ms=2_000,
+            quotes=[_quote("q1", 407, yes_bid_tenths=76)],
+        )
+        row = store.quotes_for(conn, "rfq-1")[0]
+        assert row["yes_bid_tenths"] == 76
+
+    def test_a_quote_with_no_sell_side_stores_null_not_zero(self, conn):
+        """A zero would say the maker offered nothing for the side he holds."""
+        _ask(conn)
+        store.record_quotes(
+            conn, rfq_id="rfq-1", captured_ms=2_000, quotes=[_quote("q1", 407)],
+        )
+        assert store.quotes_for(conn, "rfq-1")[0]["yes_bid_tenths"] is None
+
+    def test_a_requote_replaces_the_stored_sell_side(self, conn):
+        """The same reason `DO NOTHING` became `DO UPDATE` on 2026-09-18.
+
+        An RFQ is held open and reused, so "Ask again" returns the same
+        `quote_id` with a maker's re-priced numbers. A sell side left out of
+        the update list would leave the screen showing a fresh exit price and
+        the table holding a stale one.
+        """
+        _ask(conn)
+        store.record_quotes(
+            conn, rfq_id="rfq-1", captured_ms=2_000,
+            quotes=[_quote("q1", 407, yes_bid_tenths=76)],
+        )
+        store.record_quotes(
+            conn, rfq_id="rfq-1", captured_ms=3_000,
+            quotes=[_quote("q1", 407, yes_bid_tenths=52)],
+        )
+        rows = store.quotes_for(conn, "rfq-1")
+        assert len(rows) == 1, "a requote must stay one row"
+        assert rows[0]["yes_bid_tenths"] == 52
+
+    def test_a_requote_can_clear_a_sell_side_that_is_gone(self, conn):
+        """A maker who withdraws the bid is not a maker still bidding.
+
+        The stale value is the dangerous one here: it is the number a screen
+        would tell Joe he could sell at.
+        """
+        _ask(conn)
+        store.record_quotes(
+            conn, rfq_id="rfq-1", captured_ms=2_000,
+            quotes=[_quote("q1", 407, yes_bid_tenths=76)],
+        )
+        store.record_quotes(
+            conn, rfq_id="rfq-1", captured_ms=3_000, quotes=[_quote("q1", 407)],
+        )
+        assert store.quotes_for(conn, "rfq-1")[0]["yes_bid_tenths"] is None

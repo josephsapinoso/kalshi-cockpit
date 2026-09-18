@@ -713,7 +713,8 @@ class TestTheStoredPriceFollowsTheQuote:
     been measured live. These pin that the desk is safe either way.
     """
 
-    def _requote(self, conn, *, yes_ask, no_bid, contracts=9.0):
+    def _requote(self, conn, *, yes_ask, no_bid, contracts=9.0,
+                 yes_bid=None):
         store.record_quotes(
             conn,
             rfq_id=RFQ,
@@ -725,6 +726,7 @@ class TestTheStoredPriceFollowsTheQuote:
                     market_ticker="KXMVE-X",
                     yes_ask_tenths=yes_ask,
                     no_bid_tenths=no_bid,
+                    yes_bid_tenths=yes_bid,
                     contracts=contracts,
                     status="open",
                     created_ts="ts",

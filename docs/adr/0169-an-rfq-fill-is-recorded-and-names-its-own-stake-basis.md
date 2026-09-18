@@ -193,3 +193,90 @@ path records the quote and calls it the holding. It is now **#74**.
 Nothing in §1–§3 is retracted. What changes is that §1's size is a *claim
 about the venue* carrying no measurement behind it, and it is labelled as one
 here rather than left reading as established.
+
+---
+
+## Amendment 2 — 2026-09-18: the question is two questions; the decision stands and the ground is narrower
+
+Amendment 1 said §1's size claim was asserted rather than measured, and
+ticketed the measurement as **#74**. That measurement has now been taken:
+`docs/measurements/2026-09-18-can-an-rfq-quote-partially-fill.md`.
+
+**It splits into two questions, and conflating them is what made §1's sentence
+wrong while its practice was right.**
+
+**1. Can a requester accept fewer contracts than the quote offers? YES by rule,
+NO on the endpoint this repo uses.** Kalshi's rulebook says it outright — Rule
+5.3(b)(c), *"A Requestor may either accept the Quote for its full size, or
+accept some number of contracts in the quote less than the full size"* — and
+FIX exposes it as an optional `OrderQty`. But the REST accept body
+`accept_quote` sends has **exactly one property, `accepted_side`**
+(`backend/kalshi/rfq.py`, verified against the source), and no quantity field
+exists. So a REST accept is for the whole quote **structurally, not because the
+venue forbids less**.
+
+**2. Can that accepted quantity then execute short? The documentation is
+SILENT.** Nothing in the REST reference, the FIX RFQ page, the RFQ guide, the
+WebSocket `communications` schema or the Fills schema says an accepted quote
+can fill for fewer contracts — and nothing says it cannot. The status enum has
+no partial state and `quote_executed` carries no contract count at all.
+
+**Against that silence, the record now answers: 11 of 11.** Every `executed`,
+non-dry-run acceptance the live database holds — a census of the whole
+population, not a sample — filled at exactly the quoted size, at exactly the
+quoted price, as exactly one fill row, 1.1–3.9 s after the accept. Quoted sizes
+span 1.51 to 227.27 contracts, so it is not degenerate at size 1. And across
+every row of `fills`, no `venue_order_id` appears on more than one fill row:
+no order in this record has ever been split.
+
+### What changes here
+
+**§1's decision — size the position from the quote — stands, and is now
+measured rather than assumed.** What is retracted is only its *stated ground*.
+Replace *"a maker's quote is all-or-nothing at the size asked for"* with:
+
+> **The REST accept carries no quantity, so it is for the full quote; and 11 of
+> 11 executed acceptances have filled whole.**
+
+That is narrower in both halves, and both halves are checkable.
+
+**#74's build half is still worth building**, and for a better reason than
+Amendment 1 gave: not because the size is unknown, but because `rfq_accept`
+should become `venue_fill`, and because 11 of 11 is a census of one contract
+family over eleven and a half hours, not a property.
+
+**The measurement also names a better link than the time-window join it had to
+use.** The RFQ guide matches quote-execution fills on `rfq_creator_order_id`
+(requester) / `creator_order_id` (maker), private fields on the Quote object
+that `parse_quotes` reads **neither** of, and `GET /portfolio/fills` accepts
+`order_id` as a query parameter. Keeping `rfq_creator_order_id` turns a
+ticker-plus-window join into an identifier join. There is also an unexplained
+second size field, `contracts_fp`, on the captured payload beside
+`no_contracts_fp`; nothing reads it and no page explains it.
+
+### And a second REST-vs-FIX divergence, the same shape as `accepted_side`
+
+Amendment 1's reading of `rest_remainder` is half right. REST says it rests the
+remainder after execution. FIX tag 21015 says the same on the **requester's**
+QuoteRequest — but on the **maker's** Quote it reads **"Allow partial fills
+(default: N)"**, the only occurrence of "partial fill" anywhere in Kalshi's RFQ
+documentation, defaulting to N on both sides.
+
+**That is the second time a REST page declined to say something the FIX page
+states outright, on this same endpoint, in two days.** The first cost a session
+and nearly a 250x mis-buy (`accepted_side`). The durable rule: **on the RFQ
+path, read the FIX page before believing the REST reference is complete.**
+
+### One thing left open, and it is a question for Joe
+
+Rule 5.3(b)(e) says the RFQ pair enters the book as ordinary limit orders that
+*"behave identically to a standard order"*, and Rule 5.10(a) says a partially
+filled standard order **rests on the book at its limit price**. Chained, a
+short-filled RFQ order would leave **a resting offer** — the one behaviour
+ADR 0115 removed on Joe's word, because he pays the ask and does not make
+offers. It is an inference across two rules, never observed, and not decidable
+from the documentation or from any read of the existing record. Ticketed
+rather than resolved here.
+
+**Question for Joe: accepting a quote might leave a resting offer on the book —
+guard it, or accept the risk? — #78**

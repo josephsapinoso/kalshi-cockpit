@@ -2743,6 +2743,18 @@ CREATE TABLE IF NOT EXISTS combo_rfq_quotes (
     -- publishes bids and a resting NO bid IS the YES ask.
     yes_ask_tenths  INTEGER NOT NULL,
     no_bid_tenths   INTEGER NOT NULL,
+    -- What the maker would PAY for one YES contract: the EXIT, schema
+    -- v48 (#76). NOT derived -- `yes_ask_tenths` above is the complement
+    -- of a NO bid, while this is a bid on the YES side directly, and the
+    -- two differ by the maker's spread.
+    --
+    -- NULLABLE, and nullable is the decision: every quote written before
+    -- v48 genuinely has no YES bid recorded, because `parse_quotes` threw
+    -- the field away. A zero would say the maker offered nothing for the
+    -- side he holds, which is a different and worse claim. Same rule as
+    -- `oldest_book_age_ms`: unreadable resolves to NULL, never to 0, and
+    -- the reader refuses rather than substitutes.
+    yes_bid_tenths  INTEGER,
     contracts       REAL,
     status          TEXT,
     created_ts      TEXT,

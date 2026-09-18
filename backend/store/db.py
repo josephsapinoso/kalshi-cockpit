@@ -68,6 +68,12 @@ logger = logging.getLogger(__name__)
 #: §2). A REBUILD, not a column step: SQLite cannot relax a NOT NULL or a
 #: table-level CHECK in place. The rows already written keep their real typed
 #: values -- nothing is deleted, backfilled, zeroed or rewritten.
+#: v48 (2026-09-18) adds `combo_rfq_quotes.yes_bid_tenths` -- the number a
+#: maker would PAY for a combination Joe holds. `parse_quotes` discarded
+#: `yes_bid_dollars`, so the exit price existed on the wire and in no
+#: record (#76). A column step, nullable, no backfill: a quote already
+#: stored reads as "no YES bid recorded", which is true of it, and a zero
+#: would claim the maker offered nothing.
 #: v36 (2026-09-09) adds `fair_prices.confirmed_ms` and
 #: `.confirmed_oldest_book_age_ms` (ADR 0133) -- deduplication for a table an
 #: unconditional INSERT was growing every ~15-20s regardless of whether the
@@ -147,7 +153,7 @@ logger = logging.getLogger(__name__)
 #: `executescript` cannot do that. Written on `main`, 2026-09-18, the
 #: evening `/api/window` measured 7 s at the median and tripped the 25 s
 #: read budget twice.
-SCHEMA_VERSION = 47
+SCHEMA_VERSION = 48
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1121,6 +1127,29 @@ _MIGRATIONS: dict[int, _Migration] = {
     # seeded kickoff with the feed's current one. Rehearsed on a live-shaped
     # 3.6M-row database by `scripts/measure_odds_fixtures.py`; the timing is in
     # its ADR. No `columns`, so dropping the table is the whole undo.
+    # The SELL side of a maker's quote, on `combo_rfq_quotes` (v48,
+    # 2026-09-18, #76).
+    #
+    # `parse_quotes` read `no_bid_dollars` and threw `yes_bid_dollars` away, so
+    # the number a maker would PAY Joe for a combination he holds existed on
+    # the wire and nowhere else -- not in `RfqQuote`, not in this table. The
+    # 2026-09-17 sell-side measurement (16 of 44 quotes carried a YES bid, on
+    # 3 of 3 held positions, every one at the full size asked) was taken with
+    # a throwaway script for exactly that reason, and could not be re-derived
+    # from anything the recorder had kept.
+    #
+    # A COLUMN step, and the nullability is the decision: nullable with no
+    # default and no backfill, so every quote already stored reads as "no YES
+    # bid was recorded", which is the truth about it. A zero would say the
+    # maker offered nothing, and those are different facts -- the same rule
+    # `read_shard_funds` and `oldest_book_age_ms` follow. **Do not backfill.**
+    # The quotes are gone from the venue (a delete discards them) and no
+    # stored copy of the original payload exists to re-read.
+    48: _Migration(
+        columns=(
+            ("combo_rfq_quotes", "yes_bid_tenths", "INTEGER"),
+        ),
+    ),
     47: _Migration(
         statements=(
             "CREATE TABLE IF NOT EXISTS odds_fixtures ("

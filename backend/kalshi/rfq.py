@@ -104,6 +104,28 @@ class RfqQuote:
     yes_ask_tenths: int
     #: The maker's resting NO bid, the quantity actually quoted to us.
     no_bid_tenths: int
+    #: **What the maker would PAY for one YES contract -- the exit** (#76).
+    #:
+    #: An RFQ has no side field, so a maker answers with both of their bids
+    #: and `yes_bid_dollars` is literally what they would pay Joe for the
+    #: side he holds. Measured 2026-09-17: sell-side RFQs on all three
+    #: combinations he holds drew bids, 16 of 44 quotes carried a YES bid on
+    #: 3 of 3 positions, every one at the full size asked
+    #: (`docs/measurements/2026-09-17-combinations-can-be-exited.md`). This
+    #: field was DISCARDED until #76, so the exit was unreadable at every
+    #: layer.
+    #:
+    #: **Not derived, unlike `yes_ask_tenths`.** The ask is the complement of
+    #: a NO bid because a YES and a NO settle together at $1.00. This is a
+    #: bid on the YES side directly, so there is no complement to take, and
+    #: `yes_bid` and `complement(no_bid)` are two different numbers with the
+    #: spread between them.
+    #:
+    #: **`None` means the maker named no YES bid, or named one this desk
+    #: cannot represent.** Never zero: a maker bidding nothing and a maker
+    #: not quoting a side are different facts, and zero is a settled
+    #: outcome, not a price.
+    yes_bid_tenths: Optional[int]
     #: Contracts the maker will do at that price, or None if unreadable.
     contracts: Optional[float]
     status: str
@@ -232,6 +254,24 @@ def parse_quotes(payload: dict, *, rfq_id: Optional[str] = None) -> QuoteRead:
             contracts = float(row["no_contracts_fp"])
         except (KeyError, TypeError, ValueError):
             contracts = None
+        # **The sell side, kept rather than discarded** (#76). Absent on many
+        # quotes, so its refusal reason is deliberately NOT counted into
+        # `too_fine`: that count drives a sentence about whether the desk
+        # could show Joe a price to BUY, and a maker declining to bid on the
+        # side he does not hold is not a failure to price the one he does.
+        # `None` is the honest value; it never becomes zero.
+        yes_bid, _ = _read_tenths(row.get("yes_bid_dollars"))
+        if yes_bid is not None and not is_valid_price(yes_bid):
+            # 0 and 1000 again: a maker "bidding" a settled outcome is not
+            # offering to buy. Dropped to None, and the QUOTE survives --
+            # this side is extra information, never the reason to lose a
+            # price Joe can act on.
+            logger.warning(
+                "rfq: quote %s has an untradeable yes_bid %s; keeping the "
+                "quote without a sell side", row.get("id"),
+                row.get("yes_bid_dollars"),
+            )
+            yes_bid = None
         out.append(
             RfqQuote(
                 quote_id=str(row.get("id") or ""),
@@ -240,6 +280,7 @@ def parse_quotes(payload: dict, *, rfq_id: Optional[str] = None) -> QuoteRead:
                 market_ticker=str(row.get("market_ticker") or ""),
                 yes_ask_tenths=ask,
                 no_bid_tenths=no_bid,
+                yes_bid_tenths=yes_bid,
                 contracts=contracts,
                 status=str(row.get("status") or ""),
                 created_ts=str(row.get("created_ts") or ""),

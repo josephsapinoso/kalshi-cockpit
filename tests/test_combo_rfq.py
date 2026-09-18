@@ -494,3 +494,92 @@ class TestTheWordsForAPriceTooFineToShow(object):
         assert "2 maker(s) answered" in said
         assert "A further 1 priced finer than a tenth of a cent" in said
         assert "Kalshi app" in said
+class TestTheSellSideIsKeptRatherThanDiscarded:
+    """Issue #76 slice 1. The exit price existed on the wire and nowhere else.
+
+    `parse_quotes` read `no_bid_dollars` and threw `yes_bid_dollars` away. An
+    RFQ has no side field, so a maker answers with both of their bids and
+    `yes_bid_dollars` is literally what they would pay Joe for the side he
+    holds -- the exit. Measured 2026-09-17: 16 of 44 quotes carried a YES bid
+    on 3 of 3 held positions, every one at the full size asked
+    (`docs/measurements/2026-09-17-combinations-can-be-exited.md`), and that
+    measurement had to be taken with a throwaway script because nothing the
+    recorder kept could answer it.
+
+    What these do not establish
+    ---------------------------
+    - **Nothing about a sell-side RFQ.** This desk has never fired one through
+      the product. These pin that a YES bid arriving in a payload survives to
+      `RfqQuote`; firing the request is #76 slice 3.
+    - **Nothing about a quote that carries ONLY a YES bid.** Such a quote is
+      still dropped, because `parse_quotes` requires a readable `no_bid` to
+      derive `yes_ask_tenths`, which is `NOT NULL` on the row and non-optional
+      on the dataclass. Relaxing that changes an invariant the armed accept
+      path relies on and is deliberately left to slice 3 -- it is only needed
+      once a sell-side RFQ is actually fired, and nothing fires one yet.
+    - **Nothing about whether an exit is a GOOD exit.** Every best bid measured
+      on 2026-09-17 sat below Joe's cost basis.
+    """
+
+    def _one(self, **overrides) -> dict:
+        row = dict(_payload()["quotes"][0])
+        row.update(overrides)
+        return {"quotes": [row]}
+
+    def test_a_real_yes_bid_survives_to_the_quote(self):
+        read = parse_quotes(self._one(yes_bid_dollars="0.0760"))
+        assert read.quotes[0].yes_bid_tenths == 76
+
+    def test_it_is_not_the_complement_of_the_no_bid(self):
+        """The two are different numbers, separated by the maker's spread.
+
+        `yes_ask_tenths` is DERIVED -- `complement(no_bid)` -- because a YES
+        and a NO settle together at $1.00. `yes_bid_tenths` is a bid on the
+        YES side directly. Reading one as the other is the venue's
+        most-repeated correction run backwards.
+        """
+        quote = parse_quotes(self._one(yes_bid_dollars="0.0760")).quotes[0]
+        assert quote.no_bid_tenths == 407
+        assert quote.yes_ask_tenths == 593
+        assert quote.yes_bid_tenths == 76
+        assert quote.yes_bid_tenths != complement(quote.no_bid_tenths)
+
+    def test_the_captured_payload_has_no_usable_sell_side_and_reads_as_none(self):
+        """Both real captures carry `yes_bid_dollars: "0.0000"`.
+
+        `complement(0)` reasoning applies to the YES side too: a maker
+        "bidding" a settled outcome is not offering to buy. It resolves to
+        None, never to 0, because `0` would say the maker offered nothing at
+        all for the side he holds -- a different and worse claim than "this
+        maker did not quote that side".
+        """
+        for quote in parse_quotes(_payload()).quotes:
+            assert quote.yes_bid_tenths is None
+
+    def test_an_untradeable_sell_side_does_not_lose_the_buy_side(self):
+        """The extra field must never cost a price Joe can act on."""
+        read = parse_quotes(self._one(yes_bid_dollars="1.0000"))
+        assert len(read.quotes) == 1
+        assert read.quotes[0].yes_ask_tenths == 593
+        assert read.quotes[0].yes_bid_tenths is None
+
+    def test_an_absent_sell_side_is_none_and_keeps_the_quote(self):
+        row = dict(_payload()["quotes"][0])
+        row.pop("yes_bid_dollars")
+        read = parse_quotes({"quotes": [row]})
+        assert len(read.quotes) == 1 and read.quotes[0].yes_bid_tenths is None
+
+    def test_a_centi_cent_sell_side_is_refused_without_counting_as_too_fine(self):
+        """A maker declining to price the side he does NOT hold is not a
+        failure to price the one he does.
+
+        `refused_finer_than_tenths` drives a sentence about whether the desk
+        could show him a price to BUY (ADR 0172). Folding the sell side into
+        that count would make the screen say a maker could not be shown when
+        the buy price is right there.
+        """
+        read = parse_quotes(self._one(yes_bid_dollars="0.0055"))
+        assert len(read.quotes) == 1
+        assert read.quotes[0].yes_bid_tenths is None
+        assert read.refused_finer_than_tenths == frozenset()
+        assert read.refused_unreadable == frozenset()
