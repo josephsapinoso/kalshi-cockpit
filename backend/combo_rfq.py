@@ -247,7 +247,7 @@ async def ask_market_to_price(
             )
 
     try:
-        rfq_id = await create_rfq(
+        handle = await create_rfq(
             api,
             market_ticker=market_ticker,
             collection_ticker=lookup["collection_ticker"],
@@ -260,6 +260,15 @@ async def ask_market_to_price(
             f"Kalshi would not take the price request: {exc}. Nothing was "
             "asked and no money moved.",
         ) from exc
+    rfq_id = handle.rfq_id
+    # **The target the VENUE holds, which is not always the one typed**
+    # (#72). `create_rfq` reuses an open RFQ whose target is at least the
+    # one wanted, and this desk holds RFQs open so the accept stays
+    # reachable -- so asking at $1.00 and then at $5.00 returns the $1.00
+    # request, with quotes sized for $1.00. Falls back to the requested
+    # figure ONLY when the venue named none, which is the `contracts=`
+    # ask; it never substitutes the request for an unread answer.
+    held_target = handle.target_cost_dollars or target
 
     # Recorded the instant it exists, before any quote can arrive: the RFQ is
     # live on the venue now, and a failure below must not lose the fact that
@@ -347,7 +356,7 @@ async def ask_market_to_price(
         "refused_too_fine": len(too_fine),
         "rfq_id": rfq_id,
         "market_ticker": market_ticker,
-        "target_cost_dollars": target,
+        "target_cost_dollars": held_target,
         # **These two are now equal by construction**, since the trim became
         # a refusal on 2026-09-18. The field stays because a real divergence
         # exists and is NOT this one: `create_rfq` reuses an open RFQ whenever
@@ -403,7 +412,13 @@ async def ask_market_to_price(
             }
             for q in quotes
         ],
-        "words": _words(quotes, book_ask=book_ask, refused_too_fine=len(too_fine)),
+        "words": _words(
+            quotes,
+            book_ask=book_ask,
+            refused_too_fine=len(too_fine),
+            asked_at=held_target,
+            requested=target_cost_dollars,
+        ),
     }
 
 
@@ -456,6 +471,8 @@ def _words(
     *,
     book_ask: Optional[int],
     refused_too_fine: int = 0,
+    asked_at: Optional[str] = None,
+    requested: Optional[str] = None,
 ) -> str:
     """What the screen says. States facts; draws no conclusion.
 
@@ -465,17 +482,35 @@ def _words(
     trustworthy rows first (ADR 0071 s2.5). The screen may show the two
     numbers; it may not order the world by their difference.
 
+    **`asked_at` and `requested` are said only when they DIFFER** (#72).
+    They differ when an open RFQ was reused at a smaller target, which
+    means the quotes below were sized for a number Joe did not type.
+    Saying it unconditionally would train him to skip it, the way a
+    staleness warning that could never be false did (ADR 0170 Amd 1).
+
     **`refused_too_fine` is a count of MAKERS, not of reads** -- the caller
     unions quote ids across the poll loop before passing it. It is a separate
     branch because "nobody quoted" and "someone quoted a price we cannot
     print" are different facts and only the second tells him where to look
     (#73).
     """
+    # Prepended rather than appended: it changes what every price below
+    # it means, so it cannot sit after them.
+    reuse_line = ""
+    if asked_at and requested and asked_at != requested:
+        reuse_line = (
+            f"These quotes answer a request for ${asked_at}, not the "
+            f"${requested} you asked for -- an earlier request on this "
+            "combination was still open, so the venue was never asked at "
+            "the larger number. The sizes below are the ones it was "
+            "asked at. "
+        )
+
     if not quotes and refused_too_fine:
         # No hedge about whether they *would* have been takeable: the desk
         # refused the price before anyone could act on it, so the only honest
         # claim is that a price existed and this screen is not showing it.
-        return (
+        return reuse_line + (
             f"{refused_too_fine} maker(s) answered, and every price was finer "
             "than a tenth of a cent -- hundredths, which combinations quote "
             "near 0c and 100c. This desk refuses such a price rather than "
@@ -485,7 +520,7 @@ def _words(
             "resting."
         )
     if not quotes:
-        return (
+        return reuse_line + (
             "Nobody quoted this combination within a few seconds. That is a "
             "fact about this moment, not a verdict on the bet -- makers "
             "answer some requests and not others, and asking again is free. "
@@ -514,7 +549,7 @@ def _words(
         if refused_too_fine
         else ""
     )
-    return (
+    return reuse_line + (
         f"{len(quotes)} maker(s) answered.{spread_line}{fine_line} {book_line} "
         "A quote is an offer, not a fill: the maker still has a few seconds "
         "to confirm and may decline."

@@ -1207,7 +1207,23 @@ export type ComboRfqResult = {
   refused_too_fine: number;
   rfq_id: string;
   market_ticker: string;
+  /**
+   * What the VENUE was actually asked for -- not always what Joe typed.
+   *
+   * `create_rfq` reuses an open RFQ whenever its target is at least the one
+   * wanted, and this desk holds RFQs open so the accept stays reachable. So
+   * asking at $1.00 and then at $5.00 returns the $1.00 request, with quotes
+   * sized for $1.00. This field used to report the typed figure (#72).
+   */
   target_cost_dollars: string;
+  /**
+   * What Joe typed. Equal to the above in the ordinary case.
+   *
+   * When they differ, the venue was never asked at the larger number and
+   * `words` leads with a sentence saying so -- said only on the divergence,
+   * because a warning that is always on is one that gets skipped.
+   */
+  target_cost_requested: string;
   fair: { conservative: number | null };
   /** The same fair value as a string, or null when it was unreadable. */
   fair_display: string | null;

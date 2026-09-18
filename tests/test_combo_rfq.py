@@ -188,7 +188,7 @@ class TestTheWriteRoutesToTheCombinationShard:
                 seen.update(method=method, path=path, params=params, body=json_body)
                 return {"id": "rfq-1"}
 
-        rfq_id = await create_rfq(
+        handle = await create_rfq(
             FakeApi(),
             market_ticker="KXMVECROSSCATEGORY-SHARD1-XYZ",
             collection_ticker="KXMVECROSSCATEGORY-R",
@@ -196,7 +196,7 @@ class TestTheWriteRoutesToTheCombinationShard:
             target_cost_dollars="5.0000",
         )
 
-        assert rfq_id == "rfq-1"
+        assert handle.rfq_id == "rfq-1"
         assert seen["method"] == "POST"
         assert seen["params"] == {"exchange_index": 1}
         # Both were omitted on the first live attempt and it 404'd.
@@ -290,17 +290,17 @@ class TestAskingTwiceAboutTheSameCombination:
             legs=[{"market_ticker": "L", "side": "yes"}],
             target_cost_dollars="5.0000",
         )
-        assert got == "rfq-open"
+        assert got.rfq_id == "rfq-open"
         assert not any(m == "DELETE" for m, _ in api.calls), (
             "deleting would destroy the quotes the open RFQ is holding"
         )
 
     async def test_it_does_not_pick_a_closed_one_or_another_market(self):
         api = self._Api(open_id="rfq-open", ticker="T")
-        assert await create_rfq(
+        assert (await create_rfq(
             api, market_ticker="T", collection_ticker="C",
             legs=[{"market_ticker": "L", "side": "yes"}], contracts=1,
-        ) == "rfq-open"
+        )).rfq_id == "rfq-open"
 
     async def test_a_409_with_nothing_open_still_refuses(self):
         """Recovery is for the case it was written for, not a blanket retry."""
@@ -373,7 +373,7 @@ class TestAnOversizedOpenRfqIsReplacedNotReused:
     async def test_an_oversized_one_is_withdrawn_and_replaced(self):
         api = self._Api("5.0000")
         got = await self._ask(api, "3.5424")
-        assert got == "rfq-fresh", "the stale oversized RFQ was handed back"
+        assert got.rfq_id == "rfq-fresh", "the stale oversized RFQ was handed back"
         assert "DELETE" in api.calls
         assert api.posts == 2, "no fresh RFQ was created"
 
@@ -381,18 +381,18 @@ class TestAnOversizedOpenRfqIsReplacedNotReused:
         """Replacing destroys quotes, so it stays the exception."""
         api = self._Api("2.0000")
         got = await self._ask(api, "3.5424")
-        assert got == "rfq-stale"
+        assert got.rfq_id == "rfq-stale"
         assert "DELETE" not in api.calls
 
     async def test_an_equal_target_counts_as_reusable(self):
         api = self._Api("3.5424")
-        assert await self._ask(api, "3.5424") == "rfq-stale"
+        assert (await self._ask(api, "3.5424")).rfq_id == "rfq-stale"
         assert "DELETE" not in api.calls
 
     async def test_an_unreadable_target_is_replaced_not_trusted(self):
         """A fresh RFQ costs one call; a stale one costs a refused trade."""
         api = self._Api("not-a-number")
-        assert await self._ask(api, "3.5424") == "rfq-fresh"
+        assert (await self._ask(api, "3.5424")).rfq_id == "rfq-fresh"
         assert "DELETE" in api.calls
 
     async def test_a_size_based_ask_still_reuses(self):
@@ -403,7 +403,7 @@ class TestAnOversizedOpenRfqIsReplacedNotReused:
             api, market_ticker="T", collection_ticker="C",
             legs=[{"market_ticker": "L", "side": "yes"}], contracts=1,
         )
-        assert got == "rfq-stale"
+        assert got.rfq_id == "rfq-stale"
         assert "DELETE" not in api.calls
 class TestAPriceTooFineToShowIsNotNobodyQuoting(object):
     """Issue #73. Two different facts that used to render as one sentence.
@@ -583,3 +583,109 @@ class TestTheSellSideIsKeptRatherThanDiscarded:
         assert read.quotes[0].yes_bid_tenths is None
         assert read.refused_finer_than_tenths == frozenset()
         assert read.refused_unreadable == frozenset()
+class TestTheHandleReportsTheTargetTheVenueHolds:
+    """Issue #72. A reused RFQ was reported at the target Joe typed.
+
+    `create_rfq` reuses an open RFQ whenever its target is at least the one
+    wanted, and `ask_market_to_price` holds RFQs open so a second tap can
+    accept a quote. So asking at $1.00 and then at $5.00 hands back the $1.00
+    request -- with quotes sized for $1.00 -- while the payload said $5.00.
+
+    What these do not establish
+    ---------------------------
+    - Nothing about how often Joe re-asks at a larger number. The path exists
+      because RFQs are held open; how often it is walked is unmeasured.
+    - Nothing about the Take-it button's figure, which was always honest: it
+      is computed from the quote's own size, not from the target.
+    """
+
+    class _Api:
+        """Refuses the create with `already_exists`, then serves the open one."""
+
+        def __init__(self, existing_target):
+            self.existing_target = existing_target
+            self.calls: list[str] = []
+
+        async def request(self, method, path, *, params=None, json_body=None):
+            self.calls.append(method)
+            if method == "POST":
+                raise _Err(400, {"error": {"code": "already_exists"}})
+            if method == "GET":
+                return {"rfqs": [{
+                    "id": "rfq-open", "status": "open",
+                    "market_ticker": "T",
+                    "target_cost_dollars": self.existing_target,
+                }]}
+            raise AssertionError(method)
+
+    async def _ask(self, api, wanted):
+        return await create_rfq(
+            api, market_ticker="T", collection_ticker="C",
+            legs=[{"market_ticker": "L", "side": "yes"}],
+            target_cost_dollars=wanted,
+        )
+
+    async def test_a_reused_rfq_reports_the_venues_target_not_the_asked_one(self):
+        """The defect, written as a test. $1.00 held, $5.00 asked."""
+        got = await self._ask(self._Api("1.0000"), "5.0000")
+        assert got.rfq_id == "rfq-open"
+        assert got.target_cost_dollars == "1.0000", "it reported what we typed"
+        assert got.reused is True
+
+    async def test_a_fresh_rfq_reports_the_target_it_was_created_at(self):
+        class Api:
+            async def request(self, method, path, *, params=None, json_body=None):
+                return {"id": "rfq-new"}
+
+        got = await self._ask(Api(), "5.0000")
+        assert got.rfq_id == "rfq-new"
+        assert got.target_cost_dollars == "5.0000"
+        assert got.reused is False
+
+    async def test_a_contracts_ask_carries_no_dollar_target(self):
+        """`contracts=` names no dollar figure, so None is the honest answer.
+
+        Substituting the requested target here would be inventing one.
+        """
+        class Api:
+            async def request(self, method, path, *, params=None, json_body=None):
+                return {"id": "rfq-new"}
+
+        got = await create_rfq(
+            Api(), market_ticker="T", collection_ticker="C",
+            legs=[{"market_ticker": "L", "side": "yes"}], contracts=3,
+        )
+        assert got.target_cost_dollars is None
+
+    async def test_an_unreadable_venue_target_is_none_not_the_requested_one(self):
+        """A field that reports the request when it cannot read the truth is
+        the defect, not the fix."""
+        got = await self._ask(self._Api(None), "5.0000")
+        assert got.target_cost_dollars is None
+
+
+class TestTheWordsSayWhenTheVenueWasAskedAtADifferentNumber:
+    def test_a_smaller_held_target_is_said_before_any_price(self):
+        said = _words([], book_ask=None, asked_at="1.0000", requested="5.0000")
+        assert said.startswith("These quotes answer a request for $1.0000")
+        assert "$5.0000 you asked for" in said
+
+    def test_equal_targets_say_nothing(self):
+        """Saying it unconditionally trains him to skip it -- ADR 0170 Amd 1."""
+        said = _words([], book_ask=None, asked_at="5.0000", requested="5.0000")
+        assert "answer a request for" not in said
+
+    def test_an_unknown_held_target_says_nothing(self):
+        assert "answer a request for" not in _words(
+            [], book_ask=None, asked_at=None, requested="5.0000"
+        )
+
+    def test_it_is_said_even_when_makers_answered(self):
+        """It changes what every price below it means, so it cannot be
+        dropped on the branch that HAS prices."""
+        priced = parse_quotes(_payload()).quotes
+        said = _words(
+            list(priced), book_ask=None, asked_at="1.0000", requested="5.0000"
+        )
+        assert said.startswith("These quotes answer a request for $1.0000")
+        assert "2 maker(s) answered" in said

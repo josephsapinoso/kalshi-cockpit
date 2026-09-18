@@ -578,3 +578,61 @@ class TestAPriceTooFineToShowReachesTheScreenAsItsOwnStatus:
         assert body["status"] == "no_quotes"
         assert body["refused_too_fine"] == 0
         assert "not a verdict on the bet" in body["words"]
+class TestAReusedRfqReportsTheTargetTheVenueHolds:
+    """Issue #72, through the real route.
+
+    The unit tests pin `create_rfq`'s handle and `_words`' sentence. This pins
+    that the venue's number reaches the PAYLOAD, which is the field the screen
+    reads and the one that was lying.
+    """
+
+    async def test_the_payload_reports_the_held_target_not_the_typed_one(
+        self, build, monkeypatch
+    ):
+        app, fake, _ = build(quotes=[_quote_row("q1", "0.4070")])
+
+        # The venue refuses the create because our own earlier RFQ is still
+        # open, then serves that one -- asked at $1.00, not the $5.00 typed.
+        original = fake.request
+
+        async def request(method, path, *, params=None, json_body=None):
+            if method == "POST" and path.endswith("/rfqs"):
+                fake.calls.append("create")
+                raise _AlreadyExists()
+            if method == "GET" and path.endswith("/rfqs"):
+                fake.calls.append("list")
+                return {"rfqs": [{
+                    "id": "rfq-test", "status": "open",
+                    "market_ticker": TICKER,
+                    "target_cost_dollars": "1.0000",
+                }]}
+            return await original(method, path, params=params, json_body=json_body)
+
+        monkeypatch.setattr(fake, "request", request)
+        body = (await _post(app, _body())).json()
+
+        assert body["target_cost_dollars"] == "1.0000", (
+            "the payload reported the number Joe typed, not the one the "
+            "venue was asked at"
+        )
+        assert body["target_cost_requested"] == "5.0000"
+        assert body["words"].startswith(
+            "These quotes answer a request for $1.0000"
+        )
+
+    async def test_a_fresh_rfq_reports_one_number_and_says_nothing(self, build):
+        """The ordinary case must not acquire a warning it does not need."""
+        app, _, _ = build(quotes=[_quote_row("q1", "0.4070")])
+        body = (await _post(app, _body())).json()
+        assert body["target_cost_dollars"] == "5.0000"
+        assert body["target_cost_requested"] == "5.0000"
+        assert "answer a request for" not in body["words"]
+
+
+class _AlreadyExists(RuntimeError):
+    """What `KalshiAPIError` looks like for the one recoverable create failure."""
+
+    def __init__(self):
+        super().__init__("HTTP 400")
+        self.status_code = 400
+        self.body = {"error": {"code": "already_exists"}}

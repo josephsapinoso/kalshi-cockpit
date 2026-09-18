@@ -355,6 +355,33 @@ def _is_reusable(existing: dict, wanted_target: Optional[str]) -> bool:
         return False
 
 
+@dataclass(frozen=True)
+class RfqHandle:
+    """An RFQ we can read quotes from, and the target it ACTUALLY holds.
+
+    **The target is the whole reason this is not just an id** (#72).
+    `create_rfq` reuses an open RFQ whenever its target is at least the
+    one wanted, and this desk holds RFQs open so a second tap can accept
+    a quote. So Joe asks at $1.00, asks again at $5.00, and the second
+    ask silently returns the $1.00 request -- with quotes sized for
+    $1.00. Returning the id alone left the caller reporting the number he
+    typed, which the venue had never been asked at.
+
+    `target_cost_dollars` is what the VENUE holds, verbatim, or `None`
+    for a `contracts=` ask, which carries no dollar target at all.
+    Never the requested figure standing in for it: a field that reports
+    the request when it cannot read the truth is the defect, not the fix.
+    """
+
+    rfq_id: str
+    #: What the venue was asked for, as the venue states it. `None` when
+    #: unknown or not applicable -- never a guess.
+    target_cost_dollars: Optional[str]
+    #: True when this is an RFQ that already existed. The quotes behind
+    #: it were priced for ITS target, not necessarily for this ask.
+    reused: bool = False
+
+
 async def create_rfq(
     api: KalshiRestClient,
     *,
@@ -363,8 +390,11 @@ async def create_rfq(
     legs: Sequence[dict],
     target_cost_dollars: Optional[str] = None,
     contracts: Optional[int] = None,
-) -> str:
-    """Ask the market to price a combination. Returns the RFQ id.
+) -> RfqHandle:
+    """Ask the market to price a combination.
+
+    Returns an `RfqHandle`: the id, **and the target the venue actually
+    holds**, which is not always the one asked for (see `RfqHandle`).
 
     **This obligates nothing.** Only accepting a quote binds the requester;
     Kalshi's docs are explicit and this repo has exercised create-and-delete
@@ -411,9 +441,27 @@ async def create_rfq(
             existing = await open_rfq_for(api, market_ticker)
             if existing is not None:
                 if _is_reusable(existing, target_cost_dollars):
-                    logger.info("rfq: reusing our open RFQ %s on %s",
-                                existing.get("id"), market_ticker)
-                    return str(existing["id"])
+                    logger.info(
+                        "rfq: reusing our open RFQ %s on %s (its target "
+                        "%s, asked for %s)",
+                        existing.get("id"), market_ticker,
+                        existing.get("target_cost_dollars"),
+                        target_cost_dollars,
+                    )
+                    # **The venue's own figure, not the one we asked
+                    # for.** These differ exactly when the reuse was at a
+                    # SMALLER target, which is the case #72 exists for:
+                    # the quotes behind this id are sized for the number
+                    # below, and a screen reporting the requested one
+                    # tells Joe he is about to spend what he typed.
+                    held = existing.get("target_cost_dollars")
+                    return RfqHandle(
+                        rfq_id=str(existing["id"]),
+                        target_cost_dollars=(
+                            str(held) if held is not None else None
+                        ),
+                        reused=True,
+                    )
                 # Too big to pay for. Withdraw it and ask again at the size
                 # we can afford -- its quotes are worthless either way,
                 # because accepting one of them would be refused.
@@ -438,14 +486,20 @@ async def create_rfq(
                 new_id = rfq.get("id") or created.get("id")
                 if not new_id:
                     raise RfqRefused(f"Kalshi returned no RFQ id: {created!r}")
-                return str(new_id)
+                # Freshly created at OUR target, so the two agree here.
+                return RfqHandle(
+                    rfq_id=str(new_id),
+                    target_cost_dollars=target_cost_dollars,
+                )
         raise RfqRefused(f"Kalshi would not create the RFQ: {exc}") from exc
 
     rfq = created.get("rfq") if isinstance(created.get("rfq"), dict) else created
     rfq_id = rfq.get("id") or created.get("id")
     if not rfq_id:
         raise RfqRefused(f"Kalshi returned no RFQ id: {created!r}")
-    return str(rfq_id)
+    return RfqHandle(
+        rfq_id=str(rfq_id), target_cost_dollars=target_cost_dollars
+    )
 
 
 async def read_quotes(api: KalshiRestClient, rfq_id: str) -> QuoteRead:

@@ -143,6 +143,8 @@ invented prerequisite had deferred a non-recurring window twice.
 | `f72cdfa` | a centi-cent quote is no longer "nobody quoted" (#73) | 0172 |
 | `9cd093e` | the shard balance is dollars, measured (#75) | — |
 | `cb01480` | the sell side is kept (#76 s1) + the partial-fill answer (#74) | 0173, 0169 Amd 2 |
+| `1be0f7c` | the fixture is classified; this entry; **deployed live** | — |
+| (below) | an RFQ reports the target the venue holds (#72) | 0174 |
 
 ### 1. DEDUP DELIVERING — and `fair_prices` is spent as a growth lever
 
@@ -253,7 +255,16 @@ warm.
    a short-filled RFQ acceptance would leave **a resting offer**, the behaviour
    ADR 0115 removed on his word. Never observed (11 of 11 filled whole) and not
    decidable from the docs.
-3. **#77** is the `combo_rfqs.status` migration above. #72 is untouched.
+3. **#77** is the `combo_rfqs.status` migration above. **#72 is DONE**
+   (ADR 0174): `create_rfq` returned a bare id, so a reused RFQ was reported
+   at the target Joe typed rather than the one the venue was asked at, with
+   quotes sized for the smaller number. It now returns an `RfqHandle` carrying
+   the venue's own target, and the words lead with the divergence **only when
+   there is one** — the ADR 0170 Amd 1 rule, now pinned by a mutation. The
+   ticket's simpler option (refuse to reuse) was **not** taken: reuse exists
+   because deleting destroys quotes that may be on screen with a confirm
+   pending, and that option fixes a false field by changing the world it
+   describes.
 4. **Read the FIX page before believing a Kalshi REST reference is complete.**
    Second divergence on this same endpoint in two days: FIX tag 21015 reads
    "Allow partial fills (default: N)" on the maker's Quote where REST describes
