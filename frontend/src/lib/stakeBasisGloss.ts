@@ -63,6 +63,8 @@ export const STAKE_BASIS_GLOSS: Record<string, string> = {
     "No Kalshi order matches this ticket, so the stake above is the price recorded with it, not Kalshi's own record of the fill.",
   rfq_accept:
     "You bought this by taking a maker's quote, which places no ordinary Kalshi order — the stake above is the price you accepted times the size quoted, before fees.",
+  rfq_fill_unmatched:
+    "You took a maker's quote for this, and Kalshi's own record of the fill did not name this bet — the stake above is the price you accepted times the size quoted.",
   ambiguous_order_rows:
     "More than one Kalshi order matches this ticket, so which fill it was cannot be read — the stake above is the price recorded with it.",
   side_convention_unresolved:

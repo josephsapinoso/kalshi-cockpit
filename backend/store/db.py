@@ -68,6 +68,18 @@ logger = logging.getLogger(__name__)
 #: §2). A REBUILD, not a column step: SQLite cannot relax a NOT NULL or a
 #: table-level CHECK in place. The rows already written keep their real typed
 #: values -- nothing is deleted, backfilled, zeroed or rewritten.
+#: v50 (2026-09-18) adds five columns to `combo_rfq_quotes` recording what
+#: Kalshi's own `/portfolio/fills` said about an RFQ acceptance (#74, ADR
+#: 0178). Until this, nothing on the RFQ path read the venue: the position
+#: was written at the QUOTE's size on the ground that a maker's quote is
+#: all-or-nothing, which ADR 0169 asserts and no measurement supports, and a
+#: part-fill would have been wrong in both size and stake with no
+#: reconciliation to fail. A COLUMN step, all five nullable, no backfill --
+#: a row written before v50 reads as "the venue was never asked", which is
+#: true of it, and the quotes themselves are gone from the venue.
+#: `venue_fill_outcome` records the refusals as well as the matches, because
+#: whether a KXMVE fill reaches that endpoint at all, and under what ticker,
+#: is the open question the column exists to settle.
 #: v49 (2026-09-18) widens `combo_rfqs.status` to admit
 #: `'priced_too_finely'` and adds `.refused_too_fine` -- the RFQ row was
 #: recording `no_quotes` ("we asked and nobody answered") for an ask whose
@@ -162,7 +174,7 @@ logger = logging.getLogger(__name__)
 #: `executescript` cannot do that. Written on `main`, 2026-09-18, the
 #: evening `/api/window` measured 7 s at the median and tripped the 25 s
 #: read budget twice.
-SCHEMA_VERSION = 49
+SCHEMA_VERSION = 50
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1262,6 +1274,28 @@ _MIGRATIONS: dict[int, _Migration] = {
     # `read_shard_funds` and `oldest_book_age_ms` follow. **Do not backfill.**
     # The quotes are gone from the venue (a delete discards them) and no
     # stored copy of the original payload exists to re-read.
+    # What the venue said about an RFQ acceptance (#74, ADR 0178).
+    #
+    # A COLUMN step, five of them, all nullable with no default and no
+    # backfill. `venue_fill_read_ms` NULL is the load-bearing one: it means
+    # nobody asked the venue, which every row written before this step is
+    # honest about, and it is a different fact from a read that came back
+    # empty. `stake_basis_for` reads exactly that distinction -- the first
+    # keeps `rfq_accept`, the second becomes `rfq_fill_unmatched`.
+    #
+    # **Do not backfill.** The fills endpoint has a measured retention window
+    # of about three months with no measured lower bound (`rest.fills`), the
+    # two acceptances this repo has predate the step, and a value invented
+    # for them would enter the one record that says what the venue charged.
+    50: _Migration(
+        columns=(
+            ("combo_rfq_quotes", "venue_fill_read_ms", "INTEGER"),
+            ("combo_rfq_quotes", "venue_fill_outcome", "TEXT"),
+            ("combo_rfq_quotes", "venue_fill_note", "TEXT"),
+            ("combo_rfq_quotes", "venue_fill_count", "REAL"),
+            ("combo_rfq_quotes", "venue_avg_fill_price_tenths", "INTEGER"),
+        ),
+    ),
     48: _Migration(
         columns=(
             ("combo_rfq_quotes", "yes_bid_tenths", "INTEGER"),

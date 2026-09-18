@@ -2798,6 +2798,36 @@ CREATE TABLE IF NOT EXISTS combo_rfq_quotes (
     outcome_ms          INTEGER,
     -- 1 until the accept path is armed. Mirrors `manual_orders.dry_run`.
     accept_dry_run      INTEGER,
+    -- What Kalshi's own `/portfolio/fills` said about this acceptance,
+    -- schema v50 (#74, ADR 0178). Until v50 nothing on the RFQ path read
+    -- the venue at all: the position was recorded at the QUOTE's size and
+    -- price on the asserted ground that a maker's quote is all-or-nothing,
+    -- and `/hedge` said `rfq_accept` because there was nothing better to
+    -- say. A part-fill would have been wrong in both size and stake with
+    -- no reconciliation to fail.
+    --
+    -- All five are NULLABLE and nullable is the decision. `venue_fill_read_ms`
+    -- NULL means the venue was never read -- every row written before v50,
+    -- and every dry run -- which is a different fact from a read that found
+    -- nothing, and the two must not share a value. A zero count would claim
+    -- the venue reported no fill; NULL says nobody asked.
+    venue_fill_read_ms          INTEGER,
+    -- Which of the named states the read landed in: `matched`, `no_rows`,
+    -- `not_under_combo_ticker`, `unexpected_fill_side`, `unparsable`,
+    -- `read_failed`, `finer_than_a_tenth`. **This column IS the measurement
+    -- #74 was opened for** -- whether a KXMVE fill reaches `/portfolio/fills`
+    -- at all, and under what ticker, is unresolved by this repo, and a
+    -- column that only recorded successes could never settle it.
+    venue_fill_outcome          TEXT,
+    -- Free text beside the outcome: the tickers a bare read saw stamped
+    -- after the acceptance when the combination's own ticker returned
+    -- nothing, and which of `is_taker` / `fee_cost` the rows carried.
+    -- Evidence for the shape, not a number anything computes with.
+    venue_fill_note             TEXT,
+    -- The venue's own size and average price per contract on OUR side,
+    -- written only when the fill is provably about this acceptance.
+    venue_fill_count            REAL,
+    venue_avg_fill_price_tenths INTEGER,
     UNIQUE (rfq_id, quote_id)
 );
 CREATE INDEX IF NOT EXISTS idx_combo_rfq_quotes_rfq

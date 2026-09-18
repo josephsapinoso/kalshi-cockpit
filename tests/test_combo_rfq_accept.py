@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -80,10 +81,33 @@ def conn():
 class FakeApi:
     """Records what reached the venue, and what it answered."""
 
-    def __init__(self, *, statuses=None, accept_raises=False):
+    def __init__(
+        self, *, statuses=None, accept_raises=False, fills=None,
+        fills_raise=False,
+    ):
         self.calls: list[tuple[str, str]] = []
         self._statuses = list(statuses or [])
         self._accept_raises = accept_raises
+        # `fills` is either the rows the venue holds, or a list of successive
+        # answers when a test needs the re-read to differ from the first read.
+        self._fills = fills
+        self._fills_raise = fills_raise
+        self.fill_calls: list = []
+
+    async def fills(self, *, ticker=None, limit=None):
+        """`KalshiRestClient.fills`, including its `ticker` filter.
+
+        The filter is modelled rather than ignored because the code under
+        test re-checks it -- a venue that ignored the parameter would
+        otherwise be indistinguishable here from one that honoured it.
+        """
+        self.fill_calls.append(ticker)
+        if self._fills_raise:
+            raise RuntimeError("fills unavailable")
+        rows = self._fills or []
+        if rows and isinstance(rows[0], list):
+            rows = rows.pop(0) if len(rows) > 1 else rows[0]
+        return [r for r in rows if ticker is None or r.get("ticker") == ticker]
 
     async def request(self, method, path, *, params=None, json_body=None):
         self.calls.append((method, path))
@@ -621,7 +645,10 @@ class TestTheHedgeScreenNamesWhereTheStakeCameFrom:
         rows = _positions(conn)
         bases = hedge.stake_bases(conn, rows)
         basis = bases[int(rows[0]["id"])]
-        assert basis.reason == "rfq_accept"
+        # `rfq_fill_unmatched` since #74: this fake holds no fills, so the
+        # venue WAS asked and did not name the bet. Either way it is not
+        # `no_order_row`, which is the claim this test makes.
+        assert basis.reason == "rfq_fill_unmatched"
         assert basis.basis == hedge.STAKE_BASIS_AS_RECORDED
         assert basis.stake_tenths == 5_337
 
@@ -677,7 +704,9 @@ class TestTheHedgeScreenNamesWhereTheStakeCameFrom:
         assert len(rows) == 2
         bases = hedge.stake_bases(conn, rows)
         reasons = {row["combo_ticker"]: bases[int(row["id"])].reason for row in rows}
-        assert reasons == {"KXMVE-X": "rfq_accept", "KXMVE-OTHER": "no_order_row"}
+        assert reasons == {
+            "KXMVE-X": "rfq_fill_unmatched", "KXMVE-OTHER": "no_order_row",
+        }
 
     async def test_another_combinations_acceptance_does_not_answer_for_this_one(
         self, conn
@@ -774,3 +803,323 @@ class TestTheStoredPriceFollowsTheQuote:
         assert row["yes_ask_tenths"] == 593
         assert row["accepted_ms"] == 2_000
         assert row["outcome_status"] == "executed"
+
+
+# ---------------------------------------------------------------------------
+# Issue #74 / ADR 0178: what Kalshi's own record says the acceptance did.
+# ---------------------------------------------------------------------------
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _captured_combination_fills() -> list[dict]:
+    """Every combination fill in the committed `/portfolio/fills` capture.
+
+    **Loaded, never hand-built** -- the wire-format rule, and here it earns
+    its keep twice over: these eight rows are the only KXMVE fills this repo
+    has ever seen, and they are what tells us a combination's fill carries
+    the COMBINATION's ticker rather than its legs'.
+    """
+    payload = json.loads(
+        (FIXTURES / "portfolio_fills_redacted.json").read_text(encoding="utf-8")
+    )
+    return [
+        row for row in payload["payload"]["fills"]
+        if str(row.get("ticker", "")).startswith("KXMVE")
+    ]
+
+
+def combo_fill(**overrides) -> dict:
+    """One captured combination fill with named fields replaced.
+
+    The same shape `tests/test_portfolio_poll.py`'s `wnba_fill` uses: the
+    payload is the venue's, the overrides are only the coordinates a test
+    needs (which combination, when, how many).
+    """
+    row = dict(_captured_combination_fills()[0])
+    row.update(overrides)
+    return row
+
+
+def _fill_at(
+    count_fp: str, *, ticker="KXMVE-X", ts_ms=2_000, side="yes",
+    yes_price_dollars="0.0600",
+) -> dict:
+    """A captured combination fill placed on this test's combination.
+
+    The price is overridden as `wnba_fill` overrides one: the captured rows
+    are all sub-cent dust (0.1c), which is a real thing a combination trades
+    at and a poor number to do arithmetic against -- 4.5 contracts at 1 tenth
+    is a stake of 4.5 tenths, and the half-tenth rounding would be the only
+    thing a reader saw. 6.00c is near the 5.93c this fixture's quote asks.
+    """
+    return combo_fill(
+        ticker=ticker,
+        market_ticker=ticker,
+        side=side,
+        count_fp=count_fp,
+        yes_price_dollars=yes_price_dollars,
+        created_time=_iso(ts_ms),
+    )
+
+
+def _iso(ms: int) -> str:
+    return (
+        datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+        .strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    )
+
+
+class TestTheCaptureAlreadyAnswersHalfTheQuestion:
+    """`combo_rfq.py` said in a comment that whether a KXMVE fill reaches
+    `/portfolio/fills` at all, and under what ticker, was unresolved by this
+    repo, and `tasks/NEXT.md` restated it. **A committed fixture already
+    answered the ticker half.**
+
+    What these rows do NOT settle is the timing -- they were captured days
+    after the trades, and nothing here says how long after execution a fill
+    becomes readable. That is what `read_venue_fill` measures, and it is why
+    a read that comes back empty is recorded rather than treated as an error.
+    """
+
+    def test_a_combination_fill_carries_the_combinations_own_ticker(self):
+        rows = _captured_combination_fills()
+        assert len(rows) == 8, "the capture's combination fills"
+        for row in rows:
+            assert row["ticker"] == row["market_ticker"]
+            assert row["ticker"].startswith("KXMVECROSSCATEGORY-")
+
+    def test_every_captured_combination_fill_is_a_yes_taker_buy(self):
+        """Which is why `_aggregate_fills` reads `yes_price_dollars` and
+        refuses any other side. `accepted_side` names the MAKER's side, so
+        buying YES sends `"no"` and the fill prints on ours -- measured
+        2026-09-17, and the wrong reading buys the opposite contract at
+        ~250x."""
+        for row in _captured_combination_fills():
+            assert (row["side"], row["action"]) == ("yes", "buy")
+            assert row["is_taker"] is True
+
+    def test_a_combination_fill_is_fractional_and_carries_its_fee(self):
+        """Both facts the parser depends on: `count_fp` is a fixed-point
+        string that `int()` would misread, and `fee_cost` is present, so a
+        later fee reconciliation on this path is possible."""
+        for row in _captured_combination_fills():
+            assert "." in row["count_fp"]
+            assert row["fee_cost"]
+
+
+class TestTheVenueIsAskedWhatItDid:
+    """The measurement #74 was opened for, and the correction it carries.
+
+    ADR 0169 recorded the position at the QUOTE's size on the ground that a
+    maker's quote is all-or-nothing -- asserted in two modules and cited to
+    nothing. Every test here is about what happens when the venue disagrees,
+    or cannot be asked, or answers about some other bet.
+    """
+
+    async def _accept(self, conn, api, now_ms=2_000):
+        return await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=now_ms,
+            api=api, dry_run=False,
+        )
+
+    async def test_a_dry_run_never_asks_the_venue(self, conn):
+        api = FakeApi(statuses=["executed"])
+        await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000, api=api,
+            dry_run=True,
+        )
+        assert api.fill_calls == [], "nothing was bought, so nothing is read"
+        row = store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)
+        assert row["venue_fill_read_ms"] is None
+
+    async def test_a_quote_that_never_filled_never_asks_the_venue(self, conn):
+        api = FakeApi(statuses=["cancelled"])
+        await self._accept(conn, api)
+        assert api.fill_calls == []
+
+    async def test_a_full_fill_is_recorded_at_the_venues_own_numbers(self, conn):
+        """9 contracts quoted, 9 filled, and the venue's price is the one
+        stored -- 10 tenths a contract off the capture, not the 593 the quote
+        asked."""
+        api = FakeApi(statuses=["executed"], fills=[_fill_at("9.00")])
+        await self._accept(conn, api)
+        row = store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)
+        assert row["venue_fill_outcome"] == "matched"
+        assert row["venue_fill_count"] == 9.0
+        assert row["venue_avg_fill_price_tenths"] == 60
+        position = _positions(conn)[0]
+        assert position["return_tenths"] == 9_000
+        assert position["stake_tenths"] == 540
+
+    async def test_a_part_fill_is_recorded_at_the_size_that_filled(self, conn, monkeypatch):
+        """**The defect this ticket exists for.** The quote was for 9; the
+        venue filled 4.5. Recording 9 would put a holding Joe does not have
+        under `/hedge`'s watch, size a hedge against it, and never be caught
+        -- the basis was `as_recorded`, so there is no reconciliation to
+        fail.
+
+        Mutation: use the quote's size unconditionally in
+        `_record_accepted_position` and this goes red on both numbers.
+        """
+        monkeypatch.setattr(combo_rfq, "VENUE_FILL_RECHECK_S", 0.0)
+        api = FakeApi(statuses=["executed"], fills=[_fill_at("4.50")])
+        await self._accept(conn, api)
+        row = store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)
+        assert row["venue_fill_outcome"] == "matched_partial"
+        position = _positions(conn)[0]
+        assert position["return_tenths"] == 4_500, "the holding is what filled"
+        assert position["stake_tenths"] == 270
+
+    async def test_a_short_read_is_re_read_once_and_the_fuller_answer_wins(
+        self, conn, monkeypatch
+    ):
+        """A read that lands mid-propagation looks exactly like a part-fill.
+        One re-read separates the two in the common case; it is not a proof
+        of completeness and the constant says so."""
+        monkeypatch.setattr(combo_rfq, "VENUE_FILL_RECHECK_S", 0.0)
+        api = FakeApi(
+            statuses=["executed"],
+            fills=[[_fill_at("4.50")], [_fill_at("9.00")]],
+        )
+        await self._accept(conn, api)
+        row = store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)
+        assert row["venue_fill_outcome"] == "matched"
+        assert row["venue_fill_count"] == 9.0
+        assert _positions(conn)[0]["return_tenths"] == 9_000
+
+    async def test_a_full_fill_is_never_re_read(self, conn):
+        """The second call costs a venue round trip on the armed path and
+        buys nothing when the numbers already agree."""
+        api = FakeApi(statuses=["executed"], fills=[_fill_at("9.00")])
+        await self._accept(conn, api)
+        assert api.fill_calls == ["KXMVE-X"]
+
+    async def test_more_contracts_than_quoted_is_refused_not_used(self, conn):
+        """More than the maker quoted cannot all be this acceptance, so the
+        rows in hand are not one bet -- the `contract_count_disagrees` proof,
+        on a second path. The quote's numbers stand and the row says why."""
+        api = FakeApi(statuses=["executed"], fills=[_fill_at("20.00")])
+        await self._accept(conn, api)
+        row = store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)
+        assert row["venue_fill_outcome"] == "count_exceeds_quote"
+        assert row["venue_fill_count"] is None
+        assert _positions(conn)[0]["return_tenths"] == 9_000
+        assert _positions(conn)[0]["stake_tenths"] == 5_337
+
+    async def test_a_fill_on_the_other_side_is_refused_not_reinterpreted(self, conn):
+        """A `no` fill is the maker's side, and reading its price as ours is
+        the ~250x error the 2026-09-17 probe was fired to avoid."""
+        api = FakeApi(statuses=["executed"], fills=[_fill_at("9.00", side="no")])
+        await self._accept(conn, api)
+        row = store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)
+        assert row["venue_fill_outcome"] == "unexpected_fill_side"
+        assert row["venue_fill_count"] is None
+        assert _positions(conn)[0]["stake_tenths"] == 5_337
+
+    async def test_a_fill_from_before_this_acceptance_is_not_this_bet(self, conn):
+        """The same combination bought an hour ago is still on the ticker.
+        Attributing it here would build a stake on another bet's fill."""
+        api = FakeApi(
+            statuses=["executed"],
+            fills=[_fill_at("9.00", ts_ms=2_000 - 3_600_000)],
+        )
+        await self._accept(conn, api)
+        row = store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)
+        assert row["venue_fill_outcome"] == "no_rows"
+        assert _positions(conn)[0]["stake_tenths"] == 5_337
+
+    async def test_a_fill_under_another_ticker_is_named_rather_than_used(self, conn):
+        """The other half of #74's question. A bare read is taken only when
+        the combination's own ticker came back empty, and what it saw in the
+        window is the evidence for *under what ticker*."""
+        api = FakeApi(
+            statuses=["executed"],
+            fills=[_fill_at("9.00", ticker="KXMLBGAME-LEG")],
+        )
+        await self._accept(conn, api)
+        row = store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)
+        assert row["venue_fill_outcome"] == "not_under_combo_ticker"
+        assert "KXMLBGAME-LEG" in row["venue_fill_note"]
+        assert api.fill_calls == ["KXMVE-X", None], "targeted first, then bare"
+
+    async def test_an_empty_venue_is_recorded_as_an_empty_venue(self, conn):
+        """Execution is ~1.1s behind confirmation and propagation to this
+        endpoint is unmeasured, so nothing is the normal case -- and the
+        elapsed time travels with it, because a row with no delay cannot
+        tell "too early" from "never"."""
+        api = FakeApi(statuses=["executed"], fills=[])
+        await self._accept(conn, api)
+        row = store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)
+        assert row["venue_fill_outcome"] == "no_rows"
+        assert row["venue_fill_read_ms"] == 2_000
+        assert "elapsed=" in row["venue_fill_note"]
+
+    async def test_a_failed_read_does_not_break_the_trade(self, conn):
+        """The money is spent. A bookkeeping read may not turn a completed
+        purchase into an error that tells Joe nothing happened."""
+        api = FakeApi(statuses=["executed"], fills_raise=True)
+        result = await self._accept(conn, api)
+        assert result["filled"] is True
+        assert result["position_id"] is not None
+        row = store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)
+        assert row["venue_fill_outcome"] == "read_failed"
+        assert _positions(conn)[0]["stake_tenths"] == 5_337
+
+    async def test_the_outcome_travels_back_to_the_screen(self, conn):
+        api = FakeApi(statuses=["executed"], fills=[_fill_at("9.00")])
+        result = await self._accept(conn, api)
+        assert result["venue_fill_outcome"] == "matched"
+
+
+class TestTheHedgeScreenReadsTheVenuesFill:
+    """ADR 0160's rule, reaching the RFQ path: nothing reads a recorded stake
+    raw where the venue's own number is provable."""
+
+    async def test_a_matched_fill_makes_the_stake_the_venues_own(self, conn):
+        await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
+            api=FakeApi(statuses=["executed"], fills=[_fill_at("9.00")]),
+            dry_run=False,
+        )
+        rows = _positions(conn)
+        basis = hedge.stake_bases(conn, rows)[int(rows[0]["id"])]
+        assert basis.basis == hedge.STAKE_BASIS_VENUE_FILL
+        assert basis.reason is None
+        assert basis.stake_tenths == 540
+
+    async def test_a_read_that_found_nothing_is_not_a_read_that_never_ran(
+        self, conn
+    ):
+        """The distinction the new reason buys. Both keep the recorded stake;
+        only one of them means the venue was asked."""
+        await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
+            api=FakeApi(statuses=["executed"], fills=[]), dry_run=False,
+        )
+        rows = _positions(conn)
+        assert hedge.stake_bases(conn, rows)[int(rows[0]["id"])].reason == (
+            "rfq_fill_unmatched"
+        )
+
+        conn.execute("UPDATE combo_rfq_quotes SET venue_fill_read_ms = NULL")
+        conn.commit()
+        assert hedge.stake_bases(conn, rows)[int(rows[0]["id"])].reason == (
+            "rfq_accept"
+        )
+
+    async def test_a_count_that_does_not_rebuild_the_holding_is_refused(self, conn):
+        """`_record_accepted_position` writes `return_tenths` from the same
+        number, so a disagreement means the row in hand is about some other
+        holding -- and a stake built on it would be another bet's."""
+        await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
+            api=FakeApi(statuses=["executed"], fills=[_fill_at("9.00")]),
+            dry_run=False,
+        )
+        conn.execute("UPDATE combo_rfq_quotes SET venue_fill_count = 4.0")
+        conn.commit()
+        rows = _positions(conn)
+        basis = hedge.stake_bases(conn, rows)[int(rows[0]["id"])]
+        assert basis.basis == hedge.STAKE_BASIS_AS_RECORDED
+        assert basis.reason == "rfq_fill_unmatched"

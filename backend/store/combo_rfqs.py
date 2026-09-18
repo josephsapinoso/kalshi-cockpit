@@ -333,6 +333,45 @@ def record_accept_outcome(
     )
 
 
+def record_venue_fill(
+    conn: sqlite3.Connection,
+    *,
+    rfq_id: str,
+    quote_id: str,
+    read_ms: int,
+    outcome: str,
+    note: Optional[str] = None,
+    count: Optional[float] = None,
+    avg_price_tenths: Optional[int] = None,
+) -> None:
+    """What `/portfolio/fills` said about this acceptance. Schema v50, #74.
+
+    **The refusals are written as carefully as the matches**, and that is the
+    point of the column rather than a nicety. Whether a KXMVE combination's
+    fill reaches `/portfolio/fills` at all, and under what ticker, is
+    unresolved by this repo -- `combo_rfq.py` said so itself -- and a record
+    that stored only the fills it managed to attribute could never answer it.
+    A row reading `not_under_combo_ticker` with the tickers it DID see is the
+    finding; a row reading `no_rows` on every acceptance for a month is a
+    different finding; and neither is distinguishable from "nobody asked" if
+    the refusal is not stored.
+
+    `count` and `avg_price_tenths` stay `None` on every outcome but `matched`.
+    Never 0: a zero count is the venue saying nothing filled, and this path
+    cannot tell that from not having looked.
+    """
+    conn.execute(
+        """
+        UPDATE combo_rfq_quotes
+           SET venue_fill_read_ms = ?, venue_fill_outcome = ?,
+               venue_fill_note = ?, venue_fill_count = ?,
+               venue_avg_fill_price_tenths = ?
+         WHERE rfq_id = ? AND quote_id = ?
+        """,
+        (read_ms, outcome, note, count, avg_price_tenths, rfq_id, quote_id),
+    )
+
+
 def rfq_row(conn: sqlite3.Connection, rfq_id: str) -> Optional[sqlite3.Row]:
     """The ask a quote belongs to, or None.
 

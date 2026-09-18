@@ -174,9 +174,15 @@ class TestTheTwoVocabulariesMatch:
           formed and can never match, and `no_order_row` would report a
           designed state as a bookkeeping gap.
 
-        A twelfth needs the same."""
-        assert len(refusal_names()) == 11
-        assert len(glossed_names()) == 11
+        - the twelfth, `rfq_fill_unmatched`, issue #74 on 2026-09-18 (ADR
+          0178): the accept path now READS `/portfolio/fills`, so such a
+          position can reach `venue_fill` -- and a read that ran and did
+          not name the bet is a different fact from `rfq_accept`, which
+          after this build means the venue was never asked at all.
+
+        A thirteenth needs the same."""
+        assert len(refusal_names()) == 12
+        assert len(glossed_names()) == 12
 
     def test_the_good_case_is_spelled_the_same_on_both_sides(self):
         """The one string the card compares against. A typo here renders the

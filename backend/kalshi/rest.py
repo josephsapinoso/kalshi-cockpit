@@ -727,9 +727,16 @@ class KalshiRestClient:
         A real fill is ground truth for the fee model, and the only way to close
         the open question in `core/fees.py`.
 
-        **The per-fill wire shape has still never been observed on this
-        account.** Separate what is measured from what is documented, because
-        only the first kind survives contact with the venue:
+        **The per-fill wire shape WAS observed, 2026-08-18** -- 33 fills,
+        eight of them combinations, in
+        `tests/fixtures/portfolio_fills_redacted.json`, and `parse_fill`
+        parses them. This paragraph said "has still never been observed on
+        this account" until 2026-09-18 (ADR 0178 section 2), eleven days after
+        the capture landed and while two other modules were citing it as a
+        reason a question could not be answered. The history below is kept
+        because it is what the retention window looks like from the outside,
+        and it still governs when to capture; separate what is measured from
+        what is documented:
 
         - **Measured 2026-08-09 and again 2026-08-10:** the envelope is
           `{"cursor": str, "fills": list}`, and the list is **empty**.
@@ -757,9 +764,10 @@ class KalshiRestClient:
           The predecessor project's name `fee` is almost certainly dead -- the
           API changelog retired the legacy integer-cent fields in April 2026.
 
-        Which is why nothing here parses a fill. Run
-        `scripts/capture_fills_fixture.py` the moment fills exist, before any
-        parser is written against them.
+        Nothing in THIS module parses a fill -- `portfolio_poll.parse_fill`
+        does, against the capture above, which is the order the rule asks for.
+        Run `scripts/capture_fills_fixture.py` within days of a fill that has
+        a shape nobody has seen, not "next time the laptop is open".
 
         The `or []` this used to end with is gone. A missing key is a rename and
         an empty list is a real state; collapsing them is the defect this repo

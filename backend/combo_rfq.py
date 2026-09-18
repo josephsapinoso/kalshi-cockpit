@@ -45,10 +45,17 @@ import logging
 import math
 import sqlite3
 import time
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 from backend.core.hedge import SETTLEMENT_TENTHS, combo_entry_fee_tenths
-from backend.core.prices import format_dollars, probability_to_tenths
+from backend.core.prices import (
+    dollars_to_tenths,
+    format_dollars,
+    probability_to_tenths,
+)
+from backend.kalshi.discovery import parse_ms
 from backend.kalshi.orderbook import OrderBook
 from backend.kalshi.rest import EXCHANGE_INDEX_COMBOS
 from backend.kalshi.rfq import (
@@ -560,6 +567,263 @@ def _words(
     )
 
 
+
+# ---------------------------------------------------------------------------
+# What the venue says it actually did. Issue #74, ADR 0178.
+# ---------------------------------------------------------------------------
+
+#: How many fills to ask for. Small on purpose: the targeted read is bounded
+#: by the combination's own ticker, and the bare fallback below only needs
+#: enough rows to see what landed in the last two minutes.
+VENUE_FILL_LIMIT = 50
+
+#: How far BEFORE the acceptance a fill may be stamped and still be this
+#: acceptance's. Small, and small is the safe direction: too tight yields
+#: `no_rows`, which keeps the recorded stake and says so; too loose would
+#: attribute an EARLIER fill of the same combination to this trade and build
+#: a money figure on someone else's bet -- the failure
+#: `contract_count_disagrees` refuses on the order path. Five seconds covers
+#: clock skew between this process's `now_ms` and Kalshi's own stamps; the
+#: handshake itself resolves in about four seconds.
+VENUE_FILL_SLACK_MS = 5_000
+
+#: How far AFTER the acceptance the bare fallback read still calls a fill
+#: interesting enough to name in the note. Evidence only -- nothing computes
+#: with it -- so it is generous where the slack above is tight.
+VENUE_FILL_WINDOW_MS = 120_000
+
+#: The one re-read, and when it is taken. Execution is about 1.1s behind
+#: confirmation and a fill's propagation to `/portfolio/fills` is unmeasured,
+#: so a read that finds FEWER contracts than were quoted has two readings: a
+#: genuine part-fill, or a read that landed mid-propagation. One re-read
+#: separates them in the common case and costs nothing in the normal one,
+#: because it is taken only on disagreement.
+#:
+#: **It is not a proof of completeness and must never be described as one.**
+#: Nothing in this path can know that the venue has finished writing. What it
+#: does is make the cheap explanation cheap to rule out.
+VENUE_FILL_RECHECK_S = 0.75
+
+#: The outcome vocabulary written to `combo_rfq_quotes.venue_fill_outcome`.
+#: The refusals matter as much as the match -- see `store.record_venue_fill`.
+VENUE_FILL_MATCHED = "matched"
+VENUE_FILL_MATCHED_PARTIAL = "matched_partial"
+VENUE_FILL_NO_ROWS = "no_rows"
+VENUE_FILL_OTHER_TICKER = "not_under_combo_ticker"
+VENUE_FILL_WRONG_SIDE = "unexpected_fill_side"
+VENUE_FILL_UNPARSABLE = "unparsable"
+VENUE_FILL_TOO_FINE = "finer_than_a_tenth"
+VENUE_FILL_EXCEEDS_QUOTE = "count_exceeds_quote"
+VENUE_FILL_READ_FAILED = "read_failed"
+
+#: The outcomes whose count and price may be used for money.
+VENUE_FILL_USABLE = (VENUE_FILL_MATCHED, VENUE_FILL_MATCHED_PARTIAL)
+
+
+@dataclass(frozen=True)
+class VenueFill:
+    """What `/portfolio/fills` said, and which of the named states it was.
+
+    `count` and `avg_price_tenths` are populated only when `outcome` is one of
+    `VENUE_FILL_USABLE`; on every refusal they are `None`, never 0 -- the
+    caller keeps the quote's own numbers and `/hedge` says which it used.
+    """
+
+    outcome: str
+    note: Optional[str] = None
+    count: Optional[float] = None
+    avg_price_tenths: Optional[int] = None
+
+    @property
+    def usable(self) -> bool:
+        return (
+            self.outcome in VENUE_FILL_USABLE
+            and self.count is not None
+            and self.avg_price_tenths is not None
+        )
+
+
+def _fill_stamp_ms(row: dict) -> Optional[int]:
+    """When the venue says a fill happened, or None. `parse_fill`'s rule."""
+    stamp = parse_ms(row.get("created_time"))
+    if stamp is None:
+        ts = row.get("ts")
+        stamp = int(ts) * 1000 if isinstance(ts, int) and ts > 0 else None
+    return stamp
+
+
+def _fill_count(value) -> Optional[float]:
+    """A `count_fp` string to a count. None when unreadable, never 0."""
+    if value is None:
+        return None
+    try:
+        as_decimal = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if not as_decimal.is_finite() or as_decimal <= 0:
+        return None
+    return float(as_decimal)
+
+
+def _shape_note(rows: list) -> str:
+    """Which documented fields the rows carried. The wire-shape half of #74.
+
+    **A KXMVE fill has never been observed on this account.** The 25-fill
+    capture behind `parse_fill` is single-market, and whether a combination's
+    fill carries `is_taker` and `fee_cost` at all decides whether the fee
+    model can ever be validated on this path. Recorded as text rather than
+    acted on, because a field's absence is a fact to read later, not a
+    condition to branch on now.
+    """
+    taker = sum(1 for r in rows if isinstance(r.get("is_taker"), bool))
+    fee = sum(1 for r in rows if r.get("fee_cost") is not None)
+    return f"rows={len(rows)} is_taker={taker} fee_cost={fee}"
+
+
+def _aggregate_fills(rows: list, *, quoted: Optional[float]) -> VenueFill:
+    """The venue's own size and average price for one acceptance.
+
+    Every refusal below returns the quote's numbers to the caller by leaving
+    `count` and `avg_price_tenths` empty, and names itself, because the name
+    is what settles #74's question later.
+
+    **Only a `yes` fill is read.** `accepted_side` names the MAKER's side, so
+    buying YES sends `"no"` and the fill prints on ours -- measured
+    2026-09-17, and the wrong reading of that would have bought the opposite
+    contract at ~250x. A row on the other side is therefore not this
+    purchase, and is refused rather than re-interpreted.
+    """
+    ours = [r for r in rows if r.get("side") == "yes"]
+    if not ours:
+        sides = sorted({str(r.get("side")) for r in rows})
+        return VenueFill(
+            VENUE_FILL_WRONG_SIDE, f"sides={','.join(sides)} {_shape_note(rows)}"
+        )
+
+    total = 0.0
+    cost = 0.0
+    for row in ours:
+        count = _fill_count(row.get("count_fp"))
+        price = dollars_to_tenths(row.get("yes_price_dollars"))
+        if count is None or price is None:
+            return VenueFill(VENUE_FILL_UNPARSABLE, _shape_note(ours))
+        total += count
+        cost += count * price
+    if total <= 0:
+        return VenueFill(VENUE_FILL_UNPARSABLE, _shape_note(ours))
+
+    # The same refusal the write path and `fractional_venue_fill_count` make:
+    # a settlement is a whole 1000 tenths a contract, so a size finer than a
+    # hundredth cannot be reproduced in the unit `parlay_positions` stores.
+    exact_return = total * SETTLEMENT_TENTHS
+    if abs(exact_return - round(exact_return)) > 1e-6:
+        return VenueFill(VENUE_FILL_TOO_FINE, f"count={total} {_shape_note(ours)}")
+
+    if quoted is not None and total > quoted + 1e-9:
+        # More contracts than the maker quoted cannot all be this acceptance,
+        # so the rows in hand are not one bet and the count a stake would be
+        # multiplied by is not this position's.
+        return VenueFill(
+            VENUE_FILL_EXCEEDS_QUOTE,
+            f"count={total} quoted={quoted} {_shape_note(ours)}",
+        )
+
+    partial = quoted is not None and total < quoted - 1e-9
+    return VenueFill(
+        VENUE_FILL_MATCHED_PARTIAL if partial else VENUE_FILL_MATCHED,
+        f"count={total} quoted={quoted} {_shape_note(ours)}",
+        count=total,
+        avg_price_tenths=int(round(cost / total)),
+    )
+
+
+async def read_venue_fill(
+    api, *, ticker: str, accepted_ms: int, quoted: Optional[float]
+) -> VenueFill:
+    """Ask Kalshi what it actually did, and never let the answer block.
+
+    **This is a MEASUREMENT before it is a correction, and the ticket it
+    closes says so.** ADR 0169 recorded an RFQ position at the quote's own
+    size on the ground that a maker's quote is all-or-nothing -- asserted in
+    two modules, cited to nothing. The only executed acceptance this repo has
+    was fired at `contracts = 1`, and its measurement doc says in terms that
+    it speaks to no partial fill. If a quote can part-fill, the position is
+    wrong in both size and stake and **nothing downstream can catch it**: the
+    basis is `as_recorded`, so there is no reconciliation to fail.
+
+    **"Whether a KXMVE fill reaches `/portfolio/fills` at all, under what
+    ticker, is unresolved" was this module's own comment, and it was wrong.**
+    `tests/fixtures/portfolio_fills_redacted.json` holds eight combination
+    fills, every one under the COMBINATION's ticker in both `ticker` and
+    `market_ticker`, `side: "yes"`, fractional `count_fp`, `fee_cost` present
+    -- and `test_portfolio_poll.py` has been reconciling a fee against one of
+    them since ADR 0073. The answer was on disk (ADR 0178 section 2).
+
+    What those rows do NOT settle is **when** a fill becomes readable: they
+    were captured days after the trades, execution runs ~1.1s behind
+    confirmation, and propagation here is unmeasured. So an empty read is the
+    expected case rather than an error, and it is recorded with its elapsed
+    time so a month of them can say whether it is *too early* or *never*. The
+    bare fallback read answers the other side of that: what DID land in the
+    window, under whatever ticker. Both land in `venue_fill_outcome` and
+    `venue_fill_note`.
+
+    Raises nothing. The trade is done and the money is spent; a bookkeeping
+    read must not be able to turn a completed purchase into an error.
+    """
+    floor_ms = accepted_ms - VENUE_FILL_SLACK_MS
+    try:
+        rows = await api.fills(ticker=ticker, limit=VENUE_FILL_LIMIT)
+    except Exception as exc:  # noqa: BLE001 -- a read may not break a trade
+        logger.warning("rfq fill read for %s failed (%s)", ticker, exc)
+        return VenueFill(VENUE_FILL_READ_FAILED, str(exc)[:200])
+
+    # The venue's `ticker` filter is trusted for what it returns, not for
+    # what it leaves out: the rows are re-checked here so a parameter the
+    # endpoint ignores cannot smuggle another market's fill into this stake.
+    mine = [
+        r for r in rows
+        if r.get("ticker") == ticker and (_fill_stamp_ms(r) or 0) >= floor_ms
+    ]
+    if mine:
+        found = _aggregate_fills(mine, quoted=quoted)
+        if found.outcome != VENUE_FILL_MATCHED_PARTIAL:
+            return found
+        # Fewer contracts than were quoted. One re-read, then take whichever
+        # answer saw more -- see `VENUE_FILL_RECHECK_S` for why this is not a
+        # completeness proof.
+        await asyncio.sleep(VENUE_FILL_RECHECK_S)
+        try:
+            again = await api.fills(ticker=ticker, limit=VENUE_FILL_LIMIT)
+        except Exception as exc:  # noqa: BLE001 -- the first answer still stands
+            logger.warning("rfq fill re-read for %s failed (%s)", ticker, exc)
+            return found
+        mine = [
+            r for r in again
+            if r.get("ticker") == ticker and (_fill_stamp_ms(r) or 0) >= floor_ms
+        ]
+        second = _aggregate_fills(mine, quoted=quoted) if mine else found
+        if second.usable and found.usable and (second.count or 0) > (found.count or 0):
+            return second
+        return found
+
+    # Nothing under the combination's own ticker. What DID land in the window
+    # is the evidence for "under what ticker", and it is the whole reason this
+    # second call exists.
+    try:
+        recent = await api.fills(limit=VENUE_FILL_LIMIT)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("rfq bare fill read failed (%s)", exc)
+        return VenueFill(VENUE_FILL_NO_ROWS, f"bare read failed: {str(exc)[:120]}")
+    near = sorted({
+        str(r.get("ticker")) for r in recent
+        if abs((_fill_stamp_ms(r) or 0) - accepted_ms) <= VENUE_FILL_WINDOW_MS
+    })
+    if not near:
+        return VenueFill(VENUE_FILL_NO_ROWS, f"bare rows={len(recent)}")
+    return VenueFill(VENUE_FILL_OTHER_TICKER, ("seen=" + ",".join(near))[:200])
+
+
 # ---------------------------------------------------------------------------
 # Accepting. The spend.
 # ---------------------------------------------------------------------------
@@ -717,9 +981,46 @@ async def accept_quote_for_joe(
     # nothing to watch, and `confirmed` is not a fill -- the first live accept
     # went `accepted` -> `confirmed` -> `cancelled` with no money moving.
     position_id: Optional[int] = None
+    venue: Optional[VenueFill] = None
     if filled and not dry_run:
+        # Ask the venue what it did, BEFORE the position is written, so the
+        # holding is recorded at Kalshi's own size where Kalshi will say.
+        # Nothing here can block the trade: `read_venue_fill` raises nothing,
+        # every refusal is a named outcome on the permanent row, and a
+        # position is written either way -- at the quote's numbers, with
+        # `/hedge` saying which it used. Issue #74, ADR 0178.
+        ask = store.rfq_row(conn, rfq_id)
+        ticker = None if ask is None else ask["ticker"]
+        if ticker:
+            began = time.monotonic()
+            venue = await read_venue_fill(
+                api,
+                ticker=str(ticker),
+                accepted_ms=now_ms,
+                quoted=_quote_size(quote),
+            )
+            elapsed_ms = int((time.monotonic() - began) * 1000)
+            try:
+                store.record_venue_fill(
+                    conn, rfq_id=rfq_id, quote_id=quote_id, read_ms=now_ms,
+                    outcome=venue.outcome,
+                    # The delay travels with the outcome because the open
+                    # question behind a `no_rows` is whether the fill had
+                    # reached the endpoint yet, and a row with no elapsed
+                    # time cannot distinguish "too early" from "never".
+                    note=f"{venue.note or ''} elapsed={elapsed_ms}ms".strip(),
+                    count=venue.count if venue.usable else None,
+                    avg_price_tenths=(
+                        venue.avg_price_tenths if venue.usable else None
+                    ),
+                )
+                conn.commit()
+            except sqlite3.Error:
+                logger.exception(
+                    "rfq %s: the venue's fill could not be recorded", rfq_id
+                )
         position_id = _record_accepted_position(
-            conn, rfq_id=rfq_id, quote=quote, now_ms=now_ms
+            conn, rfq_id=rfq_id, quote=quote, now_ms=now_ms, venue=venue,
         )
         conn.commit()
 
@@ -731,6 +1032,10 @@ async def accept_quote_for_joe(
         "rfq_id": rfq_id,
         "quote_id": quote_id,
         "accepted_side": side,
+        # What Kalshi's own record said, or None when it was never asked --
+        # a dry run, or an acceptance that did not fill. Served so the screen
+        # and any later audit read one answer rather than two.
+        "venue_fill_outcome": None if venue is None else venue.outcome,
         "expected_ask_tenths": expected,
         "expected_ask_display": (
             None if expected is None else _cost_per_contract(expected)
@@ -741,8 +1046,33 @@ async def accept_quote_for_joe(
     }
 
 
+def _quote_size(quote: sqlite3.Row) -> Optional[float]:
+    """The maker's quoted size, or None when it cannot be one. Never 0.
+
+    Read by `read_venue_fill` to tell a part-fill from a full one, and by
+    `_record_accepted_position` as the fallback holding. Validated rather
+    than trusted for the reason the writer gives: `contracts` is a REAL
+    column and a combination really is held in fractions.
+    """
+    value = quote["contracts"]
+    if value is None:
+        return None
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(value) or value <= 0:
+        return None
+    return value
+
+
 def _record_accepted_position(
-    conn: sqlite3.Connection, *, rfq_id: str, quote: sqlite3.Row, now_ms: int
+    conn: sqlite3.Connection,
+    *,
+    rfq_id: str,
+    quote: sqlite3.Row,
+    now_ms: int,
+    venue: Optional[VenueFill] = None,
 ) -> Optional[int]:
     """Put a combination bought by RFQ under `/hedge`'s watch.
 
@@ -761,31 +1091,35 @@ def _record_accepted_position(
     a bookkeeping failure must not turn a completed purchase into a 500 that
     tells Joe nothing happened.
 
-    **The size is the quote's own `contracts`**, on the ground that a maker's
-    quote is all-or-nothing at the size asked for -- an `executed` quote
-    filled at that size or did not fill.
+    **The size is the VENUE's, whenever the venue said one** (issue #74, ADR
+    0178). `read_venue_fill` has already asked `/portfolio/fills` what this
+    acceptance actually did; when its answer is usable, the holding and the
+    stake are built from Kalshi's own count and average price, and `/hedge`
+    reports the stake as `venue_fill`.
 
-    **That ground is ASSERTED, not measured** (ADR 0169 Amendment 1, issue
-    #74). The only executed accept this repo has was fired with
+    **The quote's own `contracts` is the FALLBACK, and it is an assertion.**
+    ADR 0169 took it on the ground that a maker's quote is all-or-nothing at
+    the size asked for -- stated in two modules and cited to nothing. The only
+    executed accept this repo had when that was written was fired with
     `contracts = 1` on the RFQ, not against a maker's quoted size, and its
     measurement doc says in terms that it speaks to no partial fill.
     `rest_remainder: False` on create governs the requester's remainder, not
-    the maker's fill. If a quote can part-fill, this position is wrong in both
-    size and stake and nothing downstream can catch it -- the stake basis is
-    `as_recorded`, so there is no reconciliation to fail. One
-    `GET /portfolio/fills` after `executed` would settle it. It is a REAL column and a combination really is held
-    in fractions (8.22 and 60.97 contracts are two of Joe's), so it is
-    validated rather than trusted: absent, non-finite or non-positive resolves
-    to `None`, never to zero or to one.
+    the maker's fill. It is a REAL column and a combination really is held in
+    fractions (8.22 and 60.97 contracts are two of Joe's), so it is validated
+    rather than trusted: absent, non-finite or non-positive resolves to
+    `None`, never to zero or to one.
 
-    **What this does NOT establish: that the stake is what Kalshi charged.**
-    The stake written here is the accepted quote's ask times that size. The
-    one executed accept this repo has measured filled at exactly its quoted
-    price (`docs/measurements/2026-09-17-accepted-side-names-the-makers-side.md`),
-    which is n = 1 and not a rule, and no fee is included (ADR 0145's
-    `combo_entry_fee_tenths` is sunk at read time, as on the order path). So
-    `/hedge` resolves this position's stake as `as_recorded` with the reason
-    `rfq_accept`, and the screen says which -- see `hedge.stake_basis_for`.
+    **What this still does NOT establish, when the fallback is used: that the
+    stake is what Kalshi charged.** The stake written there is the accepted
+    quote's ask times its size. The one executed accept this repo has
+    measured filled at exactly its quoted price
+    (`docs/measurements/2026-09-17-accepted-side-names-the-makers-side.md`),
+    which is n = 1 and not a rule. No fee is included on either branch (ADR
+    0145's `combo_entry_fee_tenths` is sunk at read time, as on the order
+    path). `/hedge` resolves such a position as `as_recorded` with the reason
+    `rfq_accept` when the venue was never asked and `rfq_fill_unmatched` when
+    it was asked and did not answer for this combination -- and the screen
+    says which. See `hedge.stake_basis_for`.
     """
     try:
         ask = store.rfq_row(conn, rfq_id)
@@ -797,22 +1131,28 @@ def _record_accepted_position(
             logger.error("rfq %s: legs unreadable, so no position", rfq_id)
             return None
 
-        contracts = quote["contracts"]
-        if contracts is None:
-            logger.error("rfq %s: quote carries no size, so no position", rfq_id)
-            return None
-        contracts = float(contracts)
-        if not math.isfinite(contracts) or contracts <= 0:
-            logger.error(
-                "rfq %s: quote size %r cannot be a holding, so no position",
-                rfq_id, contracts,
-            )
-            return None
+        # Kalshi's own record first. `VenueFill.usable` is true only for an
+        # outcome that names a fill this acceptance provably caused, with
+        # both numbers present -- every refusal leaves them None and falls
+        # through to the quote, which is the behaviour that shipped before.
+        from_venue = venue is not None and venue.usable
+        if from_venue:
+            contracts = float(venue.count)
+            price = int(venue.avg_price_tenths)
+        else:
+            contracts = _quote_size(quote)
+            if contracts is None:
+                logger.error(
+                    "rfq %s: quote carries no usable size, so no position", rfq_id
+                )
+                return None
 
-        price = quote["yes_ask_tenths"]
-        if price is None:
-            logger.error("rfq %s: quote carries no price, so no position", rfq_id)
-            return None
+            price = quote["yes_ask_tenths"]
+            if price is None:
+                logger.error(
+                    "rfq %s: quote carries no price, so no position", rfq_id
+                )
+                return None
 
         # A settlement is a whole 1000 tenths a contract, so a size carrying
         # more than two decimals cannot be reproduced exactly in the unit the
@@ -832,12 +1172,20 @@ def _record_accepted_position(
         # and the size is fractional, so the product is not integral in
         # general. Half a tenth of a cent, once, on the entry figure.
         stake_tenths = int(round(contracts * int(price)))
-        note = (
-            "Recorded automatically from a maker's quote you took on the "
-            "Parlays screen. The stake is the price you accepted times the "
-            "size quoted, before fees -- not Kalshi's own record of the fill, "
-            "which this path does not read."
-        )
+        if from_venue:
+            note = (
+                "Recorded automatically from a maker's quote you took on the "
+                "Parlays screen, at Kalshi's own record of the fill: "
+                f"{contracts:g} contracts at the average price it charged, "
+                "before fees."
+            )
+        else:
+            note = (
+                "Recorded automatically from a maker's quote you took on the "
+                "Parlays screen. The stake is the price you accepted times "
+                "the size quoted, before fees -- Kalshi's own record of the "
+                "fill was asked for and did not answer for this combination."
+            )
         if parsed.labels_are_tickers:
             note += (
                 " Leg names are market tickers -- this combination was priced "

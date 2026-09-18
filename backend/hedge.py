@@ -541,11 +541,56 @@ def _order_key(position: Mapping[str, Any]) -> Optional[tuple[str, int]]:
     return (str(position["combo_ticker"]), int(position["placed_ms"]))
 
 
+def _rfq_stake_basis(
+    position: Mapping[str, Any],
+    rfq_fill: Optional[Mapping[str, Any]],
+    recorded: int,
+) -> StakeBasis:
+    """The stake for a position bought by taking a maker's quote.
+
+    Three states, and the first two are different facts that must not share a
+    word (issue #74, ADR 0178):
+
+    - **`rfq_accept`** -- the venue was never asked. Every acceptance written
+      before schema v50, and any whose fill read could not be recorded. The
+      stake is the quote's ask times its size, which is what ADR 0169 wrote.
+    - **`rfq_fill_unmatched`** -- the venue WAS asked and its answer cannot be
+      used for this position: it reported nothing under the combination's
+      ticker, or reported a count that does not rebuild the holding stored
+      with it. `combo_rfq_quotes.venue_fill_outcome` says which; this screen
+      says only that the check ran and did not land, because the seven
+      outcomes behind it are a measurement and not a vocabulary for a phone.
+    - **`venue_fill`** -- Kalshi's own count and average price, proved against
+      the holding by the same identity the order path uses.
+
+    The count must reproduce `return_tenths` exactly. `_record_accepted_position`
+    writes `return_tenths = contracts * 1000` from the same number, so a
+    disagreement means the row in hand is about some other holding -- the
+    `contract_count_disagrees` proof, applied to a second path.
+    """
+    if rfq_fill is None or rfq_fill["venue_fill_read_ms"] is None:
+        return StakeBasis(recorded, STAKE_BASIS_AS_RECORDED, "rfq_accept")
+    count = rfq_fill["venue_fill_count"]
+    price = rfq_fill["venue_avg_fill_price_tenths"]
+    if count is None or price is None:
+        return StakeBasis(recorded, STAKE_BASIS_AS_RECORDED, "rfq_fill_unmatched")
+    count = float(count)
+    if not math.isfinite(count) or count <= 0:
+        return StakeBasis(recorded, STAKE_BASIS_AS_RECORDED, "rfq_fill_unmatched")
+    exact_return = count * SETTLEMENT_TENTHS
+    if abs(exact_return - int(position["return_tenths"])) > 1e-6:
+        return StakeBasis(recorded, STAKE_BASIS_AS_RECORDED, "rfq_fill_unmatched")
+    return StakeBasis(
+        int(round(count * int(price))), STAKE_BASIS_VENUE_FILL, None
+    )
+
+
 def stake_basis_for(
     position: Mapping[str, Any],
     order: Optional[Mapping[str, Any]],
     *,
     rfq_accepted: bool = False,
+    rfq_fill: Optional[Mapping[str, Any]] = None,
 ) -> StakeBasis:
     """Which price this position's stake should be read at.
 
@@ -565,14 +610,16 @@ def stake_basis_for(
       by issue #56 (answered A, 2026-09-17), because five of his seventeen
       open positions were being told a search had come up empty when no
       search had run -- and a genuine gap could not be seen among them.
-    - **`rfq_accept`** -- bought by taking a maker's quote on an RFQ, which
-      writes a position and no `manual_orders` row at all (issue #69). The
-      key IS formed, so this would otherwise report `no_order_row` -- a
-      bookkeeping gap -- on a path that is working exactly as designed. The
-      stake is the quote's ask times its size; what Kalshi charged is not
-      read on this path, so it is `as_recorded` and not `venue_fill`, and
-      upgrading it would need the venue's own fill for an RFQ, which nothing
-      here reads yet.
+    - **`rfq_accept` / `rfq_fill_unmatched`** -- bought by taking a maker's
+      quote on an RFQ, which writes a position and no `manual_orders` row at
+      all (issue #69). The key IS formed, so this would otherwise report
+      `no_order_row` -- a bookkeeping gap -- on a path that is working exactly
+      as designed. Since schema v50 the accept path DOES read
+      `/portfolio/fills`, so such a position can reach `venue_fill` like any
+      other; `_rfq_stake_basis` decides, and the two refusals it can return
+      separate "the venue was never asked" from "the venue was asked and did
+      not answer for this combination". That sentence said *what Kalshi
+      charged is not read on this path* until issue #74.
     - **`no_order_row` / `ambiguous_order_rows`** -- the join key is
       `(combo_ticker, placed_ms)`, and `placed_ms` is the same
       `submitted_ms` the route wrote on the order in the same request
@@ -630,7 +677,7 @@ def stake_basis_for(
                 recorded, STAKE_BASIS_AS_RECORDED, "hand_recorded_position"
             )
         if rfq_accepted:
-            return StakeBasis(recorded, STAKE_BASIS_AS_RECORDED, "rfq_accept")
+            return _rfq_stake_basis(position, rfq_fill, recorded)
         return StakeBasis(recorded, STAKE_BASIS_AS_RECORDED, "no_order_row")
     if str(order["side"]) != "yes":
         return StakeBasis(
@@ -723,12 +770,16 @@ def stake_bases(
     # common case and costs one bounded read; it is read even when every key
     # found an order, because a position answering both would be a fact worth
     # seeing rather than one to resolve by ordering.
-    accepted: set[tuple[str, int]] = set()
+    accepted: dict[tuple[str, int], Any] = {}
     if wanted:
         marks = ",".join("?" * len(QUOTE_FILLED_STATUSES))
         try:
             quote_rows = conn.execute(
-                "SELECT r.ticker AS ticker, q.accepted_ms AS accepted_ms "
+                "SELECT r.ticker AS ticker, q.accepted_ms AS accepted_ms, "
+                "       q.venue_fill_read_ms AS venue_fill_read_ms, "
+                "       q.venue_fill_count AS venue_fill_count, "
+                "       q.venue_avg_fill_price_tenths "
+                "           AS venue_avg_fill_price_tenths "
                 "FROM combo_rfq_quotes q "
                 "JOIN combo_rfqs r ON r.rfq_id = q.rfq_id "
                 "WHERE q.accept_dry_run = 0 "
@@ -755,7 +806,11 @@ def stake_bases(
             # position and not the screenful -- is the loop below and IS
             # tested (`test_a_position_with_no_acceptance_keeps_its_own_reason`).
             if key in wanted:
-                accepted.add(key)
+                # Last row wins is wrong here for the same reason it is wrong
+                # on the order read, so it is not done: a second acceptance
+                # answering one position's key is refused by the same
+                # `_AMBIGUOUS` shape.
+                accepted[key] = _AMBIGUOUS if key in accepted else row
 
     for position in positions:
         key = _order_key(position)
@@ -767,8 +822,19 @@ def stake_bases(
                 "ambiguous_order_rows",
             )
             continue
+        fill = accepted.get(key) if key is not None else None
+        if fill is _AMBIGUOUS:
+            bases[int(position["id"])] = StakeBasis(
+                int(position["stake_tenths"]),
+                STAKE_BASIS_AS_RECORDED,
+                "rfq_fill_unmatched",
+            )
+            continue
         bases[int(position["id"])] = stake_basis_for(
-            position, order, rfq_accepted=key is not None and key in accepted
+            position,
+            order,
+            rfq_accepted=key is not None and key in accepted,
+            rfq_fill=fill,
         )
     return bases
 
