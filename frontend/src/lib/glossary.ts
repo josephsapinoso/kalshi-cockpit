@@ -19,6 +19,38 @@ export type GlossaryEntry = {
 };
 
 export const GLOSSARY = {
+  rfq: {
+    label: "request for quote",
+    definition:
+      "How a combination is priced on Kalshi: you ask, and market makers " +
+      "send back private prices for a few seconds. That is why a combo's " +
+      "order book usually looks empty — nobody rests a price there, they " +
+      "answer when asked. Asking costs nothing.",
+  },
+  maker: {
+    label: "market maker",
+    definition:
+      "A firm that quotes you a price when you ask. Several usually " +
+      "answer at once and they rarely agree — on the first combination " +
+      "this desk priced, three makers came back 3.8c apart on the same " +
+      "contract, so the best one is worth reading.",
+  },
+  maker_quote: {
+    label: "quote",
+    definition:
+      "One maker's price for the whole size you asked for. It is " +
+      "all-or-nothing: you take it at that size or not at all. It also " +
+      "dies in about three seconds, so an old quote on screen is a price " +
+      "that was offered, not one still standing.",
+  },
+  shard: {
+    label: "shard",
+    definition:
+      "Kalshi keeps the money for combinations in a separate pot from the " +
+      "money for single bets. Cash in one does not pay for the other, so " +
+      "a combination can be unaffordable while your account total looks " +
+      "fine.",
+  },
   parlay: {
     label: "parlay",
     definition:

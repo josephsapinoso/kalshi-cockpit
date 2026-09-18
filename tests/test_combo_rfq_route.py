@@ -318,24 +318,53 @@ class TestTheOrderOfOperations:
 
 
 class TestTheAskFitsWhatIsOnTheShard:
-    """**The bug Joe hit on 2026-09-17.**
+    """**The bug Joe hit on 2026-09-17, and the fix he chose on 2026-09-18.**
 
     The route asked for a flat $5.00 regardless of his balance. On a 2.7c
     combination that is 173 contracts; he had $3.94 on the shard, and the
     accept was refused with `insufficient_balance` after 28 makers had
     already answered. A quote is all-or-nothing at the size asked for, so an
     unaffordable target is wasted on both sides.
+
+    The first fix silently TRIMMED the target to 90% of the shard. That put
+    two independent limits on one quantity -- the caller's figure and the
+    shard -- swapping over at $5.5556 of balance **with no change in symptom**,
+    because nothing printed the dollars either way. Issue #62, answered (A):
+    Joe types the size, and the shard is a wall that says so before the
+    makers are asked.
     """
 
-    async def test_the_target_is_trimmed_to_the_shard_balance(self, build):
+    async def test_a_target_the_shard_cannot_pay_is_refused_not_trimmed(
+        self, build
+    ):
         app, fake, _ = build(quotes=[_quote_row("q1", "0.4070")])
         fake.shard1 = "3.9359"
-        body = (await _post(app, _body(target_cost_dollars="5.0000"))).json()
-        assert float(body["target_cost_dollars"]) < 5.0
-        assert float(body["target_cost_dollars"]) <= 3.9359
-        # And it says what was asked for, so a smaller size is never a
-        # surprise.
-        assert body["target_cost_requested"] == "5.0000"
+        response = await _post(app, _body(target_cost_dollars="5.0000"))
+        assert response.status_code == 400
+        assert "create" not in fake.calls, (
+            "the makers must not be asked for a price that cannot be taken"
+        )
+
+    async def test_the_refusal_names_the_number_he_can_ask_for(self, build):
+        """A refusal he cannot act on is a dead end. 90% of $3.9359 is
+        $3.54, and saying so turns one refusal into one re-type."""
+        app, fake, _ = build(quotes=[_quote_row("q1", "0.4070")])
+        fake.shard1 = "3.9359"
+        detail = (await _post(app, _body(target_cost_dollars="5.0000"))).json()
+        words = detail["detail"]
+        assert "$3.54" in words
+        assert "combinations shard" in words
+
+    async def test_the_wall_is_the_headroom_not_the_whole_balance(self, build):
+        """The fee is charged ON TOP of the contracts, so a target equal to
+        the balance leaves nothing to pay it with -- which is the refusal
+        this exists to prevent, arriving one step later."""
+        app, fake, _ = build(quotes=[_quote_row("q1", "0.4070")])
+        fake.shard1 = "5.0000"
+        response = await _post(app, _body(target_cost_dollars="5.0000"))
+        assert response.status_code == 400, (
+            "$5.00 of a $5.00 shard leaves nothing for the fee"
+        )
 
     async def test_an_affordable_target_is_left_alone(self, build):
         app, fake, _ = build(quotes=[_quote_row("q1", "0.4070")])
@@ -344,7 +373,8 @@ class TestTheAskFitsWhatIsOnTheShard:
         assert body["target_cost_dollars"] == "5.0000"
 
     async def test_the_balance_is_read_before_the_rfq_is_created(self, build):
-        """Trimming after the ask would be trimming nothing."""
+        """Refusing after the ask would be refusing nothing -- the makers'
+        work is already spent by then, which is the whole failure."""
         app, fake, _ = build(quotes=[_quote_row("q1", "0.4070")])
         await _post(app, _body())
         assert fake.calls.index("balance") < fake.calls.index("create")
@@ -362,3 +392,85 @@ class TestTheAskFitsWhatIsOnTheShard:
         body = (await _post(app, _body(target_cost_dollars="5.0000"))).json()
         assert body["target_cost_dollars"] == "5.0000"
         assert body["status"] == "quoted"
+class TestTheScreenCanShowBothSurfaces:
+    """Issue #66. Neither surface dominates, so a screen reading one of them
+    sometimes reports no price when there is one, and sometimes shows the
+    worse of two. Measured 2026-09-17: the public book beat the RFQ on two of
+    three held combinations and the RFQ was the only price on the third.
+    """
+
+    async def test_an_empty_book_renders_as_nothing_not_as_zero(self, build):
+        app, _, _ = build(quotes=[_quote_row("q1", "0.4070")])
+        body = (await _post(app, _body())).json()
+        assert body["book_yes_ask_tenths"] is None
+        assert body["book_ask_display"] is None
+
+    async def test_a_book_with_an_ask_is_rendered_beside_the_quotes(self, build):
+        """A resting NO bid IS the YES ask, through the derived-ask identity,
+        and it is rendered by the same renderer as the maker's price -- a
+        second formatter in TypeScript is how two surfaces start disagreeing
+        about what 59.3c means on a market that ticks in deci-cents."""
+        app, _, _ = build(
+            quotes=[_quote_row("q1", "0.4070")],
+            book={"yes_dollars": [], "no_dollars": [["0.4500", 10]]},
+        )
+        body = (await _post(app, _body())).json()
+        assert body["book_yes_ask_tenths"] == 550
+        assert body["book_ask_display"] == "55c per $1 contract"
+
+
+class TestAQuoteCarriesItsAge:
+    """Issue #67. A maker has about **three seconds** to stand behind a quote
+    on a combination, against 30 elsewhere. A price with no age on it is a
+    price the reader cannot tell is dead."""
+
+    async def test_the_payload_says_when_the_prices_were_captured(self, build):
+        app, _, _ = build(quotes=[_quote_row("q1", "0.4070")])
+        body = (await _post(app, _body())).json()
+        assert isinstance(body["asked_ms"], int)
+        assert body["asked_ms"] > 1_700_000_000_000
+
+
+class TestAQuoteSaysWhatLeavesTheAccount:
+    """Issue #68, and #39's settled precedent on the singles ticket: the
+    control that spends prints the dollars, fee included.
+
+    What this does not establish: that Kalshi will charge exactly this. The
+    coefficient (0.071) exceeds every implied k this repo has measured by
+    construction, so the figure errs HIGH -- which is the safe direction for a
+    cost shown before a tap, and the opposite of the rule for a hedge lock.
+    """
+
+    async def test_the_all_in_cost_is_the_price_plus_the_fee(self, build):
+        """8.19 contracts at 59.3c is $4.86 of contracts and $5.00 all in.
+        Fourteen cents on a five-dollar bet is the whole reason this is on
+        the button rather than in a footnote."""
+        app, _, _ = build(quotes=[_quote_row("q1", "0.4070")])
+        quote = (await _post(app, _body())).json()["quotes"][0]
+        assert quote["ask_display"] == "59.3c per $1 contract"
+        assert quote["fee_tenths"] == 141
+        assert quote["all_in_tenths"] == 4_998
+        assert quote["all_in_display"] == "$5.00"
+
+    async def test_the_fee_is_never_silently_dropped(self, build):
+        """A quote whose size cannot be read has an unknown cost, and the
+        button must say nothing rather than print the contracts alone --
+        which would be a smaller, friendlier, wrong number."""
+        row = _quote_row("q1", "0.4070")
+        row["no_contracts_fp"] = None
+        app, _, _ = build(quotes=[row])
+        quote = (await _post(app, _body())).json()["quotes"][0]
+        assert quote["contracts"] is None
+        assert quote["all_in_tenths"] is None
+        assert quote["all_in_display"] is None
+        assert quote["fee_tenths"] is None
+
+    async def test_the_all_in_figure_is_above_the_bare_contracts(self, build):
+        """The direction is the claim: the fee is charged ON TOP of the
+        contracts on a fee-inclusive target, so an all-in figure at or below
+        the contract cost would be the fee going missing."""
+        app, _, _ = build(quotes=[_quote_row("q1", "0.4070")])
+        quote = (await _post(app, _body())).json()["quotes"][0]
+        bare = round(quote["contracts"] * quote["yes_ask_tenths"])
+        assert quote["all_in_tenths"] > bare
+        assert quote["all_in_tenths"] - bare == quote["fee_tenths"]

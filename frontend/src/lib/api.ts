@@ -1169,6 +1169,20 @@ export type ComboRfqQuote = {
   contracts: number | null;
   /** Rendered server-side, through the ONE price renderer. */
   ask_display: string;
+  /**
+   * What leaves the account if this quote is taken, in integer tenths of a
+   * cent, **fee included** — the contracts plus Kalshi's combination taker
+   * fee, which is charged on top of them.
+   *
+   * Null when the size could not be read. A quote with no size has an
+   * unknown cost, and the button says nothing rather than printing the
+   * contracts alone, which would be a smaller and friendlier wrong number.
+   */
+  all_in_tenths: number | null;
+  /** The same figure as dollars, through the ONE dollar renderer. */
+  all_in_display: string | null;
+  /** The fee alone, so the screen can say what the difference is made of. */
+  fee_tenths: number | null;
 };
 
 export type ComboRfqResult = {
@@ -1187,6 +1201,24 @@ export type ComboRfqResult = {
    * that made this desk tell Joe a combination could not be bought.
    */
   book_yes_ask_tenths: number | null;
+  /**
+   * The same number rendered, or null when the book was empty.
+   *
+   * Shown BESIDE the maker's quote, never instead of it: measured
+   * 2026-09-17, the public book beat the RFQ on two of three held
+   * combinations and the RFQ was the only price on the third. A desk
+   * reading one surface sometimes reports no price when there is one, and
+   * sometimes takes the worse of two.
+   */
+  book_ask_display: string | null;
+  /**
+   * When these prices were captured, in epoch milliseconds.
+   *
+   * A maker has about **three seconds** to stand behind a quote on a
+   * combination, against thirty elsewhere. A price with no age on it is a
+   * price the reader cannot tell is dead.
+   */
+  asked_ms: number;
   quotes: ComboRfqQuote[];
   words: string;
   /**

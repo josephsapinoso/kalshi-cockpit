@@ -47,8 +47,8 @@ import sqlite3
 import time
 from typing import Optional
 
-from backend.core.hedge import SETTLEMENT_TENTHS
-from backend.core.prices import probability_to_tenths
+from backend.core.hedge import SETTLEMENT_TENTHS, combo_entry_fee_tenths
+from backend.core.prices import format_dollars, probability_to_tenths
 from backend.kalshi.orderbook import OrderBook
 from backend.kalshi.rest import EXCHANGE_INDEX_COMBOS
 from backend.kalshi.rfq import (
@@ -86,6 +86,14 @@ logger = logging.getLogger(__name__)
 #: target is the default fee-inclusive kind, so a target equal to the balance
 #: leaves nothing for the fee and the accept is refused after the makers have
 #: already answered. 0.90 is a margin, not a measurement.
+#:
+#: **It is a wall, not a second size** -- issue #62, answered (A) by Joe on
+#: 2026-09-18. Until then this silently TRIMMED the target, which made two
+#: independent limits govern one quantity: the caller's figure and 90% of the
+#: shard, swapping over at $5.5556 of balance with no change in symptom
+#: because no screen printed the dollars. Now Joe types the size and this
+#: refuses it before the makers are asked. A refusal he can read is worth
+#: more than a number nobody chose.
 SHARD_HEADROOM = 0.90
 
 QUOTE_WAIT_S = 4.0
@@ -198,10 +206,19 @@ async def ask_market_to_price(
     if available is not None:
         headroom_dollars = (available / 1000.0) * SHARD_HEADROOM
         if headroom_dollars < float(target):
-            target = f"{max(headroom_dollars, 0.0):.4f}"
-            logger.info(
-                "rfq: target cost trimmed from %s to %s by the shard balance",
-                target_cost_dollars, target,
+            # **Refused here, and not trimmed.** Trimming turned Joe's figure
+            # into a number nobody chose and hid the wall behind it. Refusing
+            # costs him one re-type and costs the makers nothing -- which is
+            # the whole point: the failure this replaced burned 28 makers'
+            # answers before telling him (2026-09-17).
+            raise LookupRefused(
+                400,
+                f"The combinations shard cannot pay ${float(target):,.2f} for "
+                f"this. The most you can ask for right now is "
+                f"**${max(headroom_dollars, 0.0):,.2f}** -- that is "
+                f"{SHARD_HEADROOM:.0%} of what is on the shard, and the rest "
+                "is left for Kalshi's fee, which is charged on top. Ask for a "
+                "smaller amount, or add funds to the combinations shard.",
             )
 
     try:
@@ -290,6 +307,20 @@ async def ask_market_to_price(
         "fair": {"conservative": fair},
         # What the public book said at the same instant. Expected to be null.
         "book_yes_ask_tenths": book_ask,
+        # **Rendered, so the screen can show BOTH surfaces** (issue #66).
+        # Neither dominates: on 2026-09-17 the book beat the RFQ on two of
+        # three positions and the RFQ was the only price on the third, so a
+        # desk reading one surface sometimes takes the worse number. Null is
+        # the expected value and means the book was empty, which is a
+        # combination's resting state and not a fault.
+        "book_ask_display": (
+            None if book_ask is None else _cost_per_contract(book_ask)
+        ),
+        # When these prices were captured, so the screen can age them
+        # (issue #67). A maker has about **three seconds** to stand behind a
+        # quote on a combination against 30 elsewhere, so a price with no age
+        # on it is a price the reader cannot tell is dead.
+        "asked_ms": now_ms,
         # **Whether the button below this will actually spend.** Surfaced with
         # the price, not discovered after the tap: a control that says "Take
         # it" and then does nothing is this repo's named failure -- a screen
@@ -312,10 +343,59 @@ async def ask_market_to_price(
                 "no_bid_tenths": q.no_bid_tenths,
                 "contracts": q.contracts,
                 "ask_display": _cost_per_contract(q.yes_ask_tenths),
+                # **What leaves the account if this quote is taken**, fee
+                # included (issue #68, and #39's settled precedent on the
+                # singles ticket). A per-contract price is not a stake, and
+                # the button that spends was showing only the price.
+                **_all_in(q),
             }
             for q in quotes
         ],
         "words": _words(quotes, book_ask=book_ask),
+    }
+
+
+def _all_in(quote: RfqQuote) -> dict:
+    """What taking this quote costs in dollars, fee included, or nulls.
+
+    `all_in_display` is the number the Take-it button prints. It is the
+    contracts times the ask, **plus** Kalshi's combination taker fee, because
+    the fee is charged on top of the contracts on a fee-inclusive target and
+    a figure without it is not what leaves the account.
+
+    The fee is `combo_entry_fee_tenths`'s modelled number at
+    `COMBO_TAKER_COEFFICIENT` (0.071), the same one `/hedge` sinks on an open
+    position -- one fee model, not two (ADR 0145).
+
+    **Nulls when the size is unreadable**, never a price with the fee
+    silently dropped: a quote with no size is a quote whose cost is not
+    known, and the button says so rather than printing a smaller number.
+
+    What this does not establish: that the venue will charge exactly this.
+    The coefficient exceeds every implied k this repo has measured by
+    construction, so the figure errs high -- and erring high on a cost shown
+    before a tap is the safe direction, which is the opposite of the rule for
+    a hedge lock.
+    """
+    contracts = quote.contracts
+    if contracts is None:
+        return {"all_in_tenths": None, "all_in_display": None, "fee_tenths": None}
+    try:
+        contracts = float(contracts)
+    except (TypeError, ValueError):
+        return {"all_in_tenths": None, "all_in_display": None, "fee_tenths": None}
+    if not math.isfinite(contracts) or contracts <= 0:
+        return {"all_in_tenths": None, "all_in_display": None, "fee_tenths": None}
+
+    stake = int(round(contracts * quote.yes_ask_tenths))
+    settled = int(round(contracts * SETTLEMENT_TENTHS))
+    fee = combo_entry_fee_tenths(stake, settled) if settled > stake else None
+    if fee is None:
+        return {"all_in_tenths": None, "all_in_display": None, "fee_tenths": None}
+    return {
+        "all_in_tenths": stake + fee,
+        "all_in_display": format_dollars(stake + fee),
+        "fee_tenths": fee,
     }
 
 

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { acceptComboQuote, askMarketToPrice } from "@/lib/api";
+import { acceptComboQuote, askMarketToPrice, formatAge } from "@/lib/api";
 import type { ComboRfqAcceptResult, ComboRfqResult } from "@/lib/api";
+import Term from "@/components/Term";
 
 /**
  * "Nobody is selling this" was wrong, and this is the control that fixes it.
@@ -14,8 +15,8 @@ import type { ComboRfqAcceptResult, ComboRfqResult } from "@/lib/api";
  * markets that makers were pricing all day -- on 2026-09-17 the exact card he
  * was refused drew three quotes in 107 milliseconds.
  *
- * So this renders where that dead end used to: a button that asks, and the
- * prices that come back.
+ * So this renders where that dead end used to: a size he types, a button that
+ * asks, and the prices that come back.
  *
  * **Asking is free and commits nothing.** Only accepting a quote binds the
  * requester. The button says so before it is tapped, because the previous
@@ -31,20 +32,46 @@ import type { ComboRfqAcceptResult, ComboRfqResult } from "@/lib/api";
  * repo's named failure — the armed state travels with the price, so the
  * screen says which it is up front rather than this comment guessing.
  *
+ * **He types the size — issue #62, answered (A) on 2026-09-18.** It used to
+ * be a hardcoded $5.00, trimmed server-side to 90% of the combinations shard.
+ * Two limits on one quantity, swapping over at $5.5556 of balance with no
+ * change in symptom because nothing printed the dollars. Now one number is
+ * typed and the shard is a wall that refuses before the makers are asked.
+ *
  * **What this must never become.** The gap between a quote and the card's
  * fair value is the consensus-vs-Kalshi gap under another name, and
  * `beta = -0.141` means ordering by it puts the least trustworthy rows first
  * (ADR 0071 s2.5). The two numbers sit side by side; nothing sorts cards by
  * their difference, and no copy here calls a quote cheap, good, or an edge.
  */
+
+/** Where the last size he asked for is kept. Per-browser, per-device. */
+const SIZE_KEY = "cockpit.rfq.size";
+
+/**
+ * The size used when he has never typed one on this device.
+ *
+ * **Not a recommendation.** It is the size the one measured RFQ happened to
+ * be fired at, which is exactly why it stopped being hardcoded into the call.
+ */
+const DEFAULT_SIZE = "5.00";
+
+function rememberedSize(): string {
+  try {
+    return window.localStorage.getItem(SIZE_KEY) ?? DEFAULT_SIZE;
+  } catch {
+    // Private mode, blocked site data, or a server render. A remembered
+    // convenience that throws must not take the price control down with it.
+    return DEFAULT_SIZE;
+  }
+}
+
 export default function AskTheMarket({
   marketTicker,
-  targetCostDollars,
 }: {
   marketTicker: string;
-  /** Kalshi's own fixed-point dollar string, e.g. `"5.0000"`. */
-  targetCostDollars: string;
 }) {
+  const [size, setSize] = useState(DEFAULT_SIZE);
   const [state, setState] = useState<
     | { kind: "idle" }
     | { kind: "asking" }
@@ -52,10 +79,29 @@ export default function AskTheMarket({
     | { kind: "refused"; words: string }
   >({ kind: "idle" });
 
+  // Read after mount, never during render: the server has no `localStorage`,
+  // and reading one during render is how a hydration mismatch starts.
+  useEffect(() => setSize(rememberedSize()), []);
+
   const ask = async () => {
+    const typed = Number(size);
+    if (!Number.isFinite(typed) || typed <= 0) {
+      setState({
+        kind: "refused",
+        words:
+          "Type how much you want to spend, in dollars, before asking for a " +
+          "price. A quote is all-or-nothing at the size you ask for.",
+      });
+      return;
+    }
+    try {
+      window.localStorage.setItem(SIZE_KEY, size);
+    } catch {
+      // Remembering is a convenience; failing to remember is not a failure.
+    }
     setState({ kind: "asking" });
     try {
-      const result = await askMarketToPrice(marketTicker, targetCostDollars);
+      const result = await askMarketToPrice(marketTicker, typed.toFixed(4));
       setState(
         result.ok
           ? { kind: "answered", value: result.value }
@@ -75,18 +121,42 @@ export default function AskTheMarket({
     <div className="mt-2">
       {state.kind === "idle" && (
         <>
-          <button
-            onClick={ask}
-            className="rounded bg-accent-fill px-3 py-1.5 text-sm font-semibold text-white"
-          >
-            Ask the market for a price
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <label
+              htmlFor={`rfq-size-${marketTicker}`}
+              className="text-sm text-muted"
+            >
+              Ask for
+            </label>
+            <div className="flex items-center gap-1">
+              <span className="text-sm">$</span>
+              <input
+                id={`rfq-size-${marketTicker}`}
+                type="number"
+                inputMode="decimal"
+                min="0.01"
+                step="0.01"
+                value={size}
+                onChange={(event) => setSize(event.target.value)}
+                className="w-20 rounded border border-border bg-transparent px-2 py-1 text-sm tabular"
+              />
+            </div>
+            <button
+              onClick={ask}
+              className="rounded bg-accent-fill px-3 py-1.5 text-sm font-semibold text-white"
+            >
+              Ask the market for a price
+            </button>
+          </div>
           <p className="mt-1 text-[11px] leading-snug text-muted">
-            Sends a real request to Kalshi&rsquo;s market makers and shows what
-            they quote. This is how a combination is actually priced &mdash; the
-            order book above is empty on almost every combination, whether or
-            not anyone would sell it. Asking costs nothing and commits you to
-            nothing.
+            Sends a real <Term k="rfq">request for a quote</Term> to
+            Kalshi&rsquo;s <Term k="maker">market makers</Term> and shows what
+            they quote. This is how a combination is actually priced &mdash;
+            the order book is empty on almost every combination, whether or not
+            anyone would sell it. Asking costs nothing and commits you to
+            nothing. A <Term k="maker_quote">quote</Term> is all-or-nothing at
+            the size above, so that is the amount you would spend, not a
+            maximum.
           </p>
         </>
       )}
@@ -130,6 +200,55 @@ function RetryButton({ onClick }: { onClick: () => void }) {
   );
 }
 
+/**
+ * How old these quotes are — issue #67.
+ *
+ * **A maker has about three seconds** to stand behind a quote on a
+ * combination (a High Volatility Market), against thirty elsewhere. So this
+ * surface ages faster than anything else on the desk, and the sibling
+ * `QuoteAge` on `PriceOnKalshi` is about a 900-second book read — a different
+ * claim in different words, deliberately not shared.
+ *
+ * **It relabels and never blocks.** Taking a dead quote fails at the venue
+ * with the venue's own reason, which is a refusal and not a loss; disabling
+ * the button on age would be a new ceiling on a hand bet, and ADR 0112
+ * removed all five of those on Joe's word.
+ *
+ * Ticks on its own: an age rendered once is a stamp that stops being true
+ * while the reader looks at it.
+ */
+const QUOTE_LIFE_MS = 3_000;
+const AGE_TICK_MS = 1_000;
+
+function QuotesAge({ askedMs }: { askedMs: number }) {
+  const [ageMs, setAgeMs] = useState(() => Date.now() - askedMs);
+  useEffect(() => {
+    const tick = () => setAgeMs(Date.now() - askedMs);
+    tick();
+    const timer = setInterval(tick, AGE_TICK_MS);
+    return () => clearInterval(timer);
+  }, [askedMs]);
+
+  // Clamped for display only, so a client clock behind the server's renders
+  // as "just now" rather than as a negative number that reads like a bug.
+  // The staleness test below uses the raw value, so skew cannot mark an old
+  // quote current.
+  const shown = formatAge(Math.max(0, ageMs));
+  if (ageMs <= QUOTE_LIFE_MS) {
+    return (
+      <p className="text-[11px] leading-snug text-muted">Quoted {shown} ago.</p>
+    );
+  }
+  return (
+    <p className="text-[11px] leading-snug text-accent-2">
+      Quoted <span className="font-semibold">{shown}</span> ago. A maker stands
+      behind a combination quote for about three seconds, so this price has
+      probably expired &mdash; taking it would most likely come back refused.
+      Ask again for a live one.
+    </p>
+  );
+}
+
 function Quotes({ value }: { value: ComboRfqResult }) {
   if (value.status === "no_quotes" || value.quotes.length === 0) {
     return <p className="text-sm text-muted">{value.words}</p>;
@@ -153,6 +272,18 @@ function Quotes({ value }: { value: ComboRfqResult }) {
         )}
       </p>
 
+      {/* **Both surfaces, never one — issue #66.** Neither dominates: on
+          2026-09-17 the public book beat the RFQ on two of three held
+          combinations and the RFQ was the only price on the third. A screen
+          showing one of them sometimes reports no price when there is one,
+          and sometimes shows the worse of the two. No copy ranks them; the
+          two numbers sit beside each other and Joe reads them. */}
+      {value.book_ask_display !== null && (
+        <p className="text-xs text-muted tabular">
+          Kalshi&rsquo;s public book: {value.book_ask_display}
+        </p>
+      )}
+
       {/* Fair value beside the quote, never subtracted into a verdict. */}
       {value.fair_display !== null && (
         <p className="text-xs text-muted tabular">
@@ -175,6 +306,8 @@ function Quotes({ value }: { value: ComboRfqResult }) {
 
       <p className="text-[11px] leading-snug text-muted">{value.words}</p>
 
+      <QuotesAge askedMs={value.asked_ms} />
+
       {/* The second tap. It is a separate component because it SPENDS and the
           block above does not, and because its result has states the price
           block has never had -- a maker who does not confirm, and an outcome
@@ -196,6 +329,13 @@ function Quotes({ value }: { value: ComboRfqResult }) {
  * you are about to be told. What guards the spend is that the price on screen
  * is the price the server accepts — it reads its own record of this quote and
  * ignores anything the browser might send.
+ *
+ * **The button says what leaves the account — issue #68.** Fee included,
+ * because Kalshi charges the combination taker fee on top of the contracts
+ * and a per-contract price is not a stake: 8.19 contracts at 59.3c is $4.86
+ * of contracts and $5.00 all in. This is #39's settled precedent (Joe's
+ * answer A) applied to the second control that spends; the first,
+ * `<ManualTicket>`'s Confirm, has printed dollars since then.
  *
  * **Three outcomes, and only one of them is a fill.** A maker has about three
  * seconds to stand behind a quote on a combination; they may decline, and
@@ -277,6 +417,15 @@ function TakeIt({
     );
   }
 
+  // **The dollars go on the button, or the button admits it does not know.**
+  // `all_in_display` is null when the maker's size could not be read, and a
+  // quote with no size has an unknown cost. Printing the contracts alone
+  // there would be a smaller, friendlier, wrong number.
+  const label =
+    quote.all_in_display === null
+      ? "Take it"
+      : `Take it — ${quote.all_in_display} all in`;
+
   return (
     <div className="mt-2">
       <button
@@ -284,13 +433,25 @@ function TakeIt({
         disabled={state.kind === "sending"}
         className="rounded bg-accent-fill px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-60"
       >
-        {state.kind === "sending"
-          ? "Taking it…"
-          : `Take it at ${quote.ask_display}`}
+        {state.kind === "sending" ? "Taking it…" : label}
       </button>
       <p className="mt-1 text-[11px] leading-snug text-muted">
-        Buys this combination at the price above. The maker has a few seconds
-        to confirm and may decline, which costs you nothing.
+        {quote.all_in_display === null ? (
+          <>
+            Buys this combination at the price above. This maker did not say
+            what size they are quoting, so the desk cannot tell you the total
+            before you tap.
+          </>
+        ) : (
+          <>
+            Leaves {quote.all_in_display} of the combinations{" "}
+            <Term k="shard">shard</Term> &mdash; the contracts at the price
+            above plus Kalshi&rsquo;s fee, which is charged on top. The fee is
+            estimated high, so the real charge should be a little under.
+          </>
+        )}{" "}
+        The maker has a few seconds to confirm and may decline, which costs you
+        nothing.
       </p>
     </div>
   );

@@ -83,12 +83,26 @@ import Term from "@/components/Term";
  *
  * On 2026-09-17 the exact card this screen refused drew **three maker quotes
  * in 107ms**, best ask 59.3c against the card's own fair value of 57.8c,
- * while its book read empty on both sides. So `status === "book_empty"` now
+ * while its book read empty on both sides. So `status === "book_empty"`
  * renders `<AskTheMarket>`, which asks.
  *
- * The 40-of-40 exit finding above is untouched by this and also unsupported
- * by it: it measured resting YES bids on the book, and whether a SELL-side
- * RFQ draws bids has never been tested.
+ * **And so does a priced book, since issue #66 (2026-09-18).** This said
+ * "book_empty now renders it" and meant only that branch, which made a
+ * priced book a dead end in the other direction: the desk would sell him the
+ * book's price without showing him the one it could have asked for. Neither
+ * surface dominates -- on the three combinations measured, the book beat the
+ * RFQ on two and the RFQ was the only price on the third -- and asking
+ * commits nothing, so both numbers are offered and Joe reads them. Nothing
+ * here ranks one against the other.
+ *
+ * The 40-of-40 exit finding above is untouched by this and was never
+ * supported by it: it measured resting YES bids on the BOOK. **What a
+ * sell-side RFQ draws has since been tested and the answer was bids** --
+ * 16 of 44 quotes carried a YES bid across 3 of 3 held combinations, every
+ * one at the full size asked (`2026-09-17-combinations-can-be-exited.md`).
+ * This paragraph said it had never been tested until 2026-09-18. What is
+ * still open is the price, not the door: every one of those bids sat below
+ * what had been paid.
  */
 export default function PriceOnKalshi({
   card,
@@ -275,13 +289,7 @@ function Result({ value }: { value: ParlayLookupResult }) {
     return (
       <div className="space-y-2">
         <p className="text-sm text-muted">{value.words}</p>
-        <AskTheMarket
-          marketTicker={value.minted_market_ticker}
-          // Kalshi's own fixed-point dollar string. The five dollars is the
-          // size the ONE measured RFQ was fired at; it is a request for a
-          // price, not a commitment to spend it.
-          targetCostDollars="5.0000"
-        />
+        <AskTheMarket marketTicker={value.minted_market_ticker} />
       </div>
     );
   }
@@ -336,6 +344,16 @@ function Result({ value }: { value: ParlayLookupResult }) {
       <p className="text-[11px] leading-snug text-muted">
         {value.notes.unquoted} {value.notes.fee}
       </p>
+      {/* **Both surfaces, and the choice is Joe's — issue #66.** A priced
+          book used to be the end of the road: the book's ask, a buy button,
+          and no way to ask the makers what they would charge. But neither
+          surface dominates. On 2026-09-17 the book beat the RFQ on two of
+          three held combinations and the RFQ was the only price on the
+          third, so a screen that offers only the book sometimes sells him
+          the worse of two prices it could have shown him. Asking commits
+          nothing, so it is offered here and the two numbers sit together. */}
+      <AskTheMarket marketTicker={value.minted_market_ticker} />
+
       {/* The buy, on the minted market's own ticker — two lines under the
           ask, which is the whole purpose of this block. */}
       <ManualTicket

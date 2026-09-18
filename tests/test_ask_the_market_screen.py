@@ -157,3 +157,126 @@ class TestTheDoorIsRegistered:
 
     def test_the_proxy_says_no_money_moved_when_the_backend_is_silent(self):
         assert "no money moved" in _read(PROXY)
+class TestHeChoosesTheSize:
+    """Issue #62, answered (A) on 2026-09-18.
+
+    The size was a hardcoded `"5.0000"` in the mount, trimmed server-side to
+    90% of the combinations shard. Two independent limits on one quantity,
+    swapping over at $5.5556 of balance **with no change in symptom**, because
+    no screen printed the dollars either way.
+    """
+
+    def test_the_size_is_not_hardcoded_into_the_mount(self):
+        assert "5.0000" not in _read(PRICE), (
+            "the mount hardcoded the size the one measured RFQ happened to "
+            "use; it is typed now"
+        )
+        assert "targetCostDollars=" not in _read(PRICE)
+
+    def test_the_screen_takes_a_typed_dollar_amount(self):
+        source = _read(ASK)
+        assert 'type="number"' in source
+        assert "rfq-size-" in source, "the input needs a stable id"
+
+    def test_the_last_size_is_remembered_and_may_fail_to_be(self):
+        """A remembered convenience that throws must not take the price
+        control down with it -- private mode, blocked site data, or a server
+        render all make `localStorage` unavailable."""
+        source = _read(ASK)
+        assert "localStorage" in source
+        assert source.count("catch") >= 3, (
+            "every localStorage access needs its own catch"
+        )
+
+    def test_the_words_say_the_size_is_spent_not_capped(self):
+        """A quote is all-or-nothing at the size asked for. Reading the field
+        as a maximum is how Joe ends up asking for more than the shard can
+        pay, which is the refusal that burned 28 makers' answers."""
+        prose = _prose(ASK)
+        assert "all-or-nothing" in prose
+        assert "not a maximum" in prose
+
+
+class TestBothSurfacesAreShown:
+    """Issue #66. Neither the public book nor the RFQ dominates: measured
+    2026-09-17, the book beat the RFQ on two of three held combinations and
+    the RFQ was the only price on the third."""
+
+    def test_the_public_book_ask_renders_beside_the_quote(self):
+        assert "book_ask_display" in _read(ASK)
+
+    def test_asking_is_offered_on_a_book_that_already_has_an_ask(self):
+        """It used to be the empty-book branch only, so a priced book was a
+        dead end in the other direction: the desk would sell him the book's
+        price without showing him the one it could have asked for."""
+        # The mount, not the mentions: the module docstring names the
+        # component too, and a test that counts prose fails on an edit to a
+        # comment.
+        source = _read(PRICE)
+        assert source.count("<AskTheMarket marketTicker=") == 2, (
+            "the ask belongs on the priced branch as well as the empty one"
+        )
+
+    def test_neither_surface_is_called_the_better_one(self):
+        """Showing two prices is transparency; ordering them is a claim, and
+        `beta = -0.141` is why this desk does not make it."""
+        prose = _prose(ASK)
+        for forbidden in ("better price", "cheaper than", "beats the book"):
+            assert forbidden not in prose.lower()
+
+
+class TestAQuoteShowsItsAge:
+    """Issue #67. A maker stands behind a combination quote for about three
+    seconds, against thirty elsewhere."""
+
+    def test_the_age_is_rendered_and_ticks(self):
+        source = _read(ASK)
+        assert "asked_ms" in source
+        assert "setInterval" in source, (
+            "an age rendered once is a stamp that stops being true while the "
+            "reader looks at it"
+        )
+
+    def test_a_stale_quote_is_relabelled_and_never_blocked(self):
+        """Disabling the button on age would be a new ceiling on a hand bet,
+        and ADR 0112 removed all five of those on Joe's word."""
+        source = _read(ASK)
+        assert "QUOTE_LIFE_MS" in source
+        assert "disabled={state.kind === \"sending\"}" in source, (
+            "the only thing that may disable the button is a send in flight"
+        )
+
+
+class TestTheButtonSaysWhatLeavesTheAccount:
+    """Issue #68, and #39's settled precedent on the singles ticket."""
+
+    def test_the_take_button_prints_the_all_in_dollars(self):
+        assert "all_in_display" in _read(ASK)
+        assert "all in" in _prose(ASK)
+
+    def test_the_fee_is_named_as_charged_on_top(self):
+        prose = _prose(ASK)
+        assert "charged on top" in prose
+
+    def test_a_quote_with_no_size_admits_it_cannot_say(self):
+        """Printing the contracts alone would be a smaller, friendlier,
+        wrong number."""
+        source = _read(ASK)
+        assert 'quote.all_in_display === null\n      ? "Take it"' in source
+        prose = _prose(ASK)
+        assert "cannot tell you the total" in prose
+
+
+class TestTheJargonTeachesItself:
+    """Issue #70. Joe's standing instruction: every betting term the site uses
+    must teach itself at first use."""
+
+    def test_the_new_terms_are_in_the_glossary(self):
+        glossary = _read(FRONTEND / "lib" / "glossary.ts")
+        for key in ("rfq:", "maker:", "maker_quote:", "shard:"):
+            assert key in glossary, f"{key} has no definition"
+
+    def test_they_are_wrapped_where_the_screen_uses_them(self):
+        source = _read(ASK)
+        for key in ("rfq", "maker", "maker_quote", "shard"):
+            assert f'<Term k="{key}">' in source, f"{key} is used unwrapped"
