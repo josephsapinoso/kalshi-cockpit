@@ -224,6 +224,30 @@ keeps and Joe audits").
    the ticket, my read is (c). Nothing else on the volume should be built until
    he answers; the clock is the ~11–27 day VACUUM window, not the ~42–100 day
    fill.
+
+   **Joe read it and deferred to the next session (2026-09-18), asking two
+   questions whose answers are now on the ticket.** (i) The *limit* is not
+   repeatedly raised — auto-extend grows the VOLUME in 1GB steps at 80% with
+   no human in the loop; the limit was set to 20GB once, on 2026-09-01, and
+   the volume grew into it. (ii) Culling is possible and there is **exactly
+   one table**: `kalshi_quotes` and `fair_prices` are pruned, `odds_snapshots`
+   has no `DELETE` anywhere (grep-verified) and is the whole residual
+   ~137 MB/day.
+
+   **The new argument, and it changes the ORDER not just the choice:**
+   deleting rows in SQLite does not shrink the file — pages are freed for
+   reuse, the file stays 6.5 GB. Handing disk back needs `VACUUM`, which needs
+   roughly the whole file free, which is the same ~11–27 day window. So
+   culling **before** it shuts actually shrinks the file and costs nothing;
+   culling **after** stops growth but parks the instance at 20GB forever with
+   only "buy more disk" left. Option (b)/(c) is time-sensitive; (a) is not.
+
+   **The last input the ticket needs is one `db-sizes` run** — how much of the
+   6.5 GB is `odds_snapshots`. CLAUDE.md's "two thirds is `kalshi_quotes`"
+   predates that table being pruned and is **stale; do not quote it**. The run
+   walks every page and leaves the desk slow for minutes, so fire it when Joe
+   is not mid-session and **before** asking him to pick a retention horizon —
+   otherwise he is choosing against an unknown denominator.
 2. **#74's remaining half** (partner's rank 4): read `/portfolio/fills` after
    an `executed` accept and upgrade `rfq_accept` → `venue_fill`, retiring E2 on
    a screen Joe reads mid-game. **Its premise is partly wrong and the ticket
