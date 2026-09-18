@@ -1,4 +1,6 @@
-"""`idx_odds_window` exists, covers both arms of `/api/window`, and says why.
+"""`/api/window`'s freshness read never walks `odds_snapshots`; every read of it
+is a covering seek bound to ONE event, and the set of events comes from
+`odds_fixtures`.
 
 WHY THIS EXISTS
 ---------------
@@ -11,41 +13,49 @@ by four server-rendered pages, polled every 3 s for 30 s and then every 10 s by
 `run_loop.py`. `docs/measurements/2026-09-10-the-ladder-floor-oom-cycles-the-recorder.md`
 section 7.
 
-v39's `idx_odds_event_commence` does not touch it and structurally cannot: the
-statement needs `market`, `fetched_ms` and `book_updated_ms` and that index
-carries none of the three.
+v41 (`idx_odds_window`) made both arms of that statement covering, 5.1x-6.1x
+at live's shape. It did not make them SMALL: the `latest` CTE still walked the
+whole `market = 'h2h'` prefix of the index -- every h2h row ever stored -- to
+find the few hundred fixtures with `commence_ms >= now`, and the walk grew
+with every sweep. By the evening of 2026-09-17, with the NFL and NCAAF
+weekends inside the 48 h horizon, `/api/window` measured **7 s at the median
+and tripped the 25 s read budget twice**, and every server-rendered page waits
+on it (`docs/measurements/2026-09-18-the-window-route-walked-every-odds-row.md`).
+
+v47 (`odds_fixtures`) changes the SHAPE: the fixtures come from a one-row-per-
+fixture table a trigger keeps, and each fixture's freshness is two seeks on
+`odds_snapshots` with `odds_event_id` bound. The index from v41 still serves
+both seeks and is still required.
 
 WHAT THIS ESTABLISHES
 ---------------------
 That the statement `fixture_freshness` actually runs -- read out of its own
-source, not retyped here -- plans as a COVERING read on **both** references to
-`odds_snapshots`, so neither arm touches a table page; that the index carries
-every column the statement names; that a migration puts it on a volume that
-predates it; and that the recorded justification beside the `CREATE INDEX` is
-still there.
+source, not retyped here -- plans as (a) a range seek on `odds_fixtures`, and
+(b) covering seeks on **every** reference to `odds_snapshots`, each with
+`odds_event_id` bound, so no read of the snapshot table is proportional to
+anything but the fixture count; that the trigger keeps `odds_fixtures` in step
+with raw inserts, latest sweep winning; that the v47 step backfills a volume
+that predates the table; that v41's index carries every snapshot column the
+statement names and a migration puts it on a volume that predates it; and that
+the recorded justification beside the `CREATE INDEX` is still there.
 
 WHAT THIS DOES NOT ESTABLISH
 ----------------------------
-- **Nothing about the live win.** The rehearsal at live's shape is 3,904 ms ->
-  667..797 ms, every arm timed alternately in one process, paired ratio
-  **5.1x - 6.1x across every cache regime this box can produce**
-  (`scripts/measure_window_index.py`). Live is I/O-bound against a 5.19 GB
-  file, so the low end is a floor and a direction, never a magnitude -- v39's
-  local 3x returned 81x on live. Only a post-deploy timing settles it. Nothing
-  here is a stopwatch: a timing assertion on a shared machine is a flake, and
-  the property the index buys is the *shape* of the plan, which is
-  deterministic. The absolute milliseconds moved 3x between sessions on
-  page-cache residency alone while the ratio barely moved, which is why the
-  record beside the `CREATE INDEX` is a paired range and not a headline number.
-- **Nothing about `USE TEMP B-TREE FOR GROUP BY`, which survives on purpose.**
-  The outer GROUP BY drives from the materialized CTE and SQLite does not know
-  the CTE is already in `odds_event_id` order. Removing it means rewriting the
-  statement, which lives under the `backend/odds/` freeze. It sorts ~800
-  fixtures' worth of joined rows, not the table. Asserting its absence here
-  would be asserting a property this change did not buy.
-- **Nothing about growth.** `odds_snapshots` still has no retention rule
-  (`store/retention.py` says so itself), so this changes the constant and
-  leaves the growth term alone.
+- **Nothing about the live win.** The v47 rehearsal at live's shape is in
+  `scripts/measure_odds_fixtures.py` and its ADR; the v41 rehearsal is
+  3,904 ms -> 667..797 ms, paired ratio **5.1x - 6.1x across every cache
+  regime this box can produce** (`scripts/measure_window_index.py`). Live is
+  I/O-bound against a >6 GB file, so a local ratio is a floor and a direction,
+  never a magnitude -- v39's local 3x returned 81x on live. Only a post-deploy
+  timing settles it. Nothing here is a stopwatch: a timing assertion on a
+  shared machine is a flake, and the property this buys is the *shape* of the
+  plan, which is deterministic.
+- **Nothing about growth of `odds_snapshots`.** It still has no retention rule
+  (`store/retention.py` says so itself). v47 makes the window's reads
+  independent of that growth; it does not stop it.
+- **Nothing about a moved kickoff.** `odds_fixtures` carries the latest
+  quoted kickoff per fixture where the old DISTINCT listed every distinct
+  one; the schema comment records the choice and no test here exercises it.
 
 A NOTE ON HOW THESE ASSERTIONS ARE WRITTEN
 ------------------------------------------
@@ -53,10 +63,10 @@ Three tests went red on v39 and all three were pinning implementation names
 rather than claims -- including one that could not have failed at all, because
 `"idx_odds_event" in step` is a substring of `idx_odds_event_commence`. So the
 plan assertions below are about the *claim* (every read of `odds_snapshots` is
-a covering seek, and the skip-scan is gone), and where a name is unavoidable it
-is matched as a whole token or by set membership, never with `in` on a string.
-`test_the_index_name_cannot_be_matched_by_accident` checks that property of
-this file's own assertions.
+a covering seek with the event bound, and the skip-scan is gone), and where a
+name is unavoidable it is matched as a whole token or by set membership, never
+with `in` on a string. `test_the_index_name_cannot_be_matched_by_accident`
+checks that property of this file's own assertions.
 """
 
 from __future__ import annotations
@@ -66,6 +76,7 @@ import inspect
 import pathlib
 import re
 import sqlite3
+import time
 
 import pytest
 
@@ -76,26 +87,42 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 SCHEMA = REPO / "backend" / "store" / "schema.sql"
 
 INDEX = "idx_odds_window"
+FIXTURE_INDEX = "idx_odds_fixtures_commence"
+TRIGGER = "trg_odds_fixtures_upsert"
 NOW = 1_789_000_000_000
-
-#: **The ordinal is a lane placeholder.** It was taken without reading
-#: `schema.sql` or `tasks/LANES.md` because a parallel lane may also be bumping
-#: the schema; re-take it at merge alongside `SCHEMA_VERSION` and the
-#: `_MIGRATIONS` key. See the note on `store.SCHEMA_VERSION`. Renumbered from
-#: 40 to 41: lane D merged first and took 40 (ADR 0143).
 VERSION = 41
+FIXTURES_VERSION = 47
+
+# The statement `fixture_freshness` ran from v41 until v47, kept here as the
+# ORACLE for the rewrite: on any slate the new statement must return exactly
+# what this one returned. Retyped on purpose -- it no longer exists in the
+# source to be read from.
+V41_STATEMENT = (
+    "WITH latest AS ("
+    "  SELECT odds_event_id, MAX(fetched_ms) AS m FROM odds_snapshots"
+    "  WHERE market = ? AND commence_ms >= ? GROUP BY odds_event_id"
+    ") "
+    "SELECT MIN(COALESCE(o.book_updated_ms, o.fetched_ms)) AS oldest_ms "
+    "FROM odds_snapshots o JOIN latest l "
+    "  ON o.odds_event_id = l.odds_event_id AND o.fetched_ms = l.m "
+    "WHERE o.market = ? GROUP BY o.odds_event_id"
+)
+V41_UPCOMING = (
+    "SELECT sport_key, commence_ms FROM ("
+    "  SELECT DISTINCT sport_key, odds_event_id, commence_ms"
+    "  FROM odds_snapshots WHERE commence_ms >= ? AND commence_ms <= ?"
+    ")"
+)
 
 
 def _statement_from_source() -> str:
     """The SQL `fixture_freshness` executes, read out of the function itself.
 
     Not retyped here, and deliberately not approximated by a substring search.
-    `backend/odds/timing.py` is frozen, so the statement cannot be lifted into
-    a module constant the way `runner.MATCH_CANDIDATE_SQL` was -- and a plan
-    guard against a statement nobody runs is the drift `tasks/lessons.md`
+    A plan guard against a statement nobody runs is the drift `tasks/lessons.md`
     records. Parsing the call is what keeps the two in step: if the statement
-    changes shape, this test plans the NEW one and the covering assertions
-    below fail for the right reason.
+    changes shape, this test plans the NEW one and the assertions below fail
+    for the right reason.
     """
     tree = ast.parse(inspect.getsource(timing.fixture_freshness).lstrip())
     found = [
@@ -117,7 +144,7 @@ def _statement_from_source() -> str:
 
 
 SQL = _statement_from_source()
-PARAMS = ("h2h", NOW, "h2h")
+PARAMS = ("h2h", "h2h", NOW)
 
 
 def _seed(conn: sqlite3.Connection) -> None:
@@ -158,11 +185,28 @@ def _plan(conn: sqlite3.Connection, sql: str = SQL) -> list[str]:
     return [r[3] for r in conn.execute("EXPLAIN QUERY PLAN " + sql, PARAMS)]
 
 
+def _snapshot_steps(plan: list[str]) -> list[str]:
+    """The plan lines that read `odds_snapshots`: by the aliases the statement
+    gives it AND by the bare table name, which the planner prints for a read
+    with no alias -- the v41 CTE arm was one, and a matcher that only knew
+    the aliases let it through (mutation (f) in the ADR)."""
+    return [s for s in plan if re.match(r"SEARCH (odds_snapshots|o|s) ", s)]
+
+
 def _indexes(conn: sqlite3.Connection) -> set[str]:
     return {
         r["name"]
         for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type = 'index'"
+        )
+    }
+
+
+def _triggers(conn: sqlite3.Connection) -> set[str]:
+    return {
+        r["name"]
+        for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger'"
         )
     }
 
@@ -175,22 +219,19 @@ def conn(tmp_path):
     c.close()
 
 
-class TestBothArmsReadTheIndexAndNeverTheTable:
+class TestEveryReadOfTheSnapshotsIsASeekOnOneEvent:
     """The claim, stated as the claim: no read of `odds_snapshots` is a table
-    fetch. That is what makes 1.46M row fetches per call go away on live, and
-    it is a property of the plan rather than of any index name."""
+    fetch, and none of them is unbounded in the event. The second half is
+    what v47 bought and v41 had not: a covering walk of every h2h row ever
+    stored is still a walk."""
 
     def test_every_read_of_odds_snapshots_is_covering(self, conn):
         """Mutation observed red: `DROP INDEX idx_odds_window`.
 
-        The plan falls back to `SEARCH odds_snapshots USING INDEX
-        idx_odds_event (ANY(odds_event_id) AND market=?)` plus a non-covering
-        seek on the outer arm -- both table fetches, which is the 0.91 s shape.
-        Also observed red with `book_updated_ms` dropped from the index
-        (the outer arm stops being covering) and with `commence_ms` dropped
-        (the CTE arm stops being covering).
+        Both correlated arms fall back to `idx_odds_event` and one of them
+        stops being covering (`book_updated_ms` is not in that index).
         """
-        steps = [s for s in _plan(conn) if s.startswith("SEARCH")]
+        steps = _snapshot_steps(_plan(conn))
         assert len(steps) == 2, _plan(conn)
         for step in steps:
             assert "COVERING INDEX" in step, (
@@ -198,14 +239,32 @@ class TestBothArmsReadTheIndexAndNeverTheTable:
                 f"{step}"
             )
 
+    def test_every_read_of_odds_snapshots_binds_the_event(self, conn):
+        """The v47 claim. Mutation observed red: put `V41_STATEMENT` back in
+        `fixture_freshness` -- its CTE arm plans as `(market=?)` alone, a walk
+        of the whole market prefix, which is the 7 s shape of 2026-09-17."""
+        steps = _snapshot_steps(_plan(conn))
+        assert steps, _plan(conn)
+        for step in steps:
+            assert "odds_event_id=?" in step, (
+                "a read of odds_snapshots is not bound to one event, so it "
+                f"grows with the table instead of the slate: {step}"
+            )
+
+    def test_the_fixtures_come_from_the_fixture_table_by_kickoff(self, conn):
+        """The driving read is a range seek on `odds_fixtures.commence_ms`,
+        and nothing in the plan is a SCAN. Mutation observed red: `DROP INDEX
+        idx_odds_fixtures_commence` -- the outer read becomes `SCAN f`."""
+        plan = _plan(conn)
+        outer = [s for s in plan if s.startswith("SEARCH f ")]
+        assert len(outer) == 1, plan
+        assert "commence_ms>?" in outer[0], outer
+        assert not any(s.startswith("SCAN") for s in plan), plan
+
     def test_the_market_filter_is_a_seek_and_not_a_skip_scan(self, conn):
         """`ANY(odds_event_id)` is SQLite saying it is skip-scanning an index
-        whose leading column the query does not constrain -- the cost
-        `idx_odds_event` was paying here. An index leading with `market` is
-        the half of this change that removes it.
-
-        Mutation observed red: drop the index; the `ANY(...)` returns.
-        """
+        whose leading column the query does not constrain. Mutation observed
+        red on v41: drop the index; the `ANY(...)` returns."""
         plan = _plan(conn)
         assert not any("ANY(" in step for step in plan), plan
 
@@ -213,44 +272,262 @@ class TestBothArmsReadTheIndexAndNeverTheTable:
         """Matched as a whole token, not with `in` on the joined plan, so a
         future index whose name merely contains this one cannot satisfy it."""
         token = re.compile(r"\b%s\b" % re.escape(INDEX))
-        steps = [s for s in _plan(conn) if s.startswith("SEARCH")]
-        assert all(token.search(s) for s in steps), _plan(conn)
+        steps = _snapshot_steps(_plan(conn))
+        assert steps and all(token.search(s) for s in steps), _plan(conn)
 
-    def test_a_column_outside_the_index_would_demote_both_arms(self, conn):
+    def test_a_column_outside_the_index_would_demote_the_arm(self, conn):
         """The real failure mode: the statement and the index drift apart.
 
         Not a mutation of production code but a demonstration against the same
         table, so the demotion this file exists to catch is visible rather than
-        asserted. `bookmaker` is not in the index; projecting it costs the
+        asserted. `bookmaker` is not in the index; filtering on it costs the
         covering read.
         """
         widened = SQL.replace(
-            "SELECT MIN(COALESCE(o.book_updated_ms, o.fetched_ms)) AS oldest_ms",
-            "SELECT o.bookmaker, "
-            "MIN(COALESCE(o.book_updated_ms, o.fetched_ms)) AS oldest_ms",
+            "WHERE o.market = ? AND o.odds_event_id = f.odds_event_id",
+            "WHERE o.market = ? AND o.odds_event_id = f.odds_event_id "
+            "AND o.bookmaker <> 'nobody'",
         )
         assert widened != SQL, "the statement changed shape; fix this guard"
         plan = _plan(conn, widened)
         outer = [s for s in plan if s.startswith("SEARCH o ")]
         assert outer and all("COVERING" not in s for s in outer), (
-            "projecting a column outside the index was supposed to cost the "
+            "referencing a column outside the index was supposed to cost the "
             f"covering read, but the plan still says: {plan}"
         )
+
+
+class TestTheRewriteAnswersWhatV41Answered:
+    """The oracle: the v41 statement, retyped, over the same seeded slate.
+    Any fixture the old statement listed the new one lists, with the same
+    age, and the schedule sees the same kickoffs per sport."""
+
+    def test_fixture_freshness_matches_the_v41_statement(self, conn):
+        old = sorted(
+            NOW - int(r[0])
+            for r in conn.execute(V41_STATEMENT, ("h2h", NOW, "h2h"))
+        )
+        assert old, "the oracle answered nothing; the seed is wrong"
+        assert timing.fixture_freshness(conn, now_ms=NOW) == old
+
+    def test_upcoming_fixtures_match_the_v41_statement(self, conn):
+        horizon = 48 * 3_600_000
+        old: dict[str, list[int]] = {}
+        for r in conn.execute(V41_UPCOMING, (NOW, NOW + horizon)):
+            old.setdefault(r[0], []).append(int(r[1]))
+        assert old, "the oracle answered nothing; the seed is wrong"
+        new = timing.upcoming_fixtures_by_sport(
+            conn, now_ms=NOW, horizon_ms=horizon
+        )
+        assert {k: sorted(v) for k, v in new.items()} == {
+            k: sorted(v) for k, v in old.items()
+        }
+
+    def test_a_fixture_with_no_h2h_rows_is_left_out_as_before(self, conn):
+        """The old join dropped it; the new scalar subquery aggregates it to
+        NULL and the caller must drop the NULL rather than turn it into an
+        age of `now`. Mutation observed red: remove the `is not None` filter
+        in `fixture_freshness` -- `int(None)` raises."""
+        conn.execute(
+            "INSERT INTO odds_snapshots (odds_event_id, sport_key, commence_ms, "
+            "home_team, away_team, bookmaker, market, fetched_ms, "
+            "book_updated_ms, outcome_name, price_decimal) "
+            "VALUES ('spreads-only', 'baseball_mlb', ?, 'H', 'A', 'book0', "
+            "'spreads', ?, NULL, 'H', 1.9)",
+            (NOW + 3_600_000, NOW),
+        )
+        conn.commit()
+        assert "spreads-only" in {
+            r[0] for r in conn.execute("SELECT odds_event_id FROM odds_fixtures")
+        }
+        old = sorted(
+            NOW - int(r[0])
+            for r in conn.execute(V41_STATEMENT, ("h2h", NOW, "h2h"))
+        )
+        assert timing.fixture_freshness(conn, now_ms=NOW) == old
+
+
+class TestTheFixtureTableIsKeptByTheDatabase:
+    """A trigger, not a writer: every path that inserts a snapshot keeps the
+    table right without being told to -- `store_quotes`, `seed_demo`, and the
+    raw INSERTs every test in this suite uses."""
+
+    def _insert(self, conn, *, event, commence, fetched, sport="baseball_mlb"):
+        conn.execute(
+            "INSERT INTO odds_snapshots (odds_event_id, sport_key, commence_ms, "
+            "home_team, away_team, bookmaker, market, fetched_ms, "
+            "book_updated_ms, outcome_name, price_decimal) "
+            "VALUES (?, ?, ?, 'H', 'A', 'book0', 'h2h', ?, NULL, 'H', 1.9)",
+            (event, sport, commence, fetched),
+        )
+        conn.commit()
+
+    def _fixture(self, conn, event):
+        return conn.execute(
+            "SELECT sport_key, commence_ms, last_fetched_ms FROM odds_fixtures "
+            "WHERE odds_event_id = ?",
+            (event,),
+        ).fetchone()
+
+    def test_a_raw_insert_creates_the_fixture_row(self, tmp_path):
+        """Mutation observed red: delete the trigger from `schema.sql`."""
+        conn = store.init_db(tmp_path / "t.db")
+        assert TRIGGER in _triggers(conn)
+        self._insert(conn, event="e1", commence=NOW + 1, fetched=NOW)
+        row = self._fixture(conn, "e1")
+        assert tuple(row) == ("baseball_mlb", NOW + 1, NOW)
+        conn.close()
+
+    def test_the_latest_sweep_wins_whatever_order_rows_arrive_in(self, tmp_path):
+        """A postponed game moves to its new kickoff on the next sweep that
+        quotes it, and a late-arriving OLD row cannot move it back.
+        Mutation observed red: drop the trigger's `WHERE excluded.last_fetched_ms
+        >= ...` clause -- the older row then overwrites the newer."""
+        conn = store.init_db(tmp_path / "t.db")
+        self._insert(conn, event="e1", commence=NOW + 1, fetched=NOW)
+        self._insert(conn, event="e1", commence=NOW + 2, fetched=NOW + 10)
+        assert tuple(self._fixture(conn, "e1")) == ("baseball_mlb", NOW + 2, NOW + 10)
+        self._insert(conn, event="e1", commence=NOW + 3, fetched=NOW - 10)
+        assert tuple(self._fixture(conn, "e1")) == ("baseball_mlb", NOW + 2, NOW + 10)
+        conn.close()
+
+    def test_one_row_per_fixture_however_many_snapshots(self, conn):
+        n_events = conn.execute(
+            "SELECT COUNT(DISTINCT odds_event_id) FROM odds_snapshots"
+        ).fetchone()[0]
+        n_fixtures = conn.execute("SELECT COUNT(*) FROM odds_fixtures").fetchone()[0]
+        assert n_events == n_fixtures == 60
+
+
+class TestAVolumeThatPredatesTheFixtureTableGetsItBackfilled:
+    """Tested against `migrate`, not against `init_db`, for the reason the
+    v41 class below records: `init_db` runs `executescript(schema.sql)` after
+    `migrate`, which would create the empty table and the trigger with the
+    step deleted. What only the step can do is seed the table from rows the
+    trigger never saw, and that is what is asserted."""
+
+    def _wound_back(self, tmp_path):
+        """A database at v46 carrying snapshots for three fixtures: one two
+        days out, one that kicked off yesterday, one from a month ago. The
+        backfill's floor is seven real days before now, so the clock here is
+        the wall clock and not `NOW`."""
+        conn = store.init_db(tmp_path / "old.db")
+        now = int(time.time() * 1000)
+        day = 86_400_000
+        for event, commence in (
+            ("soon", now + 2 * day),
+            ("yesterday", now - day),
+            ("last-month", now - 30 * day),
+        ):
+            for fetched in (now - 3 * day, now - 2 * day):
+                conn.execute(
+                    "INSERT INTO odds_snapshots (odds_event_id, sport_key, "
+                    "commence_ms, home_team, away_team, bookmaker, market, "
+                    "fetched_ms, book_updated_ms, outcome_name, price_decimal) "
+                    "VALUES (?, 'americanfootball_nfl', ?, 'H', 'A', 'book0', "
+                    "'h2h', ?, NULL, 'H', 1.9)",
+                    (event, commence, fetched),
+                )
+        conn.execute("DROP TRIGGER %s" % TRIGGER)
+        conn.execute("DROP TABLE odds_fixtures")
+        store._set_meta(conn, "schema_version", str(FIXTURES_VERSION - 1))  # noqa: SLF001
+        conn.commit()
+        assert FIXTURE_INDEX not in _indexes(conn), "fixture did not wind back"
+        return conn, now
+
+    def test_the_step_seeds_upcoming_and_recent_fixtures_and_not_history(
+        self, tmp_path
+    ):
+        """Mutation observed red: delete the step from `_MIGRATIONS`.
+
+        `migrate` then returns without this version and the SELECT below
+        fails on a missing table.
+        """
+        conn, now = self._wound_back(tmp_path)
+
+        applied = store.migrate(conn)
+
+        assert FIXTURES_VERSION in applied, applied
+        assert FIXTURE_INDEX in _indexes(conn)
+        rows = {
+            r[0]: (r[1], r[2])
+            for r in conn.execute(
+                "SELECT odds_event_id, commence_ms, last_fetched_ms "
+                "FROM odds_fixtures"
+            )
+        }
+        assert set(rows) == {"soon", "yesterday"}, rows
+        assert rows["soon"] == (now + 2 * 86_400_000, 0)
+        conn.close()
+
+    def test_the_step_is_a_no_op_on_a_database_that_already_has_it(
+        self, tmp_path
+    ):
+        """The version stamp is written only after every step succeeds, so a
+        crash between the CREATE and the stamp re-runs this step whole on the
+        next boot. `IF NOT EXISTS` and `OR IGNORE` are what make that
+        survivable, and a re-run must not clobber a row the trigger has since
+        moved."""
+        conn = store.init_db(tmp_path / "current.db")
+        now = int(time.time() * 1000)
+        conn.execute(
+            "INSERT INTO odds_snapshots (odds_event_id, sport_key, commence_ms, "
+            "home_team, away_team, bookmaker, market, fetched_ms, "
+            "book_updated_ms, outcome_name, price_decimal) "
+            "VALUES ('e1', 'baseball_mlb', ?, 'H', 'A', 'book0', 'h2h', ?, "
+            "NULL, 'H', 1.9)",
+            (now + 3_600_000, now),
+        )
+        store._set_meta(conn, "schema_version", str(FIXTURES_VERSION - 1))  # noqa: SLF001
+        conn.commit()
+        before = conn.execute(
+            "SELECT commence_ms, last_fetched_ms FROM odds_fixtures "
+            "WHERE odds_event_id = 'e1'"
+        ).fetchone()
+        assert tuple(before) == (now + 3_600_000, now)
+
+        applied = store.migrate(conn)               # must not raise
+
+        assert FIXTURES_VERSION in applied, applied
+        after = conn.execute(
+            "SELECT commence_ms, last_fetched_ms FROM odds_fixtures "
+            "WHERE odds_event_id = 'e1'"
+        ).fetchone()
+        assert tuple(after) == tuple(before), "the re-run clobbered a live row"
+        conn.close()
+
+    def test_the_step_declares_the_index_it_leaves_behind(self):
+        step = store._MIGRATIONS[FIXTURES_VERSION]            # noqa: SLF001
+        assert step.indexes == (FIXTURE_INDEX,)
+        assert any(FIXTURE_INDEX in s for s in step.statements)
+
+    def test_the_undo_drops_the_trigger_as_well_as_the_table(self):
+        """SQLite validates every trigger on a table before it will `DROP
+        COLUMN` from it, so an undo that drops the table and leaves the
+        trigger naming it strands every older step's undo behind it
+        (`test_store.py::_v1_database` walks them all). The ORDER of the two
+        drops does not matter -- both were tried -- only that both happen.
+        Mutation observed red in `test_store.py`: delete the `DROP TRIGGER`."""
+        undo = store._MIGRATIONS[FIXTURES_VERSION].undo_statements  # noqa: SLF001
+        kinds = {s.split()[1] for s in undo}
+        assert kinds == {"TRIGGER", "TABLE"}, undo
 
 
 class TestTheIndexCarriesWhatTheStatementNeeds:
     def test_it_is_there_on_a_fresh_database(self, conn):
         assert INDEX in _indexes(conn)
 
-    def test_its_columns_are_exactly_the_ones_the_statement_names(self, conn):
-        """Every column `fixture_freshness` references, and no more.
+    def test_its_columns_are_pinned_and_cover_what_the_statement_names(self, conn):
+        """Every snapshot column `fixture_freshness` references is in the
+        index, in the order the seeks need.
 
-        Order matters and is asserted with it: `market` leads because it is the
-        only equality the CTE has; `odds_event_id` is both GROUP BY keys and
-        the join key; `fetched_ms` is the MAX and the outer equality;
-        `commence_ms` is the range filter, carried rather than sought because
-        it is functionally determined by the event; `book_updated_ms` is the
-        outer MIN's payload.
+        `market` leads because it is the only equality both arms share with
+        nothing narrower; `odds_event_id` is the bound event; `fetched_ms` is
+        the inner MAX and the outer equality; `book_updated_ms` is the outer
+        MIN's payload. `commence_ms` is carried but, since v47, not named by
+        this statement: it was the v41 CTE's range filter. It stays because
+        dropping a column rebuilds a ~260 MB index on the live volume at boot,
+        which is a timed decision of its own (ADR 0141), not a tidy-up.
         """
         cols = [r[2] for r in conn.execute("PRAGMA index_info(%s)" % INDEX)]
         assert cols == [
@@ -259,14 +536,13 @@ class TestTheIndexCarriesWhatTheStatementNeeds:
         ]
         referenced = {
             c for c in (
-                "market", "odds_event_id", "fetched_ms", "commence_ms",
-                "book_updated_ms",
-            ) if c in SQL
+                "market", "odds_event_id", "fetched_ms", "book_updated_ms",
+            ) if re.search(r"\b[os]\.%s\b" % c, SQL)
         }
-        assert referenced == set(cols), (
-            "the statement and the index no longer name the same columns; "
-            f"statement has {sorted(referenced)}, index has {sorted(cols)}"
-        )
+        assert referenced == {
+            "market", "odds_event_id", "fetched_ms", "book_updated_ms",
+        }, "the statement stopped naming a column this index was built for"
+        assert referenced <= set(cols)
 
     def test_fetched_ms_is_descending_like_the_index_beside_it(self, conn):
         """`idx_odds_event` orders `fetched_ms DESC` and serves the runner's
@@ -346,7 +622,7 @@ class TestAVolumeThatPredatesTheIndexGetsIt:
         assert any(INDEX in s for s in step.statements)
 
     def test_the_schema_version_covers_the_step(self):
-        assert store.SCHEMA_VERSION >= VERSION
+        assert store.SCHEMA_VERSION >= FIXTURES_VERSION
 
 
 class TestTheRecordedReasonSurvives:
@@ -395,6 +671,17 @@ class TestTheRecordedReasonSurvives:
         assert "the ratio is not" in src
         assert "5.1x - 6.1x across" in src
         assert "not a baseline" in src
+
+    def test_the_schema_records_why_the_fixture_table_exists(self):
+        """The v47 reason, beside the CREATE TABLE: that the window's reads
+        used to grow with every sweep, that the table is kept by a trigger
+        and not a writer, and that the backfill is bounded. Delete any of the
+        three and the next tidy-up removes the table on the argument that
+        `odds_snapshots` already has every column in it."""
+        src = SCHEMA.read_text(encoding="utf-8")
+        assert "Maintained by the trigger below, not by a writer" in src
+        assert "The v47 backfill is bounded, not complete" in src
+        assert "tripped the 25 s read budget twice" in src
 
     def test_the_schema_records_that_the_number_is_a_floor(self):
         """v39's local 3x returned 81x on live. A benchmark that differs from

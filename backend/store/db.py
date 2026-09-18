@@ -138,7 +138,16 @@ logger = logging.getLogger(__name__)
 #: reading the empty book and telling Joe the bet could not be placed.
 #: The quote table is the ONLY copy -- quotes vanish from the venue the
 #: moment the RFQ is deleted, so a quote not written there is gone.
-SCHEMA_VERSION = 46
+#:
+#: v47 `odds_fixtures` -- one row per sportsbook fixture, maintained by a
+#: trigger on `odds_snapshots`, so that `/api/window` reads a few hundred
+#: rows instead of walking every stored row of every upcoming fixture. A
+#: new table, but NOT tableless: the step must exist because the table has
+#: to be BACKFILLED from the snapshots already on the volume, and
+#: `executescript` cannot do that. Written on `main`, 2026-09-18, the
+#: evening `/api/window` measured 7 s at the median and tripped the 25 s
+#: read budget twice.
+SCHEMA_VERSION = 47
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1091,6 +1100,59 @@ _MIGRATIONS: dict[int, _Migration] = {
     # reads exactly as it always did. The undo is the generic column drop.
     44: _Migration(
         columns=(("api_credits", "bookmakers", "TEXT"),),
+    ),
+    # `odds_fixtures` (v47, 2026-09-18): the fixture table `/api/window`
+    # reads instead of `odds_snapshots`. The table, its index and its trigger
+    # are declared in `schema.sql` and `executescript` would create all three
+    # on open -- what only a migration can do is seed the table from the rows
+    # the trigger never saw. The CREATEs are repeated here because `migrate`
+    # runs BEFORE the schema file (see `init_db`) and the backfill needs the
+    # table to exist; every statement is idempotent so a crash mid-step
+    # re-runs cleanly.
+    #
+    # **The backfill is bounded to kickoffs from seven days ago on.** Its only
+    # readers ask about kickoffs at or after now, so history is not seeded, and
+    # the population it walks is the one `upcoming_fixtures_by_sport` walked
+    # on every call until this step -- a range seek on `idx_odds_commence`
+    # with a row fetch per snapshot and `INSERT OR IGNORE` keeping the first
+    # row per event, no `GROUP BY` and no temp b-tree, so the resident set
+    # does not grow with the row count (the 2026-09-10 hazard). `last_fetched_ms`
+    # is seeded as 0 so the next sweep that quotes the fixture overwrites the
+    # seeded kickoff with the feed's current one. Rehearsed on a live-shaped
+    # 3.6M-row database by `scripts/measure_odds_fixtures.py`; the timing is in
+    # its ADR. No `columns`, so dropping the table is the whole undo.
+    47: _Migration(
+        statements=(
+            "CREATE TABLE IF NOT EXISTS odds_fixtures ("
+            "    odds_event_id   TEXT PRIMARY KEY,"
+            "    sport_key       TEXT NOT NULL,"
+            "    commence_ms     INTEGER NOT NULL,"
+            "    home_team       TEXT,"
+            "    away_team       TEXT,"
+            "    last_fetched_ms INTEGER NOT NULL"
+            ")",
+            "CREATE INDEX IF NOT EXISTS idx_odds_fixtures_commence "
+            "ON odds_fixtures(commence_ms, sport_key)",
+            "INSERT OR IGNORE INTO odds_fixtures "
+            "(odds_event_id, sport_key, commence_ms, home_team, away_team, "
+            " last_fetched_ms) "
+            "SELECT odds_event_id, sport_key, commence_ms, home_team, "
+            "       away_team, 0 "
+            "FROM odds_snapshots "
+            "WHERE commence_ms >= "
+            "      (CAST(strftime('%s', 'now') AS INTEGER) - 7 * 86400) * 1000",
+        ),
+        indexes=("idx_odds_fixtures_commence",),
+        # The trigger is dropped too: it is created by `schema.sql`, not by
+        # this step, but it names the table, and SQLite validates every
+        # trigger on a table before it will `DROP COLUMN` from it -- so a v1
+        # rebuilt with the table gone and the trigger left behind cannot be
+        # walked back any further (`tests/test_store.py::_v1_database`).
+        # Either order works; both were tried.
+        undo_statements=(
+            "DROP TRIGGER IF EXISTS trg_odds_fixtures_upsert",
+            "DROP TABLE IF EXISTS odds_fixtures",
+        ),
     ),
     # The acceptance, on `combo_rfq_quotes` (v46, 2026-09-17, ADR 0164).
     #

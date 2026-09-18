@@ -981,12 +981,19 @@ def upcoming_fixtures_by_sport(
     A fixture stored days ago still carries a correct future kickoff, so this
     keeps working through a day on which no sweep has run yet -- which is
     precisely when the schedule is needed.
+
+    Read from `odds_fixtures` (schema v47), one row per fixture, maintained by
+    a trigger on every snapshot insert. Until 2026-09-18 this was
+    `SELECT DISTINCT ... FROM odds_snapshots WHERE commence_ms BETWEEN`, which
+    walked every stored row of every upcoming fixture -- books x outcomes x
+    markets x sweeps -- to recover a few hundred pairs, and grew with every
+    sweep. One consequence of the table: a fixture whose kickoff the feed has
+    moved appears ONCE, at the latest kickoff quoted, where the DISTINCT used
+    to list both. The schedule wants the feed's current belief.
     """
     rows = conn.execute(
-        "SELECT sport_key, commence_ms FROM ("
-        "  SELECT DISTINCT sport_key, odds_event_id, commence_ms"
-        "  FROM odds_snapshots WHERE commence_ms >= ? AND commence_ms <= ?"
-        ")",
+        "SELECT sport_key, commence_ms FROM odds_fixtures "
+        "WHERE commence_ms >= ? AND commence_ms <= ?",
         (now_ms, now_ms + horizon_ms),
     ).fetchall()
     fixtures: dict[str, list[int]] = {}
@@ -1289,19 +1296,34 @@ def fixture_freshness(
     every outcome before taking the oldest, and this does not, so a fixture can
     read slightly staler here than the suppression check will find it. Erring
     towards "closed" is the right direction for a window indicator.
+
+    **Driven by `odds_fixtures`, not by a scan of the snapshots** (schema
+    v47, 2026-09-18). The set of upcoming fixtures is a seek on that table's
+    `commence_ms`; for each fixture the latest sweep is one seek on
+    `idx_odds_event` (`odds_event_id, market, fetched_ms DESC`) and the
+    oldest book within it one covering seek on `idx_odds_window`. Until then
+    the `latest` CTE found the same fixtures by walking the whole `market`
+    prefix of `idx_odds_window` -- every h2h row ever stored -- and the walk
+    was polled every three seconds by every open tab. A fixture with no row
+    in `market` aggregates to NULL and is left out, as the old join left it
+    out. `tests/test_window_freshness_index.py` pins the plan.
     """
     rows = conn.execute(
-        "WITH latest AS ("
-        "  SELECT odds_event_id, MAX(fetched_ms) AS m FROM odds_snapshots"
-        "  WHERE market = ? AND commence_ms >= ? GROUP BY odds_event_id"
-        ") "
-        "SELECT MIN(COALESCE(o.book_updated_ms, o.fetched_ms)) AS oldest_ms "
-        "FROM odds_snapshots o JOIN latest l "
-        "  ON o.odds_event_id = l.odds_event_id AND o.fetched_ms = l.m "
-        "WHERE o.market = ? GROUP BY o.odds_event_id",
-        (market, now_ms, market),
+        "SELECT ("
+        "  SELECT MIN(COALESCE(o.book_updated_ms, o.fetched_ms))"
+        "  FROM odds_snapshots o"
+        "  WHERE o.market = ? AND o.odds_event_id = f.odds_event_id"
+        "    AND o.fetched_ms = ("
+        "      SELECT MAX(s.fetched_ms) FROM odds_snapshots s"
+        "      WHERE s.odds_event_id = f.odds_event_id AND s.market = ?"
+        "    )"
+        ") AS oldest_ms "
+        "FROM odds_fixtures f WHERE f.commence_ms >= ?",
+        (market, market, now_ms),
     ).fetchall()
-    return sorted(now_ms - int(r["oldest_ms"]) for r in rows)
+    return sorted(
+        now_ms - int(r["oldest_ms"]) for r in rows if r["oldest_ms"] is not None
+    )
 
 
 @dataclass(frozen=True)

@@ -16,6 +16,47 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-18 (twentieth) - An index that makes a walk covering does not make it small; a read's cost should scale with its ANSWER, and a diagnostic that reads the whole file is a write to the cache
+
+`/api/window` went from 0.9 s to 7 s in a day, tripped the 25 s budget twice,
+and every server-rendered page waits on it. Nothing in the route had changed.
+Three patterns, and the last one is the session's own.
+
+- **A covering index removes the table fetch, not the walk.** v41 made
+  `fixture_freshness` covering and bought 5x; the statement still walked
+  every h2h row ever stored to find a few hundred upcoming fixtures, so its
+  cost was proportional to the TABLE and grew with every sweep. The
+  question to ask of any hot read is: what does the cost scale with, the
+  answer or the data? If the data, no index fixes it -- the read needs a
+  source whose size is the answer's (here, one row per fixture). **When a
+  route's cost is proportional to history, the fix is a shape, not an
+  index**, and the plan diff cannot show it (ADR 0141): `SEARCH ... USING
+  COVERING INDEX (market=?)` is a seek in name and a scan in cost.
+- **A derived table that any writer could forget is kept by the database,
+  not by a writer.** `store_quotes` is one of three insert paths and the
+  tests are the other ten. A trigger costs 5 ms a sweep and makes "a
+  snapshot row without its fixture row" impossible rather than unlikely.
+  The four modules this repo built and never called were all "the writer
+  will keep it up to date".
+- **Read what an instrument does BEFORE running it on the money box, not
+  after it hangs.** `inspect_live_db.py db-sizes` says "via dbstat" in its
+  own description; dbstat walks the whole 6.3 GB file through a 3 GB page
+  cache. It was run to answer "which table is big" during a latency
+  diagnosis -- i.e. the diagnosis consumed the resource under diagnosis
+  (2026-08-19's lesson, repeated) and every timing taken after it is worse
+  by an amount not measured. A read-only census is a write to the cache;
+  the 2026-09-15 lesson said so and was in context. The rule that would
+  have held: **a whitelisted query is safe to type, not free to run**;
+  before any live instrument, read its `QueryDef` docstring and ask what
+  it touches.
+
+And two about the mutation run: a test that pins the ORDER of two
+statements pins nothing when either order works (both were tried; the claim
+was that both happen), and a plan matcher that knows a table's aliases but
+not its bare name lets the alias-less arm through -- the exact arm the
+change existed to remove. ADR 0167,
+`docs/measurements/2026-09-18-the-window-route-walked-every-odds-row.md`.
+
 ## 2026-09-17 (nineteenth) - A resource the browser fetches WITHOUT the cookie is invisible to a cookie gate; and an `env()` safe-area term is 0 until something opts into it
 
 Both from making the cockpit installable to a phone home screen. Both are the

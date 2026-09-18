@@ -142,6 +142,31 @@ BASELINE_INDEXES = (
     "away_team)",
 )
 
+# v47's table, index and backfill, as `backend/store/db.py::_MIGRATIONS[47]`
+# declares them but with the floor as a bound parameter rather than the wall
+# clock, so the synthetic slate (anchored at NOW_MS) is seeded the same way a
+# volume is. The trigger is deliberately absent: nothing inserts into this
+# database after the build, and the trigger's cost is `sweep_insert_ms`'s
+# question, timed by `measure_odds_fixtures.py`.
+FIXTURES_DDL = (
+    "CREATE TABLE IF NOT EXISTS odds_fixtures ("
+    "    odds_event_id   TEXT PRIMARY KEY,"
+    "    sport_key       TEXT NOT NULL,"
+    "    commence_ms     INTEGER NOT NULL,"
+    "    home_team       TEXT,"
+    "    away_team       TEXT,"
+    "    last_fetched_ms INTEGER NOT NULL"
+    ")",
+    "CREATE INDEX IF NOT EXISTS idx_odds_fixtures_commence "
+    "ON odds_fixtures(commence_ms, sport_key)",
+)
+FIXTURES_BACKFILL = (
+    "INSERT OR IGNORE INTO odds_fixtures "
+    "(odds_event_id, sport_key, commence_ms, home_team, away_team, "
+    " last_fetched_ms) "
+    "SELECT odds_event_id, sport_key, commence_ms, home_team, away_team, 0 "
+    "FROM odds_snapshots WHERE commence_ms >= ?"
+)
 INSERT = (
     "INSERT INTO odds_snapshots (fetched_ms, book_updated_ms, sport_key, "
     "odds_event_id, commence_ms, home_team, away_team, bookmaker, market, "
@@ -224,6 +249,15 @@ def build(path: pathlib.Path, total_rows: int) -> None:
     print(f"built {written:,} rows in {time.perf_counter() - t0:.1f}s")
     for stmt in BASELINE_INDEXES:
         conn.execute(stmt)
+    conn.commit()
+    # v47: `fixture_freshness` now drives from `odds_fixtures`, so the arms
+    # need the table. Built here the way the migration builds it on a volume
+    # -- the same bounded backfill, relative to NOW_MS rather than the wall
+    # clock -- so what this script still measures is `idx_odds_window`'s
+    # contribution under the statement that runs today.
+    for stmt in FIXTURES_DDL:
+        conn.execute(stmt)
+    conn.execute(FIXTURES_BACKFILL, (NOW_MS - 7 * 86_400_000,))
     conn.commit()
     conn.execute("ANALYZE")
     conn.commit()

@@ -522,6 +522,63 @@ CREATE INDEX IF NOT EXISTS idx_odds_window
     ON odds_snapshots(market, odds_event_id, fetched_ms DESC, commence_ms,
                       book_updated_ms);
 
+-- One row per sportsbook fixture: the small table `/api/window` reads INSTEAD
+-- of `odds_snapshots` (v47, 2026-09-18). Both of the window's fixture reads --
+-- `odds/timing.py::upcoming_fixtures_by_sport` and `::fixture_freshness` --
+-- used to derive the set of upcoming fixtures from the snapshot table itself,
+-- which meant walking every stored row of every upcoming fixture (books x
+-- outcomes x markets x sweeps) to recover a few hundred (event, kickoff)
+-- pairs. `idx_odds_window` made that walk covering (5x, its comment above)
+-- but not small: it still grew with every sweep, and by 2026-09-17, with the
+-- NFL and NCAAF weekends inside the 48 h horizon, `/api/window` took 7 s at
+-- the median on live, tripped the 25 s read budget twice in one evening, and
+-- every server-rendered page waits on it. Against this table both reads are
+-- a seek on `commence_ms` and then two index seeks per fixture.
+--
+-- **Maintained by the trigger below, not by a writer.** Every path that
+-- inserts a snapshot row -- `odds/client.py::store_quotes`, `seed_demo.py`,
+-- every test's raw INSERT -- keeps this table right without being told to,
+-- because a table one writer forgets to update is the drift the runner
+-- would then schedule against. The row with the greatest `fetched_ms` wins:
+-- `commence_ms` is what the feed CURRENTLY says the kickoff is, so a
+-- postponed game moves here on the next sweep that quotes it. (The slate,
+-- the ledger and the scorer take `MIN(commence_ms)` over the snapshots --
+-- ticket #26's definition -- and this table is not for them; it is the
+-- schedule's view, and a schedule wants the latest belief.)
+--
+-- **The v47 backfill is bounded, not complete**: it seeds fixtures whose
+-- kickoff is within seven days before the migration ran or later, because
+-- the only readers ask about kickoffs at or after now. A fixture older than
+-- that has no row here, by design; do not treat this table as a fixture
+-- history.
+CREATE TABLE IF NOT EXISTS odds_fixtures (
+    odds_event_id   TEXT PRIMARY KEY,
+    sport_key       TEXT NOT NULL,
+    commence_ms     INTEGER NOT NULL,
+    home_team       TEXT,
+    away_team       TEXT,
+    last_fetched_ms INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_odds_fixtures_commence
+    ON odds_fixtures(commence_ms, sport_key);
+
+CREATE TRIGGER IF NOT EXISTS trg_odds_fixtures_upsert
+AFTER INSERT ON odds_snapshots
+BEGIN
+    INSERT INTO odds_fixtures (odds_event_id, sport_key, commence_ms,
+                               home_team, away_team, last_fetched_ms)
+    VALUES (NEW.odds_event_id, NEW.sport_key, NEW.commence_ms,
+            NEW.home_team, NEW.away_team, NEW.fetched_ms)
+    ON CONFLICT(odds_event_id) DO UPDATE SET
+        sport_key       = excluded.sport_key,
+        commence_ms     = excluded.commence_ms,
+        home_team       = excluded.home_team,
+        away_team       = excluded.away_team,
+        last_fetched_ms = excluded.last_fetched_ms
+    WHERE excluded.last_fetched_ms >= odds_fixtures.last_fetched_ms;
+END;
+
 -- Credit accounting. Cost is `markets x region-equivalents` -- see
 -- `backend/odds/budget.py:sweep_cost`, and the `cost` column's own comment
 -- below, which carries the named-bookmaker rule. An unmetered poll loop drains
