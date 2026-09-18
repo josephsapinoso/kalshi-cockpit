@@ -264,6 +264,16 @@ keeps and Joe audits").
    the retrospective reach is now shorter (v47 seeded `odds_fixtures` with a
    7-day horizon and it never deletes), which the new coverage section prints
    beside every reading rather than leaving in a docstring.
+   **AND IT IS NOT ON THE BOX.** `scripts/inspect_live_db_*.py` ship *in the
+   image* (`.dockerignore`'s `!scripts/inspect_live_db_*.py` glob), and
+   nothing tonight was deployed — live is `c8111a2`, main is `1069054`. So
+   `flyctl ssh ... inspect_live_db.py window-freshness` runs the OLD walking
+   statement until the next deploy, and will flush the desk's page cache
+   exactly as before. **A fix to an instrument is not a fix to the instrument
+   you can reach.** Nothing tonight needed a deploy — three commits of tests,
+   ADRs and comments, no behaviour change on any served route — so none was
+   taken on a live money box; that is the trade, and it is stated here rather
+   than discovered by someone whose read comes back in the old shape.
 7. `odds_snapshots` still has no retention rule — #58's substance.
 8. #71 and #78 are still unanswered questions for Joe, alongside #58.
 9. Baseline this session on `03405c8`: **8,127 passed**, 1 skipped, 10 xfailed,
