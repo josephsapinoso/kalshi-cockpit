@@ -201,7 +201,7 @@ not 3).
 
 ### Still open
 
-1. **#63 is not built.** Joe answered (A): show both exit prices on `/hedge`,
+1. **#63 is not built; its implementation is #76.** Joe answered (A): show both exit prices on `/hedge`,
    read-only, no Sell button. Two things to know before starting.
    `RfqQuote` **discards `yes_bid_dollars`** — the sell side needs parsing
    before any of this works. And `/hedge` is polled, so firing an RFQ per open
