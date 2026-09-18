@@ -2,13 +2,28 @@
 
 Why this exists
 ---------------
-`auto_extend_size_limit = "5GB"` (`fly.live.toml:607`) has been reached, so the
-net that caught the 2026-08-16 volume-full incident **cannot fire again**. Any
-further growth ends in `ENOSPC` -- a hard down that a restart does not clear --
-and the recovery is a manual `fly volumes extend` from a laptop. That is a
-repair only a person can make, which makes an alarm the whole intervention:
-nothing on this box can fix it, so the only thing worth building is the thing
-that tells someone in time.
+The auto-extend net that caught the 2026-08-16 volume-full incident **cannot
+fire again**. Any further growth ends in `ENOSPC` -- a hard down that a restart
+does not clear -- and the recovery is a manual `fly volumes extend` from a
+laptop. That is a repair only a person can make, which makes an alarm the whole
+intervention: nothing on this box can fix it, so the only thing worth building
+is the thing that tells someone in time.
+
+**That conclusion is still true and the fact under it has changed twice, so
+re-read the config rather than this paragraph.** Until 2026-09-18 these lines
+said the limit was `"5GB"` at `fly.live.toml:607`; both the value and the line
+number were stale, and the conclusion they supported survived by accident
+rather than by still being derived. Measured 2026-09-18: the volume is **20GB**
+and `auto_extend_size_limit = "20GB"` (`fly.live.toml:858`), so the limit
+equals the volume's own size -- which `fly.live.toml:770` names as the trap it
+is, *"a net that cannot fire, and it reads exactly like a net that can"*. The
+volume grew into its own limit with nobody editing anything, which is why the
+2026-09-01 "RESOLVED" note beside it is no longer true either. Issue #58
+carries the decision; nothing here decides it.
+
+`tasks/lessons.md`: a comment saying why something is safe to leave undone goes
+stale silently, and this one went stale into being *right*, which is the harder
+case to notice.
 
 `docs/measurements/2026-09-01-the-volume-clock.md` puts the fill at about
 2026-09-17, at 161.40 MB/day against 2,592,702,464 bytes free. That was
@@ -31,6 +46,30 @@ duration `notify/alerts.py` puts in front of Joe is derived from this one
 constant at import time; none of them are typed twice.
 `tests/test_volume_alarm.py::TestHeadroomDerivesFromOneConfiguredRate` pins
 that derivation and fails if a duration is ever hand-typed back in instead.
+
+**The dedupe landed on 2026-09-09 and this constant was NOT corrected, so it
+is known stale -- deliberately, for now.** The post-dedup slope measured
+2026-09-18 is ~137 MB/day
+(`docs/measurements/2026-09-18-fair-prices-dedup-effect-result.md`), close to
+the ~142 projected above, against the 326.6 still configured below. Two reasons
+it stays:
+
+- **The error runs in the safe direction.** A rate 2.4x too high divides the
+  same free bytes into *fewer* days, so every tier fires EARLY and every
+  duration quoted to Joe is short rather than long. Editing it down is the
+  flattering direction on a disk alarm, and this repo's rule is that a change
+  which makes a guard quieter needs better evidence than one that makes it
+  louder, not equal evidence.
+- **The replacement is weaker than what it would replace.** 326.6 is
+  `n = 8.138 days`; ~137 is a **two-point read** taken for a different purpose.
+  Swapping an 8-day slope for a 2-point one is a rigour downgrade whichever way
+  the number moves.
+
+So the correction wants a multi-day post-dedup slope, which
+`scripts/inspect_live_db_loop.py`'s `db_kb` series can supply without a new
+instrument. Until then: the thresholds still fire at the free-byte level they
+name -- only the *stated duration* is short, and it is short in the direction
+that wakes someone sooner.
 
 **It fires on free bytes, never on a projected date, and the reason is the
 rate's own caveat.** A projected date built on the rate inherits every one of

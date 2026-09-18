@@ -770,6 +770,22 @@ primary_region = "ord"
   # because the trap in it recurs — a limit equal to the volume's own size is
   # a net that cannot fire, and it reads exactly like a net that can.
   #
+  # **AND IT RECURRED. Measured 2026-09-18: the volume is 20GB and the limit
+  # below is still 20GB, so the net is inert again.** Nobody edited anything —
+  # the volume auto-extended its way up to its own ceiling, which is the one
+  # route the 2026-09-01 fix could not close. The "RESOLVED" above is kept
+  # verbatim rather than rewritten, because a resolution that expired by the
+  # mechanism it warned about is the whole lesson, and deleting it would leave
+  # the next reader with a limit that merely looks generous.
+  #
+  # State on the box that day: 20GB volume, 13,740,564,480 bytes free (33%
+  # used), `cockpit.db` at 6,476,369,920. The binding clock is NOT "days until
+  # full" — `VACUUM` needs roughly the whole file free on the same filesystem
+  # (see below), so the repair window closes when free space falls below the
+  # file size, which is ~3.63 GB of growth away. Issue #58 carries the
+  # decision; raising this number is one of the options on it and is Joe's
+  # call, not a session's.
+  #
   # The limit is a real ceiling, not a formality — AND IT HAD BEEN REACHED,
   # by the wrong route. The volume was extended to 5GB manually on
   # 2026-08-16 (ADR 0054's own extend), not by unbounded growth, so the
