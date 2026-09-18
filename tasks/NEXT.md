@@ -219,8 +219,14 @@ so what the link phase's fall is made of is not established.
   RFQ surface; `#68` all-in figure on Take-it; `#69` record a Take-it fill
   as a position; `#70` glossary entries for RFQ/maker/quote/shard.
   **#66-#68 are one slice inside `<TakeIt>`/`Quotes()`.**
-- **Lane B (costly-instrument guard as a class)** ran in a worktree; see
-  the entry below this one if it merged, or `git worktree list` if not.
+- **Lane B merged -- ADR 0168.** `inspect_live_db.py`'s `QueryDef` now
+  carries a required `cost` (`cheap` / `walks-the-file`); 18 of 45 names
+  are walks and refuse with exit 4 unless `--i-accept-the-cache-flush` is
+  passed, naming the file size and the ~3 GB cache in one sentence. **The
+  flag is on the box only after the next deploy**; until then the guard is
+  in the repo and not on live. Four classifications are deliberately
+  over-conservative (forward-lock, lock-attribution, combo-position-gaps,
+  h4-settlement-balance walk small tables); downgrading one needs a timing.
 
 Question for Joe: what size should the desk ask for when taking a maker's quote -- #62
 Question for Joe: may the hedge screen ask the makers what they would pay for a held combination, and is selling armed there -- #63
