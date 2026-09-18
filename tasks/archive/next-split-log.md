@@ -100,3 +100,27 @@ session and dearest in the middle of one, so clearing well under the line
 buys one more split rather than several. **The trigger is a ceiling, not a
 target, and so is the halfway mark.** A cut that leaves the file above half
 is a cut that has to be taken again in two sessions.
+
+**Split again 2026-09-18, at 234,750 bytes — 89.6%, and that is the second
+miss.** The four 2026-09-17, six 2026-09-16 and four 2026-09-15 entries (14 of
+them) moved to `archive/next-2026-09-18.md`, verbatim, leaving **70,292
+bytes — 26.8%**, 73,847 once the index section was written. Date boundary as
+always; md5 `e2eb3b8abb93cb345b90d5134f0e1d0f`; binary throughout, and
+`git diff --stat` showed **2,698 deletions against 30 insertions**, the 30
+being the index section alone.
+
+**What this one taught, and it is about who the trigger hands the work to:**
+the rule worked and the split was still late. The previous session read
+`wc -c` correctly, recorded *"228 KB of the 262,144 ceiling after this entry,
+~87%"*, and wrote **"SPLIT THIS FILE NEXT SESSION"** into its own entry — then
+wrote the entry anyway and handed the cut forward. That is the rule's stated
+procedure inverted: the rule says read the size *before* writing and cut if it
+is near, and a session that reads the size, writes regardless and leaves an
+instruction has converted a check into a to-do. **A trigger that delegates to
+the next session fires late by exactly one session**, and the margin it left —
+~27,000 bytes, about one long entry — is the whole distance to the ceiling.
+The 2026-08-27 miss was nobody checking; this one was checking and deferring,
+which is harder to see because the file's own header can be quoted as evidence
+that the rule is being followed. **The session that discovers the file is near
+the line is the session that cuts it**, and the cut goes in before that
+session's entry, not into its handoff.
