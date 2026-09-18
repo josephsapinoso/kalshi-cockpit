@@ -83,7 +83,7 @@ class FakeApi:
 
     def __init__(
         self, *, statuses=None, accept_raises=False, fills=None,
-        fills_raise=False,
+        fills_raise=False, honour_ticker=True,
     ):
         self.calls: list[tuple[str, str]] = []
         self._statuses = list(statuses or [])
@@ -92,6 +92,12 @@ class FakeApi:
         # answers when a test needs the re-read to differ from the first read.
         self._fills = fills
         self._fills_raise = fills_raise
+        # A venue that IGNORES the `ticker` parameter. Not a hypothetical:
+        # `/portfolio/fills` returned zero for eight query shapes including
+        # `ticker=` on 2026-08-10, so what that parameter does on this
+        # endpoint has never been established. The re-check in
+        # `read_venue_fill` exists for this case and is tested against it.
+        self._honour_ticker = honour_ticker
         self.fill_calls: list = []
 
     async def fills(self, *, ticker=None, limit=None):
@@ -107,7 +113,9 @@ class FakeApi:
         rows = self._fills or []
         if rows and isinstance(rows[0], list):
             rows = rows.pop(0) if len(rows) > 1 else rows[0]
-        return [r for r in rows if ticker is None or r.get("ticker") == ticker]
+        if ticker is None or not self._honour_ticker:
+            return list(rows)
+        return [r for r in rows if r.get("ticker") == ticker]
 
     async def request(self, method, path, *, params=None, json_body=None):
         self.calls.append((method, path))
@@ -1019,12 +1027,18 @@ class TestTheVenueIsAskedWhatItDid:
 
     async def test_a_fill_from_before_this_acceptance_is_not_this_bet(self, conn):
         """The same combination bought an hour ago is still on the ticker.
-        Attributing it here would build a stake on another bet's fill."""
+        Attributing it here would build a stake on another bet's fill.
+
+        A real wall-clock stamp, not this file's `now_ms = 2_000`: an hour
+        before the epoch is excluded by arithmetic no guard is doing, so the
+        mutation that widens the window stays green against it.
+        """
+        now_ms = 1_800_000_000_000
         api = FakeApi(
             statuses=["executed"],
-            fills=[_fill_at("9.00", ts_ms=2_000 - 3_600_000)],
+            fills=[_fill_at("9.00", ts_ms=now_ms - 3_600_000)],
         )
-        await self._accept(conn, api)
+        await self._accept(conn, api, now_ms=now_ms)
         row = store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)
         assert row["venue_fill_outcome"] == "no_rows"
         assert _positions(conn)[0]["stake_tenths"] == 5_337
@@ -1042,6 +1056,25 @@ class TestTheVenueIsAskedWhatItDid:
         assert row["venue_fill_outcome"] == "not_under_combo_ticker"
         assert "KXMLBGAME-LEG" in row["venue_fill_note"]
         assert api.fill_calls == ["KXMVE-X", None], "targeted first, then bare"
+
+    async def test_a_venue_that_ignores_the_ticker_filter_is_still_bounded(
+        self, conn
+    ):
+        """The filter is trusted for what it returns, not for what it leaves
+        out. `/portfolio/fills` answered zero to eight query shapes including
+        `ticker=` on 2026-08-10, so what that parameter does here has never
+        been established -- and a venue that ignored it would hand this path
+        some other market's fill to build a stake from."""
+        api = FakeApi(
+            statuses=["executed"],
+            fills=[_fill_at("9.00", ticker="KXMLBGAME-LEG")],
+            honour_ticker=False,
+        )
+        await self._accept(conn, api)
+        row = store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)
+        assert row["venue_fill_count"] is None, "not this combination's fill"
+        assert row["venue_fill_outcome"] == "not_under_combo_ticker"
+        assert _positions(conn)[0]["stake_tenths"] == 5_337
 
     async def test_an_empty_venue_is_recorded_as_an_empty_venue(self, conn):
         """Execution is ~1.1s behind confirmation and propagation to this
