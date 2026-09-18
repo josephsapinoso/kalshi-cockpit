@@ -8,9 +8,11 @@ database with v2 assumptions.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import threading
 import time
+from collections import Counter
 
 import pytest
 
@@ -23,6 +25,141 @@ def conn(tmp_path):
     connection = db.init_db(tmp_path / "test.db")
     yield connection
     connection.close()
+
+
+# --------------------------------------------------------------------------
+# Does a MIGRATED database have the same shape as a FRESH one? -- ADR 0175 §3
+# --------------------------------------------------------------------------
+#
+# `init_db`'s docstring already warns that a fresh database gets every column
+# from `CREATE TABLE`, "so a fixture-built one passes whatever the migration
+# does". `_migrated_columns` closes that for COLUMNS and the index sweep
+# closes it for INDEX NAMES. Neither reads `sqlite_master.sql`, so everything
+# else a `CREATE TABLE` declares -- CHECKs, NOT NULLs, DEFAULTs, UNIQUEs,
+# types, foreign keys -- is unverified between the two paths.
+#
+# That is not hypothetical. Shipping v49 (ADR 0175) narrowed a CHECK inside a
+# rebuild and the whole suite stayed green, because every fixture in this repo
+# goes through `executescript` on `schema.sql` and never runs the rebuild at
+# all. 22 tables in `schema.sql` carry CHECKs, `orders`, `fills`,
+# `manual_orders`, `parlay_positions` and `combo_rfqs` among them -- the armed
+# money path.
+#
+# **Column ORDER is deliberately not compared.** A migrated column arrives via
+# `ALTER TABLE ADD COLUMN` and lands at the end, where `schema.sql` declares it
+# inline, so the two orders differ on 12 objects today with nothing else
+# between them. Nothing in this repo reads a row positionally (`row_factory` is
+# `sqlite3.Row` throughout), so ordering is a difference without a consequence,
+# and a guard that failed on it would be turned off. Hence a MULTISET of
+# top-level clauses: order drops out, everything else survives.
+
+_SQL_COMMENT = re.compile(r"--[^\n]*")
+_QUOTED_IDENTIFIER = re.compile(r'"([A-Za-z_][A-Za-z0-9_]*)"')
+_WHITESPACE = re.compile(r"\s+")
+
+
+def _normalised_ddl(sql: str | None) -> str:
+    """One object's `CREATE` statement, stripped of what SQLite does not act on.
+
+    Comments go because `schema.sql` carries the canonical column commentary
+    and a rebuild's DDL does not -- a difference in prose is not a difference
+    in shape. Identifier quoting goes because `ALTER TABLE ... RENAME TO`
+    leaves the new name quoted (`"combo_rfqs"`) where `schema.sql` does not.
+    """
+    if sql is None:
+        return ""
+    sql = _SQL_COMMENT.sub(" ", sql)
+    sql = _QUOTED_IDENTIFIER.sub(r"\1", sql)
+    return _WHITESPACE.sub(" ", sql).strip()
+
+
+def _top_level_clauses(sql: str) -> Counter:
+    """A `CREATE` statement's body split on TOP-LEVEL commas, as a multiset.
+
+    Depth-aware, so `CHECK (status IN ('a', 'b'))` stays one clause instead of
+    becoming two fragments that would compare equal to a different constraint
+    with the same pieces in it. The text before the opening parenthesis is kept
+    as its own `<HEAD>` entry, so a table that changed from `CREATE TABLE` to
+    `CREATE TABLE IF NOT EXISTS`, or an index that lost its `UNIQUE`, is a
+    difference rather than something the split throws away.
+
+    A multiset rather than a set: two identical clauses are a different shape
+    from one, and a set would silently accept the loss.
+    """
+    opened = sql.find("(")
+    closed = sql.rfind(")")
+    if opened < 0 or closed <= opened:
+        # An index without a parenthesised body, and anything else unexpected:
+        # compared whole rather than dropped, because a clause-splitter that
+        # returns nothing for a shape it did not anticipate is a guard that
+        # passes on the case it did not understand.
+        return Counter([f"<WHOLE> {sql}"])
+    parts: list[str] = []
+    depth = 0
+    buffer: list[str] = []
+    for character in sql[opened + 1 : closed]:
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+        if character == "," and depth == 0:
+            parts.append("".join(buffer).strip())
+            buffer = []
+        else:
+            buffer.append(character)
+    if "".join(buffer).strip():
+        parts.append("".join(buffer).strip())
+    head = _WHITESPACE.sub(" ", sql[:opened]).strip()
+    return Counter([f"<HEAD> {head}"] + [part for part in parts if part])
+
+
+def _ddl_shape(connection) -> dict[str, Counter]:
+    """Every table and index this database declares, keyed `type:name`."""
+    return {
+        f"{row['type']}:{row['name']}": _top_level_clauses(
+            _normalised_ddl(row["sql"])
+        )
+        for row in connection.execute(
+            "SELECT type, name, sql FROM sqlite_master "
+            "WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'"
+        )
+    }
+
+
+def assert_shape_matches_a_fresh_database(migrated, fresh, *, context: str) -> None:
+    """Fail naming the clause, not just the object.
+
+    The message has to carry the constraint text: "combo_rfqs differs" sends
+    the next session to diff two 20-line `CREATE TABLE`s by eye, which is how
+    a narrowed CHECK got shipped in the first place.
+    """
+    migrated_shape = _ddl_shape(migrated)
+    fresh_shape = _ddl_shape(fresh)
+
+    missing_objects = sorted(set(fresh_shape) - set(migrated_shape))
+    assert not missing_objects, (
+        f"{context}: {missing_objects} exist in a database built from "
+        f"schema.sql and not in a migrated one, so they would be absent from "
+        f"the live volume and present everywhere anyone develops"
+    )
+    extra_objects = sorted(set(migrated_shape) - set(fresh_shape))
+    assert not extra_objects, (
+        f"{context}: {extra_objects} are left behind by the migration path "
+        f"and are not in schema.sql -- a rebuild's temp table that was never "
+        f"dropped looks exactly like this"
+    )
+
+    for key in sorted(fresh_shape):
+        only_in_schema = sorted((fresh_shape[key] - migrated_shape[key]).elements())
+        only_in_migrated = sorted((migrated_shape[key] - fresh_shape[key]).elements())
+        assert not only_in_schema and not only_in_migrated, (
+            f"{context}: {key} has a different shape on a migrated database "
+            f"than on one built from schema.sql.\n"
+            f"  only in schema.sql : {only_in_schema}\n"
+            f"  only in migrated   : {only_in_migrated}\n"
+            f"A CHECK, NOT NULL, DEFAULT or UNIQUE that differs here holds on "
+            f"exactly one of the two, and the live volume is the migrated one."
+        )
 
 
 class TestSchemaApplication:
@@ -505,6 +642,7 @@ class TestMigration:
             db.open_db(path)
 
         connection = db.init_db(path)
+        fresh = db.init_db(tmp_path / f"fresh-for-v{version}.db")
         try:
             assert db.get_meta(connection, "schema_version") == str(db.SCHEMA_VERSION)
             for table, column in self._migrated_columns():
@@ -512,7 +650,16 @@ class TestMigration:
                     f"{table}.{column} missing after migrating from "
                     f"v{version - 1}"
                 )
+            # And the same SHAPE, not merely the same column names. Asserted
+            # here rather than in a test of its own because this is the only
+            # place that already has a single-step-migrated database in hand,
+            # and winding 40 versions back a second time to re-derive one
+            # would double the slowest test in this file for nothing.
+            assert_shape_matches_a_fresh_database(
+                connection, fresh, context=f"migrating v{version - 1} -> v{version}"
+            )
         finally:
+            fresh.close()
             connection.close()
 
         # And openable afterwards, which is what the deployed API does next.
@@ -549,6 +696,37 @@ class TestMigration:
                     f"schema.sql, so a fresh database would never have it"
                 )
         conn.close()
+
+    def test_a_swept_database_has_the_same_shape_as_a_fresh_one(self, tmp_path):
+        """v1 -> current in one sweep, compared on full DDL rather than names.
+
+        The sibling above compares a database built from `schema.sql` against
+        itself for everything but the name lists, so it cannot see a migration
+        that builds a table with a different CHECK from the one the file
+        declares. This runs the whole migration chain over a real v1 database
+        and compares what SQLite actually stored.
+
+        Both paths are covered deliberately. The single-step test is the
+        transition a deployed volume makes; this is the one every fixture and
+        every restored backup makes, and a rebuild that is correct stepwise can
+        still land somewhere else when it runs after another rebuild.
+        """
+        path, _ = self._v1_database(tmp_path)
+        # `init_db` on an existing file is what runs the chain, and the
+        # refusal beforehand is what proves the fixture really was at v1
+        # rather than already current.
+        with pytest.raises(db.SchemaVersionMismatch):
+            db.open_db(path)
+        migrated = db.init_db(path)
+        fresh = db.init_db(tmp_path / "fresh-sweep.db")
+        try:
+            assert db.get_meta(migrated, "schema_version") == str(db.SCHEMA_VERSION)
+            assert_shape_matches_a_fresh_database(
+                migrated, fresh, context="the v1 -> current sweep"
+            )
+        finally:
+            fresh.close()
+            migrated.close()
 
 
 class TestTheSuppressedColumnLandsOnAVolumeThatAlreadyExists:
