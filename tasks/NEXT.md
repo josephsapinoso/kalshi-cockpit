@@ -274,10 +274,19 @@ warm.
 6. `idx_odds_window` still carries `commence_ms` for a filter nothing applies.
 7. `odds_snapshots` still has no retention rule — and it is now the ONLY growth
    lever left, which is #58's substance.
-8. **ADR 0168's `--i-accept-the-cache-flush` guard is in the repo and not on
-   the box.** Nothing deployed tonight; live is `ffa0bcb` and main is ahead by
-   four commits of backend, test and doc changes that want a deploy — including
-   **schema v48**, which migrates at boot.
+8. **Everything shipped tonight is DEPLOYED.** Live and main are both
+   `3c17f96`, schema **v48** (`combo_rfq_quotes.yes_bid_tenths` read back off
+   the box after the migration), recorder writing, `/api/health` ok. Two
+   deploys: `1be0f7c` at 09:37Z and `3c17f96` at 10:23Z. ADR 0168's
+   `--i-accept-the-cache-flush` guard is therefore **on the box now** — it was
+   in the repo and not on live until tonight.
+   **Two notes on deploying, both learned the hard way tonight.** A bare
+   `gh workflow run deploy.yml` deploys **DEMO**, silently and successfully;
+   live needs `-f instance=live -f confirm_live=kalshi-cockpit`, and the
+   safeguard is deliberate (`deploy.yml`'s own header says why). And the
+   `git_sha` on `/api/health` is the only thing that catches the mistake —
+   `image_ref` and `machine_version` unchanged after a "successful" deploy is
+   the tell.
 9. Everything in the thirty-second session's Still-open list below stands,
    except its item 2 (the dedup look), which is now done.
 
