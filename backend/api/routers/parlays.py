@@ -382,11 +382,16 @@ def register(
         is what was displayed, and the side is a property of buying YES rather
         than a choice the screen makes.
 
-        **Disarmed until one measurement lands.** `RFQ_ACCEPTS_ARE_DRY_RUNS`
-        is True, so the route runs end to end and sends nothing. The reason is
-        in that constant: whether `accepted_side` names the maker's side or
-        the requester's is documented only on Kalshi's FIX page, and on a real
-        captured quote the two readings differ by 9x on the opposite contract.
+        **Armed since 2026-09-17** (ADR 0165 Amendment 1, Joe's #61 answer
+        (a)): `RFQ_ACCEPTS_ARE_DRY_RUNS` is False, this route sends a real
+        acceptance, and money leaves the account on the tap. It was disarmed
+        until one measurement landed -- whether `accepted_side` names the
+        maker's side or the requester's is documented only on Kalshi's FIX
+        page, and on a real captured quote the two readings differ by 9x on
+        the opposite contract. A bounded $0.0043 probe settled it:
+        `docs/measurements/2026-09-17-accepted-side-names-the-makers-side.md`.
+        This paragraph asserted the flag was still True after it was flipped;
+        `tests/test_combo_rfq_accept.py` now refuses that drift.
 
         A failed accept is reported as an UNKNOWN, never as a refusal, and is
         never retried: an RFQ acceptance carries no idempotency key, so a

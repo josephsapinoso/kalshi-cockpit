@@ -22,13 +22,14 @@ import type { ComboRfqAcceptResult, ComboRfqResult } from "@/lib/api";
  * version of this screen sent Joe to the Kalshi app to do by hand what it
  * could have done itself.
  *
- * **Taking a quote is built, and switched off.** `<TakeIt>` below is the
- * second tap of B = (ii) — Joe sees the maker's price, then confirms it, with
- * no ceiling typed in advance because an RFQ tells you the price *after* you
- * ask. It renders as a refusal, not a button, while
- * `RFQ_ACCEPTS_ARE_DRY_RUNS` is True: a control labelled "Take it" that
- * silently does nothing is this repo's named failure, and the armed state
- * travels with the price so the screen can say which it is up front.
+ * **Taking a quote is built, and armed.** `<TakeIt>` below is the second tap
+ * of B = (ii) — Joe sees the maker's price, then confirms it, with no ceiling
+ * typed in advance because an RFQ tells you the price *after* you ask. Since
+ * 2026-09-17 `RFQ_ACCEPTS_ARE_DRY_RUNS` is False and that button spends real
+ * money. The unarmed branch stays and renders a refusal rather than a button,
+ * because a control labelled "Take it" that silently does nothing is this
+ * repo's named failure — the armed state travels with the price, so the
+ * screen says which it is up front rather than this comment guessing.
  *
  * **What this must never become.** The gap between a quote and the card's
  * fair value is the consensus-vs-Kalshi gap under another name, and

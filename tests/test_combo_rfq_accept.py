@@ -4,18 +4,23 @@ What these tests establish: nothing reaches the venue while the path is
 unarmed; the price accepted is read from this desk's record and not from the
 request; an already-accepted quote is refused rather than re-sent; an accept
 whose response is lost is reported as an UNKNOWN and never retried; a 204 is
-not treated as a fill; and the maker's non-confirmation is a stated outcome
-rather than an error.
+not treated as a fill; the maker's non-confirmation is a stated outcome
+rather than an error; and the comments shipped on this path agree with the
+arming flag.
 
 What they do not establish
 --------------------------
 - **Nothing about `accepted_side`.** These tests pin that we send whatever
-  `ACCEPT_SIDE_FOR_BUYING_YES` says. Whether that constant is *right* is the
-  open question the arming decision turns on: the semantics are documented
-  only on Kalshi's FIX page, and on the quote captured 2026-09-17 the two
-  readings differ by 9x on the opposite contract. A green suite here is not
-  evidence about that, and must never be cited as if it were.
-- **Nothing about fills.** No acceptance has ever reached the venue.
+  `ACCEPT_SIDE_FOR_BUYING_YES` says. That constant was settled on 2026-09-17
+  by a bounded $0.0043 probe, not here: the semantics are documented only on
+  Kalshi's FIX page, and on the quote captured that day the two readings
+  differed by 9x on the opposite contract. A green suite here is not evidence
+  about it, and must never be cited as if it were.
+  `docs/measurements/2026-09-17-accepted-side-names-the-makers-side.md`.
+- **Nothing about fills.** This said "no acceptance has ever reached the
+  venue" until 2026-09-18; two have, and the first went `accepted` ->
+  `confirmed` -> `cancelled` with no fill. What a fill looks like is pinned
+  by those measurements, not by any fake in this file.
 - **Nothing about what a non-confirmation looks like in reality.** Kalshi
   documents no terminal state for it; `cancelled` is the fake's guess as much
   as ours.
@@ -371,3 +376,76 @@ class TestARefusalIsNotAnUnknown:
             )
         assert exc.value.status_code == 502
         assert "may still have reached Kalshi" in exc.value.detail
+class TestTheShippedProseAgreesWithTheFlag:
+    """A comment saying the money path is off, on a money path that is on.
+
+    Both of these shipped, both were deployed, and both were still on the box
+    a day after `RFQ_ACCEPTS_ARE_DRY_RUNS` was flipped to False: the accept
+    route's docstring said "Disarmed until one measurement lands", and the
+    RFQ component's module comment said "built, and switched off". This is
+    the repo's named *justifications decay toward reassurance* pattern on the
+    one surface where believing the comment costs money -- a reader of a
+    comment here is deciding whether a tap spends.
+
+    This does not try to read English. It pins the two exact sentences that
+    state the arming state, keyed to the constant, so **flipping the flag
+    without rewriting the prose fails here** -- in either direction.
+
+    What it does not establish: nothing about any other comment in either
+    file, and nothing about whether the sentences are *true*, only that they
+    name the state the constant is actually in.
+    """
+
+    #: (path, phrase that is honest only while accepts are ARMED)
+    ARMED_PROSE = (
+        ("backend/api/routers/parlays.py", "**Armed since 2026-09-17**"),
+        (
+            "frontend/src/components/AskTheMarket.tsx",
+            "**Taking a quote is built, and armed.**",
+        ),
+    )
+
+    #: (path, phrase that is honest only while accepts are DRY RUNS)
+    DISARMED_PROSE = (
+        (
+            "backend/api/routers/parlays.py",
+            "**Disarmed until one measurement lands.**",
+        ),
+        (
+            "frontend/src/components/AskTheMarket.tsx",
+            "**Taking a quote is built, and switched off.**",
+        ),
+    )
+
+    def _source(self, relative):
+        path = Path(__file__).resolve().parents[1] / relative
+        return path.read_bytes().decode("utf-8").replace("\r\n", "\n")
+
+    def test_every_file_states_the_arming_state_the_constant_is_in(self):
+        armed = not combo_rfq.RFQ_ACCEPTS_ARE_DRY_RUNS
+        present, absent = (
+            (self.ARMED_PROSE, self.DISARMED_PROSE)
+            if armed
+            else (self.DISARMED_PROSE, self.ARMED_PROSE)
+        )
+        for relative, phrase in present:
+            assert phrase in self._source(relative), (
+                f"{relative} no longer says {phrase!r}, but "
+                f"RFQ_ACCEPTS_ARE_DRY_RUNS is {combo_rfq.RFQ_ACCEPTS_ARE_DRY_RUNS}. "
+                "Flipping the flag means rewriting the prose on both surfaces."
+            )
+        for relative, phrase in absent:
+            assert phrase not in self._source(relative), (
+                f"{relative} still says {phrase!r}, which contradicts "
+                f"RFQ_ACCEPTS_ARE_DRY_RUNS = {combo_rfq.RFQ_ACCEPTS_ARE_DRY_RUNS}."
+            )
+
+    def test_the_component_keeps_its_unarmed_branch(self):
+        """The refusal copy is not dead code to delete when armed.
+
+        It is what the screen renders if the flag is ever flipped back, and
+        the armed state travels with the price rather than being compiled in.
+        """
+        source = self._source("frontend/src/components/AskTheMarket.tsx")
+        assert "if (!armed)" in source
+        assert "armed={value.accepts_are_armed}" in source
