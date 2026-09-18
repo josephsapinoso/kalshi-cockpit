@@ -237,14 +237,34 @@ class TestAQuoteShowsItsAge:
             "reader looks at it"
         )
 
-    def test_a_stale_quote_is_relabelled_and_never_blocked(self):
+    def test_an_old_quote_is_relabelled_and_never_blocked(self):
         """Disabling the button on age would be a new ceiling on a hand bet,
         and ADR 0112 removed all five of those on Joe's word."""
         source = _read(ASK)
-        assert "QUOTE_LIFE_MS" in source
+        assert "QUOTE_GETTING_ON_MS" in source
         assert "disabled={state.kind === \"sending\"}" in source, (
             "the only thing that may disable the button is a send in flight"
         )
+
+    def test_the_screen_claims_no_expiry_it_has_not_measured(self):
+        """The first version warned "probably expired" past three seconds --
+        which is the maker's post-acceptance CONFIRMATION window, not a
+        quote's shelf life, and which would have fired on every first paint
+        because `asked_ms` predates a mandatory four-second poll. A warning
+        that is always on is a warning that gets skipped."""
+        prose = _prose(ASK)
+        for forbidden in ("probably expired", "has expired", "no longer valid"):
+            assert forbidden not in prose.lower()
+        assert "not something this desk has measured" in prose
+
+    def test_the_threshold_is_above_the_time_the_ask_itself_takes(self):
+        """`asked_ms` is stamped at route entry, before a four-second poll
+        loop, so any threshold under that fires before the reader sees the
+        page at all."""
+        source = _read(ASK)
+        match = re.search(r"QUOTE_GETTING_ON_MS = ([\d_]+)", source)
+        assert match, "the threshold must be a named constant"
+        assert int(match.group(1).replace("_", "")) > 10_000
 
 
 class TestTheButtonSaysWhatLeavesTheAccount:

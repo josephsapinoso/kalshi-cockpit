@@ -179,9 +179,17 @@ export default function AskTheMarket({
         <>
           <Quotes value={state.value} />
           {/* Re-asking is always offered, including after a good answer.
-              A quote is live state -- the request is withdrawn as soon as it
-              is read, so what is on screen is a price that WAS offered, not
-              one still standing. Hiding the retry would imply otherwise. */}
+              A quote is live state: what is on screen is a price that WAS
+              offered, not one still standing, so hiding the retry would
+              imply otherwise.
+
+              **The request is NOT withdrawn**, which this comment said until
+              2026-09-18. `hold_open` defaults True and that is exactly what
+              makes the Take-it button below reachable -- withdrawing drops
+              the venue's copy of the quotes (measured 2026-09-17: a re-read
+              after DELETE came back empty). Asking again reuses the same open
+              RFQ and can return the same quote ids at new prices, which is
+              why the store now updates them rather than keeping the first. */}
           <RetryButton onClick={() => setState({ kind: "idle" })} />
         </>
       )}
@@ -203,11 +211,26 @@ function RetryButton({ onClick }: { onClick: () => void }) {
 /**
  * How old these quotes are — issue #67.
  *
- * **A maker has about three seconds** to stand behind a quote on a
- * combination (a High Volatility Market), against thirty elsewhere. So this
- * surface ages faster than anything else on the desk, and the sibling
- * `QuoteAge` on `PriceOnKalshi` is about a 900-second book read — a different
- * claim in different words, deliberately not shared.
+ * **It states an age and claims no expiry**, and the second half of that is
+ * the correction. The first version of this block said a quote "has probably
+ * expired" past three seconds, which was wrong twice over:
+ *
+ *  1. **Three seconds is the wrong quantity.** It is the maker's window to
+ *     confirm *after an acceptance* (`HVM_CONFIRM_WINDOW_S` in
+ *     `backend/kalshi/rfq.py`), not the shelf life of an unaccepted quote.
+ *     What this repo has actually measured points the other way: the
+ *     2026-09-17 quotes were still `open` forty seconds later, and their RFQ
+ *     was still open more than an hour later.
+ *  2. **It would have fired on every first paint.** `asked_ms` is stamped at
+ *     route entry, before the book read, the balance read, the create and a
+ *     mandatory four-second poll — so the payload cannot reach the browser
+ *     younger than about 4.5 seconds. A staleness warning that is on 100% of
+ *     the time is a warning that gets skipped, which is the failure this
+ *     repo keeps naming.
+ *
+ * The true shelf life is unmeasured, so nothing here asserts one. Past a
+ * generous minute it says the price is from a while ago and that asking again
+ * is free — both true, neither a claim about whether the quote is dead.
  *
  * **It relabels and never blocks.** Taking a dead quote fails at the venue
  * with the venue's own reason, which is a refusal and not a loss; disabling
@@ -217,7 +240,7 @@ function RetryButton({ onClick }: { onClick: () => void }) {
  * Ticks on its own: an age rendered once is a stamp that stops being true
  * while the reader looks at it.
  */
-const QUOTE_LIFE_MS = 3_000;
+const QUOTE_GETTING_ON_MS = 60_000;
 const AGE_TICK_MS = 1_000;
 
 function QuotesAge({ askedMs }: { askedMs: number }) {
@@ -231,20 +254,20 @@ function QuotesAge({ askedMs }: { askedMs: number }) {
 
   // Clamped for display only, so a client clock behind the server's renders
   // as "just now" rather than as a negative number that reads like a bug.
-  // The staleness test below uses the raw value, so skew cannot mark an old
-  // quote current.
+  // The comparison below uses the raw value, so skew cannot make an old quote
+  // look current.
   const shown = formatAge(Math.max(0, ageMs));
-  if (ageMs <= QUOTE_LIFE_MS) {
+  if (ageMs <= QUOTE_GETTING_ON_MS) {
     return (
-      <p className="text-[11px] leading-snug text-muted">Quoted {shown} ago.</p>
+      <p className="text-[11px] leading-snug text-muted">Asked {shown} ago.</p>
     );
   }
   return (
     <p className="text-[11px] leading-snug text-accent-2">
-      Quoted <span className="font-semibold">{shown}</span> ago. A maker stands
-      behind a combination quote for about three seconds, so this price has
-      probably expired &mdash; taking it would most likely come back refused.
-      Ask again for a live one.
+      Asked <span className="font-semibold">{shown}</span> ago. How long a
+      maker leaves a combination quote standing is not something this desk has
+      measured, so this may or may not still be takeable &mdash; asking again
+      is free and gives you a price with a fresh clock on it.
     </p>
   );
 }

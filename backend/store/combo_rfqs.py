@@ -113,13 +113,36 @@ def record_quotes(
     quotes: Iterable[RfqQuote],
     captured_ms: int,
 ) -> int:
-    """Persist the quotes and stamp the RFQ's outcome. Returns rows written.
+    """Persist the quotes and stamp the RFQ's outcome. Returns rows touched.
 
-    `ON CONFLICT(rfq_id, quote_id) DO NOTHING`: a caller that polls will see
-    the same quote repeatedly, and a quote seen twice is one quote. Spelled
-    that way rather than `INSERT OR IGNORE` for the reason given in
-    `record_rfq` -- `OR IGNORE` would also discard a malformed quote in
-    silence, and this table is the only copy.
+    `ON CONFLICT(rfq_id, quote_id) DO UPDATE`, and the update is the safety
+    property, not a tidiness one.
+
+    **This was `DO NOTHING` until 2026-09-18, on the reasoning that "a quote
+    seen twice is one quote".** That is true within one poll loop and false
+    across two asks: `ask_market_to_price` holds the RFQ open by default, and
+    `create_rfq` REUSES an open RFQ, so a second "Ask again" on the same
+    combination returns the same `quote_id`s -- and the wire payload carries
+    an `updated_ts` distinct from `created_ts`, i.e. a maker re-prices a quote
+    in place.
+
+    With `DO NOTHING` the screen rendered the fresh price (it comes from
+    memory) while this table -- **the only copy `accept_quote_for_joe` reads,
+    and the thing that is supposed to guarantee "the price accepted is the
+    price he was shown"** -- kept the first one. The accept call carries no
+    price, so the venue would have charged its current number against a
+    recorded stake taken from a stale one, with no typed ceiling anywhere to
+    catch the difference (B = (ii)). Spelled as `DO UPDATE` rather than
+    `INSERT OR REPLACE` for the reason given in `record_rfq`.
+
+    `accepted_ms` and the outcome columns are deliberately NOT in the update
+    list: they are the acceptance's own record, and a later poll must never be
+    able to reopen a quote that has already been accepted.
+
+    **What this does not fix.** Whether Kalshi actually mutates a quote in
+    place is inferred from `updated_ts` existing on the captured payload, not
+    measured. This change is safe either way -- if quotes never move, every
+    update is a no-op write of identical values.
 
     **`quote_count` is set from the table, not from `len(quotes)`.** Those
     differ exactly when a write failed, which is the case this count exists to
@@ -134,7 +157,15 @@ def record_quotes(
                 rfq_id, quote_id, captured_ms, maker_id,
                 yes_ask_tenths, no_bid_tenths, contracts, status, created_ts
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(rfq_id, quote_id) DO NOTHING
+            ON CONFLICT(rfq_id, quote_id) DO UPDATE SET
+                captured_ms    = excluded.captured_ms,
+                maker_id       = excluded.maker_id,
+                yes_ask_tenths = excluded.yes_ask_tenths,
+                no_bid_tenths  = excluded.no_bid_tenths,
+                contracts      = excluded.contracts,
+                status         = excluded.status,
+                created_ts     = excluded.created_ts
+            WHERE combo_rfq_quotes.accepted_ms IS NULL
             """,
             (
                 rfq_id, quote.quote_id, captured_ms, quote.maker_id,

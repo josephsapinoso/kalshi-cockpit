@@ -82,10 +82,29 @@ logger = logging.getLogger(__name__)
 #: this is the number to move, and it should move on evidence.
 #: How much of the combinations shard an RFQ may ask to spend.
 #:
-#: Not 1.0: Kalshi charges the taker fee **on top of** the contracts when the
-#: target is the default fee-inclusive kind, so a target equal to the balance
-#: leaves nothing for the fee and the accept is refused after the makers have
-#: already answered. 0.90 is a margin, not a measurement.
+#: **The reason written here until 2026-09-18 was refuted by this repo's own
+#: captured payload.** It said Kalshi charges the taker fee *on top of* a
+#: fee-inclusive target, so a target equal to the balance leaves nothing to
+#: pay the fee with. Those two halves contradict each other, and
+#: `tests/fixtures/combo_rfq_quotes.json` settles which is true: on an RFQ
+#: fired at `target_cost_dollars = "5.0000"`, each maker sized `contracts` so
+#: that `contracts x ask + fee <= target` at k = 0.070 --
+#:
+#:     no_bid 0.4070 -> P 0.5930 -> solved 8.19, quoted 8.19
+#:     no_bid 0.3690 -> P 0.6310 -> solved 7.72, quoted 7.72
+#:     (with no fee in the sizing: 8.43 and 7.92 -- refuted on both)
+#:
+#: So **the fee is fitted INSIDE the target by the maker**, and `target <=
+#: available` is sufficient. n = 2 quotes on one RFQ at one target: consistent
+#: and decisive against the old reason, not a census of maker behaviour.
+#:
+#: The 0.90 therefore costs Joe 10% of his usable size for an argument that
+#: does not hold. A *small* margin is still defensible on our side -- our fee
+#: estimate is 0.071 against the venue's 0.070, and the maker floors
+#: `contracts` to two decimals -- but that is worth ~0.1%, not 10%, and it is
+#: a different argument. **Changing the number is Joe's call (issue #71); the
+#: false sentence was on the screen and could not wait for it**, which is
+#: CLAUDE.md's fix-and-copy-ship-together rule.
 #:
 #: **It is a wall, not a second size** -- issue #62, answered (A) by Joe on
 #: 2026-09-18. Until then this silently TRIMMED the target, which made two
@@ -211,13 +230,19 @@ async def ask_market_to_price(
             # costs him one re-type and costs the makers nothing -- which is
             # the whole point: the failure this replaced burned 28 makers'
             # answers before telling him (2026-09-17).
+            # The words state the limit and do NOT explain it as a fee
+            # allowance: the captured payload says the fee is fitted inside
+            # the target by the maker, so "the rest is left for the fee" --
+            # which this sentence said until 2026-09-18 -- was false, on the
+            # screen that spends. Why the margin is 0.90 rather than ~1.0 is
+            # issue #71 and is Joe's to answer; this refusal claims nothing
+            # about it either way.
             raise LookupRefused(
                 400,
-                f"The combinations shard cannot pay ${float(target):,.2f} for "
-                f"this. The most you can ask for right now is "
-                f"**${max(headroom_dollars, 0.0):,.2f}** -- that is "
-                f"{SHARD_HEADROOM:.0%} of what is on the shard, and the rest "
-                "is left for Kalshi's fee, which is charged on top. Ask for a "
+                f"The combinations shard cannot cover ${float(target):,.2f} "
+                f"for this. The most this desk will ask for right now is "
+                f"**${max(headroom_dollars, 0.0):,.2f}**, which is "
+                f"{SHARD_HEADROOM:.0%} of what is on the shard. Ask for a "
                 "smaller amount, or add funds to the combinations shard.",
             )
 
@@ -301,8 +326,13 @@ async def ask_market_to_price(
         "rfq_id": rfq_id,
         "market_ticker": market_ticker,
         "target_cost_dollars": target,
-        # Stated when it differs, so a reader is never surprised by a size
-        # smaller than the one they asked for.
+        # **These two are now equal by construction**, since the trim became
+        # a refusal on 2026-09-18. The field stays because a real divergence
+        # exists and is NOT this one: `create_rfq` reuses an open RFQ whenever
+        # its existing target is at least the one wanted, so Joe can type
+        # $5.00 against an RFQ the venue was asked at $1.00 -- and this
+        # payload would report $5.00 for it. Surfacing that needs `create_rfq`
+        # to return the target it actually used, which it does not. Issue #72.
         "target_cost_requested": target_cost_dollars,
         "fair": {"conservative": fair},
         # What the public book said at the same instant. Expected to be null.
@@ -637,9 +667,19 @@ def _record_accepted_position(
     a bookkeeping failure must not turn a completed purchase into a 500 that
     tells Joe nothing happened.
 
-    **The size is the quote's own `contracts`**, because a maker's quote is
-    all-or-nothing at the size asked for -- an `executed` quote filled at that
-    size or did not fill. It is a REAL column and a combination really is held
+    **The size is the quote's own `contracts`**, on the ground that a maker's
+    quote is all-or-nothing at the size asked for -- an `executed` quote
+    filled at that size or did not fill.
+
+    **That ground is ASSERTED, not measured** (ADR 0169 Amendment 1, issue
+    #74). The only executed accept this repo has was fired with
+    `contracts = 1` on the RFQ, not against a maker's quoted size, and its
+    measurement doc says in terms that it speaks to no partial fill.
+    `rest_remainder: False` on create governs the requester's remainder, not
+    the maker's fill. If a quote can part-fill, this position is wrong in both
+    size and stake and nothing downstream can catch it -- the stake basis is
+    `as_recorded`, so there is no reconciliation to fail. One
+    `GET /portfolio/fills` after `executed` would settle it. It is a REAL column and a combination really is held
     in fractions (8.22 and 60.97 contracts are two of Joe's), so it is
     validated rather than trusted: absent, non-finite or non-positive resolves
     to `None`, never to zero or to one.

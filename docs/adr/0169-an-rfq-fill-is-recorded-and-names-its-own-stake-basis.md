@@ -158,3 +158,38 @@ M11a, and it is tested.
   readable from `/portfolio/fills`, which would upgrade `rfq_accept` to
   `venue_fill` and close E2 on this path as ADR 0160 closed it on the other.
   Not opened as a ticket — it is a measurement with no decision in it.
+
+---
+
+## Amendment 1 — 2026-09-18, same day: "all-or-nothing at the size asked for" is asserted, not measured
+
+A `kalshi-platform` review of this commit found that §1's ground for taking
+the size from the quote — *a maker's quote is all-or-nothing at the size
+asked for, so an `executed` quote filled at that size or did not fill* — is
+**stated in two docstrings and measured nowhere.**
+
+The only executed accept this repo has was fired with `contracts = 1` on the
+**RFQ**, not against a maker's own quoted size, and its measurement document
+says in terms: *"Nothing here speaks to slippage, partial fills."*
+`rest_remainder: False` on create governs the **requester's** remainder, not
+the maker's fill.
+
+If a quote can part-fill, the position this ADR writes is wrong in both size
+and stake, `/hedge` sizes a hedge against a holding Joe does not have, and
+**nothing downstream can ever catch it** — the stake basis is `as_recorded`,
+so there is no reconciliation to fail.
+
+The fix is small and settles three things at once: one
+`GET /portfolio/fills?ticker=...` after `executed`, before the position is
+written. It measures the partial-fill question, records the venue's own size
+and price, and upgrades `rfq_accept` to `venue_fill` — the basis ADR 0160
+already prefers everywhere else.
+
+**This ADR's closing paragraph left that as "a measurement with no decision
+in it" and did not ticket it. That was wrong**: the decision is what to record
+when the venue's fill disagrees with the quote, and until it is taken this
+path records the quote and calls it the holding. It is now **#74**.
+
+Nothing in §1–§3 is retracted. What changes is that §1's size is a *claim
+about the venue* carrying no measurement behind it, and it is labelled as one
+here rather than left reading as established.

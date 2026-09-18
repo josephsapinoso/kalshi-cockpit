@@ -694,3 +694,81 @@ class TestTheHedgeScreenNamesWhereTheStakeCameFrom:
         rows = _positions(conn)
         basis = hedge.stake_bases(conn, rows)[int(rows[0]["id"])]
         assert basis.reason == "no_order_row"
+class TestTheStoredPriceFollowsTheQuote:
+    """The accept reads its price from the DB, so the DB must hold the price
+    the screen last showed.
+
+    **The hazard, found by review on 2026-09-18.** `ask_market_to_price`
+    holds the RFQ open by default and `create_rfq` reuses an open RFQ, so a
+    second "Ask again" on the same combination returns the **same quote ids**
+    -- and the venue's payload carries an `updated_ts` distinct from
+    `created_ts`, i.e. a maker re-prices a quote in place. The store wrote
+    `ON CONFLICT DO NOTHING`, so the screen would render the fresh price
+    while the table -- the only copy `accept_quote_for_joe` reads -- kept the
+    first. The accept call carries no price, so the venue charges its current
+    number, and B = (ii) has no typed ceiling to bound the difference.
+
+    What these do not establish: **that Kalshi does mutate a quote in place.**
+    That is inferred from `updated_ts` on the captured payload and has not
+    been measured live. These pin that the desk is safe either way.
+    """
+
+    def _requote(self, conn, *, yes_ask, no_bid, contracts=9.0):
+        store.record_quotes(
+            conn,
+            rfq_id=RFQ,
+            quotes=[
+                combo_rfq.RfqQuote(
+                    quote_id=QUOTE,
+                    rfq_id=RFQ,
+                    maker_id="maker",
+                    market_ticker="KXMVE-X",
+                    yes_ask_tenths=yes_ask,
+                    no_bid_tenths=no_bid,
+                    contracts=contracts,
+                    status="open",
+                    created_ts="ts",
+                )
+            ],
+            captured_ms=5_000,
+        )
+        conn.commit()
+
+    def test_a_requoted_price_replaces_the_stored_one(self, conn):
+        assert store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)["yes_ask_tenths"] == 593
+        self._requote(conn, yes_ask=700, no_bid=300)
+        row = store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)
+        assert row["yes_ask_tenths"] == 700, (
+            "the accept would have been recorded at a price the screen no "
+            "longer shows"
+        )
+        assert row["no_bid_tenths"] == 300
+        assert row["captured_ms"] == 5_000
+
+    def test_a_requoted_size_replaces_the_stored_one(self, conn):
+        self._requote(conn, yes_ask=593, no_bid=407, contracts=4.5)
+        assert store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)["contracts"] == 4.5
+
+    def test_one_quote_stays_one_row(self, conn):
+        """The original reason for `DO NOTHING` still holds: a poll loop sees
+        the same quote repeatedly and that is one quote, not many."""
+        self._requote(conn, yes_ask=700, no_bid=300)
+        self._requote(conn, yes_ask=700, no_bid=300)
+        count = conn.execute(
+            "SELECT COUNT(*) FROM combo_rfq_quotes WHERE rfq_id = ?", (RFQ,)
+        ).fetchone()[0]
+        assert count == 1
+
+    async def test_an_accepted_quote_is_never_rewritten(self, conn):
+        """The acceptance's own record is not a cache. A later poll that
+        re-wrote it could move the price a trade was recorded at, after the
+        trade."""
+        await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
+            api=FakeApi(statuses=["executed"]), dry_run=False,
+        )
+        self._requote(conn, yes_ask=700, no_bid=300)
+        row = store.quote_row(conn, rfq_id=RFQ, quote_id=QUOTE)
+        assert row["yes_ask_tenths"] == 593
+        assert row["accepted_ms"] == 2_000
+        assert row["outcome_status"] == "executed"

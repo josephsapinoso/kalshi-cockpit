@@ -339,9 +339,15 @@ def register(
         were quoting all day. This route asks them.
 
         Auth-gated and outward-facing: it creates a real RFQ on the exchange.
-        **No money moves.** Only accepting a quote binds the requester, and
-        this route has no accept path; it captures the quotes, withdraws the
-        request, and returns.
+        **No money moves here.** Only accepting a quote binds the requester,
+        and this route does not accept -- it captures the quotes and returns.
+
+        **It leaves the RFQ OPEN, and that is load-bearing.** This paragraph
+        said "withdraws the request" and that it had no accept path; both
+        stopped being true when `POST /api/parlays/rfq/accept` shipped
+        (ADR 0165). Withdrawing drops the venue's copy of the quotes -- a
+        re-read after DELETE came back empty, measured 2026-09-17 -- so
+        holding it open is what makes the second tap reachable at all.
 
         Synchronous and a few seconds long by design -- the makers on the one
         RFQ this repo has fired answered in 107ms, and the wait is several

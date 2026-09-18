@@ -143,3 +143,122 @@ Twelve run, **twelve red**. No survivors.
 | M10 | render the age once instead of ticking it | RED |
 | M11 | put the bare price on the button instead of the all-in | RED |
 | M12 | drop the glossary wrap on the shard | RED |
+
+---
+
+## Amendment 1 — 2026-09-18, same day: a venue review found three things wrong, one of them mine and shipped
+
+A `kalshi-platform` review of this ADR's commit and ADR 0169's, run before
+deploy, checked the fee arithmetic against `tests/fixtures/combo_rfq_quotes.json`
+— a real captured RFQ — rather than against the tests. Three corrections and
+five tickets came out of it. **The all-in figure survived; the reason written
+beside the shard wall did not.**
+
+### The measurement that settles it, re-derived here before it was believed
+
+On the captured RFQ, fired at `target_cost_dollars = "5.0000"`, solve each
+maker's quoted size against the target:
+
+```
+contracts = floor_2dp( target / (P * (1 + k*(1 - P))) )
+
+no_bid 0.4070 -> P 0.5930 -> k=0.070 gives 8.19   quoted 8.19   MATCH
+no_bid 0.3690 -> P 0.6310 -> k=0.070 gives 7.72   quoted 7.72   MATCH
+with no fee in the sizing:            8.43 / 7.92            refuted, 2 of 2
+```
+
+So **`target_cost_dollars` is fee-inclusive and the maker fits the fee inside
+it**, and `contracts × ask` is genuinely pre-fee. n = 2 quotes on one request
+at one size: decisive against the sentence it refutes, not a survey of maker
+behaviour.
+
+**§4's all-in figure is therefore correct and is not double-counting.** At the
+venue's k = 0.070 the true charge on the worked example is ~4,995 tenths
+against the 4,998 printed, so the number errs high by about a third of a cent
+— the direction §"What this does not establish" claims and the direction the
+button copy claims. One consequence worth knowing: because the maker sizes to
+the target, the all-in total will always land within a cent of what Joe typed.
+**The informative part of that control is the split — contracts versus fee —
+not the total.**
+
+### 1. `SHARD_HEADROOM`'s stated reason was false, and the refusal printed it
+
+The comment said Kalshi charges the fee *on top of* a fee-inclusive target, so
+a target equal to the balance leaves nothing to pay it with. Its two halves
+contradict each other and the capture says the fee is inside. `target <=
+available` is sufficient, and the 0.90 costs Joe 10% of his usable shard for
+an argument that does not hold.
+
+Worse, §1's new refusal said it to him verbatim: *"the rest is left for
+Kalshi's fee, which is charged on top."* The refusal now states the limit and
+explains nothing. **The number is unchanged** — how big the margin should be
+is Joe's call, **#71** — because correcting a false sentence is correctness and
+may not wait for an answer, while spending 10% more of his money is a decision.
+
+### 2. The quote age cried wolf 100% of the time, and I shipped it
+
+§3's threshold was `QUOTE_LIFE_MS = 3_000`, and it was wrong twice:
+
+- **Three seconds is the wrong quantity.** It is the maker's window to confirm
+  *after an acceptance* (`HVM_CONFIRM_WINDOW_S`), not an unaccepted quote's
+  shelf life. What this repo has measured points the other way — the
+  2026-09-17 quotes were still `open` **forty seconds** later and their RFQ
+  was open more than an hour later. §3 promoted a measurement into a claim it
+  does not support, which is the thing this repo's measurement rules exist to
+  stop.
+- **It could never have been false.** `asked_ms` is stamped at route entry,
+  before the book read, the balance read, the create and a mandatory
+  four-second poll, so the payload cannot reach the browser younger than ~4.5
+  seconds. The red branch fired on first paint, always.
+
+A staleness warning that is on 100% of the time is one that gets skipped. The
+true shelf life is unmeasured, so the screen now **asserts no expiry at all**:
+it states the age, and past a generous minute says asking again is free.
+
+### 3. A re-priced quote left a stale price in the only copy the accept reads
+
+Pre-existing, and the highest money risk found. `record_quotes` wrote
+`ON CONFLICT DO NOTHING` on the reasoning that "a quote seen twice is one
+quote" — true inside one poll loop, false across two asks, because
+`ask_market_to_price` holds the RFQ open and `create_rfq` reuses an open one,
+so "Ask again" returns the **same quote ids**, and the payload carries an
+`updated_ts` distinct from `created_ts`.
+
+The screen would render the fresh price from memory while the table kept the
+first. `accept_quote_for_joe` reads its price from that table and the accept
+call carries no price, so the venue would charge its current number against a
+recorded stake taken from a stale one — with no typed ceiling anywhere to
+bound the difference, because B = (ii) has none by design.
+
+Now `DO UPDATE`, with `WHERE accepted_ms IS NULL` so a later poll can never
+rewrite an acceptance's own record. **Safe either way**: whether Kalshi
+mutates a quote in place is inferred from `updated_ts`, not measured, and if
+it never does then every update is a no-op write of identical values.
+
+### 4. Two more shipped claims that the RFQ is withdrawn
+
+`parlay_rfq`'s docstring said it "withdraws the request" and that it "has no
+accept path". Both stopped being true when ADR 0165 shipped, and
+`AskTheMarket` said the same. Holding the RFQ open is exactly what makes the
+second tap reachable — withdrawing drops the venue's copy of the quotes — so
+these read as a licence to believe a quote cannot be re-accepted, which is
+what made finding 3 reachable in the first place.
+
+### Tickets opened
+
+| # | kind | what |
+|---|---|---|
+| **#71** | for Joe | keep the 10% shard margin, shrink it, or drop it |
+| #72 | build | a reused RFQ reports the typed target, not the one the venue holds |
+| #73 | build | a centi-cent quote is dropped and the screen says nobody quoted |
+| #74 | build | read `/portfolio/fills` after `executed` — settles partial fills, upgrades `rfq_accept` to `venue_fill` |
+| #75 | build | `/portfolio/balance` has no captured fixture and now gates money |
+
+**#74 discharges ADR 0169's own closing paragraph**, which left that question
+open and explicitly un-ticketed as "a measurement with no decision in it". It
+has one — what to record when the venue's fill disagrees with the quote — and
+ADR 0169's assertion that an executed quote fills at exactly its quoted size
+is **asserted, not measured**. That correction belongs to 0169 as much as to
+this one.
+
+Four further mutations, four red.
