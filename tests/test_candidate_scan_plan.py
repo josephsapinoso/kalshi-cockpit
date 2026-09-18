@@ -1,30 +1,33 @@
-"""The candidate scan runs off a covering index, and does not sort.
+"""`runner.MATCH_CANDIDATE_SQL` reads `odds_fixtures`, never `odds_snapshots`.
 
-**What this establishes.** That `runner.MATCH_CANDIDATE_SQL`, run against a
-database built by `store.db.init_db`, produces a query plan that reads
-`idx_odds_sport_commence` as a COVERING index and builds no temp B-tree for the
-DISTINCT -- and that the migration puts that index on a volume that predates it.
+**What this establishes.** That the candidate scan the recorder runs once per
+sport per pass plans as a seek on the fixture table (one row per fixture,
+schema v47), builds no temp B-tree, and touches the snapshot table not at
+all; that it answers exactly what the pre-v47 statement answered on a seeded
+slate; that the statement planned here is the one `_match_candidates`
+executes; and that the v31 index the statement used to depend on is still
+put on a volume that predates it, because two other reads still use it.
 
-**What it does NOT establish.** Nothing about speed. There is no timing
-assertion here and there should not be: a stopwatch on a shared machine is a
-flake, and the property actually bought by ADR 0086 is the *shape* of the plan,
-which is deterministic. The milliseconds live in
-`docs/measurements/2026-08-30-the-candidate-scan-index.md`, taken by
-`scripts/measure_odds_scan_index.py`.
+**Why the shape changed (2026-09-18, ADR 0167).** From v31 the statement was
+`SELECT DISTINCT odds_event_id, commence_ms, home_team, away_team FROM
+odds_snapshots WHERE sport_key = ? AND commence_ms >= ?`, covered by
+`idx_odds_sport_commence` -- a contiguous index walk, which was the fix for
+the 27.7 s table walk of 2026-08-30. Covered is not small: it walked every
+stored row of every fixture in the range, every pass, and `candidate_ms` in
+`loop-rss` grew with every sweep. `odds_fixtures` carries these four columns
+once per fixture, so the read is proportional to the fixtures.
 
-It also establishes nothing about growth. The index changes the constant;
-`odds_snapshots` still has no retention rule, so the scan still grows.
-
-**Why a plan assertion is the right guard.** The failure this catches is not
-"someone deleted the index" -- `scripts/migrate_db.py` already refuses to boot
-on that. It is the quieter one: a column added to the SELECT list and not to
-the index, which leaves every test green, leaves the index in place, and
-silently demotes the plan to a table fetch per row plus a sort. That is
-invisible in every other check this repo runs.
+**Why a plan assertion is the right guard.** There is no stopwatch here: a
+timing on a shared machine is a flake, and the property this buys is the
+shape, which is deterministic. The failure it catches is someone pointing the
+statement back at the snapshot table (or joining to it) for a column the
+fixture table lacks -- which reads as a one-line convenience and is the walk
+coming back. The equivalence test is the other half: the rewrite must answer
+what the old statement answered, or the speed is not the only thing that
+changed.
 
 **SQLite chooses the plan, so this is also a version guard.** A future SQLite
-that stops using the covering form would fail here rather than on the live box
-at 22:06Z.
+that plans this differently fails here first.
 """
 
 from __future__ import annotations
@@ -38,9 +41,18 @@ from backend.store import db
 
 NOW = 1_788_000_000_000
 INDEX = "idx_odds_sport_commence"
+PARAMS = ("baseball_mlb", NOW - 86_400_000)
 
-# Enough rows, across two sports, that the planner has something to choose
-# between. With an empty table SQLite will happily full-scan whatever is
+# The statement as it ran from v31 to v47, retyped on purpose: it no longer
+# exists in the source to be read from, and it is the ORACLE for the rewrite.
+V31_SQL = (
+    "SELECT DISTINCT odds_event_id, commence_ms, home_team, away_team "
+    "FROM odds_snapshots WHERE sport_key = ? AND commence_ms >= ?"
+)
+
+# Enough rows, across two sports and several sweeps, that the planner has
+# something to choose between and the DISTINCT in the oracle has duplicates
+# to collapse. With an empty table SQLite will happily full-scan whatever is
 # cheapest and the plan says nothing about the design.
 _SPORTS = ("baseball_mlb", "basketball_wnba")
 
@@ -55,8 +67,10 @@ def _seed(conn: sqlite3.Connection, per_sport: int = 400) -> None:
                 "outcome_point, price_decimal) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
-                    NOW, NOW - 5_000, sport, f"{sport}-{i % 40}",
-                    NOW + (i % 40) * 3_600_000, f"H{i % 40}", f"A{i % 40}",
+                    NOW - (i % 5) * 600_000, NOW - 5_000, sport,
+                    f"{sport}-{i % 40}",
+                    NOW + (i % 40) * 3_600_000 - 12 * 3_600_000,
+                    f"H{i % 40}", f"A{i % 40}",
                     "pinnacle", "h2h", f"H{i % 40}", None, None, 1.9,
                 ),
             )
@@ -65,12 +79,18 @@ def _seed(conn: sqlite3.Connection, per_sport: int = 400) -> None:
     conn.commit()
 
 
-def _plan(conn: sqlite3.Connection) -> str:
-    rows = conn.execute(
-        "EXPLAIN QUERY PLAN " + MATCH_CANDIDATE_SQL,
-        ("baseball_mlb", NOW - 86_400_000),
-    ).fetchall()
+def _plan(conn: sqlite3.Connection, sql: str = MATCH_CANDIDATE_SQL) -> str:
+    rows = conn.execute("EXPLAIN QUERY PLAN " + sql, PARAMS).fetchall()
     return " | ".join(r[3] for r in rows)
+
+
+def _indexes(conn: sqlite3.Connection) -> set[str]:
+    return {
+        r["name"]
+        for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'index'"
+        )
+    }
 
 
 @pytest.fixture
@@ -81,49 +101,60 @@ def conn(tmp_path):
     c.close()
 
 
-class TestTheScanIsCoveredAndDoesNotSort:
-    def test_the_plan_reads_the_covering_index(self, conn):
-        """Mutation observed red: `DROP INDEX idx_odds_sport_commence` first.
-
-        The plan falls back to `SEARCH ... USING INDEX idx_odds_commence
-        (commence_ms>?)`, which is the shape that reached 27.7s on live.
-        """
+class TestTheScanReadsTheFixtureTableAndDoesNotSort:
+    def test_the_plan_reads_the_fixture_table_and_never_the_snapshots(self, conn):
+        """Mutation observed red: put `V31_SQL` back as `MATCH_CANDIDATE_SQL`
+        -- the plan names `odds_snapshots` and this fails on the first
+        assertion."""
         plan = _plan(conn)
-        assert "COVERING INDEX" in plan, plan
-        assert INDEX in plan, plan
+        assert "odds_fixtures" in plan, plan
+        assert "odds_snapshots" not in plan, plan
 
-    def test_the_distinct_builds_no_temp_btree(self, conn):
-        """The half a narrow `(sport_key, commence_ms)` index would not buy.
-
-        Mutation observed red twice: once by dropping the index, and once by
-        replacing it with the two-column form -- which restricts the seek and
-        leaves this assertion failing, because the projected columns are not in
-        it and the DISTINCT still has to sort.
-        """
+    def test_the_read_is_a_seek_and_not_a_scan(self, conn):
+        """Mutation observed red: `DROP INDEX idx_odds_fixtures_commence` --
+        the plan becomes `SCAN odds_fixtures`. A scan of a few hundred rows
+        is cheap today; the guard is that nobody has to re-measure that."""
         plan = _plan(conn)
-        assert "TEMP B-TREE" not in plan, plan
+        assert plan.startswith("SEARCH"), plan
+        assert "SCAN" not in plan, plan
 
-    def test_a_column_outside_the_index_would_demote_the_plan(self, conn):
-        """The actual failure mode: the SELECT list and the index drift apart.
+    def test_the_read_builds_no_temp_btree(self, conn):
+        """No DISTINCT, no sort: one row per fixture is the table's own
+        invariant (its primary key), not something the query has to
+        establish. Mutation observed red: `V31_SQL` back -- the DISTINCT
+        over the snapshot rows sorts."""
+        assert "TEMP B-TREE" not in _plan(conn), _plan(conn)
 
-        Not a mutation of production code but a demonstration against the same
-        table, so the demotion this file exists to catch is visible rather than
-        asserted. `bookmaker` is not in the index; adding it to the projection
-        costs the covering read.
-        """
-        widened = MATCH_CANDIDATE_SQL.replace(
-            "SELECT DISTINCT odds_event_id",
-            "SELECT DISTINCT bookmaker, odds_event_id",
+    def test_it_answers_what_the_v31_statement_answered(self, conn):
+        """The oracle. Five sweeps of the same fixtures collapse to one row
+        each under the old DISTINCT and are one row each in the table.
+        Mutation observed red: delete the trigger from `schema.sql` -- the
+        table is empty and the new statement returns nothing."""
+        old = sorted(tuple(r) for r in conn.execute(V31_SQL, PARAMS))
+        new = sorted(tuple(r) for r in conn.execute(MATCH_CANDIDATE_SQL, PARAMS))
+        assert old, "the oracle answered nothing; the seed is wrong"
+        assert new == old
+
+    def test_a_moved_kickoff_is_one_candidate_at_the_latest_time(self, conn):
+        """The one place the rewrite deliberately differs from the oracle,
+        stated so nobody reads it as a regression: the feed moves a game,
+        the DISTINCT used to list both kickoffs, the table lists the latest.
+        Mutation observed red: drop the trigger's `WHERE excluded.last_fetched_ms
+        >= ...` clause AND insert the older row last -- the stale kickoff wins."""
+        conn.execute(
+            "INSERT INTO odds_snapshots (fetched_ms, book_updated_ms, sport_key, "
+            "odds_event_id, commence_ms, home_team, away_team, bookmaker, market, "
+            "outcome_name, price_decimal) VALUES (?, ?, 'baseball_mlb', "
+            "'baseball_mlb-0', ?, 'H0', 'A0', 'pinnacle', 'h2h', 'H0', 1.9)",
+            (NOW + 10, NOW, NOW + 30 * 3_600_000),
         )
-        rows = conn.execute(
-            "EXPLAIN QUERY PLAN " + widened,
-            ("baseball_mlb", NOW - 86_400_000),
-        ).fetchall()
-        plan = " | ".join(r[3] for r in rows)
-        assert "COVERING INDEX" not in plan, (
-            "adding a column outside the index was supposed to cost the "
-            f"covering read, but the plan still says: {plan}"
-        )
+        conn.commit()
+        old = [r for r in conn.execute(V31_SQL, PARAMS) if r[0] == "baseball_mlb-0"]
+        new = [r for r in conn.execute(MATCH_CANDIDATE_SQL, PARAMS) if r[0] == "baseball_mlb-0"]
+        assert len(old) == 2, old
+        assert [tuple(r) for r in new] == [
+            ("baseball_mlb-0", NOW + 30 * 3_600_000, "H0", "A0")
+        ], new
 
     def test_the_statement_the_runner_runs_is_the_one_planned_here(self):
         """There is one copy of the SQL, and this is the assertion that says so.
@@ -140,10 +171,18 @@ class TestTheScanIsCoveredAndDoesNotSort:
 
         source = inspect.getsource(runner._match_candidates)
         assert "MATCH_CANDIDATE_SQL" in source, source
-        assert "SELECT DISTINCT" not in source, (
+        assert "SELECT " not in source, (
             "the candidate SQL was re-inlined into `_match_candidates`; the "
             "plan guard now describes a statement nothing executes"
         )
+
+    def test_the_fixture_table_carries_exactly_the_columns_the_scan_names(self, conn):
+        """The column list is the table's column list, the way it used to be
+        the index's: a column added to the statement that the table lacks is
+        a join back to the snapshots waiting to happen."""
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(odds_fixtures)")}
+        for name in ("odds_event_id", "commence_ms", "home_team", "away_team", "sport_key"):
+            assert name in cols, (name, cols)
 
 
 class TestAVolumeThatPredatesTheIndexGetsIt:

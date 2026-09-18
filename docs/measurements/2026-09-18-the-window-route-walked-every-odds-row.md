@@ -217,3 +217,26 @@ process was not confirmed dead. Any timing taken in the following minutes
 amount not measured. The instrument's own description says "file-level
 page counts ... via dbstat"; the lesson is that the description was read
 after the run, not before.
+
+## F. The recorder's candidate scan, same rehearsal, added after the deploy
+
+`runner.MATCH_CANDIDATE_SQL` moved onto `odds_fixtures` as ADR 0167
+Amendment 1. Same script, same database, one more pair of arms, NFL sport,
+`since = NOW - 24h`; the two statements' rows compared as sorted tuples and
+equal (205 fixtures) before timing:
+
+    round   v41 candidates   v47 candidates
+        0              2.1              0.4
+        1              1.9              0.3
+        2              2.0              0.3
+        3              2.1              0.3
+        4              1.5              0.2
+    median             2.0              0.3        6.2x
+
+Two milliseconds locally against `candidate_ms` 700-1,400 ms on live
+(`loop-rss`, 2026-09-17): the synthetic slate has a handful of sweeps per
+fixture and live has hundreds, so the local figure understates the walk by
+the same factor. The deployed `candidate_ms` is the number to read, from
+`loop-rss`, after the deploy that carries this -- and it is the recorder's
+number, not a page's, so the page timings in §D are not expected to move
+much on their own account.

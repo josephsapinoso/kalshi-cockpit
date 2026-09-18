@@ -132,6 +132,39 @@ that both happen), and the plan matcher knew the statement's aliases but not
 the bare table name, so the v41 CTE arm — `SEARCH odds_snapshots` with no
 alias — slipped past "every read binds the event". Both fixed and re-run.
 
+## Amendment 1 (same day) -- the recorder's candidate scan moves onto the table too
+
+`runner.MATCH_CANDIDATE_SQL` -- the scan `link_discovered_events` runs once
+per sport per pass to list the fixtures a Kalshi event might link to -- was
+the last continuous read of `odds_snapshots` on the box: `SELECT DISTINCT
+odds_event_id, commence_ms, home_team, away_team ... WHERE sport_key = ? AND
+commence_ms >= ?`, covered by `idx_odds_sport_commence` since v31 (ADR 0086,
+the fix for the 27.7 s walk of 2026-08-30). Covered, and still a walk of
+every stored row of every fixture in the last day and beyond, every ~38 s,
+in the recorder's own process, sharing the page cache and the two shared
+vCPUs with every page request. `loop-rss` reported it as `candidate_ms`
+0.7-1.4 s per pass on 2026-09-17.
+
+`odds_fixtures` carries exactly those four columns, so the statement now
+reads it: `SELECT odds_event_id, commence_ms, home_team, away_team FROM
+odds_fixtures WHERE sport_key = ? AND commence_ms >= ?`. No schema change.
+`since_ms` is `now - 24h`, inside the seven-day backfill floor.
+
+Rehearsed on the same live-shaped database, round-robin, answers compared
+elementwise first (205 fixtures for the NFL arm, equal): 2.0 ms -> 0.3 ms,
+6x -- small in absolute terms here because the synthetic slate carries few
+sweeps per fixture; live carries hundreds, which is where the second was.
+The same moved-kickoff difference applies and is now tested through the
+statement (`tests/test_candidate_scan_plan.py`, rewritten; its v31
+migration guard kept because two reads in `routers/odds.py` still use the
+index). Mutations: v31 statement back -> 2 red; fixture index dropped ->
+1 red; trigger dropped -> 2 red; latest-wins clause dropped -> green with the
+test's row order (recorded, not hidden) and red once the test inserts the
+older row last, which is the case the clause exists for.
+
+`scripts/measure_odds_scan_index.py` now times a retyped copy of the v31
+statement and says so in its header; it no longer imports the runner's.
+
 ## Consequences
 
 - `/api/window`'s cost is now proportional to the fixture count. Whether

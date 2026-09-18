@@ -1309,14 +1309,22 @@ def quote_age_ms(quote, *, now: int) -> int:
 #: -- the same reason `_SQL_PARLAY_CANDIDATES` is pinned byte-identical to
 #: `parlays.CANDIDATE_SQL` by a test.
 #:
-#: **The column list is the index's column list.** `idx_odds_sport_commence`
-#: covers this statement only while the two agree, so adding a column here
-#: silently demotes the plan from `USING COVERING INDEX` back to a table fetch
-#: per row plus a temp B-tree for the DISTINCT. The plan guard is what catches
-#: that; it is not decoration.
+#: **Read from `odds_fixtures` since schema v47 (2026-09-18, ADR 0167), not
+#: from the snapshots.** Until then this was `SELECT DISTINCT ... FROM
+#: odds_snapshots WHERE sport_key = ? AND commence_ms >= ?`, covered by
+#: `idx_odds_sport_commence` -- a contiguous index walk, but a walk of every
+#: stored row of every fixture in the range, every pass, growing with every
+#: sweep (`candidate_ms` in `loop-rss`). `odds_fixtures` is one row per
+#: fixture, kept by a trigger on every snapshot insert, and carries exactly
+#: these four columns; the read is now proportional to the fixtures, and the
+#: page traffic it drags through the cache the API shares goes with it.
+#: One visible difference: a fixture whose kickoff the feed has moved is ONE
+#: candidate at the latest kickoff, where the DISTINCT listed every kickoff
+#: it had ever carried -- the linker's skew check wants the current one.
+#: `since_ms` is `now - 24h`, inside the table's seven-day backfill floor.
 MATCH_CANDIDATE_SQL = (
-    "SELECT DISTINCT odds_event_id, commence_ms, home_team, away_team "
-    "FROM odds_snapshots WHERE sport_key = ? AND commence_ms >= ?"
+    "SELECT odds_event_id, commence_ms, home_team, away_team "
+    "FROM odds_fixtures WHERE sport_key = ? AND commence_ms >= ?"
 )
 
 

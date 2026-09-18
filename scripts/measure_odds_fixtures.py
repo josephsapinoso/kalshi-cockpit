@@ -60,6 +60,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import measure_window_index as bench  # noqa: E402
+from backend import runner  # noqa: E402
 from backend.odds import timing  # noqa: E402
 from backend.store import db as store  # noqa: E402
 
@@ -81,7 +82,12 @@ V41_UPCOMING = (
     "  FROM odds_snapshots WHERE commence_ms >= ? AND commence_ms <= ?"
     ")"
 )
-TRIGGER_SQL = None  # read from schema.sql below, never retyped
+# The runner's candidate scan as it ran from v31 (ADR 0086) until v47: the
+# third read moved onto `odds_fixtures`, retyped here as the oracle.
+V41_CANDIDATES = (
+    "SELECT DISTINCT odds_event_id, commence_ms, home_team, away_team "
+    "FROM odds_snapshots WHERE sport_key = ? AND commence_ms >= ?"
+)
 
 
 def _trigger_from_schema() -> str:
@@ -180,11 +186,22 @@ def main() -> int:
         return 1
     print(f"\n3. reads agree: {len(new_f)} fixtures' ages, "
           f"{sum(len(v) for v in new_u.values())} upcoming kickoffs")
+    sport = bench.SPORTS[0]
+    since = NOW_MS - 86_400_000
+    old_c = sorted(tuple(r) for r in conn.execute(V41_CANDIDATES, (sport, since)))
+    new_c = sorted(tuple(r) for r in conn.execute(runner.MATCH_CANDIDATE_SQL, (sport, since)))
+    if old_c != new_c:
+        print(f"REFUSED: the candidate scan changed its answer, not merely its "
+              f"speed: {len(old_c)} vs {len(new_c)} rows for {sport}")
+        return 1
+    print(f"   candidate scan agrees: {len(new_c)} fixtures for {sport}")
     arms = {
         "v41 freshness": lambda: _old_freshness(conn),
         "v47 freshness": lambda: timing.fixture_freshness(conn, now_ms=NOW_MS),
         "v41 upcoming": lambda: _old_upcoming(conn),
         "v47 upcoming": lambda: timing.upcoming_fixtures_by_sport(conn, now_ms=NOW_MS),
+        "v41 candidates": lambda: conn.execute(V41_CANDIDATES, (sport, since)).fetchall(),
+        "v47 candidates": lambda: conn.execute(runner.MATCH_CANDIDATE_SQL, (sport, since)).fetchall(),
     }
     samples: dict[str, list[float]] = {k: [] for k in arms}
     print("round  " + "  ".join(f"{k:>15s}" for k in arms))
@@ -201,7 +218,8 @@ def main() -> int:
     print("median " + "  ".join(f"{med[k]:15.1f}" for k in arms))
     print(f"paired ratio, median to median: freshness "
           f"{med['v41 freshness'] / max(med['v47 freshness'], 1e-3):.1f}x, "
-          f"upcoming {med['v41 upcoming'] / max(med['v47 upcoming'], 1e-3):.1f}x")
+          f"upcoming {med['v41 upcoming'] / max(med['v47 upcoming'], 1e-3):.1f}x, "
+          f"candidates {med['v41 candidates'] / max(med['v47 candidates'], 1e-3):.1f}x")
 
     # 2. the trigger's cost per sweep, round-robin on two copies.
     conn.close()

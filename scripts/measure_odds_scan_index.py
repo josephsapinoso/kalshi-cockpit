@@ -1,4 +1,12 @@
-"""Time the `_match_candidates` scan against three index shapes, and price the write.
+"""Time the PRE-v47 `_match_candidates` scan against three index shapes, and price the write.
+
+**Historical since 2026-09-18 (ADR 0167).** `runner.MATCH_CANDIDATE_SQL` now
+reads `odds_fixtures` (one row per fixture) and no longer touches this index
+at all; the statement timed below is the v31-v47 one, kept here as a local
+constant so this script still measures what it was written to measure -- what
+`idx_odds_sport_commence` bought the snapshot-table walk. For the v47 read,
+see `scripts/measure_odds_fixtures.py`.
+
 
     .venv\\Scripts\\python.exe scripts\\measure_odds_scan_index.py --rows 1500000
 
@@ -50,7 +58,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from backend.runner import MATCH_CANDIDATE_SQL  # noqa: E402
+# The v31-v47 statement, retyped: the runner no longer executes it.
+MATCH_CANDIDATE_SQL = (
+    "SELECT DISTINCT odds_event_id, commence_ms, home_team, away_team "
+    "FROM odds_snapshots WHERE sport_key = ? AND commence_ms >= ?"
+)
 
 DAY_MS = 86_400_000
 

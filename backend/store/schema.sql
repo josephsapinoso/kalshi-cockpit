@@ -345,9 +345,12 @@ CREATE INDEX IF NOT EXISTS idx_odds_commence ON odds_snapshots(commence_ms);
 -- its own "what this does NOT do"), so this changes the constant and leaves the
 -- growth term alone.
 --
--- The column list must stay in step with `runner.MATCH_CANDIDATE_SQL`: a column
--- added there and not here silently demotes the plan. Pinned by
--- `tests/test_candidate_scan_plan.py`.
+-- **Since v47 (2026-09-18, ADR 0167) `runner.MATCH_CANDIDATE_SQL` no longer
+-- reads this index -- it reads `odds_fixtures`, one row per fixture.** The
+-- index stays: the v47 backfill's skip-scan runs on it, `routers/odds.py`'s
+-- two bounded sport-range reads are covered by it, and dropping ~50 MB+ is a
+-- boot-time rebuild for no measured gain (ADR 0141). The column-list pin in
+-- `tests/test_candidate_scan_plan.py` now pins the fixture-table read instead.
 CREATE INDEX IF NOT EXISTS idx_odds_sport_commence
     ON odds_snapshots(sport_key, commence_ms, odds_event_id, home_team, away_team);
 
