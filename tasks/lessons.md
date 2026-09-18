@@ -16,6 +16,34 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-18 (twenty-third) - A fixture offset by a DURATION against a bound that is a ROLLOVER fails for a fixed slice of every day
+
+A full local suite went 8,114 passed at 09:45Z. CI on the same commit failed at
+10:10Z, in three tests, in a file the change had not touched. Both were right.
+
+`ladder_candidates` bounds a leg's kickoff by `horizon_end_ms`, which is a
+**rollover** - the 4am desk day - not a duration. The fixture seeded its game
+at `now + 3_600_000`. Read at 2:45am desk time that is 3:45am, inside the
+bound; read at 3:10am it is 4:10am, **past** the rollover, and both legs were
+dropped as `kickoff_outside_window`. Walking the clock every ten minutes over
+three days: the old expression was out of window **~0.8 hours per day**, and
+its first offending sample was `2026-09-18 10:10Z` - the exact minute CI ran.
+
+**The shape to look for: a fixture whose validity is a DURATION from `now`,
+checked against a bound that is a WALL-CLOCK BOUNDARY.** The two agree almost
+all day, which is what makes it survive review and every local run, and the
+failure window is a fixed slice of the day rather than a flake - so it is
+reproducible, and it reproduces on someone else's morning. Anchor the fixture
+to the bound's own function (`min(now + d, horizon_end_ms(now) - margin)`)
+rather than reimplementing the rule or hoping the offset is small enough. Two
+sibling tests in this repo already did exactly that, which is how you can tell
+the omission was local and not a missing convention.
+
+And the corollary, because it is the part that costs time: **a green full suite
+is evidence about the minute it ran.** When CI fails on a file the change did
+not touch, check the clock before the diff - and check the failure on an older
+commit, which settles authorship in one command.
+
 ## 2026-09-18 (twenty-second) - A stated blocker is an inference until it quotes the source; the answer is often already on disk; and a mutation that cannot change behaviour is not a weak test
 
 From a session that took a registered look whose window was open at the time,

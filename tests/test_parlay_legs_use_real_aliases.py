@@ -44,6 +44,24 @@ from backend.match.linker import TeamAliases, normalise
 from backend.store import db as store
 
 
+def _kickoff_ms(now: int) -> int:
+    """A kickoff this scan will actually consider, at any hour of the day.
+
+    **`now + 1 hour` is not safe, and this test proved it by failing for one
+    hour a day.** `ladder_candidates` bounds kickoff by `horizon_end_ms`,
+    which is a ROLLOVER (the 4am desk day), not a duration. Read at 3:10am
+    desk time, "an hour from now" is 4:10am -- past the rollover -- so both
+    seeded legs were excluded as `kickoff_outside_window` and three tests
+    failed. They passed at 2:45am and failed at 3:10am on the same code.
+
+    A fixture whose validity depends on the wall clock is a fixture that
+    fails on someone else's morning. Clamping to just inside the bound makes
+    the leg in-window at every hour, and it is the scan's own function doing
+    the arithmetic rather than a second copy of the 4am rule.
+    """
+    return min(now + 3_600_000, parlays.horizon_end_ms(now) - 60_000)
+
+
 def _seed(conn, *, kalshi_team: str, book_team: str, other: str) -> None:
     """One linked MLB game whose two ends spell the team differently.
 
@@ -78,7 +96,7 @@ def _seed(conn, *, kalshi_team: str, book_team: str, other: str) -> None:
         "commence_ms, home_team, away_team, bookmaker, market, outcome_name, "
         "price_decimal) VALUES (?, 'baseball_mlb', 'g1', ?, ?, ?, 'pinnacle', "
         "'h2h', ?, 1.6)",
-        (now - 30_000, now + 3_600_000, book_team, other, book_team),
+        (now - 30_000, _kickoff_ms(now), book_team, other, book_team),
     )
     for outcome, prob in ((book_team, 0.62), (other, 0.36)):
         conn.execute(
