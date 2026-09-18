@@ -36,6 +36,19 @@ by the same mechanism, which is why it is here again.
   when the conclusion survives with new grounds, rewrite the grounds rather
   than leaving a paragraph that was last true for another reason.
 
+  **Second instance the same day, and it gives the searchable form: when you
+  re-point production at a new data source, grep for the instruments that
+  claim to MIRROR it.** `window-freshness` opened with *"the same shape as
+  `fixture_freshness`, with ONE deliberate addition"* — true until v47 moved
+  `fixture_freshness` onto `odds_fixtures` four days earlier, after which the
+  one query whose purpose is "what would the window indicator have said" was
+  answering with a method the indicator no longer used. A mirror is the one
+  kind of code whose correctness is defined **elsewhere**, so nothing local
+  goes red when the original moves, and the comment asserting the equivalence
+  is what a reviewer checks instead of the SQL. The v47 change even named the
+  old shape in its own docstring and still did not move the copy of it two
+  directories away.
+
 - **An unenforceable convention degrades to whatever the agent judges
   reasonable, and the agent cannot see itself doing it.** The standing rule is
   *"`ssh` may run only committed, reviewed scripts by path; no inline code, no
@@ -78,7 +91,7 @@ by the same mechanism, which is why it is here again.
   greps for a standing caution. When a finding generalises past the decision
   that produced it, it goes in both.
 
-ADR 0176, issue #58.
+ADR 0176, 0177, issue #58.
 
 ## 2026-09-18 (twenty-fourth) - A fresh database passes whatever the migration does, and a mutation pattern that matches twice patches the wrong one
 

@@ -76,16 +76,28 @@ ssh prompt, mid-incident.
 A whitelisted query is safe to type, not free to run
 --------------------------------------------------------
 The live file is several GB on a 4 GB box whose page cache is the desk's
-performance, and some names here -- `db-sizes` walks `dbstat` over every page;
-`window-freshness` and `book-rows` walk the whole h2h prefix of an index --
-read the entire file to answer, evicting the working set so that the desk is
-slow for minutes afterwards. One was run mid-diagnosis on 2026-09-18 because
+performance, and some names here -- `db-sizes` walks `dbstat` over every page
+-- read the entire file to answer, evicting the working set so that the desk
+is slow for minutes afterwards. One was run mid-diagnosis on 2026-09-18 because
 nothing at the point of invocation said so. Every `QueryDef` therefore carries
 a required `cost`, `cheap` or `walks-the-file`, classified from its SQL with
 the reason beside the entry; the listing below prints it beside every name,
 and `main` refuses a walk with exit 4 unless the caller passes
 `--i-accept-the-cache-flush`. The flag is the caller saying they read the
 cost. It does not make the query cheaper.
+
+**`window-freshness` and `book-rows` no longer walk, and are still classified
+as walks -- deliberately.** This paragraph said they "walk the whole h2h prefix
+of an index" and that was true of their SQL until 2026-09-18, when both were
+re-driven from `odds_fixtures` to match what `fixture_freshness` has done since
+schema v47 (ADR 0167). The walk is gone; what remains is a seek per upcoming
+fixture. **The classification stays `walks-the-file` until someone TIMES the
+new statements on the live volume**, because demoting a cost from expensive to
+cheap on reasoning rather than measurement is the flattering direction, and the
+cost of being wrong lands on the desk's page cache rather than on the person
+who reclassified it. Reclassifying is a deliberate edit to `KNOWN_WALKS` in
+`tests/test_inspect_live_db.py` and wants a timing beside it. Until then the
+flag is over-asked, which is the safe way to be wrong.
 
 What this does not establish
 ----------------------------
@@ -834,9 +846,13 @@ QUERIES: dict[str, QueryDef] = {
         "the same population by book, stalest first. Answers: which book's "
         "own last_update stamp closed the window mid-refresh-interval?",
         _q_window_freshness,
-        # Walks the h2h prefix of idx_odds_window twice -- every h2h row ever
-        # stored -- to find the fixtures upcoming at --at (the 2026-09-18
-        # lesson; /api/window itself was rewritten off this shape).
+        # No longer a walk: re-driven from odds_fixtures 2026-09-18 to match
+        # fixture_freshness since v47, so it is a seek per upcoming fixture
+        # rather than the whole h2h prefix of idx_odds_window twice. Kept at
+        # WALKS_THE_FILE until the new statements are TIMED on the live
+        # volume -- demoting a cost on reasoning rather than measurement errs
+        # toward the desk's page cache paying for the mistake. See the module
+        # docstring's "A whitelisted query is safe to type" section.
         cost=WALKS_THE_FILE,
     ),
     "book-rows": QueryDef(
@@ -845,8 +861,10 @@ QUERIES: dict[str, QueryDef] = {
         "runner's consensus, one = dropped as incomplete. Answers: did the "
         "laggard book's stamp age the consensus, or only the window flag?",
         _q_book_rows,
-        # The same `latest` CTE as window-freshness: the h2h prefix of
-        # idx_odds_window, walked in full, then joined back to the table.
+        # The same driver as window-freshness, and it has to be, or "the
+        # window-freshness population" above stops being one population.
+        # Re-driven from odds_fixtures 2026-09-18; kept at WALKS_THE_FILE on
+        # the same untimed-until-measured grounds.
         cost=WALKS_THE_FILE,
     ),
     "visit-freshness": QueryDef(
@@ -858,7 +876,10 @@ QUERIES: dict[str, QueryDef] = {
         "open meet the ~60-min worst case the design permits?",
         _q_visit_freshness,
         # Runs the window-freshness query TWICE PER VISIT over --since
-        # (default seven days of visits): the h2h walk, multiplied.
+        # (default seven days of visits). That query stopped being a walk on
+        # 2026-09-18, but this one multiplies it by the visit count, so it is
+        # the entry here with the strongest claim to the flag even after the
+        # others are timed and possibly demoted.
         cost=WALKS_THE_FILE,
     ),
     "h4-settlement-balance": QueryDef(

@@ -343,23 +343,49 @@ def _q_prune_frontier(conn: sqlite3.Connection, args) -> list[Section]:
 # time. The production function's known approximation is inherited unchanged:
 # it does NOT drop books that fail to quote every outcome, so a fixture can
 # read staler here than the runner will find it.
+#
+# **DRIVEN BY `odds_fixtures` SINCE 2026-09-18, because production is** (schema
+# v47, ADR 0167). Until then both statements opened with a `latest` CTE that
+# found the upcoming fixtures by walking the whole `market` prefix of
+# `idx_odds_window` -- every h2h row ever stored -- which is the shape
+# `fixture_freshness` itself ran until v47 and stopped running that day. The
+# comment above claimed "the same shape as `fixture_freshness`" for four days
+# after it had stopped being true, which is how an instrument comes to measure
+# something the system no longer does. Now, as in production: the set of
+# upcoming fixtures is a seek on `idx_odds_fixtures_commence`, each fixture's
+# latest sweep one seek on `idx_odds_event`, and the books within it one
+# covering seek on `idx_odds_window`. A fixture with no h2h row at or before
+# `:at` drops out of the join, exactly as it aggregated to NULL and was left
+# out before.
+#
+# **What the new driver cannot see, stated rather than discovered later.**
+# `odds_fixtures` is maintained by `trg_odds_fixtures_upsert` on INSERT and
+# **never deletes**, so it only grows -- but v47 seeded it with
+# `commence_ms >= now - 7 days` at migration time. A fixture whose last
+# snapshot insert predates v47 AND whose `commence_ms` fell before that
+# horizon is absent, so an `--at` earlier than the horizon can under-report
+# the population. `_fixture_coverage_at` prints the earliest `commence_ms`
+# the table holds beside every reading, so the caller can see the bound
+# instead of trusting it. `odds_snapshots` has no retention rule, so the old
+# driver did reach further back; that reach is the price of matching
+# production, and matching production is what this query is for.
 _SQL_FRESHNESS_AT_FIXTURES = (
-    "WITH latest AS ("
-    "  SELECT odds_event_id, MAX(fetched_ms) AS m FROM odds_snapshots"
-    "  WHERE market = 'h2h' AND fetched_ms <= :at AND commence_ms >= :at"
-    "  GROUP BY odds_event_id"
-    ") "
-    "SELECT o.odds_event_id, o.sport_key,"
-    "       MIN(o.commence_ms) AS commence_ms,"
-    "       l.m AS fetched_ms,"
+    "SELECT f.odds_event_id, f.sport_key,"
+    "       f.commence_ms AS commence_ms,"
+    "       o.fetched_ms AS fetched_ms,"
     "       COUNT(DISTINCT o.bookmaker) AS books,"
     "       MIN(COALESCE(o.book_updated_ms, o.fetched_ms)) AS oldest_ms,"
     "       MAX(COALESCE(o.book_updated_ms, o.fetched_ms)) AS newest_ms,"
     "       :at - MIN(COALESCE(o.book_updated_ms, o.fetched_ms)) AS age_ms "
-    "FROM odds_snapshots o JOIN latest l"
-    "  ON o.odds_event_id = l.odds_event_id AND o.fetched_ms = l.m "
-    "WHERE o.market = 'h2h' "
-    "GROUP BY o.odds_event_id "
+    "FROM odds_fixtures f JOIN odds_snapshots o"
+    "  ON o.odds_event_id = f.odds_event_id AND o.market = 'h2h'"
+    " AND o.fetched_ms = ("
+    "      SELECT MAX(s.fetched_ms) FROM odds_snapshots s"
+    "       WHERE s.odds_event_id = f.odds_event_id AND s.market = 'h2h'"
+    "         AND s.fetched_ms <= :at"
+    "   ) "
+    "WHERE f.commence_ms >= :at "
+    "GROUP BY f.odds_event_id "
     "ORDER BY age_ms"
 )
 
@@ -367,22 +393,35 @@ _SQL_FRESHNESS_AT_FIXTURES = (
 # window indicator takes MIN over books per fixture, so ONE book whose
 # `last_update` the aggregator has not advanced drags every fixture it quotes
 # toward "stale". This section is what names that book.
+#
+# Driven by `odds_fixtures` for the same reason as the statement above, and it
+# has to be the same population or the two sections stop being two views of
+# one reading.
 _SQL_FRESHNESS_AT_BOOKS = (
-    "WITH latest AS ("
-    "  SELECT odds_event_id, MAX(fetched_ms) AS m FROM odds_snapshots"
-    "  WHERE market = 'h2h' AND fetched_ms <= :at AND commence_ms >= :at"
-    "  GROUP BY odds_event_id"
-    ") "
     "SELECT o.bookmaker,"
     "       COUNT(DISTINCT o.odds_event_id) AS fixtures,"
     "       MIN(COALESCE(o.book_updated_ms, o.fetched_ms)) AS oldest_ms,"
     "       MAX(COALESCE(o.book_updated_ms, o.fetched_ms)) AS newest_ms,"
     "       :at - MIN(COALESCE(o.book_updated_ms, o.fetched_ms)) AS worst_age_ms "
-    "FROM odds_snapshots o JOIN latest l"
-    "  ON o.odds_event_id = l.odds_event_id AND o.fetched_ms = l.m "
-    "WHERE o.market = 'h2h' "
+    "FROM odds_fixtures f JOIN odds_snapshots o"
+    "  ON o.odds_event_id = f.odds_event_id AND o.market = 'h2h'"
+    " AND o.fetched_ms = ("
+    "      SELECT MAX(s.fetched_ms) FROM odds_snapshots s"
+    "       WHERE s.odds_event_id = f.odds_event_id AND s.market = 'h2h'"
+    "         AND s.fetched_ms <= :at"
+    "   ) "
+    "WHERE f.commence_ms >= :at "
     "GROUP BY o.bookmaker "
     "ORDER BY worst_age_ms DESC"
+)
+
+# What `odds_fixtures` can and cannot reach, printed beside every reading so
+# the bound above is visible rather than inferred. One row, one seek.
+_SQL_FIXTURE_COVERAGE = (
+    "SELECT COUNT(*) AS fixtures_known,"
+    "       MIN(commence_ms) AS earliest_commence_ms,"
+    "       MAX(commence_ms) AS latest_commence_ms "
+    "FROM odds_fixtures"
 )
 
 
@@ -423,6 +462,34 @@ def _fixture_ages_at(
     )
 
 
+def _fixture_coverage_at(conn: sqlite3.Connection, at_ms: int) -> Section:
+    """What `odds_fixtures` can reach, printed beside the reading it drove.
+
+    The driving table never deletes but was seeded at v47 with a seven-day
+    horizon, so an `--at` before the earliest `commence_ms` it holds may be
+    reading a short population. This is the cheap way to see that: one row,
+    one seek, no walk. It states the bound; it does not decide whether the
+    reading is usable, because how much of the slate is missing at a given
+    `--at` is not knowable from this table alone.
+    """
+    section = _fetch(
+        conn,
+        _SQL_FIXTURE_COVERAGE,
+        {},
+        title=(
+            f"odds_fixtures coverage (the driver): a reading at {_iso(at_ms)} "
+            "is short if that instant precedes earliest_commence"
+        ),
+        cap=1,
+    )
+    for col, iso in (
+        ("earliest_commence_ms", "earliest_commence_iso"),
+        ("latest_commence_ms", "latest_commence_iso"),
+    ):
+        section = _derive_iso(section, col, iso)
+    return section
+
+
 def _q_window_freshness(conn: sqlite3.Connection, args) -> list[Section]:
     """`fixture_freshness` at `--at`, per fixture and then per book.
 
@@ -460,7 +527,7 @@ def _q_window_freshness(conn: sqlite3.Connection, args) -> list[Section]:
         cap=args.limit,
     )
     books = _derive_iso(books, "oldest_ms", "oldest_iso")
-    return [fixtures, books]
+    return [fixtures, books, _fixture_coverage_at(conn, at_ms)]
 
 
 # The h2h rows ONE book contributed to the exact population `window-freshness`
@@ -471,17 +538,22 @@ def _q_window_freshness(conn: sqlite3.Connection, args) -> list[Section]:
 # quoting one outcome is dropped by `book_quotes_for_event` and its stamp gates
 # only the window flag, in which case the bounded sleeps skipped passes that
 # could have confirmed live rows.
+# Driven by `odds_fixtures` since 2026-09-18, for the same reason as
+# `_SQL_FRESHNESS_AT_FIXTURES` and, more pressingly, so that "the exact
+# population `window-freshness` reads" stays true of this statement. Changing
+# one driver and not the other would leave two definitions of that population
+# and a comment asserting they are one.
 _SQL_BOOK_ROWS = (
-    "WITH latest AS ("
-    "  SELECT odds_event_id, MAX(fetched_ms) AS m FROM odds_snapshots"
-    "  WHERE market = 'h2h' AND fetched_ms <= :at AND commence_ms >= :at"
-    "  GROUP BY odds_event_id"
-    ") "
     "SELECT o.bookmaker, o.odds_event_id, o.outcome_name, o.price_decimal,"
     "       o.book_updated_ms, o.fetched_ms "
-    "FROM odds_snapshots o JOIN latest l"
-    "  ON o.odds_event_id = l.odds_event_id AND o.fetched_ms = l.m "
-    "WHERE o.market = 'h2h' AND (:book IS NULL OR o.bookmaker = :book) "
+    "FROM odds_fixtures f JOIN odds_snapshots o"
+    "  ON o.odds_event_id = f.odds_event_id AND o.market = 'h2h'"
+    " AND o.fetched_ms = ("
+    "      SELECT MAX(s.fetched_ms) FROM odds_snapshots s"
+    "       WHERE s.odds_event_id = f.odds_event_id AND s.market = 'h2h'"
+    "         AND s.fetched_ms <= :at"
+    "   ) "
+    "WHERE f.commence_ms >= :at AND (:book IS NULL OR o.bookmaker = :book) "
     "ORDER BY o.bookmaker, o.odds_event_id, o.outcome_name"
 )
 

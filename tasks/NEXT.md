@@ -141,7 +141,8 @@ discovering it; `tasks/archive/next-split-log.md` has the recipe.
 | commit | what | ADR |
 |---|---|---|
 | `a4b8221` | a migrated database is compared on SHAPE, not column names | 0176 |
-| (below) | the two decayed volume justifications; lessons; this entry | — |
+| `c38a28c` | the two decayed volume justifications; lessons; this entry | — |
+| (below) | the freshness instrument reads the table production reads | 0177 |
 
 ### 1. The auto-extend net is inert again — #58 now has numbers and needs ONE LETTER from Joe
 
@@ -250,7 +251,19 @@ keeps and Joe audits").
    (second tap 409), `:199`/`:356`/`:371` (lost response is UNKNOWN),
    `tests/test_ask_the_market_screen.py:124` (no retry button), `:239`
    (`confirmed` is not a fill).
-6. `inspect_live_db.py window-freshness` still runs the v41-shaped statement.
+6. **`window-freshness` is DONE (ADR 0177)** — it, `book-rows` and the
+   `visit-freshness` caller now read `odds_fixtures`, which is what
+   `fixture_freshness` has read since v47. It had claimed "the same shape as
+   `fixture_freshness`" for four days after that stopped being true, so the one
+   query whose purpose is "what would the window indicator have said" was
+   answering with a method the indicator no longer used. **Two deliberate
+   non-changes, both of which a later session will be tempted to undo:** the
+   cost stays `walks-the-file` although the walk is gone, because demoting a
+   cost on reasoning rather than a live timing is the flattering direction —
+   **reclassifying it is a real task and wants a timing, not an argument**; and
+   the retrospective reach is now shorter (v47 seeded `odds_fixtures` with a
+   7-day horizon and it never deletes), which the new coverage section prints
+   beside every reading rather than leaving in a docstring.
 7. `odds_snapshots` still has no retention rule — #58's substance.
 8. #71 and #78 are still unanswered questions for Joe, alongside #58.
 9. Baseline this session on `03405c8`: **8,127 passed**, 1 skipped, 10 xfailed,
