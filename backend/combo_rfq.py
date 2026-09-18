@@ -327,7 +327,11 @@ async def ask_market_to_price(
         # ahead of the irreversible call -- but it is a habit, not a guard,
         # and saying so is the point.
         store.record_quotes(
-            conn, rfq_id=rfq_id, quotes=seen.values(), captured_ms=now_ms
+            conn, rfq_id=rfq_id, quotes=seen.values(), captured_ms=now_ms,
+            # The same union-by-id the payload reports (#73), so the
+            # durable row and the screen cannot disagree about how many
+            # makers answered.
+            refused_too_fine=len(too_fine),
         )
         conn.commit()
         if not hold_open:

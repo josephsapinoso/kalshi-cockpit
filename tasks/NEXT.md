@@ -255,7 +255,16 @@ warm.
    a short-filled RFQ acceptance would leave **a resting offer**, the behaviour
    ADR 0115 removed on his word. Never observed (11 of 11 filled whole) and not
    decidable from the docs.
-3. **#77** is the `combo_rfqs.status` migration above. **#72 is DONE**
+3. **#77 is DONE** (ADR 0175, schema v49): the RFQ row now says which of
+   three things happened, with the payload's own precedence, plus a
+   `refused_too_fine` count. **The mutation that stayed green is the part
+   worth reading** — narrowing the CHECK inside the migration broke nothing,
+   because every other test builds its database from `schema.sql` and never
+   runs the rebuild. `test_the_schema_file_and_the_migrations_agree` compares
+   migrated COLUMNS and INDEXES and a CHECK is neither, so **a rebuild
+   producing a different constraint from `schema.sql` is invisible for every
+   table today** (v4, v10, v35, v38 included). ADR 0175 §3 closes only the
+   v49 instance; the generic guard is unwritten. **#72 is DONE**
    (ADR 0174): `create_rfq` returned a bare id, so a reused RFQ was reported
    at the target Joe typed rather than the one the venue was asked at, with
    quotes sized for the smaller number. It now returns an `RfqHandle` carrying

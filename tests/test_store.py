@@ -1517,3 +1517,88 @@ class TestCrossThreadConnections:
             "dependency and the sync endpoint on different threadpool workers, "
             "so this raises sqlite3.ProgrammingError on real traffic"
         )
+class TestTheWidenedCheckSurvivesTheMigration:
+    """v49 on a database that already exists, which is the only case that matters.
+
+    **Found by a mutation that stayed green.** Narrowing the CHECK inside
+    `_combo_rfqs_create` -- i.e. shipping a migration that rebuilds the table
+    WITHOUT the new status -- broke nothing, because every other test builds
+    its database from `schema.sql` through `executescript` and never runs the
+    rebuild at all. A fresh database got the wide CHECK from `CREATE TABLE`
+    and passed whatever the migration did.
+
+    `test_the_schema_file_and_the_migrations_agree` does not cover it either:
+    it compares migrated COLUMNS and INDEXES against `schema.sql`, and a
+    CHECK is neither. **That is a general gap, not one specific to v49** -- a
+    rebuild producing a different constraint from `schema.sql` is invisible
+    for every table today, and this class closes only the instance in front
+    of it.
+
+    What this does not establish
+    ----------------------------
+    - Nothing about the other rebuilt tables' constraints (v4, v10, v35, v38).
+    - Nothing about rows written before the migration, which keep their real
+      values and cannot be reclassified -- the refusals were never counted.
+    """
+
+    def _v48_database(self, tmp_path):
+        """A v48 volume: the v49 rebuild undone, the stamp wound back."""
+        path = tmp_path / "v48.db"
+        conn = db.init_db(path)
+        conn.execute(
+            "INSERT INTO combo_rfqs (rfq_id, requested_ms, ticker, "
+            "collection_ticker, selected_legs, exchange_index, status) "
+            "VALUES ('rfq-old', 1, 'KXMVE-X', 'COLL', '[]', 1, 'no_quotes')"
+        )
+        for statement in db._MIGRATIONS[49].undo_statements:
+            conn.execute(statement)
+        db._set_meta(conn, "schema_version", "48")
+        conn.commit()
+        conn.close()
+        return path
+
+    def test_the_v48_shape_really_refuses_the_new_status(self, tmp_path):
+        """The wind-back has to produce the OLD constraint, or this proves
+        nothing about the migration that follows it."""
+        path = self._v48_database(tmp_path)
+        conn = sqlite3.connect(path)
+        try:
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "UPDATE combo_rfqs SET status = 'priced_too_finely'"
+                )
+        finally:
+            conn.close()
+
+    def test_migrating_widens_the_check_and_keeps_the_row(self, tmp_path):
+        path = self._v48_database(tmp_path)
+        conn = db.init_db(path)
+        try:
+            assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
+            row = conn.execute(
+                "SELECT * FROM combo_rfqs WHERE rfq_id = 'rfq-old'"
+            ).fetchone()
+            assert row is not None, "the rebuild dropped an existing ask"
+            assert row["status"] == "no_quotes", "an existing row was rewritten"
+            # NOT backfilled to 0: a pre-v49 row genuinely does not know how
+            # many makers it refused, because nothing counted them.
+            assert row["refused_too_fine"] is None
+
+            # The whole point of the step.
+            conn.execute(
+                "UPDATE combo_rfqs SET status = 'priced_too_finely' "
+                "WHERE rfq_id = 'rfq-old'"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_migrating_does_not_turn_the_check_off(self, tmp_path):
+        """Widening a constraint and removing it look the same from inside."""
+        path = self._v48_database(tmp_path)
+        conn = db.init_db(path)
+        try:
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute("UPDATE combo_rfqs SET status = 'invented'")
+        finally:
+            conn.close()

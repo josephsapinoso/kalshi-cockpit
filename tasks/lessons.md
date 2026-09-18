@@ -16,6 +16,42 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-18 (twenty-fourth) - A fresh database passes whatever the migration does, and a mutation pattern that matches twice patches the wrong one
+
+Both from shipping a schema rebuild, and the second one had already happened
+twice the same night before it was written down.
+
+- **A test whose fixture is built from `schema.sql` cannot fail a migration.**
+  Narrowing a CHECK inside a rebuild step - i.e. shipping a migration that
+  produces a NARROWER constraint than the declared schema - left the whole
+  suite green, because every fixture goes through `executescript` on
+  `schema.sql` and never runs the rebuild at all. `init_db`'s own docstring
+  already warns about this **for columns** ("a FRESH database gets every
+  column from `CREATE TABLE`, so a fixture-built one passes whatever the
+  migration does"); it arrives the same way on constraints, and the repo's
+  `test_the_schema_file_and_the_migrations_agree` does not catch it because
+  it compares migrated COLUMNS and INDEXES, and a CHECK is neither. **The
+  shape to look for: a guard that enumerates one kind of schema object and is
+  read as covering the schema.** Test a migration by winding a real database
+  back and migrating it forward - a database that already exists is the only
+  case production ever has. And note the sibling trap: **widening a
+  constraint and REMOVING it look identical from inside**, since both make
+  the new value insertable, so the test that separates them is the one that
+  asserts a bad value is still refused.
+
+- **A mutation pattern that matches N times patches one of N, and not the one
+  you meant.** Three times in one session: a refusal branch that appeared in
+  two places, a `return` that appeared in three, and a DDL helper whose CHECK
+  line was shared with another table's. Each time the script reported
+  "pattern matched N" only because it asserted a count first; without that
+  assertion it would have silently mutated an unrelated line and reported the
+  guard as verified. **A mutation harness must assert exactly one match
+  before it writes**, and treat "matched 2" as a failed mutation rather than
+  a near miss - a mutation applied somewhere else proves nothing about the
+  guard it names.
+
+ADR 0175.
+
 ## 2026-09-18 (twenty-third) - A fixture offset by a DURATION against a bound that is a ROLLOVER fails for a fixed slice of every day
 
 A full local suite went 8,114 passed at 09:45Z. CI on the same commit failed at

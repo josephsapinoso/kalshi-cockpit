@@ -636,3 +636,38 @@ class _AlreadyExists(RuntimeError):
         super().__init__("HTTP 400")
         self.status_code = 400
         self.body = {"error": {"code": "already_exists"}}
+class TestTheStoredRowAgreesWithTheScreen:
+    """Issue #77, through the real route.
+
+    ADR 0172 fixed the payload and left the durable row saying `no_quotes`.
+    The two travelled separately for a day, which is exactly how a screen and
+    a record start disagreeing about the same moment.
+    """
+
+    async def test_a_too_finely_priced_ask_is_recorded_as_such(self, build):
+        app, _, path = build(quotes=[_quote_row("q1", "0.0055")])
+        body = (await _post(app, _body())).json()
+        assert body["status"] == "priced_too_finely"
+
+        conn = store.open_db(path, read_only=True)
+        try:
+            row = conn.execute("SELECT * FROM combo_rfqs").fetchone()
+        finally:
+            conn.close()
+        assert row["status"] == "priced_too_finely", (
+            "the screen said makers answered and the row said nobody did"
+        )
+        assert row["refused_too_fine"] == body["refused_too_fine"] == 1
+
+    async def test_nobody_answering_is_still_recorded_as_no_quotes(self, build):
+        app, _, path = build(quotes=[])
+        body = (await _post(app, _body())).json()
+        assert body["status"] == "no_quotes"
+
+        conn = store.open_db(path, read_only=True)
+        try:
+            row = conn.execute("SELECT * FROM combo_rfqs").fetchone()
+        finally:
+            conn.close()
+        assert row["status"] == "no_quotes"
+        assert row["refused_too_fine"] == 0

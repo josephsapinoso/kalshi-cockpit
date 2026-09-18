@@ -243,3 +243,87 @@ class TestTheSellSideIsStoredAndReadBack:
             conn, rfq_id="rfq-1", captured_ms=3_000, quotes=[_quote("q1", 407)],
         )
         assert store.quotes_for(conn, "rfq-1")[0]["yes_bid_tenths"] is None
+class TestTheRowSaysWhichOfThreeThingsHappened:
+    """Issue #77, schema v49. The screen stopped lying before this row did.
+
+    ADR 0172 gave the payload a third outcome. The durable row kept saying
+    `no_quotes`, which this module's own constant comment defines as "we asked
+    and nobody answered" -- a measurement about the market. There is now a
+    third case and it was filed under the first, in the population any later
+    "how often is a combination unquoted" measurement would count, and in the
+    flattering direction.
+
+    What these do not establish
+    ---------------------------
+    - Nothing about how often a real maker quotes in centi-cents. The column
+      exists so that question becomes answerable; it has no answer yet.
+    - Nothing about pre-v49 rows, which cannot be classified even in
+      principle: the refusals were not counted anywhere before ADR 0172, so a
+      `no_quotes` row written then is indistinguishable from a genuine one.
+    """
+
+    def test_refused_quotes_with_none_stored_is_not_no_quotes(self, conn):
+        _ask(conn)
+        store.record_quotes(
+            conn, rfq_id="rfq-1", quotes=[], captured_ms=2_000,
+            refused_too_fine=2,
+        )
+        row = conn.execute("SELECT * FROM combo_rfqs").fetchone()
+        assert row["status"] == store.STATUS_PRICED_TOO_FINELY
+        assert row["quote_count"] == 0
+        assert row["refused_too_fine"] == 2
+
+    def test_nobody_answering_is_still_no_quotes(self, conn):
+        """The real measurement about the market must not move."""
+        _ask(conn)
+        store.record_quotes(conn, rfq_id="rfq-1", quotes=[], captured_ms=2_000)
+        row = conn.execute("SELECT * FROM combo_rfqs").fetchone()
+        assert row["status"] == store.STATUS_NO_QUOTES
+        assert row["refused_too_fine"] == 0
+
+    def test_a_stored_quote_outranks_a_refusal(self, conn):
+        """Matches the payload's precedence (ADR 0172).
+
+        One representable quote means there was a price to show. Filing that
+        under a complaint would lose it.
+        """
+        _ask(conn)
+        store.record_quotes(
+            conn, rfq_id="rfq-1", quotes=[_quote("q1", 407)], captured_ms=2_000,
+            refused_too_fine=3,
+        )
+        row = conn.execute("SELECT * FROM combo_rfqs").fetchone()
+        assert row["status"] == store.STATUS_QUOTED
+        assert row["refused_too_fine"] == 3, (
+            "the count must survive even when it does not decide the status"
+        )
+
+    def test_zero_refusals_is_recorded_as_zero_not_null(self, conn):
+        """0 here is a real observation: this ask refused nobody.
+
+        NULL is reserved for a pre-v49 row, which genuinely does not know.
+        """
+        _ask(conn)
+        store.record_quotes(conn, rfq_id="rfq-1", quotes=[], captured_ms=2_000)
+        row = conn.execute("SELECT refused_too_fine FROM combo_rfqs").fetchone()
+        assert row["refused_too_fine"] == 0
+        assert row["refused_too_fine"] is not None
+
+    def test_the_check_constraint_admits_the_new_status(self, conn):
+        """The rebuild is the point of the migration; this is its guard."""
+        _ask(conn)
+        conn.execute(
+            "UPDATE combo_rfqs SET status = ? WHERE rfq_id = ?",
+            (store.STATUS_PRICED_TOO_FINELY, "rfq-1"),
+        )
+        conn.commit()
+
+    def test_the_check_constraint_still_refuses_a_made_up_status(self, conn):
+        """Widening it must not turn it off."""
+        import sqlite3 as _sqlite3
+        _ask(conn)
+        with pytest.raises(_sqlite3.IntegrityError):
+            conn.execute(
+                "UPDATE combo_rfqs SET status = 'invented' WHERE rfq_id = ?",
+                ("rfq-1",),
+            )

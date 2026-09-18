@@ -68,6 +68,15 @@ logger = logging.getLogger(__name__)
 #: §2). A REBUILD, not a column step: SQLite cannot relax a NOT NULL or a
 #: table-level CHECK in place. The rows already written keep their real typed
 #: values -- nothing is deleted, backfilled, zeroed or rewritten.
+#: v49 (2026-09-18) widens `combo_rfqs.status` to admit
+#: `'priced_too_finely'` and adds `.refused_too_fine` -- the RFQ row was
+#: recording `no_quotes` ("we asked and nobody answered") for an ask whose
+#: makers all quoted finer than a tenth of a cent, contaminating the
+#: population any later "how often is a combination unquoted" measurement
+#: would count, in the flattering direction. A REBUILD, not a column step,
+#: for the same reason v35 and v38 were: SQLite cannot widen a table-level
+#: CHECK in place. No backfill is possible -- the refusals were never
+#: counted before ADR 0172. See `docs/adr/0175-*`.
 #: v48 (2026-09-18) adds `combo_rfq_quotes.yes_bid_tenths` -- the number a
 #: maker would PAY for a combination Joe holds. `parse_quotes` discarded
 #: `yes_bid_dollars`, so the exit price existed on the wire and in no
@@ -153,7 +162,7 @@ logger = logging.getLogger(__name__)
 #: `executescript` cannot do that. Written on `main`, 2026-09-18, the
 #: evening `/api/window` measured 7 s at the median and tripped the 25 s
 #: read budget twice.
-SCHEMA_VERSION = 48
+SCHEMA_VERSION = 49
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -958,6 +967,80 @@ _PARLAY_LOOKUPS_ADMIT_REFUSED_UNDO = (
 )
 
 
+
+def _combo_rfqs_create(table: str, *, too_finely_allowed: bool) -> str:
+    """The `combo_rfqs` shape, in both directions of the v49 step.
+
+    `schema.sql` carries the canonical column comments; this is DDL only,
+    kept in one function so the CHECK's two spellings cannot drift the way
+    two hand-typed `CREATE TABLE` statements would. Same pattern, and the
+    same reason, as `_parlay_lookups_create` at v38.
+    """
+    statuses = "'asked', 'quoted', 'no_quotes', 'error'"
+    if too_finely_allowed:
+        statuses += ", 'priced_too_finely'"
+    return (
+        f"CREATE TABLE IF NOT EXISTS {table} (\n"
+        "    id                   INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+        "    rfq_id               TEXT NOT NULL UNIQUE,\n"
+        "    requested_ms         INTEGER NOT NULL,\n"
+        "    card_key             TEXT,\n"
+        "    ticker               TEXT NOT NULL,\n"
+        "    collection_ticker    TEXT NOT NULL,\n"
+        "    selected_legs        TEXT NOT NULL,\n"
+        "    exchange_index       INTEGER NOT NULL,\n"
+        "    target_cost_dollars  TEXT,\n"
+        "    contracts_requested  INTEGER,\n"
+        "    fair_joint           REAL,\n"
+        "    book_yes_ask_tenths  INTEGER,\n"
+        "    quote_count          INTEGER NOT NULL DEFAULT 0,\n"
+        + ("    refused_too_fine     INTEGER,\n" if too_finely_allowed else "")
+        + "    status               TEXT NOT NULL,\n"
+        "    error_text           TEXT,\n"
+        "    deleted_ms           INTEGER,\n"
+        f"    CHECK (status IN ({statuses}))\n"
+        ")"
+    )
+
+
+#: The columns carried ACROSS the v49 rebuild in both directions -- i.e. every
+#: v48 column. `refused_too_fine` is deliberately absent: it does not exist at
+#: v48, so it cannot be selected on the way forward, and it must not be
+#: selected on the way back.
+_COMBO_RFQS_COLUMNS_V48 = (
+    "id, rfq_id, requested_ms, card_key, ticker, collection_ticker, "
+    "selected_legs, exchange_index, target_cost_dollars, contracts_requested, "
+    "fair_joint, book_yes_ask_tenths, quote_count, status, error_text, "
+    "deleted_ms"
+)
+
+_COMBO_RFQS_ADMIT_TOO_FINELY = (
+    _combo_rfqs_create("combo_rfqs_v49", too_finely_allowed=True),
+    f"INSERT OR IGNORE INTO combo_rfqs_v49 ({_COMBO_RFQS_COLUMNS_V48}) "
+    f"SELECT {_COMBO_RFQS_COLUMNS_V48} FROM combo_rfqs",
+    "DROP TABLE combo_rfqs",
+    "ALTER TABLE combo_rfqs_v49 RENAME TO combo_rfqs",
+    "CREATE INDEX IF NOT EXISTS idx_combo_rfqs_time "
+    "ON combo_rfqs(requested_ms DESC)",
+)
+
+#: The v48 shape, for the migration tests that build an "old" database by
+#: undoing this step. `WHERE status != 'priced_too_finely'` is the v38/v35
+#: precedent: such a row could not have existed at v48, so none survives the
+#: trip back, and on a real v48-to-v49-to-v48 round trip there are none to
+#: drop.
+_COMBO_RFQS_ADMIT_TOO_FINELY_UNDO = (
+    _combo_rfqs_create("combo_rfqs_v48", too_finely_allowed=False),
+    f"INSERT OR IGNORE INTO combo_rfqs_v48 ({_COMBO_RFQS_COLUMNS_V48}) "
+    f"SELECT {_COMBO_RFQS_COLUMNS_V48} FROM combo_rfqs "
+    "WHERE status != 'priced_too_finely'",
+    "DROP TABLE combo_rfqs",
+    "ALTER TABLE combo_rfqs_v48 RENAME TO combo_rfqs",
+    "CREATE INDEX IF NOT EXISTS idx_combo_rfqs_time "
+    "ON combo_rfqs(requested_ms DESC)",
+)
+
+
 #: Schema versions that added ONLY new tables, and so need no `_MIGRATIONS`
 #: step at all.
 #:
@@ -1127,6 +1210,40 @@ _MIGRATIONS: dict[int, _Migration] = {
     # seeded kickoff with the feed's current one. Rehearsed on a live-shaped
     # 3.6M-row database by `scripts/measure_odds_fixtures.py`; the timing is in
     # its ADR. No `columns`, so dropping the table is the whole undo.
+    # The RFQ row stops saying nobody quoted when makers quoted too finely
+    # (v49, 2026-09-18, #77, ADR 0175).
+    #
+    # ADR 0172 gave the PAYLOAD a third outcome, `priced_too_finely`: makers
+    # answered and every price was finer than a tenth of a cent, which the desk
+    # refuses rather than rounds onto the money path. The durable row kept
+    # saying `no_quotes`, which this table's own constant comment defines as
+    # "we asked and nobody answered" -- a measurement about the market. There
+    # is now a third case and it was filed under the first.
+    #
+    # **This matters more than the screen did.** The screen is read once; this
+    # row is the population any later measurement of how often a combination
+    # goes unquoted would count, and it was contaminated in the FLATTERING
+    # direction -- it made the market look quieter than it is.
+    #
+    # A REBUILD, not a column step, for the same reason v35 and v38 were:
+    # SQLite cannot widen a table-level CHECK in place. The rows already
+    # written keep their real values -- nothing is deleted, backfilled or
+    # rewritten. **No backfill is possible even in principle**: the refusals
+    # were never counted before ADR 0172, so a pre-v49 `no_quotes` row cannot
+    # be told apart from a genuine one, and guessing would put invented data
+    # in the exact column that exists to stop a guess.
+    #
+    # `refused_too_fine` rides along in the same rebuild because it is free
+    # there and a later measurement wants a COUNT, not a status: "how often"
+    # is a different question from "which case this was". Nullable -- a
+    # pre-v49 row genuinely does not know.
+    #
+    # Cheap on the live volume: `combo_rfqs` is one row per ask, tens of rows.
+    49: _Migration(
+        statements=_COMBO_RFQS_ADMIT_TOO_FINELY,
+        indexes=("idx_combo_rfqs_time",),
+        undo_statements=_COMBO_RFQS_ADMIT_TOO_FINELY_UNDO,
+    ),
     # The SELL side of a maker's quote, on `combo_rfq_quotes` (v48,
     # 2026-09-18, #76).
     #

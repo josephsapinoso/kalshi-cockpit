@@ -2720,10 +2720,28 @@ CREATE TABLE IF NOT EXISTS combo_rfqs (
     -- state of a combination, not a fault.
     book_yes_ask_tenths  INTEGER,
     quote_count          INTEGER NOT NULL DEFAULT 0,
+    -- How many distinct makers answered at a price finer than a tenth
+    -- of a cent, schema v49 (#77). A COUNT and not just a status,
+    -- because "how often" is a different question from "which case
+    -- this was", and only the count can answer the first.
+    --
+    -- NULLABLE, and nullable is the decision: a pre-v49 row genuinely
+    -- does not know -- the refusals were not counted anywhere before
+    -- ADR 0172 -- and a 0 would claim nobody was refused. Unreadable
+    -- resolves to NULL, never to zero.
+    refused_too_fine     INTEGER,
     status               TEXT NOT NULL,
     error_text           TEXT,
     deleted_ms           INTEGER,
-    CHECK (status IN ('asked', 'quoted', 'no_quotes', 'error'))
+    -- `priced_too_finely` (v49): makers answered and every price was
+    -- finer than a tenth of a cent, so the desk refused them all rather
+    -- than rounding one onto the money path (ADR 0172). It is NOT
+    -- `no_quotes`, which the constants below define as "we asked and
+    -- nobody answered" -- a measurement about the market. Filing the
+    -- third case under the first made the market look quieter than it
+    -- is, in the population a later measurement would count.
+    CHECK (status IN ('asked', 'quoted', 'no_quotes', 'error',
+                      'priced_too_finely'))
 );
 CREATE INDEX IF NOT EXISTS idx_combo_rfqs_time
     ON combo_rfqs(requested_ms DESC);

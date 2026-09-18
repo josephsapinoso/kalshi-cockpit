@@ -45,6 +45,13 @@ logger = logging.getLogger(__name__)
 STATUS_ASKED = "asked"
 STATUS_QUOTED = "quoted"
 STATUS_NO_QUOTES = "no_quotes"
+#: Makers answered and every price was finer than a tenth of a cent, so
+#: the desk refused them all rather than rounding one onto the money path
+#: (ADR 0172, schema v49). A THIRD case, not a flavour of `no_quotes`:
+#: the comment above distinguishes "the market did not answer" from "we
+#: never read the answer", and this is a third thing again -- the market
+#: answered and we could not represent what it said.
+STATUS_PRICED_TOO_FINELY = "priced_too_finely"
 STATUS_ERROR = "error"
 
 
@@ -112,6 +119,7 @@ def record_quotes(
     rfq_id: str,
     quotes: Iterable[RfqQuote],
     captured_ms: int,
+    refused_too_fine: int = 0,
 ) -> int:
     """Persist the quotes and stamp the RFQ's outcome. Returns rows touched.
 
@@ -148,6 +156,13 @@ def record_quotes(
     differ exactly when a write failed, which is the case this count exists to
     make visible -- deriving it from the argument would report success for
     rows that never landed.
+
+    **`refused_too_fine` cannot come from the table, and that asymmetry is
+    deliberate** (#77). A refused quote never becomes an `RfqQuote` and so
+    never becomes a row -- that is the whole reason the status was wrong --
+    so the caller passes the count it unioned by quote id across the poll
+    loop. It defaults to 0 so that every other writer and every test keeps
+    its current meaning, and 0 with no stored quotes is still `no_quotes`.
     """
     written = 0
     for quote in quotes:
@@ -181,9 +196,23 @@ def record_quotes(
     stored = conn.execute(
         "SELECT COUNT(*) FROM combo_rfq_quotes WHERE rfq_id = ?", (rfq_id,)
     ).fetchone()[0]
+    # **Three outcomes, and the precedence matches the payload's** (ADR
+    # 0172): a stored quote means there was a price to show, so `quoted`
+    # outranks `priced_too_finely`. The reverse would file a takeable
+    # price under a complaint.
+    if stored:
+        status = STATUS_QUOTED
+    elif refused_too_fine:
+        status = STATUS_PRICED_TOO_FINELY
+    else:
+        status = STATUS_NO_QUOTES
     conn.execute(
-        "UPDATE combo_rfqs SET quote_count = ?, status = ? WHERE rfq_id = ?",
-        (stored, STATUS_QUOTED if stored else STATUS_NO_QUOTES, rfq_id),
+        "UPDATE combo_rfqs SET quote_count = ?, refused_too_fine = ?, "
+        "status = ? WHERE rfq_id = ?",
+        # NULL, not 0, when nothing was refused on an ask that predates
+        # any refusal being counted -- see the column comment. 0 here is
+        # a real observation: this ask refused nobody.
+        (stored, int(refused_too_fine), status, rfq_id),
     )
     return written
 
