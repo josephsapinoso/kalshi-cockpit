@@ -126,6 +126,202 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-18 (thirty-fifth session) — the file is split, the volume is measured, and the VACUUM window turns out to run on a filesystem nobody had read
+
+Joe named the first three items himself — split `NEXT.md`, run `db-sizes`, put
+#58/#71/#78 in front of him as one sheet — then builds. He also asked two
+questions mid-session: whether the history belongs on a personal Google Drive,
+and how parlays are chosen.
+
+### What shipped
+
+| commit | what |
+|---|---|
+| `270ad71` | the split: 14 entries out, md5-verified, 30 insertions / 2,698 deletions |
+| (this) | the measurement, the `fair_prices` correction, this entry, lessons |
+
+### 1. The split, and what it taught
+
+234,750 bytes → 73,847 (**89.6% → 28.2%**). Everything 2026-09-17 and earlier
+moved to `archive/next-2026-09-18.md`. md5 `e2eb3b8abb93cb345b90d5134f0e1d0f`.
+
+**The rule worked and the split was still late.** The previous session read
+`wc -c`, recorded 87%, wrote **"SPLIT THIS FILE NEXT SESSION"** — and then wrote
+its entry anyway. That converts a check into a to-do. `next-split-log.md`
+carries the full form: **a trigger that hands the cut to the next session fires
+late by exactly one session**, and the session that discovers the file is near
+the line is the session that cuts it.
+
+### 2. Where the 6.48 GB is — `docs/measurements/2026-09-18-where-the-database-bytes-are.md`
+
+| family | table | indexes | total | share |
+|---|---|---|---|---|
+| `odds_snapshots` | 0.85 GB | **1.75 GB** | **2.60 GB** | **40.1%** |
+| `fair_prices` | 1.74 GB | 0.72 GB | 2.46 GB | 37.9% |
+| `kalshi_quotes` | 0.66 GB | 0.54 GB | 1.20 GB | 18.5% |
+
+**Two thirds of the unbounded table is index, not data** — 2.05x.
+
+**THE FINDING: there are two filesystems and the tighter one was never read.**
+`/data` has 13.74 GB free; the **container root has 7.87 GB of 8.35 GB**, and
+`cockpit.db` is 6.48 GB. A plain `VACUUM` builds its temp copy in
+`TMPDIR`/`/tmp` — the root overlay — so the real margin is **1.39 GB, about 15
+days**, tighter than any `/data` clock and absent from every version of this
+arithmetic. **`VACUUM INTO '/data/...'` is the fix and it is one word**: a path
+you choose, 1x on that filesystem, non-destructive.
+
+**The growth rate is reconciled and the 137 was contaminated.** Two instruments
+sharing no code: `db_kb` over 46.5 h gives 82.5 MB/day (82.3 on `db_kb+wal_kb`);
+dbstat differencing against the 2026-09-09 read gives 76.6 like-for-like and
+87.4 for the file net of two one-time index builds. **The 137 figure's window
+contained 624 MB of index construction** (`idx_odds_event_commence` v39 and
+`idx_odds_window` v41, both 2026-09-10) smeared across it as a rate. Call it
+**~85–110 MB/day, floor 82.5**. `CURRENT_GROWTH_RATE` was **deliberately not
+lowered** — too-high fires tiers early, which is the safe direction, and
+`volume.py:50-72`'s argument stands.
+
+**A plan in the record does not work:** the multi-day slope `volume.py:69` wants
+"from the `db_kb` series" cannot come from there — `RSS_LOG_CAP_BYTES` is 2 MiB
+trimmed to 1 MiB, so the file holds 1–2 days and can never reach a week. dbstat
+differencing is what supplies it.
+
+### 3. Retention cannot be the disk lever, and its shape is constrained
+
+The database is 42 days old, so a 90-day horizon deletes **zero**; a 30-day cut
+reaches ≤~34 MB of rows plus index entries. **And a row-age rule would corrupt
+recorded kickoff times**: eleven production readers take `MIN(commence_ms)` per
+fixture over that fixture's entire history — `scoring.py:172`,
+`routers/ledger.py:340`, `routes.py:1423`/`:4728`, `gate.py:955`,
+`parlays.py:668`/`:2584`, `routers/scout.py:68`. `parlays.py:682-687` says the
+filter is deliberately absent for that reason. **Per-fixture only, via
+`event_links.odds_event_id`** — the same escape hatch `kalshi_quotes` uses.
+
+### 4. Two corrections to this file's own record
+
+- **"`kalshi_quotes` and `fair_prices` are pruned" was false about
+  `fair_prices`, and Joe was handed it as an input to #58.** Corrected in place
+  above. NOT reopened — the 2026-09-01 run returned NOT WORTH ARMING and the
+  verdict tracks the eligible fraction, which has not moved.
+- **"CLAUDE.md's 'two thirds is `kalshi_quotes`'" — that sentence is not in
+  CLAUDE.md and never has been.** Zero matches in the file or any commit of it.
+  Only `NEXT.md` asserts that CLAUDE.md says it. Joe repeated it to this
+  session as an instruction, and this session repeated it back to him before
+  checking. **A citation is a claim; grep the cited file before repeating it.**
+
+### 5. The parlay question — answered, and it found a contradiction between two screens
+
+Joe asked how parlays are chosen. The desk **builds** them: one pool of
+devigged legs, one leg per fixture, cut nine ways by `CARD_SHAPES`
+(`core/ladder.py:254`), ranked only by `p_conservative` or the clock. Kalshi
+supplies a permission list, then mints on tap.
+
+**Same-game is structurally refused** (`_best_per_game`, `ladder.py:607`;
+re-checked server-side at `parlays.py:2734`), which is right — the correlation
+is unmeasured and multiplying overstates in the flattering direction.
+Cross-game rho is a guess (0.05 / 0.02 / 0.0 past 24 h, `correlation.py:57`).
+
+**The finding: `suppressed_reason` is DISPLAY ONLY on the parlay path.**
+A leg the single-market path suppresses as `suspicious_edge` — rule 1's own
+"this is a bug, not an edge" — is still selected and multiplied into a card's
+headline. `Recipe` has **no field** for book count, suppression, or Kalshi
+quote age. `min_book_count = 2` exists and feeds only the trust badge. One
+screen contradicts the other.
+
+### 6. #76 slice 3 — the pre-build review Joe made a precondition, and it paid
+
+`kalshi-platform`, before any code. Seven defects; the design as stated would
+have shipped at least three wrong numbers to a screen read mid-game.
+
+- **`target_cost_dollars` is the wrong field for a sell** — it is a *spend
+  budget the exchange converts into a contract count*. Use `contracts_fp`
+  (0.01 increments), **floored, never rounded**, with N read from
+  `/portfolio/positions` `position_fp` — `parlay_positions` has no contracts
+  column at all.
+- **`build_payload` runs on a 60 s loop** (`hedge_watch.py:74`). Wiring the ask
+  into it fires ~1,440 RFQs/day unattended. It must be its own POST route.
+- **RFQ writes bill the shard-1 Write bucket, shared with order writes** — so a
+  chatty `/hedge` spends the armed path's budget.
+- **`_is_reusable` returns `True` unconditionally when `wanted_target is None`**
+  (`kalshi/rfq.py:352`), three lines under a docstring stating the opposite
+  principle. Not a live bug — every current caller passes a target — but a
+  `contracts`-sized sell ask would silently reuse the open $5 buy RFQ.
+- **Two of the three measured exits are below this repo's price resolution**,
+  and the two surfaces disagree: the RFQ path *refuses* finer-than-tenths and
+  discards the reason at `rfq.py:263`, while the book path *rounds HALF_UP*.
+  A dust level raises `MalformedBookMessage` and aborts the whole book read —
+  rendering "no resting bid" about a book 24,900 contracts deep.
+- **No committed fixture carries a non-zero `yes_bid_dollars`.** The YES-bid
+  tests mutate the one capture by hand, against the wire-format rule. The
+  sell-only quote shape has never been seen by this codebase.
+- `yes_ask_tenths` must become `Optional[int]`; migration 50 is a **table
+  rebuild**, not a column add — SQLite cannot drop `NOT NULL` in place.
+
+### 7. #74 — the shortcut does not exist, and the ticket is now a measurement
+
+Checked whether `/hedge` could resolve a combo stake from the existing `fills`
+mirror instead. **No**: `stake_bases` (`hedge.py:700`) joins `manual_orders` on
+`(ticker, submitted_ms)` and never reads `fills`; an RFQ accept writes no
+`manual_orders` row; and `fills` has no `(combo_ticker, placed_ms)`-shaped key.
+**And whether a KXMVE combo fill reaches `/portfolio/fills` at all, under what
+ticker, is unresolved by the repo** — `combo_rfq.py:776` says so itself. So
+#74's synchronous read is not an optimisation, it is the thing that settles it.
+
+Also corrected: the method is **`fills`**, not `get_fills`
+(`kalshi/rest.py:722`), and it **raises** on a renamed key rather than
+returning `[]`. `poll_fills` runs unconditionally at a **12-hour** cadence, not
+5 minutes.
+
+### Still open
+
+1. **#58, #71 and #78 are with Joe as one lettered sheet** — posted to all
+   three tickets 2026-09-18. #58 is re-lettered against the real numbers and
+   my read is (c). **The urgent half is the root filesystem, not `/data`**:
+   ~15 days of margin, and `VACUUM INTO` removes the problem rather than
+   racing it.
+2. **#74 is the next build** and it is a venue measurement, not a refactor.
+   Build it try/upgrade/never-block: execution is ~1.1 s behind confirmation,
+   so an immediate read returning nothing is the normal case, and a fills
+   failure must still record at the quote's size with the `rfq_accept` basis
+   (`tests/test_combo_rfq_accept.py:569` already pins that).
+3. **#76 slice 2 is SERIAL after #74**, not parallel — slice 2 renders a cost
+   basis derived from the stake #74 corrects. Building it first ships a
+   flattering number to a screen Joe reads mid-game and then rewrites it.
+4. **#76 slice 3 is re-specified by the review above** and needs a captured
+   fixture of a real sell-side quote landed in the same commit as the parser
+   change. Its first fire is a venue integration, not a UI change.
+5. **`backend/scoring.py:172`/`:187` scans the whole 249 MB
+   `idx_odds_event_commence`, covering, on every scoring pass, with no `WHERE`
+   clause at all.** Same shape as the `/api/window` walk the thirty-first
+   session fixed. Not a retention input; its own item. Do **not** assert it
+   explains `/api/hedge`'s 2,090 ms — that is a hypothesis.
+6. **`idx_odds_event` (479.6 MB) has no production statement planning onto it**
+   — a 26-statement drop-test changed zero plans. **Deliberately kept off Joe's
+   sheet**: `2e66f36` removed an `odds_snapshots` index for "changes no plan"
+   and had to restore it, *"the plan was never the cost."* **Readmission to the
+   agenda needs a timing, not a plan comparison** — and confirming it on live
+   needs a query that does not exist, so it needs a deploy first.
+7. **Nothing re-runs a devig over historical rows.** `schema.sql:210-213` gives
+   that capability as *the* reason for storing raw and it has no exerciser
+   anywhere. Bears on what old rows are worth; not a proposal to delete.
+8. **The Odds API's terms are unexamined and ADR 0035 contradicts itself** —
+   `:122` asserts their data is redistributable, `:186` says their terms are
+   "unexamined here". Blocks any off-box archive, not retention.
+9. The parlay findings in §5 are unticketed — Joe was asked whether to open
+   tickets or fold them into the sheet, and has not answered.
+10. The 882 MB owned by no file is still there (882,337,951, −12,457 in a day).
+    **Run `inspect_live_disk.py` immediately before and after the next deploy** —
+    a restart tests the deleted-but-still-open hypothesis at zero cost, and it
+    is ~10% of the `/data` window.
+11. **`tasks/lessons.md` is 225,816 bytes — 86.1% after this session's entry,
+    and it is the next file to split.** Under the ~90% trigger, one long entry
+    from it. Cut it at the START of the next session, before writing anything:
+    that is this session's own first lesson and it applies to whoever reads
+    this line.
+
+Question for Joe: the volume grew into its own auto-extend limit and a plain VACUUM's temp copy has ~15 days of room on the container root — raise the limit, add per-fixture retention, both, or neither? — #58
+
+---
+
 ## 2026-09-18 (thirty-fourth session) — the disk net has gone inert again, ADR 0175's leftover guard is closed, and I broke a governance rule four times before finding it
 
 Joe said "read next.md and continue", so the partner agent ran (CLAUDE.md
@@ -233,6 +429,26 @@ keeps and Joe audits").
    one table**: `kalshi_quotes` and `fair_prices` are pruned, `odds_snapshots`
    has no `DELETE` anywhere (grep-verified) and is the whole residual
    ~137 MB/day.
+
+   **"`fair_prices` is pruned" is FALSE, corrected 2026-09-18 (thirty-fifth
+   session), and Joe was handed it as an input to this decision.** Its
+   downsample is registered, built and tested, and it is **off**:
+   `FairPriceDownsampleConfig.enabled` defaults `False` (`backend/config.py:1032`),
+   `dry_run` defaults `True` (`:1033`), and `fly.live.toml` sets neither flag,
+   so `runner.py:3563` threads a config through that refuses twice.
+   `runner.py:381-386` says so in its own comment — *"Zero on every deployed
+   pass today"*. **That is not an oversight and is NOT to be reopened**: the
+   2026-09-01 deciding run returned **NOT WORTH ARMING**
+   (`estimated_freed_bytes` 36,039,175 against a 322,800,000 threshold; the
+   rule reaches 4.0% of rows) and §6 of the registration authorises an arming
+   ADR only on ELIGIBLE TO PROPOSE ARMING, so none was ever owed. The verdict
+   tracks the eligible *fraction*, which has not moved, so it survives the
+   table's growth. What bounds `fair_prices` is **ADR 0133's write-time
+   dedup**, not a prune — the word to use is *deduped at write*.
+   **The conclusion above survives, by a different fact**: `odds_snapshots` is
+   still the only table with no bound at all, but it is now the only one for
+   the reason that the other two are bounded by *different mechanisms*, not
+   because both are pruned. `fair_prices` is 2.45 GB and 37.9% of the file.
 
    **The new argument, and it changes the ORDER not just the choice:**
    deleting rows in SQLite does not shrink the file — pages are freed for

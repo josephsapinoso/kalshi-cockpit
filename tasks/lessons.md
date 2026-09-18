@@ -16,6 +16,108 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-18 (twenty-sixth) - a check handed forward is a to-do, a citation is a claim, and a clock that counts free space has to name the filesystem
+
+Seven patterns from the session that split this file's sibling, measured the
+volume, and had three of its own claims refuted before they reached Joe.
+
+- **A trigger that hands the work to the next session fires late by exactly one
+  session.** The previous session read `wc -c`, recorded 87%, wrote **"SPLIT
+  THIS FILE NEXT SESSION"** into its own entry — and then wrote the entry
+  anyway. The rule says read the size *before* writing and cut if it is near;
+  reading it, writing regardless, and leaving an instruction converts a check
+  into a to-do, and the margin left was one long entry. This is harder to catch
+  than a missed check, because the handoff *quotes the rule* and therefore reads
+  as compliance. **The session that discovers the file is near the line is the
+  session that cuts it**, and the cut goes in before that session's entry, not
+  into its handoff.
+
+- **A citation is a claim. Grep the cited file before repeating it, even when
+  the person citing it is the one who wrote the file.** This session was told,
+  as an instruction, that *"CLAUDE.md's 'two thirds of the file is
+  `kalshi_quotes`' is STALE — don't quote it, measure it."* The instruction was
+  right about the number and wrong about the location: **CLAUDE.md contains no
+  occurrence of `kalshi_quotes` or "two thirds", in any commit.** The sentence
+  exists only in `tasks/NEXT.md`, asserting that CLAUDE.md says it. This
+  session then repeated the attribution back in its own report before checking.
+  The cost of a false citation is a session sent to edit the wrong document, and
+  the check is one `grep`.
+
+- **"Pruned", "enabled", "handled", "wired up" name a capability, not a state.
+  Name the flag and its deployed value, or do not use the word.**
+  `tasks/NEXT.md` told Joe *"`kalshi_quotes` and `fair_prices` are pruned"* as
+  an input to a decision he was being asked to make. `fair_prices` has a
+  registered, built, tested downsample whose `enabled` defaults `False`, whose
+  `dry_run` defaults `True`, and which `fly.live.toml` does not configure — so
+  it has never removed a row on live, and `runner.py:381-386` says so in its own
+  comment. The sentence that should have been there names the flag. **And the
+  conclusion it supported survived by a different fact** — `odds_snapshots` is
+  still the only unbounded table, but because the other two are bounded by
+  *different mechanisms*, not because both are pruned. That is the third
+  instance in a week of a justification decaying into being **right**, which
+  reads as verified and is the hard case.
+
+- **A comment justifying stored data is a claim about a capability, and it
+  should be grepped for an exerciser exactly as a module is grepped for a
+  caller.** `schema.sql:210-213` gives *"the ability to re-run with a different
+  method"* as **the** reason `odds_snapshots` keeps raw rows rather than a
+  consensus — the largest table in the file, 40% of the database. Nothing in
+  `backend/` or `scripts/` re-runs a devig over historical rows; every devig
+  call site is fed by a newest-sweep reader. This is "built but never called"
+  applied to **data**, and it is worse than the code version: nobody notices,
+  because the data is doing something (it exists) and the capability it exists
+  for is never invoked.
+
+- **A guard written as a ratio against file size changes meaning when you
+  archive half the file.** `test_the_latest_entry_ends_at_a_rule_not_at_eof`
+  asserts the parsed entry is under half the file, to catch a parser that ran
+  to EOF. `tasks/NEXT.md` has exactly two `---` rules in it, so the parser had
+  *always* over-read — swallowing every entry — and the test passed only
+  because the archive index made up the other half. After the split it passed
+  by **190 bytes**, and the next entry written failed it. The guard was right
+  and had been green for the wrong reason for weeks. **When an archive moves
+  bytes out of a file, re-run the guards that measure a part of that file
+  against the whole of it** — the numerator did not move and the denominator
+  did.
+
+- **A two-point difference of a step function is a step, not a rate — and
+  before quoting any slope, ask whether its window contains a one-time build.**
+  The ~137 MB/day figure this project was planning against is a true file slope
+  whose 8.94-day window **contained 624 MB of index construction** (two indexes
+  created on 2026-09-10), smeared across it as though it were growth. Differencing
+  the like-for-like subset — the table plus only the indexes that existed at both
+  ends — gives 76.6 MB/day and needs no assumption about when the build landed.
+  Separately, `db_kb` is flat between WAL checkpoints and while free-list pages
+  are being consumed, so **79.4% of consecutive passes show zero growth** and both
+  endpoints of a short slope can land anywhere inside a step. Two estimators that
+  share no code agreeing is what made the answer trustworthy; neither alone was.
+
+- **A clock that counts free space has to name the filesystem.** The volume
+  question had been argued for three sessions on `/data`'s 13.74 GB. A plain
+  `VACUUM` builds its temporary copy in `SQLITE_TMPDIR`/`TMPDIR`/`/tmp`, which
+  on this container is **the root overlay, not the mounted volume** — 7.87 GB
+  of 8.35 GB against a 6.48 GB file, a margin of 1.39 GB and about fifteen
+  days. The tighter constraint was on a filesystem nobody had read, and the
+  sanctioned instrument could already read it (`inspect_live_disk.py --root /`).
+  The general form: **when a remedy needs space, find out where it writes
+  before computing how long you have** — and prefer the variant that lets you
+  choose (`VACUUM INTO '<path>'` needs 1x on a path you name, and is
+  non-destructive).
+
+- **A review commissioned before a build is worth more than the same review
+  after it, and this is the measurement of that.** `kalshi-platform` was run on
+  #76 slice 3's *design*, per Joe's instruction, before a line existed. It
+  returned seven defects, three of which would have put a plausible-looking
+  wrong number on a screen read mid-game: the field the design named
+  (`target_cost_dollars`) is a spend budget the exchange converts to a contract
+  count and is meaningless on a sell; the function the design would have hung
+  the control off runs on a **60-second loop**, so the "read-only" screen would
+  have fired ~1,440 venue writes a day into the bucket the armed order path
+  shares; and two of the three measured exit prices are **below this repo's own
+  price resolution**, where one surface refuses and the other rounds half-up.
+  None of those is findable by reviewing a diff, because each is a property of
+  the choice rather than of the code.
+
 ## 2026-09-18 (twenty-fifth) - A justification can decay into being RIGHT by accident, and an agent drifts from a convention it cannot be stopped from breaking
 
 Four patterns from a session that closed ADR 0175's leftover guard and put the
