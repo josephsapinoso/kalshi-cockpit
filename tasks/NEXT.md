@@ -126,6 +126,105 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-18 (thirty-second session) — Joe answered four tickets in one line, the RFQ path got the review it never had, and a venue check refuted a sentence this session had shipped an hour earlier
+
+Session opened on "read next.md and continue", so the partner agent ran
+(CLAUDE.md workflow 0). It put the **RFQ accept path** first — armed, deployed,
+spends on one tap, and with none of the review the order-book path got in
+#39–#47 — and it was right.
+
+**Joe answered `62 A  63 A  64 A  65 A` mid-session**, within about an hour of
+the batched sheet going up. Four tickets closed, three of them built the same
+night.
+
+### What shipped
+
+| commit | what | ADR |
+|---|---|---|
+| `2624ca5` | two comments on the armed RFQ path still said it was disarmed | — |
+| `b92d6ec` | a combination bought through Take-it is recorded as a position | 0169 |
+| `523fbda` | Joe types the RFQ size; both price surfaces; quote age; dollars on the button; glossary | 0170 |
+| `1af980c` | the venue review's corrections | 0169 Amd 1, 0170 Amd 1 |
+| `cecebe9` | the Parlays lede; the login slides | 0171 |
+
+### The three findings that mattered
+
+**1. `record_position` had two callers and the newest armed door was not one
+of them (#69, ADR 0169).** A combination bought by RFQ created no position, so
+`/hedge` could not watch it and `VenueCoverageBanner` reported the desk's own
+purchase back as an unrecorded Kalshi holding.
+
+The ticket said ADR 0160's machinery "applies unchanged" and that this path
+could set `venue_fill` honestly. **Neither held.** An RFQ writes no
+`manual_orders` row, so the position's join key is *formed and unmatchable* —
+which ADR 0160 Amendment 2 defines as a bookkeeping gap. Unamended, the desk
+would have reported a designed state as a defect on every RFQ position, which
+is the exact conflation issue #56 removed nine days earlier. Hence an eleventh
+`stake_basis` reason, `rfq_accept`.
+
+**2. A re-priced quote left a stale price in the only copy the accept reads.**
+Highest money risk found, and pre-existing. `record_quotes` wrote `ON CONFLICT
+DO NOTHING` because "a quote seen twice is one quote" — true inside one poll
+loop, false across two asks: the RFQ is held open, `create_rfq` reuses it, so
+"Ask again" returns the **same quote ids**, and the payload carries an
+`updated_ts`. Screen showed the fresh price; the table kept the first; the
+accept reads the table and sends no price. Now `DO UPDATE`, with
+`WHERE accepted_ms IS NULL`.
+
+**3. The quote-age warning this session shipped could never have been false.**
+`QUOTE_LIFE_MS = 3_000` — but three seconds is the maker's window to confirm
+*after* an acceptance, not a quote's shelf life (measured: those quotes were
+still `open` forty seconds later), and `asked_ms` is stamped at route entry
+before a mandatory four-second poll, so the red branch fired on every first
+paint. A staleness warning that is on 100% of the time is one that gets
+skipped. The screen now asserts no expiry at all.
+
+### The venue review is the method worth repeating
+
+`kalshi-platform`, run over the merged slice **before deploy**, checked the
+fee arithmetic against `tests/fixtures/combo_rfq_quotes.json` — a real capture
+— instead of against the tests. Solving each maker's quoted size against the
+$5.00 target:
+
+    no_bid 0.4070 -> P 0.5930 -> k=0.070 gives 8.19, quoted 8.19
+    no_bid 0.3690 -> P 0.6310 -> k=0.070 gives 7.72, quoted 7.72
+    with no fee in the sizing:            8.43 / 7.92   refuted, 2 of 2
+
+**The target is fee-inclusive and the maker fits the fee inside it.** That
+confirmed §4's all-in figure (it is not double-counting; it errs high by ~0.3c)
+and **refuted `SHARD_HEADROOM`'s stated reason**, which the new refusal was
+printing to Joe verbatim. The false sentence is gone; the number is #71.
+
+Everything the review reported was re-derived here before it was believed, and
+one of its claims was adjusted on that re-check (n = 2 quotes in the fixture,
+not 3).
+
+### Still open
+
+1. **#63 is not built.** Joe answered (A): show both exit prices on `/hedge`,
+   read-only, no Sell button. Two things to know before starting.
+   `RfqQuote` **discards `yes_bid_dollars`** — the sell side needs parsing
+   before any of this works. And `/hedge` is polled, so firing an RFQ per open
+   position on every build would spam the exchange; the design call taken (not
+   yet implemented) is the public-book bid automatically and the RFQ behind a
+   tap. Say so in the ADR when it lands, because (A) reads as "both, always".
+2. **The registered fair-prices dedup look, 07:00–11:00Z.** Still not taken,
+   and **its Q1/Q2 are not implemented as whitelisted `QueryDef`s** — the
+   clock was never the binding constraint. Registration expires
+   2026-09-25; §9.2 says a miss records itself rather than re-deciding
+   anything. #58 waits on it.
+3. **#71 is a question for Joe** and the other four review tickets (#72–#75)
+   are builds. #74 is the one that matters: reading `/portfolio/fills` after
+   an `executed` accept settles whether an RFQ quote can partially fill —
+   which ADR 0169 asserted it cannot, on no measurement — and upgrades
+   `rfq_accept` to `venue_fill`.
+4. `inspect_live_db.py window-freshness` still runs the v41-shaped statement.
+5. `idx_odds_window` still carries `commence_ms` for a filter nothing applies.
+6. `odds_snapshots` still has no retention rule.
+7. Everything in the thirty-first session's Still-open list below stands.
+
+Question for Joe: should the combinations shard keep a 10% margin for a fee that is already inside the ask — #71
+
 ## 2026-09-18 (thirty-first session) — "the site is really slow again": every page was waiting on a route that walked every stored odds row, and now it reads a table with one row per fixture
 
 **Joe's errand, verbatim: "The site is being really slow again please make it

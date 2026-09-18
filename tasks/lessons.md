@@ -16,6 +16,55 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-18 (twenty-first) - Check a money claim against a captured payload, not against the tests; and a threshold taken from the wrong clock cannot ever be false
+
+Three patterns from reviewing an armed path, and the middle one is this
+session's own defect, caught an hour after shipping it.
+
+- **A green suite cannot check arithmetic the fake also believes.** The
+  all-in cost printed on a button that spends was computed as
+  `contracts x ask + fee`, and every test agreed because every test asked the
+  same fake. The question a test cannot answer is whether the VENUE thinks
+  the fee is already inside the number you asked for. The captured payload
+  answered it in one line of arithmetic: solve each maker's quoted size
+  against the requested target and see which fee assumption reproduces it
+  (`8.19` and `7.72` exactly, with the fee in; `8.43` and `7.92` without).
+  That confirmed the figure AND refuted the sentence written beside a
+  different constant, which was being printed to the user. **Before shipping
+  a money figure, find the captured payload that constrains it and solve
+  backwards.** If no capture exists, that absence is the finding (it was:
+  `/portfolio/balance` has no fixture and now gates money).
+
+- **A threshold is a claim about a clock, and it must be the RIGHT clock.**
+  A quote-age warning was set at three seconds because the venue documents a
+  three-second window on combinations -- but that window is the maker's time
+  to confirm AFTER an acceptance, not an unaccepted quote's shelf life. The
+  same repo had measured those quotes still open forty seconds later. Worse,
+  the age was taken from a timestamp stamped BEFORE a mandatory four-second
+  wait, so the warning could not be false at first paint under any
+  circumstances. **Two questions before any threshold ships: what does the
+  number I am comparing to actually measure, and what is the smallest value
+  the quantity can take?** If the answer to the second is above the
+  threshold, the branch is unreachable in the useful direction and the
+  warning is decoration that trains the reader to skip warnings.
+
+- **"Seen twice" is the same thing only within one read.** A store deduped
+  quotes with `ON CONFLICT DO NOTHING` because a poll loop sees one quote
+  repeatedly. Correct inside a loop; wrong across two asks, because the
+  request is held open, the venue reuses it, and a maker re-prices a quote
+  **in place** under the same id. The screen then showed one price and the
+  table -- the only copy the money path reads -- held another. **When an
+  identifier is assigned by someone else, ask whether the thing behind it can
+  change while the id does not.** The tell was already in the payload: an
+  `updated_ts` distinct from `created_ts` is a vendor telling you the row
+  mutates.
+
+And one about verification: **a background pytest that rejects its own
+arguments reports exit 0.** `-q --timeout=300` with no `pytest-timeout`
+installed collected nothing, and the task notification said success. Grep the
+output for `N passed`; absence of that line is a failed run, not a quiet one.
+ADR 0169, 0170 (Amendment 1), 0171.
+
 ## 2026-09-18 (twentieth) - An index that makes a walk covering does not make it small; a read's cost should scale with its ANSWER, and a diagnostic that reads the whole file is a write to the cache
 
 `/api/window` went from 0.9 s to 7 s in a day, tripped the 25 s budget twice,
