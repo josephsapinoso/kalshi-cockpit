@@ -937,3 +937,77 @@ preservation property, which is scoped to one market on one day by §5.3 and
 which §7.4 already qualifies. The one unqualified negative it does make is
 §11.1's *"zero bytes were reclaimed"*, and that is not a generalisation: it is
 arithmetic on an operation that issues no `DELETE`.
+
+---
+
+## AMENDMENT 1 — 2026-09-18, filling A1: the resolved windows, and the day §3 was wrong by
+
+**Filed against slot A1.** Additive, not an edit: every figure §3.1/§3.2 wrote
+on 2026-09-17 stays above, readable as what was actually registered.
+
+**Disclosure about this amendment's own timing, because A1 asks for one thing
+and got it in a different place.** A1 says the resolved windows are "filled
+when P2 establishes the v36 deploy instant, **before** `Q1` runs". The
+substance was honoured and the location was not: the deploy instant, both
+resolved windows, `G_pre`, `G_post`, the §4 floor check, the P1/P3/P4/P5
+answers and both final statements were written to a file
+(`dedup_look_params.md`, in the session scratchpad) **before any connection to
+the live database was opened**, and that file is reproduced in §1 of the result
+document. This section of the registration was written **after** `Q1` returned.
+So the guarantee A1 exists to create — that the windows could not be chosen to
+suit the counts — holds on the evidence of the pre-run file; the guarantee that
+*this file* records it first does not. Recorded as a deviation rather than
+smoothed over, because a reader checking A1 against the git history will see
+the ordering and should find it already named here.
+
+### The v36 deploy instant
+
+**§3.1 and §3.2 used the COMMIT instant as a proxy for the DEPLOY instant, and
+they differ by a UTC day.** P2 exists to catch precisely this, and did.
+
+    e8ec6ff   committed 2026-09-09T21:56:46Z   `git log -S` on
+              `confirmed_oldest_book_age_ms` and on `_FAIR_PRICE_KEY_COLUMNS`
+              each return this one commit: the v36 migration and the dedup
+              shipped together
+    2026-09-09 session close (tasks/archive/next-2026-09-11.md:37): live is
+              still `2126dde` — "*nothing from this session is deployed*",
+              "Schema v35 -> v36, migrated but **not yet deployed**"
+    2126dde   does NOT contain e8ec6ff (git merge-base --is-ancestor)
+    deploy.yml runs, complete over the period: 2026-09-09T19:13:07Z (2126dde),
+              then NOTHING until 2026-09-10T04:32:13Z
+    run 34437560202  created 2026-09-10T04:32:13Z, completed 04:36:45Z,
+              sha 324a53f, success — the FIRST deploy containing e8ec6ff
+    `flyctl releases` retains 25 releases (oldest 2026-09-15) and cannot reach
+              09-09/09-10. P2 names it as one of two sources; the GitHub
+              deploy-run list is the one that reaches, and is what was used.
+
+> **V36 DEPLOY INSTANT = 2026-09-10T04:36Z.** UTC day containing it:
+> **2026-09-10**.
+
+### The resolved windows
+
+    EXCLUDED DAY  2026-09-10                                   (§3.3)
+    PRE  WINDOW   [1788220800000, 1788998400000)
+                  2026-09-01 .. 2026-09-09   G_pre  = 9        (§3 expected 8)
+    POST WINDOW   [1789084800000, 1789603200000)
+                  2026-09-11 .. 2026-09-16   G_post = 6        (§3 expected 7)
+
+The definitions in §3.1/§3.2 govern and are applied unchanged. Only the
+*expectations* beside them were wrong, and they were labelled as expectations.
+
+### §4's clustering floor — MET, with zero margin on the post side
+
+    post >= 6 complete UTC days            6   MET, zero margin
+    post contains 2026-09-13 (NFL Sunday)  YES
+    post contains >= 1 MLB weekday         YES  (09-11 Fri, 09-15 Tue, 09-16 Wed)
+    pre  >= 6 complete UTC days            9   MET
+
+§4's named INCONCLUSIVE trigger — *"if the v36 deploy instant turns out to be
+later than 2026-09-11T00:00:00Z"* — does **not** fire: 2026-09-10T04:36Z is
+earlier than that boundary. The floor is met at exactly its minimum, and that
+`G_post = 6` rather than 7 is recorded here because it is one day from having
+returned INCONCLUSIVE.
+
+**The threshold, the market set, the statistic and the decision rule are
+untouched by this amendment.** §6.2's 0.25 was derived from figures on the
+record before 2026-09-09 and is not a function of `G`.
