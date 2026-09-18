@@ -122,3 +122,31 @@ Eight run, **eight red**.
 | M6 | let the login keep its own copy of the cookie attributes | RED |
 | M7 | let a failed renewal take the request down with it | RED |
 | M8 | guess at an unreadable cookie instead of leaving it alone | RED |
+
+---
+
+## Post-deploy verification — 2026-09-18, live box on `ffa0bcb`
+
+The #65 section above says the tests establish **nothing at runtime**, because
+there is no Edge-runtime test runner here. That gap was closed against the
+live instance instead, with GETs only and a cookie minted from `.env` the way
+`scripts/time_live_routes.py` does it:
+
+| check | result |
+|---|---|
+| unauthenticated `/picks` | `307` → `/login` |
+| valid session `/picks` | `200` |
+| **fresh** cookie re-issued? | **no** — the renewal is once a day, not once a request |
+| **two-day-old** cookie | `200`, and re-issued |
+| the replacement keeps `httpOnly` / `secure` / `SameSite=lax` / `Path=/` | all four |
+
+The third and fourth rows together are the claim that mattered and the one
+source-reading could not make: the renewal **fires on an aged cookie and only
+on an aged cookie**. The fifth is the one a renewal could silently get wrong —
+a session kept alive on weaker terms than it was issued on.
+
+And the #64 lede was read back off the live page: the new sentence is there
+and `"hardly anyone is bidding"` returns no match anywhere in the document.
+
+This does not establish anything about iOS, or about the 29-to-30-day window
+at its boundary; both remain as stated above.
