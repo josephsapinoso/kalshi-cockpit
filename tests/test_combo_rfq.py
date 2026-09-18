@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from backend.core.prices import complement
+from backend.combo_rfq import _words
 from backend.kalshi.rfq import RfqRefused, create_rfq, parse_quotes
 
 
@@ -41,7 +42,7 @@ class TestTheCapturedQuotes:
     """Pinned against the real wire payload, never a hand-built one."""
 
     def test_both_captured_quotes_parse(self):
-        quotes = parse_quotes(_payload())
+        quotes = parse_quotes(_payload()).quotes
         assert len(quotes) == 2
 
     def test_a_makers_no_bid_is_the_price_joe_pays_for_yes(self):
@@ -51,7 +52,7 @@ class TestTheCapturedQuotes:
         sell YES at $0.5930, and reading only `yes_dollars` is what made this
         desk tell Joe the combination could not be bought.
         """
-        cheapest = parse_quotes(_payload())[0]
+        cheapest = parse_quotes(_payload()).quotes[0]
         assert cheapest.no_bid_tenths == 407
         assert cheapest.yes_ask_tenths == 593
         assert cheapest.yes_ask_tenths == complement(cheapest.no_bid_tenths)
@@ -68,12 +69,12 @@ class TestTheCapturedQuotes:
         payload["quotes"].reverse()
         assert [float(r["no_bid_dollars"]) for r in payload["quotes"]] == [0.369, 0.407]
 
-        asks = [q.yes_ask_tenths for q in parse_quotes(payload)]
+        asks = [q.yes_ask_tenths for q in parse_quotes(payload).quotes]
         assert asks == [593, 631], "expensive quote came back first"
         assert asks[-1] - asks[0] == 38  # 3.8 cents, the measured spread
 
     def test_the_quoted_size_survives(self):
-        assert parse_quotes(_payload())[0].contracts == pytest.approx(8.19)
+        assert parse_quotes(_payload()).quotes[0].contracts == pytest.approx(8.19)
 
     def test_the_fixture_carries_no_account_identifier(self):
         """This repo is public and operator data never enters it.
@@ -102,17 +103,17 @@ class TestRowsThatMustNotBecomePrices:
 
     def test_a_zero_no_bid_is_not_an_offer_to_sell_yes_at_a_dollar(self):
         """`complement(0)` is 1000, a settled outcome, not a price."""
-        assert parse_quotes(self._one(no_bid_dollars="0.0000")) == ()
+        assert parse_quotes(self._one(no_bid_dollars="0.0000")).quotes == ()
 
     def test_a_full_dollar_no_bid_is_refused_too(self):
-        assert parse_quotes(self._one(no_bid_dollars="1.0000")) == ()
+        assert parse_quotes(self._one(no_bid_dollars="1.0000")).quotes == ()
 
     def test_an_unparseable_price_drops_the_row(self):
-        assert parse_quotes(self._one(no_bid_dollars="not-a-price")) == ()
-        assert parse_quotes(self._one(no_bid_dollars=None)) == ()
+        assert parse_quotes(self._one(no_bid_dollars="not-a-price")).quotes == ()
+        assert parse_quotes(self._one(no_bid_dollars=None)).quotes == ()
 
     def test_a_negative_price_drops_the_row(self):
-        assert parse_quotes(self._one(no_bid_dollars="-0.4070")) == ()
+        assert parse_quotes(self._one(no_bid_dollars="-0.4070")).quotes == ()
 
     def test_a_centi_cent_price_is_refused_rather_than_rounded(self):
         """A combination ticks in hundredths of a cent at the edges.
@@ -122,14 +123,14 @@ class TestRowsThatMustNotBecomePrices:
         dropped instead. This is the one behaviour that would look like a bug
         if you only read the happy path.
         """
-        assert parse_quotes(self._one(no_bid_dollars="0.0055")) == ()
+        assert parse_quotes(self._one(no_bid_dollars="0.0055")).quotes == ()
         # ...while an exactly-representable edge price still parses.
-        kept = parse_quotes(self._one(no_bid_dollars="0.0050"))
+        kept = parse_quotes(self._one(no_bid_dollars="0.0050")).quotes
         assert len(kept) == 1 and kept[0].no_bid_tenths == 5
 
     def test_a_missing_size_is_none_and_keeps_the_quote(self):
         """The price is the thing being read; an unreadable size is not fatal."""
-        quotes = parse_quotes(self._one(no_contracts_fp="?"))
+        quotes = parse_quotes(self._one(no_contracts_fp="?")).quotes
         assert len(quotes) == 1 and quotes[0].contracts is None
 
 
@@ -141,8 +142,8 @@ class TestTheRfqIdFilter:
         another combination's price on this card.
         """
         payload = _payload()
-        assert parse_quotes(payload, rfq_id="RFQ_REDACTED") != ()
-        assert parse_quotes(payload, rfq_id="some-other-rfq") == ()
+        assert parse_quotes(payload, rfq_id="RFQ_REDACTED").quotes != ()
+        assert parse_quotes(payload, rfq_id="some-other-rfq").quotes == ()
 
 
 class TestCreateRefusesBeforeItReachesTheVenue:
@@ -404,3 +405,92 @@ class TestAnOversizedOpenRfqIsReplacedNotReused:
         )
         assert got == "rfq-stale"
         assert "DELETE" not in api.calls
+class TestAPriceTooFineToShowIsNotNobodyQuoting(object):
+    """Issue #73. Two different facts that used to render as one sentence.
+
+    A maker who quotes in hundredths of a cent is refused -- rightly, because
+    rounding would print a price the venue never offered on the path that
+    spends. But the screen then said "Nobody quoted this combination", which
+    is false and hides an action he can take: the price is readable in the
+    Kalshi app.
+
+    What these do not establish
+    ---------------------------
+    - Nothing about how often a combination is quoted in centi-cents. The
+      one live trade this repo has made was at 0.40c, one tick inside that
+      region, which is why the branch exists; that is an existence proof and
+      not a rate.
+    - Nothing about whether such a quote would have filled.
+    """
+
+    def _one(self, **overrides) -> dict:
+        row = dict(_payload()["quotes"][0])
+        row.update(overrides)
+        return {"quotes": [row]}
+
+    def test_the_refusal_is_reported_by_id_and_by_reason(self):
+        read = parse_quotes(self._one(no_bid_dollars="0.0055"))
+        assert read.quotes == ()
+        assert read.refused_finer_than_tenths == frozenset({"QUOTE_A_REDACTED"})
+        assert read.refused_unreadable == frozenset()
+
+    def test_an_unreadable_price_is_NOT_reported_as_too_fine(self):
+        """The distinction is the whole point: one sends him to the app.
+
+        A garbage price is not a price too precise to print, and telling him
+        to go and look for it would send him after something that is not
+        there.
+        """
+        read = parse_quotes(self._one(no_bid_dollars="not-a-price"))
+        assert read.refused_finer_than_tenths == frozenset()
+        assert read.refused_unreadable == frozenset({"QUOTE_A_REDACTED"})
+
+    def test_a_settled_outcome_is_unreadable_not_too_fine(self):
+        """`complement(0)` is 1000. Not an offer at all, precise or otherwise."""
+        read = parse_quotes(self._one(no_bid_dollars="0.0000"))
+        assert read.refused_finer_than_tenths == frozenset()
+        assert read.refused_unreadable == frozenset({"QUOTE_A_REDACTED"})
+
+    def test_a_representable_price_reports_no_refusal(self):
+        read = parse_quotes(self._one(no_bid_dollars="0.0050"))
+        assert len(read.quotes) == 1
+        assert read.refused_finer_than_tenths == frozenset()
+        assert read.refused_unreadable == frozenset()
+
+
+class TestTheWordsForAPriceTooFineToShow(object):
+    """What the reader is told. The sentence is the deliverable here."""
+
+    def test_the_words_do_not_say_nobody_quoted(self):
+        said = _words([], book_ask=None, refused_too_fine=1)
+        assert "Nobody quoted" not in said
+        assert "1 maker(s) answered" in said
+
+    def test_the_words_say_where_the_price_can_be_read(self):
+        """The actionable half. Without it this is just a nicer refusal."""
+        said = _words([], book_ask=None, refused_too_fine=2)
+        assert "Kalshi app" in said
+        assert "tenth of a cent" in said
+
+    def test_the_words_still_say_nothing_was_bought(self):
+        """Every empty branch must close the loop on the money."""
+        said = _words([], book_ask=None, refused_too_fine=1)
+        assert "Nothing was bought and nothing is resting." in said
+
+    def test_with_no_refusal_the_old_sentence_is_unchanged(self):
+        """The `no_quotes` case is a real measurement and must not move."""
+        said = _words([], book_ask=None, refused_too_fine=0)
+        assert said.startswith("Nobody quoted this combination")
+
+    def test_a_refusal_is_mentioned_even_when_there_IS_a_price(self):
+        """The refused quote may have been the cheapest one.
+
+        A centi-cent price near 0c would have sorted first, so a screen that
+        shows a price and stays silent about the drop can be showing the
+        second-best number without saying so.
+        """
+        priced = parse_quotes(_payload()).quotes
+        said = _words(list(priced), book_ask=None, refused_too_fine=1)
+        assert "2 maker(s) answered" in said
+        assert "A further 1 priced finer than a tenth of a cent" in said
+        assert "Kalshi app" in said

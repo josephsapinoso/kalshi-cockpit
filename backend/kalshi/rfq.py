@@ -110,8 +110,24 @@ class RfqQuote:
     created_ts: str
 
 
-def _exact_tenths(dollars: Any) -> Optional[int]:
+#: Why a row's price could not become a number, when it could not.
+#:
+#: Two refusals that look identical in a log and are **not** the same fact
+#: for the reader. `UNREADABLE` means we do not know that a maker offered
+#: anything. `FINER_THAN_TENTHS` means a maker offered a real, tradeable
+#: price and this desk cannot represent it -- which is actionable, because he
+#: can go and read it in the Kalshi app. Collapsing the second into "nobody
+#: quoted" is issue #73.
+REFUSED_UNREADABLE = "unreadable"
+REFUSED_FINER_THAN_TENTHS = "finer_than_tenths"
+
+
+def _read_tenths(dollars: Any) -> tuple[Optional[int], Optional[str]]:
     """Dollars to tenths of a cent, refusing anything that would round.
+
+    Returns `(tenths, None)` on success and `(None, reason)` on a refusal,
+    where `reason` is one of the two constants above. Exactly one member is
+    not None.
 
     `dollars_to_tenths` rounds half-up, which is right for a snapshot loop and
     wrong here. A combination market carries
@@ -123,38 +139,80 @@ def _exact_tenths(dollars: Any) -> Optional[int]:
     Unreadable resolves to None and the caller drops the quote with a log,
     never to a rounded stand-in. Clamp what you trust; refuse what you are
     validating.
+
+    **The reason is returned rather than only logged** because the caller
+    needs to tell the reader which of the two happened. It used to be logged
+    and nowhere else, so every refusal rendered as "nobody quoted".
     """
     tenths = dollars_to_tenths(dollars)
     if tenths is None:
-        return None
+        return None, REFUSED_UNREADABLE
     try:
         exact = Decimal(str(dollars)) * 1000
     except (InvalidOperation, ValueError):
-        return None
+        return None, REFUSED_UNREADABLE
     if exact != Decimal(tenths):
         logger.warning(
             "rfq: refusing quote price %r -- finer than tenths of a cent "
             "(this market ticks in centi-cents at the edges)", dollars,
         )
-        return None
-    return tenths
+        return None, REFUSED_FINER_THAN_TENTHS
+    return tenths, None
 
 
-def parse_quotes(payload: dict, *, rfq_id: Optional[str] = None) -> tuple[RfqQuote, ...]:
-    """Wire payload -> quotes, cheapest YES ask first.
+def _exact_tenths(dollars: Any) -> Optional[int]:
+    """`_read_tenths`'s price alone, for callers that do not classify."""
+    return _read_tenths(dollars)[0]
+
+
+@dataclass(frozen=True)
+class QuoteRead:
+    """One read of the quotes answering an RFQ, and what it had to refuse.
+
+    **The refusals carry quote ids, not counts**, and that is the whole
+    design. `await_quotes` polls the same RFQ every few seconds, so a quote
+    refused on one pass is refused on every pass: a count would multiply by
+    the number of polls and tell the reader six makers answered when one did.
+    A set of ids is the number of distinct quotes however often it is read.
+
+    Same correction as ADR 0169's `record_quotes` fix, for the same reason --
+    an id the venue assigns is the only thing that makes "seen twice" one
+    thing. That fix learned it the expensive way; this one inherits it.
+    """
+
+    quotes: tuple[RfqQuote, ...]
+    #: Ids of quotes whose price was real and finer than a tenth of a cent.
+    #: A maker DID quote; this desk cannot say what. Actionable (#73).
+    refused_finer_than_tenths: frozenset[str] = frozenset()
+    #: Ids of quotes dropped for any other reason -- unparseable, or a price
+    #: that is a settled outcome rather than an offer. Not actionable.
+    refused_unreadable: frozenset[str] = frozenset()
+
+
+def parse_quotes(payload: dict, *, rfq_id: Optional[str] = None) -> QuoteRead:
+    """Wire payload -> quotes, cheapest YES ask first, plus the refusals.
 
     Filters to `rfq_id` when given, because `rfq_user_filter=self` returns
     quotes on *every* RFQ we have open, not just the one being awaited.
 
     A row that cannot be read is **dropped with a warning, not defaulted**: a
-    quote with an unparseable price is not a quote at zero.
+    quote with an unparseable price is not a quote at zero. It is also
+    **counted**, by id and by reason, because a drop the reader never hears
+    about renders as "nobody quoted".
     """
     out: list[RfqQuote] = []
+    too_fine: set[str] = set()
+    unreadable: set[str] = set()
     for row in payload.get("quotes") or ():
         if rfq_id is not None and row.get("rfq_id") != rfq_id:
             continue
-        no_bid = _exact_tenths(row.get("no_bid_dollars"))
+        row_id = str(row.get("id") or "")
+        no_bid, reason = _read_tenths(row.get("no_bid_dollars"))
         if no_bid is None:
+            if reason == REFUSED_FINER_THAN_TENTHS:
+                too_fine.add(row_id)
+            else:
+                unreadable.add(row_id)
             continue
         ask = complement(no_bid)
         # 0 and 1000 are settled outcomes, not quotes. A maker bidding $0.00 on
@@ -164,6 +222,11 @@ def parse_quotes(payload: dict, *, rfq_id: Optional[str] = None) -> tuple[RfqQuo
                 "rfq: dropping quote %s -- no_bid %s gives an untradeable ask",
                 row.get("id"), row.get("no_bid_dollars"),
             )
+            # Not `refused_finer_than_tenths`: 0 and 1000 are settled
+            # outcomes. A maker bidding $0.00 on NO is not offering a price
+            # too precise to show, it is not offering anything, so telling
+            # the reader to go and look for it in the app would be wrong.
+            unreadable.add(row_id)
             continue
         try:
             contracts = float(row["no_contracts_fp"])
@@ -186,7 +249,11 @@ def parse_quotes(payload: dict, *, rfq_id: Optional[str] = None) -> tuple[RfqQuo
     # RFQ this repo has fired were 3.80 cents apart, so which row a reader
     # sees first is worth real money, while nothing here says to take it.
     out.sort(key=lambda q: q.yes_ask_tenths)
-    return tuple(out)
+    return QuoteRead(
+        quotes=tuple(out),
+        refused_finer_than_tenths=frozenset(too_fine),
+        refused_unreadable=frozenset(unreadable),
+    )
 
 
 async def open_rfq_for(
@@ -340,8 +407,8 @@ async def create_rfq(
     return str(rfq_id)
 
 
-async def read_quotes(api: KalshiRestClient, rfq_id: str) -> tuple[RfqQuote, ...]:
-    """Quotes answering *our* RFQ, cheapest first.
+async def read_quotes(api: KalshiRestClient, rfq_id: str) -> QuoteRead:
+    """Quotes answering *our* RFQ, cheapest first, with the refusals beside them.
 
     `rfq_user_filter=self` is the documented way and needs no user id. The
     older `rfq_creator_user_id` is deprecated, and `communications_id` is not

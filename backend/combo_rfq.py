@@ -282,11 +282,18 @@ async def ask_market_to_price(
     conn.commit()
 
     seen: dict[str, RfqQuote] = {}
+    # **Unioned by id across polls, not summed** (#73). The loop below reads
+    # the same RFQ every `QUOTE_POLL_S`, so a quote refused once is refused
+    # on every pass; adding the counts up would tell him six makers answered
+    # when one did. `QuoteRead` carries ids for exactly this.
+    too_fine: set[str] = set()
     deadline = time.monotonic() + QUOTE_WAIT_S
     try:
         while time.monotonic() < deadline:
             try:
-                for quote in await read_quotes(api, rfq_id):
+                read = await read_quotes(api, rfq_id)
+                too_fine |= read.refused_finer_than_tenths
+                for quote in read.quotes:
                     seen[quote.quote_id] = quote
             except Exception as exc:  # noqa: BLE001 -- keep polling, record at the end
                 logger.warning("rfq %s: quote read failed (%s)", rfq_id, exc)
@@ -322,7 +329,22 @@ async def ask_market_to_price(
     quotes = sorted(seen.values(), key=lambda q: q.yes_ask_tenths)
     fair = lookup["fair_joint_conservative"]
     return {
-        "status": "quoted" if quotes else "no_quotes",
+        # **Three outcomes, not two** (#73). `priced_too_finely` is the case
+        # where makers answered and every price was finer than a tenth of a
+        # cent, which this desk refuses rather than rounds. It used to render
+        # as `no_quotes`, i.e. "nobody quoted this combination" -- a false
+        # sentence on the surface that spends, and the actionable one, since
+        # the price is readable in the Kalshi app. It ranks BELOW `quoted`:
+        # if even one quote is representable there is a price to show, and
+        # the refusals go in the words instead.
+        "status": (
+            "quoted" if quotes
+            else "priced_too_finely" if too_fine
+            else "no_quotes"
+        ),
+        # How many distinct quotes were refused on precision. Unioned by id
+        # across polls (see the loop above), so it is makers, not reads.
+        "refused_too_fine": len(too_fine),
         "rfq_id": rfq_id,
         "market_ticker": market_ticker,
         "target_cost_dollars": target,
@@ -381,7 +403,7 @@ async def ask_market_to_price(
             }
             for q in quotes
         ],
-        "words": _words(quotes, book_ask=book_ask),
+        "words": _words(quotes, book_ask=book_ask, refused_too_fine=len(too_fine)),
     }
 
 
@@ -429,7 +451,12 @@ def _all_in(quote: RfqQuote) -> dict:
     }
 
 
-def _words(quotes: list[RfqQuote], *, book_ask: Optional[int]) -> str:
+def _words(
+    quotes: list[RfqQuote],
+    *,
+    book_ask: Optional[int],
+    refused_too_fine: int = 0,
+) -> str:
     """What the screen says. States facts; draws no conclusion.
 
     **It must not call a quote cheap, good, or an edge.** The gap between a
@@ -437,7 +464,26 @@ def _words(quotes: list[RfqQuote], *, book_ask: Optional[int]) -> str:
     another name, and `beta = -0.141` means ranking by it puts the least
     trustworthy rows first (ADR 0071 s2.5). The screen may show the two
     numbers; it may not order the world by their difference.
+
+    **`refused_too_fine` is a count of MAKERS, not of reads** -- the caller
+    unions quote ids across the poll loop before passing it. It is a separate
+    branch because "nobody quoted" and "someone quoted a price we cannot
+    print" are different facts and only the second tells him where to look
+    (#73).
     """
+    if not quotes and refused_too_fine:
+        # No hedge about whether they *would* have been takeable: the desk
+        # refused the price before anyone could act on it, so the only honest
+        # claim is that a price existed and this screen is not showing it.
+        return (
+            f"{refused_too_fine} maker(s) answered, and every price was finer "
+            "than a tenth of a cent -- hundredths, which combinations quote "
+            "near 0c and 100c. This desk refuses such a price rather than "
+            "rounding it, because rounding would print a price the venue "
+            "never offered. So there IS a price and it is not on this screen: "
+            "the Kalshi app will show it. Nothing was bought and nothing is "
+            "resting."
+        )
     if not quotes:
         return (
             "Nobody quoted this combination within a few seconds. That is a "
@@ -459,8 +505,17 @@ def _words(quotes: list[RfqQuote], *, book_ask: Optional[int]) -> str:
         if len(quotes) > 1 and spread
         else ""
     )
+    # Said even when there IS a price, because the cheapest quote on screen
+    # may not be the cheapest quote that arrived -- a refused centi-cent
+    # price near 0c would have sorted first.
+    fine_line = (
+        f" A further {refused_too_fine} priced finer than a tenth of a cent "
+        "and is not shown; the Kalshi app will show it."
+        if refused_too_fine
+        else ""
+    )
     return (
-        f"{len(quotes)} maker(s) answered.{spread_line} {book_line} "
+        f"{len(quotes)} maker(s) answered.{spread_line}{fine_line} {book_line} "
         "A quote is an offer, not a fill: the maker still has a few seconds "
         "to confirm and may decline."
     )

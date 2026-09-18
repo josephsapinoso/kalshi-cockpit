@@ -474,3 +474,107 @@ class TestAQuoteSaysWhatLeavesTheAccount:
         bare = round(quote["contracts"] * quote["yes_ask_tenths"])
         assert quote["all_in_tenths"] > bare
         assert quote["all_in_tenths"] - bare == quote["fee_tenths"]
+class TestAPriceTooFineToShowReachesTheScreenAsItsOwnStatus:
+    """Issue #73, through the real route and the real poll loop.
+
+    The unit tests pin `parse_quotes` and `_words`. These pin that the fact
+    survives the poll loop, which is the part that could silently multiply
+    it or drop it.
+
+    What these do not establish
+    ---------------------------
+    - Nothing about how often a real maker quotes in centi-cents.
+    - Nothing about the DB row. `combo_rfqs.status` still records
+      `no_quotes` here, because its CHECK constraint has no third value and
+      widening it is a migration. That gap is its own ticket, not a thing
+      these tests pretend is fixed.
+    """
+
+    async def test_the_status_is_not_no_quotes(self, build):
+        """0.0055 is a real, tradeable centi-cent price this desk refuses."""
+        app, _, _ = build(quotes=[_quote_row("q1", "0.0055")])
+        body = (await _post(app, _body())).json()
+        assert body["status"] == "priced_too_finely"
+        assert body["quotes"] == []
+
+    async def test_the_words_send_him_to_the_app_instead_of_saying_nobody_quoted(
+        self, build
+    ):
+        app, _, _ = build(quotes=[_quote_row("q1", "0.0055")])
+        words = (await _post(app, _body())).json()["words"]
+        assert "Nobody quoted" not in words
+        assert "Kalshi app" in words
+
+    async def test_one_refused_maker_read_many_times_is_still_one_maker(self, build):
+        """A per-read counter would report one maker as five.
+
+        The fake answers instantly and `QUOTE_WAIT_S / QUOTE_POLL_S` gives
+        several reads inside one ask, so this is the arm that catches a sum
+        where a set belongs.
+        """
+        app, fake, _ = build(quotes=[_quote_row("q1", "0.0055")])
+        body = (await _post(app, _body())).json()
+        assert fake.calls.count("read") > 1, "the loop polled only once"
+        assert body["refused_too_fine"] == 1
+        assert "1 maker(s) answered" in body["words"]
+
+    async def test_refusals_from_different_polls_are_unioned_not_replaced(
+        self, build, monkeypatch
+    ):
+        """A quote can arrive on one poll and be gone by the next.
+
+        Real quotes are accumulated across polls into `seen` for exactly
+        this reason -- a maker answers late, or cancels, and a snapshot of
+        the final read is not what the ask found. The refusals have to
+        behave the same way, and the constant-fake test above CANNOT show
+        it: with the same row served every time, replacing and unioning
+        give the same answer. This one serves a different refused quote per
+        read, so replacing reports 1 where the truth is 2.
+        """
+        app, fake, _ = build(quotes=[])
+        rows = [[_quote_row("q1", "0.0055")], [_quote_row("q2", "0.0065")]]
+        reads = {"n": 0}
+
+        async def request(method, path, *, params=None, json_body=None):
+            if method == "GET" and path.endswith("/quotes"):
+                fake.calls.append("read")
+                if fake.deleted:
+                    return {"quotes": []}
+                i = reads["n"]
+                reads["n"] += 1
+                return {"quotes": rows[i] if i < len(rows) else []}
+            return await FakeApi.request(fake, method, path,
+                                         params=params, json_body=json_body)
+
+        monkeypatch.setattr(fake, "request", request)
+        body = (await _post(app, _body())).json()
+        assert reads["n"] >= 2, "the loop did not poll twice"
+        assert body["status"] == "priced_too_finely"
+        assert body["refused_too_fine"] == 2, "a later poll replaced an earlier one"
+        assert "2 maker(s) answered" in body["words"]
+
+    async def test_a_representable_quote_beside_a_refused_one_still_shows_a_price(
+        self, build
+    ):
+        """`quoted` outranks `priced_too_finely`: there IS a price to take.
+
+        The drop still has to be said, because a centi-cent price near 0c
+        would have sorted first and the screen would otherwise be showing
+        the second-cheapest number in silence.
+        """
+        app, _, _ = build(
+            quotes=[_quote_row("q1", "0.0055"), _quote_row("q2", "0.4070")]
+        )
+        body = (await _post(app, _body())).json()
+        assert body["status"] == "quoted"
+        assert [q["yes_ask_tenths"] for q in body["quotes"]] == [593]
+        assert body["refused_too_fine"] == 1
+        assert "A further 1 priced finer than a tenth of a cent" in body["words"]
+
+    async def test_nobody_answering_still_reports_zero_refusals(self, build):
+        """The `no_quotes` measurement must not acquire a false refusal."""
+        app, _, _ = build(quotes=[])
+        body = (await _post(app, _body())).json()
+        assert body["status"] == "no_quotes"
+        assert body["refused_too_fine"] == 0
+        assert "not a verdict on the bet" in body["words"]

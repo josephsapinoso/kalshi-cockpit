@@ -1186,7 +1186,25 @@ export type ComboRfqQuote = {
 };
 
 export type ComboRfqResult = {
-  status: "quoted" | "no_quotes";
+  /**
+   * Three outcomes, not two.
+   *
+   * `priced_too_finely` means makers DID answer and every price was finer
+   * than a tenth of a cent -- the hundredth-cent region combinations quote
+   * near 0c and 100c. The desk refuses such a price rather than rounding it
+   * onto the money path, so there is a real price that this screen is not
+   * showing, and the Kalshi app will show it. It used to arrive as
+   * `no_quotes`, which rendered as "nobody quoted this combination" (#73).
+   */
+  status: "quoted" | "no_quotes" | "priced_too_finely";
+  /**
+   * How many distinct makers were dropped on price precision.
+   *
+   * Counted by quote id across the whole poll loop, not per read: the same
+   * refused quote comes back on every poll, so a per-read count would say
+   * six makers answered when one did.
+   */
+  refused_too_fine: number;
   rfq_id: string;
   market_ticker: string;
   target_cost_dollars: string;
