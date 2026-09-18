@@ -16,6 +16,78 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-18 (twenty-eighth) - A fake that models the venue's good behaviour cannot test the guard against its bad behaviour, and a fixture can exclude a case by arithmetic nobody wrote
+
+Eight guards on the new RFQ fill path were disabled one at a time. Six went
+red. **Two stayed green, and neither was decoration — the harness could not
+reach them.**
+
+**The first: the fake was doing the guard's job.** `read_venue_fill` calls
+`/portfolio/fills?ticker=<combination>` and then re-checks each row's ticker
+itself, because the venue's filter is trusted for what it returns and not for
+what it leaves out. `FakeApi.fills` implemented the `ticker` parameter
+faithfully — so with the re-check deleted, the fake still returned only
+matching rows and the test passed. **A fake that always behaves correctly
+makes every guard against incorrect behaviour untestable, and the suite
+reports that as coverage.** The fix is a fake that can misbehave on request
+(`honour_ticker=False`), and the misbehaviour is not hypothetical here:
+`/portfolio/fills` answered zero to eight query shapes including `ticker=` on
+2026-08-10, so what that parameter does on this endpoint has never been
+established.
+
+**The second: the fixture excluded the case for the wrong reason.** The test
+for "a fill from an hour before this acceptance is not this bet" used the
+file's `now_ms = 2_000`, so "an hour earlier" was an hour before the **epoch**
+— a negative millisecond stamp. The guard compares against
+`accepted_ms - 5s`; the mutation widened the floor to `0`; and the row was
+*still* excluded, by `-3_598_000 >= 0` being false. The assertion passed
+without the guard because arithmetic nobody wrote was doing the work.
+
+**The general form: a mutation that stays green has three readings, not two.**
+The guard is decoration; or the mutation missed it; or **the test bed cannot
+express the state the guard refuses**. The third is the one that looks most
+like the first and is the most expensive to misread, because the response to
+"decoration" is to delete the guard. Before deleting, ask what in the bed —
+the fake, the fixture's constants, the clock — is already refusing the input
+on the guard's behalf.
+
+---
+
+## 2026-09-18 (twenty-seventh) - A docstring that says a thing has never been observed is a claim about a date, and other modules quote it as if it were about the world
+
+`KalshiRestClient.fills` said, in bold: *"The per-fill wire shape has still
+never been observed on this account."* It was measured empty on 2026-08-09 and
+again on 2026-08-10, and the sentence was true when written. **A 33-fill
+capture landed on 2026-08-18 — eight of them combinations — and the sentence
+stayed there for eleven days.** `portfolio_poll.parse_fill` was written
+against that capture, and `test_portfolio_poll.py` has been reconciling a fee
+against one of those combination fills since ADR 0073, three modules away from
+the paragraph asserting no such row had ever been seen.
+
+**The cost was not the stale sentence. It was what quoted it.**
+`combo_rfq.py` carried a comment saying whether a KXMVE fill reaches
+`/portfolio/fills` at all, and under what ticker, was *unresolved by this
+repo*; `tasks/NEXT.md` restated it as the reason a ticket had become a
+measurement; and the session prompt restated it again. Three statements of a
+blocked question, all downstream of one negative claim that had already been
+falsified by a file in `tests/fixtures/`.
+
+**A negative capability claim decays in the direction that blocks work, and
+nothing goes red when it turns false.** A stale "this is safe to leave
+undone" gets discovered when something breaks; a stale "we have never seen
+one of these" is discovered only by someone who goes and looks, and everyone
+downstream has a reason not to. The tell is the phrase *has never been* with
+no date beside it, and the cheapest check is a `ls tests/fixtures` and a grep
+for the parser: **before inheriting a "nobody knows", grep for the thing
+nobody is supposed to have.**
+
+Related, and not the same lesson: `[[justifications-decay-toward-reassurance]]`
+covers a comment explaining why something is safe to leave undone. This is its
+mirror — a comment explaining why something *cannot be done yet*, which
+decays into a backlog item nobody re-examines.
+
+---
+
 ## 2026-09-18 (twenty-sixth) - a check handed forward is a to-do, a citation is a claim, and a clock that counts free space has to name the filesystem
 
 Seven patterns from the session that split this file's sibling, measured the
@@ -1137,6 +1209,8 @@ the same edit as the entry — an index that is not is stale by one entry
 immediately and by dozens within a week.
 
 ### 2026-09-18 — in this file, above
+- A fake that models the venue's good behaviour cannot test the guard against its bad behaviour, and a fixture can exclude a case by arithmetic nobody wrote
+- A docstring that says a thing has never been observed is a claim about a date, and other modules quote it as if it were about the world
 - a check handed forward is a to-do, a citation is a claim, and a clock that counts free space has to name the filesystem
 - A justification can decay into being RIGHT by accident, and an agent drifts from a convention it cannot be stopped from breaking
 - A fresh database passes whatever the migration does, and a mutation pattern that matches twice patches the wrong one

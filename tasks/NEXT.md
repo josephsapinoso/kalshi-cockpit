@@ -126,6 +126,134 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-18 (thirty-sixth session) — lessons.md is split, the RFQ path reads Kalshi's own fill, and the question it was blocked on was answered in a fixture
+
+Joe named the order: split `tasks/lessons.md` first, then #74. His answer
+sheet for #58/#71/#78 came back with the three blanks unfilled, so those
+tickets were **not touched, not re-asked and not re-run** — that was the
+instruction.
+
+### What shipped
+
+| commit | what |
+|---|---|
+| `8e166e6` | the lessons split, and the index that was 77 lessons short |
+| `631d172` | #74: the acceptance reads `/portfolio/fills` (ADR 0178, schema v50) |
+| `1e2c9b2` | two of that build's guards were decoration until the mutation pass said so |
+| (this) | this entry, two lessons |
+
+### 1. The split, and what it found
+
+225,816 bytes → **113,625 (86.1% → 43.3%)**, inside the 40–45% band the
+2026-09-11 split aimed at. Everything 2026-09-15 and earlier — 51 lessons
+across five dates — moved to `archive/lessons-2026-09-18.md`, md5
+`06715950408225f41848e30be11bca05`, proved by splicing the block back in and
+comparing to the pre-split bytes.
+
+**The index listed nothing newer than 2026-09-08 while the file held eight
+dates it never mentioned — all 77 unarchived lessons, unfindable.** Fourth
+recorded occurrence; three earlier entries in `lessons-split-log.md` say to
+regenerate from the headings in the same edit. It keeps happening because the
+index is the half nothing goes red about: the 262,144-byte test guards the
+file's size and no test guards its table of contents. All eight sections were
+regenerated in the same edit.
+
+### 2. #74 — and the premise was wrong in our favour
+
+Built as instructed: try / upgrade / never-block. On an `executed`,
+non-dry-run acceptance the path reads `GET /portfolio/fills?ticker=<combo>`
+before writing the position, records the venue's count and average price when
+the answer is provably about this acceptance, and otherwise keeps the quote's
+numbers with a named reason. Nothing can block the trade — `read_venue_fill`
+raises nothing and a position is written either way.
+
+**`tests/fixtures/portfolio_fills_redacted.json` already held eight
+combination fills.** Every one under the **combination's own ticker** in both
+`ticker` and `market_ticker`, `side: "yes"`, `action: "buy"`,
+`is_taker: true`, fractional `count_fp`, `fee_cost` present — and
+`test_portfolio_poll.py` has reconciled a fee against one of them since ADR
+0073. So "whether a KXMVE fill reaches `/portfolio/fills` at all, and under
+what ticker, is unresolved", which `combo_rfq.py:776` asserted, this file
+restated and the session prompt restated again, was **false and had been for
+a month**. Its source was one stale docstring in `kalshi/rest.py` — *"the
+per-fill wire shape has still never been observed on this account"* — true
+when written on 2026-08-10 and left standing eleven days after the capture
+landed. Both stale sentences are corrected in `631d172`.
+
+**What is still open, and is what the build now measures:** *when* a fill
+becomes readable (those rows were captured days later; execution runs ~1.1 s
+behind confirmation and propagation here is unmeasured), and whether a quote
+can part-fill at all. `combo_rfq_quotes.venue_fill_outcome` records nine
+named states including every refusal, with an `elapsed=` note beside each, so
+a month of `no_rows` is a finding about latency rather than silence.
+
+`/hedge` gains a twelfth reason. `rfq_accept` now means **the venue was never
+asked** (every acceptance before v50); `rfq_fill_unmatched` means it was asked
+and did not name this bet; `venue_fill` means Kalshi's own count and price,
+proved against the holding by the same identity the order path uses.
+
+### 3. Eight guards, six red, two decoration
+
+Every guard was disabled and its test watched. Two stayed green, and the
+reason is the lesson: **a fake that models the venue's good behaviour cannot
+test the guard against its bad behaviour** (`FakeApi` implemented the
+`ticker` filter, so deleting our re-check changed nothing), and **a fixture
+can exclude a case by arithmetic nobody wrote** (this file accepts at
+`now_ms = 2_000`, so "an hour earlier" was an hour before the epoch and the
+widened window still excluded it). Both beds were fixed; all eight now go red.
+
+### Still open
+
+1. **#58, #71 and #78 are still with Joe.** The sheet came back with the
+   three answers blank. Untouched by this session, by instruction. **The
+   urgent half is still the container root**, not `/data`: ~15 days, and
+   `VACUUM INTO '/data/...'` removes the problem rather than racing it.
+2. **#76 slice 2 is unblocked now** — it was serial after #74 because it
+   renders a cost basis derived from the stake #74 corrects, and #74 has
+   landed. Read `stake_basis` on `/api/hedge` rather than
+   `parlay_positions.stake_tenths`; ADR 0178 section 5 says what the three
+   RFQ reasons mean.
+3. **#76 slice 3 is re-specified by the `kalshi-platform` review in the
+   thirty-fifth entry — do not commission it again and do not build from the
+   ticket text**, which is wrong about `target_cost_dollars`. It needs a
+   captured fixture of a real sell-side quote in the same commit as the
+   parser change. **Schema v50 is taken by #74**, so slice 3's rebuild of
+   `yes_ask_tenths` is v51.
+4. **Live is six commits behind** (`c8111a2`). Nothing in them is a behaviour
+   change, but ADR 0177's fixed inspect script only ships in the image, so
+   window-freshness over ssh still runs the old walking statement. **If you
+   deploy, run `scripts/inspect_live_disk.py` immediately before and after** —
+   a restart tests the deleted-but-still-open-file hypothesis for the 882 MB
+   at zero cost.
+5. **`backend/scoring.py:172`/`:187` scans the whole 249 MB
+   `idx_odds_event_commence`, covering, on every scoring pass, with no
+   `WHERE` clause.** Same shape as the `/api/window` walk. Its own item.
+6. **`idx_odds_event` (479.6 MB) has no production statement planning onto
+   it**, and readmission to the agenda needs a **timing**, not a plan
+   comparison — `2e66f36` removed an index for "changes no plan" and had to
+   restore it. Confirming on live needs a query that does not exist yet, so
+   it needs a deploy first.
+7. **Nothing re-runs a devig over historical rows**, which `schema.sql:210-213`
+   gives as *the* reason for storing raw.
+8. **The Odds API's terms are unexamined and ADR 0035 contradicts itself.**
+   Blocks any off-box archive.
+9. **The parlay finding is now #79**, opened this session under workflow
+   step 7 — it was carried as an unticketed line in the thirty-fifth entry,
+   which is exactly the decay the rule exists to stop. **`suppressed_reason`
+   is DISPLAY ONLY on the parlay path**: a leg the single-market path
+   suppresses as `suspicious_edge` — rule 1's own "this is a bug, not an
+   edge" — is still selected and multiplied into a card's headline, and
+   `Recipe` has no field for book count, suppression or quote age. Four
+   lettered options, (a) recommended.
+10. **A combination fill's `fee_cost` is deliberately unread** (ADR 0178 §7).
+    It is present on all eight captured rows, so a fee reconciliation on this
+    path is now possible — but it is REAL dollars whose rounding onto tenths
+    is undecided, and deciding it in passing would be a money change.
+
+Question for Joe: a leg the singles screen hides from you as a probable bug is still multiplied into a parlay card's headline — refuse it, mark it, or carry on? — #79
+
+---
+
 ## 2026-09-18 (thirty-fifth session) — the file is split, the volume is measured, and the VACUUM window turns out to run on a filesystem nobody had read
 
 Joe named the first three items himself — split `NEXT.md`, run `db-sizes`, put
@@ -940,6 +1068,19 @@ query is safe to type, not free to run.**
 
 Every session entry ever written to this file, newest date first. Full text in
 the linked archive file, unchanged.
+
+### In this file, above
+
+Added 2026-09-18: this index listed only the archived entries while its
+own first line claimed every entry ever written, which is the gap the
+`lessons.md` split found the same morning. Newest first.
+
+- 2026-09-18 (thirty-sixth session) — lessons.md is split, the RFQ path reads Kalshi's own fill, and the question it was blocked on was answered in a fixture
+- 2026-09-18 (thirty-fifth session) — the file is split, the volume is measured, and the VACUUM window turns out to run on a filesystem nobody had read
+- 2026-09-18 (thirty-fourth session) — the disk net has gone inert again, ADR 0175's leftover guard is closed, and I broke a governance rule four times before finding it
+- 2026-09-18 (thirty-third session) — the registered look was taken in its window, the growth lever is spent, and two tickets asking for a venue call were already answered on disk
+- 2026-09-18 (thirty-second session) — Joe answered four tickets in one line, the RFQ path got the review it never had, and a venue check refuted a sentence this session had shipped an hour earlier
+- 2026-09-18 (thirty-first session) — "the site is really slow again": every page was waiting on a route that walked every stored odds row, and now it reads a table with one row per fixture
 
 ### Split 2026-09-18 — [`archive/next-2026-09-18.md`](archive/next-2026-09-18.md)
 
