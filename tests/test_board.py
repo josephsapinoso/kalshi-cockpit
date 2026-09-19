@@ -145,6 +145,22 @@ class TestWarnings:
         lines = board.warnings([node], next_text=None)
         assert any("Done when" in ln for ln in lines)
 
+    def test_a_done_when_markdown_heading_counts(self):
+        # The first filed batch (2026-09-19, #87-#102) wrote `## Done when`
+        # as a heading and the board warned on every one of them.
+        assert board.has_done_when("## Goal\n\nx\n\n## Done when\n\ntests/test_x.py passes\n")
+        assert board.has_done_when("**Done when** tests/test_x.py passes")
+        assert not board.has_done_when("## Goal\n\nwhen this is done, celebrate\n")
+
+    def test_an_empty_epic_is_not_a_leaf_with_no_owner(self):
+        # #83 "Epic: Parlay integrity" owns #79, which lives under map #3
+        # (one parent per issue), so the epic has no children of its own.
+        raw = {"number": 83, "title": "Epic: Parlay integrity", "state": "open",
+               "labels": [{"name": "type:epic"}], "body": "", "children": []}
+        node = board.classify(raw)
+        assert node["ready"] is False
+        assert board.warnings([node], next_text=None) == []
+
     def test_an_agent_leaf_with_model_and_done_when_is_silent(self):
         node = classified("agent_leaf_clean")
         lines = board.warnings([node], next_text=None)

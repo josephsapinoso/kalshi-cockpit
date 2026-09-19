@@ -95,7 +95,10 @@ _TICKET = re.compile(r"#(\d+)\b")
 
 #: A line starting `Done when`, optionally wrapped in markdown bold
 #: (`**Done when**`), case-insensitive, anchored to the start of the line.
-_DONE_WHEN = re.compile(r"(?m)^\s*\*{0,2}\s*done when\b", re.IGNORECASE)
+# A `Done when` line, a `**Done when**` field, or a `## Done when` heading --
+# the ticket template writes the field form and the first filed batch
+# (2026-09-19, #87-#102) wrote headings; both are the same promise.
+_DONE_WHEN = re.compile(r"(?m)^\s*(?:#{1,6}\s*)?\*{0,2}\s*done when\b", re.IGNORECASE)
 
 
 def names_a_ticket(text: str) -> bool:
@@ -314,13 +317,16 @@ def classify(node: dict) -> dict:
     assignee = node.get("assignee")
     assignee_login = assignee.get("login") if assignee else None
     state = node.get("state", "open")
-    ready = state == "open" and leaf and assignee_login is None and blocked_by == 0
+    node_type = classify_type(labels)
+    # An epic is a container, never a unit of work: an epic with no children
+    # yet is empty, not ready, and it has no owner because its children do.
+    ready = state == "open" and leaf and assignee_login is None and blocked_by == 0 and node_type != "epic"
     return {
         "number": node["number"],
         "title": node.get("title", ""),
         "state": state,
         "body": node.get("body") or "",
-        "type": classify_type(labels),
+        "type": node_type,
         "owner": classify_owner(labels),
         "model": classify_model(labels),
         "assignee": assignee_login,
@@ -378,7 +384,7 @@ def warnings(nodes: list[dict], next_text: str | None) -> list[str]:
     """
     out: list[str] = []
     for node in nodes:
-        if node["state"] != "open" or not node["leaf"]:
+        if node["state"] != "open" or not node["leaf"] or node["type"] == "epic":
             continue
         if node["owner"] is None:
             out.append(f"#{node['number']} is an open leaf with no owner -- {node['title']}")
