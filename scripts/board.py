@@ -510,6 +510,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # Issue bodies (never titles, checked against the committed fixture) carry
+    # arbitrary unicode -- an arrow, an em dash -- and Windows' default
+    # console codepage (cp1252) cannot encode all of it. Reconfigure rather
+    # than strip: stripping would silently change what `--json` reports.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
     unreadable_reasons: list[str] = []
     trees: list[dict] = []
 
