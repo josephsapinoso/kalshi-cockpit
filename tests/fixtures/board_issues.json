@@ -1,4 +1,12 @@
 {
+  "endpoint": "GET repos/josephsapinoso/kalshi-cockpit/issues/{root}/sub_issues --paginate, for each root in params.roots; per-node GET repos/.../issues/{n} only when a child lacks body or issue_dependencies_summary (it did not, 2026-09-19)",
+  "params": {
+    "roots": [
+      3,
+      80
+    ],
+    "paginate": true
+  },
   "captured_at": "2026-09-19T00:00:00Z",
   "source": "josephsapinoso/kalshi-cockpit, gh api (real capture, trimmed of URL/avatar noise -- every field board.py reads is verbatim)",
   "trimming_note": "Fields kept verbatim from the live payload: number, title, state, body, labels[].name, assignee.login, assignees[].login, issue_dependencies_summary.blocked_by, sub_issues_summary.total. Everything else (avatar_url, node_id, reactions, timeline_url, ...) was dropped -- it is not read by board.py and the repo convention is to capture the wire shape actually used, not the whole response. 'children' is board.py's own nesting, built by recursing into /sub_issues for any node whose sub_issues_summary.total > 0 (none did, under either root, as of this capture).",

@@ -196,13 +196,24 @@ childless story on main's frontier forever (closed, its slices are #95 and
 frontier is five Joe-blocked tickets and nothing else** — the drift ADR
 0071 exists to prevent, and the map is the only queue that refills it.
 
+**What the first dispatch measured about the routing.** Six agents ran
+beside main: three Sonnet lanes landed two (#87, #93) and one was refused
+by review (#95); a Haiku scout settled #100 for ~80K tokens; a Sonnet
+research agent settled #98 for ~80K. The refused lane is the instructive
+one: its brief said "reuse the leg path" and it did, so it read the book
+through the endpoint that 404s on a fresh combination (D3) — **a Sonnet
+lane executes the brief literally, so a brief's wrong choice ships, and
+the pre-build review is what catches a choice rather than a diff**
+(lessons 2026-09-18 twenty-sixth, measured again tonight: D1 and D2 were
+both in the design, not the code). Main's context stayed on integration.
+
 ### Still open
 
 1. #58 — the volume, with Joe; the clock is the ~15-day VACUUM window on the container root, not `/data`.
 2. #71 and #78 — with Joe, untouched by instruction since the sheet came back blank.
 3. #79 — the parlay builder multiplies legs the singles screen suppresses; with Joe.
 4. #97 — a combination fill's `fee_cost` is unread and reconciling it is a money change; with Joe, lettered.
-5. #95 — #76 slice 2: the Sonnet lane ran and the `kalshi-platform` review (on the ticket) refused the design as specified — a dust level aborts the whole book read and a received bid rounds UP. Now blocked by #106 (parser survives dust, received bid refused not rounded — money path, main) and #107 (a real non-empty combo YES-book fixture — venue capture, main); D5 (no per-contract basis on the wire) goes to `partner` next session. The lane's branch is not merged.
+5. #95 — #76 slice 2: the Sonnet lane ran and the `kalshi-platform` review (on the ticket) refused the design as specified — a dust level aborts the whole book read and a received bid rounds UP. Now blocked by #106 (parser survives dust, received bid refused not rounded — money path, main) and #107 (a real non-empty combo YES-book fixture — venue capture, main); D5 (no per-contract basis on the wire) goes to `partner` next session. The lane's branch is `lane-95-combo-book-bid` (e0d791e), unmerged: it reads the book through the leg path (D3) and collapses three absences into one (D7); its self-audit is on the ticket.
 6. #96 — #76 slice 3, main, serial after #95; needs a captured sell-side quote in the parser commit, schema v51.
 7. #86 — the `scoring.py` whole-index scan: #87 LANDED tonight (Sonnet lane; covering-index SCAN → keyed SEARCH, oracle-tested against the old SQL); #88 (main) times it on live after the next deploy.
 8. #89 — `idx_odds_event` has no statement planning onto it: #90 (Sonnet, timing QueryDef) then #91 (main, on live after a deploy).

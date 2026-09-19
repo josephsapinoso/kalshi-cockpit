@@ -185,6 +185,16 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
     # records the read AND the write that produced it, because the quotes
     # cannot be re-fetched: withdrawing the RFQ destroys the venue's copy, so
     # an unrecorded request here could never be reconstructed by asking again.
+    "board_issues.json": RecordsItsRequest(
+        params_in=("params",),
+        param_names=("roots", "paginate"),
+        endpoint_in=("endpoint",),
+        how="A real `gh api` capture of the sub-issue trees under map #3 and "
+            "backlog root #80 (2026-09-19), trimmed of URL and avatar noise; "
+            "every field `scripts/board.py` reads is verbatim. A `synthetic` "
+            "key holds hand-built nodes for tree shapes the live tree did not "
+            "contain that day, labelled as such inside the file.",
+    ),
     "combo_rfq_quotes.json": RecordsItsRequest(
         params_in=("params",),
         param_names=("rfq_user_filter", "limit", "exchange_index"),

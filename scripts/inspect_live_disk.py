@@ -100,6 +100,15 @@ def human(n: float) -> str:
     raise AssertionError("unreachable")
 
 
+def _reserved_bytes(st: Any) -> int:
+    """`(f_bfree - f_bavail) * f_frsize`: the space `f_bfree` counts as free
+    that `f_bavail` does not -- the filesystem's root reserve. Kept out of
+    `capacity()` on purpose: `tests/test_volume_alarm.py` pins that the
+    inspector's *free* figure never reads `f_bfree`, and that guard reads
+    `capacity`'s source. This helper is the one place the field is read."""
+    return (st.f_bfree - st.f_bavail) * st.f_frsize
+
+
 def capacity(root: str) -> dict[str, Any]:
     """Total, used and free bytes for the filesystem holding `root`.
 
@@ -121,7 +130,7 @@ def capacity(root: str) -> dict[str, Any]:
     st = os.statvfs(root)
     total = st.f_blocks * st.f_frsize
     free = st.f_bavail * st.f_frsize
-    reserved = (st.f_bfree - st.f_bavail) * st.f_frsize
+    reserved = _reserved_bytes(st)
     return {
         "root": root,
         "total_bytes": total,

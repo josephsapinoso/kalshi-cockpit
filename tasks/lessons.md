@@ -45,6 +45,19 @@ Two patterns from the session that moved the backlog onto GitHub (ADR 0179).
   describes a script from its spec: a citation to a file nobody has opened
   (2026-09-18 twenty-sixth, "a citation is a claim").
 
+- **A full suite started before the lanes merged reports on a tree that no
+  longer exists; re-run the named failures on the settled tree before fixing
+  any of them.** Tonight's 33-minute run began on one tree and three lanes
+  merged underneath it. It reported three failures. Re-run alone on the
+  settled tree, one was real (a new fixture not classified in the captures
+  table), one had been read mid-merge, and one was the walker's known
+  flakiness while a worktree is being written (`test_has_callers.py:172`
+  says so in its own comment). Fixing all three from the first report would
+  have changed two things that were not broken. The rule for the integrator:
+  the full suite is the LAST thing that runs, after the last merge, on a tree
+  with no live worktrees — or its failures are re-run one by one before they
+  are believed.
+
 ---
 
 ## 2026-09-18 (twenty-eighth) - A fake that models the venue's good behaviour cannot test the guard against its bad behaviour, and a fixture can exclude a case by arithmetic nobody wrote
