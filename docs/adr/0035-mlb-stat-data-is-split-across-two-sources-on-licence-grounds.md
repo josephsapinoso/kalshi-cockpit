@@ -122,6 +122,21 @@ hand-constructed payloads drift from reality, and that reasoning is sound — bu
 it was written for Kalshi and The Odds API, whose data we are not prohibited from
 redistributing.
 
+> **Amended 2026-09-19 (#99, from the terms read for #98).** "Not prohibited
+> from redistributing" is wrong as an unqualified sentence. The Odds API's
+> terms (`docs/research/2026-09-19-odds-api-terms.md`, fetched 2026-09-19,
+> page dated 31 August 2026) **permit** storing their data and retaining it
+> indefinitely and using it in user-facing applications including commercial
+> ones, and **forbid** reselling, repackaging or redistributing it "as a
+> standalone data product" — an API, a feed, downloadable files, "any other
+> format intended to serve as a source of raw data for others". A captured
+> wire fixture under `tests/fixtures/` is a handful of rows inside a test
+> suite, not a data product, and this ADR's decision (commit Odds API
+> fixtures, never MLBAM ones) stands on that reading. What it does NOT
+> license is an off-box archive of `odds_snapshots` handed to anyone else —
+> that is the "downloadable files" shape. Kalshi's terms are still the
+> separate agreement CLAUDE.md cites (Developer Agreement §3.1).
+
 For MLBAM:
 
 - **no captured payloads in `tests/fixtures/`**, and no capture script that
@@ -183,5 +198,8 @@ distributes a signal to anyone else, the MLBAM path is turned off.
   before the batter build depends on it. Unverified as of this ADR.
 - **It does not price the Retrosheet ingestion work.** That is a build estimate
   nobody has made.
-- **It says nothing about Kalshi's or The Odds API's terms**, which are separate
-  agreements and are unexamined here.
+- **It says nothing about Kalshi's terms**, which are a separate agreement
+  and are unexamined here. The Odds API's terms were read on 2026-09-19 and
+  the amendment in §3 above quotes them — this line said both were
+  unexamined until then, while §3 asserted the opposite, and #98/#99 exist
+  because the two sentences disagreed.

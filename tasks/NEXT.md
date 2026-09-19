@@ -50,7 +50,9 @@ while `requirements.txt:9` still pins a version inside its vulnerable range,
 because GitHub's dependency graph lost the package's resolved version.
 **This query is therefore known-incomplete — it cannot see `cryptography` at
 all.** Verify a fix by reading the version out of the running container, and
-see open item 3 below.
+and read `requirements.txt` — zero open alerts on 2026-09-19 and nothing
+owed (this line pointed at "open item 3 below" for a session after that
+item had left the list).
 
 **Two things to know before planning. CLAUDE.md is current on both:**
 
@@ -146,8 +148,9 @@ exception and runs next, on the board this session created.
 | commit | what |
 |---|---|
 | `33b4ece` | Lane C (Sonnet, worktree): `fact-scout` (Haiku, read-only) and `lane-builder` (Sonnet) agent files, `docs/agents/orchestration.md`, `docs/agents/ticket-template.md` — #102 |
-| (below) | Lane B (Sonnet, worktree): `scripts/board.py`, its fixture and test — #101 |
-| (this) | ADR 0179; the guard that every Still-open item names a ticket (#103); CLAUDE.md steps 0 and 8; partner.md's Haiku tier and dispatch table; the session box above; this entry; one lesson — #104 |
+| `f2b8759` | Lane B (Sonnet, worktree): `scripts/board.py`, its fixture and test — #101 |
+| `a082794` | the board's two false warnings from its first live run: a `## Done when` heading counts, an empty epic is not a leaf |
+| `1736a6e` | ADR 0179; the guard that every Still-open item names a ticket (#103); CLAUDE.md steps 0 and 8; partner.md's Haiku tier and dispatch table; the session box above; this entry; one lesson — #104 |
 
 ### 1. One queue, on GitHub
 
@@ -177,6 +180,22 @@ confused this session's uncommitted test edit for a commit on `main`; a
 scout reads the working tree, and a claim about `git log` from it wants a
 `git status` beside it.
 
+### 3. The first dispatch, from `partner`
+
+It ran on the board this session built and returned a dispatch table
+(the shape CLAUDE.md step 0 now asks for): three `lane-builder` lanes
+tonight — #95, #93, #87 — a `kalshi-platform` design review beside #95 that
+gates its merge, #98 as a Sonnet research agent because no scout has
+WebFetch (now #105, for Joe), #90 held because its consumer #91 waits on a
+deploy, and one main item: CLAUDE.md said the Parlays lede "still says"
+the frequency clause and "has its own ticket" — #64 was answered (A) and
+closed 2026-09-18 and the copy shipped, so the line was corrected in place.
+It also found four merged tickets still open (closed with shas), #76 a
+childless story on main's frontier forever (closed, its slices are #95 and
+#96), and **that four of five epics are maintenance and the product
+frontier is five Joe-blocked tickets and nothing else** — the drift ADR
+0071 exists to prevent, and the map is the only queue that refills it.
+
 ### Still open
 
 1. #58 — the volume, with Joe; the clock is the ~15-day VACUUM window on the container root, not `/data`.
@@ -187,10 +206,13 @@ scout reads the working tree, and a claim about `git log` from it wants a
 6. #96 — #76 slice 3, main, serial after #95; needs a captured sell-side quote in the parser commit, schema v51.
 7. #86 — the `scoring.py` whole-index scan: #87 (Sonnet, `WHERE` + plan test) then #88 (main, live timing).
 8. #89 — `idx_odds_event` has no statement planning onto it: #90 (Sonnet, timing QueryDef) then #91 (main, on live after a deploy).
-9. #92 — the 882 MB nobody owns: #93 (Sonnet, reserved-blocks read in `inspect_live_disk.py`) then #94 (main, on live).
-10. #98 — the Odds API's terms, read and reported (Sonnet, facts only); then #99 (main, amend ADR 0035).
-11. #100 — nothing re-runs a devig over historical rows; an input to #58, commented there.
-12. #85 — orchestration: #101 lands with Lane B below; #102, #103 and #104 close on this commit.
+9. #92 — the 882 MB nobody owns: #93 LANDED tonight (Sonnet lane, 13 tests, mutation red); #94 (main) reads it on live after the next deploy — check `.dockerignore` ships `inspect_live_disk.py` first.
+10. #98 and #99 DONE tonight: the terms permit indefinite storage and user-facing use and forbid redistribution as a raw data product (`docs/research/2026-09-19-odds-api-terms.md`); ADR 0035 §3 is amended in place and its "unexamined" line corrected. An off-box archive handed to anyone else is the forbidden shape — #58's input.
+11. #100 — CLOSED tonight: a Haiku `fact-scout` verified all four devig call sites read `MAX(fetched_ms)` only; the finding sits on #58 as an input.
+12. #105 — should `fact-scout` (Haiku) get WebFetch, or does the web stay a Sonnet job; with Joe, lettered.
+13. #85 — orchestration: #101–#104 closed with their shas; what remains under it is whatever `partner`'s first dispatch finds mis-shaped.
+
+Question for Joe: should `fact-scout` be allowed to read public web pages, or does the web stay a Sonnet job? — #105
 
 Question for Joe: a combination fill's `fee_cost` is present on every captured row and deliberately unread — reconcile it onto tenths, or leave it? — #97
 

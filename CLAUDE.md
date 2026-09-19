@@ -353,8 +353,14 @@ selling this back may cost me more than holding it to the outcome" — what
 an exit *costs*, not how often it exists, because every earlier version
 asserted a frequency and was falsified within days. (This paragraph carried
 the question as open until 2026-09-18 and sent a session to re-do finished
-work.) The Parlays page lede still says "hardly anyone is bidding to buy it
-back" — that sentence is Joe's ratified copy and has its own ticket.
+work.) The Parlays page lede no longer says "hardly anyone is bidding to buy
+it back": Joe answered (A) to #64 on 2026-09-18, the clause was replaced
+under his rule "say what an exit costs, not how often it exists", and the
+history of the three falsified frequency clauses sits in a comment beside
+the copy in `frontend/src/app/parlays/page.tsx`. (This sentence said the
+lede "still says" it, with "its own ticket", until 2026-09-19 — the ticket
+was closed, the copy shipped, and the partner agent caught the stale line
+before it sent a session to re-do the work.)
 No model, no tokens, no credits (asserted over the source of `core/hedge.py`,
 `hedge.py`, `hedge_watch.py`); no `recommendations` row and no gate read. With
 one leg live there is a figure and it is pushed to the phone; with several
