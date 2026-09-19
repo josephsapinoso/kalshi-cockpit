@@ -44,17 +44,19 @@ unblocked when every blocker is closed.
 ## Session loop
 
 1. **Read state.** `tasks/NEXT.md`'s latest entry, the top two entries of
-   `tasks/lessons.md`, `git status`, and `scripts/lane_board.py` (the only
-   thing that sees every worktree and local branch at once, including
-   uncommitted work — a snapshot, not a lock; re-run it before claiming
-   anything and again before pushing). Pull the open frontier itself with
-   the query in `docs/agents/issue-tracker.md` — `gh issue list` scoped to
-   the map's or the backlog root's open sub-issues, dropping anything with
-   an open blocker or an existing assignee. (There is no `scripts/board.py`
-   in this repo as of this writing — `lane_board.py` is the worktree/branch
-   detector, and the ticket frontier is read straight from `gh`, not from a
-   generated file. If a frontier-generating script is added later, this
-   step should name it.)
+   `tasks/lessons.md`, `git status`, then the two generated boards:
+
+       .venv\Scripts\python.exe scripts/board.py        # the ticket frontier
+       .venv\Scripts\python.exe scripts/lane_board.py   # worktrees and claims
+
+   `board.py` walks map #3 and backlog root #80 through their sub-issues and
+   prints the tree, the FRONTIER (open, unassigned, unblocked leaves grouped
+   by owner then model) and WARNINGS (a leaf with no `owner:`, an agent leaf
+   with no `model:` or no **Done when** line, a Still-open item with no
+   ticket). Exit 0 clean, 1 warnings, 3 unreadable — an unreadable board is
+   never reported as empty. `lane_board.py` is the only thing that sees every
+   worktree at once, uncommitted work included; both are snapshots, not
+   locks, so re-run them before claiming anything and again before pushing.
 2. **Hand the board to `partner`.** Give it what's open, what landed, what's
    blocked; it returns a ranked list plus a dispatch table — ticket, agent,
    model, lane files. Execute that plan; show Joe the result. `partner` owns

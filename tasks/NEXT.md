@@ -100,12 +100,18 @@ number and refuses any Still-open item that says *for Joe* / *Joe's call* /
 installed in this plugin version** — nothing can invoke it, and the map is
 read with `gh` only.
 
-**THIS FILE IS THE FRONT DOOR — Joe's answer, 2026-08-28.** Three queues: this
-file's Open list (repo and infrastructure work), the map's open tickets
-(decisions to make), and **decided-not-yet-built** — a closed ticket carrying a
-spec is a NEXT.md item, and it belongs to nobody unless it is written here.
-Read `git status`, then the Open list in the latest entry, then the frontier
-query, in that order.
+**THIS FILE IS THE FRONT DOOR, AND THE QUEUE IS ON GITHUB — ADR 0179,
+2026-09-19, superseding the three-queue answer of 2026-08-28.** One queue:
+every open item is a ticket under map #3 (Joe's decisions) or backlog root
+**#80** (build work: `type:epic` → `story` → `task`, `owner:` and `model:`
+labels). This file's Still-open list is `#NN — one line` pointers and
+`tests/test_a_question_for_joe_has_a_ticket.py` refuses an item with no
+number. Read `git status`, then the latest entry, then the generated board:
+
+    .venv\Scripts\python.exe scripts/board.py
+
+Protocol: `docs/agents/orchestration.md`. A decided-not-yet-built spec is a
+task under its story, not a line here.
 
 **THEN INVOKE THE `partner` AGENT, BEFORE PLANNING ANYTHING** — CLAUDE.md
 workflow step 0. Hand it the state (what is open, what landed, what is blocked)
@@ -125,6 +131,70 @@ live. The terminal spread/total look was **VETOED by Joe 2026-08-21 16:11Z**
 nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
+
+## 2026-09-19 (thirty-seventh session) — the queue moves to GitHub, the main session becomes the orchestrator, and the first lanes ran on the change itself
+
+Joe named the errand: make this session orchestrate, run work concurrently,
+use the lowest model that can do each job, and give the backlog a ticket
+system with epics, stories and tasks. Three answers from him in-session
+(GitHub Issues + labels, no Projects; Haiku read-only only; one queue) are
+recorded in ADR 0179. `partner` was skipped for the build under the step-0
+exception and runs next, on the board this session created.
+
+### What shipped
+
+| commit | what |
+|---|---|
+| `33b4ece` | Lane C (Sonnet, worktree): `fact-scout` (Haiku, read-only) and `lane-builder` (Sonnet) agent files, `docs/agents/orchestration.md`, `docs/agents/ticket-template.md` — #102 |
+| (below) | Lane B (Sonnet, worktree): `scripts/board.py`, its fixture and test — #101 |
+| (this) | ADR 0179; the guard that every Still-open item names a ticket (#103); CLAUDE.md steps 0 and 8; partner.md's Haiku tier and dispatch table; the session box above; this entry; one lesson — #104 |
+
+### 1. One queue, on GitHub
+
+Ten labels (`type:`, `owner:`, `model:`, `backlog:root`), backlog root
+**#80**, five epics **#81–#85**, and nineteen tickets **#86–#104** drafted
+by a Sonnet scout from the thirty-sixth entry's Still-open list — every
+`file:line` re-opened before it went into a body, which found the
+`routes.py:4598` CLAUDE.md cites at **4634** (corrected in place) and put the
+`_is_reusable` bug at `rfq.py:350-351`. The existing #58/#71/#78/#79 keep
+their wording and gain labels; #76 is now a `type:story`. A GitHub issue has
+one parent, so Joe's tickets stay under #3 and the epics name them in prose.
+
+**The guard is the point.** `test_every_open_item_names_a_ticket` was red on
+the thirty-sixth entry before a single ticket existed — five items with no
+number — and is green on this one only because each of those is now an
+issue somebody can be handed. A "DONE" item does not belong in Still open
+at all; it goes in the table above.
+
+### 2. The routing, used on itself
+
+Two Sonnet lanes and one Sonnet scout ran concurrently while main wrote
+the integrator-only files. Lane C found that its brief named
+`scripts/board.py` as existing while Lane B was still writing it, checked
+the tree, and wrote against the `gh` query that did exist with a note —
+the right call, folded at merge (lessons, 2026-09-19 first). The scout
+confused this session's uncommitted test edit for a commit on `main`; a
+scout reads the working tree, and a claim about `git log` from it wants a
+`git status` beside it.
+
+### Still open
+
+1. #58 — the volume, with Joe; the clock is the ~15-day VACUUM window on the container root, not `/data`.
+2. #71 and #78 — with Joe, untouched by instruction since the sheet came back blank.
+3. #79 — the parlay builder multiplies legs the singles screen suppresses; with Joe.
+4. #97 — a combination fill's `fee_cost` is unread and reconciling it is a money change; with Joe, lettered.
+5. #95 — #76 slice 2, unblocked since #74; a Sonnet lane with `kalshi-platform` review before merge.
+6. #96 — #76 slice 3, main, serial after #95; needs a captured sell-side quote in the parser commit, schema v51.
+7. #86 — the `scoring.py` whole-index scan: #87 (Sonnet, `WHERE` + plan test) then #88 (main, live timing).
+8. #89 — `idx_odds_event` has no statement planning onto it: #90 (Sonnet, timing QueryDef) then #91 (main, on live after a deploy).
+9. #92 — the 882 MB nobody owns: #93 (Sonnet, reserved-blocks read in `inspect_live_disk.py`) then #94 (main, on live).
+10. #98 — the Odds API's terms, read and reported (Sonnet, facts only); then #99 (main, amend ADR 0035).
+11. #100 — nothing re-runs a devig over historical rows; an input to #58, commented there.
+12. #85 — orchestration: #101 lands with Lane B below; #102, #103 and #104 close on this commit.
+
+Question for Joe: a combination fill's `fee_cost` is present on every captured row and deliberately unread — reconcile it onto tenths, or leave it? — #97
+
+---
 
 ## 2026-09-18 (thirty-sixth session) — lessons.md is split, the RFQ path reads Kalshi's own fill, and the question it was blocked on was answered in a fixture
 
@@ -1092,6 +1162,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-19 (thirty-seventh session) — the queue moves to GitHub, the main session becomes the orchestrator, and the first lanes ran on the change itself
 - 2026-09-18 (thirty-sixth session) — lessons.md is split, the RFQ path reads Kalshi's own fill, and the question it was blocked on was answered in a fixture
 - 2026-09-18 (thirty-fifth session) — the file is split, the volume is measured, and the VACUUM window turns out to run on a filesystem nobody had read
 - 2026-09-18 (thirty-fourth session) — the disk net has gone inert again, ADR 0175's leftover guard is closed, and I broke a governance rule four times before finding it

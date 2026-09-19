@@ -86,3 +86,16 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   is not withdrawn, and why it was left closed. A closed ticket asserting the
   opposite of what Joe currently wants is the front door lying; so is a reopened
   one that has quietly lost his original answer.
+
+## Backlog tickets — ADR 0179
+
+Build work lives under **backlog root #80** as `type:epic` → `type:story` →
+`type:task`, linked as sub-issues exactly as the map's children are. A GitHub
+issue has one parent, so a question for Joe stays under #3 and its epic names
+it in prose. Every leaf carries one `owner:` label (`main` / `agent` / `joe`)
+and an `owner:agent` leaf carries one `model:` label (`haiku` read-only
+scouting, `sonnet` a build whose body names its test, `opus` judgement).
+The body of an agent task follows `docs/agents/ticket-template.md`; the
+frontier across both roots is `scripts/board.py`; the session loop is
+`docs/agents/orchestration.md`. Labels were created 2026-09-19 with
+`gh label create`; a new one needs a line in the template, not just a label.

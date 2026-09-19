@@ -128,6 +128,11 @@ def open_items_asking_joe_without_a_ticket(entry: str) -> list[str]:
     return [item for item in still_open_items(entry) if ASKS_JOE.search(item) and not names_a_ticket(item)]
 
 
+def open_items_without_a_ticket(entry: str) -> list[str]:
+    """Every Still open item, not only the ones that ask Joe -- one queue, 2026-09-19."""
+    return [item for item in still_open_items(entry) if not names_a_ticket(item)]
+
+
 def measurement_docs_inside_the_rule() -> list[Path]:
     return sorted(p for p in MEASUREMENTS.glob("*.md") if p.name[:10] >= RULE_DATE)
 
@@ -193,6 +198,41 @@ class TestTheOpenListCannotAskJoeWithoutATicket:
         assert open_items_asking_joe_without_a_ticket(entry) == []
 
 
+class TestEveryOpenItemNamesATicket:
+    """One queue (2026-09-19): an open item that is not a ticket belongs to nobody.
+
+    The earlier class only refused items that hand Joe a decision. The rest of
+    the list -- repo and infrastructure work -- lived in prose here and was
+    re-derived every session instead of dispatched. Now every item points at
+    a ticket under map #3 or the backlog root, and this list is pointers.
+    """
+
+    ENTRY = (
+        "## 2026-09-19 (n-th session) — heading\n\n"
+        "### Still open\n\n"
+        "1. #81 — the volume, still with Joe on #58.\n"
+        "2. `scoring.py` scans the whole index on every pass. Its own item.\n"
+        "3. #85 — orchestration; board.py is in a lane.\n"
+        "4. The 882 MB nobody owns — see map #3.\n"
+    )
+
+    def test_an_item_with_no_number_is_refused(self):
+        flagged = open_items_without_a_ticket(self.ENTRY)
+        assert any(item.startswith("2. `scoring.py`") for item in flagged)
+
+    def test_an_item_naming_a_ticket_passes(self):
+        flagged = open_items_without_a_ticket(self.ENTRY)
+        assert not any(item.startswith("1. #81") for item in flagged)
+        assert not any(item.startswith("3. #85") for item in flagged)
+
+    def test_the_map_number_alone_does_not_count(self):
+        flagged = open_items_without_a_ticket(self.ENTRY)
+        assert any(item.startswith("4. The 882 MB") for item in flagged)
+
+    def test_exactly_the_two_bad_items_are_flagged(self):
+        assert len(open_items_without_a_ticket(self.ENTRY)) == 2
+
+
 class TestTheParsersFindSomething:
     """A guard over an empty slice is green for the wrong reason."""
 
@@ -228,6 +268,15 @@ class TestTheRecordHonoursTheRule:
             "an item in the latest entry's Still open list asks Joe to decide something and "
             "names no ticket. This is the exact line that decayed into 'run the instrument' "
             "twice in three sessions. Open the ticket now; the question does not exist until then."
+        )
+
+    def test_every_open_item_names_a_ticket(self):
+        entry = latest_entry(NEXT.read_text(encoding="utf-8"))
+        assert open_items_without_a_ticket(entry) == [], (
+            "an item in the latest entry's Still open list names no ticket. Since 2026-09-19 "
+            "there is one queue: every open item is a GitHub issue under map #3 or the backlog "
+            "root, and this list is `#NN — one line` pointers (docs/agents/orchestration.md). "
+            "Open the ticket, then write its number on the item."
         )
 
     @pytest.mark.parametrize("doc", measurement_docs_inside_the_rule(), ids=lambda p: p.name)

@@ -177,6 +177,23 @@ Before accepting "X is the constraint", ask what binds after X is gone.
    file. If a lookup-shaped job keeps landing on a high-effort agent, the fix
    is a new low-effort agent definition, not a longer prompt.
 
+   **Haiku sits under Sonnet for read-only facts — Joe's instruction,
+   2026-09-19, and it widened the tiering rather than moving the default.**
+   `fact-scout` (Haiku, low effort, read-only) takes inventories, greps,
+   counts, citation checks, "does the fixture / caller exist". It never edits
+   and never judges; Joe chose read-only scouting as its whole scope. Sonnet
+   remains the default for anything that writes: `lane-builder` takes one
+   ticket in a worktree when the ticket's **Done when** names the test.
+   Opus and the main session keep the money path, `schema.sql`, `config.py`,
+   `CLAUDE.md`, ADR decisions, measurement write-ups, diagnoses, merges and
+   deploys. The full table is `docs/agents/orchestration.md`.
+
+   **Your output includes a dispatch table.** For each item you rank: the
+   ticket number (open one if it has none — one queue, CLAUDE.md step 8),
+   the agent (`fact-scout` / `lane-builder` / a judgement agent / main), the
+   model tier that follows from the agent, and the files the lane owns. The
+   main session executes that table; it does not re-decide it.
+
    Context and credits are Joe's budget, and a fan-out of eight Opus agents on
    read-heavy work is the shape that spends it fastest.
 4. **Name what you are NOT doing and why.** A priority list without an explicit

@@ -372,7 +372,7 @@ on 12 rows of one stratum by the registered census, 2026-09-15:
 
     E3  entry fee, charged at 0.071 too LOW    ~1% of the fee (≈1 tenth a position); ADR 0145
         (was ABSENT from S until ADR 0145 — too HIGH by ~17 tenths/contract at
-        41c, the largest term and the only one that ran optimistic. `routes.py:4598`
+        41c, the largest term and the only one that ran optimistic. `routes.py:4634`
         still writes contracts × price with no fee; `backend/hedge.py:assess` now
         sinks `core/hedge.py:combo_entry_fee_tenths` beside it at read time)
     E1  settlement fee, H4 untested too HIGH   0 if H4 holds; ADR 0027
@@ -425,7 +425,7 @@ result doc); any order placed after 2026-09-15 is **outside** it and no look
 is owed on it. The one unjoined row is the
 2026-09-09T00:34:30Z order, pre-v40, no `venue_fill_count` and no `fills` row.
 `_record_combo_position` still **writes** `parlay_positions.stake_tenths` from
-the sent price (`contracts * fill_price_tenths`, `routes.py:4598`) and always
+the sent price (`contracts * fill_price_tenths`, `routes.py:4634`) and always
 will — but since **ADR 0160** (2026-09-16, Joe's `49A`) **nothing reads that
 number raw.** `hedge.build_payload` resolves each open position's stake at
 READ time to the venue's own `venue_avg_fill_price_tenths` where the link is
@@ -564,12 +564,16 @@ build steps. See `backend/kalshi/combos.py` and `tasks/lessons.md`.
 
 ## Workflow
 
-0. **Invoke the `partner` agent at session start, before planning anything.**
-   It owns what gets worked on, in what order, and by whom; this session
-   executes and Joe oversees. Give it the state (what is open, what landed,
-   what is blocked) and ask for a ranked list plus which items can run as
-   parallel lanes. **Skip it only for a single-item errand Joe named
-   himself.**
+0. **Run `scripts/board.py`, then invoke the `partner` agent, before planning
+   anything.** The board is the generated frontier of the one queue (map #3
+   for Joe's decisions, backlog root #80 for build work — ADR 0179,
+   `docs/agents/orchestration.md`). Hand it and the state (what landed, what
+   is blocked) to `partner`; it returns a ranked list **and a dispatch table**
+   — ticket → agent → model → lane files. This session is the orchestrator:
+   it dispatches, merges, numbers ADRs and writes the record; it does not do
+   the work a `fact-scout` (Haiku, read-only) or `lane-builder` (Sonnet, one
+   ticket in a worktree) can do with a checkable result. Joe oversees.
+   **Skip `partner` only for a single-item errand Joe named himself.**
 1. **Plan first** for anything non-trivial (3+ steps or an architectural
    choice). If something goes sideways, stop and re-plan rather than pushing.
 2. **Vertical slices, not horizontal layers.** Each step ends demoable and
@@ -596,3 +600,9 @@ build steps. See `backend/kalshi/combos.py` and `tasks/lessons.md`.
    map is the only queue that does not refill itself. An empty frontier is a
    finding, not a clean desk. `tests/test_a_question_for_joe_has_a_ticket.py`
    refuses the marker without a number and refuses `#3` (the map) as the number.
+8. **Every open item is a ticket, and NEXT.md points at it** (ADR 0179,
+   2026-09-19, superseding the three-queue answer of 2026-08-28). The
+   Still-open list is `#NN — one line` per item; the same test refuses an
+   item with no number. Ticket bodies for agent work follow
+   `docs/agents/ticket-template.md` — the **Done when** line names the test,
+   which is what makes a Sonnet lane safe to trust.

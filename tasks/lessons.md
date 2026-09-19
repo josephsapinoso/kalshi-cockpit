@@ -16,6 +16,37 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-19 (first) - A queue that lives in prose is re-derived every session; a queue that lives in tickets is dispatched -- and a brief that names a sibling lane's deliverable as existing sends the lane to check
+
+Two patterns from the session that moved the backlog onto GitHub (ADR 0179).
+
+- **Where the queue lives decides what happens to it at session start.** For
+  a month the Still-open list restated every item in full, and each session
+  began by re-reading, re-judging and re-ordering it -- at the top model, in
+  the main context -- before touching any of it. The decision queue had
+  already shown the decay (2026-09-16 eighth): a question for Joe in prose
+  became the instrument that raised it. The build queue decayed the same way
+  with nothing going red, because a prose item has no owner, no model and no
+  "done when", so the only thing a session can do with it is think about it
+  again. A ticket has all three, and the cheapest agent that can prove the
+  result takes it. **The test is whether an item can be handed to someone
+  without the hander re-deriving it; if not, it is not on a queue, it is in
+  a notebook.** The guard now refuses a Still-open item with no ticket
+  number, for every item and not only Joe's.
+
+- **A lane told that a sibling lane's file exists will either invent it or
+  go and look; brief for the second.** Lane C's brief named `scripts/board.py`
+  as "the generated frontier" while Lane B was still writing it. The lane
+  checked the tree, found nothing, and wrote the doc against the frontier
+  query that did exist, with a note saying so -- the right behaviour, and it
+  cost a paragraph at merge. The cheaper version is to say in the brief which
+  deliverables are *concurrent* and to write the pointer as the integrator's
+  job. The wrong version, which this repo has paid for before, is a doc that
+  describes a script from its spec: a citation to a file nobody has opened
+  (2026-09-18 twenty-sixth, "a citation is a claim").
+
+---
+
 ## 2026-09-18 (twenty-eighth) - A fake that models the venue's good behaviour cannot test the guard against its bad behaviour, and a fixture can exclude a case by arithmetic nobody wrote
 
 Eight guards on the new RFQ fill path were disabled one at a time. Six went
@@ -1207,6 +1238,10 @@ each is in the linked archive file, unchanged; the sections marked *in this
 file, above* are the ones not yet archived. Regenerate it from the headings in
 the same edit as the entry — an index that is not is stale by one entry
 immediately and by dozens within a week.
+
+### 2026-09-19 — in this file, above
+
+- A queue that lives in prose is re-derived every session; a queue that lives in tickets is dispatched -- and a brief that names a sibling lane's deliverable as existing sends the lane to check
 
 ### 2026-09-18 — in this file, above
 - A fake that models the venue's good behaviour cannot test the guard against its bad behaviour, and a fixture can exclude a case by arithmetic nobody wrote
