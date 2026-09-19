@@ -169,7 +169,9 @@ def markets_awaiting_scoring(conn, *, now: int) -> list[dict[str, Any]]:
         JOIN kalshi_markets m ON m.ticker = r.ticker
         JOIN (
             SELECT odds_event_id, MIN(commence_ms) AS commence_ms
-            FROM odds_snapshots GROUP BY odds_event_id
+            FROM odds_snapshots
+            WHERE odds_event_id IN (SELECT odds_event_id FROM event_links)
+            GROUP BY odds_event_id
         ) o ON o.odds_event_id = l.odds_event_id
         WHERE r.clv_scored_ms IS NULL
           AND m.series_ticker IS NOT NULL
@@ -184,7 +186,9 @@ def markets_awaiting_scoring(conn, *, now: int) -> list[dict[str, Any]]:
         JOIN event_links l   ON l.kalshi_event_ticker = m.event_ticker
         JOIN (
             SELECT odds_event_id, MIN(commence_ms) AS commence_ms
-            FROM odds_snapshots GROUP BY odds_event_id
+            FROM odds_snapshots
+            WHERE odds_event_id IN (SELECT odds_event_id FROM event_links)
+            GROUP BY odds_event_id
         ) o ON o.odds_event_id = l.odds_event_id
         WHERE m.series_ticker IS NOT NULL
           AND NOT EXISTS (
