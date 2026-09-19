@@ -50,6 +50,14 @@ What this does not establish
 - **Nothing about whether SQLite can write.** A database can fail to grow with
   bytes still free -- a full WAL, a read-only mount, a quota. "Free space
   exists" is not "the write will succeed".
+- **The `reserved` section does not prove `unaccounted_bytes` IS the root
+  reserve.** It computes `(f_bfree - f_bavail) * f_frsize` from the same
+  `statvfs` call `capacity()` already makes and prints it beside
+  `unaccounted_bytes` so a reader can see whether they are close. Agreement is
+  suggestive, not identity: both numbers can move for reasons unrelated to
+  each other (a reservation percentage change; a held-open deleted file), and
+  this module shells out to nothing (`tune2fs` included) to confirm the
+  reservation independently -- it stays stdlib-only, statvfs-only.
 """
 
 from __future__ import annotations
@@ -100,16 +108,27 @@ def capacity(root: str) -> dict[str, Any]:
     (`Dockerfile` runs non-root). Reporting `f_bfree` would show space the
     writer cannot actually have -- the flattering direction, on the exact
     question of why a write failed.
+
+    `reserved_bytes` is that same difference, named: `(f_bfree - f_bavail) *
+    f_frsize` is the space `f_bfree` counts as free that `f_bavail` does not,
+    because the filesystem reserves it for root (ext4's default 5% reserve is
+    the usual source; this module stays stdlib-only and shells out to no
+    external tool to confirm the percentage independently). It is printed
+    beside `unaccounted_bytes` in the report so a reader can see whether the
+    two figures are close -- see the module docstring for what that
+    comparison does and does not establish.
     """
     st = os.statvfs(root)
     total = st.f_blocks * st.f_frsize
     free = st.f_bavail * st.f_frsize
+    reserved = (st.f_bfree - st.f_bavail) * st.f_frsize
     return {
         "root": root,
         "total_bytes": total,
         "free_bytes": free,
         "used_bytes": total - free,
         "used_pct": round(100.0 * (total - free) / total, 2) if total else None,
+        "reserved_bytes": reserved,
     }
 
 
@@ -160,6 +179,7 @@ def by_extension(entries: Sequence[Entry]) -> list[tuple[str, int, int]]:
 def report(root: str, top: int) -> dict[str, Any]:
     cap = capacity(root)
     entries, walked, errors = walk(root)
+    unaccounted = cap["used_bytes"] - walked
     return {
         "capacity": cap,
         "walked_bytes": walked,
@@ -168,7 +188,16 @@ def report(root: str, top: int) -> dict[str, Any]:
         # df-used minus walk-total. Positive means space is held by something
         # the walk cannot see -- most often a deleted file a process still has
         # open. See the module docstring; this is a finding, not a rounding.
-        "unaccounted_bytes": cap["used_bytes"] - walked,
+        "unaccounted_bytes": unaccounted,
+        # The root reserve and the unaccounted gap, side by side. This does
+        # NOT prove the unaccounted bytes ARE the reservation -- it prints two
+        # numbers so a reader can see whether they are close. See "What this
+        # does not establish" in the module docstring.
+        "reserved": {
+            "total_bytes": cap["total_bytes"],
+            "reserved_bytes": cap["reserved_bytes"],
+            "unaccounted_bytes": unaccounted,
+        },
         "by_extension": [
             {"ext": ext, "files": n, "bytes": b} for ext, n, b in by_extension(entries)
         ],
@@ -193,6 +222,12 @@ def render_text(data: dict[str, Any]) -> str:
         f"unaccounted {data['unaccounted_bytes']:>14,}"
         f"  {human(data['unaccounted_bytes'])}"
         "   <- held by something the walk cannot see (see docstring)",
+        f"reserved    {data['reserved']['reserved_bytes']:>14,}"
+        f"  {human(data['reserved']['reserved_bytes'])}"
+        "   <- root's share, unaccounted restated beside it below",
+        f"  unaccounted vs reserved: {data['reserved']['unaccounted_bytes']:>14,}"
+        f" vs {data['reserved']['reserved_bytes']:>14,}"
+        "  (a match is not proof -- see docstring)",
         "",
         "by extension",
         "------------",
