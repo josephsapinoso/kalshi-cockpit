@@ -202,9 +202,9 @@ frontier is five Joe-blocked tickets and nothing else** — the drift ADR
 2. #71 and #78 — with Joe, untouched by instruction since the sheet came back blank.
 3. #79 — the parlay builder multiplies legs the singles screen suppresses; with Joe.
 4. #97 — a combination fill's `fee_cost` is unread and reconciling it is a money change; with Joe, lettered.
-5. #95 — #76 slice 2, unblocked since #74; a Sonnet lane with `kalshi-platform` review before merge.
+5. #95 — #76 slice 2: the Sonnet lane ran and the `kalshi-platform` review (on the ticket) refused the design as specified — a dust level aborts the whole book read and a received bid rounds UP. Now blocked by #106 (parser survives dust, received bid refused not rounded — money path, main) and #107 (a real non-empty combo YES-book fixture — venue capture, main); D5 (no per-contract basis on the wire) goes to `partner` next session. The lane's branch is not merged.
 6. #96 — #76 slice 3, main, serial after #95; needs a captured sell-side quote in the parser commit, schema v51.
-7. #86 — the `scoring.py` whole-index scan: #87 (Sonnet, `WHERE` + plan test) then #88 (main, live timing).
+7. #86 — the `scoring.py` whole-index scan: #87 LANDED tonight (Sonnet lane; covering-index SCAN → keyed SEARCH, oracle-tested against the old SQL); #88 (main) times it on live after the next deploy.
 8. #89 — `idx_odds_event` has no statement planning onto it: #90 (Sonnet, timing QueryDef) then #91 (main, on live after a deploy).
 9. #92 — the 882 MB nobody owns: #93 LANDED tonight (Sonnet lane, 13 tests, mutation red); #94 (main) reads it on live after the next deploy — check `.dockerignore` ships `inspect_live_disk.py` first.
 10. #98 and #99 DONE tonight: the terms permit indefinite storage and user-facing use and forbid redistribution as a raw data product (`docs/research/2026-09-19-odds-api-terms.md`); ADR 0035 §3 is amended in place and its "unexamined" line corrected. An off-box archive handed to anyone else is the forbidden shape — #58's input.
