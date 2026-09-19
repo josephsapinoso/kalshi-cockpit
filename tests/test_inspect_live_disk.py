@@ -16,9 +16,23 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from scripts.inspect_live_disk import by_extension, human, report, walk
+from scripts.inspect_live_disk import by_extension, capacity, human, render_text, report, walk
 
 SOURCE = Path(__file__).resolve().parents[1] / "scripts" / "inspect_live_disk.py"
+
+
+class _FakeStatvfs:
+    """Stands in for the namedtuple-like object `os.statvfs` returns.
+
+    Only the fields `capacity()` reads are populated; a real result carries
+    more, and reading an unfaked one here would be a Linux-only test.
+    """
+
+    def __init__(self, f_blocks, f_bfree, f_bavail, f_frsize):
+        self.f_blocks = f_blocks
+        self.f_bfree = f_bfree
+        self.f_bavail = f_bavail
+        self.f_frsize = f_frsize
 
 
 def _tree(root: Path) -> Path:
@@ -117,6 +131,49 @@ class TestTheReportCannotDeleteAnything:
         assert "open(" not in body
         assert "read_text" not in body
         assert "read_bytes" not in body
+
+
+class TestReservedBlocks:
+    """The root reserve, read from the same `statvfs` call `capacity()`
+    already makes -- `(f_bfree - f_bavail) * f_frsize` is the space `f_bfree`
+    counts as free that `f_bavail` (what a non-root writer can actually use)
+    does not.
+    """
+
+    def test_reserved_bytes_is_f_bfree_minus_f_bavail(self, monkeypatch):
+        fake = _FakeStatvfs(f_blocks=1000, f_bfree=300, f_bavail=250, f_frsize=4096)
+        monkeypatch.setattr(os, "statvfs", lambda root: fake, raising=False)
+        cap = capacity("/data")
+        assert cap["reserved_bytes"] == (300 - 250) * 4096
+
+    def test_swapping_f_blocks_for_f_bfree_breaks_the_assertion(self, monkeypatch):
+        """The mutation named in the ticket: use `f_blocks` in place of
+        `f_bfree` in the arithmetic. This pins the correct field is the one
+        actually read, by showing the wrong field gives a different answer
+        against the same fake.
+        """
+        fake = _FakeStatvfs(f_blocks=1000, f_bfree=300, f_bavail=250, f_frsize=4096)
+        monkeypatch.setattr(os, "statvfs", lambda root: fake, raising=False)
+        cap = capacity("/data")
+        wrong = (fake.f_blocks - fake.f_bavail) * fake.f_frsize
+        assert cap["reserved_bytes"] != wrong
+
+    def test_unaccounted_bytes_is_printed_beside_reserved_bytes(self, tmp_path, monkeypatch):
+        (tmp_path / "file.db").write_bytes(b"a" * 100)
+        # total 100000 bytes, free 50000 -> used 50000; walked 100 ->
+        # unaccounted 49900. bfree-bavail reserve of 4096 bytes.
+        fake = _FakeStatvfs(f_blocks=100, f_bfree=13, f_bavail=12, f_frsize=1000)
+        monkeypatch.setattr(os, "statvfs", lambda root: fake, raising=False)
+        data = report(str(tmp_path), top=5)
+        assert data["reserved"]["unaccounted_bytes"] == data["unaccounted_bytes"]
+        assert data["reserved"]["reserved_bytes"] == (13 - 12) * 1000
+        text = render_text(data)
+        assert "reserved" in text
+        # Both figures land in the rendered report, so a reader sees them
+        # side by side rather than having to compute one from the other.
+        # (Rendered with thousands separators, hence the `:,` format.)
+        assert f"{data['unaccounted_bytes']:,}" in text
+        assert f"{data['reserved']['reserved_bytes']:,}" in text
 
 
 class TestHumanIsBesideTheBytesNotInsteadOfThem:
