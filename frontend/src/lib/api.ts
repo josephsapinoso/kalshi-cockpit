@@ -986,6 +986,35 @@ export type ParlayCardJoint = {
   correlation_note: string;
 };
 
+/**
+ * The card-level scouting rollup (ticket #110, ADR 0088): what the desk
+ * already knows about this card's legs' games, built server-side from the
+ * legs' own `scout`/`scout_flags`/`scout_age_ms` fields — zero new queries,
+ * zero credits.
+ *
+ * **Nothing here is an input to any number on the card, and nothing here
+ * may order anything** — the same ADR 0071 §2.5 rule that governs a single
+ * leg's scout fields applies to this rollup with the same force.
+ */
+export type ParlayCardScouting = {
+  legs_total: number;
+  /** Legs whose game is `briefed` or `filed_nothing` — the desk LOOKED. */
+  legs_briefed: number;
+  /**
+   * Labels of legs whose game is `absent`, `refused`, or `failed` —
+   * "nobody looked", never "nothing found" (ADR 0088).
+   */
+  legs_dark: string[];
+  /** Labels of legs whose game the desk is briefing RIGHT NOW. */
+  legs_out: string[];
+  /** The oldest of the BRIEFED legs' ages, or `null` when none are briefed. */
+  oldest_briefing_age_ms: number | null;
+  /** Union of non-`clear` tile categories across the briefed legs, sorted. */
+  flag_categories: string[];
+  /** The server-worded summary — render this, not a client-built sentence. */
+  words: string;
+};
+
 /** One rung of the ladder. Either `legs` is populated or `not_built_reason` says why not. */
 export type ParlayCardData = {
   key: string;
@@ -996,6 +1025,8 @@ export type ParlayCardData = {
   not_built_reason: string | null;
   joint: ParlayCardJoint | null;
   at_stakes: ParlayStake[];
+  /** `null` on an unbuilt card — nothing was built, so nothing was looked at. */
+  scouting: ParlayCardScouting | null;
 };
 
 /**
