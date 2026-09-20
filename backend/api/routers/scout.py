@@ -1,9 +1,17 @@
 """`/api/scout`: the scout desk (ADR 0060) -- convene, overview, briefing.
 
 Moved verbatim from `backend/api/routes.py` on 2026-09-04; see
-`backend/api/routers/__init__.py` for the `register()` shape and why. The two
-helpers at the top (`_resolve_scout_fixture`, `_run_scout_desk`) were closure
-locals beside the handlers and travel with them.
+`backend/api/routers/__init__.py` for the `register()` shape and why.
+
+**`_resolve_scout_fixture` and `_run_scout_desk` are module-level, not
+closure locals, since 2026-09-20 (ADR 0180, ticket #112).** They used to
+live beside the handlers inside `register()`; they moved out so
+`backend/scout_watch.py` -- the unattended convener -- can call the exact
+same write path a tap does, rather than a second implementation that could
+drift from it. `_run_scout_desk` takes the trigger (`'tap'` here, `'auto'`
+from the watcher) and writes it onto the completed row, and takes
+`client_factory` (default `build_client`) so a caller can stub the Anthropic
+client without touching this module's own default.
 
 This is the API's one caller of the billed path: `send_scout_desk` re-checks
 `AgentBudget.refusal_reason` before accepting a request, and `build_client` is
@@ -31,152 +39,182 @@ from ...store import db
 logger = logging.getLogger(__name__)
 
 
+# A `running` row older than this is reported as gone quiet: the process
+# that owned it cannot come back to finish it after a restart, and a row
+# that looks alive forever would pin the button in its spinner state.
+SCOUT_DESK_PATIENCE_MS = 15 * 60 * 1000
+
+
+def _resolve_scout_fixture(conn, ticker: str) -> Optional[dict]:
+    """Who plays whom, from the linked sportsbook fixture. `None` if unlinked.
+
+    Teams, league and start come from `odds_snapshots`, never from Kalshi:
+    `kalshi_events.commence_ms` is the raw `occurrence_datetime`, ~3 hours
+    late on game series (ADR 0006), and Kalshi titles do not carry a
+    home/away split at all. A ticker with no linked fixture cannot be
+    scouted -- the desk would not know which two clubs to cover -- and that
+    refusal is honest rather than a guess from parsing a ticker string.
+    """
+    link = conn.execute(
+        "SELECT l.odds_event_id, e.title AS event_title "
+        "FROM recommendations r "
+        "JOIN event_links l ON l.id = r.link_id "
+        "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
+        "LEFT JOIN kalshi_events e ON e.event_ticker = m.event_ticker "
+        "WHERE r.ticker = ? "
+        "ORDER BY r.created_ms DESC, r.id DESC LIMIT 1",
+        (ticker,),
+    ).fetchone()
+    if not link:
+        return None
+    # SQLite's bare-column rule: with a lone MIN() aggregate, the bare
+    # columns come from the row that achieved the minimum -- the earliest
+    # snapshot, whose team names are as good as any (they never change
+    # within one fixture).
+    fixture = conn.execute(
+        "SELECT home_team, away_team, sport_key, "
+        "       MIN(commence_ms) AS commence_ms "
+        "FROM odds_snapshots WHERE odds_event_id = ?",
+        (link["odds_event_id"],),
+    ).fetchone()
+    if not fixture or fixture["home_team"] is None:
+        return None
+    title = link["event_title"] or (
+        f"{fixture['away_team']} at {fixture['home_team']}"
+    )
+    return {
+        "event_title": title,
+        "league": fixture["sport_key"],
+        "home_team": fixture["home_team"],
+        "away_team": fixture["away_team"],
+        "commence_ms": fixture["commence_ms"],
+    }
+
+
+async def _run_scout_desk(
+    db_path,
+    row_id: int,
+    config: AgentConfig,
+    fixture: dict,
+    ticker: str,
+    *,
+    trigger: str = "tap",
+    client_factory=None,
+) -> None:
+    """The background half of one convening. Owns its own connection.
+
+    Shared by the tap route (`send_scout_desk`, `trigger="tap"`) and
+    `backend/scout_watch.py` (`trigger="auto"`) -- the one write path both
+    triggers use, so a convening looks the same on the row regardless of who
+    sent the desk. `client_factory` is `None` here on purpose rather than
+    defaulting to `build_client`: `tests/test_has_callers.py` pins the
+    literal `build_client(config)` call below as the one site that
+    constructs the desk's client, and a default-parameter reference would
+    turn that into a mere reference the scanner cannot see is metered. A
+    caller (the watcher, in tests) may still override it.
+
+    Runs after the row has already been inserted (the tap route returns its
+    id in the 202 before this executes; the watcher inserts synchronously
+    too), so nothing here may raise out: every failure ends in the row being
+    marked `failed`, because a briefing that dies silently is
+    indistinguishable from one still running.
+    """
+    conn = db.open_db(db_path)
+    try:
+        budget = AgentBudget.from_config(conn, config)
+        client = (
+            build_client(config) if client_factory is None
+            else client_factory(config)
+        )
+        commence_iso = (
+            datetime.fromtimestamp(
+                fixture["commence_ms"] / 1000, tz=timezone.utc
+            ).isoformat()
+            if fixture["commence_ms"] is not None
+            else None
+        )
+        result = await asyncio.wait_for(
+            scout_desk.convene_desk(
+                client,
+                config,
+                budget,
+                ticker=ticker,
+                event_title=fixture["event_title"],
+                league=fixture["league"],
+                commence_iso=commence_iso,
+                home_team=fixture["home_team"],
+                away_team=fixture["away_team"],
+                now_ms=db.now_ms(),
+            ),
+            # The desk is three web-searching calls; the longest plausible
+            # convening is minutes. Ten is a backstop, not a target.
+            timeout=600,
+        )
+        staff_json = json.dumps(
+            [
+                {
+                    "role": note.role,
+                    "team": note.team,
+                    "report": (
+                        None
+                        if note.report is None
+                        else note.report.model_dump()
+                    ),
+                }
+                for note in result.staff
+            ]
+        ) if result.staff else None
+        briefing_json = (
+            result.briefing.model_dump_json()
+            if result.briefing is not None
+            else None
+        )
+        # NULL when the seat filed nothing — never `{}`. The absence
+        # reason is logged at convening time and not stored: on read,
+        # "predates the seat" and "filed nothing" render the same
+        # honest words, and a stored reason would age into a claim
+        # about a budget day long over. See ADR 0069.
+        sharp_json = (
+            result.sharp.model_dump_json()
+            if result.sharp is not None
+            else None
+        )
+        # `trigger` is written here too, not only at insert -- the SAME
+        # value the row was inserted with, echoed back explicitly, so the
+        # completed row states who sent the desk without relying on the
+        # insert alone never having been touched.
+        conn.execute(
+            "UPDATE scout_briefings SET status = ?, completed_ms = ?, "
+            "staff_json = ?, briefing_json = ?, sharp_json = ?, "
+            "refusal_reason = ?, trigger = ? WHERE id = ?",
+            (
+                result.status,
+                db.now_ms(),
+                staff_json,
+                briefing_json,
+                sharp_json,
+                result.refusal_reason,
+                trigger,
+                row_id,
+            ),
+        )
+        conn.commit()
+    except Exception:
+        logger.exception("scout desk convening %d (%s) died", row_id, trigger)
+        conn.execute(
+            "UPDATE scout_briefings SET status = 'failed', "
+            "completed_ms = ?, trigger = ? WHERE id = ?",
+            (db.now_ms(), trigger, row_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def register(
     app: FastAPI, *, app_config: AppConfig, get_conn, require_auth
 ) -> None:
     """Attach the three scout handlers to `app`, in their original order."""
-
-    def _resolve_scout_fixture(conn, ticker: str) -> Optional[dict]:
-        """Who plays whom, from the linked sportsbook fixture. `None` if unlinked.
-
-        Teams, league and start come from `odds_snapshots`, never from Kalshi:
-        `kalshi_events.commence_ms` is the raw `occurrence_datetime`, ~3 hours
-        late on game series (ADR 0006), and Kalshi titles do not carry a
-        home/away split at all. A ticker with no linked fixture cannot be
-        scouted -- the desk would not know which two clubs to cover -- and that
-        refusal is honest rather than a guess from parsing a ticker string.
-        """
-        link = conn.execute(
-            "SELECT l.odds_event_id, e.title AS event_title "
-            "FROM recommendations r "
-            "JOIN event_links l ON l.id = r.link_id "
-            "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
-            "LEFT JOIN kalshi_events e ON e.event_ticker = m.event_ticker "
-            "WHERE r.ticker = ? "
-            "ORDER BY r.created_ms DESC, r.id DESC LIMIT 1",
-            (ticker,),
-        ).fetchone()
-        if not link:
-            return None
-        # SQLite's bare-column rule: with a lone MIN() aggregate, the bare
-        # columns come from the row that achieved the minimum -- the earliest
-        # snapshot, whose team names are as good as any (they never change
-        # within one fixture).
-        fixture = conn.execute(
-            "SELECT home_team, away_team, sport_key, "
-            "       MIN(commence_ms) AS commence_ms "
-            "FROM odds_snapshots WHERE odds_event_id = ?",
-            (link["odds_event_id"],),
-        ).fetchone()
-        if not fixture or fixture["home_team"] is None:
-            return None
-        title = link["event_title"] or (
-            f"{fixture['away_team']} at {fixture['home_team']}"
-        )
-        return {
-            "event_title": title,
-            "league": fixture["sport_key"],
-            "home_team": fixture["home_team"],
-            "away_team": fixture["away_team"],
-            "commence_ms": fixture["commence_ms"],
-        }
-
-    # A `running` row older than this is reported as gone quiet: the process
-    # that owned it cannot come back to finish it after a restart, and a row
-    # that looks alive forever would pin the button in its spinner state.
-    SCOUT_DESK_PATIENCE_MS = 15 * 60 * 1000
-
-    async def _run_scout_desk(row_id: int, config: AgentConfig, fixture: dict,
-                              ticker: str) -> None:
-        """The background half of one convening. Owns its own connection.
-
-        Runs on the API process's event loop after the POST has already
-        returned 202, so nothing here may raise out: every failure ends in the
-        row being marked `failed`, because a briefing that dies silently is
-        indistinguishable from one still running.
-        """
-        conn = db.open_db(app_config.db_path)
-        try:
-            budget = AgentBudget.from_config(conn, config)
-            client = build_client(config)
-            commence_iso = (
-                datetime.fromtimestamp(
-                    fixture["commence_ms"] / 1000, tz=timezone.utc
-                ).isoformat()
-                if fixture["commence_ms"] is not None
-                else None
-            )
-            result = await asyncio.wait_for(
-                scout_desk.convene_desk(
-                    client,
-                    config,
-                    budget,
-                    ticker=ticker,
-                    event_title=fixture["event_title"],
-                    league=fixture["league"],
-                    commence_iso=commence_iso,
-                    home_team=fixture["home_team"],
-                    away_team=fixture["away_team"],
-                    now_ms=db.now_ms(),
-                ),
-                # The desk is three web-searching calls; the longest plausible
-                # convening is minutes. Ten is a backstop, not a target.
-                timeout=600,
-            )
-            staff_json = json.dumps(
-                [
-                    {
-                        "role": note.role,
-                        "team": note.team,
-                        "report": (
-                            None
-                            if note.report is None
-                            else note.report.model_dump()
-                        ),
-                    }
-                    for note in result.staff
-                ]
-            ) if result.staff else None
-            briefing_json = (
-                result.briefing.model_dump_json()
-                if result.briefing is not None
-                else None
-            )
-            # NULL when the seat filed nothing — never `{}`. The absence
-            # reason is logged at convening time and not stored: on read,
-            # "predates the seat" and "filed nothing" render the same
-            # honest words, and a stored reason would age into a claim
-            # about a budget day long over. See ADR 0069.
-            sharp_json = (
-                result.sharp.model_dump_json()
-                if result.sharp is not None
-                else None
-            )
-            conn.execute(
-                "UPDATE scout_briefings SET status = ?, completed_ms = ?, "
-                "staff_json = ?, briefing_json = ?, sharp_json = ?, "
-                "refusal_reason = ? WHERE id = ?",
-                (
-                    result.status,
-                    db.now_ms(),
-                    staff_json,
-                    briefing_json,
-                    sharp_json,
-                    result.refusal_reason,
-                    row_id,
-                ),
-            )
-            conn.commit()
-        except Exception:
-            logger.exception("scout desk convening %d died", row_id)
-            conn.execute(
-                "UPDATE scout_briefings SET status = 'failed', "
-                "completed_ms = ? WHERE id = ?",
-                (db.now_ms(), row_id),
-            )
-            conn.commit()
-        finally:
-            conn.close()
 
     @app.post(
         "/api/scout/{ticker}",
@@ -256,7 +294,12 @@ def register(
             row_id = int(cursor.lastrowid)
         finally:
             write_conn.close()
-        asyncio.create_task(_run_scout_desk(row_id, config, fixture, ticker))
+        asyncio.create_task(
+            _run_scout_desk(
+                app_config.db_path, row_id, config, fixture, ticker,
+                trigger="tap",
+            )
+        )
         return {"accepted": True, "id": row_id}
 
     @app.get("/api/scout")
