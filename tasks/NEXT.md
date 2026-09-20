@@ -134,6 +134,85 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-20 (thirty-eighth session) — the desk can be sent on the ladder unattended (off), every card says what it knows, sentiment is a tile, and Elo is a registration that can only close
+
+Joe's errand, verbatim: *"i want the ability to send scouts to assess the
+parlay picks, and return a informative desk evaluation. automatically done.
+this should increase my win success rate and strengthen evaluation. take
+in sentiment analysis and elo aggretation as well."* Plan mode; `partner`
+ran on the board and a draft decomposition and re-ranked it; Joe answered
+three lettered questions in-session (below). Six tickets under a new story
+**#108** (epic #83), four Sonnet lanes, two main tickets, one Joe ticket.
+**The scouts already existed** — the scout desk, ADR 0060/0069 — and the
+parlay legs already read their briefings (ADR 0088). What was missing was
+the trigger, a card-level sentence, a sentiment category and any Elo input.
+
+**Joe's answers, 2026-09-20:** sentiment = **betting splits and line
+movement**, words only (not public/press lean); the auto-convener **ships
+OFF and demand is measured first**, then all three `AGENT_MAX_*` ceilings
+move together or not at all; Elo = **free measurement first**, no number on
+a card until it passes.
+
+**The win rate is not promised and the record says so.** ~13 orders is not
+an n; nothing is registered over it; what shipped instead is the leg's
+scout state recorded at bet time (#114) so the question is askable later.
+
+### What shipped
+
+| commit | what | ticket |
+|---|---|---|
+| `6e7cabd` | `ScoutAutoConfig` (flag off, three brakes), `scout_briefings.trigger` (v51), `.env.example` / `fly.live.toml`, **ADR 0180** (numbered on main; ADR 0088's first not-built bullet superseded, pointer added) | #111 |
+| `81e6fa8` | Lane (Sonnet): every card carries a deterministic `scouting` block — legs briefed / dark / out, oldest age, flag categories, words — rendered above the legs; glossary `scout_desk`; three guards mutation-red | #110 |
+| `9054ddc` | Lane (Sonnet): seventh board tile `sentiment` inside the existing staff call; no new call, `STAFF_PAIR_SEARCHES_WORST_CASE` unchanged; glossary `betting_splits`; four guards mutation-red | #113 |
+| (merge of `dd1436d`) | Lane (Sonnet): `inspect_live_db.py ladder-fixtures` — a bounded per-day series of distinct fixtures with a fresh team-market leg at 22:00Z, in `inspect_live_db_parlays.py`; four guards mutation-red | #109 |
+| `e6b5f4f` | `parlay_position_legs.scout_state` (v52), written once by `hedge.record_position` for all three callers through `parlays.scouting_facts`; NULL is "not recorded"; two guards mutation-red | #114 |
+| `9fc196f` (merge of `d7a0148`) | Lane (Sonnet): `backend/scout_watch.py` beside `hedge-watch` — tonight's ladder fixtures, kickoff-soonest, skip a fresh briefing, auto allowance counted from `trigger`, tap reserve, refuses at every ceiling; six guards mutation-red. Main's fix-up: the watcher names no billed symbol, so the allowlist is unchanged and says why | #112 |
+| `056e73a` | Pre-registration of the Elo-vs-price look (`pre-registrar`), committed before any row was read | #115 |
+
+### 1. The number ADR 0088 never had
+
+`fetch_live_route.py /api/parlays` at 22:03Z: **21 leg slots across 9
+distinct fixtures**, all nine `scout = absent`. Nine convenings is 36 calls
+and up to 108 searches against 24/60 — about twice today's ceiling, not an
+order of magnitude. One reading is not a rate; #109's series is what Joe
+will be asked to fund against. **Raising one ceiling alone buys one
+convening before the next binds**, so #116 asks for all three together.
+
+### 2. What the Elo registration found before it cost anything
+
+The decision rule's floor is `0.831 × sigma_model` at any n, so the look
+**can close the Elo question and cannot open one**; a PASS licenses a
+successor registration only. The record is ≤44 days old and only MLB has a
+path to the cluster floor. Margin-of-victory is not a runnable axis — no
+scores exist anywhere in the schema. The data path is **BLOCKED ON
+INSTRUMENT**: an `elo-game-pull` QueryDef that must walk `odds_snapshots`
+(2.6 GB) for home/away, run on a `VACUUM INTO` copy — which competes for
+the disk window #58 is about. Registration expires 2026-10-20. Not built
+tonight, deliberately.
+
+### 3. Three things that went wrong and were caught
+
+- **Every Agent worktree was cut from the session-start commit**, so lane
+  #112 lacked the groundwork it depended on until told to merge `6e7cabd`.
+- **`git checkout` to undo a mutation erased the uncommitted
+  `ScoutAutoConfig`** — the recorded hazard, repeated; restored, and the
+  later mutations went through a `$TEMP` copy.
+- **A test seeded `kalshi_markets` with `INSERT OR IGNORE`, which swallowed
+  a NOT NULL failure**, and asserted `absent` for a game that had a
+  briefing (the 2026-08-10 lesson, repeated). Plain INSERT now.
+
+### Still open
+
+1. #116 — the unattended-scouting ceilings; with Joe, lettered; the `ladder-fixtures` series needs a deploy first and then a week.
+2. #115 — the Elo look is registered and BLOCKED ON INSTRUMENT (a walking QueryDef on a `VACUUM INTO` copy); ordered after #58; expires 2026-10-20.
+3. #108 — the story stays open for the deferred fifth seat (the card desk), not ticketed until #116 is answered and coverage exists; and for the live read of the `scouting` key after deploy.
+4. #58, #71, #78, #79, #97, #105 — with Joe, unchanged tonight.
+5. #88, #94, #90 — the disk epic's remaining reads and the timing QueryDef, unchanged.
+
+Question for Joe: how much unattended scouting do you want to pay for each day — the three ceilings move together, or it stays off? — #116
+
+---
+
 ## 2026-09-19 (thirty-seventh session) — the queue moves to GitHub, the main session becomes the orchestrator, and the first lanes ran on the change itself
 
 Joe named the errand: make this session orchestrate, run work concurrently,
@@ -1195,6 +1274,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-20 (thirty-eighth session) — the desk can be sent on the ladder unattended (off), every card says what it knows, sentiment is a tile, and Elo is a registration that can only close
 - 2026-09-19 (thirty-seventh session) — the queue moves to GitHub, the main session becomes the orchestrator, and the first lanes ran on the change itself
 - 2026-09-18 (thirty-sixth session) — lessons.md is split, the RFQ path reads Kalshi's own fill, and the question it was blocked on was answered in a fixture
 - 2026-09-18 (thirty-fifth session) — the file is split, the volume is measured, and the VACUUM window turns out to run on a filesystem nobody had read

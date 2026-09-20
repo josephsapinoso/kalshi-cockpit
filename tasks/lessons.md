@@ -16,6 +16,44 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-20 (first) - A lane is cut from where the session started, not from where main is; and an allowlist keyed on who names a symbol moves to whoever you hand the symbol to
+
+Two patterns from the session that let the scout desk be sent unattended
+(ADR 0180), plus two recurrences.
+
+- **An Agent worktree is cut from the commit `main` was on when the
+  session began.** Four lanes were spawned across the evening; every one
+  started from the same commit, including the one spawned *after* main had
+  committed the config class and schema column it depended on. The lane
+  would have built against a tree where its inputs did not exist and
+  reported green on tests it wrote against that tree. `git worktree list`
+  shows the base beside every lane; read it after spawning. A brief that
+  depends on a mid-session commit says so and tells the lane to
+  `git merge` it first, and to grep for the symbol before building.
+
+- **A billed-path allowlist keyed on which module *names* the symbol is
+  moved by a factory argument.** The scanner allowlists modules that name
+  `build_client`; the lane, told to "pass `build_client` as a factory",
+  put the name in `scripts/run_loop.py`, and the only green fix on its
+  side was to admit the whole loop script as a spender. The right fix was
+  on the other side: default the factory at the site already allowlisted,
+  and let the new caller pass nothing. **Whoever holds the name holds the
+  ceiling's paperwork; design so the name stays where the meter is.** A
+  lane executes the brief literally (2026-09-18 twenty-sixth), so this is
+  a choice the brief should have made.
+
+- **Two recurrences, recorded as such.** `git checkout <file>` to undo a
+  mutation erased the uncommitted real work in the same file (the
+  mutation-testing hazard already in this record); the later mutations
+  restored from a `$TEMP` copy with `cmp` proving byte identity. And a
+  test seeded a table with `INSERT OR IGNORE`, which swallowed a NOT NULL
+  failure and left the table empty, so the test asserted `absent` for a
+  game that had a briefing (2026-08-10, "`INSERT OR IGNORE` will happily
+  ignore your fixture"). A lesson that recurs twice in six weeks is one the
+  session start does not reach; both are now in the memory index as well.
+
+---
+
 ## 2026-09-19 (first) - A queue that lives in prose is re-derived every session; a queue that lives in tickets is dispatched -- and a brief that names a sibling lane's deliverable as existing sends the lane to check
 
 Two patterns from the session that moved the backlog onto GitHub (ADR 0179).
@@ -1251,6 +1289,10 @@ each is in the linked archive file, unchanged; the sections marked *in this
 file, above* are the ones not yet archived. Regenerate it from the headings in
 the same edit as the entry — an index that is not is stale by one entry
 immediately and by dozens within a week.
+
+### 2026-09-20 — in this file, above
+
+- A lane is cut from where the session started, not from where main is; and an allowlist keyed on who names a symbol moves to whoever you hand the symbol to
 
 ### 2026-09-19 — in this file, above
 
