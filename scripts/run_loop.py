@@ -90,6 +90,7 @@ from backend.config import (  # noqa: E402
     MarketResultConfig,
     OddsConfig,
     RiskConfig,
+    ScoutAutoConfig,
     StalenessConfig,
     assert_kalshi_quote_age_limits_agree,
     assert_odds_age_limits_agree,
@@ -117,9 +118,11 @@ from backend.parlays import (  # noqa: E402
     combo_eligibility_is_due,
     refresh_combo_eligibility,
 )
+from backend.agents.base import AgentConfig, build_client  # noqa: E402
 from backend.bid_watch import watch_bids_forever  # noqa: E402
 from backend.hedge_watch import watch_hedges_forever  # noqa: E402
 from backend.kalshi.quotes import LiveQuoteSource  # noqa: E402
+from backend.scout_watch import watch_scouts_forever  # noqa: E402
 from backend.runner import run_once, run_quote_pass  # noqa: E402
 from backend.scheduler import (  # noqa: E402
     DEFAULT_FAST_INTERVAL_S,
@@ -1160,6 +1163,28 @@ async def main() -> int:
             name="bid-watch",
         )
 
+        # The scout watcher (ADR 0180 section 3.1, ticket #112): the first
+        # thing in this repo that can spend Anthropic money with nobody
+        # tapping anything, so it ships behind `SCOUT_AUTO_CONVENE_ENABLED`
+        # (default false) and every ceiling refuses rather than degrades --
+        # see `backend/scout_watch.py`'s own docstring. Same shape as the
+        # hedge watcher above: its own task, its own connection, its own
+        # cadence, and factories rather than instances because the task owns
+        # the only connection and client it may use.
+        scout_auto_config = ScoutAutoConfig.load()
+        scout_task = asyncio.create_task(
+            watch_scouts_forever(
+                args.db,
+                AgentConfig.from_env,
+                build_client,
+                refresh_hours=scout_auto_config.refresh_hours,
+                max_per_day=scout_auto_config.max_per_day,
+                reserve_taps=scout_auto_config.reserve_taps,
+                enabled=scout_auto_config.enabled,
+            ),
+            name="scout-watch",
+        )
+
         def window_now():
             """The window as of *this instant*, from one expression.
 
@@ -1650,6 +1675,13 @@ async def main() -> int:
             bid_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await bid_task
+            # Cancelled with the rest for the same reason as the hedge and
+            # bid watchers: `entrypoint.sh` tears the container down when the
+            # runner exits, and a watcher outliving a dead runner would hold
+            # the database half-alive.
+            scout_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await scout_task
             await hedge_quotes.aclose()
             log.info(
                 "loop state at exit: %s tempo: %s", state.as_dict(), tempo.as_dict()
