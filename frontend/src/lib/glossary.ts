@@ -385,6 +385,14 @@ export const GLOSSARY = {
       "wins. 71% means: of 100 games like this, about 71. It is the best " +
       "estimate available — and the price usually charges exactly for it.",
   },
+  betting_splits: {
+    label: "splits & line movement",
+    definition:
+      "What share of the money is on each side versus the tickets — the " +
+      "two can differ when a few big bettors outweigh many small ones — " +
+      "and how far the line has moved. Usually already priced in by the " +
+      "time you see it.",
+  },
 } as const;
 
 export type GlossaryKey = keyof typeof GLOSSARY;

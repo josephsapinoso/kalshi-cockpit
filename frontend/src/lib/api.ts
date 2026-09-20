@@ -2714,7 +2714,14 @@ export async function fetchMarketCandles(
  * pipeline; the desk carries sourced facts and the master's qualitative read.
  */
 export type ScoutFinding = {
-  category: "injury" | "lineup" | "weather" | "rest_travel" | "venue" | "other";
+  category:
+    | "injury"
+    | "lineup"
+    | "weather"
+    | "rest_travel"
+    | "venue"
+    | "sentiment"
+    | "other";
   fact: string;
   source: string;
   source_url: string | null;
@@ -2741,7 +2748,14 @@ export type ScoutStaffNote = {
 /** One instrument on the desk's board. States are words, never scores:
  * `unconfirmed` is a warning (searched, could not verify), not an all-clear. */
 export type BoardTile = {
-  category: "lineup" | "injury" | "weather" | "rest_travel" | "venue" | "other";
+  category:
+    | "lineup"
+    | "injury"
+    | "weather"
+    | "rest_travel"
+    | "venue"
+    | "sentiment"
+    | "other";
   state: "fresh" | "stale_only" | "unconfirmed" | "clear";
   note: string;
 };

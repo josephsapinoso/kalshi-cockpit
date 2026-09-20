@@ -208,9 +208,9 @@ class TestTheDeskIsMetered:
         result = await _convene(client, budget)
         assert result.status == "complete"
         # The board is completed server-side on the way out, so compare the
-        # prose; the six-tile projection has its own test class.
+        # prose; the seven-tile projection has its own test class.
         assert result.briefing.headline == BRIEFING.headline
-        assert len(result.briefing.board) == 6
+        assert len(result.briefing.board) == 7
         assert result.sharp is not None
         assert result.sharp.headline == SHARP.headline
         agents = [
@@ -304,7 +304,7 @@ class TestFiledNothingIsNotFoundNothing:
 
 
 class TestTheBoardIsCompletedServerSide:
-    """The schema cannot promise six tiles; `complete_board` must.
+    """The schema cannot promise seven tiles; `complete_board` must.
 
     A missing tile renders as nothing, and nothing reads calmer than
     "unconfirmed" -- the exact defect the board exists to close. Every rule
@@ -331,7 +331,8 @@ class TestTheBoardIsCompletedServerSide:
         )
         completed = complete_board(briefing, self._staff(self._report()))
         assert [t.category for t in completed.board] == [
-            "lineup", "injury", "weather", "rest_travel", "venue", "other",
+            "lineup", "injury", "weather", "rest_travel", "venue",
+            "sentiment", "other",
         ]
         weather = next(t for t in completed.board if t.category == "weather")
         assert weather.state == "unconfirmed"
@@ -375,12 +376,101 @@ class TestTheBoardIsCompletedServerSide:
 
     async def test_the_desk_serves_a_completed_board(self, tmp_path):
         """Wired, not just available: `convene_desk` must run the projection,
-        so a briefing leaving the desk always carries all six tiles."""
+        so a briefing leaving the desk always carries all seven tiles."""
         conn, budget = _budget(tmp_path)
         client = DeskStubClient(
             briefing=DeskBriefing(headline="h", assessment="a", board=[])
         )
         result = await _convene(client, budget)
         assert result.briefing is not None
-        assert len(result.briefing.board) == 6
+        assert len(result.briefing.board) == 7
         assert all(t.state == "unconfirmed" for t in result.briefing.board)
+
+
+class TestTheSentimentTile:
+    """#113: a seventh board tile, `sentiment` -- betting splits (money vs
+    tickets) and line movement -- filed inside the existing staff-scout call.
+    Joe chose splits/line movement over public/press lean on 2026-09-20; one
+    tile only.
+
+    What this does NOT re-establish: the no-numbers walk and the four-call
+    metering both already have their own test classes above; this class only
+    pins the two facts specific to adding a seventh category -- the board
+    grows to seven tiles, and nothing about the desk's metered shape moved.
+    """
+
+    def test_complete_board_yields_seven_tiles(self):
+        briefing = DeskBriefing(headline="h", assessment="a", board=[])
+        report = ScoutReport(
+            game="A at B", findings=[], summary="s", searched_for=["injuries"],
+        )
+        staff = [
+            StaffNote(role="home", team="B", report=report),
+            StaffNote(role="away", team="A", report=report),
+        ]
+        completed = complete_board(briefing, staff)
+        assert [t.category for t in completed.board] == [
+            "lineup", "injury", "weather", "rest_travel", "venue",
+            "sentiment", "other",
+        ]
+        sentiment = next(t for t in completed.board if t.category == "sentiment")
+        assert sentiment.state == "unconfirmed"
+
+    def test_the_schema_still_has_no_numeric_leaf(self):
+        """`sentiment` is a word -- a `Literal` member, exactly like its six
+        siblings -- never a numeric field. Re-run the same walk
+        `TestNoNumberCanLeaveTheDesk` owns, so a schema change that slips a
+        number in beside the new category is caught here too, not only by
+        the older class that does not know the new member exists."""
+        import typing
+
+        from pydantic import BaseModel as PydanticBase
+
+        def leaves(annotation):
+            args = typing.get_args(annotation)
+            if not args:
+                yield annotation
+            for arg in args:
+                yield from leaves(arg)
+
+        def check_model(model, path):
+            for name, field in model.model_fields.items():
+                where = f"{path}.{name}"
+                for leaf in leaves(field.annotation):
+                    if isinstance(leaf, type) and issubclass(leaf, PydanticBase):
+                        check_model(leaf, where)
+                        continue
+                    if isinstance(leaf, str):
+                        continue
+                    assert not isinstance(leaf, (int, float, complex)), where
+                    assert leaf not in (int, float, complex), where
+                    assert leaf in (str, list, type(None)), where
+
+        check_model(DeskBriefing, "DeskBriefing")
+        assert "sentiment" in typing.get_args(
+            BoardTile.model_fields["category"].annotation
+        )
+
+    async def test_the_seventh_tile_adds_no_call_and_no_search(self, tmp_path):
+        """A full convening is still exactly four metered calls, and the
+        staff pair's pre-known search ceiling is unchanged -- the seventh
+        tile is filed inside the existing staff-scout call, not a new one."""
+        from backend.agents import scout_desk as scout_desk_module
+
+        assert scout_desk_module.STAFF_PAIR_SEARCHES_WORST_CASE == 12
+
+        conn, budget = _budget(tmp_path)
+        client = DeskStubClient()
+        result = await _convene(client, budget)
+        assert result.status == "complete"
+        agents = [
+            r["agent"]
+            for r in conn.execute(
+                "SELECT agent FROM agent_calls ORDER BY id"
+            ).fetchall()
+        ]
+        assert agents == [
+            "scout_staff_home", "scout_staff_away", "scout_master",
+            "pro_bettor",
+        ]
+        assert len(agents) == 4

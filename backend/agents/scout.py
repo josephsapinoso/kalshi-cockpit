@@ -51,9 +51,9 @@ three days ago has usually already been priced in by every venue, while one \
 from twenty minutes ago may not have been.
 
 Look for: confirmed or probable starters and scratches, injuries and their \
-designations, weather where it affects play, rest and travel, and any \
-significant news about the fixture itself such as a venue change or \
-postponement risk.
+designations, weather where it affects play, rest and travel, betting splits \
+(money vs tickets) and line movement, and any significant news about the \
+fixture itself such as a venue change or postponement risk.
 
 Two hard rules.
 
@@ -71,7 +71,8 @@ class ScoutFinding(BaseModel):
     """One sourced fact. No numeric forecast field exists here, by design."""
 
     category: Literal[
-        "injury", "lineup", "weather", "rest_travel", "venue", "other"
+        "injury", "lineup", "weather", "rest_travel", "venue", "sentiment",
+        "other",
     ]
     fact: str = Field(description="What is true, in one or two sentences.")
     source: str = Field(description="Publication or outlet name.")

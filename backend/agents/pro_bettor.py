@@ -47,7 +47,8 @@ Read ONLY what the desk filed. Give the professional's read:
 
 - What in these filings would actually matter to a professional, and what \
 is noise. Most filed "news" is already in the line by the time anyone reads \
-it -- say which items are plausibly not, and why.
+it -- say which items are plausibly not, and why. Splits and line moves are \
+usually already in the price too; say which filed items plausibly are not.
 - Process over picks: what a disciplined bettor would do with this game -- \
 including passing, which is a position. Shopping the number, sizing small, \
 waiting for a lineup confirmation: name the discipline that applies.

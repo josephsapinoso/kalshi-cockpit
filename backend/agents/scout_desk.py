@@ -103,6 +103,11 @@ For this one upcoming game, file notes on your team only:
 designations, suspensions.
 - Team status: recent form, rest, travel, back-to-backs, anything significant \
 about the team as a whole.
+- Betting splits and line movement for this game, with source and time: \
+which side the money is on versus which side the tickets are on, and how the \
+line has moved. Flag likely_already_priced as with any other note. A reported \
+percentage of tickets is a fact about bettors, not a price -- never copy it \
+into a finding as a forecast; keep it in words if at all.
 {venue_clause}
 
 Report only what you can source. For each finding give the fact, where it came \
@@ -139,8 +144,8 @@ a briefing for the desk's owner, who is not a professional bettor and reads \
 this at a glance -- fill the board first, and keep the prose tight.
 
 First fill in the instrument board: one tile per category (lineup, injury, \
-weather, rest_travel, venue, other), each with a state and a note of a few \
-words. The states, exactly:
+weather, rest_travel, venue, sentiment, other), each with a state and a note \
+of a few words. The states, exactly:
 
 - "fresh": at least one filed item in this category is recent enough that \
 the market may not have absorbed it.
@@ -187,7 +192,8 @@ class BoardTile(BaseModel):
     """
 
     category: Literal[
-        "lineup", "injury", "weather", "rest_travel", "venue", "other"
+        "lineup", "injury", "weather", "rest_travel", "venue", "sentiment",
+        "other",
     ]
     state: Literal["fresh", "stale_only", "unconfirmed", "clear"]
     note: str = Field(
@@ -209,8 +215,8 @@ class DeskBriefing(BaseModel):
 
     board: list[BoardTile] = Field(
         default_factory=list,
-        description="One tile per category, always all six, filled from the "
-        "staff's notes. The phone renders these before any prose.",
+        description="One tile per category, always all seven, filled from "
+        "the staff's notes. The phone renders these before any prose.",
     )
     headline: str = Field(
         description="One sentence: the single most important thing the desk "
@@ -566,7 +572,8 @@ async def convene_desk(
 
 
 BOARD_CATEGORIES: tuple[str, ...] = (
-    "lineup", "injury", "weather", "rest_travel", "venue", "other",
+    "lineup", "injury", "weather", "rest_travel", "venue", "sentiment",
+    "other",
 )
 
 # Most-alarming first. Used when the master files two tiles for one category:
@@ -584,6 +591,10 @@ _CATEGORY_HINTS: dict[str, tuple[str, ...]] = {
     "weather": ("weather", "forecast", "wind", "rain", "roof", "temperature"),
     "rest_travel": ("travel", "rest", "back-to-back", "schedule", "fatigue"),
     "venue": ("venue", "stadium", "park", "arena", "ground", "field", "court"),
+    "sentiment": (
+        "split", "splits", "handle", "tickets", "line move", "steam",
+        "sharp money", "public money",
+    ),
 }
 
 

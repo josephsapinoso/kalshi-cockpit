@@ -9,8 +9,10 @@
  * scout) the venue — and the master collecting their notes. After reading the
  * first real briefing he asked for a cockpit: "I am more of a visual guy …
  * It's a lot of words." So the screen leads with a verdict strip and a board
- * of six category tiles, and every paragraph lives behind a tap. It must be
- * good at both widths — he reads on the desktop and the phone.
+ * of category tiles, and every paragraph lives behind a tap. It must be
+ * good at both widths — he reads on the desktop and the phone. Seven tiles
+ * since 2026-09-20 — `sentiment` (splits & line movement) was added, Joe's
+ * choice over public/press lean; one tile only.
  *
  * The colours make honest claims (the graphic-designer's standing rule):
  * - FRESH is glyph-and-weight only (▲, strong border, full ink) — **no hue,
@@ -56,6 +58,7 @@ import {
   type ScoutStaffNote,
 } from "@/lib/api";
 import CrewAvatar from "@/components/CrewAvatar";
+import Term from "@/components/Term";
 
 const POLL_MS = 5_000;
 
@@ -65,6 +68,7 @@ const CATEGORY_ORDER: BoardTile["category"][] = [
   "weather",
   "rest_travel",
   "venue",
+  "sentiment",
   "other",
 ];
 
@@ -74,6 +78,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   weather: "Weather",
   rest_travel: "Rest & travel",
   venue: "Venue",
+  sentiment: "Splits & line",
   other: "Notes",
 };
 
@@ -144,7 +149,11 @@ function Board({ tiles, derived }: { tiles: BoardTile[]; derived: boolean }) {
               className={`rounded-xl border p-2 xl:min-h-[132px] xl:p-4 ${style.className}`}
             >
               <p className="max-w-[65ch] text-[10px] font-semibold uppercase tracking-wide text-muted xl:text-xs">
-                {CATEGORY_LABELS[category]}
+                {category === "sentiment" ? (
+                  <Term k="betting_splits">{CATEGORY_LABELS[category]}</Term>
+                ) : (
+                  CATEGORY_LABELS[category]
+                )}
               </p>
               {/* Label-and-caption (ADR 0050): the state renders verbatim,
                   the model's own note glosses it beneath. Never translated. */}
