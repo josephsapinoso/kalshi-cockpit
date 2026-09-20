@@ -68,8 +68,14 @@ tapping. Its money contract, every clause refusing rather than degrading:
   tokens) or none does — raising one alone buys exactly one convening before
   the next binds, which is the two-limits-on-one-quantity shape this repo
   keeps paying for (`partner.md`, "watch for two limits on one quantity").
-- `tests/test_has_callers.py::BILLED_PATH_CALL_SITES` gains
-  `backend/scout_watch.py` at the merge of #112, with its meter named.
+- `tests/test_has_callers.py::BILLED_PATH_CALL_SITES` does **not** gain
+  `backend/scout_watch.py`, and the reason is recorded on the router's
+  entry: the watcher names neither `build_client` nor `structured_call`,
+  so every call it causes goes out through `routers/scout.py`'s one
+  `build_client(config)` and `convene_desk`'s reservations -- the two
+  modules already allowlisted, the same meter. (This bullet said the entry
+  would be added until the merge of #112 found the scanner had nothing in
+  the module to allowlist.)
 
 ADR 0088's three pinned properties stand unchanged: the join is by game, the
 six states stay six (an auto convening that is refused writes `refused`, and

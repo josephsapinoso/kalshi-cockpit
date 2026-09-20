@@ -118,7 +118,7 @@ from backend.parlays import (  # noqa: E402
     combo_eligibility_is_due,
     refresh_combo_eligibility,
 )
-from backend.agents.base import AgentConfig, build_client  # noqa: E402
+from backend.agents.base import AgentConfig  # noqa: E402
 from backend.bid_watch import watch_bids_forever  # noqa: E402
 from backend.hedge_watch import watch_hedges_forever  # noqa: E402
 from backend.kalshi.quotes import LiveQuoteSource  # noqa: E402
@@ -1176,7 +1176,8 @@ async def main() -> int:
             watch_scouts_forever(
                 args.db,
                 AgentConfig.from_env,
-                build_client,
+                # No client factory: the watcher's calls go out through the tap
+                # route's own `build_client(config)`, the allowlisted site.
                 refresh_hours=scout_auto_config.refresh_hours,
                 max_per_day=scout_auto_config.max_per_day,
                 reserve_taps=scout_auto_config.reserve_taps,

@@ -127,7 +127,7 @@ async def _convene_one(
     conn,
     db_path,
     config_factory: Callable[[], Optional[AgentConfig]],
-    client_factory: Callable[[AgentConfig], object],
+    client_factory: Optional[Callable[[AgentConfig], object]] = None,
     *,
     refresh_hours: int,
     max_per_day: int,
@@ -232,7 +232,7 @@ async def _convene_one(
 async def watch_scouts_forever(
     db_path,
     config_factory: Callable[[], Optional[AgentConfig]],
-    client_factory: Callable[[AgentConfig], object],
+    client_factory: Optional[Callable[[AgentConfig], object]] = None,
     *,
     refresh_hours: int,
     max_per_day: int,
@@ -245,10 +245,15 @@ async def watch_scouts_forever(
 ) -> None:
     """The watcher as a long-running task beside `watch_hedges_forever`.
 
-    `client_factory` is passed straight through to `_run_scout_desk`, which
-    defaults to `build_client` for the tap route but accepts an override so
-    this watcher (and its tests) can hand it a stub instead of reaching for a
-    real Anthropic client.
+    `client_factory` is passed straight through to `_run_scout_desk`. `None`
+    -- what production passes -- means that function's own literal
+    `build_client(config)` call, which is the one `tests/test_has_callers.py`
+    allowlists; tests hand it a stub instead. **This module never names
+    `build_client` or `structured_call` on purpose**: the billed-path
+    scanner allowlists modules by the symbols they name, and every call this
+    watcher causes goes out through `backend/api/routers/scout.py` and
+    `backend/agents/scout_desk.py`, the two modules already on that list,
+    under the same `AgentBudget` meter -- plus this module's own brakes.
 
     `enabled = False` makes zero calls: `config_factory` is never invoked,
     nothing is read, nothing is spent -- the flag gates the cycle before

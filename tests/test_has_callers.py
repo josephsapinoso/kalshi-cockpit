@@ -1413,7 +1413,16 @@ BILLED_PATH_CALL_SITES: dict[str, str] = {
         "`AgentBudget.refusal_reason` *before* accepting the request (a tap "
         "against an exhausted day answers 429 and spends nothing), and "
         "`build_client` is called only inside the background task that "
-        "`convene_desk` -- the metered site above -- immediately consumes."
+        "`convene_desk` -- the metered site above -- immediately consumes. "
+        "Since 2026-09-20 (ADR 0180, #112) that task, `_run_scout_desk`, has "
+        "a second caller: `backend/scout_watch.py`, the unattended convener, "
+        "which names neither billed symbol and passes no client factory, so "
+        "every call it causes goes out through this module's one "
+        "`build_client(config)` and `convene_desk`'s reservations -- the "
+        "same meter -- under `ScoutAutoConfig`'s own brakes on top: the flag "
+        "(default off), the per-day auto allowance counted from "
+        "`scout_briefings.trigger`, and the tap reserve. It is therefore not "
+        "an entry here: the scanner would find nothing in it to allowlist."
     ),
 }
 
