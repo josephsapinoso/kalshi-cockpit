@@ -393,6 +393,14 @@ export const GLOSSARY = {
       "never sent. “Dark” means nobody has sent it, not that nothing was " +
       "found — it never moves a price.",
   },
+  betting_splits: {
+    label: "splits & line movement",
+    definition:
+      "What share of the money is on each side versus the tickets — the " +
+      "two can differ when a few big bettors outweigh many small ones — " +
+      "and how far the line has moved. Usually already priced in by the " +
+      "time you see it.",
+  },
 } as const;
 
 export type GlossaryKey = keyof typeof GLOSSARY;
