@@ -49,6 +49,7 @@ import json
 import re
 import sqlite3
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +65,12 @@ from scripts.inspect_live_db import (
     WALKS_THE_FILE,
     QueryDef,
     _ACTIONABLE_PREDICATE,
+    _LADDER_FIXTURES_CUTOFF_UTC_HOUR,
+    _LADDER_FIXTURES_DEFAULT_DAYS,
+    _LADDER_FIXTURES_FRESH_MS,
+    _LADDER_FIXTURES_MARKETS,
+    _LADDER_FIXTURES_MAX_DAYS,
+    _ladder_fixture_days,
     _SQL_ACTIONABLE_FAIR,
     _SQL_ACTIONABLE_ROWS,
     _SQL_MANUAL_ABSENT_REASONS,
@@ -4043,3 +4050,239 @@ class TestAPositionWithNoOrderIsFound:
     def test_the_description_names_what_it_cannot_tell_apart(self):
         text = QUERIES["combo-position-orphans"].description.lower()
         assert "hand-typed" in text or "lost write" in text
+
+
+# ---------------------------------------------------------------------------
+# ladder-fixtures
+# ---------------------------------------------------------------------------
+
+
+def _ladder_fixtures_db(tmp_path, legs: list[tuple]) -> Path:
+    """A database with one `event_links` row per distinct `link_id` in
+    `legs`, and one `fair_prices` row per entry.
+
+    `legs` is `(fair_price_id, link_id, odds_event_id, market, computed_ms)`.
+    Reusing one `link_id` across two entries with the same `odds_event_id` is
+    how "two legs, one fixture" is built; a distinct `link_id` per entry is
+    how "two fixtures" is built.
+    """
+    path = tmp_path / "cockpit.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+    conn.execute(
+        "INSERT INTO kalshi_series (series_ticker, league, first_seen_ms, "
+        "last_seen_ms) VALUES ('KXMLBGAME', 'mlb', 1, 1)"
+    )
+    seen_links: dict[int, str] = {}
+    for _, link_id, odds_event_id, _, _ in legs:
+        if link_id in seen_links:
+            continue
+        seen_links[link_id] = odds_event_id
+        ticker = f"E{link_id}"
+        conn.execute(
+            "INSERT INTO kalshi_events (event_ticker, series_ticker, "
+            "commence_ms, close_ms, status, first_seen_ms, last_seen_ms) "
+            "VALUES (?, 'KXMLBGAME', 1000, 2000, 'open', 1, 1)",
+            (ticker,),
+        )
+        conn.execute(
+            "INSERT INTO event_links (id, kalshi_event_ticker, "
+            "odds_event_id, league, method, commence_skew_ms, linked_ms) "
+            "VALUES (?, ?, ?, 'mlb', 'exact_alias_pair', 0, 1)",
+            (link_id, ticker, odds_event_id),
+        )
+    for fp_id, link_id, _, market, computed_ms in legs:
+        conn.execute(
+            "INSERT INTO fair_prices (id, computed_ms, link_id, market, "
+            "outcome_name, p_multiplicative, p_additive, p_power, p_shin, "
+            "p_conservative, overround, market_width, book_count, "
+            "books_used, anchored_on_sharp) VALUES (?, ?, ?, ?, 'Home', "
+            "0.6, 0.6, 0.6, 0.6, 0.6, 1.0, 0.02, 5, '[]', 0)",
+            (fp_id, computed_ms, link_id, market),
+        )
+    conn.commit()
+    conn.close()
+    return path
+
+
+def _ladder_fixtures_run(
+    path: Path, *, days: int = 1, limit: int = DEFAULT_ROW_CAP
+) -> list[Section]:
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    try:
+        return QUERIES["ladder-fixtures"].run(
+            conn, argparse.Namespace(limit=limit, days=days)
+        )
+    finally:
+        conn.close()
+
+
+def _ladder_cutoff_ms(days_ago: int = 0) -> int:
+    now_ms = int(time.time() * 1000)
+    today = datetime.fromtimestamp(now_ms / 1000, timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    cutoff = (today - timedelta(days=days_ago)).replace(
+        hour=_LADDER_FIXTURES_CUTOFF_UTC_HOUR
+    )
+    return int(cutoff.timestamp() * 1000)
+
+
+def _ladder_day_label(cutoff_ms: int) -> str:
+    return datetime.fromtimestamp(cutoff_ms / 1000, timezone.utc).strftime(
+        "%Y-%m-%d"
+    )
+
+
+class TestLadderFixtures:
+    """`ladder-fixtures`: a series of fixtures-with-a-fresh-leg counts, one
+    row per budget day, for setting the auto-convener's allowance from a
+    series rather than one `/api/parlays` reading (#109).
+
+    Every SQL string this query builds is assembled from constants and bound
+    parameters only -- `_sql_ladder_fixtures`'s market literals and day count
+    come from module constants, never from `args` -- so there is nothing here
+    pinning "no caller-supplied value reaches the SQL text"; that property is
+    asserted structurally, not by a test that could only ever pass.
+    """
+
+    def test_the_query_counts_fixtures_not_legs(self, tmp_path):
+        """Two legs on ONE fixture (a moneyline and a spread, same link_id,
+        both fresh at the cutoff) must count as ONE fixture --
+        `COUNT(DISTINCT l.odds_event_id)`, never `COUNT(*)`.
+
+        Mutation: `COUNT(DISTINCT l.odds_event_id)` -> `COUNT(*)` in
+        `_sql_ladder_fixtures` reports 2 and this goes red.
+        """
+        cutoff_ms = _ladder_cutoff_ms()
+        computed_ms = cutoff_ms - 100_000  # inside the fresh window
+        db = _ladder_fixtures_db(
+            tmp_path,
+            [
+                (1, 1, "OE1", "h2h", computed_ms),
+                (2, 1, "OE1", "spreads", computed_ms),
+            ],
+        )
+        section = _ladder_fixtures_run(db, days=1)[0]
+        by_day = {row[0]: row[-1] for row in section.rows}
+        assert by_day[_ladder_day_label(cutoff_ms)] == 1
+
+    def test_two_fixtures_count_as_two(self, tmp_path):
+        """The inverse of the guard above: two DIFFERENT fixtures (distinct
+        `link_id` / `odds_event_id`), one fresh leg apiece, must count as 2 --
+        so the fixtures-not-legs guard cannot be satisfied by a query that
+        always reports 1 regardless of what it is given.
+        """
+        cutoff_ms = _ladder_cutoff_ms()
+        computed_ms = cutoff_ms - 100_000
+        db = _ladder_fixtures_db(
+            tmp_path,
+            [
+                (1, 1, "OE1", "h2h", computed_ms),
+                (2, 2, "OE2", "h2h", computed_ms),
+            ],
+        )
+        section = _ladder_fixtures_run(db, days=1)[0]
+        by_day = {row[0]: row[-1] for row in section.rows}
+        assert by_day[_ladder_day_label(cutoff_ms)] == 2
+
+    def test_a_leg_stale_before_the_freshness_window_is_not_counted(
+        self, tmp_path
+    ):
+        """A leg computed before `_LADDER_FIXTURES_FRESH_MS` ahead of the
+        cutoff must not count toward that day -- it was not fresh at 22:00Z.
+
+        Mutation: drop the `f.computed_ms >= :dayN_start` bound from
+        `_sql_ladder_fixtures` and a leg from any point in the table's
+        history counts toward every day.
+        """
+        cutoff_ms = _ladder_cutoff_ms()
+        stale_ms = cutoff_ms - _LADDER_FIXTURES_FRESH_MS - 1
+        db = _ladder_fixtures_db(tmp_path, [(1, 1, "OE1", "h2h", stale_ms)])
+        section = _ladder_fixtures_run(db, days=1)[0]
+        by_day = {row[0]: row[-1] for row in section.rows}
+        assert by_day[_ladder_day_label(cutoff_ms)] == 0
+
+    def test_a_leg_computed_after_the_cutoff_is_not_counted(self, tmp_path):
+        """A leg computed AFTER 22:00Z that day was not fresh AT the cutoff
+        either -- the window is `[cutoff - fresh_ms, cutoff]`, not open-ended.
+
+        Mutation: drop the `f.computed_ms <= :dayN_cutoff` bound.
+        """
+        cutoff_ms = _ladder_cutoff_ms()
+        db = _ladder_fixtures_db(
+            tmp_path, [(1, 1, "OE1", "h2h", cutoff_ms + 100_000)]
+        )
+        section = _ladder_fixtures_run(db, days=1)[0]
+        by_day = {row[0]: row[-1] for row in section.rows}
+        assert by_day[_ladder_day_label(cutoff_ms)] == 0
+
+    def test_a_prop_market_leg_is_not_counted(self, tmp_path):
+        """Only team markets (`h2h`/`spreads`/`totals`) are read. A
+        prop-market leg is invisible to this approximation, and the
+        docstring says so -- this pins that the exclusion is real SQL, not
+        just a claim in prose.
+
+        Mutation: add `'pitcher_strikeouts'` to `_LADDER_FIXTURES_MARKETS`.
+        """
+        cutoff_ms = _ladder_cutoff_ms()
+        computed_ms = cutoff_ms - 100_000
+        db = _ladder_fixtures_db(
+            tmp_path, [(1, 1, "OE1", "pitcher_strikeouts", computed_ms)]
+        )
+        section = _ladder_fixtures_run(db, days=1)[0]
+        by_day = {row[0]: row[-1] for row in section.rows}
+        assert by_day[_ladder_day_label(cutoff_ms)] == 0
+
+    def test_the_query_carries_an_explicit_limit(self, tmp_path):
+        """`--limit` bounds the rows returned even when `--days` asks for
+        more days than that -- the section reports truncation rather than
+        silently returning every day regardless of the cap.
+
+        Mutation: `cap=args.limit` -> `cap=_LADDER_FIXTURES_MAX_DAYS` (or
+        any value >= `days`) in `_q_ladder_fixtures` and this goes red,
+        because nothing would ever truncate a five-day, limit-2 request.
+        """
+        cutoff_ms = _ladder_cutoff_ms()
+        computed_ms = cutoff_ms - 100_000
+        db = _ladder_fixtures_db(tmp_path, [(1, 1, "OE1", "h2h", computed_ms)])
+        section = _ladder_fixtures_run(db, days=5, limit=2)[0]
+        assert len(section.rows) == 2
+        assert section.truncated is True
+
+    def test_a_request_within_the_cap_is_not_truncated(self, tmp_path):
+        """The companion case: asking for no more days than the cap allows
+        must not be reported as truncated -- `requested=n_days` reaching
+        `_fetch` is what tells it the caller got exactly what they asked
+        for, distinct from the hard cap binding.
+        """
+        cutoff_ms = _ladder_cutoff_ms()
+        computed_ms = cutoff_ms - 100_000
+        db = _ladder_fixtures_db(tmp_path, [(1, 1, "OE1", "h2h", computed_ms)])
+        section = _ladder_fixtures_run(db, days=3, limit=DEFAULT_ROW_CAP)[0]
+        assert len(section.rows) == 3
+        assert section.truncated is False
+
+    def test_days_default_and_max_are_registered_constants(self):
+        assert _LADDER_FIXTURES_DEFAULT_DAYS == 7
+        assert _LADDER_FIXTURES_MAX_DAYS >= _LADDER_FIXTURES_DEFAULT_DAYS
+
+    def test_the_day_helper_produces_one_row_per_day_oldest_first(self):
+        """`_ladder_fixture_days` is what both the SQL builder and the tests
+        above rely on to agree on which calendar date a cutoff belongs to.
+        """
+        now_ms = int(time.time() * 1000)
+        days = _ladder_fixture_days(now_ms, 3)
+        assert len(days) == 3
+        labels = [d[0] for d in days]
+        assert labels == sorted(labels)
+        for _, start_ms, cutoff_ms in days:
+            assert cutoff_ms - start_ms == _LADDER_FIXTURES_FRESH_MS
+
+    def test_the_description_states_the_approximation(self):
+        """The description alone must warn a reader this is not the ladder's
+        real pool -- `#109`'s own requirement.
+        """
+        text = QUERIES["ladder-fixtures"].description.lower()
+        assert "approximat" in text

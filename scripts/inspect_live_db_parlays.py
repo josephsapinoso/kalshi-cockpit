@@ -1,7 +1,8 @@
 """The parlay desk and the combination markets it touches.
 
 Queries: `parlay-candidates-timing`, `parlay-lookups-tail`,
-`combo-bids-tail`, `combo-position-gaps`, `combo-position-orphans`.
+`combo-bids-tail`, `combo-position-gaps`, `combo-position-orphans`,
+`ladder-fixtures`.
 
 The candidate scan timed and EXPLAINed on the live database, the "Price on
 Kalshi" taps that minted a combination market -- the only record anywhere
@@ -22,6 +23,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from datetime import datetime, timedelta, timezone
 
 from inspect_live_db_common import (
     Section,
@@ -607,3 +609,176 @@ def _q_combo_position_orphans(conn: sqlite3.Connection, args) -> list[Section]:
     ticketed_orphan = _derive_iso(ticketed_orphan, "created_ms", "created_iso")
     ticketed_orphan = _derive_iso(ticketed_orphan, "placed_ms", "placed_iso")
     return [hand_recorded, ticketed_orphan]
+
+
+# ---------------------------------------------------------------------------
+# ladder-fixtures: a series, not one reading, for the auto-convener's floor.
+# ---------------------------------------------------------------------------
+#
+# One reading exists (2026-09-20T22:03Z, `/api/parlays`): 21 leg slots across
+# 9 distinct fixtures. A single instant cannot say whether that is a typical
+# night or an outlier, so this counts the same quantity -- fixtures with a
+# usable leg -- across the last several budget days.
+
+#: Team markets only. `POOL_MARKETS` in `backend/parlays.py` also admits prop
+#: markets, but the prop keys are PER SPORT (`MLB_PROP_BASE_MARKETS`,
+#: `NFL_PROP_BASE_MARKETS`, ...) and this family imports nothing from
+#: `backend`, so there is no single literal list to copy without it going
+#: stale the day a sport's prop keys change. Team markets are the stable
+#: subset every sport in the pool shares. **This under-counts** relative to
+#: the ladder's true pool whenever a prop-only fixture would have qualified.
+_LADDER_FIXTURES_MARKETS: tuple[str, ...] = ("h2h", "spreads", "totals")
+_LADDER_FIXTURES_MARKETS_SQL = ", ".join(f"'{m}'" for m in _LADDER_FIXTURES_MARKETS)
+
+#: The freshness window applied AT the cutoff, milliseconds. Matches the
+#: deployed `MAX_ODDS_AGE_S = 900` (`fly.live.toml`, `.env.example`) --
+#: duplicated here for the same reason `_LADDER_FIXTURES_MARKETS` is a
+#: duplicate rather than an import, and just as liable to drift the day that
+#: value changes on live.
+_LADDER_FIXTURES_FRESH_MS = 900_000
+
+#: The fixed reference clock this query stands in for "tonight ending".
+#: `backend/parlays.py`'s real tonight window is `end_of_desk_day_ms` --
+#: `zoneinfo`, `America/Los_Angeles`, a 4am local rollover, DST-aware -- and
+#: reproducing that here would need `backend.parlays` imported, which this
+#: family never does. 22:00Z is a fixed stand-in Joe's evening slate is
+#: normally still live at (~2-3pm Pacific depending on DST), chosen so the
+#: reading lands inside the slate rather than after it, but it is NOT the
+#: real boundary: a west-coast night game still building its consensus at
+#: 22:00Z is invisible to this query even though it is inside `tonight`, and
+#: a fixture whose ONLY fresh leg arrived after 22:00Z is missed entirely.
+_LADDER_FIXTURES_CUTOFF_UTC_HOUR = 22
+
+#: `--days` default, matching the ticket's "last 7 days".
+_LADDER_FIXTURES_DEFAULT_DAYS = 7
+
+#: A ceiling on `--days` independent of `--limit`: each day is its own
+#: bounded index seek (cheap), but nothing stops a caller typing `--days
+#: 5000` and turning a cheap query into 5000 of them. `--limit` bounds ROWS
+#: RETURNED, not arms of the UNION built before the cap is ever applied, so
+#: this is the guard that actually bounds the work done.
+_LADDER_FIXTURES_MAX_DAYS = 60
+
+
+def _ladder_fixture_days(now_ms: int, n_days: int) -> list[tuple[str, int, int]]:
+    """`(budget_day, window_start_ms, cutoff_ms)` for the last `n_days` UTC
+    calendar days, oldest first. `cutoff_ms` is exactly
+    `_LADDER_FIXTURES_CUTOFF_UTC_HOUR`:00:00Z on that calendar date;
+    `window_start_ms` is `_LADDER_FIXTURES_FRESH_MS` before it. The most
+    recent day is `now_ms`'s own UTC calendar date, even if `now_ms` is
+    before 22:00Z that day -- so a query run at noon includes a "today" row
+    whose window is still in the future and will read 0 fixtures, which is
+    correct: nothing can be fresh at an instant that has not happened yet.
+    """
+    today = datetime.fromtimestamp(now_ms / 1000, timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    out: list[tuple[str, int, int]] = []
+    for i in range(n_days - 1, -1, -1):
+        day = today - timedelta(days=i)
+        cutoff = day.replace(hour=_LADDER_FIXTURES_CUTOFF_UTC_HOUR)
+        cutoff_ms = int(cutoff.timestamp() * 1000)
+        out.append(
+            (day.strftime("%Y-%m-%d"), cutoff_ms - _LADDER_FIXTURES_FRESH_MS, cutoff_ms)
+        )
+    return out
+
+
+def _sql_ladder_fixtures(n_days: int) -> str:
+    """One `SELECT` per day, `UNION ALL`ed, each independently bounded.
+
+    **Deliberately NOT a `GROUP BY` over `fair_prices`.** A single query
+    spanning all `n_days` on one wide `computed_ms` range (the shape
+    `fair-prices-by-market` uses, classified `WALKS_THE_FILE`) would scan
+    every row in a multi-day window. Each arm here instead seeks
+    `idx_fair_market_computed(market, computed_ms DESC)` for a single ~15
+    minute (`_LADDER_FIXTURES_FRESH_MS`) slice per market per day -- the same
+    index `CANDIDATE_SQL`'s `computed_ms >= ?` arm relies on
+    (`backend/store/schema.sql`) -- so the whole statement reads a bounded
+    handful of rows regardless of how far `--since`/`--days` reaches back.
+    Every caller-supplied value is a bound parameter; the market literals and
+    day count are baked in at build time from constants, never from `args`.
+    """
+    arms = []
+    for i in range(n_days):
+        arms.append(
+            f"SELECT :day{i}_label AS budget_day, :day{i}_cutoff AS cutoff_ms, "
+            "COUNT(DISTINCT l.odds_event_id) AS fixtures "
+            "FROM fair_prices f JOIN event_links l ON l.id = f.link_id "
+            f"WHERE f.market IN ({_LADDER_FIXTURES_MARKETS_SQL}) "
+            f"AND f.computed_ms >= :day{i}_start AND f.computed_ms <= :day{i}_cutoff"
+        )
+    return " UNION ALL ".join(arms) + " ORDER BY cutoff_ms"
+
+
+def _q_ladder_fixtures(conn: sqlite3.Connection, args) -> list[Section]:
+    """Distinct fixtures with a usable leg, one row per budget day, --days back.
+
+    A "usable leg" here means: a `fair_prices` row on a TEAM market (`h2h`,
+    `spreads`, `totals` -- see `_LADDER_FIXTURES_MARKETS`) whose `computed_ms`
+    falls in the `_LADDER_FIXTURES_FRESH_MS` window immediately before a
+    fixed `_LADDER_FIXTURES_CUTOFF_UTC_HOUR`:00Z instant that day. `fixtures`
+    is `COUNT(DISTINCT odds_event_id)` -- so two legs on one game (a
+    moneyline and a spread both fresh at the cutoff) count as **one**
+    fixture, matching `_best_per_game`'s one-leg-per-game grouping in
+    `backend/core/ladder.py`.
+
+    What this approximates, and how
+    --------------------------------
+    - **"Fresh at 22:00Z that day"** stands in for `_fresh()`
+      (`backend/core/ladder.py`), which compares a leg's LIVE age
+      (`(now - computed_ms) + oldest_book_age_ms`) against the deployed
+      `max_odds_age_ms`. This query instead checks only `computed_ms` against
+      a fixed window ending at the cutoff -- it ignores `oldest_book_age_ms`,
+      `confirmed_ms` (ADR 0133's re-confirmation stamp, which `CANDIDATE_SQL`
+      also checks and this does not), and every suppression, gate, or
+      `usable_legs`/`unusable_reason` rule downstream of the pool.
+    - **22:00Z is a FIXED UTC hour, not `tonight`.** The real tonight window
+      (`end_of_desk_day_ms`, `backend/parlays.py`) is the next 4am
+      `America/Los_Angeles`, DST-aware and moving with `now`. This query
+      cannot reproduce that without importing `backend`, which this family
+      never does (module docstring). See `_LADDER_FIXTURES_CUTOFF_UTC_HOUR`
+      for what that mismatch can hide or invent.
+    - **Team markets only.** Prop markets are excluded --
+      `_LADDER_FIXTURES_MARKETS`' comment says why -- so a slate carrying
+      only prop-market legs for a fixture undercounts it as absent.
+    - **No commence-time bound at all.** Unlike `_pool_for`, this does not
+      check that the fixture's kickoff falls before the tonight horizon, or
+      even that the game hasn't started. A fixture whose only fresh leg is
+      for a game already in progress, or one kicking off next week, is
+      counted the same as one actually reachable by a `tonight` card.
+    - **No de-duplication beyond `odds_event_id`.** It does not check that
+      the fixture is `combo_eligible`, that Kalshi would accept it in a
+      combination, or that it survived `_best_per_game`'s tie-break --
+      only that a fresh row existed for it.
+
+    So a day's `fixtures` count is best read as a loose UPPER BOUND on how
+    many fixtures a `tonight` ladder could have drawn from that evening, not
+    the number the ladder actually built cards from.
+    """
+    requested_days = getattr(args, "days", None)
+    n_days = min(
+        max(1, requested_days or _LADDER_FIXTURES_DEFAULT_DAYS),
+        _LADDER_FIXTURES_MAX_DAYS,
+    )
+    now_ms = int(time.time() * 1000)
+    days = _ladder_fixture_days(now_ms, n_days)
+    params: dict = {}
+    for i, (label, window_start_ms, cutoff_ms) in enumerate(days):
+        params[f"day{i}_label"] = label
+        params[f"day{i}_start"] = window_start_ms
+        params[f"day{i}_cutoff"] = cutoff_ms
+    section = _fetch(
+        conn,
+        _sql_ladder_fixtures(n_days),
+        params,
+        title=(
+            f"ladder-fixtures: distinct odds_event_id with a fresh team-"
+            f"market leg at {_LADDER_FIXTURES_CUTOFF_UTC_HOUR}:00Z, last "
+            f"{n_days} day(s) -- an approximation, see docstring"
+        ),
+        cap=args.limit,
+        requested=n_days,
+    )
+    section = _derive_iso(section, "cutoff_ms", "cutoff_iso")
+    return [section]

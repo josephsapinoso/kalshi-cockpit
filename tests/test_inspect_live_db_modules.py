@@ -133,6 +133,7 @@ SUBCOMMANDS = (
     "h4-balance-spans",
     "h4-settlement-balance",
     "kalshi-quotes-band",
+    "ladder-fixtures",
     "lock-attribution",
     "loop-rss",
     "manual-order-refusals",
