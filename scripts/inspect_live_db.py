@@ -327,9 +327,16 @@ from inspect_live_db_money import (  # noqa: E402,F401
 )
 from inspect_live_db_parlays import (  # noqa: E402,F401
     _SQL_PARLAY_CANDIDATES,
+    _LADDER_FIXTURES_CUTOFF_UTC_HOUR,
+    _LADDER_FIXTURES_DEFAULT_DAYS,
+    _LADDER_FIXTURES_FRESH_MS,
+    _LADDER_FIXTURES_MARKETS,
+    _LADDER_FIXTURES_MAX_DAYS,
+    _ladder_fixture_days,
     _q_combo_bids_tail,
     _q_combo_position_gaps,
     _q_combo_position_orphans,
+    _q_ladder_fixtures,
     _q_parlay_candidates_timing,
     _q_parlay_lookups_tail,
 )
@@ -756,6 +763,23 @@ QUERIES: dict[str, QueryDef] = {
         _q_parlay_lookups_tail,
         cost=CHEAP,
     ),
+    "ladder-fixtures": QueryDef(
+        "Distinct fixtures (odds_event_id) with a fresh TEAM-market leg "
+        "(h2h/spreads/totals) at a fixed 22:00Z cutoff, one row per budget "
+        "day, --days back (default "
+        f"{_LADDER_FIXTURES_DEFAULT_DAYS}). A series rather than the one "
+        "reading /api/parlays gives, for setting the auto-convener's "
+        "allowance. Approximates the tonight pool -- see the docstring for "
+        "exactly what it does and does not check (no commence bound, no "
+        "prop markets, a fixed clock instead of the desk's real rollover).",
+        _q_ladder_fixtures,
+        # Each day is one bounded seek on idx_fair_market_computed over a
+        # ~15 minute (_LADDER_FIXTURES_FRESH_MS) window per market, never a
+        # GROUP BY over the table -- see _sql_ladder_fixtures's docstring.
+        # --days is capped independently of --limit by
+        # _LADDER_FIXTURES_MAX_DAYS so the number of arms itself is bounded.
+        cost=CHEAP,
+    ),
     "combo-position-gaps": QueryDef(
         "Combinations bought with REAL money that no `parlay_positions` row "
         "watches, so `/hedge` -- the only exit an enter-only combination has "
@@ -1068,6 +1092,16 @@ def _build_parser() -> argparse.ArgumentParser:
             "Football', 'Pro Football', 'Pro Baseball', 'Pro Basketball (W)'. "
             "An unrecognised value returns no rows, which reads exactly like a "
             "league with none, so run it unfiltered first"
+        ),
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help=(
+            "ladder-fixtures: how many budget days back to read (default "
+            f"{_LADDER_FIXTURES_DEFAULT_DAYS}, hard ceiling "
+            f"{_LADDER_FIXTURES_MAX_DAYS} regardless of --limit)"
         ),
     )
     parser.add_argument(
