@@ -1575,6 +1575,90 @@ def _serialise_leg(
     }
 
 
+#: The three states a leg's game can be dark under (ADR 0088): nobody
+#: looked (`absent`), a ceiling turned the desk away (`refused`), or the
+#: desk died mid-run (`failed`). None of the three is a finding about the
+#: game -- that is what "dark" means, and why the words must never read as
+#: "nothing found".
+_SCOUT_DARK_STATES = ("absent", "refused", "failed")
+
+#: The two states that mean the desk actually filed something readable --
+#: a headline/flags (`briefed`) or a clean pass with nothing to say
+#: (`filed_nothing`). Both are "looked", neither is "dark".
+_SCOUT_BRIEFED_STATES = ("briefed", "filed_nothing")
+
+#: The desk is out on this leg's game right now.
+_SCOUT_OUT_STATE = "briefing"
+
+
+def _scouting_words(*, legs_total: int, briefed: int, dark: int, out: int) -> str:
+    """Prose for the card-level rollup, honest about the zero cases.
+
+    **Absent is "nobody looked", never "nothing found"** (ADR 0088) -- so a
+    card with zero briefings gets its own sentence rather than reusing the
+    "N of M" phrasing at N=0, which would read as "we checked and it's
+    quiet" when the truth is "we never checked".
+    """
+    if legs_total == 0:
+        return "No games on this card."
+    if briefed == 0 and out == 0:
+        plural = "game" if legs_total == 1 else "games"
+        return f"The desk hasn't looked at any of these {legs_total} {plural}."
+    words = f"The desk has looked at {briefed} of {legs_total} games"
+    if dark:
+        words += f"; {dark} {'is' if dark == 1 else 'are'} dark"
+    if out:
+        words += f"; {out} {'is' if out == 1 else 'are'} out now"
+    return words + "."
+
+
+def _card_scouting(legs: list[dict]) -> dict:
+    """The card-level scouting rollup, built from the legs' OWN scout facts.
+
+    **No new query.** Every input here (`scout`, `scout_flags`,
+    `scout_age_ms`, `label`) is already on the serialised leg dict --
+    `_leg_scouting`/`scouting_facts` already paid for the one join the
+    ladder needs, and this function only counts what came back.
+
+    **These counts are a per-card FACT, never a per-card RANKING.**
+    ADR 0088's ban on a scout value ordering anything applies here with the
+    same force as it does to a single leg's flags: `legs_dark` may be
+    SHOWN on a card and must never be a reason one card sorts above
+    another. `build_ladder`/`_sort_key` (`backend/core/ladder.py`) choose
+    and order legs and cards before this function ever runs, from odds and
+    trust facts alone -- nothing here feeds back into that choice.
+    """
+    legs_total = len(legs)
+    briefed_legs = [leg for leg in legs if leg["scout"] in _SCOUT_BRIEFED_STATES]
+    dark_labels = [leg["label"] for leg in legs if leg["scout"] in _SCOUT_DARK_STATES]
+    out_labels = [leg["label"] for leg in legs if leg["scout"] == _SCOUT_OUT_STATE]
+    ages = [
+        leg["scout_age_ms"] for leg in briefed_legs if leg["scout_age_ms"] is not None
+    ]
+    flag_categories = sorted(
+        {
+            flag["category"]
+            for leg in briefed_legs
+            for flag in leg["scout_flags"]
+            if flag.get("category") is not None
+        }
+    )
+    return {
+        "legs_total": legs_total,
+        "legs_briefed": len(briefed_legs),
+        "legs_dark": dark_labels,
+        "legs_out": out_labels,
+        "oldest_briefing_age_ms": max(ages) if ages else None,
+        "flag_categories": flag_categories,
+        "words": _scouting_words(
+            legs_total=legs_total,
+            briefed=len(briefed_legs),
+            dark=len(dark_labels),
+            out=len(out_labels),
+        ),
+    }
+
+
 def _serialise_card(
     card: Card,
     facts: Optional[dict] = None,
@@ -1591,22 +1675,28 @@ def _serialise_card(
             "not_built_reason": card.not_built_reason,
             "joint": None,
             "at_stakes": [],
+            # Nothing was built, so there is nothing to have looked at.
+            "scouting": None,
         }
 
     joint = card.joint
     assert joint is not None  # Card.__post_init__ guarantees it
     low, high = joint.method_range
+    legs = [
+        _serialise_leg(
+            leg, (facts or {}).get(leg.kalshi_market_ticker), trust_thresholds
+        )
+        for leg in card.legs
+    ]
     return {
         "key": card.key,
         "title": card.title,
         "what_it_is": card.what_it_is,
-        "legs": [
-            _serialise_leg(
-                leg, (facts or {}).get(leg.kalshi_market_ticker), trust_thresholds
-            )
-            for leg in card.legs
-        ],
+        "legs": legs,
         "not_built_reason": None,
+        # Built AFTER the legs, from their own scout_* fields -- see
+        # `_card_scouting`'s docstring for why this is zero new queries.
+        "scouting": _card_scouting(legs),
         "joint": {
             # The headline is the CONSERVATIVE joint: each leg at the lowest
             # of four devig methods, compounded. The range beside it is the

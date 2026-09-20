@@ -19,6 +19,7 @@ import httpx
 import pytest
 
 from backend import parlays
+from backend.core import ladder
 from backend.core.ladder import _best_per_game, build_ladder
 from backend.parlays import end_of_desk_day_ms, ladder_candidates
 from backend.api.routes import create_app
@@ -605,6 +606,148 @@ class TestHonesty:
         assert joint["method_range_display"] is not None
         assert "–" in joint["method_range_display"]
         assert "correlation_note" in joint
+
+
+class TestCardScoutingCoverage:
+    """`scouting` (ticket #110): a card-level rollup of what the desk already
+    knows about its legs' games, built with zero new queries and zero
+    credits -- from the same `scout`/`scout_flags`/`scout_age_ms` fields
+    `_serialise_leg` already reads (ADR 0088).
+    """
+
+    def _briefing(
+        self,
+        conn,
+        ticker,
+        *,
+        status: str = "complete",
+        headline: str | None = "Starter scratched",
+        board: list | None = None,
+        requested: int = 1_000,
+        completed: int = 2_000,
+    ) -> None:
+        import json as _json
+
+        briefing_json = _json.dumps(
+            {
+                "headline": headline,
+                "board": board if board is not None else [],
+                "assessment": "",
+                "what_matters": [],
+                "conflicts": [],
+                "unanswered": [],
+            }
+        )
+        conn.execute(
+            "INSERT INTO scout_briefings (ticker, event_title, league, "
+            "home_team, away_team, requested_ms, completed_ms, status, "
+            "briefing_json, model) VALUES (?, 'A at B', 'x', 'A', 'B', ?, ?, "
+            "?, ?, 'm')",
+            (ticker, requested, completed, status, briefing_json),
+        )
+
+    async def test_a_card_with_no_briefings_says_so_in_words(self, build):
+        """`_fresh_slate` seeds odds and Kalshi markets and no scout
+        briefings at all, so every leg's game is `absent` -- nobody looked.
+        The words must say that, not "0 of 3 -- nothing to report", which
+        is the "found nothing" misreading ADR 0088 exists to forbid.
+        """
+        app = build(lambda conn: _fresh_slate(conn, n=3))
+        body = (await get(app, "/api/parlays")).json()
+        safe = next(c for c in body["cards"] if c["key"] == "safe")
+        scouting = safe["scouting"]
+
+        assert scouting is not None
+        assert scouting["legs_total"] == 3
+        assert scouting["legs_briefed"] == 0
+        assert len(scouting["legs_dark"]) == 3
+        assert scouting["legs_out"] == []
+        assert scouting["oldest_briefing_age_ms"] is None
+        assert scouting["flag_categories"] == []
+        assert "hasn't looked at any" in scouting["words"]
+        # The wording this test exists to forbid: "0 of 3" reads as a
+        # completed count, and "nothing" reads as a finding.
+        assert "0 of 3" not in scouting["words"]
+        assert "nothing" not in scouting["words"]
+
+    async def test_the_block_counts_fixtures_from_the_legs_own_scout_facts(
+        self, build
+    ):
+        """Two of three games briefed (one with a flag, one clean), one dark.
+
+        `seed_game` names the moneyline ticker deterministically as
+        `KXMLBGAME-game-{i}-TEAMA` for `_fresh_slate`'s team names, so a
+        briefing filed on that exact ticker reaches its own leg through
+        `_leg_scouting`'s fixture join without inventing a second market.
+        """
+
+        def seed(conn):
+            _fresh_slate(conn, n=3)
+            self._briefing(
+                conn,
+                "KXMLBGAME-game-0-TEAMA",
+                board=[{"category": "lineup", "state": "fresh", "note": "scratched"}],
+                requested=1_000,
+                completed=2_000,
+            )
+            self._briefing(
+                conn,
+                "KXMLBGAME-game-1-TEAMA",
+                headline=None,
+                board=[],
+                requested=500,
+                completed=1_500,
+            )
+            conn.commit()
+
+        app = build(seed)
+        body = (await get(app, "/api/parlays")).json()
+        safe = next(c for c in body["cards"] if c["key"] == "safe")
+        legs_by_ticker = {leg["ticker"]: leg for leg in safe["legs"]}
+        scouting = safe["scouting"]
+
+        assert scouting["legs_total"] == 3
+        assert scouting["legs_briefed"] == 2
+        assert scouting["legs_dark"] == [
+            legs_by_ticker["KXMLBGAME-game-2-TEAMA"]["label"]
+        ]
+        assert scouting["legs_out"] == []
+        assert scouting["flag_categories"] == ["lineup"]
+
+        game0_age = legs_by_ticker["KXMLBGAME-game-0-TEAMA"]["scout_age_ms"]
+        game1_age = legs_by_ticker["KXMLBGAME-game-1-TEAMA"]["scout_age_ms"]
+        assert game0_age is not None and game1_age is not None
+        # game-1 completed earlier (1_500 vs 2_000), so it is the OLDER
+        # briefing -- the oldest of the BRIEFED legs, never a dark leg's
+        # (nonexistent) age standing in for it.
+        assert game1_age > game0_age
+        assert scouting["oldest_briefing_age_ms"] == max(game0_age, game1_age)
+
+    def test_no_scouting_value_is_a_sort_key(self):
+        """ADR 0088's rule extended from one leg's flags to the card-level
+        rollup: `legs_dark`/`legs_briefed`/`flag_categories` may be SHOWN on
+        a card and must never be a reason one card sorts above another.
+
+        Source assertions, because the property is about what the code is
+        ALLOWED to do -- a render test only shows what one fixture happens
+        to produce today. Mutation observed red: add
+        `key=lambda c: c["scouting"]["legs_briefed"]` to either file.
+        """
+        ladder_source = Path(ladder.__file__).read_text(encoding="utf-8")
+        start = ladder_source.index("def _sort_key(")
+        end = ladder_source.index("\ndef ", start + 1)
+        sort_key_body = ladder_source[start:end]
+        assert "scout" not in sort_key_body.lower(), (
+            "the leg/card ordering key must never read a scout field"
+        )
+
+        parlays_source = Path(parlays.__file__).read_text(encoding="utf-8")
+        for line in parlays_source.splitlines():
+            if "sort" not in line.lower():
+                continue
+            assert "scout" not in line.lower(), (
+                f"a sort call reads a scout value: {line!r}"
+            )
 
 
 class TestTheStakePresetsAreTheOperatorsOwnRange:
