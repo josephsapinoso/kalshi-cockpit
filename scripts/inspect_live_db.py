@@ -263,6 +263,7 @@ from inspect_live_db_decisions import (  # noqa: E402,F401
     _q_prop_bookmakers,
     _q_prop_rungs,
     _q_results_for_pull,
+    _q_scoring_candidate_timing,
     _q_series,
     _q_sharp_anchor_census,
     _q_team_bookmakers,
@@ -752,6 +753,20 @@ QUERIES: dict[str, QueryDef] = {
         # Runs the whole candidate scan, then the odds_snapshots
         # `GROUP BY odds_event_id` on its own, to TIME them. Expensive by
         # design: it exists to measure the walk.
+        cost=WALKS_THE_FILE,
+    ),
+    "scoring-candidate-timing": QueryDef(
+        "backend/scoring.py's candidate scan, timed on the live "
+        "database in two texts back to back: the bounded statement "
+        "deployed since #87 and the unbounded one it replaced, plus "
+        "EXPLAIN QUERY PLAN for each and a census of the rows they "
+        "read over. Answers #88: how much did the WHERE clause "
+        "actually buy on live data, rather than on a seeded fixture?",
+        _q_scoring_candidate_timing,
+        # The unbounded half is the pre-#87 text and aggregates every
+        # row of odds_snapshots unconditionally -- that walk IS the
+        # measurement, so this cost is structural and stays whatever
+        # the numbers say about scoring.py's own statement.
         cost=WALKS_THE_FILE,
     ),
     "parlay-lookups-tail": QueryDef(

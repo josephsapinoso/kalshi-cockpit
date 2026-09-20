@@ -957,9 +957,18 @@ class TestEveryWhitelistedQueryRunsAgainstTheRealSchema:
             assert defn.description.strip(), name
 
 
-#: The three the 2026-09-18 lesson named, pinned by name so a reclassification
-#: of one of them is a deliberate edit here and not a drift in the registry.
-KNOWN_WALKS = ("db-sizes", "window-freshness", "book-rows")
+#: The three the 2026-09-18 lesson named, plus #88's timing instrument,
+#: pinned by name so a reclassification of one of them is a deliberate edit
+#: here and not a drift in the registry. `scoring-candidate-timing` runs the
+#: pre-#87 unbounded `odds_snapshots GROUP BY` on purpose -- that walk IS its
+#: measurement -- so its class is structural and cannot be earned away by a
+#: fast reading, unlike the statement it measures.
+KNOWN_WALKS = (
+    "db-sizes",
+    "window-freshness",
+    "book-rows",
+    "scoring-candidate-timing",
+)
 KNOWN_CHEAP = ("loop-rss", "read-incidents", "sweep-log", "credits-tail", "notifications")
 
 

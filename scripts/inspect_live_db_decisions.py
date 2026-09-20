@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
@@ -1865,3 +1866,185 @@ def _q_fair_prices_by_market(conn: sqlite3.Connection, args) -> list[Section]:
         ),
         consumed,
     ]
+
+
+# ---------------------------------------------------------------------------
+# How long `backend/scoring.py`'s candidate scan takes, bounded and unbounded.
+# ---------------------------------------------------------------------------
+#
+# Ticket #88, story #86. `markets_awaiting_scoring` carries two copies of
+# `SELECT odds_event_id, MIN(commence_ms) FROM odds_snapshots GROUP BY
+# odds_event_id`, one per `UNION` branch. Until #87 neither carried a `WHERE`,
+# so the planner aggregated every row of `odds_snapshots` -- every event this
+# tool has ever seen -- before the outer joins narrowed anything. #87 added
+# `WHERE odds_event_id IN (SELECT odds_event_id FROM event_links)` to both.
+#
+# **This is an A/B in one run, not the before/after the ticket specified.**
+# #87 merged and deployed before this instrument existed, so there is no
+# "before" left to take on its own. Running both texts back to back on the
+# same connection is what remains -- and it is the better measurement, because
+# a before/after across a deploy confounds the SQL change with a restart, a
+# different page-cache state and a different `odds_snapshots` row count.
+#
+# **The run order is fixed and it is the unflattering one.** The bounded text
+# runs FIRST, cold; the unbounded text runs after, with the same table already
+# warm. So the bounded figure carries the cold-cache penalty and the unbounded
+# figure gets the warm-cache discount, and any gap that survives that is a
+# floor on the gap, not a ceiling. The reverse order is what would flatter the
+# fix.
+#
+# `_SQL_SCORING_SUBQUERY_UNBOUNDED` is the pre-#87 text, retyped as a literal
+# -- the same shape `tests/test_scoring_candidate_scan_is_bounded.py` carries
+# as its oracle. It is dead SQL kept for comparison; nothing in `backend/`
+# runs it.
+
+_SQL_SCORING_ROW_CENSUS = (
+    "SELECT (SELECT COUNT(*) FROM odds_snapshots) AS odds_snapshots_rows, "
+    "       (SELECT COUNT(DISTINCT odds_event_id) FROM odds_snapshots) "
+    "           AS odds_snapshots_event_ids, "
+    "       (SELECT COUNT(*) FROM event_links) AS event_links_rows, "
+    "       (SELECT COUNT(DISTINCT odds_event_id) FROM event_links) "
+    "           AS event_links_event_ids, "
+    "       (SELECT COUNT(*) FROM recommendations WHERE clv_scored_ms IS NULL) "
+    "           AS recommendations_unscored, "
+    "       (SELECT COUNT(*) FROM venue_settlements) AS venue_settlements_rows"
+)
+
+#: The subquery as `backend/scoring.py` runs it today (bounded, post-#87).
+_SQL_SCORING_SUBQUERY_BOUNDED = (
+    "SELECT odds_event_id, MIN(commence_ms) AS commence_ms "
+    "FROM odds_snapshots "
+    "WHERE odds_event_id IN (SELECT odds_event_id FROM event_links) "
+    "GROUP BY odds_event_id"
+)
+
+#: The same subquery as it stood before #87. Dead SQL, kept to be timed.
+_SQL_SCORING_SUBQUERY_UNBOUNDED = (
+    "SELECT odds_event_id, MIN(commence_ms) AS commence_ms "
+    "FROM odds_snapshots "
+    "GROUP BY odds_event_id"
+)
+
+
+def _scoring_whole(subquery: str) -> str:
+    """`markets_awaiting_scoring`'s statement with `subquery` in both branches.
+
+    The two branches are byte-identical to the statement in
+    `backend/scoring.py:markets_awaiting_scoring` apart from the subquery
+    text, which is the only thing #87 changed. Keeping one template means the
+    bounded and unbounded timings differ in exactly the edit under test and in
+    nothing else.
+    """
+    return (
+        "\n        SELECT DISTINCT r.ticker,\n"
+        "               m.series_ticker,\n"
+        "               o.commence_ms AS true_commence_ms\n"
+        "        FROM recommendations r\n"
+        "        JOIN event_links l   ON l.id = r.link_id\n"
+        "        JOIN kalshi_markets m ON m.ticker = r.ticker\n"
+        f"        JOIN ({subquery}) o ON o.odds_event_id = l.odds_event_id\n"
+        "        WHERE r.clv_scored_ms IS NULL\n"
+        "          AND m.series_ticker IS NOT NULL\n"
+        "\n        UNION\n\n"
+        "        SELECT DISTINCT v.ticker,\n"
+        "               m.series_ticker,\n"
+        "               o.commence_ms AS true_commence_ms\n"
+        "        FROM venue_settlements v\n"
+        "        JOIN kalshi_markets m ON m.ticker = v.ticker\n"
+        "        JOIN event_links l   ON l.kalshi_event_ticker = m.event_ticker\n"
+        f"        JOIN ({subquery}) o ON o.odds_event_id = l.odds_event_id\n"
+        "        WHERE m.series_ticker IS NOT NULL\n"
+        "          AND NOT EXISTS (\n"
+        "              SELECT 1 FROM closing_lines c WHERE c.ticker = v.ticker\n"
+        "          )\n"
+    )
+
+
+def _q_scoring_candidate_timing(conn: sqlite3.Connection, args) -> list[Section]:
+    """Time `markets_awaiting_scoring` bounded and unbounded, and EXPLAIN both.
+
+    Four sections: a census of what the statement reads over, the four wall
+    times in the order they were taken, and `EXPLAIN QUERY PLAN` for each
+    whole statement.
+
+    **The row sets must match.** Both texts are printed with their row counts
+    beside them, and the timings section states whether they agree rather than
+    leaving a reader to subtract.
+    `tests/test_scoring_candidate_scan_is_bounded.py` proves on a seeded
+    database that the bound cannot change the answer; a divergence here would
+    refute that on live data.
+
+    What this does not establish
+    ----------------------------
+    - **Not what a scoring pass costs.** This is one statement on an idle-ish
+      read-only connection. The real pass runs inside the runner against a
+      writer holding the WAL, and then goes on to fetch closing lines over the
+      network -- almost certainly the larger term.
+    - **Not a stable number.** One reading on a shared machine. The order is
+      fixed, so the second and later statements read a warmer cache than the
+      first; see the module comment for why that order is the unflattering
+      one.
+    - **Not a verdict on the index.** A plan naming SEARCH rather than SCAN is
+      a shape, not a proof that the shape is the reason for any difference.
+    - **Nothing about this query's own cost class.** The unbounded half walks
+      the file unconditionally and by design, so `WALKS_THE_FILE` is a
+      property of the instrument and is not up for demotion while that half
+      exists. What the numbers may reclassify is `scoring.py`'s statement, not
+      this one.
+    """
+    census = _fetch(
+        conn,
+        _SQL_SCORING_ROW_CENSUS,
+        (),
+        title="what the candidate scan reads over",
+        cap=args.limit,
+    )
+
+    bounded_whole = _scoring_whole(_SQL_SCORING_SUBQUERY_BOUNDED)
+    unbounded_whole = _scoring_whole(_SQL_SCORING_SUBQUERY_UNBOUNDED)
+
+    timings: list[list[object]] = []
+    for label, sql in (
+        ("1. BOUNDED whole scan (deployed, post-#87)", bounded_whole),
+        ("2. BOUNDED odds_snapshots GROUP BY alone",
+         _SQL_SCORING_SUBQUERY_BOUNDED),
+        ("3. UNBOUNDED odds_snapshots GROUP BY alone",
+         _SQL_SCORING_SUBQUERY_UNBOUNDED),
+        ("4. UNBOUNDED whole scan (pre-#87 text)", unbounded_whole),
+    ):
+        started = time.perf_counter()
+        rows = conn.execute(sql).fetchall()
+        elapsed_ms = round((time.perf_counter() - started) * 1000.0, 1)
+        timings.append([label, len(rows), elapsed_ms])
+
+    agree = timings[0][1] == timings[3][1]
+    timing_section = Section(
+        title=(
+            "wall time, one read-only connection, in this order "
+            "(bounded runs cold, unbounded runs warm -- the unflattering "
+            "order)"
+        ),
+        columns=("statement", "rows", "ms"),
+        rows=timings + [[
+            "whole-scan row sets agree" if agree
+            else "WHOLE-SCAN ROW SETS DISAGREE -- the bound changed the answer",
+            timings[0][1],
+            timings[3][1],
+        ]],
+    )
+
+    bounded_plan = _fetch(
+        conn,
+        "EXPLAIN QUERY PLAN " + bounded_whole,
+        (),
+        title="EXPLAIN QUERY PLAN: BOUNDED whole scan (deployed)",
+        cap=args.limit,
+    )
+    unbounded_plan = _fetch(
+        conn,
+        "EXPLAIN QUERY PLAN " + unbounded_whole,
+        (),
+        title="EXPLAIN QUERY PLAN: UNBOUNDED whole scan (pre-#87 text)",
+        cap=args.limit,
+    )
+    return [census, timing_section, bounded_plan, unbounded_plan]
