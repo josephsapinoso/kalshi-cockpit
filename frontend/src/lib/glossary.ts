@@ -385,6 +385,14 @@ export const GLOSSARY = {
       "wins. 71% means: of 100 games like this, about 71. It is the best " +
       "estimate available — and the price usually charges exactly for it.",
   },
+  scout_desk: {
+    label: "scout desk",
+    definition:
+      "An AI crew that reads news on one game — injuries, lineups, weather " +
+      "— when you send it. It costs real money per game, so most games are " +
+      "never sent. “Dark” means nobody has sent it, not that nothing was " +
+      "found — it never moves a price.",
+  },
 } as const;
 
 export type GlossaryKey = keyof typeof GLOSSARY;

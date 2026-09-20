@@ -5,6 +5,7 @@ import type {
   ActionableWindow,
   ParlayCardData,
   ParlayCardLeg,
+  ParlayCardScouting,
   ParlayLadder,
   ParlayWindow,
   Refreshable,
@@ -212,6 +213,7 @@ function Card({
               </>
             )}
           </p>
+          <CardScouting scouting={card.scouting} />
           <ol className="mt-3 flex-1 divide-y divide-border">
             {card.legs.map((leg) => (
               <li
@@ -550,6 +552,25 @@ function scoutAge(ms: number | null): string {
  * `filed_nothing` is a quiet game, `refused` is a ceiling, and only the first
  * is information.
  */
+/**
+ * The card-level scouting rollup (#110): the server's own `words`, rendered
+ * verbatim above the leg list, muted and with no colour (ADR 0081 -- red
+ * means lose, and a scouting count is not a verdict about money). Lists
+ * `legs_dark` by label so the reader knows which games nobody has looked
+ * at, without turning that absence into an alarm.
+ */
+function CardScouting({ scouting }: { scouting: ParlayCardScouting | null }) {
+  if (scouting === null) return null;
+  return (
+    <p className="mt-2 text-xs leading-snug text-muted">
+      <Term k="scout_desk">scout desk</Term>: {scouting.words}
+      {scouting.legs_dark.length > 0 && (
+        <span className="block">Dark: {scouting.legs_dark.join(", ")}</span>
+      )}
+    </p>
+  );
+}
+
 function ScoutNote({ leg }: { leg: ParlayCardLeg }) {
   if (leg.scout === "absent") {
     return <>No scout briefing on this game.</>;
