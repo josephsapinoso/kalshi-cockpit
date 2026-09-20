@@ -519,6 +519,50 @@ async def read_book(reader: PublicReader, ticker: str, depth: int) -> dict:
     return book
 
 
+async def read_books_by_ticker(
+    reader: PublicReader, tickers: Sequence[str], depth: int, capture: Optional[Path]
+) -> dict[str, dict]:
+    """Read exactly these tickers' books, bypassing `/markets` discovery.
+
+    For #107: two combinations Joe holds are known by ticker (from
+    `docs/measurements/2026-09-17-*.md`) and their books were already
+    confirmed non-empty that day. Discovery via `collect()` cannot be
+    pointed at a specific ticker -- it samples from `DISCOVERY_SERIES` --
+    so this is a second, narrower entry point rather than a flag threaded
+    through the sampling logic. It shares `read_book` (and therefore the
+    `ORDERBOOK_KEY` / `MalformedOrderbookResponse` envelope guard) with the
+    discovery path; nothing about the guard is re-implemented here.
+
+    A ticker whose read fails (settled, malformed envelope, HTTP error) is
+    **omitted from the result and logged**, never faked as empty -- the same
+    rule `collect()` follows for `row.book_error`.
+    """
+    out: dict[str, dict] = {}
+    captured: list[dict] = []
+    for ticker in tickers:
+        try:
+            book = await read_book(reader, ticker, depth)
+        except MalformedOrderbookResponse as exc:
+            logger.error("%s", exc)
+            continue
+        except httpx.HTTPError as exc:
+            logger.warning("%s book unreadable: %s", ticker, exc)
+            continue
+        out[ticker] = book
+        captured.append({"ticker": ticker, ORDERBOOK_KEY: book})
+        yes_levels = parse_levels(book, YES_SIDE)
+        no_levels = parse_levels(book, NO_SIDE)
+        print(
+            f"{ticker}: yes={len(yes_levels)} level(s) no={len(no_levels)} "
+            f"level(s)"
+            + (f"  top yes {yes_levels[0]}" if yes_levels else "")
+        )
+    if capture and captured:
+        capture.write_text(json.dumps(captured, indent=2), encoding="utf-8")
+        logger.info("wrote %s", capture)
+    return out
+
+
 def eligible(market: dict, *, max_legs: Optional[int] = None) -> bool:
     legs = market.get("mve_selected_legs") or []
     if not legs:
@@ -1073,10 +1117,32 @@ def main() -> int:
         "--capture", type=Path, default=None,
         help="write the raw orderbook payloads here, for a wire-format fixture.",
     )
+    parser.add_argument(
+        "--ticker", action="append", default=None, metavar="TICKER",
+        help="read exactly this market's book, bypassing /markets discovery "
+             "entirely. Repeatable. For #107: reading a combination Joe holds "
+             "by its known ticker rather than sampling DISCOVERY_SERIES and "
+             "hoping to land on it. Mutually exclusive in effect with "
+             "--series/--max-books/--max-legs, which are ignored when this is "
+             "given.",
+    )
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
     configure_logging(level=logging.DEBUG if args.verbose else logging.INFO)
+
+    if args.ticker:
+        async def go_by_ticker() -> tuple[dict[str, dict], int]:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                reader = PublicReader(client)
+                books = await read_books_by_ticker(
+                    reader, args.ticker, args.depth, args.capture
+                )
+                return books, reader.calls
+
+        books, calls = asyncio.run(go_by_ticker())
+        print(f"\n{len(books)}/{len(args.ticker)} ticker(s) read; {calls} API call(s).")
+        return 0 if books else 1
 
     # `--series` overriding the default is what makes a capture Arm C rather
     # than Arm A, so the two are kept apart here and stamped into the output
