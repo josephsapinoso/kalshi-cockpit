@@ -1439,6 +1439,15 @@ CREATE TABLE IF NOT EXISTS scout_briefings (
     briefing_json   TEXT,               -- the master's DeskBriefing
     sharp_json      TEXT,               -- Willy Balters' SharpTake (ADR 0069); NULL = seat filed nothing / predates the seat
     model           TEXT NOT NULL,
+    -- Who sent the desk (v51, 2026-09-20). 'tap' is Joe on the game screen,
+    -- the only trigger that existed before v51, so it is the default and every
+    -- earlier row reads as one. 'auto' is `backend/scout_watch.py` convening
+    -- unattended on tonight's ladder (ADR 0180, superseding ADR 0088's
+    -- "not built" line). The auto allowance counts THIS column, per budget
+    -- day, so an unattended convening can never be mistaken for one Joe asked
+    -- for and the two ceilings stay separately readable. Column-level CHECK on
+    -- purpose: a table-level one could not be added by `ALTER TABLE`.
+    trigger         TEXT NOT NULL DEFAULT 'tap' CHECK (trigger IN ('tap', 'auto')),
     CHECK (status IN ('running', 'complete', 'partial', 'failed', 'refused')),
     CHECK ((status = 'running') = (completed_ms IS NULL))
 );

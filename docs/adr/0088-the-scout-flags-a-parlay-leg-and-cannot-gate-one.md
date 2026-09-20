@@ -77,7 +77,10 @@ Three properties, each pinned by a test:
 
 ## What is deliberately NOT built
 
-- **Automatic gating or dropping.** The ruling asks for it and the budget
+- **Automatic gating or dropping.** *Superseded in part by ADR 0180
+  (2026-09-20): the desk may now be sent on the ladder unattended, off by
+  default and under its own allowance; gating and dropping stay unbuilt.*
+  The ruling asks for it and the budget
   forbids it. A leg is never removed for a scout flag; Joe reads the flag.
 - **A per-leg "send the desk" button.** It is the obvious next step and it
   spends real money per tap, so it wants its own decision about *who* may spend

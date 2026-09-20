@@ -68,6 +68,15 @@ logger = logging.getLogger(__name__)
 #: §2). A REBUILD, not a column step: SQLite cannot relax a NOT NULL or a
 #: table-level CHECK in place. The rows already written keep their real typed
 #: values -- nothing is deleted, backfilled, zeroed or rewritten.
+#: v51 (2026-09-20) adds `scout_briefings.trigger` -- `'tap'` (Joe, on the
+#: game screen) or `'auto'` (`backend/scout_watch.py`, unattended on the
+#: ladder). A COLUMN step with `NOT NULL DEFAULT 'tap'`: every row written
+#: before v51 was a tap, because no other trigger existed, so the default is
+#: the truth about them and not a guess. The auto-convener's daily allowance
+#: counts this column, so its spend is readable apart from Joe's own.
+#: Taken on `main` directly at 51 with `SCHEMA_VERSION` at 50; ticket #96
+#: had *planned* on 51 for its `combo_rfq_quotes` rebuild and is unbuilt, so
+#: it takes 52 (its ticket says so).
 #: v50 (2026-09-18) adds five columns to `combo_rfq_quotes` recording what
 #: Kalshi's own `/portfolio/fills` said about an RFQ acceptance (#74, ADR
 #: 0178). Until this, nothing on the RFQ path read the venue: the position
@@ -174,7 +183,7 @@ logger = logging.getLogger(__name__)
 #: `executescript` cannot do that. Written on `main`, 2026-09-18, the
 #: evening `/api/window` measured 7 s at the median and tripped the 25 s
 #: read budget twice.
-SCHEMA_VERSION = 50
+SCHEMA_VERSION = 51
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1287,6 +1296,19 @@ _MIGRATIONS: dict[int, _Migration] = {
     # of about three months with no measured lower bound (`rest.fills`), the
     # two acceptances this repo has predate the step, and a value invented
     # for them would enter the one record that says what the venue charged.
+    # Who sent the scout desk. See the v51 note above and the column comment
+    # in `schema.sql`. The CHECK rides the column declaration because a
+    # table-level CHECK cannot be added by `ALTER TABLE`, and `schema.sql`
+    # declares it the same way so ADR 0176's DDL comparison sees one shape.
+    51: _Migration(
+        columns=(
+            (
+                "scout_briefings",
+                "trigger",
+                "TEXT NOT NULL DEFAULT 'tap' CHECK (trigger IN ('tap', 'auto'))",
+            ),
+        ),
+    ),
     50: _Migration(
         columns=(
             ("combo_rfq_quotes", "venue_fill_read_ms", "INTEGER"),

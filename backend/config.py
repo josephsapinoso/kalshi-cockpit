@@ -1050,6 +1050,52 @@ class FairPriceDownsampleConfig:
         return self.enabled and not self.dry_run
 
 
+@dataclass(frozen=True)
+class ScoutAutoConfig:
+    """Whether the scout desk may be sent on the ladder unattended. OFF by default.
+
+    `backend/scout_watch.py` is the first thing in this repo that can spend
+    Anthropic money with nobody tapping anything. ADR 0088 declined it on the
+    arithmetic -- five convenings a day against a ladder that spanned nine
+    fixtures on the first night it was measured (2026-09-20) -- and ADR 0180,
+    which supersedes that line, records Joe's answer: **ship it off, measure
+    demand for a week, then move all three ceilings together or not at all.**
+    So `enabled = False` is the shipped state and flipping it is Joe's
+    money call, made on ticket #116 after the `ladder-fixtures` series exists.
+
+    Three numbers bound it when it is on, and each is a separate brake:
+
+    - `max_per_day` -- unattended convenings per budget day, counted from
+      `scout_briefings.trigger = 'auto'` (schema v51). This is the auto
+      allowance and it is *inside* the shared `AGENT_MAX_*` ceilings, never
+      additive to them.
+    - `reserve_taps` -- how many convenings of the shared budget the watcher
+      must leave untouched for Joe's own taps on the game screen. It refuses
+      when one more auto convening would leave fewer than this affordable.
+    - `refresh_hours` -- a fixture whose newest briefing is younger than this
+      is not re-scouted. Six hours is the width of an evening slate.
+
+    Every ceiling refuses rather than degrades: the watcher logs which one
+    bound and convenes nothing. The daily ceilings themselves stay in
+    `agents/base.py::AgentConfig`; this object never reads them, it reads the
+    meter that enforces them.
+    """
+
+    enabled: bool = False
+    max_per_day: int = 3
+    reserve_taps: int = 2
+    refresh_hours: int = 6
+
+    @classmethod
+    def load(cls) -> "ScoutAutoConfig":
+        return cls(
+            enabled=_bool("SCOUT_AUTO_CONVENE_ENABLED", False),
+            max_per_day=_int("SCOUT_AUTO_MAX_CONVENINGS_PER_DAY", 3),
+            reserve_taps=_int("SCOUT_AUTO_RESERVE_TAP_CONVENINGS", 2),
+            refresh_hours=_int("SCOUT_AUTO_REFRESH_HOURS", 6),
+        )
+
+
 # --- build identity ---------------------------------------------------------
 #
 # Which build of this repo is answering. Served on `/api/health` so that
