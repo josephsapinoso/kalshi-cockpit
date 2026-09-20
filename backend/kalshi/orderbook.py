@@ -31,7 +31,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
 
-from ..core.prices import PRICE_MAX, complement, dollars_to_tenths, parse_quantity
+from ..core.prices import (
+    PRICE_MAX,
+    REFUSED_FINER_THAN_TENTHS,
+    complement,
+    dollars_to_tenths,
+    dollars_to_tenths_exact,
+    parse_quantity,
+)
 
 # Field names the levels array has been seen or documented under. Order
 # matters only for determinism; any one of them is accepted.
@@ -93,8 +100,25 @@ class MalformedBookMessage(RuntimeError):
     """
 
 
-def _parse_price(raw: Any, *, ticker: str, side: str) -> int:
-    """One wire price to integer tenths, or raise.
+@dataclass(frozen=True)
+class UnpricedLevel:
+    """A resting level the book read but could not carry as integer tenths.
+
+    `price_raw` is the venue's own string; `quantity` is what rested there. A
+    screen that shows `best_yes_bid` must also say when this list is
+    non-empty -- "there is resting interest this desk cannot price" -- because
+    the alternative reading, "no bid", is the one that costs a position.
+    """
+
+    side: str
+    price_raw: str
+    quantity: Optional[float]
+
+
+def _parse_price(raw: Any, *, ticker: str, side: str) -> Optional[int]:
+    """One wire price to integer tenths; None for a level that cannot be
+    carried (finer than tenths, or at/below zero); raise for a malformed or
+    units-changed price.
 
     Kalshi sends **dollar strings** here -- `"0.4300"`, `"0.0100"` -- not whole
     cents. An earlier version of this module did `int(price) * 10`, which throws
@@ -106,7 +130,18 @@ def _parse_price(raw: Any, *, ticker: str, side: str) -> int:
     cents, this yields 43,000 tenths, which fails the 0..1000 range check below
     instead of quietly pricing a contract at 100x.
     """
-    price_tenths = dollars_to_tenths(raw)
+    price_tenths, reason = dollars_to_tenths_exact(raw)
+    if reason == REFUSED_FINER_THAN_TENTHS:
+        # A real level this project's integer-tenths convention cannot carry:
+        # `"0.0004"` (rounds to 0) or `"0.0038"` (rounds UP to 4). Neither is
+        # malformed -- combination markets tick in centi-cents at the edges --
+        # so the level is DROPPED and COUNTED by the caller, never rounded and
+        # never allowed to abort the book. Before #106 the first case raised
+        # here and one dust order behind a 5.10c / 38,709-contract bid emptied
+        # the whole read (2026-09-19 review of #95, D1, reproduced), and the
+        # second case priced a bid Joe would receive 5.3% above what any maker
+        # offered (D2).
+        return None
     if price_tenths is None:
         raise MalformedBookMessage(
             f"{ticker}: unparseable {side} price {raw!r}"
@@ -116,31 +151,45 @@ def _parse_price(raw: Any, *, ticker: str, side: str) -> int:
     # nothing or sell you for a certain dollar, and neither belongs in a live
     # book. The loose bound here disagreed with `is_valid_price` used everywhere
     # else, so the same number was tradeable in one module and not in another.
-    if not 0 < price_tenths < PRICE_MAX:
+    #
+    # ABOVE the range still raises: `45` meaning 45 cents converts to 45,000
+    # tenths, and a feed that switched units must announce itself rather than
+    # be dropped level by level into an empty book. AT OR BELOW ZERO is a
+    # settled price (`"0.0000"`), dropped and counted like a dust level.
+    if price_tenths >= PRICE_MAX:
         raise MalformedBookMessage(
             f"{ticker}: {side} price {raw!r} converts to {price_tenths} tenths, "
             f"outside 0..{PRICE_MAX}. If the feed switched from dollars to "
             f"cents this is what that looks like -- capture a fixture before "
             f"changing the parser."
         )
+    if price_tenths <= 0:
+        return None
     return price_tenths
 
 
-def _parse_levels(raw: Any, *, ticker: str, side: str) -> dict[int, float]:
-    """Parse `[[price, qty], ...]` into `{price_tenths: qty}`.
+def _parse_levels(
+    raw: Any, *, ticker: str, side: str
+) -> tuple[dict[int, float], list[UnpricedLevel]]:
+    """Parse `[[price, qty], ...]` into `{price_tenths: qty}` plus the levels
+    that could not be priced.
 
     Both entries arrive as strings -- `["0.4300", "1250.00"]`. Prices are
     normalised to tenths here so the rest of the codebase never sees two price
-    units.
+    units. Levels are parsed INDIVIDUALLY: one that cannot be carried as
+    tenths is returned in the second member with its raw price and quantity,
+    and the rest of the book is still read. A malformed pair or a
+    units-changed price still raises -- those are bugs, not prices.
     """
     if raw is None:
-        return {}
+        return {}, []
     if not isinstance(raw, Iterable):
         raise MalformedBookMessage(
             f"{ticker}: {side} levels were {type(raw).__name__}, expected a list"
         )
 
     levels: dict[int, float] = {}
+    unpriced: list[UnpricedLevel] = []
     for entry in raw:
         if not isinstance(entry, (list, tuple)) or len(entry) < 2:
             raise MalformedBookMessage(
@@ -159,9 +208,13 @@ def _parse_levels(raw: Any, *, ticker: str, side: str) -> dict[int, float]:
                 f"{ticker}: {side} quantity {quantity} exceeds the plausible "
                 f"bound {MAX_PLAUSIBLE_QUANTITY:,.0f} -- likely a units error"
             )
+        if price_tenths is None:
+            if quantity > 0:
+                unpriced.append(UnpricedLevel(side, str(price_raw), quantity))
+            continue
         if quantity > 0:
             levels[price_tenths] = quantity
-    return levels
+    return levels, unpriced
 
 
 def _find_levels(msg: dict, keys: tuple[str, ...], *, ticker: str, side: str) -> Any:
@@ -192,8 +245,22 @@ class OrderBook:
     updated_ms: Optional[int] = None
     # Set when a gap is detected. A stale book must not be quoted from.
     invalid: bool = False
+    # Resting levels this book could not carry as tenths (#106). Replaced on
+    # every snapshot, appended by a delta at such a price. Never a price; a
+    # reader that renders `best_yes_bid` renders this list's emptiness too.
+    unpriced: list[UnpricedLevel] = field(default_factory=list)
 
     # -- reads -------------------------------------------------------------
+
+    def has_unpriced_interest(self, side: str) -> bool:
+        """True when a level rests on `side` that this desk cannot price.
+
+        The three states a screen must keep apart (review D7): no resting bid,
+        a bid finer than the screen can show, and a read that failed. This is
+        the middle one; the first is `best_yes_bid is None` with this False;
+        the third never reaches a book object at all.
+        """
+        return any(level.side == side for level in self.unpriced)
 
     @property
     def best_yes_bid(self) -> Optional[int]:
@@ -258,8 +325,9 @@ class OrderBook:
         yes_raw = _find_levels(msg, _YES_LEVEL_KEYS, ticker=self.ticker, side="yes")
         no_raw = _find_levels(msg, _NO_LEVEL_KEYS, ticker=self.ticker, side="no")
 
-        self.yes_bids = _parse_levels(yes_raw, ticker=self.ticker, side="yes")
-        self.no_bids = _parse_levels(no_raw, ticker=self.ticker, side="no")
+        self.yes_bids, yes_unpriced = _parse_levels(yes_raw, ticker=self.ticker, side="yes")
+        self.no_bids, no_unpriced = _parse_levels(no_raw, ticker=self.ticker, side="no")
+        self.unpriced = yes_unpriced + no_unpriced
         self.last_seq = seq
         self.updated_ms = observed_ms
         self.invalid = False
@@ -303,6 +371,16 @@ class OrderBook:
             raise MalformedBookMessage(
                 f"{self.ticker}: unparseable delta quantity {delta_raw!r}"
             )
+        if price_tenths is None:
+            # A change at a price this book cannot carry. Recorded, not
+            # applied and not raised: the rest of the book is still right,
+            # and a reader must be told interest rests here (#106).
+            if delta > 0:
+                self.unpriced.append(UnpricedLevel(side, str(price_raw), delta))
+            if seq is not None:
+                self.last_seq = seq
+            self.updated_ms = observed_ms
+            return
 
         levels = self.yes_bids if side == "yes" else self.no_bids
         updated = levels.get(price_tenths, 0.0) + delta

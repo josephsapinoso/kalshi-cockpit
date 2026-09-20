@@ -88,6 +88,39 @@ def dollars_to_tenths(value: Union[str, float, Decimal, None]) -> Optional[int]:
         return None
 
 
+REFUSED_UNREADABLE = "unreadable"
+REFUSED_FINER_THAN_TENTHS = "finer_than_tenths"
+
+
+def dollars_to_tenths_exact(
+    value: Union[str, float, Decimal, None],
+) -> tuple[Optional[int], Optional[str]]:
+    """`dollars_to_tenths` that refuses anything which would round.
+
+    Returns `(tenths, None)` or `(None, reason)`; exactly one member is set.
+    `dollars_to_tenths` rounds HALF_UP, which is right for a price you are
+    about to *pay* into a snapshot loop and wrong for a price you would
+    *receive*: a combination market carries
+    `price_level_structure: center_deci_edge_centi_cent` -- hundredths of a
+    cent below 1c and above 99c -- so a resting bid at `"0.0038"` rounds to 4
+    tenths, 5.3% above what any maker is offering, in the flattering
+    direction. The RFQ path has refused such prices since ADR 0172
+    (`kalshi/rfq.py:_read_tenths`); this is the same rule made available to
+    the book path, so there are two surfaces and one convention rather than
+    three (#106, the 2026-09-19 review of #95, D2).
+    """
+    tenths = dollars_to_tenths(value)
+    if tenths is None:
+        return None, REFUSED_UNREADABLE
+    try:
+        exact = Decimal(str(value)) * _TENTHS
+    except (InvalidOperation, ValueError):
+        return None, REFUSED_UNREADABLE
+    if exact != Decimal(tenths):
+        return None, REFUSED_FINER_THAN_TENTHS
+    return tenths, None
+
+
 def parse_quantity(value: Union[str, float, int, None]) -> Optional[float]:
     """Parse a Kalshi quantity string (``"17.38"``) to a float. May be negative."""
     if value is None:
