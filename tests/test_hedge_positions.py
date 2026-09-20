@@ -1608,3 +1608,89 @@ class TestARecordedLegNamesItsGame:
             assert db.get_meta(reopened, "schema_version") == str(db.SCHEMA_VERSION)
         finally:
             reopened.close()
+
+
+class TestScoutStateAtBet:
+    """Schema v52 (ADR 0180 §3.5): a new ticket records, per leg, what the
+    scout desk knew about the game at the moment it was written -- through
+    the same fixture join the card renders -- and an older row reads NULL,
+    "not recorded", never a state invented after the fact.
+
+    What this does NOT establish: that the state changes anything. No reader
+    ranks by it and no measurement is registered over it.
+    """
+
+    def _market(self, conn, ticker, event_ticker):
+        conn.execute(
+            "INSERT OR IGNORE INTO kalshi_events (event_ticker, title, "
+            "first_seen_ms, last_seen_ms) VALUES (?, ?, ?, ?)",
+            (event_ticker, "A at B", NOW_MS - 3_600_000, NOW_MS),
+        )
+        # A plain INSERT, not OR IGNORE: the table has NOT NULL columns, and
+        # OR IGNORE swallows that failure silently -- which is how this test
+        # first passed with no market row and asserted `absent` for a game
+        # that had a briefing.
+        conn.execute(
+            "INSERT INTO kalshi_markets (ticker, event_ticker, first_seen_ms, "
+            "last_seen_ms) VALUES (?, ?, ?, ?)",
+            (ticker, event_ticker, NOW_MS - 3_600_000, NOW_MS),
+        )
+
+    def test_a_briefed_game_is_recorded_as_briefed_and_an_unscouted_one_as_absent(
+        self, conn
+    ):
+        self._market(conn, CIN, "KXMLBGAME-26AUG26CINSF")
+        self._market(conn, LAD, "KXMLBGAME-26AUG26LADSD")
+        conn.execute(
+            "INSERT INTO scout_briefings (ticker, event_title, league, home_team, "
+            "away_team, requested_ms, completed_ms, status, briefing_json, model) "
+            "VALUES (?, 'SF at CIN', 'baseball_mlb', 'CIN', 'SF', ?, ?, 'complete', "
+            "?, 'm')",
+            (
+                CIN,
+                NOW_MS - 60_000,
+                NOW_MS - 30_000,
+                '{"headline": "the starter was scratched", "board": []}',
+            ),
+        )
+        conn.commit()
+        position_id = record(conn)
+        states = [leg["scout_state"] for leg in hedge.legs_for(conn, position_id)]
+        assert states == ["briefed", "absent"]
+
+    def test_a_leg_with_no_ticker_records_nothing(self, conn):
+        position_id = record(
+            conn, legs=[{"ticker": None, "side": "yes", "label": "hand-typed"}]
+        )
+        (leg,) = hedge.legs_for(conn, position_id)
+        assert leg["scout_state"] is None
+
+    def test_a_row_written_before_v52_reads_null_not_absent(self, conn):
+        # The shape every pre-v52 row has: the column exists after migration
+        # and carries NULL. Nothing may read that as "absent" -- the briefing
+        # may have arrived after the bet.
+        position_id = record(conn)
+        conn.execute(
+            "UPDATE parlay_position_legs SET scout_state = NULL WHERE position_id = ?",
+            (position_id,),
+        )
+        conn.commit()
+        assert all(
+            leg["scout_state"] is None for leg in hedge.legs_for(conn, position_id)
+        )
+
+    def test_a_lookup_failure_records_null_and_still_writes_the_ticket(
+        self, conn, monkeypatch
+    ):
+        # The writer sits on the armed order path: a bookkeeping read that
+        # raises must not turn a purchase that already happened into an error.
+        import backend.parlays as parlays
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("scouting read died")
+
+        monkeypatch.setattr(parlays, "scouting_facts", boom)
+        position_id = record(conn)
+        legs = hedge.legs_for(conn, position_id)
+        assert len(legs) == 2
+        assert all(leg["scout_state"] is None for leg in legs)

@@ -2558,6 +2558,17 @@ CREATE TABLE IF NOT EXISTS parlay_position_legs (
     outcome         TEXT NOT NULL,
     resolved_ms     INTEGER,
     resolved_source TEXT,
+    -- What the scout desk knew about this leg's GAME at the moment the
+    -- ticket was recorded (v52, 2026-09-20, ADR 0180 §3.5) -- one of the six
+    -- states `backend/parlays.py::scouting_facts` serves, resolved by the
+    -- same fixture join the card uses. Written once, never updated: it is
+    -- the answer to "had the desk looked before he bet", which a later read
+    -- of `scout_briefings` cannot reconstruct because briefings arrive after
+    -- bets too. NULL on every row written before v52 and on any row whose
+    -- lookup failed -- "not recorded", never "absent". No reader ranks by it
+    -- and no measurement is registered over it; it exists so the question
+    -- can be registered when the count supports one.
+    scout_state     TEXT CHECK (scout_state IS NULL OR scout_state IN ('absent', 'briefing', 'briefed', 'filed_nothing', 'refused', 'failed')),
     CHECK (side IN ('yes', 'no')),
     CHECK (outcome IN ('pending', 'won', 'lost', 'void')),
     CHECK (resolved_source IS NULL OR resolved_source IN ('venue', 'manual')),

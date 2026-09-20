@@ -402,13 +402,16 @@ def record_position(
         ),
     )
     position_id = int(cursor.lastrowid)
+    scout_states = _scout_states_at_bet(
+        conn, [leg.get("ticker") for leg in legs], now_ms=now_ms
+    )
     for index, leg in enumerate(legs):
         conn.execute(
             """
             INSERT INTO parlay_position_legs (
                 position_id, leg_index, ticker, side, label, event_ticker,
-                league, commence_ms, event_title, outcome
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                league, commence_ms, event_title, outcome, scout_state
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
             """,
             (
                 position_id,
@@ -426,10 +429,52 @@ def record_position(
                 # on a hand-typed slip; the screen then prints the label
                 # alone rather than a title derived from a ticker.
                 leg.get("event_title") or None,
+                scout_states.get(leg.get("ticker") or ""),
             ),
         )
     conn.commit()
     return position_id
+
+
+def _scout_states_at_bet(
+    conn: sqlite3.Connection, tickers: Sequence[Optional[str]], *, now_ms: int
+) -> dict[str, str]:
+    """What the scout desk knew about each leg's game, right now, keyed by
+    the leg's market ticker. Schema v52, ADR 0180 §3.5.
+
+    Read through `parlays.scouting_facts` -- the one fixture join every
+    screen uses -- so the value recorded here is the value the card showed
+    at the moment of the bet, not a second derivation that could disagree
+    with it. A leg with no ticker (a hand-typed slip) has no game to look up
+    and is left out, so it records NULL.
+
+    **Nothing here may raise into the writer.** `record_position` sits on the
+    armed order path (`routes._record_combo_position`) and the RFQ accept, and
+    a bookkeeping lookup failing must not turn a purchase that already
+    happened into an error that says nothing happened. A failure records
+    NULL -- "not recorded" -- which the column's comment says is its meaning,
+    and is logged so the gap is visible rather than silent.
+
+    Imported inside the function: `parlays` is a large module this one does
+    not otherwise depend on, and pulling it in at import time would make the
+    hedge screen's "no model, no tokens, no credits" assertion harder to read
+    off the module header.
+    """
+    wanted = [t for t in tickers if t]
+    if not wanted:
+        return {}
+    try:
+        from .parlays import scouting_facts
+
+        facts = scouting_facts(conn, wanted, now_ms=now_ms)
+    except Exception:                                        # noqa: BLE001
+        logger.exception("scout state at bet time could not be read; recording NULL")
+        return {}
+    return {
+        ticker: str(one["scout"])
+        for ticker, one in facts.items()
+        if isinstance(one.get("scout"), str)
+    }
 
 
 def entry_fee_tenths(position: Mapping[str, Any]) -> Optional[int]:

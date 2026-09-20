@@ -68,6 +68,14 @@ logger = logging.getLogger(__name__)
 #: §2). A REBUILD, not a column step: SQLite cannot relax a NOT NULL or a
 #: table-level CHECK in place. The rows already written keep their real typed
 #: values -- nothing is deleted, backfilled, zeroed or rewritten.
+#: v52 (2026-09-20) adds `parlay_position_legs.scout_state` -- what the
+#: scout desk knew about the leg's game when the ticket was recorded (ADR
+#: 0180 §3.5), written by `hedge.record_position` for all three of its
+#: callers. A COLUMN step, nullable, no backfill: a row written before v52
+#: reads NULL, "not recorded", which is the truth about it -- a briefing
+#: that exists now may have arrived after the bet, so nothing may infer the
+#: state from `scout_briefings` after the fact. Taken on `main` at 52 with
+#: `SCHEMA_VERSION` at 51; #96 moves to 53.
 #: v51 (2026-09-20) adds `scout_briefings.trigger` -- `'tap'` (Joe, on the
 #: game screen) or `'auto'` (`backend/scout_watch.py`, unattended on the
 #: ladder). A COLUMN step with `NOT NULL DEFAULT 'tap'`: every row written
@@ -183,7 +191,7 @@ logger = logging.getLogger(__name__)
 #: `executescript` cannot do that. Written on `main`, 2026-09-18, the
 #: evening `/api/window` measured 7 s at the median and tripped the 25 s
 #: read budget twice.
-SCHEMA_VERSION = 51
+SCHEMA_VERSION = 52
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1296,6 +1304,18 @@ _MIGRATIONS: dict[int, _Migration] = {
     # of about three months with no measured lower bound (`rest.fills`), the
     # two acceptances this repo has predate the step, and a value invented
     # for them would enter the one record that says what the venue charged.
+    # What the desk knew at bet time, per leg. See the v52 note above and the
+    # column comment in `schema.sql`. Column-level CHECK for v51's reason.
+    52: _Migration(
+        columns=(
+            (
+                "parlay_position_legs",
+                "scout_state",
+                "TEXT CHECK (scout_state IS NULL OR scout_state IN ('absent', "
+                "'briefing', 'briefed', 'filed_nothing', 'refused', 'failed'))",
+            ),
+        ),
+    ),
     # Who sent the scout desk. See the v51 note above and the column comment
     # in `schema.sql`. The CHECK rides the column declaration because a
     # table-level CHECK cannot be added by `ALTER TABLE`, and `schema.sql`
