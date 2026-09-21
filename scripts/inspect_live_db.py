@@ -339,6 +339,8 @@ from inspect_live_db_parlays import (  # noqa: E402,F401
     _ladder_fixture_days,
     _SCOUT_BRIEFINGS_DEFAULT_DAYS,
     _SCOUT_BRIEFINGS_MAX_DAYS,
+    _SCOUT_WATCH_LOG_DEFAULT_DAYS,
+    _SCOUT_WATCH_LOG_MAX_DAYS,
     _q_combo_bids_tail,
     _q_combo_position_gaps,
     _q_combo_position_orphans,
@@ -346,6 +348,7 @@ from inspect_live_db_parlays import (  # noqa: E402,F401
     _q_parlay_candidates_timing,
     _q_parlay_lookups_tail,
     _q_scout_briefings,
+    _q_scout_watch_log,
 )
 
 
@@ -821,6 +824,28 @@ QUERIES: dict[str, QueryDef] = {
         # that grows by at most SCOUT_AUTO_MAX_CONVENINGS_PER_DAY plus taps
         # per day (11 rows total at 2026-09-21T17:55Z per #125). Cheap
         # because the table is small, not because anything indexes this.
+        cost=CHEAP,
+    ),
+    "scout-watch-log": QueryDef(
+        "What the unattended scout watcher DECIDED each cycle, including the "
+        "cycles it decided to do nothing (--days back, default "
+        f"{_SCOUT_WATCH_LOG_DEFAULT_DAYS}, hard ceiling "
+        f"{_SCOUT_WATCH_LOG_MAX_DAYS}). The other half of scout-briefings: "
+        "that one reads the convenings that HAPPENED, this one reads the "
+        "decisions that did not produce one, which before schema v53 were "
+        "written nowhere at all. Ordered budget_day DESC, first_ms ASC, so "
+        "the first row of a day is WHAT BOUND FIRST; cycle_count separates a "
+        "ceiling that bound once from one that bound every cycle until the "
+        "day rolled. detail is verbatim and is never parsed into a category. "
+        "No history before 2026-09-21 and no backfill is possible -- an empty "
+        "history is missing instrumentation, not a quiet watcher.",
+        _q_scout_watch_log,
+        # One row per (budget day, outcome, detail) by construction -- ADR
+        # 0056's shape -- so this table gains a handful of rows a day however
+        # often the watcher wakes. `budget_day_ms >= :since_ms` is a bounded
+        # seek on idx_scout_watch_log_day, which is keyed exactly
+        # (budget_day_ms DESC, first_ms) -- the one index that DOES serve this
+        # query's own ordering.
         cost=CHEAP,
     ),
     "combo-position-gaps": QueryDef(

@@ -152,6 +152,7 @@ SUBCOMMANDS = (
     "results-for-pull",
     "scoring-candidate-timing",
     "scout-briefings",
+    "scout-watch-log",
     "series",
     "sharp-anchor-census",
     "study-stop",

@@ -949,3 +949,97 @@ def _q_scout_briefings(conn: sqlite3.Connection, args) -> list[Section]:
         status,
         refusals,
     ]
+
+
+#: `scout_watch_log` gains at most a handful of rows a day by construction --
+#: one per (budget day, outcome, detail), never one per 600-second cycle (ADR
+#: 0056's shape, see `backend/store/scout_watch_log.py`). So the same generous
+#: ceiling as `scout-briefings` above is still nowhere near a large read.
+_SCOUT_WATCH_LOG_DEFAULT_DAYS = 7
+_SCOUT_WATCH_LOG_MAX_DAYS = 60
+
+#: Ordered `budget_day DESC, first_ms ASC` -- the day leads, and within a day
+#: the FIRST thing that happened leads. That ordering is the answer to "which
+#: ceiling bound first", which is the question this table exists for, so it is
+#: not a display preference and must not be changed to `last_ms` or to
+#: `cycle_count DESC` for readability.
+_SQL_SCOUT_WATCH_LOG = """
+SELECT
+    strftime('%Y%m%d', (budget_day_ms + :offset_ms) / 1000, 'unixepoch')
+        AS budget_day,
+    outcome,
+    cycle_count,
+    first_ms,
+    last_ms,
+    detail
+FROM scout_watch_log
+WHERE budget_day_ms >= :since_ms
+ORDER BY budget_day_ms DESC, first_ms ASC
+"""
+
+
+def _q_scout_watch_log(conn: sqlite3.Connection, args) -> list[Section]:
+    """What the unattended scout watcher DECIDED, including deciding nothing.
+
+    The other half of `scout-briefings`. That query reads the table of
+    convenings that HAPPENED; this one reads the decisions that did not
+    produce one -- which, before schema v53, were written nowhere at all.
+
+    **This is the query that answers "which ceiling bound, and when".** Rows
+    are ordered `budget_day DESC, first_ms ASC`, so within a day the first row
+    is the first thing that happened. `cycle_count` separates a ceiling that
+    bound once from one that bound every cycle until the day rolled -- the
+    difference between a brake working and a brake stuck -- which a
+    first-occurrence-only table could not express.
+
+    `detail` is printed VERBATIM and is not parsed into a category here. For
+    `refused_budget` it is `AgentBudget.refusal_reason`'s own sentence, naming
+    the ceiling and both numbers; re-deriving which ceiling that was would be
+    a second implementation of that ladder, which `backend/agents/budget.py`
+    argues against for itself.
+
+    What this does NOT establish
+    ----------------------------
+    - **Nothing before 2026-09-21.** The table was created by schema v53 and
+      there is no backfill, because every earlier refusal went only to a log
+      stream that drops lines. **An empty or short history here is missing
+      instrumentation, not a quiet watcher**, and the two must not be read as
+      the same thing.
+    - **Nothing about spend.** `agent_calls` is the meter. `refused_budget`
+      says a token or call or search ceiling refused; it does not say what any
+      convening cost.
+    - **Nothing about Joe's taps.** A tap refused over a ceiling raises 429 at
+      `backend/api/routers/scout.py:277` and is deliberately not recorded --
+      he saw that refusal on his own screen at the time. So a day with
+      `refused_budget` rows here does NOT bound how often he was turned away.
+    - **Nothing about completeness.** `record_watch_outcome` swallows its own
+      write failures so it can never fail the decision it records, which means
+      this table can undercount. It cannot overcount, and it cannot misname
+      which ceiling bound.
+    """
+    requested_days = getattr(args, "days", None)
+    n_days = min(
+        max(1, requested_days or _SCOUT_WATCH_LOG_DEFAULT_DAYS),
+        _SCOUT_WATCH_LOG_MAX_DAYS,
+    )
+    now_ms = int(time.time() * 1000)
+    since_ms = now_ms - n_days * _MS_PER_DAY
+    rows = _fetch(
+        conn,
+        _SQL_SCOUT_WATCH_LOG,
+        {"offset_ms": args.day_start_hour * 3_600_000, "since_ms": since_ms},
+        title="Watch decisions per budget day, earliest-first within a day "
+              "-- the first row of a day is what bound first",
+        cap=args.limit,
+    )
+    rows = _derive_iso(rows, "first_ms", "first_iso")
+    rows = _derive_iso(rows, "last_ms", "last_iso")
+    return [
+        _window_section(
+            f"scout-watch-log window (budget day starts "
+            f"{args.day_start_hour:02d}:00Z, last {n_days} day(s))",
+            since_ms,
+            None,
+        ),
+        rows,
+    ]
