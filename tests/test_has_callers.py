@@ -158,6 +158,7 @@ from __future__ import annotations
 
 import ast
 import fnmatch
+import functools
 import re
 import sys
 from pathlib import Path
@@ -373,7 +374,26 @@ MUST_HAVE_CALLERS = [
 # rather_than_left_to_rot` and `TestMigration`.
 
 
-def production_sources() -> list[Path]:
+@functools.lru_cache(maxsize=1)
+def production_sources() -> tuple[Path, ...]:
+    """Every non-test, non-tooling `.py` file under the repo root, walked once.
+
+    Cached for the process's lifetime: the walk is the same on the 122nd call
+    as on the first, because nothing in this test session can change the tree
+    underneath it (`tasks/lessons.md`'s worktree lane hazard is about a
+    *parallel* session, not this one, and `NOT_A_CALLER` already excludes
+    `.claude` -- see its comment above). Returns a tuple rather than a list
+    on purpose: `lru_cache` requires a hashable return value to be reusable as
+    a cache key elsewhere and a mutable list return would invite a caller to
+    `.append()` onto the cached object and corrupt every later reader.
+
+    Guarded by `test_the_scan_is_not_empty` below -- an empty tuple here would
+    make every downstream `unmetered == set()` / `hits == []` assertion in
+    this file pass for having scanned nothing, which is the exact failure
+    mode `tests/test_has_callers.py:85`'s "fails closed" premise exists to
+    catch. See `test_the_cache_discriminates` for the guard that a
+    non-empty-but-wrong scan cannot pass either.
+    """
     files: list[Path] = []
     for path in ROOT.rglob("*.py"):
         rel = str(path.relative_to(ROOT)).replace("\\", "/")
@@ -382,7 +402,67 @@ def production_sources() -> list[Path]:
         if rel in NOT_A_CALLER_FILES:
             continue
         files.append(path)
-    return files
+    return tuple(files)
+
+
+@functools.lru_cache(maxsize=1)
+def _parsed_sources() -> tuple[tuple[str, ast.AST], ...]:
+    """`(rel_path, tree)` for every file `production_sources()` returns,
+    parsed exactly once per test session rather than once per call site.
+
+    Before this cache, seven call sites each re-walked `production_sources()`
+    and re-`ast.parse`d every file it returned -- measured 2026-09-21 at 223
+    production files (ticket #124 cited ~1,053; re-measuring found the real
+    number is smaller, see `test_the_scan_is_not_empty`), so seven sites
+    times 223 is ~1,560 parses, repeated for every one of this file's 122
+    parametrized questions. A tree does not change
+    between "does X call `structured_call`" and "does Y call `build_client`"
+    in the same run, so parsing it twice bought nothing.
+
+    A file that fails to parse is skipped here, the same way every call site
+    already skipped it with its own `except SyntaxError: continue` -- moving
+    the skip in here means those seven `try/except` blocks collapse to one,
+    rather than that the skip behaviour changes. `errors="replace"` is kept
+    unchanged, per the "must survive the refactor" list in ticket #124.
+    """
+    parsed: list[tuple[str, ast.AST]] = []
+    for path in production_sources():
+        rel = str(path.relative_to(ROOT)).replace("\\", "/")
+        try:
+            tree = ast.parse(path.read_text("utf-8", errors="replace"))
+        except SyntaxError:                                   # noqa: PERF203
+            continue
+        parsed.append((rel, tree))
+    return tuple(parsed)
+
+
+def test_the_scan_is_not_empty():
+    """Fail-closed guard 1 of 2 (ticket #124).
+
+    `tests/test_has_callers.py:85` states these tests fail **closed** on
+    purpose -- an empty scan would make `test_every_caller_of_the_billed_
+    path_is_metered`'s `unmetered == set()` trivially true, which is the
+    cheapest possible way to pass 122 tests.
+
+    **The floor here is 200, not the ~1,000 ticket #124 assumed.** Measured
+    2026-09-21: `production_sources()` returns 223 files (`backend/`: 111,
+    `scripts/`: 111, plus 1 at the repo root), not ~1,053. The ticket's
+    number does not match this repo's actual tree and this test asserts
+    what was measured, not what was assumed -- a floor of 1000 would fail
+    on every correctly-working run and teach nobody anything. 200 leaves
+    ~10% headroom under the measured count while still being a four-figure
+    multiple of "a cache returning nothing" or "a cache returning one
+    directory instead of the whole walk", which is the failure this guards
+    against. Re-derive this floor if the repo's production file count moves
+    a lot (e.g. `backend/` or `scripts/` growing or shrinking materially).
+    """
+    count = len(production_sources())
+    assert count >= 200, (
+        f"production_sources() returned {count} files, under the 200 floor. "
+        f"Every other test in this file trusts this scan to be complete; a "
+        f"short scan makes them pass by finding nothing, which is the exact "
+        f"failure mode this file's fail-closed design exists to prevent."
+    )
 
 
 def _defines(tree: ast.AST, symbol: str) -> bool:
@@ -431,15 +511,11 @@ def callers_of(symbol: str) -> list[str]:
     points and asks the second.
     """
     hits: list[str] = []
-    for path in production_sources():
-        try:
-            tree = ast.parse(path.read_text("utf-8", errors="replace"))
-        except SyntaxError:                                   # noqa: PERF203
-            continue
+    for rel, tree in _parsed_sources():
         if _defines(tree, symbol):
             continue
         if _uses(tree, symbol):
-            hits.append(str(path.relative_to(ROOT)).replace("\\", "/"))
+            hits.append(rel)
     return hits
 
 
@@ -507,15 +583,11 @@ def _uses_beyond_import(tree: ast.AST, symbol: str) -> bool:
 )
 def test_the_caller_does_more_than_import_the_symbol(symbol, consequence):
     referrers = []
-    for path in production_sources():
-        try:
-            tree = ast.parse(path.read_text("utf-8", errors="replace"))
-        except SyntaxError:                                   # noqa: PERF203
-            continue
+    for rel, tree in _parsed_sources():
         if _defines(tree, symbol):
             continue
         if _uses_beyond_import(tree, symbol):
-            referrers.append(str(path.relative_to(ROOT)).replace("\\", "/"))
+            referrers.append(rel)
     assert referrers, (
         f"`{symbol}` is imported somewhere and referenced nowhere -- a stale "
         f"`from ... import` standing in for a caller that was deleted. If that "
@@ -673,12 +745,7 @@ def _call_sites(function: str) -> list[tuple[str, int, set[str], set[str]]]:
         w for w, wrapped in PASS_THROUGH_WRAPPERS.items() if wrapped == function
     }
     found: list[tuple[str, int, set[str], set[str]]] = []
-    for path in production_sources():
-        try:
-            tree = ast.parse(path.read_text("utf-8", errors="replace"))
-        except SyntaxError:                                   # noqa: PERF203
-            continue
-        rel = str(path.relative_to(ROOT)).replace("\\", "/")
+    for rel, tree in _parsed_sources():
         forwarding = _forwarding_calls(tree, function)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -726,15 +793,11 @@ def test_a_declared_wrapper_really_forwards_verbatim(wrapper, wrapped):
     guarded = {p for f, p, _ in MUST_BE_SUPPLIED if f == wrapped}
 
     definitions = []
-    for path in production_sources():
-        try:
-            tree = ast.parse(path.read_text("utf-8", errors="replace"))
-        except SyntaxError:                                   # noqa: PERF203
-            continue
+    for rel, tree in _parsed_sources():
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if node.name == wrapper:
-                    definitions.append((path, node))
+                    definitions.append((rel, node))
 
     assert len(definitions) == 1, (
         f"expected exactly one production definition of `{wrapper}`, found "
@@ -1445,13 +1508,8 @@ def _billed_path_sites(symbol: str) -> list[tuple[str, int, str]]:
     was deleted, and it must not stand in for one.
     """
     found: list[tuple[str, int, str]] = []
-    for path in production_sources():
-        rel = str(path.relative_to(ROOT)).replace("\\", "/")
+    for rel, tree in _parsed_sources():
         if rel == BILLED_PATH_SOURCE:
-            continue
-        try:
-            tree = ast.parse(path.read_text("utf-8", errors="replace"))
-        except SyntaxError:                                   # noqa: PERF203
             continue
 
         # A matching `ast.Call` also contains a matching `ast.Name`; recording
@@ -1609,6 +1667,38 @@ class TestNothingNewCanReachTheBilledPath:
             f"include the call from {expected} that constructs the desk's "
             f"client. The scanner has stopped seeing the one place the "
             f"billing object is built."
+        )
+
+        # Fail-closed guard 2 of 2 (ticket #124): the cache must
+        # DISCRIMINATE, not merely be non-empty. `test_the_scan_is_not_empty`
+        # catches a cache that returns nothing; on its own it cannot catch a
+        # cache that returns *everything* (e.g. one file's parsed tree
+        # duplicated across every `rel`, or a stale snapshot reused for every
+        # symbol) -- that would also make `production_sources()` long and
+        # every `callers_of(...)` non-empty. The pair below is the point: a
+        # scanner that always returns "called" passes the first half and
+        # fails the second; a scanner that always returns "empty" (the
+        # historical failure mode `test_every_caller_of_the_billed_path_is_
+        # metered` is vulnerable to) passes the second half and fails the
+        # first. `decide_sweeps` is not invented for this -- it is already
+        # proven to have a production caller by
+        # `test_the_symbol_is_used_outside_its_own_module_and_tests` above,
+        # parametrized over `MUST_HAVE_CALLERS`, so this reuses that proof
+        # rather than asserting something new about the odds path.
+        known_good = "decide_sweeps"
+        assert callers_of(known_good), (
+            f"callers_of({known_good!r}) returned no hits, but "
+            f"`MUST_HAVE_CALLERS` already establishes this symbol has a "
+            f"production caller. The cache is returning an empty or wrong "
+            f"scan."
+        )
+        nonsense_symbol = "no_symbol_this_name_has_ever_existed_in_this_repo_zzq"
+        assert callers_of(nonsense_symbol) == [], (
+            f"callers_of({nonsense_symbol!r}) returned hits for a symbol "
+            f"that is not defined or used anywhere in this repo. The cache "
+            f"is returning every file regardless of what is asked for, "
+            f"which would make every guard in this file pass by finding "
+            f"everything rather than the right thing."
         )
 
     def test_the_allowlist_names_modules_that_exist(self):

@@ -76,7 +76,7 @@ from __future__ import annotations
 
 import ast
 
-from tests.test_has_callers import ROOT, _excluded_from_image, production_sources
+from tests.test_has_callers import _excluded_from_image, _parsed_sources
 
 from backend.store.combo_orders import COMBO_ORDERS_ARE_DRY_RUNS
 
@@ -92,13 +92,8 @@ def _method_call_sites(name: str) -> list[str]:
     `<expr>.<name>(...)`. See the module docstring for why this is narrower
     than the bare-symbol matcher `test_has_callers.callers_of` uses."""
     hits: list[str] = []
-    for path in production_sources():
-        rel = str(path.relative_to(ROOT)).replace("\\", "/")
+    for rel, tree in _parsed_sources():
         if rel == _DEFINING_MODULE:
-            continue
-        try:
-            tree = ast.parse(path.read_text("utf-8", errors="replace"))
-        except SyntaxError:
             continue
         for node in ast.walk(tree):
             if (
@@ -146,12 +141,7 @@ class TestTheDefinitionAssumptionStillHolds:
 
     def test_only_kalshirestclient_defines_a_method_named_orders(self):
         definitions: list[str] = []
-        for path in production_sources():
-            rel = str(path.relative_to(ROOT)).replace("\\", "/")
-            try:
-                tree = ast.parse(path.read_text("utf-8", errors="replace"))
-            except SyntaxError:
-                continue
+        for rel, tree in _parsed_sources():
             for node in ast.walk(tree):
                 if (
                     isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
