@@ -72,6 +72,7 @@ from .core.hedge import (
     ticket_refusal,
 )
 from .core.fees import calculate_fee
+from .kalshi.orderbook import OrderBook
 from .kalshi.rfq import QUOTE_FILLED_STATUSES
 from .core.prices import (
     format_dollars,
@@ -102,6 +103,28 @@ STATES = (
     STATE_VOID_LEG,
     STATE_NOT_HEDGEABLE,
 )
+
+#: The five states a held combination's public-book buy-back can be in
+#: (#95). They never collapse into each other -- that is the whole point of
+#: the ticket, and the review that rewrote this ticket twice named the
+#: collapse (read-failed rendering as nothing-resting) the critical defect.
+#:
+#: `combo_book["state"]` carries the first four; the fifth, "not
+#: applicable", is `combo_book is None` with `combo_book_reason` naming why
+#: -- the wire pattern `stake_basis`/`stake_basis_reason` already uses two
+#: fields up. A `None` here is not a missing case; it is a DESIGNED state
+#: with two distinct causes (see `COMBO_BOOK_REASON_*`), and the screen
+#: renders nothing at all for it -- not "could not be read", which would
+#: claim a read was attempted, and not "nothing resting", which would claim
+#: an empty book was actually seen.
+COMBO_BOOK_BID = "bid"
+COMBO_BOOK_EMPTY = "empty"
+COMBO_BOOK_UNPRICED_INTEREST = "unpriced_interest"
+COMBO_BOOK_UNREADABLE = "unreadable"
+
+#: Why `combo_book` is `None`. Both are designed states, not errors.
+COMBO_BOOK_REASON_NO_TICKET = "no_ticket"
+COMBO_BOOK_REASON_NO_READER_WIRED = "no_reader_wired"
 
 #: The sentences every hedge surface carries, verbatim, exactly as
 #: `parlays.NOTES` does. They travel to Discord unchanged (ADR 0072 Decision 3),
@@ -1661,6 +1684,87 @@ def _at_venue(
     return str(combo_ticker) in venue_tickers
 
 
+async def combo_book_state(
+    combo_ticker: Optional[str],
+    *,
+    read_combo_book,
+    now_ms: int,
+) -> tuple[Optional[dict], Optional[str]]:
+    """What the public order book says a held combination could be sold back
+    for right now -- five states, and they never collapse (#95, D1/D2 of the
+    2026-09-21 review).
+
+    Returns `(combo_book, combo_book_reason)`; exactly one of them carries
+    information on any given call:
+
+    - `combo_book` is a dict with `state` in `{bid, empty, unpriced_interest,
+      unreadable}` and `combo_book_reason` is `None` -- a read was attempted,
+      because there was a ticket to read and a reader to read it with.
+    - `combo_book` is `None` and `combo_book_reason` names why no read was
+      even attempted: `no_ticket` (`combo_ticker` is `None` -- a
+      hand-recorded slip, `hand_recorded_position`, ADR 0160 Amendment 2) or
+      `no_reader_wired` (`read_combo_book` is `None`, which is every caller
+      of `build_payload` until main wires the real reader in #128 --
+      including the demo deploy, where `combo_api()` holds no key).
+
+    A read attempted and a read that FAILED are not the same state either.
+    `read_books` (leg quotes, above) intentionally drops a failed ticker from
+    its dict -- fine there, because that dict's absence already has one
+    meaning. Reused here it would make "the read 403'd" and "nobody is
+    bidding" the same pixel, which review D1 named the critical defect this
+    ticket exists to fix -- so failures are caught here, not upstream, and
+    rendered as `unreadable`, an explicit state of their own.
+
+    `OrderBook.apply_snapshot`'s `dollars_to_tenths_exact` path REFUSES a
+    price finer than a tenth of a cent rather than rounding it up (#106); such
+    a level is `has_unpriced_interest("yes")`, not a rounded `bid` -- the
+    house rule against a floor in the display path (CLAUDE.md, "unreadable
+    resolves to `None`, never `0`") applies to a price this desk cannot show,
+    not only to one it cannot read at all.
+    """
+    if combo_ticker is None:
+        return None, COMBO_BOOK_REASON_NO_TICKET
+    if read_combo_book is None:
+        return None, COMBO_BOOK_REASON_NO_READER_WIRED
+    try:
+        payload = await read_combo_book(str(combo_ticker))
+        book = OrderBook(str(combo_ticker))
+        book.apply_snapshot(payload, seq=None, observed_ms=now_ms)
+    except Exception as exc:                                    # noqa: BLE001
+        # Transport, a malformed envelope (`MalformedOrderbookResponse`), an
+        # unparseable level (`MalformedBookMessage`) -- every one of them
+        # means the same thing on the wire: this read failed. That is the
+        # state, not an absence.
+        logger.info("combo book read failed for %s: %s", combo_ticker, exc)
+        return {
+            "state": COMBO_BOOK_UNREADABLE,
+            "observed_ms": now_ms,
+            "price_display": None,
+            "size": None,
+        }, None
+    best = book.best_yes_bid
+    if best is not None:
+        return {
+            "state": COMBO_BOOK_BID,
+            "observed_ms": book.updated_ms,
+            "price_display": format_price(best),
+            "size": book.yes_bids.get(best),
+        }, None
+    if book.has_unpriced_interest("yes"):
+        return {
+            "state": COMBO_BOOK_UNPRICED_INTEREST,
+            "observed_ms": book.updated_ms,
+            "price_display": None,
+            "size": None,
+        }, None
+    return {
+        "state": COMBO_BOOK_EMPTY,
+        "observed_ms": book.updated_ms,
+        "price_display": None,
+        "size": None,
+    }, None
+
+
 def serialise_position(
     position: Mapping[str, Any],
     legs: Sequence[Mapping[str, Any]],
@@ -1670,6 +1774,8 @@ def serialise_position(
     now_ms: int,
     venue_tickers: Optional[set[str]] = None,
     venue_settlement: Optional[Mapping[str, Any]] = None,
+    combo_book: Optional[dict] = None,
+    combo_book_reason: Optional[str] = None,
 ) -> dict:
     """One held ticket as the screen and the notifier both read it."""
     return {
@@ -1714,6 +1820,13 @@ def serialise_position(
         # still reads `pending` -- which leg lost is not knowable from this
         # alone, and nothing here marks one.
         "venue_settlement": dict(venue_settlement) if venue_settlement else None,
+        # What the public book says this combination could be sold back for
+        # right now, or `None` with `combo_book_reason` naming why no read
+        # was attempted (#95). Absent entirely from every position recorded
+        # before this ticket's caller passes them -- `combo_book_state`'s
+        # docstring is the source of truth for the five states.
+        "combo_book": dict(combo_book) if combo_book else None,
+        "combo_book_reason": combo_book_reason,
         "legs": [
             _leg_payload(
                 leg, books, hedge_leg_id=assessment.hedge_leg_id, now_ms=now_ms
@@ -1761,6 +1874,7 @@ async def build_payload(
     max_quote_age_ms: int,
     spendable_tenths: Optional[int],
     fetch_quote,
+    read_combo_book=None,
 ) -> dict:
     """Every open ticket, its legs' live prices, and what a hedge would do.
 
@@ -1773,6 +1887,24 @@ async def build_payload(
     holds that this record does not) and, per position, `at_venue` and
     `venue_settlement` (whether and how this record's own ticket is still
     there). Neither is used to close or reorder anything here.
+
+    `read_combo_book` is keyword-only, defaulted to `None`, and DECIDED here
+    (#95) rather than by whoever calls this: `ticker -> awaitable[dict]`,
+    matching `KalshiRestClient.orderbook`'s shape exactly so main can pass
+    the bound method straight through with no wrapper. With `None` -- every
+    caller today -- every `kalshi_combo` position's `combo_book` renders the
+    "not applicable" state with reason `no_reader_wired`; nothing 503s and
+    nothing lies. **This module does not wire it.** Main wires the real
+    reader separately, at `backend/api/routes.py:2079` (`hedge_router.
+    register()`) and `scripts/run_loop.py:1136`, in #128 -- deliberately kept
+    out of this lane's diff so a keyless demo instance (`combo_api()` raises
+    `ConfigError` there) never has `/api/hedge` fail on this field's account.
+
+    Deliberately NOT routed through `read_books`, and NOT added to
+    `hedge_watch`'s 8-second quote-pass budget: a combination book is a
+    different read at a different cadence, and merging the two would put an
+    unauthenticated route's combo-book reads on the same clock leg quotes
+    already spend (review D1/D8).
     """
     # The sunk stake is read at the venue's own fill price where the venue
     # gave one and the link to it is provable, and at the figure recorded
@@ -1803,6 +1935,9 @@ async def build_payload(
             spendable_tenths=spendable_tenths,
         )
         combo_ticker = position["combo_ticker"]
+        combo_book, combo_book_reason = await combo_book_state(
+            combo_ticker, read_combo_book=read_combo_book, now_ms=now_ms
+        )
         rows.append(
             serialise_position(
                 position,
@@ -1814,6 +1949,8 @@ async def build_payload(
                 venue_settlement=(
                     settlements.get(str(combo_ticker)) if combo_ticker else None
                 ),
+                combo_book=combo_book,
+                combo_book_reason=combo_book_reason,
             )
         )
     return {
