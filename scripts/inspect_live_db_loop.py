@@ -1,7 +1,8 @@
 """The recorder loop's own health: memory, walks, failures, gaps, volume, pushes.
 
 Queries: `loop-rss`, `walk-log`, `failure-journal`, `pass-gaps`,
-`notifications`, `db-sizes`, `odds-snapshots-latest-price-timing`.
+`notifications`, `db-sizes`, `db-growth-by-table`,
+`odds-snapshots-latest-price-timing`.
 
 What these share is that none of them reads the evidence record. They read
 the machine that grows it -- the resident set and WAL size per pass
@@ -194,6 +195,99 @@ def _q_db_sizes(conn: sqlite3.Connection, args) -> list[Section]:
             )
         )
     return sections
+
+
+# ---------------------------------------------------------------------------
+# Which table grew -- without walking the file.
+# ---------------------------------------------------------------------------
+#
+# `db-sizes` answers "where are the bytes" but costs a `dbstat` walk of the
+# entire file (or, without `dbstat`, an unbounded `COUNT(*)` per table, built
+# inline in `_q_db_sizes`'s fallback branch above -- itself WALKS_THE_FILE-
+# shaped and only tolerated as a labelled fallback). Four sessions running
+# have wanted a cheaper answer to a narrower question: which table grew
+# since the last reading?
+#
+# `MAX(rowid)` on an ordinary rowid btree is a single read of the rightmost
+# leaf page -- SQLite does not scan to find it, it descends the btree once.
+# That is O(log n) in the page count, not O(n) in the row count, and it does
+# not touch the rest of the file. Differencing two readings of it gives rows
+# inserted since, without walking anything.
+#
+# `MAX(rowid)` is a BETTER answer than `COUNT(*)` for this question, not just
+# a cheaper one: `kalshi_quotes` and `fair_prices` are pruned tables (ADR
+# references in `docs/measurements/2026-09-18-where-the-database-bytes-are.md`
+# -- `kalshi_quotes` has been flat at ~1.2 GB for nine days while its writer
+# keeps inserting), so a count taken now and a count taken later can both be
+# smaller than the number of rows actually written in between. A rowid
+# high-water mark only goes up -- SQLite does not reuse a rowid after a
+# DELETE on an ordinary (non-`AUTOINCREMENT`) table, and every table read
+# here is declared `INTEGER PRIMARY KEY AUTOINCREMENT`, which is the one
+# declaration that guarantees it never reuses one even across a full empty
+# table (`backend/store/schema.sql`).
+#
+# Tables named per #120: the three that were >100 MB in the 2026-09-18
+# byte census (`odds_snapshots`, `fair_prices`, `kalshi_quotes` -- "everything
+# else" summed to 0.22 GB across 118 btrees, so nothing else cleared the
+# threshold) plus `poll_log`, named explicitly in scope because it is the
+# other table this question keeps getting asked about even though it did not
+# appear in that census.
+#
+# One SQL string, each table's `MAX(rowid)` a separate scalar subquery `UNION
+# ALL`-ed together -- not a Python loop building SQL, so this stays a
+# constant like every other SQL string in this module. `MAX(rowid)` over a
+# table with zero rows returns SQL NULL, which `sqlite3` hands back as
+# `None` -- exactly the "unreadable resolves to None, never 0" convention,
+# and it falls out of `MAX()`'s own semantics rather than needing a
+# COALESCE that could hide a real zero-vs-empty distinction.
+_SQL_DB_GROWTH_BY_TABLE = (
+    "SELECT 'odds_snapshots' AS table_name, "
+    "  (SELECT MAX(rowid) FROM odds_snapshots) AS max_rowid "
+    "UNION ALL "
+    "SELECT 'fair_prices', (SELECT MAX(rowid) FROM fair_prices) "
+    "UNION ALL "
+    "SELECT 'kalshi_quotes', (SELECT MAX(rowid) FROM kalshi_quotes) "
+    "UNION ALL "
+    "SELECT 'poll_log', (SELECT MAX(rowid) FROM poll_log)"
+)
+
+
+def _q_db_growth_by_table(conn: sqlite3.Connection, args) -> list[Section]:
+    """`MAX(rowid)` per large table -- difference two readings for rows-since.
+
+    Each row is one scalar subquery reading the rightmost leaf of a rowid
+    btree: bounded work regardless of table size, no scan, no `dbstat`. Take
+    this reading twice, subtract, and the difference is rows inserted in
+    between -- for `kalshi_quotes` and `fair_prices`, which are pruned, that
+    is a number `COUNT(*)` cannot give you, because pruning can make a later
+    count smaller than an earlier one even while the table keeps growing.
+
+    What this does not establish
+    -----------------------------
+    - **A rowid high-water mark is not a row count.** A DELETE does not lower
+      it -- which is exactly why it measures inserts, not survivors. Do not
+      read `max_rowid` as "how many rows are in the table now"; `db-sizes`'s
+      row-count fallback answers that question, at WALKS_THE_FILE cost.
+    - **It is not bytes.** A row's width varies table to table and even row
+      to row, and no index is charged anywhere in this reading. `db-sizes`
+      is the byte account; this is not a substitute for it.
+    - **One reading is a level, not a rate.** This function reports the
+      current high-water mark only. A rate needs two readings taken apart in
+      time and a caller to do the subtraction and divide by the elapsed
+      time -- neither happens here.
+    """
+    rows = conn.execute(_SQL_DB_GROWTH_BY_TABLE).fetchall()
+    return [
+        Section(
+            title=(
+                "MAX(rowid) per table -- NULL means the table has never had "
+                "a row written (not the same as 0)"
+            ),
+            columns=("table_name", "max_rowid"),
+            rows=[tuple(r) for r in rows],
+            cap=args.limit,
+        )
+    ]
 
 
 def _q_notifications(conn: sqlite3.Connection, args) -> list[Section]:
