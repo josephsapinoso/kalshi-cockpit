@@ -154,7 +154,7 @@ work — see §2.
 | `2ff423c` | Pre-registration of #118's reading; the ordering question killed by arithmetic before any data | #118 |
 | `5b1e014` | Five lessons | — |
 | `a5bdab6` | Lane (Sonnet): cache the repo scan in `test_has_callers.py` — **311.58s -> 69.01s on main** | #124 |
-| — | Lane (Sonnet) on #95 was **still building when the session ended** — see Still open item 3 | #95 |
+| `3fe9ba1` | Lane (Sonnet): the five combination-book states on `/hedge`, interrupted and verified on main before merge | #95 |
 
 ### 1. The frontier was stuck on artefacts only we could make
 
@@ -313,7 +313,7 @@ and `ci.yml` was not touched.
 1. **#118 — the reading is OWED and now has an appointment: T1 on 2026-09-23 09:00–09:55Z, T2 10:30–14:00Z.** Pre-registered in `docs/measurements/2026-09-21-preregistration-unattended-scouting-first-reading.md`; both instruments verified working on live. One slip permitted, then it closes as not-taken.
 2. **#124 — merged (`a5bdab6`), OPEN for three CI durations.** Do not raise `timeout-minutes` before they are recorded.
 3. **#127 — with Joe**, and its own table is corrected by tonight's finding: searches permit 3, not 5, so three ceilings coincide. Folded into the digest rather than posted as a ninth comment.
-4. **#95 — a Sonnet lane was MID-BUILD when this session ended.** Its worktree is `.claude/worktrees/agent-a7f263d1ed8cc4207` on branch `worktree-agent-a7f263d1ed8cc4207`, cut from `ca45fc2`, with **uncommitted** work: modified `backend/hedge.py`, `backend/api/routers/hedge.py`, `frontend/src/components/HedgePositions.tsx`, `frontend/src/lib/api.ts`, `tests/test_the_hedge_card_names_the_fallback_reason.py`, plus new `frontend/src/lib/comboBookGloss.ts` and `tests/test_the_hedge_card_shows_the_combo_book.py`. **No commit, no test run recorded, no mutation pass.** Treat it as unverified: read the ticket body (rewritten twice, cleared on the third), then either finish it in that worktree or discard it and re-dispatch. Do NOT merge it on the strength of its file list.
+4. **#95 — LANDED.** The lane was interrupted and committed WIP; main verified what it could not (its final fix was unverified by any run) and merged. Five wire states — bid / nothing resting / interest finer than a tenth / read failed / not applicable — wired `build_payload` → `serialise_position` → `HeldPosition.combo_book` → `<ComboBookLine>`. All five mutations went red and were restored by file copy. **It renders `no_reader_wired` on every row until #128 wires the reader** — that is the whole point of #128 and it is not a bug.
 5. **#128 — new, main**: wire the combination-book reader into `/api/hedge`, or #95 is built and invoked by nothing.
 6. **#58, #71, #78, #79, #97, #119, #122 — with Joe**, in the digest.
 7. #107 — capture-of-opportunity with the **trigger corrected**: capture when `/api/hedge` shows a position that is not yet `dead`/`won`, not on a calendar. All 41 positions were settled tonight.
