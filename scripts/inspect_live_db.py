@@ -300,6 +300,7 @@ from inspect_live_db_loop import (  # noqa: E402,F401
     FAILURE_LOG_NAME,
     WALK_LOG_NAME,
     _LOOP_RSS_COLUMNS,
+    _q_db_growth_by_table,
     _q_db_sizes,
     _q_failure_journal,
     _q_loop_rss,
@@ -852,6 +853,22 @@ QUERIES: dict[str, QueryDef] = {
         # file through the page cache. This is the query that was run
         # mid-diagnosis on 2026-09-18 and slowed the desk for minutes.
         cost=WALKS_THE_FILE,
+    ),
+    "db-growth-by-table": QueryDef(
+        "MAX(rowid) for odds_snapshots, fair_prices, kalshi_quotes and "
+        "poll_log -- the four large tables (#120). Difference two readings "
+        "to get rows inserted since, without walking the file. Strictly "
+        "better than COUNT(*) for this: kalshi_quotes and fair_prices are "
+        "pruned, so a count taken now can be smaller than a count taken "
+        "earlier while the table keeps growing; a rowid high-water mark only "
+        "goes up.",
+        _q_db_growth_by_table,
+        # CHEAP: each row is `MAX(rowid)` on an ordinary rowid btree, which
+        # SQLite answers by descending straight to the rightmost leaf page --
+        # a bounded read that does not scale with the table's row count and
+        # touches no other page of the file. No GROUP BY, no scan, no
+        # dbstat -- the opposite shape of the WALKS_THE_FILE entries above.
+        cost=CHEAP,
     ),
     "odds-snapshots-latest-price-timing": QueryDef(
         "The odds_snapshots 'latest price' read -- MAX(fetched_ms) for one "

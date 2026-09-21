@@ -123,6 +123,7 @@ SUBCOMMANDS = (
     "credits-rate",
     "credits-reset",
     "credits-tail",
+    "db-growth-by-table",
     "db-sizes",
     "decision-dump",
     "estimate-match-status",
