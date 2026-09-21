@@ -139,6 +139,7 @@ SUBCOMMANDS = (
     "manual-order-refusals",
     "manual-orders-audit",
     "notifications",
+    "odds-snapshots-latest-price-timing",
     "parlay-candidates-timing",
     "parlay-lookups-tail",
     "pass-gaps",
