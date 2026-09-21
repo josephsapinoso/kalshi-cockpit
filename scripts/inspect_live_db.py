@@ -845,13 +845,19 @@ QUERIES: dict[str, QueryDef] = {
     ),
     "db-sizes": QueryDef(
         "Where the bytes went: file-level page counts with the amount a VACUUM "
-        "could reclaim, then stored bytes per table and index via dbstat "
+        "could reclaim, then stored bytes per table and index via dbstat, "
+        "now with unused bytes and fill percentage per btree so a bloated, "
+        "pruned index can be told apart from one that genuinely grew "
         "(row counts as a labelled fallback if dbstat is not compiled in). "
         "Answers: prune a table, or buy a bigger volume?",
         _q_db_sizes,
         # `dbstat` visits every page of every btree: it reads the entire
         # file through the page cache. This is the query that was run
         # mid-diagnosis on 2026-09-18 and slowed the desk for minutes.
+        # Reporting `unused` alongside `pgsize` (#123) reads a column dbstat
+        # already exposes on the same per-page scan -- it does not add a
+        # second pass over the file, so the cost stays WALKS_THE_FILE, not a
+        # new, heavier class.
         cost=WALKS_THE_FILE,
     ),
     "db-growth-by-table": QueryDef(

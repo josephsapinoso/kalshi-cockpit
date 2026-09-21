@@ -133,8 +133,25 @@ _SQL_DB_PAGE_SUMMARY = (
     "  AS reclaimable_by_vacuum_bytes"
 )
 
+# `unused` is per-page dead space *inside* the bytes `pgsize` already charges
+# for -- a page that is 4096 bytes on disk and 30% empty still costs 4096,
+# and until this column existed that 30% was invisible: `pgsize` alone cannot
+# tell "rows were added" from "pages bloated" apart, which is the exact gap
+# #123 (docs/measurements/2026-09-18-where-the-database-bytes-are.md:104-111)
+# named and the 2026-09-21 reading was spent without closing. `fill_pct` is
+# derived, not stored by SQLite: `100 * (pgsize - unused) / pgsize`, i.e. the
+# share of each btree's allocated bytes that is live. `NULLIF` on the
+# denominator turns a zero-page btree's division into SQL NULL -- which
+# `sqlite3` hands back as `None` -- rather than a fabricated 0 or a
+# ZeroDivisionError; see `_q_db_sizes`'s docstring for what a low fill_pct
+# does and does not establish. `pgsize` is left exactly as it was: every
+# prior reading in the record (2026-09-18, 2026-09-21) used that column
+# under this meaning, and changing it would silently break the comparison.
 _SQL_DBSTAT = (
-    "SELECT name, SUM(pgsize) AS bytes, COUNT(*) AS pages "
+    "SELECT name, SUM(pgsize) AS bytes, SUM(unused) AS unused_bytes, "
+    "COUNT(*) AS pages, "
+    "ROUND(100.0 * (SUM(pgsize) - SUM(unused)) / NULLIF(SUM(pgsize), 0), 1) "
+    "  AS fill_pct "
     "FROM dbstat GROUP BY name ORDER BY bytes DESC"
 )
 
@@ -154,6 +171,18 @@ def _q_db_sizes(conn: sqlite3.Connection, args) -> list[Section]:
     - **A dbstat row named for an index is charged to that index**, not folded
       into its table. Sum the table and its indexes before concluding what a
       table costs.
+    - **`unused_bytes` is dead space *inside allocated pages* -- what a
+      `VACUUM` would repack away, not free disk and not evidence a table's
+      rows are expendable.** A page can be mostly `unused` while every row
+      still on it matters; this column says nothing about which rows those
+      are. A high `unused_bytes` (low `fill_pct`) on an INDEX in particular is
+      the signature of heavy deletion under random insert order -- SQLite
+      does not compact a btree on DELETE, it only marks the freed slot -- so
+      a pruned, randomly-keyed index can grow in on-disk bytes with zero new
+      rows written anywhere. That distinguishes "rows were added" from "pages
+      bloated" for the first time this instrument has been able to; it does
+      not by itself say which one happened for any given btree without also
+      reading `db-growth-by-table`'s rowid high-water mark alongside it.
     """
     sections = [
         _fetch(
@@ -170,13 +199,20 @@ def _q_db_sizes(conn: sqlite3.Connection, args) -> list[Section]:
                 conn,
                 _SQL_DBSTAT,
                 (),
-                title="B. stored bytes per btree, via dbstat (indexes listed separately)",
+                title=(
+                    "B. stored bytes per btree, via dbstat (indexes listed "
+                    "separately; unused_bytes/fill_pct show dead space inside "
+                    "allocated pages, not free disk)"
+                ),
                 cap=args.limit,
             )
         )
     except sqlite3.OperationalError:
         # dbstat is optional at compile time. Say so in the title rather than
-        # returning row counts under a heading that implies bytes.
+        # returning row counts under a heading that implies bytes. This
+        # fallback has no `unused`/`fill_pct` columns at all -- not columns
+        # holding 0 -- because a row count carries no notion of page
+        # fragmentation to report. Unreadable resolves to absent, never 0.
         names = [
             r[0]
             for r in conn.execute(
