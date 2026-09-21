@@ -134,6 +134,142 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-21 (forty-first session) — the clock on #118 was going to expire into an instrument that did not exist, the ceiling everyone ranked last had already bound, and a guard passed its own test with the guard deleted
+
+Joe said "read NEXT.md and start" — no named errand — so `partner` owned the
+direction. It ran on the board and returned a ranked list, a dispatch table and
+one argument worth having: the obvious plan (#121 to a lane, #124 on main) was
+**too small and missed the only thing on a fuse**. It was right, and it
+independently found the same gap this session found by grep.
+
+**One of `partner`'s own load-bearing claims was wrong and was caught before it
+reached a lane brief** — see §3.
+
+### What shipped
+
+| commit | what | ticket |
+|---|---|---|
+| `6085bef` | `scout_watch_log` + `backend/store/scout_watch_log.py`, wired into all five of `_convene_one`'s exit paths; **schema v53** | #126 |
+| `422fefd` | Lane (Sonnet): `scout-briefings` QueryDef — auto vs tap by budget day, status breakdown, `refusal_reason` verbatim; four guards mutation-red | #125 |
+| `4e970b9` | Lane (Sonnet): `odds-event-shape-plans` — `EXPLAIN QUERY PLAN` for Shapes 3 and 4; four guards mutation-red, incl. a byte-identical drift pin | #121 |
+| `6d2fdb5` | the merge | — |
+
+### 1. #118's reading had no instrument, and the clock ran to 14:15Z tomorrow
+
+`grep` over `scripts/` returned **zero readers of `scout_briefings`** — no
+QueryDef in either registry named the table — and `flyctl ssh` may only run a
+committed script by path. `/api/scout` is not a substitute: its `SELECT`
+(`routers/scout.py:325-330`) **never reads `trigger`**, the v51 column whose
+entire purpose is that "an unattended convening can never be mistaken for one
+Joe asked for".
+
+So the one item on a clock was BLOCKED ON INSTRUMENT from the moment the
+deadline was written. #125 is that instrument and it is merged; it needs this
+session's deploy before it can be read on live.
+
+### 2. Tokens bound first — the ceiling the ladder put LAST
+
+`/api/scout` on live at 17:55Z, three and a half hours after arming: **three
+convenings** (15:07Z, 16:22Z, 17:35Z), already at the 3/day brake, and
+
+    calls      10 / 24   -> 7.2 convenings a day
+    searches   36 / 60   -> 5.0   (NEXT.md's prediction, right to the decimal)
+    tokens  511,051 / 500,000  -> 2.9   ALREADY OVER
+
+`AgentBudget.refusal_reason` tests `tokens_today >= tokens_daily_budget`
+second, so the desk is **refusing every convening including Joe's own taps**
+until the budget day rolls at ~09:55Z. `reserve_taps = 2` does not help: the
+token brake reads recorded spend and knows nothing about reserves. Calls
+reconcile exactly to three briefings (4 + 4 + 2 for the `partial`), so there is
+no hidden spend.
+
+**Caveat, and it is why #125 exists:** `trigger` is not on that payload, so
+"all three were unattended" is inferred from timing, not read. If one was
+Joe's, the ~170K/convening figure is lower.
+
+Opened as **#127** and appended to the pending digest. **Nothing on live was
+changed** — asked in-session, Joe answered *ticket it and leave it running*.
+
+### 3. `partner` was wrong about the schema, and a lane would have shipped it
+
+Its top item's justification said the reading needed *"no code change — the
+schema supports the entire reading"*, citing `status='refused'` and
+`refusal_reason`. Checked against the writers: **none of the four ceilings that
+gate a convening writes either.** `scout_watch.py:152` and `:167` log and
+`return` before the `INSERT`; the tap path raises 429 before it
+(`routers/scout.py:277`). A row reaches `status='refused'` **only** from inside
+a desk run already under way (`scout_desk.py:441`).
+
+Briefed as written, a Sonnet lane executes literally and ships a QueryDef whose
+refusal column is permanently empty. The brief said the opposite instead, and
+the lane's docstring now carries the file:line evidence and invents no proxy —
+no gap counting, no zero that reads as "none were refused".
+
+### 4. #126 — the silence `sweeplog` already named, in a third place
+
+New table, not a synthetic briefing row: `scout_briefings` means presence, a
+refusal is absence, and a fake row would need five NOT NULL fixture columns it
+has none of **and** would be counted by `_leg_scouting` and #110's `scouting`
+block, which read briefings by ticker. That is the `api_credits` trap
+`sweeplog` documents, in a second subsystem. One row per (budget day, outcome,
+detail) with `cycle_count` — ADR 0056's shape — because the watcher wakes every
+600 s and a bound ceiling would otherwise write ~144 rows a day onto the box
+#58 is about.
+
+**One guard was decoration until the mutation pass said so.** The
+unknown-outcome test asserted "no row was written" and stayed **green with the
+guard deleted** — the table's CHECK rejects the insert and the broad `except`
+swallows it, so the observable is identical either way. It now pins what the
+guard uniquely changes: the connection is never touched, and the reason is
+logged at ERROR. Five mutations, five red.
+
+### 5. #124 — profiled, and it is one file
+
+`8,293 passed in 1016.82s (16:56)`. **`tests/test_has_callers.py` alone is
+553.62s (9:13) — 54.4% of the suite**, 122 tests, **36 of the 40 slowest**. It
+has **no caching of any kind**: 1,053 Python files re-walked and re-`ast.parse`d
+per test, ~128,000 parses to answer 122 questions about a tree that cannot
+change during the run. The cap is not the problem and raising it would hide
+this. Cache the scan, re-measure, then decide. Two cautions on the ticket: the
+file was once flaky on a mid-walk `rglob`, and **these tests fail closed**, so a
+cache returning a stale or empty scan turns all 122 green for the wrong reason.
+
+### 6. #95 — re-spec executed, review refused the design, ten defects
+
+`partner` found #95 still `blocked:1` on #107 a day after ruling that #95 ships
+the absence path first — because `scripts/board.py` reads the `blocked_by`
+**edge**, not the comment thread. Edge removed; #107 stays open as a
+capture-of-opportunity slot.
+
+A `kalshi-platform` review ran **before any code**, as the ticket's gate
+requires. Verdict: **the re-scope is sound, the brief is not safe to dispatch.**
+Two criticals — routing the combo book through `hedge.read_books` collapses
+*read failed* into *nothing resting* (a lie, in the expensive direction), and
+reading "and here is the RFQ" literally would fire **1,440 real venue writes per
+position per day** from an unauthenticated route that `hedge_watch` also calls
+every 60 s. Plus **D9: the cost-basis half is already shipped**, which is how the
+last lane burned a day. Full list on the ticket. **Not dispatched** — a Sonnet
+lane executes a brief literally, so the brief is the artefact that has to be
+right.
+
+### Still open
+
+**Answer the digest on map #3 — eight tickets now, one page, any subset.**
+
+1. **#118 — the dated reading is OWED, from 2026-09-22 14:15Z.** Both instruments are merged and must be deployed first. Read `scout-briefings` for `trigger='auto'` by budget day, and `scout_watch_log` for which ceiling bound and for how many cycles. **Its Done-when item 3 is partly falsified already**: it asks whether searches (5/day) or the 3-convening brake bound first, and the answer is *neither* — tokens did.
+2. **#127 — with Joe** (new): tokens bind at ~2.9 convenings/day and lock him out of his own taps for ~16 h. Four options; (A) recommended and is what is running.
+3. **#124 — the profile is DONE and on the ticket**; the fix (cache the repo scan) is not built. Do not raise `timeout-minutes` first.
+4. **#95 — unblocked and reviewed, NOT dispatched.** Ten defects to fold into the body, incl. adding `routers/hedge.py` and `hedge_watch.py` to Lane owns; as written the ticket cannot be executed inside its own file list, which is what produced last time's defect.
+5. **#89 — the call-site count in its own enumeration is corrected** (2 and 1, not 3 and 3 — one is dead docstring prose, two are non-standalone WHERE-fragments). The live `EXPLAIN` still wants taking, after the deploy.
+6. **#58, #71, #78, #79, #97, #119, #122 — with Joe.** #58 and #122 gained a correction this session: **a deletion reclaims zero bytes** — SQLite does not compact on delete, so #122(A)'s "stable share" is true of rows and false of bytes.
+7. #115 — starts 2026-10-06 unless #58 lands first. Expires 2026-10-20.
+8. #107 — capture of opportunity, blocks nothing now; #96 behind #95.
+9. #108 — the deferred fifth seat only.
+
+Question for Joe: unattended scouting spent your whole daily token budget in 2.5 hours and now refuses your own taps until the budget day rolls — move a ceiling, or leave it? — #127
+
+---
+
 ## 2026-09-21 (fortieth session) — unattended scouting is armed, the disk mystery is located but NOT explained, and the audit struck two of my six claims before they entered the record
 
 Joe's named errand, carried in the thirty-ninth entry: **#116 and #117, both

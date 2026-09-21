@@ -16,7 +16,77 @@ correction arrived. Reviewed at session start.
 
 ---
 
-## 2026-09-21 - A cheap reading and a quiet reading can be the same reading; correcting a comparator is itself a comparator choice; and an expensive instrument may already have a column queued onto it
+## 2026-09-21 (second) - A deadline can expire into a missing instrument; a ruling recorded only as a ticket comment decays like a question recorded only as a line; and a guard with a backstop behind it tests green either way
+
+Five patterns from the session that armed the record behind unattended
+scouting. Three of them come from things that were already decided or already
+measured and were invisible to the thing that reads the queue.
+
+- **A ticket's "Done when" can name a reading no committed instrument can
+  take, and nobody notices until the clock expires.** #118 shipped with a
+  24-72h deadline for a reading of `trigger = 'auto'` rows by budget day.
+  Three hours in, a grep found **zero readers of `scout_briefings` anywhere
+  in `scripts/`** - no QueryDef in either registry named the table - and
+  `flyctl ssh` may only run a committed script by path. The reading was
+  BLOCKED ON INSTRUMENT from the moment the deadline was written, and a new
+  QueryDef needs a deploy before it can be read on live, so discovering this
+  at 14:15Z tomorrow would have meant building, deploying and reading late.
+  **Check the instrument exists when the deadline is WRITTEN, not when it
+  expires.** The same check catches the cheaper half: `/api/scout` serves
+  briefings but its SELECT never reads `trigger`, so no served surface could
+  separate an unattended convening from one Joe tapped - which is the entire
+  purpose of the v51 column.
+
+- **A ceiling that was ranked last is the one that binds, and the arithmetic
+  that ranked it was ours.** The ladder put to Joe on #116 ran *3 convenings
+  -> searches at 5/day -> calls at 6/day -> then tokens*. Measured on the
+  first afternoon: the search figure was right to the decimal (5.0) and
+  **tokens bound first**, at ~170K a convening against a 500K budget - 2.9 a
+  day, tighter than the 3-convening brake he approved. He answered a question
+  about the wrong brake. **When a decision is presented as a ladder, the
+  cheapest check is to divide the budget by one observation of the unit cost,
+  for every rung, before asking.** Nobody had ever measured a convening's
+  token cost; the ranking was structural reasoning presented as arithmetic.
+
+- **A partner's re-spec recorded only as a ticket comment decays exactly like
+  a question for Joe recorded only as a NEXT.md line.** CLAUDE.md step 7 gave
+  "ask Joe" a forcing function - a numbered sub-issue - because a line decays
+  into the instrument that raised it. A ruling that changes a ticket's *scope
+  or dependencies* has no such function. #107's 2026-09-20 comment said "#95
+  ships the absence path first ... not yet executed"; a day later #95 was
+  still `blocked:1` and invisible to the board, because `scripts/board.py`
+  reads GitHub's `blocked_by` **edge**, not the comment thread. **A decision
+  that changes what the queue shows must be written where the queue reads,
+  in the same session it is made.**
+
+- **A guard with a backstop behind it passes its own test either way, and
+  only the mutation says so.** `record_watch_outcome` refuses an unknown
+  outcome before touching the database. Its first test asserted "no row was
+  written" - and stayed **green with the guard deleted**, because the table's
+  own CHECK rejects the insert and the function's broad `except` swallows it.
+  Identical observable, guard or no guard. **When a guard sits in front of a
+  second mechanism that produces the same end state, the test must pin what
+  the guard uniquely changes** - here, that the connection is never touched
+  (a stub raising on `execute`) and the reason is logged at ERROR rather than
+  appearing as a swallowed traceback. Same family as the 2026-09-18 lesson
+  that a fake modelling the venue's good behaviour cannot test a guard
+  against its bad behaviour.
+
+- **A ceiling that refuses before it writes leaves the schema unable to
+  answer the question the schema was given a column for.**
+  `scout_briefings.refusal_reason`'s own comment says "which ceiling
+  refused", and **none of the four ceilings that gate a convening writes it**:
+  all three pre-flight paths return or raise before their `INSERT`, so a row
+  reaches `status = 'refused'` only from inside a desk run already under way.
+  This is the #71 shape (`SHARD_HEADROOM` refuses with a 400 and writes no
+  row) and the `odds_sweep_log` shape (a refused sweep left no trace, and
+  odds fetching ran 17+ hours behind a green health check) in a third place.
+  **When adding a brake, ask where its refusal is written before asking
+  whether it works** - and record it as its own table, because absence never
+  borrows presence's representation: a synthetic row in the presence table
+  gets counted by every reader that counts presence.
+
+
 
 Seven patterns from the session that turned unattended scouting on and
 diagnosed the disk. Five of them come from `measurement-skeptic` returning
@@ -1542,6 +1612,11 @@ each is in the linked archive file, unchanged; the sections marked *in this
 file, above* are the ones not yet archived. Regenerate it from the headings in
 the same edit as the entry — an index that is not is stale by one entry
 immediately and by dozens within a week.
+
+### 2026-09-21 — in this file, above
+
+- A deadline can expire into a missing instrument; a ruling recorded only as a ticket comment decays like a question recorded only as a line; and a guard with a backstop behind it tests green either way
+- A cheap reading and a quiet reading can be the same reading; correcting a comparator is itself a comparator choice; and an expensive instrument may already have a column queued onto it
 
 ### 2026-09-20 — in this file, above
 
