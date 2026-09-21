@@ -150,6 +150,7 @@ SUBCOMMANDS = (
     "read-incidents",
     "results-for-pull",
     "scoring-candidate-timing",
+    "scout-briefings",
     "series",
     "sharp-anchor-census",
     "study-stop",
