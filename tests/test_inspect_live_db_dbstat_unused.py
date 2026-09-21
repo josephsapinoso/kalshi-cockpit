@@ -8,16 +8,37 @@ settles it." That run happened 2026-09-21 without the column. This file
 pins that `_SQL_DBSTAT` now selects it, under a mutation shown red, and
 that the `dbstat`-unavailable fallback still reports no such column at all
 (never a fabricated 0) -- both without requiring a `dbstat`-compiled
-`sqlite3`, because this repo's own dev venv does not have one (see
-`TestEnvironmentHasNoRealDbstat` below) and a guard that only ran on a
-machine nobody develops from would not be a guard anyone could trust.
+`sqlite3`, because this repo's own dev venv does not have one.
+
+THE ENVIRONMENTS DISAGREE, AND THAT IS THE POINT
+-------------------------------------------------
+**This repo's dev venv (sqlite 3.45.1) has no `dbstat`. CI's interpreter
+does.** Measured 2026-09-21, the hard way: this file's first version
+selected each branch from the ambient build, passed locally, and failed
+three tests on CI -- on a commit whose production code was correct and had
+already served a correct live reading off the deployed image, which also
+has `dbstat`.
+
+Two things follow, and both are load-bearing here:
+
+1. **The success branch is NOT unexercised.** The original finding was
+   reported as "`_q_db_sizes`'s real branch has never been exercised by
+   this suite, locally or in CI." Only the first half is true: locally the
+   `except` branch has always run, and on CI the real one always has. What
+   was missing was a *local* exercise, which is what the synthetic-table
+   guard below supplies.
+2. **A test must force the branch it claims to cover.** An environment that
+   happens to select it is a coincidence, and a coincidence inverts the
+   moment the suite runs somewhere else. `_NoDbstatConnection` forces the
+   fallback on any interpreter; the end-to-end test asserts only the
+   invariant that holds on both.
 
 HOW THE PRIMARY GUARD WORKS WITHOUT A REAL `dbstat`
 ----------------------------------------------------
 SQLite's `dbstat` is an *eponymous virtual table* the C library registers
-only when compiled with `SQLITE_ENABLE_DBSTAT_VTAB`. This build was not
-(`PRAGMA compile_options` carries no `DBSTAT` entry -- see the standalone
-test below). `_SQL_DBSTAT` names the table only as `FROM dbstat`; SQLite
+only when compiled with `SQLITE_ENABLE_DBSTAT_VTAB`. This repo's dev build
+was not (`PRAGMA compile_options` carries no `DBSTAT` entry); CI's is.
+`_SQL_DBSTAT` names the table only as `FROM dbstat`; SQLite
 does not care whether `dbstat` is a virtual table or an ordinary one, so a
 plain `CREATE TABLE dbstat(name, pgsize, unused)` seeded with rows that
 mimic a fragmented index exercises the exact query string the production
@@ -30,7 +51,7 @@ WHAT THIS DOES NOT ESTABLISH
 - **Nothing about the live database's own fill ratio**, or about what the
   real `dbstat` virtual table returns on an actual fragmented file --
   `test_the_real_virtual_table_reports_unused_after_deletion` below covers
-  that and is expected to skip everywhere this suite has been run so far.
+  that; it skips on the dev venv and RUNS on CI.
 - **Nothing about the size of `unused_bytes` in general** -- only that the
   column is selected, arithmetic is correct against known inputs, and it
   disappears (rather than reads 0) when `dbstat` cannot be queried at all.
@@ -69,21 +90,59 @@ def _real_dbstat_available() -> bool:
         conn.close()
 
 
-class TestEnvironmentHasNoRealDbstat:
-    def test_this_venvs_sqlite3_lacks_the_dbstat_vtab(self):
-        """Documents the constraint the rest of this file works around.
+class _NoDbstatConnection(sqlite3.Connection):
+    """A connection that refuses `dbstat` exactly as an unbuilt SQLite does.
 
-        If this ever goes green-turned-red (i.e. the venv gains a
-        dbstat-enabled sqlite3), `test_the_real_virtual_table_reports_unused_
-        after_deletion` below will stop skipping and start actually
-        exercising the C extension -- which is strictly more coverage, not a
-        break.
-        """
-        assert _real_dbstat_available() is False, (
-            "this venv's sqlite3 now has dbstat compiled in -- the skip "
-            "markers below are stale and the real-vtab test should be "
-            "un-skipped"
-        )
+    **Why this exists, and it is the lesson of this file's first CI run.**
+    The original fallback tests selected the branch from the AMBIENT
+    environment: this repo's dev venv has no `dbstat`, so calling
+    `_q_db_sizes` "exercised the except branch for real, with no
+    monkeypatching needed." That is true here and false on CI, whose
+    `sqlite3` IS built with `SQLITE_ENABLE_DBSTAT_VTAB` -- so the fallback
+    tests took the *success* branch there and three of them failed, on a
+    commit whose production code was fine and had already served a correct
+    live reading.
+
+    **A test must FORCE the branch it claims to cover.** An environment that
+    happens to select it is not a guard; it is a coincidence that inverts
+    the moment the suite runs somewhere else. Both branches are now reachable
+    from either kind of interpreter.
+    """
+
+    def execute(self, sql, *args):  # type: ignore[override]
+        # Matched against the production statement itself, not the word
+        # "dbstat" anywhere in the SQL. Two narrower-is-better reasons:
+        # a build WITHOUT the vtab can still `CREATE TABLE dbstat(...)`
+        # happily (the name is only reserved once the extension registers
+        # it), and the fallback's own `SELECT COUNT(*) FROM <name>` sweep
+        # would otherwise be intercepted for a table legitimately called
+        # `dbstat` -- which would make the fallback raise instead of
+        # falling back. `_fetch` appends ` LIMIT ?`, hence startswith.
+        if sql.startswith(_SQL_DBSTAT):
+            raise sqlite3.OperationalError("no such table: dbstat")
+        return super().execute(sql, *args)
+
+
+class TestBothBranchesAreReachableWhereverThisRuns:
+    """Records which branch this interpreter takes, and fails on neither.
+
+    The predecessor of this test asserted `_real_dbstat_available() is
+    False` -- documenting the dev venv's constraint as though it were a
+    property of the suite. It went red on CI for having *more* coverage,
+    which is a guard punishing an improvement.
+    """
+
+    def test_the_probe_answers_and_the_answer_is_not_asserted(self):
+        assert isinstance(_real_dbstat_available(), bool)
+
+    def test_the_fallback_is_reachable_even_where_dbstat_exists(self):
+        conn = sqlite3.connect(":memory:", factory=_NoDbstatConnection)
+        try:
+            conn.execute("CREATE TABLE t(a)")
+            with pytest.raises(sqlite3.OperationalError):
+                conn.execute("SELECT * FROM dbstat")
+        finally:
+            conn.close()
 
 
 class TestSqlAgainstASyntheticDbstatTable:
@@ -185,10 +244,12 @@ class TestFallbackNeverFabricatesTheNewColumns:
         `unused_bytes`/`fill_pct` as 0 -- it must not report them at all,
         because a row count carries no notion of page fragmentation.
 
-        This venv's own `sqlite3` already lacks `dbstat` (see
-        `TestEnvironmentHasNoRealDbstat`), so calling `_q_db_sizes` against
-        an ordinary schema-built database exercises the except branch for
-        real, with no monkeypatching needed.
+        **The fallback is FORCED, not inherited from the environment.**
+        `_NoDbstatConnection` raises `OperationalError` on any statement
+        naming `dbstat`, so this covers the except branch identically on a
+        venv without the vtab and on CI, which has it. Relying on the
+        ambient build is what made three tests in this file fail on their
+        first CI run.
 
         Mutation: add `unused_bytes=0` (or `fill_pct=0`) to the fallback's
         `Section(columns=..., rows=...)` construction -- red, because this
@@ -201,7 +262,7 @@ class TestFallbackNeverFabricatesTheNewColumns:
         conn.commit()
         conn.close()
 
-        conn = sqlite3.connect(path)
+        conn = sqlite3.connect(path, factory=_NoDbstatConnection)
         try:
             sections = _q_db_sizes(conn, _Args())
         finally:
@@ -212,9 +273,18 @@ class TestFallbackNeverFabricatesTheNewColumns:
         assert "fill_pct" not in fallback.columns
         assert fallback.columns == ("name", "rows")
 
-    def test_end_to_end_via_main_under_the_fallback(self, tmp_path, capsys):
-        """The whole CLI path takes the fallback and still prints no
-        fabricated `unused_bytes`/`fill_pct` column in the JSON section.
+    def test_end_to_end_via_main_never_mixes_the_two_shapes(self, tmp_path, capsys):
+        """The CLI path emits section B in exactly one of two shapes.
+
+        `main` opens its own connection, so the factory trick above cannot
+        reach it and which branch runs depends on the interpreter. That is
+        fine, because the claim worth pinning holds on BOTH: the two new
+        columns appear **together or not at all**, and the fallback is
+        announced in the title rather than quietly emitting zeros.
+
+        The predecessor asserted the fallback shape unconditionally and so
+        failed on CI, whose `sqlite3` has `dbstat`. A test that can only
+        pass on one build is testing the build.
         """
         path = tmp_path / "cockpit.db"
         conn = sqlite3.connect(path)
@@ -226,16 +296,24 @@ class TestFallbackNeverFabricatesTheNewColumns:
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
         section_b = next(s for s in payload["sections"] if s["title"].startswith("B."))
-        assert "unused_bytes" not in section_b["columns"]
-        assert "fill_pct" not in section_b["columns"]
+        columns = section_b["columns"]
+
+        if _real_dbstat_available():
+            assert "unused_bytes" in columns and "fill_pct" in columns
+            assert "UNAVAILABLE" not in section_b["title"]
+        else:
+            assert "unused_bytes" not in columns and "fill_pct" not in columns
+            assert "UNAVAILABLE" in section_b["title"]
+            assert tuple(columns) == ("name", "rows")
 
 
 class TestAgainstARealDbstatWhereAvailable:
-    """Exercises the real virtual table when the running interpreter has
-    one -- skipped on this repo's own dev venv (see
-    `TestEnvironmentHasNoRealDbstat`), but not vacuous: any CI runner or
-    future venv whose `sqlite3` is built with `SQLITE_ENABLE_DBSTAT_VTAB`
-    will actually run it.
+    """Exercises the real virtual table when the running interpreter has one.
+
+    Skips on this repo's dev venv and **runs on CI**, whose `sqlite3` is
+    built with `SQLITE_ENABLE_DBSTAT_VTAB` -- confirmed 2026-09-21. So this
+    is not a permanently-vacuous skip: it is the arm that covers the branch
+    the deployed image actually takes.
     """
 
     def test_the_real_virtual_table_reports_unused_after_deletion(self, tmp_path):

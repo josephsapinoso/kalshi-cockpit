@@ -117,6 +117,28 @@ that mattered, and the corrections are worth more than the finding.
   to the one where it first burned you**; the tell is identical everywhere -
   a sha not pasted from a command's output in this session.
 
+- **A test that picks its branch from the AMBIENT environment is a
+  coincidence, not a guard - and "green here" proves nothing about there.**
+  `_q_db_sizes` wraps its `dbstat` query in `try/except OperationalError`.
+  This repo's dev `sqlite3` (3.45.1) has **no `dbstat` compiled in**; CI's
+  interpreter and the deployed image both **do**. A lane wrote fallback
+  tests that exercised the except branch "for real, with no monkeypatching
+  needed" - true locally, false on CI - and **three tests went red on CI on
+  a commit whose production code was correct and had already served a good
+  live reading**. Two rules fall out. **Force the branch you claim to
+  cover**: a connection subclass whose `execute` raises on the exact
+  production statement (`sql.startswith(_SQL_DBSTAT)` - narrow, because a
+  build without the vtab can still `CREATE TABLE dbstat`) makes both
+  branches reachable from either interpreter, and where a path genuinely
+  cannot be forced, assert only the invariant that holds on both. And
+  **never write a guard that fails when the environment gains a
+  capability** - the lane's `assert _real_dbstat_available() is False` was
+  meant to flag a stale skip and instead turned more coverage into a red
+  build. The related over-claim is worth naming too: the finding was
+  reported as "the real branch has never been exercised, locally or in CI."
+  Only the local half was true. **A capability absent on your machine is
+  not absent everywhere - check the other machine before writing "never".**
+
 - **Never put prose through `bash -c "..."`; backticks inside a
   double-quoted shell string are COMMAND SUBSTITUTION, and the loss is
   silent.** Twice in one session a Python one-liner that wrote Markdown was
