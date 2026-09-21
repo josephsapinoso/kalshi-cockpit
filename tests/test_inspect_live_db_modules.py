@@ -147,6 +147,7 @@ SUBCOMMANDS = (
     "prune-frontier",
     "read-incidents",
     "results-for-pull",
+    "scoring-candidate-timing",
     "series",
     "sharp-anchor-census",
     "study-stop",
