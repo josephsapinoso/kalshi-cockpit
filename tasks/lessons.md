@@ -139,6 +139,24 @@ that mattered, and the corrections are worth more than the finding.
   Only the local half was true. **A capability absent on your machine is
   not absent everywhere - check the other machine before writing "never".**
 
+- **A test of an interceptor must send the traffic the interceptor is aimed
+  at - and the fix for an environment-coupled test can be environment-
+  coupled in the same way.** Having diagnosed the above and written
+  `_NoDbstatConnection` to FORCE the fallback, the test proving the
+  interceptor works probed it with an ad-hoc `SELECT * FROM dbstat` while
+  the interceptor was deliberately pinned to `_SQL_DBSTAT`. It never
+  matched. Locally the probe raised anyway - this venv has no `dbstat` at
+  all - so the test passed **without the interceptor ever running**, and CI
+  returned `DID NOT RAISE`. **Two CI runs, ~20 minutes, to the same class of
+  bug in the fix for that class of bug.** Three habits fall out, all cheap:
+  drive the assertion from the **subject's own output** (read the emitted
+  title to learn which branch ran, rather than re-probing the environment
+  and assuming the two agree); **simulate the other environment locally**
+  before pushing - here, a plain table named `dbstat` makes the success
+  branch reachable on an interpreter that has no vtab, and that one probe
+  would have caught both failures; and when a test passes, ask **which line
+  would have failed if the thing under test were absent.**
+
 - **Never put prose through `bash -c "..."`; backticks inside a
   double-quoted shell string are COMMAND SUBSTITUTION, and the loss is
   silent.** Twice in one session a Python one-liner that wrote Markdown was

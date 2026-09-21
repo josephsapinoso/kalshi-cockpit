@@ -136,13 +136,49 @@ class TestBothBranchesAreReachableWhereverThisRuns:
         assert isinstance(_real_dbstat_available(), bool)
 
     def test_the_fallback_is_reachable_even_where_dbstat_exists(self):
+        """The factory intercepts THE PRODUCTION STATEMENT, on any build.
+
+        **This test's own first version made the mistake it exists to
+        prevent**, and CI caught it a second time. It probed with an ad-hoc
+        `SELECT * FROM dbstat`, which `_NoDbstatConnection` does not match
+        (the interceptor is deliberately pinned to `_SQL_DBSTAT`). Locally
+        it "passed" because this venv has no `dbstat` at all, so the ad-hoc
+        query raised on its own and the factory was never exercised. On CI,
+        where `dbstat` exists, it did not raise -- `DID NOT RAISE`.
+
+        So: probe with `_SQL_DBSTAT` itself. A test of an interceptor must
+        send the traffic the interceptor is aimed at, or it is measuring the
+        environment again.
+        """
         conn = sqlite3.connect(":memory:", factory=_NoDbstatConnection)
         try:
             conn.execute("CREATE TABLE t(a)")
             with pytest.raises(sqlite3.OperationalError):
-                conn.execute("SELECT * FROM dbstat")
+                conn.execute(_SQL_DBSTAT)
         finally:
             conn.close()
+
+    def test_the_success_branch_is_reachable_without_the_factory(self):
+        """The mirror: a plain connection over a synthetic `dbstat` table
+        takes the REAL branch and emits both new columns.
+
+        Together with the test above, both branches are demonstrably
+        reachable from whichever interpreter is running -- which is the
+        property the first version of this file lacked and the reason it
+        was green here and red on CI.
+        """
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.execute("CREATE TABLE dbstat(name TEXT, pgsize INT, unused INT)")
+            conn.execute("INSERT INTO dbstat VALUES ('idx_x', 4096, 1024)")
+            section_b = next(
+                s for s in _q_db_sizes(conn, _Args()) if s.title.startswith("B.")
+            )
+        finally:
+            conn.close()
+        assert "UNAVAILABLE" not in section_b.title
+        assert "unused_bytes" in section_b.columns
+        assert "fill_pct" in section_b.columns
 
 
 class TestSqlAgainstASyntheticDbstatTable:
@@ -245,11 +281,11 @@ class TestFallbackNeverFabricatesTheNewColumns:
         because a row count carries no notion of page fragmentation.
 
         **The fallback is FORCED, not inherited from the environment.**
-        `_NoDbstatConnection` raises `OperationalError` on any statement
-        naming `dbstat`, so this covers the except branch identically on a
-        venv without the vtab and on CI, which has it. Relying on the
-        ambient build is what made three tests in this file fail on their
-        first CI run.
+        `_NoDbstatConnection` raises `OperationalError` on `_SQL_DBSTAT`
+        specifically, so this covers the except branch identically on a venv
+        without the vtab and on CI, which has it. Relying on the ambient
+        build is what made three tests in this file fail on their first CI
+        run.
 
         Mutation: add `unused_bytes=0` (or `fill_pct=0`) to the fallback's
         `Section(columns=..., rows=...)` construction -- red, because this
@@ -285,6 +321,13 @@ class TestFallbackNeverFabricatesTheNewColumns:
         The predecessor asserted the fallback shape unconditionally and so
         failed on CI, whose `sqlite3` has `dbstat`. A test that can only
         pass on one build is testing the build.
+
+        **The expectation is derived from `main`'s OWN output, not from a
+        separate `_real_dbstat_available()` probe.** A second probe opens a
+        second connection and could in principle disagree with what `main`
+        did -- and an independent probe deciding what to assert is how this
+        file got the environment wrong twice already. The title says which
+        branch ran; read that, then hold it to the matching shape.
         """
         path = tmp_path / "cockpit.db"
         conn = sqlite3.connect(path)
@@ -296,15 +339,16 @@ class TestFallbackNeverFabricatesTheNewColumns:
         assert rc == 0
         payload = json.loads(capsys.readouterr().out)
         section_b = next(s for s in payload["sections"] if s["title"].startswith("B."))
-        columns = section_b["columns"]
+        columns = tuple(section_b["columns"])
+        took_fallback = "UNAVAILABLE" in section_b["title"]
 
-        if _real_dbstat_available():
-            assert "unused_bytes" in columns and "fill_pct" in columns
-            assert "UNAVAILABLE" not in section_b["title"]
+        if took_fallback:
+            assert columns == ("name", "rows")
         else:
-            assert "unused_bytes" not in columns and "fill_pct" not in columns
-            assert "UNAVAILABLE" in section_b["title"]
-            assert tuple(columns) == ("name", "rows")
+            assert "unused_bytes" in columns and "fill_pct" in columns
+        # The invariant that holds either way: never one without the other,
+        # and never a fabricated column sitting at 0.
+        assert ("unused_bytes" in columns) == ("fill_pct" in columns)
 
 
 class TestAgainstARealDbstatWhereAvailable:
