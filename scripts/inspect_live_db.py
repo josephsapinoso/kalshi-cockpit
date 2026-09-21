@@ -305,6 +305,7 @@ from inspect_live_db_loop import (  # noqa: E402,F401
     _q_failure_journal,
     _q_loop_rss,
     _q_notifications,
+    _q_odds_event_shape_plans,
     _q_odds_snapshots_latest_price_timing,
     _q_pass_gaps,
     _q_read_incidents,
@@ -336,12 +337,15 @@ from inspect_live_db_parlays import (  # noqa: E402,F401
     _LADDER_FIXTURES_MARKETS,
     _LADDER_FIXTURES_MAX_DAYS,
     _ladder_fixture_days,
+    _SCOUT_BRIEFINGS_DEFAULT_DAYS,
+    _SCOUT_BRIEFINGS_MAX_DAYS,
     _q_combo_bids_tail,
     _q_combo_position_gaps,
     _q_combo_position_orphans,
     _q_ladder_fixtures,
     _q_parlay_candidates_timing,
     _q_parlay_lookups_tail,
+    _q_scout_briefings,
 )
 
 
@@ -797,6 +801,28 @@ QUERIES: dict[str, QueryDef] = {
         # _LADDER_FIXTURES_MAX_DAYS so the number of arms itself is bounded.
         cost=CHEAP,
     ),
+    "scout-briefings": QueryDef(
+        "Unattended convenings vs Joe's taps, separated, per agent-budget "
+        "day (--days back, default "
+        f"{_SCOUT_BRIEFINGS_DEFAULT_DAYS}, hard ceiling "
+        f"{_SCOUT_BRIEFINGS_MAX_DAYS}). A. auto_count and tap_count as two "
+        "separate columns -- never a total, never a ratio. B. the status "
+        "breakdown within each (budget_day, trigger). C. refusal_reason "
+        "verbatim where present -- which does NOT cover the ceilings that "
+        "refuse a convening before it starts (see the query docstring: "
+        "those return/raise before any INSERT, so a pre-flight refusal is "
+        "structurally absent from this table on both triggers, not zero). "
+        "Answers #118's reading of what unattended scouting did.",
+        _q_scout_briefings,
+        # `WHERE requested_ms >= :since_ms` is a bounded seek on
+        # idx_scout_briefings_ticker's leading column ordering (it is keyed
+        # (ticker, requested_ms DESC), which does not serve this grouping --
+        # so the scan is deliberate, not covered by an index) over a table
+        # that grows by at most SCOUT_AUTO_MAX_CONVENINGS_PER_DAY plus taps
+        # per day (11 rows total at 2026-09-21T17:55Z per #125). Cheap
+        # because the table is small, not because anything indexes this.
+        cost=CHEAP,
+    ),
     "combo-position-gaps": QueryDef(
         "Combinations bought with REAL money that no `parlay_positions` row "
         "watches, so `/hedge` -- the only exit an enter-only combination has "
@@ -874,6 +900,22 @@ QUERIES: dict[str, QueryDef] = {
         # a bounded read that does not scale with the table's row count and
         # touches no other page of the file. No GROUP BY, no scan, no
         # dbstat -- the opposite shape of the WALKS_THE_FILE entries above.
+        cost=CHEAP,
+    ),
+    "odds-event-shape-plans": QueryDef(
+        "EXPLAIN QUERY PLAN for the Shape 3 and Shape 4 statements #89's "
+        "enumeration named -- the two access shapes that filter "
+        "odds_event_id WITHOUT market and want commence_ms. Confirms (or "
+        "refutes) that they land on idx_odds_event_commence and not on "
+        "idx_odds_event. Prints each statement's SQL verbatim beside its "
+        "plan; see the module comment for the two named call sites this "
+        "cannot cover without inventing SQL not in the source, and why. "
+        "cost=CHEAP because EXPLAIN QUERY PLAN does not execute the "
+        "statement -- the planner is consulted, no row is read -- which is "
+        "true regardless of what the statement itself would cost if run. "
+        "Answers #121, the last reading #89 owed before a drop can even be "
+        "proposed (a drop is explicitly out of scope here).",
+        _q_odds_event_shape_plans,
         cost=CHEAP,
     ),
     "odds-snapshots-latest-price-timing": QueryDef(
@@ -1156,7 +1198,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "ladder-fixtures: how many budget days back to read (default "
             f"{_LADDER_FIXTURES_DEFAULT_DAYS}, hard ceiling "
-            f"{_LADDER_FIXTURES_MAX_DAYS} regardless of --limit)"
+            f"{_LADDER_FIXTURES_MAX_DAYS} regardless of --limit). "
+            "scout-briefings: same shape, default "
+            f"{_SCOUT_BRIEFINGS_DEFAULT_DAYS}, hard ceiling "
+            f"{_SCOUT_BRIEFINGS_MAX_DAYS}"
         ),
     )
     parser.add_argument(

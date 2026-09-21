@@ -2,7 +2,7 @@
 
 Queries: `parlay-candidates-timing`, `parlay-lookups-tail`,
 `combo-bids-tail`, `combo-position-gaps`, `combo-position-orphans`,
-`ladder-fixtures`.
+`ladder-fixtures`, `scout-briefings`.
 
 The candidate scan timed and EXPLAINed on the live database, the "Price on
 Kalshi" taps that minted a combination market -- the only record anywhere
@@ -27,8 +27,10 @@ from datetime import datetime, timedelta, timezone
 
 from inspect_live_db_common import (
     Section,
+    _MS_PER_DAY,
     _derive_iso,
     _fetch,
+    _window_section,
 )
 
 
@@ -782,3 +784,168 @@ def _q_ladder_fixtures(conn: sqlite3.Connection, args) -> list[Section]:
     )
     section = _derive_iso(section, "cutoff_ms", "cutoff_iso")
     return [section]
+
+
+# ---------------------------------------------------------------------------
+# scout-briefings: unattended convenings vs Joe's taps, by budget day (#125).
+# ---------------------------------------------------------------------------
+#
+# **Lives here, not with the parlay desk, because this module was the lane's
+# assignment** (#125's "Lane owns" names `inspect_live_db.py` and
+# `inspect_live_db_parlays.py`, not a ninth domain module). The table it
+# reads has nothing to do with combinations; see the query's own docstring,
+# not this module's, for what it answers.
+#
+# `scout_briefings.trigger` (v51, `backend/store/schema.sql`) is 'tap' for
+# Joe hitting the game screen and 'auto' for `backend/scout_watch.py`
+# convening unattended on tonight's ladder (ADR 0180). Before this ticket,
+# grep over `scripts/` found ZERO readers of the table at all -- `/api/scout`
+# serves the last 50 rows but never selects `trigger`
+# (`backend/api/routers/scout.py:325-330`), so no served surface could tell
+# an unattended convening from a tapped one, which is the entire purpose of
+# the column.
+_SQL_SCOUT_BRIEFINGS_BY_DAY = (
+    "SELECT strftime('%Y%m%d', (requested_ms - :offset_ms) / 1000, "
+    "         'unixepoch') AS budget_day, "
+    "       SUM(CASE WHEN trigger = 'auto' THEN 1 ELSE 0 END) AS auto_count, "
+    "       SUM(CASE WHEN trigger = 'tap' THEN 1 ELSE 0 END) AS tap_count "
+    "FROM scout_briefings WHERE requested_ms >= :since_ms "
+    "GROUP BY budget_day ORDER BY budget_day DESC"
+)
+
+#: The status breakdown WITHIN each trigger, per budget day -- a separate
+#: grain from section A on purpose. Collapsing this into A would mean either
+#: a status-keyed column per trigger (six columns that grow the day a status
+#: is added) or losing the split entirely; a narrow (day, trigger, status)
+#: table stays correct as the status vocabulary changes and section A stays
+#: the two-column read the ticket asked for.
+_SQL_SCOUT_BRIEFINGS_STATUS = (
+    "SELECT strftime('%Y%m%d', (requested_ms - :offset_ms) / 1000, "
+    "         'unixepoch') AS budget_day, "
+    "       trigger, status, COUNT(*) AS n "
+    "FROM scout_briefings WHERE requested_ms >= :since_ms "
+    "GROUP BY budget_day, trigger, status "
+    "ORDER BY budget_day DESC, trigger, status"
+)
+
+#: `refusal_reason` verbatim, never parsed into a category -- the ticket's own
+#: instruction. **This is NOT the ceiling that refuses a convening before it
+#: starts** -- see `_q_scout_briefings`'s docstring for why that refusal
+#: cannot reach this table at all; this section is only the narrower case
+#: where a convening that had already started (and so already has a row) was
+#: then marked refused from inside the run.
+_SQL_SCOUT_BRIEFINGS_REFUSALS = (
+    "SELECT strftime('%Y%m%d', (requested_ms - :offset_ms) / 1000, "
+    "         'unixepoch') AS budget_day, "
+    "       trigger, ticker, requested_ms, refusal_reason "
+    "FROM scout_briefings "
+    "WHERE refusal_reason IS NOT NULL AND requested_ms >= :since_ms "
+    "ORDER BY requested_ms DESC"
+)
+
+#: `--days` default: the ticket does not name one, so this matches every
+#: other budget-day query in the family (`credits-by-sport`,
+#: `visit-freshness`).
+_SCOUT_BRIEFINGS_DEFAULT_DAYS = 7
+
+#: A ceiling on `--days` independent of `--limit`, same reasoning as
+#: `_LADDER_FIXTURES_MAX_DAYS` just above: `--limit` bounds rows returned,
+#: not how far back `WHERE requested_ms >= :since_ms` reaches, so this is the
+#: guard that actually bounds the read. `scout_briefings` is a small table
+#: (11 rows at 2026-09-21T17:55Z per the ticket's own count), so 60 days is
+#: generous rather than tight.
+_SCOUT_BRIEFINGS_MAX_DAYS = 60
+
+
+def _q_scout_briefings(conn: sqlite3.Connection, args) -> list[Section]:
+    """Unattended convenings vs Joe's taps, separated, per agent-budget day.
+
+    Three sections, all keyed by budget day (`--day-start-hour`, default
+    matches `configured_day_start_utc_hour()` -- the same variable
+    `AgentBudget.day_start_ms` reads, so this grouping IS the agent budget
+    day the ticket asks for, not a calendar day):
+
+    A. `auto_count` and `tap_count` as two separate columns. **Never a total,
+       never a ratio** -- the ticket is explicit that the two counts must stay
+       apart, because collapsing them would erase the one distinction v51
+       exists to draw.
+    B. The `status` breakdown (`complete`/`partial`/`failed`/`refused`/
+       `running`) within each (budget_day, trigger) pair.
+    C. Every row carrying a `refusal_reason`, printed VERBATIM -- not parsed
+       into a category, per the ticket.
+
+    What this does not establish
+    -----------------------------
+    **`refusal_reason` (section C) cannot report the ceilings that refuse a
+    convening before it starts, and this query does not imply that it does.**
+    Checked against the writers, 2026-09-21:
+
+    - `backend/scout_watch.py:152` (`SCOUT_AUTO_MAX_CONVENINGS_PER_DAY`) and
+      `:167` (`AgentBudget.refusal_reason` -- calls/tokens/searches) both
+      `logger.info(...)` and `return` BEFORE the `INSERT` at `:200`.
+    - The tap path raises `HTTPException(429)` at
+      `backend/api/routers/scout.py:277`, also before its `INSERT` at `:278`.
+    - A row reaches `status = 'refused'` ONLY via
+      `backend/agents/scout_desk.py:441` -> the `UPDATE` at
+      `backend/api/routers/scout.py:189` -- i.e. only for a refusal that
+      happens INSIDE a desk run that had already started and so already has a
+      row to update.
+
+    So the pre-flight refusal count is structurally ZERO in this table, on
+    both triggers. **This query does not invent a proxy for it**: it does not
+    count gaps in the day sequence, does not infer a refusal from a missing
+    day, and does not emit a zero that could be read as "none were refused"
+    for the pre-flight case -- an absent pre-flight refusal is unreadable
+    here, not zero, and this docstring is where that stays written down
+    rather than left to a reader's inference. Recording the pre-flight
+    ceilings is #126's job (the unattended-spend path this ticket is
+    forbidden from touching), not this query's.
+
+    Also not established: **completeness.** A day with no rows in any
+    section is a day nothing convened, on either trigger -- this query
+    cannot tell that apart from a day the recorder itself was down, the same
+    caveat `credits-day` states for `api_credits`.
+    """
+    requested_days = getattr(args, "days", None)
+    n_days = min(
+        max(1, requested_days or _SCOUT_BRIEFINGS_DEFAULT_DAYS),
+        _SCOUT_BRIEFINGS_MAX_DAYS,
+    )
+    now_ms = int(time.time() * 1000)
+    since_ms = now_ms - n_days * _MS_PER_DAY
+    params = {"offset_ms": args.day_start_hour * 3_600_000, "since_ms": since_ms}
+    by_day = _fetch(
+        conn,
+        _SQL_SCOUT_BRIEFINGS_BY_DAY,
+        params,
+        title="A. auto_count and tap_count per budget day (never summed, "
+              "never a ratio), newest day first",
+        cap=args.limit,
+    )
+    status = _fetch(
+        conn,
+        _SQL_SCOUT_BRIEFINGS_STATUS,
+        params,
+        title="B. status breakdown within each (budget_day, trigger)",
+        cap=args.limit,
+    )
+    refusals = _fetch(
+        conn,
+        _SQL_SCOUT_BRIEFINGS_REFUSALS,
+        params,
+        title="C. refusal_reason verbatim, where present -- does NOT cover "
+              "a pre-flight refusal, see docstring",
+        cap=args.limit,
+    )
+    refusals = _derive_iso(refusals, "requested_ms", "requested_iso")
+    return [
+        _window_section(
+            f"scout-briefings window (budget day starts "
+            f"{args.day_start_hour:02d}:00Z, last {n_days} day(s))",
+            since_ms,
+            None,
+        ),
+        by_day,
+        status,
+        refusals,
+    ]
