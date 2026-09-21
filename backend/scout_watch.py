@@ -57,9 +57,21 @@ from .agents.base import AgentConfig
 from .agents.budget import AgentBudget
 from .agents.scout_desk import STAFF_PAIR_SEARCHES_WORST_CASE
 from .api.routers.scout import _resolve_scout_fixture, _run_scout_desk
-from .config import StalenessConfig
+from .config import StalenessConfig, configured_day_start_utc_hour
+# Aliased: `_convene_one` binds a LOCAL named `day_start_ms`, which would
+# shadow this for the whole function body and make the keyless call above it
+# an UnboundLocalError. The alias is the guard, not a style choice.
+from .odds.timing import day_start_ms as budget_day_start_ms
 from .parlays import _leg_scouting, build_ladder_payload_widening
 from .store import db as store_db
+from .store.scout_watch_log import (
+    CONVENED,
+    KEYLESS,
+    NO_CANDIDATE,
+    REFUSED_ALLOWANCE,
+    REFUSED_BUDGET,
+    record_watch_outcome,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +152,20 @@ async def _convene_one(
         # No ANTHROPIC_API_KEY: the keyless state, never a raise. Nothing to
         # convene with, and the ladder scan below is not free of DB work, so
         # there is nothing worth spending it on either.
+        #
+        # The budget day is computed from the configured hour directly rather
+        # than from `AgentBudget`, which needs the config we do not have. Same
+        # function, same hour, so a keyless row lands on the same day boundary
+        # as every other row.
+        record_watch_outcome(
+            conn,
+            budget_day_ms=budget_day_start_ms(
+                now_ms, hour=configured_day_start_utc_hour()
+            ),
+            now_ms=now_ms,
+            outcome=KEYLESS,
+            detail="no ANTHROPIC_API_KEY: the desk does not exist here",
+        )
         return
 
     budget = AgentBudget.from_config(conn, config)
@@ -150,10 +176,17 @@ async def _convene_one(
         (day_start_ms,),
     ).fetchone()["c"]
     if auto_today >= max_per_day:
-        logger.info(
-            "scout watch refused: %d of %d unattended convenings already "
-            "made today (SCOUT_AUTO_MAX_CONVENINGS_PER_DAY)",
-            auto_today, max_per_day,
+        reason = (
+            f"{auto_today} of {max_per_day} unattended convenings already "
+            f"made today (SCOUT_AUTO_MAX_CONVENINGS_PER_DAY)"
+        )
+        logger.info("scout watch refused: %s", reason)
+        record_watch_outcome(
+            conn,
+            budget_day_ms=day_start_ms,
+            now_ms=now_ms,
+            outcome=REFUSED_ALLOWANCE,
+            detail=reason,
         )
         return
 
@@ -171,6 +204,17 @@ async def _convene_one(
         logger.info(
             "scout watch refused: %s (leaving %d taps in reserve)",
             reason, reserve_taps,
+        )
+        # `reason` is passed through VERBATIM -- it already names the ceiling
+        # and both numbers. Re-deriving which of calls/tokens/searches bound
+        # would be a second implementation of `refusal_reason`'s ladder, which
+        # is exactly what `budget.py` argues against.
+        record_watch_outcome(
+            conn,
+            budget_day_ms=day_start_ms,
+            now_ms=now_ms,
+            outcome=REFUSED_BUDGET,
+            detail=reason,
         )
         return
 
@@ -220,6 +264,18 @@ async def _convene_one(
             "scout watch convening %d: %s (%s), unattended",
             row_id, resolved_ticker, resolved["event_title"],
         )
+        # Recorded BEFORE the desk runs, not after. `_run_scout_desk` awaits
+        # the whole fan-out and can raise; the decision to spend was already
+        # taken at the `INSERT` above, and a recorder that only fires on a
+        # clean return would under-report exactly the convenings that went
+        # wrong. The `scout_briefings` row carries what came back.
+        record_watch_outcome(
+            conn,
+            budget_day_ms=day_start_ms,
+            now_ms=now_ms,
+            outcome=CONVENED,
+            detail=f"sent the desk on {resolved_ticker}",
+        )
         await _run_scout_desk(
             db_path, row_id, config, resolved, resolved_ticker,
             trigger="auto", client_factory=client_factory,
@@ -227,6 +283,13 @@ async def _convene_one(
         return
 
     logger.info("scout watch: no eligible fixture this cycle")
+    record_watch_outcome(
+        conn,
+        budget_day_ms=day_start_ms,
+        now_ms=now_ms,
+        outcome=NO_CANDIDATE,
+        detail="no eligible fixture on the ladder this cycle",
+    )
 
 
 async def watch_scouts_forever(

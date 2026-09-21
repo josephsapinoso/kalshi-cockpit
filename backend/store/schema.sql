@@ -1454,6 +1454,89 @@ CREATE TABLE IF NOT EXISTS scout_briefings (
 CREATE INDEX IF NOT EXISTS idx_scout_briefings_ticker
     ON scout_briefings(ticker, requested_ms DESC);
 
+-- What the unattended scout watcher DECIDED each cycle, including the cycles
+-- where it decided to do nothing (v53, #126).
+--
+-- Why this table exists
+-- ---------------------
+-- `scout_briefings` records that the desk WAS convened. Every way the watcher
+-- declines to convene returned before that table's `INSERT` and wrote nothing
+-- anywhere:
+--
+--     scout_watch.py:152   the SCOUT_AUTO_MAX_CONVENINGS_PER_DAY brake
+--     scout_watch.py:167   AgentBudget.refusal_reason -- calls, tokens, searches
+--     routers/scout.py:277 a tap over a ceiling, raised as HTTP 429
+--
+-- So `scout_briefings.refusal_reason`, whose own comment says "which ceiling
+-- refused", is never written by any of the four ceilings that actually gate a
+-- convening: a row only reaches `status = 'refused'` from *inside* a desk run
+-- that had already started (`agents/scout_desk.py:441`). Asked "how many
+-- convenings were refused, and at which ceiling", the schema could not answer,
+-- and the only trace was a log stream that drops lines.
+--
+-- **This is `odds_sweep_log`'s failure in a second subsystem**, and that
+-- module's argument is adopted here unchanged: silence was indistinguishable
+-- from a watcher that never looked. Measured 2026-09-21, the day unattended
+-- scouting was armed: the token ceiling bound within 2.5 hours and refused
+-- every subsequent cycle, and no row anywhere recorded it.
+--
+-- **One row per (budget day, outcome, detail), not one per cycle -- ADR 0056.**
+-- The watcher wakes every 600s (`scout_watch.DEFAULT_INTERVAL_S`), so once a
+-- ceiling binds it refuses ~144 times before the day rolls. Per-cycle rows
+-- would be noise, and would make this table's own growth a retention problem on
+-- the box #58 is about. The `unmatched_items` shape carries strictly more
+-- information for a bounded number of rows: `cycle_count` separates a ceiling
+-- that bound once from one that bound all evening, which is the difference
+-- between a brake working and a brake stuck.
+--
+-- `budget_day_ms` is the AGENT BUDGET day (`AgentBudget.day_start_ms`, which
+-- starts at `AGENT_BUDGET_DAY_START_HOUR`), never a calendar day -- the same
+-- clock the allowance is counted against, so a reader cannot accidentally
+-- compare the two.
+CREATE TABLE IF NOT EXISTS scout_watch_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    budget_day_ms   INTEGER NOT NULL,
+    -- First and last cycle in this budget day that reached this outcome.
+    -- **Named as a pair deliberately**, for `unmatched_items`' reason: a single
+    -- `decided_ms` reads as "when", which under an upsert is ambiguous between
+    -- the two, and a reader who guesses wrong gets "which ceiling bound first"
+    -- backwards -- the one question this table exists to answer.
+    first_ms        INTEGER NOT NULL,
+    last_ms         INTEGER NOT NULL,
+    -- Cycles that reached this outcome, including the first, so never 0.
+    cycle_count     INTEGER NOT NULL DEFAULT 1,
+    -- convened           -- the desk was sent; a `scout_briefings` row exists
+    -- refused_allowance  -- SCOUT_AUTO_MAX_CONVENINGS_PER_DAY; `detail` says n of m
+    -- refused_budget     -- a ceiling in `AgentBudget.refusal_reason`; `detail`
+    --                       is that function's own sentence, verbatim
+    -- keyless            -- no ANTHROPIC_API_KEY: nothing to convene with. Not a
+    --                       refusal -- no ceiling bound -- and must not be
+    --                       counted as one.
+    -- no_candidate       -- the ladder was walked and nothing was eligible
+    --                       (nothing resolvable, or every fixture already fresh)
+    outcome         TEXT NOT NULL,
+    -- The reason in the words the decision itself used. **Not re-derived here:**
+    -- a paraphrase of a reason is a second implementation of it, and
+    -- `budget.py`'s own argument against a second `can_afford` applies. So a
+    -- reader that wants to know which ceiling bound reads this string; nothing
+    -- parses it into a category, and `GROUP BY outcome` gives the four states
+    -- rather than four buckets of prose.
+    detail          TEXT NOT NULL,
+    CHECK (outcome IN ('convened', 'refused_allowance', 'refused_budget',
+                       'keyless', 'no_candidate')),
+    CHECK (cycle_count > 0),
+    CHECK (last_ms >= first_ms)
+);
+-- The work item's identity, and what makes the upsert an upsert. No COALESCE
+-- needed: every column in the key is NOT NULL, which is why `detail` is NOT
+-- NULL and carries a literal for the outcomes that have no reason of their own.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scout_watch_log_item
+    ON scout_watch_log(budget_day_ms, outcome, detail);
+-- "Which ceiling bound first, on this day" is `ORDER BY first_ms` within a day,
+-- so the day leads and `first_ms` breaks the tie.
+CREATE INDEX IF NOT EXISTS idx_scout_watch_log_day
+    ON scout_watch_log(budget_day_ms DESC, first_ms);
+
 -- One "Price on Kalshi" tap from the parlay desk (ADR 0070). A lookup MINTS a
 -- real combination market on the exchange (`lookup_combo` with
 -- `allow_market_creation=True`), so every attempt is recorded -- success,

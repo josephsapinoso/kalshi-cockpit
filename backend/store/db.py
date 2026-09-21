@@ -68,6 +68,27 @@ logger = logging.getLogger(__name__)
 #: §2). A REBUILD, not a column step: SQLite cannot relax a NOT NULL or a
 #: table-level CHECK in place. The rows already written keep their real typed
 #: values -- nothing is deleted, backfilled, zeroed or rewritten.
+#: v53 (2026-09-21) adds `scout_watch_log` -- what the unattended scout
+#: watcher decided each cycle, including the cycles where it decided to do
+#: nothing (#126). A STATEMENTS step, because `schema.sql` is applied with
+#: `CREATE TABLE IF NOT EXISTS` and so does nothing at all to a volume that
+#: already exists. No backfill and none possible: every refusal before this
+#: step went to a log stream that drops lines, and the first row this table
+#: carries is the first one that exists. Taken on `main` at 53 with
+#: `SCHEMA_VERSION` at 52; ticket #96 had been sliding on 53 and is still
+#: unbuilt, so it moves to 54 (the same slide it took from 51 and 52).
+#:
+#: **Why a new table rather than `scout_briefings.refusal_reason`.** That
+#: column is never written by any ceiling that gates a convening: the three
+#: pre-flight refusals (`scout_watch.py:152`, `:167`, `routers/scout.py:277`)
+#: all return or raise BEFORE their `INSERT`, so a row only reaches
+#: `status = 'refused'` from inside a desk run already under way. Absence
+#: never borrows presence's representation -- `odds_sweep_log`'s argument,
+#: adopted whole -- and a synthetic briefing row would also need values for
+#: five NOT NULL fixture columns it has none of, and would be counted by
+#: `_leg_scouting` and the parlay card's `scouting` block, which read
+#: briefings by ticker. That is the trap `sweeplog` documents against
+#: reusing `api_credits`, in a second subsystem.
 #: v52 (2026-09-20) adds `parlay_position_legs.scout_state` -- what the
 #: scout desk knew about the leg's game when the ticket was recorded (ADR
 #: 0180 §3.5), written by `hedge.record_position` for all three of its
@@ -191,7 +212,7 @@ logger = logging.getLogger(__name__)
 #: `executescript` cannot do that. Written on `main`, 2026-09-18, the
 #: evening `/api/window` measured 7 s at the median and tripped the 25 s
 #: read budget twice.
-SCHEMA_VERSION = 52
+SCHEMA_VERSION = 53
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1304,6 +1325,45 @@ _MIGRATIONS: dict[int, _Migration] = {
     # of about three months with no measured lower bound (`rest.fills`), the
     # two acceptances this repo has predate the step, and a value invented
     # for them would enter the one record that says what the venue charged.
+    # What the unattended scout watcher decided, per budget day. See the v53
+    # note above and the table comment in `schema.sql`.
+    #
+    # A STATEMENTS step: the table is new, and `schema.sql` reaches only a
+    # database being created from scratch. Both statements carry their own
+    # `IF NOT EXISTS`, so the step is idempotent at every crash point and
+    # needs no `skip_statements_if_column` guard -- it is purely additive and
+    # a re-run after full success is a no-op, which a rebuild would not be.
+    #
+    # **No backfill, and none is possible.** Every refusal before this step
+    # went only to the log stream, which drops lines; there is no stored copy
+    # to recover and inventing one would put a fabricated ceiling-binding
+    # into the one record that says what the watcher did.
+    53: _Migration(
+        statements=(
+            "CREATE TABLE IF NOT EXISTS scout_watch_log ("
+            "    id              INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "    budget_day_ms   INTEGER NOT NULL,"
+            "    first_ms        INTEGER NOT NULL,"
+            "    last_ms         INTEGER NOT NULL,"
+            "    cycle_count     INTEGER NOT NULL DEFAULT 1,"
+            "    outcome         TEXT NOT NULL,"
+            "    detail          TEXT NOT NULL,"
+            "    CHECK (outcome IN ('convened', 'refused_allowance',"
+            "                       'refused_budget', 'keyless',"
+            "                       'no_candidate')),"
+            "    CHECK (cycle_count > 0),"
+            "    CHECK (last_ms >= first_ms)"
+            ")",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_scout_watch_log_item "
+            "ON scout_watch_log(budget_day_ms, outcome, detail)",
+            "CREATE INDEX IF NOT EXISTS idx_scout_watch_log_day "
+            "ON scout_watch_log(budget_day_ms DESC, first_ms)",
+        ),
+        indexes=("idx_scout_watch_log_item", "idx_scout_watch_log_day"),
+        undo_statements=(
+            "DROP TABLE IF EXISTS scout_watch_log",
+        ),
+    ),
     # What the desk knew at bet time, per leg. See the v52 note above and the
     # column comment in `schema.sql`. Column-level CHECK for v51's reason.
     52: _Migration(
