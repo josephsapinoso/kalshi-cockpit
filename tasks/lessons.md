@@ -16,6 +16,81 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-21 (third) - A sample's negative result becomes a universal about the world in one sentence; a ladder's rungs can all be the same number; and an instrument that reports "today" cannot report yesterday
+
+Five patterns from the orchestration session. The first one is mine and it is
+the one that would have reached a screen.
+
+- **A negative result from a sample gets written as a universal about the
+  world, and the flattering direction is "this thing does not exist" - because
+  absence licenses a smaller build.** #107's capture failed a third time, and I
+  wrote *"across three attempts, a non-empty combination YES side has never
+  been observed"* into a ticket comment **and** into a lane brief. It is false:
+  `2026-09-17-combinations-can-be-exited.md:40-41` measured resting public-book
+  YES bids of 5.10c/38,709 deep and 0.32c/24,900 deep. **The same comment
+  contained its own counterexample two paragraphs later** - the careful version
+  ("different population, not refuted") and the overreaching version were
+  written side by side, and the overreaching one is what a lane transcribes
+  into a docstring and from there into copy. The true claim was always
+  narrower and was about **this repo's disk**: *no committed capture fixture
+  carries one*. **When a sample comes back empty, write the sentence about the
+  sample, and say where the sample was drawn from in the same sentence.** This
+  was the fourth frequency clause about combination liquidity to be written and
+  withdrawn (three earlier ones are catalogued in `parlays/page.tsx:95-127`)
+  and the first caught before shipping - by a review, not by me.
+
+- **When a decision is presented as a ladder, an effective ceiling is the raw
+  cap MINUS the consumer's own reservation - and computing it without that
+  makes two rungs look different when they are identical.** Joe was asked #116
+  against *3 convenings -> searches at 5/day -> calls at 6/day -> tokens*. The
+  5/day is `60 / 12` with the watcher's reserve left out:
+  `scout_watch.py:198` holds back `STAFF_PAIR_SEARCHES_WORST_CASE * (1 +
+  reserve_taps)` = 36, so it refuses above 24 used - **three convenings,
+  identical to the allowance**, while tokens allow 2.9. Three rungs, one
+  number. The 5/day figure was real but described a **tap**, which reserves
+  only 12. **Read the consumer's reservation, not the config value, before
+  ranking anything** - and when the rungs coincide, say the ordering question
+  is unanswerable rather than sizing a sample for it.
+
+- **An instrument that reports "today" cannot report yesterday, and a read
+  window planned without that lands outside the population it means to read.**
+  The #118 trip was planned for 09-23 10:30-14:00Z. `/api/scout` reports spend
+  for the budget day containing *now*, and the day rolls at 10:00Z - so that
+  snapshot describes 09-23 (thirty minutes old), not the 09-22 day being read.
+  The whole token half would have collapsed to "not separable" **by
+  construction**, and the write-up would have blamed the instrument. **Check
+  which period an instrument's numbers cover against the period you mean to
+  measure, at the moment you pick the clock time.** The fix was a second
+  reading *inside* the target day, with a self-verifying pre-condition
+  (`spend.day_start_ms` must equal the day you meant) so a mistimed trip voids
+  itself instead of reporting.
+
+- **A hunt that fails three times is usually sampling the wrong population,
+  not running out of luck.** #107 sampled currently-quoted combinations at an
+  arbitrary instant, three times, and found nothing - while the reading it was
+  trying to reproduce came from a combination Joe had **just bought**, where
+  ADR 0164 says a resting bid is residue of a recent print. The defect was the
+  **trigger**, not the sample size: a calendar cannot find a residue. **Before
+  scheduling a fourth attempt, ask what the successful observation had that the
+  failures did not** - here, a live position, which is one call to check and
+  which no amount of re-sampling would have supplied.
+
+- **A "Done when" is the executable line, and a re-scope recorded anywhere else
+  does not amend it.** Two ran into this in one session. #95 was re-scoped to
+  absence-first in a review comment while its Done-when still demanded a test
+  that the payload *attaches the resting YES bid* - unprovable, so a literal
+  lane stalls or invents. #124's own profile comment said not to raise
+  `timeout-minutes`, while its Done-when still said *"the workflow change is on
+  main AND a CI run has completed green with the new configuration"* - so a
+  literal lane does the one thing the ticket forbids. Both bodies were correct
+  in prose and wrong in the one line an agent executes. **Rewrite the Done-when
+  in the same action as the re-scope**, and generalising last session's lesson:
+  its named test must be runnable - check the harness exists, not just the
+  instrument. #95's said "a named frontend test" and **`frontend/` has no test
+  runner at all**, so satisfying it literally meant standing up vitest.
+
+---
+
 ## 2026-09-21 (second) - A deadline can expire into a missing instrument; a ruling recorded only as a ticket comment decays like a question recorded only as a line; and a guard with a backstop behind it tests green either way
 
 Five patterns from the session that armed the record behind unattended
