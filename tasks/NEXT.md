@@ -134,6 +134,197 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-21 (forty-second session) — the frontier was stuck on artefacts only we could make, a review caught me writing the exact clause Joe banned twice, and three ceilings turned out to be the same number
+
+Joe said "read NEXT.md and start" — no named errand — so `partner` owned the
+direction. It returned a ranked list, a dispatch table, and one argument that
+reframed the session: **the frontier's shape is not "too few main-ownable
+tickets", it is eight questions to Joe with twenty comments on them, all ours,
+none answered.**
+
+**Three of `partner`'s load-bearing claims were checked at file:line before
+being used. Two held; one was half right and the correction changed what
+shipped.** And the `kalshi-platform` review then caught a worse error in my own
+work — see §2.
+
+### What shipped
+
+| commit | what | ticket |
+|---|---|---|
+| `2ff423c` | Pre-registration of #118's reading; the ordering question killed by arithmetic before any data | #118 |
+| `5b1e014` | Five lessons | — |
+| `a5bdab6` | Lane (Sonnet): cache the repo scan in `test_has_callers.py` — **311.58s -> 69.01s on main** | #124 |
+| — | Lane (Sonnet) on #95 was **still building when the session ended** — see Still open item 3 | #95 |
+
+### 1. The frontier was stuck on artefacts only we could make
+
+Measured: **20 comments across #58, #71, #78, #79, #97, #119, #122, #127 — every
+one written by us, none answered.** #58 is four days old with 13 comments; #79,
+#97 and #119 have zero. Meanwhile the last three sessions shipped five
+instruments and **zero screen changes**.
+
+The product work was not blocked by Joe. #95 was blocked on **a brief we had
+not written** and #107 on **a fixture we had not captured** — both ours. The
+correction is written into the lessons as two rules: unblock yourself before
+asking to be unblocked, and stop amending a question nobody has a stable copy
+of.
+
+One digest went up on map #3, current as of a single timestamp, eight tickets,
+one paragraph and one recommended letter each, with the questions declared
+**frozen**. `58A 71A 78C 79A 97A 119C 122D 127A` is a valid reply.
+
+### 2. The review caught me writing the clause Joe banned twice
+
+#107's capture failed a third time (17 live books, 0 with a non-empty YES
+side), and I wrote *"a non-empty combination YES side has never been
+observed"* into a #107 comment **and** into #95's lane brief.
+
+**It is false.** `2026-09-17-combinations-can-be-exited.md:40-41` measured
+resting public-book YES bids of **5.10c/38,709 deep and 0.32c/24,900 deep**.
+Worse, the #107 comment **contained its own counterexample two paragraphs
+later** — I wrote the careful version and the overreaching version side by
+side, and the overreaching one is what a lane transcribes into a docstring and
+from there into copy.
+
+This is the **fourth** frequency clause about combination liquidity to be
+written and withdrawn here (the first three are in `parlays/page.tsx:95-127`),
+and the first caught before shipping — by `kalshi-platform`, not by me.
+Corrections are posted on #107 and folded into #95's body, which now opens with
+the counterexample and an explicit instruction not to write the absence
+anywhere.
+
+The true claim is narrower and is about **this repo's disk**: no committed
+capture fixture carries a non-empty YES side (0 of 20, 0 of 1, 0 of 17 live).
+
+### 3. Three ceilings are the same number, and Joe was asked about the wrong one
+
+`partner` and the `pre-registrar` between them found that #116's ladder — *3
+convenings → searches at 5/day → calls at 6/day → tokens* — is wrong at the
+second rung. `backend/scout_watch.py:198` reserves
+`STAFF_PAIR_SEARCHES_WORST_CASE * (1 + reserve_taps)` = **36** searches, so the
+watcher refuses once `searches_today > 24`:
+
+    allowance   SCOUT_AUTO_MAX_CONVENINGS_PER_DAY = 3    -> 3
+    searches    60 cap minus the watcher's own 36        -> 3
+    tokens      500,000 at ~170,350 a convening          -> 2.9
+
+**Three rungs, one number.** The 5/day figure was `60 ÷ 12` with the consumer's
+own reservation left out; it describes a **tap**, which reserves only 12
+(`routers/scout.py:271`). So the ordering question #118 owed a reading on is
+**unanswerable by arithmetic**, not under-powered — no `n` resolves a 0-unit
+gap at 1-unit resolution.
+
+### 4. #118 — pre-registered, and the read window was outside the day it reads
+
+Both instruments were **dry-run on live tonight and both work**, so #118 is no
+longer BLOCKED ON INSTRUMENT — the state it was in from the moment its deadline
+was written. Day one reads: **3 auto convenings, 0 taps**, 2 complete and 1
+partial, and `refused_allowance` at `cycle_count = 14` from 18:58Z to 21:00Z.
+
+The `pre-registrar` caught that the planned trip would have measured the wrong
+day. `/api/scout` reports spend for the budget day containing *now*, and the
+day rolls at 10:00Z — **confirmed from the live box, which prints "budget day
+starts 10:00Z" in both QueryDefs' window headers** — so a snapshot at 09-23
+10:30Z describes 09-23, not the 09-22 day being read. The trip is now split:
+**T1 inside the target day (09:00–09:55Z)** for the token level, self-verifying
+on `spend.day_start_ms`; **T2 after it closes** for the two QueryDefs.
+
+`n = 1` works deductively rather than statistically: `tokens_today` is
+non-decreasing and the brake reads the same field, so `tokens_today < budget`
+at T1 proves the token check was false at every earlier instant of that day.
+**No outcome confirms masking** — that asymmetry is registered on purpose.
+
+### 5. #89 closed — answered, then dominated by its own follow-up
+
+Shapes 3A, 3B and 4 all plan onto `idx_odds_event_commence`; **none touches
+`idx_odds_event`**. That was the last reading the story owed.
+
+It licenses nothing, because #123's dead-space reading ate the headline:
+`idx_odds_event` is **56.4% full**, so a `VACUUM` recovers ~229 MB of it
+**without dropping anything**, against ~1.4 GB reclaimable across the file. A
+drop is a schema change on 479.6 MB needing Joe's licence, and it buys less
+than doing nothing. **Epic #81 parks** pending #58.
+
+### 6. Two briefs were wrong in the one line an agent executes
+
+**#124's Done-when told a lane to do the thing the ticket forbids** — *"the
+workflow change is on `main` AND a CI run has completed green with the new
+configuration"* is option (a), raising the cap, which its own profile comment
+says hides the cause. **#95's demanded a test that could not be written**: a
+"named frontend test", when `frontend/` has **no vitest, no jest and zero
+`*.test.tsx`**. Both bodies were correct in prose and wrong in the executable
+line.
+
+#95 was refused **twice** by `kalshi-platform` before it cleared — v2's six
+defects included a citation to `backend/kalshi/combo_rfq.py:140`, **a file that
+does not exist**, which I had transcribed from the v1 review without checking.
+
+### 7. #128 opened, because the lane cannot wire what it builds
+
+#95's lane ships `build_payload(..., read_combo_book=None)` and does **not**
+wire it — `routes.py` and `run_loop.py` are Must-not-touch, since that is where
+the shared venue client is built, beside the money path. Until main wires it,
+every combination row renders `no_reader_wired`, which is **pixel-identical to
+the screen before the ticket**.
+
+That is this repo's own four-time failure pattern and **no test inside the lane
+can catch it**, because the omission is in a file the lane may not touch. So it
+is a numbered ticket, not a handoff note.
+
+### 8. #124 — the cap bound again tonight, on a docs-only commit
+
+The last **uncached** CI run (`5b1e014`, docs only) was **cancelled at 15m04s**
+by `timeout-minutes: 15`. No superseding push — nothing was pushed between
+21:16Z and 21:31Z — and `Secret scan`/`Frontend` both passed. Nothing about the
+code changed on that commit, so the suite was simply over the cap. Second
+recorded cancellation, and the cleanest one: it isolates the cap from any code
+change.
+
+Measured on main, isolated runs, same tree and session:
+
+    before (pre-cache, restored by FILE COPY)   311.58s   122 passed
+    after  (cached)                              69.01s   123 passed
+
+**Two numbers in that ticket were wrong and one of them was mine.** The profile
+said `~1,053` production `.py` files and I turned it into a
+`len(production_sources()) >= 1000` guard. The real count is **224**
+(`backend` 111, `scripts` 111, `conftest.py` 1, `docs` 1) — a `>= 1000` floor
+fails permanently on a correctly working cache. It is not a guard, it is a bug.
+The lane measured it, refused to pick a number that made the test pass, set
+`>= 200`, and documented the discrepancy in the test docstring.
+
+**The second correction is one the lane could not see, and it generalises.**
+It measured the before at 112s where main measures 311s, because `ROOT.rglob`
+walks `.venv` **before** `NOT_A_CALLER` filters it: **10,658 paths walked on
+main against ~500 in a worktree with no `.venv`.** So the dominant cost is the
+**walk, not the parse** (~1,300,000 path stats against ~27,000 parses across
+122 tests) — and **a lane worktree does not contain this bug at all.** Its 43%%
+was true of its environment and understated main's by three-fold. Anything
+timed inside a lane worktree that depends on repo size is measuring a different
+tree.
+
+The three CI durations this ticket owes are still outstanding; it stays open
+and `ci.yml` was not touched.
+
+### Still open
+
+**Answer the digest on map #3 — eight tickets, one page, any subset. They are frozen; no more corrections will be posted until you reply.**
+
+1. **#118 — the reading is OWED and now has an appointment: T1 on 2026-09-23 09:00–09:55Z, T2 10:30–14:00Z.** Pre-registered in `docs/measurements/2026-09-21-preregistration-unattended-scouting-first-reading.md`; both instruments verified working on live. One slip permitted, then it closes as not-taken.
+2. **#124 — merged (`a5bdab6`), OPEN for three CI durations.** Do not raise `timeout-minutes` before they are recorded.
+3. **#127 — with Joe**, and its own table is corrected by tonight's finding: searches permit 3, not 5, so three ceilings coincide. Folded into the digest rather than posted as a ninth comment.
+4. **#95 — a Sonnet lane was MID-BUILD when this session ended.** Its worktree is `.claude/worktrees/agent-a7f263d1ed8cc4207` on branch `worktree-agent-a7f263d1ed8cc4207`, cut from `ca45fc2`, with **uncommitted** work: modified `backend/hedge.py`, `backend/api/routers/hedge.py`, `frontend/src/components/HedgePositions.tsx`, `frontend/src/lib/api.ts`, `tests/test_the_hedge_card_names_the_fallback_reason.py`, plus new `frontend/src/lib/comboBookGloss.ts` and `tests/test_the_hedge_card_shows_the_combo_book.py`. **No commit, no test run recorded, no mutation pass.** Treat it as unverified: read the ticket body (rewritten twice, cleared on the third), then either finish it in that worktree or discard it and re-dispatch. Do NOT merge it on the strength of its file list.
+5. **#128 — new, main**: wire the combination-book reader into `/api/hedge`, or #95 is built and invoked by nothing.
+6. **#58, #71, #78, #79, #97, #119, #122 — with Joe**, in the digest.
+7. #107 — capture-of-opportunity with the **trigger corrected**: capture when `/api/hedge` shows a position that is not yet `dead`/`won`, not on a calendar. All 41 positions were settled tonight.
+8. #96 — behind #95.
+9. #115 — starts 2026-10-06 unless #58 lands first. Expires 2026-10-20.
+10. #108 — the deferred fifth seat only.
+
+Question for Joe: unattended scouting spent your whole daily token budget in 2.5 hours and now refuses your own taps until the budget day rolls — move a ceiling, or leave it? — #127
+
+---
+
 ## 2026-09-21 (forty-first session) — the clock on #118 was going to expire into an instrument that did not exist, the ceiling everyone ranked last had already bound, and a guard passed its own test with the guard deleted
 
 Joe said "read NEXT.md and start" — no named errand — so `partner` owned the
