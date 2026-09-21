@@ -176,9 +176,16 @@ convenings** (15:07Z, 16:22Z, 17:35Z), already at the 3/day brake, and
     searches   36 / 60   -> 5.0   (NEXT.md's prediction, right to the decimal)
     tokens  511,051 / 500,000  -> 2.9   ALREADY OVER
 
-`AgentBudget.refusal_reason` tests `tokens_today >= tokens_daily_budget`
-second, so the desk is **refusing every convening including Joe's own taps**
-until the budget day rolls at ~09:55Z. `reserve_taps = 2` does not help: the
+**Corrected by the instrument the same evening** (`scout-watch-log`, live
+19:21Z, its first real rows): the WATCHER is stopped by
+`refused_allowance`, not by tokens -- `scout_watch.py:152` checks the 3/day
+brake and returns before `:167` reaches the token ceiling. **Joe's own taps
+ARE blocked by tokens**, because the tap path (`routers/scout.py:271`) has
+no allowance brake. The two together sharpen the finding rather than soften
+it: **the allowance is masking the token ceiling**, three convenings already
+cost ~511K, so raising `SCOUT_AUTO_MAX_CONVENINGS_PER_DAY` alone would buy
+**zero** extra convenings -- the refusal would just move one line down, to
+`refused_budget`. Only raising tokens increases scouting. `reserve_taps = 2` does not help: the
 token brake reads recorded spend and knows nothing about reserves. Calls
 reconcile exactly to three briefings (4 + 4 + 2 for the `partial`), so there is
 no hidden spend.
