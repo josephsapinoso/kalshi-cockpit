@@ -240,17 +240,19 @@ cache without asking.
 
 ### Still open
 
-1. #116 — the unattended-scouting ceilings; with Joe, and now with the arithmetic and the widening caveat on the ticket.
-2. #117 — the Elo look is not free and can only close the question; with Joe, lettered. #115 is blocked behind it.
-3. #58 — with Joe; the root VACUUM window is effectively shut and the ~580 MB/day slope wants one `db-sizes` run before it is believed.
-4. #71, #78, #79, #97 — with Joe; #71 and #78 now carry whether the guard has ever had the chance to matter.
-5. #89 — the enumeration is DONE (16 readers, 6 shapes, on the ticket) and it found that **`idx_odds_event` has no access shape it uniquely serves** — `idx_odds_window` leads with the same three columns swapped and covers two more, and the only shapes that filter `odds_event_id` without `market` want `commence_ms`. Still open for `EXPLAIN` on Shapes 3 and 4 on live; a drop is a schema change on 479.6 MB against `schema.sql:284`'s standing warning, and wants its own ticket and Joe.
-6. #107 — a capture of opportunity, not a scheduled hunt; #95 and #96 behind it.
-7. #108 — the deferred fifth seat only; the live read of the `scouting` key is done (9 of 9 cards).
+**Joe answered #116 and #117 on 2026-09-21 and named the next session's
+work: those two plus #58.** Both answers were (b). Start there.
 
-Question for Joe: how much unattended scouting do you want to pay for each day — the three ceilings move together, or it stays off? — #116
+1. **#118 — #116 is ANSWERED (b): turn unattended scouting ON at today's ceilings.** `SCOUT_AUTO_CONVENE_ENABLED = "true"` in `fly.live.toml` and **nothing else moves** — no `AGENT_MAX_*` change, the three `SCOUT_AUTO_*` brakes stay at 3/2/6 inside the ceilings. Rewrite the `fly.live.toml:507-516` comment in the same commit; it still says the flag is off and names #116 as the open call. Then a dated reading 24–72 h later: `trigger = 'auto'` rows by budget day, refusals and at which ceiling, and whether the 60-search cap (5/day) or the 3-convening brake bound first. **This is the first thing here that spends with nobody tapping anything.**
+2. **#115 — #117 is ANSWERED (b): build the Elo look AFTER the disk is settled**, so it is ordered behind #58 and not startable until that lands. The registration expires **2026-10-20**; if #58 does not settle far enough ahead of that, (b) becomes an unrun expiry nobody chose, which reads worse than choosing (c) would have. That date is the whole risk of his answer.
+3. **#58 — Joe put this in the next session.** Two live facts from the thirty-ninth session sharpen it: the container-root `VACUUM` margin is down to **~156 MiB** (7.865 GB free against a 7.702 GB database) from 1.39 GB on 2026-09-18, so the root-side window is effectively shut and `VACUUM INTO '/data/...'` is the only path left; and the file grew **1.22 GB in ~2.1 days (~580 MB/day)** against a registered ~85–110, with no new index in that window to explain it. **Two points are a slope, not a rate** — one deliberate `db-sizes` run is the next step and it walks the whole file, so it costs the desk its page cache. Not taken without saying so.
+4. #119 — new, with Joe: on a quiet night the auto-scout researches **tomorrow's** games rather than standing down, and may pay twice for the same fixture under the 6-hour refresh. Lettered; blocks nothing, because #118 ships today's behaviour by default. #118's reading is what tells him whether the double-spend is real.
+5. #71, #78, #79, #97 — with Joe; #71 and #78 now carry whether the guard has ever had the chance to matter, which is the only honest way to shrink that pile.
+6. #89 — the enumeration is DONE (16 readers, 6 shapes, on the ticket) and found that **`idx_odds_event` has no access shape it uniquely serves** — `idx_odds_window` leads with the same three columns swapped and covers two more, and the only shapes filtering `odds_event_id` without `market` want `commence_ms`. Still open for `EXPLAIN` on Shapes 3 and 4 on live; a drop is a schema change on 479.6 MB against `schema.sql:284`'s standing warning, and wants its own ticket and Joe.
+7. #107 — a capture of opportunity, not a scheduled hunt; #95 and #96 behind it.
+8. #108 — the deferred fifth seat only; the live read of the `scouting` key is done (9 of 9 cards), and #118 now hangs under it.
 
-Question for Joe: the Elo look is not free and can only close the question — build now, build after the disk, or let it expire? — #117
+Question for Joe: on a quiet night the auto-scout researches tomorrow's games instead of standing down, and may pay twice for the same fixture — keep it, stop it, or stop re-scouting them? — #119
 
 ---
 
