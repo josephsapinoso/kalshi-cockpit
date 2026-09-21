@@ -85,6 +85,18 @@ been told to wait for, and timed two index changes on live.
   existing name on that surface before running anything** - the pin that
   will catch you is wherever that grep lands, not where you edited.
 
+- **A merged lane is not a finished lane: removing its worktree while it is
+  still running destroys whatever it is mid-way through.** Main merged
+  `fbf8601`, applied the one fix the lane had been told to make, and removed
+  the worktree - while the lane was part-way through a full-suite re-run of
+  that same fix, which it had independently redone in its own tree. It lost
+  the run and reported finding only an empty `.pytest_cache` where its
+  worktree had been. Nothing was lost here because the work was a duplicate
+  of main's, and that is luck, not design. **A lane's commit landing on main
+  says its output arrived, not that the agent has stopped.** Wait for the
+  hand-back, or tell it explicitly that the work is already on main and it
+  should stop, before taking its tree away.
+
 - **Before splitting a question into "his half" and "ours", re-read the
   ticket: the thing you were about to ship unasked may already be one of his
   lettered options.** The session's direction proposed shipping half of #79
