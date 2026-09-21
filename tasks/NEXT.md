@@ -134,6 +134,126 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-20 (thirty-ninth session) — two live readings overturn the premise of the tickets that asked for them, #116 gets its arithmetic without the week it was told to wait, and four questions leave Joe's queue without him answering one
+
+Joe said "read NEXT.md and continue" — no named errand — so `partner` owned
+the direction. It ran on the board and returned a ranked list, a dispatch
+table and **two corrections to the state it was handed**, both right and both
+of which changed what got done: the Joe pile is three days old, not weeks
+(the problem is production rate, not staleness), and #116 was answerable
+tonight rather than after a week of sampling.
+
+**Live was already on `3699593` at session start**, so the three items parked
+"after the next deploy" were unblocked before anything ran.
+
+### What shipped
+
+| commit | what | ticket |
+|---|---|---|
+| `25c2b88` | `scoring-candidate-timing` (the #88 re-spec); the 882 MB result; the ladder-fixtures series and its arithmetic | #94, #88, #116 |
+| `20b8dfc` | the auto-convener reads the **widening** ladder, so "tonight" is sometimes tomorrow | #116 |
+| `cc9bad6` | the second subcommand registry, which the ticket's named tests do not reach | #88 fix-up |
+| `e08725d` + `62bf5d5` | Lane (Sonnet): `odds-snapshots-latest-price-timing`, `NOT INDEXED` rather than dropping the index, unflattering run order; plus the registry fix-up | #90 |
+| `96da7a3` | both live timings, taken in one pass after deploying `62bf5d5` | #88, #91 |
+
+### 1. The 882 MB is ext4's root reserve — #92 and #94 close
+
+882,278,400 reserved against 882,353,450 unaccounted: a gap of **75,050
+bytes (0.0085%)**. The structural prediction was right and the percentage in
+it was wrong — the volume carries **4.18%**, not ext4's 5% default. Half the
+match is circular (`used` is computed against `f_bavail`, which excludes the
+reserve) and the write-up says which half; what it genuinely discriminates is
+a deleted-but-still-open holder, which would have read near 1.72 GB. It did
+not. `docs/measurements/2026-09-20-882mb-reserved-blocks-result.md`.
+
+### 2. Both index tickets were answered, and both answers are negative
+
+`docs/measurements/2026-09-21-two-index-timings-on-live.md`.
+
+**#88 — #87's `WHERE` clause bought nothing measurable.** 489.3 ms bounded
+and cold against 423.5 ms unbounded and warm; subqueries 416.9 and 393.1;
+**row sets agree at 249**, so the seeded oracle now holds on 5.4 M live rows.
+The plans say why: `idx_odds_event_commence` is a *covering* index for the
+aggregate, so the "whole-index scan" was one ordered pass collapsing
+5,426,214 entries into **1,292 groups**, and replacing it with 930 seeks plus
+a scan of `event_links` is not cheaper. **Not reverted** — the bound is
+correct and scales with the smaller table, so it pays later. What did not
+survive is the claim that it bought something today. Four single runs cannot
+separate 60 ms from noise, and the write-up says only the negative.
+
+**#91 — the live planner uses `idx_odds_window`, not `idx_odds_event`.** Both
+statements of the latest-price read, on the access path `idx_odds_event`
+(479.6 MB) was built for. The 87-second `NOT INDEXED` arm is the cost of
+having **no** index, not of this one, so it does not license a drop; #89 stays
+open for an enumeration of every `odds_snapshots` reader, which is a grep.
+
+### 3. #116 did not need the week
+
+`scout_watch` walks the ladder **payload's** distinct fixtures, and
+`CARD_SHAPES`' nine recipes sum to 30 `max_legs` at one leg per game — a
+**structural ceiling of 30**, no sampling required. Two direct readings today:
+9 fixtures at 22:03Z, 6 at 23:44Z. Covering 6 is 1.2× the search cap, 9 is
+1.8×, a full ladder is 6×; the search cap binds first at 5 convenings a day.
+
+The 30-day `ladder-fixtures` series is on record with its regime break
+printed (median 102 before 2026-09-10, 20 after) rather than a pooled median
+that describes no night — **and it measures the pool, not the demand**, which
+its own docstring already said. 135 in the pool against 6 on the cards is how
+loose. Reading the consumer also found the watcher calls the **widening**
+builder, so when tonight is empty it scouts tomorrow's slate — a property of
+the flag that neither ADR 0180 nor the ticket states.
+
+### 4. Four questions left Joe's queue and one joined it
+
+- **#105 closed** on the fleet's own authority: the web stays a Sonnet job.
+  Not a permissions call — WebFetch is read-only — but a capability one, and
+  the #98 precedent went the right way. He can overturn it in a word.
+- **#78 sharpened, not re-asked.** Its hazard needs a short fill, and the
+  registered census is **0 for 11** on that precondition; FIX tag 21015
+  defaults against partial fills on both sides. Still unguarded and still
+  unrecorded, but a much smaller question than it looked.
+- **#71 sharpened the other way**: the `SHARD_HEADROOM = 0.90` guard refuses
+  with an HTTP 400 and **writes no row anywhere**, so "has it ever bound?" is
+  unanswerable from the record and a third blank sheet would not help. Two
+  ways forward on the ticket; recording the refusal is the cheap one.
+- **#107**: zero of **68** committed capture rows carry a non-empty
+  combination YES side. The hunt should stop being scheduled and become a
+  capture of opportunity; #95 ships the absence path first.
+- **#117 opened** — the Elo look is not free (a 2.6 GB walk on the disk #58 is
+  about) and its rule can only *close* the question, never open one. Three
+  lettered options; the recommendation is to let the registration expire
+  unrun and record the expiry as the outcome.
+
+### 5. A flag on #58 that is bigger than the retention question
+
+The container root has **~156 MiB** of margin left for a `VACUUM INTO` copy
+(7.865 GB free against a 7.702 GB database), not the ~15-day window the
+handoff quotes — that figure was correct when written on 2026-09-18, when the
+margin was 1.39 GB. **The database grew 1.22 GB in about 2.1 days (~580
+MB/day) against a registered ~85–110 MB/day.** No new index landed in that
+window (`git log` on `schema.sql`), and v51/v52 are single columns on small
+tables. Two points are a slope, not a rate, and the 2026-09-18 doc is itself
+the record of how that goes wrong — so the next step is one deliberate
+`db-sizes` run to find what grew. **Not taken tonight**: it walks the whole
+file and the finding is not urgent enough at midnight to spend the desk's
+cache without asking.
+
+### Still open
+
+1. #116 — the unattended-scouting ceilings; with Joe, and now with the arithmetic and the widening caveat on the ticket.
+2. #117 — the Elo look is not free and can only close the question; with Joe, lettered. #115 is blocked behind it.
+3. #58 — with Joe; the root VACUUM window is effectively shut and the ~580 MB/day slope wants one `db-sizes` run before it is believed.
+4. #71, #78, #79, #97 — with Joe; #71 and #78 now carry whether the guard has ever had the chance to matter.
+5. #89 — the enumeration is DONE (16 readers, 6 shapes, on the ticket) and it found that **`idx_odds_event` has no access shape it uniquely serves** — `idx_odds_window` leads with the same three columns swapped and covers two more, and the only shapes that filter `odds_event_id` without `market` want `commence_ms`. Still open for `EXPLAIN` on Shapes 3 and 4 on live; a drop is a schema change on 479.6 MB against `schema.sql:284`'s standing warning, and wants its own ticket and Joe.
+6. #107 — a capture of opportunity, not a scheduled hunt; #95 and #96 behind it.
+7. #108 — the deferred fifth seat only; the live read of the `scouting` key is done (9 of 9 cards).
+
+Question for Joe: how much unattended scouting do you want to pay for each day — the three ceilings move together, or it stays off? — #116
+
+Question for Joe: the Elo look is not free and can only close the question — build now, build after the disk, or let it expire? — #117
+
+---
+
 ## 2026-09-20 (thirty-eighth session) — the desk can be sent on the ladder unattended (off), every card says what it knows, sentiment is a tile, and Elo is a registration that can only close
 
 Joe's errand, verbatim: *"i want the ability to send scouts to assess the
@@ -1274,6 +1394,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-20 (thirty-ninth session) — two live readings overturn the premise of the tickets that asked for them, #116 gets its arithmetic without the week it was told to wait, and four questions leave Joe's queue without him answering one
 - 2026-09-20 (thirty-eighth session) — the desk can be sent on the ladder unattended (off), every card says what it knows, sentiment is a tile, and Elo is a registration that can only close
 - 2026-09-19 (thirty-seventh session) — the queue moves to GitHub, the main session becomes the orchestrator, and the first lanes ran on the change itself
 - 2026-09-18 (thirty-sixth session) — lessons.md is split, the RFQ path reads Kalshi's own fill, and the question it was blocked on was answered in a fixture

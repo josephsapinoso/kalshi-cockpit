@@ -16,6 +16,88 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-20 (second) - A constant in the source beats a week of sampling; a plan shape is not a cost in either direction; and a Done-when can expire with nothing going red
+
+Five patterns from the session that answered #116 without the week it had
+been told to wait for, and timed two index changes on live.
+
+- **Before scheduling a measurement, ask what BOUNDS the quantity, not what
+  it usually is.** #116 asks how much unattended scouting costs a night. The
+  previous session took one reading (9 fixtures), correctly said one reading
+  is not a rate, built a 7-day series and parked the ticket behind "a deploy
+  first and then a week". The binding number was a constant: `CARD_SHAPES`
+  is nine fixed recipes whose `max_legs` sum to 30 at one leg per game, so a
+  night's ladder can carry **at most 30 distinct fixtures, ever** - no
+  sampling, and true of every future night as well as every past one. A
+  sample describes the nights it saw; a structural ceiling describes all of
+  them.
+
+- **An instrument built to answer a question can measure the question next
+  door, and its own docstring may already say so.** `ladder-fixtures` was
+  built for #116 and counts fixtures with a fresh team-market leg - the
+  candidate **pool**. The convener walks the ladder **payload's** distinct
+  fixtures (`scout_watch.py:178`, the same `build_ladder_payload_widening`
+  the route calls). The gap is an order of magnitude: 135 in the pool on
+  2026-09-08 against 6 on the cards. The docstring said it plainly - "best
+  read as a loose UPPER BOUND ... not the number the ladder actually built
+  cards from" - and the handoff still carried it as the number Joe would be
+  asked to fund against. **Open the line of code that CONSUMES the quantity
+  you are funding, and check the instrument computes that one.** Reading the
+  consumer also found that the watcher calls the *widening* builder, so
+  "tonight's ladder" is tomorrow's games whenever tonight is empty - a
+  property of the flag nothing in the ADR or the ticket stated.
+
+- **"It scans the whole index" is not a cost claim, and a plan shape is not
+  a stopwatch - in BOTH directions.** This record already carried `2e66f36`,
+  where an index was dropped because a plan said it changed nothing and had
+  to be restored: *"the plan was never the cost."* Tonight the mirror image.
+  #87 added a `WHERE` to bound a `GROUP BY odds_snapshots` whose plan said
+  SCAN, the plan afterwards said SEARCH, and the stopwatch on live found
+  **no improvement at all** (489.3 ms bounded and cold against 423.5 ms
+  unbounded and warm, row sets agreeing at 249). The reason: the aggregate
+  rode a *covering* index shaped exactly for it, so the "whole-index scan"
+  was one ordered pass collapsing 5.4 M entries into 1,292 groups, and
+  replacing it with 930 seeks plus a scan of `event_links` is not cheaper.
+  **A covering index makes a full pass cheap; 5.4 M rows over 1,292 groups
+  is a ratio to check before calling an aggregate expensive.** (The fix was
+  not reverted - it is correct and scales with the smaller table. What did
+  not survive is the claim that it bought something.)
+
+- **A ticket's Done-when can expire without anything going red.** #88 asked
+  for a timing "run twice on live (before task 02 merges/deploys, and
+  after)". #87 merged and deployed, the "before" became permanently
+  unobtainable, and the ticket sat on the frontier looking runnable, because
+  the board checks blockers and assignees and not whether a completion
+  criterion is still *reachable*. A Done-when naming an **artifact** (a test,
+  a file) keeps; one naming a **state of the world** has an expiry nobody
+  wrote down. The re-spec was also the better measurement - both texts timed
+  back to back on one connection beats a before/after across a deploy, which
+  would confound the edit with a restart and a different cache.
+
+- **Two registries can guard one surface from different files, and a
+  ticket's named tests reach only one.** Adding a `QueryDef` to
+  `scripts/inspect_live_db.py` must also be added to `SUBCOMMANDS` in
+  `tests/test_inspect_live_db_modules.py`, which asserts in both directions
+  so the list cannot rot into a subset. The failing file is not the file the
+  query is registered in, so a targeted run of the ticket's own tests passes
+  and CI does not. Both main and the Sonnet lane hit it independently in one
+  evening. **When a change adds a NAME to a surface, grep the tests for an
+  existing name on that surface before running anything** - the pin that
+  will catch you is wherever that grep lands, not where you edited.
+
+- **Before splitting a question into "his half" and "ours", re-read the
+  ticket: the thing you were about to ship unasked may already be one of his
+  lettered options.** The session's direction proposed shipping half of #79
+  on the argument that *refusing* a suppressed parlay leg changes what Joe
+  can bet while merely *marking* it does not, so the mark was ours to ship.
+  #79 offers four options and **(b) is "carry the leg but mark the card"**,
+  framed as a trade-off against (a). Shipping it would have chosen (b) for
+  him and then asked him to choose. The reasoning was sound in general and
+  wrong against this ticket, and only the body shows which. **A ticket that
+  lists an option has already claimed it.**
+
+---
+
 ## 2026-09-20 (first) - A lane is cut from where the session started, not from where main is; and an allowlist keyed on who names a symbol moves to whoever you hand the symbol to
 
 Two patterns from the session that let the scout desk be sent unattended
@@ -1292,6 +1374,7 @@ immediately and by dozens within a week.
 
 ### 2026-09-20 — in this file, above
 
+- A constant in the source beats a week of sampling; a plan shape is not a cost in either direction; and a Done-when can expire with nothing going red
 - A lane is cut from where the session started, not from where main is; and an allowlist keyed on who names a symbol moves to whoever you hand the symbol to
 
 ### 2026-09-19 — in this file, above
