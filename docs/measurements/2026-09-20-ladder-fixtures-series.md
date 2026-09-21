@@ -33,6 +33,23 @@ At 23:44Z the payload's own `excluded` counters read `stale_consensus: 23`,
 `kickoff_outside_window: 142` — 165 candidates narrowed to 12 leg slots. The
 kickoff-window filter is what separates the pool from the demand.
 
+**Both call sites are the same function with the same two arguments**
+(`backend/api/routers/parlays.py:253` and `backend/scout_watch.py:178`, both
+`build_ladder_payload_widening(conn, now_ms=..., max_odds_age_ms=...)`), so
+these readings are the demand quantity and not a proxy for it. One
+difference: the route also passes `trust_thresholds`, the watcher does not.
+That is believed to affect the trust badge rather than leg selection and was
+not tested.
+
+**And "tonight's ladder" was tomorrow's games.** The 23:44Z payload carried
+`window.widened_from = "tonight"`, with `widened_words` reading *"Nothing
+fresh kicks off among games kicking off before tonight's slate ends, so these
+are games kicking off before tomorrow night's slate ends."* The watcher calls
+the **widening** builder, so when tonight is empty it does not stand down — it
+convenes the desk on tomorrow's slate. That is a real property of turning the
+flag on and is not a defect, but nothing in ADR 0180 or the ticket says it
+out loud, and the spend it authorises is for games that may be a day away.
+
 ## 2. The 30-day series, and why it is not the answer
 
 `inspect_live_db.py ladder-fixtures --days 30`, run on live (`cost=CHEAP`:
