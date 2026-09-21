@@ -134,6 +134,126 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-21 (fortieth session) — unattended scouting is armed, the disk mystery is located but NOT explained, and the audit struck two of my six claims before they entered the record
+
+Joe's named errand, carried in the thirty-ninth entry: **#116 and #117, both
+answered (b), plus #58.** `partner` ran on the board and returned a ranked
+list plus two corrections that changed what got done — and one of them
+(**take the free disk instrument before the expensive one**) is the reason
+two hypotheses died at zero cost.
+
+### What shipped
+
+| commit | what | ticket |
+|---|---|---|
+| `f42bb41` | `SCOUT_AUTO_CONVENE_ENABLED` → `"true"` on live, comment block rewritten in the same commit; deployed and `git_sha`-verified | #118 |
+| `8c82476` (merge of `b70d8a0`) | Lane (Sonnet): `db-growth-by-table` — `MAX(rowid)` per large table at `cost=CHEAP`; both registries; 3 of 5 guards go red under the `COUNT(*)` mutation, re-verified by main | #120 |
+| this commit | `2026-09-21-what-actually-grew-is-kalshi-quotes.md` (2nd draft), the entry, seven lessons | #58 |
+
+**Live is on `8c82476`** — deployed twice tonight, verified both times.
+
+### 1. #118 — the first thing here that spends with nobody tapping
+
+On at unchanged ceilings. `partner`'s pre-flight found the one cost Joe was
+**not** told about when he answered: the chain buys **no odds credits and
+makes no Kalshi call** — `scout_watch.py:178` → `build_ladder_payload_widening`
+→ `candidate_pool` are SQLite reads over stored rows, no `decide_sweeps`, no
+visit marker. His convenings-as-calls-plus-searches arithmetic holds.
+
+**The 24–72 h clock starts at the DEPLOY: 2026-09-21 ~14:15Z.** The reading
+owed must print the ceiling ladder in binding order: 3 convenings, then 5/day
+from the 60-search cap against `STAFF_PAIR_SEARCHES_WORST_CASE = 12`, then
+6/day from the 24-call cap, then tokens.
+
+### 2. The disk: located, not explained
+
+`docs/measurements/2026-09-21-what-actually-grew-is-kalshi-quotes.md`.
+
+**Free instrument first.** `inspect_live_disk.py` (statvfs/walk/stat, zero
+cache cost) killed two of three hypotheses before a page was read: the WAL is
+**3.4 MB**, and there is no leftover `VACUUM INTO` copy. The bytes are inside
+`cockpit.db`, which is what licensed the expensive walk.
+
+`db-sizes`, summed table-plus-its-own-indexes, against 2026-09-18:
+`kalshi_quotes` **+0.80 GB**, `odds_snapshots` +0.25, `fair_prices` **+0.00**
+(the ADR 0133 dedup works), file +1.24. The decomposition closes to ~3 MB.
+
+`prune-frontier`: **the prune is flawless** — backlog 0, frontier 54 s *ahead*
+of the 3-day cutoff, ~53 M rows deleted over the table's life. The growth is
+in the **exemption**: `retention.py:231` spares any quote whose ticker is in
+`recommendations`, that table has **no `DELETE` anywhere**, and **3,039,094 of
+11,596,682 rows (26.2%) are exempt forever**. Opened for Joe as **#122**.
+
+**But the mechanism is NOT established, and the ticket says so.** Page bloat
+in a continuously-pruned random-order index explains the same 0.80 GB: index
++79.3% against table +57.7%, freelist quadrupled 12,096 → 49,300 pages.
+`MAX(rowid)` is **blind to fragmentation**, so the obvious follow-up does not
+separate them. The separating column — `dbstat.unused` — was **already queued
+by the 2026-09-18 doc for "the next `db-sizes` run"**, and tonight's run went
+without it. A whole-file walk was spent and that question is still open.
+**#123.**
+
+### 3. The audit is the story
+
+`measurement-skeptic` returned **OVERSTATED — do not enter as written** on
+the first draft, and was right:
+
+- **"580 MB/day is falsified" — struck.** The 26.7 MB/day reading is Sunday
+  19:50 ET → Monday **09:56 ET** (the draft said Sunday; 2026-09-21 is a
+  Monday) — the quietest window of the football week, chosen *because* it was
+  the cheapest moment to flush the cache. Cheap and quiet are the same
+  property. The 580 window held the Saturday and Sunday slates. 22× is what a
+  **stationary** duty-cycled recorder predicts.
+- **"580 is 1.8×, not 5–7×" — struck.** `CURRENT_GROWTH_RATE = 326.6` is a
+  **pre-dedup** constant whose own comment expects ~142. My "correction" of
+  the thirty-ninth session picked the comparator that minimised the gap while
+  accusing it of picking the one that maximised it — on good news.
+- **"He should not answer #58 as written" — struck.** #58's premise survives:
+  `odds_snapshots` is still the only table with **no bound at all**.
+- **"a free half-gigabyte" for `idx_odds_event` — struck**, contradicting
+  `NEXT.md:184-187`, `:251` and `2e66f36`.
+- **No ticket for Joe.** `test_a_question_for_joe_has_a_ticket.py` passed
+  **vacuously** — it refuses a marker without a number, not a missing marker.
+
+§4 (the prune/exemption finding) was **strengthened** by the audit, not
+weakened: `prunable_rows` carries no age predicate, so the 26.2% arithmetic
+is right, and the NULL-trap that would have forged `backlog_rows = 0` is
+structurally excluded by `schema.sql:977`.
+
+### 4. #115 got a date instead of a question
+
+Unblocks on **whichever comes first: #58 answered and shipped, or
+2026-10-06.** Ours to set, not Joe's — the registration's population is
+frozen before 2026-09-20 so waiting buys **zero power**, and without a date
+his (b) silently decays into the (c) he rejected when it expires 2026-10-20.
+A premise check that `odds_fixtures` might remove the blocker came back
+**against** and is recorded so nobody re-runs it.
+
+### 5. Seven questions, finally batched
+
+Six were already lettered with recommendations and had **never been put to
+him together** (~19 KB of bodies; he answers on a phone). One digest is on
+the map: `58A 71A 78C 79A 97A 119C 122D` is a valid reply. #122's option (D)
+is "decide it with #58", so he can merge the two disk questions in one word.
+
+### Still open
+
+**Answer the digest on map #3 — seven tickets, one page, any subset.**
+
+1. **#118 — the dated reading is OWED, 24–72 h after 2026-09-21 14:15Z.** `trigger = 'auto'` rows by budget day, refusals and at which ceiling, and which of the four ceilings bound first. This is the only item here on a clock.
+2. **#123 — add `dbstat.unused` to `db-sizes`.** The separating instrument for #58/#122, owed since 2026-09-18 and the reason tonight's walk under-delivered. Sonnet lane, ready to dispatch.
+3. **#122 — with Joe** (new): the quote exemption set is 26.2% and monotonic. Its (D) merges it into #58.
+4. **#58 — with Joe**, premise intact: `odds_snapshots` is still unbounded. A 90-day horizon deletes nothing today, which is why (A) is cheap.
+5. **#115 — starts 2026-10-06** unless #58 lands first. Expires 2026-10-20.
+6. **#121 — the `EXPLAIN` QueryDef for `odds_snapshots` Shapes 3 and 4.** Sonnet lane. #89's last read cannot be typed: no existing instrument covers those shapes and `ssh` may only run committed scripts by path. A drop remains unlicensed (`2e66f36`).
+7. #71, #78, #79, #97, #119 — with Joe, in the digest.
+8. #107 — a capture of opportunity, not a scheduled hunt; #95 and #96 behind it.
+9. #108 — the deferred fifth seat only.
+
+Question for Joe: a quarter of all price quotes are exempt from deletion forever because the exemption list is never cleaned out — bound it, bound the list, leave it, or decide it with #58? — #122
+
+---
+
 ## 2026-09-20 (thirty-ninth session) — two live readings overturn the premise of the tickets that asked for them, #116 gets its arithmetic without the week it was told to wait, and four questions leave Joe's queue without him answering one
 
 Joe said "read NEXT.md and continue" — no named errand — so `partner` owned

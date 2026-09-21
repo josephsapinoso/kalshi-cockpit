@@ -16,6 +16,106 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-21 - A cheap reading and a quiet reading can be the same reading; correcting a comparator is itself a comparator choice; and an expensive instrument may already have a column queued onto it
+
+Seven patterns from the session that turned unattended scouting on and
+diagnosed the disk. Five of them come from `measurement-skeptic` returning
+**OVERSTATED - do not enter as written** on the first draft of the
+measurement, before it was committed. The audit was right on every count
+that mattered, and the corrections are worth more than the finding.
+
+- **When a diagnosis has candidate locations, ask which instrument separates
+  them at zero cost - and run that one first.** The handoff named `db-sizes`
+  (`WALKS_THE_FILE`) as the next step for "what grew?". But two of the three
+  candidate homes for the missing 1.22 GB were not inside the database at all
+  (a WAL that could not checkpoint; a leftover `VACUUM INTO` copy), and
+  `inspect_live_disk.py` separates all three for **nothing** - `statvfs`,
+  `walk` and `stat`, never opening a file it lists. It killed both
+  non-database hypotheses (the WAL was 3.4 MB against a 1.22 GB question)
+  before one expensive page was read. The free read was also the
+  **like-for-like** one: it is the instrument that produced the baseline file
+  size being compared against, which `db-sizes` is not. **Order the
+  instruments by cost before ordering them by how much you want the answer.**
+
+- **Before spending a `WALKS_THE_FILE` read, grep the record for what the
+  LAST one was asked to also collect.** `docs/measurements/2026-09-18-where-the-database-bytes-are.md:104-111`
+  ends: *"One extra column on the next `db-sizes` run settles it"* - meaning
+  `dbstat.unused`, which separates "rows were added" from "pages bloated".
+  The next `db-sizes` run was 2026-09-21 and it went **without the column**.
+  A whole-file walk was spent, the desk lost its page cache, and the question
+  that walk had been queued to answer is still open - which is exactly why
+  the diagnosis came back "two explanations, cannot separate them". **An
+  expensive instrument accumulates a to-do list in the documents that last
+  used it, and that list is not attached to the instrument.**
+
+- **A cheap moment to spend a cache flush and a quiet moment are the same
+  moment, so choosing the reading on cost is choosing it on the outcome.**
+  The third file-size point was taken over 14.1 hours "ahead of the kickoff
+  windows", got 26.7 MB/day against a flagged 580, and was written up as
+  falsifying it. That window is Sunday evening into Monday morning - the
+  quietest stretch of the football week - while the 580 window held the whole
+  Saturday college slate and the whole Sunday NFL slate. Both growing tables
+  are duty-cycled to game action by design (`kalshi_quotes` is a change log
+  that writes only when a price moves, ADR 0055; `odds_snapshots` drops to
+  the hourly floor unattended). **A 22x ratio is what a *stationary* recorder
+  with that duty cycle predicts.** A re-measurement must be **phase-matched**
+  to what it is re-measuring: same clock time on consecutive days, or a
+  window holding exactly one of each weekday. Adjacent is not comparable.
+
+- **Correcting someone else's comparator choice is itself a comparator
+  choice, and it runs the same risk in the opposite direction.** The draft
+  accused the previous session of quoting 580 against "the registered
+  ~85-110 MB/day" - the smallest of three circulating quantities, which
+  maximised the gap - and re-framed it as "1.8x" against
+  `CURRENT_GROWTH_RATE = 326.6` (`backend/store/volume.py:149`), "the
+  constant the system actually runs on". But 326.6 was measured **2026-09-09,
+  before the dedup shipped**, and its own comment says it is expected to fall
+  to ~142. So the draft picked the comparator that *minimised* the gap, while
+  accusing its predecessor of picking the one that maximised it, **on a
+  result that was good news.** Against the post-dedup expectation, 580 is
+  ~4-7x and the predecessor was approximately right. **When a name covers
+  three numbers, print all three with what each was measured on and when -
+  do not pick one and call it "the" registered rate.** (CLAUDE.md's
+  `actionable` rule, on a new quantity.)
+
+- **A prune in perfect health and a broken prune look identical from outside,
+  because a prune's instruments are scoped to the rows it is allowed to
+  touch.** `kalshi_quotes` grew 0.80 GB in three days while `prune-frontier`
+  reported `backlog_rows 0` and a frontier **54 seconds ahead of** the 3-day
+  cutoff - flawless, and ~53 M rows deleted over its life. The growth is in
+  the **exemption**: `retention.py:231` spares any quote whose ticker is in
+  `recommendations`, that table has no `DELETE` anywhere, so the spared set
+  is strictly monotonic and is now 26.2% of all rows. **When a table with a
+  retention rule grows, measure the exempt population, not the prune's
+  progress.**
+
+- **Two mechanisms that predict the same observation are not a finding, and
+  "the next reading will tell us" is only true if it can.** The draft argued
+  the exemption set was too small to explain 0.80 GB (4.6 M rows needed
+  against 3.04 M exempt, at the family's average 172 bytes/row) and concluded
+  the season must also be contributing. Inverted, the exempt rows alone cover
+  it at 263 bytes/row - a factor of only 1.53 - and page bloat in a
+  continuously-pruned random-order index covers it completely and
+  independently. The signature was in the draft's own numbers, reported as
+  corroboration: index +79.3% against table +57.7%, and a freelist that
+  quadrupled. Worse, the planned follow-up (`MAX(rowid)` differencing) is
+  **blind to fragmentation**, so the stated decision rule - flat inserts plus
+  rising bytes implies the exemption - names the fragmentation signature and
+  reads it as the opposite. **Before writing "the next reading separates
+  them", check that it separates them.**
+
+- **A guard can be green because it cannot see the failure.**
+  `tests/test_a_question_for_joe_has_a_ticket.py` passed on a measurement
+  that raised a decision only Joe can make and carried **no ticket at all**.
+  It refuses a `Question for Joe:` marker without a number; it cannot refuse
+  a *missing* marker, so the omission that the rule exists to catch is
+  precisely the one it is blind to. The audit caught it, not the suite.
+  Related, same session and same shape: the standing "never hand-type a git
+  sha" lesson was applied correctly on the deploy path and then violated in a
+  **GitHub issue close comment** - permanent, public, and read by future
+  sessions as fact. **Apply a lesson to every surface its hazard reaches, not
+  to the one where it first burned you**; the tell is identical everywhere -
+  a sha not pasted from a command's output in this session.
 ## 2026-09-20 (second) - A constant in the source beats a week of sampling; a plan shape is not a cost in either direction; and a Done-when can expire with nothing going red
 
 Five patterns from the session that answered #116 without the week it had
