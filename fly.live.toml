@@ -501,18 +501,30 @@ primary_region = "ord"
   AGENT_MAX_SEARCHES_PER_DAY = "60"
   AGENT_MAX_TOKENS_PER_DAY = "500000"
 
-  # **Unattended scouting is OFF on live, deliberately, and the flip is
-  # Joe's** (ticket #116). `backend/scout_watch.py` can send the desk on
-  # tonight's ladder with nobody tapping; ADR 0088 declined that on the
-  # arithmetic above (five convenings against nine fixtures on 2026-09-20),
-  # and ADR 0180, which supersedes it, records his answer: ship it off, take a
-  # 7-day `ladder-fixtures` series, then raise the three AGENT_MAX_* ceilings
-  # together or not at all. Set explicitly to "false" rather than left unset,
-  # for the same reason AGENT_MODEL is: an unset money-bearing value is how
-  # this instance once spent at a rate nobody chose. When it is turned on,
-  # the three SCOUT_AUTO_* brakes in `.env.example` apply and sit INSIDE the
-  # ceilings above -- they are never additive to them.
-  SCOUT_AUTO_CONVENE_ENABLED = "false"
+  # **Unattended scouting is ON on live, at UNCHANGED ceilings** -- Joe's
+  # answer (b) to ticket #116, given 2026-09-21, shipped as #118.
+  # `backend/scout_watch.py` sends the desk on tonight's ladder with nobody
+  # tapping: this is the first thing in this repo that spends money with
+  # nobody tapping anything.
+  #
+  # **Nothing else moved with this flag, and that is the decision.** The
+  # three AGENT_MAX_* ceilings above are untouched, and the standing rule
+  # survives his answer: **they move together or not at all.** The three
+  # SCOUT_AUTO_* brakes in `.env.example` (3 convenings a night, 2 taps
+  # reserved for Joe, a 6-hour refresh) sit INSIDE those ceilings and are
+  # never additive to them -- `scout_watch.py` asks the same shared
+  # `AgentBudget`, there is no second ceiling object.
+  #
+  # ADR 0180's plan was "ship it off, take a 7-day `ladder-fixtures` series,
+  # then raise the three together". The series was not needed: `CARD_SHAPES`
+  # is nine fixed recipes summing to 30 `max_legs`, so a night's ladder
+  # carries **at most 30 distinct fixtures, ever** -- a structural ceiling,
+  # not a sample (#116, 2026-09-21). He answered on that arithmetic.
+  #
+  # Still set explicitly rather than left unset, for the same reason
+  # AGENT_MODEL is: an unset money-bearing value is how this instance once
+  # spent at a rate nobody chose. Turning it back off is this one line.
+  SCOUT_AUTO_CONVENE_ENABLED = "true"
 
   ODDS_REGIONS = "us,eu"
 
