@@ -1,4 +1,10 @@
-# 2026-09-21 — `kalshi_quotes` is what grew, its prune is healthy, and the mechanism is NOT established
+# 2026-09-21 — `kalshi_quotes` is what grew, its prune is healthy, and the mechanism is BOTH: at least 40% rows, at most 60% page bloat
+
+**Read §8 first if you want the answer.** §§1–7 are the session as it ran,
+including a first draft the audit struck; §8 is the addendum taken after the
+separating instrument (#123) shipped the same day, and it supersedes §5's
+"cannot say" with a bound. The title of this file said "the mechanism is NOT
+established" until §8 was added.
 
 Ticket #58. Three live readings taken 2026-09-21 between 13:56Z and 14:40Z,
 on live `git_sha` `f42bb41e…` then `8c82476703ff7bc1759fe2e9202112a78c592461`.
@@ -327,3 +333,107 @@ count that mattered:
    draft, vacuously.** It refuses a `Question for Joe` marker that carries no
    number; it cannot refuse a *missing* marker. The guard was green and the
    rule was broken.
+
+---
+
+## 8. ADDENDUM, same day ~16:30Z — the separating reading was taken, and it bounds both mechanisms
+
+§5 closed by saying the mechanism was not established and that `dbstat.unused`
+was the separating instrument. It shipped as **#123** (`9283d5d`) and the
+reading was taken on live the same session. **§5's "cannot say" is now a
+bounded answer, and the audit's fragmentation hypothesis was correct and
+large.**
+
+`db-sizes --i-accept-the-cache-flush --limit 14`, live `9283d5d`:
+
+    name                      bytes       unused_bytes  fill_pct
+    fair_prices               1741062144      40838308  97.7
+    kalshi_quotes             1038151680     116257688  88.8
+    idx_quotes_ticker_time     955858944     360785231  62.3
+    odds_snapshots             925331456      19122723  97.9
+    idx_odds_sport_commence    609738752      48851326  92.0
+    idx_odds_event             524144640     228687266  56.4
+    idx_odds_window            432246784      61023312  85.9
+    idx_fair_link              372178944     176232562  52.6
+    idx_fair_market_computed   346419200     130094325  62.4
+    idx_odds_event_commence    271708160      10252479  96.2
+    idx_odds_commence           92147712      10444222  88.7
+    recommendations             79015936      11788831  85.1
+    kalshi_markets              43110400       6835848  84.1
+    idx_recs_ticker_side        13590528       1998601  85.3
+
+    file-level: page_count 1,884,160  freelist 50,593  total 7,717,519,360
+                reclaimable_by_vacuum_bytes 207,228,928
+
+### 8.1 Both mechanisms are real, and the split is a BOUND
+
+| family | total | dead | fill | live |
+|---|---|---|---|---|
+| `kalshi_quotes` | 1.994 GB | **0.477 GB** | 76.1% | 1.517 GB |
+| `fair_prices` | 2.460 GB | 0.347 GB | 85.9% | 2.112 GB |
+| `odds_snapshots` | 2.855 GB | 0.378 GB | 86.7% | 2.477 GB |
+
+**There is no 2026-09-18 `unused` baseline** — that reading predates the
+column, which is the whole reason #123 existed — so every dead-space figure
+here is a **level, not a delta**. The split is still derivable, because
+2026-09-18's total is an upper bound on its live bytes:
+
+    total(09-18) = live(09-18) + dead(09-18)   =>   live(09-18) <= 1.20 GB
+    live(09-21)  = 1.517 GB
+    => live growth >= +0.317 GB
+    => dead growth <=  0.477 GB
+
+Against the family's +0.794 GB: **at least 40% of the growth is live rows and
+at most 60% is page bloat.** Neither explanation is the whole story, and §5's
+refusal to pick one was correct. What the audit got right is that
+fragmentation is *large* — the draft had dismissed it without measuring it.
+
+**`idx_quotes_ticker_time` is 62.3% full with 360.8 MB dead** — precisely the
+shape the 2026-09-18 doc named in advance (random insert order, continuously
+pruned). The prediction was right and had gone unmeasured for three days.
+
+### 8.2 The finding that is bigger than the ticket
+
+**1,223,212,722 bytes of dead space sit across these 14 btrees, while the
+file-level summary reports `reclaimable_by_vacuum_bytes` of 207,228,928.**
+
+`reclaimable_by_vacuum_bytes` counts only **fully free pages** (the freelist).
+It cannot see a page that is 60% empty and still allocated. So the file-level
+number understates a `VACUUM`'s yield by roughly **6x** here: a `VACUUM INTO`
+would plausibly reclaim on the order of **1.4 GB**, not 207 MB.
+
+The 2026-09-18 doc said *"The real yield is plausibly several hundred MB more
+and nobody has measured it."* It is over a gigabyte.
+
+**Do not read the 1.22 GB of dead space as "the 1.24 GB the file grew".** The
+two numbers are close and that is a coincidence of levels: dead space
+accumulated over the table's whole life, not over these three days.
+
+### 8.3 This sharpens #89, and in the direction of caution about its headline
+
+**`idx_odds_event` is 56.4% full with 228,687,266 bytes dead** — of its
+524 MB, only **295 MB is live**. The "479.6 MB" this record quotes for that
+index is an older total that is substantially air.
+
+That cuts both ways and the unflattering direction is the one to carry:
+**dropping it would reclaim less live content than its headline suggests**,
+and a `VACUUM` would recover 229 MB of it without dropping anything at all.
+It remains an unmeasured candidate blocked on a timing (#89 / #121), and
+§6's correction stands.
+
+`idx_fair_link` at **52.6%** is the worst-filled btree on the box.
+
+### 8.4 What this does not establish
+
+- **No dead-space delta**, for want of a baseline. Every `unused` figure is a
+  level. The bounds in §8.1 come from arithmetic on totals, not from
+  differencing.
+- **Nothing about what a `VACUUM` would actually return.** ~1.4 GB is an
+  estimate from `unused` plus the freelist; `VACUUM` repacks at ~100% fill
+  but the operation has never been run on this file, and §6's operational
+  caveats stand.
+- **Nothing about whether the fragmentation recurs.** A `VACUUM` that
+  reclaims 1.4 GB into an index that refragments in a fortnight buys a
+  fortnight. The insert pattern is unchanged by repacking.
+- **`--limit 14` again truncates**, so the 1.22 GB is a sum over the 14
+  largest btrees and a **lower bound** on the file's total dead space.

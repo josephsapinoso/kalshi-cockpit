@@ -116,6 +116,25 @@ that mattered, and the corrections are worth more than the finding.
   sessions as fact. **Apply a lesson to every surface its hazard reaches, not
   to the one where it first burned you**; the tell is identical everywhere -
   a sha not pasted from a command's output in this session.
+
+- **Never put prose through `bash -c "..."`; backticks inside a
+  double-quoted shell string are COMMAND SUBSTITUTION, and the loss is
+  silent.** Twice in one session a Python one-liner that wrote Markdown was
+  invoked as `python -c "..."`, and bash expanded every `` `backticked` ``
+  term before Python ever saw the string. Both times the write "succeeded" -
+  it printed `updated` - and every code-span in the result was **replaced by
+  empty string**, leaving grammatical sentences with the identifiers missing:
+  *"so `` `` 's real branch"*. The second occurrence also executed fragments
+  of the file's own contents as commands, including a bare `flyctl`, an
+  `unlink` and a `truncate`; they failed only because they had no operands.
+  This repo already carries "heredocs mangle backslashes - use Write for
+  regexes"; the same hazard reaches **any** shell-quoted content, and
+  Markdown full of code spans is the most exposed thing there is. **Write
+  prose with the Write or Edit tool, always.** The tell after the fact is a
+  sentence that reads fine but has a gap where a name should be.
+
+---
+
 ## 2026-09-20 (second) - A constant in the source beats a week of sampling; a plan shape is not a cost in either direction; and a Done-when can expire with nothing going red
 
 Five patterns from the session that answered #116 without the week it had
