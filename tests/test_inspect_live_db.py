@@ -968,6 +968,7 @@ KNOWN_WALKS = (
     "window-freshness",
     "book-rows",
     "scoring-candidate-timing",
+    "odds-snapshots-latest-price-timing",
 )
 KNOWN_CHEAP = ("loop-rss", "read-incidents", "sweep-log", "credits-tail", "notifications")
 
