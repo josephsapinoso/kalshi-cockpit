@@ -24,8 +24,17 @@ def register(
     live_quotes,
     get_conn,
     require_auth,
+    read_combo_book=None,
 ) -> None:
-    """Attach the four hedge handlers to `app`, in their original order."""
+    """Attach the four hedge handlers to `app`, in their original order.
+
+    `read_combo_book` is threaded straight through to `held_parlays.
+    build_payload` (#95) and defaults to `None`, same as there -- this
+    router does not decide what it is, only carries it. Wiring the real
+    reader (`KalshiRestClient.orderbook`, built lazily by `combo_api()`) is
+    #128, at the call site below main owns (`backend/api/routes.py`), not
+    here.
+    """
 
     @app.get("/api/hedge")
     async def hedge_positions(conn=Depends(get_conn)) -> dict:
@@ -54,6 +63,7 @@ def register(
             max_quote_age_ms=staleness.max_kalshi_quote_age_s * 1000,
             spendable_tenths=db.latest_balance_tenths(conn),
             fetch_quote=live_quotes().fetch,
+            read_combo_book=read_combo_book,
         )
 
     @app.post("/api/hedge/positions", dependencies=[Depends(require_auth)])

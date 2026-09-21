@@ -15,6 +15,7 @@ import {
 } from "@/lib/api";
 import { kalshiMarketUrl } from "@/lib/kalshiLink";
 import { stakeBasisNote } from "@/lib/stakeBasisGloss";
+import { comboBookNote, COMBO_BOOK_ASK_POINTER } from "@/lib/comboBookGloss";
 import Term from "@/components/Term";
 
 /**
@@ -185,6 +186,7 @@ function Position({
         venuePollMs={venuePollMs}
         asOfMs={asOfMs}
       />
+      <ComboBookLine position={position} />
 
       <ol className="mt-3 divide-y divide-border">
         {position.legs.map((leg) => (
@@ -271,6 +273,29 @@ function VenueStatusLine({
     );
   }
   return null;
+}
+
+/**
+ * What the public order book says this combination could be sold back for
+ * right now (#95) -- its own block, deliberately NOT next to `stake_display`
+ * above: `parlay_positions` has no contracts column, so a price beside a
+ * total stake invites dividing one by the other with no denominator on the
+ * wire (review D5). Renders nothing at all -- not a sentence, silence -- on
+ * a sportsbook slip and on any ticket this build cannot read a combo book
+ * for; `comboBookNote` owns that decision, the same split
+ * `stakeBasisNote`/`StakeBasisLine` already uses for `stake_basis`.
+ */
+function ComboBookLine({ position }: { position: HeldPosition }) {
+  const note = comboBookNote(position.combo_book, position.combo_book_reason);
+  if (!note) return null;
+  return (
+    <p className="mt-1 text-xs leading-snug text-muted">
+      {note}{" "}
+      {position.source === "kalshi_combo" && (
+        <span className="text-muted">{COMBO_BOOK_ASK_POINTER}</span>
+      )}
+    </p>
+  );
 }
 
 /** One leg: what it is, what the venue says it is worth now, and how it settled. */

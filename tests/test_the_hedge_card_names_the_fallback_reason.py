@@ -89,6 +89,15 @@ HEDGE_PY = ROOT / "backend" / "hedge.py"
 GLOSS_TS = ROOT / "frontend" / "src" / "lib" / "stakeBasisGloss.ts"
 API_TS = ROOT / "frontend" / "src" / "lib" / "api.ts"
 CARD = ROOT / "frontend" / "src" / "components" / "HedgePositions.tsx"
+# #95's own gloss module -- a second vocabulary rendered on this same card,
+# kept as a second file rather than folded into `GLOSS_TS` because it glosses
+# a different field (`combo_book`, not `stake_basis`) with a different shape
+# (states, not refusal reasons). `TestTheComboBookStates` below is #95's
+# done-when items 2 and 3: a named source-assertion test, extending this
+# file rather than duplicating its `CARD`/`collapsed()` machinery in a new
+# one. The backend states themselves are proven in
+# `tests/test_the_hedge_card_shows_the_combo_book.py`.
+COMBO_GLOSS_TS = ROOT / "frontend" / "src" / "lib" / "comboBookGloss.ts"
 
 NODE = shutil.which("node")
 
@@ -313,6 +322,109 @@ class TestTheCardRendersOnTheNoteNotOnTheBasis:
         types = collapsed(API_TS)
         assert 'stake_basis: "venue_fill" | "as_recorded" | null;' in types
         assert "stake_basis_reason: string | null;" in types
+
+
+class TestTheComboBookStates:
+    """#95, done-when items 2 and 3: a named Python source-assertion test
+    proving `HedgePositions.tsx` renders the combination book's five states
+    in words and never renders `0c` for an absent bid -- extending this file
+    rather than duplicating its `CARD`/`collapsed()` machinery elsewhere.
+
+    The five states never collapse into each other (the review's D1: a
+    failed read must not render as "nothing resting"); the vocabulary lives
+    in `comboBookGloss.ts` (`COMBO_GLOSS_TS`), the same split this file's own
+    `stakeBasisGloss.ts` uses for `stake_basis` -- the card renders a line,
+    the gloss module decides what the line says.
+
+    MUTATIONS, each observed red on 2026-09-21
+    -------------------------------------------
+      M2b. the card (or the gloss module) renders the literal `"0c"` for an
+           absent price -> `test_the_component_never_renders_the_literal_
+           zero_cents` goes red. (M2a, the backend half of the same split, is
+           in `tests/test_the_hedge_card_shows_the_combo_book.py` -- a
+           `.tsx` source-grep stays green when the backend is what is
+           mutated, which is why the ticket split M2 in two.)
+      the `not applicable` state renders a fifth sentence instead of
+           silence -> `test_the_not_applicable_state_says_nothing_at_all`
+           goes red.
+      a banned rate clause ("rarely", "by design", ...) is added to either
+           file -> `test_no_banned_rate_language_appears` goes red.
+
+    What this does not establish
+    -----------------------------
+    - That any of these sentences are correct or legible on a phone --
+      source text and no browser, same as every other test in this file.
+    - Anything about how the five states behave on the backend; see
+      `tests/test_the_hedge_card_shows_the_combo_book.py` for that half.
+    """
+
+    def test_the_card_reads_the_combo_book_field(self):
+        assert "combo_book" in collapsed(CARD)
+
+    def test_the_card_renders_the_gloss_line_not_its_own_words(self):
+        """The same discipline `StakeBasisLine` follows: the card asks a
+        gloss function for a sentence and renders it, rather than deciding
+        the wording itself."""
+        assert "comboBookNote" in collapsed(CARD)
+
+    def test_the_component_never_renders_the_literal_zero_cents(self):
+        """M2b. Every price on this surface is either a real `price_display`
+        string the backend already formatted, or nothing at all -- neither
+        the card nor the gloss module may construct its own `"0c"`."""
+        assert '"0c"' not in collapsed(CARD)
+        assert '"0c"' not in collapsed(COMBO_GLOSS_TS)
+
+    def test_the_component_does_not_default_a_missing_price_to_zero(self):
+        """A `??` or `||` fallback beside a price field is the shape a `0`
+        default takes when a literal `"0c"` would be too obvious to write."""
+        for path in (CARD, COMBO_GLOSS_TS):
+            body = path.read_text(encoding="utf-8")
+            for forbidden in ("price_display ??", "price_display ||"):
+                assert forbidden not in body, (
+                    f"{forbidden!r} found in {path.name} -- a fallback is a "
+                    "0 in disguise"
+                )
+
+    def test_all_five_states_are_named_in_the_gloss_module(self):
+        source = collapsed(COMBO_GLOSS_TS)
+        for state in (
+            hedge.COMBO_BOOK_BID,
+            hedge.COMBO_BOOK_EMPTY,
+            hedge.COMBO_BOOK_UNPRICED_INTEREST,
+            hedge.COMBO_BOOK_UNREADABLE,
+        ):
+            assert f'"{state}"' in source, f"state {state!r} is not read anywhere"
+
+    def test_the_not_applicable_state_says_nothing_at_all(self):
+        """`comboBookNote` returns `null` for `combo_book === null`, and the
+        card returns early on that `null` rather than composing a fifth
+        sentence -- not a rendered blank, silence at the source, matching
+        the `!note` guard `StakeBasisLine` already uses above."""
+        gloss_source = COMBO_GLOSS_TS.read_text(encoding="utf-8")
+        assert "if (comboBook === null) return null;" in gloss_source
+        card_source = CARD.read_text(encoding="utf-8")
+        assert "if (!note) return null;" in card_source
+
+    def test_no_banned_rate_language_appears(self):
+        """Joe's rule, twice ruled on (#60, #64): say what an exit costs,
+        never how often it exists. Four such clauses have been written and
+        withdrawn on this exact feature already -- the fourth was this
+        ticket's own previous draft."""
+        lowered = collapsed(CARD).lower() + collapsed(COMBO_GLOSS_TS).lower()
+        banned = (
+            "no one is bidding",
+            "there is no exit",
+            "rarely",
+            "usually",
+            "most nights",
+            "the exit is",
+            "best price to sell",
+            "at least",
+            "conservative",
+            "by design",
+        )
+        for phrase in banned:
+            assert phrase not in lowered, f"banned phrase found: {phrase!r}"
 
 
 _DRIVER = """

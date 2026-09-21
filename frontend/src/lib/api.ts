@@ -3607,6 +3607,32 @@ export type HeldPosition = {
   /** The venue's own settlement of this ticket's own market, or `null` when
    * unsettled (or not a combination at all). */
   venue_settlement: VenueSettlement | null;
+  /**
+   * What the public order book says this combination could be sold back for
+   * right now (#95). Five states that must never collapse into each other:
+   * `null` means "not applicable" and the row says nothing about the public
+   * book at all — `combo_book_reason` names why (`no_ticket`: a
+   * hand-recorded slip has no ticker to read; `no_reader_wired`: this
+   * instance's `/api/hedge` was built with no combo-book reader — true of
+   * every deploy until #128). A non-null block's `state` carries the other
+   * four: `"bid"` (a priced YES level rests — `price_display` and `size`
+   * are set), `"empty"` (a read succeeded and nothing rests), `"unpriced_
+   * interest"` (a level rests finer than a tenth of a cent, per #106 — no
+   * showable price), `"unreadable"` (the read or the parse failed).
+   *
+   * `price_display` and `size` are `null` on every state but `"bid"` —
+   * never `0`, which is a legitimate settled price (`format_price(0)` ===
+   * `"0c"`).
+   */
+  combo_book: {
+    state: "bid" | "empty" | "unpriced_interest" | "unreadable";
+    observed_ms: number;
+    price_display: string | null;
+    size: number | null;
+  } | null;
+  /** Set only when `combo_book` is `null`; names which of the two designed
+   * "not applicable" causes applied. */
+  combo_book_reason: "no_ticket" | "no_reader_wired" | null;
   legs: HeldLeg[];
   /** `null` means there is nothing to hedge, which is not the same as a
    * refusal — that arrives as a block whose `refusal` is set. */
