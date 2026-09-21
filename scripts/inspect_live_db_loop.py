@@ -33,6 +33,7 @@ from inspect_live_db_common import (
     _fetch,
     _iso,
 )
+from inspect_live_db_parlays import _SQL_PARLAY_CANDIDATES
 
 
 # **The gaps in the pass ledger, which is how an outage is actually found.**
@@ -1307,4 +1308,182 @@ def _q_odds_snapshots_latest_price_timing(
         )
 
     return [census, timings] + plans
+
+
+# ---------------------------------------------------------------------------
+# odds-event-shape-plans: EXPLAIN QUERY PLAN for Shapes 3 and 4 (#121).
+# ---------------------------------------------------------------------------
+#
+# Story #89's enumeration (16 readers, 6 access shapes -- see its GitHub
+# comment, 2026-09-20) found that `idx_odds_event`
+# `(odds_event_id, market, fetched_ms DESC)` has no access shape it uniquely
+# serves: `idx_odds_window` covers everything Shape 1 (the only shape naming
+# BOTH `odds_event_id` and `market`) needs, and the remaining shape that
+# filters `odds_event_id` WITHOUT `market` (Shapes 3 and 4) wants
+# `commence_ms`, which `idx_odds_event_commence (odds_event_id, commence_ms)`
+# carries. What was still owed: `EXPLAIN QUERY PLAN` on live, to confirm
+# Shapes 3 and 4 actually land on `idx_odds_event_commence` and not on
+# `idx_odds_event`. This does not execute either statement -- see
+# `_q_odds_event_shape_plans`'s own docstring for why a plan is not a cost.
+#
+# **The ticket's own "3 call sites" count for each shape does not match this
+# tree, and that mismatch is itself the finding the ticket's own rule asks
+# for** ("if two call sites of the same shape spell it differently, print
+# both and say so"). Checked 2026-09-21 against the current source:
+#
+# - **Shape 3** ("GROUP BY odds_event_id, MIN(commence_ms)", no `market`):
+#   the ticket names `backend/parlays.py:670`, `backend/parlays.py:2674` and
+#   `backend/api/routes.py:1422`. Only TWO of those are live SQL. `parlays.py`
+#   around 2674 is `commence_for_tickers_sql` -- a CORRELATED per-ticker
+#   subquery (`WHERE o.odds_event_id = l.odds_event_id`, `GROUP BY
+#   k.ticker`), not a `GROUP BY odds_event_id` statement at all. Its own
+#   docstring at `parlays.py:2632-2637` says why: the GROUP-BY-odds_event_id
+#   version was the FIRST version of this function, "merged and corrected the
+#   same hour" on 2026-09-10, because it materialised the whole snapshot
+#   history. The string `"GROUP BY odds_event_id"` still appears in that
+#   docstring's prose (quoting the fixed bug for the record), which reads as
+#   a live occurrence to a text search but is not one -- so this query covers
+#   the two GENUINE Shape 3 statements (`_SQL_SHAPE3_CANDIDATE_SUBQUERY`,
+#   `backend/parlays.py` inside `CANDIDATE_SQL`, and
+#   `_SQL_SHAPE3_SLATE_KICKOFFS`, `backend/api/routes.py`'s `/api/slate`
+#   kickoffs read) and does not invent a third.
+# - **Shape 4** ("`WHERE odds_event_id = ?` alone, wanting `commence_ms`"):
+#   the ticket says 3 call sites, all `routes.py`. Only ONE is a self-
+#   contained statement with a literal bound `?` --
+#   `_SQL_SHAPE4_FIXTURE_FOR_TICKER` below, `/api/market/{ticker}`'s fixture
+#   read. The other two candidates are WHERE-clause FRAGMENTS inside
+#   `_slate_filter_sql` (`backend/api/routes.py`, the league and
+#   kickoff-window cuts for `/api/slate`'s window queries) --
+#   `WHERE o.odds_event_id = l.odds_event_id`, correlated to an alias `l`
+#   that exists only inside the larger statement those fragments are
+#   concatenated into. Running a fragment standalone means inventing SQL not
+#   in the source (substituting a literal `?` for the correlation), which
+#   `#121` explicitly forbids ("do not paraphrase"), and reproducing the full
+#   enclosing statement verbatim is outside this ticket's scope. This query
+#   therefore covers the one statement it can copy without alteration and
+#   names the other two by file and function rather than fabricating a plan
+#   for text that is not what runs.
+#: **Derived, not retyped**, so there is no way for the copy to drift from a
+#: hand-transcription mistake. `_SQL_PARLAY_CANDIDATES`
+#: (`inspect_live_db_parlays.py`) is already pinned byte-identical to
+#: `backend.parlays.CANDIDATE_SQL` by
+#: `TestTheCandidateScanCopyDoesNotDrift` in `tests/test_inspect_live_db.py`
+#: -- slicing the subquery out of that ALREADY-PINNED string, at import
+#: time, means this statement inherits that pin transitively rather than
+#: needing a second one, and it is impossible for it to hold anything the
+#: source does not (the slice markers below are literal substrings of
+#: `CANDIDATE_SQL` itself).
+_SHAPE3_SUBQUERY_START = "SELECT odds_event_id, MIN(commence_ms) AS commence_ms,"
+_SHAPE3_SUBQUERY_END = "GROUP BY odds_event_id"
+
+
+def _shape3_candidate_subquery(candidate_sql: str) -> str:
+    start = candidate_sql.index(_SHAPE3_SUBQUERY_START)
+    end = candidate_sql.index(_SHAPE3_SUBQUERY_END, start) + len(_SHAPE3_SUBQUERY_END)
+    return candidate_sql[start:end]
+
+
+_SQL_SHAPE3_CANDIDATE_SUBQUERY = _shape3_candidate_subquery(_SQL_PARLAY_CANDIDATES)
+
+#: `/api/slate`'s kickoffs read (`backend/api/routes.py`, inside
+#: `serialise_slate` or its caller). Copied verbatim except `{marks}`, which
+#: is `",".join("?" * len(fixture_ids))` at the call site -- a caller-sized
+#: IN-list, not a caller-supplied predicate. `?` (one placeholder) stands in
+#: for the smallest real case; the plan does not depend on the list's length,
+#: only on the leading predicate shape.
+_SQL_SHAPE3_SLATE_KICKOFFS = (
+    "SELECT odds_event_id, MIN(commence_ms) AS commence_ms "
+    "FROM odds_snapshots WHERE odds_event_id IN (?) "
+    "GROUP BY odds_event_id"
+)
+
+#: `/api/market/{ticker}`'s fixture read (`backend/api/routes.py`). Copied
+#: verbatim, including the source's own line break and indentation inside the
+#: string literal.
+_SQL_SHAPE4_FIXTURE_FOR_TICKER = (
+    "SELECT MIN(commence_ms) AS commence_ms, home_team, away_team, "
+    "       sport_key "
+    "FROM odds_snapshots WHERE odds_event_id = ?"
+)
+
+
+def _q_odds_event_shape_plans(conn: sqlite3.Connection, args) -> list[Section]:
+    """`EXPLAIN QUERY PLAN` for Shapes 3 and 4 -- #89's last owed reading.
+
+    Confirms (or refutes) that the only access shapes filtering
+    `odds_event_id` WITHOUT `market` land on `idx_odds_event_commence` and
+    not on `idx_odds_event`. Three statement/plan pairs, each printed as its
+    own two-row-titled pair: the statement TEXT (so what ran is on the
+    screen, not just its plan) and the plan SQLite chose for it.
+
+    **`EXPLAIN QUERY PLAN` does NOT execute the statement -- the planner is
+    consulted, no row of `odds_snapshots` is read**, which is why this is
+    `cost=CHEAP` regardless of the underlying statement's own cost
+    (https://sqlite.org/lang_explain.html#the_explain_query_plan_command).
+    The guard: every plan section's columns are exactly `(id, parent,
+    notused, detail)` -- SQLite's fixed `EXPLAIN QUERY PLAN` output shape,
+    never the statement's own result columns (`odds_event_id`,
+    `commence_ms`, ...). If a plan section ever showed the statement's own
+    columns, the statement ran for real.
+
+    What this does not establish
+    -----------------------------
+    - **Not the cost.** This repo has been burned in both directions on that
+      exact conflation: `2e66f36` dropped an index because a plan said it
+      changed nothing and had to be restored ("the plan was never the
+      cost"), and 2026-09-21's #88 found a plan that went SCAN -> SEARCH with
+      NO improvement at all, because the "whole-index scan" was one ordered
+      pass over a COVERING index collapsing 5.4M entries into 1,292 groups.
+      A plan avoiding `idx_odds_event` is evidence the index is unused by
+      that shape; it is NOT evidence that dropping it is free.
+    - **Not every Shape 3/4 call site.** See the module comment above this
+      function: two of the ticket's five named call sites are not live SQL
+      or not runnable without inventing text, and are named rather than
+      fabricated a plan for.
+    - **Not whether the planner's choice is stable.** SQLite picks between
+      applicable indexes on current statistics (an `ANALYZE` could move it),
+      per #89's own comment -- a reading today is not a permanent property
+      of the schema.
+    - **Not whether `idx_odds_event` is safe to drop.** That is a schema
+      change on a live money box (`backend/store/schema.sql:284`'s standing
+      warning) and explicitly out of scope for this ticket and this query.
+    """
+    sections: list[Section] = []
+    for label, sql, params in (
+        (
+            "Shape 3, statement A -- backend/parlays.py CANDIDATE_SQL's "
+            "JOIN subquery",
+            _SQL_SHAPE3_CANDIDATE_SUBQUERY,
+            (),
+        ),
+        (
+            "Shape 3, statement B -- backend/api/routes.py /api/slate "
+            "kickoffs read",
+            _SQL_SHAPE3_SLATE_KICKOFFS,
+            ("",),
+        ),
+        (
+            "Shape 4 -- backend/api/routes.py /api/market/{ticker} "
+            "fixture read",
+            _SQL_SHAPE4_FIXTURE_FOR_TICKER,
+            ("",),
+        ),
+    ):
+        sections.append(
+            Section(
+                title=f"{label}: the statement, verbatim",
+                columns=("sql",),
+                rows=[(sql,)],
+            )
+        )
+        sections.append(
+            _fetch(
+                conn,
+                "EXPLAIN QUERY PLAN " + sql,
+                params,
+                title=f"{label}: EXPLAIN QUERY PLAN",
+                cap=args.limit,
+            )
+        )
+    return sections
 

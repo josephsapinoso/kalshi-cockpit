@@ -305,6 +305,7 @@ from inspect_live_db_loop import (  # noqa: E402,F401
     _q_failure_journal,
     _q_loop_rss,
     _q_notifications,
+    _q_odds_event_shape_plans,
     _q_odds_snapshots_latest_price_timing,
     _q_pass_gaps,
     _q_read_incidents,
@@ -899,6 +900,22 @@ QUERIES: dict[str, QueryDef] = {
         # a bounded read that does not scale with the table's row count and
         # touches no other page of the file. No GROUP BY, no scan, no
         # dbstat -- the opposite shape of the WALKS_THE_FILE entries above.
+        cost=CHEAP,
+    ),
+    "odds-event-shape-plans": QueryDef(
+        "EXPLAIN QUERY PLAN for the Shape 3 and Shape 4 statements #89's "
+        "enumeration named -- the two access shapes that filter "
+        "odds_event_id WITHOUT market and want commence_ms. Confirms (or "
+        "refutes) that they land on idx_odds_event_commence and not on "
+        "idx_odds_event. Prints each statement's SQL verbatim beside its "
+        "plan; see the module comment for the two named call sites this "
+        "cannot cover without inventing SQL not in the source, and why. "
+        "cost=CHEAP because EXPLAIN QUERY PLAN does not execute the "
+        "statement -- the planner is consulted, no row is read -- which is "
+        "true regardless of what the statement itself would cost if run. "
+        "Answers #121, the last reading #89 owed before a drop can even be "
+        "proposed (a drop is explicitly out of scope here).",
+        _q_odds_event_shape_plans,
         cost=CHEAP,
     ),
     "odds-snapshots-latest-price-timing": QueryDef(
