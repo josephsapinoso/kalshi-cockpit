@@ -304,6 +304,7 @@ from inspect_live_db_loop import (  # noqa: E402,F401
     _q_failure_journal,
     _q_loop_rss,
     _q_notifications,
+    _q_odds_snapshots_latest_price_timing,
     _q_pass_gaps,
     _q_read_incidents,
     _q_walk_log,
@@ -850,6 +851,22 @@ QUERIES: dict[str, QueryDef] = {
         # `dbstat` visits every page of every btree: it reads the entire
         # file through the page cache. This is the query that was run
         # mid-diagnosis on 2026-09-18 and slowed the desk for minutes.
+        cost=WALKS_THE_FILE,
+    ),
+    "odds-snapshots-latest-price-timing": QueryDef(
+        "The odds_snapshots 'latest price' read -- MAX(fetched_ms) for one "
+        "(odds_event_id, market) pair, then the rows at that stamp -- the "
+        "access path idx_odds_event (odds_event_id, market, fetched_ms DESC) "
+        "was built for, timed WITH the index available and with a NOT "
+        "INDEXED hint simulating its absence to the planner (the index "
+        "itself is never dropped -- see the module comment for exactly what "
+        "NOT INDEXED does and does not simulate). Answers #89 task 4b: "
+        "confirming on live needs a query that did not exist before.",
+        _q_odds_snapshots_latest_price_timing,
+        # The auto-pick step (busiest (odds_event_id, market) pair, or the
+        # busiest market of a caller-named event) is a GROUP BY over the
+        # whole table, and the NOT INDEXED arms force a full scan of
+        # odds_snapshots by design -- that forced scan IS the measurement.
         cost=WALKS_THE_FILE,
     ),
     "decision-dump": QueryDef(

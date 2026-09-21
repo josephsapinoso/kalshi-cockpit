@@ -1,7 +1,7 @@
 """The recorder loop's own health: memory, walks, failures, gaps, volume, pushes.
 
 Queries: `loop-rss`, `walk-log`, `failure-journal`, `pass-gaps`,
-`notifications`, `db-sizes`.
+`notifications`, `db-sizes`, `odds-snapshots-latest-price-timing`.
 
 What these share is that none of them reads the evidence record. They read
 the machine that grows it -- the resident set and WAL size per pass
@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -911,4 +912,269 @@ def _q_read_incidents(conn: sqlite3.Connection, args) -> list[Section]:
         _derive_iso(tail, "seen_ms", "seen_iso"),
         _derive_iso(by_kind, "last_ms", "last_iso"),
     ]
+
+
+# ---------------------------------------------------------------------------
+# odds_snapshots "latest price" reads, timed with and without idx_odds_event.
+# ---------------------------------------------------------------------------
+#
+# Ticket #90, story #89 (task 4b). `idx_odds_event` --
+# `(odds_event_id, market, fetched_ms DESC)`, `backend/store/schema.sql:286`
+# -- was built for the access path `backend.runner` runs once per event per
+# market to find what a book is currently quoting: `MAX(fetched_ms)` for an
+# `(odds_event_id, market)` pair, then the row(s) at that stamp. All four of
+# `book_quotes_for_event` (`backend/runner.py:525`), `prop_quotes_for_event`
+# (`:666`), `spread_quotes_for_event` (`:812`) and `totals_quotes_for_event`
+# (`:949`) run exactly this two-statement shape, differing only in the
+# `market` filter (a literal for h2h/spreads/totals, a `json_each` IN-list
+# for props). `_SQL_LATEST_PRICE_MAX` and `_SQL_LATEST_PRICE_ROWS` below are
+# `book_quotes_for_event`'s two statements retyped as literals -- there is no
+# named constant in `backend/runner.py` to import or pin against, the same
+# situation `scoring-candidate-timing` is in with `backend/scoring.py`'s
+# inline SQL, and for the same reason this script carries no import from
+# `backend` at all.
+#
+# **This times ONE (odds_event_id, market) pair, not the table.** The pair is
+# auto-picked as the one with the most rows (a "hot" fixture and market,
+# `_SQL_PICK_HOTTEST_EVENT_MARKET`) unless `--odds-event-id` names one, in
+# which case its own busiest market is picked (`_SQL_PICK_MARKET_FOR_EVENT`).
+# Either way this is one instance of the access pattern, not a census of
+# every instance the recorder runs in a pass.
+#
+# **"Without the index" means `NOT INDEXED`, not the index being absent, and
+# that difference is not cosmetic.** SQLite's per-statement `NOT INDEXED`
+# clause (https://sqlite.org/lang_indexedby.html) forbids the planner from
+# routing that FROM-clause reference through ANY index, forcing a full table
+# scan of `odds_snapshots` for that statement only. It simulates the READ-PATH
+# shape the index's absence would produce -- SEARCH becomes SCAN -- on the
+# SAME file, with the index's pages still resident in the page cache from
+# whatever else touched them. It does NOT simulate `idx_odds_event` being
+# absent from disk: no write-amplification saving, no smaller file, no freed
+# page-cache room. Ticket #90's task explicitly forbids dropping the index
+# here (the scar is `backend/store/schema.sql:242-262`'s comment on commit
+# `2e66f36` -- "the plan was never the cost", restored the same day it was
+# removed) so `NOT INDEXED` is the only mechanism this instrument uses, and it
+# answers a narrower question than "what would happen if the index did not
+# exist": it answers "what does the planner do to this exact statement when
+# it is not allowed to use ANY index," which on a table with three other
+# indexes over `odds_snapshots` columns is not automatically the same plan a
+# truly index-less table would get either.
+#
+# **The run order is fixed and it is the unflattering one**, for the same
+# reason `scoring-candidate-timing` runs its bounded text first: the variant
+# expected to be faster (WITH the index available) runs FIRST, cold; the
+# variant expected to be slower (`NOT INDEXED`) runs SECOND, with the same
+# table already warm from the first run. So the indexed figure carries the
+# cold-cache penalty and the `NOT INDEXED` figure gets the warm-cache
+# discount -- any gap that survives that handicap is a FLOOR on the index's
+# benefit, not a ceiling, and the reverse order would flatter the index.
+
+_SQL_LATEST_PRICE_CENSUS = (
+    "SELECT (SELECT COUNT(*) FROM odds_snapshots) AS odds_snapshots_rows, "
+    "       (SELECT COUNT(*) FROM odds_snapshots WHERE odds_event_id = :oid) "
+    "           AS rows_for_this_event, "
+    "       (SELECT COUNT(*) FROM odds_snapshots WHERE odds_event_id = :oid "
+    "           AND market = :mkt) AS rows_for_this_event_market"
+)
+
+#: Picks the busiest (odds_event_id, market) pair in the whole table -- used
+#: when the caller does not name one with --odds-event-id. Walks the table by
+#: design; this query's cost is WALKS_THE_FILE regardless of which branch runs.
+_SQL_PICK_HOTTEST_EVENT_MARKET = (
+    "SELECT odds_event_id, market, COUNT(*) AS n FROM odds_snapshots "
+    "GROUP BY odds_event_id, market ORDER BY n DESC LIMIT 1"
+)
+
+#: Picks the busiest market WITHIN one caller-named event.
+_SQL_PICK_MARKET_FOR_EVENT = (
+    "SELECT market, COUNT(*) AS n FROM odds_snapshots "
+    "WHERE odds_event_id = ? GROUP BY market ORDER BY n DESC LIMIT 1"
+)
+
+
+def _latest_price_max_sql(not_indexed: bool) -> str:
+    """`book_quotes_for_event`'s first statement (`backend/runner.py:542-545`),
+    retyped, with `NOT INDEXED` appended when simulating the index's absence.
+    """
+    table = "odds_snapshots NOT INDEXED" if not_indexed else "odds_snapshots"
+    return (
+        f"SELECT MAX(fetched_ms) AS m FROM {table} "
+        "WHERE odds_event_id = ? AND market = ?"
+    )
+
+
+def _latest_price_rows_sql(not_indexed: bool) -> str:
+    """`book_quotes_for_event`'s second statement (`backend/runner.py:550-554`),
+    retyped, with `NOT INDEXED` appended when simulating the index's absence.
+    """
+    table = "odds_snapshots NOT INDEXED" if not_indexed else "odds_snapshots"
+    return (
+        "SELECT bookmaker, outcome_name, price_decimal, book_updated_ms, "
+        f"fetched_ms, commence_ms FROM {table} "
+        "WHERE odds_event_id = ? AND market = ? AND fetched_ms = ?"
+    )
+
+
+def _run_latest_price_whole(
+    conn: sqlite3.Connection, not_indexed: bool, oid: str, market: str
+) -> tuple[float, int]:
+    """Run both statements of the latest-price read back to back and time the
+    pair together, the way `book_quotes_for_event` actually runs them: the
+    second statement depends on the first's `MAX(fetched_ms)`."""
+    started = time.perf_counter()
+    max_row = conn.execute(
+        _latest_price_max_sql(not_indexed), (oid, market)
+    ).fetchone()
+    fetched_ms = max_row[0] if max_row else None
+    if fetched_ms is None:
+        rows: list[Any] = []
+    else:
+        rows = conn.execute(
+            _latest_price_rows_sql(not_indexed), (oid, market, fetched_ms)
+        ).fetchall()
+    elapsed_ms = round((time.perf_counter() - started) * 1000.0, 1)
+    return elapsed_ms, len(rows)
+
+
+def _run_latest_price_max_alone(
+    conn: sqlite3.Connection, not_indexed: bool, oid: str, market: str
+) -> tuple[float, int]:
+    """Time just the `MAX(fetched_ms)` statement -- the half `idx_odds_event`'s
+    `fetched_ms DESC` ordering most directly targets."""
+    started = time.perf_counter()
+    rows = conn.execute(_latest_price_max_sql(not_indexed), (oid, market)).fetchall()
+    elapsed_ms = round((time.perf_counter() - started) * 1000.0, 1)
+    return elapsed_ms, len(rows)
+
+
+def _q_odds_snapshots_latest_price_timing(
+    conn: sqlite3.Connection, args
+) -> list[Section]:
+    """Time `odds_snapshots`' "latest price" read, with and without
+    `idx_odds_event` available to the planner, on one (odds_event_id, market)
+    pair.
+
+    Six sections: a census of what the pair reads over, the four wall times
+    (plus an agreement check) in the order they were taken, then
+    `EXPLAIN QUERY PLAN` for all four statements (the MAX and the row fetch,
+    indexed and `NOT INDEXED`).
+
+    What this does not establish
+    ----------------------------
+    - **Not whether `idx_odds_event` is safe to drop.** `NOT INDEXED` forces a
+      full scan for one statement on one connection; it does not remove the
+      index's write cost, its page-cache footprint, or its benefit to any
+      OTHER statement that reaches for it (`idx_odds_event` is shared with the
+      write path and with `parlay-candidates-timing`'s subquery via the
+      commence-index companion). See the module comment above for exactly
+      what the mechanism does and does not simulate -- do not read a gap here
+      as "dropping the index would cost this much."
+    - **Not what a live request costs.** One statement pair on an idle-ish
+      read-only connection with its own page cache, not the runner's writer
+      connection contending with the recorder loop.
+    - **Not a stable number.** One reading on a shared machine, and the fixed
+      run order (see the module comment) means the NOT INDEXED figures are
+      measured warm after the indexed figures have already touched the same
+      table -- read the gap as a floor, not a ceiling.
+    - **Not a census of the access pattern.** This times one
+      (odds_event_id, market) pair, auto-picked as the busiest in the table
+      (or the busiest market of a caller-named event). It says nothing about
+      how many times a night this exact shape runs, or about cold events with
+      few rows where a table scan and an index seek may cost about the same.
+    - **Not a verdict from the plan alone.** `EXPLAIN QUERY PLAN` reports the
+      access method, never the number of rows touched -- the same caution
+      `backend/store/schema.sql:242-262`'s comment on `idx_odds_event_commence`
+      makes about this exact index family. The wall times are the evidence;
+      the plans are context for reading them.
+    """
+    if args.odds_event_id:
+        oid = args.odds_event_id
+        picked = conn.execute(_SQL_PICK_MARKET_FOR_EVENT, (oid,)).fetchone()
+        market, pair_rows = (picked[0], picked[1]) if picked else ("h2h", 0)
+        how_picked = f"--odds-event-id {oid!r}, busiest market in it"
+    else:
+        picked = conn.execute(_SQL_PICK_HOTTEST_EVENT_MARKET).fetchone()
+        if picked:
+            oid, market, pair_rows = picked[0], picked[1], picked[2]
+        else:
+            oid, market, pair_rows = "", "h2h", 0
+        how_picked = "auto-picked: busiest (odds_event_id, market) pair"
+
+    census = _fetch(
+        conn,
+        _SQL_LATEST_PRICE_CENSUS,
+        {"oid": oid, "mkt": market},
+        title=(
+            f"what this reads over -- pair chosen by {how_picked}, "
+            f"{pair_rows} rows for it at pick time"
+        ),
+        cap=args.limit,
+    )
+
+    whole_with, whole_with_rows = _run_latest_price_whole(conn, False, oid, market)
+    max_with, max_with_rows = _run_latest_price_max_alone(conn, False, oid, market)
+    max_without, max_without_rows = _run_latest_price_max_alone(
+        conn, True, oid, market
+    )
+    whole_without, whole_without_rows = _run_latest_price_whole(
+        conn, True, oid, market
+    )
+
+    agree = whole_with_rows == whole_without_rows
+    timings = Section(
+        title=(
+            "wall time, one read-only connection, in this order (indexed "
+            "runs cold, NOT INDEXED runs warm -- the unflattering order; "
+            "see the module comment)"
+        ),
+        columns=("statement", "rows", "ms"),
+        rows=[
+            [
+                "1. WITH INDEX -- whole latest-price read (MAX + row fetch)",
+                whole_with_rows,
+                whole_with,
+            ],
+            ["2. WITH INDEX -- MAX(fetched_ms) alone", max_with_rows, max_with],
+            [
+                "3. NOT INDEXED -- MAX(fetched_ms) alone",
+                max_without_rows,
+                max_without,
+            ],
+            [
+                "4. NOT INDEXED -- whole latest-price read (MAX + row fetch)",
+                whole_without_rows,
+                whole_without,
+            ],
+            [
+                "whole-read row counts agree" if agree
+                else "WHOLE-READ ROW COUNTS DISAGREE -- NOT INDEXED changed "
+                     "the answer",
+                whole_with_rows,
+                whole_without_rows,
+            ],
+        ],
+    )
+
+    plans = []
+    for label, sql, params in (
+        ("EXPLAIN QUERY PLAN: WITH INDEX -- MAX(fetched_ms)",
+         _latest_price_max_sql(False), (oid, market)),
+        ("EXPLAIN QUERY PLAN: WITH INDEX -- row fetch",
+         _latest_price_rows_sql(False), (oid, market, 0)),
+        ("EXPLAIN QUERY PLAN: NOT INDEXED -- MAX(fetched_ms)",
+         _latest_price_max_sql(True), (oid, market)),
+        ("EXPLAIN QUERY PLAN: NOT INDEXED -- row fetch",
+         _latest_price_rows_sql(True), (oid, market, 0)),
+    ):
+        plans.append(
+            _fetch(
+                conn,
+                "EXPLAIN QUERY PLAN " + sql,
+                params,
+                title=label,
+                cap=args.limit,
+            )
+        )
+
+    return [census, timings] + plans
 
