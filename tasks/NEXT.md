@@ -134,6 +134,111 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-22 (forty-seventh session) — #118's T1 and T2 take themselves: two unattended arms, both rehearsed green, the registration amended in advance to say which read is T1; NOT deployed, still on purpose
+
+Joe said "read NEXT.md and start" — no named errand — so `partner` owned
+the direction. Its position: **the only thing on the board that can be
+irreversibly lost is #118's T1 read (09:00–09:55Z tonight, 02:00 PDT,
+`n = 1`, one slip that lands at 02:00 PDT again), so the session's one
+job is to make T1 take itself off-box before the session ends; everything
+else is frozen, blocked, or held behind a deploy that must not happen.**
+Clock verified against GitHub's `Date` header at 19:23Z (machine agreed).
+Live is on **`a56847f`** and stays there — see §4. Zero open Dependabot
+alerts. CI green on `fdbe92f`. No lanes.
+
+`partner`'s dispatch put the workflow in a Sonnet lane; overridden —
+`.claude/agents/lane-builder.md` excludes config, `.github/workflows` is
+CI config, and the one unverified step (can the deploy token open an ssh
+console from a runner?) needed the repo secret and a judgement call. Its
+other claims were checked at file:line and held, including the one that
+mattered: `GET /api/scout` is two SELECTs and a `today_summary`
+(`backend/api/routers/scout.py:355-369`), so rehearsing today is free.
+
+### What shipped
+
+| commit | what | ticket |
+|---|---|---|
+| `32b5dce` | `scripts/measure_118_trip.sh` (the four §2 commands, once; GitHub's `Date` header as the clock; no retry); `.github/workflows/measure-118.yml` (dated cron, 4 fires in T1's window, 2 in T2's, `workflow_dispatch` for rehearsal, artifact per run, `contents: read`); Amendment 1 of the registration; 12 tests, **5 mutations red** | #136 |
+| (outside the tree) | scheduled tasks `Kalshi118T1` (02:05/20/35/50 PDT) and `Kalshi118T2` (03:35/50 PDT) on the laptop, same script by path | #136 |
+
+### 1. Both arms rehearsed against live, both green
+
+- **Arm A** (Actions): t1 run `35775325375` (22 s), t2 run `35775329649`
+  (27 s), both `workflow_dispatch`. **The deploy token opens an ssh console
+  from a runner** — no workflow had ever done it. Artifacts
+  `118-t1-35775325375` / `118-t2-35775329649` carry `HTTP 200` with the
+  spend object (`day_start_ms = 1790071200000` = 2026-09-22T10:00:00Z) and
+  seven row-count lines across the three QueryDefs.
+- **Arm B** (laptop): `Kalshi118T1` started once by hand; its output file
+  under `%LOCALAPPDATA%/kalshi-cockpit/118/` holds the same shape,
+  GitHub-stamped. The S4U principal was refused without elevation, so the
+  task runs on the interactive token: **locked is fine, logged out is not,
+  and the laptop must be awake.** Arm A does not need the laptop.
+- The rehearsal reads are of a day in progress: **context only** under
+  A1.4, and no spend figure from them is written anywhere.
+
+### 2. Amendment 1, not 3 — and the claim it fixes in advance
+
+`pre-registrar` wrote it and caught that this registration had **no earlier
+amendment** — I had numbered it from memory of a different registration.
+Renumbered before commit. The rule: **T1 is the latest successful read,
+from either arm, with a trusted wall-clock strictly before 09:55:00Z and
+`spend.day_start_ms` = 2026-09-22T10:00:00Z; every read printed with its
+arm and stamp.** "Latest" maximises `K` and `S`, so §5's masking
+falsification gets harder, not easier. No void criterion added; §2, §3,
+§5, §7 unchanged. T2/T3 = first complete set from one arm's one run after
+10:30Z.
+
+### 3. One number in the last handoff was wrong
+
+"#96's body still says schema v51 — it is on **55** now (ledger, `db.py`)".
+It is on **54**: `SCHEMA_VERSION = 54` (`backend/store/db.py:225`), newest
+migration 54 (ADR 0181). 55 is the next *free* number, taken in the merge
+commit after `git fetch`, never by reading a body. #96's body carries the
+dated correction at its foot.
+
+### 4. Not deployed, on purpose — same reason as yesterday
+
+`fdbe92f..32b5dce` adds a workflow, a script, a test and a doc section;
+`deploy.yml` is `workflow_dispatch` only, so the push deployed nothing and
+VOID criterion (c) is untouched. The restart-resets-`cycle_count` reason
+from the forty-sixth entry still holds until the target day closes.
+**Deploy `32b5dce` (or later) on 09-23 after 14:00Z, after the reads are
+collected and the result doc is written.**
+
+### Still open
+
+**The digest on map #3 is unchanged — eight tickets, frozen, unanswered.**
+
+0. **#136 — the arms are armed; Done-when 4 is owed by the result-doc
+   session**: collect every read from both arms (`gh run list --workflow
+   measure-118.yml`, `gh run download`; the local `118/` directory), apply
+   A1.2, write the result doc under §8, and **delete
+   `.github/workflows/measure-118.yml` and both scheduled tasks in that
+   same commit** — the cron fires again next 23 September if left.
+1. **#118 — T1 09:00–09:55Z, T2 10:30–14:00Z on 09-23, now unattended.**
+   If neither arm produced a qualifying T1, §7's one slip applies (09-24)
+   and the crons/tasks are re-dated, not re-derived. Joe: leave the laptop
+   plugged in, awake and logged in tonight if Arm B is to count.
+2. **Deploy `32b5dce` on 09-23 after 14:00Z and after the reads land**
+   (#135's rollout; #136's Done-when 4 comes first) — the first hedge-watch cycle closes every venue-settled combination; read
+   `/api/hedge` once afterwards for the split, write no count (ADR 0162).
+3. **#129 — capture owed on the T2 trip** (a human trip; not automated),
+   population from the venue's positions read; then
+   `measure_combo_book_presence.py` and `capture_sell_side_rfq.py` per ticker.
+4. **#96 — blocked on #129's capture**; next free schema is 55 (54 taken).
+5. **#107 — capture of opportunity**, same trip.
+6. **#115 — gated**: must name its ADR 0038 row before 2026-10-06; expires 2026-10-20.
+7. **#58, #71, #78, #79, #97, #119, #122, #127 — with Joe**, in the frozen digest.
+8. #108 — the deferred fifth seat only.
+
+**The fleet has nothing to take until the capture lands** — fourth session
+running, still correct. Two stale August scheduled tasks
+(`KalshiRepeatPoll*`, one pointing at a dead scratchpad path) were noticed
+and left alone; nobody asked.
+
+---
+
 ## 2026-09-22 (forty-sixth session) — the record now says what the venue says: a settled combination closes its own row (ADR 0181, schema v54); the runtime review caught a coupling that would have silenced hedge alerts; #134 landed; NOT deployed, on purpose
 
 Joe said "read NEXT.md and start" — no named errand — so `partner` owned

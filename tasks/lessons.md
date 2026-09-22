@@ -16,6 +16,33 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-22 (fifth) - A fixed-window reading nobody can attend is taken by two schedulers with different failure modes, and the rule for choosing among their reads is registered before any of them fires; an amendment's number is read from the file it amends
+
+Two patterns from the forty-seventh session. The first is the session's
+whole build; the second was caught by the `pre-registrar` before commit.
+
+- **When a pre-registered window falls at an hour no session survives to,
+  automate the read with two arms whose failure modes differ, rehearse
+  both today on the same read-only path, and register in advance which of
+  the several resulting reads counts.** T1 was 55 minutes at 02:00 PDT,
+  `n = 1`, one slip landing at 02:00 PDT again. A GitHub cron is late, not
+  absent (245-minute max gap on record), so it fires four times inside the
+  window; a laptop task is punctual but sleeps; each covers the other's
+  hole. Several reads then exist, and *choosing* among them after seeing
+  them is the degree of freedom the registration exists to remove — so the
+  rule (latest qualifying read; monotone counters make that the
+  conservative one) went into the registration before the first fire. **A
+  rehearsal is free only if the path is provably read-only**; check the
+  route and the QueryDef cost class at file:line before calling it free.
+
+- **An amendment's ordinal comes from the file it amends, not from the
+  session's memory of other files.** "Amendment 3" was assigned because
+  another registration in the same directory had Amendments 1 and 2; this
+  one had none. A sequence with a gap reads as two lost amendments, which
+  is exactly the quiet defect a registration must not carry. Grep the
+  target file for `^## Amendment` before numbering, and say so in the
+  brief to whoever writes it.
+
 ## 2026-09-22 (fourth) - A pass placed behind a liveness gate never runs on the population it is for; an invariant a sibling table got at birth may be structurally unavailable to the one you extend; and a new write ahead of a cycle's decision variable inherits that variable's default on failure
 
 Three patterns from the forty-sixth session. The first was caught by
