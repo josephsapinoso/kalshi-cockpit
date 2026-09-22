@@ -16,6 +16,52 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-22 (third) - Read a ticket's Done-when against the tree before dispatching it; a Must-not-touch can contain a file the change falsifies; and a loose prefix turns a drift guard into a phantom-defect reporter
+
+Three patterns from the forty-fifth session. All three were caught before
+a lane started, by reading each ticket's executable line against the
+current tree rather than trusting that last session wrote it.
+
+- **A ticket written at the end of one session is not dispatchable at the
+  start of the next until its Done-when has been run against the tree.**
+  #132's recipe required a test file green whose line 98 pinned the exact
+  literal the change removes, and that file was not in Lane owns. A lane
+  either stalls or keeps a dead `=== 0` filter to satisfy the pin — and
+  the second is a bug that the ticket's own regex Done-when would have
+  passed. **Before dispatching, grep the tree for every literal the change
+  removes and see which test pins it; that test is in Lane owns or the
+  ticket is not ready.** This is the third ticket in a week wrong in its
+  executable line (#124, #95, now #132) and the first caught before a lane
+  ran.
+
+- **A source-regex Done-when that names two fields passes while the
+  change drops rows from the screen.** "The live predicate names both
+  `pending_legs` and `venue_settlement`" is satisfied by editing one of
+  two hand-written filters, after which a row can match neither and
+  vanish. **When a partition is two filters, the spec is one predicate and
+  its negation, and the Done-when pins the negation** — exhaustive and
+  disjoint by construction is a property of the code shape, not of a
+  regex over it.
+
+- **A ticket's Must-not-touch list can contain a file whose comment the
+  ticket's own change falsifies.** #132 broadened what `nothing_pending`
+  means while `api.ts`, whose doc comment defined the old meaning, was
+  forbidden. Same rule as the screen copy
+  (`test_no_screen_still_tells_him_that_closing_the_page_buys_more`): the
+  fix and the words ship together or the words lie in the interval.
+  **When a change redefines a reason string, grep every comment that
+  defines it, in every language in the repo, and put those lines in Lane
+  owns.**
+
+- **A drift guard built on a constant prefix inherits every constant that
+  shares the prefix.** `COMBO_BOOK_` collects the four state constants as
+  well as the three reason constants, so a guard that compares that set
+  to the `combo_book_reason` union is red on a clean tree — and a ticket
+  that says "report drift, do not fix" then reports a defect that does
+  not exist into the record. **State the prefix exactly, state the
+  exclusion, and verify by hand that the sets match today before the
+  ticket says they should.**
+
 ## 2026-09-22 (second) - A venue action takes its population from the venue at the moment it acts; a board's READY count can be eleven and dispatch nothing; and a dated count in a code comment decays like one in a doc
 
 Four patterns from the forty-fourth session. The first cost nothing tonight

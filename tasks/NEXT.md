@@ -134,6 +134,113 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-22 (forty-fifth session) — both agent tickets were mis-specified in the one line a lane executes, fixed before dispatch; two lanes landed; the frozen eight all still hold; nothing touched the measurement day
+
+Joe said "read NEXT.md and start" — no named errand — so `partner` owned
+the direction. Its ranking: **protect #118's target day (opens 10:00Z
+today, ~2h after session start); amend #132 and #133 before dispatching
+them; fix #129's population rule before tomorrow's trip; put #131 and the
+T1 window in front of Joe; no new tooling tickets.** Every load-bearing
+claim was checked at file:line before use; all held this time, including
+the three it found in the ticket bodies. Live was on **`eec635e`** at
+session start, verified by `/api/health`; see §4 for where it ended.
+
+### What shipped
+
+| commit | what | ticket |
+|---|---|---|
+| `281d7b6` (merge of `0cfbb5a`) | Lane (Sonnet): `build_payload`'s `nothing_pending` branch also fires on a `venue_settlements` row; `HedgePositions.tsx` partitions on one `isLive` predicate and its complement; 4 new tests, **3 mutations red** | #132 |
+| `6fcee28` (merge of `e2e85b4`) | Lane (Sonnet): one test pins the `api.ts` unions to `COMBO_BOOK_REASON_*`, `COMBO_BOOK_*` (state) and `STAKE_BASIS_*`, both directions; **6 mutations red**; no drift on the current tree | #133 |
+
+### 1. Both agent tickets would have burned their lanes as written
+
+Last session wrote #132 and #133 and called the fleet refilled. Read
+against the tree this morning, each had a defect in the executable line
+(the same failure shape as #124 and #95 last week, `tasks/lessons.md`
+2026-09-21 third, fifth bullet):
+
+- **#132 was unsatisfiable.** Its recipe required
+  `tests/test_hedge_screen_puts_live_positions_first.py` green while its
+  change removes the literal that file's line 98 pins
+  (`"pending_legs === 0" in body`), and the file was not in Lane owns.
+  Worse, its Done-when (iii) was a source regex that passes while a
+  venue-settled, legs-pending position matches **neither** filter and
+  vanishes from the screen — strictly worse than the bug being fixed. And
+  `api.ts` sat in Must-not-touch while the change falsified the
+  `nothing_pending` comment there. Fixed: the settled group is now the
+  **complement** of one named predicate (exhaustive and disjoint by
+  construction, pinned by Done-when (iv)), and the two files moved into
+  Lane owns for the named lines only.
+- **#133 would have reported a phantom defect.** A loose `COMBO_BOOK_`
+  prefix also collects the four *state* constants (`hedge.py:120-123`),
+  and the ticket tells the lane to report drift rather than fix it. Its
+  Goal also named `stake_basis_reason`, which is `string | null` on
+  purpose (`api.ts:3583-3589`) and has no constants to compare. Fixed:
+  exact prefix, `stake_basis_reason` named as not guarded, and
+  `combo_book.state` added as a third pair — the field the screen renders.
+
+The amendment history is at the bottom of each body, so a reader of the
+ticket sees why it changed without the comment thread.
+
+### 2. #129's Done-when named the population that failed last night
+
+"One real run against the live positions `/api/hedge` shows with a pending
+leg" is the screen-derived rule that produced the 05:11Z double refusal.
+Amended to the venue's own `/portfolio/positions` read at the moment of
+the run, the screen as a hint only, and a refusal on a venue-settled
+ticker recorded as a reading. Next look: the 09-23 T2 trip.
+
+### 3. The frozen eight all still hold, and #118's day was left alone
+
+A `fact-scout` checked every premise of #58 #71 #78 #79 #97 #119 #122
+#127 against the current tree: all HOLD, no reply from Joe on any, so the
+digest on map #3 stands untouched — no ninth comment. #131's third
+Evidence bullet carried the `watched_tickers` claim last session's lesson
+refuted; corrected on the ticket (it changes the cost of (C), not the
+question).
+
+`#118`'s VOID rule (`docs/measurements/2026-09-21-preregistration-unattended-scouting-first-reading.md:154-162`)
+has exactly three criteria — `day_start_ms` wrong at T1, a `keyless` row,
+a deploy that changes an `AGENT_MAX_*`/`SCOUT_AUTO_*` value inside the
+day — so a deploy that moves no ceiling is permitted and a tap would
+*bias* the day without voiding it. Nothing in this session tapped the
+scout desk or ran a live DB instrument. #115 got its gate: before 10-06 it
+must name which ADR 0038 row it overturns and with what measurement.
+
+### 4. Integration, and one flaky test ticketed
+
+Full suite on the merged tree `6fcee28`: **8,410 passed, 1 failed, 2
+skipped, 10 xfailed in 13:37** (local, under load). Ruff clean, `tsc`
+clean. The one failure is
+`test_the_combo_book_reader_is_wired.py::TestTheReadsAreBounded::test_a_hung_read_is_unreadable_inside_the_timeout`:
+it bounds the **whole route's** wall-clock at 1.0 s to prove a 0.05 s
+timeout fired, and the route's own startup plus two leg passes took 1.25 s
+under the suite. It passed 3 of 3 alone on the merged tree and 2 of 2 on
+the pre-#132 tree, and #132 does not touch the timeout path. Not this
+merge's doing, but the same shape that cancels a CI run as #124's cap, so
+it is **#134** (`owner:agent model:sonnet`, under #85): measure the guard,
+not the route. Deploy sha and CI result are in the commit that follows
+this entry and in `/api/health`, not restated here.
+
+### Still open
+
+**The digest on map #3 is unchanged — eight tickets, frozen, all premises re-verified today, unanswered. #131 is a ninth ticket outside it.**
+
+1. **#118 — appointment T1 2026-09-23 09:00–09:55Z, T2 10:30–14:00Z.** Today's deploy changed no `AGENT_MAX_*`/`SCOUT_AUTO_*` value. One slip permitted. Someone must be at the keyboard for T1.
+2. **#129 — capture owed on the T2 trip**, population from the venue's positions read (Done-when amended today). Then `measure_combo_book_presence.py --ticker <t> --capture <path>` and `capture_sell_side_rfq.py --ticker <t> --capture data/captures/sell_side` per ticker.
+3. **#96 — blocked on #129's capture**, by edge.
+4. **#107 — capture of opportunity**, same trip.
+5. **#115 — gated**: must name its ADR 0038 row before 2026-10-06; expires 2026-10-20.
+6. **#58, #71, #78, #79, #97, #119, #122, #127 — with Joe**, in the frozen digest; **#131** with Joe, outside it.
+7. **#134 — `owner:agent model:sonnet`, ready to dispatch**: the one flaky wall-clock test, from the evidence, not from taste.
+8. #108 — the deferred fifth seat only.
+
+**Beyond #134 the fleet has nothing to take until the capture lands** — that is the correct state, not a queue to pad (`partner`, today). The next screen change in epic #82 is #96, and it is one venue capture away.
+
+Question for Joe: once Kalshi settles a combination you hold, should the desk close its row by itself, or does closing stay your tap? — #131
+
+---
+
 ## 2026-09-22 (forty-fourth session) — the frontier had eleven READY leaves and nothing a lane could take, the sell-side capture instrument exists and its first run was refused for the right reason, and 41 of 43 hedge rows are now folded behind one label
 
 Joe said "read NEXT.md and continue" — no named errand — so `partner` owned
