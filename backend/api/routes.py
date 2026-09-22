@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+import asyncio
 import sqlite3
 import time
 from contextlib import asynccontextmanager
@@ -165,6 +166,16 @@ logger = logging.getLogger(__name__)
 #: than `rest.DEFAULT_TIMEOUT_S` (30s) because a person is waiting with a thumb
 #: on a button.
 COMBO_LOOKUP_TIMEOUT_S = 15.0
+
+#: Ceiling on ONE combination-book read for `/hedge` (#128). The shared
+#: combo client's socket timeout is 15s and `KalshiRestClient.request`
+#: retries four times with backoff, so one hung combination could hold the
+#: hedge screen for over a minute -- and `build_payload` reads them in
+#: series, under the Next proxy's 30s ceiling, on the one screen wanted
+#: mid-game. Past this the read renders as `unreadable` (a state #95
+#: already built) and the rest of the screen still arrives. Not a retry
+#: budget: a `wait_for` cancels the read, retries and all.
+COMBO_BOOK_READ_TIMEOUT_S = 3.0
 
 
 def recorder_fields(last_ms, now_ms: int) -> dict:
@@ -2076,6 +2087,42 @@ def create_app(
         require_auth=require_auth,
     )
 
+    # The combination-book reader for `/hedge` (#128, the wiring #95 left to
+    # main). `build_payload` wants `ticker -> awaitable[dict]` in
+    # `KalshiRestClient.orderbook`'s shape; the shared client comes from
+    # `combo_api()` above, built on the first read and shared after.
+    #
+    # Decided on `is_demo`, the same discriminator the `QuoteHub` uses: the
+    # demo deploy carries no Kalshi credentials by design, so on it the
+    # reader is never CONSTRUCTED and every combination row keeps the
+    # `no_reader_wired` state #95 gave it. Not a `try/except ConfigError`
+    # around the build -- that would turn a branch the demo does not have
+    # into one it handles, and `hedge.combo_book_state` would then render
+    # the demo's missing key as `unreadable`, a read that never happened.
+    # There is no non-raising credential predicate (`KalshiConfig.load`
+    # is the only one and it raises), and the live deploy cannot start
+    # keyless (`docker/entrypoint.sh`), so mode is the honest proxy.
+    #
+    # NOT handed to `hedge_watch` (`scripts/run_loop.py`): that loop calls
+    # `build_payload` every 60s unattended while a game is in play, nothing
+    # it pushes reads `combo_book`, and a venue read per position per minute
+    # that no consumer reads is a spend decision nobody has made.
+    # `tests/test_the_combo_book_reader_is_wired.py` pins both halves.
+    #
+    # Sharing the client is not only a saving: it is the SAME client, and
+    # the same 8/s limiter, the armed order path uses through `OrderPlacer`
+    # below, so every read queued here is a slot a "Take it" tap could be
+    # waiting behind. `build_payload` bounds the count (one read per
+    # distinct combination with a pending leg) and the timeout below bounds
+    # the wait; between them a hedge page load is a handful of reads, not a
+    # queue in front of the money path.
+    read_combo_book = None
+    if not app_config.is_demo:
+        async def read_combo_book(ticker: str) -> dict:
+            return await asyncio.wait_for(
+                combo_api().orderbook(ticker), timeout=COMBO_BOOK_READ_TIMEOUT_S
+            )
+
     hedge_router.register(
         app,
         app_config=app_config,
@@ -2083,6 +2130,7 @@ def create_app(
         live_quotes=live_quotes,
         get_conn=get_conn,
         require_auth=require_auth,
+        read_combo_book=read_combo_book,
     )
 
     odds_router.register(

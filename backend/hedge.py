@@ -125,6 +125,13 @@ COMBO_BOOK_UNREADABLE = "unreadable"
 #: Why `combo_book` is `None`. Both are designed states, not errors.
 COMBO_BOOK_REASON_NO_TICKET = "no_ticket"
 COMBO_BOOK_REASON_NO_READER_WIRED = "no_reader_wired"
+#: Every leg has resolved, so there is nothing left to sell into and no
+#: venue read is spent (#128 review, defect 1). `open_positions` means
+#: unclosed bookkeeping, not a live game -- 41 rows were "open" on
+#: 2026-09-21 with every game settled -- so without this gate `/api/hedge`
+#: would read the venue once per settled row on every page load, on the one
+#: screen wanted mid-game, under a 30s proxy ceiling.
+COMBO_BOOK_REASON_NOTHING_PENDING = "nothing_pending"
 
 #: The sentences every hedge surface carries, verbatim, exactly as
 #: `parlays.NOTES` does. They travel to Discord unchanged (ADR 0072 Decision 3),
@@ -1905,6 +1912,13 @@ async def build_payload(
     different read at a different cadence, and merging the two would put an
     unauthenticated route's combo-book reads on the same clock leg quotes
     already spend (review D1/D8).
+
+    Since #128 wired a real reader, two bounds sit on the reads this makes
+    and they are decided HERE, not by the reader: a combination whose legs
+    have all resolved is never read (`nothing_pending`, a third "not
+    applicable" reason beside `no_ticket` and `no_reader_wired`), and two
+    positions on one `combo_ticker` share one read. The reader itself
+    carries the per-read timeout (`routes.py:COMBO_BOOK_READ_TIMEOUT_S`).
     """
     # The sunk stake is read at the venue's own fill price where the venue
     # gave one and the link to it is provable, and at the figure recorded
@@ -1924,6 +1938,12 @@ async def build_payload(
         conn, [p["combo_ticker"] for p in positions if p["combo_ticker"]]
     )
     rows = []
+    # One venue read per DISTINCT combination per call, and none for a
+    # combination whose legs have all resolved. The leg reads above already
+    # run on that predicate (`watched_tickers`: DISTINCT, `outcome =
+    # 'pending'`); the combo read is held to the same one so the two
+    # populations on this route cannot drift apart (#128 review, defect 1).
+    combo_books: dict[str, tuple[Optional[dict], Optional[str]]] = {}
     for position in positions:
         legs = legs_for(conn, int(position["id"]))
         assessment = assess(
@@ -1935,9 +1955,18 @@ async def build_payload(
             spendable_tenths=spendable_tenths,
         )
         combo_ticker = position["combo_ticker"]
-        combo_book, combo_book_reason = await combo_book_state(
-            combo_ticker, read_combo_book=read_combo_book, now_ms=now_ms
-        )
+        if combo_ticker is not None and assessment.pending_legs == 0:
+            combo_book, combo_book_reason = (
+                None, COMBO_BOOK_REASON_NOTHING_PENDING
+            )
+        elif combo_ticker is not None and str(combo_ticker) in combo_books:
+            combo_book, combo_book_reason = combo_books[str(combo_ticker)]
+        else:
+            combo_book, combo_book_reason = await combo_book_state(
+                combo_ticker, read_combo_book=read_combo_book, now_ms=now_ms
+            )
+            if combo_ticker is not None:
+                combo_books[str(combo_ticker)] = (combo_book, combo_book_reason)
         rows.append(
             serialise_position(
                 position,
