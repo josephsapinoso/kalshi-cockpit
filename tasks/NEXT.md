@@ -134,6 +134,117 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-22 (forty-third session) — #95 is on the phone: the reader is wired, the review bounded what the wiring would have spent, and the live read says `empty` twice
+
+Joe said "read NEXT.md and continue" — no named errand — so `partner` owned
+the direction. Its ranking: **#128, then a deploy, then #124's third
+duration; #107 folded into the 09-23 trip; #96 parked; the Joe pile left
+alone.** Every load-bearing claim it made was checked at file:line and held,
+including the one that fixed the deploy's timing: `fly.live.toml` is
+byte-identical between live (`82c4e0e`) and main, so a deploy at ~00:40Z on
+09-22 sits eleven hours **outside** #118's target day (opens 10:00Z) and
+cannot trip the pre-registration's VOID rule, while a deploy tomorrow would
+have landed inside it. Live is on **`b4d2d94`**, verified by `/api/health`.
+
+### What shipped
+
+| commit | what | ticket |
+|---|---|---|
+| `b4d2d94` | the combination-book reader wired into `/api/hedge`, bounded in count and in wait; the watcher pinned readerless; 7 tests, **6 mutations red** | #128 |
+| deploy run `35672715361` | live on `b4d2d94`; the nine-commit gap (#124's cache, #95, the #118 registration) is closed | — |
+
+### 1. #128 — one file, then two bounds the review would not merge without
+
+The ticket's premise held: #95's lane had threaded `read_combo_book`
+through `routers/hedge.py:register()` and the only omission was the call
+site in `routes.py`. The ticket also **contradicted itself** — no
+`try/except ConfigError`, and no touching `backend/config.py`, while the
+only credential predicate in the tree (`KalshiConfig.load`) raises. Resolved
+on `app_config.is_demo`, the discriminator the `QuoteHub` already uses at
+`routes.py:390`; on the demo the reader is never constructed. "Keyless"
+means demo, stated on the ticket. That contradiction is why this was main's
+and not a Sonnet lane's: a literal execution writes the forbidden
+`try/except`, and a green run cannot see it.
+
+`kalshi-platform` returned **merge with two named changes**, and it
+overturned my own "measure the latency on live, then decide". Both changes
+were real: the read population and the wait were unbounded, on an
+unauthenticated route, in series, under Next's 30 s proxy ceiling, on the
+**same client and 8/s limiter the armed order path uses** through
+`OrderPlacer`. So `build_payload` now decides two bounds the reader does
+not: a combination whose legs have all resolved is never read (a third
+"not applicable" reason, `nothing_pending`), two positions on one ticker
+share one read, and each read sits under `COMBO_BOOK_READ_TIMEOUT_S = 3.0`
+so a hung combination renders `unreadable` rather than holding the screen
+through a 15 s socket timeout and four retries. The frontend needed nothing:
+`comboBookNote` renders silence for any null book.
+
+**The watcher does not get the reader.** `hedge_watch` calls `build_payload`
+every 60 s unattended, nothing it pushes reads `combo_book`, and a venue
+read per position per minute with no consumer is a spend nobody decided.
+The test asserts the keyword is *absent* from the call, so a future explicit
+`None` is still a re-decision; if it flips it is an ADR, because that one
+spends. Nothing was added to `MUST_HAVE_CALLERS` — the reader is a closure,
+`combo_book_state` is same-module to its caller, and `orderbook` already
+has three callers; the ratchet for this wiring is the live-instance test.
+
+### 2. The live reading — Done-when 1, and #107's first read on the right population
+
+`/api/hedge` on `b4d2d94` at ~00:43Z: **43 open positions** (41 last
+night; he keeps betting), 38 with a `combo_ticker`. `nothing_pending` 36,
+`no_ticket` 5, **read 2 → both `empty`** — nothing resting on the YES side
+of either held, live combination at that instant. Route 1.31 s against
+1.08 s before the deploy; one reading each, not a rate. Without the pending
+gate that would have been 38 venue reads in series on every page load, for
+36 books with nothing left to sell into.
+
+For #107 this is the first read ever taken on the population the 09-17
+observation came from (a held, live combination) rather than a calendar
+sample of `DISCOVERY_SERIES`, and it is empty. Two books at one moment;
+no capture, no rate, and it is not the same failure as the three earlier
+samples. Recorded on the ticket; the next look rides the 09-23 trip.
+
+### 3. #124 closes on three runs, cap untouched
+
+    35657694546  a5bdab6   9m29s   run 1
+    35658925309  a423a9d   9m17s   run 2
+    35672005060  b4d2d94   9m17s   run 3
+
+All three post-cache runs inside 9m17s–9m29s against pre-cache readings of
+11m39s, 15m20s and 15m04s (the last two cancelled by the cap). `ci.yml` is
+untouched and `timeout-minutes` stays 15, still the only hang-catcher.
+~5m40s of headroom on a suite that grows with the record: the next crossing
+of 12 minutes is a profile first, not a cap change.
+
+### 4. Two things caught, one by the review and one by a failing test
+
+- **I ranked the latency hazard "measure on live, then decide"; the review
+  ranked it "guard before merge", and was right.** The population was
+  bounded by *bookkeeping* (`status = 'open'`) while the leg reads on the
+  same route were already bounded by *liveness* (`outcome = 'pending'`,
+  `DISTINCT`). Two populations on one route drifting apart is the defect;
+  the fix was to hold the new read to the predicate the old one used.
+- **A tripwire on a shared symbol fires for whichever path reaches it
+  first.** The demo test recorded `KalshiConfig.load` to prove the combo
+  reader was never built — and it fired, because the app's lazily built
+  `LiveQuoteSource` dials the real venue for the *leg* quotes (four retries
+  a leg, ~15 s) and calls `load` itself. The timeout test measured that
+  same wait. The test app now injects a no-venue quote source; the wiring
+  was never wrong.
+
+### Still open
+
+**The digest on map #3 is frozen — eight tickets, one page, any subset — and nothing was added to it tonight.** #119 gained the `owner:joe` label it was missing so `board.py`'s two classifiers stop agreeing by luck.
+
+1. **#118 — the reading has its appointment: T1 2026-09-23 09:00–09:55Z, T2 10:30–14:00Z.** Nothing the VOID rule names moved: `fly.live.toml` is unchanged in `b4d2d94`, and the deploy landed at ~00:40Z on 09-22, outside the target day. One slip permitted, then it closes as not-taken.
+2. **#107 — capture of opportunity, now with an instrument that names its own targets**: `/api/hedge` reads the book of every held combination with a pending leg and says which those are. On the 09-23 T2 trip, run `scripts/measure_combo_book_presence.py --ticker <ticker> --capture <path>` for each such ticker. Tonight's two were `empty`.
+3. **#96 — parked, not killed.** Seven defects, a schema migration and a real sell-side RFQ needed for the fixture: a session opener, not a tail.
+4. **#115 — starts 2026-10-06 unless #58 lands first.** Expires 2026-10-20.
+5. **#58, #71, #78, #79, #97, #119, #122, #127 — with Joe**, in the frozen digest.
+6. #108 — the deferred fifth seat only.
+
+---
+
 ## 2026-09-21 (forty-second session) — the frontier was stuck on artefacts only we could make, a review caught me writing the exact clause Joe banned twice, and three ceilings turned out to be the same number
 
 Joe said "read NEXT.md and start" — no named errand — so `partner` owned the
@@ -1851,6 +1962,10 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-22 (forty-third session) — #95 is on the phone: the reader is wired, the review bounded what the wiring would have spent, and the live read says `empty` twice
+- 2026-09-21 (forty-second session) — the frontier was stuck on artefacts only we could make, a review caught me writing the exact clause Joe banned twice, and three ceilings turned out to be the same number
+- 2026-09-21 (forty-first session) — the clock on #118 was going to expire into an instrument that did not exist, the ceiling everyone ranked last had already bound, and a guard passed its own test with the guard deleted
+- 2026-09-21 (fortieth session) — unattended scouting is armed, the disk mystery is located but NOT explained, and the audit struck two of my six claims before they entered the record
 - 2026-09-20 (thirty-ninth session) — two live readings overturn the premise of the tickets that asked for them, #116 gets its arithmetic without the week it was told to wait, and four questions leave Joe's queue without him answering one
 - 2026-09-20 (thirty-eighth session) — the desk can be sent on the ladder unattended (off), every card says what it knows, sentiment is a tile, and Elo is a registration that can only close
 - 2026-09-19 (thirty-seventh session) — the queue moves to GitHub, the main session becomes the orchestrator, and the first lanes ran on the change itself

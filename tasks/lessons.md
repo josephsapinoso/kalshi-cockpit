@@ -16,6 +16,44 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-22 - A new read on a request path inherits the old read's population or it drifts; and a tripwire on a shared symbol fires for whichever path reaches it first
+
+Two patterns from wiring #95's reader (#128). The review caught the first;
+a failing test caught the second.
+
+- **When a new venue read joins a request path that already has one, hold
+  it to the predicate the existing read uses, or the two populations drift
+  apart on the same screen.** `/api/hedge` already read leg quotes for
+  `DISTINCT` tickers with `outcome = 'pending'`. The new combination-book
+  read was looped over `open_positions` -- `status = 'open'`, which on this
+  desk means unclosed bookkeeping, not a live game: 43 rows open, 2 with a
+  pending leg. Shipped as first written, every page load would have made 38
+  venue reads in series for 36 books with nothing left to sell into, on an
+  unauthenticated route under a 30 s proxy ceiling, on the same client and
+  limiter the armed order path queues behind. I had filed that as "measure
+  the latency on live, then decide"; the reviewer filed it as "guard before
+  merge", because the states to degrade into already existed and the guard
+  cost ten lines. **The check is mechanical: list every venue read the
+  route already makes and the predicate on each; a new read with a looser
+  predicate than its neighbours is the defect, before any timing is taken.**
+  The second half of the same rule: **bound the wait, not just the count** --
+  a per-read `wait_for` into an existing "unreadable" state is what keeps one
+  hung ticker from taking the whole screen down.
+
+- **A tripwire on a shared symbol proves nothing about the path you meant
+  until every other path to that symbol is stubbed.** The demo test
+  recorded `KalshiConfig.load` to prove the combination reader was never
+  constructed on a keyless instance. It fired -- from the LEG quote path,
+  whose lazily built `LiveQuoteSource` calls `load` itself and then dials
+  the real venue with four retries a leg. The same unstubbed path made the
+  timeout test measure a fifteen-second wait that had nothing to do with the
+  timeout. Neither test was wrong about the wiring; both were wrong about
+  what they were observing. **Before asserting "X was never called", grep
+  for every caller of X the app under test can reach, and stub each one
+  the test does not mean to exercise** -- the existing `quote_source=`
+  injection on `create_app` was there for exactly this and three other test
+  files already used it.
+
 ## 2026-09-21 (third) - A sample's negative result becomes a universal about the world in one sentence; a ladder's rungs can all be the same number; and an instrument that reports "today" cannot report yesterday
 
 Five patterns from the orchestration session. The first one is mine and it is
