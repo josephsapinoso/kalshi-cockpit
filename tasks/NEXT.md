@@ -134,6 +134,119 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-22 (forty-sixth session) — the record now says what the venue says: a settled combination closes its own row (ADR 0181, schema v54); the runtime review caught a coupling that would have silenced hedge alerts; #134 landed; NOT deployed, on purpose
+
+Joe said "read NEXT.md and start" — no named errand — so `partner` owned
+the direction. Its ranking: **#135 on main, #134 to a Sonnet lane in
+parallel, merge both, deploy neither; nothing else is due today.** Clock
+verified against GitHub's `Date` header at session start (17:14Z, machine
+agreed — no repeat of yesterday's seven hours). Live is on **`a56847f`**
+and stays there: see §4. Zero open Dependabot alerts.
+
+`partner`'s claims were checked at file:line before use. Two held and
+changed the build (the column-level CHECK rule at `db.py:1379-1382`; the
+`cycle_count` duration proxy in the #118 registration). **One was
+rejected**: it put the close pass inside `watch_once`, after
+`resolve_from_venue`. That runs only while `anything_in_progress` is true
+— an open position with a pending leg whose game has started — which is
+false exactly when every leg has resolved, the common state of a
+combination the venue has settled. A pass there would close settled rows
+only while some *other* ticket was live. It runs before the gate.
+
+### What shipped
+
+| commit | what | ticket |
+|---|---|---|
+| `bc4ca07` | `close_settled_combinations` on the watcher's cycle; `close_position(..., source)`; schema **v54** `parlay_positions.closed_source`; ADR **0181** amending 0136/0151; six comment sites rewritten; 14 tests, **4 mutations red** | #135 |
+| `90e0568` (merge of `55de431`) | Lane (Sonnet): the hung-read guard test bounds the gap from the read's own start (30 s stub, 8 s bound); mutation red, `routes.py` restored by copy | #134 |
+
+### 1. #135 — the three decisions, and where they came from
+
+1. **Where:** top of every `watch_hedges_forever` cycle, BEFORE the live
+   gate, in its own `try`. Idle 600 s / busy 60 s against a settlement
+   mirror that refreshes every 300 s, so the record lags the venue by at
+   most ~15 minutes on a quiet desk.
+2. **Provenance:** `closed_source ∈ {'venue','manual'}` — `resolve_leg`'s
+   two words, one writer with a required argument. **No backfill**: a row
+   closed before v54 reads NULL, "not recorded" (v52's precedent word for
+   word). The legs' `(outcome='pending') = (resolved_source IS NULL)`
+   invariant has **no twin** on this table: a table-level CHECK cannot be
+   added by `ALTER TABLE` and the pre-v54 closed rows would violate it.
+   Stated in the ADR so nobody "fixes" it with a rebuild on the live volume.
+3. **Trigger:** a `venue_settlements` row on the `combo_ticker`, through
+   the same `combo_settlements` lookup the screen uses. Narrower than the
+   screen's `nothing_pending` on purpose — every-leg-resolved (option B)
+   does not close. Hand-recorded slips cannot join; no second filter.
+
+Two consequences are in the ADR, not with Joe: **a closed row is displayed
+nowhere** (`open_positions` is the only reader of `status`), so the first
+pass after deploy empties the settled group of every venue-settled
+combination — he chose (A) knowing that; and **no push announces a venue
+close**.
+
+### 2. The runtime review caught what the tests could not
+
+`runtime-realist` traced the pass to the deployed entry point (unflagged,
+runner process only, never on demo) and found the coupling: `busy` is
+decided *after* the pass, so with the pass inside the cycle's `try` a
+raise there — `database is locked` against the 300 s portfolio poller,
+say — would skip `watch_once` (no settle, no re-price, no push) and force
+the 600 s idle sleep while a game was live. Hedge alerting silently off
+for as long as the fault lasted, in a log stream with ~10 min retention.
+Own handler now; pinned by a test that makes the pass raise on a live
+ticket and asserts the 60 s cadence; that guard's mutation went red too.
+Two more facts from the trace worth keeping: the watcher's connection is
+a raw `connect` with no `SchemaVersionMismatch` check, so if the boot
+migration ever did not run the `UPDATE` would fail every cycle into that
+same log-only path (in practice `migrate_db.py` and `init_db` both run
+first); and `#96`'s body still names v51 while the ledger has it on 55.
+
+### 3. #134 — amended twice before dispatch, then clean
+
+Read against the tree first (yesterday's lesson): the premise said a
+flaky test had cancelled CI, and it had not — every run since `b4d2d94`
+is green, Tests 6m56s–9m45s under the cap; the real cost is a false red in
+the local pre-merge suite. And the spec let the lane choose (a) or (b),
+where (b) alone only helps if the ~1.2 s of route startup happens before
+the combo read, which is not established. Folded, numbered, dispatched;
+the lane did exactly that and reported the mutation red at 32 s.
+
+### 4. Not deployed, on purpose — and the reason is not the VOID rule
+
+`bc4ca07..90e0568` moves no `AGENT_MAX_*`/`SCOUT_AUTO_*` value, so #118's
+VOID rule is not tripped. The reason is §3 of its registration: the
+reading reports `scout_watch_log.cycle_count` as a **duration proxy**, a
+restart resets it, and yesterday's 15:48Z deploy already put one
+discontinuity inside the day. A second would degrade an `n = 1` reading
+that cannot be repeated, and nothing here is on a fuse. **Deploy after
+10:00Z on 09-23 and after T2's reads land.** The migration is one
+additive column step, idempotent at boot.
+
+Full suite on the merged tree: see the CI run on `90e0568` — the local
+background run was started before the exception-handler change and is
+reported in the handoff line below as what it is.
+
+### Still open
+
+**The digest on map #3 is unchanged — eight tickets, frozen, unanswered.**
+
+0. **Deploy `90e0568` on 09-23 after 10:00Z and after #118's T2** — the
+   first hedge-watch cycle after it closes every venue-settled combination;
+   read `/api/hedge` once afterwards for the split, write no count (ADR 0162).
+1. **#118 — appointment T1 2026-09-23 09:00–09:55Z (02:00–02:55 PDT), T2 10:30–14:00Z.** No deploy today. One slip permitted. Someone must be at the keyboard for T1.
+2. **#129 — capture owed on the T2 trip**, population from the venue's positions read. Then `measure_combo_book_presence.py --ticker <t> --capture <path>` and `capture_sell_side_rfq.py --ticker <t> --capture data/captures/sell_side` per ticker.
+3. **#96 — blocked on #129's capture**; its body still says schema v51 — it is on **55** now (ledger, `db.py`), fix the body when it is next touched.
+4. **#107 — capture of opportunity**, same trip.
+5. **#115 — gated**: must name its ADR 0038 row before 2026-10-06; expires 2026-10-20.
+6. **#58, #71, #78, #79, #97, #119, #122, #127 — with Joe**, in the frozen digest.
+7. #108 — the deferred fifth seat only.
+
+**The fleet has nothing to take until the capture lands** — same state as
+yesterday, still correct. Epic #82's next screen change is #96, one venue
+capture away.
+
+---
+
 ## 2026-09-22 (forty-fifth session) — both agent tickets were mis-specified in the one line a lane executes, fixed before dispatch; two lanes landed; the frozen eight all still hold; nothing touched the measurement day
 
 Joe said "read NEXT.md and start" — no named errand — so `partner` owned
@@ -2202,6 +2315,8 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-22 (forty-sixth session) — the record now says what the venue says: a settled combination closes its own row (ADR 0181, schema v54); the runtime review caught a coupling that would have silenced hedge alerts; #134 landed; NOT deployed, on purpose
+- 2026-09-22 (forty-fifth session) — both agent tickets were mis-specified in the one line a lane executes, fixed before dispatch; two lanes landed; the frozen eight all still hold; nothing touched the measurement day
 - 2026-09-22 (forty-fourth session) — the frontier had eleven READY leaves and nothing a lane could take, the sell-side capture instrument exists and its first run was refused for the right reason, and 41 of 43 hedge rows are now folded behind one label
 - 2026-09-22 (forty-third session) — #95 is on the phone: the reader is wired, the review bounded what the wiring would have spent, and the live read says `empty` twice
 - 2026-09-21 (forty-second session) — the frontier was stuck on artefacts only we could make, a review caught me writing the exact clause Joe banned twice, and three ceilings turned out to be the same number

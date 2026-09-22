@@ -16,6 +16,52 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-22 (fourth) - A pass placed behind a liveness gate never runs on the population it is for; an invariant a sibling table got at birth may be structurally unavailable to the one you extend; and a new write ahead of a cycle's decision variable inherits that variable's default on failure
+
+Three patterns from the forty-sixth session. The first was caught by
+reading the gate before accepting the placement; the second by reading the
+migration precedent before writing the column; the third by the runtime
+review, after the tests were green.
+
+- **Before placing a periodic pass behind an existing gate, ask what the
+  gate is false for — that is usually the population the pass exists
+  for.** `anything_in_progress` is true while an open position has a
+  pending leg whose game has started; it is false once every leg has
+  resolved, which is the common state of a combination the venue has
+  settled. A close pass inside `watch_once` would therefore have closed
+  settled rows only while some *other* ticket was live, and a quiet desk
+  would have kept dead rows open indefinitely. The proposal read naturally
+  ("settle, then close, then re-price") and was wrong for the rows that
+  mattered. **Run the gate's predicate against the state the new pass is
+  meant to act on before accepting the placement.**
+
+- **A table-level CHECK cannot be added by `ALTER TABLE`, so an invariant
+  a sibling table got at birth may be structurally unavailable to the
+  table you are extending — state the asymmetry, or a later session will
+  "fix" it with a rebuild on the live record.** `parlay_position_legs`
+  carries `(outcome = 'pending') = (resolved_source IS NULL)` because it
+  was created with it. `parlay_positions.closed_source` cannot have its
+  twin: the column arrives by `ADD COLUMN`, only a column-level CHECK can
+  ride it, and every row closed before the column would violate the
+  invariant anyway. The writer enforces it instead. **When two tables
+  share a pattern and one of them is being retrofitted, write down which
+  guarantees the retrofit cannot carry and why**, in the ADR and beside
+  the column, so the missing CHECK reads as a decision and not a gap.
+
+- **A new statement placed ahead of a cycle's decision variable inherits
+  that variable's default when it raises — and the default is usually
+  "do nothing".** `busy = False; try: <new pass>; busy = gate(); if busy:
+  watch_once()`. Green tests, correct behaviour, and one `database is
+  locked` from the new write would have skipped the settle, the re-price
+  and every push, then slept the idle interval while a game was live —
+  hedge alerting silently off, into a log stream with ten minutes of
+  retention. The tests could not see it because none of them made the new
+  pass fail. **When adding a step before the line that decides what the
+  rest of the cycle does, give it its own handler and write the test that
+  makes it raise on the busy path.** The runtime review found this, not
+  the suite; a unit suite tests the step, not what the step's failure
+  does to its neighbours.
+
 ## 2026-09-22 (third) - Read a ticket's Done-when against the tree before dispatching it; a Must-not-touch can contain a file the change falsifies; a loose prefix turns a drift guard into a phantom-defect reporter; and the machine's clock is not the clock
 
 Five patterns from the forty-fifth session. The first four were caught
@@ -1831,6 +1877,13 @@ each is in the linked archive file, unchanged; the sections marked *in this
 file, above* are the ones not yet archived. Regenerate it from the headings in
 the same edit as the entry — an index that is not is stale by one entry
 immediately and by dozens within a week.
+
+### 2026-09-22 — in this file, above
+
+- A pass placed behind a liveness gate never runs on the population it is for; an invariant a sibling table got at birth may be structurally unavailable to the one you extend; and a new write ahead of a cycle's decision variable inherits that variable's default on failure
+- Read a ticket's Done-when against the tree before dispatching it; a Must-not-touch can contain a file the change falsifies; a loose prefix turns a drift guard into a phantom-defect reporter; and the machine's clock is not the clock
+- A venue action takes its population from the venue at the moment it acts; a board's READY count can be eleven and dispatch nothing; and a dated count in a code comment decays like one in a doc
+- A new read on a request path inherits the old read's population or it drifts; and a tripwire on a shared symbol fires for whichever path reaches it first
 
 ### 2026-09-21 — in this file, above
 
