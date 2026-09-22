@@ -277,21 +277,45 @@ class TestTheReadsAreBounded:
     async def test_a_hung_read_is_unreadable_inside_the_timeout(
         self, tmp_path, monkeypatch, keyless_kalshi_config
     ):
+        """Proves the per-read `wait_for` bounds a hung combination-book
+        read WITHOUT asserting on the wall-clock of the whole route -- a
+        suite-load failure observed 2026-09-22 (`elapsed < 1.0` got `1.25`
+        under a 13-minute suite; route startup + two leg-quote passes ate
+        ~1.2s on their own, 3/3 alone on the same tree) showed the old bound
+        was load-sensitive, not wrong about the guard.
+
+        Amended 2026-09-22: do BOTH halves of the fix rather than choosing
+        between them, because timing only the read (form (b)) only removes
+        load sensitivity if the ~1.2s of route startup/leg passes happens
+        BEFORE the combo read, and that ordering is not established. So the
+        stub records `time.monotonic()` at entry into a mutable holder
+        (`read_started`), sleeps `30.0` (> 3x the observed 1.25s whole-route
+        wall-clock under load, so the timeout has room to fire well before
+        the stub would ever return), and the assertion bounds only the gap
+        from the read's own start to the route's return at `8.0` (>= 5x that
+        same 1.25s observation, so ordinary suite load cannot trip it --
+        load would have to add ~7s to fail this, which it cannot). Under the
+        mutation "remove `wait_for` / its timeout around the combo read"
+        the stub is awaited in full, so `elapsed` lands near 30.0 and this
+        assertion goes red long before the stub would return on its own.
+        """
         monkeypatch.setattr(routes, "COMBO_BOOK_READ_TIMEOUT_S", 0.05)
 
+        read_started = {}
+
         async def orderbook(self, ticker, depth=10):
-            await asyncio.sleep(2.0)
+            read_started["at"] = time.monotonic()
+            await asyncio.sleep(30.0)
             return A_YES_BID
 
         monkeypatch.setattr(KalshiRestClient, "orderbook", orderbook)
 
-        started = time.monotonic()
         body = await get_hedge(make_app(tmp_path, "live"))
-        elapsed = time.monotonic() - started
+        elapsed = time.monotonic() - read_started["at"]
 
         (row,) = body["positions"]
         assert row["combo_book"]["state"] == hedge.COMBO_BOOK_UNREADABLE
-        assert elapsed < 1.0, elapsed
+        assert elapsed < 8.0, elapsed
 
 
 class TestTheWatcherDoesNotGetIt:
