@@ -69,8 +69,9 @@ function describeQuoteAge(ms: number | null | undefined): string | null {
  * has a pending leg is a fact about the world -- ADR 0071 §2.5's rule is
  * that the consensus-vs-Kalshi *gap* is shown per row and never ranked by;
  * it says nothing about grouping on a fact like this one. Positions are
- * partitioned into a live group (`pending_legs > 0`) rendered first and a
- * settled group collapsed behind a counted, tap-to-open summary -- the
+ * partitioned into a live group (a pending leg AND no venue settlement,
+ * #132) rendered first and a settled group collapsed behind a counted,
+ * tap-to-open summary -- the
  * settled group only grows (nothing here auto-closes a position; that is
  * still Joe's own tap, `close_position`) so it would otherwise bury the
  * rows that matter under dozens that do not. **Record order is kept inside
@@ -115,15 +116,28 @@ export default function HedgePositions({
 }
 
 /**
- * The live-first partition (#130). `pending_legs > 0` is the same predicate
- * the backend's combo-book read uses (`backend/hedge.py:1958`), so a
- * position that would still get a combo-book read is exactly the one that
- * lands in the live group here.
+ * The live-first partition (#130, extended #132). A position is LIVE only
+ * when BOTH a leg still reads `pending` AND the venue itself has not
+ * settled the combination (`venue_settlement === null`) -- one predicate,
+ * named once as `isLive`, matching the same two facts `build_payload`'s
+ * combo-book guard now checks (`backend/hedge.py:1958`): a combo can settle
+ * at the venue before its leg markets do (`backend/hedge.py:1201`), so
+ * `pending_legs` alone can say "live" for a ticket the venue has already
+ * closed out. `venue_settlement` is `null` for a hand-recorded slip with no
+ * `combo_ticker` (nothing to check) as well as for a genuinely open
+ * combination, so it never falsely excludes a single or a sportsbook bet
+ * from the live group.
+ *
+ * The settled group is the COMPLEMENT of `isLive`, not a second hand-written
+ * condition -- `!isLive(p)` -- so the two groups are exhaustive and disjoint
+ * BY CONSTRUCTION: there is no way to write a position that satisfies
+ * neither (the defect the first #132 body would have shipped, editing only
+ * the live side and leaving a venue-settled, legs-pending position matching
+ * neither filter and vanishing from the screen entirely).
  *
  * Both groups are rendered from the SAME `positions` array and every
- * position renders exactly once -- `pending` and `settled` partition it
- * completely (`pending_legs > 0` and `pending_legs === 0` are exhaustive and
- * disjoint), so nothing is dropped between the two `.map` calls below.
+ * position renders exactly once. Record order is kept inside each group --
+ * the partition reorders nothing on its own.
  */
 function PositionGroups({
   positions,
@@ -138,8 +152,10 @@ function PositionGroups({
   asOfMs: number;
   maxQuoteAgeMs: number;
 }) {
-  const pending = positions.filter((position) => position.pending_legs > 0);
-  const settled = positions.filter((position) => position.pending_legs === 0);
+  const isLive = (position: HeldPosition) =>
+    position.pending_legs > 0 && position.venue_settlement === null;
+  const pending = positions.filter(isLive);
+  const settled = positions.filter((position) => !isLive(position));
 
   return (
     <>

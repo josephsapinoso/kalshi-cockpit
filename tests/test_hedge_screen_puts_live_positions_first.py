@@ -93,9 +93,13 @@ def position_groups_body() -> str:
 
 class TestThePartition:
     def test_the_component_partitions_on_pending_legs(self):
+        """#132: the settled group is the COMPLEMENT of the live predicate,
+        not a second hand-written `pending_legs === 0` condition -- that
+        literal disappears under the complement form and would leave a
+        venue-settled, legs-pending position matching neither group."""
         body = position_groups_body()
         assert "pending_legs > 0" in body
-        assert "pending_legs === 0" in body
+        assert "!isLive(" in body
 
     def test_the_pending_group_is_emitted_before_the_settled_group(self):
         body = position_groups_body()
