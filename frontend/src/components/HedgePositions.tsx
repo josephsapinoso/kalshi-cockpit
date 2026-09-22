@@ -65,8 +65,16 @@ function describeQuoteAge(ms: number | null | undefined): string | null {
  * 2026-09-16, wrapped so the killed-claims guard could not see it; ADR 0112
  * took every cap off on 2026-09-08.)
  *
- * **No ordering here is a judgement.** Positions come back in the order they
- * were recorded (ADR 0071 §2.5).
+ * **Live-first is a fact, not a ranking (#130).** Whether a position still
+ * has a pending leg is a fact about the world -- ADR 0071 §2.5's rule is
+ * that the consensus-vs-Kalshi *gap* is shown per row and never ranked by;
+ * it says nothing about grouping on a fact like this one. Positions are
+ * partitioned into a live group (`pending_legs > 0`) rendered first and a
+ * settled group collapsed behind a counted, tap-to-open summary -- the
+ * settled group only grows (nothing here auto-closes a position; that is
+ * still Joe's own tap, `close_position`) so it would otherwise bury the
+ * rows that matter under dozens that do not. **Record order is kept inside
+ * each group** -- the partition reorders nothing on its own.
  */
 export default function HedgePositions({
   positions,
@@ -94,18 +102,81 @@ export default function HedgePositions({
           while the games run.
         </p>
       ) : (
-        positions.map((position) => (
-          <Position
-            key={position.id}
-            position={position}
-            notes={notes}
-            venuePollMs={venuePollMs}
-            asOfMs={asOfMs}
-            maxQuoteAgeMs={maxQuoteAgeMs}
-          />
-        ))
+        <PositionGroups
+          positions={positions}
+          notes={notes}
+          venuePollMs={venuePollMs}
+          asOfMs={asOfMs}
+          maxQuoteAgeMs={maxQuoteAgeMs}
+        />
       )}
     </div>
+  );
+}
+
+/**
+ * The live-first partition (#130). `pending_legs > 0` is the same predicate
+ * the backend's combo-book read uses (`backend/hedge.py:1958`), so a
+ * position that would still get a combo-book read is exactly the one that
+ * lands in the live group here.
+ *
+ * Both groups are rendered from the SAME `positions` array and every
+ * position renders exactly once -- `pending` and `settled` partition it
+ * completely (`pending_legs > 0` and `pending_legs === 0` are exhaustive and
+ * disjoint), so nothing is dropped between the two `.map` calls below.
+ */
+function PositionGroups({
+  positions,
+  notes,
+  venuePollMs,
+  asOfMs,
+  maxQuoteAgeMs,
+}: {
+  positions: HeldPosition[];
+  notes: Record<string, string>;
+  venuePollMs: number | null;
+  asOfMs: number;
+  maxQuoteAgeMs: number;
+}) {
+  const pending = positions.filter((position) => position.pending_legs > 0);
+  const settled = positions.filter((position) => position.pending_legs === 0);
+
+  return (
+    <>
+      {pending.length > 0
+        ? pending.map((position) => (
+            <Position
+              key={position.id}
+              position={position}
+              notes={notes}
+              venuePollMs={venuePollMs}
+              asOfMs={asOfMs}
+              maxQuoteAgeMs={maxQuoteAgeMs}
+            />
+          ))
+        : settled.length > 0 && (
+            <p className="text-sm text-muted">Nothing live right now.</p>
+          )}
+      {settled.length > 0 && (
+        <details className="rounded-lg border border-border">
+          <summary className="cursor-pointer p-3 text-sm text-muted">
+            {settled.length} settled ticket{settled.length === 1 ? "" : "s"}
+          </summary>
+          <div className="flex flex-col gap-4 p-3 pt-0">
+            {settled.map((position) => (
+              <Position
+                key={position.id}
+                position={position}
+                notes={notes}
+                venuePollMs={venuePollMs}
+                asOfMs={asOfMs}
+                maxQuoteAgeMs={maxQuoteAgeMs}
+              />
+            ))}
+          </div>
+        </details>
+      )}
+    </>
   );
 }
 
