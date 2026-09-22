@@ -1039,17 +1039,108 @@ def resolve_from_venue(conn: sqlite3.Connection, *, now_ms: int) -> int:
 
 
 def close_position(
-    conn: sqlite3.Connection, *, position_id: int, now_ms: int, status: str
+    conn: sqlite3.Connection,
+    *,
+    position_id: int,
+    now_ms: int,
+    status: str,
+    source: str,
 ) -> bool:
+    """Move one open ticket off `open`, saying who did it.
+
+    `source` is required and is the row's provenance (`closed_source`):
+    `'manual'` is Joe's tap, `'venue'` is `close_settled_combinations`. The
+    same two words, and the same shape, as `resolve_leg` one table down --
+    one writer with a required argument rather than a sibling function, so
+    the `status = 'open'` guard and the `rowcount` contract exist once and
+    cannot drift apart. A missing `source` is a `TypeError` at the call
+    site, never a silent NULL: NULL on this column means "closed before the
+    column existed" and nothing written today may look like that.
+    """
     if status not in ("settled", "closed", "void"):
         raise ValueError(f"status must be settled/closed/void, got {status!r}")
+    if source not in ("venue", "manual"):
+        raise ValueError(f"source must be venue/manual, got {source!r}")
     cursor = conn.execute(
-        "UPDATE parlay_positions SET status = ?, closed_ms = ? "
+        "UPDATE parlay_positions SET status = ?, closed_ms = ?, closed_source = ? "
         "WHERE id = ? AND status = 'open'",
-        (status, now_ms, position_id),
+        (status, now_ms, source, position_id),
     )
     conn.commit()
     return cursor.rowcount > 0
+
+
+def close_settled_combinations(
+    conn: sqlite3.Connection, *, now_ms: int
+) -> list[int]:
+    """Close every open combination the venue has already settled.
+
+    Joe's (A) to #131 (2026-09-22, ADR 0181, amending ADR 0136's "why no
+    auto-close"): once Kalshi reports the settlement of a combination he
+    holds, the record should say what the venue says, without waiting for
+    his tap. The trigger is **the venue's own settlement of the combination
+    market** -- a `venue_settlements` row on the position's `combo_ticker`,
+    read through the same `combo_settlements` lookup the screen uses, so the
+    record and the screen cannot disagree about which rows are settled. It
+    is deliberately narrower than the screen's `nothing_pending` predicate:
+    every leg having resolved does NOT close a row (option (B), offered and
+    not chosen), because the legs are the desk's own reading and the venue's
+    settlement is the venue's.
+
+    What this does not do, and does not establish:
+
+    - It never touches a hand-recorded slip. Those carry no `combo_ticker`
+      (`record_position` defaults it to `None` for the hand-typed route), so
+      the venue cannot see them and the join cannot reach them; closing one
+      stays Joe's tap. Disjoint by construction, not by a second filter.
+    - It never marks a leg. A combination's `market_result` says nothing
+      about which leg lost (ADR 0136, reason 2, which stands); legs keep
+      resolving from `kalshi_markets.result` or by hand.
+    - It never deletes. `status` moves to `'settled'` -- Joe's word in #131,
+      already in the table's CHECK -- with `closed_ms = now_ms` (when the
+      record closed, not when the venue settled; the venue's `settled_ms`
+      and `market_result` are already served on the row by the same join)
+      and `closed_source = 'venue'`.
+    - A closed row is not displayed anywhere: `open_positions` is the only
+      reader of `status`, so the first pass after this ships empties the
+      settled group on `/hedge`. Joe chose (A) knowing that.
+
+    Returns the ids it closed, in record order. Runs on the watcher's cycle
+    (`hedge_watch.watch_hedges_forever`), before the "anything live" gate,
+    because that gate is false exactly when every leg has resolved -- the
+    common state of a settled combination -- and a pass behind it would
+    only close settled rows while some OTHER ticket was live.
+    """
+    positions = [
+        row for row in open_positions(conn) if row["combo_ticker"] is not None
+    ]
+    if not positions:
+        return []
+    settlements = combo_settlements(
+        conn, [str(row["combo_ticker"]) for row in positions]
+    )
+    closed: list[int] = []
+    for row in positions:
+        settlement = settlements.get(str(row["combo_ticker"]))
+        if settlement is None:
+            continue
+        if close_position(
+            conn,
+            position_id=int(row["id"]),
+            now_ms=now_ms,
+            status="settled",
+            source="venue",
+        ):
+            logger.info(
+                "hedge: position %s closed by the venue's settlement of %s "
+                "(market_result=%r, settled_ms=%s)",
+                row["id"],
+                row["combo_ticker"],
+                settlement["market_result"],
+                settlement["settled_ms"],
+            )
+            closed.append(int(row["id"]))
+    return closed
 
 
 def watched_tickers(conn: sqlite3.Connection) -> list[str]:
@@ -1818,8 +1909,11 @@ def serialise_position(
         "bankroll_known": assessment.bankroll_known,
         "pending_legs": assessment.pending_legs,
         # `True`/`False` only when there is both a ticket to check and a
-        # complete poll to check it against; `None` otherwise. Never
-        # auto-closes anything -- see `close_position`, tapped by Joe.
+        # complete poll to check it against; `None` otherwise. This field
+        # closes nothing: absence from a poll is not a settlement (ADR 0136,
+        # reason 1). What DOES close a combination's row is the venue's own
+        # settlement, on the watcher's cycle (`close_settled_combinations`,
+        # ADR 0181); a hand-recorded slip is still closed only by Joe's tap.
         "at_venue": _at_venue(position, venue_tickers),
         # The venue's own settlement of the COMBO market, verbatim, or `None`
         # when unsettled. Distinct from `at_venue`: a combo can settle before

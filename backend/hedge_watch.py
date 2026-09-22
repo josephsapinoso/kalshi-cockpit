@@ -173,6 +173,13 @@ async def watch_hedges_forever(
 ) -> None:
     """The watcher as a long-running task beside the chain runner.
 
+    **Every cycle first closes what the venue has settled** (ADR 0181, Joe's
+    (A) to #131): `close_settled_combinations` runs before the "anything
+    live" gate, so a combination whose legs all resolved before its own
+    settlement arrived still leaves the open list on the next idle tick
+    rather than waiting for another ticket to go live. The gate then decides
+    whether there is anything left to re-price and alert on.
+
     **A failed cycle is logged and the loop continues.** A wedged venue, a
     revoked credential or a Discord outage must degrade this to "no hedge
     alerts" and must never take down the process that is recording evidence --
@@ -196,6 +203,35 @@ async def watch_hedges_forever(
             cycles += 1
             now_ms = int(clock() * 1000)
             busy = False
+            # BEFORE the gate, on purpose (ADR 0181). `anything_in_progress`
+            # is false exactly when every leg has resolved, which is the
+            # common state of a combination the venue has settled; a close
+            # pass behind the gate would only close settled rows while some
+            # OTHER ticket was live. Here it runs at the idle cadence when
+            # nothing is live and the watch cadence when something is,
+            # against a settlement mirror that refreshes every 300 s
+            # (`poll_portfolio_forever`'s balance branch).
+            #
+            # In its OWN try, not the cycle's: `busy` is decided after this
+            # line, so a raise shared with the cycle's handler would skip
+            # `watch_once` -- no settle, no re-price, no push -- and force
+            # the idle sleep while a game is live. A failed close pass (a
+            # `database is locked` against the portfolio poller, say) must
+            # cost this cycle's closes and nothing else.
+            try:
+                closed = held_parlays.close_settled_combinations(
+                    conn, now_ms=now_ms
+                )
+                if closed:
+                    logger.info(
+                        "hedge watch: %d position(s) closed by venue settlement: %s",
+                        len(closed),
+                        closed,
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:                                    # noqa: BLE001
+                logger.exception("hedge watch: venue close pass failed")
             try:
                 busy = anything_in_progress(conn, now_ms=now_ms)
                 if busy:

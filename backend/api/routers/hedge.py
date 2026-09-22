@@ -150,7 +150,11 @@ def register(
     def close_held_position(
         position_id: int, request: ClosePositionRequest
     ) -> dict:
-        """Stop watching a ticket. Nothing is deleted; the row keeps its history."""
+        """Stop watching a ticket. Nothing is deleted; the row keeps its history.
+
+        `source='manual'`: this is Joe's tap, and the row says so. The other
+        writer is the watcher's `close_settled_combinations` (`'venue'`).
+        """
         write_conn = db.open_db(app_config.db_path)
         try:
             moved = held_parlays.close_position(
@@ -158,6 +162,7 @@ def register(
                 position_id=position_id,
                 now_ms=db.now_ms(),
                 status=request.status,
+                source="manual",
             )
         finally:
             write_conn.close()

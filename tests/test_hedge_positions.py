@@ -319,7 +319,11 @@ class TestResolvingFromTheVenue:
     def test_a_closed_position_is_left_alone(self, conn):
         position_id = record(conn)
         hedge.close_position(
-            conn, position_id=position_id, now_ms=NOW_MS, status="settled"
+            conn,
+            position_id=position_id,
+            now_ms=NOW_MS,
+            status="settled",
+            source="manual",
         )
         self._market(conn, CIN, "yes")
         assert hedge.resolve_from_venue(conn, now_ms=NOW_MS) == 0
@@ -790,7 +794,11 @@ class TestTheWatchedSet:
         assert hedge.watched_tickers(conn) == [LAD]
 
         hedge.close_position(
-            conn, position_id=position_id, now_ms=NOW_MS, status="settled"
+            conn,
+            position_id=position_id,
+            now_ms=NOW_MS,
+            status="settled",
+            source="manual",
         )
         assert hedge.watched_tickers(conn) == []
 
@@ -1365,7 +1373,10 @@ class TestUnrecordedAtVenue:
 
 class TestAtVenueAndSettlement:
     """The per-position facts: is the ticket still at the venue, and has the
-    venue itself settled it. Neither auto-closes the ticket."""
+    venue itself settled it. Neither field closes the ticket by being READ
+    -- `build_payload` writes nothing. The venue's settlement does close it
+    on the watcher's own pass (`close_settled_combinations`, ADR 0181), which
+    `tests/test_a_venue_settled_combination_closes_its_own_row.py` pins."""
 
     async def test_true_when_present_in_the_latest_poll(self, conn):
         position_id = record(conn, combo_ticker="KXMVE-HERE")

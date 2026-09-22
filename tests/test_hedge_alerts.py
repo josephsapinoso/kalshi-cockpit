@@ -498,7 +498,11 @@ class TestTheWatcher:
     def test_a_settled_ticket_is_not_watched(self, conn):
         position_id = self._ticket(conn, commence_ms=NOW_MS - 1)
         hedge.close_position(
-            conn, position_id=position_id, now_ms=NOW_MS, status="settled"
+            conn,
+            position_id=position_id,
+            now_ms=NOW_MS,
+            status="settled",
+            source="manual",
         )
         assert hedge_watch.anything_in_progress(conn, now_ms=NOW_MS) is False
 

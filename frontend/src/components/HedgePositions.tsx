@@ -71,11 +71,16 @@ function describeQuoteAge(ms: number | null | undefined): string | null {
  * it says nothing about grouping on a fact like this one. Positions are
  * partitioned into a live group (a pending leg AND no venue settlement,
  * #132) rendered first and a settled group collapsed behind a counted,
- * tap-to-open summary -- the
- * settled group only grows (nothing here auto-closes a position; that is
- * still Joe's own tap, `close_position`) so it would otherwise bury the
- * rows that matter under dozens that do not. **Record order is kept inside
- * each group** -- the partition reorders nothing on its own.
+ * tap-to-open summary, so the settled rows do not bury the rows that
+ * matter. What the settled group holds: positions whose legs have all
+ * resolved but whose combination the venue has NOT yet settled, plus
+ * hand-recorded slips, which the venue cannot see. A combination the venue
+ * HAS settled leaves `/api/hedge` on the watcher's next cycle
+ * (`close_settled_combinations`, ADR 0181, Joe's (A) to #131) -- until
+ * 2026-09-22 this comment said the group "only grows (nothing here
+ * auto-closes a position)", which was true then. Closing a hand-recorded
+ * slip is still Joe's own tap, `close_position`. **Record order is kept
+ * inside each group** -- the partition reorders nothing on its own.
  */
 export default function HedgePositions({
   positions,

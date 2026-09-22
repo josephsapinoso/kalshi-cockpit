@@ -5,8 +5,11 @@ Live on 2026-09-22 ~03:55Z: 43 open positions, 2 with a pending leg, 41
 settled (34 `dead`, 7 `won`). `HedgePositions.tsx` was a bare `positions.map`
 with no partition, no collapse, no cap, so the settled group grows every
 night Joe bets and buries the two rows that matter under forty-one that do
-not (nothing here auto-closes a position by design; `close_position` still
-has one caller, Joe's own tap).
+not. (When this was written nothing auto-closed a position and
+`close_position` had one caller, Joe's tap; since ADR 0181 the watcher
+closes a combination once the venue's own settlement arrives, so the settled
+group now holds what the venue has not settled and Joe has not tapped. The
+partition this file pins is unchanged by that.)
 
 ADR 0071 §2.5 does not forbid this split. That rule says the
 consensus-vs-Kalshi *gap* is shown per row and never ranked by; whether a

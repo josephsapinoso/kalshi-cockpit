@@ -2577,8 +2577,11 @@ CREATE TABLE IF NOT EXISTS parlay_positions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     created_ms      INTEGER NOT NULL,
     -- Where the ticket lives. `kalshi_combo` can be hedged AND is the case
-    -- that most needs it: combos are enter-only in 40 of 40 books this repo
-    -- has read, so a hedge on a leg market is the only exit that exists.
+    -- that most needs it. (This comment said combos were "enter-only in 40
+    -- of 40 books" until 2026-09-22; that was refuted 2026-09-17 -- a held
+    -- combination can be sold back by RFQ or into a resting book bid, ADR
+    -- 0164 -- and the hedge on a leg market is the exit the desk WATCHES,
+    -- not the only one that exists.)
     source          TEXT NOT NULL,
     -- Which sportsbook, when it is one. Free text and purely descriptive:
     -- nothing branches on it, and no odds are ever fetched from it.
@@ -2599,6 +2602,20 @@ CREATE TABLE IF NOT EXISTS parlay_positions (
     parlay_lookup_id INTEGER,
     note            TEXT,
     closed_ms       INTEGER,
+    -- Who moved `status` off `open` (v54, 2026-09-22, ADR 0181): `'manual'`
+    -- is Joe's tap (`close_position` behind `POST /api/hedge/positions/{id}/close`),
+    -- `'venue'` is the watcher's pass closing a combination whose own
+    -- `venue_settlements` row has arrived (`close_settled_combinations`).
+    -- Same two words as `parlay_position_legs.resolved_source`, for the same
+    -- reason: a record that changed when the operator did not touch it must
+    -- say so on the row. NULL on a row closed before v54 -- "not recorded",
+    -- never assumed to be either. The CHECK rides the column because a
+    -- table-level CHECK cannot be added by `ALTER TABLE`, which is also why
+    -- the legs' `(outcome = 'pending') = (resolved_source IS NULL)` invariant
+    -- has no twin here: it would have to be `(status = 'open') = (closed_source
+    -- IS NULL)`, and the pre-v54 closed rows already violate it. The writer
+    -- enforces it instead.
+    closed_source   TEXT CHECK (closed_source IS NULL OR closed_source IN ('venue', 'manual')),
     CHECK (source IN ('kalshi_combo', 'sportsbook')),
     CHECK (status IN ('open', 'settled', 'closed', 'void')),
     CHECK (stake_tenths > 0),

@@ -68,6 +68,16 @@ logger = logging.getLogger(__name__)
 #: §2). A REBUILD, not a column step: SQLite cannot relax a NOT NULL or a
 #: table-level CHECK in place. The rows already written keep their real typed
 #: values -- nothing is deleted, backfilled, zeroed or rewritten.
+#: v54 (2026-09-22) adds `parlay_positions.closed_source` -- who moved the
+#: row off `open`: `'manual'` (Joe's tap) or `'venue'` (the watcher's pass,
+#: once the venue's own settlement of the combination has arrived; Joe's (A)
+#: to #131, ADR 0181, amending ADR 0136). A COLUMN step, nullable, column-level
+#: CHECK for v51's reason, **no backfill**: a row closed before v54 reads
+#: NULL, "not recorded". Before v54 the tap was the only production writer,
+#: but "the only writer we know of" is an inference about the past and the
+#: column records facts about the present. Taken on `main` at 54 with
+#: `SCHEMA_VERSION` at 53; ticket #96 had been sliding on 54 and is still
+#: unbuilt, so it moves to 55 (its fourth slide).
 #: v53 (2026-09-21) adds `scout_watch_log` -- what the unattended scout
 #: watcher decided each cycle, including the cycles where it decided to do
 #: nothing (#126). A STATEMENTS step, because `schema.sql` is applied with
@@ -212,7 +222,7 @@ logger = logging.getLogger(__name__)
 #: `executescript` cannot do that. Written on `main`, 2026-09-18, the
 #: evening `/api/window` measured 7 s at the median and tripped the 25 s
 #: read budget twice.
-SCHEMA_VERSION = 53
+SCHEMA_VERSION = 54
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1325,6 +1335,18 @@ _MIGRATIONS: dict[int, _Migration] = {
     # of about three months with no measured lower bound (`rest.fills`), the
     # two acceptances this repo has predate the step, and a value invented
     # for them would enter the one record that says what the venue charged.
+    # Who closed a held ticket. See the v54 note above and the column comment
+    # in `schema.sql`. Column-level CHECK for v51's reason; no backfill.
+    54: _Migration(
+        columns=(
+            (
+                "parlay_positions",
+                "closed_source",
+                "TEXT CHECK (closed_source IS NULL OR closed_source IN "
+                "('venue', 'manual'))",
+            ),
+        ),
+    ),
     # What the unattended scout watcher decided, per budget day. See the v53
     # note above and the table comment in `schema.sql`.
     #

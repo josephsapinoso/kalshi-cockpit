@@ -3601,8 +3601,10 @@ export type HeldPosition = {
   /** Whether this ticket's own market is in the latest complete venue
    * positions poll. `null` means the question has no answer: either this is
    * a sportsbook slip (no `combo_ticker`), or there has never been a
-   * complete poll to check against — neither is a `false`. Never auto-closes
-   * anything; the close route is still Joe's own tap. */
+   * complete poll to check against — neither is a `false`. This field closes
+   * nothing (absence from a poll is not a settlement); the venue's own
+   * settlement does close a combination, on the watcher's pass (ADR 0181),
+   * and a hand-recorded slip is still closed only by Joe's tap. */
   at_venue: boolean | null;
   /** The venue's own settlement of this ticket's own market, or `null` when
    * unsettled (or not a combination at all). */
@@ -3638,9 +3640,11 @@ export type HeldPosition = {
    * settle at the venue before its leg markets do, `backend/hedge.py:1201`
    * -- checked against the same `venue_settlements` read this field's own
    * `venue_settlement` comes from). Either way there is nothing left to
-   * sell out of -- and since nothing auto-closes a position it is the
-   * reason on most rows (re-read `/api/hedge` for the split; a count here
-   * would decay, ADR 0162). It is distinct from `no_ticket` and
+   * sell out of. Since ADR 0181 a venue-settled combination leaves the
+   * open list on the watcher's next pass, so this reason now mostly marks
+   * the lag between the venue's settlement and that pass, plus rows whose
+   * legs resolved before the venue settled the combination (re-read
+   * `/api/hedge` for the split; a count here would decay, ADR 0162). It is distinct from `no_ticket` and
    * `no_reader_wired`, which are both about whether a read could even be
    * attempted. */
   combo_book_reason: "no_ticket" | "no_reader_wired" | "nothing_pending" | null;

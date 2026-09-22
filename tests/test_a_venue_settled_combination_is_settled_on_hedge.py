@@ -31,7 +31,10 @@ What this does not establish
 -----------------------------
 - Anything about `state` (`derisk`/`lock`/...) -- unchanged by this ticket,
   see `backend/hedge.py:1212`; whether a settled-but-pending-legs row
-  auto-closes is #131, not this one.
+  auto-closes was #131 -- answered (A), built as #135 / ADR 0181 on the
+  watcher's pass, and pinned by
+  `tests/test_a_venue_settled_combination_closes_its_own_row.py`. Nothing
+  in THIS file's `build_payload` reads writes a row.
 - That anything renders correctly in a browser -- (iii)/(iv) are source
   text assertions only, same instrument as
   `tests/test_hedge_screen_puts_live_positions_first.py`, which this file
