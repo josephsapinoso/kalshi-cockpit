@@ -246,20 +246,19 @@ written here (ADR 0162).
 
 ### Still open
 
-**The digest on map #3 is unchanged — eight tickets, frozen, all premises re-verified today, unanswered. #131 is a ninth ticket outside it.**
+**The digest on map #3 is unchanged — eight tickets, frozen, all premises re-verified today, unanswered. #131 was answered (A) at ~16:20Z and is closed; its build is #135.**
 
-1. **#118 — appointment T1 2026-09-23 09:00–09:55Z, T2 10:30–14:00Z.** Today's deploy changed no `AGENT_MAX_*`/`SCOUT_AUTO_*` value. One slip permitted. Someone must be at the keyboard for T1.
+0. **#135 — NEXT SESSION'S OPENER, `owner:main`**: auto-close a held combination's row once Kalshi reports its settlement (Joe's (A) to #131). Needs a DRAFT ADR amending the "never auto-closes" decision (`backend/hedge.py:1822`; find the ADR with `git log -S "Never auto-closes"`), a choice of where the pass runs, and provenance so a tap-close and a venue-close stay distinguishable. The `/hedge` copy "nothing here auto-closes a position" ships in the same commit. Hand-recorded slips stay his tap.
+1. **#118 — appointment T1 2026-09-23 09:00–09:55Z (02:00–02:55 PDT), T2 10:30–14:00Z.** Today's deploy changed no `AGENT_MAX_*`/`SCOUT_AUTO_*` value. One slip permitted. Someone must be at the keyboard for T1.
 2. **#129 — capture owed on the T2 trip**, population from the venue's positions read (Done-when amended today). Then `measure_combo_book_presence.py --ticker <t> --capture <path>` and `capture_sell_side_rfq.py --ticker <t> --capture data/captures/sell_side` per ticker.
 3. **#96 — blocked on #129's capture**, by edge.
 4. **#107 — capture of opportunity**, same trip.
 5. **#115 — gated**: must name its ADR 0038 row before 2026-10-06; expires 2026-10-20.
-6. **#58, #71, #78, #79, #97, #119, #122, #127 — with Joe**, in the frozen digest; **#131** with Joe, outside it.
+6. **#58, #71, #78, #79, #97, #119, #122, #127 — with Joe**, in the frozen digest.
 7. **#134 — `owner:agent model:sonnet`, ready to dispatch**: the one flaky wall-clock test, from the evidence, not from taste.
 8. #108 — the deferred fifth seat only.
 
-**Beyond #134 the fleet has nothing to take until the capture lands** — that is the correct state, not a queue to pad (`partner`, today). The next screen change in epic #82 is #96, and it is one venue capture away.
-
-Question for Joe: once Kalshi settles a combination you hold, should the desk close its row by itself, or does closing stay your tap? — #131
+**Beyond #134 the fleet has nothing to take until the capture lands** — that is the correct state, not a queue to pad (`partner`, today). The next screen change in epic #82 is #135 (main), then #96, one venue capture away.
 
 ---
 
