@@ -3633,10 +3633,11 @@ export type HeldPosition = {
   /** Set only when `combo_book` is `null`; names which of the three designed
    * "not applicable" causes applied. `nothing_pending` is the third
    * (#130, `backend/hedge.py:1960`): every leg on this ticket has already
-   * resolved, so there is nothing left to sell out of, and it is served on
-   * most rows today (41 of 43 open positions live 2026-09-22, none with a
-   * pending leg). It is distinct from `no_ticket` and `no_reader_wired`,
-   * which are both about whether a read could even be attempted. */
+   * resolved, so there is nothing left to sell out of -- and since nothing
+   * auto-closes a position it is the reason on most rows (re-read
+   * `/api/hedge` for the split; a count here would decay, ADR 0162). It is
+   * distinct from `no_ticket` and `no_reader_wired`, which are both about
+   * whether a read could even be attempted. */
   combo_book_reason: "no_ticket" | "no_reader_wired" | "nothing_pending" | null;
   legs: HeldLeg[];
   /** `null` means there is nothing to hedge, which is not the same as a
