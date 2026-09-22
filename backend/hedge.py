@@ -1913,12 +1913,16 @@ async def build_payload(
     unauthenticated route's combo-book reads on the same clock leg quotes
     already spend (review D1/D8).
 
-    Since #128 wired a real reader, two bounds sit on the reads this makes
+    Since #128 wired a real reader, three bounds sit on the reads this makes
     and they are decided HERE, not by the reader: a combination whose legs
-    have all resolved is never read (`nothing_pending`, a third "not
-    applicable" reason beside `no_ticket` and `no_reader_wired`), and two
-    positions on one `combo_ticker` share one read. The reader itself
-    carries the per-read timeout (`routes.py:COMBO_BOOK_READ_TIMEOUT_S`).
+    have all resolved is never read, NOR is one the venue has already
+    settled even while its legs still read `pending` (both collapse to
+    `nothing_pending`, a third "not applicable" reason beside `no_ticket`
+    and `no_reader_wired` -- there is nothing left to sell into either way,
+    and the venue's own settlement is authoritative over a leg-resolution
+    pass that can lag it by up to one runner cycle, #132); and two positions
+    on one `combo_ticker` share one read. The reader itself carries the
+    per-read timeout (`routes.py:COMBO_BOOK_READ_TIMEOUT_S`).
     """
     # The sunk stake is read at the venue's own fill price where the venue
     # gave one and the link to it is provable, and at the figure recorded
@@ -1955,7 +1959,16 @@ async def build_payload(
             spendable_tenths=spendable_tenths,
         )
         combo_ticker = position["combo_ticker"]
-        if combo_ticker is not None and assessment.pending_legs == 0:
+        # Nothing left to sell into either when every leg has resolved OR
+        # when the venue has already settled this combination itself, even
+        # if a leg still reads `pending` -- the leg-resolution pass can lag
+        # the venue's own settlement by up to one runner cycle (#132). Same
+        # reason either way; the settlement read is the same dict already
+        # built above, so this costs no extra lookup.
+        if combo_ticker is not None and (
+            assessment.pending_legs == 0
+            or settlements.get(str(combo_ticker)) is not None
+        ):
             combo_book, combo_book_reason = (
                 None, COMBO_BOOK_REASON_NOTHING_PENDING
             )
