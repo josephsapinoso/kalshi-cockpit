@@ -421,6 +421,109 @@ is registered here so it cannot be softened later.
 
 ---
 
+## Amendment 1 — 2026-09-22 ~19:40Z — the reading is taken by automation, and which read is T1 is fixed now
+
+**Additive, and written before any row of the target day has been read.** T1's
+window opens 2026-09-23 09:00:00Z. No sentence above is edited or deleted.
+**§2's commands, §3's population and exclusions, §5's decision rule and §7's
+stopping rule are unchanged by this amendment** — §2 fixes the command, not the
+operator. No outcome letter is referenced here, and **no void criterion is
+added**: §3 still has exactly three and "there is no fourth criterion" stays
+true.
+
+### A1.1 Who takes the reading
+
+Two independent arms run §2's commands **verbatim** from one committed script,
+`scripts/measure_118_trip.sh`: the same
+`flyctl ssh console -a kalshi-cockpit -C "python /app/scripts/fetch_live_route.py /api/scout"`
+string for T1, the same two `inspect_live_db.py` lines plus `ladder-fixtures`
+for T2/T3.
+
+- **Arm A — `.github/workflows/measure-118.yml`**, dated to 2026-09-23, cron at
+  09:02, 09:17, 09:32 and 09:47Z (T1) and 10:35 and 10:50Z (T2/T3). Four T1
+  fires because GitHub's scheduler is **late, not absent**, measured on this
+  repo's own heartbeat: median gap between runs 22.6 min, **maximum 245 min**,
+  n = 199 (`.github/workflows/heartbeat.yml:45`). Four fires do not make the
+  window certain; they make a miss less likely, and a miss is still §7's
+  business, not a reason to widen the window. Each run uploads its output as an
+  artifact, and the run's timestamp is GitHub's clock.
+- **Arm B — a Windows scheduled task on Joe's laptop**, same minutes
+  (02:05, 02:20, 02:35, 02:50 PDT; 03:35, 03:50 PDT), same script, output to
+  `%LOCALAPPDATA%\kalshi-cockpit\118\`. Its wall-clock comes from the `Date`
+  header of `curl -sI https://api.github.com`, **never the machine clock**: the
+  machine printed `07:40:58 UTC` when it was 14:40Z (`tasks/lessons.md:103`).
+
+Both arms may fire, both arms' output is data, and **neither arm is preferred
+over the other** in A1.2 — preferring one after seeing both would be the
+degree of freedom this document exists to remove.
+
+### A1.2 Which read is T1 — fixed now, because several reads will exist
+
+> **T1 is the latest successful read, from either arm, whose trusted wall-clock
+> is strictly before 2026-09-23T09:55:00Z and whose `spend.day_start_ms` equals
+> 2026-09-22T10:00:00Z. That read's trusted wall-clock is `T1_ms`, and its
+> `tokens_today` and `searches_today` are `K` and `S`. Every read taken, from
+> both arms, is printed in the result document with its arm, its trusted
+> wall-clock and its `day_start_ms`; a read at or after 09:55:00Z, or carrying
+> a different `day_start_ms`, is not T1 and is printed as context only.**
+
+**Why "latest" is the conservative choice, not the convenient one.**
+`tokens_today` and `searches_today` are non-decreasing within a budget day
+(§5's monotonicity argument), so the latest qualifying read **maximises** `K`
+and `S`. §5's masking-falsification branch requires `K < TB` *and*
+`S <= SB - 36`, so taking the latest read makes that falsification **harder to
+obtain, never easier** — the
+rule is fixed against the direction the session proposing the reading would
+prefer. It also maximises coverage: §5's deduction covers rows with
+`first_ms <= T1_ms`, and the latest read covers the most of them.
+
+**How §3(a) applies when several reads exist — same criterion, no new one.**
+§3(a) voids the day when "`spend.day_start_ms` at T1 is not
+2026-09-22T10:00:00Z". Under the rule above, a read carrying a different
+`day_start_ms` is not a T1 at all, so (a) fires exactly when **no** read from
+either arm before 09:55:00Z carries `day_start_ms` = 2026-09-22T10:00:00Z —
+the selection returns nothing, because the day rolled early or every attempt
+failed. Nothing is added, nothing is relaxed.
+
+### A1.3 Which set is T2/T3
+
+The set used is the **first successful set after 2026-09-23T10:30:00Z in which
+all three commands come from one arm's one run**, which preserves §2's "one
+trip": the three readings are of one instant, not stitched from two. Later sets
+are equivalent and are printed too — both QueryDefs group on `budget_day_ms`
+with `--day-start-hour 10` (`scripts/inspect_live_db.py:790-850`, all three
+`cost=CHEAP`), and the target day closed at 10:00Z, so a later read of it can
+differ only by rows dated `20260923`, which §3 puts OUT. If no single-run set
+qualifies, §7's one slip applies; stitching two runs is not registered.
+
+### A1.4 Today's rehearsal runs are not readings
+
+Both arms are exercised on **2026-09-22**, the day this amendment is written,
+to prove they run at all. Those reads fall outside T1's window, so they cannot
+be T1 under A1.2: they are **context only**, and are still printed in the
+result document. They cannot perturb the day either.
+`GET /api/scout` is read-only — one SELECT over `scout_briefings`
+(`backend/api/routers/scout.py:325`) plus `AgentBudget.today_summary`
+(`:358`), whose `state()` is a single SELECT over `agent_calls`
+(`backend/agents/budget.py:222`) — and the three QueryDefs are `cost=CHEAP`,
+so no rehearsal walks the file or flushes the live cache. Nor is a rehearsal a
+"look" in §5's sense: §5 counts evaluations of the decision rule, and a read
+that cannot be T1 cannot feed it.
+
+### A1.5 What this amendment does not touch
+
+§7 is unchanged: if neither arm produces a qualifying T1 read, the reading
+slips once to `20260923`, with the reason recorded. The human trip on
+2026-09-23 — the #129/#107 captures, and the deploy of `fdbe92f` taken after
+T2 — is **not part of the reading** and contributes no row to it; the deploy
+lands outside the target day, so §3(c) is not engaged and is not weakened here.
+
+**Registration status after Amendment 1: READY, unchanged.** The decision rule
+quoted below stands word for word; this amendment fixes only who runs §2's
+commands and which of several reads is `T1`.
+
+---
+
 ## Registration status
 
 **UNDERPOWERED for #118 item 3 as originally written** (which ceiling binds
