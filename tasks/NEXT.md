@@ -134,6 +134,136 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-22 (forty-eighth session) — the arms are correct and were left alone; the one dependency T1 still has is the laptop's power plan; the result doc exists as a skeleton before any row of its day; #115's #58 ordering is an edge the board can see; NOT deployed, on purpose
+
+Joe said "read NEXT.md and start" — no named errand — so `partner` owned
+the direction. Its position, checked and adopted: **the arms are built
+correctly and must not be edited twelve hours before a one-shot read; the
+only open dependency on T1 is Joe's laptop power, which is his to close in
+one sentence; tomorrow is the month's most loaded session, so tonight
+writes the result-doc skeleton before any row of the target day exists and
+repairs one queue defect. No deploy, no live instrument, no scout tap, no
+ninth comment on the frozen digest, no new ticket.** Clock verified against
+GitHub's `Date` header at 20:19Z (machine agreed). Live is on **`a56847f`**
+and stays there until 09-23 after 14:00Z. Zero open Dependabot alerts. CI
+green on `fe282f8`. No lanes. Session started under an hour after the
+forty-seventh ended.
+
+### What shipped
+
+| commit | what | ticket |
+|---|---|---|
+| (this commit) | `docs/measurements/2026-09-23-unattended-scouting-first-reading.md` — the §8 destination as a **skeleton**: VOID checks first, the A1.2 read table, all five §5 branches written out and none selected, §4 quoted byte-identically (verified by `diff` on line ranges 177–225 / 185–233), 53 `<TO FILL>` slots, a closing checklist that ends with deleting the arms | #136 (Done-when 4) |
+| (outside the tree) | #115: `blocked_by: #58` edge added (db id `5486190879`); one comment discharging the row-naming gate | #115 |
+
+### 1. Both arms re-verified, and the one thing only Joe controls
+
+Read at 20:2xZ, nothing edited:
+
+- **Arm A**: `measure-118.yml:47` `2,17,32,47 9 23 9 *` → 09:02/17/32/47Z;
+  `:49` `35,50 10 23 9 *` → 10:35/50Z. Both inside their windows; the trip
+  is chosen from `github.event.schedule`, so a late fire is disqualified by
+  its stamp under A1.2, never converted to the wrong trip. Workflow is on
+  `main`, pushed.
+- **Arm B**: `Kalshi118T1` four triggers 02:05/20/35/50 PDT, `Kalshi118T2`
+  two at 03:35/50 PDT, both `WakeToRun=True`, not battery-gated, logon
+  `Interactive`, output dir present with today's rehearsal file.
+- **The gap**: the active power plan has *Allow wake timers* **Enable on
+  AC, Disable on DC**, and *Hibernate after* 15 min idle on AC (S0 modern
+  standby box). So `WakeToRun` fires only plugged in, and the interactive
+  token needs the session to exist — **locked is fine; signed out or
+  restarted by Windows Update is not.** Arm A needs none of this. Told to
+  Joe in the session's first line. Not fixed for him: Arm A covers it, and
+  a power-plan edit twelve hours before the read is a change, not a repair.
+- The shared-mode failure is closed by config: `fly.live.toml:908-910`
+  `auto_stop_machines = "off"`, `min_machines_running = 1`, so both arms'
+  `flyctl ssh console` finds a machine at 02:00 PDT.
+
+### 2. The skeleton — five branches before one is true
+
+Written at the path §8 fixes, with the status line saying so and dated.
+Nothing in it is a number. What it pins in advance: the three VOID checks
+come first on the page; the read table prints every fire from both arms
+including fires that did not happen; T1 is the *latest* qualifying read
+(A1.2's own words quoted); the 15:48Z deploy's `cycle_count` discontinuity
+is named as read-time context and explicitly *not* a fourth void
+criterion; each of A–E carries its §8 consequence verbatim; §4 is spliced
+from the registration by byte range and the checklist pins the `diff`.
+`tests/test_a_question_for_joe_has_a_ticket.py` fired on the first draft —
+a template line carried the marker with a placeholder number — and the
+line was reworded rather than the test; the guard works on skeletons too.
+
+### 3. #115 — a prose-only ordering the board could not see
+
+Joe's (b) to #117 ordered #115 after #58; it was recorded in a comment and
+nowhere the board reads, so `board.py` listed #115 READY under `owner:main`
+for three sessions (`blocked:0`). `blocked_by: #58` is now an edge; board
+reads `READY 9`, #115 gone from the `owner:main` block, WARNINGS 0. The
+10-06 auto-start (clause (ii) of the 09-21 14:12Z comment) is the date the
+edge comes off, written on the ticket. The row-naming gate of 09-22 15:23Z
+is discharged in the same comment: #115 overturns no ADR 0038 row; it
+re-tests **row 2** on a different cell (Elo on moneylines vs two prop
+models) under a rule whose PASS licenses only a successor registration.
+NEXT.md's Still-open line had decayed from "starts 2026-10-06 unless #58
+lands first" to "gated: must name its row" across three entries — both
+clauses restored below.
+
+### 4. Not deployed, on purpose — same reason, one day left on it
+
+`fe282f8..HEAD` adds a doc; `deploy.yml` is `workflow_dispatch` only. The
+VOID rule is not the reason (no `AGENT_MAX_*`/`SCOUT_AUTO_*` moves); §3's
+`cycle_count` duration proxy is, and it expires when the day closes at
+10:00Z on 09-23. **Deploy `32b5dce` or later on 09-23 after 14:00Z, after
+the reads are collected and the skeleton is filled.**
+
+### 5. Two indexes were one entry behind
+
+Neither `tasks/NEXT.md`'s session index nor `tasks/lessons.md`'s pattern
+index listed the forty-seventh session's entry. Both caught up in this
+commit. The #129/#107 trip readiness was checked read-only by `partner`'s
+own scout and needs nothing: both scripts import, `capture_sell_side_rfq.py`
+creates its capture directory itself (`:294`), and its only venue writes are
+one `create_rfq` and one `delete_rfq`, never an accept.
+
+### Still open
+
+**The digest on map #3 is unchanged — eight tickets, frozen, unanswered.**
+
+0. **#118 — T1 09:00–09:55Z, T2 10:30–14:00Z on 09-23, unattended.** Joe:
+   laptop plugged in and signed in tonight (locked is fine) if Arm B is to
+   count; Arm A runs regardless. If neither arm produced a qualifying T1,
+   §7's one slip applies (09-24): re-date the crons and both tasks, do not
+   re-derive them.
+1. **#136 — Done-when 4 is owed by the result-doc session**: `gh run list
+   --workflow measure-118.yml`, `gh run download` each; the local `118/`
+   directory; fill `docs/measurements/2026-09-23-unattended-scouting-first-reading.md`
+   top to bottom in its own order (VOID first); `measurement-skeptic` reads
+   it; **delete `.github/workflows/measure-118.yml` and both scheduled tasks
+   in that same commit** — the cron fires again next 23 September if left.
+2. **Deploy `32b5dce` or later on 09-23 after 14:00Z and after item 1**
+   (#135's rollout) —
+   the first hedge-watch cycle closes every venue-settled combination; read
+   `/api/hedge` once afterwards for the split, write no count (ADR 0162).
+3. **#129 — capture owed on the T2 trip** (human; not automated),
+   population from the venue's positions read; then
+   `measure_combo_book_presence.py` and `capture_sell_side_rfq.py` per ticker.
+4. **#96 — blocked on #129's capture**; next free schema is 55 (54 taken).
+5. **#107 — capture of opportunity**, same trip.
+6. **#115 — starts on #58 landing or 2026-10-06, whichever first** (the
+   `blocked_by` edge comes off on 10-06 if #58 is still open, recorded on
+   the ticket); row-naming gate discharged 09-22; registration expires
+   2026-10-20.
+7. **#58, #71, #78, #79, #97, #119, #122, #127 — with Joe**, in the frozen digest.
+8. #108 — the deferred fifth seat only.
+
+**The build queue is genuinely empty but for two chains** — #129 → #96
+(needs a venue capture) and #58 → #115 (needs Joe) — and epics #81, #84,
+#85 have zero open children. Fifth session running; still the correct
+state, not a queue to pad. Two stale August scheduled tasks
+(`KalshiRepeatPoll*`) are still on the laptop; nobody asked.
+
+---
+
 ## 2026-09-22 (forty-seventh session) — #118's T1 and T2 take themselves: two unattended arms, both rehearsed green, the registration amended in advance to say which read is T1; NOT deployed, still on purpose
 
 Joe said "read NEXT.md and start" — no named errand — so `partner` owned
@@ -2420,6 +2550,8 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-22 (forty-eighth session) — the arms are correct and were left alone; the one dependency T1 still has is the laptop's power plan; the result doc exists as a skeleton before any row of its day; #115's #58 ordering is an edge the board can see; NOT deployed, on purpose
+- 2026-09-22 (forty-seventh session) — #118's T1 and T2 take themselves: two unattended arms, both rehearsed green, the registration amended in advance to say which read is T1; NOT deployed, still on purpose
 - 2026-09-22 (forty-sixth session) — the record now says what the venue says: a settled combination closes its own row (ADR 0181, schema v54); the runtime review caught a coupling that would have silenced hedge alerts; #134 landed; NOT deployed, on purpose
 - 2026-09-22 (forty-fifth session) — both agent tickets were mis-specified in the one line a lane executes, fixed before dispatch; two lanes landed; the frozen eight all still hold; nothing touched the measurement day
 - 2026-09-22 (forty-fourth session) — the frontier had eleven READY leaves and nothing a lane could take, the sell-side capture instrument exists and its first run was refused for the right reason, and 41 of 43 hedge rows are now folded behind one label

@@ -16,6 +16,47 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-22 (sixth) - An ordering recorded only in a ticket's prose is invisible to the board that dispatches from it; a scheduled task that must wake the machine depends on power-plan state its own XML does not show; and a result document written before its data is a registration one level down
+
+Three patterns from the forty-eighth session, a short one taken twelve
+hours before a one-shot read.
+
+- **When Joe orders one ticket after another, encode it as the dependency
+  edge the board reads, and write on the ticket the date the edge comes
+  off.** Joe's (b) to #117 put #115 behind #58; it was recorded in a
+  comment, and `board.py` — which reads
+  `issue_dependencies_summary.blocked_by` and nothing else — listed #115
+  READY under `owner:main` for three sessions. Prose on a ticket is read by
+  a person once; an edge is read by the board every session. The
+  auto-unblock date (10-06) is the same kind of decaying clause, so it goes
+  on the ticket beside the edge as the instruction to remove it, not as a
+  fact a later session must rediscover.
+
+- **`WakeToRun=True` in a task's XML is a request, not a guarantee; the
+  power plan decides whether wake timers are honoured, and it can differ
+  by AC and DC.** The laptop arm for #118's T1 was rehearsed green with
+  the machine awake, which proves nothing about 02:05 AM. `powercfg /query
+  SCHEME_CURRENT SUB_SLEEP RTCWAKE` showed wake timers enabled on AC and
+  disabled on battery; `HIBERNATEIDLE` showed hibernate after 15 minutes
+  on AC. Neither is visible from `schtasks` or `Get-ScheduledTask`. **When
+  an arm's failure mode is "the machine was asleep", read the power plan,
+  not the task.** The finding went to Joe as one sentence — the fix was
+  his to make and Arm A did not need it — rather than as a power-plan
+  edit twelve hours before the window.
+
+- **Write the result document's skeleton before any row of its data
+  exists: every outcome branch with its consequence, the VOID checks
+  first, every datum a slot.** A branch written after one is true reads as
+  the finding; five branches written before any is true read as the
+  partition, and a reader can check that it was applied rather than
+  chosen. The skeleton also moves the "which read counts" and "which
+  checks come first" decisions to the day before, when no read can
+  flatter them. The marker guard
+  (`tests/test_a_question_for_joe_has_a_ticket.py`) fired on a template
+  line in the skeleton — the marker with a placeholder number — and the line was
+  reworded: a skeleton is in the record from the moment it is committed
+  and is held to the same rule as a result.
+
 ## 2026-09-22 (fifth) - A fixed-window reading nobody can attend is taken by two schedulers with different failure modes, and the rule for choosing among their reads is registered before any of them fires; an amendment's number is read from the file it amends
 
 Two patterns from the forty-seventh session. The first is the session's
@@ -1907,6 +1948,8 @@ immediately and by dozens within a week.
 
 ### 2026-09-22 — in this file, above
 
+- An ordering recorded only in a ticket's prose is invisible to the board that dispatches from it; a scheduled task that must wake the machine depends on power-plan state its own XML does not show; and a result document written before its data is a registration one level down
+- A fixed-window reading nobody can attend is taken by two schedulers with different failure modes, and the rule for choosing among their reads is registered before any of them fires; an amendment's number is read from the file it amends
 - A pass placed behind a liveness gate never runs on the population it is for; an invariant a sibling table got at birth may be structurally unavailable to the one you extend; and a new write ahead of a cycle's decision variable inherits that variable's default on failure
 - Read a ticket's Done-when against the tree before dispatching it; a Must-not-touch can contain a file the change falsifies; a loose prefix turns a drift guard into a phantom-defect reporter; and the machine's clock is not the clock
 - A venue action takes its population from the venue at the moment it acts; a board's READY count can be eleven and dispatch nothing; and a dated count in a code comment decays like one in a doc
