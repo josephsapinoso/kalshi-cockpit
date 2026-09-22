@@ -134,6 +134,118 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-22 (forty-fourth session) — the frontier had eleven READY leaves and nothing a lane could take, the sell-side capture instrument exists and its first run was refused for the right reason, and 41 of 43 hedge rows are now folded behind one label
+
+Joe said "read NEXT.md and continue" — no named errand — so `partner` owned
+the direction. Its ranking: **carve #96's capture out as its own instrument
+and write it tonight; put the live positions first on `/hedge`; one Joe
+ticket; refill the agent queue; no `sharp-bettor` sweep, no board tooling,
+stop after two builds.** Every load-bearing claim was checked at file:line
+before use. All held but one — see §4 — and I re-read `/api/hedge` myself
+before trusting its headline split.
+
+**The structural finding:** `board.py` said `READY 11, WARNINGS 0`. Of the
+eleven, eight were `owner:joe`, three `owner:main` with a date or an
+appointment, **zero `owner:agent`**. The lane fleet had nothing to do and
+every session was collapsing into main doing everything. Two Sonnet tickets
+now sit under #82 (#132, #133); the board reads `READY 13` with a real
+`owner:agent` block. Live is on **`eec635e`**, verified by `/api/health`.
+
+### What shipped
+
+| commit | what | ticket |
+|---|---|---|
+| `9a06366` | `scripts/capture_sell_side_rfq.py` + test: one sell-side RFQ on a held combination, raw quotes kept, written before the withdraw; 21 tests, **7 mutations red** | #129 |
+| `6c92bce` (merge of `1cfdfa0`) | Lane (Sonnet): `/hedge` partitions on `pending_legs`, settled rows collapse behind a counted `<details>`; `api.ts` names `nothing_pending`; 15 tests, **6 mutations red** | #130 |
+| `eec635e` | the lane's type comment stops carrying a dated count (ADR 0162) | #130 |
+| CI `35689944059` green; deploy `35690590949` | live on `eec635e`; local full suite **8,404 passed in 10:31** | — |
+
+### 1. #129 — the instrument, and a refusal that was the finding
+
+#96's real blocker was never Joe's authorisation (asking commits nothing,
+`rfq.py:399`; #59 and #63(A) license sell-side asks) and never the seven
+defects. It was that **nothing committed could fire an RFQ or keep a raw
+quote payload**: `read_quotes` (`rfq.py:513-516`) discards the payload, the
+only `create_rfq` caller is the buy route, and the 09-17 measurement was a
+throwaway that lost a quote to console truncation (ADR 0173 §1).
+
+The script reads the venue for everything: `position_fp` from
+`/portfolio/positions` (floored to `contracts`, the neutral form the 09-17
+run used), legs and collection from `GET /markets/{ticker}`, and it refuses
+before any write on an existing capture path, an unheld ticker, a holding
+under one contract, and **an RFQ of ours already open** — `create_rfq`
+would silently reuse it, because `_is_reusable` returns True when no dollar
+target is wanted (#96 defect 4). Capture first, `delete_rfq` in the
+`finally`, `--fixture` redacts into the shape of the existing fixture.
+
+**First run 05:11Z, on the two positions `/api/hedge` had listed with a
+pending leg at 03:55Z: both REFUSED as not held.** Kalshi had finalized
+both combinations (result `no`) at 04:23Z and 04:33Z, while the desk's
+legs — resolved from the runner's market-results pass — still read
+`pending`. Live's own poll agreed (`at_venue = false`). Guard 5 fired for
+real on the right precondition; no RFQ was created; no capture. #96 stays
+blocked on #129; the next look rides the 09-23 T2 trip with both arms
+back to back on the same ticker.
+
+### 2. #130 — 41 of 43 rows folded
+
+`/api/hedge` at 03:55Z: **43 open positions, 2 with a pending leg, 41
+settled (34 `dead`, 7 `won`), 36 with a `venue_settlement`.** Same as
+00:43Z. `HedgePositions.tsx:97` was a bare `positions.map`. Nothing closes
+a row but Joe's tap (`close_position`, one caller), so the settled group
+only grows.
+
+ADR 0071 §2.5 was read before the lane was briefed: it forbids ranking by
+the consensus-vs-Kalshi *gap*; a partition on whether a leg is pending is a
+fact, record order is kept inside each group, and nothing is hidden. The
+component comment that generalised the rule to "no ordering here" was
+rewritten with the citation kept. Verified on live after the deploy by an
+SSR fetch of `/hedge` (Chrome was not connected): one `<details>` reading
+**"41 settled tickets"**, the live group above it non-empty. The lane also
+found the `combo_book_reason` type had lied since #128 (`nothing_pending`
+missing from the union, served on 36 rows); fixed in the same lane.
+
+### 3. Three tickets opened, two of them for lanes
+
+- **#131 — Question for Joe** (sub-issue of #3, NOT added to the frozen
+  digest): auto-close a combination once the venue settles it, or keep it
+  his tap? (A) recommended.
+- **#132 (Sonnet)** — a venue-settled combination counts as settled on
+  `/hedge` and its book is not read, even while the legs lag. Tonight's
+  two "live" rows are the case: the screen put two dead tickets in the
+  live group and `build_payload` spent two venue reads on finalized books.
+- **#133 (Sonnet)** — a drift guard: every `COMBO_BOOK_REASON_*` /
+  `STAKE_BASIS_*` value the backend emits must appear in `api.ts`'s union,
+  both directions.
+
+### 4. What partner got wrong, and what I got wrong
+
+- `partner` said `watched_tickers`' docstring had decayed to "bounded by
+  what he has ever held". Its SQL filters `l.outcome = 'pending'`
+  (`hedge.py:1063-1070`), so it is bounded by live legs. No ticket.
+- I sent the first `/api/hedge` read with the cookie named `session` and
+  read the 401 as a bad mint. The memory already said `cockpit_session`.
+- The background full suite "exited 0" having run nothing: the shell's cwd
+  was still `frontend/` from the previous command. Absolute venv path,
+  re-run, 8,404 passed. Recorded in memory.
+
+### Still open
+
+**The digest on map #3 is unchanged — eight tickets, frozen, unanswered. #131 is a ninth ticket, not a ninth digest entry.**
+
+1. **#118 — appointment T1 2026-09-23 09:00–09:55Z, T2 10:30–14:00Z.** Tonight's deploy changed no `AGENT_MAX_*`/`SCOUT_AUTO_*` value and budget-day accounting is clock + `agent_calls` rows (`budget.py:214-230`), so neither the deploy nor a restart can trip the VOID rule. One slip permitted.
+2. **#129 — instrument landed, capture still owed.** On the T2 trip, for each ticker `/api/hedge` shows with a pending leg: `measure_combo_book_presence.py --ticker <t> --capture <path>` then `capture_sell_side_rfq.py --ticker <t> --capture data/captures/sell_side`. The script refuses if the venue has already settled it; that refusal is a reading, record it.
+3. **#132, #133 — `owner:agent model:sonnet`, ready to dispatch** as worktree lanes next session. #132 first: it is a live defect on the screen.
+4. **#96 — blocked on #129's capture**, by edge.
+5. **#107 — capture of opportunity**, now with two arms; population at 05:11Z was 0.
+6. **#115 — starts 2026-10-06 unless #58 lands first.** Expires 2026-10-20.
+7. **#58, #71, #78, #79, #97, #119, #122, #127 — with Joe**, in the frozen digest; **#131** with Joe, outside it.
+8. #108 — the deferred fifth seat only.
+
+Question for Joe: once Kalshi settles a combination you hold, should the desk close its row by itself, or does closing stay your tap? — #131
+
+---
+
 ## 2026-09-22 (forty-third session) — #95 is on the phone: the reader is wired, the review bounded what the wiring would have spent, and the live read says `empty` twice
 
 Joe said "read NEXT.md and continue" — no named errand — so `partner` owned
@@ -1962,6 +2074,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-22 (forty-fourth session) — the frontier had eleven READY leaves and nothing a lane could take, the sell-side capture instrument exists and its first run was refused for the right reason, and 41 of 43 hedge rows are now folded behind one label
 - 2026-09-22 (forty-third session) — #95 is on the phone: the reader is wired, the review bounded what the wiring would have spent, and the live read says `empty` twice
 - 2026-09-21 (forty-second session) — the frontier was stuck on artefacts only we could make, a review caught me writing the exact clause Joe banned twice, and three ceilings turned out to be the same number
 - 2026-09-21 (forty-first session) — the clock on #118 was going to expire into an instrument that did not exist, the ceiling everyone ranked last had already bound, and a guard passed its own test with the guard deleted

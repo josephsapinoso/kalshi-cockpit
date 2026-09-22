@@ -16,6 +16,49 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-22 (second) - A venue action takes its population from the venue at the moment it acts; a board's READY count can be eleven and dispatch nothing; and a dated count in a code comment decays like one in a doc
+
+Four patterns from the forty-fourth session. The first cost nothing tonight
+because the instrument was built to read the venue; it would have cost a
+wrong RFQ if the operator's list had been trusted instead.
+
+- **A mirror's "live" row is a fact about the mirror. An instrument that
+  acts at the venue re-derives its population from the venue at the moment
+  it acts.** `/api/hedge` at 03:55Z listed two positions with pending legs;
+  the sell-side ask at 05:11Z was refused on both as *not held*, because
+  Kalshi had finalized both combinations at 04:23Z and 04:33Z while the
+  desk's legs -- resolved from the runner's market-results pass -- still
+  read `pending`. The screen was right about the record and wrong about the
+  world by one pass. **Pick tickers for a venue write off the venue's own
+  positions read, never off a screen, and let the instrument refuse when
+  the two disagree** -- that refusal is the measurement, not a failure.
+  Same shape as `at_venue` (ADR 0136): the desk says what it cannot see.
+
+- **`READY N` on the board counts open, unblocked, unassigned leaves and
+  says nothing about who can take them.** Eleven READY tonight: eight
+  `owner:joe`, three `owner:main` with a start date or an appointment,
+  **zero `owner:agent`** -- the lane fleet had nothing to do and every
+  session was collapsing into main doing everything. The fix was to write
+  tickets (two landed under #82), not a board warning: four sessions of
+  tooling was the pattern to break. **Read the owner split under
+  FRONTIER before calling the frontier full.**
+
+- **A count with a date in a source comment decays exactly as it does in a
+  doc (ADR 0162), and a lane will write one.** The #130 lane put "41 of 43
+  open positions live 2026-09-22" into `api.ts`'s type comment. It was true
+  at 03:55Z and wrong by 05:11Z. Trimmed on merge to "most rows; re-read
+  `/api/hedge`". **When reviewing a lane diff, grep it for a digit followed
+  by a date before merging.**
+
+- **A "decayed justification" claim is itself a claim; read the WHERE
+  clause before ticketing it.** `partner` said `watched_tickers`' docstring
+  ("bounded by how many tickets one person holds") had decayed to "ever
+  held" because nothing auto-closes a position. Its SQL filters
+  `l.outcome = 'pending'`, so the list is bounded by live legs regardless
+  of `status`. No ticket was opened. The reviewer was right about the
+  screen (`positions.map` over every open row) and wrong about the watcher,
+  and the two claims arrived in one paragraph with equal confidence.
+
 ## 2026-09-22 - A new read on a request path inherits the old read's population or it drifts; and a tripwire on a shared symbol fires for whichever path reaches it first
 
 Two patterns from wiring #95's reader (#128). The review caught the first;
