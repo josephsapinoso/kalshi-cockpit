@@ -138,7 +138,8 @@ the channel diagnostic (A17.6/A17.11).
 
 Joe said "read NEXT.md and start" — no named errand — so `partner` owned
 the direction. Its ranking: **protect #118's target day (opens 10:00Z
-today, ~2h after session start); amend #132 and #133 before dispatching
+today — the session believed that was ~2h ahead; it was ~4h40m *behind*,
+see §3); amend #132 and #133 before dispatching
 them; fix #129's population rule before tomorrow's trip; put #131 and the
 T1 window in front of Joe; no new tooling tickets.** Every load-bearing
 claim was checked at file:line before use; all held this time, including
@@ -207,6 +208,18 @@ day — so a deploy that moves no ceiling is permitted and a tap would
 scout desk or ran a live DB instrument. #115 got its gate: before 10-06 it
 must name which ADR 0038 row it overturns and with what measurement.
 
+**The session's clock was wrong by seven hours and it was caught only at
+the deploy.** The first `date -u` of the session printed `07:40:58 UTC`;
+GitHub's `Date` header at the deploy said 15:49Z while `date -u` then
+agreed with it — the first call had printed local (PDT) time labelled
+UTC. So the whole session, and the deploy of `a56847f` at 15:48Z, ran
+**inside** the #118 target day, not two hours before it. The VOID rule is
+not tripped (`git diff eec635e a56847f` touches no `AGENT_MAX_*`/
+`SCOUT_AUTO_*` value); the restart is recorded on #118 as read-time
+context (a `cycle_count` discontinuity in `scout_watch_log`, not a new
+decision). **T1 tomorrow is 09:00–09:55Z = 02:00–02:55 PDT** on Joe's
+clock.
+
 ### 4. Integration, and one flaky test ticketed
 
 Full suite on the merged tree `6fcee28`: **8,410 passed, 1 failed, 2
@@ -219,8 +232,17 @@ under the suite. It passed 3 of 3 alone on the merged tree and 2 of 2 on
 the pre-#132 tree, and #132 does not touch the timeout path. Not this
 merge's doing, but the same shape that cancels a CI run as #124's cap, so
 it is **#134** (`owner:agent model:sonnet`, under #85): measure the guard,
-not the route. Deploy sha and CI result are in the commit that follows
-this entry and in `/api/health`, not restated here.
+not the route.
+
+Deployed: **live on `a56847f`**, verified by `/api/health` at ~16:05Z
+(deploy run `35749807997`). Read once after the deploy: `/api/hedge`
+carried **no** row with a pending leg and a venue settlement at that
+instant — the legs had caught up with the venue since last night — so
+the #132 branch had nothing to fire on and nothing was read; the route
+answered in 0.33 s. That is the precondition being absent, not the guard
+being exercised on live; the guard is exercised by its tests and its
+three mutations. Re-read `/api/hedge` for the split; no count of it is
+written here (ADR 0162).
 
 ### Still open
 

@@ -16,11 +16,12 @@ correction arrived. Reviewed at session start.
 
 ---
 
-## 2026-09-22 (third) - Read a ticket's Done-when against the tree before dispatching it; a Must-not-touch can contain a file the change falsifies; and a loose prefix turns a drift guard into a phantom-defect reporter
+## 2026-09-22 (third) - Read a ticket's Done-when against the tree before dispatching it; a Must-not-touch can contain a file the change falsifies; a loose prefix turns a drift guard into a phantom-defect reporter; and the machine's clock is not the clock
 
-Three patterns from the forty-fifth session. All three were caught before
-a lane started, by reading each ticket's executable line against the
-current tree rather than trusting that last session wrote it.
+Five patterns from the forty-fifth session. The first four were caught
+before a lane started, by reading each ticket's executable line against
+the current tree rather than trusting that last session wrote it. The
+fifth was caught after the deploy, by a timestamp GitHub wrote.
 
 - **A ticket written at the end of one session is not dispatchable at the
   start of the next until its Done-when has been run against the tree.**
@@ -52,6 +53,22 @@ current tree rather than trusting that last session wrote it.
   **When a change redefines a reason string, grep every comment that
   defines it, in every language in the repo, and put those lines in Lane
   owns.**
+
+- **Do not plan anything against a clock window on the machine's own
+  clock until it has agreed with a remote one.** The session's first
+  `date -u` printed `07:40:58 UTC`; it was 14:40Z. Every clock statement
+  in the plan ("the target day opens in ~2h", "nothing dated is due
+  today") was seven hours wrong, and the deploy that was reasoned to land
+  *before* the #118 measurement day landed six hours *into* it. It was
+  caught only because GitHub stamped the deploy run at 15:48Z. Nothing was
+  voided this time, because the VOID rule's deploy criterion is about a
+  value changing, not a restart — but a registration with a "no deploy
+  inside the day" criterion would have been void before the session knew
+  what day it was. **At session start, read `curl -sI https://api.github.com`'s
+  `Date` header beside `date -u`; if they disagree, the machine's one is
+  the wrong one.** The same fixed-window discipline the #118 registration
+  demands of the instrument (`spend.day_start_ms` must equal the day you
+  meant) applies to the session's own sense of when it is.
 
 - **A drift guard built on a constant prefix inherits every constant that
   shares the prefix.** `COMBO_BOOK_` collects the four state constants as
