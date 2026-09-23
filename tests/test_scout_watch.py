@@ -615,6 +615,120 @@ class TestHeldParlaysComeFirst:
         assert [r["ticker"] for r in rows] == ["KXFALLBACK"]
 
 
+    async def test_a_parlay_with_a_lost_leg_is_not_scouted(
+        self, tmp_path, monkeypatch
+    ):
+        path = _init_db(tmp_path)
+        conn = db.connect(path)
+        try:
+            # Leg 0: already lost, earlier game -- kills the whole parlay.
+            _add_scoutable_fixture(
+                conn, ticker="KXLOST", event_ticker="EVLOST",
+                odds_event_id="odds-lost", home="B", away="A", link_id=1,
+                commence_ms=NOW_MS - 500_000,
+            )
+            _add_held_leg(
+                conn, position_id=1, ticker="KXLOST", event_ticker="EVLOST",
+                commence_ms=NOW_MS - 500_000, outcome="lost", leg_index=0,
+            )
+            # Leg 1: still pending, tonight -- but the parlay it belongs to
+            # already lost, so it is dead and not worth scouting.
+            _add_scoutable_fixture(
+                conn, ticker="KXH", event_ticker="EVH", odds_event_id="odds-h",
+                home="D", away="C", link_id=2, commence_ms=NOW_MS + 500_000,
+            )
+            _add_held_leg(
+                conn, position_id=1, ticker="KXH", event_ticker="EVH",
+                commence_ms=NOW_MS + 500_000, outcome="pending", leg_index=1,
+            )
+            # A ladder fixture: the held (but dead) leg must not beat it.
+            _add_scoutable_fixture(
+                conn, ticker="KXC", event_ticker="EVC", odds_event_id="odds-c",
+                home="F", away="E", link_id=3, commence_ms=NOW_MS + 700_000,
+            )
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            scout_watch, "build_ladder_payload",
+            lambda *a, **k: _ladder_payload(("KXC", "EVC", NOW_MS + 700_000)),
+        )
+
+        slept = []
+
+        async def sleep(seconds):
+            slept.append(seconds)
+
+        await scout_watch.watch_scouts_forever(
+            path, lambda: CONFIG, lambda cfg: DeskStubClient(),
+            refresh_hours=6, max_per_day=3, reserve_taps=0, enabled=True,
+            sleep=sleep, clock=lambda: NOW_MS / 1000, max_cycles=1,
+        )
+
+        conn = db.connect(path)
+        try:
+            rows = conn.execute(
+                "SELECT ticker FROM scout_briefings WHERE trigger = 'auto'"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert [r["ticker"] for r in rows] == ["KXC"]
+
+    async def test_a_parlay_with_a_void_leg_is_still_scouted(
+        self, tmp_path, monkeypatch
+    ):
+        path = _init_db(tmp_path)
+        conn = db.connect(path)
+        try:
+            # Leg 0: void, earlier game -- does NOT kill the parlay.
+            _add_scoutable_fixture(
+                conn, ticker="KXVOID", event_ticker="EVVOID",
+                odds_event_id="odds-void", home="B", away="A", link_id=1,
+                commence_ms=NOW_MS - 500_000,
+            )
+            _add_held_leg(
+                conn, position_id=1, ticker="KXVOID", event_ticker="EVVOID",
+                commence_ms=NOW_MS - 500_000, outcome="void", leg_index=0,
+            )
+            # Leg 1: still pending, tonight -- the parlay is still alive, so
+            # this fixture should be scouted ahead of the ladder.
+            _add_scoutable_fixture(
+                conn, ticker="KXH", event_ticker="EVH", odds_event_id="odds-h",
+                home="D", away="C", link_id=2, commence_ms=NOW_MS + 500_000,
+            )
+            _add_held_leg(
+                conn, position_id=1, ticker="KXH", event_ticker="EVH",
+                commence_ms=NOW_MS + 500_000, outcome="pending", leg_index=1,
+            )
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            scout_watch, "build_ladder_payload",
+            lambda *a, **k: _ladder_payload(),
+        )
+
+        slept = []
+
+        async def sleep(seconds):
+            slept.append(seconds)
+
+        await scout_watch.watch_scouts_forever(
+            path, lambda: CONFIG, lambda cfg: DeskStubClient(),
+            refresh_hours=6, max_per_day=3, reserve_taps=0, enabled=True,
+            sleep=sleep, clock=lambda: NOW_MS / 1000, max_cycles=1,
+        )
+
+        conn = db.connect(path)
+        try:
+            rows = conn.execute(
+                "SELECT ticker FROM scout_briefings WHERE trigger = 'auto'"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert [r["ticker"] for r in rows] == ["KXH"]
+
+
 class TestTheWindowStaysTonight:
     async def test_tomorrows_ladder_game_is_not_scouted_on_a_quiet_night(
         self, tmp_path, monkeypatch

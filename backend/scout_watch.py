@@ -157,8 +157,11 @@ def _held_fixtures_kickoff_soonest(
     counts only while it is still live and still ahead of us: the position
     must be `open` (a closed, settled or void ticket has nothing left to
     watch for), the leg's own `outcome` must be `pending` (a started or
-    already-resolved leg is done, not upcoming), and its kickoff must be both
-    strictly after `now_ms` and inside the SAME tonight bound
+    already-resolved leg is done, not upcoming), no sibling leg on the same
+    position may have `outcome = 'lost'` (one lost leg kills the whole
+    parlay, `hedge.py:1398`, so nothing on it is worth scouting -- a `void`
+    sibling does not kill it and is still scouted), and its kickoff must be
+    both strictly after `now_ms` and inside the SAME tonight bound
     `build_ladder_payload` uses for the ladder -- `horizon_end_ms`, passed in
     as `end_ms` rather than re-derived here, so there is exactly one
     definition of "tonight" in this module.
@@ -181,6 +184,10 @@ def _held_fixtures_kickoff_soonest(
         "WHERE p.status = 'open' AND l.outcome = 'pending' "
         "AND l.event_ticker IS NOT NULL AND l.commence_ms IS NOT NULL "
         "AND l.commence_ms > ? AND l.commence_ms <= ? "
+        "AND NOT EXISTS ("
+        "SELECT 1 FROM parlay_position_legs x "
+        "WHERE x.position_id = p.id AND x.outcome = 'lost'"
+        ") "
         "ORDER BY l.position_id, l.leg_index",
         (now_ms, end_ms),
     ).fetchall()
