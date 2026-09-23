@@ -75,8 +75,12 @@ have sent you hunting a problem that was already closed twice over:
   0106, commit `d9449e9`, 2026-09-05. Only a stray `.pyc` remains.
 - **Review is retired rather than unwired.** `runner.py:71` imports
   `review_retired` (`review.py:124`), which refuses every row and calls
-  nothing (ADR 0062). That is why CLAUDE.md can say the LLM fleet is free: the
-  cost is zero by decision, not by neglect.
+  nothing (ADR 0062). Review's cost is zero by decision, not by neglect — but
+  the fleet as a whole is **not** free: the scout desk spends per convening,
+  and since 2026-09-21 unattended scouting spends with nobody tapping
+  (`SCOUT_AUTO_CONVENE_ENABLED`, #118). The `AGENT_MAX_*` ceilings are
+  checked before each call, so a day overshoots them (630,719 of 500,000
+  tokens on 2026-09-22). Do not repeat "the LLM fleet is free".
 
 "Either wire it up or say out loud it is not a feature" is still your call to
 make whenever you find a module with no caller — code with no caller is a plan,

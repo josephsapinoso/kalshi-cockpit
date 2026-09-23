@@ -202,9 +202,18 @@ charge (H4), and H4 is untested. ADR 0027, 0028.
 
 ## What the recorder costs
 
-The LLM fleet is free — the runner imports `review_retired`
-(`backend/agents/review.py:124`), which refuses every row. **The odds feed is
-not.** It follows attention over an hourly floor (ADR 0071 §2.6): ten-minute
+**The LLM fleet is not free.** Review is retired — the runner imports
+`review_retired` (`backend/agents/review.py:124`), which refuses every row —
+but the scout desk spends on every convening, and since 2026-09-21
+**unattended scouting** (`SCOUT_AUTO_CONVENE_ENABLED = "true"`,
+`fly.live.toml`; #116, #118) spends with nobody tapping. What bounds it is the
+shared `AgentBudget`'s daily ceilings (`AGENT_MAX_*`), and they are brakes,
+not caps: each is checked against recorded usage *before* the next call, so a
+day overshoots by whatever the last call costs. Budget day 2026-09-22 read
+630,719 tokens against 500,000
+(`docs/measurements/2026-09-23-unattended-scouting-first-reading.md`), and
+which ceiling bound first is unreadable (outcome D; #137 builds the
+instrument). **The odds feed also spends.** It follows attention over an hourly floor (ADR 0071 §2.6): ten-minute
 cadence while a page is open, hourly otherwise for a sport with a fixture
 inside twelve hours, and the attended cadence is tiered by horizon
 (ADR 0111 — ten minutes inside twelve hours, hourly beyond, never dropped).
