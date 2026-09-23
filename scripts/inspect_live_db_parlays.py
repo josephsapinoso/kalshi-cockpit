@@ -1089,7 +1089,7 @@ WITH days AS (
         input_tokens,
         output_tokens,
         web_searches,
-        strftime('%Y%m%d', (called_ms + :offset_ms) / 1000, 'unixepoch')
+        strftime('%Y%m%d', (called_ms - :offset_ms) / 1000, 'unixepoch')
             AS budget_day
     FROM agent_calls
     WHERE called_ms >= :since_ms
@@ -1183,12 +1183,19 @@ def _q_agent_spend(conn: sqlite3.Connection, args) -> list[Section]:
         max(1, requested_days or _AGENT_SPEND_DEFAULT_DAYS),
         _AGENT_SPEND_MAX_DAYS,
     )
+    # The window starts on a budget-day boundary, never mid-day: a running
+    # sum over a day whose first hours were cut off is a partial total that
+    # reads as the whole one. `called_ms - offset` (not `+`) labels a raw
+    # call with the day it was charged to -- `scout-watch-log` adds the
+    # offset because its column is already a day START, and this one is not.
+    offset_ms = args.day_start_hour * 3_600_000
     now_ms = int(time.time() * 1000)
-    since_ms = now_ms - n_days * _MS_PER_DAY
+    today_start_ms = now_ms - ((now_ms - offset_ms) % _MS_PER_DAY)
+    since_ms = today_start_ms - (n_days - 1) * _MS_PER_DAY
     rows = _fetch(
         conn,
         _SQL_AGENT_SPEND,
-        {"offset_ms": args.day_start_hour * 3_600_000, "since_ms": since_ms},
+        {"offset_ms": offset_ms, "since_ms": since_ms},
         title="Running totals per call, earliest-first within a budget day "
               "-- the row where a *_running column first crosses an "
               "AGENT_MAX_* ceiling is when it bound",

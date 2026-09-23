@@ -191,3 +191,52 @@ class TestTheWindowIsBounded:
 class TestTheQueryIsRegisteredCheap:
     def test_agent_spend_is_registered_cost_cheap(self):
         assert QUERIES["agent-spend"].cost == CHEAP
+
+
+class TestTheBudgetDayTurnsAtItsStartHour:
+    """The guard: a raw call is labelled by `called_ms - offset`. With `+`
+    the day turns at 14:00Z instead of 10:00Z, and budget day 20260922 --
+    the day #137 exists to read -- is split in two."""
+
+    def test_calls_either_side_of_10z_land_in_different_days(self, tmp_path):
+        import time
+
+        now = int(time.time() * 1000)
+        ten_z = now - ((now - 10 * 3_600_000) % DAY) - DAY  # yesterday 10:00Z
+        path = _seeded(tmp_path, [
+            (ten_z - 60_000, "scout", "sonnet", 7, 0, 0),    # 09:59Z: day before
+            (ten_z + 60_000, "scout", "sonnet", 10, 0, 0),   # 10:01Z
+            (ten_z + 5 * 3_600_000, "scout", "sonnet", 20, 0, 0),  # 15:00Z
+        ])
+
+        sec = _data_section(_run(path, days=3))
+        days = _col(sec, "budget_day")
+        tokens = _col(sec, "tokens_running")
+        by_ms = dict(zip(_col(sec, "called_ms"), zip(days, tokens)))
+        before, after, later = (
+            by_ms[ten_z - 60_000], by_ms[ten_z + 60_000],
+            by_ms[ten_z + 5 * 3_600_000],
+        )
+        assert before[0] != after[0]
+        # 10:01Z and 15:00Z are one budget day, and its sum builds across both
+        assert after[0] == later[0]
+        assert (after[1], later[1]) == (10, 30)
+
+
+class TestTheWindowStartsOnADayBoundary:
+    def test_the_oldest_day_in_the_window_is_whole(self, tmp_path):
+        """--days 2 covers today and yesterday from their 10:00Z starts; a
+        call at yesterday 10:01Z is inside, so the oldest day's running sum
+        is not truncated by a window that began mid-day."""
+        import time
+
+        now = int(time.time() * 1000)
+        today_start = now - ((now - 10 * 3_600_000) % DAY)
+        yesterday_start = today_start - DAY
+        path = _seeded(tmp_path, [
+            (yesterday_start + 60_000, "scout", "sonnet", 5, 0, 0),
+            (yesterday_start - 60_000, "scout", "sonnet", 999, 0, 0),
+        ])
+
+        sec = _data_section(_run(path, days=2))
+        assert _col(sec, "called_ms") == [yesterday_start + 60_000]
