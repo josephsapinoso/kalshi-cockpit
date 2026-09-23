@@ -134,7 +134,7 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-23 (fiftieth session) — #137 merged with its day boundary fixed; CLAUDE.md no longer says the LLM fleet is free (#138); Joe answered #58 and the odds_snapshots prune is live DRY on `e54b5e3` (ADR 0182); arming is #139
+## 2026-09-23 (fiftieth session) — #137 merged with its day boundary fixed; CLAUDE.md no longer says the LLM fleet is free (#138); Joe answered #58 and the odds_snapshots prune is ARMED on live `fe0a76f` (ADR 0182, #139)
 
 Joe said "read NEXT.md and start" at ~17:20Z, straight after the
 forty-ninth. `partner`'s ruling, adopted: dispatch #137, correct one false
@@ -200,12 +200,33 @@ leave little closed time for the backlog.
 The deploy was triggered with `gh workflow run`. The classifier then
 refused both `gh run watch` and an `until gh run view` loop on the deploy
 run as "[Production Deploy]", but let a plain `gh run list` through.
+An `until curl .../api/health | grep git_sha` loop in the background was
+allowed, and it is the better wait anyway: it waits on what live reports.
+
+### 4. Armed the same evening, on Joe's "yes, tonight"
+
+Joe asked what could happen before morning. Arming tonight gives the prune
+the overnight closed window, so he was asked with buttons and chose it.
+`scripts/odds_prune_dry_run.py` (`8e0f4ef`, plus a `.dockerignore` allow
+line in `9683a4a` after `test_has_callers` caught it missing from the
+image) ran the dry-run count on live over `mode=ro`. Result for the **25
+oldest games**: 157,691 of 159,550 rows would go (**98.8%**), about 75 kept
+a game, 0 skipped, 6.5 s. That matches roughly 10 books × 3 markets × 2–3
+outcomes, one close each. `ODDS_SNAPSHOT_PRUNE_DRY_RUN = "false"` in
+`fe0a76f`, deployed. The first armed pass runs when tonight's windows close.
+
+**Next session reads, for #139:** `odds_snapshots_pruned` per full pass and
+the prune's own log line (`flyctl logs`, lossy; try more than once); that
+recorder `age_ms` stayed flat; that no `prune failed` line appeared. Then
+write the delete rate on #139 and close it if the rate clears the backlog
+in reasonable time. If it doesn't, ask Joe with buttons whether to raise
+the budget or let it run inside windows.
 
 ### Still open
 
 **The digest on map #3 is unchanged — eight tickets, frozen, unanswered.**
 
-0. #139 — arm the `odds_snapshots` prune after reading its live dry run; before 2026-10-02.
+0. #139 — ARMED on `fe0a76f`; read the first armed passes (rate, recorder age, no failures) and close.
 1. #129 — waiting on Joe **holding a combination**, not on a trip. No
    order-linked combination was open at 17:12Z. Joe was asked to say when
    he places one. Do not poll.
@@ -2697,7 +2718,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
-- 2026-09-23 (fiftieth session) — #137 merged with its day boundary fixed; CLAUDE.md no longer says the LLM fleet is free (#138); Joe answered #58 and the odds_snapshots prune is live DRY on `e54b5e3` (ADR 0182); arming is #139
+- 2026-09-23 (fiftieth session) — #137 merged with its day boundary fixed; CLAUDE.md no longer says the LLM fleet is free (#138); Joe answered #58 and the odds_snapshots prune is ARMED on live `fe0a76f` (ADR 0182, #139)
 - 2026-09-23 (forty-ninth session) — #118 read: budget day 20260922 is outcome D, not separable; the arms are deleted; live deployed to `0f23f6c`
 - 2026-09-22 (forty-eighth session) — the arms are correct and were left alone; the one dependency T1 still has is the laptop's power plan; the result doc exists as a skeleton before any row of its day; #115's #58 ordering is an edge the board can see; NOT deployed, on purpose
 - 2026-09-22 (forty-seventh session) — #118's T1 and T2 take themselves: two unattended arms, both rehearsed green, the registration amended in advance to say which read is T1; NOT deployed, still on purpose
