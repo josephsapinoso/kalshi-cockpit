@@ -31,12 +31,21 @@ nobody tapping anything**, so every ceiling REFUSES rather than degrades
 - `refresh_hours` skips a fixture whose newest briefing is younger than that
   UNLESS that briefing is `failed` -- a dead convening does not block a retry.
 
-One convening per cycle: the loop reads tonight's ladder the way
-`GET /api/parlays` does (`build_ladder_payload_widening`), walks its distinct
-fixtures kickoff-soonest first, and convenes on the first one that clears
-every guard (an affordable, unscouted fixture `_resolve_scout_fixture` can
-actually resolve a ticker for). Finding none ends the cycle exactly like a
-refusal does: nothing spent, sleep, try again.
+One convening per cycle: the loop reads TONIGHT's ladder only
+(`build_ladder_payload`, its own `DEFAULT_HORIZON`) -- **never the widened
+one** (Joe's #119 answer, 2026-09-23): a quiet night stays quiet rather than
+reaching into tomorrow's slate, and a tomorrow fixture is never convened on
+a night with nothing tonight. Ahead of the ladder, the loop first collects
+fixtures behind Joe's currently HELD parlay legs (`_held_fixtures_kickoff_soonest`
+-- open positions, pending legs, kickoff still ahead and inside the same
+tonight bound), because a game he already has money on riding is worth
+scouting before one he might merely bet, Joe's own instruction the same day.
+Held fixtures are tried first, soonest kickoff first; the ladder's fixtures
+follow, deduplicated by `event_ticker` against the held set. The loop walks
+this combined list and convenes on the first fixture that clears every guard
+(an affordable, unscouted fixture `_resolve_scout_fixture` can actually
+resolve a ticker for). Finding none ends the cycle exactly like a refusal
+does: nothing spent, sleep, try again.
 
 `_resolve_scout_fixture` and `_run_scout_desk` are the SAME functions
 `backend/api/routers/scout.py`'s tap path calls -- module-level there, lifted
@@ -62,7 +71,7 @@ from .config import StalenessConfig, configured_day_start_utc_hour
 # shadow this for the whole function body and make the keyless call above it
 # an UnboundLocalError. The alias is the guard, not a style choice.
 from .odds.timing import day_start_ms as budget_day_start_ms
-from .parlays import _leg_scouting, build_ladder_payload_widening
+from .parlays import _leg_scouting, build_ladder_payload, horizon_end_ms
 from .store import db as store_db
 from .store.scout_watch_log import (
     CONVENED,
@@ -89,6 +98,9 @@ def _distinct_fixtures_kickoff_soonest(payload: dict) -> list[dict]:
     once covers all of them (ADR 0088: the join is by game). Each fixture
     keeps every leg ticker seen for it, in payload order, so the caller can
     try more than one if `_resolve_scout_fixture` cannot resolve the first.
+    `event_ticker` rides along on each entry (beside `commence_ms` and
+    `tickers`) so a caller merging this list against another one -- the held
+    fixtures below -- can dedupe without re-deriving the dict's own key.
     """
     fixtures: dict[str, dict] = {}
     for card in payload.get("cards", []):
@@ -99,7 +111,8 @@ def _distinct_fixtures_kickoff_soonest(payload: dict) -> list[dict]:
                 continue
             commence_ms = leg.get("commence_ms")
             entry = fixtures.setdefault(
-                event_ticker, {"commence_ms": commence_ms, "tickers": []}
+                event_ticker,
+                {"event_ticker": event_ticker, "commence_ms": commence_ms, "tickers": []},
             )
             if commence_ms is not None and (
                 entry["commence_ms"] is None or commence_ms < entry["commence_ms"]
@@ -107,6 +120,90 @@ def _distinct_fixtures_kickoff_soonest(payload: dict) -> list[dict]:
                 entry["commence_ms"] = commence_ms
             if ticker not in entry["tickers"]:
                 entry["tickers"].append(ticker)
+    return sorted(
+        fixtures.values(),
+        key=lambda f: (f["commence_ms"] is None, f["commence_ms"]),
+    )
+
+
+def _fallback_ticker_for_event(conn, event_ticker: str) -> Optional[str]:
+    """The most recent `recommendations.ticker` on `event_ticker`, or `None`.
+
+    A held leg's own `ticker` can be unlinked (no `event_links` row) or
+    absent entirely (a hand-typed sportsbook slip, `ticker IS NULL`), so
+    `_resolve_scout_fixture` on the leg's own ticker has nothing to resolve.
+    The game itself is still findable through whatever the runner already
+    priced on that event: one bounded, indexed query -- `kalshi_markets`
+    filters on `event_ticker`, which `idx_markets_event` covers, and
+    `recommendations` is then read by its own `ticker` primary lookup.
+    """
+    row = conn.execute(
+        "SELECT r.ticker AS ticker FROM recommendations r "
+        "JOIN kalshi_markets m ON m.ticker = r.ticker "
+        "WHERE m.event_ticker = ? "
+        "ORDER BY r.created_ms DESC, r.id DESC LIMIT 1",
+        (event_ticker,),
+    ).fetchone()
+    return None if row is None else row["ticker"]
+
+
+def _held_fixtures_kickoff_soonest(
+    conn, *, now_ms: int, end_ms: int
+) -> list[dict]:
+    """Fixtures behind Joe's currently HELD parlay legs, soonest kickoff first.
+
+    Joe's instruction, 2026-09-23: auto-scouting should cover a game he
+    already has money riding on before it reaches for the open ladder. A leg
+    counts only while it is still live and still ahead of us: the position
+    must be `open` (a closed, settled or void ticket has nothing left to
+    watch for), the leg's own `outcome` must be `pending` (a started or
+    already-resolved leg is done, not upcoming), and its kickoff must be both
+    strictly after `now_ms` and inside the SAME tonight bound
+    `build_ladder_payload` uses for the ladder -- `horizon_end_ms`, passed in
+    as `end_ms` rather than re-derived here, so there is exactly one
+    definition of "tonight" in this module.
+
+    Same dict shape as `_distinct_fixtures_kickoff_soonest` (plus
+    `event_ticker`, for the same merge-dedup reason): `commence_ms` and
+    `tickers`. A leg's `ticker` can be NULL (a hand-typed slip) -- such a leg
+    is still grouped by `event_ticker`, it just contributes nothing to
+    `tickers` directly. For every grouped fixture, `_fallback_ticker_for_event`
+    is tried and, if it finds something not already in `tickers`, APPENDED
+    LAST -- so the caller's existing try-in-order resolution loop tries every
+    real leg ticker first and only reaches the fallback once all of them have
+    failed (or there were none), exactly ADR 0180's resolution order.
+    """
+    rows = conn.execute(
+        "SELECT l.ticker AS ticker, l.event_ticker AS event_ticker, "
+        "l.commence_ms AS commence_ms "
+        "FROM parlay_position_legs l "
+        "JOIN parlay_positions p ON p.id = l.position_id "
+        "WHERE p.status = 'open' AND l.outcome = 'pending' "
+        "AND l.event_ticker IS NOT NULL AND l.commence_ms IS NOT NULL "
+        "AND l.commence_ms > ? AND l.commence_ms <= ? "
+        "ORDER BY l.position_id, l.leg_index",
+        (now_ms, end_ms),
+    ).fetchall()
+    fixtures: dict[str, dict] = {}
+    for row in rows:
+        event_ticker = row["event_ticker"]
+        entry = fixtures.setdefault(
+            event_ticker,
+            {
+                "event_ticker": event_ticker,
+                "commence_ms": row["commence_ms"],
+                "tickers": [],
+            },
+        )
+        if row["commence_ms"] < entry["commence_ms"]:
+            entry["commence_ms"] = row["commence_ms"]
+        ticker = row["ticker"]
+        if ticker is not None and ticker not in entry["tickers"]:
+            entry["tickers"].append(ticker)
+    for entry in fixtures.values():
+        fallback = _fallback_ticker_for_event(conn, entry["event_ticker"])
+        if fallback is not None and fallback not in entry["tickers"]:
+            entry["tickers"].append(fallback)
     return sorted(
         fixtures.values(),
         key=lambda f: (f["commence_ms"] is None, f["commence_ms"]),
@@ -219,10 +316,25 @@ async def _convene_one(
         return
 
     staleness = StalenessConfig.load()
-    payload = build_ladder_payload_widening(
+    # Tonight only -- never widened (#119). `end_ms` is the same bound
+    # `build_ladder_payload`'s default horizon uses, computed once and handed
+    # to the held-fixtures read too, so both halves of the merged list agree
+    # on what "tonight" means.
+    end_ms = horizon_end_ms(now_ms)
+    held = _held_fixtures_kickoff_soonest(conn, now_ms=now_ms, end_ms=end_ms)
+    payload = build_ladder_payload(
         conn, now_ms=now_ms, max_odds_age_ms=staleness.max_odds_age_s * 1000
     )
-    fixtures = _distinct_fixtures_kickoff_soonest(payload)
+    ladder = _distinct_fixtures_kickoff_soonest(payload)
+    # Held fixtures first, soonest kickoff first within each group -- Joe's
+    # own instruction: a game he already has money on is worth scouting
+    # before one he might merely bet. Deduped by `event_ticker` rather than
+    # concatenated blind, so a game that is both held AND on tonight's ladder
+    # is tried once, at its held (earlier) position.
+    seen_event_tickers = {f["event_ticker"] for f in held}
+    fixtures = held + [
+        f for f in ladder if f["event_ticker"] not in seen_event_tickers
+    ]
 
     for fixture_entry in fixtures:
         resolved = None

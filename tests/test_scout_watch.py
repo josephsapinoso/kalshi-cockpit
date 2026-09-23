@@ -3,7 +3,7 @@ spend Anthropic money with nobody tapping anything, so every ceiling REFUSES
 rather than degrades. ADR 0180 section 3.1, ticket #112.
 
 No network: the Anthropic client is stubbed, as in `test_scout_desk.py`. The
-ladder read (`build_ladder_payload_widening`) is monkeypatched to a canned
+ladder read (`build_ladder_payload`) is monkeypatched to a canned
 payload -- building a real ladder needs a live candidate pool and this file's
 job is the watcher's own guards, not the ladder builder's (`test_parlays.py`
 and `test_scout_desk.py` own those separately).
@@ -128,6 +128,36 @@ def _add_briefing(conn, *, ticker, status, requested_ms, trigger="auto"):
     conn.commit()
 
 
+def _add_held_leg(
+    conn, *, position_id, ticker, event_ticker, commence_ms,
+    outcome="pending", position_status="open", league="baseball_mlb",
+    leg_index=0,
+):
+    """One leg of a held parlay position -- `parlay_positions` +
+    `parlay_position_legs`, the shape `_held_fixtures_kickoff_soonest` reads.
+    `INSERT OR IGNORE` on the position lets several legs share one
+    `position_id` without re-inserting it."""
+    conn.execute(
+        "INSERT OR IGNORE INTO parlay_positions (id, created_ms, source, "
+        "label, stake_tenths, return_tenths, status) "
+        "VALUES (?, 1000, 'kalshi_combo', 'test parlay', 1000, 2000, ?)",
+        (position_id, position_status),
+    )
+    resolved_ms = None if outcome == "pending" else commence_ms + 1
+    resolved_source = None if outcome == "pending" else "manual"
+    conn.execute(
+        "INSERT INTO parlay_position_legs (position_id, leg_index, ticker, "
+        "side, label, event_ticker, league, commence_ms, outcome, "
+        "resolved_ms, resolved_source) "
+        "VALUES (?, ?, ?, 'yes', 'test leg', ?, ?, ?, ?, ?, ?)",
+        (
+            position_id, leg_index, ticker, event_ticker, league, commence_ms,
+            outcome, resolved_ms, resolved_source,
+        ),
+    )
+    conn.commit()
+
+
 def _ladder_payload(*legs):
     """A minimal payload shaped like `serialise_ladder`'s output: one card,
     the given legs (each a `(ticker, event_ticker, commence_ms)` triple)."""
@@ -173,7 +203,7 @@ class TestTheWatcherSpendsNothingUnlessAsked:
             return DeskStubClient()
 
         monkeypatch.setattr(
-            scout_watch, "build_ladder_payload_widening",
+            scout_watch, "build_ladder_payload",
             lambda *a, **k: ladder_calls.append(True) or _ladder_payload(),
         )
 
@@ -217,7 +247,7 @@ class TestTheAllowance:
             conn.close()
 
         monkeypatch.setattr(
-            scout_watch, "build_ladder_payload_widening",
+            scout_watch, "build_ladder_payload",
             lambda *a, **k: _ladder_payload(("KXA", "EVA", NOW_MS + 1_000_000)),
         )
 
@@ -255,7 +285,7 @@ class TestTheAllowance:
             conn.close()
 
         monkeypatch.setattr(
-            scout_watch, "build_ladder_payload_widening",
+            scout_watch, "build_ladder_payload",
             lambda *a, **k: _ladder_payload(("KXA", "EVA", NOW_MS + 1_000_000)),
         )
 
@@ -311,7 +341,7 @@ class TestWhichFixtures:
             conn.close()
 
         monkeypatch.setattr(
-            scout_watch, "build_ladder_payload_widening",
+            scout_watch, "build_ladder_payload",
             lambda *a, **k: _ladder_payload(
                 ("KXA", "EVA", NOW_MS + 1_000_000),
                 ("KXB", "EVB", NOW_MS + 2_000_000),
@@ -357,7 +387,7 @@ class TestWhichFixtures:
             conn.close()
 
         monkeypatch.setattr(
-            scout_watch, "build_ladder_payload_widening",
+            scout_watch, "build_ladder_payload",
             lambda *a, **k: _ladder_payload(
                 ("KXA", "EVA", NOW_MS + 5_000_000),
                 ("KXB", "EVB", NOW_MS + 1_000_000),
@@ -385,6 +415,265 @@ class TestWhichFixtures:
         assert [r["ticker"] for r in rows] == ["KXB"]
 
 
+class TestHeldParlaysComeFirst:
+    """Joe's 2026-09-23 instruction: auto-scouting covers a game he already
+    has money riding on before it reaches for the open ladder."""
+
+    async def test_a_held_leg_is_scouted_before_an_earlier_ladder_fixture(
+        self, tmp_path, monkeypatch
+    ):
+        path = _init_db(tmp_path)
+        conn = db.connect(path)
+        try:
+            # Ladder fixture: kicks off SOONER.
+            _add_scoutable_fixture(
+                conn, ticker="KXL", event_ticker="EVL", odds_event_id="odds-l",
+                home="B", away="A", link_id=1, commence_ms=NOW_MS + 500_000,
+            )
+            # Held fixture: kicks off LATER, but Joe has money on it.
+            _add_scoutable_fixture(
+                conn, ticker="KXH", event_ticker="EVH", odds_event_id="odds-h",
+                home="D", away="C", link_id=2, commence_ms=NOW_MS + 900_000,
+            )
+            _add_held_leg(
+                conn, position_id=1, ticker="KXH", event_ticker="EVH",
+                commence_ms=NOW_MS + 900_000,
+            )
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            scout_watch, "build_ladder_payload",
+            lambda *a, **k: _ladder_payload(("KXL", "EVL", NOW_MS + 500_000)),
+        )
+
+        slept = []
+
+        async def sleep(seconds):
+            slept.append(seconds)
+
+        await scout_watch.watch_scouts_forever(
+            path, lambda: CONFIG, lambda cfg: DeskStubClient(),
+            refresh_hours=6, max_per_day=3, reserve_taps=0, enabled=True,
+            sleep=sleep, clock=lambda: NOW_MS / 1000, max_cycles=1,
+        )
+
+        conn = db.connect(path)
+        try:
+            rows = conn.execute(
+                "SELECT ticker FROM scout_briefings WHERE trigger = 'auto'"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert [r["ticker"] for r in rows] == ["KXH"]
+
+    async def test_a_started_or_resolved_held_leg_is_skipped(
+        self, tmp_path, monkeypatch
+    ):
+        path = _init_db(tmp_path)
+        conn = db.connect(path)
+        try:
+            # A resolved held leg -- outcome already settled, future kickoff.
+            _add_scoutable_fixture(
+                conn, ticker="KXR", event_ticker="EVR", odds_event_id="odds-r",
+                home="B", away="A", link_id=1, commence_ms=NOW_MS + 500_000,
+            )
+            _add_held_leg(
+                conn, position_id=1, ticker="KXR", event_ticker="EVR",
+                commence_ms=NOW_MS + 500_000, outcome="won",
+            )
+            # A started held leg -- still pending, kickoff already passed.
+            _add_scoutable_fixture(
+                conn, ticker="KXS", event_ticker="EVS", odds_event_id="odds-s",
+                home="D", away="C", link_id=2, commence_ms=NOW_MS - 500_000,
+            )
+            _add_held_leg(
+                conn, position_id=2, ticker="KXS", event_ticker="EVS",
+                commence_ms=NOW_MS - 500_000, outcome="pending",
+            )
+            # A ladder fixture: neither held leg should beat it.
+            _add_scoutable_fixture(
+                conn, ticker="KXC", event_ticker="EVC", odds_event_id="odds-c",
+                home="F", away="E", link_id=3, commence_ms=NOW_MS + 700_000,
+            )
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            scout_watch, "build_ladder_payload",
+            lambda *a, **k: _ladder_payload(("KXC", "EVC", NOW_MS + 700_000)),
+        )
+
+        slept = []
+
+        async def sleep(seconds):
+            slept.append(seconds)
+
+        await scout_watch.watch_scouts_forever(
+            path, lambda: CONFIG, lambda cfg: DeskStubClient(),
+            refresh_hours=6, max_per_day=3, reserve_taps=0, enabled=True,
+            sleep=sleep, clock=lambda: NOW_MS / 1000, max_cycles=1,
+        )
+
+        conn = db.connect(path)
+        try:
+            rows = conn.execute(
+                "SELECT ticker FROM scout_briefings WHERE trigger = 'auto'"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert [r["ticker"] for r in rows] == ["KXC"]
+
+    async def test_a_closed_position_is_not_scouted(self, tmp_path, monkeypatch):
+        path = _init_db(tmp_path)
+        conn = db.connect(path)
+        try:
+            _add_scoutable_fixture(
+                conn, ticker="KXX", event_ticker="EVX", odds_event_id="odds-x",
+                home="B", away="A", link_id=1, commence_ms=NOW_MS + 500_000,
+            )
+            _add_held_leg(
+                conn, position_id=1, ticker="KXX", event_ticker="EVX",
+                commence_ms=NOW_MS + 500_000, position_status="closed",
+            )
+            _add_scoutable_fixture(
+                conn, ticker="KXC", event_ticker="EVC", odds_event_id="odds-c",
+                home="D", away="C", link_id=2, commence_ms=NOW_MS + 700_000,
+            )
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            scout_watch, "build_ladder_payload",
+            lambda *a, **k: _ladder_payload(("KXC", "EVC", NOW_MS + 700_000)),
+        )
+
+        slept = []
+
+        async def sleep(seconds):
+            slept.append(seconds)
+
+        await scout_watch.watch_scouts_forever(
+            path, lambda: CONFIG, lambda cfg: DeskStubClient(),
+            refresh_hours=6, max_per_day=3, reserve_taps=0, enabled=True,
+            sleep=sleep, clock=lambda: NOW_MS / 1000, max_cycles=1,
+        )
+
+        conn = db.connect(path)
+        try:
+            rows = conn.execute(
+                "SELECT ticker FROM scout_briefings WHERE trigger = 'auto'"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert [r["ticker"] for r in rows] == ["KXC"]
+
+    async def test_a_held_leg_without_a_recommendation_resolves_through_its_event(
+        self, tmp_path, monkeypatch
+    ):
+        path = _init_db(tmp_path)
+        conn = db.connect(path)
+        try:
+            # The market the runner priced on this event -- resolvable.
+            _add_scoutable_fixture(
+                conn, ticker="KXFALLBACK", event_ticker="EVX",
+                odds_event_id="odds-x", home="B", away="A", link_id=1,
+                commence_ms=NOW_MS + 500_000,
+            )
+            # Joe's held leg on the SAME event, hand-typed: no ticker of its
+            # own to try `_resolve_scout_fixture` on at all.
+            _add_held_leg(
+                conn, position_id=1, ticker=None, event_ticker="EVX",
+                commence_ms=NOW_MS + 500_000,
+            )
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            scout_watch, "build_ladder_payload",
+            lambda *a, **k: _ladder_payload(),
+        )
+
+        slept = []
+
+        async def sleep(seconds):
+            slept.append(seconds)
+
+        await scout_watch.watch_scouts_forever(
+            path, lambda: CONFIG, lambda cfg: DeskStubClient(),
+            refresh_hours=6, max_per_day=3, reserve_taps=0, enabled=True,
+            sleep=sleep, clock=lambda: NOW_MS / 1000, max_cycles=1,
+        )
+
+        conn = db.connect(path)
+        try:
+            rows = conn.execute(
+                "SELECT ticker FROM scout_briefings WHERE trigger = 'auto'"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert [r["ticker"] for r in rows] == ["KXFALLBACK"]
+
+
+class TestTheWindowStaysTonight:
+    async def test_tomorrows_ladder_game_is_not_scouted_on_a_quiet_night(
+        self, tmp_path, monkeypatch
+    ):
+        path = _init_db(tmp_path)
+        conn = db.connect(path)
+        try:
+            _add_scoutable_fixture(
+                conn, ticker="KXT", event_ticker="EVT", odds_event_id="odds-t",
+                home="D", away="C", link_id=1,
+                commence_ms=NOW_MS + 100_000_000,  # well past tonight
+            )
+        finally:
+            conn.close()
+
+        # Tonight's real ladder read is quiet. `raising=False` on the second
+        # patch: current code never names `build_ladder_payload_widening` at
+        # all, so the attribute does not exist on the module -- but if a
+        # regression brought the widening call back, Python resolves that
+        # bare name from the module's own globals at CALL time, not at
+        # import time, so this patch would catch it even though it was set
+        # before any such regression's import ran.
+        monkeypatch.setattr(
+            scout_watch, "build_ladder_payload",
+            lambda *a, **k: _ladder_payload(),
+        )
+        monkeypatch.setattr(
+            scout_watch, "build_ladder_payload_widening",
+            lambda *a, **k: _ladder_payload(
+                ("KXT", "EVT", NOW_MS + 100_000_000)
+            ),
+            raising=False,
+        )
+
+        slept = []
+
+        async def sleep(seconds):
+            slept.append(seconds)
+
+        await scout_watch.watch_scouts_forever(
+            path, lambda: CONFIG, lambda cfg: DeskStubClient(),
+            refresh_hours=6, max_per_day=3, reserve_taps=0, enabled=True,
+            sleep=sleep, clock=lambda: NOW_MS / 1000, max_cycles=1,
+        )
+
+        conn = db.connect(path)
+        try:
+            n = conn.execute(
+                "SELECT COUNT(*) AS c FROM scout_briefings"
+            ).fetchone()["c"]
+            outcome = conn.execute(
+                "SELECT outcome FROM scout_watch_log ORDER BY id DESC LIMIT 1"
+            ).fetchone()["outcome"]
+        finally:
+            conn.close()
+        assert n == 0
+        assert outcome == "no_candidate"
+
+
 class TestTheTaskSurvives:
     async def test_a_dead_cycle_does_not_end_the_task(self, tmp_path, monkeypatch):
         path = _init_db(tmp_path)
@@ -393,7 +682,7 @@ class TestTheTaskSurvives:
             raise RuntimeError("the environment is unreadable")
 
         monkeypatch.setattr(
-            scout_watch, "build_ladder_payload_widening",
+            scout_watch, "build_ladder_payload",
             lambda *a, **k: (_ for _ in ()).throw(
                 AssertionError("must not be reached")
             ),
