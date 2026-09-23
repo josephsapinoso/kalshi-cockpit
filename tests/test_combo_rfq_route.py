@@ -346,25 +346,38 @@ class TestTheAskFitsWhatIsOnTheShard:
         )
 
     async def test_the_refusal_names_the_number_he_can_ask_for(self, build):
-        """A refusal he cannot act on is a dead end. 90% of $3.9359 is
-        $3.54, and saying so turns one refusal into one re-type."""
+        """A refusal he cannot act on is a dead end. 99% of $3.9359 is
+        $3.8965, told to him FLOORED as $3.89 -- rounded it read $3.90, a
+        figure the same wall refuses. Saying it turns one refusal into one
+        re-type."""
         app, fake, _ = build(quotes=[_quote_row("q1", "0.4070")])
         fake.shard1 = "3.9359"
         detail = (await _post(app, _body(target_cost_dollars="5.0000"))).json()
         words = detail["detail"]
-        assert "$3.54" in words
+        assert "$3.89" in words
         assert "combinations shard" in words
 
-    async def test_the_wall_is_the_headroom_not_the_whole_balance(self, build):
-        """The fee is charged ON TOP of the contracts, so a target equal to
-        the balance leaves nothing to pay it with -- which is the refusal
-        this exists to prevent, arriving one step later."""
+    async def test_the_wall_keeps_a_one_percent_margin(self, build):
+        """Issue #71, answered (A) 2026-09-23: 99%, not 100%. The maker fits
+        the fee inside the target (the captured payload), so the 1% is for
+        our fee estimate (0.071 vs 0.070) and the maker's two-decimal floor,
+        not for a fee on top. $5.00 of a $5.00 shard still sits past it."""
         app, fake, _ = build(quotes=[_quote_row("q1", "0.4070")])
         fake.shard1 = "5.0000"
         response = await _post(app, _body(target_cost_dollars="5.0000"))
         assert response.status_code == 400, (
-            "$5.00 of a $5.00 shard leaves nothing for the fee"
+            "$5.00 of a $5.00 shard is past the 99% wall"
         )
+
+    async def test_nearly_all_of_the_shard_can_be_asked_for(self, build):
+        """The 90% this replaced refused $3.89 on a $3.9359 shard -- a tenth
+        of his combination money held back for a fee the maker already fits
+        inside the target. Issue #71."""
+        app, fake, _ = build(quotes=[_quote_row("q1", "0.4070")])
+        fake.shard1 = "3.9359"
+        response = await _post(app, _body(target_cost_dollars="3.8900"))
+        assert response.status_code == 200, response.text
+        assert "create" in fake.calls
 
     async def test_an_affordable_target_is_left_alone(self, build):
         app, fake, _ = build(quotes=[_quote_row("q1", "0.4070")])

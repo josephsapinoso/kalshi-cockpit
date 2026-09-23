@@ -46,6 +46,7 @@ import pytest
 from backend.store import retention
 from scripts.inspect_live_db import (
     _QUOTE_RETENTION_MS,
+    _RECOMMENDED_QUOTE_RETENTION_MS,
     QUERIES,
     connect_readonly,
     resolve_query,
@@ -162,6 +163,12 @@ class TestTheRetentionConstantCannotDriftFromThePrune:
     def test_it_equals_the_prunes_own_default(self):
         assert _QUOTE_RETENTION_MS == retention.DEFAULT_QUOTE_RETENTION_MS
 
+    def test_the_exemption_window_equals_the_prunes_own(self):
+        assert (
+            _RECOMMENDED_QUOTE_RETENTION_MS
+            == retention.DEFAULT_RECOMMENDED_QUOTE_RETENTION_MS
+        )
+
 
 class TestTheColumnChoiceIsTheWholePoint:
     """Mutation: swap `COALESCE(confirmed_ms, observed_ms)` for `observed_ms`
@@ -227,6 +234,27 @@ class TestRecommendedTickersAreOutsideTheFrontier:
         assert row["prunable_rows"] == 0
         # Still visible in the total, so the row is excluded rather than lost.
         assert row["total_rows"] == 1
+
+
+class TestTheExemptionEndsAtSixtyDays:
+    """#122, 2026-09-23. Mutation: drop the `:exempt_cutoff` clause from the
+    backlog subquery. Red.
+
+    `prune_quotes` now deletes a recommended ticker's quotes past sixty
+    days, so those rows are backlog like any other; a frontier that still
+    excluded them would call a real backlog zero.
+    """
+
+    def test_a_recommended_row_past_sixty_days_is_backlog(self, tmp_path):
+        path = _db(
+            tmp_path,
+            [("T1", NOW_MS - 61 * DAY_MS, NOW_MS - 61 * DAY_MS)],
+            recommended=("T1",),
+        )
+        row = _read(path)
+        assert row["backlog_rows"] == 1
+        assert row["prunable_rows"] == 1
+        assert row["frontier_ms"] == NOW_MS - 61 * DAY_MS
 
 
 class TestTheBacklogIsTheDenominator:

@@ -41,7 +41,10 @@ So the only reader that reaches back beyond an hour reaches back through
 retention window **or** its ticker has ever produced a recommendation --
 `recommendations` is the only downstream table carrying a ticker at all
 (`fair_prices` is keyed by `link_id`). On live at 6,946,356 rows, 4.8% of the
-table is ticker-recommended and is kept regardless of age.
+table is ticker-recommended and was kept regardless of age -- 26.2% by
+2026-09-21, because `recommendations` is never pruned. **Since #122
+(2026-09-23) that exemption ends at sixty days**
+(`DEFAULT_RECOMMENDED_QUOTE_RETENTION_MS`).
 
 What this does NOT do
 ---------------------
@@ -100,6 +103,16 @@ _MS_PER_DAY = 24 * 60 * 60 * 1000
 #: margin, chosen so that a reader added without reading this file has room to
 #: be wrong before it is silently starved.
 DEFAULT_QUOTE_RETENTION_MS = 3 * _MS_PER_DAY
+
+#: How far back a quote is kept for a ticker that DID produce a
+#: recommendation. **60 days -- issue #122, Joe answered 2026-09-23.** Until
+#: then the exemption had no age at all: `recommendations` is never pruned,
+#: so every market he was ever shown kept its quotes forever (3,039,094 of
+#: 11,596,682 rows, 26.2%, on 2026-09-21) and the share could only rise.
+#: Sixty days keeps the whole run for any recent closing-line check and
+#: bounds the set. Rows older than this are freed for reuse like any other;
+#: the file does not shrink, because #58 declined a VACUUM.
+DEFAULT_RECOMMENDED_QUOTE_RETENTION_MS = 60 * _MS_PER_DAY
 
 #: `unmatched_items` is a diagnostic: one row per work item the linker could
 #: not match. No production code path reads it -- the linker writes it and
@@ -208,15 +221,22 @@ def prune_quotes(
     *,
     now: int,
     retention_ms: int = DEFAULT_QUOTE_RETENTION_MS,
+    recommended_retention_ms: int = DEFAULT_RECOMMENDED_QUOTE_RETENTION_MS,
     budget_s: float = DEFAULT_BUDGET_S,
 ) -> int:
-    """Drop quotes older than the window whose ticker never produced a bet.
+    """Drop quotes older than the window whose ticker never produced a bet,
+    and every quote older than the recommended window, bet or not.
 
     The `NOT IN` is against `recommendations.ticker` rather than against a
     join, because the question is about the ticker's whole history and not
     about any one recommendation's timing: a market quoted for hours before it
     was ever recommended keeps that entire run, which is what makes the
     surviving series usable for closing-line work.
+
+    **The exemption ends at `recommended_retention_ms` (#122).** Past it a
+    recommended ticker's quotes go like anyone's: closing-line work older
+    than sixty days loses its Kalshi series. That is the decision, not a
+    side effect.
     """
     # **`confirmed_ms`, not `observed_ms` (ADR 0055).** The table is a change
     # log: a market whose price genuinely has not moved in three days has one
@@ -230,10 +250,11 @@ def prune_quotes(
         "DELETE FROM kalshi_quotes WHERE id IN ("
         "  SELECT id FROM kalshi_quotes"
         "  WHERE COALESCE(confirmed_ms, observed_ms) < ?"
-        "    AND ticker NOT IN (SELECT ticker FROM recommendations)"
+        "    AND (COALESCE(confirmed_ms, observed_ms) < ?"
+        "         OR ticker NOT IN (SELECT ticker FROM recommendations))"
         "  LIMIT ?"
         ")",
-        (now - retention_ms, DELETE_BATCH),
+        (now - retention_ms, now - recommended_retention_ms, DELETE_BATCH),
         budget_s=budget_s,
     )
 

@@ -271,6 +271,7 @@ from inspect_live_db_decisions import (  # noqa: E402,F401
 )
 from inspect_live_db_feed import (  # noqa: E402,F401
     _QUOTE_RETENTION_MS,
+    _RECOMMENDED_QUOTE_RETENTION_MS,
     _STALE_LIMIT_DEFAULT_S,
     _VISIT_GAP_MS,
     _VISIT_SINCE_DEFAULT_DAYS,

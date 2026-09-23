@@ -152,6 +152,10 @@ _SQL_SWEEP_LOG_DAY_STOPS = (
 # equals `retention.DEFAULT_QUOTE_RETENTION_MS`, so the duplication is checked
 # rather than trusted.
 _QUOTE_RETENTION_MS = 3 * 24 * 60 * 60 * 1000
+#: `retention.DEFAULT_RECOMMENDED_QUOTE_RETENTION_MS`, duplicated and checked
+#: the same way. Since #122 (2026-09-23) a recommended ticker's quotes are
+#: exempt for sixty days, not forever.
+_RECOMMENDED_QUOTE_RETENTION_MS = 60 * 24 * 60 * 60 * 1000
 
 # **The prune frontier: how far `prune_quotes` has actually got.**
 #
@@ -171,6 +175,8 @@ _QUOTE_RETENTION_MS = 3 * 24 * 60 * 60 * 1000
 #
 # The `NOT IN (SELECT ticker FROM recommendations)` half matters for the same
 # reason: rows the prune is not allowed to touch are not part of its frontier.
+# Since #122 that exemption ends at `:exempt_cutoff` (sixty days), so a
+# recommended ticker's row older than that IS the prune's to touch and counts.
 #
 # How to use it. `frontier_iso` advances only when a prune actually deletes, so
 # comparing it either side of a window says whether one ran inside. When the
@@ -183,15 +189,18 @@ _QUOTE_RETENTION_MS = 3 * 24 * 60 * 60 * 1000
 _SQL_PRUNE_FRONTIER = (
     "SELECT "
     "  (SELECT MIN(COALESCE(confirmed_ms, observed_ms)) FROM kalshi_quotes"
-    "     WHERE ticker NOT IN (SELECT ticker FROM recommendations))"
+    "     WHERE (COALESCE(confirmed_ms, observed_ms) < :exempt_cutoff"
+    "        OR ticker NOT IN (SELECT ticker FROM recommendations)))"
     "    AS frontier_ms, "
     "  :cutoff AS cutoff_ms, "
     "  (SELECT COUNT(*) FROM kalshi_quotes"
     "     WHERE COALESCE(confirmed_ms, observed_ms) < :cutoff"
-    "       AND ticker NOT IN (SELECT ticker FROM recommendations))"
+    "       AND (COALESCE(confirmed_ms, observed_ms) < :exempt_cutoff"
+    "        OR ticker NOT IN (SELECT ticker FROM recommendations)))"
     "    AS backlog_rows, "
     "  (SELECT COUNT(*) FROM kalshi_quotes"
-    "     WHERE ticker NOT IN (SELECT ticker FROM recommendations))"
+    "     WHERE (COALESCE(confirmed_ms, observed_ms) < :exempt_cutoff"
+    "        OR ticker NOT IN (SELECT ticker FROM recommendations)))"
     "    AS prunable_rows, "
     "  (SELECT COUNT(*) FROM kalshi_quotes) AS total_rows"
 )
@@ -319,7 +328,10 @@ def _q_prune_frontier(conn: sqlite3.Connection, args) -> list[Section]:
     section = _fetch(
         conn,
         _SQL_PRUNE_FRONTIER,
-        {"cutoff": now - _QUOTE_RETENTION_MS},
+        {
+            "cutoff": now - _QUOTE_RETENTION_MS,
+            "exempt_cutoff": now - _RECOMMENDED_QUOTE_RETENTION_MS,
+        },
         title=(
             f"prune frontier at {_iso(now)} "
             f"(retention {_QUOTE_RETENTION_MS // 86_400_000}d)"

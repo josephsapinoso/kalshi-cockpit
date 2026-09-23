@@ -109,9 +109,13 @@ logger = logging.getLogger(__name__)
 #: does not hold. A *small* margin is still defensible on our side -- our fee
 #: estimate is 0.071 against the venue's 0.070, and the maker floors
 #: `contracts` to two decimals -- but that is worth ~0.1%, not 10%, and it is
-#: a different argument. **Changing the number is Joe's call (issue #71); the
-#: false sentence was on the screen and could not wait for it**, which is
-#: CLAUDE.md's fix-and-copy-ship-together rule.
+#: a different argument. The false sentence was on the screen and could not
+#: wait for the number, which is CLAUDE.md's fix-and-copy-ship-together rule.
+#:
+#: **0.99 since 2026-09-23 -- issue #71, Joe answered (A) "shrink it to 99%".**
+#: The 1% left is the two small real things above (fee estimate 0.071 vs
+#: 0.070, the maker's two-decimal floor), not a fee allowance. On a $3.94
+#: shard the wall moved from $3.54 to $3.90.
 #:
 #: **It is a wall, not a second size** -- issue #62, answered (A) by Joe on
 #: 2026-09-18. Until then this silently TRIMMED the target, which made two
@@ -120,7 +124,7 @@ logger = logging.getLogger(__name__)
 #: because no screen printed the dollars. Now Joe types the size and this
 #: refuses it before the makers are asked. A refusal he can read is worth
 #: more than a number nobody chose.
-SHARD_HEADROOM = 0.90
+SHARD_HEADROOM = 0.99
 
 QUOTE_WAIT_S = 4.0
 QUOTE_POLL_S = 0.4
@@ -241,14 +245,18 @@ async def ask_market_to_price(
             # allowance: the captured payload says the fee is fitted inside
             # the target by the maker, so "the rest is left for the fee" --
             # which this sentence said until 2026-09-18 -- was false, on the
-            # screen that spends. Why the margin is 0.90 rather than ~1.0 is
-            # issue #71 and is Joe's to answer; this refusal claims nothing
-            # about it either way.
+            # screen that spends. The margin is 0.99 on Joe's answer to
+            # issue #71; this refusal claims nothing about why.
+            # FLOORED to the cent, never rounded: at 0.99 a $3.9359 shard
+            # walls at $3.8965, and `:.2f` printed "$3.90" -- a figure this
+            # same check then refuses. The number he is told he can ask for
+            # must be one he can ask for.
+            askable = math.floor(max(headroom_dollars, 0.0) * 100) / 100
             raise LookupRefused(
                 400,
                 f"The combinations shard cannot cover ${float(target):,.2f} "
                 f"for this. The most this desk will ask for right now is "
-                f"**${max(headroom_dollars, 0.0):,.2f}**, which is "
+                f"**${askable:,.2f}**, which is "
                 f"{SHARD_HEADROOM:.0%} of what is on the shard. Ask for a "
                 "smaller amount, or add funds to the combinations shard.",
             )

@@ -64,3 +64,17 @@ class TestTheBrakesHaveTheRecordedDefaults:
             1,
             12,
         )
+
+
+class TestLiveRunsTwoUnattendedConveningsADay:
+    """#127, Joe answered (B) 2026-09-23: three convenings spent the whole
+    500K token ceiling on both measured days and locked out his own taps.
+    Live carries 2 explicitly; the code default stays 3 (ADR 0180)."""
+
+    def test_the_live_toml_sets_two(self):
+        import tomllib
+        from pathlib import Path
+
+        live = Path(__file__).resolve().parents[1] / "fly.live.toml"
+        env = tomllib.loads(live.read_text(encoding="utf-8"))["env"]
+        assert env.get("SCOUT_AUTO_MAX_CONVENINGS_PER_DAY") == "2"

@@ -135,23 +135,37 @@ def tickers(conn) -> list[str]:
 class TestWhatMustSurvive:
     """The half of a retention rule that can lose data."""
 
-    def test_a_recommended_tickers_history_survives_any_age(self, conn):
+    def test_a_recommended_tickers_history_survives_inside_sixty_days(
+        self, conn
+    ):
         """CLV work reaches back through `recommendations.ticker`.
 
         This is the whole reason the rule is not a plain age cut. A market
         recommended once must keep the run of quotes around it, or the closing
-        line it would be scored against is gone.
+        line it would be scored against is gone -- for sixty days since #122.
         """
         conn.execute("INSERT INTO recommendations (ticker) VALUES ('KEEP')")
         conn.commit()
-        add_quote(conn, "KEEP", age_days=400)
+        add_quote(conn, "KEEP", age_days=59)
 
         retention.prune_quotes(conn, now=NOW)
 
         assert tickers(conn) == ["KEEP"], (
-            "a quote for a ticker that produced a recommendation was deleted; "
+            "a 59-day-old quote for a recommended ticker was deleted; "
             "clv_signal.py joins through exactly that ticker"
         )
+
+    def test_the_recommended_boundary_is_kept_not_dropped(self, conn):
+        conn.execute("INSERT INTO recommendations (ticker) VALUES ('EDGE')")
+        conn.execute(
+            "INSERT INTO kalshi_quotes (ticker, observed_ms) VALUES ('EDGE', ?)",
+            (NOW - retention.DEFAULT_RECOMMENDED_QUOTE_RETENTION_MS,),
+        )
+        conn.commit()
+
+        retention.prune_quotes(conn, now=NOW)
+
+        assert tickers(conn) == ["EDGE"]
 
     def test_quotes_inside_the_window_survive_even_unrecommended(self, conn):
         """`slate.kalshi_drift_tenths` reads an hour of any ticker."""
@@ -181,6 +195,20 @@ class TestWhatMustSurvive:
 
 
 class TestWhatIsRemoved:
+    def test_a_recommended_tickers_quote_goes_after_sixty_days(self, conn):
+        """#122, Joe 2026-09-23: the exemption is bounded. Until then it had
+        no age, `recommendations` is never pruned, and the exempt share of
+        the table could only rise (26.2% on 2026-09-21)."""
+        conn.execute("INSERT INTO recommendations (ticker) VALUES ('OLD')")
+        conn.commit()
+        add_quote(conn, "OLD", age_days=61)
+        add_quote(conn, "OLD", age_days=59)
+
+        removed = retention.prune_quotes(conn, now=NOW)
+
+        assert removed == 1
+        assert len(tickers(conn)) == 1
+
     def test_an_old_unrecommended_quote_goes(self, conn):
         add_quote(conn, "GONE", age_days=10)
 

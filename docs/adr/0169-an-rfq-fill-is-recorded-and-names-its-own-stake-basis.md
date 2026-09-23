@@ -280,3 +280,7 @@ rather than resolved here.
 
 **Question for Joe: accepting a quote might leave a resting offer on the book —
 guard it, or accept the risk? — #78**
+
+**#78 answered 2026-09-23: (a) accept the risk.** No guard at accept time.
+Joe's reasoning: 11 of 11 executed accepts filled whole, and the venue's own
+default is against partial fills. ADR 0183 §2.

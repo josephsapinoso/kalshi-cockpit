@@ -526,6 +526,13 @@ primary_region = "ord"
   # spent at a rate nobody chose. Turning it back off is this one line.
   SCOUT_AUTO_CONVENE_ENABLED = "true"
 
+  # **2 unattended convenings a day, not 3 -- #127, Joe answered (B)
+  # 2026-09-23.** Three convenings cost ~511K-526K tokens against the 500K
+  # AGENT_MAX_TOKENS_PER_DAY on both measured days, so his own taps were
+  # refused from mid-afternoon to the 10:00Z roll. Two leave roughly one tap
+  # of his a day. No ceiling moved; this brake sits inside them.
+  SCOUT_AUTO_MAX_CONVENINGS_PER_DAY = "2"
+
   # **The `odds_snapshots` closing-line prune (#58), Joe 2026-09-23: keep
   # each book's closing line, delete the rest, 14 days after kickoff, no
   # VACUUM.** Enabled and DRY first: the dry run logs what it would delete
