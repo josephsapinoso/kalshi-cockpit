@@ -182,3 +182,33 @@ class TestAbsentIsNotSuppressed:
         kept, excluded = drop_suppressed_legs(conn, legs)
         assert len(kept) == len(legs)
         assert excluded == {}
+
+
+class TestOnlyTheProbableBugCodesRefuse:
+    """#79 named three codes; `suppressed_reason` carries a dozen, and
+    `edge_within_method_noise` ("No edge") is on nearly every row. Mutation:
+    refuse on any non-empty reason -- the first test goes red, and on live
+    the parlay screen would have gone empty."""
+
+    def _alpha(self, conn):
+        t = now_ms()
+        seed_game(conn, game="g1", team="Alpha", other="Beta", p=0.68, computed_ms=t)
+        conn.commit()
+        legs, _ = ladder_candidates(conn, now_ms=t, max_odds_age_ms=MAX_AGE_MS)
+        return legs, next(l for l in legs if l.team == "Alpha")
+
+    def test_a_no_edge_leg_is_kept(self, conn):
+        legs, alpha = self._alpha(conn)
+        _recommend(conn, alpha.kalshi_market_ticker, "yes", "edge_within_method_noise")
+        kept, excluded = drop_suppressed_legs(conn, legs)
+        assert alpha in kept
+        assert excluded == {}
+
+    def test_a_bug_code_among_others_is_refused(self, conn):
+        legs, alpha = self._alpha(conn)
+        _recommend(
+            conn, alpha.kalshi_market_ticker, "yes",
+            "stale_odds,too_few_books,edge_within_method_noise",
+        )
+        kept, _ = drop_suppressed_legs(conn, legs)
+        assert alpha not in kept

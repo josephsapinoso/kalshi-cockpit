@@ -1190,6 +1190,22 @@ def ladder_candidates(
 #: rather than borrowing a code from a different gauntlet.
 SUPPRESSED_AS_BUG_REASON = "suppressed_as_probable_bug"
 
+#: The `suppressed_reason` codes that mean "probable bug" -- the three #79
+#: named, and the only three Joe's (a) refuses. **Not every code.**
+#: `suppressed_reason` also carries `edge_within_method_noise` ("No edge"),
+#: which sits on nearly every row (the actionable population is 51 rows,
+#: ever), plus staleness and depth checks: refusing on any code would have
+#: emptied the parlay screen. A leg is refused when its comma-separated
+#: reason names at least one of these.
+PROBABLE_BUG_CODES: frozenset[str] = frozenset(
+    {"suspicious_edge", "too_few_books", "no_market_width"}
+)
+
+
+def _names_a_probable_bug(suppressed_reason: Optional[str]) -> bool:
+    codes = {e.strip() for e in (suppressed_reason or "").split(",")}
+    return bool(codes & PROBABLE_BUG_CODES)
+
 
 def _suppressed_reasons(
     conn, candidates: Sequence[CandidateLeg]
@@ -1224,7 +1240,7 @@ def _suppressed_reasons(
             """,
             tickers,
         ).fetchall()
-        if row["suppressed_reason"]
+        if _names_a_probable_bug(row["suppressed_reason"])
     }
 
 
