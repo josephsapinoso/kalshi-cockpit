@@ -16,6 +16,26 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-23 (second) - A SQL fragment copied from a sibling query carries that sibling's column meaning; and a lane's test count is read, not quoted
+
+Two patterns from the fiftieth session, both caught while merging #137.
+
+- **Before reusing a sibling query's expression, check that your column
+  means the same thing as its column.** `scout-watch-log` labels a budget
+  day with `(budget_day_ms + offset)`, which is correct because that
+  column is already a day start. The lane copied it onto raw `called_ms`,
+  where it moves the day boundary from 10:00Z to 14:00Z. Every test seeded
+  calls at 11:00Z, where the right and wrong conventions agree, so all of
+  them passed. **A test of a boundary needs a row on each side of it.**
+  One test with 09:59Z and 10:01Z calls turns the mutation red.
+
+- **Start a running-sum window on the boundary it sums over.** `now - n
+  days` cuts the oldest day partway through. That day's total then looks
+  whole but is only part of the day.
+
+- **Count a lane's tests yourself.** The report said 10 and the file had 6.
+  Nothing broke, but a count in a report is a claim like any other.
+
 ## 2026-09-23 - A claim about how a counter behaves across a restart is a claim about where it is stored; and a number spliced from a registration carries its errors with it
 
 Two patterns from the forty-ninth session, which filled #118's result
@@ -1972,6 +1992,7 @@ immediately and by dozens within a week.
 
 ### 2026-09-23 — in this file, above
 
+- A SQL fragment copied from a sibling query carries that sibling's column meaning; and a lane's test count is read, not quoted
 - A claim about how a counter behaves across a restart is a claim about where it is stored; and a number spliced from a registration carries its errors with it
 
 ### 2026-09-22 — in this file, above

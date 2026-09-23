@@ -134,6 +134,65 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-23 (fiftieth session) — #137 merged with its day boundary fixed; CLAUDE.md no longer says the LLM fleet is free (#138); nothing deployed, nothing read on live
+
+Joe said "read NEXT.md and start" at ~17:20Z, straight after the
+forty-ninth. `partner`'s ruling, adopted: dispatch #137, correct one false
+spine sentence, put #58's date in front of Joe, stop. CI green on
+`a5e803a` at session start. No lanes open at the end.
+
+### What shipped
+
+| commit | what | ticket |
+|---|---|---|
+| `ebb80ad` | CLAUDE.md "What the recorder costs" and `.claude/agents/partner.md` no longer say the LLM fleet is free: unattended scouting spends with nobody tapping since 09-21, and the `AGENT_MAX_*` ceilings are checked before each call, so a day overshoots them | #138 (opened and closed) |
+| `d09c036` | `inspect_live_db.py agent-spend` (lane-builder, Sonnet) | #137 |
+| `02db3f6` | main's fix to the lane: budget day labelled `called_ms - offset`, window starts on a day boundary; two tests, each red under its mutation | #137 |
+| `7db6658` | merge, closes #137 | #137 |
+
+### 1. The lane's bug, caught in review
+
+The lane copied `scout-watch-log`'s `strftime((x + :offset_ms) ...)`. That
+is right there only because its column is already a day START. On a raw
+`called_ms` it turns the budget day at 14:00Z, not 10:00Z, which splits
+20260922 (the one day #137 exists to read) in two. Every lane test seeded
+calls at 11:00Z, where both conventions agree, so all passed. The `--days`
+window also began at `now - n days`, so the oldest day's running sum was
+truncated but read as whole. Both are fixed, and each has a test that goes
+red under its mutation. The lane reported "10 tests"; the file had 6 and
+now has 8. The ticket's premise was also wrong: `agent_calls` **does**
+have `idx_agent_calls_time` (`schema.sql:1410`). The lane caught that and
+builds its CHEAP argument on the real index.
+
+### 2. Not done, on purpose
+
+No reading with `agent-spend`. Any reading is a new look and needs a
+successor registration (§5 of the 09-21 registration). No deploy either:
+the instrument runs from the committed script, and live runs `0f23f6c`
+until something that serves needs shipping. No live reads this session.
+
+### Still open
+
+**The digest on map #3 is unchanged — eight tickets, frozen, unanswered.**
+
+0. #58 — **has a date the digest hides**: at 141 MB/day the 4 GB box's
+   cache-residency advantage runs out about two weeks after 09-18, so
+   ~10-02 (`docs/measurements/2026-09-18-fair-prices-dedup-effect-result.md`
+   §11.2; the "~3.5 GB cache" input is unverified). Told to Joe in chat;
+   no new comment on the frozen ticket. #115 waits on it too.
+1. #129 — waiting on Joe **holding a combination**, not on a trip. No
+   order-linked combination was open at 17:12Z. Joe was asked to say when
+   he places one. Do not poll.
+2. #96 — blocked on #129; next free schema is 55.
+3. #107 — same capture as #129.
+4. #115 — starts on #58 landing or 2026-10-06, whichever first; registration expires 2026-10-20.
+5. #58, #71, #78, #79, #97, #119, #122, #127 — with Joe, in the frozen digest.
+6. #108 — deferred; #137 under it is now closed.
+
+`KalshiRepeatPoll*` show Next Run N/A, so they cannot fire. Left alone.
+
+---
+
 ## 2026-09-23 (forty-ninth session) — #118 read: budget day 20260922 is outcome D, not separable; the arms are deleted; live deployed to `0f23f6c`
 
 Joe said "read NEXT.md and start" at 00:20Z; `partner` ruled nothing to do
@@ -2612,6 +2671,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-23 (fiftieth session) — #137 merged with its day boundary fixed; CLAUDE.md no longer says the LLM fleet is free (#138); nothing deployed, nothing read on live
 - 2026-09-23 (forty-ninth session) — #118 read: budget day 20260922 is outcome D, not separable; the arms are deleted; live deployed to `0f23f6c`
 - 2026-09-22 (forty-eighth session) — the arms are correct and were left alone; the one dependency T1 still has is the laptop's power plan; the result doc exists as a skeleton before any row of its day; #115's #58 ordering is an edge the board can see; NOT deployed, on purpose
 - 2026-09-22 (forty-seventh session) — #118's T1 and T2 take themselves: two unattended arms, both rehearsed green, the registration amended in advance to say which read is T1; NOT deployed, still on purpose
