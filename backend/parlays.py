@@ -1182,6 +1182,94 @@ def ladder_candidates(
     return candidates, excluded
 
 
+#: The `excluded` code a suppressed leg counts under. Distinct from every
+#: name in `core.suppression.ALL_CHECK_NAMES` -- those name *why* the
+#: singles screen suppressed a row, and are carried in `reason_detail`
+#: below rather than folded into this one bucket, exactly as
+#: `unusable_reason` keeps its own vocabulary in `core.ladder.UNUSABLE_REASONS`
+#: rather than borrowing a code from a different gauntlet.
+SUPPRESSED_AS_BUG_REASON = "suppressed_as_probable_bug"
+
+
+def _suppressed_reasons(
+    conn, candidates: Sequence[CandidateLeg]
+) -> dict[tuple[str, str], str]:
+    """`suppressed_reason` for every `(ticker, side)` the pool holds.
+
+    The same read `leg_facts` runs (`recommendations`, freshest row per
+    `(ticker, side)`), widened from the SELECTED legs to the whole candidate
+    pool -- this has to run before `_best_per_game` chooses, not after, or a
+    suppressed leg has already displaced the leg that should have taken its
+    place. Only rows carrying a non-empty `suppressed_reason` are returned;
+    a row that ran and passed, and a ticker with no row at all, are both
+    absent from the result, and the caller reads that absence as "not
+    suppressed" (see `drop_suppressed_legs`).
+    """
+    if not candidates:
+        return {}
+    tickers = sorted({c.kalshi_market_ticker for c in candidates})
+    placeholders = ",".join("?" * len(tickers))
+    return {
+        (row["ticker"], row["side"]): row["suppressed_reason"]
+        for row in conn.execute(
+            f"""
+            SELECT ticker, side, suppressed_reason FROM (
+              SELECT ticker, side, suppressed_reason,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY ticker, side ORDER BY created_ms DESC
+                     ) AS rn
+              FROM recommendations
+              WHERE ticker IN ({placeholders})
+            ) WHERE rn = 1
+            """,
+            tickers,
+        ).fetchall()
+        if row["suppressed_reason"]
+    }
+
+
+def drop_suppressed_legs(
+    conn, candidates: Sequence[CandidateLeg]
+) -> tuple[list[CandidateLeg], dict[str, int]]:
+    """Refuse any leg the singles screen suppresses as a probable bug.
+
+    #79 (a), Joe 2026-09-23: "refuse a suppressed leg outright". CLAUDE.md
+    rule 1 -- a large apparent edge is a bug until proven otherwise -- was
+    applied on the singles screen and nowhere else; `suppressed_reason`
+    reached the parlay screen as *display* only, so a leg the singles path
+    hides as untrustworthy was still selected, priced, and multiplied into a
+    card's headline. This runs BEFORE `_best_per_game` (via `build_ladder`),
+    exactly where `usable_legs` runs its own freshness cut, so the next
+    unsuppressed leg in a suppressed leg's game can take its place instead
+    of the game dropping out.
+
+    **Side-aware, matching `leg_facts`/`_verdict_facts_for_side`.** A prop or
+    total's Over and Under are two `recommendations` rows on one ticker
+    (ADR 0154); suppressing the Over must not drop the Under, which is a
+    different bet scored separately and may have passed every check.
+
+    **Absent resolves to NOT suppressed, matching the singles screen's own
+    reading.** A ticker+side with no `recommendations` row at all reports
+    `skeptic = "absent"` there (`leg_facts`, `_NO_FACTS`) -- a measurement
+    that has not run -- never a suppression; the ONLY thing that suppresses
+    a row is a `recommendations` row whose `suppressed_reason` is set. This
+    is not the CLAUDE.md "unreadable resolves to None" rule for a
+    probability (there is no probability being read here); it is matching
+    the one screen this ticket says must agree with the other.
+    """
+    reasons = _suppressed_reasons(conn, candidates)
+    kept: list[CandidateLeg] = []
+    excluded: dict[str, int] = {}
+    for leg in candidates:
+        if (leg.kalshi_market_ticker, leg.side) in reasons:
+            excluded[SUPPRESSED_AS_BUG_REASON] = (
+                excluded.get(SUPPRESSED_AS_BUG_REASON, 0) + 1
+            )
+            continue
+        kept.append(leg)
+    return kept, excluded
+
+
 # ---------------------------------------------------------------------------
 # Serialisation -- every display string is worded here, server-side.
 # ---------------------------------------------------------------------------
@@ -3382,6 +3470,17 @@ def build_ladder_payload(
         horizon=horizon,
         pool=pool,
     )
+    # **#79: a leg the singles screen suppresses as a probable bug is refused
+    # here, before `build_ladder`'s `_best_per_game` chooses -- never after.**
+    # `_best_per_game` picks its game's leading leg from whatever pool it is
+    # handed, so a suppressed leg has to be gone from `candidates` before
+    # that choice runs, or the choice has already been made on a number the
+    # singles screen calls a bug. Counted under `SUPPRESSED_AS_BUG_REASON`,
+    # folded into `excluded` beside every other reason a leg never became a
+    # candidate, so a thin card still says why.
+    candidates, suppressed_excluded = drop_suppressed_legs(conn, candidates)
+    for reason, n in suppressed_excluded.items():
+        excluded[reason] = excluded.get(reason, 0) + n
     # **The #15 cut, applied to the pool before the cards are built** and
     # nowhere else: a card is then the same cut of a smaller pool, ordered
     # exactly as it would be unfiltered. The league is `CandidateLeg.league`,
