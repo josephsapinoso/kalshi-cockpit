@@ -291,3 +291,22 @@ class TestAMalformedCursorRestarts:
 
         assert result.games == 1
         assert len(_ids(conn, "g")) == 2
+
+
+class TestTheHandDryRunScript:
+    def test_it_prints_the_share_and_deletes_nothing(self, tmp_path, capsys):
+        from scripts import odds_prune_dry_run
+
+        conn = _conn(tmp_path)
+        k = 1_000 * DAY  # far in the past against the real clock
+        _sweep(conn, event="g", commence=k, fetched=k - 5 * HOUR)
+        _sweep(conn, event="g", commence=k, fetched=k - HOUR)
+        conn.commit()
+        conn.close()
+
+        assert odds_prune_dry_run.main(["x", str(tmp_path / "odds.db")]) == 0
+
+        out = capsys.readouterr().out
+        assert "rows_examined=4 rows_would_delete=2 share=50.0%" in out
+        conn = db.connect(tmp_path / "odds.db")
+        assert len(_ids(conn, "g")) == 4
