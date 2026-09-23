@@ -16,6 +16,28 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-23 (third) - A field named for one meaning often carries several: filter on the codes the decision names, never on non-empty; and a figure told to the user is one they can act on
+
+Two patterns from the fifty-first session, both caught in review before
+merge.
+
+- **"Suppressed" was one word for a dozen codes.** #79 asked Joe whether the
+  parlay builder should refuse a leg the singles screen suppresses "as a
+  probable bug", and named three codes. The lane refused any non-empty
+  `suppressed_reason`. That field also carries `edge_within_method_noise`
+  ("No edge"), which is on nearly every row, so merged as written it would
+  have emptied the parlay screen. Its tests all passed because they seeded
+  only `suspicious_edge`. **Before filtering on a reason field, list its
+  vocabulary (`ALL_CHECK_NAMES`) and filter on the codes the decision
+  named.** Add a test with the commonest harmless code, and check that it
+  is kept.
+
+- **A figure told to the user must pass the check that produced it.** The
+  shard refusal printed the wall with `:.2f`. At 0.90 the example happened
+  to round down; at 0.99 it printed "$3.90", which the same wall refuses.
+  Floor any "the most you can ask for" figure. The test asks for exactly
+  the printed figure and must pass.
+
 ## 2026-09-23 (second) - A SQL fragment copied from a sibling query carries that sibling's column meaning; and a lane's test count is read, not quoted
 
 Two patterns from the fiftieth session, both caught while merging #137.
@@ -1992,6 +2014,7 @@ immediately and by dozens within a week.
 
 ### 2026-09-23 — in this file, above
 
+- A field named for one meaning often carries several: filter on the codes the decision names, never on non-empty; and a figure told to the user is one they can act on
 - A SQL fragment copied from a sibling query carries that sibling's column meaning; and a lane's test count is read, not quoted
 - A claim about how a counter behaves across a restart is a claim about where it is stored; and a number spliced from a registration carries its errors with it
 

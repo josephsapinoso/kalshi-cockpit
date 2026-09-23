@@ -134,6 +134,53 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-23 (fifty-first session) — Joe answered the whole frozen digest with option buttons; all eight answers built and deployed (ADR 0183); the desk now scouts his held parlays first
+
+Joe asked two things: why the desk wasn't reviewing his parlays, and to walk
+the frozen digest one ticket at a time with buttons, then build what his
+answers unblocked. `partner` was skipped because he named the errands
+himself. Clock ~19:48Z by GitHub's `Date` header.
+
+### 1. Why the desk wasn't reviewing his parlays
+
+- **Budget.** Live `/api/scout` at 19:47Z showed `tokens_today` 525,808 of
+  500,000 after three auto convenings (briefings 15–17). Every tap is refused
+  until the 10:00Z roll.
+- **Scope.** The watcher read only the desk's own ladder cards. Nothing read
+  `parlay_positions`, a KXMVE ticker cannot resolve to a fixture, and the
+  Skeptic reviewer (ADR 0062, deleted 0106) never looked at parlays.
+
+### 2. What shipped
+
+| commit | what | ticket |
+|---|---|---|
+| `6963d6c` | `SCOUT_AUTO_MAX_CONVENINGS_PER_DAY = "2"` on live; `SHARD_HEADROOM` 0.99 with the refusal figure **floored** (it printed $3.90, which the same wall refused); `kalshi_quotes` recommended-ticker exemption bounded at 60 days, and `prune-frontier` counts to match; ADR 0183; #78's answer at the foot of ADR 0169 | #127, #71, #122, #78, #97 (closed) |
+| `018a335` + `8cdf605` | Lane B (Sonnet) + main's fix: the parlay builder refuses a leg whose side's `suppressed_reason` names `suspicious_edge`, `too_few_books` or `no_market_width`. **Only those three**: the lane's cut refused any code, which includes "No edge" on nearly every row and would have emptied the screen | #79 |
+| `07551d4` | Lane A (Sonnet): the watcher reads `build_ladder_payload` (tonight only). Before the ladder it tries fixtures from open positions' pending legs, inside the same `horizon_end_ms`, with a fallback to any recommended ticker on the leg's event. Six mutations red | #119, #140 |
+| `fdc384f` | merges; full local suite 8,479 passed | — |
+
+### 3. What to read next session
+
+- **#122's first night.** The kalshi_quotes prune deletes recommended-ticker
+  rows older than 60 days. `prune-frontier` should show the backlog fall.
+  It shares the write lock with #139's odds prune, so watch recorder `age_ms`.
+- **#127/#140.** `scout-watch-log` should refuse at "2 of 2". The first
+  convening on a held-parlay game names it in the `detail`. `/api/scout`
+  spend should stay under 500K on budget day 20260924.
+- The **digest on map #3 is empty** once #79 and #119 close with the deploy.
+  An empty frontier is a finding: the next question for Joe gets a ticket.
+
+### Still open
+
+0. #139 — ARMED on `fe0a76f`; read the first armed passes (rate, recorder age, no failures) and close.
+1. #129 — waiting on Joe holding an order-linked combination. Do not poll.
+2. #96 — blocked on #129; next free schema is 55.
+3. #107 — same capture as #129.
+4. #115 — READY (the #58 edge is satisfied); start after #139 closes. Registration expires 2026-10-20.
+5. #108 — deferred fifth seat; #140 landed under it.
+
+---
+
 ## 2026-09-23 (fiftieth session) — #137 merged with its day boundary fixed; CLAUDE.md no longer says the LLM fleet is free (#138); Joe answered #58 and the odds_snapshots prune is ARMED on live `fe0a76f` (ADR 0182, #139)
 
 Joe said "read NEXT.md and start" at ~17:20Z, straight after the
@@ -2718,6 +2765,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-23 (fifty-first session) — Joe answered the whole frozen digest with option buttons; all eight answers built and deployed (ADR 0183); the desk now scouts his held parlays first
 - 2026-09-23 (fiftieth session) — #137 merged with its day boundary fixed; CLAUDE.md no longer says the LLM fleet is free (#138); Joe answered #58 and the odds_snapshots prune is ARMED on live `fe0a76f` (ADR 0182, #139)
 - 2026-09-23 (forty-ninth session) — #118 read: budget day 20260922 is outcome D, not separable; the arms are deleted; live deployed to `0f23f6c`
 - 2026-09-22 (forty-eighth session) — the arms are correct and were left alone; the one dependency T1 still has is the laptop's power plan; the result doc exists as a skeleton before any row of its day; #115's #58 ordering is an edge the board can see; NOT deployed, on purpose
