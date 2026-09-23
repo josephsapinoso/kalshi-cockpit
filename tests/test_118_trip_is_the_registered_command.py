@@ -10,6 +10,11 @@ like T1 and is not. So the four command strings are compared byte for byte
 against the registration's own text, every cron entry is checked against the
 windows, and the workflow is refused any token that could mutate the box.
 
+**2026-09-23: the reading is taken and the workflow is deleted** (outcome D,
+`docs/measurements/2026-09-23-unattended-scouting-first-reading.md`). The
+schedule and read-only guards went with it; what remains pins the script,
+which the result document cites, and refuses the workflow's return.
+
 WHAT THESE TESTS DO NOT ESTABLISH
 ---------------------------------
 - **Nothing about the schedulers firing.** GitHub's cron is best-effort and a
@@ -29,8 +34,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-
-import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "measure_118_trip.sh"
@@ -107,64 +110,17 @@ class TestTheCommandsAreTheRegistrations:
             assert '-d "$header"' in rest, rest
 
 
-def _crons() -> list[str]:
-    doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    # PyYAML reads the bare key `on` as boolean True.
-    on = doc.get("on") or doc.get(True)
-    return [entry["cron"] for entry in on["schedule"]]
+class TestTheWorkflowIsGoneAfterTheReading:
+    """The reading was taken on 2026-09-23 and its result is written
+    (`docs/measurements/2026-09-23-unattended-scouting-first-reading.md`).
+    The workflow's crons are dated by day-of-month and month only, so a
+    workflow left in the tree fires again every 23 September and ssh-reads the
+    live box for a registration that is spent. Its schedule and read-only
+    guards were pinned by this file while it existed (git history, `32b5dce`).
+    """
 
-
-class TestTheWorkflowFiresInsideTheRegisteredWindows:
-    def test_every_cron_is_dated_2026_09_23(self):
-        for cron in _crons():
-            minutes, hour, dom, month, dow = cron.split()
-            assert (dom, month, dow) == ("23", "9", "*"), cron
-
-    def test_t1_fires_land_inside_09_00_to_09_55z_with_slack(self):
-        t1 = [c for c in _crons() if c.split()[1] == "9"]
-        assert len(t1) == 1
-        minutes = [int(m) for m in t1[0].split()[0].split(",")]
-        assert len(minutes) >= 4
-        # The last fire leaves room for a late scheduler AND the ssh round
-        # trip before 09:55:00Z closes the window.
-        assert max(minutes) <= 47
-        assert min(minutes) >= 0
-
-    def test_t2_fires_land_inside_10_30_to_14_00z(self):
-        t2 = [c for c in _crons() if c.split()[1] != "9"]
-        assert len(t2) == 1
-        minutes, hour = t2[0].split()[0], t2[0].split()[1]
-        assert hour == "10"
-        assert all(30 <= int(m) <= 59 for m in minutes.split(","))
-
-    def test_only_those_two_hours_are_scheduled(self):
-        assert sorted(c.split()[1] for c in _crons()) == ["10", "9"]
-
-
-class TestTheWorkflowCanOnlyRead:
-    def test_no_mutating_flyctl_verb_appears(self):
-        text = _code_lines(WORKFLOW)
-        for forbidden in (
-            "flyctl deploy",
-            "secrets set",
-            "machine restart",
-            "machines restart",
-            "flyctl scale",
-            "flyctl apps",
-            "flyctl volumes",
-        ):
-            assert forbidden not in text, forbidden
-
-    def test_it_runs_the_committed_script_by_path_and_nothing_else_over_ssh(self):
-        text = _code_lines(WORKFLOW)
-        assert 'sh scripts/measure_118_trip.sh "$TRIP"' in text
-        assert "flyctl ssh" not in text
-
-    def test_permissions_are_read_only(self):
-        doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-        assert doc["permissions"] == {"contents": "read"}
-
-    def test_the_trip_is_decided_by_the_cron_string_not_the_runner_clock(self):
-        text = WORKFLOW.read_text(encoding="utf-8")
-        assert "github.event.schedule" in text
-        assert re.search(r"date \+%H|date -u \+%H", text) is None
+    def test_the_dated_workflow_was_deleted_in_the_result_commit(self):
+        assert not WORKFLOW.exists(), (
+            "measure-118.yml is back: a dated cron with no year fires every "
+            "23 September against a spent registration"
+        )
