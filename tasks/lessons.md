@@ -16,6 +16,30 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-23 - A claim about how a counter behaves across a restart is a claim about where it is stored; and a number spliced from a registration carries its errors with it
+
+Two patterns from the forty-ninth session, which filled #118's result
+document. Both were caught by `measurement-skeptic` before commit, not by
+the session that wrote them.
+
+- **Before writing that a restart resets a counter, or that a counter shows
+  no gap, read the writer.** The skeleton said the 15:48Z deploy "restarted
+  the runner, which resets `scout_watch_log.cycle_count`", and the filling
+  session then read "126 counts over 125.01 intervals" as proof that no
+  cycle was lost. Both claims were wrong: the counter is a database upsert
+  (`cycle_count = cycle_count + 1`), so nothing resets it, and the day
+  before showed 92 counts over 89.71 intervals across three restarts. A
+  boot can *add* a count, so a lost cycle plus a boot cycle gives the same
+  total. A count that matches the span is consistent with continuity, and
+  that is all it shows.
+
+- **A figure copied from a registration into its result is re-derived, not
+  trusted.** The registration's "3.75 h of 24 (15.6%)" for the partial day
+  was 4.25 h (17.7%): 10:00Z → 14:15Z. The skeleton copied it and the
+  filled draft kept it. The registration is not edited, since it is the
+  record of what was fixed in advance. The result says the number was
+  wrong, and gives the right one beside it.
+
 ## 2026-09-22 (sixth) - An ordering recorded only in a ticket's prose is invisible to the board that dispatches from it; a scheduled task that must wake the machine depends on power-plan state its own XML does not show; and a result document written before its data is a registration one level down
 
 Three patterns from the forty-eighth session, a short one taken twelve
@@ -1945,6 +1969,10 @@ each is in the linked archive file, unchanged; the sections marked *in this
 file, above* are the ones not yet archived. Regenerate it from the headings in
 the same edit as the entry — an index that is not is stale by one entry
 immediately and by dozens within a week.
+
+### 2026-09-23 — in this file, above
+
+- A claim about how a counter behaves across a restart is a claim about where it is stored; and a number spliced from a registration carries its errors with it
 
 ### 2026-09-22 — in this file, above
 

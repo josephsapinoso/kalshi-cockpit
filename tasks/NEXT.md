@@ -134,6 +134,68 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-23 (forty-ninth session) — #118 read: budget day 20260922 is outcome D, not separable; the arms are deleted; live deployed to `0f23f6c`
+
+Joe said "read NEXT.md and start" at 00:20Z; `partner` ruled nothing to do
+before T1 (dispatch table empty) and Joe confirmed the laptop was on AC.
+Resumed at 16:42Z (GitHub `Date` header) after both windows closed, on
+Joe's "go ahead". Zero open Dependabot alerts at the 09-19 check; not
+re-read this session.
+
+### What shipped
+
+| commit | what | ticket |
+|---|---|---|
+| `0f23f6c` | the result doc filled (outcome **D**); `.github/workflows/measure-118.yml` deleted, and `tests/test_118_trip_is_the_registered_command.py` now refuses its return (mutation: restoring the file turns it red) | #118, #136 (both closed) |
+| (this commit) | this entry; lessons 2026-09-23 | — |
+| (outside the tree) | laptop tasks `Kalshi118T1`/`T2` deleted; #137 opened under #108; outcome commented on #118, #127, #136 | #137 |
+| deploy run `35892509269` | live on `0f23f6c` (`/api/health` `git_sha` read back), which carries #135's rollout | #135 |
+
+### 1. The reading, and what D means
+
+Both arms fired: Actions 3 of 4 T1 crons plus 2 T2, laptop 4 plus 2, and
+every read was clean. T1 = Actions run `35845257647`, 09:50:44Z. VOID: no on
+all three criteria. The allowance refused from 13:00:13Z. At T1,
+`tokens_today` was 630,719 of 500,000 (1 call unmetered) and
+`searches_today` was 30, against the 24 that leaves room for a run. There
+was no `refused_budget` row. **D: which ceiling bound first is unreadable**,
+because the watcher records only the first refusal it checks and nothing
+records when the budgets were crossed. **#127 is not decision-relevant under
+D**; it stays Joe's question, unchanged. Do not write "the allowance masks
+the token ceiling", and do not write that the token budget "would have
+stopped it anyway" — the registration forbids both.
+`measurement-skeptic` returned PASS WITH FIXES; all six fixes were applied
+(see lessons 2026-09-23).
+
+### 2. Deploy and the hedge read
+
+Deploy run `35892509269` finished 17:00:34Z; `/api/health` read back
+`0f23f6c`. The first hedge-watch pass ran at 17:00:28Z and logged its venue
+close pass (`flyctl logs`, `hedge watch: ... closed by venue settlement`).
+`/api/hedge` read once at ~17:12Z. **The split, with no count (ADR 0162):**
+every position still listed is a hand-recorded `kalshi_combo` slip
+(`combo_ticker` NULL) in state `dead`. No order-linked combination remains
+open. That is #135 as designed: venue-settled rows close themselves, and
+hand-recorded slips stay Joe's tap. Read `/api/hedge` again for a current
+figure; do not trust this line's shape past a session or two.
+
+### Still open
+
+**The digest on map #3 is unchanged — eight tickets, frozen, unanswered.**
+
+0. #137 — the §6 instrument (`agent-spend` QueryDef), `owner:agent`, `model:sonnet`; ready, and no live read in the lane; any reading taken with it needs a successor registration.
+1. #129 — capture still owed (human; the T2 trip was automated and carried none of it), population from the venue's positions read; then `measure_combo_book_presence.py` and `capture_sell_side_rfq.py` per ticker.
+2. #96 — blocked on #129's capture; next free schema is 55 (54 taken).
+3. #107 — capture of opportunity, same trip as #129.
+4. #115 — starts on #58 landing or 2026-10-06, whichever first (the `blocked_by` edge comes off on 10-06); registration expires 2026-10-20.
+5. #58, #71, #78, #79, #97, #119, #122, #127 — with Joe, in the frozen digest.
+6. #108 — the deferred fifth seat, plus #137 now filed under it.
+
+Two stale August scheduled tasks (`KalshiRepeatPoll*`) are still on the
+laptop; nobody asked.
+
+---
+
 ## 2026-09-22 (forty-eighth session) — the arms are correct and were left alone; the one dependency T1 still has is the laptop's power plan; the result doc exists as a skeleton before any row of its day; #115's #58 ordering is an edge the board can see; NOT deployed, on purpose
 
 Joe said "read NEXT.md and start" — no named errand — so `partner` owned
@@ -2550,6 +2612,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-23 (forty-ninth session) — #118 read: budget day 20260922 is outcome D, not separable; the arms are deleted; live deployed to `0f23f6c`
 - 2026-09-22 (forty-eighth session) — the arms are correct and were left alone; the one dependency T1 still has is the laptop's power plan; the result doc exists as a skeleton before any row of its day; #115's #58 ordering is an edge the board can see; NOT deployed, on purpose
 - 2026-09-22 (forty-seventh session) — #118's T1 and T2 take themselves: two unattended arms, both rehearsed green, the registration amended in advance to say which read is T1; NOT deployed, still on purpose
 - 2026-09-22 (forty-sixth session) — the record now says what the venue says: a settled combination closes its own row (ADR 0181, schema v54); the runtime review caught a coupling that would have silenced hedge alerts; #134 landed; NOT deployed, on purpose
