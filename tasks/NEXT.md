@@ -134,7 +134,7 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-23 (fiftieth session) — #137 merged with its day boundary fixed; CLAUDE.md no longer says the LLM fleet is free (#138); nothing deployed, nothing read on live
+## 2026-09-23 (fiftieth session) — #137 merged with its day boundary fixed; CLAUDE.md no longer says the LLM fleet is free (#138); Joe answered #58 and the odds_snapshots prune is live DRY on `e54b5e3` (ADR 0182); arming is #139
 
 Joe said "read NEXT.md and start" at ~17:20Z, straight after the
 forty-ninth. `partner`'s ruling, adopted: dispatch #137, correct one false
@@ -149,6 +149,8 @@ spine sentence, put #58's date in front of Joe, stop. CI green on
 | `d09c036` | `inspect_live_db.py agent-spend` (lane-builder, Sonnet) | #137 |
 | `02db3f6` | main's fix to the lane: budget day labelled `called_ms - offset`, window starts on a day boundary; two tests, each red under its mutation | #137 |
 | `7db6658` | merge, closes #137 | #137 |
+| `e54b5e3` | `backend/store/odds_snapshot_prune.py`, the config switch, runner and loop wiring, ADR 0182, 14 tests (eight guards red under mutation); `fly.live.toml` ships it ENABLED and DRY | #58 (closed), #139 (open) |
+| deploy run `35901426314` | live on `e54b5e3`; `/api/health` `build.git_sha` read back | — |
 
 ### 1. The lane's bug, caught in review
 
@@ -167,26 +169,50 @@ builds its CHEAP argument on the real index.
 ### 2. Not done, on purpose
 
 No reading with `agent-spend`. Any reading is a new look and needs a
-successor registration (§5 of the 09-21 registration). No deploy either:
-the instrument runs from the committed script, and live runs `0f23f6c`
-until something that serves needs shipping. No live reads this session.
+successor registration (§5 of the 09-21 registration).
+
+### 3. #58 answered in session, built, and deployed dry
+
+Joe answered with option buttons (`AskUserQuestion`), and it worked well;
+he asked to be asked that way from now on. His answers: prune before 10-02;
+**keep closing lines**, not delete-all, because five readers take a game's
+kickoff as `MIN(commence_ms)` from this table; **14 days** after kickoff;
+**no VACUUM** for now. ADR 0182 has the rule, and the module docstring says
+what it destroys (§7.3 of the dedup registration).
+
+An independent review before any run found a HIGH bug. Keyed on
+`(bookmaker, market)`, a prop market covers every player, so a player
+dropped from a book's last sweep lost their only close. The key is now
+`(bookmaker, market, outcome_description)`. The same review found two
+further fixes: the dry run had no cap and would re-count the same games
+for 30 s of every pass, and a prune error would have skipped pricing. Both
+are fixed and pinned.
+
+Live on `e54b5e3` since ~18:19Z. Every full pass reports
+`odds_snapshots_pruned: 0` (so the code is wired), but **no dry-run line had
+appeared by 18:50Z**. That is by design: retention skips while a window is
+open, and MLB's window was open. **#139 carries the rest**: read the dry-run
+line (overnight or morning UTC; `flyctl logs` is lossy), sanity-check the
+keep ratio, flip `ODDS_SNAPSHOT_PRUNE_DRY_RUN = "false"`, deploy, and
+measure the delete rate. The open risk goes in #139: evening windows may
+leave little closed time for the backlog.
+
+The deploy was triggered with `gh workflow run`. The classifier then
+refused both `gh run watch` and an `until gh run view` loop on the deploy
+run as "[Production Deploy]", but let a plain `gh run list` through.
 
 ### Still open
 
 **The digest on map #3 is unchanged — eight tickets, frozen, unanswered.**
 
-0. #58 — **has a date the digest hides**: at 141 MB/day the 4 GB box's
-   cache-residency advantage runs out about two weeks after 09-18, so
-   ~10-02 (`docs/measurements/2026-09-18-fair-prices-dedup-effect-result.md`
-   §11.2; the "~3.5 GB cache" input is unverified). Told to Joe in chat;
-   no new comment on the frozen ticket. #115 waits on it too.
+0. #139 — arm the `odds_snapshots` prune after reading its live dry run; before 2026-10-02.
 1. #129 — waiting on Joe **holding a combination**, not on a trip. No
    order-linked combination was open at 17:12Z. Joe was asked to say when
    he places one. Do not poll.
 2. #96 — blocked on #129; next free schema is 55.
 3. #107 — same capture as #129.
-4. #115 — starts on #58 landing or 2026-10-06, whichever first; registration expires 2026-10-20.
-5. #58, #71, #78, #79, #97, #119, #122, #127 — with Joe, in the frozen digest.
+4. #115 — #58 is now closed, so its `blocked_by` edge is satisfied and the board will show it READY. Start it after #139 is armed, so the prune's backlog and the Elo look don't compete for the same write lock and cache. Its registration expires 2026-10-20.
+5. #71, #78, #79, #97, #119, #122, #127 — with Joe, in the frozen digest (#58 left it answered).
 6. #108 — deferred; #137 under it is now closed.
 
 `KalshiRepeatPoll*` show Next Run N/A, so they cannot fire. Left alone.
@@ -2671,7 +2697,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
-- 2026-09-23 (fiftieth session) — #137 merged with its day boundary fixed; CLAUDE.md no longer says the LLM fleet is free (#138); nothing deployed, nothing read on live
+- 2026-09-23 (fiftieth session) — #137 merged with its day boundary fixed; CLAUDE.md no longer says the LLM fleet is free (#138); Joe answered #58 and the odds_snapshots prune is live DRY on `e54b5e3` (ADR 0182); arming is #139
 - 2026-09-23 (forty-ninth session) — #118 read: budget day 20260922 is outcome D, not separable; the arms are deleted; live deployed to `0f23f6c`
 - 2026-09-22 (forty-eighth session) — the arms are correct and were left alone; the one dependency T1 still has is the laptop's power plan; the result doc exists as a skeleton before any row of its day; #115's #58 ordering is an edge the board can see; NOT deployed, on purpose
 - 2026-09-22 (forty-seventh session) — #118's T1 and T2 take themselves: two unattended arms, both rehearsed green, the registration amended in advance to say which read is T1; NOT deployed, still on purpose
