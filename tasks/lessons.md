@@ -16,6 +16,21 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-23 (fourth) - Before widening a CHECK, look at who references the table; and a "the desk did it" flag can be its own column
+
+- **A column-level CHECK in SQLite cannot be altered, only rebuilt.** If
+  another table references this one by foreign key, the rebuild's
+  `DROP TABLE` runs with `foreign_keys = ON`, inside the migration's
+  transaction, where the pragma cannot be turned off. #143 wanted a third
+  `closed_source` value on `parlay_positions`, which the legs table
+  references. **Before planning a new CHECK value, grep `REFERENCES <table>`
+  in `schema.sql`.** If it has children, add a nullable column instead: an
+  `ADD COLUMN` step, the shape this runner already takes.
+
+- **Keep "who established the fact" apart from "why the row moved."**
+  Adding the reason column kept `closed_source` meaning what it already
+  meant, and still left a desk close and a tap distinguishable.
+
 ## 2026-09-23 (third) - A field named for one meaning often carries several: filter on the codes the decision names, never on non-empty; and a figure told to the user is one they can act on
 
 Two patterns from the fifty-first session, both caught in review before

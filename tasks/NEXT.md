@@ -134,6 +134,62 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-23 (fifty-second session) — the watcher stops scouting dead parlays (#141); Joe answered #142 (A) and a dead hand-recorded slip now closes itself (#143, ADR 0184, schema v55)
+
+`/go` with no focus. `partner` ran at 23:05Z. Clock read from GitHub's
+`Date` header.
+
+### 1. What shipped
+
+| commit | what | ticket |
+|---|---|---|
+| `ce0fb9a` | Lane (Sonnet): `_held_fixtures_kickoff_soonest` skips a position with any `lost` leg, so no convening goes to a later game of a parlay that cannot win. A void leg is still scouted. Both mutations turned the tests red | #141 |
+| `6078c16` | Main: `close_dead_hand_recorded` runs in the watcher's cycle beside the venue pass. It closes an open slip with `combo_ticker IS NULL` and a lost leg: `status='settled'`, `closed_reason='lost_leg'` (v55), `closed_source` = whoever resolved the losing leg. A tap leaves the reason NULL. Order-linked combinations still wait for the venue. Three mutations turned the tests red | #142 → #143 |
+
+**Why a column and not a third `closed_source` value** (ADR 0184 §3):
+widening that column's CHECK means rebuilding a table that the legs table
+references by foreign key, inside a transaction where `foreign_keys` cannot
+be switched off. **#96's schema slot slides to 56.**
+
+Housekeeping:
+- Three merged worktrees and branches removed.
+- `lane-95-combo-book-bid` deleted: it was superseded by `3fe9ba1`'s
+  rework, not merged.
+- Zero open Dependabot alerts.
+- Live was on `fdc384f` at 23:05Z.
+
+### 2. #115 needs no new registration
+
+`partner` worried that an Elo model with too little warm-up would fail for
+reasons that say nothing about Elo. The existing preregistration already
+fixes `burn_in = 100` and per-league ceilings: MLB ~392 evaluable games,
+WNBA ~14, NFL 0 (its §P.3). What blocks it is the `elo-game-pull` QueryDef
+(§10, not built), and that walks the whole 2.6 GB `odds_snapshots` table.
+It still waits on #139.
+
+### 3. What to read next session (06:00–10:00Z is the window)
+
+- **#139 + #122 first armed night.** At 23:04Z, `odds_snapshots_pruned: 0`
+  on every pass, because MLB windows were open. Read `prune-frontier` and
+  the prune lines (non-zero `rows_deleted`, recorder `age_ms` flat, no
+  `prune failed`), write the rate on #139, then close it.
+- **#143's first cycle.** `/api/hedge` should no longer list dead
+  hand-recorded slips. Look for the log line "closed on a lost leg".
+- **#127/#140/#141.** `scout-watch-log` refuses at "2 of 2"; no convening
+  is spent on a dead parlay; `/api/scout` stays under 500K on budget day
+  20260924.
+
+### Still open
+
+0. #139 — ARMED; read the first armed passes after the MLB windows close, then close it.
+1. #129 — waiting on Joe holding an order-linked combination. Do not poll.
+2. #96 — blocked on #129; next free schema is 56.
+3. #107 — same capture as #129.
+4. #115 — registration exists; build `elo-game-pull` and run after #139 closes. Expires 2026-10-20.
+5. #108 — deferred fifth seat.
+
+---
+
 ## 2026-09-23 (fifty-first session) — Joe answered the whole frozen digest with option buttons; all eight answers built and deployed (ADR 0183); the desk now scouts his held parlays first
 
 Joe asked two things: why the desk wasn't reviewing his parlays, and to walk
@@ -2765,6 +2821,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-23 (fifty-second session) — the watcher stops scouting dead parlays (#141); Joe answered #142 (A) and a dead hand-recorded slip now closes itself (#143, ADR 0184, schema v55)
 - 2026-09-23 (fifty-first session) — Joe answered the whole frozen digest with option buttons; all eight answers built and deployed (ADR 0183); the desk now scouts his held parlays first
 - 2026-09-23 (fiftieth session) — #137 merged with its day boundary fixed; CLAUDE.md no longer says the LLM fleet is free (#138); Joe answered #58 and the odds_snapshots prune is ARMED on live `fe0a76f` (ADR 0182, #139)
 - 2026-09-23 (forty-ninth session) — #118 read: budget day 20260922 is outcome D, not separable; the arms are deleted; live deployed to `0f23f6c`
