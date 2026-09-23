@@ -42,7 +42,7 @@ Two reasons, and only the first is about budget.
 | new | the desk never scouts parlays he holds | **held parlays first** | the watcher tries fixtures from open positions' pending legs (tonight's horizon) before the ladder; same brakes, one convening a cycle |
 | #71 | the combinations shard keeps a 10% margin | **(A) 99%** | `SHARD_HEADROOM = 0.99`; the refusal's figure is now FLOORED to the cent (see §3) |
 | #78 | an accepted quote might rest a remainder | **(a) accept the risk** | nothing; 11 of 11 accepts filled whole on 09-18 and the venue defaults against partial fills |
-| #79 | the parlay builder multiplies suppressed legs | **(a) refuse them outright** | a leg whose side carries a `suppressed_reason` never enters the pool |
+| #79 | the parlay builder multiplies suppressed legs | **(a) refuse them outright** | a leg whose side's `suppressed_reason` names `suspicious_edge`, `too_few_books` or `no_market_width` never enters the pool. **Only those three**: the field also carries `edge_within_method_noise` ("No edge") on nearly every row, and the lane's first cut refused any code, which would have emptied the screen; caught in review |
 | #97 | a combination fill's `fee_cost` is unread | **(a) leave it unread** | nothing; ADR 0178 §7 stands |
 | #122 | the recommended-market quote exemption has no age | **(A) bound it at 60 days** | `prune_quotes` deletes a recommended ticker's quotes after 60 days; `prune-frontier` counts them |
 
