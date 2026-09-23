@@ -85,6 +85,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from backend.config import (  # noqa: E402
     FairPriceDownsampleConfig,
+    OddsSnapshotPruneConfig,
     GateConfig,
     KalshiConfig,
     MarketResultConfig,
@@ -862,6 +863,9 @@ async def main() -> int:
     # a rule that can be *observed* refusing, and this project's most repeated
     # defect is a module that was complete, tested and called by nothing.
     downsample_config = FairPriceDownsampleConfig.load()
+    # The `odds_snapshots` prune's switch (#58), same pattern and same reason:
+    # passed on every full pass so it can be observed refusing.
+    odds_prune_config = OddsSnapshotPruneConfig.load()
     suppression = SuppressionConfig()
 
     # The on-demand refresh inbox, and this process's watermark into it.
@@ -1559,6 +1563,7 @@ async def main() -> int:
                     # inside the first ~40-94s of it, every time.
                     window_open=lambda: window_now().is_open,
                     downsample=downsample_config,
+                    odds_prune=odds_prune_config,
                 )
             else:
                 # Kalshi, plus the odds refresh that keeps an already-open

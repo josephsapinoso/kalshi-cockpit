@@ -150,7 +150,7 @@ from .odds.timing import (
     SweepSlot,
     decide_sweeps,
 )
-from .store import db, fair_price_downsample, retention
+from .store import db, fair_price_downsample, odds_snapshot_prune, retention
 from .store.db import ask_for_side, now_ms
 from .settlement import daily_realised_pnl_dollars, open_position_dollars
 from .store.orders import ORDERS_ARE_DRY_RUNS, current_exposure_dollars
@@ -386,6 +386,10 @@ class PassCounts:
     # implements. The dry run reports through the log, not through here, because
     # a count of rows it did NOT delete would read as a count of rows it did.
     fair_prices_downsampled: int = 0
+    # Rows the `odds_snapshots` closing-line prune removed (#58). Zero while
+    # it is off or dry, reported anyway for the downsample's reason above; the
+    # dry run's would-delete count goes to the log, not here.
+    odds_snapshots_pruned: int = 0
     # Rows `store_quotes_from_discovery` actually inserted, against
     # `markets_quoted` which counts markets carrying a readable quote. Equal
     # before ADR 0055 and deliberately reported separately after it: the ratio
@@ -479,6 +483,7 @@ class PassCounts:
         "unmatched_pruned",
         "legacy_unmatched_pruned",
         "fair_prices_downsampled",
+        "odds_snapshots_pruned",
         "quote_rows_written",
         # Reported on every pass, at every value, including `None`. The whole
         # point of the field is that "full" is unremarkable on one cadence and
@@ -3511,6 +3516,7 @@ async def run_once(
     now: Optional[int] = None,
     window_open: bool | Callable[[], bool] = False,
     downsample=None,
+    odds_prune=None,
 ) -> PassCounts:
     """One full pass: ingest, then price. The unit the scheduler repeats.
 
@@ -3564,6 +3570,19 @@ async def run_once(
             counts.fair_prices_downsampled = fair_price_downsample.run(
                 conn, now=stamp, config=downsample
             )
+        # **The `odds_snapshots` closing-line prune (#58)**, behind the same
+        # window guard: it takes the same write lock. `None` deletes nothing,
+        # and so does the config's own default, which is two refusals.
+        # A failure here is logged and the pass goes on to price: retention has
+        # no deadline, and a `database is locked` must not skip pricing.
+        if odds_prune is not None:
+            try:
+                counts.odds_snapshots_pruned = odds_snapshot_prune.run(
+                    conn, now=stamp, config=odds_prune
+                ).rows_deleted
+            except Exception:
+                logger.exception("odds_snapshots prune failed; pass continues")
+                conn.rollback()
     counts.quotes_pruned = pruned.quotes_deleted
     counts.unmatched_pruned = pruned.unmatched_deleted
     counts.legacy_unmatched_pruned = pruned.legacy_unmatched_deleted

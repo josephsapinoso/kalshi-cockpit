@@ -1051,6 +1051,42 @@ class FairPriceDownsampleConfig:
 
 
 @dataclass(frozen=True)
+class OddsSnapshotPruneConfig:
+    """Whether `odds_snapshots` is thinned to closing lines. #58, 2026-09-23.
+
+    Joe decided the rule (keep each book's closing line, 14 days after
+    kickoff, no VACUUM); `backend/store/odds_snapshot_prune.py` implements
+    it. The two flags are `FairPriceDownsampleConfig`'s pattern and for its
+    reason: only `enabled=true` **and** `dry_run=false` deletes, so "delete"
+    is two independent edits away from the default, never one typo.
+
+    **Nothing on a disk threshold may set these**, for the same reason the
+    downsample's may not.
+    """
+
+    enabled: bool = False
+    dry_run: bool = True
+    retention_days: int = 14
+    #: Seconds of pruning per full pass. The full pass runs every 900s and
+    #: skips retention while a bettable window is open.
+    budget_s: float = 30.0
+
+    @classmethod
+    def load(cls) -> "OddsSnapshotPruneConfig":
+        return cls(
+            enabled=_bool("ODDS_SNAPSHOT_PRUNE_ENABLED", False),
+            dry_run=_bool("ODDS_SNAPSHOT_PRUNE_DRY_RUN", True),
+            retention_days=_int("ODDS_SNAPSHOT_PRUNE_RETENTION_DAYS", 14),
+            budget_s=_float("ODDS_SNAPSHOT_PRUNE_BUDGET_S", 30.0),
+        )
+
+    @property
+    def deletes(self) -> bool:
+        """Whether this configuration would actually remove a row."""
+        return self.enabled and not self.dry_run
+
+
+@dataclass(frozen=True)
 class ScoutAutoConfig:
     """Whether the scout desk may be sent on the ladder unattended. OFF by default.
 

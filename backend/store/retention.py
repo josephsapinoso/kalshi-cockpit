@@ -52,7 +52,9 @@ What this does NOT do
   this.
 - **It does not bound the tables it does not name.** `odds_snapshots` was
   33.6 MiB and growing slowly when this was written; it is deliberately out of
-  scope rather than forgotten.
+  scope rather than forgotten. It is now bounded elsewhere: since ADR 0182
+  (#58, 2026-09-23), `odds_snapshot_prune.py` thins games older than 14 days
+  to their closing lines.
 - **`fair_prices` is not bounded here, and until 2026-09-01 it was not named
   here either.** That was worse than an oversight: the table is mentioned at
   `:43` of this docstring, three lines above this list, so it was in the
