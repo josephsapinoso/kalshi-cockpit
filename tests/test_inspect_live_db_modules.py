@@ -110,6 +110,7 @@ READ_BUDGET_BYTES = int(READ_TOOL_LIMIT_BYTES * 0.60)
 #: exists is worse than one citing nothing.
 SUBCOMMANDS = (
     "actionable-audit",
+    "agent-spend",
     "book-rows",
     "closing-lines-for-pull",
     "clv-coverage",

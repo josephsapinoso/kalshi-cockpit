@@ -341,6 +341,9 @@ from inspect_live_db_parlays import (  # noqa: E402,F401
     _SCOUT_BRIEFINGS_MAX_DAYS,
     _SCOUT_WATCH_LOG_DEFAULT_DAYS,
     _SCOUT_WATCH_LOG_MAX_DAYS,
+    _AGENT_SPEND_DEFAULT_DAYS,
+    _AGENT_SPEND_MAX_DAYS,
+    _q_agent_spend,
     _q_combo_bids_tail,
     _q_combo_position_gaps,
     _q_combo_position_orphans,
@@ -846,6 +849,34 @@ QUERIES: dict[str, QueryDef] = {
         # seek on idx_scout_watch_log_day, which is keyed exactly
         # (budget_day_ms DESC, first_ms) -- the one index that DOES serve this
         # query's own ordering.
+        cost=CHEAP,
+    ),
+    "agent-spend": QueryDef(
+        "Cumulative token/call/search totals per budget day, one row per "
+        "Anthropic call (--days back, default "
+        f"{_AGENT_SPEND_DEFAULT_DAYS}, hard ceiling "
+        f"{_AGENT_SPEND_MAX_DAYS}). Reproduces "
+        "backend/agents/budget.py:state's own arithmetic so a reading here "
+        "means what the gate meant when it fired: calls_running is "
+        "COUNT(*), tokens_running is COALESCE(SUM(input_tokens), 0) + "
+        "COALESCE(SUM(output_tokens), 0), web_searches_running is "
+        "COALESCE(SUM(web_searches), 0). A NULL usage row is unmetered, "
+        "never 0 -- unmetered_running is the cumulative count of such rows, "
+        "printed beside both sums. Ordered budget_day DESC, called_ms ASC, "
+        "so the row where a running total first crosses an AGENT_MAX_* "
+        "ceiling is readable beside scout-watch-log's "
+        "refused_allowance.first_ms. #137: answers when #118's budget day "
+        "20260922 crossed 500,000 tokens and 24 searches, which was "
+        "recorded nowhere else. A reading taken with it is a new look and "
+        "needs its own registration before it can answer #127.",
+        _q_agent_spend,
+        # `WHERE called_ms >= :since_ms` is a bounded seek on
+        # idx_agent_calls_time (schema.sql:1410, keyed called_ms DESC), not a
+        # scan of the whole table -- the seek is non-covering (agent, model,
+        # verdict and the usage columns live off the index) so each matching
+        # row costs one rowid lookup beside it, but the number of lookups is
+        # bounded by --days. Cost scales with the answer, not with
+        # agent_calls's lifetime size.
         cost=CHEAP,
     ),
     "combo-position-gaps": QueryDef(
