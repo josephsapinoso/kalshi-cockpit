@@ -1045,6 +1045,7 @@ def close_position(
     now_ms: int,
     status: str,
     source: str,
+    reason: str | None = None,
 ) -> bool:
     """Move one open ticket off `open`, saying who did it.
 
@@ -1056,15 +1057,22 @@ def close_position(
     cannot drift apart. A missing `source` is a `TypeError` at the call
     site, never a silent NULL: NULL on this column means "closed before the
     column existed" and nothing written today may look like that.
+
+    `reason` (`closed_reason`, v55) is set only when the desk closed the row
+    on its own for a reason other than the venue's settlement: `'lost_leg'`
+    is `close_dead_hand_recorded`. A tap and the venue pass leave it NULL.
     """
     if status not in ("settled", "closed", "void"):
         raise ValueError(f"status must be settled/closed/void, got {status!r}")
     if source not in ("venue", "manual"):
         raise ValueError(f"source must be venue/manual, got {source!r}")
+    if reason not in (None, "lost_leg"):
+        raise ValueError(f"reason must be None or lost_leg, got {reason!r}")
     cursor = conn.execute(
-        "UPDATE parlay_positions SET status = ?, closed_ms = ?, closed_source = ? "
+        "UPDATE parlay_positions SET status = ?, closed_ms = ?, "
+        "closed_source = ?, closed_reason = ? "
         "WHERE id = ? AND status = 'open'",
-        (status, now_ms, source, position_id),
+        (status, now_ms, source, reason, position_id),
     )
     conn.commit()
     return cursor.rowcount > 0
@@ -1091,8 +1099,10 @@ def close_settled_combinations(
 
     - It never touches a hand-recorded slip. Those carry no `combo_ticker`
       (`record_position` defaults it to `None` for the hand-typed route), so
-      the venue cannot see them and the join cannot reach them; closing one
-      stays Joe's tap. Disjoint by construction, not by a second filter.
+      the venue cannot see them and the join cannot reach them. Disjoint by
+      construction, not by a second filter. Since #143 (Joe's (A) to #142)
+      such a slip closes by `close_dead_hand_recorded` once a leg has lost,
+      or by his tap -- never by this pass.
     - It never marks a leg. A combination's `market_result` says nothing
       about which leg lost (ADR 0136, reason 2, which stands); legs keep
       resolving from `kalshi_markets.result` or by hand.
@@ -1138,6 +1148,61 @@ def close_settled_combinations(
                 row["combo_ticker"],
                 settlement["market_result"],
                 settlement["settled_ms"],
+            )
+            closed.append(int(row["id"]))
+    return closed
+
+
+def close_dead_hand_recorded(
+    conn: sqlite3.Connection, *, now_ms: int
+) -> list[int]:
+    """Close every open hand-recorded slip one of whose legs has lost.
+
+    Joe's (A) to #142 (2026-09-23, #143, amending ADR 0181): a parlay with a
+    lost leg cannot win -- `assess` already calls it `STATE_DEAD` -- and a
+    slip typed in by hand has no venue settlement that would ever close it,
+    so before this it sat on `/hedge` until he tapped it. The row moves to
+    `status = 'settled'` with `closed_reason = 'lost_leg'`, and
+    `closed_source` names who resolved the losing leg: `'venue'` if any lost
+    leg was resolved from Kalshi's market result, otherwise `'manual'` (he
+    marked it). A tap on the row itself leaves `closed_reason` NULL, so the
+    two stay distinguishable.
+
+    What this does not do:
+
+    - It never touches an order-linked combination (`combo_ticker` set).
+      Those still close only on the venue's own settlement
+      (`close_settled_combinations`; option (B) to #131 is still not chosen
+      for them), because the venue will settle them and the record should
+      say what the venue says.
+    - A `void` leg closes nothing (`STATE_VOID_LEG` is still live).
+    - It never marks a leg and never deletes a row.
+    """
+    rows = conn.execute(
+        "SELECT p.id AS id, "
+        "MAX(CASE WHEN l.resolved_source = 'venue' THEN 1 ELSE 0 END) AS by_venue "
+        "FROM parlay_positions p "
+        "JOIN parlay_position_legs l ON l.position_id = p.id "
+        "WHERE p.status = 'open' AND p.combo_ticker IS NULL "
+        "AND l.outcome = 'lost' "
+        "GROUP BY p.id ORDER BY p.id"
+    ).fetchall()
+    closed: list[int] = []
+    for row in rows:
+        source = "venue" if row["by_venue"] else "manual"
+        if close_position(
+            conn,
+            position_id=int(row["id"]),
+            now_ms=now_ms,
+            status="settled",
+            source=source,
+            reason="lost_leg",
+        ):
+            logger.info(
+                "hedge: hand-recorded position %s closed by the desk: a leg "
+                "has lost (resolved by %s)",
+                row["id"],
+                source,
             )
             closed.append(int(row["id"]))
     return closed

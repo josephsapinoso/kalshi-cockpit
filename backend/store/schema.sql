@@ -2616,6 +2616,15 @@ CREATE TABLE IF NOT EXISTS parlay_positions (
     -- IS NULL)`, and the pre-v54 closed rows already violate it. The writer
     -- enforces it instead.
     closed_source   TEXT CHECK (closed_source IS NULL OR closed_source IN ('venue', 'manual')),
+    -- Why the desk closed the row on its own (v55, 2026-09-23, #143, Joe's (A)
+    -- to #142): `'lost_leg'` is `close_dead_hand_recorded` closing a
+    -- hand-recorded slip (no `combo_ticker`) one of whose legs has lost. Its
+    -- `closed_source` then names who resolved that losing leg -- `'venue'`
+    -- (Kalshi's market result) or `'manual'` (Joe marked it) -- so a tap on
+    -- the row itself (`closed_reason` NULL) stays distinguishable from the
+    -- desk closing it after a tap on a LEG. NULL on every other close,
+    -- including every row closed before v55.
+    closed_reason   TEXT CHECK (closed_reason IS NULL OR closed_reason IN ('lost_leg')),
     CHECK (source IN ('kalshi_combo', 'sportsbook')),
     CHECK (status IN ('open', 'settled', 'closed', 'void')),
     CHECK (stake_tenths > 0),

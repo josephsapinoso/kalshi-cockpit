@@ -78,6 +78,16 @@ logger = logging.getLogger(__name__)
 #: column records facts about the present. Taken on `main` at 54 with
 #: `SCHEMA_VERSION` at 53; ticket #96 had been sliding on 54 and is still
 #: unbuilt, so it moves to 55 (its fourth slide).
+#: v55 (2026-09-23) adds `parlay_positions.closed_reason` -- WHY the row
+#: left `open` when the desk closed it on its own: `'lost_leg'` is the
+#: watcher's pass closing a hand-recorded slip one of whose legs has lost
+#: (Joe's (A) to #142, #143, amending ADR 0181). A COLUMN step, nullable,
+#: column-level CHECK, **no backfill**. Chosen over widening
+#: `closed_source`'s CHECK because that is a column-level CHECK on a table
+#: `parlay_position_legs` references by foreign key, so widening it is a
+#: rebuild of a parent table with `foreign_keys = ON` inside the migration's
+#: transaction -- a class of step this runner has never taken, on the volume
+#: that cannot be recreated. #96 slides to 56 (its fifth slide).
 #: v53 (2026-09-21) adds `scout_watch_log` -- what the unattended scout
 #: watcher decided each cycle, including the cycles where it decided to do
 #: nothing (#126). A STATEMENTS step, because `schema.sql` is applied with
@@ -222,7 +232,7 @@ logger = logging.getLogger(__name__)
 #: `executescript` cannot do that. Written on `main`, 2026-09-18, the
 #: evening `/api/window` measured 7 s at the median and tripped the 25 s
 #: read budget twice.
-SCHEMA_VERSION = 54
+SCHEMA_VERSION = 55
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1335,6 +1345,20 @@ _MIGRATIONS: dict[int, _Migration] = {
     # of about three months with no measured lower bound (`rest.fills`), the
     # two acceptances this repo has predate the step, and a value invented
     # for them would enter the one record that says what the venue charged.
+    # Why the desk closed a hand-recorded slip on its own. See the v55 note
+    # above and the column comment in `schema.sql`. Column-level CHECK for
+    # v51's reason; no backfill -- every row closed before v55 was closed by
+    # a tap or the venue pass, and NULL is the truth about both.
+    55: _Migration(
+        columns=(
+            (
+                "parlay_positions",
+                "closed_reason",
+                "TEXT CHECK (closed_reason IS NULL OR closed_reason IN "
+                "('lost_leg'))",
+            ),
+        ),
+    ),
     # Who closed a held ticket. See the v54 note above and the column comment
     # in `schema.sql`. Column-level CHECK for v51's reason; no backfill.
     54: _Migration(

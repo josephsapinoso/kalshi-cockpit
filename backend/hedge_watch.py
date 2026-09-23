@@ -228,6 +228,16 @@ async def watch_hedges_forever(
                         len(closed),
                         closed,
                     )
+                # Same try, same reason: a hand-recorded slip with a lost leg
+                # is closed by the desk (#143, Joe's (A) to #142).
+                dead = held_parlays.close_dead_hand_recorded(conn, now_ms=now_ms)
+                if dead:
+                    logger.info(
+                        "hedge watch: %d hand-recorded position(s) closed on a "
+                        "lost leg: %s",
+                        len(dead),
+                        dead,
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception:                                    # noqa: BLE001

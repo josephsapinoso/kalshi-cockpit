@@ -78,8 +78,10 @@ function describeQuoteAge(ms: number | null | undefined): string | null {
  * HAS settled leaves `/api/hedge` on the watcher's next cycle
  * (`close_settled_combinations`, ADR 0181, Joe's (A) to #131) -- until
  * 2026-09-22 this comment said the group "only grows (nothing here
- * auto-closes a position)", which was true then. Closing a hand-recorded
- * slip is still Joe's own tap, `close_position`. **Record order is kept
+ * auto-closes a position)", which was true then. A hand-recorded slip
+ * leaves once one of its legs has lost (`close_dead_hand_recorded`, #143,
+ * Joe's (A) to #142); otherwise closing one is still Joe's own tap,
+ * `close_position`. **Record order is kept
  * inside each group** -- the partition reorders nothing on its own.
  */
 export default function HedgePositions({
