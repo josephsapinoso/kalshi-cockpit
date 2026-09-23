@@ -2,7 +2,7 @@
 
 Queries: `parlay-candidates-timing`, `parlay-lookups-tail`,
 `combo-bids-tail`, `combo-position-gaps`, `combo-position-orphans`,
-`ladder-fixtures`, `scout-briefings`.
+`ladder-fixtures`, `scout-briefings`, `scout-watch-log`, `agent-spend`.
 
 The candidate scan timed and EXPLAINed on the live database, the "Price on
 Kalshi" taps that minted a combination market -- the only record anywhere
@@ -1037,6 +1037,174 @@ def _q_scout_watch_log(conn: sqlite3.Connection, args) -> list[Section]:
     return [
         _window_section(
             f"scout-watch-log window (budget day starts "
+            f"{args.day_start_hour:02d}:00Z, last {n_days} day(s))",
+            since_ms,
+            None,
+        ),
+        rows,
+    ]
+
+
+# ---------------------------------------------------------------------------
+# #137: which call crossed which AGENT_MAX_* ceiling, and when.
+# ---------------------------------------------------------------------------
+#
+# **Why this is CHEAP, argued before the query exists.** `agent_calls`
+# (`backend/store/schema.sql:1387`) carries `CREATE INDEX IF NOT EXISTS
+# idx_agent_calls_time ON agent_calls(called_ms DESC)` (`schema.sql:1410`) --
+# an index the ticket that opened this ticket believed did not exist; it does,
+# and this argument rests on the schema as read, not on the ticket's premise.
+# `WHERE called_ms >= :since_ms` is a bounded seek that walks that index from
+# `:since_ms` forward, not a scan of the whole table: the index does not
+# COVER the query (`agent`, `model`, `verdict`, `input_tokens`,
+# `output_tokens`, `web_searches` all live off the index), so each matching
+# row costs one rowid lookup beside the seek -- but the number of lookups is
+# bounded by `--days` (`_AGENT_SPEND_MAX_DAYS` below), the same shape
+# `credits-by-sport` and `ladder-fixtures` already argue CHEAP for a
+# non-covering seek on a bounded window. The read's cost scales with the
+# ANSWER (rows in the window) and not with the table's lifetime size --
+# `tasks/lessons.md` 2026-09-18 ("a read's cost should scale with its
+# ANSWER") is the rule this argument follows, and `db-sizes`'s `dbstat` walk
+# is the shape this query is built to avoid. The window function that builds
+# the running sums (`SUM(...) OVER w`) operates only on the rows the WHERE
+# clause already admitted, so it adds no further scan.
+_AGENT_SPEND_DEFAULT_DAYS = 7
+_AGENT_SPEND_MAX_DAYS = 60
+
+#: Ordered `budget_day DESC, called_ms ASC` -- the day leads, and within a day
+#: calls are earliest-first so the running totals build up in the order they
+#: actually happened. The window function's own `ORDER BY` (inside `w`) is
+#: what makes each row's `*_running` column a true prefix sum; the outer
+#: `ORDER BY` only controls display order and does not need to match it, but
+#: here it does, deliberately, because the row where a ceiling first crossed
+#: is easiest to spot when the display walks forward in time too.
+_SQL_AGENT_SPEND = """
+WITH days AS (
+    SELECT
+        id,
+        called_ms,
+        agent,
+        model,
+        verdict,
+        input_tokens,
+        output_tokens,
+        web_searches,
+        strftime('%Y%m%d', (called_ms - :offset_ms) / 1000, 'unixepoch')
+            AS budget_day
+    FROM agent_calls
+    WHERE called_ms >= :since_ms
+)
+SELECT
+    budget_day,
+    called_ms,
+    id,
+    agent,
+    model,
+    verdict,
+    input_tokens,
+    output_tokens,
+    web_searches,
+    COUNT(*) OVER w AS calls_running,
+    COALESCE(SUM(input_tokens) OVER w, 0)
+        + COALESCE(SUM(output_tokens) OVER w, 0) AS tokens_running,
+    COALESCE(SUM(web_searches) OVER w, 0) AS web_searches_running,
+    SUM(
+        CASE
+            WHEN input_tokens IS NULL OR output_tokens IS NULL
+                 OR web_searches IS NULL
+            THEN 1 ELSE 0
+        END
+    ) OVER w AS unmetered_running
+FROM days
+WINDOW w AS (
+    PARTITION BY budget_day
+    ORDER BY called_ms ASC, id ASC
+    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+)
+ORDER BY budget_day DESC, called_ms ASC, id ASC
+"""
+
+
+def _q_agent_spend(conn: sqlite3.Connection, args) -> list[Section]:
+    """Cumulative token/call/search totals per budget day, one row per call.
+
+    Written for #137: #118's reading of budget day `20260922` came back
+    outcome D -- NOT SEPARABLE -- because the allowance refused from
+    13:00:13Z and by T1 both the token ceiling (630,719 of 500,000) and the
+    search ceiling (30 > 24) had already been crossed, but nothing committed
+    said WHEN either crossed. This query is the instrument: it prints the
+    running total at every call, in the same order the calls happened, so
+    the row where a running total first reaches an `AGENT_MAX_*` ceiling is
+    the answer -- read beside `scout-watch-log`'s `refused_allowance.first_ms`
+    for the pass that saw it.
+
+    Reproduces the exact arithmetic `backend/agents/budget.py:state` uses to
+    gate a call, so a reading here means what the gate meant when it fired:
+    `calls_running` is `COUNT(*)`, every call counts and none is ever
+    unmetered; `tokens_running` is `COALESCE(SUM(input_tokens), 0) +
+    COALESCE(SUM(output_tokens), 0)`; `web_searches_running` is
+    `COALESCE(SUM(web_searches), 0)`.
+
+    **A NULL `input_tokens`/`output_tokens`/`web_searches` row is unmetered,
+    never 0.** `settle` writes all three together from one usage report
+    (`backend/agents/budget.py:415-425`) or leaves all three NULL when the
+    response never arrived -- a reserve with no settle, a network death, a
+    crash. `SUM(...) OVER w` already skips a NULL rather than adding it as
+    zero (that is what makes the running sum correct across an unmetered
+    row), but a reader cannot tell "nothing was spent" from "spend here is
+    unknown" from the sum alone -- so `unmetered_running` is printed on every
+    row beside both sums: the cumulative count of calls in this budget day,
+    up to and including this one, where any of the three columns is NULL. It
+    checks all three with OR rather than trusting the invariant that they are
+    always written together, so a row that somehow breaks that invariant
+    still gets counted rather than silently trusted.
+
+    What this does NOT establish
+    ----------------------------
+    - **Nothing about WHICH ceiling refused.** `refusal_reason` in
+      `backend/agents/budget.py` decides that from the same three totals at
+      call time; this query does not re-derive the decision, only the totals
+      it was made from -- re-implementing the ladder here would be a second
+      copy that could drift from the real one, the same reason
+      `scout-watch-log` prints `detail` verbatim rather than parsing it.
+    - **Nothing before whenever `agent_calls` itself starts.** There is no
+      earlier record to backfill from; an empty or short history here is
+      missing rows, not a quiet fleet.
+    - **Nothing about Joe's own taps that were refused before an INSERT.**
+      Same caveat `scout-watch-log` states: a pre-flight refusal never
+      reaches this table's source table either.
+    - **A reading taken with this instrument is a new look**, per
+      `docs/measurements/2026-09-21-preregistration-unattended-scouting-
+      first-reading.md` §5 ("Multiplicity and looks"), and needs its own
+      successor registration before it can answer #127.
+    """
+    requested_days = getattr(args, "days", None)
+    n_days = min(
+        max(1, requested_days or _AGENT_SPEND_DEFAULT_DAYS),
+        _AGENT_SPEND_MAX_DAYS,
+    )
+    # The window starts on a budget-day boundary, never mid-day: a running
+    # sum over a day whose first hours were cut off is a partial total that
+    # reads as the whole one. `called_ms - offset` (not `+`) labels a raw
+    # call with the day it was charged to -- `scout-watch-log` adds the
+    # offset because its column is already a day START, and this one is not.
+    offset_ms = args.day_start_hour * 3_600_000
+    now_ms = int(time.time() * 1000)
+    today_start_ms = now_ms - ((now_ms - offset_ms) % _MS_PER_DAY)
+    since_ms = today_start_ms - (n_days - 1) * _MS_PER_DAY
+    rows = _fetch(
+        conn,
+        _SQL_AGENT_SPEND,
+        {"offset_ms": offset_ms, "since_ms": since_ms},
+        title="Running totals per call, earliest-first within a budget day "
+              "-- the row where a *_running column first crosses an "
+              "AGENT_MAX_* ceiling is when it bound",
+        cap=args.limit,
+    )
+    rows = _derive_iso(rows, "called_ms", "called_iso")
+    return [
+        _window_section(
+            f"agent-spend window (budget day starts "
             f"{args.day_start_hour:02d}:00Z, last {n_days} day(s))",
             since_ms,
             None,
