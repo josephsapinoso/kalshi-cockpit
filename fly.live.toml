@@ -531,8 +531,13 @@ primary_region = "ord"
   # VACUUM.** Enabled and DRY first: the dry run logs what it would delete
   # for the games one budget reaches, so the keep ratio is read before a row
   # goes. Arming is DRY_RUN = "false" on this line, nothing else.
+  #
+  # **ARMED 2026-09-23 ~19:45Z (#139), on Joe's "yes, tonight".** The hand
+  # dry run (`scripts/odds_prune_dry_run.py`, mode=ro, on live) read the 25
+  # oldest games: 157,691 of 159,550 rows would go (98.8%), ~75 kept a game,
+  # 0 skipped -- the shape the rule predicts. Back to dry is "true" here.
   ODDS_SNAPSHOT_PRUNE_ENABLED = "true"
-  ODDS_SNAPSHOT_PRUNE_DRY_RUN = "true"
+  ODDS_SNAPSHOT_PRUNE_DRY_RUN = "false"
 
   ODDS_REGIONS = "us,eu"
 
