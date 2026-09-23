@@ -60,7 +60,7 @@ def _rows(path):
 async def _one_cycle(path, monkeypatch, *, config_factory, **kwargs):
     """Run exactly one watcher cycle against a ladder holding one leg."""
     monkeypatch.setattr(
-        scout_watch, "build_ladder_payload_widening",
+        scout_watch, "build_ladder_payload",
         lambda *a, **k: _ladder_payload(("KXA", "EVA", NOW_MS + 1_000_000)),
     )
 
