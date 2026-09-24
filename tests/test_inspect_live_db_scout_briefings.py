@@ -26,6 +26,7 @@ WHAT THIS FILE DOES NOT ESTABLISH
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -48,12 +49,15 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "backend" / "store" / "schema.sql"
 
 DAY_START_HOUR = 10
-# 2026-08-10, ~40 days before this suite runs on this repo's clock (checked
-# 2026-09-21) -- comfortably inside `_SCOUT_BRIEFINGS_MAX_DAYS` (60) so the
-# window bound in the tests below does not depend on exactly when the suite
-# happens to run, only on it running within about three weeks of that ceiling.
-DAY = "20260810"
-PREV_DAY = "20260809"
+# Ten days before whenever the suite runs, so it is always inside the
+# `days=45` window the tests below ask for. This used to be a fixed date,
+# 2026-08-10, "comfortably inside" the window when it was written on
+# 2026-09-21. On 2026-09-24 PREV_DAY fell out of the 45-day window and three
+# tests went red on CI. A fixed date in a test whose query is relative to
+# the clock is a timer.
+_DAY_DT = datetime.now(timezone.utc) - timedelta(days=10)
+DAY = _DAY_DT.strftime("%Y%m%d")
+PREV_DAY = (_DAY_DT - timedelta(days=1)).strftime("%Y%m%d")
 
 
 def _bounds(date: str) -> tuple[int, int]:
