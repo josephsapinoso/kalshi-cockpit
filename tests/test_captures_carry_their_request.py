@@ -232,6 +232,17 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
             "placeholder and every non-empty `creator_user_id` / `creator_id` "
             "is replaced; which rows carried the field survives redaction.",
     ),
+    # #107 -- a real combination book with a resting YES bid. Captured on a
+    # HELD combination on Joe's word (2026-09-24), ticker redacted; the
+    # response body carries no identifying field.
+    "combo_orderbook_with_yes_bid.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("ticker", "depth"),
+        endpoint_in=("endpoint",),
+        how="A `request` block written through `capture_envelope.write_capture`: "
+            "the orderbook URL template and `ticker` (a redacted placeholder). "
+            "The response is verbatim.",
+    ),
     "odds_mlb_h2h_spreads_totals.json": RecordsItsRequest(
         params_in=("params",),
         param_names=("regions", "markets", "oddsFormat"),

@@ -1,0 +1,43 @@
+{
+  "captured_at": "Thu, 24 Sep 2026 23:27:35 GMT",
+  "endpoint": "https://api.elections.kalshi.com/trade-api/v2/markets/{ticker}/orderbook",
+  "request": {
+    "endpoint": "https://api.elections.kalshi.com/trade-api/v2/markets/{ticker}/orderbook",
+    "method": "GET",
+    "note": "#107. Public, unauthenticated GET. The combination was one the account HELD at capture: Joe authorised capturing a held book with its ticker redacted (2026-09-24, session 56), because 0 of 45 non-held combination books read that day carried a YES level. The response carries no ticker, leg or account field; only the request's ticker is replaced.",
+    "params": {
+      "depth": "not sent (venue default)",
+      "ticker": "KXMVECROSSCATEGORY-REDACTED-HELD"
+    }
+  },
+  "response": {
+    "orderbook_fp": {
+      "no_dollars": [
+        [
+          "0.7900",
+          "5000.00"
+        ],
+        [
+          "0.9800",
+          "253000.00"
+        ],
+        [
+          "0.9820",
+          "12916.82"
+        ],
+        [
+          "0.9830",
+          "1805.90"
+        ]
+      ],
+      "yes_dollars": [
+        [
+          "0.0130",
+          "1411.78"
+        ]
+      ]
+    }
+  },
+  "ticker_prefix": "KXMVECROSSCATEGORY",
+  "ticker_redacted": true
+}

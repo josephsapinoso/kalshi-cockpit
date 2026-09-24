@@ -6,10 +6,11 @@ READ THIS FIRST -- the claim these tests must not make
 --------------------------------------------------------
 Resting combination YES bids HAVE been observed at the venue (2026-09-17,
 `docs/measurements/2026-09-17-combinations-can-be-exited.md`: 5.10c /
-38,709 deep and 0.32c / 24,900 deep). What does not exist is a committed
-capture of one in this repo -- 0 of 20 in `combo_orderbooks.json`, 0 of 1 in
-`combo_lookup_orderbook.json`, 0 of 17 read live on 2026-09-21. That is a
-fact about this repo's disk, not the venue, and nothing here writes it into a
+38,709 deep and 0.32c / 24,900 deep). Since #107 (2026-09-24) one is
+committed: `combo_orderbook_with_yes_bid.json`, read through this path in
+`tests/test_combo_book_capture_with_yes_bid.py`. The empty captures here
+(0 of 20 in `combo_orderbooks.json`) are facts about this repo's disk, not
+the venue's rate, and nothing here writes a rate into a
 docstring, a test name or a word of copy (four such clauses have been
 written and withdrawn already; do not add a fifth). The "bid resting" and
 "unpriced interest" tests below therefore use HAND-BUILT inputs, labelled as
@@ -43,7 +44,7 @@ What this establishes
 
 What this does not establish
 -----------------------------
-- That any committed capture carries a resting combination bid. See above.
+- Anything about the real capture's bid; its own test file owns that. See above.
 - Anything about the RFQ path (`POST /api/parlays/rfq*`) -- out of scope by
   the ticket body (D2, critical): nothing on `/hedge` may fire one.
 - That `read_combo_book` is wired to anything live. It is `None` on every

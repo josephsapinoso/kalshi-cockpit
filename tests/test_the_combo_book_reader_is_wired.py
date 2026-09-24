@@ -56,7 +56,9 @@ What this does not establish
 from __future__ import annotations
 
 import asyncio
+import json
 import time
+from pathlib import Path
 
 import httpx
 import pytest
@@ -74,12 +76,13 @@ COMBO = "KXMVE-READERWIRED-TEST"
 CIN = "KXMLBGAME-26AUG26CINSF-CIN"
 LAD = "KXMLBGAME-26AUG26LADSD-LAD"
 
-#: A hand-built inner orderbook payload -- the shape `KalshiRestClient.
-#: orderbook` returns, NOT a capture (see `test_the_hedge_card_shows_the_
-#: combo_book.py`'s module docstring for why no capture carries a YES bid).
-#: Sizes are two-decimal strings because that is what the wire sends
-#: (`tests/fixtures/combo_orderbooks.json`); the served `size` is a float.
-A_YES_BID = {"yes_dollars": [["0.0510", "38709.00"]], "no_dollars": []}
+#: A real inner orderbook payload with a resting YES bid -- captured, not
+#: hand-built (#107; `tests/test_combo_book_capture_with_yes_bid.py` says
+#: where it came from). Its best YES level is 0.0130 x 1411.78.
+A_YES_BID = json.loads(
+    (Path(__file__).resolve().parent / "fixtures" / "combo_orderbook_with_yes_bid.json")
+    .read_text(encoding="utf-8")
+)["response"]["orderbook_fp"]
 
 
 def seed_combo_position(conn, *, label: str = "two legs") -> int:
@@ -193,8 +196,8 @@ class TestALiveInstanceReadsTheVenue:
         assert asked == [COMBO]
         assert row["combo_book_reason"] is None
         assert row["combo_book"]["state"] == hedge.COMBO_BOOK_BID
-        assert row["combo_book"]["price_display"] == "5.1c"
-        assert row["combo_book"]["size"] == 38709.0
+        assert row["combo_book"]["price_display"] == "1.3c"
+        assert row["combo_book"]["size"] == 1411.78
 
     async def test_a_read_that_raises_is_unreadable_not_silence(
         self, tmp_path, monkeypatch, keyless_kalshi_config
