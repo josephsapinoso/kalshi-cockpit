@@ -696,3 +696,310 @@ DR-0 is a census that can be argued with.
 
 None. Any amendment is appended here with its date, its author, and what it
 changes, and the original text above is never edited.
+
+The "None." above was true when written and stays as written.
+
+### Amendment 1 — 2026-09-24
+
+- Author: `pre-registrar` (agent), for the orchestrator building
+  `scripts/measure_elo_vs_price.py` (§10 item 5).
+- **What had been seen: still nothing.** No database was opened, local or
+  live, and no pull exists. `elo-game-pull` is still being built. The inputs
+  here are source only: `backend/model/backtest.py`, `backend/analysis/signal_test.py`,
+  `backend/store/odds_snapshot_prune.py`, `fly.live.toml`.
+- **Why:** writing the script exposed eight places where §2–§6 left a choice
+  open. Each is closed below with one rule, the reason for it, and the
+  direction the alternative would have flattered. Nothing above §11 is edited.
+  Where a rule below contradicts the letter of text above, the rule governs and
+  says so.
+
+#### A1.1 `G_eff`: one formula, computed from the census, used everywhere
+
+**Rule.** For an arm's evaluation set `S` (A1.3), key each team as
+`(league, team name as spelled by §2.2(3))`. Let `h_t` and `a_t` be the number
+of games in `S` where team `t` is home and away. Then
+
+```
+Kish_home = |S|^2 / sum_t h_t^2
+Kish_away = |S|^2 / sum_t a_t^2
+G_eff     = min(Kish_home, Kish_away)
+```
+
+This is the only `G_eff` in this registration. DR-0 prints it, DR-1 gates on
+it, and DR-2's threshold `2.5 x Var(d) x sqrt(2 / G_eff)` uses it. **Stage 2
+does not recompute `G_eff` from `d`.** The largest team's share of
+`sum_g (d_g - mean d)^2` is printed beside `Var(d)` as §3's
+largest-contributor line. It is a diagnostic and cannot move a verdict.
+
+**Reason.** `signal_test.effective_clusters` weights each cluster by
+`sum x_tilde^2`, where `x_tilde` is the residualised *regressor*. It does not
+use the outcome. The §5.2 estimand is a mean of per-game squared deviations,
+so the only regressor is the constant and every game carries equal leverage.
+Transcribed faithfully, that form reduces to Kish over cluster sizes, which is
+this formula. A `d`-weighted form would be a gate that reads the statistic it
+gates. Kish over total team appearances is the harmonic mean of `Kish_home`
+and `Kish_away`, so it is never smaller than their minimum. The
+design-effect reading, `n / (1 + (m-1) rho)`, is rejected: `rho` would have to
+be estimated from residuals across about 30 clusters, where it can come back
+at or below zero and return `G_eff >= G`.
+
+**Flattering alternative.** Choosing between a census figure and a
+residual-based one after seeing both, or using total appearances or a
+`rho`-deflated `n`. Each one can only return the same or a larger `G_eff`.
+
+**Consequence, fixed now by arithmetic (the ADR 0016 habit).** By
+Cauchy-Schwarz, `Kish_home` is at most the number of distinct home teams in
+`S`. So:
+
+| arm | `G_eff` ceiling | DR-1 (`G_eff >= 300`) |
+|---|---:|---|
+| `baseball_mlb` | 30 | unreachable |
+| `americanfootball_nfl` | 32 | unreachable (and `G = 0`, §P.3) |
+| `basketball_wnba` | the league's team count, under 20 | unreachable |
+| `americanfootball_ncaaf` | bounded by `G`, which is at most 105 (§P.3) | unreachable |
+| pooled | at most ~74 whenever pooled `G >= 300`\* | unreachable |
+
+\* Pooled `G >= 300` needs at least 181 MLB games, because §P.3's ceilings
+give NCAAF at most 105, WNBA at most 14 and NFL 0. MLB's home counts spread
+over at most 30 teams give `sum h^2 >= G_mlb^2 / 30`. Every other team adds at
+least `h_t`. So `Kish_home <= (G_mlb + G_o)^2 / (G_mlb^2/30 + G_o)`, which peaks
+at 74.3 when `G_mlb = 181` and `G_o = 119`.
+
+**DR-1 cannot be satisfied by any arm on this record, whatever the join yield,
+and Stage 2 cannot run.** The floor is **not** lowered. §6 fixed it at the
+house figure so this document could not choose a softer one. The sampling
+term also stands on its own: at `G_eff = 30`, P.2's term alone requires
+`sigma_kalshi^2 > 0.645 x Var(d)` on top of P.1's floor. This look can
+therefore return only `CLOSED` (through DR-0) or `UNDERPOWERED`. It cannot
+return `PASS`. Stage 1 still runs, because DR-0 is still the one verdict it
+can close on.
+
+**DR-0 and DR-1 on the same arm.** Both are evaluated and both are printed on
+the arm's line in the result document. Neither suppresses the other.
+
+#### A1.2 M1 uses calibrated probabilities
+
+**Rule.** The primary `sigma_model_hat` is `sd(c_A(p_A) - c_B(p_B)) / 2` over
+the evaluation set.
+- `c_A` and `c_B` are separate `PlattCalibrator`s, one per path.
+- Each is fitted by §4.7's procedure on its own path's predictions over the
+  arm's E7 calibration rows (A1.3), against the recorded outcome.
+
+DR-0 and DR-2 use this primary. Raw M1, `sd(p_A - p_B) / 2`, is computed and
+printed. It is used in exactly one place: paired with raw `d` in DR-4's raw
+arm. There it can change the label on a `CLOSED` and can never produce a
+`PASS`.
+
+If any of the three calibrators refuses, the arm is `UNCALIBRATED` (§4.7) and
+cannot `PASS`. The three are the full model's, path A's and path B's.
+"Refuses" means fewer than 50 observations, where `fit_calibrator_on_holdout`
+returns identity, and the script must detect that rather than trust it. For an
+`UNCALIBRATED` arm, DR-0 is evaluated on raw M1, labelled
+`raw — UNCALIBRATED`. That can close the arm and cannot open it.
+
+**Reason.** `sigma_model` must be the error of the forecaster whose `p`
+enters `d`. Subtracting a raw-scale variance from a calibrated-scale `Var(d)`
+mixes two different scales.
+
+**Flattering alternative.** The two scales differ by the fitted Platt slope.
+If the slope is above 1, raw M1 understates `sigma_model` and inflates
+`sigma_kalshi`. Picking the scale after seeing the slope flatters whichever way
+the slope falls.
+
+#### A1.3 M1's training sequence, walk-forward, and the rows the sd is taken over
+
+**Rule.**
+1. **Training sequence `T_L`.** Every game of league `L` that:
+   - passes inclusions 1–6 and the refusals of A1.5 and A1.6, and
+   - has true commence strictly before the §7 pin.
+
+   Priced or not, ordered by §4.8, indexed from 0 over that full sequence. The
+   index includes burn-in games.
+2. **Full model.** `walk_forward` over `T_L`, as shipped. E6 is indices 0–99
+   of `T_L`, not the first 100 priced games.
+3. **The two paths.** Path A updates only on even indices and path B only on
+   odd ones. At every index `i`, both paths predict game `i` first, using only
+   the games before `i` that they own, and then the owner updates. Both paths
+   and the full model share one `(K, home advantage)` setting at a time
+   (A1.8).
+4. **Rows.** `P_L` is the post-burn-in games of `T_L` that are members at
+   `horizon_hours = 0.0` (A1.4). E7 is `calibration_split(P_L)` as shipped,
+   `int(0.3 x |P_L|)` by position. The evaluation set `S_L` is the remainder.
+   `Var(d)`, the M1 sd, `G` and `G_eff` are all taken over `S_L`, with
+   divisor `n - 1` throughout.
+5. **Pooled M1.** The sd of the league-demeaned `c_A - c_B` over the union of
+   the `S_L`, divided by 2. This follows §5.5's within-league centring.
+
+**Reason.** `sigma_model_hat` is subtracted from `Var(d)`, so both must be
+measured on the same rows.
+
+**Flattering alternative.** Taking the sd over rows that include burn-in:
+there both paths sit near 1500 and `p_A - p_B` is near zero, which shrinks
+`sigma_model_hat` and inflates `sigma_kalshi`. Including E7 rows adds the rows
+the calibrators were fitted on.
+
+#### A1.4 Priced-set membership in Stage 1
+
+**Rule.** One function, `member(row, horizon) -> bool`, implements
+inclusion 7 with A1.5's choice of source market. It applies `[10, 989]` to
+**both** the home ask and the home mid. A row outside the bound on either is
+out of both arms, so the ask and mid arms always cover identical rows.
+
+Stage 1 calls `member` at `0.0` to form `P_L` and touches no other price
+field. No price value is bound outside `member`, returned, printed, logged or
+written. The pull file is not opened, printed or inspected outside the script
+until Stage 1's output is recorded.
+
+This is enforced by a committed test: Stage 1's complete output must be
+byte-identical when every price field in the input is replaced by different
+values that keep each row's `member` result unchanged. **If that test does not
+exist and pass, Stage 1 has not been blind and the look is refused.**
+
+**Does this satisfy §P.5?** It satisfies §P.5's purpose, "the analyst cannot
+have seen a disagreement". It does not satisfy §P.5's letter, "no price is
+read", and the letter cannot be implemented as written: inclusion 7 and
+DR-1's priced `G` are predicates on price values. The letter is replaced by
+**"no price value reaches the analyst or any output in Stage 1."**
+
+Residual leak, disclosed: membership reveals that a game's price was
+unreadable or outside `[10, 989]`. It carries no information about `d`, and
+those games are excluded from both stages.
+
+**The control horizon.** The `1.0` arm is evaluated on `S_L` restricted to
+games that are also members at `1.0`. It uses the same calibrators and has its
+own `G` and `G_eff`, with DR-1 applied to it. For DR-5, a control arm that is
+`UNDERPOWERED` counts as differing from a primary `PASS`. Membership at `1.0`
+never changes `S_L`.
+
+**Flattering alternative.** If the ask and mid arms had different rows, their
+disagreement could be a population artefact (§4.2). Excusing a thin control
+arm would let DR-5 be skipped simply by not measuring it.
+
+#### A1.5 Home market vs derived away market, and settlement agreement
+
+**Rule.**
+- **Choosing the market.** At each horizon, `H` is *present* if it has a
+  `closing_lines` row with both sides non-NULL and `ask > bid`. If `H` is
+  present, it supplies both bases. If not, and `A` passes the same test, `A`
+  supplies both through §4.1's derived forms. Otherwise the game is excluded
+  under E5. One market supplies both bases for any game and horizon, and the
+  source column records which.
+- **The outcome.** If both markets exist in the pull, both `result` values must
+  be in `('yes','no')` and must be complementary. The outcome is `result_home`.
+  If `H` is absent, the outcome is the complement of `result_away`.
+- **Refusals.** If either result is NULL, the game is excluded under E3.
+  **`result_home = result_away` (both `yes` or both `no`) is refused as a new
+  exclusion, E9.**
+
+**Reason.** A game whose two markets contradict each other is a data defect,
+not a result. E9 reads the joint value of `result`, which §2.3 forbids for any
+predicate that could select on the outcome. It is admitted here because it is
+invariant to which team won: swapping the winner leaves a contradiction a
+contradiction. So E9 cannot select on the outcome's direction.
+
+**Flattering alternative.** Silently taking `H`'s result would let a
+contradictory settlement enter Elo training as fact. Its effect on `Var(d)` has
+no fixed sign, which is the reason to refuse rather than reason about it.
+Choosing the source market per game from the prices would let the price
+basis be selected.
+
+#### A1.6 Every refusal is counted, once, in a fixed order
+
+**Rule.** The instrument emits a flagged row for every refused game. It does
+not omit refused games. This covers moneyline events with no `event_links`
+row (E1) and home/away disagreement across snapshots (§2.2(3), numbered
+**E8**). E1 events carry no odds commence, so they are pinned by the
+instrument's Kalshi-side time, and the census labels that time basis.
+
+Per league, the analysis prints a waterfall. Each game is counted once, at the
+first step that removes it, in this order:
+
+```
+E1 no link -> E8 home/away disagreement -> PIN (not before the pin; printed as
+out-of-population, not an exclusion) -> E2 side unresolved / same team ->
+E3 result not finalised -> E9 contradictory settlement -> [= T_L] ->
+E6 burn-in -> E4 no 0.0h closing row -> E5 unreadable or outside [10, 989] ->
+E7 calibration split -> [= S_L]
+```
+
+The counts must sum to the input total. **A mismatch refuses the look.** If
+the instrument omits refused rows instead of flagging them, Stage 1 does not
+run until it flags them.
+
+**Reason.** Attrition is part of the finding (§P.3 prices yield at ~80%), and
+the sum check is what catches a silent drop.
+
+**Flattering alternative.** Omitting refused rows makes the defects' losses
+look like ordinary join yield. A free order lets the analyst assign each loss
+to whichever cause reads most benign.
+
+#### A1.7 The `odds_snapshots` prune: disclosure and a validity condition
+
+**Disclosure.** `ODDS_SNAPSHOT_PRUNE_ENABLED = "true"` with
+`DRY_RUN = "false"` was armed on live on 2026-09-23 at about 19:45Z
+(`fe0a76f`, #139; ADR 0182). What it does:
+- It covers every game whose latest kickoff is more than 14 days old.
+- For such a game, it keeps each book's last read at or before kickoff, plus
+  the game's lowest-`commence_ms` row. It deletes everything else.
+
+What that does to this registration:
+- On the day it was armed, it covered population games before about
+  2026-09-09.
+- Its frontier reaches the pin on about 2026-10-04, before the §7 expiry.
+- So the population will be read wholly or partly from a pruned table, and
+  the unpruned state is **not recoverable from the live database**.
+- By its own docstring and `KEEP_SQL`, the prune keeps `MIN(commence_ms)`.
+  Orientation comes from the kept rows.
+- A §2.2(3) disagreement confined to intermediate reads that the prune
+  deletes cannot be observed afterwards by any reader of `odds_snapshots`.
+  That is a statement about the keep rule, read from source. It is not a
+  claim about the instrument's test, which a lane is building and which this
+  amendment does not assume passes.
+
+**Rule.** The look is valid only if the instrument's committed test gives
+identical results before and after `odds_snapshot_prune.run` with deletes on.
+The test runs one fixture per case. For each case, `home_team`, `away_team`,
+the E8 flag and `true_commence_ms` must be identical:
+- (a) a consistent game;
+- (b) a moved kickoff, where the game carries more than one `commence_ms`;
+- (c) a home/away disagreement among the books' closing reads;
+- (d) a home/away disagreement confined to intermediate reads the prune
+  deletes.
+
+**If any case differs, the look is refused, not patched.** It is not
+re-scoped to drop case (d), and it is not waived because the case is judged
+rare.
+
+The only data path the registrar can see that satisfies (d) for pruned games
+is a pull from a copy of the database taken before 2026-09-23 19:45Z. Whether
+such a copy exists, for example a Fly volume snapshot, is not established
+here, and any that exists is subject to its retention period. Using one
+changes §10.3's data path and needs its own amendment **before** the pull.
+
+**Reason.** §2.2(3) and §4.8 define the population. A prune that changes
+either one changes the population after it was registered.
+
+**Flattering alternative.** Accepting a lost disagreement admits games whose
+orientation is in doubt. A swapped orientation puts that game's `d` on the
+wrong axis, which inflates `|d|`, `Var(d)` and therefore `sigma_kalshi`.
+
+#### A1.8 (found while drafting) Which ladder setting M1 and DR-0 use
+
+**Rule.** `sigma_model_hat` (primary and raw) is computed separately at each
+of the six `(K, home advantage)` settings of §4.4–§4.5, with both paths run at
+that setting. DR-2 at a setting uses that setting's value. **DR-0 fires on the
+maximum of the six calibrated values.**
+
+**Reason.** DR-2 is a conjunction. A `PASS` would declare `sigma_kalshi` above
+the largest per-setting floor, `0.831 x max sigma_model_hat`.
+
+**Flattering alternative.** Firing DR-0 on the preset, or on the minimum,
+would let Stage 2 proceed for a league whose conjunction floor already exceeds
+the headroom.
+
+#### A1.9 What this amendment does not change
+
+Nothing above §11 changes: the text, the decision rule, `z = 2.5`, the
+ladder, the floors, the pin and the 2026-10-20 expiry all stand. No price and
+no outcome has been read. This amendment must be committed before
+`elo-game-pull` is run against any database.
