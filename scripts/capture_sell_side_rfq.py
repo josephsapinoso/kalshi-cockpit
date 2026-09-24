@@ -46,7 +46,15 @@ Refusals, all before any venue write
   it (its `_is_reusable` returns True when no dollar target is wanted -- #96
   defect 4), and the quotes behind it were priced for that ask, not this one.
   Refused rather than deleted, because a desk tab may be holding it open with
-  a confirm pending.
+  a confirm pending. **Detected from the venue's `409 already_exists` on the
+  create, never from the RFQ list** -- measured 2026-09-24:
+  `GET /communications/rfqs?market_ticker=` returns EVERY requester's RFQs on
+  the market, `creator_id` blank on all of them, and `rfq_user_filter=self`
+  is ignored there. A pre-check on that list refused all three held
+  combinations because strangers were asking about them. The venue allows
+  one live RFQ per market per requester, so its 409 is the only reliable
+  "ours" signal; `create_rfq` then hands back `reused=True` and this refuses
+  without reading or deleting (the row it found may not even be ours).
 
 What this does not establish
 ----------------------------
@@ -77,7 +85,6 @@ from backend.config import KalshiConfig  # noqa: E402
 from backend.kalshi.rfq import (  # noqa: E402
     create_rfq,
     delete_rfq,
-    open_rfq_for,
     parse_quotes,
 )
 from backend.logging_setup import configure_logging  # noqa: E402
@@ -229,14 +236,6 @@ async def capture_one(
     market_payload = await api.get(f"/markets/{ticker}")
     collection, legs = legs_and_collection(market_payload)
 
-    existing = await open_rfq_for(api, ticker)
-    if existing is not None:
-        raise Refused(
-            f"{ticker}: an RFQ of ours is already open ({existing.get('id')}, "
-            f"target {existing.get('target_cost_dollars')!r}); create_rfq would "
-            "reuse it and its quotes were priced for that ask. Not asked, not deleted."
-        )
-
     request_body = {
         "market_ticker": ticker,
         "rest_remainder": False,
@@ -274,8 +273,24 @@ async def capture_one(
         "reused": handle.reused,
         "target_cost_dollars": handle.target_cost_dollars,
     }
+    if handle.reused:
+        # The venue said 409: one of ours was already open. Its quotes were
+        # priced for another ask, and a desk tab may be holding it with a
+        # confirm pending -- so no read, no delete, no capture file.
+        raise Refused(
+            f"{ticker}: the venue says an RFQ of ours is already open "
+            f"(already_exists); create_rfq would reuse {handle.rfq_id} and its "
+            "quotes were priced for that ask. Not read, not deleted."
+        )
     reads: list[dict] = capture["quote_reads"]
     try:
+        # Our own row, verbatim, by id. The market-wide list cannot tell ours
+        # from a stranger's (see the module docstring); this is the evidence
+        # for what an own-RFQ row carries that the list does not. Best-effort.
+        try:
+            capture["rfq_row"] = await api.request("GET", f"/communications/rfqs/{handle.rfq_id}")
+        except Exception as exc:  # noqa: BLE001 -- evidence, not the measurement
+            capture["rfq_row"] = {"error": repr(exc)}
         deadline = clock() + wait_s
         while clock() < deadline:
             try:

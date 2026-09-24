@@ -67,9 +67,12 @@ class FakeVenue:
     """Records every call in order; on DELETE, records whether the capture
     file already existed -- the one ordering the instrument exists to keep."""
 
-    def __init__(self, *, held: dict[str, str], open_rfqs=(), quotes=(), out_path: Path):
+    def __init__(self, *, held: dict[str, str], open_rfqs=(), quotes=(), out_path: Path,
+                 ours_already_open: bool = False):
         self.held = held
         self.open_rfqs = list(open_rfqs)
+        #: The venue's one-live-RFQ-per-requester rule: the create answers 409.
+        self.ours_already_open = ours_already_open
         self.quotes = list(quotes)
         self.out_path = out_path
         self.calls: list[tuple] = []
@@ -88,7 +91,11 @@ class FakeVenue:
         self.calls.append((method, path, params, json_body))
         if method == "GET" and path == "/communications/rfqs":
             return {"rfqs": self.open_rfqs}
+        if method == "GET" and path == "/communications/rfqs/rfq-1":
+            return {"rfq": {"id": "rfq-1", "market_ticker": TICKER, "status": "open"}}
         if method == "POST" and path == "/communications/rfqs":
+            if self.ours_already_open:
+                raise RuntimeError('HTTP 409 {"error":{"code":"already_exists"}}')
             return {"rfq": {"id": "rfq-1"}}
         if method == "GET" and path == "/communications/quotes":
             return {"quotes": list(self.quotes)}
@@ -239,20 +246,45 @@ class TestRefusalsHappenBeforeAnyVenueCall:
 
     def test_an_already_open_rfq_of_ours_refuses_and_is_not_deleted(self, mod, tmp_path):
         """`create_rfq` would silently reuse it (#96 defect 4); this instrument
-        must neither ask on a stale target nor destroy quotes a tab may be
-        holding open."""
+        must neither read quotes priced for another ask nor destroy quotes a
+        tab may be holding open. "Ours" is the venue's 409, not the list."""
         out = tmp_path / "cap.json"
         venue = FakeVenue(
             held={TICKER: "8.226"},
             open_rfqs=[{"id": "rfq-old", "market_ticker": TICKER, "status": "open", "target_cost_dollars": "5.0000"}],
             out_path=out,
+            ours_already_open=True,
         )
         import asyncio
 
         with pytest.raises(mod.Refused, match="already open"):
             asyncio.run(mod.capture_one(venue, TICKER, out, now_ms=1, sleep=_no_sleep))
-        assert not any(c[0] in ("POST", "DELETE") for c in venue.calls), venue.calls
+        assert not any(c[0] == "DELETE" for c in venue.calls), venue.calls
+        assert not any(c[1:2] == ("/communications/quotes",) for c in venue.calls), venue.calls
         assert not out.exists()
+
+
+class TestAStrangersOpenRfqDoesNotBlockTheAsk:
+    def test_open_rfqs_in_the_market_list_are_not_read_as_ours(self, mod, tmp_path):
+        """Measured 2026-09-24: `GET /communications/rfqs?market_ticker=` lists
+        EVERY requester's RFQs, `creator_id` blank on all, and a pre-check on
+        it refused all three held combinations. Only the create's 409 means
+        ours -- so a list full of strangers' open RFQs must not stop the ask."""
+        out = tmp_path / "cap.json"
+        strangers = [
+            {"id": f"rfq-stranger-{i}", "market_ticker": TICKER, "status": "open",
+             "creator_id": "", "target_cost_dollars": "10.0000"}
+            for i in range(3)
+        ]
+        venue = FakeVenue(held={TICKER: "8.226"}, open_rfqs=strangers,
+                          quotes=[_quote("q1", yes_bid="0.0760")], out_path=out)
+        import asyncio
+
+        capture = asyncio.run(mod.capture_one(venue, TICKER, out, now_ms=1, sleep=_no_sleep, clock=_clock([0, 0, 10])))
+        assert capture["rfq"] == {"id": "rfq-1", "reused": False, "target_cost_dollars": None}
+        assert capture["rfq_row"]["rfq"]["id"] == "rfq-1"
+        assert capture["summary"]["quotes_with_yes_bid"] == 1
+        assert venue.capture_existed_at_delete is True
 
 
 class TestTheRedactionKeepsTheWireAndDropsTheIdentities:
