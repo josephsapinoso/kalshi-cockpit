@@ -220,6 +220,18 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
             "Quote, maker and requester ids are documented placeholders; "
             "prices, sizes and timestamps are verbatim.",
     ),
+    # #147 -- the RFQ LIST is market-wide: every requester's rows, and the
+    # discriminator the fix keeps as a second guard. Written by
+    # `scripts/capture_rfq_list.py` on a combination the account does NOT hold.
+    "combo_rfq_list_market_wide.json": RecordsItsRequest(
+        params_in=("endpoint",),
+        param_names=("market_ticker", "limit"),
+        endpoint_in=("endpoint",),
+        how="An `endpoint` string spelling the read with its query "
+            "(`market_ticker`, `limit`). Every ticker is a TICKER_N_REDACTED "
+            "placeholder and every non-empty `creator_user_id` / `creator_id` "
+            "is replaced; which rows carried the field survives redaction.",
+    ),
     "odds_mlb_h2h_spreads_totals.json": RecordsItsRequest(
         params_in=("params",),
         param_names=("regions", "markets", "oddsFormat"),

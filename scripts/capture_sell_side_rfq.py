@@ -355,7 +355,7 @@ def redact_to_fixture(capture: dict, *, note: str) -> dict:
         quotes.append(row)
 
     request_body = dict(capture.get("rfq_request_body") or {})
-    return {
+    fixture = {
         "endpoint": capture.get("quotes_endpoint"),
         "params": {
             **QUOTES_PARAMS,
@@ -364,9 +364,41 @@ def redact_to_fixture(capture: dict, *, note: str) -> dict:
         },
         "sell_side": True,
         "note": note,
-        "redaction": REDACTION_NOTE,
+        "redaction": REDACTION_NOTE + TICKER_REDACTION_NOTE,
         "quotes": quotes,
     }
+    return redact_tickers(fixture)
+
+
+#: A sell-side capture is asked on a combination Joe HOLDS, so its ticker and
+#: its legs' tickers identify his position. The first committed fixture kept
+#: them verbatim and was redacted after the fact (#147 review, 2026-09-24).
+TICKER_KEYS = frozenset({"market_ticker", "event_ticker", "requested_ticker"})
+TICKER_REDACTION_NOTE = (
+    " TICKERS: every market_ticker and event_ticker -- the held combination "
+    "and its legs -- is a sequential TICKER_N_REDACTED placeholder, "
+    "consistent within this file. The combination is one Joe held, so its "
+    "ticker is account data."
+)
+
+
+def redact_tickers(node: Any, seen: Optional[dict[str, str]] = None) -> Any:
+    """Every value under a `TICKER_KEYS` key, anywhere in `node`, replaced by
+    a placeholder that is stable within one call tree and not reversible."""
+    if seen is None:
+        seen = {}
+    if isinstance(node, dict):
+        out = {}
+        for key, value in node.items():
+            if key in TICKER_KEYS and isinstance(value, str) and value:
+                seen.setdefault(value, f"TICKER_{len(seen) + 1}_REDACTED")
+                out[key] = seen[value]
+            else:
+                out[key] = redact_tickers(value, seen)
+        return out
+    if isinstance(node, list):
+        return [redact_tickers(value, seen) for value in node]
+    return node
 
 
 # ---------------------------------------------------------------------------

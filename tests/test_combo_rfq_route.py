@@ -614,10 +614,14 @@ class TestAReusedRfqReportsTheTargetTheVenueHolds:
                 raise _AlreadyExists()
             if method == "GET" and path.endswith("/rfqs"):
                 fake.calls.append("list")
+                # `creator_user_id` marks it OURS: since #147 the list is
+                # read with `user_filter=self` and a row without it is a
+                # stranger's, never reused.
                 return {"rfqs": [{
                     "id": "rfq-test", "status": "open",
                     "market_ticker": TICKER,
                     "target_cost_dollars": "1.0000",
+                    "creator_user_id": "REDACTED-USER",
                 }]}
             return await original(method, path, params=params, json_body=json_body)
 

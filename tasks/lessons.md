@@ -16,6 +16,36 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-24 - A fixture captured on the operator's own holding is operator data, whatever fields were redacted; an "ignored" filter may be the wrong filter name
+
+Two patterns from the fifty-fifth session (#147, #148).
+
+- **The market a fixture is captured on can itself be operator data.**
+  #147's lane redacted `creator_user_id` and `creator_id`, but it captured
+  the list on one of Joe's held combinations. The market ticker and all
+  eight legs identified his position, and the file still said
+  `market_ticker_redacted: true`. The commit only got caught because the
+  `kalshi-platform` review ran before the push. Its sibling was not caught.
+  #96's `combo_rfq_quotes_sell_side.json` had shipped the same held ticker
+  and legs publicly, in `2d92786`, the session before. It was redacted
+  going forward, and the writer now redacts tickers
+  (`capture_sell_side_rfq.redact_tickers`). **Capture on a market the
+  account does not hold.** Redact every identifying field (tickers, legs,
+  collection), not just the ones named "user". Before merging a lane that
+  adds a fixture, grep its whole diff (`git log -p main..lane`) for the
+  held tickers. When a leaked commit was never pushed, drop it with
+  `reflog expire` + `gc --prune=now`.
+
+- **Before you record "the endpoint ignores this filter", check the filter
+  is that endpoint's own parameter.** The previous entry below says
+  `rfq_user_filter=self` is "silently ignored" on `GET
+  /communications/rfqs`. It is. But `rfq_user_filter` is the QUOTES
+  endpoint's parameter. The RFQ list's own is `user_filter=self`, and that
+  narrowed the list from 100 rows to 0. **Read the endpoint's reference
+  for the parameter name before concluding a venue cannot filter.** The
+  wrong conclusion cost a heuristic (`creator_user_id`, n = 1) where a
+  server-side filter existed. It also hid a limit=100 miss.
+
 ## 2026-09-24 - A list filtered by a parameter the endpoint ignores is everyone's list; a precondition written as "wait until it holds" must be re-read, not re-inherited
 
 Two patterns from the fifty-fourth session (#129, #96).

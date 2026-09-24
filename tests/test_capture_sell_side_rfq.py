@@ -312,10 +312,35 @@ class TestTheRedactionKeepsTheWireAndDropsTheIdentities:
             assert q["rfq_creator_id"] == "REQUESTER_REDACTED"
             assert q["rfq_creator_user_id"] == "REQUESTER_USER_REDACTED"
         assert fixture["sell_side"] is True
-        assert fixture["redaction"] == mod.REDACTION_NOTE
+        assert fixture["redaction"] == mod.REDACTION_NOTE + mod.TICKER_REDACTION_NOTE
         assert fixture["params"]["rfq_request_body"]["contracts"] == 8
         dumped = json.dumps(fixture)
         assert "joe-account" not in dumped and "joe-user" not in dumped and "maker-q1" not in dumped
+
+    def test_the_held_combination_and_its_legs_never_reach_the_fixture(self, mod):
+        """A sell-side capture is asked on a combination Joe HOLDS, so its
+        ticker is account data. The first committed fixture kept it verbatim
+        (#147 review, 2026-09-24)."""
+        raw = [_quote("q1", yes_bid="0.0760")]
+        capture = self._capture(raw)
+        capture["rfq_request_body"]["mve_selected_legs"] = LEGS
+        fixture = mod.redact_to_fixture(capture, note="test")
+        dumped = json.dumps(fixture)
+        assert TICKER not in dumped
+        for leg in LEGS:
+            assert leg["market_ticker"] not in dumped
+            assert leg["event_ticker"] not in dumped
+        body = fixture["params"]["rfq_request_body"]
+        assert body["market_ticker"] == "TICKER_1_REDACTED"
+        assert fixture["quotes"][0]["market_ticker"] == body["market_ticker"], (
+            "one real ticker must map to one placeholder across the file"
+        )
+
+    def test_the_committed_sell_side_fixture_names_no_real_ticker(self):
+        path = Path(__file__).parent / "fixtures" / "combo_rfq_quotes_sell_side.json"
+        dumped = path.read_text(encoding="utf-8")
+        assert "KXMVECROSSCATEGORY-S" not in dumped
+        assert "GAME-26" not in dumped
 
     def test_the_same_maker_keeps_one_placeholder(self, mod):
         a = _quote("q1", yes_bid="0.0760")
