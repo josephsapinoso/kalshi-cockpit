@@ -173,17 +173,20 @@ header. At 14:25Z live was on `9c0061f`.
 
 - **`odds-prune-cursor`** was last written 04:17Z. MLB is at 09-10 02:11Z
   and NFL at 09-10 00:20Z, about at the 14-day line, so the first armed
-  night cleared their whole backlog. NCAAF is at 09-07. **WNBA is at 08-31,
-  and this one read doesn't explain it.** #139 is closed.
+  night cleared their whole backlog. NCAAF is at 09-07. WNBA is at 08-31,
+  **explained, not stuck.** The league paused 08-31 to 09-16 for the FIBA
+  Women's World Cup, and `credits-by-sport` shows no WNBA odds buys between
+  08-30 23:56Z and 09-16 02:32Z. Its next games cross the 14-day line around
+  09-30. #139 is closed.
 - **`lost-leg-closures`** returned 5 rows (ids 11–15). They are `lost_leg`
   with source `venue`, closed at 23:30:09Z on 09-23, which was #143's first
   cycle. #144 is closed.
 
 ### 4. Next session
 
-- Read `odds-prune-cursor` again. Check whether WNBA moved off 08-31 while
-  WNBA games sat between 08-31 and the retention line. If it didn't, open a
-  ticket. Don't reopen #139.
+- Nothing is owed on the prune. WNBA's cursor next moves around 09-30, when
+  the post-break games age past the retention line. Don't chase it before
+  then.
 - #145's first day under the share: `scout-watch-log` should show
   `refused_budget` naming `SCOUT_AUTO_TAP_TOKEN_SHARE` once 250K is recorded,
   and `/api/scout` should stay under 500K on a day with no taps.
