@@ -134,6 +134,38 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-24 (fifty-sixth session) — #107 captured: a real combination YES bid, from a held book with its ticker redacted on Joe's word; #149 built: `combo-rfqs` and `leg-scout-state` live reads (not deployed)
+
+`partner` ranked a short session. The frontier was empty, and that was the finding: there was no question for Joe to ticket. One `lane-builder` lane ran #149 while main did #107.
+
+### 1. What shipped
+
+| commit | what | ticket |
+|---|---|---|
+| `2cb5fc9` | `tests/fixtures/combo_orderbook_with_yes_bid.json` is a real public book with a resting YES bid, 0.0130 × 1411.78, plus 4 NO levels. `A_YES_BID` in `test_the_combo_book_reader_is_wired.py` now loads it instead of a hand-built literal | #107 |
+| `dae2bc9` | Merge of #149: two CHEAP QueryDefs in `inspect_live_db.py` | #149 |
+| `40e8c84` | Review fixes: `combo-rfqs` now prints `purpose` (buy/exit), and `-n 5` returns 5 (the lane had read the shared default as "unset" and served 20) | #149 |
+
+### 2. What the reads found
+
+- **No non-held combination carried a YES level.** 0 of 45 books read. On `/markets`, 0 of 1,037 open list rows showed a `yes_bid`, and only 3 of 1,000 `KXMVECROSSCATEGORY` rows had any volume. **Two of the four held books did** carry one. So the only population that has ever shown a resting combination bid is Joe's own. The counts are on #107 (they are counts, not a rate).
+- **Joe answered (Yes, redacted), 2026-09-24, via AskUserQuestion:** a held book may be captured if its ticker is replaced by a placeholder. An orderbook response carries no ticker, leg or account field, so the request's ticker was the only field to redact. The diff was grepped for all four held tickers before pushing, and `TestTheCaptureLeaksNothing` pins the file to the placeholder.
+- The real book parses exactly as the literal did. The venue lists levels in **ascending** order, so the best bid is the last entry, and a test pins that.
+
+### 3. Next session
+
+- **#145 close read, after 2026-09-26 10:00Z:** `/api/scout` `tokens_today` and `scout-watch-log` for 20260925. Once #149 is deployed, attach `inspect_live_db.py leg-scout-state` to that read.
+- **#149 needs a deploy** before either read runs on live. Deploys are Joe's to run: the classifier refuses `gh workflow run` for me.
+- Close #107 once CI is green on `2cb5fc9` (this session, if CI finishes).
+
+### Still open
+
+0. #145 — deployed (`e166a56`); close it after one full budget day's read (20260925).
+1. #149 — built, awaiting deploy; its first live read goes with #145's close.
+2. #108 — deferred fifth seat.
+
+---
+
 ## 2026-09-24 (fifty-fifth session) — #147 fixed: the RFQ list's own filter is `user_filter=self`; #148 built: adopt a held combination onto /hedge in one tap; a held combination's ticker was public in #96's fixture, redacted forward on Joe's word. Deployed `ddd98a2` (Joe ran it; the classifier refused `gh workflow run` for me)
 
 `partner` ranked this list. Two `lane-builder` lanes ran in parallel, and
@@ -3006,6 +3038,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-24 (fifty-sixth session) — #107 captured: a real combination YES bid, from a held book with its ticker redacted on Joe's word; #149 built: `combo-rfqs` and `leg-scout-state` live reads (not deployed)
 - 2026-09-24 (fifty-fifth session) — #147 fixed: the RFQ list's own filter is `user_filter=self`; #148 built: adopt a held combination onto /hedge in one tap; a held combination's ticker was public in #96's fixture, redacted forward on Joe's word. Deployed `ddd98a2` (Joe ran it; the classifier refused `gh workflow run` for me)
 - 2026-09-24 (fifty-fourth session) — #129's capture taken on the venue's own positions read; #96 built: /hedge asks the makers what they would pay (ADR 0185, schema v56); #147 opened. Deployed `1a2d5be` (Joe ran it)
 - 2026-09-24 (fifty-third session) — durable reads for the prune and lost-leg closes (#144); Joe answered #145 (A), so half the token ceiling is now his; #115 closed NOT RUN on his (A) to #146; #139 closed on the cursor read. Deployed `e166a56` (Joe ran it)

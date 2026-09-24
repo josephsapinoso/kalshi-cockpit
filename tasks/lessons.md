@@ -16,6 +16,29 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-24 - A rule's default population can be the wrong one to capture from; a flag's default value cannot double as "unset"
+
+Two patterns from the fifty-sixth session (#107, #149).
+
+- **When a capture rule excludes the only population that shows the
+  thing, measure that first, then ask to redact rather than hunt.** The
+  held-ticker lesson says to capture on a market the account does not
+  hold. But 0 of 45 non-held combination books carried a YES bid, and 2 of
+  4 held ones did. Before hunting, check which fields actually identify
+  the market. An orderbook response carries none, so replacing the
+  request's ticker was the whole redaction. Joe allowed it in one tap.
+  **Name which fields identify the market before deciding a capture is
+  forbidden**, and pin the redaction with a test that fails on any other
+  ticker in the file.
+
+- **A sentinel equal to a flag's default silently overrides a caller who
+  typed that value.** A lane gave one query a larger default by treating
+  the shared `-n` default (5) as "unset", so `-n 5` returned 20. The lane
+  documented the collision and shipped it anyway. **Give the query its own
+  argparse default (`default=None`) or live with the shared one.** Never
+  infer intent from a value the caller can also type. In review, grep a
+  lane's diff for `== <default>` comparisons on parsed args.
+
 ## 2026-09-24 - A fixture captured on the operator's own holding is operator data, whatever fields were redacted; an "ignored" filter may be the wrong filter name; a lane's targeted run misses the whole-tree inventories
 
 Three patterns from the fifty-fifth session (#147, #148).
