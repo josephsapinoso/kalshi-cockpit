@@ -134,6 +134,67 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-24 (fifty-fifth session) — #147 fixed: the RFQ list's own filter is `user_filter=self`; #148 built: adopt a held combination onto /hedge in one tap; a held combination's ticker was public in #96's fixture, redacted forward on Joe's word. Built and CI-green at `58b1e36`; NOT deployed (the classifier refused `gh workflow run`, Joe runs it)
+
+`partner` ranked this list. Two `lane-builder` lanes ran in parallel, and
+`kalshi-platform` reviewed each one before merge. Both reviews said fix
+first, and both were right.
+
+### 1. What shipped
+
+| commit | what | ticket |
+|---|---|---|
+| `6274c89` | `open_rfq_for` sends `user_filter=self&status=open` and keeps a non-empty `creator_user_id` as a second guard. After a 409 with none of ours found, it refuses in plain words and never reuses | #147 |
+| `19522f8` | CI fix-ups for #147. The sell-side fixture's held ticker and legs are redacted, and `redact_to_fixture` now redacts tickers itself | #147 |
+| `4b5b40e` | Merge of #148: `POST /api/hedge/positions/adopt` + an Adopt button per unrecorded combination. Refuses NO / NULL side, not-in-poll, already-open, non-KXMVE and legless. The row gets its own `stake_basis = venue_exposure`, routed past the E2 sentence | #148 |
+| `39996d4` | Adopt's `BEGIN IMMEDIATE` rolls back on any exception, not only `PositionRefused` | #148 |
+| `58b1e36` | `hedge-adopt` registered in the proxy inventory, plus a gloss exemption | #148 |
+
+### 2. What the reads found
+
+- **`rfq_user_filter` is the QUOTES endpoint's parameter.** The RFQ list's
+  own parameter is `user_filter=self`. On one busy combination: 100 rows
+  without it, 100 with `status=open` alone, 0 with `user_filter=self`.
+  Yesterday's "the filter is ignored" had tested the wrong name (lesson
+  written). What has not been seen is a non-empty filtered list, i.e. the
+  filter returning our own open row. That is why the `creator_user_id`
+  guard stays.
+- **Operator-data leak.** The review caught #147's first fixture: it was
+  captured on a held combination, and the file wrongly claimed
+  `market_ticker_redacted: true`. It was never pushed, and the unreachable
+  commit was pruned. The same check found **`combo_rfq_quotes_sell_side.json`
+  (#96, `2d92786`) had published that held ticker and its 8 legs**. It is
+  redacted going forward (only ticker fields changed, verified by a
+  field-level diff). **Joe chose to leave history as is (2026-09-24,
+  AskUserQuestion)**, which matches the `fc88a31` precedent. Do not
+  rewrite history for it.
+- **Adopt review:** it caught two defects before merge. A NO holding would
+  have been adopted as YES, and adopted rows got the E2 "price the desk
+  sent" caveat when no price was sent. The stake is Kalshi's
+  `market_exposure`. It is inferred to exclude fees (seen on one
+  single-market row) and has never been read on a KXMVE holding.
+- **CI went red twice on main.** The lanes' targeted runs missed three
+  whole-tree inventory tests. Lesson written, and the ticket template's
+  verification recipe now runs those tests by name.
+
+### 3. Next session
+
+- **Joe: on `/hedge`, tap Adopt on a held combination, then tap "what
+  would makers pay?"** The first adopt closes #148, and the first sell
+  quote closes #96.
+- #107 can run as soon as a combination is adopted: capture its public
+  YES book as a fixture, **on a redacted ticker**.
+
+### Still open
+
+0. #145 — deployed (`e166a56`); close it after one full budget day's read (20260925).
+1. #148 — CI green at `58b1e36`, awaiting Joe's deploy; close on the first live adopt.
+2. #96 — live; close on the first live sell-quote tap (after an adopt).
+3. #107 — the book arm of the capture; redact the ticker (the held-ticker lesson).
+4. #108 — deferred fifth seat.
+
+---
+
 ## 2026-09-24 (fifty-fourth session) — #129's capture taken on the venue's own positions read; #96 built: /hedge asks the makers what they would pay (ADR 0185, schema v56); #147 opened. Deployed `1a2d5be` (Joe ran it)
 
 Joe asked for #129 then #96. No `partner` run — a named errand.
@@ -2938,6 +2999,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-24 (fifty-fifth session) — #147 fixed: the RFQ list's own filter is `user_filter=self`; #148 built: adopt a held combination onto /hedge in one tap; a held combination's ticker was public in #96's fixture, redacted forward on Joe's word. Built and CI-green at `58b1e36`; NOT deployed (the classifier refused `gh workflow run`, Joe runs it)
 - 2026-09-24 (fifty-fourth session) — #129's capture taken on the venue's own positions read; #96 built: /hedge asks the makers what they would pay (ADR 0185, schema v56); #147 opened. Deployed `1a2d5be` (Joe ran it)
 - 2026-09-24 (fifty-third session) — durable reads for the prune and lost-leg closes (#144); Joe answered #145 (A), so half the token ceiling is now his; #115 closed NOT RUN on his (A) to #146; #139 closed on the cursor read. Deployed `e166a56` (Joe ran it)
 - 2026-09-23 (fifty-second session) — the watcher stops scouting dead parlays (#141); Joe answered #142 (A) and a dead hand-recorded slip now closes itself (#143, ADR 0184, schema v55)

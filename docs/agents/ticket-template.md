@@ -30,6 +30,9 @@ touch" is enforcing.
     <exact commands, with the absolute venv path, e.g.:>
     C:/Users/josep/Documents/Claude/Projects/kalshi_betting_tool/.venv/Scripts/python.exe -m pytest -q tests/test_x.py
     C:/Users/josep/Documents/Claude/Projects/kalshi_betting_tool/.venv/Scripts/python.exe -m ruff check backend/x.py
+    # Always, too: the whole-tree inventories a targeted run never collects
+    # (a new fixture, route handler or user-facing word trips them; 2026-09-24).
+    C:/Users/josep/Documents/Claude/Projects/kalshi_betting_tool/.venv/Scripts/python.exe -m pytest -q tests/test_captures_carry_their_request.py tests/test_token_proxy_routes.py tests/test_glossary_coverage.py tests/test_has_callers.py
 
     **Report back**
     Branch; Commits; Done-when test and its result; Tests run (counts);

@@ -16,9 +16,9 @@ correction arrived. Reviewed at session start.
 
 ---
 
-## 2026-09-24 - A fixture captured on the operator's own holding is operator data, whatever fields were redacted; an "ignored" filter may be the wrong filter name
+## 2026-09-24 - A fixture captured on the operator's own holding is operator data, whatever fields were redacted; an "ignored" filter may be the wrong filter name; a lane's targeted run misses the whole-tree inventories
 
-Two patterns from the fifty-fifth session (#147, #148).
+Three patterns from the fifty-fifth session (#147, #148).
 
 - **The market a fixture is captured on can itself be operator data.**
   #147's lane redacted `creator_user_id` and `creator_id`, but it captured
@@ -45,6 +45,16 @@ Two patterns from the fifty-fifth session (#147, #148).
   for the parameter name before concluding a venue cannot filter.** The
   wrong conclusion cost a heuristic (`creator_user_id`, n = 1) where a
   server-side filter existed. It also hid a limit=100 miss.
+
+- **A lane's targeted test run does not collect the tests that inventory
+  the whole tree.** Both lanes reported green, and main went red three times.
+  A new fixture was not classified (`test_captures_carry_their_request`), a
+  new Next route handler was missing from `test_token_proxy_routes`, and a
+  vocabulary word had no gloss (`test_glossary_coverage`). None of these
+  tests imports the file that changed, so `-k hedge` never reaches them.
+  **A lane that adds a fixture, a route handler or user-facing copy runs
+  those inventory tests by name**, and they are now in the ticket
+  template's verification recipe.
 
 ## 2026-09-24 - A list filtered by a parameter the endpoint ignores is everyone's list; a precondition written as "wait until it holds" must be re-read, not re-inherited
 
