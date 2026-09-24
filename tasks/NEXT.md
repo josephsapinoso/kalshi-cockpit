@@ -179,6 +179,15 @@ first, and both were right.
 
 ### 3. Next session
 
+- **#148 and #96 CLOSED 2026-09-24** on Joe's first live adopt + sell-quote tap:
+  `/api/hedge` (via `scripts/fetch_live_route.py`) served the adopted row with
+  `stake_basis = venue_exposure`, and his screen showed makers answering, one
+  bid, and finer-than-a-tenth bids named rather than rounded. RFQ withdrawn,
+  nothing sold. (No count of his holdings here -- it decays, ADR 0162.)
+- **No committed instrument reads `combo_rfqs` on live**, so the tap's
+  record was confirmed from Joe's screen, not from the table. That gap is
+  worth an `inspect_live_db.py` query if an exit ask ever needs auditing.
+
 - **Joe: on `/hedge`, tap Adopt on a held combination, then tap "what
   would makers pay?"** The first adopt closes #148, and the first sell
   quote closes #96.
@@ -188,10 +197,8 @@ first, and both were right.
 ### Still open
 
 0. #145 — deployed (`e166a56`); close it after one full budget day's read (20260925).
-1. #148 — live on `ddd98a2` (health `build.git_sha` verified); close on the first live adopt.
-2. #96 — live; close on the first live sell-quote tap (after an adopt).
-3. #107 — the book arm of the capture; redact the ticker (the held-ticker lesson).
-4. #108 — deferred fifth seat.
+1. #107 — the book arm of the capture; redact the ticker (the held-ticker lesson).
+2. #108 — deferred fifth seat.
 
 ---
 
