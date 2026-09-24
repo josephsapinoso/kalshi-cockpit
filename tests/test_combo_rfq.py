@@ -21,7 +21,7 @@ import pytest
 
 from backend.core.prices import complement
 from backend.combo_rfq import _words
-from backend.kalshi.rfq import RfqRefused, create_rfq, parse_quotes
+from backend.kalshi.rfq import RfqRefused, create_rfq, open_rfq_for, parse_quotes
 
 
 class _Err(RuntimeError):
@@ -275,11 +275,16 @@ class TestAskingTwiceAboutTheSameCombination:
             if method == "GET":
                 return {"rfqs": [
                     {"id": "rfq-dead", "market_ticker": self.ticker,
-                     "status": "closed"},
+                     "status": "closed", "creator_user_id": "US"},
+                    # A stranger's open row on the SAME market -- #147: the
+                    # market-wide list carries these, blank creator_user_id,
+                    # and it must never be picked as ours.
+                    {"id": "someone-elses-open", "market_ticker": self.ticker,
+                     "status": "open", "creator_user_id": ""},
                     {"id": self.open_id, "market_ticker": self.ticker,
-                     "status": "open"},
+                     "status": "open", "creator_user_id": "US"},
                     {"id": "someone-elses", "market_ticker": "OTHER",
-                     "status": "open"},
+                     "status": "open", "creator_user_id": "US"},
                 ]}
             raise AssertionError(method)
 
@@ -359,6 +364,7 @@ class TestAnOversizedOpenRfqIsReplacedNotReused:
                 return {"rfqs": [{
                     "id": "rfq-stale", "market_ticker": "T", "status": "open",
                     "target_cost_dollars": self.existing_target,
+                    "creator_user_id": "US",
                 }]}
             if method == "DELETE":
                 return {}
@@ -623,6 +629,7 @@ class TestTheHandleReportsTheTargetTheVenueHolds:
                     "id": "rfq-open", "status": "open",
                     "market_ticker": "T",
                     "target_cost_dollars": self.existing_target,
+                    "creator_user_id": "US",
                 }]}
             raise AssertionError(method)
 
@@ -697,3 +704,172 @@ class TestTheWordsSayWhenTheVenueWasAskedAtADifferentNumber:
         )
         assert said.startswith("These quotes answer a request for $1.0000")
         assert "2 maker(s) answered" in said
+
+
+LIST_FIXTURE = Path(__file__).parent / "fixtures" / "combo_rfq_list_market_wide.json"
+
+
+def _list_payload() -> dict:
+    return json.loads(LIST_FIXTURE.read_text())
+
+
+class TestOpenRfqForFiltersToOurOwnRow:
+    """Issue #147. `GET /communications/rfqs?market_ticker=` is market-wide.
+
+    Measured 2026-09-24 (#129's run, on a held combination): the list came
+    back 100 rows, every requester's, `creator_id` blank on all of them.
+    That run tried `rfq_user_filter=self` (the QUOTES endpoint's own param
+    name) and it was silently ignored -- same 100 rows with or without it.
+    Re-measured with the RFQS endpoint's own documented name,
+    `user_filter=self`: it narrows 100 rows to 0 (no open RFQ of ours on
+    that market at the time); `status=open` alone did not narrow anything
+    observable. `open_rfq_for` now sends `user_filter=self&status=open` on
+    every call (`test_the_server_side_filter_is_sent_on_every_call` below),
+    and keeps a `creator_user_id` check as a second guard, because the
+    narrowing was only ever observed emptying a list, never returning one of
+    our own rows: n = 1 own row (a DIFFERENT, uncommitted capture, read back
+    by id) carried a non-empty `creator_user_id`, the only one of 100 that
+    did.
+
+    `tests/fixtures/combo_rfq_list_market_wide.json` is the CAPTURED
+    evidence (`scripts/capture_rfq_list.py`, read-only GET, no create/delete/
+    accept) that the market-wide case looks exactly like this: every row's
+    `creator_user_id` absent or blank. It is captured on a combination the
+    account does NOT hold -- Joe's rule that no account data enters this
+    repo, even sanitized, so the real held-combination capture from #129 is
+    never committed -- and it is the None case by construction regardless:
+    no RFQ of ours was open on the (unheld) ticker asked about either. So
+    the "ours" case below is built from one of its own rows with
+    `creator_user_id` overridden in the test, never hand-typed from scratch.
+
+    What this does not establish
+    -----------------------------
+    That `creator_user_id` is always present on our own rows in the list, or
+    that `user_filter=self` always narrows correctly -- one observation of
+    each (the #129 capture and this file's capture respectively; neither is
+    a rate).
+    """
+
+    class _Api:
+        """Serves the captured list, whatever it is, for one market."""
+
+        def __init__(self, payload: dict):
+            self.payload = payload
+            self.calls: list[tuple] = []
+
+        async def request(self, method, path, *, params=None, json_body=None):
+            self.calls.append((method, path, params))
+            assert method == "GET"
+            return {"rfqs": self.payload["rfqs"]}
+
+    async def test_the_server_side_filter_is_sent_on_every_call(self):
+        """`user_filter=self&status=open` narrowed 100 rows to 0 when
+        measured (2026-09-24); this pins that it is actually sent, not just
+        documented."""
+        payload = _list_payload()
+        api = self._Api(payload)
+
+        await open_rfq_for(api, payload["requested_ticker"])
+
+        assert len(api.calls) == 1
+        _, _, params = api.calls[0]
+        assert params["user_filter"] == "self"
+        assert params["status"] == "open"
+        assert params["market_ticker"] == payload["requested_ticker"]
+
+    async def test_a_market_wide_list_with_no_creator_user_id_returns_none(self):
+        """The captured case: every row blank or absent on the field.
+
+        This is the exact defect the ticket names -- the venue-captured list
+        has an open-looking row (some are `status: open`) with no
+        `creator_user_id` at all, and `open_rfq_for` must not hand one back
+        as ours.
+        """
+        payload = _list_payload()
+        assert any(r.get("status") == "open" for r in payload["rfqs"]), (
+            "fixture must contain at least one open-looking stranger's row "
+            "for this test to mean anything"
+        )
+        ticker = payload["requested_ticker"]
+        api = self._Api(payload)
+
+        assert await open_rfq_for(api, ticker) is None
+
+    async def test_a_row_with_our_creator_user_id_is_returned(self):
+        """Built from a captured row with `creator_user_id` overridden --
+        see the class docstring: the captures taken had no open RFQ of ours
+        at the time, so this is the only way to build the "ours" case from
+        real wire shape rather than a hand-typed row.
+        """
+        payload = _list_payload()
+        rows = [dict(r) for r in payload["rfqs"]]
+        assert rows, "fixture must carry at least one row"
+        # TEST-ONLY override: the captured fixture has no row of ours (see
+        # the class docstring). Take one real captured row and mark it ours.
+        rows[0]["creator_user_id"] = "REDACTED-USER"
+        rows[0]["status"] = "open"
+        ticker = payload["requested_ticker"]
+        api = self._Api({"rfqs": rows})
+
+        result = await open_rfq_for(api, ticker)
+        assert result is not None
+        assert result["id"] == rows[0]["id"]
+        assert result["creator_user_id"] == "REDACTED-USER"
+
+    async def test_a_blank_creator_user_id_is_skipped_even_when_open(self):
+        """Direct guard against the defect: blank must never be `truthy`."""
+        payload = _list_payload()
+        rows = [dict(r) for r in payload["rfqs"]]
+        assert rows
+        rows[0]["creator_user_id"] = ""
+        rows[0]["status"] = "open"
+        ticker = payload["requested_ticker"]
+        api = self._Api({"rfqs": rows})
+
+        assert await open_rfq_for(api, ticker) is None
+
+    async def test_a_409_with_only_strangers_rows_is_refused_not_reused(self):
+        """End to end through `create_rfq`: a 409 whose market-wide list is
+        all strangers must refuse, never hand a stranger's id back."""
+        payload = _list_payload()
+        ticker = payload["requested_ticker"]
+
+        class Api:
+            async def request(self, method, path, *, params=None, json_body=None):
+                if method == "POST":
+                    raise _Err(409, '{"error":{"code":"already_exists"}}')
+                assert method == "GET"
+                return {"rfqs": payload["rfqs"]}
+
+        with pytest.raises(RfqRefused, match="already open") as excinfo:
+            await create_rfq(
+                Api(), market_ticker=ticker, collection_ticker="C",
+                legs=[{"market_ticker": "L", "side": "yes"}],
+                target_cost_dollars="5.0000",
+            )
+        assert str(excinfo.value) == (
+            "an RFQ is already open on this combination -- wait for it to "
+            "close and ask again."
+        )
+
+    async def test_the_refusal_is_plain_language_not_the_raw_venue_code(self):
+        """The venue's own `already_exists` code used to leak into the
+        message Joe would see. This is the exact case: a 409 whose
+        market-wide list carries only strangers, so `existing` comes back
+        `None` and this is the code path that used to say
+        'Kalshi would not create the RFQ: HTTP 409:
+        {"error":{"code":"already_exists"}}' verbatim."""
+        class Api:
+            async def request(self, method, path, *, params=None, json_body=None):
+                if method == "POST":
+                    raise _Err(409, '{"error":{"code":"already_exists"}}')
+                return {"rfqs": []}
+
+        with pytest.raises(RfqRefused) as excinfo:
+            await create_rfq(
+                Api(), market_ticker="T", collection_ticker="C",
+                legs=[{"market_ticker": "L", "side": "yes"}],
+                target_cost_dollars="5.0000",
+            )
+        assert "already_exists" not in str(excinfo.value)
+        assert "already open" in str(excinfo.value)

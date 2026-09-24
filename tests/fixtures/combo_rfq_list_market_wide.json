@@ -1,0 +1,552 @@
+{
+  "endpoint": "GET /communications/rfqs?market_ticker=<ticker>&limit=100",
+  "note": "Captured read-only via GET /communications/rfqs?market_ticker= for #147: the endpoint is market-wide, not filtered to this account, and creator_user_id is the discriminator open_rfq_for now filters on. Captured on a combination the account does not hold. No create, delete or accept call was made.",
+  "redaction": "Every ticker-shaped field (requested_ticker, each row's market_ticker and mve_collection_ticker, each leg's event_ticker and market_ticker) is replaced with a sequential TICKER_N_REDACTED placeholder, consistent within this file: the same real value always maps to the same placeholder here. The ticker this script was asked about is a combination the account does NOT hold (Joe's rule: operator data never enters this repo, even sanitized). Separately, every non-empty creator_user_id is replaced with 'REDACTED-USER' and every non-empty creator_id with 'REDACTED'. Blank values (missing, None or '') are left blank on purpose: which rows carried creator_user_id is the fact this fixture pins, and redacting a blank into something non-blank would destroy that. status, contracts_fp, target_cost_dollars, created_ts and every other non-ticker, non-identity field are verbatim.",
+  "requested_ticker": "TICKER_1_REDACTED",
+  "rfqs": [
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:21:55.026478Z",
+      "creator_id": "",
+      "id": "c9665d66-fc7b-412c-8ae2-3f562451aa7c",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "closed",
+      "target_cost_dollars": "10.0000"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:22:09.607876Z",
+      "creator_id": "",
+      "id": "dd5c880e-d504-482d-82f8-87cad05ac708",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "open",
+      "target_cost_dollars": "3.7400"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:21:39.599933Z",
+      "creator_id": "",
+      "id": "7e6e3ad8-ada4-45eb-95b7-04aad6ffb7e2",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "closed",
+      "target_cost_dollars": "10.0000"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:22:09.601756Z",
+      "creator_id": "",
+      "id": "78c715e8-7277-4078-9f22-45b30fd9cf9c",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "open",
+      "target_cost_dollars": "10.0000"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:21:58.388537Z",
+      "creator_id": "",
+      "id": "0f693d11-e24f-4ac7-98ab-0b18218ce666",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "closed",
+      "target_cost_dollars": "10.0000"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:22:07.313963Z",
+      "creator_id": "",
+      "id": "0d1cc018-d257-421c-a04b-591817c9fced",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "closed",
+      "target_cost_dollars": "5.0000"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:22:09.494034Z",
+      "creator_id": "",
+      "id": "e86a578a-75dc-4b3c-a311-b90aa18933a0",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "open",
+      "target_cost_dollars": "3.0000"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:22:09.462544Z",
+      "creator_id": "",
+      "id": "45f8fe32-484d-4831-950d-ba6d1e5d7085",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "open",
+      "target_cost_dollars": "20.0000"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:22:09.243507Z",
+      "creator_id": "",
+      "id": "24482701-1808-4d6a-b795-c706c0902b8e",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "open",
+      "target_cost_dollars": "10.0000"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:21:53.316965Z",
+      "creator_id": "",
+      "id": "465a794d-b219-4cce-984c-32d11878f9a5",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "closed",
+      "target_cost_dollars": "5.0000"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:22:08.757642Z",
+      "creator_id": "",
+      "id": "9fcbce88-f7e5-4717-bfcf-52b10c18e97f",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "open",
+      "target_cost_dollars": "50.0000"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:22:06.094025Z",
+      "creator_id": "",
+      "id": "7cf22d0c-2085-4264-855c-8434052ebdb2",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "closed",
+      "target_cost_dollars": "50.0000"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:22:08.343124Z",
+      "creator_id": "",
+      "id": "f3d1abb3-fb3b-46c4-8dd9-67886848a616",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "open",
+      "target_cost_dollars": "30.0000"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:20:43.590875Z",
+      "creator_id": "",
+      "id": "d39d3070-ed44-4e68-8ae9-34c574f64e76",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "closed",
+      "target_cost_dollars": "10.0000"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:22:05.878969Z",
+      "creator_id": "",
+      "id": "be9d7ab9-187a-4963-aa06-a1f4d9a06878",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "closed",
+      "target_cost_dollars": "5.0000"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:22:08.11682Z",
+      "creator_id": "",
+      "id": "abb85aa7-6b73-4123-a5e2-b164600770cc",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "open",
+      "target_cost_dollars": "3.0000"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:21:53.18664Z",
+      "creator_id": "",
+      "id": "a0ff2eb1-2238-4e63-ba08-d76f8714625e",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "closed",
+      "target_cost_dollars": "10.0000"
+    },
+    {
+      "contracts_fp": "14.42",
+      "created_ts": "2026-09-24T18:20:49.111167Z",
+      "creator_id": "",
+      "id": "902e82fe-18e7-4280-bebe-a2b2046472f5",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "closed"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:22:07.504222Z",
+      "creator_id": "",
+      "id": "d585fa58-52a6-45a3-be9c-762885dd7ee7",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "open",
+      "target_cost_dollars": "10.0000"
+    },
+    {
+      "contracts_fp": "0.00",
+      "created_ts": "2026-09-24T18:22:03.453887Z",
+      "creator_id": "",
+      "id": "97e738a6-f82b-434a-b4d2-9e80896aeba9",
+      "market_ticker": "TICKER_1_REDACTED",
+      "mve_collection_ticker": "TICKER_2_REDACTED",
+      "mve_selected_legs": [
+        {
+          "event_ticker": "TICKER_3_REDACTED",
+          "market_ticker": "TICKER_4_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_5_REDACTED",
+          "market_ticker": "TICKER_6_REDACTED",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "TICKER_7_REDACTED",
+          "market_ticker": "TICKER_8_REDACTED",
+          "side": "yes"
+        }
+      ],
+      "status": "closed",
+      "target_cost_dollars": "10.0000"
+    }
+  ],
+  "row_count_at_capture": 100,
+  "row_count_in_fixture": 20,
+  "rows_carrying_creator_user_id_in_fixture": 0,
+  "ticker_kind": "KXMVE combination",
+  "tickers_redacted": true
+}

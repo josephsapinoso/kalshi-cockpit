@@ -375,18 +375,74 @@ async def open_rfq_for(
     longer pay is not reusable: its quotes are for a size that will be
     refused.
 
-    `None` when nothing is open, which sends the caller back to creating one.
+    **`GET /communications/rfqs?market_ticker=` is market-wide by default,
+    not ours.** Measured 2026-09-24 (#129's run): on a combination it
+    returned 100 rows, every requester's, `creator_id` blank on all of them.
+    Taking the first `status == "open"` row let this function hand back a
+    stranger's RFQ id after a 409, which then made `read_quotes` (filtered
+    `rfq_user_filter=self`, the QUOTES endpoint's own param) find none of its
+    quotes and report "nobody quoted" falsely, or made `delete_rfq` try to
+    withdraw a stranger's RFQ (logged, fails; no money moves either way).
+
+    **Two defences, not one, because they were found a session apart.**
+    #129 tried `rfq_user_filter=self` here -- that is the QUOTES endpoint's
+    param name, not this one's, and it was silently ignored: 100 rows with or
+    without it. Kalshi's own Get RFQs docs name this endpoint's filter
+    `user_filter` (no `rfq_` prefix), and re-measured 2026-09-24 with the
+    right name it DOES narrow -- `market_ticker` alone: 100 rows;
+    `+user_filter=self`: 0; `+status=open` alone (no `user_filter`): 100,
+    unchanged, so `status` on its own does nothing observable here. So
+    `user_filter=self&status=open` is sent on every call, first. But it was
+    tested with 0 rows of ours open at the time (every combination this
+    account then held had none), so a positive case -- the filter actually
+    returning one of our own rows -- has never been observed, only the
+    narrowing-to-empty case. **The `creator_user_id` check stays as a second
+    guard** for exactly that reason: if `user_filter` narrows on some
+    server-side notion of "self" that turns out not to be this desk's
+    account, or a future venue change drops or renames the parameter again,
+    a row that slips through unfiltered is still caught by presence of a
+    non-empty `creator_user_id` -- n = 1 own row, read by id, carried one and
+    it was the only one of 100 that did
+    (`tests/fixtures/combo_rfq_list_market_wide.json`, #147; that fixture is
+    a DIFFERENT capture, on a combination the account does not hold, per
+    Joe's rule that no account data enters this repo). This does not
+    establish that `creator_user_id` is always present on our own rows, or
+    that `user_filter=self` always narrows correctly -- one observation of
+    each.
+
+    **`user_filter=self` also closes the pagination gap `limit=100` opened.**
+    A market-wide list this account has no server-side narrowing on can run
+    past 100 rows with no cursor read here, silently missing a real open row
+    of ours past the cut. Filtering server-side to "self" first makes that
+    unreachable in practice: our own open RFQs on one market are at most one
+    (the venue's own per-market-per-requester rule this function exists to
+    work around).
+
+    `None` when nothing is open **that is provably ours**, which sends the
+    caller back to creating one -- and after a 409, `create_rfq` treats that
+    `None` as a refusal, never as licence to reuse a stranger's id.
     """
     try:
         payload = await api.request(
             "GET", _RFQS,
-            params={"market_ticker": market_ticker, "limit": 100},
+            params={
+                "market_ticker": market_ticker,
+                "user_filter": "self",
+                "status": "open",
+                "limit": 100,
+            },
         )
     except Exception as exc:  # noqa: BLE001 -- recovery path, not the answer
         logger.warning("rfq: could not list RFQs on %s (%s)", market_ticker, exc)
         return None
     for row in payload.get("rfqs") or ():
         if row.get("market_ticker") != market_ticker:
+            continue
+        # The second guard (#147): even with `user_filter=self` sent above,
+        # only a row naming a non-empty `creator_user_id` is trusted as
+        # ours. A blank or absent value means this row cannot be proven
+        # ours, and is skipped rather than trusted, however open it looks.
+        if not row.get("creator_user_id"):
             continue
         if row.get("status") == "open" and row.get("id"):
             return row
@@ -586,6 +642,18 @@ async def create_rfq(
                     rfq_id=str(new_id),
                     target_cost_dollars=target_cost_dollars,
                 )
+            # existing is None: the venue said 409 (one of ours IS open
+            # somewhere), but `open_rfq_for` could not prove any row on
+            # the market-wide list is ours (#147). Falls through to the
+            # plain-language refusal below -- never reused, never guessed.
+            raise RfqRefused(
+                "an RFQ is already open on this combination -- wait for it "
+                "to close and ask again."
+            ) from exc
+        # Any OTHER failure (not already_exists): the venue's own words are
+        # the most useful thing a reader has, so they pass through raw here,
+        # unlike the already_exists branches above which are common enough
+        # to deserve plain language of their own.
         raise RfqRefused(f"Kalshi would not create the RFQ: {exc}") from exc
 
     rfq = created.get("rfq") if isinstance(created.get("rfq"), dict) else created
