@@ -111,6 +111,10 @@ const JSON_ROUTE_HANDLERS = new Set([
   // Outward-facing -- it creates a real RFQ and withdraws it -- and spends
   // nothing; listed for the same JSON-401 reason as the rest.
   "/hedge-sell-quote",
+  // Adopts a KXMVE combination the venue already shows held onto `/hedge`'s
+  // watch (#148). Writes a `parlay_positions` row; spends nothing and places
+  // no order. Listed for the same JSON-401 reason as the rest.
+  "/hedge-adopt",
 ]);
 
 /**

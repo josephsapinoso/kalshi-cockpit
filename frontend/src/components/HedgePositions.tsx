@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import {
+  adoptVenueCombo,
   askWhatMakersWouldPay,
   closeHeldPosition,
   DISPLAY_TIME_ZONE,
@@ -212,8 +213,17 @@ function PositionGroups({
  * deliberately: this is a coverage fact, not an alarm, and ADR 0071 §2.5's
  * "a per-row fact is transparency; an ordering is a claim" applies to the
  * list here exactly as it does to the positions above.
+ *
+ * **Adopt, in one tap — #148.** Until this landed, "Record it below" pointed
+ * at `RecordParlay.tsx`, which has no field for a combination ticker, so the
+ * instruction could not be followed for a combination bought in the Kalshi
+ * app. `Adopt` sends the ticker alone; contracts, exposure and the legs all
+ * come from the backend's own read of the venue's latest poll and market,
+ * never from here. The manual form stays beside it for a sportsbook slip or
+ * a combination outside the latest poll, which `Adopt` cannot reach.
  */
 function VenueCoverageBanner({ unrecorded }: { unrecorded: UnrecordedAtVenue[] }) {
+  const router = useRouter();
   if (unrecorded.length === 0) return null;
   const plural = unrecorded.length === 1 ? "" : "s";
   const verb = unrecorded.length === 1 ? "is" : "are";
@@ -223,21 +233,61 @@ function VenueCoverageBanner({ unrecorded }: { unrecorded: UnrecordedAtVenue[] }
         {unrecorded.length} Kalshi combination{plural} at the venue {verb} not
         recorded here:
       </p>
-      <ul className="mt-1.5 flex flex-col gap-0.5 text-xs">
+      <ul className="mt-1.5 flex flex-col gap-1 text-xs">
         {unrecorded.map((row) => (
-          <li key={row.ticker} className="tabular">
-            {row.ticker} &middot; {row.contracts ?? "--"} contracts &middot;{" "}
-            {row.exposure_display}
-          </li>
+          <UnrecordedRow key={row.ticker} row={row} onAdopted={() => router.refresh()} />
         ))}
       </ul>
       <p className="mt-1.5 text-xs text-muted">
+        Adopt puts one under watch here in one tap. A sportsbook slip, or a
+        combination the desk cannot yet see,{" "}
         <a href="#record-parlay" className="underline decoration-dotted">
-          Record it below
+          record it below
         </a>{" "}
-        to watch it.
+        instead.
       </p>
     </div>
+  );
+}
+
+function UnrecordedRow({
+  row,
+  onAdopted,
+}: {
+  row: UnrecordedAtVenue;
+  onAdopted: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+
+  async function adopt() {
+    setBusy(true);
+    setRefused(null);
+    const answer = await adoptVenueCombo(row.ticker);
+    setBusy(false);
+    if (!answer.ok) {
+      setRefused(answer.detail);
+      return;
+    }
+    onAdopted();
+  }
+
+  return (
+    <li className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+      <span className="tabular">
+        {row.ticker} &middot; {row.contracts ?? "--"} contracts &middot;{" "}
+        {row.exposure_display}
+      </span>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={adopt}
+        className="min-h-7 rounded border border-border px-2 text-[11px] uppercase tracking-wide disabled:opacity-50"
+      >
+        {busy ? "adopting…" : "adopt"}
+      </button>
+      {refused && <span className="w-full text-[11px] text-muted">{refused}</span>}
+    </li>
   );
 }
 

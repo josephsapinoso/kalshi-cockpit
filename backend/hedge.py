@@ -73,7 +73,7 @@ from .core.hedge import (
 )
 from .core.fees import calculate_fee
 from .kalshi.orderbook import OrderBook
-from .kalshi.rfq import QUOTE_FILLED_STATUSES
+from .kalshi.rfq import QUOTE_FILLED_STATUSES, RfqRefused, mve_legs
 from .core.prices import (
     format_dollars,
     format_price,
@@ -1346,6 +1346,190 @@ def unrecorded_at_venue(conn: sqlite3.Connection) -> list[dict]:
         for row in rows
         if str(row["ticker"]) not in open_combo_tickers
     ]
+
+
+async def adopt_venue_combo(
+    conn: sqlite3.Connection,
+    *,
+    api: Any,
+    ticker: str,
+    now_ms: int,
+) -> int:
+    """Put a KXMVE combination `unrecorded_at_venue` names under `/hedge`'s
+    watch, in one tap. #148.
+
+    `unrecorded_at_venue` (above) tells Joe "Record it below" for a
+    combination the venue holds that no open `parlay_positions` row is
+    watching -- but `RecordParlay.tsx` has no combination-ticker field, so
+    that instruction could not be followed. This is the tap that follows it.
+
+    **Everything about the row comes from the venue's OWN read, never from
+    a request beyond the ticker.** Contracts and `exposure_tenths` are the
+    LATEST COMPLETE `positions` poll's own numbers for this ticker
+    (`_latest_ok_positions_poll`, the same selector `unrecorded_at_venue`
+    uses) -- never a fresh venue call, so the size adopted is the size the
+    screen just showed, not a second read that could disagree with it. The
+    legs come from the venue's own market, `GET /markets/{ticker}` read
+    through `mve_legs` (`backend/kalshi/rfq.py`), the same source
+    `backend/combo_rfq.py`'s sell-quote path (#96) uses for an RFQ-accepted
+    position that recorded no lookup -- an adopted position is exactly that
+    shape, one tap earlier.
+
+    Four refusals, each named, none of them reaching the venue except the
+    last:
+
+    - `ticker` is not `KXMVE*` -- this screen watches combinations only,
+      the same restriction `unrecorded_at_venue`'s own `LIKE 'KXMVE%'` states.
+    - there has been no complete `positions` poll, or this ticker is not
+      among its rows -- coverage is unknown or the venue does not (or no
+      longer) shows it held.
+    - an OPEN `parlay_positions` row already claims this ticker -- adopting
+      again would double the exposure this desk believes it is watching.
+    - the venue's market for this ticker carries no `mve_selected_legs` --
+      `mve_legs` raises `RfqRefused`, which becomes this refusal.
+
+    `stake_tenths` is the venue's own `exposure_tenths` -- what
+    `market_exposure_dollars` says was actually paid, never the sent price
+    `_record_combo_position` (`routes.py`) writes for an order placed
+    through the desk. `return_tenths` is `contracts * 1000` (one dollar a
+    contract, per CLAUDE.md's tenths-of-a-cent convention), rounded to the
+    nearest tenth: `venue_positions.contracts` is a fractional holding
+    (`position_fp`), not the integer count an order-path fill carries.
+
+    The label is the comma-joined leg titles from `kalshi_markets.title`
+    where every leg's market has been seen by this instance's own market
+    ingest, and the bare ticker otherwise -- the same "degrade to the
+    ticker, never invent a title" rule `parlays.legs_for_position` states
+    for `labels_are_tickers`. Each leg's own label follows the same rule,
+    independently, so a partial title table still labels the legs it can.
+
+    Raises `parlays.LookupRefused` on every refusal above, carrying the
+    HTTP status the route answers with. Imported locally, the same reason
+    `_scout_states_at_bet` above gives: `parlays` is a large module this one
+    otherwise avoids pulling in at import time.
+    """
+    from .parlays import LookupRefused
+
+    if not ticker.startswith("KXMVE"):
+        raise LookupRefused(
+            422,
+            f"{ticker!r} is not a KXMVE combination ticker, and this desk "
+            "only adopts combinations. Nothing was adopted.",
+        )
+
+    poll = _latest_ok_positions_poll(conn)
+    if poll is None:
+        raise LookupRefused(
+            404,
+            "There has never been a complete read of Kalshi's positions on "
+            "this instance, so nothing is known to adopt. Nothing was "
+            "adopted.",
+        )
+    venue_row = conn.execute(
+        "SELECT contracts, exposure_tenths FROM venue_positions "
+        "WHERE poll_log_id = ? AND ticker = ?",
+        (int(poll["id"]), ticker),
+    ).fetchone()
+    if venue_row is None:
+        raise LookupRefused(
+            404,
+            f"Kalshi's latest positions read does not show {ticker} held. "
+            "Nothing was adopted.",
+        )
+    if venue_row["contracts"] is None or venue_row["exposure_tenths"] is None:
+        raise LookupRefused(
+            502,
+            f"Kalshi's read of {ticker} could not be priced (contracts or "
+            "exposure was unreadable). Nothing was adopted.",
+        )
+
+    already_open = conn.execute(
+        "SELECT 1 FROM parlay_positions WHERE status = 'open' "
+        "AND combo_ticker = ?",
+        (ticker,),
+    ).fetchone()
+    if already_open is not None:
+        raise LookupRefused(
+            409,
+            f"{ticker} is already watched by an open position on this "
+            "desk. Nothing was adopted.",
+        )
+
+    try:
+        market_payload = await api.get(f"/markets/{ticker}")
+    except Exception as exc:  # noqa: BLE001 -- transport; nothing was adopted
+        raise LookupRefused(
+            502,
+            f"Kalshi's market for {ticker} could not be read ({exc}). "
+            "Nothing was adopted.",
+        ) from exc
+    try:
+        _collection, venue_legs = mve_legs(market_payload)
+    except RfqRefused as exc:
+        raise LookupRefused(
+            422,
+            f"Kalshi's market for {ticker} carries no legs to watch: "
+            f"{exc}. Nothing was adopted.",
+        ) from exc
+
+    leg_tickers = [
+        str(leg["market_ticker"])
+        for leg in venue_legs
+        if leg.get("market_ticker")
+    ]
+    titles: dict[str, str] = {}
+    if leg_tickers:
+        placeholders = ",".join("?" for _ in leg_tickers)
+        for row in conn.execute(
+            f"SELECT ticker, title FROM kalshi_markets "
+            f"WHERE ticker IN ({placeholders})",
+            tuple(leg_tickers),
+        ):
+            if row["title"]:
+                titles[str(row["ticker"])] = str(row["title"])
+
+    legs: list[dict] = []
+    for leg in venue_legs:
+        leg_ticker = leg.get("market_ticker")
+        legs.append(
+            {
+                "ticker": leg_ticker,
+                "event_ticker": leg.get("event_ticker"),
+                "side": leg.get("side") or "yes",
+                "label": titles.get(str(leg_ticker), leg_ticker),
+            }
+        )
+    if legs and all(leg["ticker"] and leg["ticker"] in titles for leg in legs):
+        position_label = ", ".join(titles[leg["ticker"]] for leg in legs)
+    else:
+        position_label = ticker
+
+    contracts = float(venue_row["contracts"])
+    return_tenths = int(round(contracts * 1000))
+    stake_tenths = int(venue_row["exposure_tenths"])
+
+    note = (
+        "Recorded automatically from Kalshi's own positions read -- adopted, "
+        "not bought through this desk. A combination can be sold back, "
+        "though selling back may cost more than holding it to the outcome; "
+        "a hedge is the exit the desk watches, not the only one that "
+        "exists."
+    )
+
+    try:
+        return record_position(
+            conn,
+            now_ms=now_ms,
+            source="kalshi_combo",
+            label=position_label,
+            stake_tenths=stake_tenths,
+            return_tenths=return_tenths,
+            legs=legs,
+            combo_ticker=ticker,
+            note=note,
+        )
+    except PositionRefused as exc:
+        raise LookupRefused(422, exc.refusal.detail) from exc
 
 
 def combo_settlements(

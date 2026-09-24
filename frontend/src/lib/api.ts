@@ -3810,6 +3810,30 @@ export async function askWhatMakersWouldPay(
   };
 }
 
+/**
+ * Putting a KXMVE combination the venue already shows held under `/hedge`'s
+ * watch, in one tap (#148).
+ *
+ * `unrecorded_at_venue` names these; `VenueCoverageBanner` reads its
+ * `ticker` field straight off that row and sends nothing else -- contracts,
+ * exposure and the legs all come from the backend's own read of the venue,
+ * never from here.
+ */
+export async function adoptVenueCombo(
+  ticker: string,
+): Promise<{ ok: true; value: { position_id: number } } | { ok: false; detail: string }> {
+  const answer = await postHedge("/hedge-adopt", { ticker });
+  if (!answer.ok) return answer;
+  const body = answer.body;
+  if (body && typeof body === "object" && "position_id" in body) {
+    return { ok: true, value: body as { position_id: number } };
+  }
+  return {
+    ok: false,
+    detail: "The cockpit answered in a shape this screen does not know. Nothing was adopted.",
+  };
+}
+
 // -- resting bids on a combination (ADR 0084) --------------------------------
 //
 // **A different verb from every other buy control in this app.** Everywhere
