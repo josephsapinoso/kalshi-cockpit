@@ -71,6 +71,11 @@ EXEMPT: dict[tuple[str, str], str] = {
         "gloss sentences define in place; a Term inside a gloss would nest "
         "popovers"
     ),
+    ("lib/stakeBasisGloss.ts", "exposure"): (
+        "gloss sentences define in place (\"Kalshi's reported position cost "
+        "(market exposure)\"); a Term inside a gloss would nest popovers. "
+        "#148"
+    ),
     ("app/layout.tsx", "devig"): (
         "the word is in the <meta> description string — no DOM to tap"
     ),
