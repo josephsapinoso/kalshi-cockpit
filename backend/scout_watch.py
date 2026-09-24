@@ -249,6 +249,7 @@ async def _convene_one(
     max_per_day: int,
     reserve_taps: int,
     now_ms: int,
+    tap_token_share: float = 0.5,
 ) -> None:
     """One cycle's worth of work. Refuses, or convenes at most one fixture."""
     config = config_factory()
@@ -299,6 +300,37 @@ async def _convene_one(
     # `refusal_reason` is the one place the three daily ceilings are read
     # together and a second implementation would drift (`budget.py`'s own
     # argument against a second `can_afford`).
+    # Joe's (A) to #145, 2026-09-24: the token brake only refuses once the
+    # day's RECORDED total has crossed the ceiling, so it cannot tell how much
+    # the next convening will cost. On 2026-09-24 two unattended convenings
+    # recorded 759,441 tokens against 500,000 and refused every tap of his
+    # from 12:12Z to the roll. `reserve_taps` counts calls and searches, not
+    # tokens, so it did not help. This share of the token ceiling is his:
+    # the watcher does not start a convening once `1 - tap_token_share` of the
+    # ceiling has been recorded, whatever the other brakes say. It is still a
+    # brake, not a cap. A convening started just under the line can run past
+    # it, but the overshoot comes out of the half kept for taps, not the other
+    # side of the 10:00Z roll.
+    tokens_ceiling = budget.tokens_daily_budget
+    if tokens_ceiling > 0:
+        auto_line = int(tokens_ceiling * (1.0 - tap_token_share))
+        tokens_today = budget.state(now_ms).tokens_today
+        if tokens_today >= auto_line:
+            reason = (
+                f"{tokens_today} of {tokens_ceiling} Anthropic tokens already "
+                f"recorded today; unattended scouting stops at {auto_line} and "
+                f"leaves the rest for taps (SCOUT_AUTO_TAP_TOKEN_SHARE)"
+            )
+            logger.info("scout watch refused: %s", reason)
+            record_watch_outcome(
+                conn,
+                budget_day_ms=day_start_ms,
+                now_ms=now_ms,
+                outcome=REFUSED_BUDGET,
+                detail=reason,
+            )
+            return
+
     reserved_calls = 2 * (1 + reserve_taps)
     reserved_searches = STAFF_PAIR_SEARCHES_WORST_CASE * (1 + reserve_taps)
     reason = budget.refusal_reason(
@@ -420,6 +452,7 @@ async def watch_scouts_forever(
     max_per_day: int,
     reserve_taps: int,
     enabled: bool,
+    tap_token_share: float = 0.5,
     interval_s: float = DEFAULT_INTERVAL_S,
     sleep=asyncio.sleep,
     clock=time.time,
@@ -459,6 +492,7 @@ async def watch_scouts_forever(
                         max_per_day=max_per_day,
                         reserve_taps=reserve_taps,
                         now_ms=now_ms,
+                        tap_token_share=tap_token_share,
                     )
             except asyncio.CancelledError:
                 raise

@@ -1110,6 +1110,11 @@ class ScoutAutoConfig:
       when one more auto convening would leave fewer than this affordable.
     - `refresh_hours` -- a fixture whose newest briefing is younger than this
       is not re-scouted. Six hours is the width of an evening slate.
+    - `tap_token_share` -- the fraction of `AGENT_MAX_TOKENS_PER_DAY` kept
+      for Joe's taps (#145, his (A), 2026-09-24). The watcher starts no
+      convening once `1 - tap_token_share` of the ceiling is recorded.
+      `reserve_taps` counts calls and searches only, so on 2026-09-24 two
+      unattended convenings used up the token ceiling anyway.
 
     Every ceiling refuses rather than degrades: the watcher logs which one
     bound and convenes nothing. The daily ceilings themselves stay in
@@ -1121,6 +1126,7 @@ class ScoutAutoConfig:
     max_per_day: int = 3
     reserve_taps: int = 2
     refresh_hours: int = 6
+    tap_token_share: float = 0.5
 
     @classmethod
     def load(cls) -> "ScoutAutoConfig":
@@ -1129,6 +1135,7 @@ class ScoutAutoConfig:
             max_per_day=_int("SCOUT_AUTO_MAX_CONVENINGS_PER_DAY", 3),
             reserve_taps=_int("SCOUT_AUTO_RESERVE_TAP_CONVENINGS", 2),
             refresh_hours=_int("SCOUT_AUTO_REFRESH_HOURS", 6),
+            tap_token_share=_float("SCOUT_AUTO_TAP_TOKEN_SHARE", 0.5),
         )
 
 

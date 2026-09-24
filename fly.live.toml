@@ -533,6 +533,15 @@ primary_region = "ord"
   # of his a day. No ceiling moved; this brake sits inside them.
   SCOUT_AUTO_MAX_CONVENINGS_PER_DAY = "2"
 
+  # **Half the token ceiling is Joe's -- #145, he answered (A) 2026-09-24.**
+  # The day after the line above shipped, two unattended convenings recorded
+  # 759,441 tokens against 500,000 (`/api/scout`, 14:32Z), and every tap of
+  # his was refused from 12:12Z to the roll. So "two leave roughly one tap"
+  # was false on the first full day. The count cap limits how many
+  # convenings run, not what they cost. From this line on, the watcher
+  # starts nothing once 250K is recorded. No ceiling moved.
+  SCOUT_AUTO_TAP_TOKEN_SHARE = "0.5"
+
   # **The `odds_snapshots` closing-line prune (#58), Joe 2026-09-23: keep
   # each book's closing line, delete the rest, 14 days after kickoff, no
   # VACUUM.** Enabled and DRY first: the dry run logs what it would delete

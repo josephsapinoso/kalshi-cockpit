@@ -813,3 +813,148 @@ class TestTheTaskSurvives:
             sleep=sleep, clock=lambda: NOW_MS / 1000, max_cycles=3,
         )
         assert len(slept) == 3
+
+
+class TestHalfTheTokensAreJoes:
+    """#145, Joe's (A), 2026-09-24. The watcher starts nothing once
+    `1 - tap_token_share` of the token ceiling is recorded. `reserve_taps`
+    counts calls and searches, and two convenings recorded 759,441 tokens
+    against 500,000 without it objecting."""
+
+    TOKEN_CONFIG = AgentConfig(
+        api_key="test", model="claude-opus-5",
+        max_calls_per_pass=8, max_calls_per_day=24,
+        max_searches_per_day=0, max_tokens_per_day=500_000,
+    )
+
+    async def _run(self, tmp_path, monkeypatch, *, tokens_recorded, share):
+        path = _init_db(tmp_path)
+        conn = db.connect(path)
+        try:
+            _add_scoutable_fixture(
+                conn, ticker="KXA", event_ticker="EVA", odds_event_id="odds-a",
+                home="B", away="A", link_id=1,
+            )
+            conn.execute(
+                "INSERT INTO agent_calls (called_ms, agent, model, input_tokens, "
+                "output_tokens, web_searches) VALUES (?, 'scout_staff_home', "
+                "'claude-opus-5', ?, 0, 0)",
+                (NOW_MS - 1000, tokens_recorded),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        monkeypatch.setattr(
+            scout_watch, "build_ladder_payload",
+            lambda *a, **k: _ladder_payload(("KXA", "EVA", NOW_MS + 1_000_000)),
+        )
+
+        async def sleep(seconds):
+            pass
+
+        await scout_watch.watch_scouts_forever(
+            path, lambda: self.TOKEN_CONFIG, lambda cfg: DeskStubClient(),
+            refresh_hours=0, max_per_day=3, reserve_taps=0, enabled=True,
+            tap_token_share=share,
+            sleep=sleep, clock=lambda: NOW_MS / 1000, max_cycles=1,
+        )
+        conn = db.connect(path)
+        try:
+            auto = conn.execute(
+                "SELECT COUNT(*) AS c FROM scout_briefings WHERE trigger = 'auto'"
+            ).fetchone()["c"]
+            log = conn.execute(
+                "SELECT outcome, detail FROM scout_watch_log"
+            ).fetchall()
+        finally:
+            conn.close()
+        return auto, [(r["outcome"], r["detail"]) for r in log]
+
+    async def test_refuses_once_half_the_tokens_are_recorded(
+        self, tmp_path, monkeypatch
+    ):
+        # 250,000 of 500,000: exactly on the line. Every other brake would
+        # admit it; the calls, searches and token ceilings are all clear.
+        auto, log = await self._run(
+            tmp_path, monkeypatch, tokens_recorded=250_000, share=0.5,
+        )
+        assert auto == 0
+        assert len(log) == 1
+        outcome, detail = log[0]
+        assert outcome == "refused_budget"
+        assert "SCOUT_AUTO_TAP_TOKEN_SHARE" in detail
+        assert "250000 of 500000" in detail
+
+    async def test_convenes_below_the_line(self, tmp_path, monkeypatch):
+        auto, log = await self._run(
+            tmp_path, monkeypatch, tokens_recorded=249_999, share=0.5,
+        )
+        assert auto == 1
+        assert [o for o, _ in log] == ["convened"]
+
+    async def test_the_share_is_read_not_hardcoded(self, tmp_path, monkeypatch):
+        # 300,000 recorded clears a 0.5 share's 250K line, but not a 0.2
+        # share's 400K line. So the parameter is what moves the line.
+        auto, _ = await self._run(
+            tmp_path, monkeypatch, tokens_recorded=300_000, share=0.2,
+        )
+        assert auto == 1
+
+    async def test_an_unconfigured_token_ceiling_reserves_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        # max_tokens_per_day = 0 means "not configured" (budget.py). There is
+        # no line to hold, so a large recorded total refuses nothing here.
+        path = _init_db(tmp_path)
+        conn = db.connect(path)
+        try:
+            _add_scoutable_fixture(
+                conn, ticker="KXA", event_ticker="EVA", odds_event_id="odds-a",
+                home="B", away="A", link_id=1,
+            )
+            conn.execute(
+                "INSERT INTO agent_calls (called_ms, agent, model, input_tokens, "
+                "output_tokens, web_searches) VALUES (?, 'x', 'm', 900000, 0, 0)",
+                (NOW_MS - 1000,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        monkeypatch.setattr(
+            scout_watch, "build_ladder_payload",
+            lambda *a, **k: _ladder_payload(("KXA", "EVA", NOW_MS + 1_000_000)),
+        )
+
+        async def sleep(seconds):
+            pass
+
+        await scout_watch.watch_scouts_forever(
+            path, lambda: CONFIG, lambda cfg: DeskStubClient(),
+            refresh_hours=0, max_per_day=3, reserve_taps=0, enabled=True,
+            sleep=sleep, clock=lambda: NOW_MS / 1000, max_cycles=1,
+        )
+        conn = db.connect(path)
+        try:
+            auto = conn.execute(
+                "SELECT COUNT(*) AS c FROM scout_briefings WHERE trigger = 'auto'"
+            ).fetchone()["c"]
+        finally:
+            conn.close()
+        assert auto == 1
+
+
+class TestTheShareReachesTheWatcher:
+    def test_config_reads_the_share(self, monkeypatch):
+        from backend.config import ScoutAutoConfig
+        monkeypatch.setenv("SCOUT_AUTO_TAP_TOKEN_SHARE", "0.3")
+        assert ScoutAutoConfig.load().tap_token_share == 0.3
+
+    def test_run_loop_passes_it(self):
+        from pathlib import Path
+        src = Path("scripts/run_loop.py").read_text(encoding="utf-8")
+        assert "tap_token_share=scout_auto_config.tap_token_share" in src
+
+    def test_live_sets_it_explicitly(self):
+        from pathlib import Path
+        src = Path("fly.live.toml").read_text(encoding="utf-8")
+        assert 'SCOUT_AUTO_TAP_TOKEN_SHARE = "0.5"' in src

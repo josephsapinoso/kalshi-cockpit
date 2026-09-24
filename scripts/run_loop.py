@@ -1186,6 +1186,7 @@ async def main() -> int:
                 max_per_day=scout_auto_config.max_per_day,
                 reserve_taps=scout_auto_config.reserve_taps,
                 enabled=scout_auto_config.enabled,
+                tap_token_share=scout_auto_config.tap_token_share,
             ),
             name="scout-watch",
         )
