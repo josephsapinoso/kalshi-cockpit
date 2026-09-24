@@ -439,6 +439,163 @@ def refusal_sentence(name: str, db_path: str) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# odds-prune-cursor: a durable read of backend/store/odds_snapshot_prune.py's
+# walk position, decoded from `meta` rather than tailed from stdout (#144).
+# ---------------------------------------------------------------------------
+#
+# `_read_cursor` (`backend/store/odds_snapshot_prune.py:177`) reads one `meta`
+# row keyed `odds_snapshot_prune_cursor`: a JSON object mapping `sport_key` to
+# `[commence_ms, odds_event_id]`, the position the walk has reached for that
+# sport. This module imports nothing from `backend`
+# (`inspect_live_db_common.py`'s own rule, stated in its docstring), so the
+# decode is repeated here in miniature rather than imported -- keep it in step
+# with `_read_cursor` if that function's cursor shape ever changes.
+_ODDS_PRUNE_CURSOR_META_KEY = "odds_snapshot_prune_cursor"
+
+
+def _q_odds_prune_cursor(conn: sqlite3.Connection, args) -> list[Section]:
+    """Decode the `odds_snapshot_prune` cursor: one row per sport, right now.
+
+    `#139`'s owed read pointed at prune log lines that are already gone
+    (`scripts/run_loop.py:836` keeps stdout for about ten minutes) -- this
+    reads the same position `_read_cursor` would, off the durable `meta` row,
+    with no window to fall outside of.
+
+    **An absent row prints that the prune has never written it**, rather than
+    returning zero rows silently: a dry run (`config.deletes` false) never
+    calls `_write_cursor`, so "no row" means "dry-run-only so far", not "the
+    cursor sits at the start". Reported as its own section rather than folded
+    into the per-sport one, so a caller cannot mistake "zero sports" for "the
+    prune never ran".
+
+    What this does not establish
+    -----------------------------
+    - **Not whether the prune is caught up.** The cursor is a position, not a
+      queue depth; a `commence_ms` far behind the retention cutoff still means
+      there is more to prune, and this query does not compute that gap.
+    - **Not a malformed cursor's raw contents beyond a count.** A sport entry
+      this decode cannot parse as `[int, str]` is dropped exactly as
+      `_read_cursor` drops it (restart-safe, by that function's own comment)
+      and reported as `sports_dropped`, not replayed here.
+    """
+    title = (
+        "odds_snapshot_prune_cursor: one row per sport, decoded from meta"
+    )
+    row = conn.execute(
+        "SELECT value, updated_ms FROM meta WHERE key = ?",
+        (_ODDS_PRUNE_CURSOR_META_KEY,),
+    ).fetchone()
+    if row is None:
+        return [
+            Section(
+                title=title,
+                columns=("note",),
+                rows=[(
+                    "never written -- no meta row named "
+                    f"{_ODDS_PRUNE_CURSOR_META_KEY!r}. The dry run "
+                    "(config.deletes=false) never writes this row, so this "
+                    "is NOT the same as a cursor sitting at position zero."
+                ,)],
+                cap=args.limit,
+            )
+        ]
+
+    raw_value, updated_ms = row
+    try:
+        decoded = json.loads(raw_value)
+    except (TypeError, ValueError):
+        decoded = None
+
+    entries: list[tuple[Any, ...]] = []
+    dropped = 0
+    if isinstance(decoded, dict):
+        for sport, value in decoded.items():
+            if (
+                isinstance(value, list) and len(value) == 2
+                and isinstance(value[0], int) and isinstance(value[1], str)
+            ):
+                commence_ms, event_id = value
+                entries.append((sport, commence_ms, event_id))
+            else:
+                dropped += 1
+    else:
+        dropped = 1
+
+    entries.sort(key=lambda r: r[0])
+    effective = max(0, min(len(entries), args.limit))
+    per_sport = Section(
+        title=title,
+        columns=("sport", "commence_ms", "event_id"),
+        rows=entries[:effective],
+        truncated=len(entries) > effective,
+        cap=args.limit,
+    )
+    per_sport = _derive_iso(per_sport, "commence_ms", "commence_iso")
+    meta_row = Section(
+        title=(
+            "odds_snapshot_prune_cursor: the meta row's own clock, and how "
+            "many sport entries this decode could not parse as [int, str]"
+        ),
+        columns=("updated_ms", "updated_iso", "sports_decoded", "sports_dropped"),
+        rows=[(updated_ms, _iso(updated_ms), len(entries), dropped)],
+        cap=args.limit,
+    )
+    return [per_sport, meta_row]
+
+
+# ---------------------------------------------------------------------------
+# lost-leg-closures: parlay_positions the desk closed itself because a held
+# leg lost, told apart from a tap close (v55, ADR 0184, #143, #144).
+# ---------------------------------------------------------------------------
+
+_SQL_LOST_LEG_CLOSURES = (
+    "SELECT id, status, closed_reason, closed_source, closed_ms, placed_ms "
+    "FROM parlay_positions WHERE closed_reason IS NOT NULL "
+    "ORDER BY closed_ms DESC, id DESC"
+)
+
+
+def _q_lost_leg_closures(conn: sqlite3.Connection, args) -> list[Section]:
+    """`parlay_positions` rows the desk closed on its own because a leg lost.
+
+    `closed_reason = 'lost_leg'` (the only value the column's CHECK admits,
+    schema v55) is `close_dead_hand_recorded` closing a hand-recorded slip --
+    one with no `combo_ticker` -- after one of its legs resolved as a loss.
+    `closed_source` on such a row names who resolved that LOSING LEG, `'venue'`
+    (Kalshi's market result) or `'manual'` (Joe marked it) -- not who tapped
+    the position itself, so a row the desk closed this way is distinguishable
+    from a plain tap close, whose `closed_reason` stays NULL. That is #143's
+    own distinction (Joe's answer (A) to #142) and #144 exists to read it
+    durably rather than off a ten-minute stdout window.
+
+    Newest first (`closed_ms DESC`), and `-n`/`--tail` bounds the output the
+    same way `credits-tail` and `sweep-log`'s tail section do; the hard
+    `--limit` row cap still applies underneath it.
+
+    What this does not establish
+    -----------------------------
+    - **No aggregate, no rate.** How often a leg loss closes a slip is a
+      decision-bearing statistic, and `inspect_live_db_decisions.py` already
+      declines to compute those by design; this is a dump, ordered, nothing
+      summed or divided.
+    - **Nothing about rows closed before v55.** Every close that predates the
+      column carries `closed_reason` NULL regardless of why it closed (the
+      column's own comment in `schema.sql`), so an old lost-leg close is
+      invisible here, not absent from history.
+    """
+    section = _fetch(
+        conn,
+        _SQL_LOST_LEG_CLOSURES,
+        (),
+        title="parlay_positions: closed_reason IS NOT NULL, newest first",
+        cap=args.limit,
+        requested=args.tail,
+    )
+    section = _derive_iso(section, "closed_ms", "closed_iso")
+    return [_derive_iso(section, "placed_ms", "placed_iso")]
+
+
 QUERIES: dict[str, QueryDef] = {
     "credits-tail": QueryDef(
         "The last N api_credits rows (-n, default 5), newest first, each "
@@ -1109,6 +1266,29 @@ QUERIES: dict[str, QueryDef] = {
         _q_kalshi_quotes_band,
         # Per-ticker seeks on idx_quotes_ticker_time inside a fixed four-day
         # observed_ms window, reached from the (small) markets of one series.
+        cost=CHEAP,
+    ),
+    "odds-prune-cursor": QueryDef(
+        "odds_snapshot_prune's walk position, decoded from the durable meta "
+        "row rather than tailed from stdout: one row per sport (sport, "
+        "commence_ms, event_id, commence_ms as ISO-UTC), plus the meta row's "
+        "own updated_ms. Absent prints 'never written' -- the dry run never "
+        "writes this row -- rather than returning zero rows silently.",
+        _q_odds_prune_cursor,
+        # One `meta` row keyed lookup, plus in-Python JSON decode of a small
+        # object (one entry per sport). No scan of any large table.
+        cost=CHEAP,
+    ),
+    "lost-leg-closures": QueryDef(
+        "parlay_positions rows the desk closed itself because a held leg "
+        "lost (closed_reason IS NOT NULL, v55, ADR 0184, #143): id, status, "
+        "closed_reason, closed_source, the close timestamp and placed_ms. "
+        "Newest first, -n bounds it. No aggregate. A tap-closed row "
+        "(closed_reason NULL) never appears.",
+        _q_lost_leg_closures,
+        # closed_reason is non-NULL on a small, bounded subset of
+        # parlay_positions -- one row per hand-recorded slip the desk closed
+        # itself, the same bounded-by-activity shape as manual-order-refusals.
         cost=CHEAP,
     ),
 }
