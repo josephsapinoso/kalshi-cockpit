@@ -155,14 +155,13 @@ the channel diagnostic (A17.6/A17.11).
 ### 3. Next session
 
 - **#145 close read, after 2026-09-26 10:00Z:** `/api/scout` `tokens_today` and `scout-watch-log` for 20260925. Once #149 is deployed, attach `inspect_live_db.py leg-scout-state` to that read.
-- **#149 needs a deploy** before either read runs on live. Deploys are Joe's to run: the classifier refuses `gh workflow run` for me.
-- Close #107 once CI is green on `2cb5fc9` (this session, if CI finishes).
+- **#149 deployed `8fad917` (Joe ran it) and CLOSED.** First live `leg-scout-state` reading: of 39 armed-path legs since 2026-09-21, **0 were briefed at bet time** (36 absent, 3 failed). These are counts, not a rate. The detail is on #145. If 20260925 reads the same, open a map #3 ticket for Joe: is unattended scouting landing on the games he bets?
+- #107 CLOSED (CI green on `2cb5fc9`).
 
 ### Still open
 
 0. #145 — deployed (`e166a56`); close it after one full budget day's read (20260925).
-1. #149 — built, awaiting deploy; its first live read goes with #145's close.
-2. #108 — deferred fifth seat.
+1. #108 — deferred fifth seat.
 
 ---
 
