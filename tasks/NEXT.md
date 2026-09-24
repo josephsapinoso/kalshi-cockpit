@@ -134,11 +134,11 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-24 (fifty-fourth session) — #129's capture taken on the venue's own positions read; #96 built: /hedge asks the makers what they would pay (ADR 0185, schema v56); #147 opened. NOT deployed
+## 2026-09-24 (fifty-fourth session) — #129's capture taken on the venue's own positions read; #96 built: /hedge asks the makers what they would pay (ADR 0185, schema v56); #147 opened. Deployed `1a2d5be` (Joe ran it)
 
 Joe asked for #129 then #96. No `partner` run — a named errand.
 
-### 1. What shipped (on `main`, not deployed)
+### 1. What shipped (live on `1a2d5be` from ~17:53Z; Joe ran the deploy after the classifier refused mine)
 
 | commit | what | ticket |
 |---|---|---|
@@ -164,8 +164,8 @@ Joe asked for #129 then #96. No `partner` run — a named errand.
 
 ### 3. Next session
 
-- **Deploy is owed and is Joe's call** — v56 rebuilds `combo_rfq_quotes` on
-  the live volume (tens of rows).
+- **Deployed and verified**: `/api/health` `build.git_sha` = `1a2d5be` =
+  `origin/main`; boot log `migrated v55 -> v56` at 17:52:57Z.
 - **The tap reaches no current position.** Joe's three held combinations are
   *unrecorded* on `/hedge` (no `parlay_positions` row), and the tap needs a
   row with `combo_ticker`. Recording them is the step between this and a use.
@@ -175,7 +175,7 @@ Joe asked for #129 then #96. No `partner` run — a named errand.
 ### Still open
 
 0. #145 — deployed (`e166a56`); close it after one full budget day's read (20260925).
-1. #96 — built (`2d92786`), not deployed; close on the first live tap.
+1. #96 — live (`1a2d5be`); close on the first live tap (needs a recorded combination).
 2. #147 — `open_rfq_for` reads strangers' RFQs as ours on the buy path.
 3. #107 — the book arm of the capture; the sell arm ran 2026-09-24.
 4. #108 — deferred fifth seat.
@@ -2938,7 +2938,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
-- 2026-09-24 (fifty-fourth session) — #129's capture taken on the venue's own positions read; #96 built: /hedge asks the makers what they would pay (ADR 0185, schema v56); #147 opened. NOT deployed
+- 2026-09-24 (fifty-fourth session) — #129's capture taken on the venue's own positions read; #96 built: /hedge asks the makers what they would pay (ADR 0185, schema v56); #147 opened. Deployed `1a2d5be` (Joe ran it)
 - 2026-09-24 (fifty-third session) — durable reads for the prune and lost-leg closes (#144); Joe answered #145 (A), so half the token ceiling is now his; #115 closed NOT RUN on his (A) to #146; #139 closed on the cursor read. Deployed `e166a56` (Joe ran it)
 - 2026-09-23 (fifty-second session) — the watcher stops scouting dead parlays (#141); Joe answered #142 (A) and a dead hand-recorded slip now closes itself (#143, ADR 0184, schema v55)
 - 2026-09-23 (fifty-first session) — Joe answered the whole frozen digest with option buttons; all eight answers built and deployed (ADR 0183); the desk now scouts his held parlays first
