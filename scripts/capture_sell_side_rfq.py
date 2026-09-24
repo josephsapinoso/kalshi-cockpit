@@ -53,8 +53,8 @@ Refusals, all before any venue write
   is ignored there. A pre-check on that list refused all three held
   combinations because strangers were asking about them. The venue allows
   one live RFQ per market per requester, so its 409 is the only reliable
-  "ours" signal; `create_rfq` then hands back `reused=True` and this refuses
-  without reading or deleting (the row it found may not even be ours).
+  "ours" signal; `create_rfq` then refuses a size-based ask (#96 defect 4)
+  and this refuses in turn, without reading or deleting.
 
 What this does not establish
 ----------------------------
@@ -82,7 +82,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from backend.combo_rfq import QUOTE_POLL_S, QUOTE_WAIT_S  # noqa: E402
 from backend.config import KalshiConfig  # noqa: E402
+from backend.kalshi import rfq  # noqa: E402
 from backend.kalshi.rfq import (  # noqa: E402
+    RfqRefused,
     create_rfq,
     delete_rfq,
     parse_quotes,
@@ -130,30 +132,22 @@ def floor_contracts(position_fp: Any) -> int:
 
 
 def held_position_fp(rows: list[dict], ticker: str) -> Optional[str]:
-    """The `position_fp` string for `ticker` among `/portfolio/positions` rows, or None."""
-    for row in rows:
-        if row.get("ticker") == ticker or row.get("market_ticker") == ticker:
-            fp = row.get("position_fp")
-            return None if fp is None else str(fp)
-    return None
+    """The `position_fp` string for `ticker` among `/portfolio/positions` rows, or None.
+
+    One implementation, shared with the exit route: `backend.kalshi.rfq`.
+    """
+    return rfq.held_position_fp(rows, ticker)
 
 
 def legs_and_collection(market_payload: dict) -> tuple[str, list[dict]]:
     """`(mve_collection_ticker, mve_selected_legs)` off `GET /markets/{ticker}`.
 
-    The envelope is `{"market": {...}}`; the bare shape is accepted too so a
-    captured fixture of either works. Missing either field is a refusal --
-    an RFQ without the legs the venue expects is a 4xx dressed as ours.
+    `backend.kalshi.rfq.mve_legs`, with its refusal in this script's type.
     """
-    market = market_payload.get("market") if isinstance(market_payload.get("market"), dict) else market_payload
-    collection = market.get("mve_collection_ticker")
-    legs = market.get("mve_selected_legs")
-    if not collection or not isinstance(legs, list) or not legs:
-        raise Refused(
-            "market payload carries no mve_collection_ticker / mve_selected_legs; "
-            f"keys: {sorted(market)}"
-        )
-    return str(collection), [dict(leg) for leg in legs]
+    try:
+        return rfq.mve_legs(market_payload)
+    except RfqRefused as exc:
+        raise Refused(str(exc)) from exc
 
 
 def refuse_if_exists(paths: list[Path]) -> None:
@@ -261,27 +255,25 @@ async def capture_one(
         "deleted": False,
     }
 
-    handle = await create_rfq(
-        api,
-        market_ticker=ticker,
-        collection_ticker=collection,
-        legs=legs,
-        contracts=contracts,
-    )
+    try:
+        handle = await create_rfq(
+            api,
+            market_ticker=ticker,
+            collection_ticker=collection,
+            legs=legs,
+            contracts=contracts,
+        )
+    except RfqRefused as exc:
+        # The venue said 409: one of ours was already open. `create_rfq`
+        # refuses a size-based ask there rather than reusing (#96 defect 4)
+        # -- its quotes were priced for another ask, and a desk tab may be
+        # holding it with a confirm pending. No read, no delete, no file.
+        raise Refused(f"{ticker}: {exc}. Not read, not deleted.") from exc
     capture["rfq"] = {
         "id": handle.rfq_id,
         "reused": handle.reused,
         "target_cost_dollars": handle.target_cost_dollars,
     }
-    if handle.reused:
-        # The venue said 409: one of ours was already open. Its quotes were
-        # priced for another ask, and a desk tab may be holding it with a
-        # confirm pending -- so no read, no delete, no capture file.
-        raise Refused(
-            f"{ticker}: the venue says an RFQ of ours is already open "
-            f"(already_exists); create_rfq would reuse {handle.rfq_id} and its "
-            "quotes were priced for that ask. Not read, not deleted."
-        )
     reads: list[dict] = capture["quote_reads"]
     try:
         # Our own row, verbatim, by id. The market-wide list cannot tell ours

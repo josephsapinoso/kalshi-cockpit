@@ -16,6 +16,31 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-24 - A list filtered by a parameter the endpoint ignores is everyone's list; a precondition written as "wait until it holds" must be re-read, not re-inherited
+
+Two patterns from the fifty-fourth session (#129, #96).
+
+- **Prove a filter narrows before trusting what it returns as "ours".**
+  `GET /communications/rfqs?market_ticker=` lists every requester's RFQs,
+  and `rfq_user_filter=self` (which DOES narrow `/communications/quotes`) is
+  silently ignored there. `open_rfq_for` and a capture script both read "an
+  open RFQ on this market" as "our open RFQ", and the script refused all
+  three held combinations because strangers were asking about them. The
+  cheap test: call with and without the filter and compare row counts
+  (100 = 100 here), and look for a field that differs between your row and
+  others' (`creator_user_id`, set on ours only). **Where the venue has a
+  per-requester rule (one live RFQ per market), its 409 is a better "ours"
+  signal than any list.** #147.
+
+- **A "blocked until X" line in the handoff decays into "X hasn't
+  happened" without anyone checking X.** #129 and #96 sat as "waiting on Joe
+  holding an order-linked combination; do not poll" while the venue's own
+  positions read showed three held combinations. The instrument needed the
+  VENUE's population, not the desk's (`/api/hedge` showed them as
+  unrecorded). **When a ticket is parked on a world-state precondition,
+  write the one read that checks it, and run that read at the next session
+  start** instead of copying the parked line forward.
+
 ## 2026-09-24 - An owed read must name where the evidence persists; a brake on the wrong unit protects nothing; a fixed date in a clock-relative test is a timer
 
 Three patterns from the fifty-third session.

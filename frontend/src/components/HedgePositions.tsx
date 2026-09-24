@@ -4,11 +4,13 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import {
+  askWhatMakersWouldPay,
   closeHeldPosition,
   DISPLAY_TIME_ZONE,
   resolveHeldLeg,
   type HedgeBlock,
   type HedgeRung,
+  type HedgeSellQuote,
   type HeldLeg,
   type HeldPosition,
   type UnrecordedAtVenue,
@@ -281,6 +283,7 @@ function Position({
         asOfMs={asOfMs}
       />
       <ComboBookLine position={position} />
+      <SellQuote position={position} />
 
       <ol className="mt-3 divide-y divide-border">
         {position.legs.map((leg) => (
@@ -389,6 +392,78 @@ function ComboBookLine({ position }: { position: HeldPosition }) {
         <span className="text-muted">{COMBO_BOOK_ASK_POINTER}</span>
       )}
     </p>
+  );
+}
+
+/**
+ * Ask Kalshi's makers what they would pay for this combination (#96).
+ *
+ * The other exit price beside the public book's line above -- Joe's (A) to
+ * #63: both prices, read-only, no selling from the desk. A tap, never a
+ * poll: the server fires one real request, listens a few seconds, withdraws
+ * it and answers, so what comes back is a record of that moment and there is
+ * nothing on it to take. The sentence is the server's, rendered verbatim;
+ * this component decides no wording about what the bids mean.
+ *
+ * Renders nothing on a sportsbook slip or a hand-recorded ticket: neither
+ * has a Kalshi combination to ask about.
+ */
+function SellQuote({ position }: { position: HeldPosition }) {
+  const [busy, setBusy] = useState(false);
+  const [answer, setAnswer] = useState<HedgeSellQuote | null>(null);
+  const [refused, setRefused] = useState<string | null>(null);
+
+  if (position.source !== "kalshi_combo" || !position.combo_ticker) return null;
+
+  async function ask() {
+    setBusy(true);
+    setRefused(null);
+    const result = await askWhatMakersWouldPay(position.id);
+    setBusy(false);
+    if (!result.ok) {
+      setAnswer(null);
+      setRefused(result.detail);
+      return;
+    }
+    setAnswer(result.value);
+  }
+
+  const askedAt = answer
+    ? new Date(answer.asked_ms).toLocaleTimeString("en-US", {
+        timeZone: DISPLAY_TIME_ZONE,
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : null;
+
+  return (
+    <div className="mt-2 flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={ask}
+          className="min-h-9 rounded border border-border px-3 text-[11px] uppercase tracking-wide disabled:opacity-50"
+        >
+          {busy ? "asking the makers…" : "what would makers pay?"}
+        </button>
+        <span className="text-[11px] text-muted">
+          Asks each <Term k="maker">maker</Term> once, then withdraws the
+          question. Nothing is sold.
+        </span>
+      </div>
+      {answer && (
+        <p className="text-xs leading-snug text-muted">
+          {answer.best_bid_display && (
+            <span className="tabular font-semibold text-foreground">
+              Best bid {answer.best_bid_display}.{" "}
+            </span>
+          )}
+          Asked at {askedAt}. {answer.words}
+        </p>
+      )}
+      {refused && <p className="text-[11px] text-muted">{refused}</p>}
+    </div>
   );
 }
 

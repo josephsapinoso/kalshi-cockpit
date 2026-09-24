@@ -2131,6 +2131,7 @@ def create_app(
         get_conn=get_conn,
         require_auth=require_auth,
         read_combo_book=read_combo_book,
+        combo_api=combo_api,
     )
 
     odds_router.register(

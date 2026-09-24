@@ -101,9 +101,18 @@ class RfqQuote:
     maker_id: str
     market_ticker: str
     #: What one contract of YES costs, in integer tenths of a cent.
-    yes_ask_tenths: int
+    #:
+    #: **`None` only on a sell-side read** (`parse_quotes(keep_sell_only=
+    #: True)`, #96): a maker answering a sell-side ask may bid for YES and
+    #: name no NO bid at all (`no_bid_dollars: "0.0000"`), which is a quote
+    #: with an exit and no entry. Captured 2026-09-24 on a held combination,
+    #: 2 of 17 quotes (`tests/fixtures/combo_rfq_quotes_sell_side.json`) --
+    #: and they carried the best bid on the RFQ. The buy path never passes
+    #: that flag, so every quote it sees still has an int here.
+    yes_ask_tenths: Optional[int]
     #: The maker's resting NO bid, the quantity actually quoted to us.
-    no_bid_tenths: int
+    #: `None` exactly when `yes_ask_tenths` is.
+    no_bid_tenths: Optional[int]
     #: **What the maker would PAY for one YES contract -- the exit** (#76).
     #:
     #: An RFQ has no side field, so a maker answers with both of their bids
@@ -127,9 +136,17 @@ class RfqQuote:
     #: outcome, not a price.
     yes_bid_tenths: Optional[int]
     #: Contracts the maker will do at that price, or None if unreadable.
+    #: The BUY side's size (`no_contracts_fp`), and so `None` on a sell-only
+    #: quote, which carries no such field.
     contracts: Optional[float]
     status: str
     created_ts: str
+    #: Contracts behind the YES bid -- the EXIT's size (`yes_contracts_fp`,
+    #: #96). A different wire field from `contracts`: on the 2026-09-24
+    #: capture a quote carried `no_contracts_fp`, `yes_contracts_fp`, both,
+    #: or only the bare `contracts_fp`, depending on which sides the maker
+    #: named. `None` when the maker named no bid or the field is unreadable.
+    yes_bid_contracts: Optional[float] = None
 
 
 #: Why a row's price could not become a number, when it could not.
@@ -209,9 +226,21 @@ class QuoteRead:
     #: Ids of quotes dropped for any other reason -- unparseable, or a price
     #: that is a settled outcome rather than an offer. Not actionable.
     refused_unreadable: frozenset[str] = frozenset()
+    #: Ids of quotes whose YES BID -- the exit -- was a real price finer than
+    #: a tenth of a cent (#96 defect 5). The SELL side's own refusal, kept
+    #: apart from `refused_finer_than_tenths` (the buy side's) because they
+    #: drive different sentences: this one says a maker offered to buy the
+    #: position back at a price this screen cannot print. Recorded on every
+    #: read, buy or sell; only the sell-side reader says anything about it.
+    refused_bid_finer_than_tenths: frozenset[str] = frozenset()
 
 
-def parse_quotes(payload: dict, *, rfq_id: Optional[str] = None) -> QuoteRead:
+def parse_quotes(
+    payload: dict,
+    *,
+    rfq_id: Optional[str] = None,
+    keep_sell_only: bool = False,
+) -> QuoteRead:
     """Wire payload -> quotes, cheapest YES ask first, plus the refusals.
 
     Filters to `rfq_id` when given, because `rfq_user_filter=self` returns
@@ -221,46 +250,70 @@ def parse_quotes(payload: dict, *, rfq_id: Optional[str] = None) -> QuoteRead:
     quote with an unparseable price is not a quote at zero. It is also
     **counted**, by id and by reason, because a drop the reader never hears
     about renders as "nobody quoted".
+
+    **`keep_sell_only`** is the sell-side read (#96). A maker answering an
+    ask about a combination Joe HOLDS may bid for YES and name no NO bid --
+    `no_bid_dollars: "0.0000"` -- and the buy-side rule drops such a quote
+    whole, because it offers nothing to buy. On the 2026-09-24 capture that
+    rule discarded the best exit on the RFQ. With the flag, a quote whose
+    buy side is unusable but whose YES bid is a real price is KEPT, with
+    `yes_ask_tenths = no_bid_tenths = None`, and the list is ordered best
+    bid first. The buy path never passes it, and on its reads this function
+    behaves exactly as it did.
     """
     out: list[RfqQuote] = []
     too_fine: set[str] = set()
     unreadable: set[str] = set()
+    bid_too_fine: set[str] = set()
     for row in payload.get("quotes") or ():
         if rfq_id is not None and row.get("rfq_id") != rfq_id:
             continue
         row_id = str(row.get("id") or "")
-        no_bid, reason = _read_tenths(row.get("no_bid_dollars"))
-        if no_bid is None:
-            if reason == REFUSED_FINER_THAN_TENTHS:
-                too_fine.add(row_id)
-            else:
-                unreadable.add(row_id)
-            continue
-        ask = complement(no_bid)
-        # 0 and 1000 are settled outcomes, not quotes. A maker bidding $0.00 on
-        # NO is not offering YES at $1.00; it is not offering anything.
-        if not is_valid_price(ask) or not is_valid_price(no_bid):
-            logger.warning(
-                "rfq: dropping quote %s -- no_bid %s gives an untradeable ask",
-                row.get("id"), row.get("no_bid_dollars"),
-            )
-            # Not `refused_finer_than_tenths`: 0 and 1000 are settled
-            # outcomes. A maker bidding $0.00 on NO is not offering a price
-            # too precise to show, it is not offering anything, so telling
-            # the reader to go and look for it in the app would be wrong.
-            unreadable.add(row_id)
-            continue
-        try:
-            contracts = float(row["no_contracts_fp"])
-        except (KeyError, TypeError, ValueError):
-            contracts = None
         # **The sell side, kept rather than discarded** (#76). Absent on many
         # quotes, so its refusal reason is deliberately NOT counted into
         # `too_fine`: that count drives a sentence about whether the desk
         # could show Joe a price to BUY, and a maker declining to bid on the
         # side he does not hold is not a failure to price the one he does.
+        # It goes into its own set instead (#96 defect 5): a real exit price
+        # too fine to print is a named refusal, never a silent None.
         # `None` is the honest value; it never becomes zero.
-        yes_bid, _ = _read_tenths(row.get("yes_bid_dollars"))
+        yes_bid, bid_reason = _read_tenths(row.get("yes_bid_dollars"))
+        if bid_reason == REFUSED_FINER_THAN_TENTHS:
+            bid_too_fine.add(row_id)
+        no_bid, reason = _read_tenths(row.get("no_bid_dollars"))
+        ask: Optional[int] = None
+        buy_side_usable = False
+        if no_bid is None:
+            buy_refusal = too_fine if reason == REFUSED_FINER_THAN_TENTHS else unreadable
+        else:
+            ask = complement(no_bid)
+            # 0 and 1000 are settled outcomes, not quotes. A maker bidding
+            # $0.00 on NO is not offering YES at $1.00; it is not offering
+            # anything. Not `refused_finer_than_tenths` either: telling the
+            # reader to go and look for it in the app would be wrong.
+            buy_side_usable = is_valid_price(ask) and is_valid_price(no_bid)
+            buy_refusal = unreadable
+        if not buy_side_usable:
+            sell_side_usable = yes_bid is not None and is_valid_price(yes_bid)
+            if not (keep_sell_only and sell_side_usable):
+                logger.warning(
+                    "rfq: dropping quote %s -- no_bid %s gives an untradeable ask",
+                    row.get("id"), row.get("no_bid_dollars"),
+                )
+                buy_refusal.add(row_id)
+                continue
+            # A sell-only quote: an exit with no entry. Both buy-side
+            # numbers are None, never a stand-in.
+            ask = None
+            no_bid = None
+        try:
+            contracts = float(row["no_contracts_fp"])
+        except (KeyError, TypeError, ValueError):
+            contracts = None
+        try:
+            yes_bid_contracts: Optional[float] = float(row["yes_contracts_fp"])
+        except (KeyError, TypeError, ValueError):
+            yes_bid_contracts = None
         if yes_bid is not None and not is_valid_price(yes_bid):
             # 0 and 1000 again: a maker "bidding" a settled outcome is not
             # offering to buy. Dropped to None, and the QUOTE survives --
@@ -272,6 +325,8 @@ def parse_quotes(payload: dict, *, rfq_id: Optional[str] = None) -> QuoteRead:
                 row.get("yes_bid_dollars"),
             )
             yes_bid = None
+        if yes_bid is None:
+            yes_bid_contracts = None
         out.append(
             RfqQuote(
                 quote_id=str(row.get("id") or ""),
@@ -284,16 +339,23 @@ def parse_quotes(payload: dict, *, rfq_id: Optional[str] = None) -> QuoteRead:
                 contracts=contracts,
                 status=str(row.get("status") or ""),
                 created_ts=str(row.get("created_ts") or ""),
+                yes_bid_contracts=yes_bid_contracts,
             )
         )
     # Cheapest first. An ORDER, not a recommendation: the makers on the one
     # RFQ this repo has fired were 3.80 cents apart, so which row a reader
     # sees first is worth real money, while nothing here says to take it.
-    out.sort(key=lambda q: q.yes_ask_tenths)
+    # On a sell-side read, best BID first, for the same reason from the
+    # other side; a quote with no bid sorts after every quote with one.
+    if keep_sell_only:
+        out.sort(key=lambda q: (q.yes_bid_tenths is None, -(q.yes_bid_tenths or 0)))
+    else:
+        out.sort(key=lambda q: q.yes_ask_tenths)
     return QuoteRead(
         quotes=tuple(out),
         refused_finer_than_tenths=frozenset(too_fine),
         refused_unreadable=frozenset(unreadable),
+        refused_bid_finer_than_tenths=frozenset(bid_too_fine),
     )
 
 
@@ -346,9 +408,16 @@ def _is_reusable(existing: dict, wanted_target: Optional[str]) -> bool:
 
     An unreadable target resolves to **not reusable**: a fresh RFQ costs one
     call, and a stale one costs a refused trade.
+
+    **Only a dollar-target ask reaches this** (#96 defect 4). It used to
+    answer `True` for `wanted_target is None` -- three lines under the rule
+    above -- so a `contracts=` ask would silently reuse whatever RFQ was open,
+    priced for a different size. `create_rfq` now refuses a size-based ask
+    that meets `already_exists` before it gets here, and this answers False
+    for None rather than restating a case it no longer sees.
     """
     if wanted_target is None:
-        return True
+        return False
     try:
         return float(existing.get("target_cost_dollars") or 0) <= float(wanted_target)
     except (TypeError, ValueError):
@@ -390,6 +459,7 @@ async def create_rfq(
     legs: Sequence[dict],
     target_cost_dollars: Optional[str] = None,
     contracts: Optional[int] = None,
+    contracts_fp: Optional[str] = None,
 ) -> RfqHandle:
     """Ask the market to price a combination.
 
@@ -400,14 +470,27 @@ async def create_rfq(
     Kalshi's docs are explicit and this repo has exercised create-and-delete
     without money moving.
 
-    Exactly one of `target_cost_dollars` or `contracts` -- the venue accepts
-    either, and refusing both here turns an ambiguous request into a clear
-    error rather than letting the venue pick.
+    Exactly one of `target_cost_dollars`, `contracts` or `contracts_fp` --
+    the venue accepts each, and refusing two here turns an ambiguous request
+    into a clear error rather than letting the venue pick.
+
+    `contracts_fp` is the fixed-point STRING form (`"2.01"`), the size a
+    sell-side ask needs because holdings are fractional (#96 defect 1).
+    Measured 2026-09-24: the venue took `contracts_fp: "2.01"` on create,
+    held `contracts_fp: "2.01"` on the row, and all 18 makers quoted 2.01.
+
+    **A size-based ask that meets `already_exists` is REFUSED, never reused**
+    (#96 defect 4). The 409 means one of ours is open on this market, and it
+    was asked at some other size -- or is a buy-side ask a Take-it tap may be
+    holding open -- so reusing it returns quotes priced for another request,
+    and deleting it could destroy a quote on screen. The refusal says so.
     """
-    if (target_cost_dollars is None) == (contracts is None):
+    sizes = [x for x in (target_cost_dollars, contracts, contracts_fp) if x is not None]
+    if len(sizes) != 1:
         raise RfqRefused(
-            "name exactly one of target_cost_dollars or contracts; "
-            f"got {target_cost_dollars!r} and {contracts!r}"
+            "name exactly one of target_cost_dollars, contracts or "
+            f"contracts_fp; got {target_cost_dollars!r}, {contracts!r} and "
+            f"{contracts_fp!r}"
         )
     if not legs:
         raise RfqRefused("an RFQ needs at least one leg")
@@ -425,6 +508,8 @@ async def create_rfq(
     }
     if target_cost_dollars is not None:
         body["target_cost_dollars"] = target_cost_dollars
+    elif contracts_fp is not None:
+        body["contracts_fp"] = contracts_fp
     else:
         body["contracts"] = contracts
 
@@ -437,7 +522,17 @@ async def create_rfq(
         # on the same combination lands here, and the right answer is to hand
         # back the RFQ that already exists rather than to refuse -- or to
         # delete it, which would destroy the quotes it is holding.
-        if "already_exists" in str(getattr(exc, "body", "") or exc):
+        already_exists = "already_exists" in str(getattr(exc, "body", "") or exc)
+        if already_exists and target_cost_dollars is None:
+            # A size-based ask (#96 defect 4): see the docstring. Neither
+            # reused nor deleted -- the open one is not this ask's.
+            raise RfqRefused(
+                "an RFQ of ours is already open on this combination "
+                "(already_exists) -- asked at another size, or held open by a "
+                "buy-side ask. It was neither reused nor withdrawn; asking "
+                "again once it closes is free."
+            ) from exc
+        if already_exists:
             existing = await open_rfq_for(api, market_ticker)
             if existing is not None:
                 if _is_reusable(existing, target_cost_dollars):
@@ -502,18 +597,90 @@ async def create_rfq(
     )
 
 
-async def read_quotes(api: KalshiRestClient, rfq_id: str) -> QuoteRead:
+async def read_quotes(
+    api: KalshiRestClient, rfq_id: str, *, keep_sell_only: bool = False
+) -> QuoteRead:
     """Quotes answering *our* RFQ, cheapest first, with the refusals beside them.
 
     `rfq_user_filter=self` is the documented way and needs no user id. The
     older `rfq_creator_user_id` is deprecated, and `communications_id` is not
     the user id -- passing it gets a 403 that reads like a permissions problem
     and is not one.
+
+    `keep_sell_only` is passed through to `parse_quotes`; only the exit ask
+    (#96) sets it.
     """
     payload = await api.request(
         "GET", _QUOTES, params={"rfq_user_filter": "self", "limit": 500}
     )
-    return parse_quotes(payload, rfq_id=rfq_id)
+    return parse_quotes(payload, rfq_id=rfq_id, keep_sell_only=keep_sell_only)
+
+
+# ---------------------------------------------------------------------------
+# Sizing and describing a sell-side ask (#96). Pure; shared by the exit route
+# and `scripts/capture_sell_side_rfq.py`.
+# ---------------------------------------------------------------------------
+
+
+def held_position_fp(rows: Sequence[dict], ticker: str) -> Optional[str]:
+    """The `position_fp` string for `ticker` among `/portfolio/positions` rows.
+
+    `None` when the ticker is not there -- which, on a combination, is also
+    what a venue-settled position looks like (it leaves the positions read
+    before its legs settle; `tasks/lessons.md` 2026-09-22). The caller
+    refuses; it never substitutes a recorded size.
+    """
+    for row in rows:
+        if row.get("ticker") == ticker or row.get("market_ticker") == ticker:
+            fp = row.get("position_fp")
+            return None if fp is None else str(fp)
+    return None
+
+
+def floor_contracts_fp(position_fp: Any) -> Optional[str]:
+    """A fixed-point holding (`'8.226'`) floored to the venue's 0.01 grid.
+
+    **Floored, never rounded** (#96 defect 1): `'8.226'` asks for `'8.22'`,
+    never `'8.23'` -- asking makers to buy more than is held. Returns the
+    string the venue takes as `contracts_fp`, or `None` when the holding is
+    unreadable, negative (a NO holding, which this ask does not describe) or
+    under one hundredth of a contract. Never `'0.00'`.
+    """
+    try:
+        value = Decimal(str(position_fp))
+    except (InvalidOperation, ValueError):
+        return None
+    if not value.is_finite() or value < 0:
+        return None
+    floored = (value * 100).to_integral_value(rounding="ROUND_FLOOR") / 100
+    if floored <= 0:
+        return None
+    return f"{floored:.2f}"
+
+
+def mve_legs(market_payload: dict) -> tuple[str, list[dict]]:
+    """`(mve_collection_ticker, mve_selected_legs)` off `GET /markets/{ticker}`.
+
+    Read from the VENUE's own market, never from a request or a stored card:
+    a held combination may have been bought through a tap that recorded no
+    lookup, and the market row is the authority on what it is made of. The
+    envelope is `{"market": {...}}`; the bare shape is accepted too. Missing
+    either field refuses -- an RFQ without the legs the venue expects is a
+    4xx dressed as ours.
+    """
+    market = (
+        market_payload.get("market")
+        if isinstance(market_payload.get("market"), dict)
+        else market_payload
+    )
+    collection = market.get("mve_collection_ticker")
+    legs = market.get("mve_selected_legs")
+    if not collection or not isinstance(legs, list) or not legs:
+        raise RfqRefused(
+            "the market carries no mve_collection_ticker / mve_selected_legs; "
+            f"keys: {sorted(market)}"
+        )
+    return str(collection), [dict(leg) for leg in legs]
 
 
 async def delete_rfq(api: KalshiRestClient, rfq_id: str) -> None:

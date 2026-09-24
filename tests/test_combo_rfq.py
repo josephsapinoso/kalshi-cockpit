@@ -299,7 +299,8 @@ class TestAskingTwiceAboutTheSameCombination:
         api = self._Api(open_id="rfq-open", ticker="T")
         assert (await create_rfq(
             api, market_ticker="T", collection_ticker="C",
-            legs=[{"market_ticker": "L", "side": "yes"}], contracts=1,
+            legs=[{"market_ticker": "L", "side": "yes"}],
+            target_cost_dollars="5.0000",
         )).rfq_id == "rfq-open"
 
     async def test_a_409_with_nothing_open_still_refuses(self):
@@ -395,16 +396,23 @@ class TestAnOversizedOpenRfqIsReplacedNotReused:
         assert (await self._ask(api, "3.5424")).rfq_id == "rfq-fresh"
         assert "DELETE" in api.calls
 
-    async def test_a_size_based_ask_still_reuses(self):
-        """`contracts=` carries no dollar target to compare, so the old
-        behaviour stands rather than deleting on every repeat ask."""
+    @pytest.mark.parametrize("size", [{"contracts": 1}, {"contracts_fp": "2.01"}])
+    async def test_a_size_based_ask_is_refused_neither_reused_nor_deleted(self, size):
+        """#96 defect 4. This test used to be `test_a_size_based_ask_still_
+        reuses` and pinned the defect: `_is_reusable` answered True for a
+        `contracts=` ask, so a sell-side ask sized to a holding would have
+        silently reused the open $5 BUY RFQ and read quotes priced for it.
+        Deleting is no better -- a Take-it tab may be holding that RFQ open.
+        So a size-based ask that meets `already_exists` is refused, and the
+        refusal names the reason."""
         api = self._Api("5.0000")
-        got = await create_rfq(
-            api, market_ticker="T", collection_ticker="C",
-            legs=[{"market_ticker": "L", "side": "yes"}], contracts=1,
-        )
-        assert got.rfq_id == "rfq-stale"
+        with pytest.raises(RfqRefused, match="already open"):
+            await create_rfq(
+                api, market_ticker="T", collection_ticker="C",
+                legs=[{"market_ticker": "L", "side": "yes"}], **size,
+            )
         assert "DELETE" not in api.calls
+        assert api.posts == 1, "a second create was attempted"
 class TestAPriceTooFineToShowIsNotNobodyQuoting(object):
     """Issue #73. Two different facts that used to render as one sentence.
 

@@ -24,8 +24,9 @@
  * -----------------------------
  * - That the price shown is good, or that accepting it would fill. It is
  *   the public book's own best bid, read once, at the timestamp shown.
- * - Anything about the RFQ path. Asking a maker is a different action, at a
- *   different price, on a different screen (`POST /api/parlays/rfq`).
+ * - Anything about the RFQ path. Asking the makers is a different action, at
+ *   a different price, by the card's own control (`POST /api/hedge/
+ *   positions/{id}/sell-quote`, #96).
  * - That "not applicable" is temporary or permanent for a given ticket — a
  *   hand-recorded slip will never gain a ticker; a reader being unwired is
  *   a deploy fact this module cannot see.
@@ -103,6 +104,12 @@ export function comboBookNote(
   }
 }
 
-/** The one pointer allowed beside a combo-book line — carries no rate. */
+/**
+ * The one pointer allowed beside a combo-book line — carries no rate.
+ *
+ * It named the Parlays page until #96, when that page could only ask what a
+ * combination COSTS to buy. The question a held ticket needs — what makers
+ * would PAY for it — is now asked from this card, by the control below it.
+ */
 export const COMBO_BOOK_ASK_POINTER =
-  "You can also ask makers for a price on the Parlays page.";
+  "The makers can also be asked directly, below.";

@@ -206,6 +206,20 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
             "replaced by documented placeholders: this repo is public and "
             "operator data never enters it. Prices and structure are verbatim.",
     ),
+    # #96 / #129 -- the first committed SELL-side quote: an RFQ asked about a
+    # combination held at the venue, sized in contracts from the holding.
+    # Written by `scripts/capture_sell_side_rfq.py --fixture`, which carries
+    # the create's URL (with `exchange_index=1`) and its full body.
+    "combo_rfq_quotes_sell_side.json": RecordsItsRequest(
+        params_in=("params",),
+        param_names=("rfq_user_filter", "limit", "exchange_index"),
+        endpoint_in=("endpoint",),
+        how="A `params` mapping carrying the quote read, the create's URL "
+            "(`exchange_index=1` in it) and the full `POST /communications/rfqs` "
+            "body, sized in `contracts` from the venue's own positions read. "
+            "Quote, maker and requester ids are documented placeholders; "
+            "prices, sizes and timestamps are verbatim.",
+    ),
     "odds_mlb_h2h_spreads_totals.json": RecordsItsRequest(
         params_in=("params",),
         param_names=("regions", "markets", "oddsFormat"),

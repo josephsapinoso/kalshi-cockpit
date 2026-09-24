@@ -71,6 +71,8 @@ def record_rfq(
     book_yes_ask_tenths: Optional[int] = None,
     status: str = STATUS_ASKED,
     error_text: Optional[str] = None,
+    purpose: Optional[str] = None,
+    contracts_fp_requested: Optional[str] = None,
 ) -> None:
     """Write the ask itself, before any quote is read.
 
@@ -84,6 +86,10 @@ def record_rfq(
     NULL is the expected value and means the book was empty -- the normal
     resting state of a combination, not a fault. It is stored so the two
     surfaces can be compared later without running a second experiment.
+
+    `purpose` is `'buy'` or `'exit'` (v56, #96): an RFQ has no side at the
+    venue, so this is the only record of which question was asked. NULL is
+    accepted for the callers that predate it and is never inferred.
     """
     # **`ON CONFLICT(rfq_id) DO NOTHING`, never `INSERT OR IGNORE`.**
     # They read as synonyms and are not: `OR IGNORE` swallows *every*
@@ -100,15 +106,15 @@ def record_rfq(
             rfq_id, requested_ms, card_key, ticker, collection_ticker,
             selected_legs, exchange_index, target_cost_dollars,
             contracts_requested, fair_joint, book_yes_ask_tenths,
-            quote_count, status, error_text
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+            quote_count, status, error_text, purpose, contracts_fp_requested
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
         ON CONFLICT(rfq_id) DO NOTHING
         """,
         (
             rfq_id, requested_ms, card_key, ticker, collection_ticker,
             json.dumps(list(legs)), exchange_index, target_cost_dollars,
             contracts_requested, fair_joint, book_yes_ask_tenths,
-            status, error_text,
+            status, error_text, purpose, contracts_fp_requested,
         ),
     )
 
@@ -171,8 +177,8 @@ def record_quotes(
             INSERT INTO combo_rfq_quotes (
                 rfq_id, quote_id, captured_ms, maker_id,
                 yes_ask_tenths, no_bid_tenths, yes_bid_tenths, contracts,
-                status, created_ts
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                status, created_ts, yes_bid_contracts
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(rfq_id, quote_id) DO UPDATE SET
                 captured_ms    = excluded.captured_ms,
                 maker_id       = excluded.maker_id,
@@ -181,14 +187,15 @@ def record_quotes(
                 yes_bid_tenths = excluded.yes_bid_tenths,
                 contracts      = excluded.contracts,
                 status         = excluded.status,
-                created_ts     = excluded.created_ts
+                created_ts     = excluded.created_ts,
+                yes_bid_contracts = excluded.yes_bid_contracts
             WHERE combo_rfq_quotes.accepted_ms IS NULL
             """,
             (
                 rfq_id, quote.quote_id, captured_ms, quote.maker_id,
                 quote.yes_ask_tenths, quote.no_bid_tenths,
                 quote.yes_bid_tenths, quote.contracts,
-                quote.status, quote.created_ts,
+                quote.status, quote.created_ts, quote.yes_bid_contracts,
             ),
         )
         written += cur.rowcount or 0

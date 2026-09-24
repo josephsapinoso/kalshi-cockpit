@@ -53,6 +53,7 @@ from backend.core.hedge import SETTLEMENT_TENTHS, combo_entry_fee_tenths
 from backend.core.prices import (
     dollars_to_tenths,
     format_dollars,
+    format_price,
     probability_to_tenths,
 )
 from backend.kalshi.discovery import parse_ms
@@ -67,6 +68,9 @@ from backend.kalshi.rfq import (
     accept_quote,
     create_rfq,
     delete_rfq,
+    floor_contracts_fp,
+    held_position_fp,
+    mve_legs,
     read_quote,
     read_quotes,
 )
@@ -302,6 +306,7 @@ async def ask_market_to_price(
         target_cost_dollars=target,
         fair_joint=lookup["fair_joint_conservative"],
         book_yes_ask_tenths=book_ask,
+        purpose="buy",
     )
     conn.commit()
 
@@ -572,6 +577,261 @@ def _words(
         f"{len(quotes)} maker(s) answered.{spread_line}{fine_line} {book_line} "
         "A quote is an offer, not a fill: the maker still has a few seconds "
         "to confirm and may decline."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Asking what makers would pay for a combination Joe HOLDS. Issue #96.
+# ---------------------------------------------------------------------------
+
+
+async def ask_makers_to_buy_back(
+    conn: sqlite3.Connection,
+    *,
+    position_id: int,
+    now_ms: int,
+    api,
+) -> dict:
+    """Fire one sell-side RFQ on a held combination, record it, withdraw it.
+
+    The exit half of Joe's answer to #63: **show both exit prices on
+    `/hedge`, read-only, no selling from the desk.** The public book's bid
+    is #95 (`hedge.combo_book_state`); this is the other surface, and the
+    one that was the only exit on 2026-09-17's third position.
+
+    **Everything about the ask comes from the venue or our own row, nothing
+    from the request** -- which carries only a position id. The ticker is
+    the position's recorded `combo_ticker`; the SIZE is the venue's own
+    `position_fp`, floored to its 0.01 grid (`floor_contracts_fp`, defect
+    1: never more than is held, and `parlay_positions` has no contracts
+    column to read instead); the legs are the market's own
+    (`mve_legs`), because an RFQ-accepted position recorded no lookup.
+
+    **Withdrawn every time, in the `finally`, after the quotes are written.**
+    There is no accept path for an exit (Joe's #63 answer), so holding the
+    RFQ open buys nothing and costs one of the venue's 100 slots -- and, on
+    the buy route, a 409 the next time he asks what a card costs.
+
+    **Not called from `hedge_watch`**, which runs `build_payload` every 60 s
+    unattended (defect 2): that would fire ~1,440 RFQs a day on the same
+    shard-1 write budget the armed order path uses. It is a tap, through its
+    own route. `tests/test_hedge_sell_quote.py` pins the absence.
+
+    What this does not establish: that a bid would fill, or that it is good.
+    Every best bid on 2026-09-17 sat below cost basis. A count at one
+    moment, never a rate.
+    """
+    position = conn.execute(
+        "SELECT id, source, combo_ticker, status FROM parlay_positions "
+        "WHERE id = ?",
+        (position_id,),
+    ).fetchone()
+    if position is None:
+        raise LookupRefused(
+            404, "There is no such ticket on this desk. Nothing was asked."
+        )
+    if position["status"] != "open":
+        raise LookupRefused(
+            409,
+            "This ticket is no longer being watched, so the desk will not ask "
+            "about it. Nothing was asked.",
+        )
+    ticker = position["combo_ticker"]
+    if position["source"] != "kalshi_combo" or not ticker:
+        raise LookupRefused(
+            409,
+            "This ticket was recorded by hand, so the desk has no Kalshi "
+            "combination to ask about. Nothing was asked.",
+        )
+    ticker = str(ticker)
+
+    try:
+        rows = await api.positions()
+    except Exception as exc:  # noqa: BLE001 -- the size is unknowable without it
+        raise LookupRefused(
+            502,
+            f"Kalshi's positions could not be read ({exc}), so the size to ask "
+            "about is unknown. Nothing was asked.",
+        ) from exc
+    position_fp = held_position_fp(rows, ticker)
+    if position_fp is None:
+        raise LookupRefused(
+            409,
+            "Kalshi does not show this combination among your open positions "
+            "right now -- it may already have settled, which a combination "
+            "does before its legs do. Nothing was asked.",
+        )
+    contracts_fp = floor_contracts_fp(position_fp)
+    if contracts_fp is None:
+        raise LookupRefused(
+            409,
+            f"Kalshi shows {position_fp} contracts held, which is not a size "
+            "that can be asked about (under a hundredth of a contract, or "
+            "not a YES holding). Nothing was asked.",
+        )
+
+    try:
+        collection, legs = mve_legs(await api.get(f"/markets/{ticker}"))
+    except RfqRefused as exc:
+        raise LookupRefused(
+            502, f"Kalshi's market for this combination is unreadable: {exc}. "
+            "Nothing was asked.",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 -- transport; nothing was asked
+        raise LookupRefused(
+            502, f"Kalshi's market for this combination could not be read "
+            f"({exc}). Nothing was asked.",
+        ) from exc
+
+    try:
+        handle = await create_rfq(
+            api,
+            market_ticker=ticker,
+            collection_ticker=collection,
+            legs=legs,
+            contracts_fp=contracts_fp,
+        )
+    except RfqRefused as exc:
+        raise LookupRefused(
+            409 if "already open" in str(exc) else 502,
+            f"Kalshi would not take the question: {exc} Nothing was asked "
+            "and no money moved.",
+        ) from exc
+    rfq_id = handle.rfq_id
+
+    store.record_rfq(
+        conn,
+        rfq_id=rfq_id,
+        requested_ms=now_ms,
+        ticker=ticker,
+        collection_ticker=collection,
+        legs=legs,
+        exchange_index=EXCHANGE_INDEX_COMBOS,
+        purpose="exit",
+        contracts_fp_requested=contracts_fp,
+    )
+    conn.commit()
+
+    seen: dict[str, RfqQuote] = {}
+    # Union by id across polls (#73's rule): a count of MAKERS, not reads.
+    bid_too_fine: set[str] = set()
+    deadline = time.monotonic() + QUOTE_WAIT_S
+    try:
+        while time.monotonic() < deadline:
+            try:
+                read = await read_quotes(api, rfq_id, keep_sell_only=True)
+                bid_too_fine |= read.refused_bid_finer_than_tenths
+                for quote in read.quotes:
+                    seen[quote.quote_id] = quote
+            except Exception as exc:  # noqa: BLE001 -- keep polling
+                logger.warning("exit rfq %s: quote read failed (%s)", rfq_id, exc)
+            await asyncio.sleep(QUOTE_POLL_S)
+    finally:
+        # READ, write, then withdraw: the venue drops its copy at delete.
+        store.record_quotes(
+            conn, rfq_id=rfq_id, quotes=seen.values(), captured_ms=now_ms,
+            refused_too_fine=len(bid_too_fine),
+        )
+        conn.commit()
+        await delete_rfq(api, rfq_id)
+        store.mark_deleted(conn, rfq_id=rfq_id, deleted_ms=now_ms)
+        conn.commit()
+
+    bids = sorted(
+        (q for q in seen.values() if q.yes_bid_tenths is not None),
+        key=lambda q: -int(q.yes_bid_tenths or 0),
+    )
+    best = bids[0] if bids else None
+    return {
+        "status": (
+            "bid" if bids
+            else "bid_too_finely" if bid_too_fine
+            else "no_bid"
+        ),
+        "position_id": position_id,
+        "market_ticker": ticker,
+        "rfq_id": rfq_id,
+        # The venue's holding verbatim, and the floored size actually asked.
+        "held_fp": position_fp,
+        "asked_fp": contracts_fp,
+        "asked_ms": now_ms,
+        "makers_answered": len(seen),
+        "refused_bid_too_fine": len(bid_too_fine),
+        "best_bid_tenths": None if best is None else best.yes_bid_tenths,
+        "best_bid_display": (
+            None if best is None else _cost_per_contract(best.yes_bid_tenths)
+        ),
+        "bids": [
+            {
+                "quote_id": q.quote_id,
+                "yes_bid_tenths": q.yes_bid_tenths,
+                "bid_display": _cost_per_contract(q.yes_bid_tenths),
+                "contracts": q.yes_bid_contracts,
+            }
+            for q in bids
+        ],
+        "words": _exit_words(
+            makers=len(seen), bids=bids, bid_too_fine=len(bid_too_fine),
+            asked_fp=contracts_fp,
+        ),
+    }
+
+
+def _exit_words(
+    *, makers: int, bids: list[RfqQuote], bid_too_fine: int, asked_fp: str
+) -> str:
+    """What the exit ask says. Facts only -- and never a frequency.
+
+    **Joe's rule, twice (#60, #64): say what an exit COSTS, never how often
+    one exists.** Four frequency clauses about combination exits have been
+    written into this repo and withdrawn. So nothing here says bids are
+    rare, common, usual or unusual; each sentence is about these makers, at
+    this moment, on this ticket.
+
+    It says the desk does not sell, because that is Joe's #63 answer and
+    the one fact a reader needs before reading a bid as something to tap.
+    """
+    tail = (
+        " The request was withdrawn; nothing was sold. This desk does not "
+        "sell -- selling happens in the Kalshi app, at whatever makers bid "
+        "then, less Kalshi's fee."
+    )
+    fine = (
+        f" A further {bid_too_fine} bid at a price finer than a tenth of a "
+        "cent, which this screen will not round; the Kalshi app shows it."
+        if bid_too_fine
+        else ""
+    )
+    if bids:
+        best = bids[0]
+        size = (
+            f", for {best.yes_bid_contracts:g} contracts"
+            if best.yes_bid_contracts is not None
+            else ""
+        )
+        return (
+            f"Asked about {asked_fp} contracts: {makers} maker(s) answered and "
+            f"{len(bids)} bid to buy this back. Best bid "
+            f"{format_price(best.yes_bid_tenths)} a contract{size}.{fine}"
+            + tail
+        )
+    if bid_too_fine:
+        return (
+            f"Asked about {asked_fp} contracts: {bid_too_fine} maker(s) bid to "
+            "buy this back at a price finer than a tenth of a cent, which "
+            "this screen will not round. The Kalshi app shows it." + tail
+        )
+    if makers:
+        return (
+            f"Asked about {asked_fp} contracts: {makers} maker(s) answered and "
+            "none bid to buy this back in these few seconds. That is a fact "
+            "about this moment, not about the ticket; asking again is free."
+            + tail
+        )
+    return (
+        f"Asked about {asked_fp} contracts: no maker answered within a few "
+        "seconds. That is a fact about this moment, not about the ticket; "
+        "asking again is free." + tail
     )
 
 
@@ -915,6 +1175,21 @@ async def accept_quote_for_joe(
             f"{quote['accepted_ms']}. It is not re-sent, because an RFQ "
             "acceptance carries no idempotency key and a retry would be a "
             "second real trade. Read its outcome rather than tapping again.",
+        )
+
+    # **An exit ask's quote is never accepted here** (#96). Since v56 the
+    # quote table also holds answers to "what would makers pay for this
+    # combination I hold" -- rows whose buy-side price may be NULL. This
+    # path BUYS YES, and Joe's answer to #63 was "no selling from the desk",
+    # so a quote from an exit ask, or one with no price to buy at, is
+    # refused before any intent is written or anything is sent.
+    rfq = store.rfq_row(conn, rfq_id)
+    if (rfq is not None and rfq["purpose"] == "exit") or quote["yes_ask_tenths"] is None:
+        raise LookupRefused(
+            409,
+            "That quote answered a question about selling a combination you "
+            "hold, not buying one, and this desk does not sell. Nothing was "
+            "sent and no money moved.",
         )
 
     side = ACCEPT_SIDE_FOR_BUYING_YES

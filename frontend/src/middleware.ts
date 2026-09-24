@@ -107,6 +107,10 @@ const JSON_ROUTE_HANDLERS = new Set([
   "/hedge-position",
   "/hedge-resolve",
   "/hedge-close",
+  // Asks the makers what they would pay for a combination Joe holds (#96).
+  // Outward-facing -- it creates a real RFQ and withdraws it -- and spends
+  // nothing; listed for the same JSON-401 reason as the rest.
+  "/hedge-sell-quote",
 ]);
 
 /**

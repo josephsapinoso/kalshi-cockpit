@@ -3760,6 +3760,56 @@ export function closeHeldPosition(
   return postHedge("/hedge-close", { position_id: positionId, status });
 }
 
+/**
+ * What makers said they would pay for a held combination, asked once (#96).
+ *
+ * The RFQ half of Joe's (A) to #63 -- read-only; the desk does not sell. The
+ * request was withdrawn before this arrived, so nothing here can be taken.
+ */
+export type HedgeSellQuote = {
+  /**
+   * `bid`: one or more makers named a price to buy it back. `bid_too_finely`:
+   * makers bid only in hundredths of a cent, which the desk refuses to round.
+   * `no_bid`: nobody bid in the few seconds the desk listened.
+   */
+  status: "bid" | "bid_too_finely" | "no_bid";
+  position_id: number;
+  market_ticker: string;
+  /** The venue's holding, verbatim, and the floored size actually asked. */
+  held_fp: string;
+  asked_fp: string;
+  asked_ms: number;
+  makers_answered: number;
+  refused_bid_too_fine: number;
+  /** Rendered server-side through the ONE price renderer; null with no bid. */
+  best_bid_display: string | null;
+  best_bid_tenths: number | null;
+  bids: {
+    quote_id: string;
+    yes_bid_tenths: number;
+    bid_display: string;
+    /** Contracts behind that bid; null when the maker did not say. */
+    contracts: number | null;
+  }[];
+  /** The server's own sentence, rendered verbatim. */
+  words: string;
+};
+
+export async function askWhatMakersWouldPay(
+  positionId: number,
+): Promise<{ ok: true; value: HedgeSellQuote } | { ok: false; detail: string }> {
+  const answer = await postHedge("/hedge-sell-quote", { position_id: positionId });
+  if (!answer.ok) return answer;
+  const body = answer.body;
+  if (body && typeof body === "object" && "status" in body && "words" in body) {
+    return { ok: true, value: body as HedgeSellQuote };
+  }
+  return {
+    ok: false,
+    detail: "The cockpit answered in a shape this screen does not know. Nothing was sold.",
+  };
+}
+
 // -- resting bids on a combination (ADR 0084) --------------------------------
 //
 // **A different verb from every other buy control in this app.** Everywhere

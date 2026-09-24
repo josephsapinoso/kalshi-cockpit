@@ -88,6 +88,18 @@ logger = logging.getLogger(__name__)
 #: rebuild of a parent table with `foreign_keys = ON` inside the migration's
 #: transaction -- a class of step this runner has never taken, on the volume
 #: that cannot be recreated. #96 slides to 56 (its fifth slide).
+#: v56 (2026-09-24) is #96, at last: the sell-side quote can be stored. A
+#: REBUILD of `combo_rfq_quotes` -- `yes_ask_tenths` and `no_bid_tenths`
+#: lose NOT NULL, because a maker answering a sell-side ask may bid for YES
+#: and name no NO bid, and the 2026-09-24 capture's best exit was exactly
+#: such a quote. SQLite cannot drop NOT NULL in place. `yes_bid_contracts`
+#: (the size behind the bid, `yes_contracts_fp`) rides in the same rebuild,
+#: and its presence is the step's skip guard. Plus two nullable COLUMNS on
+#: `combo_rfqs`: `purpose` ('buy' / 'exit') and `contracts_fp_requested`.
+#: No backfill anywhere: every quote before v56 came from a buy-side read
+#: that never read the bid's size, and every ask before v56 wrote no
+#: purpose. `combo_rfq_quotes` is referenced by no foreign key, so this is
+#: the v49 class of rebuild, not the v55 note's parent-table hazard.
 #: v53 (2026-09-21) adds `scout_watch_log` -- what the unattended scout
 #: watcher decided each cycle, including the cycles where it decided to do
 #: nothing (#126). A STATEMENTS step, because `schema.sql` is applied with
@@ -232,7 +244,7 @@ logger = logging.getLogger(__name__)
 #: `executescript` cannot do that. Written on `main`, 2026-09-18, the
 #: evening `/api/window` measured 7 s at the median and tripped the 25 s
 #: read budget twice.
-SCHEMA_VERSION = 55
+SCHEMA_VERSION = 56
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1111,6 +1123,81 @@ _COMBO_RFQS_ADMIT_TOO_FINELY_UNDO = (
 )
 
 
+def _combo_rfq_quotes_create(table: str, *, sell_side: bool) -> str:
+    """The `combo_rfq_quotes` shape, in both directions of the v56 step.
+
+    DDL only; `schema.sql` carries the column comments. `sell_side=True` is
+    v56: the two buy-side prices nullable and `yes_bid_contracts` present.
+    One function for both spellings, on the `_combo_rfqs_create` precedent,
+    so the NOT NULLs cannot drift between two hand-typed statements.
+    """
+    not_null = "" if sell_side else " NOT NULL"
+    return (
+        f"CREATE TABLE IF NOT EXISTS {table} (\n"
+        "    id              INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+        "    rfq_id          TEXT NOT NULL,\n"
+        "    quote_id        TEXT NOT NULL,\n"
+        "    captured_ms     INTEGER NOT NULL,\n"
+        "    maker_id        TEXT,\n"
+        f"    yes_ask_tenths  INTEGER{not_null},\n"
+        f"    no_bid_tenths   INTEGER{not_null},\n"
+        "    yes_bid_tenths  INTEGER,\n"
+        "    contracts       REAL,\n"
+        "    status          TEXT,\n"
+        "    created_ts      TEXT,\n"
+        "    accepted_ms         INTEGER,\n"
+        "    accepted_side       TEXT,\n"
+        "    expected_ask_tenths INTEGER,\n"
+        "    outcome_status      TEXT,\n"
+        "    outcome_ms          INTEGER,\n"
+        "    accept_dry_run      INTEGER,\n"
+        "    venue_fill_read_ms          INTEGER,\n"
+        "    venue_fill_outcome          TEXT,\n"
+        "    venue_fill_note             TEXT,\n"
+        "    venue_fill_count            REAL,\n"
+        "    venue_avg_fill_price_tenths INTEGER,\n"
+        + ("    yes_bid_contracts           REAL,\n" if sell_side else "")
+        + "    UNIQUE (rfq_id, quote_id)\n"
+        ")"
+    )
+
+
+#: Every v55 column -- carried across the v56 rebuild in both directions.
+#: `yes_bid_contracts` is absent: it does not exist at v55, so it cannot be
+#: selected going forward and must not be going back.
+_COMBO_RFQ_QUOTES_COLUMNS_V55 = (
+    "id, rfq_id, quote_id, captured_ms, maker_id, yes_ask_tenths, "
+    "no_bid_tenths, yes_bid_tenths, contracts, status, created_ts, "
+    "accepted_ms, accepted_side, expected_ask_tenths, outcome_status, "
+    "outcome_ms, accept_dry_run, venue_fill_read_ms, venue_fill_outcome, "
+    "venue_fill_note, venue_fill_count, venue_avg_fill_price_tenths"
+)
+
+_COMBO_RFQ_QUOTES_ADMIT_SELL_ONLY = (
+    _combo_rfq_quotes_create("combo_rfq_quotes_v56", sell_side=True),
+    f"INSERT OR IGNORE INTO combo_rfq_quotes_v56 ({_COMBO_RFQ_QUOTES_COLUMNS_V55}) "
+    f"SELECT {_COMBO_RFQ_QUOTES_COLUMNS_V55} FROM combo_rfq_quotes",
+    "DROP TABLE combo_rfq_quotes",
+    "ALTER TABLE combo_rfq_quotes_v56 RENAME TO combo_rfq_quotes",
+    "CREATE INDEX IF NOT EXISTS idx_combo_rfq_quotes_rfq "
+    "ON combo_rfq_quotes(rfq_id)",
+)
+
+#: The v55 shape, for the migration tests that wind a database back. `WHERE
+#: yes_ask_tenths IS NOT NULL` is the v49/v38 precedent: a sell-only quote
+#: could not have existed at v55, so none survives the trip back.
+_COMBO_RFQ_QUOTES_ADMIT_SELL_ONLY_UNDO = (
+    _combo_rfq_quotes_create("combo_rfq_quotes_v55", sell_side=False),
+    f"INSERT OR IGNORE INTO combo_rfq_quotes_v55 ({_COMBO_RFQ_QUOTES_COLUMNS_V55}) "
+    f"SELECT {_COMBO_RFQ_QUOTES_COLUMNS_V55} FROM combo_rfq_quotes "
+    "WHERE yes_ask_tenths IS NOT NULL AND no_bid_tenths IS NOT NULL",
+    "DROP TABLE combo_rfq_quotes",
+    "ALTER TABLE combo_rfq_quotes_v55 RENAME TO combo_rfq_quotes",
+    "CREATE INDEX IF NOT EXISTS idx_combo_rfq_quotes_rfq "
+    "ON combo_rfq_quotes(rfq_id)",
+)
+
+
 #: Schema versions that added ONLY new tables, and so need no `_MIGRATIONS`
 #: step at all.
 #:
@@ -1345,6 +1432,31 @@ _MIGRATIONS: dict[int, _Migration] = {
     # of about three months with no measured lower bound (`rest.fills`), the
     # two acceptances this repo has predate the step, and a value invented
     # for them would enter the one record that says what the venue charged.
+    # The sell-side quote (#96). See the v56 note above and the comments in
+    # `schema.sql`. Columns first (the runner's order), then the rebuild.
+    #
+    # **The skip guard is load-bearing, unlike v49's.** A replay of the
+    # rebuild after full success copies only the v55 columns, so it would
+    # silently drop every `yes_bid_contracts` written since. The guard names
+    # the column only the rebuild creates, so once it has landed the
+    # statements never run again. The column step needs no guard of its own:
+    # `_columns` is read before each `ALTER`.
+    #
+    # Cheap on the live volume: tens of rows, one per quote on a tap.
+    56: _Migration(
+        columns=(
+            (
+                "combo_rfqs",
+                "purpose",
+                "TEXT CHECK (purpose IS NULL OR purpose IN ('buy', 'exit'))",
+            ),
+            ("combo_rfqs", "contracts_fp_requested", "TEXT"),
+        ),
+        statements=_COMBO_RFQ_QUOTES_ADMIT_SELL_ONLY,
+        indexes=("idx_combo_rfq_quotes_rfq",),
+        skip_statements_if_column=(("combo_rfq_quotes", "yes_bid_contracts"),),
+        undo_statements=_COMBO_RFQ_QUOTES_ADMIT_SELL_ONLY_UNDO,
+    ),
     # Why the desk closed a hand-recorded slip on its own. See the v55 note
     # above and the column comment in `schema.sql`. Column-level CHECK for
     # v51's reason; no backfill -- every row closed before v55 was closed by

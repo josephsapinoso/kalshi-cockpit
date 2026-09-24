@@ -70,6 +70,9 @@ TOKEN_HANDLERS = (
     "hedge-position",
     "hedge-resolve",
     "hedge-close",
+    # #96 -- asks the makers what they would pay for a held combination.
+    # Creates and withdraws a real RFQ; spends nothing.
+    "hedge-sell-quote",
     # ADR 0084 -- the resting bid on a combination. **`parlay-bid` is the only
     # handler in this list that SPENDS**: the others mint, record or read, and
     # this one leaves a real good-till-cancelled order on the exchange.

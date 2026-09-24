@@ -2862,6 +2862,19 @@ CREATE TABLE IF NOT EXISTS combo_rfqs (
     status               TEXT NOT NULL,
     error_text           TEXT,
     deleted_ms           INTEGER,
+    -- Which way the ask faced, schema v56 (#96): `'buy'` is Joe asking what
+    -- a combination costs (`/api/parlays/rfq`); `'exit'` is asking what
+    -- makers would pay for one he HOLDS (`/api/hedge/.../sell-quote`). An
+    -- RFQ has no side field at the venue, so this is the only record of
+    -- which question was asked -- and a later count of "how often a held
+    -- combination draws a bid" must be able to find its own population.
+    -- NULL on every row before v56, all of them buy-side asks, but the
+    -- column records what was written, not what can be inferred.
+    purpose              TEXT CHECK (purpose IS NULL OR purpose IN ('buy', 'exit')),
+    -- The fixed-point size asked (`contracts_fp`, e.g. '2.01'), v56. A
+    -- STRING, verbatim as sent, because a sell-side ask is sized from a
+    -- fractional holding and `contracts_requested` above is an INTEGER.
+    contracts_fp_requested TEXT,
     -- `priced_too_finely` (v49): makers answered and every price was
     -- finer than a tenth of a cent, so the desk refused them all rather
     -- than rounding one onto the money path (ADR 0172). It is NOT
@@ -2888,8 +2901,16 @@ CREATE TABLE IF NOT EXISTS combo_rfq_quotes (
     -- What one contract of YES costs. DERIVED: the complement of the
     -- maker's NO bid, through `core.prices.complement`, because Kalshi
     -- publishes bids and a resting NO bid IS the YES ask.
-    yes_ask_tenths  INTEGER NOT NULL,
-    no_bid_tenths   INTEGER NOT NULL,
+    --
+    -- NULLABLE since v56 (#96 defect 7), both of them, and only ever NULL
+    -- together: a maker answering a sell-side ask may bid for YES and name
+    -- no NO bid (`no_bid_dollars: "0.0000"`) -- an exit with no entry. The
+    -- 2026-09-24 capture had 2 such quotes of 17, and they carried the best
+    -- bid. NOT NULL had forced `parse_quotes` to drop them. A REBUILD, not
+    -- a column step: SQLite cannot drop NOT NULL in place. The buy path
+    -- never writes NULL here, and the accept path reads only rows it wrote.
+    yes_ask_tenths  INTEGER,
+    no_bid_tenths   INTEGER,
     -- What the maker would PAY for one YES contract: the EXIT, schema
     -- v48 (#76). NOT derived -- `yes_ask_tenths` above is the complement
     -- of a NO bid, while this is a bid on the YES side directly, and the
@@ -2957,6 +2978,11 @@ CREATE TABLE IF NOT EXISTS combo_rfq_quotes (
     -- written only when the fill is provably about this acceptance.
     venue_fill_count            REAL,
     venue_avg_fill_price_tenths INTEGER,
+    -- Contracts behind the YES bid, v56 (#96): `yes_contracts_fp` on the
+    -- wire, a different field from the buy side's `no_contracts_fp` that
+    -- `contracts` above carries. NULL when the maker named no bid, and on
+    -- every row before v56 -- nothing read the field until then.
+    yes_bid_contracts           REAL,
     UNIQUE (rfq_id, quote_id)
 );
 CREATE INDEX IF NOT EXISTS idx_combo_rfq_quotes_rfq

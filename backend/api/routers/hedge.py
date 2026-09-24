@@ -11,7 +11,9 @@ from __future__ import annotations
 from fastapi import Depends, FastAPI, HTTPException
 
 from ... import hedge as held_parlays
-from ...config import AppConfig, StalenessConfig
+from ...combo_rfq import ask_makers_to_buy_back
+from ...config import AppConfig, ConfigError, StalenessConfig
+from ...parlays import LookupRefused
 from ...store import db
 from ..schemas import ClosePositionRequest, HeldPositionRequest, ResolveLegRequest
 
@@ -25,8 +27,9 @@ def register(
     get_conn,
     require_auth,
     read_combo_book=None,
+    combo_api=None,
 ) -> None:
-    """Attach the four hedge handlers to `app`, in their original order.
+    """Attach the five hedge handlers to `app`, in their original order.
 
     `read_combo_book` is threaded straight through to `held_parlays.
     build_payload` (#95) and defaults to `None`, same as there -- this
@@ -34,6 +37,13 @@ def register(
     reader (`KalshiRestClient.orderbook`, built lazily by `combo_api()`) is
     #128, at the call site below main owns (`backend/api/routes.py`), not
     here.
+
+    `combo_api` is `create_app`'s shared Kalshi REST client factory -- the
+    SAME client, and so the same rate limiter, the armed order path and the
+    buy-side RFQ route use (#96 defect 3: an RFQ write bills the shard-1
+    write budget shared with orders, so it goes through the one limiter
+    rather than a second). `None` only in tests that build this router
+    alone; the sell-quote route then answers 503.
     """
 
     @app.get("/api/hedge")
@@ -175,3 +185,51 @@ def register(
                 ),
             )
         return {"position_id": position_id, "status": request.status}
+
+    @app.post(
+        "/api/hedge/positions/{position_id}/sell-quote",
+        dependencies=[Depends(require_auth)],
+    )
+    async def ask_what_makers_would_pay(position_id: int) -> dict:
+        """Ask Kalshi's makers what they would pay for a combination Joe holds.
+
+        Joe's answer (A) to #63: both exit prices on `/hedge`, read-only, no
+        selling from the desk. This is the RFQ one (#96); the public book's
+        is on every `/api/hedge` read (#95).
+
+        **A tap, never the loop** (#96 defect 2): `hedge_watch` runs
+        `build_payload` every 60 s unattended, and an RFQ fired from there
+        would be ~1,440 a day on the shard-1 write budget the order path
+        shares. Auth-gated and outward-facing: it creates a real RFQ, and
+        withdraws it before answering. **No money moves** -- nothing on this
+        route accepts, and the accept route refuses an exit ask's quotes.
+
+        The body is empty on purpose. The position id is the whole request;
+        the ticker, the size and the legs come from our row and the venue.
+        """
+        if combo_api is None:
+            raise HTTPException(
+                status_code=503,
+                detail="This instance cannot reach Kalshi. Nothing was asked.",
+            )
+        try:
+            api = combo_api()
+        except ConfigError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"no Kalshi credentials on this instance: {exc}",
+            ) from exc
+        write_conn = db.open_db(app_config.db_path)
+        try:
+            return await ask_makers_to_buy_back(
+                write_conn,
+                position_id=position_id,
+                now_ms=db.now_ms(),
+                api=api,
+            )
+        except LookupRefused as exc:
+            raise HTTPException(
+                status_code=exc.status_code, detail=exc.detail
+            ) from exc
+        finally:
+            write_conn.close()
