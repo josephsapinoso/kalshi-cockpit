@@ -320,7 +320,10 @@ class TestTheCardRendersOnTheNoteNotOnTheBasis:
         """Mutation 8, and the reversal of ADR 0160 §5: a component renders
         them now, so `api.ts` declares them."""
         types = collapsed(API_TS)
-        assert 'stake_basis: "venue_fill" | "as_recorded" | null;' in types
+        assert (
+            'stake_basis: "venue_fill" | "as_recorded" | "venue_exposure" | null;'
+            in types
+        )
         assert "stake_basis_reason: string | null;" in types
 
 

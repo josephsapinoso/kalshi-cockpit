@@ -45,6 +45,26 @@
 export const STAKE_BASIS_VENUE_FILL = "venue_fill";
 
 /**
+ * `stake_basis` on a position `POST /api/hedge/positions/adopt` wrote (#148)
+ * — a KXMVE combination the venue already showed held, put under watch in
+ * one tap. Kalshi's own number, like `venue_fill`, but a DIFFERENT Kalshi
+ * number: `market_exposure_dollars` for the holding, never itself checked
+ * against a fill (there is no order and no RFQ acceptance behind an adopted
+ * row to check it against). Renders its own line always — unlike
+ * `venue_fill`, silence here would claim a fill-level check that never ran.
+ */
+export const STAKE_BASIS_VENUE_EXPOSURE = "venue_exposure";
+
+/** The one line a `venue_exposure` ticket always carries. Not in
+ * `STAKE_BASIS_GLOSS`: that map is `stake_basis_for`'s AS-RECORDED refusal
+ * vocabulary (pinned 1:1 against it by `tests/test_the_hedge_card_names_
+ * the_fallback_reason.py`), and `venue_exposure` is a second GOOD-ish case
+ * beside `venue_fill`, not a refusal — it says whose number the stake is,
+ * not that a lookup failed. */
+export const STAKE_BASIS_VENUE_EXPOSURE_NOTE =
+  "Adopted from Kalshi's own reported holding — the stake above is Kalshi's reported position cost (market exposure), inferred and fee-exclusive, not a measured fill.";
+
+/**
  * One line per named refusal, in Joe's language rather than the enum's.
  *
  * The shared half of every Kalshi sentence — "the price the desk sent" —
@@ -105,6 +125,7 @@ export function stakeBasisNote(
   reason: string | null | undefined,
 ): string | null {
   if (basis === STAKE_BASIS_VENUE_FILL) return null;
+  if (basis === STAKE_BASIS_VENUE_EXPOSURE) return STAKE_BASIS_VENUE_EXPOSURE_NOTE;
   const code = typeof reason === "string" ? reason.trim() : "";
   const gloss = code ? STAKE_BASIS_GLOSS[code] : undefined;
   if (gloss) return gloss;

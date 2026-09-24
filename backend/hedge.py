@@ -560,6 +560,38 @@ STAKE_BASIS_VENUE_FILL = "venue_fill"
 #: The stake is `parlay_positions.stake_tenths` as written -- the sent price
 #: for a combination bought through the desk, Joe's typed figure for a slip.
 STAKE_BASIS_AS_RECORDED = "as_recorded"
+#: The stake is the venue's own `market_exposure_dollars` for a position
+#: `adopt_venue_combo` (#148) wrote -- Kalshi's own reported cost of the
+#: holding, but never itself checked against a fill: an adopted row has no
+#: `manual_orders` row and no RFQ acceptance behind it by construction, so
+#: none of E2's "sent price vs. venue charge" machinery has anything to
+#: compare it to. Deliberately its own basis rather than a third
+#: `STAKE_BASIS_AS_RECORDED` reason: `as_recorded` means "the figure Joe (or
+#: the desk) typed, unchecked", and an adopted stake was never typed at all
+#: -- it is Kalshi's own number from the moment it was written.
+STAKE_BASIS_VENUE_EXPOSURE = "venue_exposure"
+
+#: Prefixes `parlay_positions.note` on a row `adopt_venue_combo` writes.
+#: There is no schema column for "this row was adopted" and this ticket must
+#: not add one -- the marker IS the column, the same reasoning `_order_key`
+#: gives for deriving ADR 0160's join rather than storing it. Safe as an
+#: internal-only discriminator because nothing serialises `parlay_positions.
+#: note` to the screen (grep confirms no `position["note"]` read anywhere in
+#: `build_payload`'s output) -- Joe never sees this text, only what
+#: `STAKE_BASIS_VENUE_EXPOSURE`'s own note renders in its place.
+ADOPTED_NOTE_MARKER = "[adopted-from-venue-positions]"
+
+
+def _is_adopted_position(position: Mapping[str, Any]) -> bool:
+    """Whether `position` is a row `adopt_venue_combo` wrote, read off the
+    marker `note` carries rather than off `source` (a third `source` value
+    would silently stop `_order_key`'s `== "kalshi_combo"` check, the
+    frontend's sell-quote gate and the combo-book gate from recognising an
+    adopted combination as the same kind of thing a bought one is, all of
+    which an adopted position should still get). `note` is a real
+    `parlay_positions` column, present on every row `SELECT *` returns."""
+    note = position["note"]
+    return isinstance(note, str) and note.startswith(ADOPTED_NOTE_MARKER)
 
 
 @dataclass(frozen=True)
@@ -739,6 +771,14 @@ def stake_basis_for(
     returns.
     """
     recorded = int(position["stake_tenths"])
+    if _is_adopted_position(position):
+        # Checked before `_order_key` even runs: an adopted row is never
+        # bought through the desk, so it has no `manual_orders` row and no
+        # RFQ acceptance to look for by construction -- the same reason
+        # `hand_recorded_position` exists, but a different fact, because the
+        # stake here is not a figure Joe typed. It is Kalshi's own reported
+        # cost of the holding at adopt time.
+        return StakeBasis(recorded, STAKE_BASIS_VENUE_EXPOSURE, "adopted_from_positions")
     if str(position["source"]) != "kalshi_combo":
         return StakeBasis(recorded, STAKE_BASIS_AS_RECORDED, "not_a_kalshi_combo")
     if order is None:
@@ -1370,38 +1410,71 @@ async def adopt_venue_combo(
     uses) -- never a fresh venue call, so the size adopted is the size the
     screen just showed, not a second read that could disagree with it. The
     legs come from the venue's own market, `GET /markets/{ticker}` read
-    through `mve_legs` (`backend/kalshi/rfq.py`), the same source
+    through `mve_legs` (`backend/kalshi/rfq.py`) -- the fixture this desk's
+    own tests read that shape from is `tests/fixtures/combo_lookup_response.
+    json`, the RFQ lookup response, accepted through the same `{"market":
+    ...}` envelope `GET /markets/{ticker}` answers with (pinned against
+    `market_single.json`'s `single` key) -- the same source
     `backend/combo_rfq.py`'s sell-quote path (#96) uses for an RFQ-accepted
     position that recorded no lookup -- an adopted position is exactly that
     shape, one tap earlier.
 
-    Four refusals, each named, none of them reaching the venue except the
-    last:
+    Refusals, each named, none of them reaching the venue except the last two:
 
     - `ticker` is not `KXMVE*` -- this screen watches combinations only,
       the same restriction `unrecorded_at_venue`'s own `LIKE 'KXMVE%'` states.
     - there has been no complete `positions` poll, or this ticker is not
       among its rows -- coverage is unknown or the venue does not (or no
       longer) shows it held.
+    - the poll's own `side` for this ticker is not `'yes'` -- **a NO holding
+      is refused, never adopted as YES.** `portfolio_poll.parse_position`
+      stores every holding's size as `abs(position_fp)` with `side` carrying
+      the sign, so reading `contracts`/`exposure_tenths` alone cannot tell a
+      NO position from a YES one of the same size -- adopting it blind would
+      silently buy the opposite side of what Joe holds. ADR 0160 already
+      refuses rather than guesses on a `side = 'no'` order
+      (`stake_basis_for`'s `side_convention_unresolved`); this is the same
+      rule at the adopt boundary, where the cost of guessing wrong is a
+      position that says the opposite of what is actually held.
     - an OPEN `parlay_positions` row already claims this ticker -- adopting
       again would double the exposure this desk believes it is watching.
-    - the venue's market for this ticker carries no `mve_selected_legs` --
-      `mve_legs` raises `RfqRefused`, which becomes this refusal.
+      Checked twice: once here, cheaply, before any venue call, and once
+      more immediately before the write (see below) -- a second request for
+      the same ticker can race this one across the `await` in between, and
+      only the second check closes that window.
+    - the venue's market for this ticker carries no `mve_selected_legs`, or
+      one of its legs names no readable `side` -- `mve_legs` raises
+      `RfqRefused` for the first; the second is checked here, because a leg
+      whose side is neither `'yes'` nor `'no'` is not a leg this desk knows
+      how to price or label, and guessing `'yes'` (the pre-review shape of
+      this function) would misdescribe a real NO leg -- KXMVE combos carry
+      them routinely (`tests/fixtures/combo_priced_markets.json`, e.g.
+      `KXWNBASPREAD-26AUG09LVNY-NY13` at `side: "no"`).
 
-    `stake_tenths` is the venue's own `exposure_tenths` -- what
-    `market_exposure_dollars` says was actually paid, never the sent price
-    `_record_combo_position` (`routes.py`) writes for an order placed
-    through the desk. `return_tenths` is `contracts * 1000` (one dollar a
-    contract, per CLAUDE.md's tenths-of-a-cent convention), rounded to the
-    nearest tenth: `venue_positions.contracts` is a fractional holding
-    (`position_fp`), not the integer count an order-path fill carries.
+    `stake_tenths` is the venue's own `exposure_tenths` -- Kalshi's own
+    `market_exposure_dollars` for the holding, **inferred to be the amount
+    paid, fee-exclusive, and never itself measured against a fill**: an
+    adopted row has no `manual_orders` row and no RFQ acceptance behind it
+    by construction, so the E2 census's "sent price vs. venue charge" check
+    (`stake_basis_for`, `estimate_grain`) has nothing to compare it to, and
+    what `market_exposure_dollars` becomes after a PARTIAL sell of the same
+    holding has never been read on this instance. `return_tenths` is
+    `contracts * 1000` (one dollar a contract, per CLAUDE.md's
+    tenths-of-a-cent convention), rounded to the nearest tenth:
+    `venue_positions.contracts` is a fractional holding (`position_fp`), not
+    the integer count an order-path fill carries.
 
-    The label is the comma-joined leg titles from `kalshi_markets.title`
-    where every leg's market has been seen by this instance's own market
-    ingest, and the bare ticker otherwise -- the same "degrade to the
-    ticker, never invent a title" rule `parlays.legs_for_position` states
-    for `labels_are_tickers`. Each leg's own label follows the same rule,
-    independently, so a partial title table still labels the legs it can.
+    Each leg's label is `kalshi_markets.title` where this instance's own
+    market ingest has seen that leg's market, prefixed `"NO -- "` when the
+    leg's own side is `'no'` -- the order path (`routes.py::
+    _record_combo_position`, `parlays.leg_details_for`) has no convention
+    for this because every leg it has ever recorded carries a label already
+    chosen to describe the side bought, and an adopted leg has no such
+    upstream choice behind it. Falls back to the bare ticker, prefixed the
+    same way, where no title is on file -- the same "degrade to the ticker,
+    never invent a title" rule `parlays.legs_for_position` states for
+    `labels_are_tickers`. The overall position label is the comma-joined leg
+    labels when every leg has a title on file, and the bare ticker otherwise.
 
     Raises `parlays.LookupRefused` on every refusal above, carrying the
     HTTP status the route answers with. Imported locally, the same reason
@@ -1426,7 +1499,7 @@ async def adopt_venue_combo(
             "adopted.",
         )
     venue_row = conn.execute(
-        "SELECT contracts, exposure_tenths FROM venue_positions "
+        "SELECT contracts, exposure_tenths, side FROM venue_positions "
         "WHERE poll_log_id = ? AND ticker = ?",
         (int(poll["id"]), ticker),
     ).fetchone()
@@ -1435,6 +1508,14 @@ async def adopt_venue_combo(
             404,
             f"Kalshi's latest positions read does not show {ticker} held. "
             "Nothing was adopted.",
+        )
+    if venue_row["side"] != "yes":
+        raise LookupRefused(
+            422,
+            f"Kalshi shows {ticker} held on the {venue_row['side'] or 'unknown'} "
+            "side, and this desk only adopts a YES holding -- reflecting a "
+            "NO holding onto a YES position has never been established "
+            "(ADR 0160). Nothing was adopted.",
         )
     if venue_row["contracts"] is None or venue_row["exposure_tenths"] is None:
         raise LookupRefused(
@@ -1489,18 +1570,34 @@ async def adopt_venue_combo(
                 titles[str(row["ticker"])] = str(row["title"])
 
     legs: list[dict] = []
+    every_leg_titled = True
     for leg in venue_legs:
         leg_ticker = leg.get("market_ticker")
+        leg_side = leg.get("side")
+        if leg_side not in ("yes", "no"):
+            raise LookupRefused(
+                422,
+                f"Kalshi's market for {ticker} names a leg "
+                f"({leg_ticker!r}) with no readable side ({leg_side!r}). "
+                "Nothing was adopted.",
+            )
+        title = titles.get(str(leg_ticker)) if leg_ticker else None
+        if title is None:
+            every_leg_titled = False
+            base_label = leg_ticker
+        else:
+            base_label = title
+        label = f"NO -- {base_label}" if leg_side == "no" else base_label
         legs.append(
             {
                 "ticker": leg_ticker,
                 "event_ticker": leg.get("event_ticker"),
-                "side": leg.get("side") or "yes",
-                "label": titles.get(str(leg_ticker), leg_ticker),
+                "side": leg_side,
+                "label": label,
             }
         )
-    if legs and all(leg["ticker"] and leg["ticker"] in titles for leg in legs):
-        position_label = ", ".join(titles[leg["ticker"]] for leg in legs)
+    if legs and every_leg_titled:
+        position_label = ", ".join(leg["label"] for leg in legs)
     else:
         position_label = ticker
 
@@ -1509,13 +1606,36 @@ async def adopt_venue_combo(
     stake_tenths = int(venue_row["exposure_tenths"])
 
     note = (
-        "Recorded automatically from Kalshi's own positions read -- adopted, "
-        "not bought through this desk. A combination can be sold back, "
-        "though selling back may cost more than holding it to the outcome; "
-        "a hedge is the exit the desk watches, not the only one that "
-        "exists."
+        f"{ADOPTED_NOTE_MARKER} Recorded automatically from Kalshi's own "
+        "positions read -- adopted, not bought through this desk. A "
+        "combination can be sold back, though selling back may cost more "
+        "than holding it to the outcome; a hedge is the exit the desk "
+        "watches, not the only one that exists."
     )
 
+    # **The race this closes.** The already-open check above ran before the
+    # `await` on the venue's market -- cheap, and enough to short-circuit
+    # the common case -- but a second request for the same ticker can start
+    # during that await and finish first. `BEGIN IMMEDIATE` takes the write
+    # lock before the recheck runs, so a concurrent writer blocks here
+    # rather than interleaving with it; `record_position`'s own `commit()`
+    # closes this same transaction, Python's sqlite3 module tracking one
+    # open transaction per connection regardless of whether it was opened by
+    # this explicit `BEGIN` or by the first write statement inside it.
+    conn.execute("BEGIN IMMEDIATE")
+    still_open = conn.execute(
+        "SELECT 1 FROM parlay_positions WHERE status = 'open' "
+        "AND combo_ticker = ?",
+        (ticker,),
+    ).fetchone()
+    if still_open is not None:
+        conn.rollback()
+        raise LookupRefused(
+            409,
+            f"{ticker} is already watched by an open position on this "
+            "desk -- another request adopted it first. Nothing was "
+            "adopted.",
+        )
     try:
         return record_position(
             conn,
@@ -1529,6 +1649,7 @@ async def adopt_venue_combo(
             note=note,
         )
     except PositionRefused as exc:
+        conn.rollback()
         raise LookupRefused(422, exc.refusal.detail) from exc
 
 
@@ -1863,6 +1984,16 @@ def estimate_grain(position: Mapping[str, Any], outcome: Lock) -> Optional[str]:
       together** -- a caveat naming a condition is falsified by fixing the
       condition, and the fix and the copy go in one commit or the screen
       lies in between.
+    - **A Kalshi combo `adopt_venue_combo` (#148) wrote**
+      (`stake_basis == STAKE_BASIS_VENUE_EXPOSURE`) does not carry E2
+      either, for a related but distinct reason: E2 names the gap between
+      the price the DESK sent and what Kalshi charged, and an adopted row
+      never had a price the desk sent -- there is no order and no RFQ
+      acceptance behind it. Quoting E2 on it would describe a sent price
+      that never existed. It falls through to E4 with the slips, same as a
+      `venue_fill` combo. `stakeBasisNote` (`frontend/src/lib/
+      stakeBasisGloss.ts`) carries the caveat this term would have named --
+      that the stake is inferred and never itself measured against a fill.
     - **A sportsbook slip** has no sent price -- the stake is what Joe typed
       -- so E2 is not a term on it. Its measured term is E4, the hedge fee
       charged at the flat 0.070 where nine baseball fills pinned k at half
@@ -1878,7 +2009,8 @@ def estimate_grain(position: Mapping[str, Any], outcome: Lock) -> Optional[str]:
         return None
     if (
         str(position["source"]) == "kalshi_combo"
-        and _optional(position, "stake_basis") != STAKE_BASIS_VENUE_FILL
+        and _optional(position, "stake_basis")
+        not in (STAKE_BASIS_VENUE_FILL, STAKE_BASIS_VENUE_EXPOSURE)
     ):
         return_tenths = int(position["return_tenths"])
         observed = (

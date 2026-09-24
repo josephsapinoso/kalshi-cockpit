@@ -3575,11 +3575,18 @@ export type HeldPosition = {
    * payload that never went through `hedge.build_payload`, and it is NOT a
    * `"venue_fill"`: the card treats an absent basis as unchecked.
    *
+   * `"venue_exposure"` (#148) is a position `adopt_venue_combo` wrote: the
+   * stake is Kalshi's own `market_exposure_dollars` for the holding, but —
+   * unlike `"venue_fill"` — never itself checked against a fill, because an
+   * adopted row has no order and no RFQ acceptance behind it to check it
+   * against. It renders its own caveat rather than staying silent like
+   * `"venue_fill"`.
+   *
    * Declared here as of issue #53 (Joe, 2026-09-16), which reversed ADR 0160
    * §5 — that section left both fields off this file on the `floor_tenths`
    * precedent, because nothing rendered them. `HedgePositions.tsx` now does.
    */
-  stake_basis: "venue_fill" | "as_recorded" | null;
+  stake_basis: "venue_fill" | "as_recorded" | "venue_exposure" | null;
   /**
    * Which refusal sent the stake back to the recorded figure; `null` on a
    * `"venue_fill"`. `string` rather than a union of the nine names on
