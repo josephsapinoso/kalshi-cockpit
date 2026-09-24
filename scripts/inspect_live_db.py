@@ -596,6 +596,169 @@ def _q_lost_leg_closures(conn: sqlite3.Connection, args) -> list[Section]:
     return [_derive_iso(section, "placed_ms", "placed_iso")]
 
 
+# ---------------------------------------------------------------------------
+# combo-rfqs: a durable read of `combo_rfqs`, newest first (#149).
+# ---------------------------------------------------------------------------
+#
+# The sell-quote tap Joe made on 2026-09-24 (`POST
+# .../sell-quote`, `purpose = 'exit'`) was confirmed only from his own
+# screen -- nothing on the box could re-derive that it happened, at what
+# price, or with how many quotes. This is that read.
+#
+# **Never prints `selected_legs`.** The column is a JSON array and the
+# ticket is explicit that this query does not carry it; the combination's
+# legs are `parlay_lookups`' and `parlay_position_legs`' business, not this
+# one's.
+#
+# **No aggregate.** One row per RFQ, in the order they were asked -- the
+# same shape as `combo-bids-tail` and `lost-leg-closures`.
+_SQL_COMBO_RFQS = (
+    "SELECT id, requested_ms, ticker, exchange_index, target_cost_dollars, "
+    "contracts_requested, fair_joint, book_yes_ask_tenths, quote_count, "
+    "refused_too_fine, status "
+    "FROM combo_rfqs ORDER BY requested_ms DESC, id DESC"
+)
+
+#: This query's own default depth for `-n`/`--tail`. One RFQ ask is a much
+#: smaller, rarer event than one `api_credits` row, so 20 reads back further
+#: than the file-wide default of 5 without the caller having to know that.
+_COMBO_RFQS_DEFAULT_N = 20
+
+#: The file-wide `-n`/`--tail` default (`_build_parser`, `default=5`),
+#: repeated here as a named constant rather than a bare literal so the
+#: coupling below is legible. **There is exactly one `-n` flag and it has
+#: exactly one default at the argparse level** -- a caller who explicitly
+#: types `-n 5` for THIS query is indistinguishable, after parsing, from a
+#: caller who typed nothing at all, and gets 20 instead of 5. A second flag
+#: just to draw that one distinction was rejected: one more name to
+#: remember, for a case no other query in this file needs.
+_SHARED_TAIL_DEFAULT = 5
+
+
+def _q_combo_rfqs(conn: sqlite3.Connection, args) -> list[Section]:
+    """The last N `combo_rfqs` rows (-n, default 20), newest `requested_ms`
+    first.
+
+    Prints `id`, `requested_ms` (plus its ISO-UTC rendering), `ticker`,
+    `exchange_index`, `target_cost_dollars` and `contracts_requested`
+    (exactly one is set per row, per the table's own comment),
+    `fair_joint`, `book_yes_ask_tenths`, `quote_count`,
+    `refused_too_fine` -- the finer-than-a-tenth-of-a-cent maker count
+    (schema v49, #77) -- and `status`. `combo_rfqs` has a `status` column
+    and this reads it; it has no `accept` column of its own -- the accept
+    columns (`accepted_ms`, `accepted_side`, `outcome_status`, ...) live on
+    `combo_rfq_quotes`, a different table this query does not join, so none
+    are printed here.
+
+    What this does not establish
+    -----------------------------
+    - **No aggregate, no rate, no join to `combo_rfq_quotes`.** One row per
+      ask, in the order they were made. How many quotes an ask drew is on
+      the row (`quote_count`); which makers, and at what price, is not --
+      that is `combo_rfq_quotes`, unread here.
+    - **`purpose` is not printed.** The ticket does not name it among the
+      columns to print, and it postdates most of the record (NULL before
+      v56) -- read it directly from the table if a buy/exit split is
+      needed.
+    """
+    requested = args.tail
+    if requested == _SHARED_TAIL_DEFAULT:
+        requested = _COMBO_RFQS_DEFAULT_N
+    section = _fetch(
+        conn,
+        _SQL_COMBO_RFQS,
+        (),
+        title="combo_rfqs: last N, newest requested_ms first",
+        cap=args.limit,
+        requested=requested,
+    )
+    return [_derive_iso(section, "requested_ms", "requested_iso")]
+
+
+# ---------------------------------------------------------------------------
+# leg-scout-state: parlay_position_legs.scout_state per budget day (#149).
+# ---------------------------------------------------------------------------
+#
+# `scout_state` (schema v52, ADR 0180 §3.5) is written ONCE, at the moment a
+# position ticket is recorded, from `backend/parlays.py::scouting_facts` --
+# and **only the armed order path writes it** (#114): a route that records a
+# position without going through that call leaves the column NULL. An
+# adopted position (#148) and a hand-recorded slip (`POST
+# /api/hedge/positions`) therefore carry NULL BY CONSTRUCTION, not because
+# the desk failed to scout that game -- NULL here means "this route never
+# asks the question", never "not scouted".
+#
+# Bounded to positions created on or after 2026-09-21T10:00Z
+# (1_789_984_800_000 -- verified against `datetime.fromtimestamp` at that
+# value in UTC), the day unattended scouting (#116, #118) went live: a
+# position before that instant predates the whole feature this reads.
+_LEG_SCOUT_STATE_SINCE_MS = 1_789_984_800_000
+
+#: Per (budget_day, scout_state): NULL is `COALESCE`d to the literal string
+#: `'NULL'` so it prints as its own labelled row rather than as a blank
+#: column -- the ticket's own instruction, because a blank cell reads as
+#: "no data here" and this NULL is data.
+_SQL_LEG_SCOUT_STATE = (
+    "SELECT strftime('%Y%m%d', (p.created_ms - :offset_ms) / 1000, "
+    "         'unixepoch') AS budget_day, "
+    "       COALESCE(l.scout_state, 'NULL') AS scout_state, "
+    "       COUNT(*) AS n "
+    "FROM parlay_position_legs l "
+    "JOIN parlay_positions p ON p.id = l.position_id "
+    "WHERE p.created_ms >= :since_ms "
+    "GROUP BY budget_day, scout_state "
+    "ORDER BY budget_day DESC, scout_state"
+)
+
+
+def _q_leg_scout_state(conn: sqlite3.Connection, args) -> list[Section]:
+    """`parlay_position_legs.scout_state`, counted per (budget_day, state).
+
+    One row per (budget_day, scout_state) pair with its count, budget day
+    keyed by the OWNING POSITION's `created_ms` (`--day-start-hour`, default
+    10, matches every other budget-day query in this file), bounded to
+    positions created on or after 2026-09-21T10:00Z -- see the module-level
+    comment above this query for why that instant and why NULL is its own
+    bucket.
+
+    **Only the armed order path writes this column (#114).** A position
+    recorded by any other route -- an adopted position (#148) or a
+    hand-recorded slip (`POST /api/hedge/positions`) -- carries `scout_state
+    IS NULL` by construction, because those routes never call
+    `scouting_facts`. Do not read a NULL row here as "the desk did not
+    scout that game"; read it as "this position did not go through the
+    route that records the answer".
+
+    What this does not establish
+    -----------------------------
+    - **No ratio and no rate.** A count per bucket, nothing divided. #145's
+      close read decides what, if anything, is derived from these counts;
+      this query does not pre-empt that by computing one.
+    - **Nothing before 2026-09-21T10:00Z.** The column exists since v52
+      (earlier), but this read is bounded to the window #149 was opened to
+      answer; a position before the bound is excluded, not zero.
+    - **Nothing about whether a briefing actually reached Joe before he
+      bet.** `scout_state` records what the lookup found AT RECORD TIME,
+      not whether he read it -- see the column's own comment in
+      `schema.sql`.
+    """
+    params = {
+        "offset_ms": args.day_start_hour * 3_600_000,
+        "since_ms": _LEG_SCOUT_STATE_SINCE_MS,
+    }
+    section = _fetch(
+        conn,
+        _SQL_LEG_SCOUT_STATE,
+        params,
+        title=(
+            "leg-scout-state: count per (budget_day, scout_state), NULL is "
+            "its own labelled bucket, no ratio"
+        ),
+        cap=args.limit,
+    )
+    return [section]
+
+
 QUERIES: dict[str, QueryDef] = {
     "credits-tail": QueryDef(
         "The last N api_credits rows (-n, default 5), newest first, each "
@@ -1289,6 +1452,34 @@ QUERIES: dict[str, QueryDef] = {
         # closed_reason is non-NULL on a small, bounded subset of
         # parlay_positions -- one row per hand-recorded slip the desk closed
         # itself, the same bounded-by-activity shape as manual-order-refusals.
+        cost=CHEAP,
+    ),
+    "combo-rfqs": QueryDef(
+        "The last N combo_rfqs rows (-n, default 20), newest requested_ms "
+        "first: id, requested_ms (+ISO), ticker, exchange_index, "
+        "target_cost_dollars/contracts_requested, fair_joint, "
+        "book_yes_ask_tenths, quote_count, refused_too_fine, status. Never "
+        "prints selected_legs; no aggregate. The read that audits a "
+        "sell-quote tap seen only on Joe's own screen.",
+        _q_combo_rfqs,
+        # One `requested_ms DESC, id DESC` order over a table that gains one
+        # row per RFQ ask -- a handful a day at most.
+        cost=CHEAP,
+    ),
+    "leg-scout-state": QueryDef(
+        "parlay_position_legs.scout_state counted per (budget_day, "
+        "scout_state), positions created on or after 2026-09-21T10:00Z. "
+        "NULL is its own labelled bucket -- only the armed order path "
+        "writes this column (#114), so an adopted (#148) or hand-recorded "
+        "position carries NULL by construction, not 'unscouted'. No ratio, "
+        "no rate.",
+        _q_leg_scout_state,
+        # `parlay_positions` has no index on `created_ms`, so the WHERE is a
+        # scan of that table -- but it is one row per recorded position
+        # (hand bets and combo buys), bounded by activity rather than by
+        # time or by the file's size, joined to `parlay_position_legs`
+        # (one row per leg per position, same bound). Neither table is one
+        # of the large ones this file classifies WALKS_THE_FILE.
         cost=CHEAP,
     ),
 }
