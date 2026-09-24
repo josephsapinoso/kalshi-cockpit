@@ -420,5 +420,5 @@ class TestEveryMutatingRouteNeedsAuth:
                 continue
             checked += 1
             assert route.dependencies, path
-        # 4 since #96: record, resolve, close, and the sell-quote ask.
-        assert checked == 4
+        # 5 since #148: record, resolve, close, the sell-quote ask, and adopt.
+        assert checked == 5

@@ -9,6 +9,7 @@ is the design: no model, no tokens, no credits, no `recommendations` row --
 from __future__ import annotations
 
 from fastapi import Depends, FastAPI, HTTPException
+from pydantic import BaseModel, Field
 
 from ... import hedge as held_parlays
 from ...combo_rfq import ask_makers_to_buy_back
@@ -16,6 +17,17 @@ from ...config import AppConfig, ConfigError, StalenessConfig
 from ...parlays import LookupRefused
 from ...store import db
 from ..schemas import ClosePositionRequest, HeldPositionRequest, ResolveLegRequest
+
+
+class AdoptComboRequest(BaseModel):
+    """`POST /api/hedge/positions/adopt`'s body: the ticker, nothing else.
+
+    Everything the position needs beyond that -- contracts, exposure, legs --
+    comes from the venue's own read (`held_parlays.adopt_venue_combo`), never
+    from the request.
+    """
+
+    ticker: str = Field(min_length=1, max_length=120)
 
 
 def register(
@@ -233,3 +245,52 @@ def register(
             ) from exc
         finally:
             write_conn.close()
+
+    @app.post(
+        "/api/hedge/positions/adopt", dependencies=[Depends(require_auth)]
+    )
+    async def adopt_venue_combo(request: AdoptComboRequest) -> dict:
+        """Put a KXMVE combination the venue shows Joe holds under `/hedge`'s
+        watch, in one tap. #148.
+
+        `unrecorded_at_venue` (served on every `/api/hedge` read) tells him
+        "Record it below" for a combination like this; `RecordParlay.tsx` has
+        no field for a combination ticker, so that instruction could not be
+        followed until this route existed. The body is the ticker alone --
+        contracts, exposure and the legs all come from the venue's own read
+        (`held_parlays.adopt_venue_combo`), never from the request.
+
+        Reaches the venue once, for the market's legs (`GET
+        /markets/{ticker}`), through the same shared Kalshi client the order
+        path and the buy/sell RFQ routes use. Refuses (4xx, named reason)
+        before that call for everything checkable from this row's own
+        tables: a non-KXMVE ticker, a ticker outside the latest complete
+        positions poll, and a ticker an open position already claims.
+        """
+        if combo_api is None:
+            raise HTTPException(
+                status_code=503,
+                detail="This instance cannot reach Kalshi. Nothing was adopted.",
+            )
+        try:
+            api = combo_api()
+        except ConfigError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"no Kalshi credentials on this instance: {exc}",
+            ) from exc
+        write_conn = db.open_db(app_config.db_path)
+        try:
+            position_id = await held_parlays.adopt_venue_combo(
+                write_conn,
+                api=api,
+                ticker=request.ticker,
+                now_ms=db.now_ms(),
+            )
+        except LookupRefused as exc:
+            raise HTTPException(
+                status_code=exc.status_code, detail=exc.detail
+            ) from exc
+        finally:
+            write_conn.close()
+        return {"position_id": position_id, "status": "recorded"}
