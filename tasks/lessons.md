@@ -16,6 +16,44 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-24 - An owed read must name where the evidence persists; a brake on the wrong unit protects nothing; a fixed date in a clock-relative test is a timer
+
+Three patterns from the fifty-third session.
+
+- **When something is armed, the handoff's "read it next session" must name
+  a durable place.** #139's owed read pointed at prune log lines, which
+  stdout keeps for about ten minutes, and at `prune-frontier`, which reads a
+  different table and walks the file. The next session could not take either
+  read. **Before writing an owed read, check that the evidence outlives the
+  gap between sessions.** A table row, a meta cursor or a committed
+  instrument works. If nothing durable exists, build the instrument (#144)
+  in the same session that arms the feature.
+
+- **Check which unit a brake counts before trusting it to protect
+  something.** `reserve_taps` held back calls and searches for Joe's taps,
+  but the ceiling that bound was tokens, and the token brake only refuses
+  once the recorded total has already crossed the line. Two convenings
+  recorded 759K against 500K and refused his taps anyway. **Name the ceiling
+  that actually binds, then make sure the reserve is in that unit** (#145).
+  Note also that "two leave roughly one tap" had been derived from days with
+  three *partial* convenings. A per-unit cost taken from a different mix of
+  runs is not a cost.
+
+- **A fixed calendar date in a test whose query is relative to the clock
+  runs out.** A test seeded 2026-08-09 and asked for `days=45`. Its own
+  comment said it was "comfortably inside" the window, which stayed true for
+  three days. Derive the seed date from `now`. When CI goes red in a file
+  nobody touched, grep that file for a literal date before suspecting the
+  change.
+
+- **A registration can be unpassable by construction, and implementing it
+  is what shows that.** The Elo floor gated on a team-clustered `G_eff >=
+  300`, which can never exceed the number of teams (about 30). Nobody saw it
+  until someone had to write the formula down. **Before running a
+  registered look, write its code-level definitions as an amendment**. It
+  costs one agent call before any data is read, and here it saved a 6.5 GB
+  copy on the live box (#146).
+
 ## 2026-09-23 (fourth) - Before widening a CHECK, look at who references the table; and a "the desk did it" flag can be its own column
 
 - **A column-level CHECK in SQLite cannot be altered, only rebuilt.** If

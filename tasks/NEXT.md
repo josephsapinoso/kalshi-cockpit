@@ -134,6 +134,70 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-24 (fifty-third session) — durable reads for the prune and lost-leg closes (#144); Joe answered #145 (A), so half the token ceiling is now his; #115 closed NOT RUN on his (A) to #146. **NOT DEPLOYED** — the classifier refused the live deploy
+
+`/go` with no focus. `partner` ran at 14:22Z. Clock from GitHub's `Date`
+header. At 14:25Z live was on `9c0061f`.
+
+### 1. What shipped (main `c59fc7a`, CI green; live is still `9c0061f`)
+
+| commit | what | ticket |
+|---|---|---|
+| `6d1b89c` | Lane (Sonnet): two CHEAP QueryDefs. `odds-prune-cursor` decodes the prune's `meta` cursor per sport. `lost-leg-closures` lists `closed_reason IS NOT NULL` rows. Six mutations turned the tests red | #144 |
+| `7b0a982` | Elo registration Amendment 1 (pre-registrar), written before any data was read | #115 |
+| `a102d23` | `docs/measurements/2026-09-20-elo-vs-price-result.md`: NOT RUN | #115, #146 |
+| `20c3bdf` | `SCOUT_AUTO_TAP_TOKEN_SHARE = 0.5`. The watcher starts no convening once half of `AGENT_MAX_TOKENS_PER_DAY` is recorded. No ceiling moved. Four mutations turned the tests red | #145 |
+| `c59fc7a` | CI fix. #144's names were missing from the pinned subcommand list, and a fixed 2026-08-09 test date fell out of its 45-day window | — |
+
+### 2. What the reads found
+
+- **#139's owed read could not be taken as written.** The prune log lines
+  live about 10 minutes (`scripts/run_loop.py:836`). `prune-frontier` reads
+  `kalshi_quotes` and walks the file. #144 builds the durable read, the
+  `meta` cursor, but it only exists on live after the deploy.
+- **#141/#143:** `/api/hedge` shows 0 open positions and 3 unrecorded venue
+  combos. No convening went to a held dead parlay, because none is held.
+  Whether #143 closed anything can be read with `lost-leg-closures` after the
+  deploy.
+- **#127's premise failed on its first full day.** Budget day 20260924, at
+  14:32Z: `tokens_today` = 759,441 of 500,000, 6 calls, 2 auto convenings
+  (1 complete, 1 partial), 0 taps. Every tap was refused from 12:12Z. This
+  is #145, and Joe answered (A).
+- **Elo (#115):** Amendment 1 A1.1 showed that a team-clustered `G_eff`
+  can't reach DR-1's 300, so a PASS was impossible by construction. A1.7:
+  the armed prune deletes rows the E8 refusal reads. Joe answered (A) to
+  #146: NOT RUN. Nothing was read. The Elo lane was stopped and discarded
+  uncommitted.
+
+### 3. Next session
+
+- **Deploy `c59fc7a` to live first.** Use the usual live deploy workflow.
+  This session's attempt was refused by the auto-mode classifier. Then read
+  `/api/health` `build.git_sha` and check it equals `c59fc7a`.
+- Then `inspect_live_db.py odds-prune-cursor`, twice, a day apart. The
+  cursor advancing is #139's rate (days of kickoffs cleared per day). Write
+  it on #139 and close it. If it clears less than 1 day/day, raise
+  `ODDS_SNAPSHOT_PRUNE_BUDGET_S` first. Only if it still lags is it a
+  question for Joe (pruning inside betting windows).
+- `lost-leg-closures -n 50` for #143's first cycles.
+- #145's first day under the share: `scout-watch-log` should show
+  `refused_budget` naming `SCOUT_AUTO_TAP_TOKEN_SHARE` once 250K is recorded,
+  and `/api/scout` should stay under 500K on a day with no taps.
+- **Empty map #3 is a finding.** Nothing is open for Joe after #145 and
+  #146.
+
+### Still open
+
+0. #139 — ARMED; read `odds-prune-cursor` twice after the deploy, then close it.
+1. #144 — built and merged; close it after its first live read.
+2. #145 — built (`20c3bdf`); close it after the deploy and one day's read.
+3. #129 — waiting on Joe holding an order-linked combination. Do not poll.
+4. #96 — blocked on #129; next free schema is 56.
+5. #107 — same capture as #129.
+6. #108 — deferred fifth seat.
+
+---
+
 ## 2026-09-23 (fifty-second session) — the watcher stops scouting dead parlays (#141); Joe answered #142 (A) and a dead hand-recorded slip now closes itself (#143, ADR 0184, schema v55)
 
 `/go` with no focus. `partner` ran at 23:05Z. Clock read from GitHub's
@@ -2821,6 +2885,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-24 (fifty-third session) — durable reads for the prune and lost-leg closes (#144); Joe answered #145 (A), so half the token ceiling is now his; #115 closed NOT RUN on his (A) to #146. **NOT DEPLOYED** — the classifier refused the live deploy
 - 2026-09-23 (fifty-second session) — the watcher stops scouting dead parlays (#141); Joe answered #142 (A) and a dead hand-recorded slip now closes itself (#143, ADR 0184, schema v55)
 - 2026-09-23 (fifty-first session) — Joe answered the whole frozen digest with option buttons; all eight answers built and deployed (ADR 0183); the desk now scouts his held parlays first
 - 2026-09-23 (fiftieth session) — #137 merged with its day boundary fixed; CLAUDE.md no longer says the LLM fleet is free (#138); Joe answered #58 and the odds_snapshots prune is ARMED on live `fe0a76f` (ADR 0182, #139)
