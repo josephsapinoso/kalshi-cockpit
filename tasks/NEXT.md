@@ -134,6 +134,54 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-24 (fifty-fourth session) — #129's capture taken on the venue's own positions read; #96 built: /hedge asks the makers what they would pay (ADR 0185, schema v56); #147 opened. NOT deployed
+
+Joe asked for #129 then #96. No `partner` run — a named errand.
+
+### 1. What shipped (on `main`, not deployed)
+
+| commit | what | ticket |
+|---|---|---|
+| `fd0aa57` | The capture script stops reading the RFQ list as "ours" — the venue's 409 is the only signal. First real run taken | #129 (closed) |
+| `2d92786` | `POST /api/hedge/positions/{id}/sell-quote` + the card's "what would makers pay?" tap. Seven review defects, each mutation-tested. Schema v56, ADR 0185. The buy accept refuses an exit ask's quote | #96 |
+
+### 2. What the reads found
+
+- **#129's precondition was already true.** The venue's `/portfolio/positions`
+  showed three held KXMVE combinations; the line below ("waiting on Joe
+  holding…, do not poll") had been copied forward unchecked. Lesson written.
+- **Capture, 17:12:45Z, 3 held combinations:** 15 / 9 / 14 parsed quotes,
+  6 / 0 / 0 with a YES bid, best 10.1c on the first. Raw on the first: 17
+  quotes, 8 bids, best 10.2c — a sell-only quote (`no_bid_dollars` 0) the
+  buy parser dropped whole. A count at one moment, not a rate.
+- **`GET /communications/rfqs?market_ticker=` is market-wide**, `creator_id`
+  blank on every row, `rfq_user_filter=self` ignored. Only our own rows carry
+  `creator_user_id` (1 of 100, n = 1). #147 fixes `open_rfq_for` on the buy
+  path.
+- **`contracts_fp` works on create** — "2.01" held, 18 makers quoted 2.01.
+- Venue writes this session: 4 sell-side RFQs (3 captures + 1 probe), all
+  withdrawn, nothing accepted.
+
+### 3. Next session
+
+- **Deploy is owed and is Joe's call** — v56 rebuilds `combo_rfq_quotes` on
+  the live volume (tens of rows).
+- **The tap reaches no current position.** Joe's three held combinations are
+  *unrecorded* on `/hedge` (no `parlay_positions` row), and the tap needs a
+  row with `combo_ticker`. Recording them is the step between this and a use.
+- Full suite at `2d92786`'s tree: 8,566 passed locally after one inventory
+  fix; `next build` green. Read CI for the count.
+
+### Still open
+
+0. #145 — deployed (`e166a56`); close it after one full budget day's read (20260925).
+1. #96 — built (`2d92786`), not deployed; close on the first live tap.
+2. #147 — `open_rfq_for` reads strangers' RFQs as ours on the buy path.
+3. #107 — the book arm of the capture; the sell arm ran 2026-09-24.
+4. #108 — deferred fifth seat.
+
+---
+
 ## 2026-09-24 (fifty-third session) — durable reads for the prune and lost-leg closes (#144); Joe answered #145 (A), so half the token ceiling is now his; #115 closed NOT RUN on his (A) to #146; #139 closed on the cursor read. Deployed `e166a56` (Joe ran it)
 
 `/go` with no focus. `partner` ran at 14:22Z. Clock from GitHub's `Date`
@@ -2890,6 +2938,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-24 (fifty-fourth session) — #129's capture taken on the venue's own positions read; #96 built: /hedge asks the makers what they would pay (ADR 0185, schema v56); #147 opened. NOT deployed
 - 2026-09-24 (fifty-third session) — durable reads for the prune and lost-leg closes (#144); Joe answered #145 (A), so half the token ceiling is now his; #115 closed NOT RUN on his (A) to #146; #139 closed on the cursor read. Deployed `e166a56` (Joe ran it)
 - 2026-09-23 (fifty-second session) — the watcher stops scouting dead parlays (#141); Joe answered #142 (A) and a dead hand-recorded slip now closes itself (#143, ADR 0184, schema v55)
 - 2026-09-23 (fifty-first session) — Joe answered the whole frozen digest with option buttons; all eight answers built and deployed (ADR 0183); the desk now scouts his held parlays first
