@@ -146,10 +146,9 @@ class TestComboRfqsListsNewestFirst:
         sections = _run(path, "combo-rfqs", tail=2)
         assert sections[0].row_count == 2
 
-    def test_default_depth_is_twenty_not_the_shared_five(self, tmp_path):
-        """Mutation: delete the `if requested == _SHARED_TAIL_DEFAULT:`
-        override in `_q_combo_rfqs` -- red, only 5 of the 8 seeded rows
-        come back."""
+    def test_an_explicit_n_of_five_returns_five(self, tmp_path):
+        """`-n 5` means five. The lane's first cut read the shared default
+        of 5 as "unset" and silently served 20 instead of what was typed."""
         path = _seeded_db(tmp_path)
         conn = db.connect(path)
         for i in range(8):
@@ -161,10 +160,20 @@ class TestComboRfqsListsNewestFirst:
         conn.commit()
         conn.close()
 
-        # tail left at the class default of 5, the same value _q_combo_rfqs
-        # must recognise as "unset" and replace with 20.
-        sections = _run(path, "combo-rfqs")
-        assert sections[0].row_count == 8
+        sections = _run(path, "combo-rfqs", tail=5)
+        assert sections[0].row_count == 5
+
+    def test_purpose_tells_an_exit_ask_from_a_buy(self, tmp_path):
+        path = _seeded_db(tmp_path)
+        conn = db.connect(path)
+        _insert_rfq(conn, rfq_id="rfq-exit", requested_ms=1_700_000_000_002)
+        conn.execute("UPDATE combo_rfqs SET purpose = 'exit' WHERE rfq_id = 'rfq-exit'")
+        conn.commit()
+        conn.close()
+
+        section = _run(path, "combo-rfqs", tail=5)[0]
+        assert "purpose" in section.columns
+        assert section.rows[0][section.columns.index("purpose")] == "exit"
 
     def test_a_larger_n_than_rows_returns_everything(self, tmp_path):
         path = _seeded_db(tmp_path)

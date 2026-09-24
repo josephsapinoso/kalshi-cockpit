@@ -615,36 +615,22 @@ def _q_lost_leg_closures(conn: sqlite3.Connection, args) -> list[Section]:
 _SQL_COMBO_RFQS = (
     "SELECT id, requested_ms, ticker, exchange_index, target_cost_dollars, "
     "contracts_requested, fair_joint, book_yes_ask_tenths, quote_count, "
-    "refused_too_fine, status "
+    "refused_too_fine, status, purpose "
     "FROM combo_rfqs ORDER BY requested_ms DESC, id DESC"
 )
 
-#: This query's own default depth for `-n`/`--tail`. One RFQ ask is a much
-#: smaller, rarer event than one `api_credits` row, so 20 reads back further
-#: than the file-wide default of 5 without the caller having to know that.
-_COMBO_RFQS_DEFAULT_N = 20
-
-#: The file-wide `-n`/`--tail` default (`_build_parser`, `default=5`),
-#: repeated here as a named constant rather than a bare literal so the
-#: coupling below is legible. **There is exactly one `-n` flag and it has
-#: exactly one default at the argparse level** -- a caller who explicitly
-#: types `-n 5` for THIS query is indistinguishable, after parsing, from a
-#: caller who typed nothing at all, and gets 20 instead of 5. A second flag
-#: just to draw that one distinction was rejected: one more name to
-#: remember, for a case no other query in this file needs.
-_SHARED_TAIL_DEFAULT = 5
-
-
 def _q_combo_rfqs(conn: sqlite3.Connection, args) -> list[Section]:
-    """The last N `combo_rfqs` rows (-n, default 20), newest `requested_ms`
-    first.
+    """The last N `combo_rfqs` rows (-n, the file-wide default of 5), newest
+    `requested_ms` first.
 
     Prints `id`, `requested_ms` (plus its ISO-UTC rendering), `ticker`,
     `exchange_index`, `target_cost_dollars` and `contracts_requested`
     (exactly one is set per row, per the table's own comment),
     `fair_joint`, `book_yes_ask_tenths`, `quote_count`,
     `refused_too_fine` -- the finer-than-a-tenth-of-a-cent maker count
-    (schema v49, #77) -- and `status`. `combo_rfqs` has a `status` column
+    (schema v49, #77) -- `status`, and `purpose` (`buy` or `exit`, v56; NULL
+    on rows older than the column), which is what tells a sell-quote tap
+    from a buy ask. `combo_rfqs` has a `status` column
     and this reads it; it has no `accept` column of its own -- the accept
     columns (`accepted_ms`, `accepted_side`, `outcome_status`, ...) live on
     `combo_rfq_quotes`, a different table this query does not join, so none
@@ -656,21 +642,14 @@ def _q_combo_rfqs(conn: sqlite3.Connection, args) -> list[Section]:
       ask, in the order they were made. How many quotes an ask drew is on
       the row (`quote_count`); which makers, and at what price, is not --
       that is `combo_rfq_quotes`, unread here.
-    - **`purpose` is not printed.** The ticket does not name it among the
-      columns to print, and it postdates most of the record (NULL before
-      v56) -- read it directly from the table if a buy/exit split is
-      needed.
     """
-    requested = args.tail
-    if requested == _SHARED_TAIL_DEFAULT:
-        requested = _COMBO_RFQS_DEFAULT_N
     section = _fetch(
         conn,
         _SQL_COMBO_RFQS,
         (),
         title="combo_rfqs: last N, newest requested_ms first",
         cap=args.limit,
-        requested=requested,
+        requested=args.tail,
     )
     return [_derive_iso(section, "requested_ms", "requested_iso")]
 
@@ -1455,10 +1434,11 @@ QUERIES: dict[str, QueryDef] = {
         cost=CHEAP,
     ),
     "combo-rfqs": QueryDef(
-        "The last N combo_rfqs rows (-n, default 20), newest requested_ms "
+        "The last N combo_rfqs rows (-n, default 5), newest requested_ms "
         "first: id, requested_ms (+ISO), ticker, exchange_index, "
         "target_cost_dollars/contracts_requested, fair_joint, "
-        "book_yes_ask_tenths, quote_count, refused_too_fine, status. Never "
+        "book_yes_ask_tenths, quote_count, refused_too_fine, status, "
+        "purpose (buy/exit). Never "
         "prints selected_legs; no aggregate. The read that audits a "
         "sell-quote tap seen only on Joe's own screen.",
         _q_combo_rfqs,
