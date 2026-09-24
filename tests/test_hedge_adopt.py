@@ -550,6 +550,30 @@ class TestTheGuards:
         finally:
             conn.close()
 
+    async def test_an_unexpected_failure_releases_the_write_lock(
+        self, tmp_path, monkeypatch
+    ):
+        """`BEGIN IMMEDIATE` takes the database's write lock. A failure that is
+        not a `PositionRefused` must still roll back, or every other writer on
+        the box waits on a transaction nobody will close."""
+        path = tmp_path / "t.db"
+        conn = store.init_db(path)
+        conn.row_factory = sqlite3.Row
+        try:
+            _seed_poll(conn)
+
+            def boom(*args, **kwargs):
+                raise sqlite3.OperationalError("disk I/O error")
+
+            monkeypatch.setattr(hedge, "record_position", boom)
+            with pytest.raises(sqlite3.OperationalError):
+                await hedge.adopt_venue_combo(
+                    conn, api=FakeVenue(), ticker=TICKER, now_ms=NOW_MS
+                )
+            assert not conn.in_transaction, "the write lock was left held"
+        finally:
+            conn.close()
+
 
 class TestANoLeg:
     """kalshi-platform review #148, MUST FIX 4: a NO leg's label must not

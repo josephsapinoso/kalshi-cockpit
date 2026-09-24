@@ -1651,6 +1651,11 @@ async def adopt_venue_combo(
     except PositionRefused as exc:
         conn.rollback()
         raise LookupRefused(422, exc.refusal.detail) from exc
+    except BaseException:
+        # Anything else (a CHECK constraint, a locked file) must not leave
+        # the write lock `BEGIN IMMEDIATE` took held on this connection.
+        conn.rollback()
+        raise
 
 
 def combo_settlements(
