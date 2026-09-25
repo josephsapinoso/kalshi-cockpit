@@ -72,6 +72,20 @@ def _lookup(conn, *, ticker=COMBO_TICKER, requested_ms, status="priced",
     conn.commit()
 
 
+def _rfq(conn, *, ticker=COMBO_TICKER, requested_ms, fair_joint=0.34,
+          rfq_id=None, status="quoted", purpose="buy"):
+    if rfq_id is None:
+        rfq_id = f"rfq-{ticker}-{requested_ms}"
+    conn.execute(
+        "INSERT INTO combo_rfqs (rfq_id, requested_ms, ticker, "
+        "collection_ticker, selected_legs, exchange_index, fair_joint, "
+        "status, purpose) "
+        "VALUES (?, ?, ?, 'KXMVECROSSCATEGORY', '[]', 1, ?, ?, ?)",
+        (rfq_id, requested_ms, ticker, fair_joint, status, purpose),
+    )
+    conn.commit()
+
+
 def _combo_row(record: dict, ticker=COMBO_TICKER) -> dict:
     matches = [b for b in record["bets"] if b["ticker"] == ticker]
     assert len(matches) == 1, f"expected exactly one row for {ticker}"
@@ -135,7 +149,13 @@ class TestNoFillRow:
         assert bet["chance_refusal_reason"] == "no_fill_row"
 
 
-class TestOnlyPricedStatusCounts:
+class TestRefusedAndErrorLookupsAreIgnored:
+    """Renamed from `TestOnlyPricedStatusCounts` (#163): `status = 'priced'`
+    is no longer the only status that carries a chance -- `book_empty` does
+    too, per `test_a_book_empty_lookup_carries_the_chance` below. What this
+    class still pins is that `refused` (no market was minted) and `error`
+    (the read failed) never carry one."""
+
     def test_a_non_priced_lookup_is_ignored(self, tmp_path):
         conn = db.init_db(tmp_path / "b.db")
         _settlement(conn)
@@ -149,7 +169,27 @@ class TestOnlyPricedStatusCounts:
         assert bet["chance_when_priced"] is None
         assert bet["chance_refusal_reason"] == "not_priced_on_desk"
 
-    def test_a_priced_lookup_beats_a_later_non_priced_one(self, tmp_path):
+    def test_an_error_lookup_is_ignored(self, tmp_path):
+        conn = db.init_db(tmp_path / "b.db")
+        _settlement(conn)
+        _fill(conn)
+        _lookup(
+            conn, requested_ms=FILL_MS - 1_000, status="error",
+            fair_joint_conservative=0.77,
+        )
+        record = bets.bets_record(conn)
+        bet = _combo_row(record)
+        assert bet["chance_when_priced"] is None
+        assert bet["chance_refusal_reason"] == "not_priced_on_desk"
+
+    def test_a_book_empty_lookup_beats_an_earlier_priced_one(self, tmp_path):
+        """SPEC CORRECTION (#163), not a weakened assertion: this test used
+        to be named `test_a_priced_lookup_beats_a_later_non_priced_one` and
+        asserted the OPPOSITE -- that a `priced` reading wins over a later
+        `book_empty` one. That was wrong: a KXMVE book is empty by design
+        between RFQs (ADR 0164), so `book_empty` is a real desk reading, not
+        a lesser one, and the newest qualifying reading must win regardless
+        of which of the two statuses it carries."""
         conn = db.init_db(tmp_path / "b.db")
         _settlement(conn)
         _fill(conn)
@@ -160,8 +200,115 @@ class TestOnlyPricedStatusCounts:
         )
         record = bets.bets_record(conn)
         bet = _combo_row(record)
-        assert bet["chance_when_priced"] == 0.40
+        assert bet["chance_when_priced"] == 0.90
         assert bet["chance_refusal_reason"] is None
+
+
+class TestABookEmptyLookupCarriesTheChance:
+    def test_a_book_empty_lookup_carries_the_chance(self, tmp_path):
+        conn = db.init_db(tmp_path / "b.db")
+        _settlement(conn)
+        _fill(conn)
+        _lookup(
+            conn, requested_ms=FILL_MS - 1_000, status="book_empty",
+            fair_joint_conservative=0.41,
+        )
+        record = bets.bets_record(conn)
+        bet = _combo_row(record)
+        assert bet["chance_when_priced"] == 0.41
+        assert bet["chance_refusal_reason"] is None
+        assert record["sections"]["combo"]["chance_carried"] == 1
+
+
+class TestAnRfqAskCarriesTheChance:
+    def test_an_rfq_ask_carries_the_chance(self, tmp_path):
+        conn = db.init_db(tmp_path / "b.db")
+        _settlement(conn)
+        _fill(conn)
+        _rfq(conn, requested_ms=FILL_MS - 1_000, fair_joint=0.578)
+        record = bets.bets_record(conn)
+        bet = _combo_row(record)
+        assert bet["chance_when_priced"] == 0.578
+        assert bet["chance_refusal_reason"] is None
+        assert record["sections"]["combo"]["chance_carried"] == 1
+
+
+class TestTheLatestReadingWinsAcrossBothTables:
+    def test_the_latest_reading_wins_across_both_tables(self, tmp_path):
+        conn = db.init_db(tmp_path / "b.db")
+        _settlement(conn)
+        _fill(conn)
+        _lookup(
+            conn, requested_ms=FILL_MS - 5_000, status="book_empty",
+            fair_joint_conservative=0.20,
+        )
+        _rfq(conn, requested_ms=FILL_MS - 2_000, fair_joint=0.578)
+        record = bets.bets_record(conn)
+        bet = _combo_row(record)
+        assert bet["chance_when_priced"] == 0.578
+        assert bet["chance_priced_before_fill_ms"] == 2_000
+
+    def test_an_older_rfq_loses_to_a_newer_lookup(self, tmp_path):
+        conn = db.init_db(tmp_path / "b.db")
+        _settlement(conn)
+        _fill(conn)
+        _rfq(conn, requested_ms=FILL_MS - 5_000, fair_joint=0.578)
+        _lookup(
+            conn, requested_ms=FILL_MS - 2_000, status="book_empty",
+            fair_joint_conservative=0.20,
+        )
+        record = bets.bets_record(conn)
+        bet = _combo_row(record)
+        assert bet["chance_when_priced"] == 0.20
+
+    def test_a_tie_at_the_same_millisecond_is_broken_toward_the_lookup(
+        self, tmp_path
+    ):
+        """The ticket requires a deterministic tiebreak and asks that it be
+        stated. This repo's rule (see `_chance_when_priced_by_ticker`'s
+        docstring): at an identical `requested_ms`, the `parlay_lookups`
+        reading wins over the `combo_rfqs` one."""
+        conn = db.init_db(tmp_path / "b.db")
+        _settlement(conn)
+        _fill(conn)
+        tied_ms = FILL_MS - 1_000
+        _lookup(conn, requested_ms=tied_ms, status="book_empty",
+                fair_joint_conservative=0.20)
+        _rfq(conn, requested_ms=tied_ms, fair_joint=0.578)
+        record = bets.bets_record(conn)
+        bet = _combo_row(record)
+        assert bet["chance_when_priced"] == 0.20
+
+
+class TestAnRfqAfterTheFillIsIgnored:
+    def test_an_rfq_after_the_fill_is_ignored(self, tmp_path):
+        conn = db.init_db(tmp_path / "b.db")
+        _settlement(conn)
+        _fill(conn)
+        _rfq(conn, requested_ms=FILL_MS + 5_000, fair_joint=0.14,
+             purpose="exit")
+        record = bets.bets_record(conn)
+        bet = _combo_row(record)
+        assert bet["chance_when_priced"] is None
+        assert bet["chance_refusal_reason"] == "not_priced_on_desk"
+
+    def test_an_rfq_at_or_before_the_fill_still_qualifies_even_as_exit(
+        self, tmp_path
+    ):
+        """The ticket does not ask for a `purpose` filter -- the
+        at-or-before-the-fill bound alone excludes a post-fill sell-side
+        ask, since a sell-side ask cannot exist before the position does in
+        the tool's own flow. This pins that no extra `purpose` guard was
+        smuggled in that would also exclude a legitimate before-the-fill
+        row."""
+        conn = db.init_db(tmp_path / "b.db")
+        _settlement(conn)
+        _fill(conn)
+        _rfq(conn, requested_ms=FILL_MS - 1_000, fair_joint=0.578,
+             purpose="exit")
+        record = bets.bets_record(conn)
+        bet = _combo_row(record)
+        assert bet["chance_when_priced"] == 0.578
 
 
 class TestSinglesCarryNone:
