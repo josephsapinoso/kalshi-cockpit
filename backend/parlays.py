@@ -1953,6 +1953,17 @@ def _leg_scouting(conn, tickers: Sequence[str]) -> dict[str, dict]:
     `kalshi_markets.event_ticker`, which is what "the same game" actually means
     here, and which `idx_markets_event` already indexes.
 
+    **An event ticker carries its SERIES, so one game is several events**
+    (#150). `KXWNBAGAME-26SEP24CHIWSH` and `KXWNBASPREAD-26SEP24CHIWSH` are
+    the same game on two series. Matching on `event_ticker` alone let a
+    spread or total leg miss a briefing filed on the game's moneyline: 2 of
+    39 legs on live, 2026-09-24. So a briefing also counts when its market
+    and the leg's market share the fixture segment (everything after the
+    event ticker's first `-`) AND the same `kalshi_series.league`. The
+    league condition keeps a WNBA game and an NFL game that share a
+    date-and-teams string apart. A series whose league is NULL does not get
+    the wider match: an unmapped league refuses rather than guessing.
+
     **This spends nothing.** It reads briefings that exist; it never convenes
     the desk. That matters more than it looks: `AGENT_MAX_SEARCHES_PER_DAY`
     allows **five convenings a day** (`fly.live.toml` -- it binds before the
@@ -1981,9 +1992,20 @@ def _leg_scouting(conn, tickers: Sequence[str]) -> dict[str, dict]:
                    PARTITION BY m.ticker ORDER BY b.requested_ms DESC, b.id DESC
                  ) AS rn
           FROM kalshi_markets m
-          JOIN kalshi_markets sm ON sm.event_ticker = m.event_ticker
-          JOIN scout_briefings b ON b.ticker = sm.ticker
+          LEFT JOIN kalshi_series ls ON ls.series_ticker = m.series_ticker
+          JOIN scout_briefings b
+          JOIN kalshi_markets sm ON sm.ticker = b.ticker
+          LEFT JOIN kalshi_series bs ON bs.series_ticker = sm.series_ticker
           WHERE m.ticker IN ({placeholders})
+            AND (
+              sm.event_ticker = m.event_ticker
+              OR (
+                ls.league IS NOT NULL AND bs.league = ls.league
+                AND instr(m.event_ticker, '-') > 0
+                AND substr(sm.event_ticker, instr(sm.event_ticker, '-') + 1)
+                    = substr(m.event_ticker, instr(m.event_ticker, '-') + 1)
+              )
+            )
         ) WHERE rn = 1
         """,
         unique,
