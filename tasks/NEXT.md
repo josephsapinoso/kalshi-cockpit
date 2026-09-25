@@ -178,7 +178,8 @@ Chrome was not connected, so the session used last session's route: the dev serv
 ### Still open
 
 0. #151: on 2026-09-28, read `agent-spend` for `agent='leg_verdict'` against the 1.5M ceiling, plus the TAKE/PASS split.
-1. #161: deploy `9bc736e` (the fix that stops a small chance showing as 0%), then close.
+
+**Then live on `7fc43bd`** (Deploy run 36193273118, on Joe's second go-ahead). It carries the 0% fix, and #161 is closed. The first attempt failed on a Fly API 504 while setting the release status, and live stayed on `29f794d` untouched. A second run was green, and `/api/health` confirmed the sha. All 27 readings render, the smallest as 0.06%.
 
 ## 2026-09-25 (fifty-ninth session) — Joe said the expanded parlay card was over-filled; it is now a summary, buying opens a slide-over panel, and the review found two old ways to close a ticket mid-send (#158)
 
