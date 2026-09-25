@@ -400,6 +400,8 @@ class TestTheRoute:
             "net_display": "+$0.00",
             "computable": 0,
             "uncomputable": 0,
+            # #161: a count of combo rows carrying the desk's chance.
+            "chance_carried": 0,
         }
         assert response.json() == {
             "bets": [],
@@ -829,11 +831,11 @@ class TestTwoKindsTwoSections:
         single, combo = record["sections"]["single"], record["sections"]["combo"]
         assert single == {
             "total": 1, "net_tenths": -820, "net_display": "-$0.82",
-            "computable": 1, "uncomputable": 0,
+            "computable": 1, "uncomputable": 0, "chance_carried": 0,
         }
         assert combo == {
             "total": 2, "net_tenths": 1180, "net_display": "+$1.18",
-            "computable": 1, "uncomputable": 1,
+            "computable": 1, "uncomputable": 1, "chance_carried": 0,
         }
         # The parts sum to the pooled figures -- the pooled strip is
         # unchanged and the sections are its per-group view.
@@ -864,6 +866,9 @@ class TestTwoKindsTwoSections:
             assert set(section) == {
                 "total", "net_tenths", "net_display", "computable",
                 "uncomputable",
+                # #161: a COUNT of rows carrying the desk's chance -- still
+                # an integer, still nothing that divides.
+                "chance_carried",
             }
             assert all(
                 isinstance(v, int) for k, v in section.items()
