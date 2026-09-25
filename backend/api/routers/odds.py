@@ -57,12 +57,29 @@ def register(
         """
         now = db.now_ms()
         horizon_ms = 24 * 3_600_000
+        # **One row per `odds_event_id`, from its own latest sweep** -- the
+        # same `MAX(fetched_ms)` pattern `runner.book_quotes_for_event` reads
+        # by (schema.sql:372). A bare `SELECT DISTINCT` over every stored
+        # sweep double-lists a fixture whose `commence_ms` or team-name
+        # spelling changed between two fetches (a reschedule, a provider
+        # correction) and both sweeps still land inside the 24h horizon --
+        # that produced two `odds_event_id`-keyed React children with the
+        # same key (#159). The inner query is bounded by `commence_ms` first
+        # (index `idx_odds_commence`), never an unbounded GROUP BY over the
+        # ~10M-row table.
         rows = conn.execute(
             "SELECT DISTINCT o.sport_key, o.odds_event_id, o.commence_ms, "
             "o.home_team, o.away_team FROM odds_snapshots o "
+            "JOIN ("
+            "    SELECT odds_event_id, MAX(fetched_ms) AS latest_fetched_ms "
+            "    FROM odds_snapshots "
+            "    WHERE commence_ms >= ? AND commence_ms <= ? "
+            "    GROUP BY odds_event_id"
+            ") latest ON o.odds_event_id = latest.odds_event_id "
+            "AND o.fetched_ms = latest.latest_fetched_ms "
             "WHERE o.commence_ms >= ? AND o.commence_ms <= ? "
             "ORDER BY o.commence_ms",
-            (now, now + horizon_ms),
+            (now, now + horizon_ms, now, now + horizon_ms),
         ).fetchall()
 
         team_credits = sweep_cost(odds.markets, odds.regions, odds.bookmakers)
