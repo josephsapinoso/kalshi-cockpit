@@ -729,6 +729,7 @@ function TicketBody({
         askTenths={facts.ask_tenths}
         askDisplay={facts.ask_display}
         ceiling={ceiling}
+        side={side}
         contracts={contracts}
         setContracts={setContracts}
         disabled={sending || zeroBuyable}
@@ -1049,6 +1050,7 @@ function DollarAmount({
   askTenths,
   askDisplay,
   ceiling,
+  side,
   contracts,
   setContracts,
   disabled,
@@ -1056,6 +1058,10 @@ function DollarAmount({
   askTenths: number | null;
   askDisplay: string | null;
   ceiling: number | null;
+  /** Read only as an effect dependency (#162): the parent zeroes
+   *  `contracts` on a side switch, and two sides with the same ask and the
+   *  same ceiling change neither of the other inputs. */
+  side: "yes" | "no";
   contracts: number;
   setContracts: (n: number) => void;
   disabled: boolean;
@@ -1069,8 +1075,11 @@ function DollarAmount({
     Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : null;
 
   // Derived here AND pushed up: the parent owns what is sent, this control
-  // owns how it was arrived at. Recomputed when the side (and so the ask)
-  // changes, keeping the typed dollars.
+  // owns how it was arrived at. Recomputed when the side changes, keeping
+  // the typed dollars. `side` is a dependency in its own right (#162): this
+  // comment said "the side (and so the ask)" while only the ask was listed,
+  // so a switch between two sides quoting the same ask and ceiling left the
+  // parent's zeroed count standing on a buyable side.
   useEffect(() => {
     if (askTenths === null || amountTenths === null) {
       setContracts(0);
@@ -1079,7 +1088,7 @@ function DollarAmount({
     const affordable = Math.floor(amountTenths / askTenths);
     setContracts(Math.min(affordable, ceiling ?? affordable));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [amountTenths, askTenths, ceiling]);
+  }, [amountTenths, askTenths, ceiling, side]);
 
   const affordable =
     askTenths === null || amountTenths === null
@@ -1147,12 +1156,13 @@ function DollarAmount({
               {/* Two causes reach here, and only the first is a zero
                   ceiling. (1) `ceiling === 0`: the #160 notice at the top
                   carries the reason and the remedy, so this points up
-                  rather than print the shard paragraph twice. (2) A side
-                  switch zeroes `contracts` and, when both sides share an ask
-                  and a ceiling, the effect above does not re-run -- the
-                  count is stale, nothing is unbuyable, and there is no note
-                  at the top to point at (kalshi-platform review of #160).
-                  Keyed on the ceiling, never on `contracts`, for the same
+                  rather than print the shard paragraph twice. (2) The one
+                  render between a side switch zeroing `contracts` and the
+                  effect above recounting it (#162 made `side` a dependency;
+                  before that, two sides with one ask and one ceiling left the
+                  zero standing). Nothing is unbuyable there and there is no
+                  note at the top, so the sentence just ends. Keyed on the
+                  ceiling, never on `contracts`, for the same
                   reason the branch itself is keyed on `affordable`. */}
               {ceiling === 0 ? (
                 <>
@@ -1161,7 +1171,7 @@ function DollarAmount({
                   ticket says what is.
                 </>
               ) : (
-                <>. Edit the amount to count it again for this side.</>
+                <>.</>
               )}
             </>
           ) : (

@@ -112,7 +112,7 @@ class TestTheZeroReasonIsTrueForEveryBound:
         branch = amount[amount.index("affordable !== null && affordable >= 1 ?") :]
         pointer = branch.index("The note at the top of this")
         assert "{ceiling === 0 ? (" in branch[:pointer]
-        assert "Edit the amount to count it again" in branch
+
 
     def test_a_price_grid_zero_says_the_grid(self):
         source = TICKET.read_text(encoding="utf-8")
@@ -126,3 +126,18 @@ class TestTheZeroReasonIsTrueForEveryBound:
         source = " ".join(TICKET.read_text(encoding="utf-8").split())
         assert "Nothing is resting at the ask" not in source
         assert "Less than one whole contract is resting at the ask" in source
+
+
+class TestASideSwitchRecountsTheContracts:
+    def test_side_is_a_dependency_of_the_recount(self):
+        """#162. The parent zeroes `contracts` on a side switch; the recount
+        listed only the ask and the ceiling, so two sides quoting the same
+        ask (any book with yes_bid == no_bid) left the zero standing and
+        Confirm off on a buyable bet until the amount was edited."""
+        source = TICKET.read_text(encoding="utf-8")
+        amount = source[source.index("function DollarAmount") :]
+        assert "}, [amountTenths, askTenths, ceiling, side]);" in amount
+        body = _body()
+        call = body[body.index("<DollarAmount") :]
+        call = call[: call.index("/>")]
+        assert "side={side}" in call
