@@ -134,6 +134,52 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-25 (sixtieth session) — /bets shows the desk's chance when Joe priced each parlay (#161); the leg ticket says "you can buy 0" and the break-even first, with the box switched off (#160, his answer); the refresh panel's duplicate fixture (#159) and a stale side-switch count (#162) fixed. Live on 29f794d
+
+This session started on `/go`. The board was #151 (reading due 09-28), #159 and #160. `partner` ranked a new `/bets` column first. Joe answered two option-button questions at the start: **#160, switch the amount box off at zero** (visible, disabled, until a re-read finds something buyable), and **build the /bets column**.
+
+### 1. What shipped
+
+- **#161 `/bets`, Sonnet lane.**
+  - Each settled combination row shows "Desk's chance when you priced it: 51% · 14s before you bought". The value is `parlay_lookups.fair_joint_conservative` from the latest `priced` lookup at or before the ticker's first `fills.filled_ms`, read in one batched query.
+  - The section header reads "27 of 142 carry the desk's chance" on live.
+  - Where there is no reading, the row says "— not priced on the desk" or "— no fill on record". It never shows 0.
+  - Source scans forbid any sum, mean or `reduce` over the value.
+  - The lane **refused my spec's "assumes the legs are independent"**. It was false: `ladder._joint` runs a correlation adjustment. The glossary entry follows `joint_chance` instead.
+  - Main's follow-up: the first live render printed "0%" for a 0.06% reading, so `chancePercent` now shows finer places below 10% and "under 0.01%" at the floor (`9bc736e`, **not yet deployed**).
+- **#160 leg ticket, main, armed path, layout only.**
+  - The zero-buyable notice (`ZeroReason`) and the break-even now render at the top.
+  - `DollarAmount` is `disabled={sending || zeroBuyable}`, and `zeroBuyable = ceiling === 0`, so an unread wallet (`null`) never switches it off.
+  - `canConfirm` is untouched, and a test pins that.
+  - kalshi-platform found three copy lies, all fixed:
+    - a `price_grid` zero had no true reason;
+    - the amount box's pointer upward was keyed on `contracts`, not the ceiling;
+    - "nothing is resting at the ask" was false for fractional or unread depth.
+- **#162, opened from that review and fixed the same session.** The side toggle zeroes `contracts`. The recount's dependencies were only the ask and the ceiling, although its comment said "the side (and so the ask)". So two sides with one ask (any book with `yes_bid == no_bid`) left Confirm off on a buyable bet. `side` is now a dependency. The re-review found nothing on the armed path.
+- **#159 refresh panel, Sonnet lane.** `SELECT DISTINCT` over every sweep double-listed an event whose `commence_ms` or team spelling moved between sweeps. Each event is now read from its own latest sweep (`MAX(fetched_ms)`), still bounded by `commence_ms`.
+- **Tests.**
+  - `tests/test_leg_ticket_says_the_deciding_facts_first.py`: 12 claims, 10 mutations red, 7 of 8 original claims red on the pre-fix file.
+  - `tests/test_bets_chance_when_bought.py`: 15 claims.
+  - `tests/test_refreshable_lists_each_fixture_once.py`: 4 claims.
+  - `tests/test_bets.py`: three literal-shape pins gained `chance_carried`.
+
+### 2. Seen on live
+
+**Live is on `29f794d`** (Deploy run 36190735279). The classifier refused the first attempt, and it went through on Joe's go-ahead given with option buttons.
+
+Chrome was not connected, so the session used last session's route: the dev server (a leftover one on port 3055) behind the GET-only proxy, driven by Playwright.
+- A real leg ticket on the empty shard 0 ($0.01) showed the notice and the break-even at the top. The input was disabled and Confirm was off.
+- The scouts' POST came back from the proxy as "read-only; nothing was sent".
+- The refresh panel logged no key collision.
+- `/bets` was seen at 390px and a leg ticket at 1440px, and both screenshots were sent to Joe.
+
+**The Deploy workflow defaults to `demo`.** My first run was green and changed nothing on live. Live needs `-f instance=live -f confirm_live=kalshi-cockpit`, and `/api/health` is the only proof.
+
+### Still open
+
+0. #151: on 2026-09-28, read `agent-spend` for `agent='leg_verdict'` against the 1.5M ceiling, plus the TAKE/PASS split.
+1. #161: deploy `9bc736e` (the fix that stops a small chance showing as 0%), then close.
+
 ## 2026-09-25 (fifty-ninth session) — Joe said the expanded parlay card was over-filled; it is now a summary, buying opens a slide-over panel, and the review found two old ways to close a ticket mid-send (#158)
 
 This session started on `/go`. `partner` ranked a `/bets` "chance when you bought" column first. Joe then named the focus himself: *"the tiles get over-filled with info when i expand it … imagine if this is a service i am selling"*. Every call below was his, made with option buttons.
@@ -763,6 +809,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-25 (sixtieth session) — /bets shows the desk's chance when Joe priced each parlay (#161); the leg ticket says "you can buy 0" and the break-even first, with the box switched off (#160, his answer); the refresh panel's duplicate fixture (#159) and a stale side-switch count (#162) fixed. Live on 29f794d
 - 2026-09-25 (fifty-ninth session) — Joe said the expanded parlay card was over-filled; it is now a summary, buying opens a slide-over panel, and the review found two old ways to close a ticket mid-send (#158)
 - 2026-09-25 (fifty-eighth session) — the first look at a verdict on screen found a burst that ran the day to 224% and a refusal the card never showed; both fixed and live on 866d942, and Joe raised the three ceilings together (#157 A)
 - 2026-09-25 (fifty-seventh session) — #151: the scouts give a plain-language TAKE/PASS on each parlay leg before Joe buys (ADR 0186, schema v57-58; live on 73ba8a4)

@@ -16,6 +16,29 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-25 - Display rounding can manufacture the zero the data refused; a comment that lists a dependency is not the dependency list
+
+From the sixtieth session (#161, #162).
+
+- **A formatter that rounds a probability to whole points prints "0%"
+  for a real longshot reading.** The backend kept "no reading" as `None`
+  and never 0, and then `Math.round(p * 100)` turned a 0.06% reading into
+  "Desk's chance: 0%" on the first live render. The unreadable-is-not-zero
+  rule has to hold at the last formatting step too. **Format small
+  probabilities with enough places to stay non-zero, and floor with
+  "under X", never with 0.** Test on the smallest real value on the record,
+  not a round synthetic 0.34.
+- **An effect whose comment says "recomputed when the side changes" and
+  whose dependency array does not list `side` recomputes only when the
+  side's other inputs happen to change too.** Two sides quoting the same
+  ask were a live, reachable case, and Confirm stayed dark on a buyable
+  bet. **When a comment names the triggers of an effect, read the array
+  against it.** This is the justifications-decay pattern at the scale of
+  one line.
+- **A green Deploy run on a workflow with a default target proves the
+  default.** Ours defaults to `demo`. Read the live `/api/health`
+  `build.git_sha`, never the run's colour.
+
 ## 2026-09-25 - A container's safety promise is only as strong as each child's own exit; preview money screens through a proxy that refuses writes
 
 From the fifty-ninth session (#158).
