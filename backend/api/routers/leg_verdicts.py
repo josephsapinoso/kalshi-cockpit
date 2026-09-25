@@ -85,6 +85,37 @@ def _refusal_item(ticker: str, side: str, reason: str) -> dict:
     }
 
 
+_MS_PER_HOUR = 60 * 60 * 1000
+
+
+def _budget_refusal_message(budget: AgentBudget, now_ms: int) -> str:
+    """Plain words for a budget refusal (#154), replacing `refusal_reason`'s
+    operator text -- "500000 of 500000 Anthropic tokens already recorded
+    today" -- with something Joe's rule for this feature (#151) allows:
+    everyday sentences, no jargon.
+
+    Any non-`None` `budget.refusal_reason` -- the calls, tokens, searches or
+    per-pass ceiling -- means today's allowance is spent; the operator text
+    still reaches the server log, because `budget.refusal_reason` logs it
+    itself before returning. `backend/agents/budget.py` is untouched: the
+    scout desk and the logs still read its own text, and this function only
+    runs at this route's one call site.
+
+    N is hours from `now_ms` to the *next* `AgentBudget.day_start_ms`
+    boundary, rounded UP -- never a hard-coded 10:00 UTC, so a configured
+    `day_start_hour` still gets the right answer. Hours-until, not a clock
+    time, so no timezone guess is shown to Joe.
+    """
+    next_boundary_ms = budget.day_start_ms(now_ms) + 24 * _MS_PER_HOUR
+    remaining_ms = next_boundary_ms - now_ms
+    if remaining_ms < _MS_PER_HOUR:
+        when = "in under an hour"
+    else:
+        hours = -(-remaining_ms // _MS_PER_HOUR)  # ceil division, no float
+        when = f"in about {hours} hours"
+    return f"The scouts have used today's allowance. They're back {when}."
+
+
 def register(app: FastAPI, *, app_config, get_conn, require_auth) -> None:
     """Attach the two leg-verdict handlers to `app`."""
 
@@ -165,7 +196,11 @@ def register(app: FastAPI, *, app_config, get_conn, require_auth) -> None:
                     1, now, searches_worst_case=LEG_VERDICT_MAX_SEARCHES
                 )
                 if reason is not None:
-                    results.append(_refusal_item(ticker, side, reason))
+                    results.append(
+                        _refusal_item(
+                            ticker, side, _budget_refusal_message(budget, now)
+                        )
+                    )
                     continue
 
                 row_id = insert_running_row(
