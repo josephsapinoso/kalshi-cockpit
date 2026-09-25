@@ -157,17 +157,20 @@ The session started short. The frontier was empty, and `partner` ranked one read
 - **`HOUSE_CONTEXT` leans the seat toward PASS.** The prompt requires every PASS to name a concrete fact. After a few days, read the TAKE/PASS split. An extreme split is a prompt defect, not a finding.
 - **Cost is not measured.** The estimate is ~25-35K tokens a verdict. Read `agent-spend` for `agent = 'leg_verdict'` over 3 days before moving any ceiling, and move all three together.
 
-### 4. Next session
+### 4. Deployed, and the first live verdict
 
-- **Deploy** (the Fly flags ride with it). Then open a card on the live Parlays page and see a verdict land. That is the first real end-to-end check, because no JS test runner exists.
-- **#145** no longer needs a question for Joe: he answered it by repointing the budget. Close it once the deploy is live and `scout-watch-log` shows the watcher stopped.
+**Live on `5c63319`** (Joe said deploy, via option button). **Heads-up:** the title line above still says "not deployed"; it was written before the deploy. The first end-to-end verdict came through the API, not a browser: MLB PIT at DET, YES at 51c, **TAKE** in 21 s, "Checked for injuries, lineup changes, and weather but found nothing new that the price wouldn't already reflect." It cost **31,640 tokens and 1 search**. That is n = 1, not a rate. There were no parlay cards at the time: the slate had 0 fresh games, and 87 legs were excluded as stale consensus. So nobody has yet seen the on-screen render. #145 is closed, answered through #151. #152 and #153 are closed.
+
+### 5. Next session
+
+- See the TAKE/PASS line render on a real card, in Chrome or from Joe.
+- Read `agent-spend` for `agent='leg_verdict'` after 3 days, plus the TAKE/PASS split. An extreme split is a prompt defect.
 - NEXT.md is at ~90% of the read ceiling. **Split it before writing the next entry.**
 
 ### Still open
 
-0. #151 — leg scout built, not deployed. The first live verdict and a 3-day cost read are owed.
-1. #145 — close once the deploy shows the watcher off (Joe answered it via #151).
-2. #108 — deferred fifth seat.
+0. #151 — live. Owed: an on-screen render check, a 3-day cost read, and the TAKE/PASS split.
+1. #108 — deferred fifth seat.
 
 ---
 

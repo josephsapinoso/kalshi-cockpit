@@ -16,6 +16,20 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-25 - A poll that stops on "nothing yet" never sees a request made after it mounted
+
+From the fifty-seventh session (#153 review).
+
+- **A component that polls only while a row is `pending` goes blind to a
+  request fired after it mounted.** The per-leg verdict line rendered inside
+  a closed `<details>` on page load. It read `none` and stopped. Opening the
+  panel fired the request, but nothing re-read, so the verdict would never
+  have appeared. The lane's own tests were source scans and could not see
+  it. **When a trigger and a reader are separate components, have the
+  trigger stamp a request time. Make that stamp a dependency of the
+  reader's poll, and wait through `none` for a grace window after it.**
+  In review, ask of every poll loop: what starts it again?
+
 ## 2026-09-25 - An event ticker is not a game: Kalshi puts the series in it
 
 From the fifty-sixth session (#150).
