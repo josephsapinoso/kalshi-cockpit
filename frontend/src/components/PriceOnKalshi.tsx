@@ -129,6 +129,7 @@ export default function PriceOnKalshi({
     | { kind: "done"; value: ParlayLookupResult }
     | { kind: "refused"; words: string }
   >({ kind: "idle" });
+  const [requestedAtMs, setRequestedAtMs] = useState<number | null>(null);
 
   if (card.not_built_reason !== null || card.legs.length < 2) return null;
 
@@ -148,6 +149,7 @@ export default function PriceOnKalshi({
     // seconds. `<LegVerdicts>` below reads whatever this produces on its own
     // clock.
     void requestLegVerdicts(legInputs, "price_tap", card.key);
+    setRequestedAtMs(Date.now());
     // `lookupParlay` never throws -- but a throw here would strand the card
     // in "working" with its only button unmounted, so the guard is kept
     // rather than resting on the other module's promise.
@@ -205,7 +207,11 @@ export default function PriceOnKalshi({
         <p className="text-sm text-accent-2">{state.words}</p>
       )}
       {state.kind === "done" && (
-        <Result value={state.value} legs={legInputs} />
+        <Result
+          value={state.value}
+          legs={legInputs}
+          requestedAtMs={requestedAtMs}
+        />
       )}
       {retryable && (
         // Not `bg-accent-fill`: the filled slot is the money-adjacent
@@ -298,9 +304,11 @@ function QuoteAge({
 function Result({
   value,
   legs,
+  requestedAtMs,
 }: {
   value: ParlayLookupResult;
   legs: LegVerdictInput[];
+  requestedAtMs: number | null;
 }) {
   // Every non-priced status must be listed here. The fallthrough below reads
   // `value.quoted`, which only `priced` has, so a status missing from this
@@ -314,7 +322,7 @@ function Result({
     return (
       <div className="space-y-2">
         <p className="text-sm text-muted">{value.words}</p>
-        <LegVerdicts legs={legs} />
+        <LegVerdicts legs={legs} requestedAtMs={requestedAtMs} />
         <AskTheMarket marketTicker={value.minted_market_ticker} />
       </div>
     );
@@ -378,7 +386,7 @@ function Result({
           third, so a screen that offers only the book sometimes sells him
           the worse of two prices it could have shown him. Asking commits
           nothing, so it is offered here and the two numbers sit together. */}
-      <LegVerdicts legs={legs} />
+      <LegVerdicts legs={legs} requestedAtMs={requestedAtMs} />
       <AskTheMarket marketTicker={value.minted_market_ticker} />
 
       {/* The buy, on the minted market's own ticker — two lines under the

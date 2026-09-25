@@ -39,8 +39,23 @@ import Term from "@/components/Term";
 
 const POLL_MS = 5_000;
 const POLL_STOP_AFTER_MS = 3 * 60 * 1000;
+// After a trigger fires, a leg can read `none` for a moment: the POST that
+// writes its `running` row may land after this component's first GET. Keep
+// polling through `none` for this long after a request, or the line would
+// stop at "nobody has asked yet" while the seat is running.
+const NONE_GRACE_MS = 30_000;
 
-export default function LegVerdicts({ legs }: { legs: LegVerdictInput[] }) {
+export default function LegVerdicts({
+  legs,
+  requestedAtMs = null,
+}: {
+  legs: LegVerdictInput[];
+  // When the caller last fired `requestLegVerdicts` for these legs, or null.
+  // A change restarts the poll: the component can mount long before the
+  // request (inside a closed <details>, on page load), and a poll that
+  // already stopped on `none` would never see the verdict arrive.
+  requestedAtMs?: number | null;
+}) {
   const [rows, setRows] = useState<LegVerdict[]>([]);
   const [error, setError] = useState<string | null>(null);
   // A stable string key for the effect below -- `legs` is a fresh array on
@@ -63,7 +78,11 @@ export default function LegVerdicts({ legs }: { legs: LegVerdictInput[] }) {
       if (cancelled) return;
       setRows(result.legs);
       setError(result.error);
-      const stillWaiting = result.legs.some((leg) => leg.state === "pending");
+      const justAsked =
+        requestedAtMs !== null && Date.now() - requestedAtMs < NONE_GRACE_MS;
+      const stillWaiting = result.legs.some(
+        (leg) => leg.state === "pending" || (justAsked && leg.state === "none"),
+      );
       if (!stillWaiting && timer) {
         clearInterval(timer);
         timer = null;
@@ -87,7 +106,7 @@ export default function LegVerdicts({ legs }: { legs: LegVerdictInput[] }) {
     // `legs` itself is deliberately not a dependency -- `legsKey` is its
     // stable stand-in, for the reason above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [legsKey]);
+  }, [legsKey, requestedAtMs]);
 
   if (legs.length === 0) return null;
 

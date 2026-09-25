@@ -193,3 +193,26 @@ class TestTheFilesInThisScanExist:
             API_TS,
         ):
             assert path.exists(), f"{path} does not exist"
+
+
+class TestAVerdictRequestedAfterMountStillArrives:
+    """Review fix, 2026-09-25. Before it, `<LegVerdicts>` inside the closed
+    'Bet these legs one by one' panel mounted on page load, read `none`, and
+    stopped polling for good. Opening the panel fired the request, but the
+    line never re-read, so Joe would never have seen the verdict. The fix:
+    each trigger stamps a request time, and a change of it restarts the
+    poll."""
+
+    def test_the_poll_restarts_when_a_request_is_stamped(self):
+        src = LEG_VERDICTS.read_text(encoding="utf-8")
+        assert "}, [legsKey, requestedAtMs]);" in src
+
+    def test_the_poll_waits_through_none_just_after_a_request(self):
+        src = LEG_VERDICTS.read_text(encoding="utf-8")
+        assert 'justAsked && leg.state === "none"' in src
+
+    def test_both_triggers_stamp_and_pass_the_request_time(self):
+        for name in ("ParlayCards.tsx", "PriceOnKalshi.tsx"):
+            src = (SRC / "components" / name).read_text(encoding="utf-8")
+            assert "setRequestedAtMs(Date.now());" in src, name
+            assert "requestedAtMs={requestedAtMs}" in src, name

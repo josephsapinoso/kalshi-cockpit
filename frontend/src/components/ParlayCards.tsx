@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 
 import { DISPLAY_TIME_ZONE, formatAge, formatDuration, requestLegVerdicts } from "@/lib/api";
 import type {
@@ -694,6 +695,7 @@ function LegOrigins({ card }: { card: ParlayCardData }) {
 }
 
 function LegBuys({ card }: { card: ParlayCardData }) {
+  const [requestedAtMs, setRequestedAtMs] = useState<number | null>(null);
   if (card.legs.length === 0) return null;
   // #151, ADR 0186: every leg of a card Joe opens toward buying, sent once
   // per open of this panel — not per leg, and not on mount (mounting inside
@@ -709,6 +711,7 @@ function LegBuys({ card }: { card: ParlayCardData }) {
       onToggle={(event) => {
         if (event.currentTarget.open) {
           void requestLegVerdicts(legInputs, "leg_buys_open", card.key);
+          setRequestedAtMs(Date.now());
         }
       }}
     >
@@ -733,7 +736,10 @@ function LegBuys({ card }: { card: ParlayCardData }) {
               </span>
               <LegGame leg={leg} />
             </div>
-            <LegVerdicts legs={[{ ticker: leg.ticker, side: leg.side }]} />
+            <LegVerdicts
+              legs={[{ ticker: leg.ticker, side: leg.side }]}
+              requestedAtMs={requestedAtMs}
+            />
             <ManualTicket
               ticker={leg.ticker}
               preferSide={leg.side}
