@@ -134,6 +134,44 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-25 (fifty-eighth session) — the first look at a verdict on screen found a burst that ran the day to 224% and a refusal the card never showed; both fixed and live on 866d942, and Joe raised the three ceilings together (#157 A)
+
+This session started on `/go` with no focus. The frontier was empty, and `partner` ranked four things: the NEXT.md split, an on-screen check of #151, a plain-words budget refusal, and worktree cleanup. The on-screen check changed the session.
+
+### 1. What the first real look found (live, 17:10Z, headless browser with a minted cookie)
+
+The "Two short spreads" card rendered one **TAKE** with a plain reason. The other leg said "No scout read: nobody has asked yet" 45 s after the tap. `POST /leg-verdicts` had actually answered `refused`: **1,120,442 of 500,000 tokens already recorded today**. `agent-spend --days 1` explained it:
+
+- 16 `leg_verdict` calls were admitted between 16:06:24Z and 16:06:35Z, in about five POSTs. That looks like someone trying the new button on several cards.
+- Every one passed the ceiling at 334,711 recorded, because a verdict records its tokens only when it settles.
+- Real cost per verdict: **mean ~51K, range 29K–90K, n = 17 on one day**. The n = 1 reading of 31,640 was the low end.
+- TAKE 14, PASS 3. That is not a rate, and ADR 0186 §4's extreme-split rule is not triggered yet.
+
+### 2. What shipped (live on `7755bf5`, two deploys via `gh workflow run`; `/api/scout` reads 40 calls / 100 searches / 1.5M tokens)
+
+| commit | what |
+|---|---|
+| `f103705` | NEXT.md split at 89.4%: 18 entries (09-18 to 09-22) moved to `archive/next-2026-09-25.md`, md5 `3958e58d…` |
+| `a2e3c1a` | **#154** (lane): the budget refusal reads "The scouts have used today's allowance. They're back in about N hours." N counts to `AgentBudget`'s own day boundary |
+| `6b3b59c` | **#156** (main): in-flight verdicts reserve 60K tokens and 3 searches each (`reserved_tokens` on `AgentBudget.refusal_reason`, default 0), aged out on `RUNNING_PATIENCE_MS`. There is no call reservation, because `budget.reserve` already writes the call row. ADR 0186 Amendment 1 |
+| `866d942` | **#155** (lane): all three triggers keep the POST result, and `<LegVerdicts>` overlays a posted refusal onto a `none` row |
+| `7755bf5` | **#157 (A), Joe by option button**: tokens 500K → 1.5M, calls 24 → 40, searches 60 → 100, moved together. That is about 25 verdicts a day, ~13¢ each, worst case ~$4.50 a day |
+
+**Seen on screen after the deploy:** the TAKE line plus "No scout read: The scouts have used today's allowance. They're back in about 17 hours." A screenshot went to Joe.
+
+### 3. Housekeeping and hazards
+
+- 14 dead lane shells and 4 worktrees were removed. **13 of the shells held junctions into main's `frontend/node_modules`**, including under `.next/standalone`. A lane told to remove its junction still left one there. Each was unlinked with `os.rmdir` before any delete, and main kept its 37 entries. The memory file `lane-worktrees-have-no-toolchain` carries the recipe.
+- The Playwright MCP tool echoes the code it runs, so an inlined cookie was printed once. It was a 1-hour cookie and an HMAC, so it did not expose the token. What works instead: the snippet reads the cookie from a `file://` page (memory `i-can-see-authed-screens…`).
+- `CLAUDE.md`'s "What the recorder costs" still cites the 2026-09-22 overshoot and the old ceilings only through the measurement doc. It was not edited; the ceilings live in `fly.live.toml`.
+
+### Still open
+
+0. #151 — on 2026-09-28, read `agent-spend` for `agent='leg_verdict'` against the new 1.5M ceiling, plus the TAKE/PASS split.
+1. #108 — deferred fifth seat.
+
+---
+
 ## 2026-09-25 (fifty-seventh session) — #151: the scouts give a plain-language TAKE/PASS on each parlay leg before Joe buys (ADR 0186, schema v57-58; live on 73ba8a4)
 
 The session started short. The frontier was empty, and `partner` ranked one read-only check on #145. That check showed that 34 of 39 bet legs were on games nobody had scouted, and that this was arithmetic, not a selection defect. Joe then redirected the session: *"point the scouts to the parlay legs. I just want to know if the scouts would make the bet or not … even the 'safe' bets and 'middle' bets have been unsuccessful."* He also asked for plain language.
@@ -675,6 +713,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-25 (fifty-eighth session) — the first look at a verdict on screen found a burst that ran the day to 224% and a refusal the card never showed; both fixed and live on 866d942, and Joe raised the three ceilings together (#157 A)
 - 2026-09-25 (fifty-seventh session) — #151: the scouts give a plain-language TAKE/PASS on each parlay leg before Joe buys (ADR 0186, schema v57-58; live on 73ba8a4)
 - 2026-09-24 (fifty-sixth session) — #107 captured: a real combination YES bid, from a held book with its ticker redacted on Joe's word; #149 built: `combo-rfqs` and `leg-scout-state` live reads (not deployed)
 - 2026-09-24 (fifty-fifth session) — #147 fixed: the RFQ list's own filter is `user_filter=self`; #148 built: adopt a held combination onto /hedge in one tap; a held combination's ticker was public in #96's fixture, redacted forward on Joe's word. Deployed `ddd98a2` (Joe ran it; the classifier refused `gh workflow run` for me)

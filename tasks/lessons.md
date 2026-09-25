@@ -16,6 +16,32 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-25 - A brake that reads settled spend admits the whole burst; a refusal that writes nothing reaches only its caller
+
+From the fifty-eighth session (#155, #156).
+
+- **When spend is recorded only after the work settles, a ceiling
+  checked against recorded spend admits every concurrent request.**
+  Sixteen leg verdicts were admitted in 11 seconds, all at 334,711
+  recorded, and the day closed at 1,120,442 against 500,000. The existing
+  rule "a brake overshoots by the last call" assumes calls run one at a
+  time. **For any fan-out, reserve in-flight work at an estimate** (the
+  running rows times a measured mean), inside the one ceiling
+  implementation. Age the reservation out on the same window that stops
+  calling a row pending. Check the other two meters before reserving
+  them too: the call count was already written at call start.
+- **A refusal that deliberately writes no row is visible only to the
+  code that received the response.** Every trigger fired `void
+  requestLegVerdicts(...)`, so a server refusal never reached the
+  screen. The poll then read `none` and said "nobody has asked yet".
+  Rewording the refusal (#154) changed text nobody could see. **Never
+  discard the response of a request whose answer can be a refusal. Before
+  improving a message, check that it can reach the screen at all.**
+- **A per-unit cost read at n = 1 was the low end, not the middle.**
+  31,640 tokens a verdict became a mean of ~51K over 17 (range 29K–90K),
+  so a ceiling sized on the first reading held 60% of what it claimed.
+  Quote the range once there is one.
+
 ## 2026-09-25 - A poll that stops on "nothing yet" never sees a request made after it mounted
 
 From the fifty-seventh session (#153 review).
