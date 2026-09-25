@@ -1494,6 +1494,18 @@ BILLED_PATH_CALL_SITES: dict[str, str] = {
         "anything, `reserve` before the request, and `settle` on every exit. "
         "A refusal makes zero calls."
     ),
+    "backend/leg_verdicts.py": (
+        "The leg scout's orchestration (#152, ADR 0186), shaped like "
+        "`backend/api/routers/scout.py` above: `_run_leg_verdict` is the "
+        "background half of one leg verdict, and `build_client(config)` is "
+        "called only inside it -- the same one-site pattern, immediately "
+        "consumed by `give_leg_verdict`, the metered call `leg_verdict.py` "
+        "already covers. The route, `backend/api/routers/leg_verdicts.py`, "
+        "re-checks `AgentBudget.refusal_reason` per leg before writing a "
+        "`running` row and names neither billed symbol itself, so every "
+        "call it causes goes out through this module's one "
+        "`build_client(config)` and `give_leg_verdict`'s own reservation."
+    ),
 }
 
 
