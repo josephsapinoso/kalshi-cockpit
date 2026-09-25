@@ -120,6 +120,7 @@ import {
 } from "@/lib/exposureLine";
 import { KALSHI_MARKETS_INDEX, kalshiMarketUrl } from "@/lib/kalshiLink";
 import Term from "@/components/Term";
+import { Notice } from "@/components/ui";
 import { useReportBusy } from "@/components/Sheet";
 
 /** How often the ask's age and the in-play clock advance. */
@@ -557,7 +558,8 @@ function TicketBody({
   // what this market's Kalshi wallet can pay for" — true, and useless: no
   // shard number, no balance, no remedy, so a reader with a funded account
   // takes it as a statement about what he typed. It now names the wallet and
-  // what is in it, and `ShardRemedy` below the amount box carries the link.
+  // what is in it, and at zero `ShardRemedy` carries the remedy in the
+  // notice at the top of the ticket (#160).
   const boundReason: Record<string, string> = {
     depth: "that is all that is resting at the ask right now",
     shard:
@@ -568,6 +570,10 @@ function TicketBody({
     price_grid: "the price grid will not express a larger order",
   };
   const boundWhy = boundReason[facts.authorised_binding] ?? null;
+  // `null` is an unread ceiling, not a zero one: an unreadable wallet says
+  // so on the depth line and never switches the box off (unreadable resolves
+  // to None, never to 0).
+  const zeroBuyable = ceiling === 0;
   const canConfirm =
     !sending &&
     facts.ask_tenths !== null &&
@@ -624,6 +630,47 @@ function TicketBody({
         )}
       </div>
 
+      {/* Ticket #160 (Joe, 2026-09-25): the two facts that decide WHETHER he
+          bets come first, above the amount and the real-money strip. Until
+          then both rendered last, under everything he had to read to reach
+          them.
+
+          Zero buyable: said here, with its reason, and the amount box below
+          is switched off -- still visible, so nothing vanishes on him --
+          until a re-read finds something to buy. This is Joe's answer to
+          "what should the box do at zero", and it is not a brake of ours
+          (ADR 0112): a ceiling of 0 comes from the venue's own bounds, the
+          shard's collateral or the depth at the ask, which the route
+          refuses on anyway. `canConfirm` is untouched; `contracts >= 1`
+          already kept Confirm off at zero. */}
+      {zeroBuyable && (
+        <Notice className="max-w-[65ch]">
+          <p data-claim="zero-buyable">
+            <span className="font-semibold">You can buy 0 here right now.</span>{" "}
+            <ZeroReason binding={facts.authorised_binding} shard={market.shard} />{" "}
+            Re-read the book once that changes and the amount box comes back.
+          </p>
+        </Notice>
+      )}
+
+      {/* Ticket #39. The bar the ask-plus-fee sets, served by the preflight
+          and printed, not divided out here. It says how often the bet must
+          win and nothing about whether it will -- that is the no-opinion rule
+          the preflight keeps (ADR 0062 Amendment 1). A plain fact, no
+          colour: moved to the top by #160, beside the leg's fair chance that
+          the parlay card shows above this ticket. */}
+      {facts.breakeven_probability !== null && (
+        <p className="max-w-[65ch] text-xs leading-relaxed">
+          You need this to happen more than{" "}
+          <span className="font-semibold tabular">
+            {(facts.breakeven_probability * 100).toFixed(2)}%
+          </span>{" "}
+          of the time to <Term k="breakeven">break even</Term> — that is the{" "}
+          <Term k="ask">ask</Term> plus Kalshi&rsquo;s{" "}
+          <Term k="fee">fee</Term>, and nothing about whether it will.
+        </p>
+      )}
+
       {facts.ask_tenths === null && (
         <p className="max-w-[65ch] text-xs text-muted">
           No resting bid on the other side of this book, so there is no{" "}
@@ -642,7 +689,8 @@ function TicketBody({
             : "—"
           : `${ceiling}`}{" "}
         <Term k="contract">{ceiling === 1 ? "contract" : "contracts"}</Term>
-        {ceiling !== null && boundWhy !== null && ` — ${boundWhy}`}
+        {/* At zero the notice at the top already says why, in full. */}
+        {ceiling !== null && !zeroBuyable && boundWhy !== null && ` — ${boundWhy}`}
         {market.dry_run &&
           " · this path runs DRY — the order is recorded, not sent"}
         {" · "}
@@ -681,11 +729,9 @@ function TicketBody({
         askTenths={facts.ask_tenths}
         askDisplay={facts.ask_display}
         ceiling={ceiling}
-        binding={facts.authorised_binding}
-        shard={market.shard}
         contracts={contracts}
         setContracts={setContracts}
-        disabled={sending}
+        disabled={sending || zeroBuyable}
       />
 
       <details className="max-w-[65ch]">
@@ -783,22 +829,6 @@ function TicketBody({
         <p className="max-w-[65ch] rounded-xl border border-accent-2/50 bg-accent-2-soft px-3 py-2 text-xs leading-relaxed text-accent-2">
           Started {formatDuration(now - market.commence_ms)} ago — this is
           in-play. The books&rsquo; number is from before kickoff.
-        </p>
-      )}
-
-      {/* Ticket #39. The bar the ask-plus-fee sets, served by the preflight
-          and printed, not divided out here. It says how often the bet must
-          win and nothing about whether it will -- that is the no-opinion rule
-          the preflight keeps (ADR 0062 Amendment 1). */}
-      {facts.breakeven_probability !== null && (
-        <p className="max-w-[65ch] text-xs leading-relaxed">
-          You need this to happen more than{" "}
-          <span className="font-semibold tabular">
-            {(facts.breakeven_probability * 100).toFixed(2)}%
-          </span>{" "}
-          of the time to <Term k="breakeven">break even</Term> — that is the{" "}
-          <Term k="ask">ask</Term> plus Kalshi&rsquo;s{" "}
-          <Term k="fee">fee</Term>, and nothing about whether it will.
         </p>
       )}
 
@@ -978,6 +1008,38 @@ function ShardRemedy({ shard }: { shard: ManualMarket["shard"] }) {
   );
 }
 
+/** Why the ticket can buy nothing, by the bound that took it to zero.
+ *  Rendered once, in the #160 notice at the top of the ticket. Each bound has
+ *  a different remedy, so each says its own. */
+function ZeroReason({
+  binding,
+  shard,
+}: {
+  binding: ManualMarketSide["authorised_binding"];
+  shard: ManualMarket["shard"];
+}) {
+  return binding === "shard" ? (
+    <ShardRemedy shard={shard} />
+  ) : binding === "depth" ? (
+    // The server floors depth to whole contracts and reads an unknown size
+    // as 0, so a fractional or unreadable size lands here too: "nothing is
+    // resting" would be false for both.
+    <>Less than one whole contract is resting at the ask.</>
+  ) : binding === "price_grid" ? (
+    <>
+      Kalshi&rsquo;s price grid cannot express an order at this ask. A re-read
+      helps only once the ask moves.
+    </>
+  ) : binding === "shard_unreadable" ? (
+    <>
+      Your Kalshi wallet for this market could not be read, so the desk will
+      not guess whether the bet is payable.
+    </>
+  ) : (
+    <>The book or your Kalshi wallet set the size, not you.</>
+  );
+}
+
 /** The amount control, in dollars, because that is how Joe thinks about a
  *  bet ("about five bucks on this"), while the venue transacts in contracts
  *  that each cost the ask. The conversion is shown, never hidden: the point
@@ -987,8 +1049,6 @@ function DollarAmount({
   askTenths,
   askDisplay,
   ceiling,
-  binding,
-  shard,
   contracts,
   setContracts,
   disabled,
@@ -996,8 +1056,6 @@ function DollarAmount({
   askTenths: number | null;
   askDisplay: string | null;
   ceiling: number | null;
-  binding: ManualMarketSide["authorised_binding"];
-  shard: ManualMarket["shard"];
   contracts: number;
   setContracts: (n: number) => void;
   disabled: boolean;
@@ -1085,19 +1143,25 @@ function DollarAmount({
               <Term k="contract">
                 {affordable === 1 ? "contract" : "contracts"}
               </Term>{" "}
-              at {askDisplay} — but none can be bought here right now, and
-              your typed amount is not the reason.{" "}
-              {binding === "shard" ? (
-                <ShardRemedy shard={shard} />
-              ) : binding === "depth" ? (
-                <>Nothing is resting at the ask to fill it.</>
-              ) : binding === "shard_unreadable" ? (
+              at {askDisplay}
+              {/* Two causes reach here, and only the first is a zero
+                  ceiling. (1) `ceiling === 0`: the #160 notice at the top
+                  carries the reason and the remedy, so this points up
+                  rather than print the shard paragraph twice. (2) A side
+                  switch zeroes `contracts` and, when both sides share an ask
+                  and a ceiling, the effect above does not re-run -- the
+                  count is stale, nothing is unbuyable, and there is no note
+                  at the top to point at (kalshi-platform review of #160).
+                  Keyed on the ceiling, never on `contracts`, for the same
+                  reason the branch itself is keyed on `affordable`. */}
+              {ceiling === 0 ? (
                 <>
-                  Your Kalshi wallet for this market could not be read, so the
-                  desk will not guess whether the bet is payable.
+                  {" "}— but none can be bought here right now, and your
+                  typed amount is not the reason. The note at the top of this
+                  ticket says what is.
                 </>
               ) : (
-                <>The book or your Kalshi wallet set the size, not you.</>
+                <>. Edit the amount to count it again for this side.</>
               )}
             </>
           ) : (
