@@ -157,11 +157,13 @@ the channel diagnostic (A17.6/A17.11).
 - **#145 close read, after 2026-09-26 10:00Z:** `/api/scout` `tokens_today` and `scout-watch-log` for 20260925. Once #149 is deployed, attach `inspect_live_db.py leg-scout-state` to that read.
 - **#149 deployed `8fad917` (Joe ran it) and CLOSED.** First live `leg-scout-state` reading: of 39 armed-path legs since 2026-09-21, **0 were briefed at bet time** (36 absent, 3 failed). These are counts, not a rate. The detail is on #145. If 20260925 reads the same, open a map #3 ticket for Joe: is unattended scouting landing on the games he bets?
 - #107 CLOSED (CI green on `2cb5fc9`).
+- **The 0-of-39 may be a join defect, not a finding — #150.** `parlays._leg_scouting` joins through `kalshi_markets.event_ticker`, and Kalshi event tickers carry the series (`KXWNBAPTS-…` vs `KXWNBAGAME-…` for one game). So a prop leg may never match a briefing filed on its game's moneyline, and the watcher's `_is_fresh` shares that join. `inspect_live_db.py leg-scout-join` (`ca59a75`, CI green) separates the two. **Deploy it, then run it before anything else on #145.** Do not open a 'scouting is not earning its tokens' ticket for Joe until #150 is read.
 
 ### Still open
 
-0. #145 — deployed (`e166a56`); close it after one full budget day's read (20260925).
-1. #108 — deferred fifth seat.
+0. #150 — deploy `ca59a75`, run `leg-scout-join`; fix `_leg_scouting` if the join misses prop legs.
+1. #145 — deployed (`e166a56`); close it after one full budget day's read (20260925), after #150.
+2. #108 — deferred fifth seat.
 
 ---
 
