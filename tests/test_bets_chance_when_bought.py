@@ -262,3 +262,15 @@ class TestNoAggregationOfChanceValues:
     def test_page_tsx_carries_the_not_priced_copy(self):
         source = self.PAGE_TSX.read_text(encoding="utf-8")
         assert "not priced on the desk" in source
+
+    def test_a_small_chance_never_renders_as_zero_percent(self):
+        """The first live render printed "Desk's chance when you priced it:
+        0%" for a combination bought at a tenth of a cent. A reading of 0.08%
+        is not "no chance"; rounding it to whole points said that it was."""
+        source = self.PAGE_TSX.read_text(encoding="utf-8")
+        assert "Math.round(bet.chance_when_priced" not in source
+        assert "chancePercent(bet.chance_when_priced)" in source
+        helper = source[source.index("function chancePercent") :]
+        helper = helper[: helper.index("\n}\n")]
+        assert '"under 0.01%"' in helper
+        assert "toFixed(2)" in helper

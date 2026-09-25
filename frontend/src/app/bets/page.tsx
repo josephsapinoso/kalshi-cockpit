@@ -376,6 +376,21 @@ const CLV_REFUSAL_WORDS: Record<string, string> = {
  * (always both null) maps to nothing here, since `BetRow` only reads this
  * for a combo.
  */
+/**
+ * The desk's chance as a percent that never rounds a real reading to "0%".
+ * Joe's longshot combinations are priced at a tenth of a cent, and the first
+ * live render printed "Desk's chance when you priced it: 0%" for one --
+ * which reads as "no chance", the one thing the number did not say. Whole
+ * points from 10%, finer below, and a floor that says "under".
+ */
+function chancePercent(p: number): string {
+  const pct = p * 100;
+  if (pct >= 10) return `${Math.round(pct)}%`;
+  if (pct >= 1) return `${pct.toFixed(1)}%`;
+  if (pct >= 0.01) return `${pct.toFixed(2)}%`;
+  return "under 0.01%";
+}
+
 const CHANCE_REFUSAL_WORDS: Record<string, string> = {
   no_fill_row: "— no fill on record",
   not_priced_on_desk: "— not priced on the desk",
@@ -420,7 +435,7 @@ function BetRow({ bet }: { bet: SettledBet }) {
     bet.chance_when_priced !== null ? (
       <>
         <Term k="chance_when_priced">Desk&rsquo;s chance</Term> when you
-        priced it: {Math.round(bet.chance_when_priced * 100)}%
+        priced it: {chancePercent(bet.chance_when_priced)}
         {bet.chance_priced_before_fill_ms !== null
           ? ` · ${formatDuration(bet.chance_priced_before_fill_ms)} before you bought`
           : ""}
