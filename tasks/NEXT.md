@@ -134,7 +134,7 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-25 (fifty-seventh session) — #151: the scouts give a plain-language TAKE/PASS on each parlay leg before Joe buys (ADR 0186, schema v57; live on 5c63319)
+## 2026-09-25 (fifty-seventh session) — #151: the scouts give a plain-language TAKE/PASS on each parlay leg before Joe buys (ADR 0186, schema v57-58; live on 73ba8a4)
 
 The session started short. The frontier was empty, and `partner` ranked one read-only check on #145. That check showed that 34 of 39 bet legs were on games nobody had scouted, and that this was arithmetic, not a selection defect. Joe then redirected the session: *"point the scouts to the parlay legs. I just want to know if the scouts would make the bet or not … even the 'safe' bets and 'middle' bets have been unsuccessful."* He also asked for plain language.
 
@@ -160,6 +160,8 @@ The session started short. The frontier was empty, and `partner` ranked one read
 ### 4. Deployed, and the first live verdict
 
 **Live on `5c63319`** (Joe said deploy, via option button). The first end-to-end verdict came through the API, not a browser: MLB PIT at DET, YES at 51c, **TAKE** in 21 s, "Checked for injuries, lineup changes, and weather but found nothing new that the price wouldn't already reflect." It cost **31,640 tokens and 1 search**. That is n = 1, not a rate. There were no parlay cards at the time: the slate had 0 fresh games, and 87 legs were excluded as stale consensus. So nobody has yet seen the on-screen render. #145 is closed, answered through #151. #152 and #153 are closed.
+
+**Then Joe looked and saw nothing** (*"i dont see any take or pass here"*). The scout ran only on a buy step, and nothing on a card said it existed. He chose (option button) **a visible "Ask the scouts about these legs" button on every card**. `73ba8a4` added it with schema **v58**, a `leg_verdicts` rebuild that admits trigger `'card_button'`. It is live on `73ba8a4`: 7 buttons render on `/parlays`, and a 0-leg `card_button` POST returns 202.
 
 ### 5. Next session
 
@@ -3078,7 +3080,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
-- 2026-09-25 (fifty-seventh session) — #151: the scouts give a plain-language TAKE/PASS on each parlay leg before Joe buys (ADR 0186, schema v57; live on 5c63319)
+- 2026-09-25 (fifty-seventh session) — #151: the scouts give a plain-language TAKE/PASS on each parlay leg before Joe buys (ADR 0186, schema v57-58; live on 73ba8a4)
 - 2026-09-24 (fifty-sixth session) — #107 captured: a real combination YES bid, from a held book with its ticker redacted on Joe's word; #149 built: `combo-rfqs` and `leg-scout-state` live reads (not deployed)
 - 2026-09-24 (fifty-fifth session) — #147 fixed: the RFQ list's own filter is `user_filter=self`; #148 built: adopt a held combination onto /hedge in one tap; a held combination's ticker was public in #96's fixture, redacted forward on Joe's word. Deployed `ddd98a2` (Joe ran it; the classifier refused `gh workflow run` for me)
 - 2026-09-24 (fifty-fourth session) — #129's capture taken on the venue's own positions read; #96 built: /hedge asks the makers what they would pay (ADR 0185, schema v56); #147 opened. Deployed `1a2d5be` (Joe ran it)

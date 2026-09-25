@@ -29,6 +29,12 @@ From the fifty-seventh session (#153 review).
   trigger stamp a request time. Make that stamp a dependency of the
   reader's poll, and wait through `none` for a grace window after it.**
   In review, ask of every poll loop: what starts it again?
+- **A feature that only fires from a step the user hasn't taken is
+  invisible, and "it's live" means nothing to them.** The leg scout shipped
+  wired to two buy steps. Joe opened the page, saw no TAKE or PASS, and
+  reported it missing. **Every feature that costs a tap needs a visible
+  entry point on the screen it serves**, and "done" means seeing it from the
+  user's side, not getting a 202 from the API.
 
 ## 2026-09-25 - An event ticker is not a game: Kalshi puts the series in it
 
