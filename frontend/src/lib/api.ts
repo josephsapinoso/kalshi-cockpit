@@ -4074,14 +4074,23 @@ export type LegVerdictTrigger = "price_tap" | "leg_buys_open" | "card_button";
  * bearer token stays server-side -- same reasoning as `/scout-desk`, because
  * this spends metered Anthropic calls inside the shared `AgentBudget`.
  *
- * Fired from exactly two places, both trigger handlers
- * (`PriceOnKalshi.tsx`'s `tap`, `ParlayCards.tsx`'s `LegBuys` toggle) --
+ * Fired from exactly three places, all trigger handlers
+ * (`PriceOnKalshi.tsx`'s `tap`, `ParlayCards.tsx`'s `LegBuys` toggle and its
+ * `AskTheScouts` button, the `card_button` trigger) --
  * `tests/test_leg_verdicts_ui.py` pins that nothing else calls this, so a
  * mount effect or a re-render cannot spend on its own.
  *
  * **Never throws**, and never sends a price -- the server reads the ask
  * itself at request time so a stale or tampered client cannot shape the
  * question the seat answers.
+ *
+ * **The caller must keep the resolved result, not discard it (#155).** A
+ * refused leg (budget spent, game started, no quote) writes no row by
+ * design, so `<LegVerdicts>`'s GET poll alone would read `none` for it and
+ * the panel would say "nobody has asked yet" about a leg the server just
+ * explained. Each of the three callers now passes this promise's result to
+ * `<LegVerdicts>` as `posted`, which overlays a posted `refused` row onto a
+ * `none` GET row for the same leg.
  */
 export async function requestLegVerdicts(
   legs: LegVerdictInput[],

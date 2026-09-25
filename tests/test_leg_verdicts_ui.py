@@ -231,4 +231,88 @@ class TestEveryCardHasAVisibleWayIn:
 
     def test_the_card_view_hides_unasked_legs_until_a_tap(self):
         src = LEG_VERDICTS.read_text(encoding="utf-8")
-        assert 'rows.filter((row) => row.state !== "none")' in src
+        assert 'merged.filter((row) => row.state !== "none")' in src
+
+
+class TestARefusedLegShowsItsRefusal:
+    """#155, found on the first on-screen look 2026-09-25: all three triggers
+    called `void requestLegVerdicts(...)` and threw away the
+    `LegVerdictsResult`. A refused leg (budget spent, game started, no
+    quote) writes no row by design, so `<LegVerdicts>`'s GET poll read
+    `none` and the card said "nobody has asked yet" even though the server
+    had just answered `state: "refused"` with a reason. Each trigger now
+    keeps that result and `<LegVerdicts>` overlays a posted `refused` row
+    onto a GET row that still reads `none` for the same leg."""
+
+    def test_no_trigger_discards_the_post_result(self):
+        """Done-when test. Mutation observed red: reinstate
+        `void requestLegVerdicts(` at any of the three call sites -- this
+        fails immediately, because that is exactly the defect #155 reports."""
+        offenders = [
+            path.relative_to(SRC).as_posix()
+            for path in ALL_TSX
+            if "void requestLegVerdicts(" in path.read_text(encoding="utf-8")
+        ]
+        assert not offenders, (
+            f"{offenders} fire `requestLegVerdicts` with `void`, discarding "
+            f"the result -- a refused leg's reason must be kept and shown, "
+            f"not thrown away"
+        )
+
+    def test_a_posted_refusal_reaches_the_verdict_panel(self):
+        """Done-when test. `<LegVerdicts>` accepts the posted result as a
+        prop and overlays a posted `refused` row onto a GET row that is
+        still `none` for the same leg -- any GET row already reading
+        pending/cached/complete/refused is newer truth and is left
+        untouched. The "nobody has asked yet" fallback (rendered once, in
+        `LegVerdictLine`, off whichever row it is handed) is therefore
+        reachable for a leg only when this overlay found no posted refusal
+        naming it.
+
+        Mutation observed red: delete the `posted` prop (or stop calling
+        `overlayPosted` before `shown` is computed) -- `merged`/`shown` then
+        falls back to the raw GET `rows`, a posted refusal never reaches
+        `LegVerdictLine`, and this test fails on the second assertion."""
+        source = _text(LEG_VERDICTS)
+        # The component accepts the posted result.
+        assert re.search(r"posted\s*[?]?:\s*LegVerdictsResult", source), (
+            "LegVerdicts.tsx does not declare a `posted` prop of type "
+            "LegVerdictsResult"
+        )
+        # The overlay runs before `shown` is computed, so it is on the path
+        # every rendered row travels.
+        assert "const merged = overlayPosted(rows, posted);" in source
+        assert re.search(r"shown\s*=\s*[\s\S]{0,80}merged", source), (
+            "`shown` must be derived from the overlaid `merged` rows, not "
+            "the raw GET `rows`"
+        )
+        # Only a `none` GET row is eligible for the overlay -- anything else
+        # is newer truth and wins untouched.
+        assert 'if (row.state !== "none") return row;' in source
+        assert 'overlay.state === "refused"' in source
+
+    def test_a_posted_error_never_reads_nobody_has_asked_yet(self):
+        """A posted network/5xx/off-seat error renders as its own line
+        (`postedError`), never folded into the per-leg fallback sentence.
+        Mutation observed red: delete the `postedError` line -- a posted
+        `error` (e.g. "Scouts are off") then has no path to the screen at
+        all, and this test's first assertion fails."""
+        source = _text(LEG_VERDICTS)
+        assert "postedError" in source
+        assert "posted?.error" in source
+
+    def test_both_triggers_keep_and_pass_the_posted_result(self):
+        for name in ("ParlayCards.tsx", "PriceOnKalshi.tsx"):
+            src = (SRC / "components" / name).read_text(encoding="utf-8")
+            assert "posted={posted}" in src, name
+
+    def test_request_leg_verdicts_docstring_names_all_three_callers(self):
+        """`requestLegVerdicts`'s own docstring used to name only the two
+        triggers that existed before #151's card button; the ticket asks
+        `card_button` be added. Mutation observed red: revert the docstring
+        edit -- `card_button` no longer appears ahead of the function and
+        this fails."""
+        raw = API_TS.read_text(encoding="utf-8")
+        before_fn = raw.split("export async function requestLegVerdicts")[0]
+        docstring = before_fn[before_fn.rfind("/**") :]
+        assert "card_button" in docstring
