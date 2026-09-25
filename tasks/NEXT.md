@@ -134,6 +134,26 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-25 (fifty-seventh session) — short session: #145's 34-of-39 miss is arithmetic, not a selection defect
+
+The frontier was empty. `partner` ranked one read-only check and refused an interim 20260925 read, because a partial day read as a full one flatters. Nothing was built.
+
+### 1. What the reads found (all live, committed instruments, on #145)
+
+- **The watcher can afford 2 convenings a day** (`SCOUT_AUTO_MAX_CONVENINGS_PER_DAY = 2`, `fly.live.toml`). It stops at 250,000 tokens (`SCOUT_AUTO_TAP_TOKEN_SHARE = 0.5`). Joe bets 4 to 19 armed-path legs a day. Each day the allowance ran out between 11:00Z and 12:45Z, on the soonest ladder fixtures. Legs with any same-game briefing before the bet: 0, 3, 1, 1 on 09-21 to 09-24. **Most bet games cannot be scouted, whichever games it picks.** No watcher code change fixes that. What's left is Joe's question of whether the tokens are worth it.
+- Seen but **not** read (partial day): 20260925 had one convening and no taps, and the watcher was refusing at 11:45Z on 250,882 tokens. Check at the close whether one convening now costs ~250K (day one measured ~170K, n = 1).
+
+### 2. Next session (after 2026-09-26 10:00Z)
+
+- **#145 close read:** `scout-watch-log`, `scout-briefings`, `leg-scout-join` for 20260925, plus `agent-spend` for the per-convening cost. If coverage is still ~0, open the map #3 ticket in the same session: *unattended scouting covered N of the M games you bet. Keep paying, point it at your likely games, or turn it off?* Include the token cost of each option.
+
+### Still open
+
+0. #145 — close read owed after 2026-09-26 10:00Z (full 20260925 day). The arithmetic is on the ticket.
+1. #108 — deferred fifth seat.
+
+---
+
 ## 2026-09-24 (fifty-sixth session) — #107 captured: a real combination YES bid, from a held book with its ticker redacted on Joe's word; #149 built: `combo-rfqs` and `leg-scout-state` live reads (not deployed)
 
 `partner` ranked a short session. The frontier was empty, and that was the finding: there was no question for Joe to ticket. One `lane-builder` lane ran #149 while main did #107.
@@ -3038,6 +3058,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-25 (fifty-seventh session) — short session: #145's 34-of-39 miss is arithmetic, not a selection defect
 - 2026-09-24 (fifty-sixth session) — #107 captured: a real combination YES bid, from a held book with its ticker redacted on Joe's word; #149 built: `combo-rfqs` and `leg-scout-state` live reads (not deployed)
 - 2026-09-24 (fifty-fifth session) — #147 fixed: the RFQ list's own filter is `user_filter=self`; #148 built: adopt a held combination onto /hedge in one tap; a held combination's ticker was public in #96's fixture, redacted forward on Joe's word. Deployed `ddd98a2` (Joe ran it; the classifier refused `gh workflow run` for me)
 - 2026-09-24 (fifty-fourth session) — #129's capture taken on the venue's own positions read; #96 built: /hedge asks the makers what they would pay (ADR 0185, schema v56); #147 opened. Deployed `1a2d5be` (Joe ran it)
