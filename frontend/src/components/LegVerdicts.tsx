@@ -48,6 +48,7 @@ const NONE_GRACE_MS = 30_000;
 export default function LegVerdicts({
   legs,
   requestedAtMs = null,
+  hideUnasked = false,
 }: {
   legs: LegVerdictInput[];
   // When the caller last fired `requestLegVerdicts` for these legs, or null.
@@ -55,6 +56,10 @@ export default function LegVerdicts({
   // request (inside a closed <details>, on page load), and a poll that
   // already stopped on `none` would never see the verdict arrive.
   requestedAtMs?: number | null;
+  // The card-level view (the "Ask the scouts" button) shows only legs that
+  // have a read. Before any tap, a card full of "nobody has asked yet" lines
+  // would be noise.
+  hideUnasked?: boolean;
 }) {
   const [rows, setRows] = useState<LegVerdict[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -109,6 +114,11 @@ export default function LegVerdicts({
   }, [legsKey, requestedAtMs]);
 
   if (legs.length === 0) return null;
+  const shown =
+    hideUnasked && requestedAtMs === null
+      ? rows.filter((row) => row.state !== "none")
+      : rows;
+  if (hideUnasked && shown.length === 0 && !error) return null;
 
   return (
     <div className="mt-2 space-y-1 border-t border-border pt-2">
@@ -117,7 +127,7 @@ export default function LegVerdicts({
         prediction
       </p>
       {error && <p className="text-xs text-muted">{error}</p>}
-      {rows.map((row) => (
+      {shown.map((row) => (
         <LegVerdictLine key={`${row.ticker}:${row.side}`} row={row} />
       ))}
     </div>

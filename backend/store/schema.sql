@@ -3023,7 +3023,11 @@ CREATE TABLE IF NOT EXISTS leg_verdicts (
     input_tokens    INTEGER,
     output_tokens   INTEGER,
     web_searches    INTEGER,
-    trigger         TEXT NOT NULL CHECK (trigger IN ('price_tap', 'leg_buys_open')),
+    -- v58 (Joe, 2026-09-25): 'card_button' is the visible "Ask the scouts"
+    -- button on each card. Before it, nothing on a card said the scouts
+    -- existed until a buy step was taken.
+    trigger         TEXT NOT NULL
+        CHECK (trigger IN ('price_tap', 'leg_buys_open', 'card_button')),
     CHECK ((status = 'running') = (completed_ms IS NULL)),
     CHECK ((status = 'complete') = (verdict IS NOT NULL AND reason IS NOT NULL)),
     CHECK (status IN ('refused', 'failed')

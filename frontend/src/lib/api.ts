@@ -4066,7 +4066,7 @@ export async function fetchLegVerdicts(
   return legVerdictBody(body) ?? { legs: [], error: UNREADABLE_LEG_VERDICTS };
 }
 
-export type LegVerdictTrigger = "price_tap" | "leg_buys_open";
+export type LegVerdictTrigger = "price_tap" | "leg_buys_open" | "card_button";
 
 /**
  * Ask the leg scout to look at these legs, firing a verdict for any that has

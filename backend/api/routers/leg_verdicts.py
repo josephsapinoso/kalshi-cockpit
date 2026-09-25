@@ -103,10 +103,11 @@ def register(app: FastAPI, *, app_config, get_conn, require_auth) -> None:
         can take tens of seconds, and a phone tap must not hold a request
         open that long -- the same honesty rule `send_scout_desk` follows.
         """
-        if request.trigger not in ("price_tap", "leg_buys_open"):
+        if request.trigger not in ("price_tap", "leg_buys_open", "card_button"):
             raise HTTPException(
                 status_code=422,
-                detail="trigger must be 'price_tap' or 'leg_buys_open'.",
+                detail="trigger must be 'price_tap', 'leg_buys_open' or "
+                       "'card_button'.",
             )
         for leg in request.legs:
             if leg.side not in ("yes", "no"):

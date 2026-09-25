@@ -249,7 +249,12 @@ logger = logging.getLogger(__name__)
 #: `_TABLELESS_VERSIONS`, no step. Written on `main`, 2026-09-25 (#151,
 #: ADR 0186): the leg scout's TAKE/PASS on one parlay leg before Joe buys,
 #: recorded before kickoff so it can be scored forward.
-SCHEMA_VERSION = 57
+#:
+#: v58 `leg_verdicts.trigger` admits `'card_button'`, a rebuild with no new
+#: column. Joe, 2026-09-25: the leg scout was live but invisible, since
+#: nothing on a card said it existed until a buy step. Each card now has an
+#: "Ask the scouts" button, and its reads are recorded as their own trigger.
+SCHEMA_VERSION = 58
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1203,6 +1208,81 @@ _COMBO_RFQ_QUOTES_ADMIT_SELL_ONLY_UNDO = (
 )
 
 
+def _leg_verdicts_create(table: str, *, card_button: bool) -> str:
+    """The `leg_verdicts` shape on either side of v58, which admits the
+    `'card_button'` trigger. It is identical to `schema.sql` otherwise."""
+    triggers = "'price_tap', 'leg_buys_open'" + (", 'card_button'" if card_button else "")
+    return (
+        f"CREATE TABLE IF NOT EXISTS {table} (\n"
+        "    id              INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+        "    ticker          TEXT NOT NULL,\n"
+        "    side            TEXT NOT NULL CHECK (side IN ('yes', 'no')),\n"
+        "    card_key        TEXT,\n"
+        "    ask_tenths      INTEGER,\n"
+        "    commence_ms     INTEGER,\n"
+        "    requested_ms    INTEGER NOT NULL,\n"
+        "    completed_ms    INTEGER,\n"
+        "    status          TEXT NOT NULL\n"
+        "        CHECK (status IN ('running', 'complete', 'failed', 'refused')),\n"
+        "    refusal_reason  TEXT,\n"
+        "    verdict         TEXT CHECK (verdict IN ('take', 'pass')),\n"
+        "    reason          TEXT CHECK (reason IS NULL OR length(reason) <= 220),\n"
+        "    briefing_id     INTEGER REFERENCES scout_briefings(id),\n"
+        "    agent_call_id   INTEGER REFERENCES agent_calls(id),\n"
+        "    model           TEXT NOT NULL,\n"
+        "    input_tokens    INTEGER,\n"
+        "    output_tokens   INTEGER,\n"
+        "    web_searches    INTEGER,\n"
+        "    trigger         TEXT NOT NULL\n"
+        f"        CHECK (trigger IN ({triggers})),\n"
+        "    CHECK ((status = 'running') = (completed_ms IS NULL)),\n"
+        "    CHECK ((status = 'complete') = (verdict IS NOT NULL AND reason IS NOT NULL)),\n"
+        "    CHECK (status IN ('refused', 'failed')\n"
+        "           OR (ask_tenths IS NOT NULL AND commence_ms IS NOT NULL\n"
+        "               AND requested_ms < commence_ms))\n"
+        ")"
+    )
+
+
+_LEG_VERDICTS_COLUMNS = (
+    "id, ticker, side, card_key, ask_tenths, commence_ms, requested_ms, "
+    "completed_ms, status, refusal_reason, verdict, reason, briefing_id, "
+    "agent_call_id, model, input_tokens, output_tokens, web_searches, trigger"
+)
+
+#: v58. Idempotent at every crash point, on the `_PARLAY_LOOKUPS_ADMIT_REFUSED`
+#: pattern: `INSERT OR IGNORE` over the copied `id`, then DROP/RENAME, so a
+#: full replay rebuilds an identical table with the same rows. No
+#: `skip_statements_if_column` is needed, and none is possible (the step adds
+#: no column). The index goes with `DROP TABLE`, so it is recreated last.
+_LEG_VERDICTS_ADMIT_CARD_BUTTON = (
+    # A database older than v57 reaches this step before `schema.sql` has
+    # created the table (`init_db` applies the schema after `migrate`), so
+    # the v57 shape is created first. On any v57 database this is a no-op.
+    _leg_verdicts_create("leg_verdicts", card_button=False),
+    _leg_verdicts_create("leg_verdicts_v58", card_button=True),
+    f"INSERT OR IGNORE INTO leg_verdicts_v58 ({_LEG_VERDICTS_COLUMNS}) "
+    f"SELECT {_LEG_VERDICTS_COLUMNS} FROM leg_verdicts",
+    "DROP TABLE leg_verdicts",
+    "ALTER TABLE leg_verdicts_v58 RENAME TO leg_verdicts",
+    "CREATE INDEX IF NOT EXISTS idx_leg_verdicts_leg "
+    "ON leg_verdicts(ticker, side, requested_ms DESC)",
+)
+
+#: The v57 shape, for tests that wind a database back. A `card_button` row
+#: could not exist at v57, so none survives the trip back.
+_LEG_VERDICTS_ADMIT_CARD_BUTTON_UNDO = (
+    _leg_verdicts_create("leg_verdicts_v57", card_button=False),
+    f"INSERT OR IGNORE INTO leg_verdicts_v57 ({_LEG_VERDICTS_COLUMNS}) "
+    f"SELECT {_LEG_VERDICTS_COLUMNS} FROM leg_verdicts "
+    "WHERE trigger != 'card_button'",
+    "DROP TABLE leg_verdicts",
+    "ALTER TABLE leg_verdicts_v57 RENAME TO leg_verdicts",
+    "CREATE INDEX IF NOT EXISTS idx_leg_verdicts_leg "
+    "ON leg_verdicts(ticker, side, requested_ms DESC)",
+)
+
+
 #: Schema versions that added ONLY new tables, and so need no `_MIGRATIONS`
 #: step at all.
 #:
@@ -1231,6 +1311,13 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45, 57)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # The leg scout's third trigger, the card's own button (#151). See the
+    # v58 note above. Cheap on the live volume: a handful of rows.
+    58: _Migration(
+        statements=_LEG_VERDICTS_ADMIT_CARD_BUTTON,
+        indexes=("idx_leg_verdicts_leg",),
+        undo_statements=_LEG_VERDICTS_ADMIT_CARD_BUTTON_UNDO,
+    ),
     # The venue's own fill numbers on `manual_orders`.
     #
     # **40, taken at the merge commit 2026-09-11** after `git fetch`, with

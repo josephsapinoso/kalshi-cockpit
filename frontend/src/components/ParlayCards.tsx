@@ -305,6 +305,7 @@ function Card({
             expected first answer on a fresh combination, and the copy inside
             says so.
           */}
+          <AskTheScouts card={card} />
           <details className="mt-3 border-t border-border pt-3">
             <summary className="cursor-pointer text-sm font-semibold">
               Buy it on Kalshi
@@ -691,6 +692,44 @@ function LegOrigins({ card }: { card: ParlayCardData }) {
         ))}
       </ul>
     </details>
+  );
+}
+
+/**
+ * The visible way in to the leg scout (#151, v58, Joe 2026-09-25). Before
+ * this, a read started only on a buy step, and nothing on the card said the
+ * scouts existed, so he saw no TAKE or PASS anywhere. One tap reads every leg
+ * of this card. Legs already read show their verdict on page load, and that
+ * read is free. Advisory, like every line `<LegVerdicts>` draws.
+ */
+function AskTheScouts({ card }: { card: ParlayCardData }) {
+  const [requestedAtMs, setRequestedAtMs] = useState<number | null>(null);
+  if (card.legs.length === 0 || card.not_built_reason !== null) return null;
+  const legInputs: LegVerdictInput[] = card.legs.map((leg) => ({
+    ticker: leg.ticker,
+    side: leg.side,
+  }));
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <button
+        type="button"
+        className="rounded border border-border px-3 py-1 text-sm font-semibold"
+        onClick={() => {
+          void requestLegVerdicts(legInputs, "card_button", card.key);
+          setRequestedAtMs(Date.now());
+        }}
+      >
+        Ask the scouts about these legs
+      </button>
+      <span className="ml-2 text-xs text-muted">
+        TAKE or PASS on each leg, in plain words, in about 20 seconds
+      </span>
+      <LegVerdicts
+        legs={legInputs}
+        requestedAtMs={requestedAtMs}
+        hideUnasked
+      />
+    </div>
   );
 }
 

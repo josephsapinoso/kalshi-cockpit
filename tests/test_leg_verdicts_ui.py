@@ -216,3 +216,19 @@ class TestAVerdictRequestedAfterMountStillArrives:
             src = (SRC / "components" / name).read_text(encoding="utf-8")
             assert "setRequestedAtMs(Date.now());" in src, name
             assert "requestedAtMs={requestedAtMs}" in src, name
+
+
+class TestEveryCardHasAVisibleWayIn:
+    """v58, Joe 2026-09-25: 'i dont see any take or pass here.' The scouts
+    were live but invisible until a buy step. Each built card now carries a
+    button, and before any tap only legs with a read are shown."""
+
+    def test_each_card_renders_the_ask_the_scouts_button(self):
+        src = (SRC / "components" / "ParlayCards.tsx").read_text(encoding="utf-8")
+        assert "<AskTheScouts card={card} />" in src
+        assert "Ask the scouts about these legs" in src
+        assert 'requestLegVerdicts(legInputs, "card_button", card.key)' in src
+
+    def test_the_card_view_hides_unasked_legs_until_a_tap(self):
+        src = LEG_VERDICTS.read_text(encoding="utf-8")
+        assert 'rows.filter((row) => row.state !== "none")' in src
