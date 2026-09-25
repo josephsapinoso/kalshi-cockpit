@@ -38,6 +38,19 @@ ask for; **no average, win rate, hit rate, streak or trend is computed for
 either section or for the whole**, and that stays until thirty scored bets
 exist with the per-group view beside them.
 
+**#161: the chance the desk showed him at the moment he priced the parlay.**
+Every combination row carries `chance_when_priced` — `parlay_lookups
+.fair_joint_conservative` from the latest `status = 'priced'` lookup that
+minted the row's ticker and was requested at or before the anchor, where the
+anchor is `MIN(fills.filled_ms)` for that ticker — and
+`chance_priced_before_fill_ms`, the anchor minus that lookup's
+`requested_ms`. This is a per-row fact (ADR 0071: a per-row fact is
+transparency, an ordering is a claim), not a score: it answers "what did the
+desk's consensus say when I bought this", never "was this a good parlay".
+Built as one batched query over every combo ticker on the WHOLE table (never
+one query per row, matching the `totals`/`sections` discipline above), and
+counted, never averaged or summed, in `sections["combo"]["chance_carried"]`.
+
 What this module does NOT establish
 -----------------------------------
 That the record is complete. It is the poller's mirror: the settlements
@@ -80,6 +93,11 @@ KIND_COMBO = "combo"
 # to read" -- and the screen must not render fifty rows of the former.
 CLV_REFUSAL_COMBO = "combo_unscorable"
 
+# #161's two refusal reasons for `chance_when_priced`. Singles carry neither
+# -- pinned to `None` alongside the chance itself, never one of these words.
+CHANCE_REFUSAL_NO_FILL = "no_fill_row"
+CHANCE_REFUSAL_NOT_PRICED = "not_priced_on_desk"
+
 
 def bet_kind(ticker: str) -> str:
     """`combo` for a multi-leg market, `single` otherwise, from the ticker.
@@ -90,6 +108,78 @@ def bet_kind(ticker: str) -> str:
     """
     _is_sports, _sport, is_multi_leg = classify_ticker(ticker)
     return KIND_COMBO if is_multi_leg else KIND_SINGLE
+
+
+def _chance_when_priced_by_ticker(
+    conn: sqlite3.Connection, tickers: list[str]
+) -> dict[str, dict[str, Optional[float]]]:
+    """The desk's chance for each combo ticker at the moment he priced it.
+
+    One batched query over every ticker passed in, never one query per row
+    (the ticket's own rule, matching the `totals`/`sections` whole-table
+    discipline elsewhere in this module). For each ticker:
+
+    - `anchor_ms` is `MIN(fills.filled_ms)` for that ticker, or `None` when
+      `fills` holds no row for it (a fill was never recorded, so there is no
+      instant to anchor a lookup against).
+    - `requested_ms`/`chance` come from the LATEST `parlay_lookups` row with
+      `status = 'priced'`, `minted_market_ticker = ticker` and
+      `requested_ms <= anchor_ms` -- a lookup requested after the anchor is
+      not a reading he had before he bought, so it is excluded by the JOIN
+      itself, not filtered after the fact. `ROW_NUMBER() OVER (... ORDER BY
+      requested_ms DESC, id DESC)` picks the latest such row per ticker,
+      mirroring `parlays.priced_lookup_for`'s own tiebreak (that function is
+      read-only reference here; this module does not import it, since it
+      answers "the newest priced lookup for a ticker" and this needs "the
+      newest priced lookup AT OR BEFORE an anchor", a different query).
+
+    A ticker with no entry in the returned dict never occurs -- every ticker
+    passed in gets a row, `chance` and `requested_ms` `None` when nothing
+    qualified. Callers read `anchor_ms is None` as "no fill row" and
+    `chance is None` (with `anchor_ms` present) as "not priced on the desk".
+    """
+    if not tickers:
+        return {}
+    placeholders = ",".join("?" for _ in tickers)
+    sql = f"""
+        WITH anchors AS (
+            SELECT ticker, MIN(filled_ms) AS anchor_ms
+            FROM fills
+            WHERE ticker IN ({placeholders})
+            GROUP BY ticker
+        ),
+        ranked AS (
+            SELECT
+                l.minted_market_ticker AS ticker,
+                l.requested_ms AS requested_ms,
+                l.fair_joint_conservative AS chance,
+                ROW_NUMBER() OVER (
+                    PARTITION BY l.minted_market_ticker
+                    ORDER BY l.requested_ms DESC, l.id DESC
+                ) AS rn
+            FROM parlay_lookups l
+            JOIN anchors a ON a.ticker = l.minted_market_ticker
+            WHERE l.status = 'priced' AND l.requested_ms <= a.anchor_ms
+        )
+        SELECT
+            anchors.ticker AS ticker,
+            anchors.anchor_ms AS anchor_ms,
+            ranked.requested_ms AS requested_ms,
+            ranked.chance AS chance
+        FROM anchors
+        LEFT JOIN ranked ON ranked.ticker = anchors.ticker AND ranked.rn = 1
+    """
+    out: dict[str, dict[str, Optional[float]]] = {
+        ticker: {"anchor_ms": None, "requested_ms": None, "chance": None}
+        for ticker in tickers
+    }
+    for row in conn.execute(sql, tickers).fetchall():
+        out[row["ticker"]] = {
+            "anchor_ms": row["anchor_ms"],
+            "requested_ms": row["requested_ms"],
+            "chance": row["chance"],
+        }
+    return out
 
 
 # The staleness ceiling for the "tonight" strip: 6x the fills cadence
@@ -298,6 +388,14 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
         (DEFAULT_HORIZON_HOURS,),
     ).fetchall()
 
+    # #161: one batched read for every combo ticker on the WHOLE table,
+    # never one query per row -- the same discipline `totals`/`sections`
+    # already hold this module to.
+    combo_tickers = sorted({
+        row["ticker"] for row in rows if bet_kind(row["ticker"]) == KIND_COMBO
+    })
+    chance_by_ticker = _chance_when_priced_by_ticker(conn, combo_tickers)
+
     bets: list[dict] = []
     net_sum = 0
     computable = 0
@@ -314,8 +412,15 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
     clv_scored = 0
     clv_refusals: dict[str, int] = {}
     # Per-kind blocks over the WHOLE table, same discipline as `totals`.
+    # `chance_carried` is #161's coverage COUNT -- rows with a non-None
+    # `chance_when_priced` -- never a sum or an average of the values it
+    # counts; it sits on both blocks for a uniform shape but is only ever
+    # incremented on the combo section, since a single carries no chance.
     sections: dict[str, dict[str, int]] = {
-        kind: {"total": 0, "net_tenths": 0, "computable": 0, "uncomputable": 0}
+        kind: {
+            "total": 0, "net_tenths": 0, "computable": 0, "uncomputable": 0,
+            "chance_carried": 0,
+        }
         for kind in (KIND_SINGLE, KIND_COMBO)
     }
     first_settled_ms: Optional[int] = None
@@ -353,6 +458,25 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
                 clv_refusals[clv_refusal_reason] = (
                     clv_refusals.get(clv_refusal_reason, 0) + 1
                 )
+        # #161: the desk's chance for a combo at the moment it was priced.
+        # Singles carry all three keys as `None` -- pinned, per the ticket,
+        # rather than omitted -- so the frontend type need not special-case
+        # a missing key.
+        chance_when_priced: Optional[float] = None
+        chance_priced_before_fill_ms: Optional[int] = None
+        chance_refusal_reason: Optional[str] = None
+        if kind == KIND_COMBO:
+            info = chance_by_ticker.get(row["ticker"])
+            if info is None or info["anchor_ms"] is None:
+                chance_refusal_reason = CHANCE_REFUSAL_NO_FILL
+            elif info["chance"] is None:
+                chance_refusal_reason = CHANCE_REFUSAL_NOT_PRICED
+            else:
+                chance_when_priced = info["chance"]
+                chance_priced_before_fill_ms = (
+                    info["anchor_ms"] - info["requested_ms"]
+                )
+                section["chance_carried"] += 1
         if len(bets) >= limit:
             continue
         close_mid_tenths: Optional[float] = None
@@ -385,6 +509,9 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
                     if close_mid_tenths is not None
                     else None
                 ),
+                "chance_when_priced": chance_when_priced,
+                "chance_priced_before_fill_ms": chance_priced_before_fill_ms,
+                "chance_refusal_reason": chance_refusal_reason,
             }
         )
     return {

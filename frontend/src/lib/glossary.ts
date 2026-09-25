@@ -74,6 +74,14 @@ export const GLOSSARY = {
       "other slightly, so the number here is computed with that link " +
       "included, not by bare multiplication.",
   },
+  chance_when_priced: {
+    label: "desk's chance when priced",
+    definition:
+      "What the desk's sportsbook consensus said this parlay would win, " +
+      "at the moment you priced it — not the true chance, and not a " +
+      "grade of the bet. Same computation as \"joint chance\": the legs " +
+      "multiplied, with a small nudge for same-night games.",
+  },
   hedge: {
     label: "hedge",
     definition:
