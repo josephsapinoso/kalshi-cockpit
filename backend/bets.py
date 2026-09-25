@@ -39,17 +39,23 @@ either section or for the whole**, and that stays until thirty scored bets
 exist with the per-group view beside them.
 
 **#161: the chance the desk showed him at the moment he priced the parlay.**
-Every combination row carries `chance_when_priced` — `parlay_lookups
-.fair_joint_conservative` from the latest `status = 'priced'` lookup that
-minted the row's ticker and was requested at or before the anchor, where the
-anchor is `MIN(fills.filled_ms)` for that ticker — and
-`chance_priced_before_fill_ms`, the anchor minus that lookup's
-`requested_ms`. This is a per-row fact (ADR 0071: a per-row fact is
-transparency, an ordering is a claim), not a score: it answers "what did the
-desk's consensus say when I bought this", never "was this a good parlay".
-Built as one batched query over every combo ticker on the WHOLE table (never
-one query per row, matching the `totals`/`sections` discipline above), and
-counted, never averaged or summed, in `sections["combo"]["chance_carried"]`.
+Every combination row carries `chance_when_priced`, the LATEST reading at or
+before the anchor from either of two sources — `parlay_lookups
+.fair_joint_conservative` from a lookup with `status IN ('priced',
+'book_empty')`, or `combo_rfqs.fair_joint` from a maker price-ask (ADR
+0164) — that minted or named the row's ticker, where the anchor is
+`MIN(fills.filled_ms)` for that ticker — and `chance_priced_before_fill_ms`,
+the anchor minus that reading's `requested_ms`. **#163 correction**: a KXMVE
+book is empty by design between RFQs (ADR 0164), so most real lookups come
+back `book_empty`, not `priced`, and #161's `status = 'priced'`-only read
+undercounted; a `combo_rfqs` row also freezes the desk's chance the same way
+and #161 never read that table either. This is a per-row fact (ADR 0071: a
+per-row fact is transparency, an ordering is a claim), not a score: it
+answers "what did the desk's consensus say when I bought this", never "was
+this a good parlay". Built as one batched query over every combo ticker on
+the WHOLE table (never one query per row, matching the `totals`/`sections`
+discipline above), and counted, never averaged or summed, in
+`sections["combo"]["chance_carried"]`.
 
 What this module does NOT establish
 -----------------------------------
@@ -121,17 +127,38 @@ def _chance_when_priced_by_ticker(
 
     - `anchor_ms` is `MIN(fills.filled_ms)` for that ticker, or `None` when
       `fills` holds no row for it (a fill was never recorded, so there is no
-      instant to anchor a lookup against).
-    - `requested_ms`/`chance` come from the LATEST `parlay_lookups` row with
-      `status = 'priced'`, `minted_market_ticker = ticker` and
-      `requested_ms <= anchor_ms` -- a lookup requested after the anchor is
-      not a reading he had before he bought, so it is excluded by the JOIN
-      itself, not filtered after the fact. `ROW_NUMBER() OVER (... ORDER BY
-      requested_ms DESC, id DESC)` picks the latest such row per ticker,
+      instant to anchor a reading against).
+    - `requested_ms`/`chance` come from the LATEST reading at or before the
+      anchor across TWO sources (#163 -- #161 read only the first one and
+      undercounted, since a KXMVE book is empty by design between RFQs, ADR
+      0164, so most real lookups land `book_empty`, not `priced`):
+
+        * `parlay_lookups` rows with `status IN ('priced', 'book_empty')`,
+          a non-NULL `fair_joint_conservative`, and `minted_market_ticker =
+          ticker`; `refused` and `error` stay out -- no market was minted
+          (`refused`) or the read failed (`error`), so neither carries a
+          chance to show him.
+        * `combo_rfqs` rows with a non-NULL `fair_joint` and `ticker =
+          ticker` -- a maker price-ask freezes the desk's chance the same
+          way a lookup does. No `purpose` filter is needed: a sell-side
+          (`'exit'`) ask fired after he already holds the position is
+          necessarily after the fill, so the `requested_ms <= anchor_ms`
+          bound already excludes it.
+
+      Both arms require `requested_ms <= anchor_ms` in their own JOIN, so a
+      reading taken after the anchor is excluded by construction, not
+      filtered after the fact. The two arms are UNIONed with a
+      `source_rank` (0 for `parlay_lookups`, 1 for `combo_rfqs`) and picked
+      by `ROW_NUMBER() OVER (... ORDER BY requested_ms DESC, source_rank
+      ASC, id DESC)` per ticker -- latest timestamp wins; on a tie at the
+      same millisecond the `parlay_lookups` reading wins (deterministic,
+      not because one source is more trustworthy); a further tie (same
+      source, same millisecond) falls back to the row's own `id DESC`,
       mirroring `parlays.priced_lookup_for`'s own tiebreak (that function is
       read-only reference here; this module does not import it, since it
       answers "the newest priced lookup for a ticker" and this needs "the
-      newest priced lookup AT OR BEFORE an anchor", a different query).
+      newest qualifying reading AT OR BEFORE an anchor across two tables", a
+      different query).
 
     A ticker with no entry in the returned dict never occurs -- every ticker
     passed in gets a row, `chance` and `requested_ms` `None` when nothing
@@ -148,18 +175,40 @@ def _chance_when_priced_by_ticker(
             WHERE ticker IN ({placeholders})
             GROUP BY ticker
         ),
-        ranked AS (
+        readings AS (
             SELECT
-                l.minted_market_ticker AS ticker,
+                a.ticker AS ticker,
                 l.requested_ms AS requested_ms,
                 l.fair_joint_conservative AS chance,
-                ROW_NUMBER() OVER (
-                    PARTITION BY l.minted_market_ticker
-                    ORDER BY l.requested_ms DESC, l.id DESC
-                ) AS rn
+                0 AS source_rank,
+                l.id AS row_id
             FROM parlay_lookups l
             JOIN anchors a ON a.ticker = l.minted_market_ticker
-            WHERE l.status = 'priced' AND l.requested_ms <= a.anchor_ms
+            WHERE l.status IN ('priced', 'book_empty')
+              AND l.fair_joint_conservative IS NOT NULL
+              AND l.requested_ms <= a.anchor_ms
+            UNION ALL
+            SELECT
+                a.ticker AS ticker,
+                r.requested_ms AS requested_ms,
+                r.fair_joint AS chance,
+                1 AS source_rank,
+                r.id AS row_id
+            FROM combo_rfqs r
+            JOIN anchors a ON a.ticker = r.ticker
+            WHERE r.fair_joint IS NOT NULL
+              AND r.requested_ms <= a.anchor_ms
+        ),
+        ranked AS (
+            SELECT
+                ticker,
+                requested_ms,
+                chance,
+                ROW_NUMBER() OVER (
+                    PARTITION BY ticker
+                    ORDER BY requested_ms DESC, source_rank ASC, row_id DESC
+                ) AS rn
+            FROM readings
         )
         SELECT
             anchors.ticker AS ticker,
