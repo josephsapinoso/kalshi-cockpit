@@ -2,9 +2,15 @@
 
 import { useEffect, useState } from "react";
 
-import { formatAge, lookupParlay } from "@/lib/api";
-import type { ParlayCardData, ParlayHorizon, ParlayLookupResult } from "@/lib/api";
+import { formatAge, lookupParlay, requestLegVerdicts } from "@/lib/api";
+import type {
+  LegVerdictInput,
+  ParlayCardData,
+  ParlayHorizon,
+  ParlayLookupResult,
+} from "@/lib/api";
 import AskTheMarket from "@/components/AskTheMarket";
+import LegVerdicts from "@/components/LegVerdicts";
 import ManualTicket from "@/components/ManualTicket";
 import Term from "@/components/Term";
 
@@ -129,8 +135,19 @@ export default function PriceOnKalshi({
   const stake =
     card.at_stakes.find((s) => s.is_default) ?? card.at_stakes[0] ?? null;
 
+  const legInputs: LegVerdictInput[] = card.legs.map((leg) => ({
+    ticker: leg.ticker,
+    side: leg.side,
+  }));
+
   const tap = async () => {
     setState({ kind: "working" });
+    // Fired and NOT awaited: this is Joe's first step toward buying this
+    // card, which is exactly the trigger #151 asks for (`"price_tap"`), and
+    // it must never make the lookup below wait on a seat that can take
+    // seconds. `<LegVerdicts>` below reads whatever this produces on its own
+    // clock.
+    void requestLegVerdicts(legInputs, "price_tap", card.key);
     // `lookupParlay` never throws -- but a throw here would strand the card
     // in "working" with its only button unmounted, so the guard is kept
     // rather than resting on the other module's promise.
@@ -187,7 +204,9 @@ export default function PriceOnKalshi({
       {state.kind === "refused" && (
         <p className="text-sm text-accent-2">{state.words}</p>
       )}
-      {state.kind === "done" && <Result value={state.value} />}
+      {state.kind === "done" && (
+        <Result value={state.value} legs={legInputs} />
+      )}
       {retryable && (
         // Not `bg-accent-fill`: the filled slot is the money-adjacent
         // *first* tap.
@@ -276,7 +295,13 @@ function QuoteAge({
   );
 }
 
-function Result({ value }: { value: ParlayLookupResult }) {
+function Result({
+  value,
+  legs,
+}: {
+  value: ParlayLookupResult;
+  legs: LegVerdictInput[];
+}) {
   // Every non-priced status must be listed here. The fallthrough below reads
   // `value.quoted`, which only `priced` has, so a status missing from this
   // guard does not degrade -- it renders undefined into the price line.
@@ -289,6 +314,7 @@ function Result({ value }: { value: ParlayLookupResult }) {
     return (
       <div className="space-y-2">
         <p className="text-sm text-muted">{value.words}</p>
+        <LegVerdicts legs={legs} />
         <AskTheMarket marketTicker={value.minted_market_ticker} />
       </div>
     );
@@ -352,6 +378,7 @@ function Result({ value }: { value: ParlayLookupResult }) {
           third, so a screen that offers only the book sometimes sells him
           the worse of two prices it could have shown him. Asking commits
           nothing, so it is offered here and the two numbers sit together. */}
+      <LegVerdicts legs={legs} />
       <AskTheMarket marketTicker={value.minted_market_ticker} />
 
       {/* The buy, on the minted market's own ticker — two lines under the

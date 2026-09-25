@@ -1,8 +1,11 @@
+"use client";
+
 import Link from "next/link";
 
-import { DISPLAY_TIME_ZONE, formatAge, formatDuration } from "@/lib/api";
+import { DISPLAY_TIME_ZONE, formatAge, formatDuration, requestLegVerdicts } from "@/lib/api";
 import type {
   ActionableWindow,
+  LegVerdictInput,
   ParlayCardData,
   ParlayCardLeg,
   ParlayCardScouting,
@@ -13,6 +16,7 @@ import type {
 import { glossSentence } from "@/lib/suppressionGloss";
 import DispersionStrip from "@/components/DispersionStrip";
 import LeagueTag from "@/components/LeagueTag";
+import LegVerdicts from "@/components/LegVerdicts";
 import ParlayDifficulty from "@/components/ParlayDifficulty";
 import ManualTicket from "@/components/ManualTicket";
 import PriceOnKalshi from "@/components/PriceOnKalshi";
@@ -691,8 +695,23 @@ function LegOrigins({ card }: { card: ParlayCardData }) {
 
 function LegBuys({ card }: { card: ParlayCardData }) {
   if (card.legs.length === 0) return null;
+  // #151, ADR 0186: every leg of a card Joe opens toward buying, sent once
+  // per open of this panel — not per leg, and not on mount (mounting inside
+  // a closed <details> must spend nothing; each `<LegVerdicts>` row below
+  // still reads via GET on mount, which is the read that costs nothing).
+  const legInputs: LegVerdictInput[] = card.legs.map((leg) => ({
+    ticker: leg.ticker,
+    side: leg.side,
+  }));
   return (
-    <details className="mt-3 border-t pt-3">
+    <details
+      className="mt-3 border-t pt-3"
+      onToggle={(event) => {
+        if (event.currentTarget.open) {
+          void requestLegVerdicts(legInputs, "leg_buys_open", card.key);
+        }
+      }}
+    >
       <summary className="cursor-pointer text-xs font-semibold text-muted">
         Bet these legs one by one
         <span className="ml-1 font-normal">
@@ -714,6 +733,7 @@ function LegBuys({ card }: { card: ParlayCardData }) {
               </span>
               <LegGame leg={leg} />
             </div>
+            <LegVerdicts legs={[{ ticker: leg.ticker, side: leg.side }]} />
             <ManualTicket
               ticker={leg.ticker}
               preferSide={leg.side}

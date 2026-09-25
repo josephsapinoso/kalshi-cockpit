@@ -115,6 +115,12 @@ const JSON_ROUTE_HANDLERS = new Set([
   // watch (#148). Writes a `parlay_positions` row; spends nothing and places
   // no order. Listed for the same JSON-401 reason as the rest.
   "/hedge-adopt",
+  // The leg scout (#151, ADR 0186). Spends metered Anthropic calls inside
+  // the shared AgentBudget, same as `/scout-desk` above -- listed for the
+  // same JSON-401 reason as the rest. The GET half of this feature reads
+  // `/api/leg-verdicts` directly, through the `/api/:path*` rewrite, and is
+  // not in this set: it spends nothing.
+  "/leg-verdicts",
 ]);
 
 /**

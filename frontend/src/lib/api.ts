@@ -3963,3 +3963,159 @@ export async function cancelComboBid(
       : `The cancel was refused (HTTP ${response.status}).`;
   return { ok: false, refusal: detail };
 }
+
+/**
+ * The leg scout's TAKE/PASS on one side of one parlay leg (#151, ADR 0186).
+ *
+ * **Advisory only, and that is enforced above this file, not in it.**
+ * `<LegVerdicts>` (`components/LegVerdicts.tsx`) is the one renderer, takes
+ * no callback and disables nothing -- these two functions only move bytes.
+ *
+ * `state` is the server's own read of where this leg's verdict stands:
+ *
+ *   `cached`  — a complete verdict already exists and is fresh enough to
+ *               show; `verdict` and `reason` are set.
+ *   `pending` — a verdict is being written right now (this request or an
+ *               earlier one); poll again.
+ *   `refused` — the budget or the shard turned the request away;
+ *               `refusal_reason` says why. Not information about the leg.
+ *   `none`    — nobody has asked about this leg, or a `GET` reader found no
+ *               row at all. `refusal_reason` carries the server's sentence
+ *               either way, so the two cases render identically on screen.
+ */
+export type LegVerdictState = "cached" | "pending" | "refused" | "none";
+
+export type LegVerdict = {
+  ticker: string;
+  side: "yes" | "no";
+  state: LegVerdictState;
+  id: number | null;
+  verdict: "take" | "pass" | null;
+  reason: string | null;
+  /** The ask, in words, AT THE TIME the seat looked -- never re-derived
+   *  here, and never re-read for a live price (that is a different call). */
+  ask_display_at_verdict: string | null;
+  age_ms: number | null;
+  refusal_reason: string | null;
+};
+
+export type LegVerdictsResult = {
+  legs: LegVerdict[];
+  /**
+   * `null` on success. Set on any failure to reach or read the server,
+   * including the 503 the backend sends while the seat is switched off --
+   * that case is always worded exactly `"Scouts are off"`, which is the
+   * only sentence `<LegVerdicts>` is allowed to render for it.
+   */
+  error: string | null;
+};
+
+const LEG_VERDICT_MAX_LEGS = 8;
+
+/** One leg identified for a verdict request: what side of what ticker. */
+export type LegVerdictInput = { ticker: string; side: "yes" | "no" };
+
+function legVerdictBody(body: unknown): LegVerdictsResult | null {
+  if (
+    !body ||
+    typeof body !== "object" ||
+    !Array.isArray((body as { legs?: unknown }).legs)
+  ) {
+    return null;
+  }
+  return { legs: (body as { legs: LegVerdict[] }).legs, error: null };
+}
+
+const UNREADABLE_LEG_VERDICTS =
+  "The scouts' answer came back in a shape this screen cannot read.";
+
+/**
+ * Read whatever verdicts already exist for these legs. Spends nothing --
+ * this is a plain `GET`, never the call that asks a seat to run.
+ *
+ * **Never throws.** A failed read renders "no scout read" beside the leg,
+ * which is honest; a thrown promise would strand whatever called this with
+ * nothing to show at all.
+ */
+export async function fetchLegVerdicts(
+  legs: LegVerdictInput[],
+): Promise<LegVerdictsResult> {
+  if (legs.length === 0) return { legs: [], error: null };
+  const qs = new URLSearchParams();
+  for (const leg of legs.slice(0, LEG_VERDICT_MAX_LEGS)) {
+    qs.append("leg", `${leg.ticker}:${leg.side}`);
+  }
+  let response: Response;
+  try {
+    response = await fetch(`${BASE}/api/leg-verdicts?${qs.toString()}`, {
+      cache: "no-store",
+    });
+  } catch (error) {
+    return {
+      legs: [],
+      error: `The scouts' read could not be reached (${
+        error instanceof Error ? error.message : "network error"
+      }).`,
+    };
+  }
+  if (response.status === 503) return { legs: [], error: "Scouts are off" };
+  if (!response.ok) {
+    return { legs: [], error: `HTTP ${response.status}` };
+  }
+  const body: unknown = await response.json().catch(() => null);
+  return legVerdictBody(body) ?? { legs: [], error: UNREADABLE_LEG_VERDICTS };
+}
+
+export type LegVerdictTrigger = "price_tap" | "leg_buys_open";
+
+/**
+ * Ask the leg scout to look at these legs, firing a verdict for any that has
+ * none cached. Goes through the `/leg-verdicts` Next route handler so the
+ * bearer token stays server-side -- same reasoning as `/scout-desk`, because
+ * this spends metered Anthropic calls inside the shared `AgentBudget`.
+ *
+ * Fired from exactly two places, both trigger handlers
+ * (`PriceOnKalshi.tsx`'s `tap`, `ParlayCards.tsx`'s `LegBuys` toggle) --
+ * `tests/test_leg_verdicts_ui.py` pins that nothing else calls this, so a
+ * mount effect or a re-render cannot spend on its own.
+ *
+ * **Never throws**, and never sends a price -- the server reads the ask
+ * itself at request time so a stale or tampered client cannot shape the
+ * question the seat answers.
+ */
+export async function requestLegVerdicts(
+  legs: LegVerdictInput[],
+  trigger: LegVerdictTrigger,
+  cardKey: string | null,
+): Promise<LegVerdictsResult> {
+  if (legs.length === 0) return { legs: [], error: null };
+  const sent = legs
+    .slice(0, LEG_VERDICT_MAX_LEGS)
+    .map((leg) => ({ ticker: leg.ticker, side: leg.side }));
+  let response: Response;
+  try {
+    response = await fetch("/leg-verdicts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ trigger, card_key: cardKey, legs: sent }),
+    });
+  } catch (error) {
+    return {
+      legs: [],
+      error: `The scouts could not be reached (${
+        error instanceof Error ? error.message : "network error"
+      }). Nothing was sent.`,
+    };
+  }
+  if (response.status === 503) return { legs: [], error: "Scouts are off" };
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail =
+      body && typeof body === "object" && "detail" in body
+        ? String((body as { detail: unknown }).detail)
+        : `HTTP ${response.status}`;
+    return { legs: [], error: detail };
+  }
+  return legVerdictBody(body) ?? { legs: [], error: UNREADABLE_LEG_VERDICTS };
+}
