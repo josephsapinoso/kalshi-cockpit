@@ -1487,6 +1487,13 @@ BILLED_PATH_CALL_SITES: dict[str, str] = {
         "`scout_briefings.trigger`, and the tap reserve. It is therefore not "
         "an entry here: the scanner would find nothing in it to allowlist."
     ),
+    "backend/agents/leg_verdict.py": (
+        "The leg scout (#151, ADR 0186). `give_leg_verdict` makes exactly one "
+        "`structured_call` per leg, and it is metered by the same "
+        "`AgentBudget`: `refusal_reason(1, searches_worst_case=3)` before "
+        "anything, `reserve` before the request, and `settle` on every exit. "
+        "A refusal makes zero calls."
+    ),
 }
 
 

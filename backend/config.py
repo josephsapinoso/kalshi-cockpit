@@ -1139,6 +1139,37 @@ class ScoutAutoConfig:
         )
 
 
+@dataclass(frozen=True)
+class LegVerdictConfig:
+    """The leg scout: TAKE or PASS on one parlay leg before Joe buys (#151,
+    ADR 0186).
+
+    It spends inside the shared `AGENT_MAX_*` ceilings through the same
+    `AgentBudget` as the desk. There is no second ceiling object, and nothing
+    here is additive to those ceilings. Joe's answer was to pay for it by
+    repointing the unattended budget, so on live `SCOUT_AUTO_CONVENE_ENABLED`
+    went false in the same change that set `enabled` true.
+
+    - `enabled`: off by default, so a fresh copy of the repo spends nothing.
+    - `fresh_hours`: a complete verdict younger than this is served again
+      without a call.
+    - `price_move_tenths`: unless the side's ask has moved more than this
+      since the verdict. 20 tenths is two cents.
+    """
+
+    enabled: bool = False
+    fresh_hours: int = 6
+    price_move_tenths: int = 20
+
+    @classmethod
+    def load(cls) -> "LegVerdictConfig":
+        return cls(
+            enabled=_bool("LEG_VERDICT_ENABLED", False),
+            fresh_hours=_int("LEG_VERDICT_FRESH_HOURS", 6),
+            price_move_tenths=_int("LEG_VERDICT_PRICE_MOVE_TENTHS", 20),
+        )
+
+
 # --- build identity ---------------------------------------------------------
 #
 # Which build of this repo is answering. Served on `/api/health` so that

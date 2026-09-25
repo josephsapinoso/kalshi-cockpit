@@ -2987,3 +2987,48 @@ CREATE TABLE IF NOT EXISTS combo_rfq_quotes (
 );
 CREATE INDEX IF NOT EXISTS idx_combo_rfq_quotes_rfq
     ON combo_rfq_quotes(rfq_id);
+
+-- ---------------------------------------------------------------------------
+-- leg_verdicts, schema v57 (#151, ADR 0186). One row per leg-scout run: TAKE
+-- or PASS on one side of one parlay leg at the ask Kalshi showed at the time,
+-- with a plain-language reason. Advisory: nothing on the order, RFQ, hedge,
+-- sizing or gate path reads this table (tests/test_leg_verdicts_never_touch_money.py).
+-- Scored forward against the leg's settlement, per
+-- docs/measurements/2026-09-25-preregistration-scout-leg-verdicts.md: only
+-- `complete` rows whose completed_ms < commence_ms count.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS leg_verdicts (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker          TEXT NOT NULL,
+    side            TEXT NOT NULL CHECK (side IN ('yes', 'no')),
+    -- Which card the request came from, free text, for reading only.
+    card_key        TEXT,
+    -- The ask for THIS side, read by the server at request time, never sent
+    -- by the browser. NULL only on a refused/failed row that never got one.
+    ask_tenths      INTEGER,
+    -- Kickoff on the sportsbook clock, the same clock scoring uses.
+    commence_ms     INTEGER,
+    requested_ms    INTEGER NOT NULL,
+    completed_ms    INTEGER,
+    status          TEXT NOT NULL
+        CHECK (status IN ('running', 'complete', 'failed', 'refused')),
+    refusal_reason  TEXT,
+    verdict         TEXT CHECK (verdict IN ('take', 'pass')),
+    reason          TEXT CHECK (reason IS NULL OR length(reason) <= 220),
+    -- The desk briefing handed to the seat as context, if one existed.
+    briefing_id     INTEGER REFERENCES scout_briefings(id),
+    agent_call_id   INTEGER REFERENCES agent_calls(id),
+    model           TEXT NOT NULL,
+    -- NULL, never 0, when no usage block came back.
+    input_tokens    INTEGER,
+    output_tokens   INTEGER,
+    web_searches    INTEGER,
+    trigger         TEXT NOT NULL CHECK (trigger IN ('price_tap', 'leg_buys_open')),
+    CHECK ((status = 'running') = (completed_ms IS NULL)),
+    CHECK ((status = 'complete') = (verdict IS NOT NULL AND reason IS NOT NULL)),
+    CHECK (status IN ('refused', 'failed')
+           OR (ask_tenths IS NOT NULL AND commence_ms IS NOT NULL
+               AND requested_ms < commence_ms))
+);
+CREATE INDEX IF NOT EXISTS idx_leg_verdicts_leg
+    ON leg_verdicts(ticker, side, requested_ms DESC);

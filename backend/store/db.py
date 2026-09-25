@@ -244,7 +244,12 @@ logger = logging.getLogger(__name__)
 #: `executescript` cannot do that. Written on `main`, 2026-09-18, the
 #: evening `/api/window` measured 7 s at the median and tripped the 25 s
 #: read budget twice.
-SCHEMA_VERSION = 56
+#:
+#: v57 `leg_verdicts` -- a pure new table, so it sits in
+#: `_TABLELESS_VERSIONS`, no step. Written on `main`, 2026-09-25 (#151,
+#: ADR 0186): the leg scout's TAKE/PASS on one parlay leg before Joe buys,
+#: recorded before kickoff so it can be scored forward.
+SCHEMA_VERSION = 57
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1222,7 +1227,7 @@ _COMBO_RFQ_QUOTES_ADMIT_SELL_ONLY_UNDO = (
 #: v33 is NOT here although it adds a table (`venue_positions`): it also adds
 #: a column to `poll_log`, which makes it a step. A version is one or the
 #: other, never both.
-_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45)
+_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45, 57)
 
 
 _MIGRATIONS: dict[int, _Migration] = {

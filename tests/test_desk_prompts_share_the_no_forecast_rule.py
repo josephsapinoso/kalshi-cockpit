@@ -98,3 +98,18 @@ class TestTheStaffBriefStillDiffersFromTheSoloScoutWhereItMeansTo:
         assert "makes the whole desk less trustworthy" in (
             scout_desk.STAFF_SYSTEM_TEMPLATE
         )
+
+
+class TestTheLegScoutIsTheOneSeatWithoutTheRule:
+    """ADR 0186 (#151): the leg scout says TAKE or PASS on Joe's word. It is
+    not a desk seat and does not carry the no-verdict rule. Pinned so that
+    the exception stays a decision and cannot spread to the four seats above
+    by accident."""
+
+    def test_the_leg_verdict_seat_is_not_a_desk_seat_and_says_so(self):
+        from backend.agents import leg_verdict
+
+        assert RULE_HEAD not in leg_verdict.SYSTEM
+        assert "leg_verdict.SYSTEM" not in SEATS
+        # It keeps the half of the rule that still applies: no number.
+        assert "Never state a probability" in leg_verdict.SYSTEM

@@ -524,7 +524,22 @@ primary_region = "ord"
   # Still set explicitly rather than left unset, for the same reason
   # AGENT_MODEL is: an unset money-bearing value is how this instance once
   # spent at a rate nobody chose. Turning it back off is this one line.
-  SCOUT_AUTO_CONVENE_ENABLED = "true"
+  #
+  # **Turned OFF 2026-09-25 (#151, ADR 0186), on Joe's word.** Two
+  # convenings a day could not reach the games he bets: 34 of 39 bet legs
+  # from 09-21 to 09-24 were on games nobody had scouted (#145). He chose to
+  # spend this budget on the legs of the cards he opens instead (next flag).
+  SCOUT_AUTO_CONVENE_ENABLED = "false"
+
+  # **The leg scout -- #151, Joe 2026-09-25.** TAKE or PASS, in plain words,
+  # on each leg of a card he is about to buy. It runs on his first step
+  # toward buying (Price on Kalshi, or opening the one-by-one leg buys). It
+  # is advisory only: it never blocks a buy. One call per leg, at most 3
+  # searches, inside the same AGENT_MAX_* ceilings. No ceiling moved. At
+  # ~10 legs a day that is 10 of 24 calls and at most 30 of 60 searches.
+  # Tokens are NOT measured yet: read `agent-spend` for agent='leg_verdict'
+  # after three days before moving anything.
+  LEG_VERDICT_ENABLED = "true"
 
   # **2 unattended convenings a day, not 3 -- #127, Joe answered (B)
   # 2026-09-23.** Three convenings cost ~511K-526K tokens against the 500K
