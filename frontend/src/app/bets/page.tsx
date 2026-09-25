@@ -10,6 +10,7 @@ import RecordParlay from "@/components/RecordParlay";
 import {
   DISPLAY_TIME_ZONE,
   fetchBets,
+  formatDuration,
   type BetKind,
   type BetsRecord,
   type BetsSection,
@@ -290,6 +291,17 @@ function BetSection({
             : ""}
         </p>
       )}
+      {/* #161: how many of this kind carry the desk's chance at the moment
+          it was priced -- a whole-table COUNT, never a rate. Combo only:
+          a single carries no chance at all, so the sentence would always
+          read "0 of N" and say nothing. */}
+      {section.kind === "combo" && block.total > 0 && (
+        <p className="mt-1 max-w-[65ch] text-xs text-muted">
+          <span className="tabular">{block.chance_carried}</span> of{" "}
+          <span className="tabular">{block.total}</span> carry the{" "}
+          <Term k="chance_when_priced">desk&rsquo;s chance</Term>
+        </p>
+      )}
       {block.total === 0 ? (
         <p className="mt-3 max-w-[65ch] text-sm text-muted">
           No {section.many} have settled in the mirrored record.
@@ -358,6 +370,18 @@ const CLV_REFUSAL_WORDS: Record<string, string> = {
 };
 
 /**
+ * Words for a refused `chance_when_priced` (#161), in place of the number.
+ * No reason ever substitutes a value or a "0%" -- `bet.chance_when_priced`
+ * stays null and this is the only thing rendered instead. A single's row
+ * (always both null) maps to nothing here, since `BetRow` only reads this
+ * for a combo.
+ */
+const CHANCE_REFUSAL_WORDS: Record<string, string> = {
+  no_fill_row: "— no fill on record",
+  not_priced_on_desk: "— not priced on the desk",
+};
+
+/**
  * One settled position. The result word and the net are the row's facts;
  * the ticker links to the market screen, which knows how to say what the
  * market was. A refused net renders "—" with the reason class in the words
@@ -387,6 +411,22 @@ function BetRow({ bet }: { bet: SettledBet }) {
       </>
     ) : (
       (CLV_REFUSAL_WORDS[bet.clv_refusal_reason ?? ""] ?? "close unknown")
+    );
+  // #161: the desk's own consensus chance at the moment this combo was
+  // priced, with how long before the fill that reading was taken. Never a
+  // substituted "0%" — a missing chance renders the refusal words instead,
+  // pulled straight from the server's named reason.
+  const chanceWords =
+    bet.chance_when_priced !== null ? (
+      <>
+        <Term k="chance_when_priced">Desk&rsquo;s chance</Term> when you
+        priced it: {Math.round(bet.chance_when_priced * 100)}%
+        {bet.chance_priced_before_fill_ms !== null
+          ? ` · ${formatDuration(bet.chance_priced_before_fill_ms)} before you bought`
+          : ""}
+      </>
+    ) : (
+      CHANCE_REFUSAL_WORDS[bet.chance_refusal_reason ?? ""] ?? null
     );
   return (
     <li>
@@ -418,6 +458,11 @@ function BetRow({ bet }: { bet: SettledBet }) {
               }`}
             >
               {clvWords}
+            </span>
+          )}
+          {bet.kind === "combo" && chanceWords !== null && (
+            <span className="mt-0.5 block text-xs text-muted">
+              {chanceWords}
             </span>
           )}
         </span>

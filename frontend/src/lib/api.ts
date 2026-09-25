@@ -3191,6 +3191,19 @@ export type SettledBet = {
   clv_refusal_reason: string | null;
   close_mid_tenths: number | null;
   close_display: string | null;
+  // #161: the desk's own consensus chance for a combo at the moment Joe
+  // priced it -- `parlay_lookups.fair_joint_conservative` from the latest
+  // `status = 'priced'` lookup requested at or before the position's first
+  // fill. A per-row FACT (ADR 0071), never a score or a verdict; there is
+  // no aggregate of it anywhere in this repo and there must never be one.
+  // A single carries all three keys as `null`, same as a combo with no
+  // qualifying lookup -- `chance_refusal_reason` says which refusal:
+  // `no_fill_row` (no `fills` row for the ticker) or `not_priced_on_desk`
+  // (no priced lookup at or before the fill, including a single always-null
+  // row, which the page renders as neither reason -- see `BetRow`).
+  chance_when_priced: number | null;
+  chance_priced_before_fill_ms: number | null;
+  chance_refusal_reason: "no_fill_row" | "not_priced_on_desk" | null;
 };
 
 /**
@@ -3205,6 +3218,11 @@ export type BetsSection = {
   net_display: string;
   computable: number;
   uncomputable: number;
+  // #161: a whole-table COUNT of rows in this kind whose
+  // `chance_when_priced` is not null -- never a sum or an average of the
+  // values it counts. Present on both kinds for a uniform shape; only the
+  // combo section is ever non-zero, since a single carries no chance.
+  chance_carried: number;
 };
 
 export type BetsRecord = {
