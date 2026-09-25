@@ -124,3 +124,19 @@ which is harder to see because the file's own header can be quoted as evidence
 that the rule is being followed. **The session that discovers the file is near
 the line is the session that cuts it**, and the cut goes in before that
 session's entry, not into its handoff.
+
+**Split again 2026-09-25, at 234,272 bytes — 89.4%, by the session that
+found it there.** The six 2026-09-22, three 2026-09-21, two 2026-09-20, one
+2026-09-19 and six 2026-09-18 entries (18 of them) moved to
+`archive/next-2026-09-25.md`, verbatim, leaving **42,687 bytes before the
+index — 16.3%**, 78,620 with it (30.0%). Date boundary; md5
+`3958e58d926207d3380cfa928697cdb7`; binary throughout; `git diff --stat`
+showed 2,405 deletions against 13 insertions, the insertions being the new
+index heading alone — git aligned the moved index lines as unchanged.
+
+**What this one taught:** the 2026-09-18 rule held. The previous session
+wrote "split it before writing the next entry" and did not write an entry
+past the line; this session read `wc -c` at start and cut before planning
+anything else. The index section is now ~36 KB on its own and grows one
+line a session plus a paragraph a split — it is the part of the file that
+no split moves, and at this rate it becomes the next thing to archive.
