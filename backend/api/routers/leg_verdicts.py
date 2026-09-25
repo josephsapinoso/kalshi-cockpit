@@ -30,9 +30,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ...agents.base import AgentConfig
 from ...agents.budget import AgentBudget
-from ...agents.leg_verdict import LEG_VERDICT_MAX_SEARCHES
+from ...agents.leg_verdict import (
+    LEG_VERDICT_MAX_SEARCHES,
+    LEG_VERDICT_TOKEN_RESERVATION,
+)
 from ...config import LegVerdictConfig
 from ...leg_verdicts import (
+    RUNNING_PATIENCE_MS,
     LegContext,
     LegRefusal,
     _row_to_response,
@@ -86,6 +90,19 @@ def _refusal_item(ticker: str, side: str, reason: str) -> dict:
 
 
 _MS_PER_HOUR = 60 * 60 * 1000
+
+
+def _running_verdicts(conn, now_ms: int) -> int:
+    """Leg verdicts still in flight: `running` and younger than the patience
+    window `cached_verdict` uses, so a row whose process died stops holding
+    budget at the same moment it stops being served as pending."""
+    return int(
+        conn.execute(
+            "SELECT COUNT(*) FROM leg_verdicts "
+            "WHERE status = 'running' AND requested_ms > ?",
+            (now_ms - RUNNING_PATIENCE_MS,),
+        ).fetchone()[0]
+    )
 
 
 def _budget_refusal_message(budget: AgentBudget, now_ms: int) -> str:
@@ -191,9 +208,16 @@ def register(app: FastAPI, *, app_config, get_conn, require_auth) -> None:
 
                 # Checked BEFORE writing anything, the same order
                 # `send_scout_desk` uses: a leg the day cannot afford answers
-                # immediately and spends nothing.
+                # immediately and spends nothing. Verdicts still in flight --
+                # this request's earlier legs included, same connection --
+                # count at an estimate, because their tokens and searches
+                # are recorded only when they settle (#156).
+                in_flight = _running_verdicts(write_conn, now)
                 reason = budget.refusal_reason(
-                    1, now, searches_worst_case=LEG_VERDICT_MAX_SEARCHES
+                    1,
+                    now,
+                    searches_worst_case=LEG_VERDICT_MAX_SEARCHES * (1 + in_flight),
+                    reserved_tokens=LEG_VERDICT_TOKEN_RESERVATION * in_flight,
                 )
                 if reason is not None:
                     results.append(

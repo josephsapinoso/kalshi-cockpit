@@ -29,6 +29,10 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
+from backend.agents.budget import AgentBudget
+from backend.agents.leg_verdict import LEG_VERDICT_TOKEN_RESERVATION
+from backend.api.routers import leg_verdicts as leg_verdicts_router
+from backend.leg_verdicts import RUNNING_PATIENCE_MS
 from backend.store import db as store
 from backend.store.db import now_ms
 from tests.test_leg_verdicts_store import _make_app, _seed_leg
@@ -186,3 +190,125 @@ class TestANonBudgetRefusalPassesThroughUnchanged:
         # `resolve_leg`'s own text, byte-for-byte -- never touched by the
         # budget translation, which only fires for `budget.refusal_reason`.
         assert leg["refusal_reason"] == "This game has already started."
+
+
+class TestInFlightVerdictsCountAgainstTheCeiling:
+    """#156: a verdict's tokens and searches are recorded only when it
+    settles, so without a reservation a burst of legs all read the same
+    recorded total and all pass. Budget day 20260925 admitted 16 in 11
+    seconds at 334,711 recorded and closed at 1,120,442 against 500,000.
+
+    The background call is stubbed out, so every admitted leg stays
+    `running` -- exactly the in-flight state the burst was in.
+    """
+
+    def _client(self, tmp_path, monkeypatch, *, tickers, env, now=None):
+        db_path = tmp_path / "route.db"
+        conn = store.init_db(db_path)
+        t = now_ms() if now is None else now
+        for ticker in tickers:
+            _seed_leg(conn, ticker=ticker, commence_ms=t + 3_600_000)
+        conn.close()
+
+        async def _no_call(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(leg_verdicts_router, "_run_leg_verdict", _no_call)
+        monkeypatch.setenv("LEG_VERDICT_ENABLED", "true")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        monkeypatch.setenv("AGENT_MAX_CALLS_PER_DAY", "100")
+        monkeypatch.setenv("AGENT_MAX_CALLS_PER_PASS", "100")
+        monkeypatch.setenv("AGENT_MAX_SEARCHES_PER_DAY", "1000")
+        monkeypatch.setenv("AGENT_MAX_TOKENS_PER_DAY", "100000000")
+        for key, value in env.items():
+            monkeypatch.setenv(key, value)
+        return db_path, TestClient(_make_app(db_path))
+
+    @staticmethod
+    def _post(client, tickers):
+        resp = client.post(
+            "/api/leg-verdicts",
+            json={
+                "trigger": "card_button",
+                "legs": [{"ticker": t, "side": "yes"} for t in tickers],
+            },
+        )
+        assert resp.status_code == 202
+        return [leg["state"] for leg in resp.json()["legs"]]
+
+    def test_one_burst_admits_only_what_the_token_ceiling_can_reserve(
+        self, tmp_path, monkeypatch
+    ):
+        # 200,000 / 60,000 reserved each: legs see 0, 60K, 120K, 180K
+        # reserved and pass; the fifth sees 240K and is refused.
+        tickers = [f"KXTEST-BURST{i}" for i in range(8)]
+        _, client = self._client(
+            tmp_path, monkeypatch, tickers=tickers,
+            env={"AGENT_MAX_TOKENS_PER_DAY": "200000"},
+        )
+        assert LEG_VERDICT_TOKEN_RESERVATION == 60_000
+        states = self._post(client, tickers)
+        assert states == ["pending"] * 4 + ["refused"] * 4
+
+    def test_a_second_tap_while_those_run_is_refused(
+        self, tmp_path, monkeypatch
+    ):
+        first = [f"KXTEST-FIRST{i}" for i in range(4)]
+        _, client = self._client(
+            tmp_path, monkeypatch, tickers=first + ["KXTEST-SECOND"],
+            env={"AGENT_MAX_TOKENS_PER_DAY": "200000"},
+        )
+        assert self._post(client, first) == ["pending"] * 4
+        assert self._post(client, ["KXTEST-SECOND"]) == ["refused"]
+
+    def test_a_run_gone_quiet_stops_holding_budget(
+        self, tmp_path, monkeypatch
+    ):
+        # Four `running` rows older than the patience window are a process
+        # that died; they are not served as pending, so they must not hold
+        # the day's budget either.
+        tickers = [f"KXTEST-DEAD{i}" for i in range(4)]
+        db_path, client = self._client(
+            tmp_path, monkeypatch, tickers=tickers + ["KXTEST-FRESH"],
+            env={"AGENT_MAX_TOKENS_PER_DAY": "200000"},
+        )
+        assert self._post(client, tickers) == ["pending"] * 4
+        conn = store.open_db(db_path)
+        conn.execute(
+            "UPDATE leg_verdicts SET requested_ms = requested_ms - ?",
+            (RUNNING_PATIENCE_MS + 1,),
+        )
+        conn.commit()
+        conn.close()
+        assert self._post(client, ["KXTEST-FRESH"]) == ["pending"]
+
+    def test_searches_in_flight_count_too(self, tmp_path, monkeypatch):
+        # 12 searches a day at 3 worst case each: legs 1-4 reserve 3, 6, 9,
+        # 12 and pass; the fifth would need 15.
+        tickers = [f"KXTEST-SEARCH{i}" for i in range(6)]
+        _, client = self._client(
+            tmp_path, monkeypatch, tickers=tickers,
+            env={"AGENT_MAX_SEARCHES_PER_DAY": "12"},
+        )
+        assert self._post(client, tickers) == ["pending"] * 4 + ["refused"] * 2
+
+
+class TestAnUnreservedCallerIsUnchanged:
+    def test_reserved_tokens_defaults_to_zero(self, tmp_path):
+        conn = store.init_db(tmp_path / "b.db")
+        budget = AgentBudget(
+            conn,
+            daily_budget=100,
+            per_pass_budget=100,
+            tokens_daily_budget=1000,
+            searches_daily_budget=0,
+        )
+        t = now_ms()
+        conn.execute(
+            "INSERT INTO agent_calls (called_ms, agent, model, input_tokens, "
+            "output_tokens, web_searches) VALUES (?, 'scout', 'm', 999, 0, 0)",
+            (t,),
+        )
+        conn.commit()
+        assert budget.refusal_reason(1, t) is None
+        assert budget.refusal_reason(1, t, reserved_tokens=1) is not None

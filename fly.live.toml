@@ -537,8 +537,11 @@ primary_region = "ord"
   # is advisory only: it never blocks a buy. One call per leg, at most 3
   # searches, inside the same AGENT_MAX_* ceilings. No ceiling moved. At
   # ~10 legs a day that is 10 of 24 calls and at most 30 of 60 searches.
-  # Tokens are NOT measured yet: read `agent-spend` for agent='leg_verdict'
-  # after three days before moving anything.
+  # Tokens, first day (2026-09-25, ADR 0186 Amd 1): 17 verdicts, mean ~51K
+  # (29K-90K), so the 500K day holds about nine. A tap burst ran that day to
+  # 1,120,442 before #156 made in-flight verdicts reserve 60K each. Read
+  # `agent-spend` for agent='leg_verdict' over three days before moving any
+  # ceiling.
   LEG_VERDICT_ENABLED = "true"
 
   # **2 unattended convenings a day, not 3 -- #127, Joe answered (B)

@@ -89,3 +89,31 @@ ceiling, and move the three together or not at all (the standing rule).
 - That the verdict reaches Joe before he buys. The trigger is his first
   step toward buying, and a tap straight through the buy flow can outrun a
   call that takes seconds.
+
+## Amendment 1 — 2026-09-25 (session 58): the first day's cost, and verdicts in flight hold budget
+
+**Read.** `inspect_live_db.py agent-spend --days 1`, budget day 20260925,
+read 17:12Z. There were 17 `leg_verdict` calls, with a mean of ~51K tokens
+(range 28.9K–90.2K). The n = 1 reading of 31,640 in §4 of the session-57
+handoff was the low end. The day recorded **1,120,442 tokens against the
+500,000 ceiling**. Sixteen of those verdicts were admitted between 16:06:24Z
+and 16:06:35Z, in about five POSTs, at 334,711 recorded. Each one passed
+`AgentBudget.refusal_reason` against spend already recorded, because a
+verdict records its tokens and searches only when it settles. That is a
+burst admitted before any of it was billed, not "a brake overshoots by the
+last call". TAKE 14, PASS 3. n = 17 on one day is not a rate, and §4's
+extreme-split rule is not yet triggered.
+
+**Decided (#156).** `AgentBudget.refusal_reason` takes `reserved_tokens`
+(default 0, so every other caller is unchanged). The leg-verdict route
+reserves `LEG_VERDICT_TOKEN_RESERVATION = 60_000` tokens and
+`LEG_VERDICT_MAX_SEARCHES` searches for each `running` row younger than
+`RUNNING_PATIENCE_MS`. Calls need no reservation, because the seat's
+`budget.reserve` writes the `agent_calls` row at call start. At the unchanged
+500,000 ceiling, a day now admits about nine verdicts. **No ceiling moved.**
+That is still Joe's decision, and it waits on the three-day read in §5.
+
+**Also found on the first look (#155).** Every trigger discarded the POST
+result, and a refused leg writes no row. So a refusal showed on the card as
+"No scout read: nobody has asked yet". #154 made the refusal text plain
+words; #155 puts it on the screen.

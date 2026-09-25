@@ -252,7 +252,12 @@ class AgentBudget:
         return max(0, min(state.per_pass_budget, state.remaining_today))
 
     def refusal_reason(
-        self, requested: int, now_ms: int, *, searches_worst_case: int = 0
+        self,
+        requested: int,
+        now_ms: int,
+        *,
+        searches_worst_case: int = 0,
+        reserved_tokens: int = 0,
     ) -> Optional[str]:
         """Which ceiling refuses part of a `requested`-call fan-out, or `None`.
 
@@ -270,6 +275,15 @@ class AgentBudget:
         configured" and refuses nothing -- `from_config` always configures
         both.
 
+        **`reserved_tokens` is for a caller that fans out in parallel**
+        (#156). A call's tokens are recorded only when it settles, so a burst
+        of concurrent calls all see the same recorded total and all pass: on
+        budget day 20260925 sixteen leg verdicts were admitted in 11 seconds
+        at 334,711 recorded and the day closed at 1,120,442 against 500,000.
+        The caller passes an estimate for its own calls still in flight, and
+        the token brake reads `recorded + reserved`. Default 0, so every
+        caller that does not fan out is unchanged.
+
         **The reason is returned as well as logged.** It is written onto the
         rows that went unreviewed, where the operator actually looks -- a phone
         screen -- rather than only into a 100-line log buffer that drops it.
@@ -286,12 +300,14 @@ class AgentBudget:
             return reason
         if (
             self.tokens_daily_budget > 0
-            and state.tokens_today >= self.tokens_daily_budget
+            and state.tokens_today + reserved_tokens >= self.tokens_daily_budget
         ):
             reason = (
                 f"{state.tokens_today} of {self.tokens_daily_budget} Anthropic "
                 f"tokens already recorded today"
             )
+            if reserved_tokens:
+                reason += f", plus {reserved_tokens} reserved for calls in flight"
             logger.warning("refusing a %d-call batch: %s", requested, reason)
             return reason
         if (

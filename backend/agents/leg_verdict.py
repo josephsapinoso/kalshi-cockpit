@@ -68,6 +68,14 @@ logger = logging.getLogger(__name__)
 #: searches up to 12 (two staff scouts at 6) and measured ~170K tokens on day
 #: one; this seat is meant to cost a small fraction of that.
 LEG_VERDICT_MAX_SEARCHES = 3
+
+#: What the route reserves against the day's token ceiling for each verdict
+#: still in flight (#156), because a call's tokens are recorded only when it
+#: settles. Set just above the measured mean: budget day 20260925, 17 verdicts,
+#: mean ~51K, range 28.9K-90.2K (`inspect_live_db.py agent-spend`). A brake,
+#: not a cap -- the day can still overshoot by about one verdict's variance.
+#: Re-derive it from `agent-spend` if the seat's prompt or search count moves.
+LEG_VERDICT_TOKEN_RESERVATION = 60_000
 LEG_VERDICT_SEARCH_TOOL = {**WEB_SEARCH_TOOL, "max_uses": LEG_VERDICT_MAX_SEARCHES}
 
 #: The reason's hard cap, checked after parsing (see the module docstring).
