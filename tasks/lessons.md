@@ -16,6 +16,27 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-25 - A container's safety promise is only as strong as each child's own exit; preview money screens through a proxy that refuses writes
+
+From the fifty-ninth session (#158).
+
+- **A container that promises an invariant inherits every child's
+  ability to break it.** The new buy panel refused Escape and backdrop
+  while an order was in flight. But the order ticket inside it had its
+  own Escape listener and Close button, and both still worked mid-send.
+  Closing cleared the intent key, released the panel's lock, and made a
+  second real order with a fresh key reachable. **When you write "X will
+  not happen while Y", list every child that can perform X on its own and
+  guard each one too.** A review that reads only the container's diff will
+  pass it.
+- **To see a money screen with real data before deploying, put a local
+  proxy between the dev server and live that forwards GETs and refuses
+  every other method.** Every tap that would spend (RFQ, order, scout
+  POST, price lookup) comes back as a local 403 and never leaves the
+  machine. You can then click through each tab and state at both widths.
+  Tests that scan source text cannot show that a sheet is too short or a
+  label wraps, and screenshots can.
+
 ## 2026-09-25 - A brake that reads settled spend admits the whole burst; a refusal that writes nothing reaches only its caller
 
 From the fifty-eighth session (#155, #156).

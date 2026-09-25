@@ -134,6 +134,55 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-25 (fifty-ninth session) — Joe said the expanded parlay card was over-filled; it is now a summary, buying opens a slide-over panel, and the review found two old ways to close a ticket mid-send (#158)
+
+This session started on `/go`. `partner` ranked a `/bets` "chance when you bought" column first. Joe then named the focus himself: *"the tiles get over-filled with info when i expand it … imagine if this is a service i am selling"*. Every call below was his, made with option buttons.
+
+### 1. What was wrong (code map, Explore)
+
+- **Too narrow.** Cards were `lg:grid-cols-3`, about 277px wide, and three buy flows nested inside each one: PriceOnKalshi → AskTheMarket/TakeIt → ManualTicket, plus a ticket per leg.
+- **Repetition.** Fair value ×4, the sell-back caveat ×4, leg verdicts ×3, fee caveats ×5.
+- **Too many filled buttons.** Up to 3 were visible at once, against the card's own docstring.
+- **No shared primitives.** 4 corner radii and 8 text sizes.
+
+### 2. What shipped (`363119f` + the follow-up commit, story #158)
+
+- **`Sheet.tsx`**: a bottom sheet on the phone and a right-docked panel from `lg` (Joe chose it).
+  - It stays mounted once opened (hidden, not unmounted).
+  - `useReportBusy` refuses Escape, backdrop and Close while an order or an acceptance is out.
+- **`ui.tsx`**: `Button` (primary = money only), `SectionLabel`, `Stat`, `Notice`.
+- **The card**:
+  - two columns below `2xl`
+  - a stat row: price to beat, and the chance every leg hits
+  - one short exit sentence that names the cost, with the rest behind a `Hint`
+  - one outlined "Buy or record this parlay" button. It opens tabs: Whole parlay | Each leg | Record a ticket.
+  - `leg_buys_open` now fires from the tab choice, never from a mount.
+- **Joe (option buttons)**:
+  - The difficulty chart and the fair-value stake table moved behind "How these numbers were made". This reverses the `Stakes` docstring's "a card that cannot say what a stake buys is not a card", on his word.
+  - The stake line was reworded: the book sells only what rests on it, and a maker's quote is for the size you ask. `test_parlay_estimate_is_not_a_price` was amended to name both bounds.
+  - #108 was closed: #151 replaced it.
+- **kalshi-platform review.** No request, ticker/side, idempotency or retry logic changed. It found two older holes that the panel's promise depended on, and both are fixed:
+  - ManualTicket's Escape/Close worked mid-send. That cleared the intent key, so a second order with a fresh key was reachable.
+  - "Ask again" could unmount TakeIt and discard an UNKNOWN.
+- **Tests.** `tests/test_parlay_card_is_calm.py` holds 12 claims, and 14 mutations each went red. One moved assertion (`test_buy_controls`, the not-this-parlay line) now slices the legs tab's intro.
+- **Seen before deploy.** A local Next dev server ran against live data through a scratchpad read-only proxy that refuses every non-GET locally. That covered 1440px and 390px, all three tabs and a leg ticket. Screenshots went to Joe.
+- **CLAUDE.md "What the recorder costs" corrected.** Auto-convene is `"false"`, the ceilings are 1.5M/40/100, and leg verdicts cost ~51K. `partner.md` got the same fix.
+
+### 3. Found, not fixed
+
+- `/api/odds/refreshable` lists one fixture twice under a sport, so React logs a key collision in the Refresh panel → #159.
+- The sharp-bettor review's #2: in the leg ticket, the break-even and a zero-buyable depth render last → #160. That is armed-path layout, owner:main, and Joe decides whether to hide the amount field.
+- Partner's `/bets` "chance when you bought" column has no ticket yet. Run partner again next session before opening one.
+
+### Still open
+
+0. #151 — on 2026-09-28, read `agent-spend` for `agent='leg_verdict'` against the 1.5M ceiling, plus the TAKE/PASS split.
+1. #158 — close once the live screenshots after the deploy are seen.
+2. #159 — refreshable fixture listed twice (Sonnet lane).
+3. #160 — leg ticket: deciding facts first (main; ask Joe about hiding the amount field).
+
+---
+
 ## 2026-09-25 (fifty-eighth session) — the first look at a verdict on screen found a burst that ran the day to 224% and a refusal the card never showed; both fixed and live on 866d942, and Joe raised the three ceilings together (#157 A)
 
 This session started on `/go` with no focus. The frontier was empty, and `partner` ranked four things: the NEXT.md split, an on-screen check of #151, a plain-words budget refusal, and worktree cleanup. The on-screen check changed the session.
@@ -713,6 +762,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-25 (fifty-ninth session) — Joe said the expanded parlay card was over-filled; it is now a summary, buying opens a slide-over panel, and the review found two old ways to close a ticket mid-send (#158)
 - 2026-09-25 (fifty-eighth session) — the first look at a verdict on screen found a burst that ran the day to 224% and a refusal the card never showed; both fixed and live on 866d942, and Joe raised the three ceilings together (#157 A)
 - 2026-09-25 (fifty-seventh session) — #151: the scouts give a plain-language TAKE/PASS on each parlay leg before Joe buys (ADR 0186, schema v57-58; live on 73ba8a4)
 - 2026-09-24 (fifty-sixth session) — #107 captured: a real combination YES bid, from a held book with its ticker redacted on Joe's word; #149 built: `combo-rfqs` and `leg-scout-state` live reads (not deployed)

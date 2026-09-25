@@ -76,11 +76,13 @@ have sent you hunting a problem that was already closed twice over:
 - **Review is retired rather than unwired.** `runner.py:71` imports
   `review_retired` (`review.py:124`), which refuses every row and calls
   nothing (ADR 0062). Review's cost is zero by decision, not by neglect — but
-  the fleet as a whole is **not** free: the scout desk spends per convening,
-  and since 2026-09-21 unattended scouting spends with nobody tapping
-  (`SCOUT_AUTO_CONVENE_ENABLED`, #118). The `AGENT_MAX_*` ceilings are
-  checked before each call, so a day overshoots them (630,719 of 500,000
-  tokens on 2026-09-22). Do not repeat "the LLM fleet is free".
+  the fleet as a whole is **not** free: the scout desk spends per convening
+  and leg verdicts (#151) per tap, ~51K tokens each. Unattended scouting is
+  off again since 2026-09-25 (`SCOUT_AUTO_CONVENE_ENABLED = "false"`). The
+  `AGENT_MAX_*` ceilings (1.5M / 40 / 100, #157) are checked before each
+  call, so a day can overshoot them; in-flight verdicts hold budget since
+  ADR 0186 Amendment 1. Do not repeat "the LLM fleet is free". Read CLAUDE.md
+  "What the recorder costs" for the current figures, not this line.
 
 "Either wire it up or say out loud it is not a feature" is still your call to
 make whenever you find a module with no caller — code with no caller is a plan,

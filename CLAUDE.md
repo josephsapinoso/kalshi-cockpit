@@ -204,16 +204,19 @@ charge (H4), and H4 is untested. ADR 0027, 0028.
 
 **The LLM fleet is not free.** Review is retired — the runner imports
 `review_retired` (`backend/agents/review.py:124`), which refuses every row —
-but the scout desk spends on every convening, and since 2026-09-21
-**unattended scouting** (`SCOUT_AUTO_CONVENE_ENABLED = "true"`,
-`fly.live.toml`; #116, #118) spends with nobody tapping. What bounds it is the
-shared `AgentBudget`'s daily ceilings (`AGENT_MAX_*`), and they are brakes,
-not caps: each is checked against recorded usage *before* the next call, so a
-day overshoots by whatever the last call costs. Budget day 2026-09-22 read
-630,719 tokens against 500,000
-(`docs/measurements/2026-09-23-unattended-scouting-first-reading.md`), and
-which ceiling bound first is unreadable (outcome D; #137 builds the
-instrument). **The odds feed also spends.** It follows attention over an hourly floor (ADR 0071 §2.6): ten-minute
+but the scout desk spends on every convening, and **leg verdicts** (#151,
+ADR 0186) spend on every tap that asks for one — about 51K tokens a verdict
+(range 29K–90K, n = 17, one day). Unattended scouting ran 2026-09-21 to -25
+and is **off** again (`SCOUT_AUTO_CONVENE_ENABLED = "false"`,
+`fly.live.toml`), its budget given to leg verdicts. What bounds all of it is
+the shared `AgentBudget`'s daily ceilings (`AGENT_MAX_*`: 1.5M tokens, 40
+calls, 100 searches since #157, `fly.live.toml`), checked against recorded
+usage *before* each call — so a day overshoots by what the last call costs,
+and since ADR 0186 Amendment 1 in-flight verdicts hold an estimated 60K
+tokens and 3 searches each, so a burst no longer slips through on settled
+spend alone (it did: 1,120,442 of 500,000 on 2026-09-25). Earlier reading:
+630,719 of 500,000 on 2026-09-22
+(`docs/measurements/2026-09-23-unattended-scouting-first-reading.md`). **The odds feed also spends.** It follows attention over an hourly floor (ADR 0071 §2.6): ten-minute
 cadence while a page is open, hourly otherwise for a sport with a fixture
 inside twelve hours, and the attended cadence is tiered by horizon
 (ADR 0111 — ten minutes inside twelve hours, hourly beyond, never dropped).

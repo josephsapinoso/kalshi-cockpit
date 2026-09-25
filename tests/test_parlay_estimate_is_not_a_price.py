@@ -80,10 +80,16 @@ class TestTheEstimateSaysItIsAnEstimate:
         concludes the tool was wrong, rather than that the estimate was
         unbounded and the venue's book is thin.
         """
+        # Amended 2026-09-25 on Joe's answer: the cap was worded as if every
+        # real price were bounded by resting depth, which is true of the book
+        # and not of a maker's quote (filled at the full size asked,
+        # 2026-09-17). The claim is unchanged -- the caption names what bounds
+        # each real price -- and now names both bounds.
         body = _stakes_source()
-        assert "resting" in body and "capped" in body, (
-            "The caption must name resting depth as what bounds the real "
-            "price and does not bound this estimate."
+        assert "resting" in body and "size you ask" in body, (
+            "The caption must name what bounds the real price -- the book's "
+            "resting depth and a maker's quoted size -- and does not bound "
+            "this estimate."
         )
 
     def test_it_does_not_promise_the_real_price_will_be_better(self):

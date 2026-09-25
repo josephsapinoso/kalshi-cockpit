@@ -992,8 +992,11 @@ function Stakes({ card }: { card: ParlayCardData }) {
         ))}
       </ul>
       <p className="mt-1 text-xs leading-snug text-muted">
-        Kalshi&rsquo;s real price is usually worse, and capped by how many
-        contracts are actually resting.
+        {/* Joe's wording, 2026-09-25 (option button): "capped by how many
+            contracts are actually resting" was true of the book only; a
+            maker's RFQ quote fills at the full size asked (2026-09-17). */}
+        Kalshi&rsquo;s real price is usually worse, and the book only sells
+        what is resting on it; a maker&rsquo;s quote is for the size you ask.
       </p>
     </div>
   );
