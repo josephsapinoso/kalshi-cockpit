@@ -134,23 +134,40 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-25 (fifty-seventh session) — short session: #145's 34-of-39 miss is arithmetic, not a selection defect
+## 2026-09-25 (fifty-seventh session) — #151: the scouts give a plain-language TAKE/PASS on each parlay leg before Joe buys (ADR 0186, schema v57; not deployed)
 
-The frontier was empty. `partner` ranked one read-only check and refused an interim 20260925 read, because a partial day read as a full one flatters. Nothing was built.
+The session started short. The frontier was empty, and `partner` ranked one read-only check on #145. That check showed that 34 of 39 bet legs were on games nobody had scouted, and that this was arithmetic, not a selection defect. Joe then redirected the session: *"point the scouts to the parlay legs. I just want to know if the scouts would make the bet or not … even the 'safe' bets and 'middle' bets have been unsuccessful."* He also asked for plain language.
 
-### 1. What the reads found (all live, committed instruments, on #145)
+### 1. What Joe decided (option buttons, all recommended)
 
-- **The watcher can afford 2 convenings a day** (`SCOUT_AUTO_MAX_CONVENINGS_PER_DAY = 2`, `fly.live.toml`). It stops at 250,000 tokens (`SCOUT_AUTO_TAP_TOKEN_SHARE = 0.5`). Joe bets 4 to 19 armed-path legs a day. Each day the allowance ran out between 11:00Z and 12:45Z, on the soonest ladder fixtures. Legs with any same-game briefing before the bet: 0, 3, 1, 1 on 09-21 to 09-24. **Most bet games cannot be scouted, whichever games it picks.** No watcher code change fixes that. What's left is Joe's question of whether the tokens are worth it.
-- Seen but **not** read (partial day): 20260925 had one convening and no taps, and the watcher was refusing at 11:45Z on 250,882 tokens. Check at the close whether one convening now costs ~250K (day one measured ~170K, n = 1).
+**Advisory**: it never blocks a buy. **Paid for by repointing auto-scouting**: `SCOUT_AUTO_CONVENE_ENABLED = "false"` and `LEG_VERDICT_ENABLED = "true"` in `fly.live.toml`. **Every leg of a card he opens**: it fires on the "Price on Kalshi" tap or on opening "Bet these legs one by one". The reason is one or two everyday sentences, 220 characters at most, with no jargon.
 
-### 2. Next session (after 2026-09-26 10:00Z)
+### 2. What shipped (story #151; tasks #152 and #153 ran as parallel lanes)
 
-- **#145 close read:** `scout-watch-log`, `scout-briefings`, `leg-scout-join` for 20260925, plus `agent-spend` for the per-convening cost. If coverage is still ~0, open the map #3 ticket in the same session: *unattended scouting covered N of the M games you bet. Keep paying, point it at your likely games, or turn it off?* Include the token cost of each option.
+| commit | what |
+|---|---|
+| `9cb6ac9` | Core, built by main. `backend/agents/leg_verdict.py` makes one metered call per leg, with at most 3 searches, and returns `take`/`pass` plus a reason, never a number. It also adds `LegVerdictConfig`, schema v57 `leg_verdicts` (tableless), ADR 0186 (supersedes ADR 0060's no-verdict rule for this seat only), and the pre-registration |
+| `ad04761` | #152 backend: `POST`/`GET /api/leg-verdicts`. The ask, kickoff and briefing are resolved on the server. It serves a cached verdict within 6h and a 2c price move. The ceiling is checked before any row is written |
+| `77d7127` | #153 frontend: `LegVerdicts.tsx`. TAKE stays plain ink and never turns green; PASS is shown in the warning colour. It disables nothing |
+| `3989414` | Review fix. The per-leg line mounted inside the closed panel on page load, read `none`, and stopped polling, so a verdict requested later would never have shown up. Each trigger now stamps a request time that restarts the poll |
+
+### 3. What to know
+
+- **The scoring is forward only.** Web search sees results after a game, so a verdict can't be judged in hindsight. `docs/measurements/2026-09-25-preregistration-scout-leg-verdicts.md` fixes the rule: TAKE minus PASS excess over the ask, clustered by game, two looks. **It is underpowered:** about 6 points is detectable by 2027-06-30 at ~10 legs a day. An UNRESOLVED result may not be reported as "no help". No running tally goes on any screen.
+- **`HOUSE_CONTEXT` leans the seat toward PASS.** The prompt requires every PASS to name a concrete fact. After a few days, read the TAKE/PASS split. An extreme split is a prompt defect, not a finding.
+- **Cost is not measured.** The estimate is ~25-35K tokens a verdict. Read `agent-spend` for `agent = 'leg_verdict'` over 3 days before moving any ceiling, and move all three together.
+
+### 4. Next session
+
+- **Deploy** (the Fly flags ride with it). Then open a card on the live Parlays page and see a verdict land. That is the first real end-to-end check, because no JS test runner exists.
+- **#145** no longer needs a question for Joe: he answered it by repointing the budget. Close it once the deploy is live and `scout-watch-log` shows the watcher stopped.
+- NEXT.md is at ~90% of the read ceiling. **Split it before writing the next entry.**
 
 ### Still open
 
-0. #145 — close read owed after 2026-09-26 10:00Z (full 20260925 day). The arithmetic is on the ticket.
-1. #108 — deferred fifth seat.
+0. #151 — leg scout built, not deployed. The first live verdict and a 3-day cost read are owed.
+1. #145 — close once the deploy shows the watcher off (Joe answered it via #151).
+2. #108 — deferred fifth seat.
 
 ---
 
@@ -3058,7 +3075,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
-- 2026-09-25 (fifty-seventh session) — short session: #145's 34-of-39 miss is arithmetic, not a selection defect
+- 2026-09-25 (fifty-seventh session) — #151: the scouts give a plain-language TAKE/PASS on each parlay leg before Joe buys (ADR 0186, schema v57; not deployed)
 - 2026-09-24 (fifty-sixth session) — #107 captured: a real combination YES bid, from a held book with its ticker redacted on Joe's word; #149 built: `combo-rfqs` and `leg-scout-state` live reads (not deployed)
 - 2026-09-24 (fifty-fifth session) — #147 fixed: the RFQ list's own filter is `user_filter=self`; #148 built: adopt a held combination onto /hedge in one tap; a held combination's ticker was public in #96's fixture, redacted forward on Joe's word. Deployed `ddd98a2` (Joe ran it; the classifier refused `gh workflow run` for me)
 - 2026-09-24 (fifty-fourth session) — #129's capture taken on the venue's own positions read; #96 built: /hedge asks the makers what they would pay (ADR 0185, schema v56); #147 opened. Deployed `1a2d5be` (Joe ran it)
