@@ -94,6 +94,12 @@ TOKEN_HANDLERS = (
     # particularly the JSON-401 gating, since an HTML login redirect is read
     # by `fetch` as success.
     "manual-order",
+    # #151, ADR 0186 -- the leg scout's TAKE/PASS request. Spends metered
+    # Anthropic calls inside the shared AgentBudget, same reason as
+    # `scout-desk`. The GET half of this feature (reading verdicts already
+    # written) is not here: it spends nothing and goes straight through the
+    # `/api/:path*` rewrite.
+    "leg-verdicts",
 )
 
 

@@ -393,6 +393,13 @@ export const GLOSSARY = {
       "never sent. “Dark” means nobody has sent it, not that nothing was " +
       "found — it never moves a price.",
   },
+  advisory: {
+    label: "advisory",
+    definition:
+      "An opinion to weigh, not an instruction. The scouts' take-or-pass " +
+      "read is advisory: it never disables a button, never stops a bet, " +
+      "and you can buy right through a PASS if you still want to.",
+  },
   betting_splits: {
     label: "splits & line movement",
     definition:
