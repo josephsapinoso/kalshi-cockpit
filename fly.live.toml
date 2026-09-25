@@ -473,8 +473,11 @@ primary_region = "ord"
   # Raise deliberately, after the first real bill -- `skeptic_unreviewed` in the
   # pass log counts the rows a ceiling refused, and `AgentBudget.today_summary`
   # reports how much of today's 24 is gone.
+  #
+  # **24 -> 40 on 2026-09-25, Joe's (A) to #157**, moved with the token and
+  # search ceilings below, all three together (the standing rule).
   AGENT_MAX_CALLS_PER_PASS = "8"
-  AGENT_MAX_CALLS_PER_DAY = "24"
+  AGENT_MAX_CALLS_PER_DAY = "40"
 
   # **The desk runs on Sonnet, not Opus** (ADR 0071 section 2.7, Joe's call
   # 2026-08-24). Set explicitly rather than left to `agents/base.py`'s
@@ -498,8 +501,16 @@ primary_region = "ord"
   # web searches a scout-desk convening can spend, nor the search results it
   # bills as input tokens. Evaluated over recorded usage BEFORE the next
   # reserve -- a brake, not a receipt. See .env.example for the arithmetic.
-  AGENT_MAX_SEARCHES_PER_DAY = "60"
-  AGENT_MAX_TOKENS_PER_DAY = "500000"
+  #
+  # **Raised 2026-09-25, Joe's (A) to #157: 60 -> 100 searches, 500K -> 1.5M
+  # tokens** (calls 24 -> 40 above). At the first day's measured ~51K a leg
+  # verdict (ADR 0186 Amendment 1), 500K held about 9 verdicts, roughly two
+  # cards; 1.5M holds about 25 plus a scout-desk tap. Worst case about $4.50 a
+  # day at Sonnet 5's $2/$10 per million, searches taken at $10 per 1,000
+  # (not re-checked). Only spent on days he taps that much: unattended
+  # scouting is off. Read `agent-spend` on 2026-09-28 against this.
+  AGENT_MAX_SEARCHES_PER_DAY = "100"
+  AGENT_MAX_TOKENS_PER_DAY = "1500000"
 
   # **Unattended scouting is ON on live, at UNCHANGED ceilings** -- Joe's
   # answer (b) to ticket #116, given 2026-09-21, shipped as #118.
@@ -538,7 +549,8 @@ primary_region = "ord"
   # searches, inside the same AGENT_MAX_* ceilings. No ceiling moved. At
   # ~10 legs a day that is 10 of 24 calls and at most 30 of 60 searches.
   # Tokens, first day (2026-09-25, ADR 0186 Amd 1): 17 verdicts, mean ~51K
-  # (29K-90K), so the 500K day holds about nine. A tap burst ran that day to
+  # (29K-90K), so the old 500K day held about nine; Joe raised the three
+  # ceilings together the same day (#157, above). A tap burst ran that day to
   # 1,120,442 before #156 made in-flight verdicts reserve 60K each. Read
   # `agent-spend` for agent='leg_verdict' over three days before moving any
   # ceiling.
