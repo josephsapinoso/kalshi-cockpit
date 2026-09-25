@@ -177,9 +177,10 @@ This session started on `/go`. `partner` ranked a `/bets` "chance when you bough
 ### Still open
 
 0. #151 — on 2026-09-28, read `agent-spend` for `agent='leg_verdict'` against the 1.5M ceiling, plus the TAKE/PASS split.
-1. #158 — close once the live screenshots after the deploy are seen.
-2. #159 — refreshable fixture listed twice (Sonnet lane).
-3. #160 — leg ticket: deciding facts first (main; ask Joe about hiding the amount field).
+1. #159 — refreshable fixture listed twice (Sonnet lane).
+2. #160 — leg ticket: deciding facts first (main; ask Joe about hiding the amount field).
+
+**Live on `2043b73`** (Deploy run 36186449942, on Joe's go-ahead after the classifier refused the first attempt). It was seen on the live instance at 1440px and 390px, and #158 is closed.
 
 ---
 
