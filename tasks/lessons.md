@@ -16,6 +16,24 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-25 - An event ticker is not a game: Kalshi puts the series in it
+
+From the fifty-sixth session (#150).
+
+- **A Kalshi `event_ticker` names a (series, game) pair, not a game.**
+  `KXWNBAGAME-26SEP24CHIWSH` and `KXWNBASPREAD-26SEP24CHIWSH` are one game
+  on two series. A join on `event_ticker` that means "the same game" misses
+  every other series. Every test seeded one series only, so none could see
+  it. **When a join means "the same game", seed a second series in its
+  test.** Match on the fixture segment (after the first `-`) inside one
+  `kalshi_series.league`, never on the segment alone: two leagues can share
+  a date-and-teams string.
+- **Before building on a striking zero, build the read that splits it.**
+  "0 of 39 briefed" was 34 real misses plus 2 join misses (plus 3
+  failures). One CHEAP query that printed both counts per leg separated
+  them. Asking Joe about scouting spend on the raw zero would have mixed
+  the two.
+
 ## 2026-09-24 - A rule's default population can be the wrong one to capture from; a flag's default value cannot double as "unset"
 
 Two patterns from the fifty-sixth session (#107, #149).
