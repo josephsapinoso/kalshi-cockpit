@@ -145,6 +145,7 @@ from .routers import (
     estimates as estimates_router,
     hedge as hedge_router,
     ledger as ledger_router,
+    leg_verdicts as leg_verdicts_router,
     odds as odds_router,
     parlays as parlays_router,
     scout as scout_router,
@@ -2068,6 +2069,13 @@ def create_app(
     # keyword, and is called where the handlers used to sit so the route
     # registration order is unchanged. See `backend/api/routers/__init__.py`.
     scout_router.register(
+        app, app_config=app_config, get_conn=get_conn, require_auth=require_auth,
+    )
+
+    # `/api/leg-verdicts`: the leg scout's own routes (#152, ADR 0186). Same
+    # closure locals as the scout desk above, no others -- this router reads
+    # nothing money-touches (tests/test_leg_verdicts_never_touch_money.py).
+    leg_verdicts_router.register(
         app, app_config=app_config, get_conn=get_conn, require_auth=require_auth,
     )
 
