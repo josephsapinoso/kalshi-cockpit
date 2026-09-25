@@ -3,10 +3,16 @@
 import Link from "next/link";
 import { useState } from "react";
 
-import { DISPLAY_TIME_ZONE, formatAge, formatDuration, requestLegVerdicts } from "@/lib/api";
+import {
+  DISPLAY_TIME_ZONE,
+  formatAge,
+  formatDuration,
+  requestLegVerdicts,
+} from "@/lib/api";
 import type {
   ActionableWindow,
   LegVerdictInput,
+  LegVerdictsResult,
   ParlayCardData,
   ParlayCardLeg,
   ParlayCardScouting,
@@ -704,6 +710,11 @@ function LegOrigins({ card }: { card: ParlayCardData }) {
  */
 function AskTheScouts({ card }: { card: ParlayCardData }) {
   const [requestedAtMs, setRequestedAtMs] = useState<number | null>(null);
+  // Kept, not discarded (#155): a refused leg writes no row, so unless this
+  // POST result is held and handed to `<LegVerdicts>` below, the GET poll
+  // reads `none` and the panel says nobody asked about a leg the server
+  // just refused to read.
+  const [posted, setPosted] = useState<LegVerdictsResult | null>(null);
   if (card.legs.length === 0 || card.not_built_reason !== null) return null;
   const legInputs: LegVerdictInput[] = card.legs.map((leg) => ({
     ticker: leg.ticker,
@@ -715,7 +726,7 @@ function AskTheScouts({ card }: { card: ParlayCardData }) {
         type="button"
         className="rounded border border-border px-3 py-1 text-sm font-semibold"
         onClick={() => {
-          void requestLegVerdicts(legInputs, "card_button", card.key);
+          requestLegVerdicts(legInputs, "card_button", card.key).then(setPosted);
           setRequestedAtMs(Date.now());
         }}
       >
@@ -728,6 +739,7 @@ function AskTheScouts({ card }: { card: ParlayCardData }) {
         legs={legInputs}
         requestedAtMs={requestedAtMs}
         hideUnasked
+        posted={posted}
       />
     </div>
   );
@@ -735,6 +747,8 @@ function AskTheScouts({ card }: { card: ParlayCardData }) {
 
 function LegBuys({ card }: { card: ParlayCardData }) {
   const [requestedAtMs, setRequestedAtMs] = useState<number | null>(null);
+  // Kept, not discarded (#155) -- see `AskTheScouts` above for why.
+  const [posted, setPosted] = useState<LegVerdictsResult | null>(null);
   if (card.legs.length === 0) return null;
   // #151, ADR 0186: every leg of a card Joe opens toward buying, sent once
   // per open of this panel — not per leg, and not on mount (mounting inside
@@ -749,7 +763,9 @@ function LegBuys({ card }: { card: ParlayCardData }) {
       className="mt-3 border-t pt-3"
       onToggle={(event) => {
         if (event.currentTarget.open) {
-          void requestLegVerdicts(legInputs, "leg_buys_open", card.key);
+          requestLegVerdicts(legInputs, "leg_buys_open", card.key).then(
+            setPosted,
+          );
           setRequestedAtMs(Date.now());
         }
       }}
@@ -778,6 +794,7 @@ function LegBuys({ card }: { card: ParlayCardData }) {
             <LegVerdicts
               legs={[{ ticker: leg.ticker, side: leg.side }]}
               requestedAtMs={requestedAtMs}
+              posted={posted}
             />
             <ManualTicket
               ticker={leg.ticker}

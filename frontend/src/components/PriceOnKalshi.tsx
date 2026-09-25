@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { formatAge, lookupParlay, requestLegVerdicts } from "@/lib/api";
 import type {
   LegVerdictInput,
+  LegVerdictsResult,
   ParlayCardData,
   ParlayHorizon,
   ParlayLookupResult,
@@ -130,6 +131,11 @@ export default function PriceOnKalshi({
     | { kind: "refused"; words: string }
   >({ kind: "idle" });
   const [requestedAtMs, setRequestedAtMs] = useState<number | null>(null);
+  // Kept, not discarded (#155): a refused leg writes no row, so unless this
+  // POST result is held and handed down to `<LegVerdicts>`, the GET poll
+  // reads `none` and the panel says nobody asked about a leg the server
+  // just refused to read.
+  const [posted, setPosted] = useState<LegVerdictsResult | null>(null);
 
   if (card.not_built_reason !== null || card.legs.length < 2) return null;
 
@@ -148,7 +154,7 @@ export default function PriceOnKalshi({
     // it must never make the lookup below wait on a seat that can take
     // seconds. `<LegVerdicts>` below reads whatever this produces on its own
     // clock.
-    void requestLegVerdicts(legInputs, "price_tap", card.key);
+    requestLegVerdicts(legInputs, "price_tap", card.key).then(setPosted);
     setRequestedAtMs(Date.now());
     // `lookupParlay` never throws -- but a throw here would strand the card
     // in "working" with its only button unmounted, so the guard is kept
@@ -211,6 +217,7 @@ export default function PriceOnKalshi({
           value={state.value}
           legs={legInputs}
           requestedAtMs={requestedAtMs}
+          posted={posted}
         />
       )}
       {retryable && (
@@ -305,10 +312,12 @@ function Result({
   value,
   legs,
   requestedAtMs,
+  posted,
 }: {
   value: ParlayLookupResult;
   legs: LegVerdictInput[];
   requestedAtMs: number | null;
+  posted: LegVerdictsResult | null;
 }) {
   // Every non-priced status must be listed here. The fallthrough below reads
   // `value.quoted`, which only `priced` has, so a status missing from this
@@ -322,7 +331,7 @@ function Result({
     return (
       <div className="space-y-2">
         <p className="text-sm text-muted">{value.words}</p>
-        <LegVerdicts legs={legs} requestedAtMs={requestedAtMs} />
+        <LegVerdicts legs={legs} requestedAtMs={requestedAtMs} posted={posted} />
         <AskTheMarket marketTicker={value.minted_market_ticker} />
       </div>
     );
@@ -386,7 +395,7 @@ function Result({
           third, so a screen that offers only the book sometimes sells him
           the worse of two prices it could have shown him. Asking commits
           nothing, so it is offered here and the two numbers sit together. */}
-      <LegVerdicts legs={legs} requestedAtMs={requestedAtMs} />
+      <LegVerdicts legs={legs} requestedAtMs={requestedAtMs} posted={posted} />
       <AskTheMarket marketTicker={value.minted_market_ticker} />
 
       {/* The buy, on the minted market's own ticker — two lines under the

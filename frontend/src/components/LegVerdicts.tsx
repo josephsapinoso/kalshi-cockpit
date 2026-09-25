@@ -29,13 +29,45 @@
  * Polls every `POLL_MS` while any leg reads `pending`, and gives up after
  * `POLL_STOP_AFTER_MS` -- a card left open on a phone that never comes back
  * must not poll forever.
+ *
+ * **A refused leg writes no row, and `posted` is how that refusal still
+ * reaches the screen (#155).** All three triggers now keep the
+ * `LegVerdictsResult` their own `requestLegVerdicts` call resolves to,
+ * instead of firing it with `void` and throwing the answer away, and pass it
+ * in here. `overlayPosted` below lays a posted `refused` row over a GET row
+ * that still reads `none` for the same `ticker:side` -- and only `none`: a
+ * GET row already reading `pending`/`cached`/`complete`/`refused` is newer
+ * truth than the POST that started it, and wins untouched. So "nobody has
+ * asked yet" is reachable for a leg only when no posted refusal named it.
+ * A posted network/5xx/off-seat `error` renders as its own line and never
+ * folds into that fallback sentence either.
  */
 
 import { useEffect, useState } from "react";
 
 import { fetchLegVerdicts, formatAge } from "@/lib/api";
-import type { LegVerdict, LegVerdictInput } from "@/lib/api";
+import type { LegVerdict, LegVerdictInput, LegVerdictsResult } from "@/lib/api";
 import Term from "@/components/Term";
+
+/**
+ * Overlay a trigger's own POST result onto the poll's rows. See the module
+ * docstring for why: a refused leg writes no row, so left alone the GET
+ * poll would read `none` for it and the panel would claim nobody asked.
+ */
+function overlayPosted(
+  rows: LegVerdict[],
+  posted: LegVerdictsResult | null | undefined,
+): LegVerdict[] {
+  if (!posted || posted.legs.length === 0) return rows;
+  const byKey = new Map(
+    posted.legs.map((row) => [`${row.ticker}:${row.side}`, row] as const),
+  );
+  return rows.map((row) => {
+    if (row.state !== "none") return row;
+    const overlay = byKey.get(`${row.ticker}:${row.side}`);
+    return overlay && overlay.state === "refused" ? overlay : row;
+  });
+}
 
 const POLL_MS = 5_000;
 const POLL_STOP_AFTER_MS = 3 * 60 * 1000;
@@ -49,6 +81,7 @@ export default function LegVerdicts({
   legs,
   requestedAtMs = null,
   hideUnasked = false,
+  posted = null,
 }: {
   legs: LegVerdictInput[];
   // When the caller last fired `requestLegVerdicts` for these legs, or null.
@@ -60,6 +93,10 @@ export default function LegVerdicts({
   // have a read. Before any tap, a card full of "nobody has asked yet" lines
   // would be noise.
   hideUnasked?: boolean;
+  // The caller's own trigger's POST result (#155) -- kept, not discarded,
+  // so a refused leg's reason reaches this panel even though a refusal
+  // writes no row for the GET poll below to find. See `overlayPosted`.
+  posted?: LegVerdictsResult | null;
 }) {
   const [rows, setRows] = useState<LegVerdict[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -114,11 +151,17 @@ export default function LegVerdicts({
   }, [legsKey, requestedAtMs]);
 
   if (legs.length === 0) return null;
+  const merged = overlayPosted(rows, posted);
+  // A posted network/5xx/off-seat error is the trigger's own failure and
+  // takes precedence over whatever the last GET happened to read -- and,
+  // per the module docstring, it renders as its own line and never as
+  // "nobody has asked yet".
+  const postedError = posted?.error ?? null;
   const shown =
     hideUnasked && requestedAtMs === null
-      ? rows.filter((row) => row.state !== "none")
-      : rows;
-  if (hideUnasked && shown.length === 0 && !error) return null;
+      ? merged.filter((row) => row.state !== "none")
+      : merged;
+  if (hideUnasked && shown.length === 0 && !error && !postedError) return null;
 
   return (
     <div className="mt-2 space-y-1 border-t border-border pt-2">
@@ -126,7 +169,9 @@ export default function LegVerdicts({
         Scouts&rsquo; read &mdash; <Term k="advisory">advisory</Term>, not a
         prediction
       </p>
-      {error && <p className="text-xs text-muted">{error}</p>}
+      {(postedError ?? error) && (
+        <p className="text-xs text-muted">{postedError ?? error}</p>
+      )}
       {shown.map((row) => (
         <LegVerdictLine key={`${row.ticker}:${row.side}`} row={row} />
       ))}
