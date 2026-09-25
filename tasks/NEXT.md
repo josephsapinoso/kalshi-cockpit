@@ -178,6 +178,15 @@ Chrome was not connected, so the session used last session's route: the dev serv
 ### Still open
 
 0. #151: on 2026-09-28, read `agent-spend` for `agent='leg_verdict'` against the 1.5M ceiling, plus the TAKE/PASS split.
+1. #165: "check a parlay someone else built". Scope it with partner, then ask Joe with buttons what his friend actually sends (a link, a screenshot or a leg list) before building.
+
+### 3. After the handoff: #161 was undercounting (#163), and Joe explained the gap (#164)
+
+Joe asked what else was worth doing, and partner found a flaw in #161. The shipped query counted only `status = 'priced'` lookups. But a KXMVE book is empty between RFQs (ADR 0164), so most real desk lookups are `book_empty`, and they still carry `fair_joint_conservative`. `combo_rfqs.fair_joint` was never read either. **The spec was mine, and it took the word "priced" in the name for the rule.**
+
+The #163 Sonnet lane fixed it. The query is a UNION of both sources at or before the first fill, with `refused`/`error` still out and a tie going to the lookup. The old test was rewritten openly as a spec correction. Merged as `86e2fbe` and **live on it** (run 36196835310, on Joe's go-ahead).
+
+**Live now reads 60 of 142** (it was 27). The other 82 (58%) still have no desk reading. Asked why with buttons, Joe typed: **"its my friend's parlay"**. He tails a friend's builds. Asked whether the desk should check a parlay someone else built: **yes, build that**. That is recorded in #164 (closed, and in the map's Decisions) and opened as story #165 under epic #83, owner:main.
 
 **Then live on `7fc43bd`** (Deploy run 36193273118, on Joe's second go-ahead). It carries the 0% fix, and #161 is closed. The first attempt failed on a Fly API 504 while setting the release status, and live stayed on `29f794d` untouched. A second run was green, and `/api/health` confirmed the sha. All 27 readings render, the smallest as 0.06%.
 
