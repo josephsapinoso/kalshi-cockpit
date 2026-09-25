@@ -137,6 +137,7 @@ SUBCOMMANDS = (
     "h4-settlement-balance",
     "kalshi-quotes-band",
     "ladder-fixtures",
+    "leg-scout-join",
     "leg-scout-state",
     "lock-attribution",
     "loop-rss",

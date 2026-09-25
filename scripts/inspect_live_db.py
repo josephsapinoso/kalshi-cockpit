@@ -738,6 +738,117 @@ def _q_leg_scout_state(conn: sqlite3.Connection, args) -> list[Section]:
     return [section]
 
 
+# ---------------------------------------------------------------------------
+# leg-scout-join: does the bet-time scout join see a briefing on the same GAME?
+# ---------------------------------------------------------------------------
+#
+# `leg-scout-state` read 0 of 39 legs briefed (2026-09-24). That is either a
+# finding (the desk scouts games Joe does not bet) or a join defect.
+# `parlays._leg_scouting` matches a leg to a briefing through
+# `kalshi_markets.event_ticker`, and a Kalshi event ticker carries its
+# SERIES: one game is `KXWNBAPTS-26SEP24CHIWSH` for its points props and
+# `KXWNBAGAME-26SEP24CHIWSH` for its moneyline. So a prop leg can match only a
+# briefing filed on its own series. This query prints, per leg, the join's
+# count beside a same-game count that ignores series, and the two can be
+# compared on the box.
+#
+# "Same game" here means: the same fixture segment (the second
+# dash-delimited field of the ticker, `26SEP24CHIWSH`) AND kickoffs within
+# six hours of each other. The kickoff condition keeps a WNBA and an NFL game
+# that share a date-and-teams string apart. It is a diagnostic reading, not
+# the definition any screen uses.
+#
+# Prints the leg's SERIES only, never a ticker.
+_SQL_LEG_SCOUT_JOIN = """
+WITH legs AS (
+  SELECT p.created_ms AS bet_ms, l.ticker AS ticker, l.commence_ms AS leg_commence,
+         l.scout_state AS scout_state,
+         substr(l.ticker, 1, instr(l.ticker, '-') - 1) AS leg_series,
+         CASE WHEN instr(substr(l.ticker, instr(l.ticker, '-') + 1), '-') = 0
+              THEN substr(l.ticker, instr(l.ticker, '-') + 1)
+              ELSE substr(substr(l.ticker, instr(l.ticker, '-') + 1), 1,
+                          instr(substr(l.ticker, instr(l.ticker, '-') + 1), '-') - 1)
+         END AS seg
+  FROM parlay_position_legs l
+  JOIN parlay_positions p ON p.id = l.position_id
+  WHERE p.created_ms >= :since_ms AND l.ticker IS NOT NULL
+),
+briefs AS (
+  SELECT requested_ms, commence_ms,
+         CASE WHEN instr(substr(ticker, instr(ticker, '-') + 1), '-') = 0
+              THEN substr(ticker, instr(ticker, '-') + 1)
+              ELSE substr(substr(ticker, instr(ticker, '-') + 1), 1,
+                          instr(substr(ticker, instr(ticker, '-') + 1), '-') - 1)
+         END AS seg
+  FROM scout_briefings
+  WHERE requested_ms >= :since_ms - 86400000
+)
+SELECT strftime('%Y%m%d', (g.bet_ms - :offset_ms) / 1000, 'unixepoch') AS budget_day,
+       g.leg_series,
+       COALESCE(g.scout_state, 'NULL') AS scout_state,
+       EXISTS (SELECT 1 FROM kalshi_markets m WHERE m.ticker = g.ticker)
+         AS leg_in_markets,
+       (SELECT COUNT(*) FROM kalshi_markets m
+          JOIN kalshi_markets sm ON sm.event_ticker = m.event_ticker
+          JOIN scout_briefings b ON b.ticker = sm.ticker
+        WHERE m.ticker = g.ticker AND b.requested_ms <= g.bet_ms)
+         AS join_briefs_before_bet,
+       (SELECT COUNT(*) FROM briefs b
+        WHERE b.seg = g.seg AND b.requested_ms <= g.bet_ms
+          AND (b.commence_ms IS NULL OR g.leg_commence IS NULL
+               OR abs(b.commence_ms - g.leg_commence) <= 21600000))
+         AS game_briefs_before_bet,
+       (SELECT COUNT(*) FROM briefs b
+        WHERE b.seg = g.seg
+          AND (b.commence_ms IS NULL OR g.leg_commence IS NULL
+               OR abs(b.commence_ms - g.leg_commence) <= 21600000))
+         AS game_briefs_any_time
+FROM legs g
+ORDER BY g.bet_ms DESC
+"""
+
+
+def _q_leg_scout_join(conn: sqlite3.Connection, args) -> list[Section]:
+    """Per leg since 2026-09-21T10:00Z: what the bet-time scout join found,
+    beside a same-game count that ignores the series.
+
+    Columns: `budget_day` (of the bet), `leg_series`, `scout_state` as
+    recorded, `leg_in_markets` (whether the leg's market is in
+    `kalshi_markets` at all; the join needs it), `join_briefs_before_bet`
+    (briefings the production join reaches, filed before the bet),
+    `game_briefs_before_bet` (briefings on the same game in ANY series, filed
+    before the bet), and `game_briefs_any_time` (the same, filed at any time).
+
+    Reading it: rows where `join_briefs_before_bet` is 0 and
+    `game_briefs_before_bet` is above 0 are legs whose game WAS briefed but
+    that recorded no briefing. That is the join defect. Rows where both are 0
+    are games nobody had scouted when Joe bet.
+
+    What this does not establish
+    ----------------------------
+    - The same-game rule is this query's own (fixture segment plus kickoff
+      within six hours), not a definition any screen uses.
+    - No ratio and no rate. One row per leg.
+    - Only armed-path legs carry `scout_state` (#114); adopted and
+      hand-recorded legs print NULL there by construction.
+    """
+    params = {
+        "offset_ms": args.day_start_hour * 3_600_000,
+        "since_ms": _LEG_SCOUT_STATE_SINCE_MS,
+    }
+    section = _fetch(
+        conn,
+        _SQL_LEG_SCOUT_JOIN,
+        params,
+        title=(
+            "leg-scout-join: per leg, the bet-time join's briefings beside "
+            "same-game briefings in any series; series only, no tickers"
+        ),
+        cap=args.limit,
+    )
+    return [section]
+
+
 QUERIES: dict[str, QueryDef] = {
     "credits-tail": QueryDef(
         "The last N api_credits rows (-n, default 5), newest first, each "
@@ -1444,6 +1555,20 @@ QUERIES: dict[str, QueryDef] = {
         _q_combo_rfqs,
         # One `requested_ms DESC, id DESC` order over a table that gains one
         # row per RFQ ask -- a handful a day at most.
+        cost=CHEAP,
+    ),
+    "leg-scout-join": QueryDef(
+        "Per leg bet since 2026-09-21T10:00Z: leg series, recorded "
+        "scout_state, whether the leg's market is in kalshi_markets, the "
+        "briefings the bet-time join (parlays._leg_scouting) reaches before "
+        "the bet, and briefings on the same GAME in any series (fixture "
+        "segment + kickoff within 6h) before the bet and at any time. Separates "
+        "'nobody scouted that game' from 'the join cannot see a prop leg's "
+        "game'. Series only, no tickers; no ratio.",
+        _q_leg_scout_join,
+        # Bounded by legs since the bound (tens of rows); each correlated
+        # subquery is a PK lookup on kalshi_markets, an idx_markets_event
+        # probe, or a scan of scout_briefings (tens of rows).
         cost=CHEAP,
     ),
     "leg-scout-state": QueryDef(
