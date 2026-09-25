@@ -55,8 +55,8 @@
 import type { ParlayPrefix } from "@/lib/api";
 
 const W = 320;
-const H = 132;
-const PAD = { top: 10, right: 40, bottom: 22, left: 8 };
+const H = 140;
+const PAD = { top: 18, right: 40, bottom: 22, left: 8 };
 const PW = W - PAD.left - PAD.right;
 const PH = H - PAD.top - PAD.bottom;
 

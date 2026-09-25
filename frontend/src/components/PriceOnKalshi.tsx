@@ -14,6 +14,7 @@ import AskTheMarket from "@/components/AskTheMarket";
 import LegVerdicts from "@/components/LegVerdicts";
 import ManualTicket from "@/components/ManualTicket";
 import Term from "@/components/Term";
+import { Button, Stat } from "@/components/ui";
 
 /**
  * The one money-adjacent control on the parlay desk (ADR 0070).
@@ -21,9 +22,10 @@ import Term from "@/components/Term";
  * The tap mints a real combination market on Kalshi — no money moves, it is
  * exactly what the app does when anyone taps legs — and prices it off the
  * minted market's ORDER BOOK, never the list row. The button says what the
- * tap does before it is tapped; `bg-accent-fill` is lawful here and nowhere
- * else
- * on this screen (red = money-adjacent action).
+ * tap does before it is tapped. It is the one filled control in the idle
+ * state; once the book answers, the fill passes to the controls that spend
+ * (the ticket's Confirm and the maker quote's Take it), and asking the
+ * makers is an outlined button (#158).
  *
  * Every state renders in words: priced (quoted cost, contracts, payout,
  * hold, the server's verdict verbatim), an empty book (the captured reality
@@ -191,16 +193,16 @@ export default function PriceOnKalshi({
     (state.kind === "done" && state.value.status !== "priced");
 
   return (
-    <div className="mt-3 border-t border-border pt-3">
+    <div>
       {state.kind === "idle" && (
         <>
           <button
             onClick={tap}
-            className="rounded bg-accent-fill px-3 py-1.5 text-sm font-semibold text-white"
+            className="w-full rounded-lg bg-accent-fill px-4 py-2 text-sm font-semibold text-white"
           >
             Price on Kalshi
           </button>
-          <p className="mt-1 text-[11px] leading-snug text-muted">
+          <p className="mt-2 text-xs leading-snug text-muted">
             Creates this combination on the exchange (no money moves) and
             reads what it would actually cost from its order book.
           </p>
@@ -225,12 +227,9 @@ export default function PriceOnKalshi({
         // *first* tap.
         // A retry of a refusal is the same action, but the screen has
         // already said what it does, so it does not shout twice.
-        <button
-          onClick={again}
-          className="mt-2 rounded border border-border px-3 py-1.5 text-sm font-semibold"
-        >
+        <Button onClick={again} className="mt-3">
           Ask Kalshi again
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -288,13 +287,13 @@ function QuoteAge({
 
   if (!stale) {
     return (
-      <p className="text-[11px] leading-snug text-muted">
+      <p className="text-xs leading-snug text-muted">
         Read from Kalshi&rsquo;s book {shown} ago.
       </p>
     );
   }
   return (
-    <p className="text-[11px] leading-snug text-accent-2">
+    <p className="text-xs leading-snug text-accent-2">
       Read from Kalshi&rsquo;s book <span className="font-semibold">{shown}</span>{" "}
       ago, and this desk treats a Kalshi price over{" "}
       {formatAge(maxAgeMs as number)} old as out of date — so the fair value,
@@ -343,13 +342,19 @@ function Result({
     return <p className="text-sm text-muted">{value.words}</p>;
   }
   return (
-    <div className="space-y-1 text-sm">
-      <p className="font-semibold">
-        Kalshi&rsquo;s book: {value.quoted.ask_display}
-      </p>
-      {value.quoted.depth_display && (
-        <p className="text-xs text-muted">{value.quoted.depth_display}</p>
-      )}
+    <div className="space-y-2 text-sm">
+      {/* Three tiles in a fixed order, as on the maker-quote block below:
+          the price, what the books say it is worth, and the gap as the
+          venue's hold. A per-row fact, never a ranking (ADR 0071 §2.5). */}
+      <div className="grid grid-cols-3 gap-3 rounded-lg border border-border p-3">
+        <Stat
+          label={<>Kalshi&rsquo;s book</>}
+          value={value.quoted.ask_display}
+          sub={value.quoted.depth_display ?? undefined}
+        />
+        <Stat label="Fair value" value={value.fair.fair_cost_display} />
+        <Stat label={<Term k="hold">Hold</Term>} value={value.hold_display} />
+      </div>
       {/*
         The stake line is bounded by the book (server-side). When depth is
         unreadable there is no contracts/payout to render at all -- only the
@@ -375,16 +380,12 @@ function Result({
           {value.quoted.at_stake.depth_note}
         </p>
       )}
-      <p className="text-xs text-muted">
-        Fair value {value.fair.fair_cost_display} ·{" "}
-        <Term k="hold">hold</Term> {value.hold_display}
-      </p>
       <p className="text-xs text-muted">{value.verdict}</p>
       <QuoteAge
         quotedMs={value.quoted.quoted_ms}
         maxAgeMs={value.quoted.quote_max_age_ms}
       />
-      <p className="text-[11px] leading-snug text-muted">
+      <p className="text-xs leading-snug text-muted">
         {value.notes.unquoted} {value.notes.fee}
       </p>
       {/* **Both surfaces, and the choice is Joe's — issue #66.** A priced
@@ -396,10 +397,9 @@ function Result({
           the worse of two prices it could have shown him. Asking commits
           nothing, so it is offered here and the two numbers sit together. */}
       <LegVerdicts legs={legs} requestedAtMs={requestedAtMs} posted={posted} />
-      <AskTheMarket marketTicker={value.minted_market_ticker} />
-
-      {/* The buy, on the minted market's own ticker — two lines under the
-          ask, which is the whole purpose of this block. */}
+      {/* The buy at the book's price, directly under the book's tiles (#158
+          moved it above the makers' block so each price sits with its own
+          buy). */}
       <ManualTicket
         ticker={value.minted_market_ticker}
         variant="inline"
@@ -411,8 +411,12 @@ function Result({
            tool read none — but a true premise no longer licenses that
            conclusion, and stating the premise alone would imply it. How
            often a bid is there is what Arm D measures on 2026-09-13. */
-        note="One combination, one contract. You can sell it back — on 2026-09-17 all three combinations this desk held drew a bid for the side held, every one at the full size asked. The catch is the price, not the door: every one of those bids was below what had been paid, so selling back may cost you more than holding to the outcome. The fee here is a ceiling, not a quote."
+        note="You can sell a combination back, but on 2026-09-17 every bid on the three combinations this desk held was below what had been paid, so selling back may cost you more than holding to the outcome. The fee here is a ceiling, not a quote."
       />
+      <div className="border-t border-border pt-3">
+        <p className="text-sm font-semibold">Or ask the makers for a price</p>
+        <AskTheMarket marketTicker={value.minted_market_ticker} />
+      </div>
     </div>
   );
 }

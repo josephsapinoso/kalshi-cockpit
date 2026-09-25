@@ -60,10 +60,14 @@ export default function RecordParlay({
   prefill,
   summary = "Record a ticket you hold",
   blurb,
+  defaultOpen = false,
 }: {
   prefill?: RecordParlayPrefill;
   summary?: string;
   blurb?: string;
+  /** Starts expanded -- the parlay buy panel's Record tab (#158), where the
+   *  tab choice already was the tap that opens it. */
+  defaultOpen?: boolean;
 } = {}) {
   const router = useRouter();
   // **NO DEFAULT, 2026-09-08.** This defaulted to `"sportsbook"`, and
@@ -158,7 +162,11 @@ export default function RecordParlay({
   }
 
   return (
-    <details id="record-parlay" className="mt-4 rounded-lg border border-border p-4">
+    <details
+      id="record-parlay"
+      open={defaultOpen || undefined}
+      className="mt-4 rounded-lg border border-border p-4"
+    >
       <summary className="cursor-pointer text-sm font-semibold uppercase tracking-widest">
         {summary}
       </summary>

@@ -120,6 +120,7 @@ import {
 } from "@/lib/exposureLine";
 import { KALSHI_MARKETS_INDEX, kalshiMarketUrl } from "@/lib/kalshiLink";
 import Term from "@/components/Term";
+import { useReportBusy } from "@/components/Sheet";
 
 /** How often the ask's age and the in-play clock advance. */
 const TICKET_TICK_MS = 1_000;
@@ -166,6 +167,9 @@ export default function ManualTicket({
   note?: string;
 }) {
   const [phase, setPhase] = useState<Phase>({ name: "closed" });
+  // Holds an enclosing slide-over open while the order is out (#158). A
+  // no-op on every surface that is not inside a `<Sheet>`.
+  useReportBusy(phase.name === "sending");
   const [side, setSide] = useState<"yes" | "no">("yes");
   const [contracts, setContracts] = useState(1);
   const [maxPriceTenths, setMaxPriceTenths] = useState<number | null>(null);
@@ -198,7 +202,12 @@ export default function ManualTicket({
   useEffect(() => {
     if (phase.name === "closed") return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
+      // Not while the order is out (#158 review). Closing mid-send cleared
+      // the intent key and reopened "Open the ticket", so a second tap could
+      // mint a NEW key and send a second real order before the first
+      // answered. The answer still lands on the mounted component either
+      // way; what this prevents is the second order.
+      if (event.key === "Escape" && phase.name !== "sending") close();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -370,7 +379,9 @@ export default function ManualTicket({
         {phase.name !== "closed" && (
           <button
             onClick={close}
-            className="rounded-lg border px-3 py-1.5 text-xs text-muted"
+            // Same rule as Escape above: no close while the order is out.
+            disabled={phase.name === "sending"}
+            className="rounded-lg border px-3 py-1.5 text-xs text-muted disabled:opacity-50"
           >
             Close
           </button>

@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { acceptComboQuote, askMarketToPrice, formatAge } from "@/lib/api";
 import type { ComboRfqAcceptResult, ComboRfqResult } from "@/lib/api";
 import Term from "@/components/Term";
+import { useReportBusy } from "@/components/Sheet";
+import { Button, Stat } from "@/components/ui";
 
 /**
  * "Nobody is selling this" was wrong, and this is the control that fixes it.
@@ -78,6 +80,9 @@ export default function AskTheMarket({
     | { kind: "answered"; value: ComboRfqResult }
     | { kind: "refused"; words: string }
   >({ kind: "idle" });
+  // Where the quote's TakeIt is. A fresh answer remounts TakeIt at "idle",
+  // which reports itself here, so this resets without a setter of its own.
+  const [takeKind, setTakeKind] = useState<TakeKind>("idle");
 
   // Read after mount, never during render: the server has no `localStorage`,
   // and reading one during render is how a hydration mismatch starts.
@@ -138,17 +143,14 @@ export default function AskTheMarket({
                 step="0.01"
                 value={size}
                 onChange={(event) => setSize(event.target.value)}
-                className="w-20 rounded border border-border bg-transparent px-2 py-1 text-sm tabular"
+                className="w-24 rounded-lg border border-border bg-transparent px-2 py-1 text-sm tabular"
               />
             </div>
-            <button
-              onClick={ask}
-              className="rounded bg-accent-fill px-3 py-1.5 text-sm font-semibold text-white"
-            >
-              Ask the market for a price
-            </button>
+            {/* Secondary, not filled: asking commits nothing (#158). The fill
+                belongs to the control that spends -- Take it, below. */}
+            <Button onClick={ask}>Ask the market for a price</Button>
           </div>
-          <p className="mt-1 text-[11px] leading-snug text-muted">
+          <p className="mt-1 text-xs leading-snug text-muted">
             Sends a real <Term k="rfq">request for a quote</Term> to
             Kalshi&rsquo;s <Term k="maker">market makers</Term> and shows what
             they quote. This is how a combination is actually priced &mdash;
@@ -177,7 +179,7 @@ export default function AskTheMarket({
 
       {state.kind === "answered" && (
         <>
-          <Quotes value={state.value} />
+          <Quotes value={state.value} onTakeState={setTakeKind} />
           {/* Re-asking is always offered, including after a good answer.
               A quote is live state: what is on screen is a price that WAS
               offered, not one still standing, so hiding the retry would
@@ -190,7 +192,12 @@ export default function AskTheMarket({
               after DELETE came back empty). Asking again reuses the same open
               RFQ and can return the same quote ids at new prices, which is
               why the store now updates them rather than keeping the first. */}
-          <RetryButton onClick={() => setState({ kind: "idle" })} />
+          {/* Gone once a take has started (#158 review): asking again
+              unmounts the quote block, and with it TakeIt's answer -- which
+              can be an UNKNOWN that must not be lost, and has no retry. */}
+          {takeKind === "idle" && (
+            <RetryButton onClick={() => setState({ kind: "idle" })} />
+          )}
         </>
       )}
     </div>
@@ -199,12 +206,9 @@ export default function AskTheMarket({
 
 function RetryButton({ onClick }: { onClick: () => void }) {
   return (
-    <button
-      onClick={onClick}
-      className="mt-2 rounded border border-border px-3 py-1.5 text-sm font-semibold"
-    >
+    <Button onClick={onClick} className="mt-3">
       Ask again
-    </button>
+    </Button>
   );
 }
 
@@ -259,11 +263,11 @@ function QuotesAge({ askedMs }: { askedMs: number }) {
   const shown = formatAge(Math.max(0, ageMs));
   if (ageMs <= QUOTE_GETTING_ON_MS) {
     return (
-      <p className="text-[11px] leading-snug text-muted">Asked {shown} ago.</p>
+      <p className="text-xs leading-snug text-muted">Asked {shown} ago.</p>
     );
   }
   return (
-    <p className="text-[11px] leading-snug text-accent-2">
+    <p className="text-xs leading-snug text-accent-2">
       Asked <span className="font-semibold">{shown}</span> ago. How long a
       maker leaves a combination quote standing is not something this desk has
       measured, so this may or may not still be takeable &mdash; asking again
@@ -272,7 +276,13 @@ function QuotesAge({ askedMs }: { askedMs: number }) {
   );
 }
 
-function Quotes({ value }: { value: ComboRfqResult }) {
+function Quotes({
+  value,
+  onTakeState,
+}: {
+  value: ComboRfqResult;
+  onTakeState: (kind: TakeKind) => void;
+}) {
   if (value.status === "no_quotes" || value.quotes.length === 0) {
     return <p className="text-sm text-muted">{value.words}</p>;
   }
@@ -280,39 +290,36 @@ function Quotes({ value }: { value: ComboRfqResult }) {
   const best = value.quotes[0];
 
   return (
-    <div className="space-y-1 text-sm">
+    <div className="space-y-3 text-sm">
       {/* Every price string on this screen is rendered by the backend, through
           the same renderer the order book path uses. A second formatter in
           TypeScript is how two surfaces start disagreeing about what 59.3c
-          means on a market that ticks in deci-cents. */}
-      <p className="font-semibold tabular">
-        Best quote: {best.ask_display}
-        {best.contracts !== null && (
-          <span className="font-normal text-muted">
-            {" "}
-            &middot; {best.contracts.toFixed(2)} contracts
-          </span>
-        )}
-      </p>
+          means on a market that ticks in deci-cents.
 
-      {/* **Both surfaces, never one — issue #66.** Neither dominates: on
+          **Both surfaces, never one — issue #66.** Neither dominates: on
           2026-09-17 the public book beat the RFQ on two of three held
           combinations and the RFQ was the only price on the third. A screen
           showing one of them sometimes reports no price when there is one,
           and sometimes shows the worse of the two. No copy ranks them; the
-          two numbers sit beside each other and Joe reads them. */}
-      {value.book_ask_display !== null && (
-        <p className="text-xs text-muted tabular">
-          Kalshi&rsquo;s public book: {value.book_ask_display}
-        </p>
-      )}
+          tiles sit side by side in a fixed order and Joe reads them.
 
-      {/* Fair value beside the quote, never subtracted into a verdict. */}
-      {value.fair_display !== null && (
-        <p className="text-xs text-muted tabular">
-          Fair value {value.fair_display}
-        </p>
-      )}
+          Fair value beside the quote, never subtracted into a verdict. */}
+      <div className="grid grid-cols-3 gap-3 rounded-lg border border-border p-3">
+        <Stat
+          label="Best quote"
+          value={best.ask_display}
+          sub={
+            best.contracts !== null
+              ? `${best.contracts.toFixed(2)} contracts`
+              : undefined
+          }
+        />
+        <Stat
+          label={<>Kalshi&rsquo;s public book</>}
+          value={value.book_ask_display ?? "—"}
+        />
+        <Stat label="Fair value" value={value.fair_display ?? "—"} />
+      </div>
 
       {/* Every maker, because the spread between them is worth real money and
           a screen showing only the best one hides that there was a choice. */}
@@ -327,7 +334,7 @@ function Quotes({ value }: { value: ComboRfqResult }) {
         </ul>
       )}
 
-      <p className="text-[11px] leading-snug text-muted">{value.words}</p>
+      <p className="text-xs leading-snug text-muted">{value.words}</p>
 
       <QuotesAge askedMs={value.asked_ms} />
 
@@ -339,6 +346,7 @@ function Quotes({ value }: { value: ComboRfqResult }) {
         rfqId={value.rfq_id}
         quote={best}
         armed={value.accepts_are_armed}
+        onState={onTakeState}
       />
     </div>
   );
@@ -366,15 +374,21 @@ function Quotes({ value }: { value: ComboRfqResult }) {
  * is an *unknown* — the RFQ path has no idempotency key, so nothing here ever
  * retries, and the words say to go and look instead.
  */
+type TakeKind = "idle" | "sending" | "done" | "refused";
+
 function TakeIt({
   rfqId,
   quote,
   armed,
+  onState,
 }: {
   rfqId: string;
   quote: ComboRfqResult["quotes"][number];
   /** False while the accept path is unarmed — the button says so up front. */
   armed: boolean;
+  /** Tells the parent which state the take is in, so "Ask again" can stand
+   *  down once one has started. Display only; it gates no request. */
+  onState: (kind: TakeKind) => void;
 }) {
   const [state, setState] = useState<
     | { kind: "idle" }
@@ -382,6 +396,12 @@ function TakeIt({
     | { kind: "done"; value: ComboRfqAcceptResult }
     | { kind: "refused"; words: string }
   >({ kind: "idle" });
+  // Holds an enclosing slide-over open while the acceptance is out (#158):
+  // a lost answer here is an UNKNOWN, and closing would discard it.
+  useReportBusy(state.kind === "sending");
+  useEffect(() => {
+    onState(state.kind);
+  }, [onState, state.kind]);
 
   const take = async () => {
     setState({ kind: "sending" });
@@ -432,7 +452,7 @@ function TakeIt({
   // offer, so nothing is offered.
   if (!armed) {
     return (
-      <p className="mt-2 text-[11px] leading-snug text-accent-2">
+      <p className="mt-2 text-xs leading-snug text-accent-2">
         Taking a quote is built but not switched on, so this desk cannot buy
         it for you yet. The price above is real: buy the combination in the
         Kalshi app and you now know what it should cost before you look.
@@ -451,14 +471,15 @@ function TakeIt({
 
   return (
     <div className="mt-2">
-      <button
+      <Button
+        tone="primary"
         onClick={take}
         disabled={state.kind === "sending"}
-        className="rounded bg-accent-fill px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-60"
+        className="w-full"
       >
         {state.kind === "sending" ? "Taking it…" : label}
-      </button>
-      <p className="mt-1 text-[11px] leading-snug text-muted">
+      </Button>
+      <p className="mt-1 text-xs leading-snug text-muted">
         {quote.all_in_display === null ? (
           <>
             Buys this combination at the price above. This maker did not say

@@ -22,6 +22,7 @@ import type {
 } from "@/lib/api";
 import { glossSentence } from "@/lib/suppressionGloss";
 import DispersionStrip from "@/components/DispersionStrip";
+import Hint from "@/components/Hint";
 import LeagueTag from "@/components/LeagueTag";
 import LegVerdicts from "@/components/LegVerdicts";
 import ParlayDifficulty from "@/components/ParlayDifficulty";
@@ -29,9 +30,11 @@ import ManualTicket from "@/components/ManualTicket";
 import PriceOnKalshi from "@/components/PriceOnKalshi";
 import RecordParlay from "@/components/RecordParlay";
 import RefreshWhenPriced from "@/components/RefreshWhenPriced";
+import Sheet from "@/components/Sheet";
 import StaleOddsExit from "@/components/StaleOddsExit";
 import Term from "@/components/Term";
 import TrustNote from "@/components/TrustNote";
+import { Button, SectionLabel, Stat } from "@/components/ui";
 
 /**
  * The ladder: six parlay cards at fair value (ADR 0070).
@@ -51,9 +54,10 @@ import TrustNote from "@/components/TrustNote";
  * - **The four caveat sentences render verbatim from the payload** — the
  *   fair-vs-quoted distinction, the enter-only warning, and the unverified
  *   fee are the server's claims, so the server's words carry them.
- * - **`bg-accent-fill` appears exactly once per card** — the "Price on Kalshi"
- *   button in `PriceOnKalshi.tsx`, the screen's one money-adjacent action.
- *   Nothing informational wears red.
+ * - **The card itself wears no filled button** (#158). Buying opens a
+ *   `<Sheet>`; inside it the fill goes to the one control that acts next
+ *   ("Price on Kalshi", then Confirm or Take it). Nothing informational
+ *   wears red.
  * - **There is no offer-making control here, by Joe's instruction (2026-09-06).**
  *   ADR 0084's `RestingBid` ("buy this parlay at your price") and its
  *   `RestingBids` panel were removed from this screen on his words: *"I don't
@@ -75,8 +79,10 @@ import TrustNote from "@/components/TrustNote";
  *   is nothing on tonight" while twenty fixtures sat upcoming and the recording
  *   loop was wedged. The card sentence is right and incomplete; `Freshness`
  *   supplies the half it cannot see, off `/api/window`.
- * - **Nothing behind a reveal** (ADR 0068): every leg, band, and caveat is
- *   fully present.
+ * - **Every leg and every number is on the card; the breakdowns are behind
+ *   one tap** ("How these numbers were made"), and buying is behind the
+ *   panel. ADR 0068's "nothing behind a reveal" governs the market page's
+ *   desk areas, not this card (see `LegProvenance`).
  */
 export default function ParlayCards({
   ladder,
@@ -90,7 +96,9 @@ export default function ParlayCards({
 }) {
   return (
     <div className="space-y-8">
-      <div className="grid gap-6 lg:grid-cols-3">
+      {/* Two columns until the widest screens (#158): at three columns from
+          `lg` a card was about 277px wide, too narrow for its own numbers. */}
+      <div className="grid gap-6 md:grid-cols-2 2xl:grid-cols-3">
         {ladder.cards.map((card) => (
           <Card key={card.key} card={card} horizon={ladder.window?.key} />
         ))}
@@ -101,12 +109,19 @@ export default function ParlayCards({
         refreshable={refreshable}
       />
       <Excluded excluded={ladder.excluded} />
-      <section className="max-w-[65ch] space-y-2 text-xs leading-snug text-muted">
-        <p>{ladder.notes.fair_value}</p>
-        <p>{ladder.notes.unquoted}</p>
-        <p>{ladder.notes.tap_outcome}</p>
-        <p>{ladder.notes.fee}</p>
-      </section>
+      {/* The four server caveats, verbatim, behind one tap rather than four
+          paragraphs under the grid (#158). */}
+      <details className="max-w-[65ch] text-xs leading-snug text-muted">
+        <summary className="cursor-pointer font-semibold">
+          How to read these cards
+        </summary>
+        <div className="mt-2 space-y-2">
+          <p>{ladder.notes.fair_value}</p>
+          <p>{ladder.notes.unquoted}</p>
+          <p>{ladder.notes.tap_outcome}</p>
+          <p>{ladder.notes.fee}</p>
+        </div>
+      </details>
     </div>
   );
 }
@@ -121,16 +136,30 @@ function Card({
    * was drawn from, rather than always guessing `tonight`. */
   horizon?: ParlayWindow["key"];
 }) {
+  // The buy panel (#158). `mounted` flips once, on the first open, and never
+  // back: the panel's flows hold quotes, receipts and UNKNOWN acceptances
+  // that must survive a close, so a closed panel is hidden, not unmounted.
+  // Before the first open nothing inside is mounted, so a page of six cards
+  // does not start six ticket and verdict components on load.
+  const [buyOpen, setBuyOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const openBuy = () => {
+    setMounted(true);
+    setBuyOpen(true);
+  };
+  const priceToBeat = card.joint?.price_to_beat_display ?? null;
   return (
     <section
       aria-label={`${card.title} card`}
-      className="flex flex-col rounded-lg border border-border p-4"
+      className="flex flex-col rounded-xl border border-border bg-card p-5"
     >
       <header className="flex items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-widest">
           {card.title}
         </h2>
-        {card.joint && (
+        {/* The chance moves into the stat row below whenever the card has a
+            price to beat; up here it is the fallback for a card without one. */}
+        {card.joint && priceToBeat === null && (
           <span className="tabular text-lg font-semibold">
             {card.joint.conservative_percent_display}
           </span>
@@ -159,83 +188,70 @@ function Card({
         <>
           {/*
             **The headline number for a bet placed somewhere else** (ADR
-            0085). 61 of 61 open combinations on Kalshi carried no quoted ask
-            on 2026-08-30 and this project has never observed one that could
-            be bought, so the desk prices this parlay far more reliably than
-            it can buy it. A sportsbook quotes American odds; leaving the
-            conversion to mental arithmetic at the moment of a bet is the
-            failure this block exists to prevent.
+            0085), now one of two tiles (#158). A sportsbook quotes American
+            odds; leaving the conversion to mental arithmetic at the moment
+            of a bet is the failure this block exists to prevent.
 
             It is a FAIR price, and the words say so in the same breath: get
             exactly it and the bet wins nothing on average. The jargon term for
             that is banned on this screen by ADR 0046 and by a test in
             `tests/test_parlay_leg_facts.py` — which this comment cannot even
-            name without failing it. Plain language says the same thing and is
-            what Joe asked for anyway. ADR 0071 §2.5 bars ranking by a gap;
+            name without failing it. ADR 0071 §2.5 bars ranking by a gap;
             stating a fair price on one row is the transparency the desk is
             for.
+
+            The exit sentence is the fourth rewrite and the first to be short.
+            "Nobody bids to buy it back" stood until 2026-09-16; "any way out
+            is small and unmeasured" lasted one day; sell-side RFQs on
+            2026-09-17 drew a bid on 3 of 3 held combinations. Issue #60,
+            answer (a): say what the exit COSTS, not how often it is there —
+            every best bid being below basis has been true every time
+            (`docs/measurements/2026-09-17-combinations-can-be-exited.md`).
+            The longer version of the paragraph moved behind the Hint (#158).
           */}
           {card.joint?.price_to_beat_display && (
-            <div className="mt-3 rounded border border-border p-2">
-              <p className="text-xs uppercase tracking-wide text-muted">
-                What a sportsbook must pay to match this
+            <div className="mt-4 grid grid-cols-2 gap-4 rounded-lg bg-accent-soft p-4">
+              <Stat
+                label="What a sportsbook must pay to match this"
+                value={card.joint.price_to_beat_display}
+              />
+              <Stat
+                label={
+                  <>
+                    <Term k="joint_chance">Chance</Term> every{" "}
+                    <Term k="leg">leg</Term> hits
+                  </>
+                }
+                value={card.joint.conservative_percent_display}
+                sub={
+                  card.joint.method_range_display
+                    ? `methods span ${card.joint.method_range_display}`
+                    : undefined
+                }
+              />
+              <p className="col-span-2 text-xs leading-snug text-muted">
+                A fair price: get exactly this and the bet wins nothing on
+                average, so you need <strong>better</strong>. Once you own it
+                you can sell it back, but selling back may cost you more than
+                holding it to the outcome.{" "}
+                <Hint hint="This is what the books' consensus says the parlay is worth, and still the number to take to wherever you can actually place the bet. Kalshi prices a combination mostly by asking its market makers for a quote, so its public book is often empty between requests; the buy panel reads both. Selling back was measured on 2026-09-17 on all three combinations this desk held; every best bid was below what had been paid.">
+                  Why?
+                </Hint>
               </p>
-              <p className="text-2xl font-semibold tabular">
-                {card.joint.price_to_beat_display}
-              </p>
-              <p className="mt-1 text-[11px] leading-snug text-muted">
-                This is what the books&rsquo; consensus says the parlay is
-                worth. Get exactly this price and the bet is fair — it wins you
-                nothing on average, so you need <strong>better</strong> than
-                it. Kalshi quotes this combination itself — a resting NO bid
-                is the ask you pay, and nobody has to be selling it to you at
-                the moment you tap — and once you own it you can sell it back,
-                which was measured on 2026-09-17 on all three combinations
-                this desk held. The catch is the price, not the door: every
-                best bid was below what had been paid, so selling back may
-                cost you more than holding it to the outcome. This is still
-                the number to take to wherever you can actually place the bet.
-              </p>
-              {/* Third rewrite of this sentence, and the first that is not
-                  about availability. "Nobody bids to buy it back, so the only
-                  exit once you own it is the outcome" stood until 2026-09-16;
-                  "any way out is small and unmeasured: a resting bid has been
-                  seen on two books, ten contracts each" replaced it (#41
-                  answer A) and lasted one day. Sell-side RFQs on 2026-09-17
-                  drew a bid on 3 of 3 held combinations, and two of those
-                  carried resting YES bids 38,709 and 24,900 contracts deep --
-                  "ten contracts each" was off by three orders of magnitude.
-
-                  Issue #60, answer (a): say what the exit COSTS, not how
-                  often it is there. The frequency has been wrong three times;
-                  every best bid being below basis has been true every time.
-                  `docs/measurements/2026-09-17-combinations-can-be-exited.md` */}
             </div>
           )}
-          <p className="mt-3 text-xs text-muted">
-            <Term k="joint_chance">joint chance</Term> that every{" "}
-            <Term k="leg">leg</Term> hits
-            {card.joint?.method_range_display && (
-              <>
-                {" "}
-                <span className="tabular">
-                  (methods span {card.joint.method_range_display})
-                </span>
-              </>
-            )}
-          </p>
           <CardScouting scouting={card.scouting} />
-          <ol className="mt-3 flex-1 divide-y divide-border">
+          <ol className="mt-3 divide-y divide-border">
             {card.legs.map((leg) => (
               <li
                 key={leg.ticker}
-                className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1.5"
+                className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-2"
               >
-                <span className="tabular w-11 shrink-0 font-mono text-[11px] text-muted">
+                <span className="tabular w-11 shrink-0 font-mono text-xs text-muted">
                   {kickoff(leg.commence_ms)}
                 </span>
                 <LeagueTag league={leg.league} />
-                <span className="tabular shrink-0 whitespace-nowrap rounded border border-border px-1 font-mono text-[10px] uppercase tracking-wide text-muted">
+                <span className="tabular shrink-0 whitespace-nowrap rounded border border-border px-1 font-mono text-[0.65rem] uppercase tracking-wide text-muted">
                   {leg.market === "spreads" ? (
                     <>
                       <Term k="spread">SPREAD</Term>
@@ -268,7 +284,7 @@ function Card({
                 >
                   {leg.label}
                 </Link>
-                <span className="tabular text-xs text-muted">
+                <span className="tabular ml-auto text-sm text-muted">
                   {leg.fair_percent_display}
                 </span>
                 <LegGame leg={leg} />
@@ -276,87 +292,183 @@ function Card({
               </li>
             ))}
           </ol>
-          <LegProvenance card={card} />
-          <LegOrigins card={card} />
-          {card.joint && (
-            <ParlayDifficulty
-              prefixes={card.joint.prefixes}
-              independenceNote={card.joint.correlation_note}
-            />
-          )}
+          {/* The correlation note is the chart's caption, behind the tap
+              below; this line used to repeat it (#158). */}
           {card.joint && (
             <p className="mt-2 text-xs text-muted">
               <Term k="fair_value">Fair value</Term>:{" "}
-              <span className="tabular">{card.joint.fair_cost_display}</span>.{" "}
-              {card.joint.correlation_note}
+              <span className="tabular">{card.joint.fair_cost_display}</span>.
             </p>
           )}
-          <Stakes card={card} />
-          {/*
-            **Demoted behind a reveal, not removed** (ADR 0085). The buy path
-            works and is measured; what changed is that 61 of 61 open
-            combinations had no seller AT REST, so leading with it promised an
-            action the venue does not always supply.
-
-            **The summary changed on 2026-09-06 and the two censuses are why.**
-            It read "usually nobody is selling", which is the resting book —
-            true, and not the population Joe is in when he taps. The entry
-            census the same week found 51 of 52 of this desk's own combination
-            positions were entered by TAKING an offer, so at the moment of a
-            purchase there was something to take 98% of the time. The old
-            words discouraged the only buy path left on this card, on the
-            strength of the wrong instrument.
-
-            It stays behind a reveal because an empty book is still the
-            expected first answer on a fresh combination, and the copy inside
-            says so.
-          */}
           <AskTheScouts card={card} />
-          <details className="mt-3 border-t border-border pt-3">
-            <summary className="cursor-pointer text-sm font-semibold">
-              Buy it on Kalshi
-              <span className="ml-1 font-normal text-muted">
-                — pay the asking price, if there is one
-              </span>
-            </summary>
-            <PriceOnKalshi card={card} horizon={horizon} />
-          </details>
-          <LegBuys card={card} />
+          <HowTheseNumbersWereMade card={card} />
           {/*
-            **The steer is removed, 2026-09-08.** This block used to call a
-            sportsbook slip "on his own instruction the first-class one"
-            (2026-09-06) and hard-code `source: "sportsbook"` into the
-            prefill. That was a misreading of his "both" answer, and he
-            corrected it himself: when the earlier work said "sportsbook" he
-            meant KALSHI'S sportsbook. He bets through the cockpit into
-            Kalshi, singles and combinations both. ADR 0113.
+            **One way in to buying, and it opens a panel (#158, Joe's choice
+            2026-09-25).** The three reveals that stood here — buy the
+            combination, bet the legs, record a ticket — unfolded inside a
+            card about 277px wide, three flows deep, with up to three filled
+            buttons visible at once. They now sit in `<Sheet>` as three tabs.
 
-            So the form arrives with the legs and the name filled in and
-            **no source chosen**. Not the other default -- none. A recorded
-            position is still allowed to be a book slip, because he may hold
-            one; what is not allowed is the desk answering the question for
-            him, which is what made the 09-15 census unreadable (the number
-            of days a neutral choice had been shown was 0).
+            Outlined, not filled: opening the panel spends nothing. The fill
+            is for the controls inside that do (ADR 0061 §3).
 
-            The stake and the return are left empty deliberately. Only the
-            place he paid knows what it paid, and a guessed return lands
-            straight in the size of a hedge.
+            Still demoted behind a tap, not removed (ADR 0085): 61 of 61 open
+            combinations had no seller AT REST on 2026-08-30, while 51 of 52
+            of this desk's own combination positions were entered by taking an
+            offer. An empty book is still the expected first answer on a fresh
+            combination, and the copy inside says so.
           */}
-          <RecordParlay
-            summary="Record a ticket you already hold"
-            blurb="Already paid for this parlay? Record it and the desk will price its legs against Kalshi while the games run."
-            prefill={{
-              label: card.title,
-              legs: card.legs.map((leg) => ({
-                label: leg.label,
-                ticker: leg.ticker,
-                side: leg.side,
-              })),
-            }}
-          />
+          {/* `mt-auto`: cards in one grid row share a height, so every card's
+              button sits on the same line at the bottom. */}
+          <div className="mt-auto pt-5">
+            <Button onClick={openBuy} className="w-full">
+              Buy or record this parlay
+            </Button>
+          </div>
+          {mounted && (
+            <Sheet
+              open={buyOpen}
+              onClose={() => setBuyOpen(false)}
+              title={card.title}
+              subtitle={
+                priceToBeat !== null
+                  ? `${card.legs.length} legs · a sportsbook must pay ${priceToBeat}`
+                  : `${card.legs.length} legs`
+              }
+            >
+              <BuyTabs card={card} horizon={horizon} />
+            </Sheet>
+          )}
         </>
       )}
     </section>
+  );
+}
+
+type BuyTab = "whole" | "legs" | "record";
+
+/**
+ * The three things the panel can do, one at a time (#158).
+ *
+ * Every tab stays mounted once it has been shown — hidden, not unmounted —
+ * for the same reason the panel does: a receipt or a maker's quote must
+ * survive switching tabs. A tab that has never been shown is not mounted at
+ * all, so opening the panel spends nothing: the legs tab's verdict request
+ * fires when that tab is first chosen (see `LegBuys`), exactly where opening
+ * its `<details>` fired it before.
+ */
+function BuyTabs({
+  card,
+  horizon,
+}: {
+  card: ParlayCardData;
+  horizon?: ParlayWindow["key"];
+}) {
+  const [tab, setTab] = useState<BuyTab>("whole");
+  const [seen, setSeen] = useState<ReadonlySet<BuyTab>>(
+    () => new Set<BuyTab>(["whole"]),
+  );
+  // The legs tab's verdict trigger (#151, ADR 0186), held here rather than
+  // in `LegBuys` so it fires from the tap that chooses the tab and never
+  // from a mount. Kept, not discarded (#155) -- see `AskTheScouts`.
+  const [requestedAtMs, setRequestedAtMs] = useState<number | null>(null);
+  const [posted, setPosted] = useState<LegVerdictsResult | null>(null);
+  const legInputs: LegVerdictInput[] = card.legs.map((leg) => ({
+    ticker: leg.ticker,
+    side: leg.side,
+  }));
+  const choose = (next: BuyTab) => {
+    // Every switch TO the legs tab sends every leg of the card once, as
+    // every open of the `<details>` it replaced did -- not per leg, and
+    // not on a tap of the tab already showing.
+    if (next === "legs" && tab !== "legs" && card.legs.length > 0) {
+      requestLegVerdicts(legInputs, "leg_buys_open", card.key).then(setPosted);
+      setRequestedAtMs(Date.now());
+    }
+    setTab(next);
+    setSeen((prev) => (prev.has(next) ? prev : new Set(prev).add(next)));
+  };
+  const tabs: { key: BuyTab; label: string }[] = [
+    { key: "whole", label: "Whole parlay" },
+    { key: "legs", label: "Each leg" },
+    { key: "record", label: "Record a ticket" },
+  ];
+  return (
+    <div>
+      <div
+        role="tablist"
+        aria-label="What to do with this parlay"
+        className="grid grid-cols-3 gap-1 rounded-lg border border-border p-1"
+      >
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            onClick={() => choose(t.key)}
+            className={`rounded-md px-2 py-1.5 text-xs font-semibold ${
+              tab === t.key ? "bg-accent-soft text-foreground" : "text-muted"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div className="mt-4">
+        {seen.has("whole") && (
+          <div role="tabpanel" hidden={tab !== "whole"}>
+            <PriceOnKalshi card={card} horizon={horizon} />
+          </div>
+        )}
+        {seen.has("legs") && (
+          <div role="tabpanel" hidden={tab !== "legs"}>
+            <LegBuys
+              card={card}
+              requestedAtMs={requestedAtMs}
+              posted={posted}
+            />
+          </div>
+        )}
+        {seen.has("record") && (
+          <div role="tabpanel" hidden={tab !== "record"}>
+            {/*
+              **The steer is removed, 2026-09-08.** This block used to call a
+              sportsbook slip "on his own instruction the first-class one"
+              (2026-09-06) and hard-code `source: "sportsbook"` into the
+              prefill. That was a misreading of his "both" answer, and he
+              corrected it himself: when the earlier work said "sportsbook" he
+              meant KALSHI'S sportsbook. He bets through the cockpit into
+              Kalshi, singles and combinations both. ADR 0113.
+
+              So the form arrives with the legs and the name filled in and
+              **no source chosen**. Not the other default -- none. A recorded
+              position is still allowed to be a book slip, because he may hold
+              one; what is not allowed is the desk answering the question for
+              him, which is what made the 09-15 census unreadable (the number
+              of days a neutral choice had been shown was 0).
+
+              The stake and the return are left empty deliberately. Only the
+              place he paid knows what it paid, and a guessed return lands
+              straight in the size of a hedge.
+            */}
+            <RecordParlay
+              summary="Record a ticket you already hold"
+              defaultOpen
+              blurb="Already paid for this parlay? Record it and the desk will price its legs against Kalshi while the games run."
+              prefill={{
+                label: card.title,
+                legs: card.legs.map((leg) => ({
+                  label: leg.label,
+                  ticker: leg.ticker,
+                  side: leg.side,
+                })),
+              }}
+            />
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -375,9 +487,9 @@ function Card({
  * combination (ADR 0012 §5, ADR 0046). That is the whole reason this exists
  * beside the combo control rather than instead of the legs' own screens.
  *
- * Behind a `<details>`, closed: six cards times up to six legs is thirty-six
- * controls, and a card whose loudest feature is a wall of buy buttons is the
- * chase surface ADR 0067 refuses. This card prints fair value and never
+ * In the buy panel's second tab (#158), not on the card: six cards times up
+ * to six legs is thirty-six controls, and a card whose loudest feature is a
+ * wall of buy buttons is the chase surface ADR 0067 refuses. This card prints fair value and never
  * Kalshi's ask, which used to be what made it the one surface where ADR
  * 0065's mask genuinely held; the mask went with the P(YES) field on
  * 2026-09-09 and the card is unchanged by that.
@@ -405,7 +517,7 @@ const MISSING = "—";
  */
 function LegFacts({ leg }: { leg: ParlayCardLeg }) {
   return (
-    <span className="tabular w-full font-mono text-[11px] text-muted">
+    <span className="tabular w-full font-mono text-xs text-muted">
       <span title="What Kalshi charges for this leg right now">
         {leg.ask_display ? `Kalshi ${leg.ask_display}` : `Kalshi ${MISSING}`}
       </span>
@@ -439,13 +551,11 @@ function LegFacts({ leg }: { leg: ParlayCardLeg }) {
 function LegProvenance({ card }: { card: ParlayCardData }) {
   if (card.legs.length === 0) return null;
   return (
-    <details className="mt-2">
-      <summary className="cursor-pointer list-none font-mono text-[0.65rem] uppercase tracking-widest text-muted">
-        what the desk checked on each leg
-      </summary>
+    <div>
+      <SectionLabel>what the desk checked on each leg</SectionLabel>
       <ul className="mt-2 space-y-2">
         {card.legs.map((leg) => (
-          <li key={leg.ticker} className="text-[11px] leading-relaxed">
+          <li key={leg.ticker} className="text-xs leading-relaxed">
             <span className="font-semibold">{leg.label}</span>
             <LegGame leg={leg} />
             <span className="block text-muted">
@@ -492,7 +602,7 @@ function LegProvenance({ card }: { card: ParlayCardData }) {
           </li>
         ))}
       </ul>
-    </details>
+    </div>
   );
 }
 
@@ -636,7 +746,7 @@ function ScoutFlags({ leg }: { leg: ParlayCardLeg }) {
       {leg.scout_flags.map((flag) => (
         <span
           key={`${leg.ticker}-${flag.category}`}
-          className="rounded border border-border px-1 py-px font-mono text-[0.6rem] uppercase tracking-wide"
+          className="rounded border border-border px-1 py-px font-mono text-[0.65rem] uppercase tracking-wide"
           // No colour by state, deliberately. The palette's red means "lose"
           // (ADR 0081) and a scout flag is not a loss; colouring these would
           // make a word about a lineup look like a verdict about money.
@@ -677,14 +787,12 @@ function ScoutFlags({ leg }: { leg: ParlayCardLeg }) {
 function LegOrigins({ card }: { card: ParlayCardData }) {
   if (card.legs.length === 0) return null;
   return (
-    <details className="mt-2">
-      <summary className="cursor-pointer list-none font-mono text-[0.65rem] uppercase tracking-widest text-muted">
-        where each number came from
-      </summary>
+    <div>
+      <SectionLabel>where each number came from</SectionLabel>
       <ul className="mt-2 space-y-3">
         {card.legs.map((leg) => (
           <li key={`origin-${leg.ticker}`}>
-            <span className="text-[11px] font-semibold">{leg.label}</span>
+            <span className="text-xs font-semibold">{leg.label}</span>
             <LegGame leg={leg} />
             <DispersionStrip
               variant="chart"
@@ -697,6 +805,45 @@ function LegOrigins({ card }: { card: ParlayCardData }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * Everything on the card that explains a number rather than being one,
+ * behind one tap (#158).
+ *
+ * **Joe's call, 2026-09-25, by option button**, after a bettor's review of
+ * the calmer card: the difficulty chart and the fair-value stake table come
+ * off the card face and live here. The chart teaches that legs multiply the
+ * chance down, which changes no bet. The stake table prices at a fair value
+ * he cannot get, and the real price is one tap away in the buy panel. That
+ * reverses the 2026-08 rule in `Stakes`' docstring ("a card that cannot say
+ * what a stake buys is not a card") on his word; nothing is deleted.
+ *
+ * The two per-leg breakdowns were two reveals side by side before this; one
+ * disclosure with headed parts reads as one thing. Closed by default for the
+ * reason `LegOrigins` gives: six legs times an axis is a wall at 390px
+ * (ADR 0089).
+ */
+function HowTheseNumbersWereMade({ card }: { card: ParlayCardData }) {
+  if (card.legs.length === 0) return null;
+  return (
+    <details className="mt-3 rounded-lg border border-border px-3 py-2">
+      <summary className="cursor-pointer text-xs font-semibold text-muted">
+        How these numbers were made
+      </summary>
+      <div className="mt-3 space-y-5 pb-1">
+        {card.joint && (
+          <ParlayDifficulty
+            prefixes={card.joint.prefixes}
+            independenceNote={card.joint.correlation_note}
+          />
+        )}
+        <Stakes card={card} />
+        <LegProvenance card={card} />
+        <LegOrigins card={card} />
+      </div>
     </details>
   );
 }
@@ -721,20 +868,22 @@ function AskTheScouts({ card }: { card: ParlayCardData }) {
     side: leg.side,
   }));
   return (
-    <div className="mt-3 border-t border-border pt-3">
-      <button
-        type="button"
-        className="rounded border border-border px-3 py-1 text-sm font-semibold"
-        onClick={() => {
-          requestLegVerdicts(legInputs, "card_button", card.key).then(setPosted);
-          setRequestedAtMs(Date.now());
-        }}
-      >
-        Ask the scouts about these legs
-      </button>
-      <span className="ml-2 text-xs text-muted">
-        TAKE or PASS on each leg, in plain words, in about 20 seconds
-      </span>
+    <div className="mt-3">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <Button
+          tone="quiet"
+          className="-ml-2"
+          onClick={() => {
+            requestLegVerdicts(legInputs, "card_button", card.key).then(setPosted);
+            setRequestedAtMs(Date.now());
+          }}
+        >
+          Ask the scouts about these legs
+        </Button>
+        <span className="text-xs text-muted">
+          TAKE or PASS on each leg, in about 20 seconds
+        </span>
+      </div>
       <LegVerdicts
         legs={legInputs}
         requestedAtMs={requestedAtMs}
@@ -745,48 +894,39 @@ function AskTheScouts({ card }: { card: ParlayCardData }) {
   );
 }
 
-function LegBuys({ card }: { card: ParlayCardData }) {
-  const [requestedAtMs, setRequestedAtMs] = useState<number | null>(null);
-  // Kept, not discarded (#155) -- see `AskTheScouts` above for why.
-  const [posted, setPosted] = useState<LegVerdictsResult | null>(null);
+function LegBuys({
+  card,
+  requestedAtMs,
+  posted,
+}: {
+  card: ParlayCardData;
+  requestedAtMs: number | null;
+  posted: LegVerdictsResult | null;
+}) {
   if (card.legs.length === 0) return null;
-  // #151, ADR 0186: every leg of a card Joe opens toward buying, sent once
-  // per open of this panel — not per leg, and not on mount (mounting inside
-  // a closed <details> must spend nothing; each `<LegVerdicts>` row below
-  // still reads via GET on mount, which is the read that costs nothing).
-  const legInputs: LegVerdictInput[] = card.legs.map((leg) => ({
-    ticker: leg.ticker,
-    side: leg.side,
-  }));
   return (
-    <details
-      className="mt-3 border-t pt-3"
-      onToggle={(event) => {
-        if (event.currentTarget.open) {
-          requestLegVerdicts(legInputs, "leg_buys_open", card.key).then(
-            setPosted,
-          );
-          setRequestedAtMs(Date.now());
-        }
-      }}
-    >
-      <summary className="cursor-pointer text-xs font-semibold text-muted">
-        Bet these legs one by one
-        <span className="ml-1 font-normal">
-          — which is not this parlay: separate bets win and lose separately,
-          and the fair value above is the price of all of them landing
-          together.
-        </span>
-      </summary>
-      <ul className="mt-2 divide-y divide-border">
+    <div>
+      {/* The sentence that has to come before any leg's ticket opens (ADR
+          0073 §2). It used to be this block's `<summary>`; in the panel it
+          is the first line of the tab, above every "Bet this leg". */}
+      <p className="text-sm leading-snug text-muted" data-claim="leg-buy-intro">
+        Separate bets, which is not this parlay: each leg wins and loses on its
+        own, and the fair value on the card is the price of all of them landing
+        together.
+      </p>
+      <SectionLabel className="mt-3">
+        Scouts&rsquo; read on each leg &mdash;{" "}
+        <Term k="advisory">advisory</Term>, not a prediction
+      </SectionLabel>
+      <ul className="mt-1 divide-y divide-border">
         {card.legs.map((leg) => (
-          <li key={`buy-${leg.ticker}`} className="py-2">
+          <li key={`buy-${leg.ticker}`} className="py-3">
             <div className="flex flex-wrap items-baseline gap-x-2">
               <LeagueTag league={leg.league} />
               <span className="min-w-0 truncate text-sm font-semibold tracking-tight">
                 {leg.label}
               </span>
-              <span className="tabular text-xs text-muted">
+              <span className="tabular ml-auto text-xs text-muted">
                 {leg.fair_percent_display} fair
               </span>
               <LegGame leg={leg} />
@@ -795,6 +935,7 @@ function LegBuys({ card }: { card: ParlayCardData }) {
               legs={[{ ticker: leg.ticker, side: leg.side }]}
               requestedAtMs={requestedAtMs}
               posted={posted}
+              showLabel={false}
             />
             <ManualTicket
               ticker={leg.ticker}
@@ -806,7 +947,7 @@ function LegBuys({ card }: { card: ParlayCardData }) {
           </li>
         ))}
       </ul>
-    </details>
+    </div>
   );
 }
 
@@ -823,18 +964,19 @@ function LegBuys({ card }: { card: ParlayCardData }) {
  * flattering of the two.
  *
  * So: muted throughout, no bold on the default row, and an inset rule that
- * marks the whole block as provisional. The one thing NOT done is hiding or
- * removing the number -- a card that cannot say what a stake buys is not a
- * card, and CLAUDE.md rule 1 is about suppressing an apparent *edge*, not an
- * arithmetic consequence of a fair value the card already states.
+ * marks the whole block as provisional. This said "the one thing NOT done is
+ * hiding the number -- a card that cannot say what a stake buys is not a
+ * card" until 2026-09-25, when Joe moved it behind "How these numbers were
+ * made" (#158): the buy panel now answers what a stake buys at the real
+ * price in one tap. It is still rendered, still muted, never removed.
  */
 function Stakes({ card }: { card: ParlayCardData }) {
   if (card.at_stakes.length === 0) return null;
   return (
-    <div className="mt-3 border-t border-border pt-2">
-      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+    <div className="mt-3">
+      <SectionLabel>
         If it priced at fair value — an estimate, not a quote
-      </h3>
+      </SectionLabel>
       <ul className="mt-1 space-y-0.5 border-l-2 border-border pl-2">
         {card.at_stakes.map((stake) => (
           <li
@@ -849,10 +991,9 @@ function Stakes({ card }: { card: ParlayCardData }) {
           </li>
         ))}
       </ul>
-      <p className="mt-1 text-[11px] leading-snug text-muted">
-        This is an estimate, not Kalshi&rsquo;s quote. Ask Kalshi below for
-        the real one — it is usually worse, and it is capped by how many
-        contracts are actually resting, which this estimate is not.
+      <p className="mt-1 text-xs leading-snug text-muted">
+        Kalshi&rsquo;s real price is usually worse, and capped by how many
+        contracts are actually resting.
       </p>
     </div>
   );
@@ -1116,7 +1257,7 @@ function LegGame({ leg }: { leg: ParlayCardLeg }) {
   const game = legGame(leg);
   if (game === null) return null;
   return (
-    <span className="block w-full truncate text-[11px] text-muted" data-testid="leg-game">
+    <span className="block w-full truncate text-xs text-muted" data-testid="leg-game">
       {game}
     </span>
   );

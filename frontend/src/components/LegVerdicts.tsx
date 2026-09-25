@@ -82,6 +82,7 @@ export default function LegVerdicts({
   requestedAtMs = null,
   hideUnasked = false,
   posted = null,
+  showLabel = true,
 }: {
   legs: LegVerdictInput[];
   // When the caller last fired `requestLegVerdicts` for these legs, or null.
@@ -97,6 +98,9 @@ export default function LegVerdicts({
   // so a refused leg's reason reaches this panel even though a refusal
   // writes no row for the GET poll below to find. See `overlayPosted`.
   posted?: LegVerdictsResult | null;
+  // False where the caller draws the label once above a list of per-leg
+  // mounts (the buy panel's legs tab, #158), so it is not repeated per leg.
+  showLabel?: boolean;
 }) {
   const [rows, setRows] = useState<LegVerdict[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -164,11 +168,13 @@ export default function LegVerdicts({
   if (hideUnasked && shown.length === 0 && !error && !postedError) return null;
 
   return (
-    <div className="mt-2 space-y-1 border-t border-border pt-2">
-      <p className="font-mono text-[0.65rem] uppercase tracking-widest text-muted">
-        Scouts&rsquo; read &mdash; <Term k="advisory">advisory</Term>, not a
-        prediction
-      </p>
+    <div className="mt-2 space-y-1">
+      {showLabel && (
+        <p className="font-mono text-[0.65rem] uppercase tracking-widest text-muted">
+          Scouts&rsquo; read &mdash; <Term k="advisory">advisory</Term>, not a
+          prediction
+        </p>
+      )}
       {(postedError ?? error) && (
         <p className="text-xs text-muted">{postedError ?? error}</p>
       )}

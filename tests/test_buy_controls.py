@@ -114,10 +114,22 @@ class TestTheWordsThatCarryTheClaim:
         opening a control they opened without being told. The visible line
         is the one that has to carry the claim.
 
-        Mutation observed red: drop the clause from the summary."""
+        Mutation observed red: drop the clause from the summary.
+
+        Moved 2026-09-25 (#158): the leg buys left their `<details>` for a
+        tab in the buy panel, so the line that must carry the claim is the
+        tab's intro paragraph, which renders above every "Bet this leg".
+        Same claim, same slicing discipline: the intro only, and it must
+        precede the first ticket, so the ticket's `note` cannot satisfy it.
+        Mutation observed red: drop the clause from the intro; and move the
+        intro below the `<ManualTicket`."""
         block = source("components/ParlayCards.tsx")
         block = block[block.index("function LegBuys"):]
-        summary = block[block.index("<summary"):block.index("</summary>")]
+        start = block.index('data-claim="leg-buy-intro"')
+        summary = block[start:block.index("</p>", start)]
+        assert start < block.index("<ManualTicket"), (
+            "the leg-buy intro renders after a leg's ticket"
+        )
         assert "not this parlay" in summary, (
             "the leg-buy control does not distinguish itself from the "
             "combination the card prices, before it is opened"
