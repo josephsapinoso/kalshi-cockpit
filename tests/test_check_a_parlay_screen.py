@@ -76,6 +76,17 @@ class TestTheAskPanelIsWired:
         source = _read(CHECK)
         assert "AskTheMarket" in source.split("export default")[0]
 
+    def test_ask_the_market_renders_only_where_asking_can_work(self):
+        """#166 round 2: the RFQ path hard-codes shard 1, and an unsharded
+        KXMVE market carries `exchange_index: 0`. A button that fires a
+        create at the wrong shard 404s `not_found`, which reads as a
+        permissions problem on the spending screen -- so the button is
+        gated on the server's `rfq_available`, and the reason is shown."""
+        source = _strip_comments(_read(CHECK))
+        gate = source.index("value.rfq_available ?")
+        assert gate < source.index("<AskTheMarket")
+        assert "value.rfq_unavailable_reason" in source
+
 
 class TestNoRankingOrVerdict:
     def test_the_component_never_sorts(self):

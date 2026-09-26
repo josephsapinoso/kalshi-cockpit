@@ -1506,13 +1506,22 @@ export type CheckedParlayLeg = {
   /** Probability in [0, 1]. `null` means no desk reading — see above. */
   chance: number | null;
   chance_display: string | null;
+  /** Plain words for Joe; `unknown_reason_code` keeps the machine code. */
   unknown_reason: string | null;
+  unknown_reason_code: string | null;
 };
 
 /** What `POST /api/parlays/check` came back with (issue #167). */
 export type CheckedParlayResult = {
   status: "priced" | "book_empty";
   minted_market_ticker: string;
+  /**
+   * Whether "Ask the market" can work on this combination: true only on
+   * Kalshi's combinations shard (`exchange_index == 1`, which the RFQ path
+   * hard-codes) while the market is `active`. #166 round 2.
+   */
+  rfq_available: boolean;
+  rfq_unavailable_reason: string | null;
   legs: CheckedParlayLeg[];
   fair: {
     /** Probability in [0, 1]. `null` when `no_joint_reason` is set. */

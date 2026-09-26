@@ -192,7 +192,17 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
         {value.notes.unquoted} {value.notes.fee}
       </p>
 
-      <AskTheMarket marketTicker={value.minted_market_ticker} />
+      {/* Only where asking can work (#166 round 2): the RFQ path is
+          hard-coded to shard 1, and a closed market draws no quotes. The
+          reading above stands either way; only the button is withheld. */}
+      {value.rfq_available ? (
+        <AskTheMarket marketTicker={value.minted_market_ticker} />
+      ) : (
+        <p className="text-sm text-muted">
+          {value.rfq_unavailable_reason ??
+            "Asking the makers is not available for this combination."}
+        </p>
+      )}
     </div>
   );
 }
