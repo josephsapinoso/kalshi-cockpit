@@ -134,7 +134,7 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-26 (sixty-first session) — #165: paste a friend's Kalshi link on /parlays and see the desk's chance for each leg and for the whole parlay (#166 #167 #168, ADR 0187). Live on b540945
+## 2026-09-26 (sixty-first session) — #165: paste a friend's Kalshi link on /parlays and see the desk's chance for each leg and for the whole parlay (#166 #167 #168, ADR 0187). Live on 739f9e2
 
 This session started on `/go`. The board had #151 (a reading due 09-28) and #165. `partner` ranked #165 first and scoped it into slices. Joe answered with buttons: a friend sends **a kalshi.com link or a screenshot**, and he chose **link now, screenshot later** (#169). He had no sample link to hand.
 
@@ -158,7 +158,7 @@ This session started on `/go`. The board had #151 (a reading due 09-28) and #165
 - One check was run through the live `/parlay-check` proxy, using a real-shaped link to Joe's settled combo (`…/kxmvecrosscategory-s2026e88b8f612c7`).
 - The event resolved to its one market, and all 6 legs read. Four read as "game has already started" and two as "no consensus reading". The joint was `null` (`unknown_leg`), and `rfq_available` was false ("no longer trading").
 - **Shard can't be read off the name:** that ticker has no `SHARD1` in its name and carries `exchange_index: 1`.
-- The one defect was that the empty-book words still said "so ask instead" beside a withheld button. It is fixed in the commit after this entry, with a test.
+- The one defect was that the empty-book words still said "so ask instead" beside a withheld button. It was fixed in `739f9e2` with a test, deployed on Joe's second go-ahead (run 36211054543), and the live re-check reads "asking the makers is not available here: this combination is no longer trading".
 
 **Not verified:** a link a friend actually sends (two public example events return zero markets today), the box rendered in a browser, and a check on a live, active, shard-1 combo.
 
@@ -853,7 +853,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
-- 2026-09-26 (sixty-first session) — #165: paste a friend's Kalshi link on /parlays and see the desk's chance for each leg and for the whole parlay (#166 #167 #168, ADR 0187). Live on b540945
+- 2026-09-26 (sixty-first session) — #165: paste a friend's Kalshi link on /parlays and see the desk's chance for each leg and for the whole parlay (#166 #167 #168, ADR 0187). Live on 739f9e2
 - 2026-09-25 (sixtieth session) — /bets shows the desk's chance when Joe priced each parlay (#161); the leg ticket says "you can buy 0" and the break-even first, with the box switched off (#160, his answer); the refresh panel's duplicate fixture (#159) and a stale side-switch count (#162) fixed. Live on 29f794d
 - 2026-09-25 (fifty-ninth session) — Joe said the expanded parlay card was over-filled; it is now a summary, buying opens a slide-over panel, and the review found two old ways to close a ticket mid-send (#158)
 - 2026-09-25 (fifty-eighth session) — the first look at a verdict on screen found a burst that ran the day to 224% and a refusal the card never showed; both fixed and live on 866d942, and Joe raised the three ceilings together (#157 A)
