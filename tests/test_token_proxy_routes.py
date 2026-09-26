@@ -51,6 +51,11 @@ TOKEN_HANDLERS = (
     "lockout",
     "pass",
     "parlay-lookup",
+    # #165/#167 -- checks a parlay someone else built. The pasted link or
+    # ticker can mint a real combination market on the exchange, same as
+    # parlay-lookup above; no money moves. Listed for the same JSON-401
+    # reason as the rest.
+    "parlay-check",
     # ADR 0164 -- asking the makers what a combination costs. Outward-facing
     # (it creates a real RFQ on the exchange) and **it cannot spend**: only
     # accepting a quote binds the requester, and no accept handler exists.
