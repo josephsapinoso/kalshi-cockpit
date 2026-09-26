@@ -1,14 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   DISPLAY_TIME_ZONE,
+  fetchScoutOverview,
+  fetchWindow,
   formatAge,
   formatDuration,
   requestLegVerdicts,
 } from "@/lib/api";
+import { HEARTBEAT_INTERVAL_MS } from "@/lib/nextOddsWindow";
+import { scoutGauge } from "@/lib/gauges";
+import type { Gauge } from "@/lib/gauges";
 import type {
   ActionableWindow,
   LegVerdictInput,
@@ -34,7 +39,7 @@ import Sheet from "@/components/Sheet";
 import StaleOddsExit from "@/components/StaleOddsExit";
 import Term from "@/components/Term";
 import TrustNote from "@/components/TrustNote";
-import { Button, Segments, SectionLabel, Stat } from "@/components/ui";
+import { Button, GaugeReadout, Segments, SectionLabel, Stat } from "@/components/ui";
 
 /**
  * The ladder: six parlay cards at fair value (ADR 0070).
@@ -953,6 +958,16 @@ function cardLegInputs(card: ParlayCardData): LegVerdictInput[] {
  *
  * What bounds the spend is the shared daily `AgentBudget`, not this button:
  * past it, each remaining leg comes back refused with a plain sentence.
+ *
+ * **The one-line scout readout beside this button is the phone path for
+ * #172's HUD gauges.** `Nav.tsx` renders both gauges from `lg` up, but the
+ * phone link row has zero spare pixels at 375px (`a1a3534`), so a phone
+ * reader never sees the nav's version -- this is the only place a tap that
+ * can run into today's cap sees how close it already is, on any width. It
+ * polls `/api/scout` on the same cadence as the nav's own poll, gated the
+ * same way on tab visibility: the route is a plain read of `AgentBudget`'s
+ * counters and buys nothing, so there is no cost to asking as often as the
+ * nav does, and no benefit to asking oftener than a person reads the label.
  */
 function AskAllTheScouts({
   cards,
@@ -962,6 +977,30 @@ function AskAllTheScouts({
   onAsked: (askAll: AskAll) => void;
 }) {
   const [asking, setAsking] = useState(false);
+  const [gauge, setGauge] = useState<Gauge | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      if (document.visibilityState !== "visible") return;
+      fetchScoutOverview()
+        .then((overview) => {
+          if (!cancelled) setGauge(scoutGauge(overview.spend));
+        })
+        .catch(() => {
+          if (!cancelled) setGauge(scoutGauge(null));
+        });
+    };
+    load();
+    const timer = setInterval(load, HEARTBEAT_INTERVAL_MS);
+    document.addEventListener("visibilitychange", load);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", load);
+    };
+  }, []);
+
   const built = cards.filter(
     (card) => card.legs.length > 0 && card.not_built_reason === null,
   );
@@ -1004,6 +1043,7 @@ function AskAllTheScouts({
         {built.length} {built.length === 1 ? "card" : "cards"}; a leg already
         read costs nothing. Answers appear under each card.
       </span>
+      {gauge !== null && <GaugeReadout name="Scouts used today" gauge={gauge} />}
     </div>
   );
 }

@@ -1,5 +1,7 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
+import type { Gauge } from "@/lib/gauges";
+
 /**
  * The few shapes the parlay desk repeats, written once (#158).
  *
@@ -108,6 +110,26 @@ export function Segments({
       {Array.from({ length: 20 }, (_, i) => (
         <span key={i} data-lit={i < lit ? "" : undefined} />
       ))}
+    </span>
+  );
+}
+
+/**
+ * One HUD gauge: a `Segments` bar plus the label `lib/gauges.ts` computed
+ * for it (#172). Cyan at every fraction, on purpose -- there is no red or
+ * amber threshold here, because a full gauge is a state (today's spend),
+ * never an alarm (ADR 0071 §2.5). An unreadable gauge (`fraction: null`,
+ * e.g. the fleet unconfigured, or a budget of zero) renders the em dash and
+ * an unlit bar rather than inventing a 0%.
+ */
+export function GaugeReadout({ name, gauge }: { name: string; gauge: Gauge }) {
+  return (
+    <span className="flex shrink-0 items-center gap-2 font-mono text-xs text-muted">
+      <span className="uppercase tracking-wider">{name}</span>
+      <Segments fraction={gauge.fraction ?? 0} label={gauge.label} />
+      <span className="tabular">
+        {gauge.fraction === null ? "—" : gauge.label}
+      </span>
     </span>
   );
 }
