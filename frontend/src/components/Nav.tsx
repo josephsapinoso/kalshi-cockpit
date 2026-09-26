@@ -372,7 +372,11 @@ export default function Nav() {
               key={link.href}
               href={link.href}
               aria-current={lights(link.href, pathname) ? "page" : undefined}
-              className={`shrink-0 rounded-sm px-1.5 py-1.5 font-mono text-xs uppercase tracking-wider transition-colors hover:bg-accent-soft hover:text-foreground sm:px-3 ${
+              // Phone spacing is tighter than sm+: mono uppercase at
+              // tracking-wider + px-1.5 needed 289px of a 267px row at a 375px
+              // viewport, so the row scrolled and hid the theme toggle
+              // (measured on live, 2026-09-26). px-1 + tracking-wide fits at 265.
+              className={`shrink-0 rounded-sm px-1 py-1.5 font-mono text-xs uppercase tracking-wide transition-colors hover:bg-accent-soft hover:text-foreground sm:px-3 sm:tracking-wider ${
                 lights(link.href, pathname) ? "glow text-accent" : "text-muted"
               }`}
             >
