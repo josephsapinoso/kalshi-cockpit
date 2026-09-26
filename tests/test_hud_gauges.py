@@ -198,11 +198,11 @@ class TestTheOddsGaugeMeasuresAgainstTheDailyCap:
             }
         )
         assert gauge["fraction"] == pytest.approx(300 / 700)
-        assert gauge["label"] == "odds 43%"
+        assert gauge["label"] == "credits 43%"
 
     def test_a_fully_spent_day_reads_100_percent_against_the_700_cap(self):
         gauge = odds_gauge({"spent_today": 700, "daily_budget": 700})
-        assert gauge == {"fraction": 1.0, "label": "odds 100%"}
+        assert gauge == {"fraction": 1.0, "label": "credits 100%"}
 
 
 class TestTheWiring:

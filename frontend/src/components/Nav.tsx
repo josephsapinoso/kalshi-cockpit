@@ -419,8 +419,8 @@ export default function Nav() {
             colour here is ever a verdict. */}
         {scoutGaugeState !== null && oddsGaugeState !== null && (
           <span className="hidden shrink-0 items-center gap-4 lg:flex">
-            <GaugeReadout gauge={scoutGaugeState} />
-            <GaugeReadout gauge={oddsGaugeState} />
+            <GaugeReadout name="Scouts" gauge={scoutGaugeState} />
+            <GaugeReadout name="Odds" gauge={oddsGaugeState} />
           </span>
         )}
 

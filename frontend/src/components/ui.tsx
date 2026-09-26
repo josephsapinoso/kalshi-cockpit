@@ -122,9 +122,10 @@ export function Segments({
  * e.g. the fleet unconfigured, or a budget of zero) renders the em dash and
  * an unlit bar rather than inventing a 0%.
  */
-export function GaugeReadout({ gauge }: { gauge: Gauge }) {
+export function GaugeReadout({ name, gauge }: { name: string; gauge: Gauge }) {
   return (
     <span className="flex shrink-0 items-center gap-2 font-mono text-xs text-muted">
+      <span className="uppercase tracking-wider">{name}</span>
       <Segments fraction={gauge.fraction ?? 0} label={gauge.label} />
       <span className="tabular">
         {gauge.fraction === null ? "—" : gauge.label}

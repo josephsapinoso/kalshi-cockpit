@@ -1043,7 +1043,7 @@ function AskAllTheScouts({
         {built.length} {built.length === 1 ? "card" : "cards"}; a leg already
         read costs nothing. Answers appear under each card.
       </span>
-      {gauge !== null && <GaugeReadout gauge={gauge} />}
+      {gauge !== null && <GaugeReadout name="Scouts used today" gauge={gauge} />}
     </div>
   );
 }

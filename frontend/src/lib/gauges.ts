@@ -113,5 +113,5 @@ export function oddsGauge(window: OddsSpendFacts): Gauge {
     return UNREADABLE;
   }
   const fraction = (window.spent_today as number) / (window.daily_budget as number);
-  return { fraction, label: `odds ${pct(fraction)}` };
+  return { fraction, label: `credits ${pct(fraction)}` };
 }
