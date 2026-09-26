@@ -61,17 +61,54 @@ export function Stat({
   label,
   value,
   sub,
+  readout = false,
 }: {
   label: ReactNode;
   value: ReactNode;
   sub?: ReactNode;
+  /** The HUD's lit readout: larger, in the accent ink, glowing in dark.
+   * Decoration for the block's headline figure, never a ranking. */
+  readout?: boolean;
 }) {
   return (
     <div className="min-w-0">
       <p className="text-xs text-muted">{label}</p>
-      <p className="tabular text-2xl font-semibold leading-tight">{value}</p>
+      <p
+        className={
+          readout
+            ? "tabular glow text-3xl font-semibold leading-tight text-accent"
+            : "tabular text-2xl font-semibold leading-tight"
+        }
+      >
+        {value}
+      </p>
       {sub && <p className="mt-0.5 text-xs text-muted">{sub}</p>}
     </div>
+  );
+}
+
+/**
+ * A twenty-cell meter for a chance between 0 and 1 (the HUD, 2026-09-26).
+ * It draws the number beside it and says nothing the number does not: the
+ * cells are rounded to the nearest 5%, so the figure stays the reading and
+ * this stays a picture of it.
+ */
+export function Segments({
+  fraction,
+  label,
+}: {
+  fraction: number;
+  label: string;
+}) {
+  const lit = Number.isFinite(fraction)
+    ? Math.round(Math.min(1, Math.max(0, fraction)) * 20)
+    : 0;
+  return (
+    <span className="segments mt-1" role="img" aria-label={label}>
+      {Array.from({ length: 20 }, (_, i) => (
+        <span key={i} data-lit={i < lit ? "" : undefined} />
+      ))}
+    </span>
   );
 }
 

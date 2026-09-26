@@ -5,8 +5,9 @@ import { useEffect, useState } from "react";
 import { applyThemeColor } from "@/lib/theme";
 
 /**
- * Three-state theme control, matching the personal site: follow system by
- * default, with an explicit override persisted to localStorage.
+ * Two-state theme control, persisted to localStorage. Dark unless the reader
+ * chose light: the HUD (2026-09-26) is a dark design, and it no longer
+ * follows the system.
  *
  * The icon renders `null` until mounted so the server and client markup match
  * -- reading localStorage during render would produce a hydration mismatch.
@@ -22,8 +23,7 @@ export default function ThemeToggle() {
   }, []);
 
   function toggle() {
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const current = theme ?? (prefersDark ? "dark" : "light");
+    const current = theme ?? "dark";
     const next = current === "dark" ? "light" : "dark";
     setTheme(next);
     localStorage.setItem("theme", next);
@@ -42,7 +42,7 @@ export default function ThemeToggle() {
       aria-label="Toggle colour theme"
       className="grid h-9 w-9 place-items-center rounded-full border text-muted transition-colors hover:bg-accent-soft hover:text-foreground"
     >
-      {mounted ? (theme === "dark" ? "☀" : "☾") : null}
+      {mounted ? (theme === "light" ? "☾" : "☀") : null}
     </button>
   );
 }

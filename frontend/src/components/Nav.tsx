@@ -317,10 +317,10 @@ export default function Nav() {
       >
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
           <Link href="/" className="flex shrink-0 items-center gap-3">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent-fill text-sm font-bold text-white">
+            <span className="grid h-8 w-8 place-items-center rounded-sm bg-accent-fill text-sm font-bold text-white">
               K
             </span>
-            <span className="hidden text-sm font-semibold tracking-tight sm:inline">
+            <span className="display hidden text-base sm:inline">
               Cockpit
             </span>
           </Link>
@@ -372,8 +372,8 @@ export default function Nav() {
               key={link.href}
               href={link.href}
               aria-current={lights(link.href, pathname) ? "page" : undefined}
-              className={`shrink-0 rounded-full px-1.5 py-1.5 text-sm transition-colors hover:bg-accent-soft hover:text-foreground sm:px-3 ${
-                lights(link.href, pathname) ? "text-foreground" : "text-muted"
+              className={`shrink-0 rounded-sm px-1.5 py-1.5 font-mono text-xs uppercase tracking-wider transition-colors hover:bg-accent-soft hover:text-foreground sm:px-3 ${
+                lights(link.href, pathname) ? "glow text-accent" : "text-muted"
               }`}
             >
               {link.label}

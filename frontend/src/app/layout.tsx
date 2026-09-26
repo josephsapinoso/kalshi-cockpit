@@ -1,12 +1,24 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Chakra_Petch, Geist, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import Footer from "@/components/Footer";
 import Nav from "@/components/Nav";
 import { THEME_COLOR } from "@/lib/theme";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+// The HUD's two faces (2026-09-26): Plex Mono for every number and label,
+// Chakra Petch for headings. Body prose stays in Geist, which reads better
+// at length than either.
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+});
+const chakra = Chakra_Petch({
+  variable: "--font-chakra",
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+});
 
 export const metadata: Metadata = {
   title: "Kalshi Cockpit",
@@ -42,13 +54,10 @@ export const viewport: Viewport = {
   initialScale: 1,
 
   // The colour behind the status bar on an installed app, and the browser
-  // chrome tint elsewhere. Two entries because the theme follows the system by
-  // default; `THEME_SCRIPT` below overwrites both when the reader has forced
-  // one, which a media query cannot see.
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: THEME_COLOR.light },
-    { media: "(prefers-color-scheme: dark)", color: THEME_COLOR.dark },
-  ],
+  // chrome tint elsewhere. Dark, because the HUD opens dark whatever the
+  // system says (2026-09-26); `THEME_SCRIPT` below repaints it when the
+  // reader has chosen light.
+  themeColor: THEME_COLOR.dark,
 };
 
 // The theme is applied before first paint. Without this the page renders light
@@ -64,7 +73,8 @@ const THEME_SCRIPT = `
 (function () {
   try {
     var stored = localStorage.getItem("theme");
-    if (stored !== "dark" && stored !== "light") return;
+    // The HUD opens dark unless the reader chose light (2026-09-26).
+    if (stored !== "light") stored = "dark";
     document.documentElement.dataset.theme = stored;
     var colour = stored === "dark" ? ${JSON.stringify(THEME_COLOR.dark)} : ${JSON.stringify(THEME_COLOR.light)};
     var paint = function () {
@@ -83,7 +93,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${plexMono.variable} ${chakra.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <head>

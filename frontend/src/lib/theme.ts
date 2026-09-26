@@ -22,7 +22,7 @@
 
 export const THEME_COLOR = {
   light: "#fbfaf8",
-  dark: "#0c0a09",
+  dark: "#060a12",
 } as const;
 
 /** The mark's ground: `--accent-fill`, light theme. Shared with `icon.svg` and

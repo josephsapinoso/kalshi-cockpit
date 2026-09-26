@@ -85,19 +85,19 @@
 /* Dark values, shared between "follow system" and "forced dark". */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --background: #0c0a09;
-    --foreground: #f5f2ef;
-    --muted: #a49a91;
-    --card: #171412;
-    --border: #2a2521;
-    --border-strong: #6b6159;
-    --edge: #4a423b;
+    --background: #060a12;
+    --foreground: #dfe8f5;
+    --muted: #7d8aa3;
+    --card: #0b1220;
+    --border: #16213a;
+    --border-strong: #3d5680;
+    --edge: #22345a;
     /* --accent is too light to carry white text; --accent-fill is the darker
        ground that can. White on #ef4444 measured 3.76:1 and shipped. */
-    --accent: #8ea2ff;
+    --accent: #7fdcff;
     --accent-fill: #3b4bb8;
-    --accent-soft: #151a33;
-    --accent-2: #cbb279;
+    --accent-soft: #0f1a2e;
+    --accent-2: #f2b84b;
     --accent-2-soft: #2a2313;
     --positive: #4ade80;
     --negative: #ef4444;
@@ -106,17 +106,17 @@
 }
 
 :root[data-theme="dark"] {
-  --background: #0c0a09;
-  --foreground: #f5f2ef;
-  --muted: #a49a91;
-  --card: #171412;
-  --border: #2a2521;
-  --border-strong: #6b6159;
-  --edge: #4a423b;
-  --accent: #8ea2ff;
+  --background: #060a12;
+  --foreground: #dfe8f5;
+  --muted: #7d8aa3;
+  --card: #0b1220;
+  --border: #16213a;
+  --border-strong: #3d5680;
+  --edge: #22345a;
+  --accent: #7fdcff;
   --accent-fill: #3b4bb8;
-  --accent-soft: #151a33;
-  --accent-2: #cbb279;
+  --accent-soft: #0f1a2e;
+  --accent-2: #f2b84b;
   --accent-2-soft: #2a2313;
   --positive: #4ade80;
   --negative: #ef4444;
@@ -140,7 +140,8 @@
   --color-negative: var(--negative);
   --color-negative-soft: var(--negative-soft);
   --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-mono: var(--font-plex-mono);
+  --font-display: var(--font-chakra);
 }
 
 /* Bare `border` / `border-t` / `divide-y` classes pick up the themed colour,
@@ -177,10 +178,14 @@ body {
 }
 
 /* The signature heading treatment: very tight tracking, sub-1 line height. */
+/* Since the HUD (2026-09-26) it is set in the display face, Chakra Petch,
+   which is squared and wide, so the tracking opens up rather than tightens. */
 .display {
-  letter-spacing: -0.04em;
+  font-family: var(--font-display), var(--font-sans), sans-serif;
+  letter-spacing: 0.02em;
   line-height: 0.95;
-  font-weight: 800;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
 .link-underline {
@@ -362,4 +367,60 @@ body {
 }
 .feed-live {
   animation: feed-pulse 2s ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------------------
+   The HUD (Joe, 2026-09-26: "imagine if this were an interface in a video
+   game"). He chose mockup A, "Cockpit HUD", from three; the dark palette
+   above is its palette and the theme now opens dark.
+
+   Decoration only. None of these classes may carry meaning a reader needs:
+   the brackets and the glow say "this is a panel" and "this is the number",
+   never "this one is better". ADR 0071 section 2.5 forbids ranking by the
+   gap, so nothing here is keyed to an edge, a verdict or a price.
+--------------------------------------------------------------------------- */
+
+/* Corner brackets on a panel, in the accent ink. */
+.hud {
+  position: relative;
+  border-radius: 2px;
+}
+.hud::before,
+.hud::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-color: var(--accent);
+  border-style: solid;
+  pointer-events: none;
+}
+.hud::before {
+  top: -1px;
+  left: -1px;
+  border-width: 2px 0 0 2px;
+}
+.hud::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 2px 2px 0;
+}
+
+/* A readout's glow. Dark only: on cream it reads as a smudge. */
+:root[data-theme="dark"] .glow {
+  text-shadow: 0 0 18px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* A segmented meter, twenty cells. The lit count is set by the component. */
+.segments {
+  display: grid;
+  grid-template-columns: repeat(20, minmax(0, 1fr));
+  gap: 2px;
+}
+.segments > span {
+  height: 7px;
+  background: var(--border);
+}
+.segments > span[data-lit] {
+  background: var(--accent);
 }

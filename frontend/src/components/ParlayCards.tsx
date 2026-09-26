@@ -34,7 +34,7 @@ import Sheet from "@/components/Sheet";
 import StaleOddsExit from "@/components/StaleOddsExit";
 import Term from "@/components/Term";
 import TrustNote from "@/components/TrustNote";
-import { Button, SectionLabel, Stat } from "@/components/ui";
+import { Button, Segments, SectionLabel, Stat } from "@/components/ui";
 
 /**
  * The ladder: six parlay cards at fair value (ADR 0070).
@@ -164,10 +164,10 @@ function Card({
   return (
     <section
       aria-label={`${card.title} card`}
-      className="flex flex-col rounded-xl border border-border bg-card p-5"
+      className="hud flex flex-col border border-edge bg-card p-5"
     >
       <header className="flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold uppercase tracking-widest">
+        <h2 className="display text-lg">
           {card.title}
         </h2>
         {/* The chance moves into the stat row below whenever the card has a
@@ -223,10 +223,11 @@ function Card({
             The longer version of the paragraph moved behind the Hint (#158).
           */}
           {card.joint?.price_to_beat_display && (
-            <div className="mt-4 grid grid-cols-2 gap-4 rounded-lg bg-accent-soft p-4">
+            <div className="mt-4 grid grid-cols-2 gap-4 rounded-sm bg-accent-soft p-4">
               <Stat
                 label="What a sportsbook must pay to match this"
                 value={card.joint.price_to_beat_display}
+                readout
               />
               <Stat
                 label={
@@ -237,9 +238,17 @@ function Card({
                 }
                 value={card.joint.conservative_percent_display}
                 sub={
-                  card.joint.method_range_display
-                    ? `methods span ${card.joint.method_range_display}`
-                    : undefined
+                  <>
+                    <Segments
+                      fraction={card.joint.conservative}
+                      label={`${card.joint.conservative_percent_display} chance every leg hits`}
+                    />
+                    {card.joint.method_range_display && (
+                      <span className="mt-1 block">
+                        methods span {card.joint.method_range_display}
+                      </span>
+                    )}
+                  </>
                 }
               />
               <p className="col-span-2 text-xs leading-snug text-muted">
@@ -984,7 +993,10 @@ function AskAllTheScouts({
 
   return (
     <div className="flex flex-wrap items-baseline gap-x-2">
-      <Button tone="quiet" className="-ml-2" onClick={askEveryCard}>
+      <Button
+        className="hud border-accent font-mono uppercase tracking-widest text-accent"
+        onClick={askEveryCard}
+      >
         {asking ? "Asking the scouts…" : "Ask the scouts about every leg on this page"}
       </Button>
       <span className="text-xs text-muted">
