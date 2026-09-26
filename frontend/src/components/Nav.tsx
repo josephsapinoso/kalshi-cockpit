@@ -6,10 +6,13 @@ import { useEffect, useState } from "react";
 import ThemeToggle from "./ThemeToggle";
 import MarketSearch from "./MarketSearch";
 import { SHELL_WIDTH } from "@/lib/shell";
-import { fetchWindow, recordAttention } from "@/lib/api";
+import { fetchScoutOverview, fetchWindow, recordAttention } from "@/lib/api";
 import { HEARTBEAT_INTERVAL_MS } from "@/lib/nextOddsWindow";
 import { windowChip } from "@/lib/windowChip";
 import type { Chip } from "@/lib/windowChip";
+import { oddsGauge, scoutGauge } from "@/lib/gauges";
+import type { Gauge } from "@/lib/gauges";
+import { GaugeReadout } from "@/components/ui";
 
 // Four links and a search button, since 2026-09-02 (decision-map #18, Joe's
 // option A). The count is a budget rather than a coincidence: the row scrolls
@@ -161,6 +164,15 @@ export default function Nav() {
   // the fetch is cheap and gating it on a media query would put layout state
   // into data state.
   const [chip, setChip] = useState<Chip | null>(null);
+  // The two HUD spend gauges (#172), `lg`+ only. `null` until the first fetch
+  // resolves (success or failure) -- hidden until then, exactly as `chip` is
+  // -- and thereafter always a `Gauge`, because "unreadable" (spend null, a
+  // failed fetch) is itself a fact `GaugeReadout` renders as "--", not an
+  // absence to hide. The odds gauge rides the same `/api/window` poll as the
+  // chip below, so #172 buys no extra call; the scout gauge polls
+  // `/api/scout` on the same cadence, gated on the same visibility check.
+  const [oddsGaugeState, setOddsGaugeState] = useState<Gauge | null>(null);
+  const [scoutGaugeState, setScoutGaugeState] = useState<Gauge | null>(null);
   // The header search. Closed until the button is pressed, and closed again
   // on every navigation and on Escape: the panel is a layer over whatever
   // page is open, and a layer that outlives the page it was opened on reads
@@ -198,10 +210,42 @@ export default function Nav() {
       if (document.visibilityState !== "visible") return;
       fetchWindow()
         .then((w) => {
-          if (!cancelled) setChip(windowChip(w));
+          if (cancelled) return;
+          setChip(windowChip(w));
+          setOddsGaugeState(oddsGauge(w));
         })
         .catch(() => {
-          if (!cancelled) setChip(null);
+          if (cancelled) return;
+          setChip(null);
+          setOddsGaugeState(oddsGauge(null));
+        });
+    };
+    load();
+    const timer = setInterval(load, HEARTBEAT_INTERVAL_MS);
+    document.addEventListener("visibilitychange", load);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", load);
+    };
+  }, []);
+
+  // The scout gauge's own poll (#172) -- same cadence and the same
+  // visibility gate as the window poll above, because `/api/scout` is a
+  // second route and buys neither credits nor tokens on its own (a plain
+  // read of `AgentBudget`'s counters), so there is nothing to spend by
+  // asking as often as the chip already does, and nothing gained by asking
+  // more often than a person can read the number.
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      if (document.visibilityState !== "visible") return;
+      fetchScoutOverview()
+        .then((overview) => {
+          if (!cancelled) setScoutGaugeState(scoutGauge(overview.spend));
+        })
+        .catch(() => {
+          if (!cancelled) setScoutGaugeState(scoutGauge(null));
         });
     };
     load();
@@ -363,6 +407,20 @@ export default function Nav() {
               }`}
             />
             {chip.label}
+          </span>
+        )}
+
+        {/* The two HUD spend gauges (#172): today's scout allowance and
+            today's odds-credit spend against the 700 daily cap, read before
+            a tap that can burn either in one pass. Hidden below `lg` -- the
+            phone link row has zero spare pixels at 375px (`a1a3534`) -- the
+            phone path is the readout beside "Ask the scouts about every leg"
+            on `/parlays` instead. Cyan `GaugeReadout` at every fraction; no
+            colour here is ever a verdict. */}
+        {scoutGaugeState !== null && oddsGaugeState !== null && (
+          <span className="hidden shrink-0 items-center gap-4 lg:flex">
+            <GaugeReadout gauge={scoutGaugeState} />
+            <GaugeReadout gauge={oddsGaugeState} />
           </span>
         )}
 
