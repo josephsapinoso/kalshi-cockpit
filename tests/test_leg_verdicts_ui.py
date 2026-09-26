@@ -225,13 +225,57 @@ class TestEveryCardHasAVisibleWayIn:
 
     def test_each_card_renders_the_ask_the_scouts_button(self):
         src = (SRC / "components" / "ParlayCards.tsx").read_text(encoding="utf-8")
-        assert "<AskTheScouts card={card} />" in src
+        assert "<AskTheScouts card={card} askAll={askAll} />" in src
         assert "Ask the scouts about these legs" in src
         assert 'requestLegVerdicts(legInputs, "card_button", card.key)' in src
 
     def test_the_card_view_hides_unasked_legs_until_a_tap(self):
         src = LEG_VERDICTS.read_text(encoding="utf-8")
         assert 'merged.filter((row) => row.state !== "none")' in src
+
+
+class TestOneTapAsksEveryCard:
+    """Joe, 2026-09-26: "make a button on the parlay page that allows for me
+    to send the scouts for all legs so i dont have to click on them
+    one-by-one." One page-level button sends each built card's legs as that
+    card's own `card_button` request, one card at a time, and hands each
+    result to that card's existing panel."""
+
+    @staticmethod
+    def _fn(name: str) -> str:
+        src = _text(PARLAY_CARDS)
+        start = src.index(f"function {name}(")
+        end = src.find("\nfunction ", start + 1)
+        return src[start:] if end == -1 else src[start:end]
+
+    def test_the_page_renders_one_button_above_the_cards(self):
+        src = _text(PARLAY_CARDS)
+        assert "<AskAllTheScouts cards={ladder.cards} onAsked={setAskAll} />" in src
+        assert "Ask the scouts about every leg on this page" in src
+
+    def test_it_asks_one_card_at_a_time_and_keeps_each_answer(self):
+        """Mutation observed red: replace the `for ... await` loop with
+        `Promise.all(built.map(...))`, or drop the `posted[card.key] =`
+        assignment."""
+        fn = self._fn("AskAllTheScouts")
+        assert "for (const card of built)" in fn
+        assert re.search(
+            r"posted\[card\.key\]\s*=\s*await requestLegVerdicts\(\s*legInputs,"
+            r"\s*\"card_button\",\s*card\.key,?\s*\)",
+            fn,
+        )
+        assert "Promise.all" not in fn
+
+    def test_a_second_tap_while_asking_sends_nothing(self):
+        """Mutation observed red: delete `if (asking) return;`."""
+        assert "if (asking) return;" in self._fn("AskAllTheScouts")
+
+    def test_each_card_panel_shows_the_page_taps_answer(self):
+        """Mutation observed red: drop the `askAll?.posted[card.key]`
+        fallback, or stop folding `askAll.atMs` into the request time."""
+        fn = self._fn("AskTheScouts")
+        assert "askAll?.posted[card.key]" in fn
+        assert "askAll.atMs" in fn
 
 
 class TestARefusedLegShowsItsRefusal:

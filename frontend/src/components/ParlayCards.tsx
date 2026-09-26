@@ -94,13 +94,23 @@ export default function ParlayCards({
   actionable?: ActionableWindow | null;
   refreshable?: Refreshable | null;
 }) {
+  // The page-level tap's request time and per-card POST results, handed to
+  // every card's own `AskTheScouts` so the verdicts land where a per-card
+  // tap would put them. `null` until the page button is tapped.
+  const [askAll, setAskAll] = useState<AskAll | null>(null);
   return (
     <div className="space-y-8">
+      <AskAllTheScouts cards={ladder.cards} onAsked={setAskAll} />
       {/* Two columns until the widest screens (#158): at three columns from
           `lg` a card was about 277px wide, too narrow for its own numbers. */}
       <div className="grid gap-6 md:grid-cols-2 2xl:grid-cols-3">
         {ladder.cards.map((card) => (
-          <Card key={card.key} card={card} horizon={ladder.window?.key} />
+          <Card
+            key={card.key}
+            card={card}
+            horizon={ladder.window?.key}
+            askAll={askAll}
+          />
         ))}
       </div>
       <Freshness
@@ -129,8 +139,11 @@ export default function ParlayCards({
 function Card({
   card,
   horizon,
+  askAll,
 }: {
   card: ParlayCardData;
+  /** The page-level "every leg" tap, or null before it (see `AskAllTheScouts`). */
+  askAll: AskAll | null;
   /** The window this card was built under (`ladder.window.key`) -- carried
    * down to `PriceOnKalshi` so its lookup prices the same window the card
    * was drawn from, rather than always guessing `tonight`. */
@@ -300,7 +313,7 @@ function Card({
               <span className="tabular">{card.joint.fair_cost_display}</span>.
             </p>
           )}
-          <AskTheScouts card={card} />
+          <AskTheScouts card={card} askAll={askAll} />
           <HowTheseNumbersWereMade card={card} />
           {/*
             **One way in to buying, and it opens a panel (#158, Joe's choice
@@ -855,18 +868,29 @@ function HowTheseNumbersWereMade({ card }: { card: ParlayCardData }) {
  * of this card. Legs already read show their verdict on page load, and that
  * read is free. Advisory, like every line `<LegVerdicts>` draws.
  */
-function AskTheScouts({ card }: { card: ParlayCardData }) {
-  const [requestedAtMs, setRequestedAtMs] = useState<number | null>(null);
+function AskTheScouts({
+  card,
+  askAll,
+}: {
+  card: ParlayCardData;
+  askAll: AskAll | null;
+}) {
+  const [ownRequestedAtMs, setRequestedAtMs] = useState<number | null>(null);
   // Kept, not discarded (#155): a refused leg writes no row, so unless this
   // POST result is held and handed to `<LegVerdicts>` below, the GET poll
   // reads `none` and the panel says nobody asked about a leg the server
   // just refused to read.
-  const [posted, setPosted] = useState<LegVerdictsResult | null>(null);
+  const [ownPosted, setPosted] = useState<LegVerdictsResult | null>(null);
   if (card.legs.length === 0 || card.not_built_reason !== null) return null;
-  const legInputs: LegVerdictInput[] = card.legs.map((leg) => ({
-    ticker: leg.ticker,
-    side: leg.side,
-  }));
+  const legInputs = cardLegInputs(card);
+  // Whichever tap came last -- this card's own or the page's "every leg"
+  // button -- restarts the poll; this card's own POST result wins over the
+  // page's, being the one it made itself.
+  const requestedAtMs =
+    askAll === null
+      ? ownRequestedAtMs
+      : Math.max(ownRequestedAtMs ?? 0, askAll.atMs);
+  const posted = ownPosted ?? askAll?.posted[card.key] ?? null;
   return (
     <div className="mt-3">
       <div className="flex flex-wrap items-baseline gap-x-2">
@@ -890,6 +914,84 @@ function AskTheScouts({ card }: { card: ParlayCardData }) {
         hideUnasked
         posted={posted}
       />
+    </div>
+  );
+}
+
+/** One page-level tap's worth of leg-scout requests (see `AskAllTheScouts`). */
+type AskAll = {
+  atMs: number;
+  /** Each card's own POST result, by `card.key` -- kept, not discarded (#155). */
+  posted: Record<string, LegVerdictsResult>;
+};
+
+function cardLegInputs(card: ParlayCardData): LegVerdictInput[] {
+  return card.legs.map((leg) => ({ ticker: leg.ticker, side: leg.side }));
+}
+
+/**
+ * One tap for every card's legs (Joe, 2026-09-26: "so i dont have to click on
+ * them one-by-one"). It sends exactly what each card's own "Ask the scouts"
+ * button sends, as the same `card_button` trigger with that card's key, and
+ * hands each result back to that card's panel -- so the verdicts appear under
+ * each card, and this draws no verdict list of its own.
+ *
+ * **One card at a time, awaited, never all at once.** A leg shared by several
+ * cards is read once: the server serves a leg already `running` or freshly
+ * read as-is, so the second card that names it gets `pending` or `cached` and
+ * spends nothing. Sequential requests keep that true without leaning on how
+ * the server interleaves concurrent ones.
+ *
+ * What bounds the spend is the shared daily `AgentBudget`, not this button:
+ * past it, each remaining leg comes back refused with a plain sentence.
+ */
+function AskAllTheScouts({
+  cards,
+  onAsked,
+}: {
+  cards: ParlayCardData[];
+  onAsked: (askAll: AskAll) => void;
+}) {
+  const [asking, setAsking] = useState(false);
+  const built = cards.filter(
+    (card) => card.legs.length > 0 && card.not_built_reason === null,
+  );
+  if (built.length === 0) return null;
+  const distinctLegs = new Set(
+    built.flatMap((card) => card.legs.map((leg) => `${leg.ticker}:${leg.side}`)),
+  ).size;
+
+  const askEveryCard = async () => {
+    if (asking) return;
+    setAsking(true);
+    const atMs = Date.now();
+    const posted: Record<string, LegVerdictsResult> = {};
+    onAsked({ atMs, posted: { ...posted } });
+    try {
+      for (const card of built) {
+        const legInputs = cardLegInputs(card);
+        posted[card.key] = await requestLegVerdicts(
+          legInputs,
+          "card_button",
+          card.key,
+        );
+        onAsked({ atMs, posted: { ...posted } });
+      }
+    } finally {
+      setAsking(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2">
+      <Button tone="quiet" className="-ml-2" onClick={askEveryCard}>
+        {asking ? "Asking the scouts…" : "Ask the scouts about every leg on this page"}
+      </Button>
+      <span className="text-xs text-muted">
+        {distinctLegs} different {distinctLegs === 1 ? "leg" : "legs"} across{" "}
+        {built.length} {built.length === 1 ? "card" : "cards"}; a leg already
+        read costs nothing. Answers appear under each card.
+      </span>
     </div>
   );
 }

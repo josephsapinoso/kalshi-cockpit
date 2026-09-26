@@ -4216,7 +4216,8 @@ export type LegVerdictTrigger = "price_tap" | "leg_buys_open" | "card_button";
  *
  * Fired from exactly three places, all trigger handlers
  * (`PriceOnKalshi.tsx`'s `tap`, `ParlayCards.tsx`'s `LegBuys` toggle and its
- * `AskTheScouts` button, the `card_button` trigger) --
+ * `AskTheScouts` button, the `card_button` trigger, which the page-level
+ * `AskAllTheScouts` button also sends once per card) --
  * `tests/test_leg_verdicts_ui.py` pins that nothing else calls this, so a
  * mount effect or a re-render cannot spend on its own.
  *
