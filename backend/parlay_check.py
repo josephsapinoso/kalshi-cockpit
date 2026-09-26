@@ -752,6 +752,18 @@ async def check_parlay_text(
             "appear in the book. Re-reading the book will keep saying this, "
             "so ask instead."
         )
+    if status != "priced" and not rfq_available:
+        # **"Ask instead" is only true where asking can work.** Seen on the
+        # first live check (2026-09-26): a finalized combination got the
+        # empty-book sentence ending "so ask instead" beside a screen that
+        # had, correctly, withheld the Ask button. Copy that points at a
+        # withheld control is the same lie as a control that is not there.
+        reason = (rfq_unavailable_reason or "").rstrip(".")
+        words = (
+            "Nothing this desk can read is resting in this combination's "
+            "public order book, and asking the makers is not available "
+            f"here: {reason[:1].lower()}{reason[1:]}."
+        )
 
     return {
         "status": status,

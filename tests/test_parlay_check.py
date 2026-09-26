@@ -518,6 +518,26 @@ class TestRfqAvailability:
         assert result["rfq_available"] is False
         assert "shard" in result["rfq_unavailable_reason"]
 
+    @pytest.mark.parametrize("book", [EMPTY_BOOK, SUB_TENTH_BOOK])
+    async def test_an_empty_book_never_says_ask_where_asking_is_withheld(
+        self, conn, book
+    ):
+        """First live check, 2026-09-26: a finalized combination's words
+        ended "so ask instead" while the screen withheld the Ask button."""
+        ticker, payload, _, _ = _two_leg_combo(
+            conn, game_a="m9", game_b="m10",
+            ticker=_mk_ticker("9909"),
+            exchange_index=1, status="finalized",
+        )
+        api = FakeApi(market_payload=payload, book_payload=book)
+        result = await parlay_check.check_parlay_text(
+            conn, text=ticker, now_ms=now_ms(), api=api,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        assert result["status"] == "book_empty"
+        assert "ask instead" not in result["words"].lower()
+        assert "no longer trading" in result["words"]
+
 
 class TestLegMissingFields:
     async def test_missing_market_ticker_refuses_before_any_row(self, conn):

@@ -16,6 +16,29 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-26 - A parser tested on an example written from memory is green and useless; a name is not a field
+
+From the sixty-first session (#166).
+
+- **The link parser shipped round 1 green, and could not resolve a
+  single real kalshi.com link.** Its test used a URL the lane invented,
+  and it asserted an event ticker as if it were a market ticker. A real
+  combination URL carries the series and the event, never the market.
+  One web search found two real ones. **Before writing a parser for a
+  string someone else formats (a URL, a share link, a filename), find
+  one real instance and put that in the test.** When the owner has none
+  to hand, a public page is still better than a guess. This is the
+  captured-payload rule, applied to the input and not only to the
+  response.
+- **A ticker with no `SHARD1` in its name sat on shard 1.** Any
+  inference from how an identifier is spelled is a guess about a field
+  the payload already carries. Read `exchange_index`; never parse it
+  out of the name.
+- **Copy that says "ask instead" beside a withheld Ask button is the
+  same lie as a missing button.** When a control is gated, grep the
+  surrounding words for the action it performs, and gate them on the
+  same condition.
+
 ## 2026-09-25 - Display rounding can manufacture the zero the data refused; a comment that lists a dependency is not the dependency list
 
 From the sixtieth session (#161, #162).

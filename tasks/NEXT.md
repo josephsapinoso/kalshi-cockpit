@@ -134,6 +134,40 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-26 (sixty-first session) — #165: paste a friend's Kalshi link on /parlays and see the desk's chance for each leg and for the whole parlay (#166 #167 #168, ADR 0187). Live on b540945
+
+This session started on `/go`. The board had #151 (a reading due 09-28) and #165. `partner` ranked #165 first and scoped it into slices. Joe answered with buttons: a friend sends **a kalshi.com link or a screenshot**, and he chose **link now, screenshot later** (#169). He had no sample link to hand.
+
+### 1. What shipped
+
+- **#166 `POST /api/parlays/check`, Sonnet lane, two rounds.**
+  - `backend/parlay_check.py` finds the combination's market ticker in pasted text and reads its legs off Kalshi (`mve_legs`). It prices each leg from the candidate pool with the combinability filter off, takes `joint_for` when every leg has a chance and no two share a game, reads the book, and writes one `parlay_lookups` row with `card_key = 'checked'`.
+  - That row is the whole integration: /bets, Ask the market and Take it read it unchanged (ADR 0187).
+  - Each check costs 2–3 Kalshi reads, zero tokens and zero credits, and mints nothing.
+- **kalshi-platform review of round 1: safe for money, but the main use was broken.**
+  - A kalshi.com combination URL carries the **series** and the **event**, never the market ticker. The regex took the series, and the lane's own test used an invented URL.
+  - Round 2 fixes that: prefer a market-shaped token, resolve an event-shaped one through `/markets?event_ticker=` and refuse unless it has exactly one market, and strip trailing punctuation.
+  - It also gates Ask the market on `exchange_index == 1` and `status == active` (the RFQ path hard-codes shard 1), renames the key to `checked` (/hedge labels a bought position with it), adds leg-field guards, and writes plain-word reasons.
+- **#167, the box on /parlays, Sonnet lane.** An unknown leg reads "No desk reading for this leg — <reason>", never 0. Main added the price's age beside its depth, and the `rfq_available` gate.
+- **#168, the /bets third state, Sonnet lane.** A parlay checked before the fill, with no whole-parlay chance, reads "checked on the desk, no chance for the whole parlay". It does not count toward "N of M carry the desk's chance".
+- **Tests:** `tests/test_parlay_check.py` 33, `tests/test_check_a_parlay_screen.py` 17, and `TestCheckedWithoutChance` 6. Every guard was mutated red.
+
+### 2. Seen on live
+
+**Live is on `b540945`** (Deploy run 36209252279, on Joe's go-ahead by buttons; `/api/health` confirmed).
+- One check was run through the live `/parlay-check` proxy, using a real-shaped link to Joe's settled combo (`…/kxmvecrosscategory-s2026e88b8f612c7`).
+- The event resolved to its one market, and all 6 legs read. Four read as "game has already started" and two as "no consensus reading". The joint was `null` (`unknown_leg`), and `rfq_available` was false ("no longer trading").
+- **Shard can't be read off the name:** that ticker has no `SHARD1` in its name and carries `exchange_index: 1`.
+- The one defect was that the empty-book words still said "so ask instead" beside a withheld button. It is fixed in the commit after this entry, with a test.
+
+**Not verified:** a link a friend actually sends (two public example events return zero markets today), the box rendered in a browser, and a check on a live, active, shard-1 combo.
+
+### Still open
+
+0. #151: on 2026-09-28, read `agent-spend` for `agent='leg_verdict'` against the 1.5M ceiling, plus the TAKE/PASS split.
+1. #165: close it once Joe has pasted one real friend's link and it resolved. If it didn't, the fix is the parser, anchored on that link.
+2. #169: the screenshot half. Measure first how often a screenshot is all he gets.
+
 ## 2026-09-25 (sixtieth session) — /bets shows the desk's chance when Joe priced each parlay (#161); the leg ticket says "you can buy 0" and the break-even first, with the box switched off (#160, his answer); the refresh panel's duplicate fixture (#159) and a stale side-switch count (#162) fixed. Live on 29f794d
 
 This session started on `/go`. The board was #151 (reading due 09-28), #159 and #160. `partner` ranked a new `/bets` column first. Joe answered two option-button questions at the start: **#160, switch the amount box off at zero** (visible, disabled, until a re-read finds something buyable), and **build the /bets column**.
@@ -819,6 +853,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-26 (sixty-first session) — #165: paste a friend's Kalshi link on /parlays and see the desk's chance for each leg and for the whole parlay (#166 #167 #168, ADR 0187). Live on b540945
 - 2026-09-25 (sixtieth session) — /bets shows the desk's chance when Joe priced each parlay (#161); the leg ticket says "you can buy 0" and the break-even first, with the box switched off (#160, his answer); the refresh panel's duplicate fixture (#159) and a stale side-switch count (#162) fixed. Live on 29f794d
 - 2026-09-25 (fifty-ninth session) — Joe said the expanded parlay card was over-filled; it is now a summary, buying opens a slide-over panel, and the review found two old ways to close a ticket mid-send (#158)
 - 2026-09-25 (fifty-eighth session) — the first look at a verdict on screen found a burst that ran the day to 224% and a refusal the card never showed; both fixed and live on 866d942, and Joe raised the three ceilings together (#157 A)
