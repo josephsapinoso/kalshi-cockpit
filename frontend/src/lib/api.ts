@@ -1489,6 +1489,108 @@ export async function lookupParlay(
 }
 
 /**
+ * One leg of a parlay someone else built, as `POST /api/parlays/check`
+ * reads it off the pasted link or ticker.
+ *
+ * **`chance` is `null`, never `0`, when the desk has no reading for this
+ * leg** — a prop, another sport, anything the consensus does not cover. `0`
+ * is a legitimate chance; `null` is the honest "cannot tell you" (CLAUDE.md
+ * rule: unreadable resolves to `None`, never `0`). `unknown_reason` names
+ * why, when the server has a name for it.
+ */
+export type CheckedParlayLeg = {
+  market_ticker: string;
+  side: "yes" | "no";
+  label: string;
+  commence_ms: number | null;
+  /** Probability in [0, 1]. `null` means no desk reading — see above. */
+  chance: number | null;
+  chance_display: string | null;
+  unknown_reason: string | null;
+};
+
+/** What `POST /api/parlays/check` came back with (issue #167). */
+export type CheckedParlayResult = {
+  status: "priced" | "book_empty";
+  minted_market_ticker: string;
+  legs: CheckedParlayLeg[];
+  fair: {
+    /** Probability in [0, 1]. `null` when `no_joint_reason` is set. */
+    conservative: number | null;
+    conservative_percent_display: string | null;
+    fair_cost_display: string | null;
+    /**
+     * Why there is no joint chance, when there is none. `"unknown_leg"`
+     * means at least one leg has `chance === null`; `"same_game"` means the
+     * desk refuses to price a same-game combination at all. `null` means
+     * the joint fields above are populated.
+     */
+    no_joint_reason: "unknown_leg" | "same_game" | null;
+  };
+  quoted: {
+    ask_display: string;
+    depth_display: string | null;
+    quoted_ms: number;
+    quote_max_age_ms: number | null;
+  } | null;
+  hold_display: string | null;
+  words: string;
+  notes: { unquoted: string; fee: string };
+};
+
+/**
+ * Check a parlay someone else built (issue #165/#167): Joe pastes a
+ * kalshi.com link or a KXMVE ticker and this reads back each leg's desk
+ * chance, the joint chance, the fair price and the book's ask.
+ *
+ * Goes through the `/parlay-check` route handler so the bearer token stays
+ * server-side, same as `lookupParlay` above. **Never throws** — same reason:
+ * this function's caller renders a single button that must not be left
+ * stranded mid-request.
+ */
+export async function checkParlay(
+  text: string,
+): Promise<
+  { ok: true; value: CheckedParlayResult } | { ok: false; refusal: string }
+> {
+  let response: Response;
+  try {
+    response = await fetch("/parlay-check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ text }),
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      refusal:
+        `The request did not reach the cockpit (${
+          error instanceof Error ? error.message : "network error"
+        }). Nothing was checked.`,
+    };
+  }
+
+  const body: unknown = await response.json().catch(() => null);
+  if (response.ok) {
+    if (body && typeof body === "object" && "status" in body) {
+      return { ok: true, value: body as CheckedParlayResult };
+    }
+    return {
+      ok: false,
+      refusal:
+        "Kalshi's answer came back in a shape this screen cannot read. " +
+        "Nothing is shown rather than a number that might be wrong.",
+    };
+  }
+  const detail =
+    body && typeof body === "object" && "detail" in body
+      ? String((body as { detail: unknown }).detail)
+      : `HTTP ${response.status}`;
+  return { ok: false, refusal: detail };
+}
+
+/**
  * Whether a pick could be acted on right now, and when the next chance is.
  *
  * The odds budget affords two sweeps a day and each one makes the slate

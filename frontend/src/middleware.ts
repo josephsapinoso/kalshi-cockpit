@@ -78,6 +78,12 @@ const JSON_ROUTE_HANDLERS = new Set([
   "/lockout",
   "/pass",
   "/parlay-lookup",
+  // Checks a parlay someone else built (#165/#167): the pasted link or
+  // ticker can mint a real combination market on the exchange, the same
+  // outward-facing write `/parlay-lookup` already makes for a card this
+  // desk built itself. No money moves; listed for the same JSON-401 reason
+  // as the rest.
+  "/parlay-check",
   // Both spend-adjacent: `/parlay-bid` rests a real bid, `/parlay-bid-cancel`
   // takes it back. Exact-match handlers, which is why the cancel carries its
   // id in the body rather than the path -- a dynamic segment would miss this
