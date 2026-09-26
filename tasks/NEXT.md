@@ -134,6 +134,30 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-26 (sixty-second session) — #165 read on real inputs: a pasted ticker works on a live combo, but a kalshi.com link usually names a group of combinations and is refused. #169 parked. Nothing built; live stays on 739f9e2
+
+This session started on `/go`. State was clean, live on `739f9e2`, no PRs, no dependency alerts. `partner` said there was little to build: verify #165 on real inputs, ask nothing new, stop. I re-asked Joe the two #165/#169 questions with buttons and he said he had already answered. He had: ADR 0187 lines 15–16. See lessons.
+
+### 1. What was measured (all read-only; one `parlay_lookups` row written by the check; no RFQ)
+
+- **The ticker path works end to end on a live, active, shard-1 combo.** It was Joe's one open held combination, 8 legs, pasted as its market ticker through live `/parlay-check`. The book read, `rfq_available: true`. **0 of 8 legs got a chance.** Three college legs read "consensus has gone stale" (06:25Z, kickoffs ~17h out). Five NFL "NO — team wins" legs read "no consensus reading".
+- **The same combo's kalshi.com event link is refused**, correctly: its event lists 34 markets. Across the 150 combinations on Joe's account (settlements + fills), **36 of the 57 events that still list markets hold more than one**. A combo link names the event, never the market, so today's parser resolves only the minority single-market events.
+- **What the app's Share button produces is unknown.** The kalshi-platform agent found no real share link anywhere. Indexed combo URLs are all `/markets/<series>/<slug>/<EVENT>`, and Kalshi does run a Branch short-link domain, `kalshi.app.link`. kalshi.com pages 429 behind a Vercel checkpoint, so server-side fetching of them is out anyway.
+- **Measured and killed:** a NO-side moneyline leg can never be priced, because the pool emits team YES rows only (`backend/parlays.py:991`). But only **2 of 150** of Joe's combos carry one.
+
+All figures are in the #165 comment. **Not done:** the /parlays box rendered in a browser, because the Chrome extension was not connected.
+
+### 2. Decided
+
+- **No redirect-follower and no event picker built on a guess.** The next real link a friend sends is the fixture. If it is an `app.link`: exact-host allowlist, one hop, redirects off, no credentials, parse `Location` only. If it is an event link on a multi-market event, the fix needs the legs to pick the market, so the fixture decides it.
+- **#169 is parked:** option (A) is killed, and there is no OCR spike before #151's spend reading.
+
+### Still open
+
+0. #151: on 2026-09-28, read `agent-spend` for `agent='leg_verdict'` against the 1.5M ceiling, plus the TAKE/PASS split.
+1. #165: close once one link a friend actually sent resolves. Most kalshi.com event links will not resolve today; that link is the fixture for the fix.
+2. #169: parked. Screenshot reading, no build before #151's reading.
+
 ## 2026-09-26 (sixty-first session) — #165: paste a friend's Kalshi link on /parlays and see the desk's chance for each leg and for the whole parlay (#166 #167 #168, ADR 0187). Live on 739f9e2
 
 This session started on `/go`. The board had #151 (a reading due 09-28) and #165. `partner` ranked #165 first and scoped it into slices. Joe answered with buttons: a friend sends **a kalshi.com link or a screenshot**, and he chose **link now, screenshot later** (#169). He had no sample link to hand.
@@ -853,6 +877,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-26 (sixty-second session) — #165 read on real inputs: a pasted ticker works on a live combo, but a kalshi.com link usually names a group of combinations and is refused. #169 parked. Nothing built; live stays on 739f9e2
 - 2026-09-26 (sixty-first session) — #165: paste a friend's Kalshi link on /parlays and see the desk's chance for each leg and for the whole parlay (#166 #167 #168, ADR 0187). Live on 739f9e2
 - 2026-09-25 (sixtieth session) — /bets shows the desk's chance when Joe priced each parlay (#161); the leg ticket says "you can buy 0" and the break-even first, with the box switched off (#160, his answer); the refresh panel's duplicate fixture (#159) and a stale side-switch count (#162) fixed. Live on 29f794d
 - 2026-09-25 (fifty-ninth session) — Joe said the expanded parlay card was over-filled; it is now a summary, buying opens a slide-over panel, and the review found two old ways to close a ticket mid-send (#158)

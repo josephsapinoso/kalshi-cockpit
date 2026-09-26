@@ -16,6 +16,25 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-26 - A link can be the right shape and name a group; an answered question lives in the ADR's decision lines
+
+From the sixty-second session (#165, #169).
+
+- **The parser read a real kalshi.com combo link correctly and still
+  could not resolve most of them.** The link names an event, and 36 of
+  57 events behind Joe's combos hold more than one combination (one held
+  34). Session 61 checked the link's shape against one real instance,
+  and that instance happened to be a single-market event. **When an
+  identifier resolves one-to-many, measure the cardinality on the real
+  population before trusting the resolver.** One real example proves
+  the shape. It does not prove the mapping.
+- **I re-asked Joe two questions he had answered the day before.** The
+  answers were in ADR 0187's decision lines, and I read NEXT.md's Still
+  open list and the ticket bodies instead. **Before any button question,
+  grep the ADR the ticket cites for the answer.** The ADR's opening
+  lines are where a decision is recorded, and the Still-open line only
+  says what is left.
+
 ## 2026-09-26 - A parser tested on an example written from memory is green and useless; a name is not a field
 
 From the sixty-first session (#166).
