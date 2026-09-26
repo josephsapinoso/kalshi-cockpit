@@ -170,8 +170,14 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
           label={<>Kalshi&rsquo;s book</>}
           value={value.quoted.ask_display}
           sub={
-            value.quoted.depth_display ??
-            `read ${formatAge(Date.now() - value.quoted.quoted_ms)}`
+            // The age always shows, depth or not: a price with no clock is
+            // the defect ADR 0092 and #67 fixed on every other surface.
+            [
+              value.quoted.depth_display,
+              `read ${formatAge(Date.now() - value.quoted.quoted_ms)}`,
+            ]
+              .filter(Boolean)
+              .join(" · ")
           }
         />
       )}
