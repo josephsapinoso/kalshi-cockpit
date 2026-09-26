@@ -134,6 +134,36 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-26 (sixty-fourth session) — /parlays gets one "ask the scouts about every leg" button (live `6583258`); Joe picks a video-game look, "Cockpit HUD", and its first slice ships (live `c401c62`, #171)
+
+Two errands Joe named himself, so no `partner` pass.
+
+### 1. One tap asks the scouts about every card (`6583258`)
+
+- **The ask:** *"a button on the parlay page that allows for me to send the scouts for all legs so i dont have to click on them one-by-one."*
+- **The build:** `AskAllTheScouts` in `ParlayCards.tsx` sends each built card's legs as that card's own `card_button` request, **one card at a time, awaited**. It hands each result to that card's existing `AskTheScouts` panel. There is no new `<LegVerdicts` mount, no new trigger and no schema change.
+- **Shared legs are paid for once:** `cached_verdict` serves a `running` row as pending (`backend/leg_verdicts.py:270`).
+- **Tests:** `TestOneTapAsksEveryCard` in `tests/test_leg_verdicts_ui.py`. All three guards were verified red by mutation.
+- **Not yet done:** it has never been tapped on live, so the first real tap is its first spend.
+
+### 2. The HUD look, slice 1 (`c401c62`, #171)
+
+- **The ask:** *"imagine if this were an interface in a video game ... more pop."* Three mockups on a private design canvas (https://claude.ai/artifact/8owPCB57b4ntuith3ksWTi): A Cockpit HUD, B Trading cards, C Sports-game menu. **Joe picked A** (option button).
+- **What shipped:**
+  - The dark palette is retuned: navy ground, cyan `--accent` ink, amber `--accent-2`. The indigo fill, red and green are unchanged.
+  - The theme opens **dark unless the reader chose light**, in `THEME_SCRIPT`, `ThemeToggle` and `THEME_COLOR.dark`.
+  - Fonts: IBM Plex Mono for `--font-mono`, Chakra Petch for `.display`.
+  - New `.hud`, `.glow` and `.segments` utilities, `Stat readout` and `Segments` in `ui.tsx`, HUD-dressed parlay cards, and mono uppercase nav.
+  - Full suite 8,884 passed, and `test_palette_contrast.py` is green on the new values.
+- **Never seen with real cards.** The Chrome extension was disconnected. A local `next start` showed the palette, fonts and nav only, because the backend was unreachable locally.
+
+### Still open
+
+0. #171 — look at live /parlays in a browser first, then the remaining HUD slices (gauges, other screens, motion).
+1. #151 — on 2026-09-28, read `agent-spend` for `agent='leg_verdict'` against the 1.5M ceiling, plus the TAKE/PASS split. The ask-all button can now spend a burst in one tap, so read it with that in mind.
+2. #165 — close once one link a friend actually sent resolves.
+3. #169 — parked.
+
 ## 2026-09-26 (sixty-third session) — Why 0 of 8 legs on Joe's held combo got a chance: 3 were stale by design, and 5 are NO-side moneylines, which the recount puts in 2 of 82 recent combos. Nothing built for the screen; live stays on 739f9e2
 
 This session started on `/go`. State was clean, live on `739f9e2`, no PRs, no dependency alerts, and the frontier was the same as session 62's. `partner` said build nothing, and instead read why the desk priced **0 of 8** legs on the one combination Joe holds. It gave two read-only questions. The Chrome extension was still not connected, so the /parlays render check is still undone.
