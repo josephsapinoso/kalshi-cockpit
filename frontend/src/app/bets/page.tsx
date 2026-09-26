@@ -396,6 +396,15 @@ const CHANCE_REFUSAL_WORDS: Record<string, string> = {
   not_priced_on_desk: "— not priced on the desk",
 };
 
+// #168: the outside-parlay check (#166) can write a reading that looked at
+// the parlay and still could not produce one number for the whole thing --
+// a leg with no desk reading, or two legs on one game. That parlay WAS
+// checked, so "not priced on the desk" would be false for it; this sentence
+// replaces the generic refusal words only when `checked_without_chance` is
+// true, never alongside a real `chance_when_priced` (a chance always wins).
+const CHECKED_WITHOUT_CHANCE_WORDS =
+  "— checked on the desk, no chance for the whole parlay";
+
 /**
  * One settled position. The result word and the net are the row's facts;
  * the ticker links to the market screen, which knows how to say what the
@@ -440,6 +449,8 @@ function BetRow({ bet }: { bet: SettledBet }) {
           ? ` · ${formatDuration(bet.chance_priced_before_fill_ms)} before you bought`
           : ""}
       </>
+    ) : bet.checked_without_chance ? (
+      CHECKED_WITHOUT_CHANCE_WORDS
     ) : (
       CHANCE_REFUSAL_WORDS[bet.chance_refusal_reason ?? ""] ?? null
     );
