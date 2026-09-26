@@ -3204,6 +3204,17 @@ export type SettledBet = {
   chance_when_priced: number | null;
   chance_priced_before_fill_ms: number | null;
   chance_refusal_reason: "no_fill_row" | "not_priced_on_desk" | null;
+  // #168: true when the outside-parlay check (#166, `parlay_lookups
+  // .card_key = 'outside'`) looked at this parlay at or before the fill and
+  // could not produce a whole-parlay chance (a leg with no desk reading, or
+  // two legs on one game) -- AND no reading with a real chance exists. A
+  // reading with a chance always wins, so this is only ever `true` beside
+  // `chance_when_priced === null` and `chance_refusal_reason ===
+  // "not_priced_on_desk"`. It carries no chance itself and is never counted
+  // toward `chance_carried`. A single always carries `false`, never `null`
+  // -- it is a plain fact ("was this ticker checked and refused a joint"),
+  // not one of the three chance fields above.
+  checked_without_chance: boolean;
 };
 
 /**

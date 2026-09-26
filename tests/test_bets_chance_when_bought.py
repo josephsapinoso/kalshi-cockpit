@@ -61,13 +61,13 @@ def _fill(conn, *, ticker=COMBO_TICKER, filled_ms=FILL_MS, count=2.0,
 
 
 def _lookup(conn, *, ticker=COMBO_TICKER, requested_ms, status="priced",
-            fair_joint_conservative=0.34):
+            fair_joint_conservative=0.34, card_key="safe"):
     conn.execute(
         "INSERT INTO parlay_lookups (requested_ms, card_key, stake_cents, "
         "selected_legs, status, minted_market_ticker, "
         "fair_joint_conservative, collection_unverified) "
-        "VALUES (?, 'safe', 500, '[]', ?, ?, ?, 0)",
-        (requested_ms, status, ticker, fair_joint_conservative),
+        "VALUES (?, ?, 500, '[]', ?, ?, ?, 0)",
+        (requested_ms, card_key, status, ticker, fair_joint_conservative),
     )
     conn.commit()
 
@@ -368,6 +368,106 @@ class TestOneBatchedQueryNotOnePerRow:
         )
         loop_source = ast.unparse(loop)
         assert "conn.execute" not in loop_source
+
+
+class TestCheckedWithoutChance:
+    """#168: a `parlay_lookups` row written by the outside-parlay check
+    (#166, `card_key = 'outside'`) with a NULL `fair_joint_conservative` --
+    the desk looked at the parlay and could not produce one number for the
+    whole thing. Such a row must not render identically to "not priced on
+    the desk" at all; `checked_without_chance` says the desk DID look."""
+
+    def test_an_outside_row_with_null_joint_before_the_fill_sets_the_flag(
+        self, tmp_path
+    ):
+        conn = db.init_db(tmp_path / "b.db")
+        _settlement(conn)
+        _fill(conn)
+        _lookup(
+            conn, requested_ms=FILL_MS - 1_000, card_key="outside",
+            status="priced", fair_joint_conservative=None,
+        )
+        record = bets.bets_record(conn)
+        bet = _combo_row(record)
+        assert bet["chance_when_priced"] is None
+        assert bet["chance_refusal_reason"] == "not_priced_on_desk"
+        assert bet["checked_without_chance"] is True
+
+    def test_the_same_row_after_the_fill_does_not_set_the_flag(
+        self, tmp_path
+    ):
+        conn = db.init_db(tmp_path / "b.db")
+        _settlement(conn)
+        _fill(conn)
+        _lookup(
+            conn, requested_ms=FILL_MS + 1_000, card_key="outside",
+            status="priced", fair_joint_conservative=None,
+        )
+        record = bets.bets_record(conn)
+        bet = _combo_row(record)
+        assert bet["chance_when_priced"] is None
+        assert bet["checked_without_chance"] is False
+
+    def test_an_earlier_chance_plus_a_later_null_joint_row_shows_the_chance(
+        self, tmp_path
+    ):
+        """A reading with a chance always wins: the earlier priced lookup
+        carries a real joint and must still be shown, and the later
+        null-joint row (itself before the fill) must not flip the flag on
+        top of a chance that is already showing."""
+        conn = db.init_db(tmp_path / "b.db")
+        _settlement(conn)
+        _fill(conn)
+        _lookup(
+            conn, requested_ms=FILL_MS - 5_000, card_key="safe",
+            status="priced", fair_joint_conservative=0.42,
+        )
+        _lookup(
+            conn, requested_ms=FILL_MS - 1_000, card_key="outside",
+            status="priced", fair_joint_conservative=None,
+        )
+        record = bets.bets_record(conn)
+        bet = _combo_row(record)
+        assert bet["chance_when_priced"] == 0.42
+        assert bet["chance_refusal_reason"] is None
+        assert bet["checked_without_chance"] is False
+
+    def test_a_refused_or_error_row_with_null_joint_does_not_set_the_flag(
+        self, tmp_path
+    ):
+        conn = db.init_db(tmp_path / "b.db")
+        _settlement(conn)
+        _fill(conn)
+        _lookup(
+            conn, requested_ms=FILL_MS - 1_000, card_key="outside",
+            status="refused", fair_joint_conservative=None,
+        )
+        _lookup(
+            conn, requested_ms=FILL_MS - 500, card_key="outside",
+            status="error", fair_joint_conservative=None,
+        )
+        record = bets.bets_record(conn)
+        bet = _combo_row(record)
+        assert bet["chance_when_priced"] is None
+        assert bet["checked_without_chance"] is False
+
+    def test_the_flag_never_counts_toward_chance_carried(self, tmp_path):
+        conn = db.init_db(tmp_path / "b.db")
+        _settlement(conn)
+        _fill(conn)
+        _lookup(
+            conn, requested_ms=FILL_MS - 1_000, card_key="outside",
+            status="priced", fair_joint_conservative=None,
+        )
+        record = bets.bets_record(conn)
+        assert record["sections"]["combo"]["chance_carried"] == 0
+
+    def test_a_single_carries_false_never_none(self, tmp_path):
+        conn = db.init_db(tmp_path / "b.db")
+        _settlement(conn, ticker=GAME_TICKER)
+        record = bets.bets_record(conn)
+        bet = _combo_row(record, ticker=GAME_TICKER)
+        assert bet["checked_without_chance"] is False
 
 
 class TestNoAggregationOfChanceValues:

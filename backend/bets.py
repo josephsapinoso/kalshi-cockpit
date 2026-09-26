@@ -57,6 +57,21 @@ the WHOLE table (never one query per row, matching the `totals`/`sections`
 discipline above), and counted, never averaged or summed, in
 `sections["combo"]["chance_carried"]`.
 
+**#168: "not priced on the desk" was false for a parlay the desk had in fact
+looked at.** The outside-parlay check (#166, `parlay_lookups.card_key =
+'outside'`) can write a row with `status IN ('priced', 'book_empty')` and a
+NULL `fair_joint_conservative` -- the desk read the parlay and could not
+produce one number for the whole thing (a leg with no desk reading, or two
+legs on one game). Before this, such a row was invisible to
+`chance_when_priced` (it never carries a chance) and the row rendered
+identically to a parlay never checked at all. Every combo row now also
+carries `checked_without_chance`: true when such a row exists at or before
+the anchor AND no qualifying reading (one with a real joint chance) exists.
+A reading with a chance always wins -- this flag is consulted only once
+`chance_when_priced` has already come back `None`. It is a per-row fact,
+never counted toward `chance_carried` (that count is chance coverage, and
+this row carries no chance to be covered by).
+
 What this module does NOT establish
 -----------------------------------
 That the record is complete. It is the poller's mirror: the settlements
@@ -118,7 +133,7 @@ def bet_kind(ticker: str) -> str:
 
 def _chance_when_priced_by_ticker(
     conn: sqlite3.Connection, tickers: list[str]
-) -> dict[str, dict[str, Optional[float]]]:
+) -> dict[str, dict[str, Any]]:
     """The desk's chance for each combo ticker at the moment he priced it.
 
     One batched query over every ticker passed in, never one query per row
@@ -160,10 +175,24 @@ def _chance_when_priced_by_ticker(
       newest qualifying reading AT OR BEFORE an anchor across two tables", a
       different query).
 
+    - `has_null_joint` (#168): whether a `parlay_lookups` row exists with
+      `status IN ('priced', 'book_empty')`, `fair_joint_conservative IS
+      NULL`, `minted_market_ticker = ticker`, and `requested_ms <=
+      anchor_ms`. Such a row is written by the outside-parlay check (#166,
+      `card_key = 'outside'`) when the desk looked at the parlay and could
+      not produce one number for the whole thing -- a leg with no desk
+      reading, or two legs on one game. It never enters `readings` (that
+      CTE requires a non-NULL joint), so it can never win the latest-reading
+      pick and can never suppress a real chance a later query might have
+      shown; it is computed as a separate existence flag, checked only when
+      `chance` came back `None`. A reading with a chance always wins.
+
     A ticker with no entry in the returned dict never occurs -- every ticker
     passed in gets a row, `chance` and `requested_ms` `None` when nothing
     qualified. Callers read `anchor_ms is None` as "no fill row" and
-    `chance is None` (with `anchor_ms` present) as "not priced on the desk".
+    `chance is None` (with `anchor_ms` present) as "not priced on the desk"
+    -- refined further by `has_null_joint` into "checked, no chance for the
+    whole parlay" vs plain "not priced on the desk".
     """
     if not tickers:
         return {}
@@ -209,17 +238,31 @@ def _chance_when_priced_by_ticker(
                     ORDER BY requested_ms DESC, source_rank ASC, row_id DESC
                 ) AS rn
             FROM readings
+        ),
+        null_joint AS (
+            SELECT DISTINCT a.ticker AS ticker
+            FROM parlay_lookups l
+            JOIN anchors a ON a.ticker = l.minted_market_ticker
+            WHERE l.status IN ('priced', 'book_empty')
+              AND l.fair_joint_conservative IS NULL
+              AND l.requested_ms <= a.anchor_ms
         )
         SELECT
             anchors.ticker AS ticker,
             anchors.anchor_ms AS anchor_ms,
             ranked.requested_ms AS requested_ms,
-            ranked.chance AS chance
+            ranked.chance AS chance,
+            CASE WHEN null_joint.ticker IS NOT NULL THEN 1 ELSE 0 END
+                AS has_null_joint
         FROM anchors
         LEFT JOIN ranked ON ranked.ticker = anchors.ticker AND ranked.rn = 1
+        LEFT JOIN null_joint ON null_joint.ticker = anchors.ticker
     """
-    out: dict[str, dict[str, Optional[float]]] = {
-        ticker: {"anchor_ms": None, "requested_ms": None, "chance": None}
+    out: dict[str, dict[str, Any]] = {
+        ticker: {
+            "anchor_ms": None, "requested_ms": None, "chance": None,
+            "has_null_joint": False,
+        }
         for ticker in tickers
     }
     for row in conn.execute(sql, tickers).fetchall():
@@ -227,6 +270,7 @@ def _chance_when_priced_by_ticker(
             "anchor_ms": row["anchor_ms"],
             "requested_ms": row["requested_ms"],
             "chance": row["chance"],
+            "has_null_joint": bool(row["has_null_joint"]),
         }
     return out
 
@@ -510,16 +554,29 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
         # #161: the desk's chance for a combo at the moment it was priced.
         # Singles carry all three keys as `None` -- pinned, per the ticket,
         # rather than omitted -- so the frontend type need not special-case
-        # a missing key.
+        # a missing key. #168 adds a fourth, `checked_without_chance`: pinned
+        # `False` (never `None`) for a single, since it is a plain fact ("was
+        # this ticker checked and refused a joint chance") rather than one of
+        # the three chance fields, and a single is never checked this way at
+        # all.
         chance_when_priced: Optional[float] = None
         chance_priced_before_fill_ms: Optional[int] = None
         chance_refusal_reason: Optional[str] = None
+        checked_without_chance = False
         if kind == KIND_COMBO:
             info = chance_by_ticker.get(row["ticker"])
             if info is None or info["anchor_ms"] is None:
                 chance_refusal_reason = CHANCE_REFUSAL_NO_FILL
             elif info["chance"] is None:
                 chance_refusal_reason = CHANCE_REFUSAL_NOT_PRICED
+                # #168: a reading with a chance always wins over this flag --
+                # it is only ever considered once `chance` itself came back
+                # `None`. `has_null_joint` is an EXISTENCE check ("was there
+                # ever a qualifying check with no joint"), independent of
+                # which reading `readings`/`ranked` picked, since a NULL
+                # joint never enters that CTE and so never wins the
+                # latest-reading tiebreak.
+                checked_without_chance = bool(info["has_null_joint"])
             else:
                 chance_when_priced = info["chance"]
                 chance_priced_before_fill_ms = (
@@ -561,6 +618,7 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
                 "chance_when_priced": chance_when_priced,
                 "chance_priced_before_fill_ms": chance_priced_before_fill_ms,
                 "chance_refusal_reason": chance_refusal_reason,
+                "checked_without_chance": checked_without_chance,
             }
         )
     return {
