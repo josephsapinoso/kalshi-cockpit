@@ -347,6 +347,27 @@ class ParlayLookupRequest(BaseModel):
         return value
 
 
+class ParlayCheckRequest(BaseModel):
+    """One "check this parlay" paste (#166, #165).
+
+    Joe tails a friend's parlays -- 82 of his 142 settled parlays were never
+    priced on this desk because he copied them from someone who built them
+    elsewhere (#164). `text` is whatever he pastes: a kalshi.com link or a
+    bare `KXMVE...` ticker. **Deliberately not a `HttpUrl` or any other typed
+    shape** -- Joe's own answer (2026-09-25) named a link now and a
+    screenshot later, no sample link was to hand to anchor a stricter type
+    against, and `backend.parlay_check.extract_ticker` pulls the ticker out
+    of whatever arrives rather than assuming the field is a URL at all.
+
+    No legs, no card key, no stake: unlike `ParlayLookupRequest`, this does
+    not echo back a card the user built on this desk -- there is no such
+    card. Everything about the combination (its legs, their sides, the
+    collection) is read straight off the venue.
+    """
+
+    text: str = Field(min_length=1, max_length=2000)
+
+
 class HeldLegRequest(BaseModel):
     """One leg of a ticket Joe already holds (ADR 0078).
 
