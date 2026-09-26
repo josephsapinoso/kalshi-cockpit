@@ -67,9 +67,11 @@ from ..schemas import (
     ComboBidRequest,
     ComboRfqAcceptRequest,
     ComboRfqRequest,
+    ParlayCheckRequest,
     ParlayLookupRequest,
     ParlayRequest,
 )
+from ...parlay_check import check_parlay_text
 
 
 def register(
@@ -321,6 +323,53 @@ def register(
                 max_kalshi_quote_age_ms=staleness.max_kalshi_quote_age_s * 1000,
                 horizon=request.horizon,
                 api=api,
+            )
+        except LookupRefused as exc:
+            raise HTTPException(
+                status_code=exc.status_code, detail=exc.detail
+            ) from exc
+        finally:
+            write_conn.close()
+
+    @app.post("/api/parlays/check", dependencies=[Depends(require_auth)])
+    async def parlay_check(request: ParlayCheckRequest) -> dict:
+        """Check a parlay someone else built (#166, #165).
+
+        Joe tails a friend's parlays: he pastes the kalshi.com link or the
+        `KXMVE...` ticker, and the desk reads the combination's legs straight
+        off the venue -- it already exists, so unlike `/api/parlays/lookup`
+        nothing here mints a market -- prices each leg and the conservative
+        joint from its own consensus, reads the book, and writes one
+        `parlay_lookups` row under `card_key = "outside"` so `/bets`, Ask the
+        Market and Take It all see it without being changed.
+
+        Auth-gated for the same reason `/api/parlays/lookup` is: it is an
+        outward-facing venue read on the authorized-actions list, even though
+        no market is created and no money moves. A leg the desk has no
+        consensus for reads as `chance: null` with a named reason, never
+        `0.0` -- CLAUDE.md's rule for anything unreadable.
+        """
+        try:
+            api = combo_api()
+        except ConfigError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"no Kalshi credentials on this instance: {exc}",
+            ) from exc
+
+        now = db.now_ms()
+        # Its own writable connection, like `/api/parlays/lookup`: `get_conn`
+        # is deliberately read-only, and every check writes a `parlay_lookups`
+        # row.
+        write_conn = db.open_db(app_config.db_path)
+        try:
+            return await check_parlay_text(
+                write_conn,
+                text=request.text,
+                now_ms=now,
+                api=api,
+                max_odds_age_ms=staleness.max_odds_age_s * 1000,
+                max_kalshi_quote_age_ms=staleness.max_kalshi_quote_age_s * 1000,
             )
         except LookupRefused as exc:
             raise HTTPException(
