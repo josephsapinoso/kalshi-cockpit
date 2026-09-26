@@ -16,6 +16,25 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-26 - A vivid case is usually inside the count; "does X trigger Y" needs both ends of the wire
+
+From the sixty-third session (#165, #170).
+
+- **One held combo carrying 5 NO-side legs looked like it refuted "2
+  of 150", and it was one of the 2.** The recount on a committed
+  instrument gave 2 of 82. The case that made the count look wrong was
+  already inside it. **Before calling a population count contradicted
+  by a case in front of you, check whether that case is one of the
+  counted.** A salient example says the category exists. It says
+  nothing about how often it occurs.
+- **A fact-scout reported that the /parlays page buys no attention,
+  from a grep of backend routes.** The heartbeat is sent by the client
+  (`Nav.tsx` → `/desk-attention`), and the only backend writer sits
+  under an unrelated router name. **To ask whether a screen triggers a
+  server behaviour, grep the client for the call and the server for
+  the writer.** A negative from one end is not a finding. Say so in
+  the scout's brief.
+
 ## 2026-09-26 - A link can be the right shape and name a group; an answered question lives in the ADR's decision lines
 
 From the sixty-second session (#165, #169).

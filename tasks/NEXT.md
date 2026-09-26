@@ -134,6 +134,27 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-26 (sixty-third session) — Why 0 of 8 legs on Joe's held combo got a chance: 3 were stale by design, and 5 are NO-side moneylines, which the recount puts in 2 of 82 recent combos. Nothing built for the screen; live stays on 739f9e2
+
+This session started on `/go`. State was clean, live on `739f9e2`, no PRs, no dependency alerts, and the frontier was the same as session 62's. `partner` said build nothing, and instead read why the desk priced **0 of 8** legs on the one combination Joe holds. It gave two read-only questions. The Chrome extension was still not connected, so the /parlays render check is still undone.
+
+### 1. The 3 college legs: stale by design (comment on #165)
+
+- **Not the cap.** `credits-day` and `sweep-log` for 09-25 and 09-26 show no refusals. NCAAF was bought every hour, 04:00Z–14:00Z.
+- **Not missing attention.** `Nav.tsx:253` sends the heartbeat from every page, /parlays included. A fact-scout said the opposite because it grepped only the backend routes (see lessons).
+- **The cause is the horizon.** A leg counts as fresh for 900 s (`backend/config.py:712`). A sport whose kickoff is more than 12 h out is bought hourly, even with the page open (`backend/odds/timing.py:544`, ADR 0111). So at ~17 h out a check reads stale about 45 minutes of every hour. Inside 12 h the cadence is ten minutes and the problem clears by itself.
+
+### 2. The 5 NFL "NO — team wins" legs: real but rare (#170, closed)
+
+- Session 62's "2 of 150" had no committed instrument, so #170 built one: `scripts/count_combo_leg_sides.py` (read-only fills + market GETs, stdout only). It was a lane-builder lane, merged as `d9da911`.
+- **Reading `--since 2026-09-10`: 2 of 82 combos (2.4%)**, one NFL and one soccer (LIGAMX + MLS). Joe's held combo is the NFL one. That is below the 10% bar the partner set, so **no build**: session 62's kill stands on a committed instrument now.
+
+### Still open
+
+0. #151: on 2026-09-28, read `agent-spend` for `agent='leg_verdict'` against the 1.5M ceiling, plus the TAKE/PASS split.
+1. #165: close once one link a friend actually sent resolves. The /parlays box has still never been seen rendered in a browser.
+2. #169: parked. Screenshot reading, no build before #151's reading.
+
 ## 2026-09-26 (sixty-second session) — #165 read on real inputs: a pasted ticker works on a live combo, but a kalshi.com link usually names a group of combinations and is refused. #169 parked. Nothing built; live stays on 739f9e2
 
 This session started on `/go`. State was clean, live on `739f9e2`, no PRs, no dependency alerts. `partner` said there was little to build: verify #165 on real inputs, ask nothing new, stop. I re-asked Joe the two #165/#169 questions with buttons and he said he had already answered. He had: ADR 0187 lines 15–16. See lessons.
@@ -877,6 +898,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-26 (sixty-third session) — Why 0 of 8 legs on Joe's held combo got a chance: 3 were stale by design, and 5 are NO-side moneylines, which the recount puts in 2 of 82 recent combos. Nothing built for the screen; live stays on 739f9e2
 - 2026-09-26 (sixty-second session) — #165 read on real inputs: a pasted ticker works on a live combo, but a kalshi.com link usually names a group of combinations and is refused. #169 parked. Nothing built; live stays on 739f9e2
 - 2026-09-26 (sixty-first session) — #165: paste a friend's Kalshi link on /parlays and see the desk's chance for each leg and for the whole parlay (#166 #167 #168, ADR 0187). Live on 739f9e2
 - 2026-09-25 (sixtieth session) — /bets shows the desk's chance when Joe priced each parlay (#161); the leg ticket says "you can buy 0" and the break-even first, with the box switched off (#160, his answer); the refresh panel's duplicate fixture (#159) and a stale side-switch count (#162) fixed. Live on 29f794d
