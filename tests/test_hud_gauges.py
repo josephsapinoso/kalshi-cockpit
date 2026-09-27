@@ -29,6 +29,7 @@ REPO = Path(__file__).resolve().parents[1]
 GAUGES_TS = REPO / "frontend" / "src" / "lib" / "gauges.ts"
 NAV_TSX = REPO / "frontend" / "src" / "components" / "Nav.tsx"
 PARLAY_CARDS_TSX = REPO / "frontend" / "src" / "components" / "ParlayCards.tsx"
+UI_TSX = REPO / "frontend" / "src" / "components" / "ui.tsx"
 
 NODE = shutil.which("node")
 
@@ -224,3 +225,13 @@ class TestTheWiring:
         assert "scoutGauge" in parlay_cards
         assert "tokens_today /" not in parlay_cards
         assert "searches_today /" not in parlay_cards
+
+    def test_the_gauge_bar_is_given_a_width_before_it_meets_a_flex_row(self):
+        """`.segments` is a grid of twenty empty cells with no width of its
+        own. Placed bare inside `GaugeReadout`'s flex row it collapsed to
+        zero width, and both gauges shipped to live as a gap between the
+        name and the number (2026-09-26, seen in a screenshot, not a test)."""
+        ui = UI_TSX.read_text(encoding="utf-8")
+        body = ui.split("export function GaugeReadout", 1)[1].split("\n}\n", 1)[0]
+        before_bar = body.split("<Segments", 1)[0]
+        assert 'className="block w-20' in before_bar

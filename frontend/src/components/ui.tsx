@@ -126,7 +126,11 @@ export function GaugeReadout({ name, gauge }: { name: string; gauge: Gauge }) {
   return (
     <span className="flex shrink-0 items-center gap-2 font-mono text-xs text-muted">
       <span className="uppercase tracking-wider">{name}</span>
-      <Segments fraction={gauge.fraction ?? 0} label={gauge.label} />
+      {/* `.segments` is a grid of empty cells with no width of its own; as
+          a flex item it collapses to nothing (seen on live, 2026-09-26). */}
+      <span className="block w-20 pb-1">
+        <Segments fraction={gauge.fraction ?? 0} label={gauge.label} />
+      </span>
       <span className="tabular">
         {gauge.fraction === null ? "—" : gauge.label}
       </span>
