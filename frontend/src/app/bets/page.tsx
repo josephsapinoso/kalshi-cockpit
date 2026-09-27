@@ -103,13 +103,23 @@ export default async function BetsPage() {
         </p>
       </header>
 
-      <div className="rounded-2xl border border-edge bg-card p-5">
+      <div className="hud rounded-2xl border border-edge bg-card p-5">
         <div className="text-xs font-semibold uppercase tracking-widest text-muted">
           <Term k="net">Net</Term>, over the whole mirrored record
         </div>
         <p className="mt-2 max-w-[65ch]">
+          {/* The HUD's lit readout (#176, Joe's #173 (A)): the same `glow`
+              text-shadow `ui.tsx`'s `Stat` draws with `readout` set, on the
+              one number this screen leads with. Not a switch to the shared
+              component's indigo ink, and not the shared `Stat` itself --
+              this figure already carries a real distinction the counts on
+              /slate did not have (won money vs. lost money), and painting
+              it accent would erase that to match a look. `glow` is the
+              HUD's own token, defined as a fixed accent-tinted text-shadow
+              in `globals.css`, independent of the text's own colour -- it
+              lights the readout without touching what the colour says. */}
           <span
-            className={`display text-3xl ${
+            className={`display glow text-3xl ${
               totals.net_tenths < 0 ? "text-negative" : "text-positive"
             }`}
           >
