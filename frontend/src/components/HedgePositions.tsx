@@ -228,7 +228,15 @@ function VenueCoverageBanner({ unrecorded }: { unrecorded: UnrecordedAtVenue[] }
   const plural = unrecorded.length === 1 ? "" : "s";
   const verb = unrecorded.length === 1 ? "is" : "are";
   return (
-    <div className="rounded-lg border border-border p-3 text-sm" role="status">
+    <div
+      className="hud rounded-lg border border-border p-3 text-sm"
+      role="status"
+    >
+      {/* The `.hud` corner brackets (#177, Joe's #173 (A)): this is a status
+          panel this screen owns outright, the same kind of block Picks put
+          brackets on for its own empty states. Decoration on the wrapping
+          panel only -- nothing inside carries the readout glow, because
+          nothing here is a hedge/lock/stake/exit figure. */}
       <p>
         {unrecorded.length} Kalshi combination{plural} at the venue {verb} not
         recorded here:
@@ -307,8 +315,16 @@ function Position({
   return (
     <section
       aria-label={`${position.label} ticket`}
-      className="flex flex-col rounded-lg border border-border p-4"
+      className="hud flex flex-col rounded-lg border border-border p-4"
     >
+      {/* The `.hud` corner brackets (#177, Joe's #173 (A)): the direct
+          analogue of `ParlayCards.tsx`'s `Card`, which already has the same
+          class. Decoration on this wrapping panel only -- the estimate and
+          stake figures inside (`EstimateHeadline`, `Ladder`/`Rung`,
+          `StakeBasisLine`) keep their own plain look; CLAUDE.md is explicit
+          that the hedge figure is an estimate pinned in neither direction,
+          never a lock or a bound, so none of them takes the readout's glow
+          or indigo ink. */}
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-widest">
           {position.label}
