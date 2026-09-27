@@ -1092,6 +1092,34 @@ function kickoff(ms: number | null): string {
   });
 }
 
+function Stat({ label, value }: { label: string; value: number }) {
+  /* The HUD's lit readout (#174, Joe's #173 (A)): the same "glow" text-shadow
+     and indigo ink `ui.tsx`'s `Stat` draws with `readout` set, on the two
+     headline numbers this screen leads with. Not the shared component
+     itself -- `tests/test_palette_contrast.py`'s
+     `TestTheNeutralCountIsNotPaintedAsAVerdict` reads a local `function
+     Stat(` out of this file's own source and is outside this ticket's
+     `Lane owns` list, so the function stays local and only its look
+     changes.
+
+     A count is a fact, not a verdict, which is why the readout takes the
+     indigo rather than the loss colour: whether a Stat may wear the indigo
+     at all was ticket #33, Joe chose yes (2026-09-02), the build was then
+     killed as not earning (NEXT.md, 2026-09-03), and `board/page.tsx`'s Stat
+     (the other page this same reason is read from) still renders it plain
+     -- so the two screens now differ on purpose, not by drift. */
+  return (
+    <div>
+      <div className="text-xs font-semibold uppercase tracking-widest text-muted">
+        {label}
+      </div>
+      <div className="tabular glow text-3xl font-semibold leading-tight text-accent">
+        {value}
+      </div>
+    </div>
+  );
+}
+
 function Shell({ children }: { children: React.ReactNode }) {
   /* `max-w-3xl` below xl — the phone-first page, unchanged. From xl the slate
      is the screen that earns the desktop tier most: nine facts per row that
@@ -1101,27 +1129,6 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-12 sm:py-16 xl:max-w-[84rem] xl:px-8 2xl:max-w-[96rem]">
       {children}
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  /* No accent variant, for the Refusals screen's reason: a count is a fact,
-     not a verdict. This comment used to say `--accent` was byte-identical to
-     `--negative` in every theme block, so an emphasised count rendered as a
-     loss; false since ADR 0081 (commit `7bdcb11`, 2026-08-28) made `--accent`
-     indigo. The guard in `tests/test_palette_contrast.py` now forbids the
-     LOSS colour on a Stat, not the accent. Ticket #33 asked whether a Stat
-     takes the indigo; Joe chose yes (2026-09-02) and the build was killed as
-     not earning (NEXT.md, 2026-09-03) -- see `board/page.tsx`'s Stat. */
-  return (
-    <div>
-      <div className="text-xs font-semibold uppercase tracking-widest text-muted">
-        {label}
-      </div>
-      <div className="tabular mt-1 text-2xl font-semibold tracking-tight">
-        {value}
-      </div>
     </div>
   );
 }

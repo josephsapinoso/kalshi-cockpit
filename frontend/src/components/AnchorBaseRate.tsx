@@ -127,7 +127,7 @@ export default function AnchorBaseRate({ rows }: { rows: readonly SlateRowData[]
   if (buckets.length === 0) return null;
 
   return (
-    <section className="mt-8 rounded-lg border border-border bg-card p-3">
+    <section className="hud mt-8 rounded-lg border border-border bg-card p-3">
       <h2 className="text-xs font-medium text-muted">
         <Term k="sharp_book">Sharp book</Term> behind these prices
       </h2>
