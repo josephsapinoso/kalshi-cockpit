@@ -134,6 +134,38 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-26 (sixty-fifth session) — the HUD is seen on live with real cards; the nav gets two spend gauges (#172), and Joe says carry the look to the other screens as it is (#173 A)
+
+Partner ranked it small: look at the real cards first, then show the scout spend before the first ask-all tap. Nothing on #151 before 09-28.
+
+### 1. Live /parlays with real cards, finally seen (#171 slice 1)
+
+- **How:** Playwright MCP with a cookie minted from `.env`. The Chrome extension is still disconnected. Nothing was clicked.
+- **The cards are right at 390 and 1280 wide.** The brackets show, the readout is lit, and the chance bar lights 8 of 20 cells at 39.1%. TAKE is never green. Scout B found no decoration keyed to verdict, edge, gap or rank: `.hud` is always on, and `.glow` marks only the current page.
+- **One defect, fixed in `a1a3534`:** at 375px the HUD's mono uppercase nav needed 289px of a 267px row, so the row scrolled and hid the theme toggle. Phone now uses `px-1 tracking-wide`, which is 265px. Desktop is unchanged.
+- **Question for Joe:** carry the look to the other screens as it is, change something first, or keep it on /parlays? — #173. **Answered (A)** by option button: carry it as it is, one screen per slice. Closed.
+
+### 2. The spend gauges (#172, lane `4105f5b` + main `0d3f6a2` `d60fe94` `5c4aa4e`; live `e876117`, seen rendered)
+
+- **Why:** at 23:20Z, `/api/scout` read tokens 1,033,348 / 1.5M (69%), searches 57/100 and calls 21/40. /parlays held 16 unread legs, about 816K tokens at ~51K each, against about 467K left. One ask-all tap would have hit the daily cap partway through.
+- **What:** `frontend/src/lib/gauges.ts` has two functions:
+  - `scoutGauge` shows whichever of tokens, searches or calls is closest to its cap.
+  - `oddsGauge` shows `spent_today / daily_budget` (the 700), not the 300 attention slice.
+  - Anything unreadable shows "—", never 0%.
+- **Where:** the nav shows `SCOUTS ▮▮▮ tokens 69%   ODDS ▮▮▮ credits 61%` from `lg` up. At every width, "Scouts used today" sits under the ask-all button, which is the phone's path. There is no backend change: both numbers were already served.
+- **Tests:** `tests/test_hud_gauges.py`, 12 tests. The lane showed four guards red by mutation, and main showed the fifth (bar width).
+- **Two things the lane's recipe missed:**
+  - CI failed on a `Nav.tsx` pin in `test_watcher_decides_from_fresh_facts.py`, which allows one poll timer. Fixed by folding the scout fetch into the chip's poll (`d60fe94`).
+  - On live, the bars were invisible, because a width-less grid collapses in a flex row. Fixed in `5c4aa4e` after a DOM patch on live proved the fix.
+- **Lesson and ticket template:** run every test that reads a file the lane edited.
+
+### Still open
+
+0. #171 — slice 3: the HUD on Games, Picks, Your bets and /hedge, one screen per slice, per Joe's #173 A. Then slice 4 (motion).
+1. #151 — on 2026-09-28, read `agent-spend` for `agent='leg_verdict'` against the 1.5M ceiling, plus the TAKE/PASS split. The ask-all button spends in bursts; the gauges now show the day's spend.
+2. #165 — close once one link a friend actually sent resolves.
+3. #169 — parked.
+
 ## 2026-09-26 (sixty-fourth session) — /parlays gets one "ask the scouts about every leg" button (live `6583258`); Joe picks a video-game look, "Cockpit HUD", and its first slice ships (live `c401c62`, #171)
 
 Two errands Joe named himself, so no `partner` pass.
