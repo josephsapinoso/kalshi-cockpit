@@ -161,7 +161,7 @@ Partner ranked it small: look at the real cards first, then show the scout spend
 
 ### Still open
 
-0. #171 — slice 3: the HUD on Games, Picks, Your bets and /hedge, one screen per slice, per Joe's #173 A. Then slice 4 (motion).
+0. #171 — slice 3, the HUD on the other screens per Joe's #173 A, one lane each: #174 Games, #175 Picks, #176 Your bets, #177 /hedge. Main checks each on live after merge. Then slice 4 (motion).
 1. #151 — on 2026-09-28, read `agent-spend` for `agent='leg_verdict'` against the 1.5M ceiling, plus the TAKE/PASS split. The ask-all button spends in bursts; the gauges now show the day's spend.
 2. #165 — close once one link a friend actually sent resolves.
 3. #169 — parked.
