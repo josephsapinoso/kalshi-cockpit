@@ -153,7 +153,10 @@ export default function PicksAnchorBaseRate({
   if (buckets.length === 0) return null;
 
   return (
-    <section className="mt-8 rounded-lg border border-edge bg-card p-3">
+    <section className="hud mt-8 rounded-lg border border-edge bg-card p-3">
+      {/* The `.hud` corner brackets (#175, Joe's #173 (A)): the same
+          treatment `AnchorBaseRate`'s panel on Games got in #174, and the
+          one bordered, `bg-card` block this screen owns outright. */}
       <h2 className="text-xs font-medium text-muted">
         <Term k="sharp_book">Sharp book</Term> behind these{" "}
         <Term k="moneyline">moneyline</Term> picks

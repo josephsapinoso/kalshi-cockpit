@@ -145,6 +145,15 @@ export default async function PicksPage({
 
   return (
     <Shell>
+      {/* HUD look (#175, Joe's #173 (A)): the `.hud` corner brackets go on
+          the panels this screen owns outright below and on
+          `PicksAnchorBaseRate`'s own -- the same treatment Games' analogous
+          panel got in #174. No `Stat readout` here and no `Segments`: this
+          page keeps no local `Stat` and holds no headline number to draw one
+          on -- `test_no_headline_counting_how_many_ranked` above forbids the
+          one count a screen like this would otherwise lead with, and the
+          cash/cap line stays the same running prose the Games screen's own
+          money paragraph is (untouched there in #174 too). */}
       <header>
         {/* "Picks", matching its own nav label: one screen, one name, the
             rule Games settled on 2026-08-22 and Refusals on 2026-09-02
@@ -224,7 +233,7 @@ export default async function PicksPage({
            `/api/slate` with no `picks` key at all. Drawn as its own fact:
            "not available on this instance" is a statement about the wire,
            and rendering nothing here would be a healthy silence over it. */
-        <section className="mt-8 rounded-2xl border border-edge bg-card p-5">
+        <section className="hud mt-8 rounded-2xl border border-edge bg-card p-5">
           <h2 className="text-sm font-semibold uppercase tracking-widest text-muted">
             Not available on this instance
           </h2>
@@ -239,7 +248,7 @@ export default async function PicksPage({
         /* `GoodChancePicks` returns null for this pair, so without this the
            tab opens to an h1 and whitespace — the indictment #8 levelled at
            the screen this one replaced in the slot. */
-        <section className="mt-8 rounded-2xl border border-edge bg-card p-5">
+        <section className="hud mt-8 rounded-2xl border border-edge bg-card p-5">
           <h2 className="text-sm font-semibold uppercase tracking-widest text-muted">
             Nothing ranked
           </h2>
