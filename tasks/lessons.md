@@ -16,6 +16,24 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-26 - A named test list is the tests you thought of; a trap recorded in memory is invisible if its index line doesn't name it
+
+From the sixty-fifth session (#171, #172).
+
+- **The lane ran every test its ticket named, all green, and CI failed
+  on a test in another file.** `test_watcher_decides_from_fresh_facts.py`
+  pins that `Nav.tsx` holds exactly one poll timer, and the lane added a
+  second. Source-reading tests pin a frontend file from anywhere in
+  `tests/`. **Before merging, run every test that mentions a file the
+  lane edited** (`grep -lE "Nav\.tsx|…" tests/*.py`). The ticket template
+  now says so.
+- **I leaked a one-hour session cookie through Playwright's run_code
+  echo, a trap memory had recorded the day before.** The fix was in the
+  memory file's body, and the MEMORY.md index line named a different
+  trap. **When a memory's body gains a new hazard, update its index line
+  in the same edit**, because the index is the only part a session reads
+  first.
+
 ## 2026-09-26 - A vivid case is usually inside the count; "does X trigger Y" needs both ends of the wire
 
 From the sixty-third session (#165, #170).
