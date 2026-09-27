@@ -219,27 +219,9 @@ export default function Nav() {
           setChip(null);
           setOddsGaugeState(oddsGauge(null));
         });
-    };
-    load();
-    const timer = setInterval(load, HEARTBEAT_INTERVAL_MS);
-    document.addEventListener("visibilitychange", load);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", load);
-    };
-  }, []);
-
-  // The scout gauge's own poll (#172) -- same cadence and the same
-  // visibility gate as the window poll above, because `/api/scout` is a
-  // second route and buys neither credits nor tokens on its own (a plain
-  // read of `AgentBudget`'s counters), so there is nothing to spend by
-  // asking as often as the chip already does, and nothing gained by asking
-  // more often than a person can read the number.
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      if (document.visibilityState !== "visible") return;
+      // The scout gauge (#172) rides the same loop, timer and visibility
+      // gate: `/api/scout` is a plain read of `AgentBudget`'s counters and
+      // buys neither credits nor tokens.
       fetchScoutOverview()
         .then((overview) => {
           if (!cancelled) setScoutGaugeState(scoutGauge(overview.spend));
