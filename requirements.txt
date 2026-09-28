@@ -29,7 +29,16 @@ python-dotenv~=1.0
 pydantic~=2.10            # also the schema layer for agent structured outputs
 
 # --- Analytics ---------------------------------------------------------------
-pandas~=2.2
+# pandas was pinned here (~=2.2) but nothing in backend/, scripts/, tests/ or
+# warehouse/ ever imported it -- no `import pandas`, no `.df()`, no
+# `fetchdf`, no `to_pandas`. Removed 2026-09-28 (#189, part of #185/ADR 0188).
+# `pip show dbt-duckdb` (and its own deps dbt-core/dbt-adapters/dbt-common)
+# lists no pandas requirement, and `pip show pandas` in this venv shows
+# `Required-by:` empty -- so dropping it here does not silently reappear via
+# requirements-dev.txt's `dbt-duckdb~=1.9`; that file still installs its own
+# closure at dev/CI time regardless of this line.
+# tests/test_requirements_are_imported.py::test_every_heavy_runtime_dependency_has_an_importer
+# holds numpy, scipy, pyarrow and duckdb below to the same bar going forward.
 numpy~=2.2
 scipy~=1.15               # Shin devig solver, calibration, noise guards
 # 25 and not 23: GHSA-rgxp-2hwp-jwgg is fixed in 23.0.1, so `~=23.0` would
