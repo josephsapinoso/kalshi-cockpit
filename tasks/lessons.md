@@ -16,6 +16,27 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-28 - A speed comparison must charge both arms for the same work; Git Bash rewrites any argument that starts with "/"
+
+From the sixty-seventh session (ADR 0188, #185–#190).
+
+- **The first kernel harness reported the Genz CDF as ~200× faster than
+  the Monte Carlo at 2 legs.** It was ~25×. The Monte Carlo timer covered
+  `joint_probability_all` end to end: matrix, thresholds, draws. The Genz
+  timer covered only the `cdf` call and left ~0.2 ms of setup outside it,
+  which was most of its cost. measurement-skeptic caught it before commit.
+  **When two methods race, wrap each in one function that goes from the
+  same inputs to the same output, and time those two functions.** A ratio
+  where one arm's setup was done outside its timer measures where the timer
+  was placed, not the method.
+- **`gh issue create --title "/api/signal serves…"` published
+  "C:/Program Files/Git/api/signal serves…".** Git Bash (MSYS) converts any
+  argument that begins with `/` into a Windows path, silently, before the
+  program sees it. This was the one of five titles that began with a route.
+  **Prefix `MSYS_NO_PATHCONV=1` to any command whose arguments begin with
+  `/`, or reword so they don't.** Then read the published text back:
+  `scripts/board.py` is where this one showed.
+
 ## 2026-09-28 - A look recipe written for neutral counts does not transfer to a money result; merge approval covers the PRs it named
 
 From the sixty-sixth session (#174–#177, #182).
