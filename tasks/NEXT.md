@@ -134,7 +134,7 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-27/28 (sixty-sixth session) — the HUD reaches Games, Picks, Your bets and /hedge (#174–#177, live `27a7154`); Joe keeps leg verdicts as they are (#183 A) and keeps #165 open; the motion slice is built and waits on his word (PR #184)
+## 2026-09-27/28 (sixty-sixth session) — the HUD reaches Games, Picks, Your bets and /hedge (#174–#177, live `27a7154`); Joe keeps leg verdicts as they are (#183 A) and keeps #165 open; the motion slice ships too (PR #184, live `07ec1ce`) and #171 closes
 
 The session opened on a routine's PR (#178, #174 Games), not a push to main. Joe then ran the rest of slice 3 as parallel lanes and asked for the backlog.
 
@@ -158,14 +158,19 @@ The session opened on a routine's PR (#178, #174 Games), not a push to main. Joe
 - **Not merged: waiting on Joe's word.** My `gh pr merge 179` was refused `[Merge Without Review]` because his "merge, deploy and check" had covered #178 only. After he said "merge all three once CI passes", the merges went through. Ask per batch.
 - **When merged, check on live:** every verdict already on the cards sweeps once, together, on page load (the ticket allowed it; if it's busy, sweep only answers that arrive while he watches). The `::after` extends 6px past each line, so check 390px for horizontal scroll. Then close #182 and #171.
 
+### 4. After the handoff: #184 merged on Joe's word, live `07ec1ce`; #182 and #171 closed
+
+- **Checked on live /parlays at 390 and 1440:** the shipped rule animates (`verdict-sweep`, 0.9s, count 1) on a probe line injected into the page, and the band is visible mid-sweep. Under emulated reduced motion, `::after` has `animation: none`. There is no sideways scroll at either width.
+- **Not seen: a real verdict landing.** The page rendered no verdict line, and choosing a card's "Each leg" tab fires a paid verdict request, so I didn't. The remount wiring is test-pinned (`test_hud_motion.py`). **The next time Joe opens a card's legs, look at whether the page-load sweep of every stored verdict at once feels busy.** If it does, sweep only answers that arrive while he watches.
+- The motion lane's worktree and branches are removed.
+
 ### Still open
 
-0. #182 — merge PR #184 on Joe's word, deploy, check /parlays on live at 390 and 1440 (load sweep, no sideways scroll), then close #182 and #171.
 1. #165 — open until a friend actually sends a link (Joe, 2026-09-28).
 2. #169 — parked behind #165.
 3. #151 — nothing owed; the cost decision is #183 A. The evidence look is registered for 1,800 legs or 2027-01-15.
 
-Housekeeping: worktree `.claude/worktrees/agent-a4eae56b2a4b0054b` holds #184's branch; remove it (junction check first) after the merge. `agent-adc28b9d29a94f3bc` predates this session; left alone.
+**The build frontier is empty** (partner, 2026-09-28): map #3 has no open child, and epics #81, #82, #84 and #85 have none. Start the next session with partner on what, if anything, is worth opening. Don't invent build work. Worktree `agent-adc28b9d29a94f3bc` predates session 66; left alone.
 
 ## 2026-09-26 (sixty-fifth session) — the HUD is seen on live with real cards; the nav gets two spend gauges (#172), and Joe says carry the look to the other screens as it is (#173 A)
 
@@ -993,7 +998,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
-- 2026-09-27/28 (sixty-sixth session) — the HUD reaches Games, Picks, Your bets and /hedge (#174–#177, live `27a7154`); Joe keeps leg verdicts as they are (#183 A) and keeps #165 open; the motion slice is built and waits on his word (PR #184)
+- 2026-09-27/28 (sixty-sixth session) — the HUD reaches Games, Picks, Your bets and /hedge (#174–#177, live `27a7154`); Joe keeps leg verdicts as they are (#183 A) and keeps #165 open; the motion slice ships too (PR #184, live `07ec1ce`) and #171 closes
 - 2026-09-26 (sixty-fifth session) — the HUD is seen on live with real cards; the nav gets two spend gauges (#172), and Joe says carry the look to the other screens as it is (#173 A)
 - 2026-09-26 (sixty-fourth session) — /parlays gets one "ask the scouts about every leg" button (live `6583258`); Joe picks a video-game look, "Cockpit HUD", and its first slice ships (live `c401c62`, #171)
 - 2026-09-26 (sixty-third session) — Why 0 of 8 legs on Joe's held combo got a chance: 3 were stale by design, and 5 are NO-side moneylines, which the recount puts in 2 of 82 recent combos. Nothing built for the screen; live stays on 739f9e2
