@@ -411,6 +411,47 @@ body {
   text-shadow: 0 0 18px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
+/* A sweep across a scout answer (a leg verdict), once, when it lands (#182,
+   #171's "small motion" line). Decoration only, the same rule as the rest
+   of this block: identical for TAKE and PASS, nothing keyed to the verdict,
+   the edge, the gap or a rank (ADR 0071 section 2.5) -- it says "an answer
+   arrived", never "this one is better". The component applies the class
+   the same way whichever verdict rendered; only the arrival is signalled.
+
+   Gated entirely on `no-preference`: under `prefers-reduced-motion: reduce`
+   the rule below simply does not exist, so there is nothing to null out --
+   the global reduced-motion block above also forces every animation's
+   duration to ~0, belt and suspenders. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes verdict-sweep {
+    from {
+      background-position: 160% 0;
+    }
+    to {
+      background-position: -60% 0;
+    }
+  }
+  .verdict-sweep {
+    position: relative;
+  }
+  .verdict-sweep::after {
+    content: "";
+    position: absolute;
+    inset: -2px -6px;
+    pointer-events: none;
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--accent) 30%, transparent),
+      transparent
+    );
+    background-size: 60% 100%;
+    background-repeat: no-repeat;
+    /* Once: a finite count (1), never `infinite`. */
+    animation: verdict-sweep 0.9s ease-out 1 both;
+  }
+}
+
 /* A segmented meter, twenty cells. The lit count is set by the component. */
 .segments {
   display: grid;
