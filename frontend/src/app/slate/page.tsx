@@ -108,11 +108,18 @@ export default async function SlatePage({
   // disclosure. `null` means the read failed and the disclosure says so in
   // words — never a button with an unnamed cost.
   let refreshable: Refreshable | null = null;
+  // The three secondary reads are independent of the slate and of each
+  // other -- start them alongside the primary fetch rather than after it,
+  // so this page costs its slowest call, not the sum. Each keeps its own
+  // `.catch(() => null)`: a failed secondary read degrades in words.
+  const signalPromise = fetchSignal().catch(() => null);
+  const actionablePromise = fetchWindow().catch(() => null);
+  const refreshablePromise = fetchRefreshable().catch(() => null);
   try {
     data = await fetchSlate(filter);
-    signal = await fetchSignal().catch(() => null);
-    actionable = await fetchWindow().catch(() => null);
-    refreshable = await fetchRefreshable().catch(() => null);
+    signal = await signalPromise;
+    actionable = await actionablePromise;
+    refreshable = await refreshablePromise;
   } catch (error) {
     // A 422 is the server refusing the cut in the URL -- a different fact
     // from an unreachable backend, and drawn as one: the bar stays, at its
