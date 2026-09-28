@@ -1292,8 +1292,8 @@ QUERIES: dict[str, QueryDef] = {
     ),
     "combo-position-gaps": QueryDef(
         "Combinations bought with REAL money that no `parlay_positions` row "
-        "watches, so `/hedge` -- the only exit an enter-only combination has "
-        "-- cannot see them. Both money-spending statuses (`filled` and "
+        "watches, so `/hedge` -- the exit the desk watches (not the only one: "
+        "combinations can be sold back, 2026-09-17) -- cannot see them. Both money-spending statuses (`filled` and "
         "`partially_filled`), with the latest venue poll beside each so an "
         "OPEN one is separable from history, and `unrecognised_response` "
         "orders listed SEPARATELY because those may or may not have spent "

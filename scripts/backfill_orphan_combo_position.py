@@ -5,8 +5,9 @@
 
 `manual_orders` id=4 filled at 2026-09-09T15:11:56.378Z with real money. ADR
 0125's wiring -- which makes a filled combination write its own
-`parlay_positions` row, so that `/hedge` can see the only exit an enter-only
-combination has -- deployed at 15:56:45Z, forty-five minutes later. The fill
+`parlay_positions` row, so that `/hedge` can watch it -- the exit the desk
+watches, though not the only one: combinations can be sold back, measured
+2026-09-17 -- deployed at 15:56:45Z, forty-five minutes later. The fill
 therefore never had a writer at all, and the position existed with the exit
 screen never having heard of it.
 
