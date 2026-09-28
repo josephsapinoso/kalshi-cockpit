@@ -51,21 +51,28 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # uv is a Rust-built installer -- it resolves and installs both
-      # requirement files far faster than pip, and it is the one place in
-      # this CI job where that speed is worth taking on a new tool for.
-      # `astral-sh/setup-uv` also pins the interpreter, replacing
-      # `actions/setup-python`, and caches uv's own resolution cache.
-      - name: Install uv and set the Python version
-        uses: astral-sh/setup-uv@v6
+      # `setup-python` stays: it is what puts 3.11 -- the Dockerfile's
+      # runtime -- first on PATH as `python` for every later step.
+      # `setup-uv`'s own `python-version` input only sets UV_PYTHON and
+      # puts nothing on PATH, so letting it replace this step would run the
+      # suite on whatever interpreter the runner ships (#190, on merge).
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
+
+      # uv is a Rust-built installer. It resolves and installs both
+      # requirement files far faster than pip, and it is the one place in this
+      # CI job where that speed is worth taking on a new tool for (ADR 0188).
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10
+        with:
           enable-cache: true
 
-      # `--system` installs into that interpreter's own site-packages rather
-      # than a uv-managed virtualenv, so every later step (pip-audit, ruff,
-      # pytest, the seed/publish scripts) sees the same environment it did
-      # under pip -- nothing below this step changed to accommodate uv.
+      # `--system` installs into setup-python's interpreter (the first
+      # `python` on PATH) rather than a uv-managed virtualenv. Every later
+      # step (pip-audit, ruff, pytest, the seed/publish scripts) therefore
+      # sees the same environment it did under pip, and nothing below this
+      # step changed to accommodate uv.
       - name: Install
         run: uv pip install --system -r requirements.txt -r requirements-dev.txt
 
