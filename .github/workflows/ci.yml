@@ -63,8 +63,11 @@ jobs:
       # uv is a Rust-built installer. It resolves and installs both
       # requirement files far faster than pip, and it is the one place in this
       # CI job where that speed is worth taking on a new tool for (ADR 0188).
+      # An exact tag, because setup-uv publishes no floating major tag: `@v10`
+      # fails to resolve, and the job dies in "Set up job" before any step
+      # runs (3c6b084).
       - name: Install uv
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.2.0
         with:
           enable-cache: true
 
