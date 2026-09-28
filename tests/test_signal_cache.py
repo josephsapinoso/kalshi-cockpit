@@ -336,3 +336,39 @@ class TestTheRefreshDoesNotUseTheRequestConnection:
 
         assert status._signal_cache["computed_ms"] != stale_computed_ms
         assert status._signal_cache["report"] is not None
+
+class TestTheRefreshIsBounded:
+    def test_the_background_refresh_carries_the_request_read_budget(
+        self, seeded_db, real_report, monkeypatch
+    ):
+        """ADR 0135: no API read runs unbounded, requester or not.
+
+        A recompute that hangs on a cold cache, with no request left to abandon
+        it, would otherwise hold memory and I/O until it finished.
+
+        Mutation observed red: drop `statement_budget_ms=` from the
+        background `open_db` call -- the recorded budget is `None`.
+        """
+        status._signal_cache["report"] = real_report
+        status._signal_cache["computed_ms"] = _stale_computed_ms()
+
+        budgets: list = []
+        real_open_db = db_module.open_db
+
+        def _recording_open_db(*args, **kwargs):
+            if threading.current_thread().name == "signal-cache-refresh":
+                budgets.append(kwargs.get("statement_budget_ms"))
+            return real_open_db(*args, **kwargs)
+
+        monkeypatch.setattr(status.db, "open_db", _recording_open_db)
+
+        config = AppConfig(
+            instance_mode="live", auth_token=DB_TOKEN, db_path=seeded_db
+        )
+        with TestClient(create_app(config)) as client:
+            assert client.get("/api/signal").status_code == 200
+            assert _wait_until(lambda: budgets, timeout=5)
+
+        assert budgets == [config.api_read_budget_ms]
+        assert budgets[0] is not None
+

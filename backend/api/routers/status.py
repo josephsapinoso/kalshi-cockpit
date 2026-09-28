@@ -80,7 +80,7 @@ _signal_refresh_lock = threading.Lock()
 _signal_refresh_in_flight = False
 
 
-def _run_background_signal_refresh(db_path) -> None:
+def _run_background_signal_refresh(db_path, read_budget_ms: int) -> None:
     """Recompute the report off the request path, on its own connection.
 
     **Never the request's `conn`.** `get_conn` (`routes.py`) hands out a
@@ -90,31 +90,42 @@ def _run_background_signal_refresh(db_path) -> None:
     short-lived read-only connection the same way `_notification_health` and
     `_recorder_health` do in `routes.py`, rather than taking `get_conn`'s.
 
+    **It carries the request path's read budget.** ADR 0135's rule is that no
+    API read runs unbounded, and having no requester does not exempt this
+    one: a recompute that hangs on a cold cache would hold memory and I/O
+    with nobody left to abandon it. Past the budget SQLite raises
+    `interrupted`, which lands in the failure branch below.
+
     A failed recompute is logged and the last good report is left standing --
-    it is never cached as if it were a result, and the in-flight flag is
-    always cleared so the next stale read retries.
+    it is never cached as if it were a result. The in-flight flag is cleared
+    only **after** a new report is written, so a stale read arriving between
+    the two cannot start a second refresh of the same data.
     """
     global _signal_refresh_in_flight
     try:
-        conn = db.open_db(db_path, read_only=True, cross_thread=True)
+        conn = db.open_db(
+            db_path,
+            read_only=True,
+            cross_thread=True,
+            statement_budget_ms=read_budget_ms,
+        )
         try:
             report = report_from_connection(conn)
         finally:
             conn.close()
+        _signal_cache["report"] = report
+        _signal_cache["computed_ms"] = db.now_ms()
     except Exception:                                          # noqa: BLE001
         logger.warning(
             "background /api/signal refresh failed; keeping the last report",
             exc_info=True,
         )
-        return
     finally:
         with _signal_refresh_lock:
             _signal_refresh_in_flight = False
-    _signal_cache["report"] = report
-    _signal_cache["computed_ms"] = db.now_ms()
 
 
-def _maybe_start_background_signal_refresh(db_path) -> None:
+def _maybe_start_background_signal_refresh(db_path, read_budget_ms: int) -> None:
     """Start one refresh thread, unless one is already running."""
     global _signal_refresh_in_flight
     with _signal_refresh_lock:
@@ -123,13 +134,15 @@ def _maybe_start_background_signal_refresh(db_path) -> None:
         _signal_refresh_in_flight = True
     threading.Thread(
         target=_run_background_signal_refresh,
-        args=(db_path,),
+        args=(db_path, read_budget_ms),
         daemon=True,
         name="signal-cache-refresh",
     ).start()
 
 
-def _cached_signal_report(conn, db_path) -> tuple[SignalReport, int]:
+def _cached_signal_report(
+    conn, db_path, *, read_budget_ms: int
+) -> tuple[SignalReport, int]:
     """The registered report. Stale is served at once; a miss computes inline.
 
     Keyed on nothing: there is one population and one registered cut, so there
@@ -138,12 +151,12 @@ def _cached_signal_report(conn, db_path) -> tuple[SignalReport, int]:
     quotes) and will not resolve itself in an hour, so re-running the join to
     be told the same thing is the worst of both.
 
-    **Stale, not fresh, is the common case now that the TTL is an hour.** A
-    request that finds a stale report returns it immediately -- with its own
-    `computed_ms`, so the screen's age display stays honest -- and starts at
+    A request that finds a stale report returns it immediately, with its own
+    `computed_ms` so the screen's age display stays honest, and starts at
     most one background refresh (`_maybe_start_background_signal_refresh`).
-    Only the *first* read, with nothing cached at all, pays for the recompute
-    inline; there is nothing stale to fall back on.
+    Only a read with nothing cached at all -- the first after a restart --
+    pays for the recompute inline, on the request's own budgeted connection,
+    because there is nothing stale to fall back on.
     """
     now = db.now_ms()
     cached = _signal_cache.get("report")
@@ -151,7 +164,7 @@ def _cached_signal_report(conn, db_path) -> tuple[SignalReport, int]:
     if isinstance(cached, SignalReport) and isinstance(computed_ms, int):
         if now - computed_ms < SIGNAL_CACHE_TTL_MS:
             return cached, computed_ms
-        _maybe_start_background_signal_refresh(db_path)
+        _maybe_start_background_signal_refresh(db_path, read_budget_ms)
         return cached, computed_ms
     report = report_from_connection(conn)
     _signal_cache["report"] = report
@@ -431,7 +444,11 @@ def register(
         cluster count off a refused report would put on the public screen, and
         which is a *larger* number than the live record's.
         """
-        report, computed_ms = _cached_signal_report(conn, app_config.db_path)
+        report, computed_ms = _cached_signal_report(
+            conn,
+            app_config.db_path,
+            read_budget_ms=app_config.api_read_budget_ms,
+        )
         return _signal_payload(report, computed_ms)
 
     @app.get("/api/results")
