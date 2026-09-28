@@ -134,7 +134,7 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-28 (sixty-seventh session) — "Would Rust help?" No: ADR 0188 (Proposed), epic #185 with five speed tickets (#186–#190), and the first CPU-time instrument for the live box (`c12c704`, not yet live)
+## 2026-09-28 (sixty-seventh session) — "Would Rust help?" No: ADR 0188 (Accepted; the live box is 1.3% busy), four speed lanes live on `1078389` (#186 #187 #189 #190), and a fixed ~3 s server-side stall found (#193)
 
 Joe asked for an exploratory analysis of whether any part of the stack should move to Rust. The repo asked the same thing on 2026-08-08 (item 4) and never wrote the answer down.
 
@@ -149,23 +149,36 @@ Joe asked for an exploratory analysis of whether any part of the stack should mo
   - the recorder verdict rests on the absence of CPU evidence, not on a CPU measurement.
 - **The Genz swap is deferred (ADR 0188 §4), not a question for Joe yet.** It becomes one only if a warm `/api/parlays` read on live shows the ladder build as a material share.
 
-### 2. Built: `scripts/inspect_live_proc.py` reads CPU time (`c12c704`, CI green)
+### 2. The live CPU reading (`inspect_live_proc.py --diff`, `c12c704`; Joe deployed it himself)
 
-- It reads `utime`/`stime` per process and `/proc/stat` steal/iowait.
-- `--diff BEFORE AFTER` subtracts two saved `--json` readings, matching on pid and start time. It refuses a restart between readings, mismatched clock ticks, and a missing steal column. Five guards are red by mutation.
-- `scripts/measure_kernel_timings.py` is laptop-only (it is not in the image).
-- **Not on live yet.** The auto-mode classifier refused the live deploy twice, the second time after Joe's "keep going, deploy when CI passes". It also refused a follow-up ticket and doc edits that only mentioned the reading. Joe runs the deploy himself. Then take two `--json` readings 15+ minutes apart (at least 30 minutes after the restart) and fill measurement doc §B and ADR 0188 §2. ADR 0188 goes to Accepted then.
+- **The first CPU-time reading the box has ever had:** 21:25–21:45Z, with the window open, one full catalogue walk (11,652 events) and 43 quote passes. **The box: 0.026 of 2 cores (1.3%)**, iowait 0.1%, steal 0.0%. **The recorder: 27.4 CPU-s (0.023 cores).** uvicorn 2.7 s, Next 0.4 s. This contradicts the unprofiled 08-26 claim of "33–114 s of saturated CPU per full pass". It is n = 1. Re-read it on a busy weekend slate.
+- **The classifier refused the live deploy twice**, including after Joe's "keep going, deploy when CI passes". It also refused a ticket and doc edits that only mentioned the reading. Joe ran the deploy with `!`. The later deploy of `1078389` went through first try. The memory file carries the pattern.
 
-### 3. Tickets (epic #185 under #80)
+### 3. Four lanes merged and live on `1078389` (partner's dispatch; Joe approved the batch with option buttons)
 
-#186 pages fetch in parallel · #187 the signal cache miss serves stale while one refresh runs · #188 async routes off the event loop (owner:main; kalshi-platform review for `/api/hedge`) · #189 drop unused `pandas` · #190 CI with `uv`, and `pytest-xdist` only if the suite is order-independent. **Storage is deliberately left off**: Joe said no VACUUM for now (#58, ADR 0182), and the `kalshi_quotes` exemption is already capped (ADR 0183).
+- **#187** (lane `af4dd4a`): `/api/signal` serves a stale report at once and refreshes in the background, and the TTL goes from 5 min to 1 h. **Integrator fix `c917c2f`:** the lane's refresh opened its connection with no read budget (ADR 0135), and it cleared its in-flight flag before writing the new report. Both are fixed and pinned.
+- **#186** (lane `36f5a90`): pages fetch in parallel. On live, the overhead on top of each page's primary call fell from ~100–150 ms to ~60–80 ms. That is a small gain, because the primary call dominates.
+- **#189** (lane `94e4a9b`): `pandas` is out of `requirements.txt`.
+- **#190** (lane `f3ae060`): `uv` in CI, so Install takes 3 s instead of 34 s.
+  - **Integrator fixes:** `3c6b084` keeps `setup-python` pinning 3.11 (setup-uv's `python-version` only sets UV_PYTHON), and `1078389` pins `setup-uv@v10.2.0`. My own `@v10` broke CI on `3c6b084`, because there is no floating major tag.
+  - **xdist was rejected:** 11 failures from fixed-name `.mjs` drivers in ~20 test files. Follow-up is #192.
+- #188 is **parked** until someone takes a loop-lag reading. #191 (`/api/hedge` ~2 s, sequential book reads) was split out of it by partner.
+
+### 4. Found while timing the deploy: a fixed ~3.1 s server-side stall (#193)
+
+- About 1 in 20–40 live requests takes ~3.1 s against ~100 ms, on any route, including a signal cache hit that runs no SQL.
+- `curl -w` puts it **after TLS** (DNS ≤ 6 ms, connect ≤ 46 ms, TLS ≤ 70 ms, TTFB ~3.17 s), so it is server side: Fly edge, Next's proxy or uvicorn.
+- It predates today. The 09-18 table's 3.6–3.9 s maxima fit it, and so does the 09-17 "3,101 ms signal miss".
+- #193 has the bisect plan: a committed in-box probe against :8000, then :3000.
 
 ### Still open
 
-1. #185 — the speed epic. #186, #187, #189 and #190 are `owner:agent` lanes, and #188 is main's. None dispatched yet. Merges need Joe's word per batch.
-2. #185 — also owes ADR 0188 §B, the live CPU reading, once `c12c704` or later is on live. It has no ticket of its own because opening one was refused along with the deploy.
-3. #165 — open until a friend actually sends a link (Joe, 2026-09-28).
-4. #169 — parked behind #165.
+1. #193 — the ~3 s stall. Bisect the hop first. It is the largest latency left on the desk, and it is not CPU.
+2. #191 — `/api/hedge` ~2 s: count the tickers `read_books` reads one by one, then gather or skip closed legs (kalshi-platform review).
+3. #192 — give the test drivers unique names, then turn xdist on (lane-ready, sonnet).
+4. #188 — parked until a loop-lag reading.
+5. #165 — open until a friend actually sends a link (Joe, 2026-09-28).
+6. #169 — parked behind #165.
 
 ## 2026-09-27/28 (sixty-sixth session) — the HUD reaches Games, Picks, Your bets and /hedge (#174–#177, live `27a7154`); Joe keeps leg verdicts as they are (#183 A) and keeps #165 open; the motion slice ships too (PR #184, live `07ec1ce`) and #171 closes
 
@@ -1031,7 +1044,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
-- 2026-09-28 (sixty-seventh session) — "Would Rust help?" No: ADR 0188 (Proposed), epic #185 with five speed tickets (#186–#190), and the first CPU-time instrument for the live box (`c12c704`, not yet live)
+- 2026-09-28 (sixty-seventh session) — "Would Rust help?" No: ADR 0188 (Accepted; the live box is 1.3% busy), four speed lanes live on `1078389` (#186 #187 #189 #190), and a fixed ~3 s server-side stall found (#193)
 - 2026-09-27/28 (sixty-sixth session) — the HUD reaches Games, Picks, Your bets and /hedge (#174–#177, live `27a7154`); Joe keeps leg verdicts as they are (#183 A) and keeps #165 open; the motion slice ships too (PR #184, live `07ec1ce`) and #171 closes
 - 2026-09-26 (sixty-fifth session) — the HUD is seen on live with real cards; the nav gets two spend gauges (#172), and Joe says carry the look to the other screens as it is (#173 A)
 - 2026-09-26 (sixty-fourth session) — /parlays gets one "ask the scouts about every leg" button (live `6583258`); Joe picks a video-game look, "Cockpit HUD", and its first slice ships (live `c401c62`, #171)

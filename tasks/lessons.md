@@ -16,7 +16,7 @@ correction arrived. Reviewed at session start.
 
 ---
 
-## 2026-09-28 - A speed comparison must charge both arms for the same work; Git Bash rewrites any argument that starts with "/"
+## 2026-09-28 - A speed comparison must charge both arms for the same work; a new opener must carry the old one's guards; Git Bash rewrites a leading "/"
 
 From the sixty-seventh session (ADR 0188, #185–#190).
 
@@ -36,6 +36,21 @@ From the sixty-seventh session (ADR 0188, #185–#190).
   **Prefix `MSYS_NO_PATHCONV=1` to any command whose arguments begin with
   `/`, or reword so they don't.** Then read the published text back:
   `scripts/board.py` is where this one showed.
+- **A lane that opens its own database connection skipped the guard the
+  request path's connection carries.** #187's background refresh called
+  `db.open_db(..., read_only=True)` with no `statement_budget_ms`, so the
+  one query ADR 0135 bounds for every API read ran unbounded off the
+  request path. Its tests were green, because nothing asserted the budget.
+  **When new code opens a resource beside an existing opener (connection,
+  client, session), diff its arguments against that opener's**, and pin
+  the ones that are guards.
+- **A published release is not a resolvable tag.** `astral-sh/setup-uv`
+  has `v10.2.0` and no floating `v10`. The job died in "Set up job" with
+  "unable to find version", before any test ran. Local tests passed
+  because nothing local resolves an action ref. **Before pinning an action,
+  list its tags** (`gh api repos/<o>/<r>/git/matching-refs/tags/v10`). Also
+  read what an input does before trusting its name: setup-uv's
+  `python-version` only sets `UV_PYTHON` and puts nothing on PATH.
 
 ## 2026-09-28 - A look recipe written for neutral counts does not transfer to a money result; merge approval covers the PRs it named
 

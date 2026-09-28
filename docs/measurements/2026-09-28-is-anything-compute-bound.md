@@ -1,4 +1,4 @@
-# Is anything compute-bound? The two numeric kernels, timed on a laptop
+# Is anything compute-bound? The two numeric kernels on a laptop, and the live box's first CPU-time reading
 
 **Date:** 2026-09-28
 **Prompt:** Joe: "perform an exploratory analysis to see if we can use a more
@@ -7,15 +7,20 @@ rust versus python for any part of the stack? Be it analysis or performance."
 The repo put the same question to itself on 2026-08-08
 (`tasks/archive/next-2026-08-08.md:626-640`, item 4). It answered with a
 plan that was never carried out.
-**Instruments:** `scripts/measure_kernel_timings.py --reps 9`, run three
-times on the laptop (§A). §B, the live box's CPU time, is **pending**. It
-will come from `scripts/inspect_live_proc.py --diff`, whose CPU fields
-landed in `c12c704` (CI green). That commit is not yet on the live machine.
-**Cost:** zero odds credits, zero tokens, no database reads, no live reads.
-**Audited:** measurement-skeptic, 2026-09-28. The verdict on the first draft
-was OVERSTATED. This version carries its corrections: like-for-like timing,
-"Genz CDF" in place of "exact", no claim that §B was taken, and the added
-limits below.
+**Instruments:**
+- `scripts/measure_kernel_timings.py --reps 9`, run three times on the
+  laptop (§A).
+- `scripts/inspect_live_proc.py --json`, run twice on live 20 minutes
+  apart, subtracted with `--diff` (§B). Its CPU fields are from `c12c704`,
+  which Joe deployed himself at 20:53Z.
+- `inspect_live_db.py walk-log -n 150` for the passes inside the interval.
+
+**Cost:** zero odds credits, zero tokens. The live reads were `/proc` text
+files and one JSONL file beside the database. No table was read.
+**Audited:** measurement-skeptic, 2026-09-28, on §A. The verdict on the
+first draft was OVERSTATED. This version carries its corrections:
+like-for-like timing, "Genz CDF" in place of "exact", and the added limits
+below. §B was taken after the audit, and the audit does not cover it.
 **Decision it feeds:** ADR 0188.
 
 ## What this establishes
@@ -33,16 +38,35 @@ limits below.
   differs from the 200k-draw estimate by **0.01–0.13 points**. That is
   consistent with no bias between the two, but it cannot exclude a bias
   below about two Monte Carlo standard errors (~0.1–0.2 points).
+- **On live, over 1,203.5 s** with the window open, one full pass and 43
+  quote passes:
+  - the whole box used **0.026 of its 2 cores (1.3% busy)**, with iowait
+    0.1% and steal 0.0%;
+  - the recorder used **27.4 CPU-seconds (0.023 cores)**, uvicorn 2.7 s and
+    Next 0.4 s.
+  - This is the first CPU-time reading the box has ever had. It
+    contradicts, for this interval, the unprofiled claim that "a full pass
+    costs 33–114s of saturated CPU every 900s". The whole interval's
+    recorder CPU, full pass included, was 27.4 s.
 
 ## What this does not establish
 
-- **Nothing about the live box.** The laptop is an Intel Family 6 Model 154,
-  Python 3.11.9, numpy 2.4.6 and scipy 1.17.1. Fly's `shared-cpu-2x` is
-  slower and shared, so these numbers rank the kernels against one another.
-  They do not price them in production. §B is the live reading, and it is
-  pending.
-- **Anything about CPU time anywhere else.** Every other cost in the record
-  was attributed by wall clock, not CPU time (ADR 0188 §2).
+- **§A says nothing about the live box.** The laptop is an Intel Family 6
+  Model 154, Python 3.11.9, numpy 2.4.6 and scipy 1.17.1. Fly's
+  `shared-cpu-2x` is slower and shared, so §A's numbers rank the kernels
+  against one another. They do not price them in production.
+- **§B is one 20-minute interval on one Monday evening, 31 minutes after a
+  restart.** It is n = 1. A weekend slate, a tab left open on `/parlays`,
+  or a busier catalogue walk loads the box differently. No page was
+  deliberately loaded during it; uvicorn's 2.7 s says the API was nearly
+  idle.
+- **Steal of 0.0% says little.** A VM that is 1.3% busy has almost nothing
+  to be stolen from, so this is not a reading of the shared vCPU's
+  contention under load.
+- **§B counts CPU seconds per process, not which code spent them.** It is
+  not a profile.
+- **Wall-clock costs elsewhere are not CPU costs.** Every other cost in the
+  record was attributed by wall clock, not CPU time (ADR 0188 §2).
 - **The inputs are synthetic.** Devig markets are drawn with a fixed seed.
   Copula legs are all 0.55, with pairwise correlations of 0.2–0.3 supplied
   as overrides. The ladder passes no overrides, so its real correlations
@@ -112,24 +136,43 @@ proportion over 200,000 independent Cholesky draws
 
 ## §B — CPU time per process on the live box
 
-**Pending.** `scripts/inspect_live_proc.py` now reads `utime`/`stime` per
-process and `/proc/stat`'s steal and iowait, and subtracts two readings.
-Five guards are verified by mutation. The fields reach the box with
-`c12c704`, and no reading has been taken yet.
+**Taken 2026-09-28, 21:25:28Z → 21:45:31Z (1,203.5 s)**, live on `c12c704`,
+machine `7812601a239428`, 2 vCPU, 4 GB, `clk_tck` 100. The box had been up
+0.517 h at the first reading. Two readings of
+`inspect_live_proc.py --json`, subtracted with `--diff`:
 
-Until then, the record holds only wall clock:
-- a quote pass took 75.0 s against a 15 s cadence on one shared vCPU
-  (`fly.live.toml:977-992`);
-- "a full pass costs 33–114s of saturated CPU every 900s on a shared vCPU"
-  is asserted in `2026-08-26-serving-path-baseline.md:86` and was never
-  profiled;
-- the leg-attribution doc says of itself "Not a CPU measurement".
+    box: 0.026 of 2 cores busy  busy 1.3%  iowait 0.1%  steal 0.0%
 
-Fly's Prometheus endpoint returned 401, so no CPU, iowait or steal series
-has been read (`2026-09-18-the-window-route-walked-every-odds-row.md`).
+        pid      cpu_s   cores  name
+        699       27.4   0.023  python scripts/run_loop.py (the recorder)
+        673        2.7   0.002  python -m uvicorn (the API)
+          1        1.6   0.001  /fly/init
+        698        0.4   0.000  next-server (v16.3.3)
+        652        0.1   0.000  hallpass
 
-**What the missing reading leaves open.** For the recorder, ADR 0188 rests
-on the absence of CPU evidence, not on a measurement that CPU is small. If
-the reading shows `run_loop.py` near a full core, or high steal on the
-shared vCPU, the recorder half of the question reopens. The next step would
-then be a profile, not a rewrite.
+**What ran inside it** (`walk-log -n 150`):
+- **one full pass**, at 21:29:11Z. It walked 11,652 events, the whole
+  catalogue.
+- **43 quote passes** (narrowed, 27 series, 479 events). They ran every
+  ~18–20 s, so the window was open and the recorder was in its busiest
+  mode.
+
+Lifetime averages at the second reading, since boot: recorder 0.0168 cores,
+uvicorn 0.0030, Next 0.0005. Memory: 3,222 MiB available, 1,924 MiB cached,
+recorder RSS 265 MiB.
+
+**What it means.** The recorder used 27.4 CPU-seconds on a full catalogue
+walk plus 43 quote passes, about 2% of one core. The unprofiled 2026-08-26
+claim that "a full pass costs 33–114s of saturated CPU every 900s on a
+shared vCPU" (`2026-08-26-serving-path-baseline.md:86`) does not hold for
+this interval. That claim was written on a one-vCPU box, before ADR 0053
+narrowed the walk and before the index fixes. Until today the record held
+only wall clock for the recorder: the 75.0 s quote pass on one shared vCPU
+(`fly.live.toml:977-992`), and a leg-attribution doc that says of itself
+"Not a CPU measurement".
+
+So for the recorder, ADR 0188 now rests on a CPU reading, not only on the
+absence of CPU evidence: the box is nearly idle. Its latency, where it has
+any, is not CPU. **Re-read it** (the same two commands, 15+ minutes apart)
+on a busy weekend slate, or if a quote pass starts overrunning its cadence
+again. That is the condition under which this reading could go stale.
