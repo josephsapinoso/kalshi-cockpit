@@ -134,6 +134,39 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-28 (sixty-seventh session) — "Would Rust help?" No: ADR 0188 (Proposed), epic #185 with five speed tickets (#186–#190), and the first CPU-time instrument for the live box (`c12c704`, not yet live)
+
+Joe asked for an exploratory analysis of whether any part of the stack should move to Rust. The repo asked the same thing on 2026-08-08 (item 4) and never wrote the answer down.
+
+### 1. The answer (ADR 0188, `docs/measurements/2026-09-28-is-anything-compute-bound.md`)
+
+- **No rewrite anywhere.** Every cost in the record was attributed to SQL plans, the page cache or the HTTP walk, and each was fixed by an index, a query shape or a table. **That attribution is by wall clock, not CPU time.** The only CPU row is the copula, which a memo fixed.
+- **The two numeric kernels, on the laptop:** devig is 94–108 ms a pass. The Monte Carlo copula is 10–26 ms a call. scipy's Genz CDF, timed end to end, is 23–30× faster at 2 legs and 5.5–13× at 3–6, within 1.2 Monte Carlo SEs of the draws. It is exact only at 2 legs.
+- **measurement-skeptic: OVERSTATED on the first draft.** It found four problems, all fixed before commit:
+  - the Genz timer left setup out (the "~200×" is 23–30× like for like);
+  - "exact" is wrong at 3+ legs;
+  - the ADR said the ladder builds in the recorder, when it builds per `/api/parlays` request on a memo miss;
+  - the recorder verdict rests on the absence of CPU evidence, not on a CPU measurement.
+- **The Genz swap is deferred (ADR 0188 §4), not a question for Joe yet.** It becomes one only if a warm `/api/parlays` read on live shows the ladder build as a material share.
+
+### 2. Built: `scripts/inspect_live_proc.py` reads CPU time (`c12c704`, CI green)
+
+- It reads `utime`/`stime` per process and `/proc/stat` steal/iowait.
+- `--diff BEFORE AFTER` subtracts two saved `--json` readings, matching on pid and start time. It refuses a restart between readings, mismatched clock ticks, and a missing steal column. Five guards are red by mutation.
+- `scripts/measure_kernel_timings.py` is laptop-only (it is not in the image).
+- **Not on live yet.** The auto-mode classifier refused the live deploy twice, the second time after Joe's "keep going, deploy when CI passes". It also refused a follow-up ticket and doc edits that only mentioned the reading. Joe runs the deploy himself. Then take two `--json` readings 15+ minutes apart (at least 30 minutes after the restart) and fill measurement doc §B and ADR 0188 §2. ADR 0188 goes to Accepted then.
+
+### 3. Tickets (epic #185 under #80)
+
+#186 pages fetch in parallel · #187 the signal cache miss serves stale while one refresh runs · #188 async routes off the event loop (owner:main; kalshi-platform review for `/api/hedge`) · #189 drop unused `pandas` · #190 CI with `uv`, and `pytest-xdist` only if the suite is order-independent. **Storage is deliberately left off**: Joe said no VACUUM for now (#58, ADR 0182), and the `kalshi_quotes` exemption is already capped (ADR 0183).
+
+### Still open
+
+1. #185 — the speed epic. #186, #187, #189 and #190 are `owner:agent` lanes, and #188 is main's. None dispatched yet. Merges need Joe's word per batch.
+2. #185 — also owes ADR 0188 §B, the live CPU reading, once `c12c704` or later is on live. It has no ticket of its own because opening one was refused along with the deploy.
+3. #165 — open until a friend actually sends a link (Joe, 2026-09-28).
+4. #169 — parked behind #165.
+
 ## 2026-09-27/28 (sixty-sixth session) — the HUD reaches Games, Picks, Your bets and /hedge (#174–#177, live `27a7154`); Joe keeps leg verdicts as they are (#183 A) and keeps #165 open; the motion slice ships too (PR #184, live `07ec1ce`) and #171 closes
 
 The session opened on a routine's PR (#178, #174 Games), not a push to main. Joe then ran the rest of slice 3 as parallel lanes and asked for the backlog.
@@ -998,6 +1031,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-28 (sixty-seventh session) — "Would Rust help?" No: ADR 0188 (Proposed), epic #185 with five speed tickets (#186–#190), and the first CPU-time instrument for the live box (`c12c704`, not yet live)
 - 2026-09-27/28 (sixty-sixth session) — the HUD reaches Games, Picks, Your bets and /hedge (#174–#177, live `27a7154`); Joe keeps leg verdicts as they are (#183 A) and keeps #165 open; the motion slice ships too (PR #184, live `07ec1ce`) and #171 closes
 - 2026-09-26 (sixty-fifth session) — the HUD is seen on live with real cards; the nav gets two spend gauges (#172), and Joe says carry the look to the other screens as it is (#173 A)
 - 2026-09-26 (sixty-fourth session) — /parlays gets one "ask the scouts about every leg" button (live `6583258`); Joe picks a video-game look, "Cockpit HUD", and its first slice ships (live `c401c62`, #171)
