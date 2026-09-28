@@ -51,15 +51,23 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
+      # uv is a Rust-built installer -- it resolves and installs both
+      # requirement files far faster than pip, and it is the one place in
+      # this CI job where that speed is worth taking on a new tool for.
+      # `astral-sh/setup-uv` also pins the interpreter, replacing
+      # `actions/setup-python`, and caches uv's own resolution cache.
+      - name: Install uv and set the Python version
+        uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.11"
-          cache: pip
+          enable-cache: true
 
+      # `--system` installs into that interpreter's own site-packages rather
+      # than a uv-managed virtualenv, so every later step (pip-audit, ruff,
+      # pytest, the seed/publish scripts) sees the same environment it did
+      # under pip -- nothing below this step changed to accommodate uv.
       - name: Install
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
+        run: uv pip install --system -r requirements.txt -r requirements-dev.txt
 
       # An INDEPENDENT vulnerability check, and "independent" is the whole
       # point of it. GitHub's dependabot is **permanently blind to
@@ -188,6 +196,21 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
+      # Serial on purpose. `pytest-xdist` was evaluated (#190): `-n auto`
+      # against this suite reproducibly fails 11 tests that pass serially,
+      # every one in `test_watcher_decides_from_fresh_facts.py`,
+      # `test_hud_motion.py`, `test_stale_exit.py` and
+      # `test_sweep_tone_predicate.py`. The root cause is
+      # `test_watcher_decides_from_fresh_facts.py`'s `watch()` helper, which
+      # writes and deletes a single fixed path
+      # (`frontend/src/lib/_watch_driver.mjs`) rather than a per-call temp
+      # file, so two xdist workers running that file's tests concurrently
+      # race to create/read/delete it -- one worker's `unlink()` can remove
+      # the file out from under another worker's `node` subprocess mid-read
+      # (ENOENT), which is a worker collision, not flakiness. Do not add
+      # `-n auto` here until that helper is made per-call/per-worker safe
+      # (e.g. `tempfile.NamedTemporaryFile` or a `tmp_path`-derived name) and
+      # the -n auto run is proven green three times running.
       - name: Tests
         run: python -m pytest -q
 
