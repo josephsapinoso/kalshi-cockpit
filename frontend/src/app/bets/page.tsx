@@ -108,18 +108,15 @@ export default async function BetsPage() {
           <Term k="net">Net</Term>, over the whole mirrored record
         </div>
         <p className="mt-2 max-w-[65ch]">
-          {/* The HUD's lit readout (#176, Joe's #173 (A)): the same `glow`
-              text-shadow `ui.tsx`'s `Stat` draws with `readout` set, on the
-              one number this screen leads with. Not a switch to the shared
-              component's indigo ink, and not the shared `Stat` itself --
-              this figure already carries a real distinction the counts on
-              /slate did not have (won money vs. lost money), and painting
-              it accent would erase that to match a look. `glow` is the
-              HUD's own token, defined as a fixed accent-tinted text-shadow
-              in `globals.css`, independent of the text's own colour -- it
-              lights the readout without touching what the colour says. */}
+          {/* NOT the HUD's lit readout, on Joe's word (2026-09-27). #176
+              shipped this figure with `glow` and he took it off: the readout
+              is for neutral counts (Games' "On the slate"), and this is a
+              win/loss verdict on his own money -- glowing it made his
+              biggest loss the brightest thing on the page and spent the red
+              that is meant to stay scarce. Nor the readout's indigo ink,
+              which would erase won vs. lost. Plain, in its own colour. */}
           <span
-            className={`display glow text-3xl ${
+            className={`display text-3xl ${
               totals.net_tenths < 0 ? "text-negative" : "text-positive"
             }`}
           >

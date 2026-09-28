@@ -7,6 +7,16 @@ brackets on a panel, headline numbers drawn in the HUD's lit-readout style
 test runner in this repo, so these pin what the screen's source contains,
 not what paints.
 
+The net figure does NOT glow -- Joe, 2026-09-27
+-----------------------------------------------
+#176 shipped the net figure with `glow` (the reasoning below) and Joe took
+it off after seeing it on live: the lit readout is for neutral counts, and
+this is a win/loss verdict on his own money. Glowing it made his biggest
+loss the brightest thing on the page and spent the red that is meant to
+stay scarce. The panel keeps its brackets; the figure is plain, in its own
+colour. `TestTheNetFigureIsPlainInItsOwnColour.test_it_does_not_glow` pins
+that.
+
 Why the net figure keeps its own colour, not the shared `Stat`'s ink
 ----------------------------------------------------------------------
 `ui.tsx`'s `Stat` with `readout` set always paints the value `text-accent`
@@ -32,10 +42,9 @@ What this establishes
   strip -- carries the `.hud` corner-bracket class, the same treatment
   `ParlayCards.tsx`'s `Card` and `AnchorBaseRate`'s panel (#174) already
   have.
-- The screen's headline number (the net figure) carries the HUD's `glow`
-  class, at the readout's `text-3xl` size, alongside its existing
-  win/loss colouring -- which the class list still proves is present,
-  unchanged.
+- The screen's headline number (the net figure) stays at `text-3xl` in its
+  own win/loss colouring, with neither the `glow` nor the readout's indigo
+  (Joe, 2026-09-27; see above).
 - `tests/test_palette_contrast.py`'s guards still pass (proven by re
   -running them here, not merely asserted): this file does not touch
   `board/page.tsx` or `slate/page.tsx`, and does not add a local
@@ -105,7 +114,7 @@ class TestThePanelGetsTheCornerBrackets:
         assert re.search(r"^\.hud\s*\{", globals_css, re.MULTILINE)
 
 
-class TestTheNetFigureCarriesTheReadoutGlow:
+class TestTheNetFigureIsPlainInItsOwnColour:
     def _net_span(self) -> str:
         source = _read(BETS_PAGE)
         # The net span is the first `<span className={...display...}` after
@@ -116,8 +125,12 @@ class TestTheNetFigureCarriesTheReadoutGlow:
         assert match is not None, "the net value span was not found"
         return match.group(1)
 
-    def test_it_carries_the_glow_class(self):
-        assert "glow" in self._net_span()
+    def test_it_does_not_glow(self):
+        """Joe, 2026-09-27: the lit readout is for neutral counts. This is a
+        win/loss verdict on his own money, and glowing it made his biggest
+        loss the brightest thing on the page -- red that is meant to stay
+        scarce, spent on a headline."""
+        assert "glow" not in self._net_span().split()
 
     def test_it_is_drawn_at_the_readout_size(self):
         assert "text-3xl" in self._net_span()
@@ -138,8 +151,8 @@ class TestTheNetFigureCarriesTheReadoutGlow:
 
 
 class TestThePreExistingPaletteGuardStillPasses:
-    """Run, not merely reasoned about: proof that adding `.hud` and `glow`
-    broke neither of `tests/test_palette_contrast.py`'s guards."""
+    """Run, not merely reasoned about: proof that adding `.hud` broke
+    neither of `tests/test_palette_contrast.py`'s guards."""
 
     def test_test_palette_contrast_still_passes(self):
         result = subprocess.run(
