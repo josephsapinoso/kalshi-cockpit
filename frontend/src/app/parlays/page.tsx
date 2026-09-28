@@ -51,6 +51,12 @@ export default async function ParlaysPage({
   // renders. Validating client-side would be a second spelling of the list
   // of windows, and the one that goes stale.
   const horizon = (params.horizon ?? null) as ParlayHorizon | null;
+  // The timetable and refresh panel are independent of the ladder -- start
+  // them alongside the primary fetch rather than after it, so this page
+  // costs its slowest call, not the sum. Both keep their own `.catch(() =>
+  // null)`: a failed secondary read degrades in words, the slate's pattern.
+  const actionablePromise = fetchWindow().catch(() => null);
+  const refreshablePromise = fetchRefreshable().catch(() => null);
   let ladder;
   try {
     ladder = await fetchParlays(filter, horizon);
@@ -81,8 +87,8 @@ export default async function ParlaysPage({
   // only annotate it, so a timetable that will not answer must degrade to the
   // page as it rendered before this block existed, never take it down.
   // `readNextWindow(null)` is written for exactly this and refuses in words.
-  const actionable = await fetchWindow().catch(() => null);
-  const refreshable = await fetchRefreshable().catch(() => null);
+  const actionable = await actionablePromise;
+  const refreshable = await refreshablePromise;
 
   return (
     <Shell>

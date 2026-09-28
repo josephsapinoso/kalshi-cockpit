@@ -103,12 +103,14 @@ export default async function PicksPage({
   const filter = readListFilter(await searchParams);
   let data: Slate;
   let actionable: ActionableWindow | null = null;
+  // Independent of the slate -- started alongside it rather than after, so
+  // this page costs its slowest call, not the sum. Its own catch: the
+  // watcher needs a baseline count and nothing else on this page does, so a
+  // timetable that will not answer costs the watcher and not the list.
+  const actionablePromise = fetchWindow().catch(() => null);
   try {
     data = await fetchSlate(filter);
-    // Its own catch: the watcher needs a baseline count and nothing else on
-    // this page does, so a timetable that will not answer costs the watcher
-    // and not the list.
-    actionable = await fetchWindow().catch(() => null);
+    actionable = await actionablePromise;
   } catch (error) {
     if (error instanceof ApiError && error.status === 422) {
       return (

@@ -53,13 +53,18 @@ export default async function BoardPage({
   // full of prices into "Backend unreachable", and `SignalStrip` renders
   // nothing at all rather than a placeholder that could read as a measured zero.
   let signal: Signal | null = null;
+  // Independent of the board and of each other -- started alongside the
+  // primary Promise.all rather than after it, so this page costs its
+  // slowest call, not the sum. Each keeps its own `.catch(() => null)`.
+  const actionablePromise = fetchWindow().catch(() => null);
+  const signalPromise = fetchSignal().catch(() => null);
   try {
     [board, health] = await Promise.all([
       fetchBoard(showRejected),
       fetchHealth(),
     ]);
-    actionable = await fetchWindow().catch(() => null);
-    signal = await fetchSignal().catch(() => null);
+    actionable = await actionablePromise;
+    signal = await signalPromise;
   } catch {
     return (
       <Shell>
