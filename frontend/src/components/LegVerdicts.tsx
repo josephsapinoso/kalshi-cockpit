@@ -179,7 +179,17 @@ export default function LegVerdicts({
         <p className="text-xs text-muted">{postedError ?? error}</p>
       )}
       {shown.map((row) => (
-        <LegVerdictLine key={`${row.ticker}:${row.side}`} row={row} />
+        <LegVerdictLine
+          // The key changes once, from "waiting" to "answered", the moment
+          // a leg's state first reads `cached` -- forcing React to mount a
+          // fresh node for the line rather than patch the existing one, so
+          // the CSS sweep (`.verdict-sweep`, `globals.css`) plays exactly
+          // once, on arrival. A poll tick that reads the same state again
+          // keeps the same key and mounts nothing, so the sweep does not
+          // replay on every 5s re-fetch. See the module docstring (#182).
+          key={`${row.ticker}:${row.side}:${row.state === "cached" ? "answered" : "waiting"}`}
+          row={row}
+        />
       ))}
     </div>
   );
@@ -198,10 +208,12 @@ function LegVerdictLine({ row }: { row: LegVerdict }) {
       </p>
     );
   }
-  // `cached` -- a complete verdict.
+  // `cached` -- a complete verdict. `verdict-sweep` is applied here,
+  // unconditionally on `isPass`, so the sweep says only "an answer
+  // arrived" -- identical for TAKE and PASS, never keyed to which one.
   const isPass = row.verdict === "pass";
   return (
-    <p className="text-xs leading-snug">
+    <p className="verdict-sweep text-xs leading-snug">
       {/* Never `text-positive` -- see the module docstring. PASS gets the
           warning colour; TAKE stays plain ink. */}
       <span className={isPass ? "font-semibold text-accent-2" : "font-semibold"}>
