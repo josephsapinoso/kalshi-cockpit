@@ -13,6 +13,9 @@ test clearing nothing while the route served a stale report.
 
 from __future__ import annotations
 
+import logging
+import threading
+
 from fastapi import Depends, FastAPI, HTTPException
 
 from ...analysis.clv_signal import SignalReport, report_from_connection
@@ -23,6 +26,8 @@ from ...gate import POPULATIONS, evaluate_gate, population_counts
 from ...market_results import result_coverage
 from ...playbook import read_playbook
 from ...store import db
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # `beta`, cached.
@@ -37,37 +42,116 @@ from ...store import db
 # work today (`/api/board` and `/api/slate` are a windowed `LIMIT` plus a
 # `COUNT(*)`).
 #
-# 300 seconds, and the number is not arbitrary: `beta` moves only when the
-# recorder scores a new CLV, which happens at most once per market close. A TTL
-# far shorter than the interval between the inputs changing buys nothing and
-# pays the join for it.
+# One hour, not five minutes (#187, 2026-09-28): `beta` moves only when the
+# recorder scores a new CLV, which happens at most once per market close, and
+# a settled-negative statistic (see CLAUDE.md, "The signal is measured and
+# negative") does not need a 3-14s recompute every five minutes just because
+# a page was open. Serving a stale report removes the *wait* (below); the TTL
+# still bounds how often the join itself runs -- at 300_000 it ran ~12 times
+# an attended hour against `kalshi_quotes`, roughly two thirds of an 879 MiB
+# file on the live volume, for a number that cannot have changed since the
+# last read. The screen already renders `computed_ms`, so a longer TTL costs
+# nothing the reader cannot already see.
 #
 # **`computed_ms` ships in the payload and the screen must render its age.** A
 # cached statistic that presents itself as current is the exact failure
 # `tasks/lessons.md` records under verification methods that lie -- the number
 # looks live, so nobody asks when it was taken.
-SIGNAL_CACHE_TTL_MS = 300_000
+SIGNAL_CACHE_TTL_MS = 3_600_000
 
 _signal_cache: dict[str, object] = {}
 
+# ---------------------------------------------------------------------------
+# Stale-while-revalidate (#187).
+# ---------------------------------------------------------------------------
+#
+# A cache miss on the registered §S1 join costs 3.1-13.8s
+# (`docs/measurements/2026-09-17-the-signal-cache-miss-is-the-desks-worst-
+# latency.md`), and `/board` and `/slate` block on `/api/signal` in their
+# server components. Once a report exists, no request should ever pay that
+# cost again: a stale read serves the last report at once, with its own
+# `computed_ms`, and kicks off at most one background recompute.
+#
+# `_signal_refresh_lock` guards `_signal_refresh_in_flight`, a plain bool
+# checked-and-set under the lock so two stale reads arriving together start
+# exactly one refresh, not two. The lock is held only long enough to test and
+# flip the flag -- never across the recompute itself, which can take seconds.
+_signal_refresh_lock = threading.Lock()
+_signal_refresh_in_flight = False
 
-def _cached_signal_report(conn) -> tuple[SignalReport, int]:
-    """The registered report, recomputed at most every `SIGNAL_CACHE_TTL_MS`.
+
+def _run_background_signal_refresh(db_path) -> None:
+    """Recompute the report off the request path, on its own connection.
+
+    **Never the request's `conn`.** `get_conn` (`routes.py`) hands out a
+    connection scoped to one request and closes it when the response ends
+    (`backend/store/db.py`'s per-request reader). A background thread that
+    outlives the request would read a closed handle. This opens its own
+    short-lived read-only connection the same way `_notification_health` and
+    `_recorder_health` do in `routes.py`, rather than taking `get_conn`'s.
+
+    A failed recompute is logged and the last good report is left standing --
+    it is never cached as if it were a result, and the in-flight flag is
+    always cleared so the next stale read retries.
+    """
+    global _signal_refresh_in_flight
+    try:
+        conn = db.open_db(db_path, read_only=True, cross_thread=True)
+        try:
+            report = report_from_connection(conn)
+        finally:
+            conn.close()
+    except Exception:                                          # noqa: BLE001
+        logger.warning(
+            "background /api/signal refresh failed; keeping the last report",
+            exc_info=True,
+        )
+        return
+    finally:
+        with _signal_refresh_lock:
+            _signal_refresh_in_flight = False
+    _signal_cache["report"] = report
+    _signal_cache["computed_ms"] = db.now_ms()
+
+
+def _maybe_start_background_signal_refresh(db_path) -> None:
+    """Start one refresh thread, unless one is already running."""
+    global _signal_refresh_in_flight
+    with _signal_refresh_lock:
+        if _signal_refresh_in_flight:
+            return
+        _signal_refresh_in_flight = True
+    threading.Thread(
+        target=_run_background_signal_refresh,
+        args=(db_path,),
+        daemon=True,
+        name="signal-cache-refresh",
+    ).start()
+
+
+def _cached_signal_report(conn, db_path) -> tuple[SignalReport, int]:
+    """The registered report. Stale is served at once; a miss computes inline.
 
     Keyed on nothing: there is one population and one registered cut, so there
     is one answer. A refusal is cached on the same terms as a result -- on the
     demo instance the reason it refuses is structural (no `event_ticker`, no
-    quotes) and will not resolve itself in five minutes, so re-running the join
-    to be told the same thing is the worst of both.
+    quotes) and will not resolve itself in an hour, so re-running the join to
+    be told the same thing is the worst of both.
+
+    **Stale, not fresh, is the common case now that the TTL is an hour.** A
+    request that finds a stale report returns it immediately -- with its own
+    `computed_ms`, so the screen's age display stays honest -- and starts at
+    most one background refresh (`_maybe_start_background_signal_refresh`).
+    Only the *first* read, with nothing cached at all, pays for the recompute
+    inline; there is nothing stale to fall back on.
     """
     now = db.now_ms()
     cached = _signal_cache.get("report")
     computed_ms = _signal_cache.get("computed_ms")
-    if (
-        isinstance(cached, SignalReport)
-        and isinstance(computed_ms, int)
-        and now - computed_ms < SIGNAL_CACHE_TTL_MS
-    ):
+    if isinstance(cached, SignalReport) and isinstance(computed_ms, int):
+        if now - computed_ms < SIGNAL_CACHE_TTL_MS:
+            return cached, computed_ms
+        _maybe_start_background_signal_refresh(db_path)
         return cached, computed_ms
     report = report_from_connection(conn)
     _signal_cache["report"] = report
@@ -347,7 +431,7 @@ def register(
         cluster count off a refused report would put on the public screen, and
         which is a *larger* number than the live record's.
         """
-        report, computed_ms = _cached_signal_report(conn)
+        report, computed_ms = _cached_signal_report(conn, app_config.db_path)
         return _signal_payload(report, computed_ms)
 
     @app.get("/api/results")
