@@ -16,6 +16,25 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-28 - A look recipe written for neutral counts does not transfer to a money result; merge approval covers the PRs it named
+
+From the sixty-sixth session (#174–#177, #182).
+
+- **The HUD recipe said "headline numbers as a lit readout".** It was
+  written against counts ("On the slate 100"). The Your bets lane met
+  a headline that is a verdict on Joe's own money (net −$126), kept its
+  red, and added the glow. Joe took it off the same day: it made his
+  biggest loss the brightest thing on the page. **When a style rule
+  meets a figure that carries a verdict (P&L, a hedge estimate, a
+  TAKE/PASS), treat that figure as the exception and ask before
+  shipping.** The /hedge lane was told this up front, got it right, and
+  cost nothing.
+- **"Merge, deploy and check" for one PR was not approval for the next
+  three.** The next merge was refused `[Merge Without Review]` and cost
+  a round trip. **When dispatching parallel lanes, ask once for the whole
+  batch** ("merge each once CI passes?") before the lanes finish, not
+  after the first is blocked.
+
 ## 2026-09-26 - A named test list is the tests you thought of; a trap recorded in memory is invisible if its index line doesn't name it
 
 From the sixty-fifth session (#171, #172).
@@ -2339,6 +2358,10 @@ each is in the linked archive file, unchanged; the sections marked *in this
 file, above* are the ones not yet archived. Regenerate it from the headings in
 the same edit as the entry — an index that is not is stale by one entry
 immediately and by dozens within a week.
+
+### 2026-09-28 — in this file, above
+
+- A look recipe written for neutral counts does not transfer to a money result; merge approval covers the PRs it named
 
 ### 2026-09-23 — in this file, above
 

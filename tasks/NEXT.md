@@ -134,6 +134,39 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-27/28 (sixty-sixth session) — the HUD reaches Games, Picks, Your bets and /hedge (#174–#177, live `27a7154`); Joe keeps leg verdicts as they are (#183 A) and keeps #165 open; the motion slice is built and waits on his word (PR #184)
+
+The session opened on a routine's PR (#178, #174 Games), not a push to main. Joe then ran the rest of slice 3 as parallel lanes and asked for the backlog.
+
+### 1. Slice 3 shipped and seen on live (#174–#177, PRs #178–#181)
+
+- **Games** (#178): the two headline counts are lit readouts, and the sharp-book panel has `.hud`. **Picks** (#179): `.hud` on its three owned panels. It has no headline count, and `test_no_headline_counting_how_many_ranked` forbids one. **/hedge** (#180): `.hud` on each position card and on the venue-coverage banner. No hedge, estimate or stake figure glows (CLAUDE.md: an estimate pinned in neither direction). **Your bets** (#181): `.hud` on the net panel.
+- **Joe's decision on the net figure, 2026-09-27 (buttons):** #181 shipped it with `glow` in its own red/green, and Joe took the glow off. The readout is for neutral counts; glowing a verdict on his own money made his biggest loss the brightest thing on the page. `27a7154` now pins the absence with `test_hud_bets.py::test_it_does_not_glow`, and adding `glow` back turns the test red.
+- **Checked on live at 390 and 1440** (Playwright, cookie minted from `.env` via file, never inline): brackets render, nothing outside the nav glows except Games' two counts, and there is no horizontal scroll. All four tickets are closed with the check in the closing comment, and #171's slice-3 box is ticked.
+- **`RecordParlay` is rendered by /bets, /hedge, /slate and /picks.** The lanes treated it as shared and left it alone.
+
+### 2. The backlog (partner, 2026-09-28): the build queue is effectively empty
+
+- **#151 cost reading** (`inspect_live_db.py agent-spend --days 5`, live): 63 leg verdicts over budget days 09-25, 09-26 and 09-27 used 1.30M, 1.03M and 1.11M tokens. About 55K tokens a verdict. On 09-25 the day hit 1.55M including one scouting run, past the 1.5M cap. Verdicts: 52 TAKE, 8 PASS, 3 `over_length`. No join to outcomes (preregistration §6). **Question for Joe:** keep, trim, or turn off leg verdicts? — #183. **Answered (A):** keep as they are. Closed.
+- **#165 usage** (`parlay-lookups-tail`, live): the check has 3 `card_key='checked'` rows in its life, all on 09-26 between 01:43 and 06:25Z, the last matching session 62's own test. None since. Joe (buttons): **keep #165 open** until a friend actually sends a link. No build until then.
+- **Stale copy fixed** (`72a175c`): two script strings still called /hedge "the only exit an enter-only combination has". Scripts only; this reaches live with the next deploy.
+- Both decisions are appended to map #3's "Decisions so far".
+
+### 3. Slice 4, motion (#182 → PR #184, built, NOT merged)
+
+- A single sweep (`.verdict-sweep`, `var(--accent)` at 30%, 0.9s, iteration count 1) across a TAKE/PASS line when it lands. It is identical for TAKE and PASS, and the whole rule sits inside `prefers-reduced-motion: no-preference`. The line's React key flips `waiting` → `answered`, so the sweep plays on arrival and not on each 5s poll. `tests/test_hud_motion.py` has 13 tests; the lane showed guards (a), (b) and (c) red by mutation. CI is green on the PR.
+- **Not merged: waiting on Joe's word.** My `gh pr merge 179` was refused `[Merge Without Review]` because his "merge, deploy and check" had covered #178 only. After he said "merge all three once CI passes", the merges went through. Ask per batch.
+- **When merged, check on live:** every verdict already on the cards sweeps once, together, on page load (the ticket allowed it; if it's busy, sweep only answers that arrive while he watches). The `::after` extends 6px past each line, so check 390px for horizontal scroll. Then close #182 and #171.
+
+### Still open
+
+0. #182 — merge PR #184 on Joe's word, deploy, check /parlays on live at 390 and 1440 (load sweep, no sideways scroll), then close #182 and #171.
+1. #165 — open until a friend actually sends a link (Joe, 2026-09-28).
+2. #169 — parked behind #165.
+3. #151 — nothing owed; the cost decision is #183 A. The evidence look is registered for 1,800 legs or 2027-01-15.
+
+Housekeeping: worktree `.claude/worktrees/agent-a4eae56b2a4b0054b` holds #184's branch; remove it (junction check first) after the merge. `agent-adc28b9d29a94f3bc` predates this session; left alone.
+
 ## 2026-09-26 (sixty-fifth session) — the HUD is seen on live with real cards; the nav gets two spend gauges (#172), and Joe says carry the look to the other screens as it is (#173 A)
 
 Partner ranked it small: look at the real cards first, then show the scout spend before the first ask-all tap. Nothing on #151 before 09-28.
@@ -960,6 +993,9 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-27/28 (sixty-sixth session) — the HUD reaches Games, Picks, Your bets and /hedge (#174–#177, live `27a7154`); Joe keeps leg verdicts as they are (#183 A) and keeps #165 open; the motion slice is built and waits on his word (PR #184)
+- 2026-09-26 (sixty-fifth session) — the HUD is seen on live with real cards; the nav gets two spend gauges (#172), and Joe says carry the look to the other screens as it is (#173 A)
+- 2026-09-26 (sixty-fourth session) — /parlays gets one "ask the scouts about every leg" button (live `6583258`); Joe picks a video-game look, "Cockpit HUD", and its first slice ships (live `c401c62`, #171)
 - 2026-09-26 (sixty-third session) — Why 0 of 8 legs on Joe's held combo got a chance: 3 were stale by design, and 5 are NO-side moneylines, which the recount puts in 2 of 82 recent combos. Nothing built for the screen; live stays on 739f9e2
 - 2026-09-26 (sixty-second session) — #165 read on real inputs: a pasted ticker works on a live combo, but a kalshi.com link usually names a group of combinations and is refused. #169 parked. Nothing built; live stays on 739f9e2
 - 2026-09-26 (sixty-first session) — #165: paste a friend's Kalshi link on /parlays and see the desk's chance for each leg and for the whole parlay (#166 #167 #168, ADR 0187). Live on 739f9e2
