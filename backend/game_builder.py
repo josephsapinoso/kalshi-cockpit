@@ -397,8 +397,7 @@ async def list_game_legs(
     _listing_memory[game_event_ticker] = (
         now_ms,
         {l["market_ticker"]: {"event_ticker": l["event_ticker"],
-                              "title": l["title"],
-                              "allowed_sides": tuple(l["allowed_sides"])}
+                              "title": l["title"]}
          for l in legs},
     )
     return {
@@ -490,12 +489,6 @@ def _check_against_listing(legs: Sequence[dict], game_event_ticker: str, *, now_
                 f"{leg['market_ticker']} is not on this game's list, so it "
                 "cannot go in this combination. Reload the game and tick "
                 "from the list. Nothing was created.",
-            )
-        if leg["side"] not in facts["allowed_sides"]:
-            raise _refuse(
-                422,
-                f"{leg['market_ticker']} can only be bought on the yes side "
-                "in a combination. Nothing was created.",
             )
 
 
