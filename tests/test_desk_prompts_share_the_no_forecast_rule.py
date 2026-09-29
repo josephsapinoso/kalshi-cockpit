@@ -24,7 +24,7 @@ import re
 
 import pytest
 
-from backend.agents import pro_bettor, scout, scout_desk
+from backend.agents import game_script, pro_bettor, scout, scout_desk
 
 # The rule, split around the one word that legitimately varies by seat.
 RULE_HEAD = (
@@ -46,6 +46,9 @@ SEATS = {
     "scout_desk.STAFF_SYSTEM_TEMPLATE": scout_desk.STAFF_SYSTEM_TEMPLATE,
     "scout_desk.MASTER_SYSTEM": scout_desk.MASTER_SYSTEM,
     "pro_bettor.SYSTEM": pro_bettor.SYSTEM,
+    # ADR 0190 (#215): the game-script seat proposes a story, never a verdict
+    # or a number, so unlike the leg scout it carries the rule word for word.
+    "game_script.SYSTEM": game_script.SYSTEM,
 }
 
 # The master's prompt states the rule without the rationale, on purpose: it

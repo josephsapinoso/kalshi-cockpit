@@ -89,6 +89,10 @@ const JSON_ROUTE_HANDLERS = new Set([
   // money moves. The game rides in the body, not the path, so this exact
   // match holds.
   "/game-mint",
+  // Builds a game-script card (#215): one metered model call against the
+  // shared daily ceilings, nothing minted, no money moves. The game rides
+  // in the body, like `/game-mint`.
+  "/game-card",
   // Both spend-adjacent: `/parlay-bid` rests a real bid, `/parlay-bid-cancel`
   // takes it back. Exact-match handlers, which is why the cancel carries its
   // id in the body rather than the path -- a dynamic segment would miss this

@@ -13,13 +13,18 @@ reaches the venue.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
+from ...agents.base import AgentConfig, build_client
+from ...agents.budget import AgentBudget
+from ...agents.game_script import build_card
 from ...config import AppConfig, ConfigError, StalenessConfig
-from ...game_builder import list_game_legs, mint_game_combo
-from ...parlays import LookupRefused
-from ...store import db
+from ...game_builder import list_game_legs, mint_game_combo, parse_game_ticker
+from ...parlays import LookupRefused, _commence_ms_for_tickers
+from ...store import db, game_script_cards
 
 
 class GameMintLeg(BaseModel):
@@ -47,7 +52,7 @@ def register(
     get_conn,
     require_auth,
 ) -> None:
-    """Attach the two same-game handlers."""
+    """Attach the same-game handlers."""
 
     def _api():
         try:
@@ -108,5 +113,89 @@ def register(
             raise HTTPException(
                 status_code=exc.status_code, detail=exc.detail
             ) from exc
+        finally:
+            write_conn.close()
+
+    @app.post(
+        "/api/game/{event_ticker}/card", dependencies=[Depends(require_auth)]
+    )
+    async def game_card(event_ticker: str) -> dict:
+        """Build one game-script card for this game, now (#215, ADR 0190).
+
+        One metered call through the shared `AgentBudget`; the outcome is
+        always one `game_script_cards` row and the row is what comes back:
+        `built`, `skipped`, `refused_budget` (the ceiling is named) or
+        `refused_invalid`. The model is shown no price or chance, and a bad
+        answer is refused and stored, never re-asked. Nothing is minted and no
+        money moves; a 409 (no kickoff on record) spends nothing.
+        """
+        agent_config = AgentConfig.from_env()
+        if agent_config is None:
+            raise HTTPException(
+                status_code=503,
+                detail="No ANTHROPIC_API_KEY configured, so the game-script "
+                       "scout cannot be paid. This is a configuration state, "
+                       "not a refusal.",
+            )
+        api = _api()
+        try:
+            prefix, _series, _suffix = parse_game_ticker(event_ticker)
+        except LookupRefused as exc:
+            raise HTTPException(
+                status_code=exc.status_code, detail=exc.detail
+            ) from exc
+        write_conn = db.open_db(app_config.db_path)
+        try:
+            now = db.now_ms()
+            try:
+                listing = await list_game_legs(
+                    write_conn,
+                    game_event_ticker=event_ticker,
+                    now_ms=now,
+                    max_odds_age_ms=staleness.max_odds_age_s * 1000,
+                    api=api,
+                )
+            except LookupRefused as exc:
+                raise HTTPException(
+                    status_code=exc.status_code, detail=exc.detail
+                ) from exc
+            game_market = listing.get("game_market_ticker")
+            kickoff_ms = (
+                _commence_ms_for_tickers(write_conn, [game_market]).get(game_market)
+                if game_market else None
+            )
+            if kickoff_ms is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="The desk has no kickoff on record for this game, "
+                           "so a card cannot be filed against it. Nothing "
+                           "was spent.",
+                )
+            game_title = next(
+                (
+                    leg["title"]
+                    for group in listing["groups"]
+                    if group["kind"] == "GAME"
+                    for leg in group["legs"]
+                ),
+                listing["game_event_ticker"],
+            )
+            budget = AgentBudget.from_config(write_conn, agent_config)
+            result = await build_card(
+                write_conn,
+                build_client(agent_config),
+                agent_config,
+                budget,
+                game_event_ticker=listing["game_event_ticker"],
+                sport_key=prefix[2:].lower(),
+                kickoff_ms=kickoff_ms,
+                game_title=game_title,
+                kickoff_iso=datetime.fromtimestamp(
+                    kickoff_ms / 1000, tz=timezone.utc
+                ).strftime("%Y-%m-%dT%H:%MZ"),
+                listing=listing,
+                now_ms=now,
+            )
+            return {"card": game_script_cards.card_by_id(write_conn, result.card_id)}
         finally:
             write_conn.close()
