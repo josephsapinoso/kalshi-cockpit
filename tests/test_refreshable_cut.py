@@ -25,6 +25,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests._node_driver import node_driver
 
 REPO = Path(__file__).resolve().parents[1]
 CUT_TS = REPO / "frontend" / "src" / "lib" / "refreshableCut.ts"
@@ -42,9 +43,7 @@ console.log(JSON.stringify(cutRefreshable(args.sports, args.league)));
 
 
 def cut(sports, league):
-    driver = CUT_TS.parent / "_refreshable_cut_driver.mjs"
-    driver.write_text(_DRIVER, encoding="utf-8")
-    try:
+    with node_driver(CUT_TS.parent, _DRIVER) as driver:
         out = subprocess.run(
             [
                 NODE,
@@ -57,8 +56,6 @@ def cut(sports, league):
             check=True,
             cwd=CUT_TS.parent,
         )
-    finally:
-        driver.unlink(missing_ok=True)
     return json.loads(out.stdout.strip().splitlines()[-1])
 
 

@@ -55,6 +55,7 @@ import pytest
 
 from backend import bets
 from backend.store import db
+from tests._node_driver import node_driver
 
 REPO = Path(__file__).resolve().parents[1]
 STAMPS_TS = REPO / "frontend" / "src" / "lib" / "openPositionsStamps.ts"
@@ -83,9 +84,7 @@ console.log(JSON.stringify({
 
 def stamps(block: dict) -> dict:
     """Run the shipped stamp module under node over a real payload."""
-    driver = STAMPS_TS.parent / "_open_positions_stamp_driver.mjs"
-    driver.write_text(_DRIVER, encoding="utf-8")
-    try:
+    with node_driver(STAMPS_TS.parent, _DRIVER) as driver:
         out = subprocess.run(
             [NODE, "--experimental-strip-types", str(driver), json.dumps(block)],
             capture_output=True,
@@ -96,8 +95,6 @@ def stamps(block: dict) -> dict:
             timeout=60,
             cwd=str(STAMPS_TS.parent),
         )
-    finally:
-        driver.unlink(missing_ok=True)
     assert out.returncode == 0, f"node failed:\n{out.stdout}\n{out.stderr}"
     return json.loads(out.stdout.strip())
 

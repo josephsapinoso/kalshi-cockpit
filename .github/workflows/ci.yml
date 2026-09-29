@@ -206,23 +206,17 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
-      # Serial on purpose. `pytest-xdist` was evaluated (#190): `-n auto`
-      # against this suite reproducibly fails 11 tests that pass serially,
-      # every one in `test_watcher_decides_from_fresh_facts.py`,
-      # `test_hud_motion.py`, `test_stale_exit.py` and
-      # `test_sweep_tone_predicate.py`. The root cause is
-      # `test_watcher_decides_from_fresh_facts.py`'s `watch()` helper, which
-      # writes and deletes a single fixed path
-      # (`frontend/src/lib/_watch_driver.mjs`) rather than a per-call temp
-      # file, so two xdist workers running that file's tests concurrently
-      # race to create/read/delete it -- one worker's `unlink()` can remove
-      # the file out from under another worker's `node` subprocess mid-read
-      # (ENOENT), which is a worker collision, not flakiness. Do not add
-      # `-n auto` here until that helper is made per-call/per-worker safe
-      # (e.g. `tempfile.NamedTemporaryFile` or a `tmp_path`-derived name) and
-      # the -n auto run is proven green three times running.
+      # Parallel (#190, #192). `-n auto` runs one worker per core. It was held
+      # back until no test wrote a fixed-name file into the source tree: the
+      # first attempt failed 11 tests with ENOENT because node drivers such as
+      # `frontend/src/lib/_watch_driver.mjs` were one path shared by every
+      # worker. Every driver now gets a unique name from
+      # `tests/_node_driver.py`, `tests/test_no_fixed_name_driver_files.py`
+      # keeps it so, and `-n auto` passed three consecutive full runs with the serial
+      # collected count (9015). If a test starts failing here that passes
+      # serially, suspect a fixed path or a shared file before "flakiness".
       - name: Tests
-        run: python -m pytest -q
+        run: python -m pytest -q -n auto
 
       # The warehouse carries the measurement guards as dbt tests, so a mart
       # that would serve a noise-level number fails the build rather than the

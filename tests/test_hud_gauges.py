@@ -24,6 +24,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests._node_driver import node_driver
 
 REPO = Path(__file__).resolve().parents[1]
 GAUGES_TS = REPO / "frontend" / "src" / "lib" / "gauges.ts"
@@ -51,9 +52,7 @@ console.log(JSON.stringify(gauge));
 
 
 def gauge_of(kind: str, facts) -> dict:
-    driver = GAUGES_TS.parent / "_gauges_driver.mjs"
-    driver.write_text(_DRIVER, encoding="utf-8")
-    try:
+    with node_driver(GAUGES_TS.parent, _DRIVER) as driver:
         out = subprocess.run(
             [
                 NODE,
@@ -67,8 +66,6 @@ def gauge_of(kind: str, facts) -> dict:
             timeout=60,
             cwd=str(GAUGES_TS.parent),
         )
-    finally:
-        driver.unlink(missing_ok=True)
     assert out.returncode == 0, f"node failed:\n{out.stdout}\n{out.stderr}"
     return json.loads(out.stdout.strip())
 

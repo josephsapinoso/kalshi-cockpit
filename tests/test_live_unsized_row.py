@@ -39,6 +39,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests._node_driver import node_driver
 
 REPO = Path(__file__).resolve().parents[1]
 SIZING_TS = REPO / "frontend" / "src" / "lib" / "liveSizing.ts"
@@ -108,9 +109,7 @@ def verdict_of(row: dict, *, source: str | None = None, tmp_path=None) -> dict:
     ] != payload["suggested_contracts"]:
         payload["suggested_contracts"] = "NaN"
 
-    driver = module_dir / "_sizing_driver.mjs"
-    driver.write_text(_DRIVER.format(module="./liveSizing.ts"), encoding="utf-8")
-    try:
+    with node_driver(module_dir, _DRIVER.format(module="./liveSizing.ts")) as driver:
         out = subprocess.run(
             [NODE, "--experimental-strip-types", str(driver), json.dumps(payload)],
             capture_output=True,
@@ -118,8 +117,6 @@ def verdict_of(row: dict, *, source: str | None = None, tmp_path=None) -> dict:
             timeout=60,
             cwd=str(module_dir),
         )
-    finally:
-        driver.unlink(missing_ok=True)
 
     assert out.returncode == 0, (
         f"node failed running the predicate:\n{out.stdout}\n{out.stderr}"

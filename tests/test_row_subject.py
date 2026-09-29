@@ -29,6 +29,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests._node_driver import node_driver
 
 REPO = Path(__file__).resolve().parents[1]
 MODULE = REPO / "frontend" / "src" / "lib" / "rowSubject.ts"
@@ -66,9 +67,7 @@ def subject_of(rec: dict, *, source: str | None = None, tmp_path=None) -> dict:
         module_dir = tmp_path
         (module_dir / "rowSubject.ts").write_text(source, encoding="utf-8")
 
-    driver = module_dir / "_row_subject_driver.mjs"
-    driver.write_text(_DRIVER.format(module="./rowSubject.ts"), encoding="utf-8")
-    try:
+    with node_driver(module_dir, _DRIVER.format(module="./rowSubject.ts")) as driver:
         out = subprocess.run(
             [NODE, "--experimental-strip-types", str(driver), json.dumps(rec)],
             capture_output=True,
@@ -79,8 +78,6 @@ def subject_of(rec: dict, *, source: str | None = None, tmp_path=None) -> dict:
             timeout=60,
             cwd=str(module_dir),
         )
-    finally:
-        driver.unlink(missing_ok=True)
 
     assert out.returncode == 0, (
         f"node failed running the predicate:\n{out.stdout}\n{out.stderr}"

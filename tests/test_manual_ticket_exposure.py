@@ -55,9 +55,11 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
+from tests._node_driver import node_driver
 
 from backend import bets
 from backend.store import db
@@ -84,7 +86,7 @@ nodeless = pytest.mark.skipif(
 )
 
 _DRIVER = """
-import { exposureUnreadable, exposureWords } from "./_exposure_under_test.ts";
+import { exposureUnreadable, exposureWords } from "./{module}";
 const [block, timeZone] = [JSON.parse(process.argv[2]), process.argv[3]];
 console.log(JSON.stringify({
   words: exposureWords(block, timeZone),
@@ -105,12 +107,22 @@ def words(block: dict) -> dict:
     source = MODULE.read_text(encoding="utf-8").replace(
         'from "./openPositionsStamps"', 'from "./openPositionsStamps.ts"'
     )
-    under_test = LIB / "_exposure_under_test.ts"
-    driver = LIB / "_exposure_driver.mjs"
-    under_test.write_text(source, encoding="utf-8")
-    driver.write_text(_DRIVER, encoding="utf-8")
-    try:
-        out = subprocess.run(
+    # Everything goes in a private temp dir, with the one sibling the module
+    # imports, and NOTHING into `frontend/src`: a transient `.ts` in the tree
+    # is seen by tests that glob `frontend/src/**/*.ts*` (test_leg_verdicts_ui)
+    # and, under xdist, vanishes between their glob and their read (#192).
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        shutil.copy(LIB / "openPositionsStamps.ts", work / "openPositionsStamps.ts")
+        (work / "exposureLine.ts").write_text(source, encoding="utf-8")
+        out = _run_driver(work, block)
+    assert out.returncode == 0, f"node failed:\n{out.stdout}\n{out.stderr}"
+    return json.loads(out.stdout.strip())
+
+
+def _run_driver(work: Path, block: dict):
+    with node_driver(work, _DRIVER.replace("{module}", "exposureLine.ts")) as driver:
+        return subprocess.run(
             [
                 NODE,
                 "--experimental-strip-types",
@@ -124,13 +136,8 @@ def words(block: dict) -> dict:
             # code page and an em dash comes back as U+FFFD.
             encoding="utf-8",
             timeout=60,
-            cwd=str(LIB),
+            cwd=str(work),
         )
-    finally:
-        under_test.unlink(missing_ok=True)
-        driver.unlink(missing_ok=True)
-    assert out.returncode == 0, f"node failed:\n{out.stdout}\n{out.stderr}"
-    return json.loads(out.stdout.strip())
 
 
 def served(

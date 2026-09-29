@@ -43,6 +43,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests._node_driver import node_driver
 
 REPO = Path(__file__).resolve().parents[1]
 LIB = REPO / "frontend" / "src" / "lib"
@@ -353,11 +354,9 @@ def tone_of(facts: dict, *, source: str | None = None, tmp_path=None) -> str:
         shutil.copy(WINDOW_TS, module_dir / "nextOddsWindow.ts")
     module = "./sweepTone.ts"
 
-    driver = module_dir / "_tone_driver.mjs"
-    hook = module_dir / "_tone_hook.mjs"
-    driver.write_text(_DRIVER.format(module=module), encoding="utf-8")
-    hook.write_text(_HOOK, encoding="utf-8")
-    try:
+    with node_driver(module_dir, _DRIVER.format(module=module)) as driver, node_driver(
+        module_dir, _HOOK
+    ) as hook:
         out = subprocess.run(
             [
                 NODE,
@@ -372,9 +371,6 @@ def tone_of(facts: dict, *, source: str | None = None, tmp_path=None) -> str:
             timeout=60,
             cwd=str(module_dir),
         )
-    finally:
-        driver.unlink(missing_ok=True)
-        hook.unlink(missing_ok=True)
 
     assert out.returncode == 0, (
         f"node failed running the predicate:\n{out.stdout}\n{out.stderr}"
