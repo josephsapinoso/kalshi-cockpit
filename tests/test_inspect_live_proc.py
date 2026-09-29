@@ -29,6 +29,7 @@ from scripts.inspect_live_proc import (
     processes,
     read_cpu_totals,
     read_meminfo,
+    read_net_counters,
     read_pid_cpu,
     render_delta,
     render_text,
@@ -299,6 +300,74 @@ class TestTheIntervalDiff:
         a.write_text("no json here\n")
         assert main(["--diff", str(a), str(a)]) == 2
         assert "refused" in capsys.readouterr().err
+
+
+_SNMP = (
+    "Ip: Forwarding DefaultTTL\n"
+    "Ip: 2 64\n"
+    "Tcp: RtoAlgorithm RtoMin RtoMax MaxConn ActiveOpens PassiveOpens "
+    "AttemptFails EstabResets CurrEstab InSegs OutSegs RetransSegs InErrs OutRsts\n"
+    "Tcp: 1 200 120000 -1 100 5000 3 7 12 900000 850000 40 0 55\n"
+    "Udp: InDatagrams NoPorts\n"
+    "Udp: 10 0\n"
+)
+_NETSTAT = (
+    "TcpExt: SyncookiesSent ListenOverflows ListenDrops TCPTimeouts "
+    "TCPSynRetrans TCPLostRetransmit TCPAbortOnTimeout\n"
+    "TcpExt: 0 2 2 31 9 1 0\n"
+    "IpExt: InNoRoutes InTruncatedPkts\n"
+    "IpExt: 0 0\n"
+)
+
+
+def _net_proc(root: Path, snmp: str = _SNMP, netstat: str | None = _NETSTAT) -> Path:
+    proc = root / "proc"
+    (proc / "net").mkdir(parents=True)
+    (proc / "net" / "snmp").write_text(snmp, encoding="ascii")
+    if netstat is not None:
+        (proc / "net" / "netstat").write_text(netstat, encoding="ascii")
+    return proc
+
+
+class TestTheTcpCountersAreReadByName:
+    def test_named_counters_come_from_the_values_row_under_their_header(self, tmp_path):
+        """Mutation: read the header row as values -- `int('ActiveOpens')` raises."""
+        counters = read_net_counters(_net_proc(tmp_path))
+        assert counters["Tcp.PassiveOpens"] == 5000
+        assert counters["Tcp.RetransSegs"] == 40
+        assert counters["TcpExt.ListenDrops"] == 2
+        assert counters["TcpExt.TCPSynRetrans"] == 9
+
+    def test_counters_not_asked_for_are_left_out(self, tmp_path):
+        counters = read_net_counters(_net_proc(tmp_path))
+        assert "Tcp.MaxConn" not in counters
+        assert "TcpExt.SyncookiesSent" not in counters
+        assert not any(key.startswith(("Ip", "Udp")) for key in counters)
+
+    def test_a_missing_file_is_absent_keys_not_zeros(self, tmp_path):
+        """Mutation: default the missing file's counters to 0 -- ListenDrops reads 0."""
+        counters = read_net_counters(_net_proc(tmp_path, netstat=None))
+        assert "Tcp.RetransSegs" in counters
+        assert not any(key.startswith("TcpExt.") for key in counters)
+
+    def test_the_diff_subtracts_only_counters_both_readings_carry(self):
+        base = {"clk_tck": 100, "processes": [], "cpu_ticks": {}}
+        before = dict(base, uptime_s=100.0, net_counters={"Tcp.RetransSegs": 40, "Tcp.PassiveOpens": 5000})
+        after = dict(
+            base, uptime_s=700.0,
+            net_counters={"Tcp.RetransSegs": 61, "Tcp.PassiveOpens": 5600, "TcpExt.ListenDrops": 2},
+        )
+        delta = cpu_delta(before, after)
+        assert delta["net"] == {"Tcp.PassiveOpens": 600, "Tcp.RetransSegs": 21}
+        assert "Tcp.RetransSegs                  21" in render_delta(delta)
+
+    def test_a_reading_from_before_the_counters_existed_is_unknown_not_zero(self):
+        base = {"clk_tck": 100, "processes": [], "cpu_ticks": {}}
+        before = dict(base, uptime_s=100.0)  # a pre-2026-09-29 reading
+        after = dict(base, uptime_s=700.0, net_counters={"Tcp.RetransSegs": 61})
+        delta = cpu_delta(before, after)
+        assert delta["net"] == {}
+        assert "tcp counters: not in both readings" in render_delta(delta)
 
 
 class TestTheReportCannotModifyAnything:

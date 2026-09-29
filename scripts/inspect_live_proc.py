@@ -39,6 +39,12 @@ its start time from `/proc/<pid>/stat`; the report carries `/proc/stat`'s
 aggregate `cpu` line, including `steal` (time the hypervisor withheld from a
 vCPU that had work), and `/proc/uptime`.
 
+**TCP counters were added 2026-09-29 (#193).** The report reads named
+counters from `/proc/net/snmp` and `/proc/net/netstat`: retransmits, listen
+drops, and passive and active opens. `--diff` subtracts them. A fixed ~3 s
+stall that no process on the box shows is what a dropped packet looks like,
+and these are the kernel's own count of it.
+
 Two structural properties
 -------------------------
 **It cannot modify anything.** No `unlink`, no write-mode `open`, no
@@ -69,6 +75,10 @@ What this does not establish
   restarted an hour ago reports that hour, boot-time cache warm-up included.
   The interval diff is the reading for "now"; the lifetime share speaks for
   "typically" only on a box that has been up for a day.
+- **TCP counters are box-wide.** A retransmit on the recorder's outbound
+  HTTPS to Kalshi counts the same as one on a proxied request coming in. A
+  delta means something only against a baseline window of the same length
+  taken without the probe traffic.
 - **Steal is the guest's view.** It counts time withheld from a runnable
   vCPU and cannot say why (a neighbour, or a quota). An idle VM cannot be
   stolen from, so low steal on a quiet interval says nothing about a busy
@@ -95,6 +105,23 @@ CPU_FIELDS = ("user", "nice", "system", "idle", "iowait", "irq", "softirq", "ste
 # SQLite waiting on the volume -- and `steal` is time the host ran someone
 # else. Neither is this VM's work, so both sit beside `busy`, never inside it.
 _NOT_WORKING = ("idle", "iowait", "steal")
+
+# TCP counters, added 2026-09-29 for #193. A fixed ~3 s stall on proxied
+# requests that no process on the box shows is what a dropped packet plus a
+# retransmit timer looks like. These are the kernel's own counts of exactly
+# that, from two `/proc/net` files that each hold a header line and a values
+# line per protocol. `PassiveOpens` against a known request count also says
+# whether Fly's proxy opens a connection per request or reuses a pool.
+NET_COUNTERS = {
+    ("snmp", "Tcp:"): (
+        "ActiveOpens", "PassiveOpens", "AttemptFails", "EstabResets",
+        "InSegs", "OutSegs", "RetransSegs", "InErrs",
+    ),
+    ("netstat", "TcpExt:"): (
+        "ListenOverflows", "ListenDrops", "TCPTimeouts", "TCPSynRetrans",
+        "TCPLostRetransmit", "TCPAbortOnTimeout",
+    ),
+}
 
 
 class DiffRefused(ValueError):
@@ -166,6 +193,28 @@ def read_cpu_totals(proc_root: Path) -> dict[str, int]:
     if totals:
         totals["cores"] = cores
     return totals
+
+
+def read_net_counters(proc_root: Path) -> dict[str, int]:
+    """The named TCP counters, keyed `Tcp.RetransSegs`, `TcpExt.ListenDrops` ...
+
+    A file that cannot be read, or a counter this kernel does not report,
+    is an absent key, never a zero: zero retransmits is a finding, and a
+    missing column must not be able to impersonate it.
+    """
+    out: dict[str, int] = {}
+    for (name, prefix), wanted in NET_COUNTERS.items():
+        try:
+            text = (proc_root / "net" / name).read_text(encoding="ascii")
+        except OSError:
+            continue
+        rows = [line.split() for line in text.splitlines() if line.startswith(prefix)]
+        # Each protocol is a header row then a values row, in that order.
+        for header, values in zip(rows[0::2], rows[1::2]):
+            for key, value in zip(header[1:], values[1:]):
+                if key in wanted:
+                    out[f"{prefix[:-1]}.{key}"] = int(value)
+    return out
 
 
 def read_pid_cpu(pid_dir: Path) -> dict[str, int] | None:
@@ -265,6 +314,7 @@ def report(proc_root: Path, *, clk_tck: int | None = None) -> dict:
         "clk_tck": ticks,
         "uptime_s": uptime_s,
         "cpu_ticks": read_cpu_totals(proc_root),
+        "net_counters": read_net_counters(proc_root),
         "meminfo_kb": read_meminfo(proc_root),
         "processes": rows,
     }
@@ -342,11 +392,20 @@ def cpu_delta(before: dict, after: dict) -> dict:
             }
         )
     rows.sort(key=lambda r: r["cpu_s"], reverse=True)
+    # Only counters both readings carry. A reading taken before this field
+    # existed has none, and that is "unknown", not "nothing moved".
+    net_before = before.get("net_counters") or {}
+    net_after = after.get("net_counters") or {}
+    net = {
+        key: net_after[key] - net_before[key]
+        for key in sorted(net_before.keys() & net_after.keys())
+    }
     return {
         "from": before.get("observed_at"),
         "to": after.get("observed_at"),
         "wall_s": wall_s,
         "box": box,
+        "net": net,
         "processes": rows,
         "only_in_after": sorted(new_pids),
         "only_in_before": sorted(pid for pid, _ in earlier.keys() - later_keys),
@@ -421,6 +480,13 @@ def render_delta(delta: dict) -> str:
     for label, key in (("only in after", "only_in_after"), ("only in before", "only_in_before")):
         if delta[key]:
             lines.append(f"{label}: {', '.join(str(p) for p in delta[key])}")
+    lines.append("")
+    if delta.get("net"):
+        lines.append("tcp counters moved:")
+        for key, moved in delta["net"].items():
+            lines.append(f"  {key:<24} {moved:>10,}")
+    else:
+        lines.append("tcp counters: not in both readings")
     return "\n".join(lines)
 
 
