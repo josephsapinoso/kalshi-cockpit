@@ -2,6 +2,7 @@
 
 pytest~=8.3
 pytest-asyncio~=0.25
+pytest-xdist~=3.6            # -n auto in CI; see ci.yml
 pytest-cov~=6.0
 freezegun~=1.5            # staleness and time-horizon tests
 respx~=0.22               # httpx mocking, for API clients without a live network
