@@ -134,6 +134,29 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-29 (sixty-ninth session) — the queue is empty and Joe will name new work (#196, answer C); board.py says so instead of asking for an owner (#195)
+
+`/go` start. Checked: `main` was clean at `b184bd4`, CI green, no PRs, no lanes. Live is on `b139c4e`; everything after it was docs only, so no deploy was owed. Dependabot: 0 open alerts. `cryptography~=50.0` is pinned in `requirements.txt`, which the alert query cannot see. The frontier held only #169 and #188, both parked. Partner's call: the queue is empty because the work is done, so end the session short and do not invent work.
+
+### 1. #196 — cadence question, answered (C)
+
+Asked with option buttons: with nothing queued, should sessions run (A) only on his request or an outside trigger, (B) keep the "keep going" cadence, or (C) wait for him to name new work? **Joe answered (C).** The ticket is closed with his answer. Memory `standing-instruction-keep-going.md` now says "keep going" means continue queued work, not invent it.
+
+### 2. #195 — board.py: an empty map frontier is a finding (lane, merged `3c8a659`)
+
+- `classify()` counted a parent whose children were all closed as a leaf, so map #3 showed up on the frontier as READY and warned "open leaf with no owner". That pointed at the wrong fix.
+- Now such a parent is never ready. When nobody has claimed it, the board prints `#N has no open children -- its frontier is EMPTY`.
+- A claimed parent stays silent. #151 (collecting) and #165 (waiting on a link) are held on purpose. The lane's first version warned on them too, and main narrowed it.
+- Two tests. Both guards were mutation-checked: the lane checked the EMPTY branch and the `ready` term, and main checked the assignee skip.
+- **The board still shows the #3 EMPTY warning, and that is correct.** The map has no open question. Per #196, the next question comes from Joe.
+
+### Still open
+
+1. #188 — parked. It waits for a loop-lag reading.
+2. #165 — open until a friend actually sends a link (Joe, 2026-09-28).
+3. #169 — parked behind #165.
+4. #151 — collecting. Nothing is owed until the interim look.
+
 ## 2026-09-29 (sixty-eighth session) — `/hedge` 1,803 → 447 ms on one batched venue read (#191); CI tests 9m30s → 5m29s under xdist (#192); the 30 s health-check trial read UNMOVED and reverted, and #193 closes: the stall is outside the machine (§F, §G)
 
 `/go` start. Partner ranked three items as the only open ones that could earn anything (#193's owed reading, #192, #191) and capped latency work at this session. Joe approved the whole merge-and-deploy batch up front with option buttons. Live is on `b139c4e`.
@@ -1102,6 +1125,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-29 (sixty-ninth session) — the queue is empty and Joe will name new work (#196, answer C); board.py says so instead of asking for an owner (#195)
 - 2026-09-29 (sixty-eighth session) — `/hedge` 1,803 → 447 ms on one batched venue read (#191); CI tests 9m30s → 5m29s under xdist (#192); the 30 s health-check trial read UNMOVED and reverted, and #193 closes: the stall is outside the machine (§F, §G)
 - 2026-09-28 (sixty-seventh session) — "Would Rust help?" No: ADR 0188 (Accepted; the live box is 1.3% busy), four speed lanes live on `1078389` (#186 #187 #189 #190), and a fixed ~3 s server-side stall found (#193)
 - 2026-09-27/28 (sixty-sixth session) — the HUD reaches Games, Picks, Your bets and /hedge (#174–#177, live `27a7154`); Joe keeps leg verdicts as they are (#183 A) and keeps #165 open; the motion slice ships too (PR #184, live `07ec1ce`) and #171 closes
