@@ -1494,6 +1494,20 @@ BILLED_PATH_CALL_SITES: dict[str, str] = {
         "anything, `reserve` before the request, and `settle` on every exit. "
         "A refusal makes zero calls."
     ),
+    "backend/agents/game_script.py": (
+        "The game-script scout (#215, ADR 0190). `build_card` makes exactly "
+        "one `structured_call` per card, metered by the same `AgentBudget`: "
+        "`refusal_reason(1, searches_worst_case=3)` before anything, "
+        "`reserve` before the request, and `settle` on every exit. A refusal "
+        "makes zero calls and is stored as a `refused_budget` row."
+    ),
+    "backend/api/routers/game.py": (
+        "The on-demand card route (#215). `game_card` requires auth and "
+        "calls `build_client(config)` once, immediately consumed by "
+        "`build_card` -- the metered call `game_script.py` above already "
+        "covers -- so every call it causes goes out through that one "
+        "reservation."
+    ),
     "backend/leg_verdicts.py": (
         "The leg scout's orchestration (#152, ADR 0186), shaped like "
         "`backend/api/routers/scout.py` above: `_run_leg_verdict` is the "
