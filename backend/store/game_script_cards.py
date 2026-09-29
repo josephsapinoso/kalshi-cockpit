@@ -80,13 +80,34 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     return out
 
 
-def latest_card(conn: sqlite3.Connection, game_event_ticker: str) -> Optional[dict]:
-    """The newest card row for a game, legs decoded, or `None`."""
-    row = conn.execute(
-        "SELECT * FROM game_script_cards WHERE game_event_ticker = ? "
-        "ORDER BY built_ms DESC, id DESC LIMIT 1",
-        (game_event_ticker,),
-    ).fetchone()
+def sport_key_for(game_event_ticker: str) -> str:
+    """The `sport_key` a card row carries, from the game's event ticker.
+
+    The lower-cased league prefix with `KX` and `GAME` removed:
+    `KXNFLGAME-26SEP13ATLPIT` -> `"nfl"`. Import this rather than re-deriving.
+    """
+    series = game_event_ticker.strip().upper().split("-")[0]
+    if series.startswith("KX"):
+        series = series[2:]
+    if series.endswith("GAME"):
+        series = series[: -len("GAME")]
+    return series.lower()
+
+
+def latest_for_game(
+    conn: sqlite3.Connection,
+    game_event_ticker: str,
+    statuses: Optional[Sequence[str]] = None,
+) -> Optional[dict]:
+    """The newest card row for a game (`built_ms` DESC), legs decoded, or
+    `None`. With `statuses`, only rows in one of them: the dedupe asks for
+    `built`/`skipped`, so a refusal never blocks a retry."""
+    sql = "SELECT * FROM game_script_cards WHERE game_event_ticker = ?"
+    args: list = [game_event_ticker]
+    if statuses:
+        sql += " AND status IN (%s)" % ",".join("?" * len(statuses))
+        args += list(statuses)
+    row = conn.execute(sql + " ORDER BY built_ms DESC, id DESC LIMIT 1", args).fetchone()
     return _row_to_dict(row) if row is not None else None
 
 

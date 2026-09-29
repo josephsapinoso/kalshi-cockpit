@@ -387,6 +387,12 @@ class TestTheOutputCarriesNoNumberAboutTheBet:
             assert not any(w in col for w in ("price", "prob", "confid", "edge", "ask")), col
 
 
+class TestSportKey:
+    def test_sport_key_for_is_the_lowercase_league(self):
+        assert game_script_cards.sport_key_for("KXNFLGAME-26SEP13ATLPIT") == "nfl"
+        assert game_script_cards.sport_key_for("kxnbagame-26OCT01LALBOS") == "nba"
+
+
 class TestTheRoute:
     """`POST /api/game/{event}/card`, with the venue read and the model stubbed."""
 
@@ -447,6 +453,68 @@ class TestTheRoute:
         http, client, _p = self._app(tmp_path, monkeypatch)
         assert http.post("/api/game/KXNFLSPREAD-26SEP13ATLPIT/card").status_code == 422
         assert client.messages.calls == []
+
+    def test_a_second_post_after_a_built_card_reuses_it_and_calls_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        http, client, _p = self._app(tmp_path, monkeypatch)
+        first = http.post(f"/api/game/{GAME}/card").json()
+        second = http.post(f"/api/game/{GAME}/card").json()
+        assert first["reused"] is False and second["reused"] is True
+        assert second["card"]["id"] == first["card"]["id"]
+        assert len(client.messages.calls) == 1
+
+    def test_a_skipped_card_also_blocks_a_second_call(self, tmp_path, monkeypatch):
+        http, client, _p = self._app(
+            tmp_path, monkeypatch, parsed=CardOutput(skip=True, reason="thin")
+        )
+        http.post(f"/api/game/{GAME}/card")
+        again = http.post(f"/api/game/{GAME}/card").json()
+        assert again["reused"] is True and again["card"]["status"] == "skipped"
+        assert len(client.messages.calls) == 1
+
+    @pytest.mark.parametrize("status", ["refused_budget", "refused_invalid"])
+    def test_a_refusal_row_does_not_block_a_retry(self, tmp_path, monkeypatch, status):
+        http, client, db_path = self._app(tmp_path, monkeypatch)
+        conn = db.open_db(db_path)
+        game_script_cards.insert_card(
+            conn, game_event_ticker=GAME, sport_key="nfl", kickoff_ms=KICKOFF,
+            built_ms=NOW - 1000, status=status, reason="earlier refusal",
+        )
+        conn.close()
+        body = http.post(f"/api/game/{GAME}/card").json()
+        assert body["reused"] is False and body["card"]["status"] == "built"
+        assert len(client.messages.calls) == 1
+
+    async def test_two_concurrent_posts_for_one_game_make_one_call(
+        self, tmp_path, monkeypatch
+    ):
+        import asyncio
+
+        import httpx
+
+        http, _stub, _p = self._app(tmp_path, monkeypatch)
+        gate = asyncio.Event()
+        gated = StubClient(_card(ATL, TOT40))
+        real_parse = gated.messages.parse
+
+        async def slow_parse(**kwargs):
+            await gate.wait()
+            return await real_parse(**kwargs)
+
+        gated.messages.parse = slow_parse
+        monkeypatch.setattr(game_router, "build_client", lambda cfg: gated)
+
+        transport = httpx.ASGITransport(app=http.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
+            first = asyncio.create_task(ac.post(f"/api/game/{GAME}/card"))
+            second = asyncio.create_task(ac.post(f"/api/game/{GAME}/card"))
+            await asyncio.sleep(0.3)
+            gate.set()
+            responses = await asyncio.gather(first, second)
+        assert [r.status_code for r in responses] == [200, 200]
+        assert len(gated.messages.calls) == 1
+        assert sorted(r.json()["reused"] for r in responses) == [False, True]
 
     def test_the_route_is_auth_gated(self, tmp_path, monkeypatch):
         from fastapi import HTTPException
