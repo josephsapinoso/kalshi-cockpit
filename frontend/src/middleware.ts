@@ -84,6 +84,11 @@ const JSON_ROUTE_HANDLERS = new Set([
   // desk built itself. No money moves; listed for the same JSON-401 reason
   // as the rest.
   "/parlay-check",
+  // Mints a same-game combination (#202): the same outward-facing write
+  // `/parlay-lookup` makes, for legs Joe ticked by hand on a game page. No
+  // money moves. The game rides in the body, not the path, so this exact
+  // match holds.
+  "/game-mint",
   // Both spend-adjacent: `/parlay-bid` rests a real bid, `/parlay-bid-cancel`
   // takes it back. Exact-match handlers, which is why the cancel carries its
   // id in the body rather than the path -- a dynamic segment would miss this

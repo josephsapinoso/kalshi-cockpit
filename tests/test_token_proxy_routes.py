@@ -56,6 +56,9 @@ TOKEN_HANDLERS = (
     # parlay-lookup above; no money moves. Listed for the same JSON-401
     # reason as the rest.
     "parlay-check",
+    # #202 -- mints the combination Joe ticked on a game page. Same
+    # outward-facing write as parlay-lookup; no money moves.
+    "game-mint",
     # ADR 0164 -- asking the makers what a combination costs. Outward-facing
     # (it creates a real RFQ on the exchange) and **it cannot spend**: only
     # accepting a quote binds the requester, and no accept handler exists.
