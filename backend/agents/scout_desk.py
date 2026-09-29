@@ -103,6 +103,13 @@ For this one upcoming game, file notes on your team only:
 designations, suspensions.
 - Team status: recent form, rest, travel, back-to-backs, anything significant \
 about the team as a whole.
+- Matchup (category "matchup"): your club's side of today's matchup. \
+Baseball: how the lineup has fared against today's opposing starter's hand \
+and type, and that starter's recent form. Football: how your unit matches up \
+against theirs (run defense against their rushing game, pass rush against \
+their line). Basketball: pace and the key positional matchup. Hockey: shot \
+volume for and against, and special teams. A stat may appear inside a note's \
+prose as a sourced fact; never as a probability, pick, edge or "should cover".
 - Betting splits and line movement for this game, with source and time: \
 which side the money is on versus which side the tickets are on, and how the \
 line has moved. Flag likely_already_priced as with any other note. A reported \
@@ -144,7 +151,7 @@ a briefing for the desk's owner, who is not a professional bettor and reads \
 this at a glance -- fill the board first, and keep the prose tight.
 
 First fill in the instrument board: one tile per category (lineup, injury, \
-weather, rest_travel, venue, sentiment, other), each with a state and a note \
+weather, rest_travel, matchup, venue, sentiment, other), each with a state and a note \
 of a few words. The states, exactly:
 
 - "fresh": at least one filed item in this category is recent enough that \
@@ -192,7 +199,7 @@ class BoardTile(BaseModel):
     """
 
     category: Literal[
-        "lineup", "injury", "weather", "rest_travel", "venue", "sentiment",
+        "lineup", "injury", "weather", "rest_travel", "matchup", "venue", "sentiment",
         "other",
     ]
     state: Literal["fresh", "stale_only", "unconfirmed", "clear"]
@@ -572,7 +579,7 @@ async def convene_desk(
 
 
 BOARD_CATEGORIES: tuple[str, ...] = (
-    "lineup", "injury", "weather", "rest_travel", "venue", "sentiment",
+    "lineup", "injury", "weather", "rest_travel", "matchup", "venue", "sentiment",
     "other",
 )
 
@@ -590,6 +597,9 @@ _CATEGORY_HINTS: dict[str, tuple[str, ...]] = {
     "injury": ("injur", "suspens", "designat"),
     "weather": ("weather", "forecast", "wind", "rain", "roof", "temperature"),
     "rest_travel": ("travel", "rest", "back-to-back", "schedule", "fatigue"),
+    "matchup": (
+        "matchup", "versus", "vs.", "splits", "pace", "defense against",
+    ),
     "venue": ("venue", "stadium", "park", "arena", "ground", "field", "court"),
     "sentiment": (
         "split", "splits", "handle", "tickets", "line move", "steam",

@@ -71,7 +71,7 @@ class ScoutFinding(BaseModel):
     """One sourced fact. No numeric forecast field exists here, by design."""
 
     category: Literal[
-        "injury", "lineup", "weather", "rest_travel", "venue", "sentiment",
+        "injury", "lineup", "weather", "rest_travel", "matchup", "venue", "sentiment",
         "other",
     ]
     fact: str = Field(description="What is true, in one or two sentences.")

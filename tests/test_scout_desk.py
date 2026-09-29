@@ -210,7 +210,7 @@ class TestTheDeskIsMetered:
         # The board is completed server-side on the way out, so compare the
         # prose; the seven-tile projection has its own test class.
         assert result.briefing.headline == BRIEFING.headline
-        assert len(result.briefing.board) == 7
+        assert len(result.briefing.board) == 8
         assert result.sharp is not None
         assert result.sharp.headline == SHARP.headline
         agents = [
@@ -331,7 +331,7 @@ class TestTheBoardIsCompletedServerSide:
         )
         completed = complete_board(briefing, self._staff(self._report()))
         assert [t.category for t in completed.board] == [
-            "lineup", "injury", "weather", "rest_travel", "venue",
+            "lineup", "injury", "weather", "rest_travel", "matchup", "venue",
             "sentiment", "other",
         ]
         weather = next(t for t in completed.board if t.category == "weather")
@@ -383,7 +383,7 @@ class TestTheBoardIsCompletedServerSide:
         )
         result = await _convene(client, budget)
         assert result.briefing is not None
-        assert len(result.briefing.board) == 7
+        assert len(result.briefing.board) == 8
         assert all(t.state == "unconfirmed" for t in result.briefing.board)
 
 
@@ -410,7 +410,7 @@ class TestTheSentimentTile:
         ]
         completed = complete_board(briefing, staff)
         assert [t.category for t in completed.board] == [
-            "lineup", "injury", "weather", "rest_travel", "venue",
+            "lineup", "injury", "weather", "rest_travel", "matchup", "venue",
             "sentiment", "other",
         ]
         sentiment = next(t for t in completed.board if t.category == "sentiment")
@@ -474,3 +474,54 @@ class TestTheSentimentTile:
             "pro_bettor",
         ]
         assert len(agents) == 4
+
+
+class TestMatchupCategory:
+    """#210: the `matchup` tile, on every list that carries the categories."""
+
+    def test_backend_and_frontend_category_lists_are_identical(self):
+        import re
+        from pathlib import Path
+
+        from backend.agents.scout_desk import BOARD_CATEGORIES
+
+        root = Path(__file__).resolve().parents[1]
+        tsx = (root / "frontend/src/components/ScoutDesk.tsx").read_text(
+            encoding="utf-8"
+        )
+        order = re.search(r"CATEGORY_ORDER[^=]*=\s*\[(.*?)\]", tsx, re.S)
+        assert order is not None
+        ui = tuple(re.findall(r'"(\w+)"', order.group(1)))
+        assert ui == BOARD_CATEGORIES
+        labels = re.search(r"CATEGORY_LABELS[^=]*=\s*\{(.*?)\}", tsx, re.S)
+        assert labels is not None
+        assert set(re.findall(r"^\s*(\w+):", labels.group(1), re.M)) == set(
+            BOARD_CATEGORIES
+        )
+        api = (root / "frontend/src/lib/api.ts").read_text(encoding="utf-8")
+        for name in ("ScoutFinding", "BoardTile"):
+            block = re.search(
+                rf"export type {name} = \{{\s*category:(.*?);", api, re.S
+            )
+            assert block is not None, name
+            members = set(re.findall(r'"(\w+)"', block.group(1)))
+            assert members == set(BOARD_CATEGORIES), name
+
+    def test_every_backend_literal_matches_the_board_categories(self):
+        from backend.agents.scout import ScoutFinding
+        from backend.agents.scout_desk import BOARD_CATEGORIES
+
+        for model in (ScoutFinding, BoardTile):
+            got = typing.get_args(model.model_fields["category"].annotation)
+            assert set(got) == set(BOARD_CATEGORIES), model.__name__
+        assert BOARD_CATEGORIES.index("matchup") == (
+            BOARD_CATEGORIES.index("rest_travel") + 1
+        )
+
+    def test_the_staff_matchup_instruction_forbids_a_probability_pick_or_edge(self):
+        from backend.agents.scout_desk import STAFF_SYSTEM_TEMPLATE
+
+        start = STAFF_SYSTEM_TEMPLATE.index("- Matchup")
+        clause = " ".join(STAFF_SYSTEM_TEMPLATE[start:].split("\n- ")[0].split())
+        assert "never as a probability, pick, edge" in clause
+        assert "should cover" in clause
