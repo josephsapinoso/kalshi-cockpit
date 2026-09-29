@@ -129,11 +129,22 @@ SERIES_LABELS: dict[str, str] = {
 #: has ~20 events on an NFL Sunday; the cap is a bound, not an expectation,
 #: and a game past it is listed short WITH a stated count of what was left
 #: out (`skipped_events`), never silently.
-MARKET_READ_CONCURRENCY = 6
+#:
+#: **Why 2 (#205).** `GET /markets?event_ticker=A,B,...` does NOT batch:
+#: measured 2026-09-29 with one public GET of 11 comma-joined real event
+#: tickers (HTTP 200, `{"cursor":"","markets":[]}`) -- the comma list is read
+#: as one literal ticker that matches nothing. So each event costs its own
+#: request on `combo_api()`, the one 8-a-second client the armed order path and
+#: the RFQ accept share. Two in flight is a small share of that limiter; six
+#: let one page load queue ahead of an order sent at the same moment.
+MARKET_READ_CONCURRENCY = 2
 MAX_EVENTS_PER_GAME = 40
 MARKET_READ_TIMEOUT_S = 10.0
 
-_TERMINAL_STATUSES = frozenset({"closed", "settled", "finalized", "determined"})
+#: The only status a market is offered under. Kalshi also returns
+#: `initialized`, `inactive` and `paused` markets, which the venue refuses in a
+#: combination (#205); a list of "not terminal" statuses offered them.
+_OFFERED_STATUS = "active"
 
 _GAME_TICKER = re.compile(r"^(KX[A-Z0-9]*GAME)-([A-Z0-9]+)$")
 _EVENT_TICKER = re.compile(r"^(KX[A-Z0-9]+)-([A-Z0-9]+)$")
@@ -144,7 +155,24 @@ _EVENT_TICKER = re.compile(r"^(KX[A-Z0-9]+)-([A-Z0-9]+)$")
 #: has the last word, and a refusal from it is recorded). In-process, lost on
 #: restart, same lifetime as `parlays._collections_cache`.
 _LISTING_TTL_MS = 30 * 60 * 1000
+#: Bound on the games remembered (#205). Each entry is one game's markets and
+#: the key is caller-supplied, so without a cap a crawl of game tickers grows
+#: the process for good. Expired entries go first, then the oldest write.
+_LISTING_MEMORY_MAX_GAMES = 64
 _listing_memory: dict[str, tuple[int, dict[str, dict]]] = {}
+
+
+def _remember_listing(game_event_ticker: str, now_ms: int, markets: dict) -> None:
+    """Store a game's listing and evict down to `_LISTING_MEMORY_MAX_GAMES`."""
+    _listing_memory.pop(game_event_ticker, None)  # re-insert = newest
+    _listing_memory[game_event_ticker] = (now_ms, markets)
+    for key in [
+        k for k, (at_ms, _) in _listing_memory.items()
+        if now_ms - at_ms > _LISTING_TTL_MS
+    ]:
+        del _listing_memory[key]
+    while len(_listing_memory) > _LISTING_MEMORY_MAX_GAMES:
+        del _listing_memory[next(iter(_listing_memory))]
 
 
 def _refuse(status: int, words: str) -> LookupRefused:
@@ -245,7 +273,17 @@ def _strike_of(market: dict) -> Optional[float]:
 
 
 async def _read_event_markets(api, event_ticker: str, gate: asyncio.Semaphore):
-    """`(event_ticker, markets, None)` or `(event_ticker, None, words)`."""
+    """`(event_ticker, markets, None)` or `(event_ticker, None, words)`.
+
+    A ticker that is not a plain event ticker is refused here, before any
+    request: a comma in it would change what the request means (#205), and one
+    bad element must stay a stated gap for that event alone.
+    """
+    if not _EVENT_TICKER.match(event_ticker or ""):
+        return event_ticker, None, (
+            f"{event_ticker!r} is not a readable event ticker, so its legs "
+            "are not listed."
+        )
     async with gate:
         try:
             markets = await asyncio.wait_for(
@@ -352,7 +390,7 @@ async def list_game_legs(
         cap = event.size_max if event.size_max and event.size_max > 0 else None
         for market in markets:
             ticker = str(market.get("ticker") or "")
-            if not ticker or str(market.get("status") or "").lower() in _TERMINAL_STATUSES:
+            if not ticker or str(market.get("status") or "").lower() != _OFFERED_STATUS:
                 continue
             legs.append({
                 "market_ticker": ticker,
@@ -396,8 +434,8 @@ async def list_game_legs(
     game_markets = sorted(
         l["market_ticker"] for l in legs if l["series"] == series
     )
-    _listing_memory[game_event_ticker] = (
-        now_ms,
+    _remember_listing(
+        game_event_ticker, now_ms,
         {l["market_ticker"]: {"event_ticker": l["event_ticker"],
                               "title": l["title"]}
          for l in legs},
