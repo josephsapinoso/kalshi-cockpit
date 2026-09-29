@@ -62,6 +62,21 @@ What this does not establish
 - **Anything about spread, total or team-total legs held on the NO side.**
   Those are already priced (`backend/parlays.py:1080` handles spread NO
   legs as the favorite's cover); only the moneyline gap is being sized here.
+- **What `--by-kind` establishes and does not (#198).** It classifies every
+  leg by sport x kind x side and flags whether the desk has a pricing path
+  for that kind. `desk_prices_kind` is derived from the maps the pool
+  already reads, never a second list: moneyline is priced on the YES side
+  only (`backend/parlays.py:991`); spread and total by their series'
+  market type (the subtitle parsers in `spreads.py`/`totals.py` need a
+  subtitle, which `mve_selected_legs` does not carry, so the gate is the
+  series-level type they are registered under); a prop when
+  `is_prop_series` holds AND its stat is in `PROP_MARKET_KEYS_BY_SPORT`.
+  "Priced" means a path exists, not that a price was available for any
+  particular game. `same_game` compares the fixture suffix (the text after
+  the first hyphen of `event_ticker`, the same convention
+  `ComboCollection.fixture` uses); a raw event-ticker compare is wrong
+  because prop events carry their own series (ADR 0153). Legs of one game
+  through different series therefore count as same-game.
 - **Completeness of `/portfolio/fills`.** `backend/kalshi/rest.py:fills`
   documents a measured retention window shorter than three months on this
   account; a combo whose only fill aged out of that window will not appear
@@ -81,7 +96,16 @@ from typing import Any, Mapping, Optional, Sequence
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.kalshi.discovery import _SERIES_RE, _SUFFIX_TO_MARKET_TYPE  # noqa: E402
-from backend.kalshi.props import MARKET_TYPE_PROP, is_prop_series  # noqa: E402
+from backend.kalshi.props import (  # noqa: E402
+    MARKET_TYPE_PROP,
+    MLB_PROP_SERIES,
+    NFL_PROP_SERIES,
+    PROP_SERIES,
+    is_prop_series,
+)
+from backend.kalshi.spreads import MARKET_TYPE_SPREAD  # noqa: E402
+from backend.kalshi.totals import MARKET_TYPE_TOTAL  # noqa: E402
+from backend.odds import client as odds_client  # noqa: E402
 
 #: The market_type string that means "game-winner" everywhere else in this
 #: repo (`backend/parlays.py:1095`, `backend/runner.py:2483`,
@@ -168,6 +192,153 @@ def combo_no_side_moneyline_sports(legs: Sequence[Mapping[str, Any]]) -> tuple[s
 
 
 # ---------------------------------------------------------------------------
+# --by-kind (#198): sport x kind x side, the desk's pricing path, same-game.
+# All pure; no network.
+# ---------------------------------------------------------------------------
+
+UNKNOWN_SPORT = "UNKNOWN"
+
+
+@dataclass(frozen=True)
+class KindLeg:
+    """One leg by sport x kind x side, and whether the desk can price it."""
+
+    sport: str
+    kind: str  # moneyline | spread | total | prop:<stat> | other:<series>
+    side: str
+    desk_prices_kind: bool
+
+
+def _prop_sport(series_ticker: str) -> str:
+    # Which of the two prop maps owns the series names its league; the map is
+    # the module's own, not a second list.
+    if series_ticker in MLB_PROP_SERIES:
+        return "MLB"
+    if series_ticker in NFL_PROP_SERIES:
+        return "NFL"
+    return UNKNOWN_SPORT
+
+
+def _feed_buys_prop_stat(stat: str) -> bool:
+    """Whether any sport's feed prop-market keys carry this stat.
+
+    Read off `odds.client.PROP_MARKET_KEYS_BY_SPORT` at call time (the map
+    `sport_has_prop_markets` and `prop_market_keys` are built on).
+    """
+    return any(stat in keys for keys in odds_client.PROP_MARKET_KEYS_BY_SPORT.values())
+
+
+def classify_leg_kind(leg: Mapping[str, Any]) -> KindLeg:
+    """Sport, kind, side and `desk_prices_kind` for one `mve_selected_legs` entry.
+
+    Unrecognised series are `other:<series>`, never dropped. Side handling is
+    `classify_leg`'s (refused, never defaulted).
+    """
+    base = classify_leg(leg)
+    series = series_ticker_of(base.event_ticker)
+
+    if series in PROP_SERIES:
+        stat = PROP_SERIES[series]
+        return KindLeg(
+            _prop_sport(series), f"prop:{stat}", base.side, _feed_buys_prop_stat(stat)
+        )
+    sport = base.sport or UNKNOWN_SPORT
+    if base.market_type == MARKET_TYPE_MONEYLINE:
+        # The pool emits team-YES rows only (`backend/parlays.py:991`).
+        return KindLeg(sport, "moneyline", base.side, base.side == "yes")
+    if base.market_type == MARKET_TYPE_SPREAD:
+        return KindLeg(sport, "spread", base.side, True)
+    if base.market_type == MARKET_TYPE_TOTAL:
+        return KindLeg(sport, "total", base.side, True)
+    return KindLeg(sport, f"other:{series}", base.side, False)
+
+
+def game_key(event_ticker: str) -> str:
+    """The game a leg belongs to: the fixture suffix after the first hyphen.
+
+    `KXWNBAGAME-26AUG09LVNY` and `KXWNBAPTS-26AUG09LVNY` are one game though
+    their event tickers differ (ADR 0153; same convention as
+    `ComboCollection.fixture`). `combos.same_game_collections` works on whole
+    collections, not on a bought combo's legs, so it is not called here.
+    """
+    _, _, suffix = event_ticker.partition("-")
+    return suffix or event_ticker
+
+
+def combo_is_same_game(legs: Sequence[Mapping[str, Any]]) -> bool:
+    """True when two or more legs belong to one game."""
+    keys = [game_key(str(leg["event_ticker"])) for leg in legs]
+    return len(keys) != len(set(keys))
+
+
+@dataclass
+class KindCensus:
+    n_combos: int
+    n_same_game: int
+    #: (sport, kind, side) -> (combos carrying >= 1 such leg, desk_prices_kind)
+    cells: dict[tuple[str, str, str], tuple[int, bool]]
+    #: (sport, kind) -> combos carrying >= 1 UNPRICED leg of that sport x kind
+    unpriced_kinds: dict[tuple[str, str], int]
+
+
+def census_by_kind(combos: Sequence[Sequence[Mapping[str, Any]]]) -> KindCensus:
+    """Aggregate legs of many combos; each combo counts once per cell."""
+    cells: dict[tuple[str, str, str], list] = {}
+    unpriced: dict[tuple[str, str], int] = {}
+    n_same = 0
+    for legs in combos:
+        classified = [classify_leg_kind(leg) for leg in legs]
+        if combo_is_same_game(legs):
+            n_same += 1
+        seen_cells = {(c.sport, c.kind, c.side): c.desk_prices_kind for c in classified}
+        for key, priced in seen_cells.items():
+            entry = cells.setdefault(key, [0, priced])
+            entry[0] += 1
+        for sk in {(c.sport, c.kind) for c in classified if not c.desk_prices_kind}:
+            unpriced[sk] = unpriced.get(sk, 0) + 1
+    return KindCensus(
+        len(combos), n_same, {k: (v[0], v[1]) for k, v in cells.items()}, unpriced
+    )
+
+
+def format_by_kind(census: KindCensus, *, skipped: int, since_text: str) -> str:
+    n = census.n_combos
+    pct = (lambda c: f"{100.0 * c / n:.1f}%") if n else (lambda c: "n/a")
+    lines = [
+        f"since                         : {since_text} (UTC midnight)",
+        f"combos read                   : {n}",
+        f"combos unreadable/skipped     : {skipped}",
+        "per (sport, kind, side): combos carrying >= 1 such leg  "
+        "(a combo counts in every cell it touches)",
+    ]
+    for (sport, kind, side), (count, priced) in sorted(
+        census.cells.items(), key=lambda kv: (-kv[1][0], kv[0])
+    ):
+        lines.append(
+            f"  {sport:8s} {kind:28s} {side:3s} {count:4d}  {pct(count):>6s}  "
+            f"desk_prices_kind={'yes' if priced else 'NO'}"
+        )
+    if census.unpriced_kinds:
+        (sport, kind), count = max(
+            census.unpriced_kinds.items(), key=lambda kv: (kv[1], kv[0])
+        )
+        lines.append(
+            f"top unpriced kind (sport x kind, any side): {sport} {kind}  "
+            f"{count} combos  {pct(count)}"
+        )
+    else:
+        lines.append("top unpriced kind             : none")
+    lines.append(
+        f"same-game combos              : {census.n_same_game}  {pct(census.n_same_game)}"
+    )
+    if n:
+        lines.append(f"(n = {n}, one account, not a forecast)")
+    else:
+        lines.append("shares: NOT COMPUTABLE -- zero combos read")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Network glue below. Nothing above this line makes a request; nothing below
 # it is exercised by tests/test_count_combo_leg_sides.py, which is pinned to
 # the pure classifier per the ticket's Done-when.
@@ -235,7 +406,9 @@ def legs_from_market_response(payload: Mapping[str, Any]) -> Optional[list[dict]
     return raw
 
 
-async def count_since(since_text: str) -> int:
+async def count_since(
+    since_text: str, *, by_kind: bool = False, max_tickers: Optional[int] = None
+) -> int:
     from backend.config import KalshiConfig
     from backend.kalshi.rest import KalshiRestClient
 
@@ -244,6 +417,9 @@ async def count_since(since_text: str) -> int:
     async with KalshiRestClient(KalshiConfig.load()) as api:
         fills = await _kxmve_fills(api)
         tickers = tickers_first_filled_since(fills, since_ts)
+        if max_tickers is not None:
+            tickers = tickers[:max_tickers]
+        all_legs: list[list[dict]] = []
 
         by_sport: dict[str, int] = {}
         unreadable = 0
@@ -261,12 +437,20 @@ async def count_since(since_text: str) -> int:
                 print(f"{ticker}: no mve_selected_legs in response; skipped")
                 unreadable += 1
                 continue
+            all_legs.append(legs)
             sports = combo_no_side_moneyline_sports(legs)
             if sports:
                 n_with_no_side_moneyline += 1
             for sport in sports:
                 by_sport[sport] = by_sport.get(sport, 0) + 1
 
+    if by_kind:
+        print(
+            format_by_kind(
+                census_by_kind(all_legs), skipped=unreadable, since_text=since_text
+            )
+        )
+        return 0
     print(f"since                         : {since_text} (UTC midnight)")
     print(f"combos first filled since     : {n_combos}")
     print(f"combos unreadable/skipped     : {unreadable}")
@@ -289,8 +473,21 @@ def main() -> int:
         required=True,
         help="YYYY-MM-DD, UTC. Combos first filled before this date are excluded.",
     )
+    ap.add_argument(
+        "--by-kind",
+        action="store_true",
+        help="Report sport x kind x side, desk pricing path and same-game share.",
+    )
+    ap.add_argument(
+        "--max-tickers",
+        type=int,
+        default=None,
+        help="Read at most this many combo tickers (one GET each).",
+    )
     args = ap.parse_args()
-    return asyncio.run(count_since(args.since))
+    return asyncio.run(
+        count_since(args.since, by_kind=args.by_kind, max_tickers=args.max_tickers)
+    )
 
 
 if __name__ == "__main__":
