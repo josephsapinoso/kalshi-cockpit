@@ -3013,6 +3013,7 @@ export type ScoutFinding = {
     | "lineup"
     | "weather"
     | "rest_travel"
+    | "matchup"
     | "venue"
     | "sentiment"
     | "other";
@@ -3047,6 +3048,7 @@ export type BoardTile = {
     | "injury"
     | "weather"
     | "rest_travel"
+    | "matchup"
     | "venue"
     | "sentiment"
     | "other";
