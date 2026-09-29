@@ -173,7 +173,7 @@ Joe asked for an exploratory analysis of whether any part of the stack should mo
 
 ### Still open
 
-1. #193 — the ~3 s stall. Bisect the hop first. It is the largest latency left on the desk, and it is not CPU.
+1. #193 — the ~3 s stall. **Bisected 2026-09-29:** no process on the box stalls (0 of 1,773 in-box requests, while 21 of 554 external requests stalled in the same window), so it is on the proxied path: Fly's proxy, the interface or kernel, or Next's reused connections. **Next step:** the TCP-counter comparison on live `21c891f` (`inspect_live_proc.py --diff`, baseline window vs probe window). R0 is taken; the run was stopped for laptop memory. Recipe is on #193. After that, a 30 s health-check trial goes to Joe (a `fly.live.toml` change).
 2. #191 — `/api/hedge` ~2 s: count the tickers `read_books` reads one by one, then gather or skip closed legs (kalshi-platform review).
 3. #192 — give the test drivers unique names, then turn xdist on (lane-ready, sonnet).
 4. #188 — parked until a loop-lag reading.
