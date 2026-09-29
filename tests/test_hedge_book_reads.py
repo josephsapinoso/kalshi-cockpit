@@ -64,11 +64,17 @@ class FakeRest:
         self.calls.append((path, params))
         if self.fail is not None:
             raise self.fail
+        if path != "/markets":
+            # A single-market read. Nothing in the capture matches a
+            # malformed ticker, so the venue would 404 it.
+            raise RuntimeError(f"404 for {path}")
         wanted = set(params["tickers"].split(","))
         markets = [
             m for m in FIXTURE["response"]["markets"] if m["ticker"] in wanted
         ]
-        return {"markets": markets, "cursor": ""}
+        return {"markets": markets, "cursor": self.cursor}
+
+    cursor = ""
 
 
 class TestTheCapturedBatchResponse:
@@ -164,6 +170,36 @@ class TestFetchMany:
         rest = FakeRest()
         assert await LiveQuoteSource(rest=rest).fetch_many([], observed_ms=NOW_MS) == {}
         assert rest.calls == []
+
+    async def test_a_malformed_ticker_never_enters_the_batch(self):
+        # Hand-typed leg tickers are free text. One bad entry in the
+        # comma-joined list must not be able to fail every leg's read.
+        rest = FakeRest()
+        junk = ["bad ticker", "KX,SPLIT", "lowercase-1"]
+        quotes = await LiveQuoteSource(rest=rest).fetch_many(
+            [OPEN_A, *junk, SETTLED], observed_ms=NOW_MS
+        )
+        batch = [p for path, p in rest.calls if path == "/markets"]
+        assert len(batch) == 1
+        assert batch[0]["tickers"].split(",") == [OPEN_A, SETTLED]
+        singles = sorted(path for path, _ in rest.calls if path != "/markets")
+        assert singles == sorted(f"/markets/{t}" for t in junk)
+        assert set(quotes) == {OPEN_A, SETTLED}
+
+    async def test_a_blank_ticker_is_not_read_at_all(self):
+        rest = FakeRest()
+        quotes = await LiveQuoteSource(rest=rest).fetch_many(
+            ["", "   ", OPEN_B], observed_ms=NOW_MS
+        )
+        assert [path for path, _ in rest.calls] == ["/markets"]
+        assert set(quotes) == {OPEN_B}
+
+    async def test_a_paged_answer_that_drops_a_ticker_is_logged(self, caplog):
+        rest = FakeRest()
+        rest.cursor = "more"
+        with caplog.at_level("WARNING"):
+            await LiveQuoteSource(rest=rest).fetch_many(ASKED, observed_ms=NOW_MS)
+        assert any("with a cursor" in r.getMessage() for r in caplog.records)
 
     async def test_a_failed_request_is_quote_unavailable(self):
         rest = FakeRest(fail=RuntimeError("the venue did not answer"))

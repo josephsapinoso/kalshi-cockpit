@@ -42,6 +42,7 @@ market with no book, and this project has been caught by that twice.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
@@ -250,6 +251,12 @@ def parse_market_quote(payload: dict[str, Any], *, observed_ms: int) -> LiveQuot
 # on 2026-08-09, so this is headroom, not a measured ceiling.
 MAX_TICKERS_PER_READ = 100
 
+# What a ticker must look like to share a batched read. Every one of the
+# 4,136 tickers in `tests/fixtures/` (2026-09-29) uses only A-Z, 0-9, `-` and
+# `_`; `.` is allowed for headroom. Anything else is read on its own
+# (`LiveQuoteSource.fetch_many`).
+BATCHABLE_TICKER = re.compile(r"[A-Z0-9][A-Z0-9._-]*")
+
 
 def parse_markets_batch(
     payload: dict[str, Any], *, asked: Sequence[str], observed_ms: int
@@ -390,20 +397,33 @@ class LiveQuoteSource:
         legs cost ~1.8 s and would have put a Buy tap behind all twelve. One
         batched read takes one slot whatever N is.
 
+        **Only a well-formed ticker goes into the batch** (`BATCHABLE_TICKER`).
+        A held leg's ticker can be typed by hand (`HeldLegRequest.ticker` is
+        free text), and one malformed entry in a comma-joined list could fail
+        the whole request -- every leg on `/hedge` blank, the watcher pricing
+        nothing, for as long as that position stays open (kalshi-platform
+        review of #191). Anything else is read on its own through `fetch`, as
+        every leg was before, and fails alone. A blank one is not read at all.
+
         Returns only the tickers the venue answered for; a missing one is
-        absent (`parse_markets_batch`). Every failure of a request becomes
+        absent (`parse_markets_batch`). A failed batch request becomes
         `QuoteUnavailable` for the whole call, so a caller that tolerates a
-        missing book treats every ticker as missing, which is the same answer
-        `read_books` gave when each single read failed. `ConfigError` is
-        raised outside the `try`, as in `fetch`.
+        missing book treats every ticker as missing -- one transient failure
+        now blanks every leg for that pass rather than one, softened by the
+        REST client's own retries on 429 and 5xx. `ConfigError` is raised
+        outside the `try`, as in `fetch`.
         """
         asked = list(dict.fromkeys(tickers))
-        if not asked:
+        batchable = [t for t in asked if BATCHABLE_TICKER.fullmatch(t)]
+        singles = [
+            t for t in asked if t and t.strip() and not BATCHABLE_TICKER.fullmatch(t)
+        ]
+        if not batchable and not singles:
             return {}
         api = self._api()
         quotes: dict[str, LiveQuote] = {}
-        for start in range(0, len(asked), MAX_TICKERS_PER_READ):
-            chunk = asked[start : start + MAX_TICKERS_PER_READ]
+        for start in range(0, len(batchable), MAX_TICKERS_PER_READ):
+            chunk = batchable[start : start + MAX_TICKERS_PER_READ]
             try:
                 payload = await api.get(
                     "/markets", tickers=",".join(chunk), limit=len(chunk)
@@ -416,9 +436,22 @@ class LiveQuoteSource:
                 raise QuoteUnavailable(
                     f"could not read live quotes for {len(chunk)} tickers: {exc}"
                 ) from exc
-            quotes.update(
-                parse_markets_batch(payload, asked=chunk, observed_ms=observed_ms)
-            )
+            got = parse_markets_batch(payload, asked=chunk, observed_ms=observed_ms)
+            if payload.get("cursor") and len(got) < len(chunk):
+                # The one way a leg could go silently absent: the venue paged
+                # the answer although `limit` equals the chunk. Not observed
+                # (the 2026-09-29 capture returned `cursor: ''`); logged so it
+                # would be seen rather than read as "no book".
+                logger.warning(
+                    "batched quote read returned %d of %d with a cursor; the "
+                    "rest are absent this pass", len(got), len(chunk),
+                )
+            quotes.update(got)
+        for ticker in singles:
+            try:
+                quotes[ticker] = await self.fetch(ticker, observed_ms=observed_ms)
+            except QuoteUnavailable:
+                continue
         return quotes
 
     async def portfolio_positions(self) -> list[dict]:
