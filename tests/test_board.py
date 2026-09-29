@@ -173,6 +173,17 @@ class TestWarnings:
         assert any("frontier is EMPTY" in ln for ln in lines)
         assert not any("no owner" in ln for ln in lines)
 
+    def test_a_claimed_parent_with_only_closed_children_is_silent(self):
+        # #151 and #165 on 2026-09-29: every child closed, the story itself
+        # assigned and deliberately held. Not a finding about the queue.
+        raw = {"number": 151, "title": "Leg scout", "state": "open",
+               "labels": [{"name": "type:story"}, {"name": "owner:main"}], "body": "",
+               "assignee": {"login": "josephsapinoso"},
+               "children": [{"number": 152, "state": "closed", "labels": [], "children": []}]}
+        node = board.classify(raw)
+        assert node["ready"] is False
+        assert board.warnings([node], next_text=None) == []
+
     def test_an_agent_leaf_with_model_and_done_when_is_silent(self):
         node = classified("agent_leaf_clean")
         lines = board.warnings([node], next_text=None)

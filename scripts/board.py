@@ -23,7 +23,8 @@ WHAT THIS DOES NOT ESTABLISH
   both see the same node "ready" and both start it. Nothing here reserves
   anything -- the same limitation `scripts/lane_board.py` states for lanes.
 - **A parent whose children are all closed is not a leaf.** It is off the
-  frontier and `warnings()` says its frontier is EMPTY; only a node with no
+  frontier and, unless someone has claimed it, `warnings()` says its frontier
+  is EMPTY; only a node with no
   children at all is a leaf that can lack an owner.
 - **`ready` is a necessary condition, not sufficient.** A leaf with no
   assignee, no blocker and an open state might still be blocked in a way
@@ -395,6 +396,11 @@ def warnings(nodes: list[dict], next_text: str | None) -> list[str]:
         if node["state"] != "open" or not node["leaf"] or node["type"] == "epic":
             continue
         if node["frontier_empty"]:
+            # A claimed parent (#151 collecting toward its look, #165 waiting
+            # on a friend's link) is held on purpose; only an unclaimed one is
+            # a queue that has run dry without anyone deciding so.
+            if node["assignee"] is not None:
+                continue
             out.append(
                 f"#{node['number']} has no open children -- its frontier is EMPTY: "
                 f"open a question for Joe or record that none exists -- {node['title']}"
