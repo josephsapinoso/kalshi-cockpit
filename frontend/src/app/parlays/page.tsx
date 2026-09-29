@@ -12,6 +12,7 @@ import WindowPicker from "@/components/WindowPicker";
 import ParlayCards from "@/components/ParlayCards";
 import RefreshOddsPanel from "@/components/RefreshOddsPanel";
 import CheckAParlay from "@/components/CheckAParlay";
+import { GameScriptParlays } from "@/components/GameScriptCard";
 import Term from "@/components/Term";
 
 export const dynamic = "force-dynamic";
@@ -161,6 +162,10 @@ export default async function ParlaysPage({
           is not one of the six cuts below, so it gets its own box rather
           than trying to fit into one. */}
       <CheckAParlay />
+      {/* Stored game-script cards (#216), in kickoff order and no other
+          (ADR 0071). Read on the client: the asks behind it are live venue
+          reads and must not hold this page up. */}
+      <GameScriptParlays />
       {/* The #15 cut, on the pool the six cards are built from. The count is
           candidate sides the cut removed, as the server counts them -- not
           the engine's own refusals, which `ParlayCards` still lists by
