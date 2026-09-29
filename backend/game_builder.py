@@ -13,7 +13,7 @@ Two entry points:
 
 - `list_game_legs` -- read-only. Every leg on the game's fixture that a
   catch-all combination collection accepts, grouped by series in a FIXED
-  order (the order `SERIES_ORDER` names, then the strike, then the player,
+  order (the order `SERIES_ORDER` names, then the player, then the strike,
   then the ticker). **Never by chance and never by any gap between a chance
   and a price** (ADR 0071: a per-row fact is transparency, an ordering is a
   claim). Each side of each leg carries the desk's own consensus chance, or
@@ -373,10 +373,12 @@ async def list_game_legs(
     _price_sides(conn, legs, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms)
 
     # **The fixed order. Nothing below reads `sides`, `chance`, or any price.**
+    # Player before strike, so a prop series reads one player's ladder at a
+    # time; team markets carry no player and keep strike order.
     legs.sort(key=lambda l: (
         _kind_rank(l["kind"]),
-        l["strike"] is None, l["strike"] if l["strike"] is not None else 0.0,
         l["player"] or "",
+        l["strike"] is None, l["strike"] if l["strike"] is not None else 0.0,
         l["market_ticker"],
     ))
     groups: list[dict] = []

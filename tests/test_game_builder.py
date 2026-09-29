@@ -228,9 +228,14 @@ class TestTheLegsListing:
         spread = next(g for g in listing["groups"] if g["series"] == "KXNFLSPREAD")
         strikes = [l["strike"] for l in spread["legs"]]
         assert strikes == sorted(strikes)
+        # A prop series reads player by player, each player's rungs ascending:
+        # interleaving players by strike made one receiver's ladder unreadable.
         rec = next(g for g in listing["groups"] if g["series"] == "KXNFLRECYDS")
-        keys = [(l["strike"], l["player"]) for l in rec["legs"]]
+        keys = [(l["player"], l["strike"]) for l in rec["legs"]]
         assert keys == sorted(keys)
+        players = [p for p, _ in keys]
+        assert len(set(players)) > 1, "fixture must carry 2+ players to pin grouping"
+        assert players == sorted(players)
 
     async def test_the_order_does_not_move_when_the_chances_do(self, tmp_path):
         """Any chance-dependent sort changes the order in one of the two
