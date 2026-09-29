@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import dataclasses
 import json
 import re
 from pathlib import Path
@@ -316,6 +317,76 @@ class TestTheLegsListing:
         await _list(conn, api)
         assert api.max_in_flight == 2
 
+    async def test_a_page_load_holds_at_most_two_reads_in_flight_by_default(
+        self, conn
+    ):
+        # No monkeypatch: the shipped cap. `GET /markets` does not batch
+        # several event_tickers (see MARKET_READ_CONCURRENCY), so the bound on
+        # the shared combo client is the in-flight cap, one read per event.
+        api = FakeApi()
+        api.delay = 0.02
+        await _list(conn, api)
+        reads = [c for c in api.calls if c[0] == "markets_for_event"]
+        assert len(reads) == len(_event_markets()) - 1  # the other game's is not read
+        assert len(reads) > 2
+        assert api.max_in_flight <= 2
+
+    async def test_one_malformed_ticker_does_not_blank_the_other_events(
+        self, conn, monkeypatch
+    ):
+        bad = "KXNFLTOTAL,KXNFLGAME-26SEP13ATLPIT"
+        base = _catch_all_for_atlpit()
+        poisoned = dataclasses.replace(base, legs=(
+            *base.legs, dataclasses.replace(base.legs[0], event_ticker=bad),
+        ))
+
+        async def fake_fetch(api, max_pages=25):
+            return [poisoned]
+
+        monkeypatch.setattr(parlays, "fetch_collections", fake_fetch)
+        api = FakeApi()
+        listing = await _list(conn, api)
+        assert [u["event_ticker"] for u in listing["unreadable_events"]] == [bad]
+        assert bad not in [c[1] for c in api.calls]
+        assert "KXNFLGAME" in [g["series"] for g in listing["groups"]]
+        assert listing["leg_count"] > 5
+
+    async def test_only_active_markets_are_listed(self, conn):
+        markets = copy.deepcopy(_event_markets())
+        target = markets[GAME]
+        for market, status in zip(
+            target, ["initialized", "inactive", "paused", "closed", "active"]
+        ):
+            market["status"] = status
+        listing = await _list(conn, FakeApi(markets=markets))
+        listed = {
+            l["market_ticker"] for l in _flat(listing) if l["event_ticker"] == GAME
+        }
+        expected = {m["ticker"] for m in target if m["status"] == "active"}
+        assert listed == expected
+
+    async def test_the_listing_memory_does_not_grow_past_its_bound(
+        self, conn, monkeypatch
+    ):
+        monkeypatch.setattr(game_builder, "_LISTING_MEMORY_MAX_GAMES", 3)
+        for i in range(10):
+            game_builder._remember_listing(f"KXNFLGAME-G{i}", now_ms() + i, {})
+        assert len(game_builder._listing_memory) == 3
+        # The newest survive, the oldest are gone.
+        assert set(game_builder._listing_memory) == {
+            "KXNFLGAME-G7", "KXNFLGAME-G8", "KXNFLGAME-G9",
+        }
+        # A real listing lands in the same bounded store.
+        await _list(conn)
+        assert GAME in game_builder._listing_memory
+        assert len(game_builder._listing_memory) == 3
+
+    async def test_expired_listings_are_evicted_on_the_next_write(self):
+        ttl = game_builder._LISTING_TTL_MS
+        game_builder._remember_listing("KXNFLGAME-OLD", 1_000, {})
+        game_builder._remember_listing("KXNFLGAME-NEW", 1_000 + ttl + 1, {})
+        assert set(game_builder._listing_memory) == {"KXNFLGAME-NEW"}
+
     async def test_the_collection_read_is_cached_across_page_views(
         self, conn, _fresh_caches
     ):
@@ -377,13 +448,18 @@ def build(tmp_path, monkeypatch):
                               allow_market_creation=False):
             assert allow_market_creation is True
             lookups.append((collection_ticker, list(legs)))
-            return {
-                "market_ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S2026GAMETEST-ABC123",
-                "market": {"mve_selected_legs": [
-                    {"event_ticker": e, "market_ticker": m, "side": s}
-                    for e, m, s in reversed(list(legs))
-                ]},
-            }
+            # The CAPTURED lookup response (2026-08-23), its envelope and
+            # market fields untouched; only the legs and tickers are swapped
+            # for the ones asked, which a real venue echoes back.
+            response = copy.deepcopy(_load("combo_lookup_response.json"))
+            response["market_ticker"] = response["market"]["ticker"] = (
+                "KXMVESPORTSMULTIGAMEEXTENDED-S2026GAMETEST-ABC123"
+            )
+            response["market"]["mve_selected_legs"] = [
+                {"event_ticker": e, "market_ticker": m, "side": s}
+                for e, m, s in reversed(list(legs))
+            ]
+            return response
 
         def _raises(name):
             def boom(*args, **kwargs):
