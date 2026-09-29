@@ -216,3 +216,181 @@ class TestParseSince:
             datetime.datetime(2026, 9, 10, tzinfo=datetime.timezone.utc).timestamp()
         )
         assert got == expected
+
+
+# -- #198: --by-kind ---------------------------------------------------------
+#
+# Legs below are taken from captured payloads. Moneyline / spread / total /
+# other legs come from `combo_priced_markets.json`'s `mve_selected_legs`. No
+# captured `mve_selected_legs` carries a leg whose series is in `PROP_SERIES`
+# (its one prop-shaped leg, `KXWNBAPTS`, is not a registered prop series, which
+# is itself the `other:` test), so the prop legs wrap the REAL captured event
+# and market tickers of `events_mlb_props_nested.json` /
+# `events_nfl_props_nested.json` in the same three-key leg shape.
+
+from scripts.count_combo_leg_sides import (  # noqa: E402
+    census_by_kind,
+    classify_leg_kind,
+    combo_is_same_game,
+    format_by_kind,
+    game_key,
+)
+
+FIXTURES = REPO / "tests" / "fixtures"
+
+
+def _captured_leg(series: str, side: str | None = None) -> dict:
+    """First captured leg under `series` in combo_priced_markets.json."""
+    for leg in _all_legs():
+        if leg["event_ticker"].split("-")[0] == series and (
+            side is None or leg["side"] == side
+        ):
+            return dict(leg)
+    raise AssertionError(f"no captured {series} leg (side={side})")
+
+
+def _captured_prop_leg(events_fixture: str, series: str, side: str = "yes") -> dict:
+    data = json.loads((FIXTURES / events_fixture).read_text(encoding="utf-8"))
+    event = data["events_by_series"][series][0]
+    return {
+        "event_ticker": event["event_ticker"],
+        "market_ticker": event["markets"][0]["ticker"],
+        "side": side,
+    }
+
+
+class TestByKind:
+    def test_moneyline_yes_is_priced(self):
+        got = classify_leg_kind(_captured_leg("KXMLBGAME", "yes"))
+        assert (got.sport, got.kind, got.side) == ("MLB", "moneyline", "yes")
+        assert got.desk_prices_kind is True
+
+    def test_moneyline_no_side_is_not_priced(self):
+        leg = _captured_leg("KXMLBGAME")
+        leg["side"] = "no"
+        got = classify_leg_kind(leg)
+        assert got.kind == "moneyline" and got.side == "no"
+        assert got.desk_prices_kind is False
+
+    def test_spread_is_a_spread_and_priced_on_a_real_no_leg(self):
+        got = classify_leg_kind(_captured_leg("KXWNBASPREAD", "no"))
+        assert (got.sport, got.kind, got.side) == ("WNBA", "spread", "no")
+        assert got.desk_prices_kind is True
+
+    def test_total_is_a_total_and_priced(self):
+        got = classify_leg_kind(_captured_leg("KXMLBTOTAL", "no"))
+        assert (got.sport, got.kind, got.side) == ("MLB", "total", "no")
+        assert got.desk_prices_kind is True
+
+    def test_a_prop_is_prop_stat_and_priced_when_the_feed_buys_the_stat(self):
+        leg = _captured_prop_leg("events_mlb_props_nested.json", "KXMLBKS")
+        got = classify_leg_kind(leg)
+        assert (got.sport, got.kind) == ("MLB", "prop:pitcher_strikeouts")
+        assert got.desk_prices_kind is True
+
+    def test_an_nfl_prop_reads_its_own_stat(self):
+        leg = _captured_prop_leg("events_nfl_props_nested.json", "KXNFLRECYDS")
+        got = classify_leg_kind(leg)
+        assert (got.sport, got.kind) == ("NFL", "prop:player_reception_yds")
+        assert got.desk_prices_kind is True
+
+    def test_a_prop_stat_outside_the_feed_markets_is_not_priced(self, monkeypatch):
+        from backend.odds import client as odds_client
+
+        # The feed stops buying NFL keys: the stat is still a prop by series,
+        # but no sport's market keys carry it.
+        monkeypatch.setitem(
+            odds_client.PROP_MARKET_KEYS_BY_SPORT, "americanfootball_nfl", ()
+        )
+        leg = _captured_prop_leg("events_nfl_props_nested.json", "KXNFLPASSYDS")
+        got = classify_leg_kind(leg)
+        assert got.kind == "prop:player_pass_yds"
+        assert got.desk_prices_kind is False
+        # An MLB stat is unaffected.
+        mlb = classify_leg_kind(
+            _captured_prop_leg("events_mlb_props_nested.json", "KXMLBTB")
+        )
+        assert mlb.desk_prices_kind is True
+
+    def test_an_unregistered_series_is_other_never_dropped(self):
+        # KXWNBAPTS is in a real captured combo and is not in PROP_SERIES.
+        got = classify_leg_kind(_captured_leg("KXWNBAPTS"))
+        assert got.kind == "other:KXWNBAPTS"
+        assert got.sport == "UNKNOWN"
+        assert got.desk_prices_kind is False
+        tennis = classify_leg_kind(_captured_leg("KXATPMATCH"))
+        assert tennis.kind == "other:KXATPMATCH"
+
+    def test_a_no_strike_prop_series_is_other(self):
+        leg = _captured_prop_leg("events_nfl_props_nested.json", "KXNFLFIRSTTD")
+        assert classify_leg_kind(leg).kind == "other:KXNFLFIRSTTD"
+
+    def test_side_is_still_refused_when_unreadable(self):
+        leg = _captured_leg("KXMLBGAME")
+        leg["side"] = "maybe"
+        with pytest.raises(ValueError):
+            classify_leg_kind(leg)
+
+
+class TestByKindSameGame:
+    def test_a_moneyline_plus_a_prop_series_of_one_game_is_same_game(self):
+        # Captured combo 0: KXWNBAGAME + KXWNBAPTS + KXWNBASPREAD, all
+        # `-26AUG09LVNY`. Three DIFFERENT series, one game.
+        legs = _combos()[0]["mve_selected_legs"]
+        assert len({leg["event_ticker"] for leg in legs}) == 3
+        assert combo_is_same_game(legs) is True
+
+    def test_a_raw_event_ticker_compare_would_have_said_no(self):
+        legs = _combos()[0]["mve_selected_legs"]
+        tickers = [leg["event_ticker"] for leg in legs]
+        assert len(tickers) == len(set(tickers))  # what a raw compare sees
+        assert game_key(tickers[0]) == game_key(tickers[1]) == game_key(tickers[2])
+
+    def test_a_multi_game_combo_is_not_same_game(self):
+        # Captured: three MLB moneylines on three different fixtures.
+        combo = next(
+            c["mve_selected_legs"]
+            for c in _combos()
+            if [leg["event_ticker"] for leg in c["mve_selected_legs"]]
+            == [
+                "KXMLBGAME-26AUG091415COLSTL",
+                "KXMLBGAME-26AUG091605DETSF",
+                "KXMLBGAME-26AUG092020HOUSD",
+            ]
+        )
+        assert combo_is_same_game(combo) is False
+
+
+class TestCensusAndReport:
+    def _census(self):
+        return census_by_kind([c["mve_selected_legs"] for c in _combos()])
+
+    def test_counts_are_combos_carrying_the_leg_not_legs(self):
+        census = self._census()
+        assert census.n_combos == len(_combos())
+        count, priced = census.cells[("MLB", "moneyline", "yes")]
+        expected = sum(
+            any(
+                leg["event_ticker"].startswith("KXMLBGAME") and leg["side"] == "yes"
+                for leg in c["mve_selected_legs"]
+            )
+            for c in _combos()
+        )
+        assert count == expected and priced is True
+
+    def test_same_game_count_over_the_captured_combos(self):
+        census = self._census()
+        expected = sum(combo_is_same_game(c["mve_selected_legs"]) for c in _combos())
+        assert census.n_same_game == expected
+        assert expected >= 1
+
+    def test_top_unpriced_kind_is_reported(self):
+        text = format_by_kind(self._census(), skipped=2, since_text="2026-09-10")
+        assert "combos unreadable/skipped     : 2" in text
+        assert "top unpriced kind" in text
+        assert "desk_prices_kind=NO" in text
+        assert "same-game combos" in text
+
+    def test_empty_population_does_not_divide_by_zero(self):
+        text = format_by_kind(census_by_kind([]), skipped=0, since_text="2026-09-10")
+        assert "NOT COMPUTABLE" in text
