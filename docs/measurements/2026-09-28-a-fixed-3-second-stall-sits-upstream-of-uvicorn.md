@@ -114,3 +114,26 @@ The 490 and 699 ms outliers at 03:17:25–03:17:36 came about 35 s after boot, d
    - `PassiveOpens` against the request count shows whether Fly opens a fresh connection per request or reuses them.
    - No config change is involved: these are `/proc` text files, the same class `inspect_live_proc.py` already reads.
 2. **Only if (1) is inconclusive:** move the health check interval from 15 s to 30 s for one probe window, and see whether the rhythm follows. That changes the deployed `fly.live.toml`, which this session was refused permission to edit, so it would go to Joe as a ticket with the reading from (1).
+
+## §F — The 30 s health-check trial (live `14af8f7`)
+
+### The rule, committed before the reading (2026-09-29, session 68)
+
+The trial is the one §D(2) named. `14af8f7` moved `[checks.health]` from 15s to 30s, on Joe's pick. The machine config shows `interval: 30s` (`flyctl machine status -d`, 2026-09-29), and the box has been up since 05:29:51Z.
+
+**The window:**
+- 30 minutes, with `scripts/probe_public_latency.py` (#194) keeping connections alive at one request a second per arm, alternating `/api/health` and a 404 page. These are §C's and §E's targets.
+- **Arm 1:** public live. This arm decides the outcome.
+- **Arm 3:** public demo, as a control. It has always run a 30s check. It is warmed first, because demo's first request returns nothing.
+- **Arm 2 was dropped before any data.** It was to be live over 6PN via `fly proxy` to :3000, bypassing the edge. It cannot reach Next: `docker/entrypoint.sh:340` binds `HOSTNAME=0.0.0.0` (IPv4 only), 6PN is IPv6, and the tunnel's connections were reset (`curl` exit 56) while public requests were answered.
+
+**The statistic:** F, the fraction of gaps between consecutive stalls (a stall is ≥ 1,000 ms) that are under 24 s. Under the 15s check it read 14 of 20 (§C) and 7 of 12 (§A run 3). The mean gap is not used, because only some of the ~15.6 s cycles land on a probe request. That is why §A run 1 could have looked like a ~30 s rhythm under the 15s check.
+
+**The outcomes, on arm 1:**
+- **MOVED** (the health check is the trigger): at least 12 gaps and none under 24 s. Under the 15s-era null that has probability about 0.42¹² ≈ 3e-5. A stall rate near half the earlier ~2 a minute corroborates this but does not decide it.
+  - Keep 30s.
+  - A Question for Joe goes under #3: aim the check at :8000, or make it a TCP check, as the next trial.
+- **UNMOVED:** F ≥ 0.25. Revert to 15s, per the rule in `14af8f7` (the deploy is pre-approved). With arm 2 gone, the remaining step is a keep-alive mode for the in-box probe, to test Next's handling of reused sockets. After that, #193 closes naming Fly's side.
+- **INCONCLUSIVE:** anything else, including fewer than 12 gaps. Extend once by 30 minutes and pool the windows. If it is still inconclusive, revert and record it as such.
+- **Zero stalls in about 1,800 requests** (the null expects about 60): make no fix claim. Keep 30s and take a second window later in the day.
+- **Stop-loss:** this reading plus one follow-up step, then #193 closes with whatever hop the readings name.
