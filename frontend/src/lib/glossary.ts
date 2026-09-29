@@ -446,6 +446,28 @@ export const GLOSSARY = {
       "and how far the line has moved. Usually already priced in by the " +
       "time you see it.",
   },
+  game_script_card: {
+    label: "game-script card",
+    definition:
+      "A short written story for one game, like \"a slow, low-scoring " +
+      "game\", with two or three picks that fit it and the news that " +
+      "would kill it. The desk writes it from who is playing, rest and " +
+      "matchups. It is an opinion with sources, not a price.",
+  },
+  drop_if: {
+    label: "drop it if",
+    definition:
+      "The specific news that should make you skip the card: a starter " +
+      "ruled out, say. The card's story rests on that fact holding, so " +
+      "when it stops holding, the card stops making sense.",
+  },
+  inactives: {
+    label: "inactives",
+    definition:
+      "The list of players a team declares out for the game, released " +
+      "about 90 minutes before kickoff. A card is built a day earlier, " +
+      "so it cannot know them. Check the list before you bet.",
+  },
 } as const;
 
 export type GlossaryKey = keyof typeof GLOSSARY;

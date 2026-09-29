@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
@@ -23,7 +24,14 @@ from ...agents.base import AgentConfig, build_client
 from ...agents.budget import AgentBudget
 from ...agents.game_script import build_card
 from ...config import AppConfig, ConfigError, StalenessConfig
-from ...game_builder import list_game_legs, mint_game_combo, parse_game_ticker
+from ...core.prices import format_price
+from ...game_builder import (
+    _read_event_markets,
+    list_game_legs,
+    mint_game_combo,
+    parse_game_ticker,
+)
+from ...kalshi.orderbook import OrderBook
 from ...parlays import LookupRefused, _commence_ms_for_tickers
 from ...store import db, game_script_cards
 
@@ -32,6 +40,92 @@ from ...store import db, game_script_cards
 #: pay (the burst that ran leg verdicts to 1,120,442 tokens on 2026-09-25).
 #: Held from the dedupe check through the store write.
 _CARD_BUILD_LOCK = asyncio.Lock()
+
+
+#: The line every card carries about news that lands after it is built.
+INACTIVES_LINE = (
+    "Inactives come out 90 minutes before kickoff and are not covered."
+)
+
+#: How many single-leg reads one list call may have in flight.
+_ASK_READ_CONCURRENCY = 6
+
+
+def kickoff_order(cards: list[dict]) -> list[dict]:
+    """Cards in kickoff order and no other (ADR 0071). The game ticker only
+    breaks a tie between two games kicking off together. **Nothing here reads
+    a leg, an ask or a story**: an ordering is a claim, and the only one this
+    list may make is the clock."""
+    return sorted(cards, key=lambda c: (c["kickoff_ms"], c["game_event_ticker"]))
+
+
+def no_card_line(card: dict) -> Optional[str]:
+    """What a game with no built card says, in words, or `None` on a built one.
+
+    A skipped or refused game is listed with this sentence, never dropped and
+    never an empty row (#216)."""
+    status = card["status"]
+    if status == "built":
+        return None
+    reason = (card.get("reason") or "").strip() or "no reason was recorded"
+    if status == "refused_budget":
+        return f"No card today: {reason}"
+    return f"No clean story: {reason}"
+
+
+async def _read_leg_asks(api, legs: list[dict], *, now_ms: int) -> list[dict]:
+    """Kalshi's own single-leg ask for each card leg, read now.
+
+    One `markets_for_event` per distinct event (the title) and one order book
+    per leg (the ask, derived from the opposing bid, never quoted). A read
+    that fails is `ask_tenths: None` with the reason in words -- never `0`,
+    and it never takes the card down. **No number is combined**: each ask is
+    one leg's, and only the makers' RFQ quote prices the link (ADR 0189)."""
+    gate = asyncio.Semaphore(_ASK_READ_CONCURRENCY)
+    events = sorted({leg["event_ticker"] for leg in legs})
+    reads = await asyncio.gather(*(_read_event_markets(api, e, gate) for e in events))
+    markets_by_ticker: dict[str, dict] = {}
+    for _event, markets, _words in reads:
+        for market in markets or []:
+            markets_by_ticker[str(market.get("ticker") or "")] = market
+
+    async def one(leg: dict) -> dict:
+        market = markets_by_ticker.get(leg["market_ticker"], {})
+        side = leg["side"]
+        out = {
+            "market_ticker": leg["market_ticker"],
+            "event_ticker": leg["event_ticker"],
+            "side": side,
+            "title": str(market.get("title") or leg["market_ticker"]),
+            "side_label": market.get(f"{side}_sub_title") or None,
+            "ask_tenths": None,
+            "ask_display": None,
+            "ask_unread_reason": None,
+        }
+        try:
+            async with gate:
+                payload = await asyncio.wait_for(
+                    api.orderbook(leg["market_ticker"], depth=10), 10.0
+                )
+            book = OrderBook(ticker=leg["market_ticker"])
+            book.apply_snapshot(payload, None, now_ms)
+            ask = book.ask_for(side)
+        except Exception as exc:  # noqa: BLE001 -- one leg failing is a stated gap
+            out["ask_unread_reason"] = (
+                "Kalshi's book for this leg could not be read "
+                f"({type(exc).__name__})."
+            )
+            return out
+        if ask is None:
+            out["ask_unread_reason"] = (
+                f"Nobody is offering the {side.upper()} side on Kalshi right now."
+            )
+        else:
+            out["ask_tenths"] = ask
+            out["ask_display"] = format_price(ask)
+        return out
+
+    return list(await asyncio.gather(*(one(leg) for leg in legs)))
 
 
 class GameMintLeg(BaseModel):
@@ -92,6 +186,77 @@ def register(
             raise HTTPException(
                 status_code=exc.status_code, detail=exc.detail
             ) from exc
+
+    @app.get("/api/game-cards")
+    async def game_cards(
+        game_event_ticker: Optional[str] = None, conn=Depends(get_conn)
+    ) -> dict:
+        """The stored game-script cards, newest per game, in KICKOFF order (#216).
+
+        With `game_event_ticker`, that one game's latest card (or an empty
+        list). Without it, every game that has not kicked off. **Skipped and
+        refused games are in the list, each with its reason in `no_card_line`**;
+        a built card carries each leg's title and Kalshi's own single-leg ask,
+        read now. No combined figure exists in this payload (ADR 0189), and the
+        order is `kickoff_order`, never a function of anything on a card.
+
+        Reads only, behind `middleware.ts` like `/api/hedge`: the browser holds
+        a session cookie and never the bearer, so a bearer dependency here
+        could not be called. It touches the venue (single-leg books) and no
+        model, so it spends nothing.
+        """
+        now = db.now_ms()
+        if game_event_ticker is not None:
+            games = [game_event_ticker.strip().upper()]
+        else:
+            games = [
+                r[0]
+                for r in conn.execute(
+                    "SELECT DISTINCT game_event_ticker FROM game_script_cards "
+                    "WHERE kickoff_ms >= ?",
+                    (now,),
+                ).fetchall()
+            ]
+        cards: list[dict] = []
+        for game in games:
+            # A built card beats a later refusal: a refusal never replaces a
+            # card Joe could use.
+            card = game_script_cards.latest_for_game(
+                conn, game, statuses=("built",)
+            ) or game_script_cards.latest_for_game(conn, game)
+            if card is not None:
+                cards.append(card)
+        cards = kickoff_order(cards)
+
+        api = None
+        if any(c["status"] == "built" for c in cards):
+            try:
+                api = combo_api()
+            except ConfigError:
+                api = None
+        for card in cards:
+            card["no_card_line"] = no_card_line(card)
+            card["inactives_line"] = INACTIVES_LINE
+            if card["status"] != "built":
+                card["legs"] = []
+            elif api is None:
+                card["legs"] = [
+                    {
+                        **leg,
+                        "title": leg["market_ticker"],
+                        "side_label": None,
+                        "ask_tenths": None,
+                        "ask_display": None,
+                        "ask_unread_reason": (
+                            "This instance has no Kalshi credentials, so no "
+                            "ask was read."
+                        ),
+                    }
+                    for leg in card["legs"]
+                ]
+            else:
+                card["legs"] = await _read_leg_asks(api, card["legs"], now_ms=now)
+        return {"now_ms": now, "cards": cards}
 
     @app.post(
         "/api/game/{event_ticker}/mint", dependencies=[Depends(require_auth)]

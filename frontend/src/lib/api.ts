@@ -4423,3 +4423,112 @@ export async function requestLegVerdicts(
   }
   return legVerdictBody(body) ?? { legs: [], error: UNREADABLE_LEG_VERDICTS };
 }
+
+/**
+ * One leg of a game-script card (#216), with Kalshi's own single-leg ask read
+ * by the server when the card was fetched. `ask_tenths` is `null` with
+ * `ask_unread_reason` in words when the book could not be read -- never 0.
+ * **There is no combined figure in this shape and none may be added**
+ * (ADR 0189): each ask is one leg's, and the makers' quote prices the link.
+ */
+export type GameScriptLeg = {
+  market_ticker: string;
+  event_ticker: string;
+  side: "yes" | "no";
+  title: string;
+  side_label: string | null;
+  ask_tenths: number | null;
+  ask_display: string | null;
+  ask_unread_reason: string | null;
+};
+
+export type GameScriptCard = {
+  id: number;
+  game_event_ticker: string;
+  sport_key: string;
+  kickoff_ms: number;
+  built_ms: number;
+  status: "built" | "skipped" | "refused_budget" | "refused_invalid";
+  story: string | null;
+  drop_if: string | null;
+  reason: string | null;
+  combo_ticker: string | null;
+  /** Empty on anything but a built card. */
+  legs: GameScriptLeg[];
+  /** The sentence a game with no built card carries; `null` on a built one. */
+  no_card_line: string | null;
+  inactives_line: string;
+};
+
+/**
+ * `GET /api/game-cards`. **The cards arrive in kickoff order and this file
+ * never re-sorts them** (ADR 0071); skipped and refused games are in the list
+ * with their reason in `no_card_line`.
+ */
+export type GameScriptCards = { now_ms: number; cards: GameScriptCard[] };
+
+/** Read the stored cards: one game's, or every upcoming game's. */
+export async function fetchGameCards(
+  gameEventTicker?: string,
+): Promise<GameScriptCards> {
+  const query = gameEventTicker
+    ? `?game_event_ticker=${encodeURIComponent(gameEventTicker)}`
+    : "";
+  const response = await fetch(`${BASE}/api/game-cards${query}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`the card list returned ${response.status}`);
+  }
+  return response.json() as Promise<GameScriptCards>;
+}
+
+/** How long one card build may take before the screen stops waiting. It does
+ *  not stop the server: a build in flight still lands as a stored row. */
+export const BUILD_CARD_WAIT_MS = 150_000;
+
+/**
+ * Build one game's card now, through the `/game-card` route handler so the
+ * bearer token stays server-side. One metered model call; it can take about a
+ * minute. **Never throws and never retries**: a timeout says the card may
+ * still be building, because the build keeps going on the server.
+ */
+export async function buildGameCard(
+  eventTicker: string,
+): Promise<{ ok: true; reused: boolean } | { ok: false; refusal: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), BUILD_CARD_WAIT_MS);
+  let response: Response;
+  try {
+    response = await fetch("/game-card", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
+      body: JSON.stringify({ event_ticker: eventTicker }),
+    });
+  } catch (error) {
+    const timedOut = error instanceof DOMException && error.name === "AbortError";
+    return {
+      ok: false,
+      refusal: timedOut
+        ? "The card is taking longer than this screen will wait. It may " +
+          "still be building: reload the game in a minute before tapping again."
+        : "The request did not reach the cockpit. The card may still be " +
+          "building: reload the game before tapping again.",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+  const body: unknown = await response.json().catch(() => null);
+  if (response.ok) {
+    const reused =
+      !!body && typeof body === "object" && (body as { reused?: unknown }).reused === true;
+    return { ok: true, reused };
+  }
+  const detail =
+    body && typeof body === "object" && "detail" in body
+      ? String((body as { detail: unknown }).detail)
+      : `The card build answered HTTP ${response.status}.`;
+  return { ok: false, refusal: detail };
+}

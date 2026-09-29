@@ -52,6 +52,7 @@ What this does NOT establish
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from typing import Optional, Sequence
@@ -562,6 +563,39 @@ def _check_event_limits(legs: Sequence[dict], events_by_ticker: dict) -> None:
             )
 
 
+def attach_combo_to_card(
+    conn, *, game_event_ticker: str, legs: Sequence[tuple[str, str]], minted: str
+) -> Optional[int]:
+    """Stamp the minted combination onto the game's built card, when it IS it.
+
+    `legs` is the minted set as `(market_ticker, side)`. The newest built card
+    for the game is stamped only if its legs are exactly that set, so a
+    hand-ticked mix of other legs never claims a card. Returns the card id or
+    `None`. Kept so which cards Joe bet can be COUNTED later (ADR 0190); it is
+    a record, never a rank, and a failure here must not lose the mint."""
+    try:
+        row = conn.execute(
+            "SELECT id, legs_json FROM game_script_cards "
+            "WHERE game_event_ticker = ? AND status = 'built' "
+            "ORDER BY built_ms DESC, id DESC LIMIT 1",
+            (game_event_ticker,),
+        ).fetchone()
+        if row is None:
+            return None
+        card_legs = {(l["market_ticker"], l["side"]) for l in json.loads(row[1])}
+        if card_legs != set(legs):
+            return None
+        conn.execute(
+            "UPDATE game_script_cards SET combo_ticker = ? WHERE id = ?",
+            (minted, row[0]),
+        )
+        conn.commit()
+        return int(row[0])
+    except Exception:  # noqa: BLE001 -- a bookkeeping write never fails a mint
+        logger.warning("game builder: card write-back failed", exc_info=True)
+        return None
+
+
 async def mint_game_combo(
     conn,
     *,
@@ -695,6 +729,10 @@ async def mint_game_combo(
         minted=minted, no_bid_tenths=no_bid, ask_tenths=ask_tenths, depth=depth,
         fair_joint=None, hold=None, error=detail,
         collection_unverified=unverified, leg_details=leg_details,
+    )
+    attach_combo_to_card(
+        conn, game_event_ticker=game_event_ticker,
+        legs=[(m, side_of[(e, m)]) for e, m in pairs], minted=minted,
     )
     return {
         "status": "minted",
