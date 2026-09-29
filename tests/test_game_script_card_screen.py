@@ -349,6 +349,22 @@ class TestMintStampsTheCardsComboTicker:
         ) is None
         assert game_script_cards.card_by_id(conn, cid)["combo_ticker"] is None
 
+    def test_a_newer_skipped_row_does_not_hide_the_built_card(self, tmp_path):
+        conn = db.init_db(tmp_path / "stamp4.db")
+        game = "KXNFLGAME-26SEP13ATLPIT"
+        built = _built(conn, game, NOW + HOUR)
+        conn.execute(
+            "INSERT INTO game_script_cards (game_event_ticker, sport_key, "
+            "kickoff_ms, built_ms, status, reason) VALUES (?, 'nfl', ?, ?, "
+            "'refused_budget', 'later refusal')",
+            (game, NOW + HOUR, NOW + 1),
+        )
+        conn.commit()
+        assert game_builder.attach_combo_to_card(
+            conn, game_event_ticker=game,
+            legs=[(l["market_ticker"], l["side"]) for l in LEGS], minted="KXMVE-T",
+        ) == built
+
     def test_a_skipped_card_is_never_stamped(self, tmp_path):
         conn = db.init_db(tmp_path / "stamp3.db")
         game = "KXNFLGAME-26SEP13ATLPIT"
