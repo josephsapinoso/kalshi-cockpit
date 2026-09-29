@@ -1,0 +1,71 @@
+# A second client for #193's stall, on a network that is not Joe's.
+#
+# Every external stall reading in
+# `docs/measurements/2026-09-28-a-fixed-3-second-stall-sits-upstream-of-uvicorn.md`
+# came from one laptop. §F's audit (2026-09-29) noted that nothing separates
+# that laptop's network path from Fly's side, so "the 3 s is added by Fly"
+# is not yet earned. This runs the same committed probe
+# (`scripts/probe_public_latency.py`, #194) from a GitHub-hosted runner, in
+# the same window as a laptop or in-box reading:
+# - if it also stalls ~3.1 s on a ~15 s rhythm, the client's network is not
+#   the cause;
+# - if it stays clean while the laptop stalls, the client's network is.
+#
+# Read-only by construction: GETs to /api/health and a probe path, no cookie,
+# no secret, nothing written anywhere but the runner's temp dir. The CSV is
+# not uploaded (operator data never enters the repo or its artefacts); the
+# summary is printed to the log and the job summary.
+
+name: Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "How long to probe, in seconds (at most 900)"
+        required: true
+        default: "600"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the one dependency
+        run: python -m pip install --quiet "httpx~=0.28"
+
+      - name: Refuse an out-of-range duration
+        env:
+          SECONDS_IN: ${{ inputs.seconds }}
+        run: |
+          case "$SECONDS_IN" in
+            ''|*[!0-9]*) echo "seconds must be a whole number"; exit 1 ;;
+          esac
+          if [ "$SECONDS_IN" -lt 1 ] || [ "$SECONDS_IN" -gt 900 ]; then
+            echo "seconds must be between 1 and 900"; exit 1
+          fi
+
+      - name: Probe live and demo from this runner
+        env:
+          SECONDS_IN: ${{ inputs.seconds }}
+        run: |
+          python scripts/probe_public_latency.py \
+            --base-url https://kalshi-cockpit.fly.dev \
+            --base-url https://kalshi-cockpit-demo.fly.dev \
+            --seconds "$SECONDS_IN" --interval 1.0 \
+            --out "$RUNNER_TEMP/probe.csv" | tee "$RUNNER_TEMP/summary.txt"
+          {
+            echo '```'
+            echo "window of ${SECONDS_IN}s ended $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            cat "$RUNNER_TEMP/summary.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

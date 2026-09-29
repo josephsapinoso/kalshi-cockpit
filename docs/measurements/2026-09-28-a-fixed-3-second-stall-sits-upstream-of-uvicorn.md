@@ -9,6 +9,7 @@
 - `inspect_live_db.py read-incidents -n 40` (cheap).
 - `scripts/probe_loopback_latency.py`, run in-box (§C).
 - `flyctl logs --no-tail` over the §C window.
+- `scripts/probe_public_latency.py` (#194), the laptop probe committed, for §F.
 
 **Cost:** zero credits, zero tokens. Every request was a GET, and the probe rate was one a second.
 **Audited:** measurement-skeptic, 2026-09-29. The verdict on the first draft was OVERSTATED: its headline claimed "outside the machine", two counts were off by one, and it called the period "sharp". This version carries the corrections.
@@ -137,3 +138,30 @@ The trial is the one §D(2) named. `14af8f7` moved `[checks.health]` from 15s to
 - **INCONCLUSIVE:** anything else, including fewer than 12 gaps. Extend once by 30 minutes and pool the windows. If it is still inconclusive, revert and record it as such.
 - **Zero stalls in about 1,800 requests** (the null expects about 60): make no fix claim. Keep 30s and take a second window later in the day.
 - **Stop-loss:** this reading plus one follow-up step, then #193 closes with whatever hop the readings name.
+
+### The reading (2026-09-29 18:21:08–18:51:08Z): UNMOVED
+
+`scripts/probe_public_latency.py` (#194, merged `b725c5a`), keep-alive, no cookie, both arms in one window. The raw CSV is kept outside the repo (operator rule).
+
+| arm | check interval | n | stalls | stall ms | p50 / p95 ms | gaps | under 24 s | **F** | min gap |
+|---|---|---|---|---|---|---|---|---|---|
+| live, public | 30s (trial) | 1,543 | **41** (health 19, 404-probe path 22) | 3,094–3,127 | 86 / 109 | 40 | 15 | **0.375** | 14.9 s |
+| demo, public | 30s (always) | 1,489 | **57** (health 25, 404-probe path 32) | 3,100–3,196 | 93 / 136 | 56 | 26 | **0.464** | 13.9 s |
+
+- **The decision:** F = 0.375 ≥ 0.25 on arm 1, so the outcome is **UNMOVED**. With the check at 30 s, stalls still land about 15 s apart (15 of 40 gaps are 14.9–19.3 s), Per request, live stalled on 2.66% (41/1,543). That is inside the 15s-era range of 2.27–3.79% (§E 13/573, §A run 1 7/286, §A run 3 13/453, §C 21/554), so the rate did not move either. No rate is quotable from one evening. Per the rule in `14af8f7`, the check goes back to 15s.
+- **The control rules the check out as a trigger on its own terms.** Demo is a separate app and machine. Its `fly.demo.toml` has set a 30s check since `330fe04` (checked in the repo, not on the machine), and it runs no recorder (`docker/entrypoint.sh` starts `run_loop.py` only outside demo mode). It and it stalls on the same ~15 s rhythm (26 of 56 gaps under 24 s, minimum 13.9 s).
+- **What the two arms share.** The image, the region (`ord`), Fly's proxy layer (the edge the laptop reaches, and the proxy on the worker host), possibly the host, and the client: one laptop, its network and one probe process. They do not share a machine or the recorder. §C cleared every process on fresh loopback connections. So the candidates are:
+  - Fly's proxy layer or host networking;
+  - Next's handling of the pooled connections that proxy reuses;
+  - the client's network path.
+
+  No second client has been run. Demo also removes the recorder as a cause, independently of §C.
+- **The laptop's load did not contaminate the reading.** The #192 lane ran three full `-n auto` suites on the same laptop during this window. On both arms, no request fell between 500 and 2,900 ms, and there were no transport errors. Every slow request is in the fixed 3,094–3,196 ms cluster, and client-side load does not produce a fixed 3.1 s. This rules out load, not the client's network path, which no reading has yet separated from Fly's side.
+- **Audited:** measurement-skeptic, 2026-09-29. The verdict on the first draft was OVERSTATED: the rate comparison, the narrowing to two candidates, and naming Fly without a second client. The numbers and the decision stood, and this version carries the corrections. It also noted, unregistered and weak, that the two arms' stall timings drift apart over the window. That fits separate per-connection clocks better than one source common to both arms.
+- **Two deviations from the rule as written:**
+  - The probe sleeps 1 s *after* each request, so n is about 1,500 per arm, not 1,800.
+  - Without the cookie, live answers `/no-such-page-probe` with Next's `307` to the login page, not a 404. On demo, which runs without auth, the same path answered `404`. Both responses come from Next alone, which is what the target is for. §C and §E sent the cookie.
+
+**What happens next, under the stop-loss:**
+1. `fly.live.toml` goes back to `interval = "15s"`, deployed with #191.
+2. The one remaining step is a keep-alive mode for `scripts/probe_loopback_latency.py`: reuse one connection per target in-box for 10 minutes. If a reused socket into Next stalls in-box, the cause is Next's keep-alive handling, which the image controls. If it stays clean, the 3 s is added outside the machine. Naming Fly rather than the client's path needs one probe from a second client on another network in the same window. Without it, #193 closes as "outside the machine", not "Fly's side". The second client is `.github/workflows/probe.yml`: the same committed probe, run from a GitHub-hosted runner in the same window as the in-box keep-alive run and the laptop.
