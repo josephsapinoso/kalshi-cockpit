@@ -468,11 +468,12 @@ export default async function SlatePage({
   );
 }
 
-/** `/game/<game event ticker>` for a game-series market ticker, else `null`.
- *  `KXNFLGAME-26SEP13ATLPIT-ATL` -> `/game/KXNFLGAME-26SEP13ATLPIT`. */
-function sameGameHref(ticker: string): string | null {
+/** The game event ticker for a game-series market ticker, else `null`.
+ *  `KXNFLGAME-26SEP13ATLPIT-ATL` -> `KXNFLGAME-26SEP13ATLPIT`. The href is
+ *  built inline at the link so `test_every_screen_is_reachable` can see it. */
+function gameEventOf(ticker: string): string | null {
   const match = /^(KX[A-Z0-9]*GAME-[A-Z0-9]+)-[A-Z0-9]+$/.exec(ticker);
-  return match ? `/game/${encodeURIComponent(match[1])}` : null;
+  return match ? match[1] : null;
 }
 
 /**
@@ -688,10 +689,10 @@ function Row({
           to the xl grid. Only a GAME-series ticker names the game itself;
           a spread or prop row's suffix is the same fixture but its league
           prefix is not the game series', so it does not guess one. */}
-      {sameGameHref(row.ticker) && (
+      {gameEventOf(row.ticker) && (
         <span className="w-full xl:col-span-full">
           <Link
-            href={sameGameHref(row.ticker) as string}
+            href={`/game/${encodeURIComponent(gameEventOf(row.ticker) as string)}`}
             className="text-xs text-accent underline"
           >
             Build a same-game parlay &rarr;
