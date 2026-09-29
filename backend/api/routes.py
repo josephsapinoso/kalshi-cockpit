@@ -4719,7 +4719,7 @@ def _record_combo_position(
             conn,
             now_ms=now_ms,
             source="kalshi_combo",
-            label=lookup["card_key"] or ticker,
+            label=held_parlays.position_label(lookup["card_key"], ticker),
             stake_tenths=stake_tenths,
             return_tenths=return_tenths,
             legs=parsed.legs,

@@ -526,6 +526,18 @@ class TestAFillBecomesAWatchedPosition:
         # Both halves of `/hedge`'s join key, from the one `now_ms`.
         assert row["placed_ms"] == 2_000
 
+    async def test_a_game_page_combination_is_titled_in_words_not_its_key(
+        self, conn
+    ):
+        """#206: a quote taken on a combination minted by the same-game page
+        is titled for Joe on `/hedge`, not with the bare key `game`."""
+        conn.execute("UPDATE combo_rfqs SET card_key = 'game'")
+        await combo_rfq.accept_quote_for_joe(
+            conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
+            api=FakeApi(statuses=["executed"]), dry_run=False,
+        )
+        assert _positions(conn)[0]["label"] == "Same-game parlay"
+
     async def test_the_legs_travel_with_it(self, conn):
         """A combination watched without all its legs is watched as if the
         missing ones could not lose."""

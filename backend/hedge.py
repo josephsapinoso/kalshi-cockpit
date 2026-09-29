@@ -378,6 +378,23 @@ def affordable_contracts(
 # --------------------------------------------------------------------------
 
 
+#: A position's title on `/hedge`, by the lookup's `card_key`, where the key
+#: itself is not a word Joe would recognise. Every other key -- the recipe
+#: names, `checked` -- is shown as it is. `"game"` is `game_builder.CARD_KEY`
+#: (the same-game page, #202); a test pins the two together (#206).
+POSITION_TITLES: dict[str, str] = {"game": "Same-game parlay"}
+
+
+def position_label(card_key: Optional[str], fallback: str) -> str:
+    """The title a bought combination's position carries on `/hedge`.
+
+    `fallback` (the combination's ticker) when the lookup carries no key.
+    """
+    if not card_key:
+        return fallback
+    return POSITION_TITLES.get(card_key, card_key)
+
+
 def record_position(
     conn: sqlite3.Connection,
     *,

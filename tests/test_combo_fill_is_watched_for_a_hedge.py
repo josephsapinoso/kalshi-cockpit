@@ -447,6 +447,23 @@ class TestItRefusesToInventAPosition:
         assert row["parlay_lookup_id"] == newer
         assert row["label"] == "the-card-he-actually-tapped"
 
+    async def test_a_game_page_combination_is_titled_in_words_not_its_key(
+        self, tmp_path, fills_for_real
+    ):
+        """#206: the same-game page's `card_key` is `game`, which on `/hedge`
+        read as a bare word. It is titled for Joe instead."""
+        fills_for_real(fill_count=4.0)
+        path = _base_db(tmp_path)
+        _seed_lookup(path, card_key="game")
+        quotes = StubQuotes(
+            _payload(ticker=COMBO_TICKER, yes_ask_size=1000.0, exchange_index=1)
+        )
+        app = _app(path, quotes=quotes)
+
+        await _buy_combo(app)
+
+        assert _positions(path)[0]["label"] == "Same-game parlay"
+
 
 class TestAPartialLegListIsRefusedOutright:
     """`record_position` refuses zero legs. It cannot refuse *missing* ones,

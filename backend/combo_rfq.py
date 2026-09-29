@@ -1479,7 +1479,7 @@ def _record_accepted_position(
             conn,
             now_ms=now_ms,
             source="kalshi_combo",
-            label=(ask["card_key"] or ask["ticker"]),
+            label=held_parlays.position_label(ask["card_key"], str(ask["ticker"])),
             stake_tenths=stake_tenths,
             return_tenths=int(round(exact_return)),
             legs=parsed.legs,
