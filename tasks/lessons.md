@@ -46,6 +46,15 @@ From the sixty-eighth session (#191, #193, #194).
   before the window opened. **Before planning a measurement arm through a
   private or alternate path, read the server's bind address**, or send one
   request down that path, before you register the arm.
+- **A commit that pre-registered #193's last reading closed #193 before the
+  reading ran.** Its message said "The stop-loss closes #193 after this
+  window". GitHub parses "closes #N" (also "fixes" and "resolves") as a
+  closing keyword anywhere in a commit pushed to the default branch, even
+  mid-sentence. The ticket then sat closed for the whole measurement, and
+  `gh issue close --comment` afterwards reported "already closed" without
+  posting the comment. **In a commit message, never put "close", "fix" or
+  "resolve" directly before an issue number unless the push should close
+  it.** Write "#193 is closed after this window" instead.
 - **A latency window ran on the laptop while a lane ran three full
   `-n auto` suites on it.** The reading survived only by luck of the
   signal's shape: the stall is a fixed 3.1 s, and nothing fell between 500
