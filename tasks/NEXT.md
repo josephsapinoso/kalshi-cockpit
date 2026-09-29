@@ -134,6 +134,67 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-29 (seventieth session) — Joe names parlays: sports factors lead (#200, ADR 0189); rest on every leg (#201), a same-game game page (#202) and a matchup scout tile (#210) ship
+
+Joe named new work, per #196 (C): *"explore making more parlay options, and stronger ones"*, with a generic parlay guide pasted in. Mid-session he redirected: *"the kalshi edge shouldnt be a big determinant here … more about the sports-related factors above all else."* Story **#197** under epic #83 holds all of it. The decision is **ADR 0189**, with a pointer in CLAUDE.md's "What it is for".
+
+### 1. What was decided
+
+- **sharp-bettor mapped the guide against the record.**
+  - Same-game correlation only pays when the counterparty prices the legs as independent, and Kalshi's RFQ makers don't.
+  - Situational angles are folklore.
+  - Pitcher splits and strikeout Overs are refuted (ADR 0036/0037).
+  - Key numbers and line shopping are sound.
+  - "Stronger" can only mean paying less over fair value for the same opinion.
+- **Joe's answers (#200, option buttons):**
+  - All four factors: who's playing, game-script combos, schedule/rest, matchups.
+  - All four sport groups.
+  - Merge/deploy approvals were recorded on #197 per batch.
+- **#209, matchup stats: (A) scouts, on tap.** Build is #210.
+
+### 2. Leg census (#198, merged `0d129a7`/`4b458ff`)
+
+- `count_combo_leg_sides.py --by-kind` was run read-only on 94 combos since 2026-09-10.
+- The top unpriced kind is `KXNFLTD`, at 2 of 94 (2.1%). Same-game combos are 5 of 94 (5.3%). Both are under the 10% bar fixed beforehand, so **no pricing build and no "as-if-independent" question.**
+- Main corrected one gate: a NO-side spread is **not** priced. The pool offers only the favourite's cover. #170's docstring had said otherwise.
+
+### 3. Rest chip (#201, PR #203, live `28c5b27`)
+
+- Every `/parlays` card leg and parlay-check leg carries `rest`: days of rest, back-to-back and short week, per team.
+- Main's review moved the reader off `odds_snapshots`, which read every snapshot of every game on each request, onto `odds_fixtures` (PK seeks plus one small range). A failed read leaves `rest` null.
+- **Live:** 6 of 6 legs carried rest, and 0 of 12 team-sides were unknown.
+
+### 4. Game page (#202, PR #204; follow-ups #205 PR #207 and #206 PR #208; live `37f8fee`)
+
+- `/game/<Kalshi game event>` is linked from each slate game row. It lists every leg the open **catch-all** collections accept for one fixture (`KXMVENFLSINGLEGAME` has no open collection), in a fixed order that never depends on price.
+- Each leg shows its own desk chance or "no desk price" plus a reason, with the scout desk on tap.
+- `/game-mint` mints the ticked legs with a **NULL fair joint** (no correlation), and `<AskTheMarket>` asks the makers.
+- It is built beside `/api/parlays/lookup`, because that path runs `joint_for` after the mint and would 500 on a same-game set.
+- **#205:** `GET /markets` does not batch event tickers, so the page keeps at most 2 reads in flight on the shared combo client.
+- **#206:** a game-page position reads "Same-game parlay" on /hedge.
+- kalshi-platform passed it with notes; the notes became #205 and #206.
+- **Live check (Joe-approved), 2026-09-29 ~22:20Z:**
+  - `KXNFLGAME-26OCT04ARINYG` listed 137 legs across 12 series in 2.7 s.
+  - A mint of ARI to win plus Over 23 took 0.38 s.
+  - The RFQ at $1 drew **13 quotes, best 53c, makers 36.6c apart**. **Nothing was accepted.**
+- **0 of 137 legs had a desk chance.** The game is 4+ days out and 48h is the desk's widest window, so chances appear inside about two nights of kickoff. That is by design; tell Joe if he asks.
+
+### 5. Matchup tile (#210, PR #211, merged `7f35c46`)
+
+- The scout board gains a `matchup` tile after `rest_travel`. Each staff scout reports its own club's side of the matchup.
+- **A stat appears only as a sourced fact in prose.** The prompt forbids a probability, pick, edge or "should cover", and a test pins that sentence.
+- A new test pins the backend and frontend category lists to one list.
+- No scout has seen the prompt yet. **The first real matchup notes come from Joe's first tap; read one when it exists** to check that the prohibition held and see what the tile costs in tokens.
+- Deploy and the live check are recorded on #210.
+
+### Still open
+
+1. #210 — matchup tile is live; stays open until the first real matchup note (from Joe's tap) is read: did the prohibition hold, and what did it cost in tokens. #197 closes with it.
+2. #188 — parked. It waits for a loop-lag reading.
+3. #165 — open until a friend actually sends a link (Joe, 2026-09-28).
+4. #169 — parked behind #165.
+5. #151 — collecting. Nothing is owed until the interim look.
+
 ## 2026-09-29 (sixty-ninth session) — the queue is empty and Joe will name new work (#196, answer C); board.py says so instead of asking for an owner (#195)
 
 `/go` start. Checked: `main` was clean at `b184bd4`, CI green, no PRs, no lanes. Live is on `b139c4e`; everything after it was docs only, so no deploy was owed. Dependabot: 0 open alerts. `cryptography~=50.0` is pinned in `requirements.txt`, which the alert query cannot see. The frontier held only #169 and #188, both parked. Partner's call: the queue is empty because the work is done, so end the session short and do not invent work.
@@ -1125,6 +1186,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-29 (seventieth session) — Joe names parlays: sports factors lead (#200, ADR 0189); rest on every leg (#201), a same-game game page (#202) and a matchup scout tile (#210) ship
 - 2026-09-29 (sixty-ninth session) — the queue is empty and Joe will name new work (#196, answer C); board.py says so instead of asking for an owner (#195)
 - 2026-09-29 (sixty-eighth session) — `/hedge` 1,803 → 447 ms on one batched venue read (#191); CI tests 9m30s → 5m29s under xdist (#192); the 30 s health-check trial read UNMOVED and reverted, and #193 closes: the stall is outside the machine (§F, §G)
 - 2026-09-28 (sixty-seventh session) — "Would Rust help?" No: ADR 0188 (Accepted; the live box is 1.3% busy), four speed lanes live on `1078389` (#186 #187 #189 #190), and a fixed ~3 s server-side stall found (#193)

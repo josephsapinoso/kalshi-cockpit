@@ -16,6 +16,42 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-29 - A covering index makes each row cheap, not the range small; a cited line in a "does not establish" note is still a claim; an absence needs a grep of the writer
+
+From the seventieth session (#197–#208, ADR 0189).
+
+- **The rest chip's first reader went to the 10M-row table for facts a
+  per-game table already held.** Its `GROUP BY odds_event_id` over
+  `odds_snapshots` read every snapshot of every game to recover three names.
+  Its "covered" window walked 16 days of one sport's index entries, and both
+  ran on every `/api/parlays`. Plan tests passed on 2,400 seeded rows.
+  `odds_fixtures` (one trigger-maintained row per game) answered both with PK
+  seeks and a ~1,000-row range. **Before reading identity or schedule off
+  `odds_snapshots`, ask how many rows the range holds on live, and whether a
+  one-row-per-entity table carries the same fact.** A plan test on a small
+  seed proves the index is used, not that the range is small.
+- **#170's script said, under "what this does not establish", that NO-side
+  spread legs "are already priced (`parlays.py:1080`)".** They are not: the
+  pool offers only the favourite's cover (`parlays.py:986-991`). #198's lane
+  inherited the claim as a gate that called every NO spread priced. **A line
+  number cited in an exclusion is a claim like any other. Open the line
+  before building on the sentence.**
+- **The partner planned around "parlay checks are not persisted".**
+  `parlay_check.py` writes a `parlay_lookups` row with `card_key = 'checked'`
+  on every check. **Before designing around an absence, grep for the writer
+  (INSERT, `_record_*`), not only the reader.**
+- **A count of what Joe did is not a veto on what he asks for next.** The
+  census found same-game combos in 5 of 94 of his combos, under the
+  pre-fixed bar, yet his #200 answer asked for game-script building. Both
+  held: the same-game page was built on his word, and the census moved the
+  rest chip onto the cross-game legs he actually bets. **When a count and his
+  request point different ways, build what he asked for, and put the shared
+  facts where the count says his bets are.**
+- **A combo series named for a scope is not necessarily where that scope
+  trades.** `KXMVENFLSINGLEGAME` had no open collection; same-game NFL combos
+  are minted in the catch-all `-R` collections. **Read which collections are
+  open and list the fixture before choosing where to mint.**
+
 ## 2026-09-29 - Batching N reads into one widens the blast radius to N; one client cannot tell its own path from the far side; check a bind address before planning an arm on it
 
 From the sixty-eighth session (#191, #193, #194).

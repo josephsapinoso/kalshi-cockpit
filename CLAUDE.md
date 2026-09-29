@@ -338,6 +338,10 @@ Settled with Joe 2026-08-24, in his own answers. Read the ADR before planning.
   consensus-vs-Kalshi gap may be *shown* on a row and must never be *ranked
   by*: `beta = -0.141` means ranking by it puts the least trustworthy rows at
   the top.
+- **Sports factors lead a parlay build; the price is a fact on the row**
+  (Joe, #200, 2026-09-29; ADR 0189). Rest is shown on every leg, and
+  `/game/<event>` builds same-game combinations with **no combined chance**:
+  correlation is still refused, and the makers' RFQ quote prices it.
 - **Sharing means someone runs their own copy.** Kalshi's Developer Agreement
   §3.1 forbids sharing API-derived data with third parties, so a hosted
   instance friends can visit is non-compliant. Do not design for hypothetical
