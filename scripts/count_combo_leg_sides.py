@@ -60,13 +60,16 @@ What this does not establish
   merge with `--since 2026-09-10`, and the >=10% threshold there is Joe's
   call, not a conclusion this script draws.
 - **Anything about spread, total or team-total legs held on the NO side.**
-  Those are already priced (`backend/parlays.py:1080` handles spread NO
-  legs as the favorite's cover); only the moneyline gap is being sized here.
+  The default report sizes only the moneyline gap. (It said here until
+  #198 that NO-side spreads were already priced; they are not -- the pool
+  offers only the favourite's cover, `backend/parlays.py:986-991`.)
 - **What `--by-kind` establishes and does not (#198).** It classifies every
   leg by sport x kind x side and flags whether the desk has a pricing path
   for that kind. `desk_prices_kind` is derived from the maps the pool
   already reads, never a second list: moneyline is priced on the YES side
-  only (`backend/parlays.py:991`); spread and total by their series'
+  only (`backend/parlays.py:991`); spread on the YES side only (the
+  favourite's cover, `backend/parlays.py:986-991`) and total on either
+  side (Over YES / Under NO, `:1031-1034`), each by its series'
   market type (the subtitle parsers in `spreads.py`/`totals.py` need a
   subtitle, which `mve_selected_legs` does not carry, so the gate is the
   series-level type they are registered under); a prop when
@@ -247,7 +250,9 @@ def classify_leg_kind(leg: Mapping[str, Any]) -> KindLeg:
         # The pool emits team-YES rows only (`backend/parlays.py:991`).
         return KindLeg(sport, "moneyline", base.side, base.side == "yes")
     if base.market_type == MARKET_TYPE_SPREAD:
-        return KindLeg(sport, "spread", base.side, True)
+        # Only the favourite's cover (YES) is a candidate; the +S side is the
+        # market's NO and the pool skips it (`backend/parlays.py:986-991`).
+        return KindLeg(sport, "spread", base.side, base.side == "yes")
     if base.market_type == MARKET_TYPE_TOTAL:
         return KindLeg(sport, "total", base.side, True)
     return KindLeg(sport, f"other:{series}", base.side, False)

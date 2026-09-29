@@ -272,10 +272,18 @@ class TestByKind:
         assert got.kind == "moneyline" and got.side == "no"
         assert got.desk_prices_kind is False
 
-    def test_spread_is_a_spread_and_priced_on_a_real_no_leg(self):
+    def test_a_real_no_side_spread_leg_is_a_spread_the_desk_does_not_price(self):
+        # The pool offers only the favourite's cover (YES); the captured combo
+        # proves Kalshi sells the NO side as a leg anyway.
         got = classify_leg_kind(_captured_leg("KXWNBASPREAD", "no"))
         assert (got.sport, got.kind, got.side) == ("WNBA", "spread", "no")
-        assert got.desk_prices_kind is True
+        assert got.desk_prices_kind is False
+
+    def test_a_yes_side_spread_leg_is_priced(self):
+        leg = _captured_leg("KXWNBASPREAD")
+        leg["side"] = "yes"
+        got = classify_leg_kind(leg)
+        assert got.kind == "spread" and got.desk_prices_kind is True
 
     def test_total_is_a_total_and_priced(self):
         got = classify_leg_kind(_captured_leg("KXMLBTOTAL", "no"))
