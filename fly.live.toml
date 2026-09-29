@@ -1066,7 +1066,15 @@ primary_region = "ord"
   type = "http"
   port = 3000
   path = "/api/health"
-  interval = "15s"
+  # 30s from 15s, 2026-09-29: a TRIAL for #193, on Joe's pick (option
+  # buttons). Public requests stall a fixed ~3.1 s on a ~15.6 s rhythm, and
+  # nothing on the machine shows it: not uvicorn, not Next, not the guest's
+  # TCP counters
+  # (docs/measurements/2026-09-28-a-fixed-3-second-stall-sits-upstream-of-uvicorn.md).
+  # If the rhythm moves to ~30 s, this check is the trigger. If it stays at
+  # ~15 s, revert to 15s. Demo has always run at 30s. The keep-alive guard still
+  # clears: 30 + 5 + 10 slack = 45 s, under Node's 50 s.
+  interval = "30s"
   timeout = "5s"
   # **120s, raised from 40s on 2026-08-30 (ADR 0086), and the reason is a
   # one-off that will not stay one-off.** `docker/entrypoint.sh` runs
