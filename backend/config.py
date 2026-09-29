@@ -1170,6 +1170,33 @@ class LegVerdictConfig:
         )
 
 
+@dataclass(frozen=True)
+class GameScriptConfig:
+    """Automatic game-script parlay cards (Joe's (A) to #212, ADR 0190).
+
+    One card per game in his sports, built once as the game comes within
+    `lead_hours` of kickoff. It spends inside the shared `AGENT_MAX_*`
+    ceilings through the same `AgentBudget`, and as an unattended spender it
+    keeps to the `SCOUT_AUTO_TAP_TOKEN_SHARE` split, so Joe's own taps keep
+    the rest of the day.
+
+    - `enabled`: off by default, so a fresh copy of the repo spends nothing.
+      Live stays off until one real card's cost has been read (#213).
+    - `lead_hours`: 24, so Sunday's NFL is built Saturday after Friday's
+      final injury reports. There is no second refresh.
+    """
+
+    enabled: bool = False
+    lead_hours: int = 24
+
+    @classmethod
+    def load(cls) -> "GameScriptConfig":
+        return cls(
+            enabled=_bool("GAME_SCRIPT_AUTO_ENABLED", False),
+            lead_hours=_int("GAME_SCRIPT_LEAD_HOURS", 24),
+        )
+
+
 # --- build identity ---------------------------------------------------------
 #
 # Which build of this repo is answering. Served on `/api/health` so that

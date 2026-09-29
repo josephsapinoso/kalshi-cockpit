@@ -3036,3 +3036,38 @@ CREATE TABLE IF NOT EXISTS leg_verdicts (
 );
 CREATE INDEX IF NOT EXISTS idx_leg_verdicts_leg
     ON leg_verdicts(ticker, side, requested_ms DESC);
+
+-- v59 (Joe's (A) to #212, 2026-09-29; ADR 0190, amending 0189): one
+-- game-script card per game, built by the scout seat at T-24h -- a 2-3 leg
+-- same-game story on the sports factors, its drop-if conditions, or a skip
+-- with a reason. **No price, probability, confidence or edge column, by
+-- design**: the model never sees a price (ADR 0189) and a card claims no edge
+-- (ADR 0038). The server puts Kalshi's own single-leg asks beside the legs at
+-- read time. `combo_ticker` is NULL until Joe mints the card's legs; it is
+-- kept so which cards he bet can be COUNTED later, and nothing is registered
+-- on it.
+CREATE TABLE IF NOT EXISTS game_script_cards (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_event_ticker TEXT NOT NULL,
+    sport_key         TEXT NOT NULL,
+    -- Kickoff, ms. Cards are only ever served in this order (ADR 0071).
+    kickoff_ms        INTEGER NOT NULL,
+    built_ms          INTEGER NOT NULL,
+    status            TEXT NOT NULL
+        CHECK (status IN ('built', 'skipped', 'refused_budget', 'refused_invalid')),
+    story             TEXT,
+    -- The legs as the seat named them, JSON. NULL on a skip or a refusal.
+    legs_json         TEXT,
+    drop_if           TEXT,
+    -- Why it skipped, or which ceiling / validation refused it.
+    reason            TEXT,
+    combo_ticker      TEXT,
+    prompt_version    TEXT,
+    agent_call_id     INTEGER REFERENCES agent_calls(id),
+    CHECK (status != 'built' OR (story IS NOT NULL AND legs_json IS NOT NULL)),
+    CHECK (status = 'built' OR reason IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_game_script_cards_kickoff
+    ON game_script_cards(kickoff_ms);
+CREATE INDEX IF NOT EXISTS idx_game_script_cards_game
+    ON game_script_cards(game_event_ticker, built_ms);

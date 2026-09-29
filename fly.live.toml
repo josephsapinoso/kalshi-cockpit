@@ -476,8 +476,13 @@ primary_region = "ord"
   #
   # **24 -> 40 on 2026-09-25, Joe's (A) to #157**, moved with the token and
   # search ceilings below, all three together (the standing rule).
+  #
+  # **40 -> 100 on 2026-09-29, Joe's (A) to #212 -- calls ALONE, on his word,
+  # against the standing rule above** (ADR 0190). Automatic game-script cards
+  # are one call each, and an NFL Sunday is ~14 of them on top of his taps.
+  # Tokens bind first (1.5M, unmoved), then searches (100, unmoved).
   AGENT_MAX_CALLS_PER_PASS = "8"
-  AGENT_MAX_CALLS_PER_DAY = "40"
+  AGENT_MAX_CALLS_PER_DAY = "100"
 
   # **The desk runs on Sonnet, not Opus** (ADR 0071 section 2.7, Joe's call
   # 2026-08-24). Set explicitly rather than left to `agents/base.py`'s
@@ -571,6 +576,13 @@ primary_region = "ord"
   # convenings run, not what they cost. From this line on, the watcher
   # starts nothing once 250K is recorded. No ceiling moved.
   SCOUT_AUTO_TAP_TOKEN_SHARE = "0.5"
+
+  # **Automatic game-script cards -- #213, Joe's (A) to #212, ADR 0190.** One
+  # card per game at T-24h, one call and at most 3 searches each, inside the
+  # AGENT_MAX_* ceilings and the tap share above (~750K a day for cards). OFF
+  # until one real card's cost is read from `agent-spend`
+  # (agent='game_script'); #218 turns it on.
+  GAME_SCRIPT_AUTO_ENABLED = "false"
 
   # **The `odds_snapshots` closing-line prune (#58), Joe 2026-09-23: keep
   # each book's closing line, delete the rest, 14 days after kickoff, no

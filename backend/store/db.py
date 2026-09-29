@@ -254,7 +254,12 @@ logger = logging.getLogger(__name__)
 #: column. Joe, 2026-09-25: the leg scout was live but invisible, since
 #: nothing on a card said it existed until a buy step. Each card now has an
 #: "Ask the scouts" button, and its reads are recorded as their own trigger.
-SCHEMA_VERSION = 58
+#:
+#: v59 `game_script_cards` (Joe's (A) to #212, 2026-09-29; ADR 0190): one
+#: game-script parlay card per game, built at T-24h, or a skip with its
+#: reason. A new table and nothing else, so tableless. It has no price,
+#: probability or edge column, by design (ADR 0189, 0038).
+SCHEMA_VERSION = 59
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1302,12 +1307,12 @@ _LEG_VERDICTS_ADMIT_CARD_BUTTON_UNDO = (
 #: - v22 `loop_failures`, v23 `parlay_card_candidates`, v24 the hedge tables,
 #:   v27 `combo_eligible_events`, v29 `manual_order_refusals`,
 #:   v30 `combo_orders`, v42 `api_read_incidents`,
-#:   v45 `combo_rfqs` and `combo_rfq_quotes`.
+#:   v45 `combo_rfqs` and `combo_rfq_quotes`, v59 `game_script_cards`.
 #:
 #: v33 is NOT here although it adds a table (`venue_positions`): it also adds
 #: a column to `poll_log`, which makes it a step. A version is one or the
 #: other, never both.
-_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45, 57)
+_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45, 57, 59)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
