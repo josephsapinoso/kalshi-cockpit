@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 from typing import NamedTuple, Optional, Sequence
 
 from backend.core.correlation import Leg
@@ -3580,19 +3581,26 @@ def build_ladder_payload(
     selected = [
         leg.kalshi_market_ticker for card in ladder.cards for leg in card.legs
     ]
-    payload = serialise_ladder(
-        Ladder(cards=ladder.cards, excluded=merged),
-        generated_ms=now_ms,
-        facts=leg_facts(conn, selected, now_ms=now_ms),
-        trust_thresholds=trust_thresholds,
-        rest=rest_for_games(
+    # The rest chip is a side fact: a failed read must never take the card
+    # down, so any sqlite error logs and every leg carries `rest = null`.
+    try:
+        rest = rest_for_games(
             conn,
             {
                 (leg.odds_event_id, leg.commence_ms)
                 for card in ladder.cards
                 for leg in card.legs
             },
-        ),
+        )
+    except sqlite3.Error:
+        logger.exception("team rest read failed; legs carry rest = null")
+        rest = {}
+    payload = serialise_ladder(
+        Ladder(cards=ladder.cards, excluded=merged),
+        generated_ms=now_ms,
+        facts=leg_facts(conn, selected, now_ms=now_ms),
+        trust_thresholds=trust_thresholds,
+        rest=rest,
     )
     # Absent, not `null`, when no cut was applied: the unfiltered payload
     # is byte-identical to the pre-#15 one (`tests/test_list_filters.py`).

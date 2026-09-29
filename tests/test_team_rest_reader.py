@@ -1,8 +1,10 @@
-"""`backend/team_rest_reader.py` -- previous game per team, off `odds_snapshots` (#201).
+"""`backend/team_rest_reader.py` -- previous game per team, off `odds_fixtures` (#201).
 
-What these tests establish: the window query is served by the covering index
-`idx_odds_sport_commence` and never scans `odds_snapshots` (pattern:
-`tests/test_candidate_scan_plan.py`); on a synthetic multi-sport table each
+What these tests establish: the window query is served by
+`idx_odds_fixtures_commence` and the identity read by the primary key, and
+neither plan touches `odds_snapshots` (pattern:
+`tests/test_candidate_scan_plan.py`); the trigger fills `odds_fixtures` from
+snapshot inserts in the test DB; on a synthetic multi-sport table each
 team gets ITS previous game, other sports' rows never leak in, a team with no
 row in the 16-day window is unknown rather than rested, and a game's own
 earlier (rescheduled) start is not its previous game.
@@ -45,30 +47,50 @@ class TestPlan:
     def _seed_bulk(self, conn):
         for sport in ("basketball_nba", "baseball_mlb", "icehockey_nhl",
                       "americanfootball_nfl"):
-            for i in range(600):
-                _row(conn, sport, f"{sport}-{i}", T0 + (i % 60) * D // 4,
-                     f"H{i % 30}", f"A{i % 30}")
+            for i in range(300):
+                for _ in range(5):  # many snapshot rows per game, as live
+                    _row(conn, sport, f"{sport}-{i}", T0 + (i % 60) * D // 4,
+                         f"H{i % 30}", f"A{i % 30}")
         conn.commit()
         conn.execute("ANALYZE")
         conn.commit()
 
-    def _plan(self, conn, sql=reader.WINDOW_SQL):
-        rows = conn.execute(
-            "EXPLAIN QUERY PLAN " + sql, ("basketball_nba", T0, T0 + 10 * D)
-        ).fetchall()
+    def _plan(self, conn, sql, params):
+        rows = conn.execute("EXPLAIN QUERY PLAN " + sql, params).fetchall()
         return " | ".join(r[3] for r in rows)
 
-    def test_the_window_query_uses_the_covering_sport_commence_index(self, conn):
-        self._seed_bulk(conn)
-        plan = self._plan(conn)
-        assert "idx_odds_sport_commence" in plan, plan
-        assert "SCAN odds_snapshots" not in plan, plan
+    def _window_plan(self, conn):
+        return self._plan(
+            conn, reader.WINDOW_SQL, (T0, T0 + 10 * D, "basketball_nba")
+        )
 
-    def test_the_seek_names_the_sport_key_and_the_lower_bound(self, conn):
+    def test_the_window_is_served_by_the_fixtures_commence_index(self, conn):
         self._seed_bulk(conn)
-        plan = self._plan(conn).replace(" ", "")
-        assert "sport_key=?" in plan, plan
-        assert "commence_ms>?" in plan, plan
+        plan = self._window_plan(conn)
+        assert "idx_odds_fixtures_commence" in plan, plan
+        assert "odds_snapshots" not in plan, plan
+        assert "SCAN" not in plan, plan
+
+    def test_the_seek_carries_both_range_bounds(self, conn):
+        # The sport predicate is filtered off the index entry, not part of
+        # the seek (the index leads with commence_ms); it is pinned by the
+        # cross-sport behaviour tests below instead.
+        self._seed_bulk(conn)
+        plan = self._window_plan(conn).replace(" ", "")
+        assert "commence_ms>?" in plan and "commence_ms<?" in plan, plan
+
+    def test_identities_are_primary_key_seeks_that_never_touch_snapshots(self, conn):
+        self._seed_bulk(conn)
+        plan = self._plan(conn, reader.identity_sql(3), ("a", "b", "c"))
+        assert "odds_fixtures" in plan and "odds_snapshots" not in plan, plan
+        assert "PRIMARY KEY" in plan or "autoindex" in plan, plan
+        assert "SCAN" not in plan, plan
+
+    def test_the_test_db_carries_the_fixtures_trigger(self, conn):
+        _row(conn, "basketball_nba", "trig", T0, "X", "Y")
+        assert conn.execute(
+            "SELECT COUNT(*) FROM odds_fixtures WHERE odds_event_id = 'trig'"
+        ).fetchone()[0] == 1
 
 
 class TestPreviousGamePerTeam:

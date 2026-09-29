@@ -11,6 +11,8 @@ coverage test cover the screen).
 
 from __future__ import annotations
 
+import sqlite3
+
 from backend import parlay_check, parlays
 from backend.store import db as store
 from backend.store.db import now_ms
@@ -95,6 +97,41 @@ class TestCardLegs:
         assert all(
             leg["rest"] is None for c in without["cards"] for leg in c["legs"]
         )
+
+
+def _boom(*_a, **_k):
+    raise sqlite3.OperationalError("database is locked")
+
+
+class TestARestReadFailureNeverFailsTheCard:
+    def test_the_card_still_builds_with_rest_null(self, conn, monkeypatch):
+        _fresh_slate(conn)
+        conn.commit()
+        monkeypatch.setattr(parlays, "rest_for_games", _boom)
+        cards = _payload(conn)["cards"]
+        legs = [leg for c in cards for leg in c["legs"]]
+        assert legs and all(leg["rest"] is None for leg in legs)
+
+    async def test_the_check_still_answers_with_rest_null(self, conn, monkeypatch):
+        base = now_ms() - 30_000
+        t1, e1 = seed_check_game(conn, game="bx-a", team="Team BxA",
+                                 other="Team BxB", p=0.7, computed_ms=base)
+        t2, e2 = seed_check_game(conn, game="bx-b", team="Team BxC",
+                                 other="Team BxD", p=0.6, computed_ms=base)
+        conn.commit()
+        legs = [
+            {"event_ticker": e1, "market_ticker": t1, "side": "yes"},
+            {"event_ticker": e2, "market_ticker": t2, "side": "yes"},
+        ]
+        monkeypatch.setattr(parlay_check, "rest_for_games", _boom)
+        result = await parlay_check.check_parlay_text(
+            conn, text=_mk_ticker("B1"), now_ms=now_ms(),
+            api=FakeApi(market_payload=_market_payload(legs),
+                        book_payload=PRICED_BOOK),
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        assert result["status"] == "priced"
+        assert all(leg["rest"] is None for leg in result["legs"])
 
 
 class TestCheckLegs:
