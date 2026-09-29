@@ -430,6 +430,14 @@ export const GLOSSARY = {
       "read is advisory: it never disables a button, never stops a bet, " +
       "and you can buy right through a PASS if you still want to.",
   },
+  same_game_parlay: {
+    label: "same-game parlay",
+    definition:
+      "A parlay whose legs all come from one game: the winner, a margin " +
+      "and a player's yards, say. The legs move together (a blowout " +
+      "changes several at once), so their chances cannot just be " +
+      "multiplied. The makers' quote prices that link in.",
+  },
   betting_splits: {
     label: "splits & line movement",
     definition:

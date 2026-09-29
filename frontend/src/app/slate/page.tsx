@@ -468,6 +468,13 @@ export default async function SlatePage({
   );
 }
 
+/** `/game/<game event ticker>` for a game-series market ticker, else `null`.
+ *  `KXNFLGAME-26SEP13ATLPIT-ATL` -> `/game/KXNFLGAME-26SEP13ATLPIT`. */
+function sameGameHref(ticker: string): string | null {
+  const match = /^(KX[A-Z0-9]*GAME-[A-Z0-9]+)-[A-Z0-9]+$/.exec(ticker);
+  return match ? `/game/${encodeURIComponent(match[1])}` : null;
+}
+
 /**
  * One line per row, at phone width.
  *
@@ -675,6 +682,22 @@ function Row({
       <span className="w-full xl:col-span-full">
         <TrustNote trust={row.trust} size="panel" />
       </span>
+
+      {/* The same-game builder (#202), for a game's own row. Full width and
+          `xl:col-span-full` like the spans around it, so it adds no track
+          to the xl grid. Only a GAME-series ticker names the game itself;
+          a spread or prop row's suffix is the same fixture but its league
+          prefix is not the game series', so it does not guess one. */}
+      {sameGameHref(row.ticker) && (
+        <span className="w-full xl:col-span-full">
+          <Link
+            href={sameGameHref(row.ticker) as string}
+            className="text-xs text-accent underline"
+          >
+            Build a same-game parlay &rarr;
+          </Link>
+        </span>
+      )}
 
       {/* The hand-bet door (ADR 0063), last on the row so the facts are read
           before the control. The ticket no longer asks for a probability and

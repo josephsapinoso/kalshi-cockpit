@@ -1569,6 +1569,137 @@ export type CheckedParlayResult = {
 };
 
 /**
+ * One side of one leg on the same-game builder (#202): the desk's own
+ * consensus chance, or `null` with a worded reason. `null` is never 0 -- most
+ * props, first-half and quarter markets, team totals and touchdown scorers
+ * have no desk reading, and they are shown, not hidden.
+ */
+export type GameLegSide = {
+  chance: number | null;
+  chance_display: string | null;
+  unknown_reason: string | null;
+  unknown_reason_code: string | null;
+};
+
+export type GameLeg = {
+  market_ticker: string;
+  event_ticker: string;
+  series: string;
+  kind: string;
+  /** Kalshi's own title for the market, verbatim. */
+  title: string;
+  yes_label: string | null;
+  no_label: string | null;
+  strike: number | null;
+  player: string | null;
+  allowed_sides: ("yes" | "no")[];
+  /** How many legs Kalshi lets one combination take from this event; `null`
+   *  when it names no limit (props). */
+  size_max: number | null;
+  one_per_event: boolean;
+  sides: Partial<Record<"yes" | "no", GameLegSide>>;
+};
+
+export type GameLegGroup = {
+  series: string;
+  kind: string;
+  label: string;
+  one_per_event: boolean;
+  legs: GameLeg[];
+};
+
+/**
+ * `GET /api/game/{event}/legs`. **The groups arrive in a fixed order that is
+ * never a function of any chance or price (ADR 0071), and no combined chance
+ * exists anywhere in this shape** -- the desk has no model of how same-game
+ * legs move together.
+ */
+export type GameLegs = {
+  game_event_ticker: string;
+  fixture: string;
+  collection_ticker: string;
+  /** A market on the game itself, so the page can mount the scout desk. */
+  game_market_ticker: string | null;
+  groups: GameLegGroup[];
+  leg_count: number;
+  unreadable_events: { event_ticker: string; words: string }[];
+  skipped_events: number;
+  now_ms: number;
+};
+
+/** Read one game's legs. Throws with the backend's own words on a refusal. */
+export async function fetchGameLegs(eventTicker: string): Promise<GameLegs> {
+  const response = await fetch(
+    `${BASE}/api/game/${encodeURIComponent(eventTicker)}/legs`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    const detail =
+      payload && typeof payload.detail === "string"
+        ? payload.detail
+        : `the game builder returned ${response.status}`;
+    throw new Error(detail);
+  }
+  return response.json() as Promise<GameLegs>;
+}
+
+export type GameMintResult = {
+  status: "minted" | "no_collection";
+  minted_market_ticker?: string;
+  words: string;
+};
+
+/**
+ * Mint the ticked legs as one combination, through the `/game-mint` route
+ * handler so the bearer token stays server-side. Creates a real market on
+ * Kalshi (no money moves). **Never throws**, and a dropped connection is
+ * NOT the same as nothing happening: the POST may have reached Kalshi.
+ */
+export async function mintGameCombo(
+  eventTicker: string,
+  legs: { market_ticker: string; event_ticker: string; side: "yes" | "no" }[],
+): Promise<
+  { ok: true; value: GameMintResult } | { ok: false; refusal: string }
+> {
+  let response: Response;
+  try {
+    response = await fetch("/game-mint", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ event_ticker: eventTicker, legs }),
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      refusal:
+        `The request did not reach the cockpit (${
+          error instanceof Error ? error.message : "network error"
+        }). No money moves either way, but the combination may already have ` +
+        "been created on Kalshi — check the app before tapping again.",
+    };
+  }
+  const body: unknown = await response.json().catch(() => null);
+  if (response.ok) {
+    if (body && typeof body === "object" && "status" in body) {
+      return { ok: true, value: body as GameMintResult };
+    }
+    return {
+      ok: false,
+      refusal:
+        "Kalshi's answer came back in a shape this screen cannot read. " +
+        "The combination may exist; check the Kalshi app.",
+    };
+  }
+  const detail =
+    body && typeof body === "object" && "detail" in body
+      ? String((body as { detail: unknown }).detail)
+      : `HTTP ${response.status}`;
+  return { ok: false, refusal: detail };
+}
+
+/**
  * Check a parlay someone else built (issue #165/#167): Joe pastes a
  * kalshi.com link or a KXMVE ticker and this reads back each leg's desk
  * chance, the joint chance, the fair price and the book's ask.

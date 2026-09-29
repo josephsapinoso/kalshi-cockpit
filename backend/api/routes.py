@@ -143,6 +143,7 @@ from .schemas import (
 from .serialise import _decode_books_used, _is_prop_market, _serialise
 from .routers import (
     estimates as estimates_router,
+    game as game_router,
     hedge as hedge_router,
     ledger as ledger_router,
     leg_verdicts as leg_verdicts_router,
@@ -2090,6 +2091,18 @@ def create_app(
         app_config=app_config,
         staleness=staleness,
         thresholds=thresholds,
+        combo_api=combo_api,
+        get_conn=get_conn,
+        require_auth=require_auth,
+    )
+
+    # `/api/game/*`: the same-game parlay builder (#202). Beside the parlay
+    # desk and not inside it -- `/api/parlays/lookup` cannot carry a
+    # same-game combination (`backend/game_builder.py` says why).
+    game_router.register(
+        app,
+        app_config=app_config,
+        staleness=staleness,
         combo_api=combo_api,
         get_conn=get_conn,
         require_auth=require_auth,
