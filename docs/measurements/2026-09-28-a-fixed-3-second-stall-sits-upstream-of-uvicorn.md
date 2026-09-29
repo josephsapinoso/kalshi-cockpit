@@ -187,3 +187,35 @@ The trial is the one §D(2) named. `14af8f7` moved `[checks.health]` from 15s to
   - **Client side:** 0 stalls in 400 or more runner requests on each arm, while the laptop shows at least 5. The laptop's path is implicated.
   - **Unnamed:** anything else, or the runner not running. #193 closes as "outside the machine", with no side named.
 - If the ssh run or the workflow dispatch is refused, the reading goes ahead with what ran. The missing arm's clause is recorded as not taken.
+
+### The reading (2026-09-29, live `b139c4e`, booted 19:07:21Z, check at 15s): NOT SEEN IN-BOX (reuse every 1 s or less), SERVER SIDE
+
+The labels are the rule's clauses. Here "not ours" means only that no in-box stall was seen at reuse every 1 s or less.
+
+The window opened at 19:16:54Z with the runner dispatch. The in-box and laptop probes started seconds later and ran 660 s each, a little longer than the rule's 10 minutes so they would cover the runner's 600 s after its startup. The runner's probe step (19:17:04.34–19:27:05.24Z, from its step log) fell inside both. The laptop ran 19:17:00.743–19:28:00.623Z (first and last CSV rows). The in-box start, ~19:17:00Z, is inferred from the ssh output's file timestamps, because that output carries none of its own.
+
+**Deviations:** the window opened about 9 min 33 s after boot (19:07:21Z boot, 19:16:54Z dispatch), not the 10 minutes or more the rule set. Both local probes ran 660 s, not 600 s.
+
+| arm | n | answers ≥ 2,900 ms | stall ms | other |
+|---|---|---|---|---|
+| **in-box, keep-alive** (`--keepalive --seconds 660`) | 650 per target, 1,950 in all | **0** | none | 0 errors. p50 3–5 ms, max 8 / 25 / 79 ms (uvicorn / next-proxy / next-only). **2 connections opened** for 1,950 requests, one per port. |
+| **laptop**, live | 566 | **15** | 3,095–3,129 | F = 0.500 (7 of 14 gaps under 24 s), minimum gap 14.9 s |
+| **GitHub runner**, live (run 36618116075) | 517 | **15** | 3,089–3,106 | F = 0.429, minimum gap 15.9 s |
+| GitHub runner, demo | 495 | 15 | range 3,100–20,834: the runner's summary prints only the extremes, and its CSV is not uploaded | F = 0.214. The 20.8 s maximum is demo only, and no clause reads it. |
+
+- **In-box: the "not ours" clause.** No answer took 2,900 ms or more on any target, while the laptop arm showed 15 stalls. Two connections, one into Next and one into uvicorn, were reused every 0.3–1 s and never stalled. The 3 s is spent outside the machine. That locates the delay, not what triggers it. §E had already cleared the guest kernel, and §C every process over fresh connections.
+- **Runner: server side.** The runner's live arm showed 15 stalls of 3,089–3,106 ms, on a separate client on a separate network (a GitHub-hosted runner), with the same fixed length and the same ~15 s rhythm. So the laptop's network path is not the cause.
+- **What that names:** Fly's side of the connection, meaning its proxy layer (edge or worker-host proxy) or the host's networking between that proxy and the guest. This set of readings cannot say which.
+- **What it does not establish:**
+  - **That nothing in the image triggers it.** A pooled connection that sits idle and is then closed by Next was never exercised. The keep-alive mode reuses every 1 s or less. This hop has failed that way before, fixed in the image on 2026-08-19 (`docker/entrypoint.sh`, `KEEP_ALIVE_TIMEOUT=50000`), and Fly's pool idle times are unmeasured.
+  - **Whether stalls line up with new proxy→guest connections.** Stall times were never compared with the times :3000 accepted a new connection. That comparison is what would separate a cause entirely inside Fly from a close triggered by Next.
+  - **Which Fly edge each client reached.** Not recorded; the region suffix on `Fly-Request-Id` would name it.
+  - **Whether the laptop and the runner stalled on the same events.** The runner's CSV was not uploaded, and §F already saw the stall timings drift apart, as a per-connection clock would.
+  - A mechanism. A dropped SYN or request segment on the proxy's side, resent after a 3 s timer, fits the fixed length, and the guest would never count it (§E). It is a hypothesis, not a reading.
+
+**Under the stop-loss, #193 closes: the 3 s is spent outside the machine, on Fly's side of the connection.**
+- Nothing inside the box stalled: not over a fresh connection (§C), not in the guest kernel (§E), and not over a connection reused every 1 s or less (§G).
+- A second client on another network stalled the same way, so the laptop's path is not the cause.
+- This does not establish that nothing in the image triggers it. A pooled connection closed by Next after sitting idle, the 2026-08-19 failure on this hop, was not exercised.
+
+**If it is ever reopened, start here:** log each new connection :3000 accepts, then compare those times with the stall times from `scripts/probe_public_latency.py` in the same window.

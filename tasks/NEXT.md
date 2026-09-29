@@ -134,6 +134,64 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-29 (sixty-eighth session) — `/hedge` 1,803 → 447 ms on one batched venue read (#191); CI tests 9m30s → 5m29s under xdist (#192); the 30 s health-check trial read UNMOVED and reverted, and #193 closes: the stall is outside the machine (§F, §G)
+
+`/go` start. Partner ranked three items as the only open ones that could earn anything (#193's owed reading, #192, #191) and capped latency work at this session. Joe approved the whole merge-and-deploy batch up front with option buttons. Live is on `b139c4e`.
+
+### 1. #191 — `/hedge` reads every leg in one request (live `b139c4e`, closed)
+
+- **Before (live `14af8f7`, warm):** a 1,803 ms median over 10 requests. There were 3 open positions and **N = 12** pending-leg tickers, read one `GET /markets/{ticker}` at a time on the 8/s limiter the hand-bet quote refresh shares. The 41 open positions of 09-21 are gone.
+- **The fix:** `LiveQuoteSource.fetch_many` makes one `GET /markets?tickers=` per 100 tickers, and the route, the watcher and `drive_hedge.py` pass it as `fetch_quotes`.
+- **Parsed from a capture taken first** (`tests/fixtures/markets_batch_by_ticker.json`, `scripts/capture_markets_batch_fixture.py`, public and unkeyed): a settled market comes back `finalized`, and an unknown ticker is silently omitted, so it stays absent and is never an empty book.
+- **kalshi-platform's two reviews:**
+  - **Before building:** the venue review rejected a gather (the limiter spaces calls 125 ms apart anyway, and a gather queues a Buy tap behind the burst), and pointed at the batch endpoint.
+  - **Before merge:** MERGE WITH FIXES. A hand-typed malformed ticker could 400 the whole batch, so only a well-formed ticker is batched and the rest are read singly (`f8b0fa7`).
+- **After:** a **447 ms median**, inside the 300–450 ms prediction written first. All 12 legs were priced, so the keyed batch works on live. #188's trigger did not fire, and it stays parked.
+- **Not done:** `GET /account/endpoint_costs` (token cost of a batch), and the combo-book loop on the same route.
+
+### 2. #192 — xdist in CI (lane, merged `f755ff1`, closed)
+
+- Node drivers get unique names from `tests/_node_driver.py`, and `tests/test_no_fixed_name_driver_files.py` guards it.
+- The `test_hud_motion` failure had a separate cause: a transient `.ts` in `frontend/src/lib` raced `test_leg_verdicts_ui.py`'s import-time glob. The exposure test now works in a temp dir.
+- **CI's first `-n auto` run:** 9,021 passed, 20 skipped, 10 xfailed, **5m29s** (serial: 9m30s). The collected counts agree with the serial run plus the 4 new guard tests.
+
+### 3. #193 — the 30 s trial: UNMOVED; the check is back at 15s
+
+- **#194 (lane, merged `b725c5a`):** `scripts/probe_public_latency.py` is the committed laptop probe, with built-in gap analysis. It fixes the scratch probe's "every non-200 is SLOW" bug.
+- **§F** (the rule was pushed in `4eee37e` before the reading):
+  - **Live, 30 s check:** 41 stalls in 1,543 requests (3,094–3,127 ms), **F = 0.375** (15 of 40 gaps under 24 s), minimum gap 14.9 s. That is **UNMOVED**.
+  - **Demo, always 30 s, no recorder:** the same ~15 s rhythm.
+  - `6da370d` reverts the check to 15s, per the trial's own rule. It is on live.
+- **measurement-skeptic: OVERSTATED on the first draft.** It flagged three things, all corrected:
+  - a rate compared against a rate at a different request cadence;
+  - a two-candidate narrowing that dropped host networking and the client's own path;
+  - naming Fly with no second client.
+- **The 6PN arm could not run.** Next binds IPv4 `0.0.0.0` and `fly proxy` arrives over IPv6.
+- **§G, the last step under the stop-loss** (rule pushed in `711e5b0`): three probes in one window:
+  - an in-box keep-alive probe (`probe_loopback_latency.py --keepalive`, `e02f5c6`), which decides ours vs not ours;
+  - the laptop probe;
+  - a GitHub-runner probe (`.github/workflows/probe.yml`, new), which decides server side vs the laptop's path.
+- **§G result (19:17–19:28Z, live `b139c4e`), and #193 is CLOSED under the stop-loss:**
+  - **In-box keep-alive:** 0 of 1,950 requests took 2,900 ms or more, over 2 reused connections.
+  - **Laptop:** 15 stalls in 566 requests.
+  - **GitHub runner, live:** 15 stalls in 517 requests, 3,089–3,106 ms.
+  - **So:** the 3 s is spent **outside the machine, on Fly's side of the connection**, and the laptop's network is not the cause.
+- **measurement-skeptic: OVERSTATED again, on one clause.** "Not ours to fix in the app" went too far. A pooled connection that Next closes after sitting idle, the 2026-08-19 failure on this hop, was never exercised. The doc now says so.
+- **If it is ever reopened, start here:** log each new connection :3000 accepts, then compare those times with the stall times. No ticket carries this, deliberately: the stop-loss spent it.
+
+### 4. Housekeeping
+
+- Removed 3 stale worktrees, 7 merged branches and 4 unregistered lane shells (their `node_modules` junctions unlinked first). Main's `node_modules` is intact (37 entries).
+- #151 is assigned so it leaves the frontier. It is collecting toward the registered interim look (1,800 legs or 2027-01-15), and nothing is owed until then.
+- Lessons: batching widens the blast radius; one client cannot name the far side; check a bind address before planning an arm; keep a measurement window clear of lane test runs.
+
+### Still open
+
+1. #188 — parked. #191's median matched its prediction, so the loop-lag trigger did not fire.
+2. #165 — open until a friend actually sends a link (Joe, 2026-09-28).
+3. #169 — parked behind #165.
+4. #151 — collecting. Nothing is owed until the interim look.
+
 ## 2026-09-28 (sixty-seventh session) — "Would Rust help?" No: ADR 0188 (Accepted; the live box is 1.3% busy), four speed lanes live on `1078389` (#186 #187 #189 #190), and a fixed ~3 s server-side stall found (#193)
 
 Joe asked for an exploratory analysis of whether any part of the stack should move to Rust. The repo asked the same thing on 2026-08-08 (item 4) and never wrote the answer down.
@@ -1044,6 +1102,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-29 (sixty-eighth session) — `/hedge` 1,803 → 447 ms on one batched venue read (#191); CI tests 9m30s → 5m29s under xdist (#192); the 30 s health-check trial read UNMOVED and reverted, and #193 closes: the stall is outside the machine (§F, §G)
 - 2026-09-28 (sixty-seventh session) — "Would Rust help?" No: ADR 0188 (Accepted; the live box is 1.3% busy), four speed lanes live on `1078389` (#186 #187 #189 #190), and a fixed ~3 s server-side stall found (#193)
 - 2026-09-27/28 (sixty-sixth session) — the HUD reaches Games, Picks, Your bets and /hedge (#174–#177, live `27a7154`); Joe keeps leg verdicts as they are (#183 A) and keeps #165 open; the motion slice ships too (PR #184, live `07ec1ce`) and #171 closes
 - 2026-09-26 (sixty-fifth session) — the HUD is seen on live with real cards; the nav gets two spend gauges (#172), and Joe says carry the look to the other screens as it is (#173 A)

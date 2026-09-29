@@ -16,6 +16,46 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-29 - Batching N reads into one widens the blast radius to N; one client cannot tell its own path from the far side; check a bind address before planning an arm on it
+
+From the sixty-eighth session (#191, #193, #194).
+
+- **Merging twelve per-leg reads into one `GET /markets?tickers=` made one bad
+  input able to blank all twelve.** In the old loop a malformed hand-typed
+  leg ticker failed alone. In a comma-joined list it could 400 the whole
+  request, blanking every leg on `/hedge` and silencing the watcher for as
+  long as that position stayed open. The capture had only proved that a
+  *well-formed* unknown ticker is dropped quietly. kalshi-platform caught it
+  before merge. **When a loop of independent calls becomes one batched
+  call, re-ask what one bad element does**, and filter at the batch
+  boundary. Inputs that don't fit go down the old single path, so they
+  still fail alone.
+- **Every external reading of #193's stall came from one laptop, and the
+  first §F draft still concluded the 3 s was added "on Fly's side".**
+  measurement-skeptic: nothing had separated the client's own network path
+  from the server's. A bisect that walks inward from one client clears the
+  hops it can see; it cannot name the far side without a second vantage
+  point. **Before attributing a delay to the other end, run a second client
+  on a different network in the same window** (`.github/workflows/probe.yml`
+  now does this). The same draft also compared a rate against a rate at a
+  different request cadence. Compare per request.
+- **The 6PN arm of the §F reading was written into the plan and then could
+  not connect.** Next binds `HOSTNAME=0.0.0.0` (IPv4 only,
+  `docker/entrypoint.sh`), and `fly proxy` reaches the machine over IPv6, so
+  every request was reset. It cost nothing only because it was checked
+  before the window opened. **Before planning a measurement arm through a
+  private or alternate path, read the server's bind address**, or send one
+  request down that path, before you register the arm.
+- **A latency window ran on the laptop while a lane ran three full
+  `-n auto` suites on it.** The reading survived only by luck of the
+  signal's shape: the stall is a fixed 3.1 s, and nothing fell between 500
+  and 2,900 ms. Load cannot fake that, but no check for it had been
+  registered, and a smeared tail would have been unreadable. **Keep a
+  measurement window clear of lane test runs on the same machine**, or name
+  the contamination check in the rule before the window opens. Also kept,
+  because it worked: committing and pushing the decision rule (`4eee37e`)
+  before the reading.
+
 ## 2026-09-28 - A speed comparison must charge both arms for the same work; a new opener must carry the old one's guards; Git Bash rewrites a leading "/"
 
 From the sixty-seventh session (ADR 0188, #185–#190).
