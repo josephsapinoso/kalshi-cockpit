@@ -332,6 +332,14 @@ class TestTheModelNeverSeesAPriceOrAChance:
         assert GAME + "-ATL" in prompt and "Over 40.5 points" in prompt
         assert "ONE LEG ONLY" in prompt
 
+    def test_listing_for_prompt_keeps_exactly_the_whitelisted_fields(self):
+        groups = game_script.listing_for_prompt(_listing())
+        legs = [leg for _label, group in groups for leg in group]
+        assert len(legs) == 5
+        for leg in legs:
+            assert set(leg) == set(game_script.PROMPT_LEG_FIELDS)
+            assert not any(s in json.dumps(leg) for s in PRICE_SENTINELS)
+
     def test_the_prompt_leg_fields_are_a_whitelist_without_price_names(self):
         for field in game_script.PROMPT_LEG_FIELDS:
             assert not set(field.split("_")) & {
