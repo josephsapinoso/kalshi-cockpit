@@ -20,6 +20,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests._node_driver import node_driver
 
 REPO = Path(__file__).resolve().parents[1]
 CHIP_TS = REPO / "frontend" / "src" / "lib" / "windowChip.ts"
@@ -45,9 +46,7 @@ NOW = 1_766_000_000_000
 
 
 def chip_of(facts: dict) -> dict:
-    driver = CHIP_TS.parent / "_chip_driver.mjs"
-    driver.write_text(_DRIVER, encoding="utf-8")
-    try:
+    with node_driver(CHIP_TS.parent, _DRIVER) as driver:
         out = subprocess.run(
             [NODE, "--experimental-strip-types", str(driver), json.dumps(facts)],
             capture_output=True,
@@ -58,8 +57,6 @@ def chip_of(facts: dict) -> dict:
             timeout=60,
             cwd=str(CHIP_TS.parent),
         )
-    finally:
-        driver.unlink(missing_ok=True)
     assert out.returncode == 0, f"node failed:\n{out.stdout}\n{out.stderr}"
     return json.loads(out.stdout.strip())
 

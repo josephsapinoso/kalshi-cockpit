@@ -207,8 +207,8 @@ def _build(tmp_path: Path, source: str | None) -> Path:
     )
     # Written once beside the build rather than per render: both are pure
     # functions of the install, and `_module_map` shells out to node.
-    (out / "_render.mjs").write_text(_DRIVER, encoding="utf-8")
-    (out / "_hook.mjs").write_text(
+    (out / "render.mjs").write_text(_DRIVER, encoding="utf-8")
+    (out / "hook.mjs").write_text(
         _HOOK.format(map=json.dumps(_module_map())), encoding="utf-8"
     )
     return out
@@ -216,8 +216,8 @@ def _build(tmp_path: Path, source: str | None) -> Path:
 
 def render(block: dict | None, out: Path) -> str:
     """Render the compiled component with `block`; return its text content."""
-    driver = out / "_render.mjs"
-    hook = out / "_hook.mjs"
+    driver = out / "render.mjs"
+    hook = out / "hook.mjs"
     result = subprocess.run(
         [
             NODE,

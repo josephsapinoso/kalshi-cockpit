@@ -36,6 +36,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests._node_driver import node_driver
 
 REPO = Path(__file__).resolve().parents[1]
 LIB_TS = REPO / "frontend" / "src" / "lib" / "nextOddsWindow.ts"
@@ -68,9 +69,7 @@ console.log(JSON.stringify(result === undefined ? null : result));
 
 
 def _run(payload: dict):
-    driver = LIB_TS.parent / "_stale_exit_driver.mjs"
-    driver.write_text(_DRIVER, encoding="utf-8")
-    try:
+    with node_driver(LIB_TS.parent, _DRIVER) as driver:
         out = subprocess.run(
             [NODE, "--experimental-strip-types", str(driver), json.dumps(payload)],
             capture_output=True,
@@ -79,8 +78,6 @@ def _run(payload: dict):
             timeout=60,
             cwd=str(LIB_TS.parent),
         )
-    finally:
-        driver.unlink(missing_ok=True)
     assert out.returncode == 0, f"node failed:\n{out.stdout}\n{out.stderr}"
     return json.loads(out.stdout.strip())
 

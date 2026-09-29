@@ -38,6 +38,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from tests._node_driver import node_driver
 
 from backend import hedge
 from backend.api.routes import create_app
@@ -677,21 +678,17 @@ class TestTheFrontendGlossRendersHonestly:
         reason="node is not on PATH; skipped rather than xfailed.",
     )
     def test_venue_exposure_renders_its_own_line_never_null(self):
-        driver = self.GLOSS_TS.parent / "_laneC_adopt_basis_driver.mjs"
-        driver.write_text(
+        source = (
             'import { stakeBasisNote } from "./stakeBasisGloss.ts";\n'
             'console.log(JSON.stringify({'
-            ' note: stakeBasisNote("venue_exposure", "adopted_from_positions") }));\n',
-            encoding="utf-8",
+            ' note: stakeBasisNote("venue_exposure", "adopted_from_positions") }));\n'
         )
-        try:
+        with node_driver(self.GLOSS_TS.parent, source) as driver:
             out = subprocess.run(
                 [self.NODE, "--experimental-strip-types", str(driver)],
                 capture_output=True, text=True, encoding="utf-8", timeout=60,
                 cwd=str(self.GLOSS_TS.parent),
             )
-        finally:
-            driver.unlink(missing_ok=True)
         assert out.returncode == 0, f"node failed:\n{out.stdout}\n{out.stderr}"
         note = json.loads(out.stdout.strip())["note"]
         assert note is not None

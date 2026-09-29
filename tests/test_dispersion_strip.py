@@ -27,6 +27,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests._node_driver import node_driver
 
 REPO = Path(__file__).resolve().parents[1]
 DISPERSION_TS = REPO / "frontend" / "src" / "lib" / "dispersion.ts"
@@ -42,9 +43,7 @@ console.log(JSON.stringify(dispersion(JSON.parse(process.argv[2]))));
 
 
 def lay_out(payload: dict):
-    driver = DISPERSION_TS.parent / "_dispersion_driver.mjs"
-    driver.write_text(_DRIVER, encoding="utf-8")
-    try:
+    with node_driver(DISPERSION_TS.parent, _DRIVER) as driver:
         out = subprocess.run(
             [NODE, "--experimental-strip-types", str(driver), json.dumps(payload)],
             capture_output=True,
@@ -55,8 +54,6 @@ def lay_out(payload: dict):
             timeout=60,
             cwd=str(DISPERSION_TS.parent),
         )
-    finally:
-        driver.unlink(missing_ok=True)
     assert out.returncode == 0, f"node failed:\n{out.stdout}\n{out.stderr}"
     return json.loads(out.stdout.strip())
 

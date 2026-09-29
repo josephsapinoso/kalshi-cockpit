@@ -46,6 +46,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests._node_driver import node_driver
 
 REPO = Path(__file__).resolve().parents[1]
 SUPPRESSION = REPO / "backend" / "core" / "suppression.py"
@@ -455,9 +456,7 @@ console.log(JSON.stringify({
 
 
 def gloss_of(reason):
-    driver = GLOSS_TS.parent / "_gloss_driver.mjs"
-    driver.write_text(_DRIVER, encoding="utf-8")
-    try:
+    with node_driver(GLOSS_TS.parent, _DRIVER) as driver:
         out = subprocess.run(
             [NODE, "--experimental-strip-types", str(driver), json.dumps(reason)],
             capture_output=True,
@@ -468,8 +467,6 @@ def gloss_of(reason):
             timeout=60,
             cwd=str(GLOSS_TS.parent),
         )
-    finally:
-        driver.unlink(missing_ok=True)
     assert out.returncode == 0, f"node failed:\n{out.stdout}\n{out.stderr}"
     return json.loads(out.stdout.strip())
 

@@ -47,6 +47,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests._node_driver import node_driver
 
 from backend.odds import attention
 from backend.odds.timing import (
@@ -105,8 +106,6 @@ def _ts_const(path: Path, name: str) -> float:
 
 
 def watch(facts: dict, *, visible_for_ms: int, watch_remaining_ms: int = WATCH_MS):
-    driver = LIB_TS.parent / "_watch_driver.mjs"
-    driver.write_text(_DRIVER, encoding="utf-8")
     payload = {
         "facts": facts,
         "ctx": {
@@ -114,14 +113,12 @@ def watch(facts: dict, *, visible_for_ms: int, watch_remaining_ms: int = WATCH_M
             "watch_remaining_ms": watch_remaining_ms,
         },
     }
-    try:
+    with node_driver(LIB_TS.parent, _DRIVER) as driver:
         out = subprocess.run(
             [NODE, "--experimental-strip-types", str(driver), json.dumps(payload)],
             capture_output=True, text=True, encoding="utf-8", timeout=60,
             cwd=str(LIB_TS.parent),
         )
-    finally:
-        driver.unlink(missing_ok=True)
     assert out.returncode == 0, f"node failed:\n{out.stdout}\n{out.stderr}"
     return json.loads(out.stdout.strip())
 

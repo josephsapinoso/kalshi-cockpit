@@ -25,6 +25,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests._node_driver import node_driver
 
 REPO = Path(__file__).resolve().parents[1]
 URGENCY_TS = REPO / "frontend" / "src" / "lib" / "refreshUrgency.ts"
@@ -42,9 +43,7 @@ console.log(JSON.stringify(
 
 
 def urgent(rows, max_odds_age_ms=900_000, slate_is_current=True):
-    driver = URGENCY_TS.parent / "_urgency_driver.mjs"
-    driver.write_text(_DRIVER, encoding="utf-8")
-    try:
+    with node_driver(URGENCY_TS.parent, _DRIVER) as driver:
         out = subprocess.run(
             [
                 NODE,
@@ -64,8 +63,6 @@ def urgent(rows, max_odds_age_ms=900_000, slate_is_current=True):
             timeout=60,
             cwd=str(URGENCY_TS.parent),
         )
-    finally:
-        driver.unlink(missing_ok=True)
     assert out.returncode == 0, f"node failed:\n{out.stdout}\n{out.stderr}"
     return json.loads(out.stdout.strip())
 

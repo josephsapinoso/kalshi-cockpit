@@ -83,6 +83,7 @@ from pathlib import Path
 import pytest
 
 from backend import hedge
+from tests._node_driver import node_driver
 
 ROOT = Path(__file__).resolve().parents[1]
 HEDGE_PY = ROOT / "backend" / "hedge.py"
@@ -438,9 +439,7 @@ console.log(JSON.stringify({ note: stakeBasisNote(args.basis, args.reason) }));
 
 
 def note_for(basis, reason):
-    driver = GLOSS_TS.parent / "_laneC_stake_basis_driver.mjs"
-    driver.write_text(_DRIVER, encoding="utf-8")
-    try:
+    with node_driver(GLOSS_TS.parent, _DRIVER) as driver:
         out = subprocess.run(
             [NODE, "--experimental-strip-types", str(driver),
              json.dumps({"basis": basis, "reason": reason})],
@@ -452,8 +451,6 @@ def note_for(basis, reason):
             timeout=60,
             cwd=str(GLOSS_TS.parent),
         )
-    finally:
-        driver.unlink(missing_ok=True)
     assert out.returncode == 0, f"node failed:\n{out.stdout}\n{out.stderr}"
     return json.loads(out.stdout.strip())["note"]
 

@@ -58,6 +58,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from tests._node_driver import node_driver
 
 from backend import bets
 from backend.store import db
@@ -84,7 +85,7 @@ nodeless = pytest.mark.skipif(
 )
 
 _DRIVER = """
-import { exposureUnreadable, exposureWords } from "./_exposure_under_test.ts";
+import { exposureUnreadable, exposureWords } from "./{module}";
 const [block, timeZone] = [JSON.parse(process.argv[2]), process.argv[3]];
 console.log(JSON.stringify({
   words: exposureWords(block, timeZone),
@@ -105,11 +106,9 @@ def words(block: dict) -> dict:
     source = MODULE.read_text(encoding="utf-8").replace(
         'from "./openPositionsStamps"', 'from "./openPositionsStamps.ts"'
     )
-    under_test = LIB / "_exposure_under_test.ts"
-    driver = LIB / "_exposure_driver.mjs"
-    under_test.write_text(source, encoding="utf-8")
-    driver.write_text(_DRIVER, encoding="utf-8")
-    try:
+    with node_driver(LIB, source, ".ts") as under_test, node_driver(
+        LIB, _DRIVER.replace("{module}", under_test.name)
+    ) as driver:
         out = subprocess.run(
             [
                 NODE,
@@ -126,9 +125,6 @@ def words(block: dict) -> dict:
             timeout=60,
             cwd=str(LIB),
         )
-    finally:
-        under_test.unlink(missing_ok=True)
-        driver.unlink(missing_ok=True)
     assert out.returncode == 0, f"node failed:\n{out.stdout}\n{out.stderr}"
     return json.loads(out.stdout.strip())
 

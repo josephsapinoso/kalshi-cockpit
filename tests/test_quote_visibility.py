@@ -47,6 +47,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests._node_driver import node_driver
 
 REPO = Path(__file__).resolve().parents[1]
 LIB = REPO / "frontend" / "src" / "lib"
@@ -150,9 +151,7 @@ def verdict(detail, *, now: int = NOW, source: str | None = None, tmp_path=None)
         module_dir = tmp_path
         (module_dir / "quoteVisibility.ts").write_text(source, encoding="utf-8")
 
-    driver = module_dir / "_visibility_driver.mjs"
-    driver.write_text(_DRIVER.format(module="./quoteVisibility.ts"), encoding="utf-8")
-    try:
+    with node_driver(module_dir, _DRIVER.format(module="./quoteVisibility.ts")) as driver:
         out = subprocess.run(
             [
                 NODE,
@@ -165,8 +164,6 @@ def verdict(detail, *, now: int = NOW, source: str | None = None, tmp_path=None)
             timeout=60,
             cwd=str(module_dir),
         )
-    finally:
-        driver.unlink(missing_ok=True)
 
     assert out.returncode == 0, (
         f"node failed running the predicate:\n{out.stdout}\n{out.stderr}"
