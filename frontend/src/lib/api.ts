@@ -941,7 +941,26 @@ export type ParlayCardLeg = {
   scout_age_ms: number | null;
   /** The market ticker the briefing was filed against, for a link to it. */
   scout_ticker: string | null;
+  /**
+   * Each team's rest before this game (#201). A per-row fact: never sorted,
+   * filtered or ranked by. `null` when the game could not be identified;
+   * optional so older fixtures still type.
+   */
+  rest?: LegRest | null;
 };
+
+/** One team's rest. Every field is `null` when no previous game is on record. */
+export type TeamRest = {
+  team: string | null;
+  days_rest: number | null;
+  /** Nightly leagues (basketball, hockey) only; `null` elsewhere. */
+  back_to_back: boolean | null;
+  /** NFL / NCAAF only; `null` elsewhere. */
+  short_week: boolean | null;
+};
+
+/** Both teams of the leg's game. A prop leg shows both: the player's team is not on the leg. */
+export type LegRest = { home: TeamRest; away: TeamRest };
 
 /**
  * The chance the first N legs ALL land, for N = 1..legs.
@@ -1503,6 +1522,8 @@ export type CheckedParlayLeg = {
   side: "yes" | "no";
   label: string;
   commence_ms: number | null;
+  /** Each team's rest before this game (#201); `null` when unidentified. */
+  rest?: LegRest | null;
   /** Probability in [0, 1]. `null` means no desk reading — see above. */
   chance: number | null;
   chance_display: string | null;

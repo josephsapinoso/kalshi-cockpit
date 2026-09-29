@@ -113,6 +113,7 @@ from backend.core.parlay import ParlayQuote, value_parlay
 from backend.kalshi.orderbook import OrderBook
 from backend.kalshi.rest import EXCHANGE_INDEX_COMBOS
 from backend.kalshi.rfq import RfqRefused, mve_legs
+from backend.team_rest_reader import rest_for_games
 from backend.parlays import (
     HORIZON_LADDER,
     NOTES,
@@ -547,6 +548,21 @@ async def check_parlay_text(
     ]
     kickoffs = _commence_ms_for_tickers(conn, missing_tickers)
 
+    # Each team's rest before its game (#201): a fact per row, never ranked by.
+    rest_by_event = rest_for_games(
+        conn,
+        {
+            (c.odds_event_id, c.commence_ms)
+            for leg in venue_legs
+            if (
+                c := by_key.get(
+                    (str(leg["event_ticker"]), str(leg["market_ticker"]), str(leg["side"]))
+                )
+            )
+            is not None
+        },
+    )
+
     response_legs: list[dict] = []
     usable: list[CandidateLeg] = []
     any_unusable = False
@@ -594,6 +610,11 @@ async def check_parlay_text(
                 "side": side,
                 "label": label,
                 "commence_ms": commence_ms,
+                "rest": (
+                    rest_by_event.get(candidate.odds_event_id)
+                    if candidate is not None
+                    else None
+                ),
                 "chance": chance,
                 "chance_display": _percent_display(chance),
                 "unknown_reason": _reason_words(unknown_reason_code),

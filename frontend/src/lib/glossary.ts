@@ -66,6 +66,28 @@ export const GLOSSARY = {
       "single one must win for the ticket to pay. Lose one leg, lose the " +
       "whole stake.",
   },
+  days_rest: {
+    label: "days of rest",
+    definition:
+      "Full days a team sat out between its last game and this one. " +
+      "Played Monday night, plays Wednesday night: 1 day of rest. " +
+      "0 means it played the day before. Tired legs are one reason a " +
+      "team can play worse; it is a fact, not a prediction.",
+  },
+  back_to_back: {
+    label: "back-to-back",
+    definition:
+      "A team playing two games on consecutive days, like Friday night " +
+      "then Saturday night. Common in basketball and hockey. It shows " +
+      "which teams are on short rest, and says nothing about who wins.",
+  },
+  short_week: {
+    label: "short week",
+    definition:
+      "Football teams normally play once a week. A short week means " +
+      "fewer than six days since the last game, like a Thursday game " +
+      "after a Sunday one. Less time to recover and prepare.",
+  },
   joint_chance: {
     label: "joint chance",
     definition:
