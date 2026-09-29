@@ -134,6 +134,43 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-29 (seventy-first session) — automatic game-script cards built end to end behind an off flag (#214–#217 merged); live deploy refused by the permission classifier, so nothing new is live and the cost reading waits (#218)
+
+Joe typed `/go`. The partner's design and dispatch were already on story #213 and each ticket (`owner:`/`model:` labels), so main did S0 and dispatched the lanes directly.
+
+### 1. What landed on `main` (all CI-green through `a210ec8`; `d311ec3` and `92a256d` pushed)
+
+- **#214 S0 (`6b75dbd`, main):** schema v59 `game_script_cards` (tableless). The CHECKs: status is one of four values, a built card has a story and legs, and any other status names a reason. There is no price, probability or edge column, and a test pins that. `GameScriptConfig` (`GAME_SCRIPT_AUTO_ENABLED` false, `GAME_SCRIPT_LEAD_HOURS` 24). In `fly.live.toml`, `AGENT_MAX_CALLS_PER_DAY` 40 → 100 **alone**, on Joe's word; tokens and searches are unmoved. ADR 0190 and the CLAUDE.md budget paragraph.
+- **#215 S1 (`a210ec8`, lane + main review):** the seat `backend/agents/game_script.py`, the store and `POST /api/game/{event}/card`, plus the `/game-card` proxy. Main's review added a build lock and reuse of a game's built/skipped card (the 2026-09-25 burst shape), and one `sport_key_for`. **Open** until the cost reading.
+- **#216 S2 (`d311ec3`, lane):** `GET /api/game-cards` (unauthenticated like `/api/hedge`, behind `middleware.ts`); the card on `/game/<event>` with a Build card button; a kickoff-ordered "Game-script parlays" section on `/parlays`; each leg's own single-leg ask read at request time. `combo_ticker` is written back when a mint's legs equal a built card's legs.
+- **#217 S3a + S3b wiring (`92a256d`, lane + main):** pure `decide()`; `run_pass` and `watch_game_scripts_forever`, started in `scripts/run_loop.py` behind the flag; `MUST_HAVE_CALLERS`. `build_card_for_game` in `routers/game.py` is **the one build path** for the tap and the watcher. The fixture → game link is `event_links`, game series only; an unlinked fixture is skipped, never matched by team names.
+
+### 2. What is NOT done, and why
+
+- **Nothing new is on live.** `gh workflow run deploy.yml -f instance=live` was refused by the auto-mode classifier as a production deploy. Do not work around it; Joe runs Actions → Deploy → live (type `kalshi-cockpit`) or grants the permission. Until then live still has 40 calls, schema v58 and no card routes.
+- **#218 (main) waits on that deploy.** In order:
+  1. Deploy, then check `/api/health` `build.git_sha` and the migrate line in the boot log.
+  2. Build **one** real card from `/game/<event>` for a game inside ~2 days, so its legs have desk context. About 51K tokens, covered by the batch approval on #212.
+  3. Read the cost with `inspect_live_db.py agent-spend` (`agent='game_script'`) and record it in ADR 0190.
+  4. If it is far from 60K, change `CARD_TOKEN_ESTIMATE`.
+  5. Set `GAME_SCRIPT_AUTO_ENABLED = "true"`, deploy, and have runtime-realist confirm the task runs.
+  6. Tell Joe when the first automatic cards exist. For Sunday's NFL that is Saturday from about 17:00Z.
+- **Unverified until live:**
+  - whether the inline ~1 min POST survives the Fly/Next timeouts (the UI waits 150 s);
+  - the card screens at phone and desktop width;
+  - `/api/game-cards` latency with ~14 cards (about 3 book reads each, gate 6);
+  - NCAAF coverage, since `linker` has known unmatched `KXNCAAFGAME` events.
+- **Known and accepted:** the build lock is per process (API vs loop). A tap and the watcher building the same game in the same minute can both pay once. This is stated in the `build_card_for_game` docstring.
+
+### Still open
+
+1. #218 — deploy (Joe, or his permission), one real card's cost, record in ADR 0190, flip the flag, runtime-realist check. #215 and story #213 close with it.
+2. #210 — matchup tile; stays open until the first real matchup note is read.
+3. #188 — parked. It waits for a loop-lag reading.
+4. #165 — open until a friend actually sends a link (Joe, 2026-09-28).
+5. #169 — parked behind #165.
+6. #151 — collecting. Nothing is owed until the interim look.
+
 ## 2026-09-29 (seventieth session) — Joe names parlays: sports factors lead (#200, ADR 0189); rest on every leg (#201), a same-game game page (#202) and a matchup scout tile (#210) ship; automatic game-script cards planned and approved (#213)
 
 Joe named new work, per #196 (C): *"explore making more parlay options, and stronger ones"*, with a generic parlay guide pasted in. Mid-session he redirected: *"the kalshi edge shouldnt be a big determinant here … more about the sports-related factors above all else."* Story **#197** under epic #83 holds all of it. The decision is **ADR 0189**, with a pointer in CLAUDE.md's "What it is for".
@@ -189,7 +226,7 @@ Joe named new work, per #196 (C): *"explore making more parlay options, and stro
 
 ### 6. After the record: two parlays built by hand, then Joe asks for it automated (#212 → story #213)
 
-**NEXT SESSION STARTS HERE:** type `/go`, then do S0 (#214) yourself, then dispatch the lanes in the order below.
+**Superseded by the seventy-first session:** S0–S3a are merged; #218 is what remains.
 
 **The two hand builds.** "Build me a same-game parlay for Sunday's NFL." Main did it in chat: read Kalshi's single-leg prices, had a sharp-bettor subagent web-research the slate, then minted and asked the makers. **Nothing was accepted.**
 - **GB at TB, Sunday 1pm ET.** GB wins + NO on TB over 17.5. Tampa's rookie QB Jalon Daniels starts because Mayfield has a thumb injury. Best quote 45.6c from 12 makers, `KXMVECROSSCATEGORY-S2026BF18FBFC7CC-C172E47EDEC`.
@@ -1219,6 +1256,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-29 (seventy-first session) — automatic game-script cards built end to end behind an off flag (#214–#217 merged); live deploy refused by the permission classifier, so nothing new is live and the cost reading waits (#218)
 - 2026-09-29 (seventieth session) — Joe names parlays: sports factors lead (#200, ADR 0189); rest on every leg (#201), a same-game game page (#202) and a matchup scout tile (#210) ship; automatic game-script cards planned and approved (#213)
 - 2026-09-29 (sixty-ninth session) — the queue is empty and Joe will name new work (#196, answer C); board.py says so instead of asking for an owner (#195)
 - 2026-09-29 (sixty-eighth session) — `/hedge` 1,803 → 447 ms on one batched venue read (#191); CI tests 9m30s → 5m29s under xdist (#192); the 30 s health-check trial read UNMOVED and reverted, and #193 closes: the stall is outside the machine (§F, §G)

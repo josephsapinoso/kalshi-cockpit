@@ -16,6 +16,29 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-29 - Two writers of one column must share the derivation; an asyncio lock guards one process; a module nothing reaches merges together with its caller
+
+From the seventy-first session (#214–#217, ADR 0190).
+
+- **The watcher's refusal rows wrote `sport_key = 'americanfootball_nfl'`
+  while the tap's built rows wrote `'nfl'`, in one table.** Two lanes each
+  took the value nearest to hand: the odds fixture's key and the Kalshi
+  ticker's prefix. Neither lane's tests could see the other writer. **When a
+  second writer of a column appears, grep for the first writer's derivation
+  and call that one function.** A named `sport_key_for` existed, and main
+  asked for it, a round before the second writer arrived.
+- **The card route's `asyncio.Lock` looks like it serialises every card
+  build, and it does not.** The watcher runs in `scripts/run_loop.py` and the
+  tap runs in the API process, so each has its own lock. **Before trusting
+  an in-memory lock or dedupe to bound spend, name every process that can
+  reach the guarded call.** Across processes only the database check holds.
+  Write the gap in the docstring if it is accepted.
+- **A lane that adds a module with no caller cannot merge by itself here.**
+  `test_has_callers` fails closed on an unreached module, and a placeholder
+  disposition would be a false claim that the "escaped" test then flips.
+  **Plan the lane and its wiring to land in one merge commit** (merge
+  `--no-commit`, wire it, commit), or give the lane the call site.
+
 ## 2026-09-29 - A covering index makes each row cheap, not the range small; a cited line in a "does not establish" note is still a claim; an absence needs a grep of the writer
 
 From the seventieth session (#197–#208, ADR 0189).
