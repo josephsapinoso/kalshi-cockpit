@@ -98,6 +98,7 @@ keeps the code beside it for anything that reads this row programmatically.
 from __future__ import annotations
 
 import logging
+import sqlite3
 import re
 from typing import Optional, Sequence
 
@@ -549,19 +550,29 @@ async def check_parlay_text(
     kickoffs = _commence_ms_for_tickers(conn, missing_tickers)
 
     # Each team's rest before its game (#201): a fact per row, never ranked by.
-    rest_by_event = rest_for_games(
-        conn,
-        {
-            (c.odds_event_id, c.commence_ms)
-            for leg in venue_legs
-            if (
-                c := by_key.get(
-                    (str(leg["event_ticker"]), str(leg["market_ticker"]), str(leg["side"]))
+    # A failed read must never fail the check: sqlite errors log and every
+    # leg carries `rest = null`.
+    try:
+        rest_by_event = rest_for_games(
+            conn,
+            {
+                (c.odds_event_id, c.commence_ms)
+                for leg in venue_legs
+                if (
+                    c := by_key.get(
+                        (
+                            str(leg["event_ticker"]),
+                            str(leg["market_ticker"]),
+                            str(leg["side"]),
+                        )
+                    )
                 )
-            )
-            is not None
-        },
-    )
+                is not None
+            },
+        )
+    except sqlite3.Error:
+        logger.exception("team rest read failed; legs carry rest = null")
+        rest_by_event = {}
 
     response_legs: list[dict] = []
     usable: list[CandidateLeg] = []
