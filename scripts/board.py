@@ -22,6 +22,9 @@ WHAT THIS DOES NOT ESTABLISH
 - **It is a snapshot, not a lock.** Two sessions reading it a second apart can
   both see the same node "ready" and both start it. Nothing here reserves
   anything -- the same limitation `scripts/lane_board.py` states for lanes.
+- **A parent whose children are all closed is not a leaf.** It is off the
+  frontier and `warnings()` says its frontier is EMPTY; only a node with no
+  children at all is a leaf that can lack an owner.
 - **`ready` is a necessary condition, not sufficient.** A leaf with no
   assignee, no blocker and an open state might still be blocked in a way
   GitHub's dependency graph does not model (a `Blocked by: #N` line in prose
@@ -313,6 +316,10 @@ def classify(node: dict) -> dict:
     labels = _label_names(node)
     raw_children = node.get("children", [])
     leaf = not any(child.get("state") == "open" for child in raw_children)
+    # A parent whose children are ALL closed has nothing on its own frontier:
+    # that is a finding about the queue (CLAUDE.md step 7), not a unit of work,
+    # so it is never ready. A node with no children at all is still a plain leaf.
+    frontier_empty = bool(raw_children) and leaf
     blocked_by = (node.get("issue_dependencies_summary") or {}).get("blocked_by", 0) or 0
     assignee = node.get("assignee")
     assignee_login = assignee.get("login") if assignee else None
@@ -320,7 +327,7 @@ def classify(node: dict) -> dict:
     node_type = classify_type(labels)
     # An epic is a container, never a unit of work: an epic with no children
     # yet is empty, not ready, and it has no owner because its children do.
-    ready = state == "open" and leaf and assignee_login is None and blocked_by == 0 and node_type != "epic"
+    ready = state == "open" and leaf and not frontier_empty and assignee_login is None and blocked_by == 0 and node_type != "epic"
     return {
         "number": node["number"],
         "title": node.get("title", ""),
@@ -332,6 +339,7 @@ def classify(node: dict) -> dict:
         "assignee": assignee_login,
         "blocked_by": blocked_by,
         "leaf": leaf,
+        "frontier_empty": frontier_empty,
         "ready": ready,
         "children": raw_children,
     }
@@ -385,6 +393,12 @@ def warnings(nodes: list[dict], next_text: str | None) -> list[str]:
     out: list[str] = []
     for node in nodes:
         if node["state"] != "open" or not node["leaf"] or node["type"] == "epic":
+            continue
+        if node["frontier_empty"]:
+            out.append(
+                f"#{node['number']} has no open children -- its frontier is EMPTY: "
+                f"open a question for Joe or record that none exists -- {node['title']}"
+            )
             continue
         if node["owner"] is None:
             out.append(f"#{node['number']} is an open leaf with no owner -- {node['title']}")

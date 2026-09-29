@@ -161,6 +161,18 @@ class TestWarnings:
         assert node["ready"] is False
         assert board.warnings([node], next_text=None) == []
 
+    def test_a_parent_with_only_closed_children_reports_an_empty_frontier(self):
+        # Map #3 today: children exist, every one closed. Not a leaf with no
+        # owner (the wrong fix is "give the map an owner"); its frontier is empty.
+        raw = {"number": 3, "title": "Cockpit for the pilot", "state": "open",
+               "labels": [], "body": "",
+               "children": [{"number": 4, "state": "closed", "labels": [], "children": []}]}
+        node = board.classify(raw)
+        assert node["ready"] is False
+        lines = board.warnings([node], next_text=None)
+        assert any("frontier is EMPTY" in ln for ln in lines)
+        assert not any("no owner" in ln for ln in lines)
+
     def test_an_agent_leaf_with_model_and_done_when_is_silent(self):
         node = classified("agent_leaf_clean")
         lines = board.warnings([node], next_text=None)
