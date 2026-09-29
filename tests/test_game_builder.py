@@ -84,9 +84,12 @@ def _event_markets() -> dict[str, list[dict]]:
     return out
 
 
-def _catch_all_for_atlpit():
+def _catch_all_for_atlpit(yes_only=()):
     """The captured catch-all, its events swapped for this game's. See the
-    module docstring for exactly what is captured and what is not."""
+    module docstring for exactly what is captured and what is not.
+    `yes_only` names events to flag `is_yes_only` (the captured entries carry
+    the key, always false; the ticket's measurement is that MLB and WNBA
+    events are yes-only and no NFL event is)."""
     payload = copy.deepcopy(_load("combo_collections.json")[
         "KXMVESPORTSMULTIGAMEEXTENDED"
     ])
@@ -97,7 +100,7 @@ def _catch_all_for_atlpit():
     ]
     events = []
     for ticker in tickers:
-        entry = dict(template, ticker=ticker)
+        entry = dict(template, ticker=ticker, is_yes_only=ticker in yes_only)
         if ticker not in one_rung:
             entry.pop("size_max", None)
         events.append(entry)
@@ -553,6 +556,37 @@ class TestTheFourRefusalsCostNoVenueCall:
         await self._refused(
             build, [_leg(ATL), _leg(other)], fragment="not on this game's list"
         )
+
+    async def test_a_leg_from_another_game_needs_no_collection_read_to_refuse(
+        self, build, _fresh_caches
+    ):
+        """Cold caches (no page view first): the structural check alone must
+        refuse, so the collection list is never even fetched."""
+        app, fake, lookups, path = build()
+        response = await _mint(
+            app, [_leg(ATL), _leg(f"{OTHER_GAME_EVENT}-BAL")]
+        )
+        assert response.status_code == 422
+        assert "not on this game's list" in response.json()["detail"]
+        assert _fresh_caches == [] and fake.calls == [] and lookups == []
+
+    async def test_a_yes_only_event_refuses_a_no_leg_and_lists_only_yes(
+        self, build, monkeypatch
+    ):
+        async def yes_only_fetch(api, max_pages=25):
+            return [_catch_all_for_atlpit(yes_only={GAME})]
+
+        app, fake, lookups, path = build()
+        monkeypatch.setattr(parlays, "fetch_collections", yes_only_fetch)
+        listing = (await _get(app, f"/api/game/{GAME}/legs")).json()
+        game_leg = listing["groups"][0]["legs"][0]
+        assert game_leg["allowed_sides"] == ["yes"]
+        assert list(game_leg["sides"]) == ["yes"]
+        fake.calls.clear()
+        response = await _mint(app, [_leg(ATL, "no"), _leg(_rec_markets()[0])])
+        assert response.status_code == 422
+        assert "yes side" in response.json()["detail"]
+        assert lookups == [] and fake.calls == []
 
     async def test_a_market_the_page_never_listed(self, build):
         ghost = f"{REC_EVENT}-PITNOBODY99-500"
