@@ -55,6 +55,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -106,10 +107,22 @@ def words(block: dict) -> dict:
     source = MODULE.read_text(encoding="utf-8").replace(
         'from "./openPositionsStamps"', 'from "./openPositionsStamps.ts"'
     )
-    with node_driver(LIB, source, ".ts") as under_test, node_driver(
-        LIB, _DRIVER.replace("{module}", under_test.name)
-    ) as driver:
-        out = subprocess.run(
+    # Everything goes in a private temp dir, with the one sibling the module
+    # imports, and NOTHING into `frontend/src`: a transient `.ts` in the tree
+    # is seen by tests that glob `frontend/src/**/*.ts*` (test_leg_verdicts_ui)
+    # and, under xdist, vanishes between their glob and their read (#192).
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        shutil.copy(LIB / "openPositionsStamps.ts", work / "openPositionsStamps.ts")
+        (work / "exposureLine.ts").write_text(source, encoding="utf-8")
+        out = _run_driver(work, block)
+    assert out.returncode == 0, f"node failed:\n{out.stdout}\n{out.stderr}"
+    return json.loads(out.stdout.strip())
+
+
+def _run_driver(work: Path, block: dict):
+    with node_driver(work, _DRIVER.replace("{module}", "exposureLine.ts")) as driver:
+        return subprocess.run(
             [
                 NODE,
                 "--experimental-strip-types",
@@ -123,10 +136,8 @@ def words(block: dict) -> dict:
             # code page and an em dash comes back as U+FFFD.
             encoding="utf-8",
             timeout=60,
-            cwd=str(LIB),
+            cwd=str(work),
         )
-    assert out.returncode == 0, f"node failed:\n{out.stdout}\n{out.stderr}"
-    return json.loads(out.stdout.strip())
 
 
 def served(
