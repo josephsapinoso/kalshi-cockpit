@@ -74,6 +74,7 @@ from backend.kalshi.totals import (
     total_line_agrees,
 )
 from backend.store.db import ask_for_side
+from backend.team_rest_reader import rest_for_games
 
 logger = logging.getLogger(__name__)
 
@@ -1521,6 +1522,7 @@ def _serialise_leg(
     leg: CandidateLeg,
     facts: Optional[dict] = None,
     trust_thresholds: Optional[TrustThresholds] = None,
+    rest: Optional[dict] = None,
 ) -> dict:
     """One leg, with the provenance behind its number.
 
@@ -1676,6 +1678,11 @@ def _serialise_leg(
         # card can link to it. `None` when nothing has been filed for this
         # game -- which is the ordinary case at five convenings a day.
         "scout_ticker": facts["scout_ticker"],
+        # --- Each team's rest before this game (#201). A per-row FACT: never
+        # sorted, filtered or ranked by (ADR 0071 s2.5). `None` when the
+        # game could not be identified. A prop leg carries both teams, since
+        # the player's team is not on the leg.
+        "rest": rest.get(leg.odds_event_id) if rest else None,
     }
 
 
@@ -1767,6 +1774,7 @@ def _serialise_card(
     card: Card,
     facts: Optional[dict] = None,
     trust_thresholds: Optional[TrustThresholds] = None,
+    rest: Optional[dict] = None,
 ) -> dict:
     if card.not_built_reason is not None:
         return {
@@ -1788,7 +1796,10 @@ def _serialise_card(
     low, high = joint.method_range
     legs = [
         _serialise_leg(
-            leg, (facts or {}).get(leg.kalshi_market_ticker), trust_thresholds
+            leg,
+            (facts or {}).get(leg.kalshi_market_ticker),
+            trust_thresholds,
+            rest,
         )
         for leg in card.legs
     ]
@@ -2260,11 +2271,13 @@ def serialise_ladder(
     generated_ms: int,
     facts: Optional[dict] = None,
     trust_thresholds: Optional[TrustThresholds] = None,
+    rest: Optional[dict] = None,
 ) -> dict:
     return {
         "generated_ms": generated_ms,
         "cards": [
-            _serialise_card(card, facts, trust_thresholds) for card in ladder.cards
+            _serialise_card(card, facts, trust_thresholds, rest)
+            for card in ladder.cards
         ],
         "excluded": ladder.excluded,
         "notes": dict(NOTES),
@@ -3572,6 +3585,14 @@ def build_ladder_payload(
         generated_ms=now_ms,
         facts=leg_facts(conn, selected, now_ms=now_ms),
         trust_thresholds=trust_thresholds,
+        rest=rest_for_games(
+            conn,
+            {
+                (leg.odds_event_id, leg.commence_ms)
+                for card in ladder.cards
+                for leg in card.legs
+            },
+        ),
     )
     # Absent, not `null`, when no cut was applied: the unfiltered payload
     # is byte-identical to the pre-#15 one (`tests/test_list_filters.py`).

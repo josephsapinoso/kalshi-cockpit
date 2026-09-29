@@ -5,6 +5,7 @@ import { useState } from "react";
 import { checkParlay, formatAge } from "@/lib/api";
 import type { CheckedParlayResult } from "@/lib/api";
 import AskTheMarket from "@/components/AskTheMarket";
+import { RestChip } from "@/components/ParlayCards";
 import Term from "@/components/Term";
 import { Button, Stat } from "@/components/ui";
 
@@ -120,6 +121,7 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
             <p className="text-xs uppercase tracking-wide text-muted">
               {leg.side}
             </p>
+            <RestChip rest={leg.rest} />
             {/* **The unknown-leg branch, keyed on `chance === null`, never on
                 a falsy chance.** `0` is a real probability and must render as
                 a real probability -- so this checks for `null` explicitly

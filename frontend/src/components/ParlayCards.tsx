@@ -17,6 +17,7 @@ import type { Gauge } from "@/lib/gauges";
 import type {
   ActionableWindow,
   LegVerdictInput,
+  LegRest,
   LegVerdictsResult,
   ParlayCardData,
   ParlayCardLeg,
@@ -24,6 +25,7 @@ import type {
   ParlayLadder,
   ParlayWindow,
   Refreshable,
+  TeamRest,
 } from "@/lib/api";
 import { glossSentence } from "@/lib/suppressionGloss";
 import DispersionStrip from "@/components/DispersionStrip";
@@ -315,6 +317,7 @@ function Card({
                   {leg.fair_percent_display}
                 </span>
                 <LegGame leg={leg} />
+                <RestChip rest={leg.rest} />
                 <LegFacts leg={leg} />
               </li>
             ))}
@@ -1416,6 +1419,49 @@ function LegGame({ leg }: { leg: ParlayCardLeg }) {
   return (
     <span className="block w-full truncate text-xs text-muted" data-testid="leg-game">
       {game}
+    </span>
+  );
+}
+
+/**
+ * Each team's rest before this game (#201): "Team A 0d rest · back-to-back |
+ * Team B 2d rest". **A fact per row, never a sort key or a filter** (ADR 0071
+ * s2.5). `null` from the server means the game could not be identified;
+ * a team with no previous game on record reads "rest unknown", **never
+ * "0d"** -- zero would say the team played yesterday.
+ */
+export function RestChip({ rest }: { rest: LegRest | null | undefined }) {
+  if (!rest) return null;
+  const side = (t: TeamRest) => (
+    <span className="whitespace-nowrap">
+      {t.team !== null ? `${t.team} ` : ""}
+      {t.days_rest === null ? (
+        "rest unknown"
+      ) : (
+        <>
+          {t.days_rest}d <Term k="days_rest">rest</Term>
+        </>
+      )}
+      {t.back_to_back ? (
+        <>
+          {" · "}
+          <Term k="back_to_back">back-to-back</Term>
+        </>
+      ) : null}
+      {t.short_week ? (
+        <>
+          {" · "}
+          <Term k="short_week">short week</Term>
+        </>
+      ) : null}
+    </span>
+  );
+  return (
+    <span
+      className="block w-full text-xs text-muted"
+      data-testid="leg-rest"
+    >
+      {side(rest.home)} {"|"} {side(rest.away)}
     </span>
   );
 }
