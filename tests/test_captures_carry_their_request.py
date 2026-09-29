@@ -294,6 +294,16 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
             "against a real NFL spread subtitle, so which series was asked for "
             "is the whole point of the file.",
     ),
+    "markets_batch_by_ticker.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("tickers", "limit"),
+        endpoint_in=("endpoint",),
+        how="A `request` block written through `capture_envelope.write_capture` "
+            "(#191): the four tickers asked, in order, and `limit`, beside the "
+            "`asked` list and the `returned_in_order` list. The made-up ticker's "
+            "absence from the response is readable only because the request "
+            "names it.",
+    ),
     "markets_settled.json": RecordsItsRequest(
         params_in=("queries",),
         param_names=("series", "status"),
@@ -657,6 +667,7 @@ LEGACY_WRITERS: dict[str, tuple[str, ...]] = {
 #: The files already on disk still have no envelope: re-capturing them costs
 #: Odds API credits and is the operator's call. This fixes the NEXT one.
 UPGRADED_WRITERS: dict[str, tuple[str, ...]] = {
+    "capture_markets_batch_fixture.py": ("markets_batch_by_ticker.json",),
     "capture_nfl_odds_fixture.py": ("odds_nfl_h2h_spreads.json",),
     "capture_team_names.py": (
         "nfl_names_kalshi.json",

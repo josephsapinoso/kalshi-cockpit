@@ -179,7 +179,7 @@ async def main() -> int:
             now_ms=db.now_ms(),
             max_quote_age_ms=30_000,
             spendable_tenths=db.latest_balance_tenths(conn),
-            fetch_quote=source.fetch,
+            fetch_quotes=source.fetch_many,
         )
         # Trap 4: print this branch WHOLE, minus the ladder. Truncating it is
         # what would hide `chance_display` / `chance_refusal`.
@@ -201,7 +201,7 @@ async def main() -> int:
             now_ms=db.now_ms(),
             max_quote_age_ms=30_000,
             spendable_tenths=db.latest_balance_tenths(conn),
-            fetch_quote=source.fetch,
+            fetch_quotes=source.fetch_many,
         )
         print(json.dumps(payload["positions"][0], indent=2)[:3000])
 

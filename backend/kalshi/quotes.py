@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import httpx
 
@@ -243,6 +243,63 @@ def parse_market_quote(payload: dict[str, Any], *, observed_ms: int) -> LiveQuot
     )
 
 
+# The most tickers one `GET /markets?tickers=` carries, with `limit` set to
+# the chunk size so a page can never end before the chunk does. Kalshi's
+# `limit` goes to 1000; 100 keeps the URL short and matches the multi-book
+# endpoint's own cap. `scripts/measure_combo_leg_echo.py` round-tripped 200
+# on 2026-08-09, so this is headroom, not a measured ceiling.
+MAX_TICKERS_PER_READ = 100
+
+
+def parse_markets_batch(
+    payload: dict[str, Any], *, asked: Sequence[str], observed_ms: int
+) -> dict[str, LiveQuote]:
+    """`GET /markets?tickers=...` -> `{ticker: quote}`. Raises on a renamed envelope.
+
+    Captured 2026-09-29 (`tests/fixtures/markets_batch_by_ticker.json`, #191):
+    a settled market comes back with its terminal status (`finalized`), and a
+    ticker the venue has never heard of is **silently omitted** -- no error,
+    no placeholder. So a ticker missing from the result is *absent*, which
+    every caller reads as "no price this pass". It is never an empty book and
+    never "closed", because the response says nothing about it at all.
+
+    A market the caller did not ask for is dropped rather than returned: a
+    book about a different market priced as this one is buying the wrong
+    thing at the right-looking price, the same refusal `fetch` makes.
+
+    The envelope check is the load-bearing line, for the reason
+    `parse_market_quote` gives: `payload.get("markets") or []` would turn a
+    renamed key into "every leg unpriceable", correct-looking and silent.
+    """
+    if "markets" not in payload:
+        raise QuoteUnavailable(
+            f"batch response has no 'markets' key (got {sorted(payload)}). The "
+            f"field was renamed; refusing to return an empty result that would "
+            f"read as 'none of these markets has a book'."
+        )
+    markets = payload["markets"]
+    if markets is None:
+        markets = []
+    if not isinstance(markets, list):
+        raise QuoteUnavailable(
+            f"batch response carried 'markets' as {type(markets).__name__}, not "
+            f"a list. Refusing rather than guessing its shape."
+        )
+    wanted = set(asked)
+    quotes: dict[str, LiveQuote] = {}
+    for market in markets:
+        if not isinstance(market, dict):
+            continue
+        ticker = market.get("ticker")
+        if not ticker or ticker not in wanted:
+            continue
+        quotes[ticker] = LiveQuote(
+            market=build_market(market, market_type=REFRESH_MARKET_TYPE),
+            observed_ms=observed_ms,
+        )
+    return quotes
+
+
 class LiveQuoteSource:
     """Fetches a live quote for one ticker. Owns a shared HTTP client.
 
@@ -321,6 +378,48 @@ class LiveQuoteSource:
                 f"asked for {ticker} and got {quote.ticker!r}. Refusing."
             )
         return quote
+
+    async def fetch_many(
+        self, tickers: Sequence[str], *, observed_ms: int
+    ) -> dict[str, LiveQuote]:
+        """Read many tickers' books in one request per `MAX_TICKERS_PER_READ`.
+
+        #191: `/hedge` used to call `fetch` once per watched leg, and each call
+        waits its turn on this client's 8/s limiter -- the same limiter the
+        hand-bet quote refresh queues on (`routes.py`, `live_quotes()`). Twelve
+        legs cost ~1.8 s and would have put a Buy tap behind all twelve. One
+        batched read takes one slot whatever N is.
+
+        Returns only the tickers the venue answered for; a missing one is
+        absent (`parse_markets_batch`). Every failure of a request becomes
+        `QuoteUnavailable` for the whole call, so a caller that tolerates a
+        missing book treats every ticker as missing, which is the same answer
+        `read_books` gave when each single read failed. `ConfigError` is
+        raised outside the `try`, as in `fetch`.
+        """
+        asked = list(dict.fromkeys(tickers))
+        if not asked:
+            return {}
+        api = self._api()
+        quotes: dict[str, LiveQuote] = {}
+        for start in range(0, len(asked), MAX_TICKERS_PER_READ):
+            chunk = asked[start : start + MAX_TICKERS_PER_READ]
+            try:
+                payload = await api.get(
+                    "/markets", tickers=",".join(chunk), limit=len(chunk)
+                )
+            except Exception as exc:                            # noqa: BLE001
+                logger.warning(
+                    "batched quote read failed for %d tickers: %s",
+                    len(chunk), exc,
+                )
+                raise QuoteUnavailable(
+                    f"could not read live quotes for {len(chunk)} tickers: {exc}"
+                ) from exc
+            quotes.update(
+                parse_markets_batch(payload, asked=chunk, observed_ms=observed_ms)
+            )
+        return quotes
 
     async def portfolio_positions(self) -> list[dict]:
         """The account's open market positions, live (ADR 0063's netting

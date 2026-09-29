@@ -140,6 +140,10 @@ class NoVenueQuotes:
     async def fetch(self, ticker, *, observed_ms):
         raise RuntimeError("no venue in this test")
 
+    async def fetch_many(self, tickers, *, observed_ms):
+        # `/api/hedge` reads every leg in one batch since #191.
+        raise RuntimeError("no venue in this test")
+
     async def aclose(self):
         return None
 

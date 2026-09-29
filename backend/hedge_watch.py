@@ -108,8 +108,9 @@ async def watch_once(
     *,
     now_ms: int,
     max_quote_age_ms: int,
-    fetch_quote,
+    fetch_quote=None,
     day_start_hour: int = DEFAULT_DAY_START_UTC_HOUR,
+    fetch_quotes=None,
 ) -> dict:
     """One cycle: settle what the venue has settled, re-price, alert.
 
@@ -138,6 +139,7 @@ async def watch_once(
         max_quote_age_ms=max_quote_age_ms,
         spendable_tenths=store_db.latest_balance_tenths(conn),
         fetch_quote=fetch_quote,
+        fetch_quotes=fetch_quotes,
     )
     day_ms = day_start_ms(now_ms, hour=day_start_hour)
     lock_result = await alerter.hedge_locks(
@@ -162,7 +164,8 @@ async def watch_hedges_forever(
     db_path,
     alerter_factory,
     *,
-    fetch_quote,
+    fetch_quote=None,
+    fetch_quotes=None,
     max_quote_age_ms: int,
     watch_interval_s: float = WATCH_INTERVAL_S,
     idle_interval_s: float = IDLE_INTERVAL_S,
@@ -251,6 +254,7 @@ async def watch_hedges_forever(
                         now_ms=now_ms,
                         max_quote_age_ms=max_quote_age_ms,
                         fetch_quote=fetch_quote,
+                        fetch_quotes=fetch_quotes,
                         day_start_hour=day_start_hour,
                     )
                     if (

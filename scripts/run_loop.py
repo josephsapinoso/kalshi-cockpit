@@ -1131,8 +1131,9 @@ async def main() -> int:
         # happens when work is added there because it looked free. This cannot
         # slow the recorder because it is not on the recorder's clock.
         #
-        # It spends nothing metered -- one Kalshi orderbook read per watched
-        # ticker, and only while a watched game is actually in progress. It
+        # It spends nothing metered -- one batched Kalshi market read per
+        # cycle (`GET /markets?tickers=`, #191; it was one read per watched
+        # ticker), and only while a watched game is actually in progress. It
         # writes no `recommendations` row, so ADR 0006's evidence guard is
         # untouched, and `gate.py` cannot see any table it uses (ADR 0078 §4).
         hedge_quotes = LiveQuoteSource()
@@ -1144,7 +1145,7 @@ async def main() -> int:
                 # connection is used sequentially by its pass, and a concurrent
                 # task on that handle would interleave two transactions.
                 lambda watch_conn: Alerter(watch_conn, discord),
-                fetch_quote=hedge_quotes.fetch,
+                fetch_quotes=hedge_quotes.fetch_many,
                 max_quote_age_ms=staleness.max_kalshi_quote_age_s * 1000,
             ),
             name="hedge-watch",

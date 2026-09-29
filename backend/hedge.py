@@ -1252,8 +1252,11 @@ def watched_tickers(conn: sqlite3.Connection) -> list[str]:
     """Every Kalshi ticker an open position still has a pending leg on.
 
     The watcher's whole subscription list, and the only thing it reads the
-    database for. Bounded by the number of open positions, which is bounded by
-    how many tickets one person holds.
+    database for. Bounded by the number of open positions, which is not as
+    small as "how many tickets one person holds" sounds: "open" is unclosed
+    bookkeeping, not a live game, and it was 41 positions on 2026-09-21 and 3
+    (12 tickers) on 2026-09-29. `read_books` reads the set in one batched
+    request for that reason (#191).
     """
     return [
         str(row["ticker"])
@@ -2325,7 +2328,11 @@ def serialise_position(
 
 
 async def read_books(
-    tickers: Sequence[str], *, now_ms: int, fetch_quote
+    tickers: Sequence[str],
+    *,
+    now_ms: int,
+    fetch_quote=None,
+    fetch_quotes=None,
 ) -> dict[str, MarketBook]:
     """Read every watched market's book, tolerating the ones that refuse.
 
@@ -2335,11 +2342,43 @@ async def read_books(
     real and different state -- nobody is resting -- and the two would then
     render identically.
 
-    Sequential rather than gathered: the watched set is bounded by how many
-    tickets one person holds, and a burst of concurrent reads against the
-    venue buys nothing measurable while making a rate limit reachable.
+    **`fetch_quotes` is the production reader (#191, 2026-09-29):** one call
+    for the whole watched set, `LiveQuoteSource.fetch_many`, which is one
+    `GET /markets?tickers=` per 100. The per-ticker loop it replaced cost one
+    8/s limiter slot per leg -- 12 legs, a 1,803 ms warm median on live -- on
+    the limiter the hand-bet quote refresh also queues on, so a Buy tap
+    during a `/hedge` read waited behind every leg. The loop's old defence,
+    "bounded by how many tickets one person holds", was 41 open positions on
+    2026-09-21. A failed batch leaves every ticker absent, the answer the
+    loop gave when each read failed.
+
+    Gathering the per-ticker reads was rejected: under the shared limiter it
+    saves ~nothing (the limiter spaces calls 125 ms apart whatever the
+    concurrency) and it queues the Buy tap behind the whole burst.
+
+    `fetch_quote` (one ticker) remains for the callers that hold only a
+    single-market reader -- the tests' fakes -- and runs the old sequential
+    loop. Every production caller passes `fetch_quotes`, and
+    `tests/test_hedge_book_reads.py` pins that they do.
     """
     books: dict[str, MarketBook] = {}
+    if fetch_quotes is not None:
+        if not tickers:
+            return books
+        try:
+            quotes = await fetch_quotes(tickers, observed_ms=now_ms)
+        except Exception as exc:                                # noqa: BLE001
+            # Same answer as a failed single read, for every ticker at once:
+            # no leg has a price this pass. See the loop below.
+            logger.info("no live books for %d tickers: %s", len(tickers), exc)
+            return books
+        for ticker in tickers:
+            quote = quotes.get(ticker)
+            if quote is not None:
+                books[ticker] = MarketBook.from_live_quote(quote)
+        return books
+    if fetch_quote is None:
+        raise TypeError("read_books needs fetch_quotes or fetch_quote")
     for ticker in tickers:
         try:
             quote = await fetch_quote(ticker, observed_ms=now_ms)
@@ -2360,8 +2399,9 @@ async def build_payload(
     now_ms: int,
     max_quote_age_ms: int,
     spendable_tenths: Optional[int],
-    fetch_quote,
+    fetch_quote=None,
     read_combo_book=None,
+    fetch_quotes=None,
 ) -> dict:
     """Every open ticket, its legs' live prices, and what a hedge would do.
 
@@ -2414,8 +2454,13 @@ async def build_payload(
     positions = [
         position_at_basis(p, bases[int(p["id"])]) for p in stored
     ]
+    # `fetch_quotes` (one batched read) is what production passes; see
+    # `read_books` for why `fetch_quote` still exists (#191).
     books = await read_books(
-        watched_tickers(conn), now_ms=now_ms, fetch_quote=fetch_quote
+        watched_tickers(conn),
+        now_ms=now_ms,
+        fetch_quote=fetch_quote,
+        fetch_quotes=fetch_quotes,
     )
     venue_tickers, venue_poll_ms = venue_position_tickers(conn)
     settlements = combo_settlements(

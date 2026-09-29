@@ -84,7 +84,7 @@ def register(
             now_ms=now,
             max_quote_age_ms=staleness.max_kalshi_quote_age_s * 1000,
             spendable_tenths=db.latest_balance_tenths(conn),
-            fetch_quote=live_quotes().fetch,
+            fetch_quotes=live_quotes().fetch_many,
             read_combo_book=read_combo_book,
         )
 
