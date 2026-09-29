@@ -134,7 +134,7 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-29 (seventieth session) — Joe names parlays: sports factors lead (#200, ADR 0189); rest on every leg (#201), a same-game game page (#202) and a matchup scout tile (#210) ship
+## 2026-09-29 (seventieth session) — Joe names parlays: sports factors lead (#200, ADR 0189); rest on every leg (#201), a same-game game page (#202) and a matchup scout tile (#210) ship; automatic game-script cards planned and approved (#213)
 
 Joe named new work, per #196 (C): *"explore making more parlay options, and stronger ones"*, with a generic parlay guide pasted in. Mid-session he redirected: *"the kalshi edge shouldnt be a big determinant here … more about the sports-related factors above all else."* Story **#197** under epic #83 holds all of it. The decision is **ADR 0189**, with a pointer in CLAUDE.md's "What it is for".
 
@@ -187,13 +187,46 @@ Joe named new work, per #196 (C): *"explore making more parlay options, and stro
 - No scout has seen the prompt yet. **The first real matchup notes come from Joe's first tap; read one when it exists** to check that the prohibition held and see what the tile costs in tokens.
 - Deploy and the live check are recorded on #210.
 
+### 6. After the record: two parlays built by hand, then Joe asks for it automated (#212 → story #213)
+
+**NEXT SESSION STARTS HERE:** type `/go`, then do S0 (#214) yourself, then dispatch the lanes in the order below.
+
+**The two hand builds.** "Build me a same-game parlay for Sunday's NFL." Main did it in chat: read Kalshi's single-leg prices, had a sharp-bettor subagent web-research the slate, then minted and asked the makers. **Nothing was accepted.**
+- **GB at TB, Sunday 1pm ET.** GB wins + NO on TB over 17.5. Tampa's rookie QB Jalon Daniels starts because Mayfield has a thumb injury. Best quote 45.6c from 12 makers, `KXMVECROSSCATEGORY-S2026BF18FBFC7CC-C172E47EDEC`.
+- **IND at WAS, in London, 9:30am ET.** The researcher rejected the price-led Colts story because 3 of 4 matchups favour Washington. Joe chose the mirror: WAS wins + NO on IND over 20.5. Best quote 21.5c from 14 makers, `KXMVECROSSCATEGORY-S2026AB099135CE7-465829E81D7`.
+- The combinations shard covers only about $6.95. Joe was told.
+- **Kalshi's `occurrence_datetime` ran 3h late on GB-TB**: 20:00Z against a 1pm ET kickoff. That is the known offset (CLAUDE.md), so take kickoff from a team or NFL source.
+
+**Joe, verbatim:** "I hope you are automating this and i dont have to go into this CLI for you to this much in-depth. the whole point is to add these to may parlay options."
+
+**#212 (A):**
+- A game-script card is built automatically for every game in his sports as it comes within a day of kickoff.
+- `AGENT_MAX_CALLS_PER_DAY` goes from 40 to 100; the tokens stay 1.5M.
+- **Merge and deploy are approved for the whole batch**, including the cap raise: "go ahead, approve the whole batch". That covers no RFQ accept and no spend.
+
+**The partner's design, in story #213 (read it first):**
+- The seat copies `leg_verdict.py`'s shape: one call, at most 3 searches, about 51K tokens by analogue. It is **not** a scout convening, which costs 170K–380K.
+- **The model never sees prices.**
+- No combined or independent figure anywhere (ADR 0189). Main quoted "45.6c vs about 35c independent" to Joe in chat as teaching; it must not become copy.
+- Cards appear in kickoff order only.
+- The unattended builder keeps `SCOUT_AUTO_TAP_TOKEN_SHARE` = 0.5, so cards get about 750K a day.
+- Each game is built once, at T-24h.
+- **Arm the watcher only after one real card's cost is read** from `inspect_live_db.py agent-spend` (`agent='game_script'`).
+
+**The order.** Each is blocked by the one before on GitHub.
+1. **#214 S0 (main):** schema v59 `game_script_cards`, config and `fly.live.toml` (calls to 100, `GAME_SCRIPT_AUTO_ENABLED = "false"`), ADR 0190, the CLAUDE.md budget paragraph.
+2. **#215 S1 (lane):** the seat plus an on-demand "Build card" on `/game`. Deploy it, then build one real card from the page to get the cost reading. That spends about 51K; the batch approval covers it.
+3. **#216 S2 and #217 S3a (lanes, in parallel, after S1):** the card UI on `/game` and `/parlays`, and the watcher's `decide()`.
+4. **#218 S3b (main):** wire into the runner, record the S1 cost in ADR 0190, flip the flag on live, runtime-realist check. Tell Joe when the first automatic cards are live. For Sunday's NFL that is Saturday from about 17:00Z.
+
 ### Still open
 
-1. #210 — matchup tile is live; stays open until the first real matchup note (from Joe's tap) is read: did the prohibition hold, and what did it cost in tokens. #197 closes with it.
-2. #188 — parked. It waits for a loop-lag reading.
-3. #165 — open until a friend actually sends a link (Joe, 2026-09-28).
-4. #169 — parked behind #165.
-5. #151 — collecting. Nothing is owed until the interim look.
+1. #213 — automatic game-script cards (story). Tasks #214 → #215 → #216/#217 → #218, approved to merge and deploy.
+2. #210 — matchup tile is live; stays open until the first real matchup note (from Joe's tap) is read: did the prohibition hold, and what did it cost in tokens. #197 closes with it.
+3. #188 — parked. It waits for a loop-lag reading.
+4. #165 — open until a friend actually sends a link (Joe, 2026-09-28).
+5. #169 — parked behind #165.
+6. #151 — collecting. Nothing is owed until the interim look.
 
 ## 2026-09-29 (sixty-ninth session) — the queue is empty and Joe will name new work (#196, answer C); board.py says so instead of asking for an owner (#195)
 
@@ -1186,7 +1219,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
-- 2026-09-29 (seventieth session) — Joe names parlays: sports factors lead (#200, ADR 0189); rest on every leg (#201), a same-game game page (#202) and a matchup scout tile (#210) ship
+- 2026-09-29 (seventieth session) — Joe names parlays: sports factors lead (#200, ADR 0189); rest on every leg (#201), a same-game game page (#202) and a matchup scout tile (#210) ship; automatic game-script cards planned and approved (#213)
 - 2026-09-29 (sixty-ninth session) — the queue is empty and Joe will name new work (#196, answer C); board.py says so instead of asking for an owner (#195)
 - 2026-09-29 (sixty-eighth session) — `/hedge` 1,803 → 447 ms on one batched venue read (#191); CI tests 9m30s → 5m29s under xdist (#192); the 30 s health-check trial read UNMOVED and reverted, and #193 closes: the stall is outside the machine (§F, §G)
 - 2026-09-28 (sixty-seventh session) — "Would Rust help?" No: ADR 0188 (Accepted; the live box is 1.3% busy), four speed lanes live on `1078389` (#186 #187 #189 #190), and a fixed ~3 s server-side stall found (#193)
