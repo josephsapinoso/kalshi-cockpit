@@ -28,9 +28,12 @@ GET a round against each of three fixed targets, all on loopback:
 
 Three structural properties
 ---------------------------
-**A mutation is unrepresentable.** The one network call is
+**A mutation is unrepresentable.** The fresh-connection call is
 `urllib.request.urlopen(url, timeout=...)` with a bare string and no `data`,
-which the stdlib defines as a GET. No method argument exists anywhere.
+which the stdlib defines as a GET. The `--keepalive` call is
+`conn.request(GET, path)`, where `GET` is a module constant equal to "GET",
+with no body and no headers. Both are pinned by AST tests, so a second
+method or a body cannot be added without a test going red.
 
 **The targets are constants.** No argument or environment variable names a
 URL, a host, a port or a path, so the script cannot be pointed at anything
@@ -45,10 +48,14 @@ What this does not establish
 ----------------------------
 - **Nothing about Fly's edge.** A clean run here says the stall is upstream of
   the machine. It does not say where, and nothing on this box can.
-- **Fresh connections, not pooled ones.** `urlopen` opens a new TCP
-  connection per request. Fly's proxy reuses pooled connections into :3000,
-  so a stall that lives only in connection reuse will not show here. That
-  result would itself point at the reuse path.
+- **Fresh connections, not pooled ones -- unless `--keepalive`.** `urlopen`
+  opens a new TCP connection per request, and a 2026-09-29 run of that mode
+  was clean while public requests stalled. Fly's proxy reuses pooled
+  connections into :3000, so `--keepalive` (#193's last step) holds one
+  HTTP/1.1 connection per port and reuses it, and reports how many it had to
+  open. It reuses at this script's cadence (about one request a second), not
+  at whatever idle times Fly's pool sees, so a clean keep-alive run does not
+  clear reuse after a long idle.
 - **Nothing about load.** One client, sequential, a few requests a second.
 - **Nothing about the cause inside a hop.** It names the hop, not the timer.
 """
@@ -56,11 +63,13 @@ What this does not establish
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import math
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
@@ -72,6 +81,10 @@ TARGETS: tuple[tuple[str, str], ...] = (
 )
 
 TIMEOUT_S = 30.0
+
+# The only method `--keepalive` can send. A constant, so the AST test can pin
+# that every `.request(` call passes exactly this name and nothing else.
+GET = "GET"
 MAX_SECONDS = 900
 MIN_INTERVAL_S = 0.25
 
@@ -94,6 +107,47 @@ def timed_get(url: str, *, opener=urllib.request.urlopen, clock=time.perf_counte
     except (urllib.error.URLError, OSError) as exc:
         status, error = None, type(exc).__name__
     return status, (clock() - started) * 1000, error
+
+
+class KeepAliveGet:
+    """GET over one persistent HTTP/1.1 connection per host:port (#193).
+
+    Same return shape as `timed_get`. A connection the server closes, or one
+    that fails, is dropped and reopened on the next call, and `opens` counts
+    every open so the reading can show reuse actually happened. The URL still
+    comes only from `TARGETS`.
+    """
+
+    def __init__(self, *, connection=http.client.HTTPConnection, clock=time.perf_counter):
+        self._connection = connection
+        self._clock = clock
+        self._conns: dict = {}
+        self.opens = 0
+
+    def __call__(self, url: str):
+        parts = urllib.parse.urlsplit(url)
+        key = (parts.hostname, parts.port)
+        started = self._clock()
+        status: int | None = None
+        error: str | None = None
+        conn = self._conns.get(key)
+        if conn is None:
+            conn = self._connection(parts.hostname, parts.port, timeout=TIMEOUT_S)
+            self._conns[key] = conn
+            self.opens += 1
+        try:
+            conn.request(GET, parts.path)
+            resp = conn.getresponse()
+            resp.read()
+            status = resp.status
+            if resp.will_close:
+                conn.close()
+                self._conns.pop(key, None)
+        except (http.client.HTTPException, OSError) as exc:
+            status, error = None, type(exc).__name__
+            conn.close()
+            self._conns.pop(key, None)
+        return status, (self._clock() - started) * 1000, error
 
 
 def percentile(sorted_ms: list[float], q: float) -> float | None:
@@ -169,13 +223,27 @@ def main(argv=None) -> int:
     parser.add_argument("--interval", type=float, default=1.0, help="seconds between rounds")
     parser.add_argument("--slow-ms", type=float, default=1000.0)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--keepalive", action="store_true",
+        help="reuse one connection per port instead of one per request",
+    )
     args = parser.parse_args(argv)
     if not 0 < args.seconds <= MAX_SECONDS:
         parser.error(f"--seconds must be in (0, {MAX_SECONDS}]")
     if args.interval < MIN_INTERVAL_S:
         parser.error(f"--interval must be at least {MIN_INTERVAL_S}")
-    result = run(args.seconds, args.interval, args.slow_ms)
-    print(json.dumps(result) if args.json else render(result))
+    if args.keepalive:
+        getter = KeepAliveGet()
+        result = run(args.seconds, args.interval, args.slow_ms, get=getter)
+        result["mode"] = "keepalive"
+        result["connections_opened"] = getter.opens
+    else:
+        result = run(args.seconds, args.interval, args.slow_ms)
+        result["mode"] = "fresh"
+    text = render(result)
+    if "connections_opened" in result:
+        text += f"\nconnections opened: {result['connections_opened']}"
+    print(json.dumps(result) if args.json else text)
     return 0
 
 

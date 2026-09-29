@@ -50,7 +50,7 @@ class TestTheTargetsAreFixedLoopback:
                 and node.func.attr == "add_argument"
             ):
                 flags.update(a.value for a in node.args if isinstance(a, ast.Constant))
-        assert flags == {"--seconds", "--interval", "--slow-ms", "--json"}
+        assert flags == {"--seconds", "--interval", "--slow-ms", "--json", "--keepalive"}
 
     def test_no_environment_variable_is_read(self):
         source = SCRIPT.read_text(encoding="utf-8").split('"""', 2)[-1]
@@ -224,3 +224,72 @@ class TestTimedGetIsObservedToBeAGet:
         assert (status, error) == (204, None)
         assert ms >= 0
         assert seen == ["GET"]
+
+
+def _serve(protocol: str, seen: list[str]):
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = protocol
+
+        def do_GET(self):  # noqa: N802
+            seen.append(self.command)
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+class TestKeepAliveReusesOneConnection:
+    """#193's last step: the stall may live only in a reused connection."""
+
+    def test_the_only_request_call_passes_the_get_constant_and_a_path(self):
+        """Mutation: `conn.request("POST", ...)` or a body argument."""
+        assert probe.GET == "GET"
+        calls = [
+            node
+            for node in ast.walk(_module_ast())
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "request"
+        ]
+        assert len(calls) == 1
+        (call,) = calls
+        assert len(call.args) == 2 and not call.keywords
+        assert isinstance(call.args[0], ast.Name) and call.args[0].id == "GET"
+        assert ast.unparse(call.args[1]) == "parts.path"
+
+    def test_five_gets_over_http_1_1_open_one_connection(self):
+        """Mutation: drop the cache of connections -- `opens` becomes 5."""
+        seen: list[str] = []
+        server = _serve("HTTP/1.1", seen)
+        try:
+            get = probe.KeepAliveGet()
+            results = [get(f"http://127.0.0.1:{server.server_port}/x") for _ in range(5)]
+        finally:
+            server.shutdown()
+        assert [(s, e) for s, _, e in results] == [(200, None)] * 5
+        assert get.opens == 1
+        assert seen == ["GET"] * 5
+
+    def test_a_server_that_closes_each_connection_is_reopened_each_time(self):
+        """Mutation: ignore `will_close` -- the second GET errors."""
+        seen: list[str] = []
+        server = _serve("HTTP/1.0", seen)
+        try:
+            get = probe.KeepAliveGet()
+            results = [get(f"http://127.0.0.1:{server.server_port}/x") for _ in range(3)]
+        finally:
+            server.shutdown()
+        assert [(s, e) for s, _, e in results] == [(200, None)] * 3
+        assert get.opens == 3
+
+    def test_main_reports_the_mode_and_the_connections_opened(self, monkeypatch, capsys):
+        monkeypatch.setattr(probe, "run", lambda *a, **k: {"slow": [], "summary": {}})
+        assert probe.main(["--seconds", "1", "--keepalive"]) == 0
+        assert "connections opened: 0" in capsys.readouterr().out
