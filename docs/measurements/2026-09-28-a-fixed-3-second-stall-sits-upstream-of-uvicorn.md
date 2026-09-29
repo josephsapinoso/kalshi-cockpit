@@ -1,6 +1,6 @@
-# A fixed ~3-second stall hits ~1 in 30 live requests, and no process on the machine shows it
+# A fixed ~3-second stall hits ~1 in 30 live requests, and nothing on the machine shows it
 
-**Date:** 2026-09-28 21:51Z to 2026-09-29 03:28Z
+**Date:** 2026-09-28 21:51Z to 2026-09-29 04:43Z
 **Ticket:** #193 (epic #185, ADR 0188 §3 item 0)
 **Prompt:** Found while timing the #186/#187 deploy of `1078389`. Joe said "go ahead with #193".
 **Instruments:**
@@ -19,6 +19,7 @@
 - **It is not route-specific.** It hits `/api/health`, `/api/signal` (a cache hit, which runs no SQL), `/api/window`, and a 404 page that **Next answers without calling the backend**. The middleware verifies the cookie and makes no backend call (`frontend/src/middleware.ts`). The rates across these routes are not distinguishable at these counts.
 - **It sits after the TLS handshake.** On every slow `curl`, DNS was ≤ 6 ms, TCP connect ≤ 46 ms and TLS ≤ 70 ms, and time-to-first-byte was 3.156–3.206 s. So it is on the server side of Fly's edge, not on the laptop's network.
 - **No process on the box stalls (§C).** Over one 10-minute window, 0 of 1,773 fresh loopback requests to uvicorn, Next's proxy and Next alone took over 72 ms. From outside, over the same minutes, 21 of 554 took 3,095–3,178 ms. A stall that froze Next or uvicorn for everyone would have shown up about 20 times per target. That rules out an event-loop block, GC pause or lock inside either process.
+- **The guest kernel shows nothing either (§E).** In a 10-minute window with 13 stalls: 0 retransmitted segments, 0 SYN retransmits, 0 listen drops or overflows, 0 TCP timeouts. That matches a quiet baseline window with no probe running. Fly's proxy reuses pooled connections into the box: 573 extra requests added ~10 passive opens.
 - **The stalls are regular, not random (§C).** No gap between stalls is under 14 s. The short gaps run 14.1–19.1 s, and the mean cycle is 15.6 s. At the observed rate, random arrivals would put about 7 of 20 gaps under 14 s, and 0 did (p ≈ 2e-4).
 
 ## What this does not establish
@@ -80,9 +81,35 @@ The 490 and 699 ms outliers at 03:17:25–03:17:36 came about 35 s after boot, d
 
 **Fly's proxy log.** `flyctl logs` for 03:16:47–03:28:30Z holds 99 app lines, 1 health line and **no proxy error line**. The pooled-connection race, where Fly reuses a connection Next has already closed after its 50 s `keepAliveTimeout`, normally logs one. `flyctl logs` is lossy, so this weakens the race rather than excluding it. Fly's documented proxy retry backoff runs from 5 ms to 1 s, which does not produce a fixed 3 s. That says nothing about a kernel retransmit timer.
 
+## §E — The box's TCP counters, baseline vs probe (live `21c891f`)
+
+`inspect_live_proc.py --json` was read at 04:23:05 (R0), 04:33:09 (R1) and 04:43:17Z (R2). R0→R1 is a quiet baseline. R1→R2 had the external probe running: `/api/health` and a 404 page, one a second.
+
+| counter (guest kernel, box-wide, loopback included) | baseline, 604.1 s | probe, 607.4 s |
+|---|---|---|
+| external requests / stalls (3,096–3,150 ms) | — | 573 / **13** (health 8, 404 page 5) |
+| `Tcp.RetransSegs` | 0 | **0** |
+| `TcpExt.TCPSynRetrans` | 0 | **0** |
+| `TcpExt.ListenDrops` / `ListenOverflows` | 0 / 0 | **0 / 0** |
+| `TcpExt.TCPTimeouts` / `TCPLostRetransmit` / `TCPAbortOnTimeout` | 0 / 0 / 0 | **0 / 0 / 0** |
+| `Tcp.AttemptFails` / `EstabResets` / `InErrs` | 0 / 0 / 0 | 0 / 0 / 0 |
+| `Tcp.PassiveOpens` | 85 | 95 |
+| `Tcp.ActiveOpens` | 46 | 43 |
+| `Tcp.InSegs` / `OutSegs` | 3,732 / 2,445 | 5,523 / 4,863 |
+
+**What it establishes:**
+- **The guest kernel resent nothing, dropped no incoming connection, and hit no TCP timeout** in a window that held 13 stalls. A response lost on its way out would have been resent by the guest and counted in `RetransSegs`. A connection refused at a full listen queue would be counted in `ListenDrops`. Both are zero.
+- **Fly's proxy reuses pooled connections into the box.** 573 extra requests added about 10 passive opens over the baseline. That is not a connection per request. `PassiveOpens` includes loopback and ssh, so the +10 bounds new proxy connections from above.
+
+**What it does not establish:**
+- **A packet lost before it reaches the guest.** A request segment or a SYN dropped upstream is resent by the sender, Fly's side, and the guest's counters never see the first copy. That is the one packet-loss path this box cannot read.
+- **Next's handling of a reused keep-alive connection.** The in-box probe used fresh connections. The kernel counters rule out loss on the guest, not a delay inside Node on a reused socket. No process showed CPU for one (ADR 0188 §B), and a Node delay of a fixed 3 s has no mechanism named here.
+
+**Where this leaves #193:** nothing on the machine shows the stall: not uvicorn, not Next, not the guest kernel. What remains is Fly's side of the connection (its proxy or its host networking) or, less likely, a delay in Node on reused sockets.
+
 ## §D — The next readings, in order
 
-1. **The box's own TCP counters**, read-only, before and after a window with the external probe running: `/proc/net/snmp` (`Tcp: RetransSegs, PassiveOpens, AttemptFails, EstabResets, InErrs`) and `/proc/net/netstat` (`TcpExt: ListenOverflows, ListenDrops, TCPTimeouts, TCPSynRetrans`).
+1. **Done: §E.** The counters were clean in the probe window. The original plan, kept for the record: **the box's own TCP counters**, read-only, before and after a window with the external probe running: `/proc/net/snmp` (`Tcp: RetransSegs, PassiveOpens, AttemptFails, EstabResets, InErrs`) and `/proc/net/netstat` (`TcpExt: ListenOverflows, ListenDrops, TCPTimeouts, TCPSynRetrans`).
    - If retransmits or listen drops rise by about the number of stalls, the 3 s is a lost packet at the machine's edge.
    - `PassiveOpens` against the request count shows whether Fly opens a fresh connection per request or reuses them.
    - No config change is involved: these are `/proc` text files, the same class `inspect_live_proc.py` already reads.
