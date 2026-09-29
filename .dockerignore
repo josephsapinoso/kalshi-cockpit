@@ -157,6 +157,9 @@ scripts/*
 # once; imports `inspect_live_db_common`, which the glob above ships.
 !scripts/census_recorded_fill_vs_venue.py
 !scripts/fetch_live_route.py
+# #193: times uvicorn, Next's proxy and Next alone over loopback, to find which
+# hop carries the fixed ~3 s stall. GET-only, fixed targets, invoked by path.
+!scripts/probe_loopback_latency.py
 !scripts/dry_run_fair_price_downsample.py
 !scripts/odds_prune_dry_run.py
 # Added 2026-09-07, and it is the FIFTH failure of this allowlist rather than a
