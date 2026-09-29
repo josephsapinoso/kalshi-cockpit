@@ -165,3 +165,25 @@ The trial is the one §D(2) named. `14af8f7` moved `[checks.health]` from 15s to
 **What happens next, under the stop-loss:**
 1. `fly.live.toml` goes back to `interval = "15s"`, deployed with #191.
 2. The one remaining step is a keep-alive mode for `scripts/probe_loopback_latency.py`: reuse one connection per target in-box for 10 minutes. If a reused socket into Next stalls in-box, the cause is Next's keep-alive handling, which the image controls. If it stays clean, the 3 s is added outside the machine. Naming Fly rather than the client's path needs one probe from a second client on another network in the same window. Without it, #193 closes as "outside the machine", not "Fly's side". The second client is `.github/workflows/probe.yml`: the same committed probe, run from a GitHub-hosted runner in the same window as the in-box keep-alive run and the laptop.
+
+## §G — The last step: a reused connection in-box, and a second client (rule fixed before the reading)
+
+**Why this is last.** Under the stop-loss, #193 closes after this window, naming whatever hop it points to.
+
+**The window:**
+- 10 minutes, at least 10 minutes after the deploy that ships `e02f5c6` (the keep-alive mode) boots the box. Live runs a 15s check again.
+- Three probes run at once:
+  1. **In-box:** `scripts/probe_loopback_latency.py --keepalive --seconds 600`, one persistent HTTP/1.1 connection per port, run by path over ssh.
+  2. **Laptop:** `scripts/probe_public_latency.py`, live only, 600 s, keep-alive (the §F instrument).
+  3. **Second client:** `.github/workflows/probe.yml` with `seconds=600`, the same probe from a GitHub-hosted runner on live and demo.
+
+**The rules:**
+- **The in-box probe decides "ours or not ours".**
+  - **Ours:** at least 3 answers of 2,900 ms or more on `next-proxy` or `next-only`, with `connections opened` well under the request count, while the laptop arm stalls. That puts the stall in Next's handling of reused connections, which the image controls. #193 becomes a fix ticket.
+  - **Not ours:** 0 answers of 2,900 ms or more on any target, while the laptop arm shows at least 5 stalls. The 3 s is added outside the machine.
+  - **Inconclusive:** anything else, including a laptop arm with fewer than 5 stalls, because then the window had no stall to explain.
+- **The second client names the side, not whether it is ours.**
+  - **Server side:** the runner's live arm shows at least 5 stalls of 2,900–3,400 ms. Then the laptop's network path is not the cause, and the 3 s is on Fly's side.
+  - **Client side:** 0 stalls in 400 or more runner requests on each arm, while the laptop shows at least 5. The laptop's path is implicated.
+  - **Unnamed:** anything else, or the runner not running. #193 closes as "outside the machine", with no side named.
+- If the ssh run or the workflow dispatch is refused, the reading goes ahead with what ran. The missing arm's clause is recorded as not taken.
