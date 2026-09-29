@@ -362,6 +362,13 @@ MUST_HAVE_CALLERS = [
         "whole daily Opus cap in 4m22s guarding a decision nobody makes "
         "(ADR 0062 SS3)",
     ),
+    (
+        "watch_game_scripts_forever",
+        "Joe's (A) to #212 is that cards appear with no tap: a watcher nothing "
+        "starts leaves every game without a card while the flag reads true "
+        "and the tap path keeps working, so nothing on screen says it is "
+        "missing (#217, ADR 0190)",
+    ),
 ]
 
 # Two symbols are deliberately NOT above, and it is worth saying why rather than

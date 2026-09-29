@@ -92,6 +92,7 @@ from backend.config import (  # noqa: E402
     OddsConfig,
     RiskConfig,
     ScoutAutoConfig,
+    GameScriptConfig,
     StalenessConfig,
     assert_kalshi_quote_age_limits_agree,
     assert_odds_age_limits_agree,
@@ -124,6 +125,8 @@ from backend.bid_watch import watch_bids_forever  # noqa: E402
 from backend.hedge_watch import watch_hedges_forever  # noqa: E402
 from backend.kalshi.quotes import LiveQuoteSource  # noqa: E402
 from backend.scout_watch import watch_scouts_forever  # noqa: E402
+from backend.game_script_watch import watch_game_scripts_forever  # noqa: E402
+from backend.api.routers.game import build_card_for_game  # noqa: E402
 from backend.runner import run_once, run_quote_pass  # noqa: E402
 from backend.scheduler import (  # noqa: E402
     DEFAULT_FAST_INTERVAL_S,
@@ -1192,6 +1195,36 @@ async def main() -> int:
             name="scout-watch",
         )
 
+        # The game-script watcher (#217, ADR 0190): one card per game in Joe's
+        # sports as it comes within GAME_SCRIPT_LEAD_HOURS of kickoff, inside
+        # the unattended token share. Unattended spend, so it ships behind
+        # `GAME_SCRIPT_AUTO_ENABLED` (default false; live stays false until one
+        # real card's cost is read, #218). Every build goes through
+        # `build_card_for_game`, the tap's own path, so it reuses a card the
+        # game already has and bills through the allowlisted `build_client`.
+        game_script_config = GameScriptConfig.load()
+
+        async def _build_game_card(ticker, agent_config):
+            return await build_card_for_game(
+                args.db,
+                ticker,
+                api=kalshi,
+                agent_config=agent_config,
+                max_odds_age_ms=staleness.max_odds_age_s * 1000,
+            )
+
+        game_script_task = asyncio.create_task(
+            watch_game_scripts_forever(
+                args.db,
+                AgentConfig.from_env,
+                _build_game_card,
+                enabled=game_script_config.enabled,
+                lead_hours=game_script_config.lead_hours,
+                tap_token_share=scout_auto_config.tap_token_share,
+            ),
+            name="game-script-watch",
+        )
+
         def window_now():
             """The window as of *this instant*, from one expression.
 
@@ -1690,6 +1723,9 @@ async def main() -> int:
             scout_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await scout_task
+            game_script_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await game_script_task
             await hedge_quotes.aclose()
             log.info(
                 "loop state at exit: %s tempo: %s", state.as_dict(), tempo.as_dict()

@@ -42,6 +42,98 @@ from ...store import db, game_script_cards
 _CARD_BUILD_LOCK = asyncio.Lock()
 
 
+class NoKickoffOnRecord(Exception):
+    """The desk has no kickoff for this game, so no card can be filed. Nothing
+    was spent."""
+
+
+async def build_card_for_game(
+    db_path,
+    event_ticker: str,
+    *,
+    api,
+    agent_config: AgentConfig,
+    max_odds_age_ms: int,
+    client=None,
+) -> dict:
+    """Build one game's card, or return the one it already has (#215, #217).
+
+    **The one build path.** Joe's tap (`POST /api/game/{event}/card`) and the
+    unattended watcher (`backend/game_script_watch.py`) both come through
+    here, so both take `_CARD_BUILD_LOCK` and both reuse a `built` or
+    `skipped` card rather than paying for a second. The lock is per process:
+    the watcher runs in the loop process and the tap in the API process, so a
+    tap and a watcher build of the SAME game in the same minute can both pay.
+    The watcher builds at T-24h and the reuse check catches every later tap,
+    so that overlap is one card's cost at worst, and it is stated, not fixed.
+
+    `client` is for tests. `None`, what production passes, means this
+    module's own literal `build_client(agent_config)`, the allowlisted site.
+
+    Raises `LookupRefused` (not a game ticker, or the venue refused the
+    listing) and `NoKickoffOnRecord`; neither spends anything.
+    """
+    parse_game_ticker(event_ticker)
+    async with _CARD_BUILD_LOCK:
+        write_conn = db.open_db(db_path)
+        try:
+            now = db.now_ms()
+            held = game_script_cards.latest_for_game(
+                write_conn, event_ticker.strip().upper(),
+                statuses=("built", "skipped"),
+            )
+            if held is not None:
+                return {"card": held, "reused": True}
+            listing = await list_game_legs(
+                write_conn,
+                game_event_ticker=event_ticker,
+                now_ms=now,
+                max_odds_age_ms=max_odds_age_ms,
+                api=api,
+            )
+            game_market = listing.get("game_market_ticker")
+            kickoff_ms = (
+                _commence_ms_for_tickers(write_conn, [game_market]).get(game_market)
+                if game_market else None
+            )
+            if kickoff_ms is None:
+                raise NoKickoffOnRecord(
+                    "The desk has no kickoff on record for this game, so a "
+                    "card cannot be filed against it. Nothing was spent."
+                )
+            game_title = next(
+                (
+                    leg["title"]
+                    for group in listing["groups"]
+                    if group["kind"] == "GAME"
+                    for leg in group["legs"]
+                ),
+                listing["game_event_ticker"],
+            )
+            budget = AgentBudget.from_config(write_conn, agent_config)
+            result = await build_card(
+                write_conn,
+                client if client is not None else build_client(agent_config),
+                agent_config,
+                budget,
+                game_event_ticker=listing["game_event_ticker"],
+                sport_key=game_script_cards.sport_key_for(listing["game_event_ticker"]),
+                kickoff_ms=kickoff_ms,
+                game_title=game_title,
+                kickoff_iso=datetime.fromtimestamp(
+                    kickoff_ms / 1000, tz=timezone.utc
+                ).strftime("%Y-%m-%dT%H:%MZ"),
+                listing=listing,
+                now_ms=now,
+            )
+            return {
+                "card": game_script_cards.card_by_id(write_conn, result.card_id),
+                "reused": False,
+            }
+        finally:
+            write_conn.close()
+
+
 #: The line every card carries about news that lands after it is built.
 INACTIVES_LINE = (
     "Inactives come out 90 minutes before kickoff and are not covered."
@@ -311,73 +403,16 @@ def register(
             )
         api = _api()
         try:
-            parse_game_ticker(event_ticker)
+            return await build_card_for_game(
+                app_config.db_path,
+                event_ticker,
+                api=api,
+                agent_config=agent_config,
+                max_odds_age_ms=staleness.max_odds_age_s * 1000,
+            )
         except LookupRefused as exc:
             raise HTTPException(
                 status_code=exc.status_code, detail=exc.detail
             ) from exc
-        async with _CARD_BUILD_LOCK:
-            write_conn = db.open_db(app_config.db_path)
-            try:
-                now = db.now_ms()
-                held = game_script_cards.latest_for_game(
-                    write_conn, event_ticker.strip().upper(),
-                    statuses=("built", "skipped"),
-                )
-                if held is not None:
-                    return {"card": held, "reused": True}
-                try:
-                    listing = await list_game_legs(
-                        write_conn,
-                        game_event_ticker=event_ticker,
-                        now_ms=now,
-                        max_odds_age_ms=staleness.max_odds_age_s * 1000,
-                        api=api,
-                    )
-                except LookupRefused as exc:
-                    raise HTTPException(
-                        status_code=exc.status_code, detail=exc.detail
-                    ) from exc
-                game_market = listing.get("game_market_ticker")
-                kickoff_ms = (
-                    _commence_ms_for_tickers(write_conn, [game_market]).get(game_market)
-                    if game_market else None
-                )
-                if kickoff_ms is None:
-                    raise HTTPException(
-                        status_code=409,
-                        detail="The desk has no kickoff on record for this game, "
-                               "so a card cannot be filed against it. Nothing "
-                               "was spent.",
-                    )
-                game_title = next(
-                    (
-                        leg["title"]
-                        for group in listing["groups"]
-                        if group["kind"] == "GAME"
-                        for leg in group["legs"]
-                    ),
-                    listing["game_event_ticker"],
-                )
-                budget = AgentBudget.from_config(write_conn, agent_config)
-                result = await build_card(
-                    write_conn,
-                    build_client(agent_config),
-                    agent_config,
-                    budget,
-                    game_event_ticker=listing["game_event_ticker"],
-                    sport_key=game_script_cards.sport_key_for(listing["game_event_ticker"]),
-                    kickoff_ms=kickoff_ms,
-                    game_title=game_title,
-                    kickoff_iso=datetime.fromtimestamp(
-                        kickoff_ms / 1000, tz=timezone.utc
-                    ).strftime("%Y-%m-%dT%H:%MZ"),
-                    listing=listing,
-                    now_ms=now,
-                )
-                return {
-                    "card": game_script_cards.card_by_id(write_conn, result.card_id),
-                    "reused": False,
-                }
-            finally:
-                write_conn.close()
+        except NoKickoffOnRecord as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
