@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { listFilterQuery, type ListFilter } from "@/lib/api";
+import { withKept } from "@/lib/parlaysView";
 import { leagueLabel } from "@/lib/leagueLabel";
 
 /**
@@ -71,7 +72,10 @@ export default function FilterBar({
   pathname,
   filter,
   note,
+  keep = null,
 }: {
+  /** A query fragment every chip carries, e.g. `view=cards` (#221). */
+  keep?: string | null;
   /** The page's own path, so each chip links back to the same screen. */
   pathname: string;
   /** The cut currently applied, as read from the URL. */
@@ -83,6 +87,9 @@ export default function FilterBar({
    */
   note?: string | null;
 }) {
+  // A chip stays inside the view it is drawn in (`/parlays?view=cards`),
+  // or a tap would fall back to the page's default section.
+  const link = (query: string) => withKept(`${pathname}${query}`, keep);
   const active = filter.league !== null || filter.withinHours !== null;
   const summary = [
     filter.league === null ? "All leagues" : leagueLabel(filter.league),
@@ -95,7 +102,7 @@ export default function FilterBar({
     <div className="flex flex-col gap-2">
       <Group label="League">
         <Chip
-          href={`${pathname}${listFilterQuery({ ...filter, league: null })}`}
+          href={link(listFilterQuery({ ...filter, league: null }))}
           active={filter.league === null}
         >
           All
@@ -103,7 +110,7 @@ export default function FilterBar({
         {LEAGUES.map((key) => (
           <Chip
             key={key}
-            href={`${pathname}${listFilterQuery({ ...filter, league: key })}`}
+            href={link(listFilterQuery({ ...filter, league: key }))}
             active={filter.league === key}
           >
             {leagueLabel(key)}
@@ -114,14 +121,14 @@ export default function FilterBar({
             accepted it by the time this renders (a refused value is a 422
             and the page draws that instead). */}
         {filter.league !== null && !LEAGUES.includes(filter.league) && (
-          <Chip href={`${pathname}${listFilterQuery(filter)}`} active>
+          <Chip href={link(listFilterQuery(filter))} active>
             {leagueLabel(filter.league)}
           </Chip>
         )}
       </Group>
       <Group label="Starts within">
         <Chip
-          href={`${pathname}${listFilterQuery({ ...filter, withinHours: null })}`}
+          href={link(listFilterQuery({ ...filter, withinHours: null }))}
           active={filter.withinHours === null}
         >
           Any time
@@ -129,7 +136,7 @@ export default function FilterBar({
         {WINDOW_HOURS.map((h) => (
           <Chip
             key={h}
-            href={`${pathname}${listFilterQuery({ ...filter, withinHours: String(h) })}`}
+            href={link(listFilterQuery({ ...filter, withinHours: String(h) }))}
             active={filter.withinHours === String(h)}
           >
             {h}h
@@ -137,7 +144,7 @@ export default function FilterBar({
         ))}
         {filter.withinHours !== null &&
           !WINDOW_HOURS.map(String).includes(filter.withinHours) && (
-            <Chip href={`${pathname}${listFilterQuery(filter)}`} active>
+            <Chip href={link(listFilterQuery(filter))} active>
               {filter.withinHours}h
             </Chip>
           )}
@@ -146,7 +153,7 @@ export default function FilterBar({
         <p className="text-xs text-muted">
           {note ? `${note} ` : ""}
           <Link
-            href={pathname}
+            href={link("")}
             prefetch={false}
             className="font-semibold text-foreground hover:underline"
           >

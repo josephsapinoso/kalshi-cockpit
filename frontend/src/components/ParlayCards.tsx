@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import {
-  DISPLAY_TIME_ZONE,
+  displayZoneLabel,
   fetchScoutOverview,
   fetchWindow,
   formatAge,
   formatDuration,
+  formatKickoff,
   requestLegVerdicts,
 } from "@/lib/api";
 import { HEARTBEAT_INTERVAL_MS } from "@/lib/nextOddsWindow";
@@ -276,7 +277,7 @@ function Card({
                 key={leg.ticker}
                 className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-2"
               >
-                <span className="tabular w-11 shrink-0 font-mono text-xs text-muted">
+                <span className="tabular shrink-0 whitespace-nowrap font-mono text-xs text-muted">
                   {kickoff(leg.commence_ms)}
                 </span>
                 <LeagueTag league={leg.league} />
@@ -1374,15 +1375,12 @@ const EXCLUSION_WORDS: Record<string, string> = {
   total_no_kalshi_rung: "game totals with no matching Kalshi rung",
 };
 
-/** Pacific, matching the slate rows' kickoff column. */
+/** Weekday, time and zone, in the desk's zone (#221). It was a bare 24-hour
+ * "HH:MM", which on a screen that lists tomorrow's games beside tonight's
+ * does not say which day a pick is. `null` says so in words. */
 function kickoff(ms: number | null): string {
-  if (ms === null) return "--:--";
-  return new Date(ms).toLocaleTimeString("en-US", {
-    timeZone: DISPLAY_TIME_ZONE,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  if (ms === null) return "time unknown";
+  return `${formatKickoff(ms)} ${displayZoneLabel(ms)}`;
 }
 
 /** " O " on a YES leg, " U " on a NO leg -- the over/under of its line. */

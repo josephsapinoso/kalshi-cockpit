@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
   buildGameCard,
+  DISPLAY_TIME_ZONE,
   displayZoneLabel,
   fetchGameCards,
   formatKickoff,
@@ -16,6 +17,7 @@ import {
 import AskTheMarket from "@/components/AskTheMarket";
 import Term from "@/components/Term";
 import { Button, SectionLabel } from "@/components/ui";
+import { leagueLabel } from "@/lib/leagueLabel";
 
 /**
  * The game-script card (#216, ADR 0190): one game, a short story, two or
@@ -105,35 +107,50 @@ export default function GameScriptCard({
   return (
     <article className="rounded-xl border border-border bg-card p-4">
       {heading && <GameHeading card={card} />}
-      <SectionLabel>
-        <Term k="game_script_card">Game-script card</Term>
-      </SectionLabel>
-      <p className="mt-2 max-w-[65ch] text-sm leading-relaxed">{card.story}</p>
 
-      <ul className="mt-3 divide-y divide-border">
+      {/* The compact face (#221): one line per pick and nothing that needs a
+          scroll. Every leg row carries the game's kickoff, because a pick
+          with no time on it is a pick you cannot place in the day. */}
+      <ul className="divide-y divide-border">
         {card.legs.map((leg) => (
-          <LegRow key={`${leg.market_ticker}-${leg.side}`} leg={leg} />
+          <LegRow
+            key={`${leg.market_ticker}-${leg.side}`}
+            leg={leg}
+            kickoffMs={card.kickoff_ms}
+          />
         ))}
       </ul>
-      {card.dropped_legs.length > 0 && (
-        <p className="mt-2 max-w-[65ch] text-xs text-muted">
-          {DROPPED_WIN_LINE}
-        </p>
-      )}
       <p className="mt-2 max-w-[65ch] text-xs text-muted">
         {NO_COMBINED_CHANCE_LINE}
       </p>
 
-      <p className="mt-3 max-w-[65ch] text-sm">
-        <span className="font-semibold">
-          <Term k="drop_if">Drop it if</Term>:
-        </span>{" "}
-        {card.drop_if}
-      </p>
-      <p className="mt-1 max-w-[65ch] text-xs text-muted">
-        <Term k="inactives">Inactives</Term> come out 90 minutes before
-        kickoff and are not covered.
-      </p>
+      {/* The reasoning, one tap away rather than in the way. */}
+      <details className="mt-3 rounded border border-border p-3">
+        <summary className="min-h-[36px] cursor-pointer text-sm font-semibold">
+          Why this card
+        </summary>
+        <SectionLabel>
+          <Term k="game_script_card">Game-script card</Term>
+        </SectionLabel>
+        <p className="mt-2 max-w-[65ch] text-sm leading-relaxed">
+          {card.story}
+        </p>
+        {card.dropped_legs.length > 0 && (
+          <p className="mt-2 max-w-[65ch] text-xs text-muted">
+            {DROPPED_WIN_LINE}
+          </p>
+        )}
+        <p className="mt-3 max-w-[65ch] text-sm">
+          <span className="font-semibold">
+            <Term k="drop_if">Drop it if</Term>:
+          </span>{" "}
+          {card.drop_if}
+        </p>
+        <p className="mt-1 max-w-[65ch] text-xs text-muted">
+          <Term k="inactives">Inactives</Term> come out 90 minutes before
+          kickoff and are not covered.
+        </p>
+      </details>
 
       <div className="mt-3">
         <Button
@@ -163,21 +180,30 @@ export default function GameScriptCard({
 
 function GameHeading({ card }: { card: CardData }) {
   return (
-    <div className="mb-3">
+    <div className="mb-2">
       <Link
         href={`/game/${encodeURIComponent(card.game_event_ticker)}`}
-        className="font-mono text-xs text-accent underline-offset-4 hover:underline"
+        className="font-mono text-sm text-accent underline-offset-4 hover:underline"
       >
         {card.game_title ?? fixtureOf(card.game_event_ticker)}
       </Link>
-      <span className="ml-2 text-xs text-muted">
-        kickoff {kickoffText(card.kickoff_ms)}
-      </span>
+      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted">
+        <span className="tabular">kickoff {kickoffText(card.kickoff_ms)}</span>
+        <span className="rounded border border-border px-1 font-mono text-[0.65rem] uppercase tracking-wide">
+          {leagueLabel(card.sport_key)}
+        </span>
+      </p>
     </div>
   );
 }
 
-function LegRow({ leg }: { leg: GameScriptLeg }) {
+function LegRow({
+  leg,
+  kickoffMs,
+}: {
+  leg: GameScriptLeg;
+  kickoffMs: number;
+}) {
   return (
     <li className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2">
       <span className="min-w-0 text-sm">
@@ -190,6 +216,7 @@ function LegRow({ leg }: { leg: GameScriptLeg }) {
         ) : null}
       </span>
       <span className="tabular text-xs text-muted">
+        {kickoffText(kickoffMs)} ·{" "}
         {leg.ask_display !== null ? (
           <>Kalshi ask {leg.ask_display}</>
         ) : (
@@ -288,6 +315,110 @@ export function GameCardPanel({ eventTicker }: { eventTicker: string }) {
   );
 }
 
+type DayChoice = "today" | "tomorrow" | "all";
+
+/** The calendar day of a moment in the desk's own zone, as `YYYY-MM-DD`. */
+function dayKey(ms: number): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: DISPLAY_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(ms));
+}
+
+/** The calendar day after `key`, by date arithmetic rather than by adding 24
+ * hours, so a daylight-saving night cannot skip or repeat a day. */
+function nextDayKey(key: string): string {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+}
+
+/** Day and league chips over the list. They cut it; they never order it. */
+function ListFilters({
+  day,
+  onDay,
+  league,
+  onLeague,
+  leagues,
+}: {
+  day: DayChoice;
+  onDay: (next: DayChoice) => void;
+  league: string | null;
+  onLeague: (next: string | null) => void;
+  leagues: string[];
+}) {
+  const days: { key: DayChoice; label: string }[] = [
+    { key: "today", label: "Today" },
+    { key: "tomorrow", label: "Tomorrow" },
+    { key: "all", label: "All" },
+  ];
+  return (
+    <div className="mt-4 flex flex-col gap-2">
+      <div
+        role="group"
+        aria-label="Day"
+        className="flex flex-wrap items-center gap-1.5"
+      >
+        {days.map((choice) => (
+          <FilterChip
+            key={choice.key}
+            active={day === choice.key}
+            onClick={() => onDay(choice.key)}
+          >
+            {choice.label}
+          </FilterChip>
+        ))}
+      </div>
+      {leagues.length > 1 && (
+        <div
+          role="group"
+          aria-label="League"
+          className="flex flex-wrap items-center gap-1.5"
+        >
+          <FilterChip active={league === null} onClick={() => onLeague(null)}>
+            All leagues
+          </FilterChip>
+          {leagues.map((key) => (
+            <FilterChip
+              key={key}
+              active={league === key}
+              onClick={() => onLeague(key)}
+            >
+              {leagueLabel(key)}
+            </FilterChip>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex min-h-[40px] items-center rounded-full border px-3 text-sm transition-colors ${
+        active
+          ? "border-foreground font-semibold text-foreground"
+          : "border-border text-muted"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 /**
  * The "Game-script parlays" section on `/parlays`: every stored card for an
  * upcoming game, in the kickoff order the server returns. Read on the client
@@ -296,6 +427,26 @@ export function GameCardPanel({ eventTicker }: { eventTicker: string }) {
 export function GameScriptParlays() {
   const [data, setData] = useState<GameScriptCards | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [day, setDay] = useState<DayChoice>("all");
+  const [league, setLeague] = useState<string | null>(null);
+
+  const cards = data?.cards ?? [];
+  const todayKey = dayKey(data?.now_ms ?? 0);
+  const tomorrowKey = nextDayKey(todayKey);
+  const matches = (card: CardData): boolean => {
+    const key = dayKey(card.kickoff_ms);
+    const dayOk =
+      day === "all" ||
+      (day === "today" && key === todayKey) ||
+      (day === "tomorrow" && key === tomorrowKey);
+    return dayOk && (league === null || card.sport_key === league);
+  };
+  const shownCount = cards.filter(matches).length;
+  const hiddenCount = cards.length - shownCount;
+  // The leagues on the list, in the order the list first meets them.
+  const leaguesPresent = cards
+    .map((card) => card.sport_key)
+    .filter((key, index, all) => all.indexOf(key) === index);
 
   useEffect(() => {
     let live = true;
@@ -312,7 +463,7 @@ export function GameScriptParlays() {
   }, []);
 
   return (
-    <section aria-label="Game-script parlays" className="mt-10">
+    <section aria-label="Game-script parlays" className="mt-4">
       <h2 className="display text-2xl sm:text-3xl">Game-script parlays</h2>
       <p className="mt-2 max-w-[65ch] text-sm leading-relaxed text-muted">
         One short story per game with two or three{" "}
@@ -335,13 +486,37 @@ export function GameScriptParlays() {
         </p>
       )}
       {data && data.cards.length > 0 && (
-        <ul className="mt-4 space-y-4">
-          {data.cards.map((card) => (
-            <li key={card.id}>
-              <GameScriptCard card={card} heading />
-            </li>
-          ))}
-        </ul>
+        <>
+          <ListFilters
+            day={day}
+            onDay={setDay}
+            league={league}
+            onLeague={setLeague}
+            leagues={leaguesPresent}
+          />
+          <p className="mt-2 text-xs text-muted" aria-live="polite">
+            {hiddenCount > 0
+              ? `${hiddenCount} ${hiddenCount === 1 ? "game" : "games"} hidden by this filter.`
+              : "Every game the desk has a card for is shown."}
+          </p>
+          {shownCount === 0 && (
+            <p className="mt-3 max-w-[65ch] text-sm text-muted">
+              No game matches this filter. Choose All to see every game.
+            </p>
+          )}
+          {/* The filter is a test per card inside the map, so the list keeps
+              the server's kickoff order by construction: nothing is sorted,
+              reversed or rebuilt (ADR 0071). Two columns from md up. */}
+          <ul className="mt-4 grid gap-4 md:grid-cols-2">
+            {data.cards.map((card) =>
+              matches(card) ? (
+                <li key={card.id}>
+                  <GameScriptCard card={card} heading />
+                </li>
+              ) : null,
+            )}
+          </ul>
+        </>
       )}
     </section>
   );

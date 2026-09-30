@@ -6,7 +6,10 @@ import {
   fetchWindow,
   readListFilter,
   type ParlayHorizon,
+  type ParlayLadder,
 } from "@/lib/api";
+import { readParlaysView } from "@/lib/parlaysView";
+import ParlaysViewSwitch from "@/components/ParlaysViewSwitch";
 import FilterBar from "@/components/FilterBar";
 import WindowPicker from "@/components/WindowPicker";
 import ParlayCards from "@/components/ParlayCards";
@@ -41,9 +44,14 @@ export default async function ParlaysPage({
     league?: string;
     within_hours?: string;
     horizon?: string;
+    view?: string;
   }>;
 }) {
   const params = await searchParams;
+  // Which of the three sections is drawn (#221). Every fetch below stays
+  // unconditional and in parallel; only what RENDERS is switched, so the
+  // page still costs its slowest call and a view change is a plain link.
+  const view = readParlaysView(params.view);
   // The #15 cut, from the URL to the request unvalidated: the server is the
   // one validator, and its refusal is drawn below as its own fact.
   const filter = readListFilter(params);
@@ -58,30 +66,19 @@ export default async function ParlaysPage({
   // null)`: a failed secondary read degrades in words, the slate's pattern.
   const actionablePromise = fetchWindow().catch(() => null);
   const refreshablePromise = fetchRefreshable().catch(() => null);
-  let ladder;
+  // A failed ladder read belongs to the CARDS view only (#221): the game
+  // scripts and the check box do not read it, so they still draw. `null`
+  // plus one of the two flags is what the cards view renders in words.
+  let ladder: ParlayLadder | null = null;
+  let ladderRefused = false;
   try {
     ladder = await fetchParlays(filter, horizon);
   } catch (error) {
     if (error instanceof ApiError && error.status === 422) {
-      return (
-        <Shell>
-          <h1 className="display text-4xl sm:text-5xl">Parlay desk</h1>
-          <FilterBar pathname="/parlays" filter={filter} />
-          <p className="mt-6 max-w-[65ch] text-sm text-accent-2">
-            That cut is not one this desk carries: the league or the window in
-            the address was refused, so no cards are drawn rather than the
-            whole desk under a heading that says it was cut.
-          </p>
-        </Shell>
-      );
+      ladderRefused = true;
     }
-    return (
-      <Shell>
-        <p className="max-w-[65ch] text-muted">Backend unreachable.</p>
-      </Shell>
-    );
   }
-  const hidden = ladder.filter?.hidden ?? 0;
+  const hidden = ladder?.filter?.hidden ?? 0;
 
   // The timetable, caught to `null` rather than thrown — the slate's pattern
   // at `app/slate/page.tsx`. The ladder is this page's subject and these two
@@ -93,7 +90,7 @@ export default async function ParlaysPage({
 
   return (
     <Shell>
-      <header className="mb-8">
+      <header className="mb-4">
         <h1 className="display text-4xl sm:text-5xl">Parlay desk</h1>
         <p className="mt-3 max-w-[65ch] text-sm leading-relaxed text-muted">
           {/*
@@ -155,17 +152,32 @@ export default async function ParlaysPage({
           imply rather than at what Kalshi charges — a card pays only if every
           pick on it wins, and selling one back before the outcome usually
           costs more than holding it.{" "}
-          {ladder.notes.chance}
+          {ladder?.notes.chance}
         </p>
       </header>
+      {/* One section at a time (#221): the phone was a long scroll of all
+          three. Below the header so the ratified lede stays first. */}
+      <ParlaysViewSwitch view={view} params={params} />
       {/* Below the header, above the ladder (#165, #167): a friend's parlay
           is not one of the six cuts below, so it gets its own box rather
           than trying to fit into one. */}
-      <CheckAParlay />
+      {view === "check" && <CheckAParlay />}
       {/* Stored game-script cards (#216), in kickoff order and no other
           (ADR 0071). Read on the client: the asks behind it are live venue
           reads and must not hold this page up. */}
-      <GameScriptParlays />
+      {view === "scripts" && <GameScriptParlays />}
+      {view === "cards" && ladder === null && (
+        <>
+          <FilterBar pathname="/parlays" filter={filter} keep="view=cards" />
+          <p className="mt-6 max-w-[65ch] text-sm text-accent-2">
+            {ladderRefused
+              ? "That cut is not one this desk carries: the league or the window in the address was refused, so no cards are drawn rather than the whole desk under a heading that says it was cut."
+              : "Backend unreachable."}
+          </p>
+        </>
+      )}
+      {view === "cards" && ladder !== null && (
+        <>
       {/* The #15 cut, on the pool the six cards are built from. The count is
           candidate sides the cut removed, as the server counts them -- not
           the engine's own refusals, which `ParlayCards` still lists by
@@ -174,6 +186,7 @@ export default async function ParlaysPage({
       <FilterBar
         pathname="/parlays"
         filter={filter}
+        keep="view=cards"
         note={
           hidden > 0
             ? `${hidden} ${hidden === 1 ? "side" : "sides"} left out of the pool by this cut.`
@@ -186,7 +199,7 @@ export default async function ParlaysPage({
         how far ahead" -- and the window's sentence lands immediately above
         the cards it describes.
       */}
-      <WindowPicker window={ladder.window} filter={filter} />
+      <WindowPicker window={ladder.window} filter={filter} keep="view=cards" />
       <ParlayCards
         ladder={ladder}
         actionable={actionable}
@@ -203,15 +216,17 @@ export default async function ParlaysPage({
         <summary className="cursor-pointer text-sm font-semibold">
           Refresh the odds
         </summary>
-        <RefreshOddsPanel actionable={actionable} filter={filter} pathname="/parlays" />
+        <RefreshOddsPanel actionable={actionable} filter={filter} pathname="/parlays" keep="view=cards" />
       </details>
+        </>
+      )}
     </Shell>
   );
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className={`${SHELL_WIDTH} px-4 py-12 sm:px-6 sm:py-16 xl:px-8`}>
+    <div className={`${SHELL_WIDTH} px-4 py-8 sm:px-6 sm:py-16 xl:px-8`}>
       {children}
     </div>
   );
