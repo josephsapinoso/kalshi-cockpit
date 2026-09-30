@@ -116,6 +116,19 @@ export default function SignalStrip({
             </code>
             .
           </>
+        ) : clusters_remaining === 0 ? (
+          <>
+            {/*
+              The floor is reached but section A4's leave-one-group-out
+              downgrade fired (#227): the parts disagreed, so this is NOT a
+              declaring verdict. `may_declare` is false here by construction.
+            */}
+            The record has reached the registered floor of {clusters_to_declare}{" "}
+            games, but removing one pre-registered group moved the answer, so
+            the verdict was lowered and is{" "}
+            <strong className="font-semibold text-foreground">not a declaring one</strong>.
+            The downgrade is named below.
+          </>
         ) : (
           <>
             {/*
