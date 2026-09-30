@@ -165,7 +165,7 @@ class TestTakeIsNeverPaintedGo:
     and this repo's own rule (ADR 0071 s2.5) is that a per-row fact may be
     shown and never dressed as a claim stronger than it is.
 
-    Mutation observed red: change the TAKE span's className to
+    Label is "No red flag" since #242; wire value stays take. Mutation observed red: change the TAKE span's className to
     `"font-semibold text-positive"` -- this test then fails."""
 
     def test_the_go_token_never_appears_in_the_file(self):
@@ -176,7 +176,7 @@ class TestTakeIsNeverPaintedGo:
     def test_pass_and_take_are_rendered_as_literal_words(self):
         source = _text(LEG_VERDICTS)
         assert '"PASS"' in source
-        assert '"TAKE"' in source
+        assert '"No red flag"' in source
 
 
 class TestTheFilesInThisScanExist:

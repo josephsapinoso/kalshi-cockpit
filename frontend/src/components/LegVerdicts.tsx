@@ -217,7 +217,7 @@ function LegVerdictLine({ row }: { row: LegVerdict }) {
       {/* Never `text-positive` -- see the module docstring. PASS gets the
           warning colour; TAKE stays plain ink. */}
       <span className={isPass ? "font-semibold text-accent-2" : "font-semibold"}>
-        {isPass ? "PASS" : "TAKE"}
+        {isPass ? "PASS" : "No red flag"}
       </span>{" "}
       <span className="text-muted">{row.reason}</span>
       {row.ask_display_at_verdict !== null && (

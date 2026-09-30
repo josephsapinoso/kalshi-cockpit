@@ -923,7 +923,7 @@ function AskTheScouts({
           Ask the scouts about these legs
         </Button>
         <span className="text-xs text-muted">
-          TAKE or PASS on each leg, in about 20 seconds
+          No red flag or PASS on each leg, in about 20 seconds
         </span>
       </div>
       <LegVerdicts
