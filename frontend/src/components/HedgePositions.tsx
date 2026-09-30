@@ -686,7 +686,7 @@ function Hedge({
         </h3>
         <p className="mt-1 text-xs leading-snug text-muted">{notes.derisk}</p>
         <p className="mt-2 text-sm">
-          Venue&rsquo;s implied chance this ticket still wins:{" "}
+          The desk&rsquo;s estimate of the chance this ticket still wins:{" "}
           <span className="tabular">{block.chance_display}</span>
           {block.notional_value_display &&
             block.notional_value_display !== "--" && (
