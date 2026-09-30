@@ -2162,3 +2162,33 @@ pointer to this section.
 # refuses the primary analysis below 0.90 coverage.
 ```
 
+
+---
+
+## Note, 2026-09-30 — NOT AN AMENDMENT. NO RULE HERE CHANGES.
+
+**This note fixes how §7 condition 1 is read, before the number exists.** It
+adds no cut, moves no threshold and changes no statistic. It is written because
+§7 says collection ends at "`G = 1000` independent games scored at horizon
+0.0" but does not say how a pull taken *later* is trimmed back to that moment,
+and a look at `G = 1047` has already been displayed on the live strip
+(2026-09-30). The rule below is committed before the pull it governs.
+
+**The cut.** `T*` is the earliest `clv_scored_ms` at which the count of
+distinct cluster keys (§2's `COALESCE(m.event_ticker, r.ticker)`) on the
+modal `strategy_config_version` (§P4) reaches 1000, each cluster dated by its
+earliest score. The §8 population is every §2 row with `clv_scored_ms <= T*`.
+A scoring batch sharing `T*` is kept whole, so the reported `G` may exceed
+1000; it is reported as found. `build_report` then runs unchanged on the cut,
+§A4 included. If the cut's modal version differs from the full record's, the
+harness refuses and nothing is declared until a dated amendment says why.
+Implemented as `scripts/run_signal_test.py --through-clusters 1000` (#226).
+
+**Not the registered reading, and refused:** cutting by `created_ms`, by row
+`id`, or by the date the pull was taken.
+
+**The verdict at `T*` is not presupposed.** At `G = 1047` §6 alone returned NO
+SIGNAL and §A4 lowered it to UNRESOLVED; §A4 is recomputed on the cut, so the
+§8 verdict may land either way. The §B6(5) ratchet (sd of `clv_tenths` against
+31.6915) is printed and applied as §B4 says. The games after `T*` are reported
+beside the result and change nothing.
