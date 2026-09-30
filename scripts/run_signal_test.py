@@ -1,8 +1,21 @@
 """Run the registered CLV signal test on a `clv-signal-pull` dump.
 
     flyctl ssh console -a kalshi-cockpit \\
-      -C "python /app/scripts/inspect_live_db.py clv-signal-pull --json --limit 100000" > pull.json
+      -C "python /app/scripts/inspect_live_db.py clv-signal-pull --json --limit 100000 --i-accept-the-cache-flush" > pull.json
     .venv\\Scripts\\python.exe scripts/run_signal_test.py pull.json
+
+The pull refuses without `--i-accept-the-cache-flush` (exit 4): it walks a
+10M-row table and flushes the desk's page cache. The §7(1) stopping-rule cut is
+computed from that same pull, with no second read of the live instance:
+
+    .venv\\Scripts\\python.exe scripts/run_signal_test.py pull.json --through-clusters 1000
+
+`--through-clusters N` keeps every row scored at or before T*, the earliest
+`clv_scored_ms` at which N distinct modal-version games have been scored. A
+scoring batch sharing T*'s millisecond is never split, so the cut's real `G`
+can exceed N and is printed. It refuses if the cut's modal version differs from
+the full record's, and refuses a dump pulled before `clv_scored_ms` was
+selected.
 
 Registered in `docs/measurements/2026-08-09-preregistration-clv-signal-test.md`.
 **This harness decides nothing, and as of ADR 0039 it no longer computes
@@ -56,6 +69,9 @@ import argparse
 import gzip
 import json
 import sys
+from collections import Counter
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -108,6 +124,96 @@ def load(path: Path) -> tuple[list[dict[str, Any]], int]:
         columns = section["columns"]
         rows.extend(dict(zip(columns, row)) for row in section["rows"])
     return rows, len(rows)
+
+
+@dataclass(frozen=True)
+class Cut:
+    """A §7(1) stopping-rule cut of a dump."""
+
+    rows: list[dict[str, Any]]
+    t_star_ms: int
+    g_at_t_star: int  # distinct modal-version clusters in the cut; may exceed N
+    modal_version: Any
+    full_modal_version: Any
+    n_null_scored: int  # rows with clv_scored_ms NULL, excluded from the cut
+    n_after: int  # scored rows later than T*, excluded
+
+
+def _modal(rows: list[dict[str, Any]]) -> Any:
+    # Same rule as `clv_signal.build_report`: most rows wins.
+    return Counter(r["strategy_config_version"] for r in rows).most_common(1)[0][0]
+
+
+def cut_through_clusters(rows: list[dict[str, Any]], n: int) -> Cut:
+    """Rows scored at or before T*, the time the Nth modal-version game is scored.
+
+    Registration §7(1): collection ends at "G = 1000 independent games scored at
+    horizon 0.0", counted on the modal `strategy_config_version` (§P4). Whole
+    scoring batches are kept (`<= T*`), so G can exceed N.
+
+    Refuses rather than guesses: a dump with no `clv_scored_ms` column, fewer
+    than N modal clusters, or a cut whose modal version differs from the full
+    record's (then the cut would be a different registered population).
+    """
+    if n < 1:
+        raise RefusedInput("--through-clusters must be at least 1")
+    if not rows:
+        raise RefusedInput("--through-clusters: the dump has no rows")
+    if "clv_scored_ms" not in rows[0]:
+        raise RefusedInput(
+            "--through-clusters needs `clv_scored_ms`, which this dump lacks "
+            "(pulled before the column was selected). Re-take the pull; T* is "
+            "not guessed from `created_ms`."
+        )
+    full_modal = _modal(rows)
+    null_scored = sum(1 for r in rows if r["clv_scored_ms"] is None)
+    scored = [r for r in rows if r["clv_scored_ms"] is not None]
+
+    first_seen: dict[str, int] = {}
+    for r in scored:
+        if r["strategy_config_version"] != full_modal:
+            continue
+        key = str(r["cluster_key"])
+        t = int(r["clv_scored_ms"])
+        if key not in first_seen or t < first_seen[key]:
+            first_seen[key] = t
+    if len(first_seen) < n:
+        raise RefusedInput(
+            f"--through-clusters {n}: the record has only {len(first_seen)} "
+            f"modal-version clusters scored. The stopping rule has not been reached."
+        )
+    t_star = sorted(first_seen.values())[n - 1]
+    kept = [r for r in scored if int(r["clv_scored_ms"]) <= t_star]
+    cut_modal = _modal(kept)
+    if cut_modal != full_modal:
+        raise RefusedInput(
+            f"REFUSED: the cut's modal strategy_config_version ({cut_modal!r}) "
+            f"differs from the full record's ({full_modal!r}). The cut is not "
+            f"the registered §P4 population; do not read it."
+        )
+    g = len({
+        str(r["cluster_key"]) for r in kept
+        if r["strategy_config_version"] == cut_modal
+    })
+    return Cut(
+        rows=kept, t_star_ms=t_star, g_at_t_star=g, modal_version=cut_modal,
+        full_modal_version=full_modal, n_null_scored=null_scored,
+        n_after=len(scored) - len(kept),
+    )
+
+
+def render_cut(cut: Cut, n: int) -> None:
+    t = datetime.fromtimestamp(cut.t_star_ms / 1000, tz=timezone.utc)
+    print(f"# §7(1) CUT --through-clusters {n}")
+    print(f"  T* (earliest clv_scored_ms reaching {n} modal clusters)  "
+          f"{t.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3]}Z ({cut.t_star_ms})")
+    print(f"  actual G at T* (modal version; may exceed {n})  {cut.g_at_t_star}")
+    print(f"  cut modal version            {cut.modal_version}")
+    print(f"  full record modal version    {cut.full_modal_version}   "
+          f"(equal: {cut.modal_version == cut.full_modal_version})")
+    print(f"  rows kept / after T* / clv_scored_ms NULL   "
+          f"{len(cut.rows)} / {cut.n_after} / {cut.n_null_scored}")
+    print()
 
 
 def render(report: SignalReport) -> int:
@@ -330,9 +436,23 @@ def main(argv: Optional[list[str]] = None) -> int:
     # pooled config versions. `build_report` now applies the rule itself, so
     # there is nothing left for a flag to turn on. See
     # `docs/measurements/2026-08-25-clv-signal-declaring-look-refused.md`.
+    parser.add_argument(
+        "--through-clusters", type=int, default=None, metavar="N",
+        help="§7(1) stopping-rule cut: keep rows scored at or before the time "
+             "the Nth modal-version cluster was scored",
+    )
     args = parser.parse_args(argv)
 
     rows, n_raw = load(args.dump)
+    if args.through_clusters is not None:
+        try:
+            cut = cut_through_clusters(rows, args.through_clusters)
+        except RefusedInput as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        render_cut(cut, args.through_clusters)
+        rows = cut.rows
+        n_raw = len(rows)
     return render(build_report(rows, n_raw=n_raw))
 
 
