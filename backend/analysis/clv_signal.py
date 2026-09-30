@@ -147,6 +147,7 @@ SQL_CLV_SIGNAL_PULL = (
     "r.id, r.ticker, r.side, r.created_ms, m.market_type, "
     "r.entry_ask_tenths, r.edge_tenths, r.clv_tenths, "
     "r.suppressed_reason, r.reference_contracts, r.strategy_config_version, "
+    "r.clv_scored_ms, "
     "q.yes_bid_tenths, q.no_bid_tenths, q.observed_ms AS quote_observed_ms, "
     "((1000 - q.no_bid_tenths) - q.yes_bid_tenths) / 2.0 AS half_spread_tenths, "
     "(m.event_ticker IS NULL) AS unclustered "
