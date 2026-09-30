@@ -105,7 +105,7 @@ const SECONDARY = [
     href: "/estimate",
     label: "Estimates",
     blurb:
-      "The stopped study's record of typed P(YES) numbers. The form is retired — the ticket asks instead.",
+      "The stopped study's record of typed P(YES) numbers. The form is retired.",
   },
   {
     // ADR 0078. Here rather than in the nav: it is empty until Joe has

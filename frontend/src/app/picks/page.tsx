@@ -202,16 +202,10 @@ export default async function PicksPage({
               ? "Cash unread"
               : `${data.money.cash_display} in the account.`}
           </span>
-          {data.money.per_bet_cap_display !== null ? (
+          {data.money.cash_tenths !== null && data.money.cash_tenths < 500 && (
             <span className="text-muted">
               {" "}
-              Your cap is {data.money.per_bet_cap_display} a bet.
-            </span>
-          ) : (
-            <span className="text-accent-2">
-              {" "}
-              No caps can be derived &mdash;{" "}
-              {data.money.caps_basis.refusal ?? "balance unobserved"}.
+              You cannot place a bet until you top up.
             </span>
           )}
         </p>
