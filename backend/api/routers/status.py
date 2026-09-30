@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException
 
@@ -60,6 +61,35 @@ logger = logging.getLogger(__name__)
 SIGNAL_CACHE_TTL_MS = 3_600_000
 
 _signal_cache: dict[str, object] = {}
+
+# ---------------------------------------------------------------------------
+# The stopping rule freezes the verdict (#227).
+# ---------------------------------------------------------------------------
+#
+# Registration section 7: data collection ends at the first of G = 1000 games
+# (condition 1) or 2027-02-15 (condition 2). Amendment 2 B4 moved only
+# condition 3's floor (300 -> 713); conditions 1 and 2 are unchanged. Past
+# either, the registered statistic has nothing new to be computed over, so
+# re-running the section S1 join hourly only burns the `kalshi_quotes` scan
+# for a number that is final. This freezes the *serving*, not the statistic:
+# `build_report` is untouched and a fresh process still computes once.
+#
+# The date is inclusive of the whole day (an instant, 2027-02-16T00:00Z), and
+# a cached report freezes on it only if it was computed at or after that
+# instant -- a report taken before collection ended is not final and must be
+# refreshed once more. A report at G >= 1000 is final whenever it was taken.
+SIGNAL_STOP_CLUSTERS = 1000
+SIGNAL_STOP_MS = int(
+    datetime(2027, 2, 16, tzinfo=timezone.utc).timestamp() * 1000
+)
+
+
+def _verdict_is_frozen(report: SignalReport, computed_ms: int) -> bool:
+    """True once section 7's stopping rule has fired for this cached report."""
+    return (
+        report.n_clusters >= SIGNAL_STOP_CLUSTERS
+        or computed_ms >= SIGNAL_STOP_MS
+    )
 
 # ---------------------------------------------------------------------------
 # Stale-while-revalidate (#187).
@@ -162,6 +192,8 @@ def _cached_signal_report(
     cached = _signal_cache.get("report")
     computed_ms = _signal_cache.get("computed_ms")
     if isinstance(cached, SignalReport) and isinstance(computed_ms, int):
+        if _verdict_is_frozen(cached, computed_ms):
+            return cached, computed_ms
         if now - computed_ms < SIGNAL_CACHE_TTL_MS:
             return cached, computed_ms
         _maybe_start_background_signal_refresh(db_path, read_budget_ms)
@@ -206,7 +238,18 @@ def _signal_payload(report: SignalReport, computed_ms: int) -> dict:
         # that looks like it came from the cluster floor.
         "section6_verdict": report.section6_verdict,
         "downgraded_by": report.downgraded_by,
-        "may_declare": report.n_clusters >= report.clusters_to_declare,
+        # A declaring look needs the floor AND no section A4 downgrade: a
+        # downgraded verdict is one the parts disagreed on, and the strip must
+        # not call it "a declaring one" (#227; it keyed on the floor alone).
+        "may_declare": (
+            report.n_clusters >= report.clusters_to_declare
+            and report.downgraded_by is None
+        ),
+        # B6(5): `true` obliges a further dated amendment raising the floor.
+        # `null` when no fit measured it -- never `false` by default.
+        "sigma_exceeds_ratchet": report.sigma_exceeds_ratchet,
+        # Section 7 has fired: this report is final and is no longer recomputed.
+        "frozen": _verdict_is_frozen(report, computed_ms),
         # Population before effect size. Always, and in this order.
         "population": {
             "rows": report.n_analysed,
