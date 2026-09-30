@@ -31,7 +31,6 @@ import FilterBar from "@/components/FilterBar";
 import ManualTicket from "@/components/ManualTicket";
 import MarketSearch from "@/components/MarketSearch";
 import LeagueTag from "@/components/LeagueTag";
-import GoodChancePicks from "@/components/GoodChancePicks";
 import Hint from "@/components/Hint";
 import OpenPositions from "@/components/OpenPositions";
 import Term from "@/components/Term";
@@ -256,10 +255,6 @@ export default async function SlatePage({
         data.staleness.max_odds_age_s * 1000,
         slate.is_current,
       ) && <RefreshOddsPanel actionable={actionable} filter={filter} pathname="/slate" />}
-
-      {/* Who's likely to win tonight (ADR 0067) — above the rows, below the
-          urgent-refresh slot, so a stale slate still leads with its fix. */}
-      <GoodChancePicks picks={data.picks} />
 
       {/* The parlay desk (ADR 0070) sits one tap from the picks it is built
           from. A plain link, deliberately: no card preview, no percentage,

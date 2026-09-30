@@ -1,4 +1,4 @@
-"""The "likely winners tonight" block's screen half (ADR 0067).
+"""The Picks list's screen half (ADR 0067; kickoff order since #241).
 
 Source-text assertions, the same instrument as `tests/test_crew_bubble.py`
 and with the same limitation: a green suite says the component contains and
@@ -88,15 +88,13 @@ class TestTheBlockIsNotAChaseSurface:
             assert banned not in text
 
 
-class TestTheSlatePageCarriesIt:
-    def test_the_page_renders_the_block(self):
-        assert "<GoodChancePicks" in source(SLATE_PAGE)
+class TestTheSlatePageNoLongerCarriesIt:
+    """#241 (Joe's #235 A): the block leaves Games. Picks is its one home."""
 
-    def test_the_page_passes_the_payload_block_through(self):
-        """`picks={data.picks}` — the page hands the server's block over
-        whole; deriving picks client-side from the rows would be a second
-        ranking implementation that could disagree with the first."""
-        assert "picks={data.picks}" in source(SLATE_PAGE)
+    def test_the_page_does_not_render_the_block(self):
+        """Mutation observed red: put `<GoodChancePicks picks={data.picks} />`
+        back in the slate page."""
+        assert "GoodChancePicks" not in code_only(source(SLATE_PAGE))
 
 
 class TestAStaleRowSaysTheAgeAndTheRemedy:

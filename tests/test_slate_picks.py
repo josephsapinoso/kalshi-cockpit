@@ -119,18 +119,38 @@ def build(tmp_path):
     return _build
 
 
-class TestTheRankingIsOneColumnDescending:
-    async def test_picks_rank_by_fair_probability_alone(self, build):
+class TestTheListIsOrderedByKickoff:
+    async def test_picks_are_ordered_by_kickoff_not_by_chance(self, build):
+        """#241: earliest kickoff first; chance runs the opposite way here,
+        so a sort on it would fail this. Unknown kickoff sorts last."""
         base = now_ms() - 60_000
+        ahead = now_ms() + 3_600_000
         app = build(lambda conn: [
-            _pick_row(conn, ticker="KXP-LOW", created_ms=base, fair=0.55),
-            _pick_row(conn, ticker="KXP-TOP", created_ms=base + 1, fair=0.72),
-            _pick_row(conn, ticker="KXP-MID", created_ms=base + 2, fair=0.61),
+            _pick_row(conn, ticker="KXP-LATE-TOP", created_ms=base, fair=0.72,
+                      odds_event_id="k1", commence_ms=ahead + 7_200_000),
+            _pick_row(conn, ticker="KXP-EARLY-LOW", created_ms=base + 1,
+                      fair=0.55, odds_event_id="k2", commence_ms=ahead),
+            _pick_row(conn, ticker="KXP-MID", created_ms=base + 2, fair=0.61,
+                      odds_event_id="k3", commence_ms=ahead + 3_600_000),
+            _pick_row(conn, ticker="KXP-NOCLOCK", created_ms=base + 3,
+                      fair=0.90, odds_event_id="k4", commence_ms=None),
         ])
         picks = (await get(app, "/api/slate")).json()["picks"]
         assert [p["ticker"] for p in picks["ranked"]] == [
-            "KXP-TOP", "KXP-MID", "KXP-LOW"
+            "KXP-EARLY-LOW", "KXP-MID", "KXP-LATE-TOP", "KXP-NOCLOCK"
         ]
+
+    async def test_equal_kickoffs_tie_break_on_ticker(self, build):
+        base = now_ms() - 60_000
+        at = now_ms() + 3_600_000
+        app = build(lambda conn: [
+            _pick_row(conn, ticker="KXP-B", created_ms=base, fair=0.9,
+                      odds_event_id="t1", commence_ms=at),
+            _pick_row(conn, ticker="KXP-A", created_ms=base, fair=0.6,
+                      odds_event_id="t2", commence_ms=at),
+        ])
+        picks = (await get(app, "/api/slate")).json()["picks"]
+        assert [p["ticker"] for p in picks["ranked"]] == ["KXP-A", "KXP-B"]
 
     async def test_one_pick_per_game_and_it_is_the_favorite(self, build):
         """Two linked markets are one game; the favorite side ranks, once."""
@@ -406,10 +426,9 @@ class TestAStaleAskSaysItsAgeAndAStartedGameSaysSo:
         assert pick["started_ago_ms"] is None
 
     async def test_a_started_game_keeps_its_place_in_the_ranking(self, build):
-        """ADR 0067: the order is `fair_probability` descending and nothing
-        is added to it. A started favourite still ranks above an unstarted
-        one with a lower chance, and an unstarted one above a started one --
-        the mark is a fact on the row, not a sort key or a filter."""
+        """The order is kickoff ascending (#241) and nothing is added to it.
+        A started game sorts first only because it kicked off first; the
+        mark is a fact on the row, not a sort key or a filter."""
         now = now_ms()
         app = build(lambda conn: [
             _pick_row(conn, ticker="KXC-STARTED-TOP", created_ms=now - 60_000,
@@ -424,8 +443,8 @@ class TestAStaleAskSaysItsAgeAndAStartedGameSaysSo:
         ])
         ranked = (await get(app, "/api/slate")).json()["picks"]["ranked"]
         assert [p["ticker"] for p in ranked] == [
-            "KXC-STARTED-TOP", "KXC-AHEAD-MID", "KXC-STARTED-LOW"
+                        "KXC-STARTED-TOP", "KXC-STARTED-LOW", "KXC-AHEAD-MID"
         ]
         assert [p["started_ago_ms"] is not None for p in ranked] == [
-            True, False, True
+            True, True, False
         ]

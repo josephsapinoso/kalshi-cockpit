@@ -1690,7 +1690,18 @@ def create_app(
                     },
                 )
             )
-        ranked.sort(key=lambda pair: -pair[0])
+        # **Kickoff order, earliest first** (#241, Joe's #235 A). The clock is
+        # the one neutral order: chance of winning ranks favourites (ADR 0067's
+        # old order) and the consensus-vs-Kalshi gap is ruled out by ADR 0071.
+        # Unknown kickoffs sort last; the ticker breaks ties so the order is
+        # stable. The tuple's first element is carried, never read, here.
+        ranked.sort(
+            key=lambda pair: (
+                pair[1]["commence_ms"] is None,
+                pair[1]["commence_ms"] or 0,
+                pair[1]["ticker"],
+            )
+        )
         picks = {
             "ranked": [pick for _, pick in ranked],
             "not_ranked": {

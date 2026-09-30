@@ -25,10 +25,10 @@ export const dynamic = "force-dynamic";
  * What this is: tonight's price-comparison sheet, one line per game the desk
  * could price — which side the sharp sportsbooks make more likely, the chance
  * they give it, and what Kalshi charges for it. The ordering is the market's
- * opinion, never the desk's: the server sorts on one stored column,
- * `fair_probability`, and this page renders that block whole through the
- * same `GoodChancePicks` component the Games screen renders (a promotion,
- * not a move — the block stays on Games too). The chance≠edge sentence is the
+ * opinion, never the desk's: the server sorts on kickoff time,
+ * earliest first (#241, Joe's #235 A) — never by chance and never by the gap
+ * to Kalshi's price — and this page renders that list whole through the
+ * `GoodChancePicks` component. The Games screen no longer renders it. The chance≠edge sentence is the
  * server's own and renders verbatim inside the block, and
  * `tests/test_slate_picks.py` fails the build if any key readable as profit
  * ever rides the payload.
@@ -159,8 +159,7 @@ export default async function PicksPage({
       <header>
         {/* "Picks", matching its own nav label: one screen, one name, the
             rule Games settled on 2026-08-22 and Refusals on 2026-09-02
-            (#29). The block below keeps its own heading, "Likely winners
-            tonight", because it is the same block Games renders. */}
+            (#29). The list below is headed by what it is: tonight's games, by kickoff. */}
         <h1 className="text-2xl font-extrabold tracking-tight">Picks</h1>
         {/* The #9 lede for this slot, ratified 2026-08-27. It names the
             ordering and disarms it in the same breath; on a desk whose
@@ -170,7 +169,7 @@ export default async function PicksPage({
         <p className="mt-2 max-w-prose text-sm text-muted">
           One line for each game the desk could price: the side the
           sportsbooks make more likely, the chance they give it, and what
-          Kalshi charges &mdash; ordered by that chance, which is not a claim
+          Kalshi charges &mdash; ordered by kickoff, earliest first, which is not a claim
           that any of them is worth buying.
         </p>
       </header>
