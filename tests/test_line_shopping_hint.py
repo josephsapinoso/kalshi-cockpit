@@ -18,11 +18,9 @@ the venue identity that a YES ask's size is the NO bid's size.
 What it does not establish
 --------------------------
 - That either route fills at the shown price: depth is the best ask only.
-- That an NFL tie settles identically across the two routes (the ticket says
-  $0.50 each; nothing here tests it).
-- That the read-time equality is achievable on live: `kalshi_quotes` read
-  times come from two markets' own confirmations, and if they rarely coincide
-  the hint rarely shows. That is a live measurement, not this file's.
+- That Kalshi's NFL tie rule ("resolve to $0.50 for each team", in
+  `tests/fixtures/events_nfl_preseason.json`) is applied as written.
+- What a voided game pays: fair_A + fair_B need not sum to 1 there.
 """
 
 from __future__ import annotations
@@ -36,11 +34,22 @@ from conftest import load_fixture
 
 from backend import line_shop
 from backend.core.prices import dollars_to_tenths
-from backend.line_shop import BookRead, compute_hint, hint_for_row
+from backend.config import StalenessConfig
+from backend.line_shop import BookRead, compute_hint, hints_for_slate
 from backend.store import db
 
 NFL = "americanfootball_nfl"
 READ_MS = 1_790_000_000_000
+
+
+NOW_MS = READ_MS + 1_000
+STALENESS = StalenessConfig()
+
+
+def _hint(**kw):
+    kw.setdefault("now_ms", NOW_MS)
+    kw.setdefault("max_age_ms", STALENESS.max_kalshi_quote_age_s * 1000)
+    return compute_hint(**kw)
 
 
 def _markets():
@@ -74,7 +83,7 @@ def pair():
 class TestItFiresWhenTheOtherRouteIsCheaper:
     def test_yes_lar_at_57_is_beaten_by_no_buf_at_56(self, pair):
         lar, buf = pair
-        hint = compute_hint(league=NFL, own=lar, own_side="yes", other=buf)
+        hint = _hint(league=NFL, own=lar, own_side="yes", other=buf)
         assert hint is not None
         assert hint["cheaper"]["ticker"].endswith("-BUF")
         assert hint["cheaper"]["side"] == "no"
@@ -84,7 +93,7 @@ class TestItFiresWhenTheOtherRouteIsCheaper:
 
     def test_depth_is_shown_at_each_ask(self, pair):
         lar, buf = pair
-        hint = compute_hint(league=NFL, own=lar, own_side="yes", other=buf)
+        hint = _hint(league=NFL, own=lar, own_side="yes", other=buf)
         # NO BUF's ask is 1 - BUF's YES bid, sized by that bid; YES LAR's ask
         # is sized by LAR's NO bid (the captured yes_ask_size_fp).
         assert hint["cheaper"]["depth"] == 3.19
@@ -102,24 +111,24 @@ class TestItFiresWhenTheOtherRouteIsCheaper:
             "calculate_fee",
             lambda price, contracts, **k: 0.0 if price == 570 else 5.0,
         )
-        assert compute_hint(league=NFL, own=lar, own_side="yes", other=buf) is None
+        assert _hint(league=NFL, own=lar, own_side="yes", other=buf) is None
 
     def test_silent_when_this_row_is_already_the_cheaper_route(self, pair):
         lar, buf = pair
         # Row = NO BUF at 56c; the other route is YES LAR at 57c. Dearer.
-        assert compute_hint(league=NFL, own=buf, own_side="no", other=lar) is None
+        assert _hint(league=NFL, own=buf, own_side="no", other=lar) is None
 
     def test_silent_when_the_two_routes_cost_the_same(self, pair):
         """BUF YES (46c) vs NO LAR (46c) is the same price: no hint."""
         lar, buf = pair
-        assert compute_hint(league=NFL, own=buf, own_side="yes", other=lar) is None
+        assert _hint(league=NFL, own=buf, own_side="yes", other=lar) is None
 
     def test_silent_when_a_side_has_no_price(self, pair):
         lar, buf = pair
         empty = BookRead(buf.ticker, None, None, buf.no_bid_tenths, buf.no_bid_qty, READ_MS)
-        assert compute_hint(league=NFL, own=lar, own_side="yes", other=empty) is None
+        assert _hint(league=NFL, own=lar, own_side="yes", other=empty) is None
         nodepth = BookRead(buf.ticker, buf.yes_bid_tenths, 0.0, buf.no_bid_tenths, buf.no_bid_qty, READ_MS)
-        assert compute_hint(league=NFL, own=lar, own_side="yes", other=nodepth) is None
+        assert _hint(league=NFL, own=lar, own_side="yes", other=nodepth) is None
 
 
 class TestItNeverFiresOffItsLeagues:
@@ -137,7 +146,7 @@ class TestItNeverFiresOffItsLeagues:
         lar, buf = pair
         a = BookRead(f"{suffix}-LAR", *[getattr(lar, f) for f in ("yes_bid_tenths", "yes_bid_qty", "no_bid_tenths", "no_bid_qty", "read_ms")])
         b = BookRead(f"{suffix}-BUF", *[getattr(buf, f) for f in ("yes_bid_tenths", "yes_bid_qty", "no_bid_tenths", "no_bid_qty", "read_ms")])
-        assert compute_hint(league=league, own=a, own_side="yes", other=b) is None
+        assert _hint(league=league, own=a, own_side="yes", other=b) is None
 
     @pytest.mark.parametrize("series", ["KXEPLGAME", "KXMLSGAME", "KXNHLGAME"])
     def test_a_soccer_or_nhl_ticker_is_refused_even_under_an_allowed_league(
@@ -148,17 +157,17 @@ class TestItNeverFiresOffItsLeagues:
         lar, buf = pair
         a = BookRead(f"{series}-26OCT12BUFLAR-LAR", lar.yes_bid_tenths, lar.yes_bid_qty, lar.no_bid_tenths, lar.no_bid_qty, READ_MS)
         b = BookRead(f"{series}-26OCT12BUFLAR-BUF", buf.yes_bid_tenths, buf.yes_bid_qty, buf.no_bid_tenths, buf.no_bid_qty, READ_MS)
-        assert compute_hint(league=NFL, own=a, own_side="yes", other=b) is None
+        assert _hint(league=NFL, own=a, own_side="yes", other=b) is None
 
     def test_an_allowed_ticker_with_an_nhl_or_missing_league_is_refused(self, pair):
         lar, buf = pair
         for league in ("icehockey_nhl", "Pro Hockey", "soccer_epl", "", None):
-            assert compute_hint(league=league, own=lar, own_side="yes", other=buf) is None
+            assert _hint(league=league, own=lar, own_side="yes", other=buf) is None
 
     def test_every_allowed_league_fires_in_both_vocabularies(self, pair):
         lar, buf = pair
         for league in (NFL, "Pro Football", "americanfootball_ncaaf", "NCAA Football"):
-            assert compute_hint(league=league, own=lar, own_side="yes", other=buf)
+            assert _hint(league=league, own=lar, own_side="yes", other=buf)
 
     def test_the_allowlists_are_exactly_the_five_leagues(self):
         assert line_shop.ALLOWED_SPORT_KEYS == {
@@ -175,25 +184,36 @@ class TestItRefusesTwoReads:
     def test_different_read_times_show_no_hint(self, pair):
         lar, buf = pair
         later = BookRead(buf.ticker, buf.yes_bid_tenths, buf.yes_bid_qty, buf.no_bid_tenths, buf.no_bid_qty, READ_MS + 1)
-        assert compute_hint(league=NFL, own=lar, own_side="yes", other=later) is None
+        assert _hint(league=NFL, own=lar, own_side="yes", other=later) is None
 
     def test_an_unknown_read_time_is_not_equal_to_another(self, pair):
         lar, buf = pair
         unread = BookRead(buf.ticker, buf.yes_bid_tenths, buf.yes_bid_qty, buf.no_bid_tenths, buf.no_bid_qty, None)
         both = BookRead(lar.ticker, lar.yes_bid_tenths, lar.yes_bid_qty, lar.no_bid_tenths, lar.no_bid_qty, None)
-        assert compute_hint(league=NFL, own=both, own_side="yes", other=unread) is None
+        assert _hint(league=NFL, own=both, own_side="yes", other=unread) is None
+
+
+class TestItRefusesAStaleRead:
+    def test_equal_read_times_older_than_the_limit_show_no_hint(self, pair):
+        lar, buf = pair
+        limit = STALENESS.max_kalshi_quote_age_s * 1000
+        assert _hint(league=NFL, own=lar, own_side="yes", other=buf, now_ms=READ_MS + limit) is not None
+        assert (
+            _hint(league=NFL, own=lar, own_side="yes", other=buf, now_ms=READ_MS + limit + 1)
+            is None
+        )
 
 
 class TestTheCopyClaimsNothing:
     def test_it_says_it_cuts_what_you_pay_and_creates_no_edge(self, pair):
         lar, buf = pair
-        copy = compute_hint(league=NFL, own=lar, own_side="yes", other=buf)["copy"]
+        copy = _hint(league=NFL, own=lar, own_side="yes", other=buf)["copy"]
         assert line_shop.DISCLAIMER == "This cuts what you pay. It does not create an edge."
         assert line_shop.DISCLAIMER in copy
 
     def test_no_edge_or_profit_claim_outside_the_disclaimer(self, pair):
         lar, buf = pair
-        copy = compute_hint(league=NFL, own=lar, own_side="yes", other=buf)["copy"]
+        copy = _hint(league=NFL, own=lar, own_side="yes", other=buf)["copy"]
         rest = copy.replace(line_shop.DISCLAIMER, "").lower()
         for word in (
             "edge", "profit", "win ", "beat", "guarantee", "free", "arbitrage",
@@ -276,7 +296,11 @@ def _add_quote(conn, book, confirmed_ms):
     )
 
 
-class TestTheRouteHelperReadsTheDatabase:
+def _row(ticker, side="yes", league="Pro Football"):
+    return {"ticker": ticker, "side": side, "league": league}
+
+
+class TestTheSlateHelperReadsTheDatabase:
     def _seed(self, conn, pair, buf_confirmed=READ_MS):
         lar, buf = pair
         _add_market(conn, lar.ticker, "Los Angeles R")
@@ -286,20 +310,38 @@ class TestTheRouteHelperReadsTheDatabase:
         conn.commit()
         return lar, buf
 
+    def _run(self, conn, rows, now_ms=NOW_MS):
+        return hints_for_slate(conn, rows, now_ms, STALENESS)
+
     def test_fires_from_stored_quotes(self, conn, pair):
         lar, _ = self._seed(conn, pair)
-        hint = hint_for_row(conn, ticker=lar.ticker, side="yes", league="Pro Football")
-        assert hint and hint["cheaper"]["team"] == "Buffalo"
+        hint = self._run(conn, [_row(lar.ticker)])[(lar.ticker, "yes")]
+        assert hint["cheaper"]["team"] == "Buffalo"
 
     def test_a_different_confirmation_instant_refuses(self, conn, pair):
         lar, _ = self._seed(conn, pair, buf_confirmed=READ_MS + 5_000)
-        assert hint_for_row(conn, ticker=lar.ticker, side="yes", league="Pro Football") is None
+        assert self._run(conn, [_row(lar.ticker)]) == {}
+
+    def test_a_stale_read_refuses(self, conn, pair):
+        lar, _ = self._seed(conn, pair)
+        late = READ_MS + STALENESS.max_kalshi_quote_age_s * 1000 + 1
+        assert self._run(conn, [_row(lar.ticker)], now_ms=late) == {}
 
     def test_a_third_market_in_the_event_refuses(self, conn, pair):
         lar, _ = self._seed(conn, pair)
         _add_market(conn, "KXNFLGAME-26OCT12BUFLAR-TIE", "Tie")
         conn.commit()
-        assert hint_for_row(conn, ticker=lar.ticker, side="yes", league="Pro Football") is None
+        assert self._run(conn, [_row(lar.ticker)]) == {}
+
+    def test_an_inactive_market_refuses(self, conn, pair):
+        lar, buf = self._seed(conn, pair)
+        conn.execute("UPDATE kalshi_markets SET status = 'closed' WHERE ticker = ?", (buf.ticker,))
+        conn.commit()
+        assert self._run(conn, [_row(lar.ticker)]) == {}
+        conn.execute("UPDATE kalshi_markets SET status = 'active' WHERE ticker = ?", (buf.ticker,))
+        conn.execute("UPDATE kalshi_markets SET status = 'closed' WHERE ticker = ?", (lar.ticker,))
+        conn.commit()
+        assert self._run(conn, [_row(lar.ticker)]) == {}
 
     def test_a_market_with_no_quote_refuses(self, conn, pair):
         lar, buf = pair
@@ -307,4 +349,46 @@ class TestTheRouteHelperReadsTheDatabase:
         _add_market(conn, buf.ticker, "Buffalo")
         _add_quote(conn, lar, READ_MS)
         conn.commit()
-        assert hint_for_row(conn, ticker=lar.ticker, side="yes", league="Pro Football") is None
+        assert self._run(conn, [_row(lar.ticker)]) == {}
+
+    def test_the_newest_quote_is_the_one_read(self, conn, pair):
+        lar, buf = self._seed(conn, pair)
+        # An older, different BUF quote must not be the one compared.
+        conn.execute(
+            "INSERT INTO kalshi_quotes (ticker, observed_ms, confirmed_ms, source, "
+            "yes_bid_tenths, yes_bid_qty, no_bid_tenths, no_bid_qty) "
+            "VALUES (?, ?, ?, 'rest', 100, 5, 100, 5)",
+            (buf.ticker, READ_MS - 10_000, READ_MS - 10_000),
+        )
+        conn.commit()
+        assert (lar.ticker, "yes") in self._run(conn, [_row(lar.ticker)])
+
+    def test_a_disallowed_league_row_is_skipped(self, conn, pair):
+        lar, _ = self._seed(conn, pair)
+        assert self._run(conn, [_row(lar.ticker, league="Pro Hockey")]) == {}
+        assert self._run(conn, []) == {}
+
+
+class TestTheSlateHelperIsBatched:
+    def test_query_count_does_not_grow_with_rows(self, conn, pair):
+        lar, buf = pair
+        _add_market(conn, lar.ticker, "Los Angeles R")
+        _add_market(conn, buf.ticker, "Buffalo")
+        _add_quote(conn, lar, READ_MS)
+        _add_quote(conn, buf, READ_MS)
+        conn.commit()
+        seen = []
+        conn.set_trace_callback(seen.append)
+        rows = [_row(lar.ticker), _row(buf.ticker), _row(lar.ticker, "no"), _row(buf.ticker, "no")]
+        hints_for_slate(conn, rows[:1], NOW_MS, STALENESS)
+        one = len(seen)
+        seen.clear()
+        hints_for_slate(conn, rows * 25, NOW_MS, STALENESS)
+        assert len(seen) == one == 2
+
+    def test_the_route_loop_does_not_query_per_row(self):
+        from backend.api import routes
+
+        source = inspect.getsource(routes)
+        assert "hint_for_row" not in source
+        assert "line_shop.hints_for_slate(" in source

@@ -15,24 +15,7 @@
  * is ordered or filtered by this (ADR 0071 §2.5).
  */
 
-export type LineShopLeg = {
-  ticker: string;
-  side: "yes" | "no";
-  team: string | null;
-  ask_tenths: number;
-  ask_display: string;
-  depth: number;
-  all_in_tenths_per_contract: number;
-};
-
-export type LineShopData = {
-  cheaper: LineShopLeg;
-  current: LineShopLeg;
-  saving_tenths_per_contract: number;
-  fee_reference_contracts: number;
-  read_ms: number;
-  copy: string;
-};
+import type { LineShopData, LineShopLeg } from "@/lib/api";
 
 function Leg({ label, leg }: { label: string; leg: LineShopLeg }) {
   return (

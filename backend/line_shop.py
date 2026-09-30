@@ -20,13 +20,22 @@ What it is not:
 - **Not across two instants.** Both books must carry the same read time. A
   hint built from two different reads compares prices that never coexisted.
 
-The fee is `core/fees.calculate_fee` as-is, at `FEE_REFERENCE_CONTRACTS`. The
-fee is rounded per order, so one contract would be dominated by rounding; 100 is
-a stated reference, not a recommended size.
+The fee is `core/fees.calculate_fee` as-is, at `FEE_REFERENCE_CONTRACTS`. 100
+is a stated reference, not a recommended size.
+
+The NFL tie rule: Kalshi's rules_secondary on these markets says a tie
+resolves "to $0.50 for each team" (`tests/fixtures/events_nfl_preseason.json`),
+so the two routes still pay the same on a tie.
+
+Freshness: both quotes must be no older than `max_kalshi_quote_age_s` at the
+time of the call, and must carry the same read time. `kalshi_quotes` has one
+writer (`runner.store_quotes_from_discovery`), which stamps both sides of an
+event with the same `now`, so equal read times do occur on live.
 
 Does not establish: that either route fills at the shown price (the depth shown
-is the best ask only), or how a NFL tie settles across the two routes (the
-ticket says $0.50 each; nothing here tests it).
+is the best ask only); or what a cancelled or voided game pays. A voided game
+resolves both markets at a "fair price" and fair_A + fair_B need not sum to 1,
+so the two routes need not cost the same there.
 """
 
 from __future__ import annotations
@@ -37,6 +46,7 @@ from typing import Optional
 
 from .core.fees import calculate_fee
 from .core.prices import format_price
+from .config import StalenessConfig
 from .kalshi.discovery import IN_SCOPE_LEAGUES
 
 #: The sport keys the hint may fire on. NHL and every soccer league are absent
@@ -138,6 +148,8 @@ def compute_hint(
     own: BookRead,
     own_side: str,
     other: BookRead,
+    now_ms: int,
+    max_age_ms: int,
 ) -> Optional[dict]:
     """The hint for a row buying `own_side` of `own`, or None.
 
@@ -150,6 +162,9 @@ def compute_hint(
         return None
     # One read or no hint. Unknown read times are "different", not "equal".
     if own.read_ms is None or other.read_ms is None or own.read_ms != other.read_ms:
+        return None
+    # And a fresh one: the same instant is not enough if that instant is old.
+    if now_ms - own.read_ms > max_age_ms:
         return None
     other_side = "no" if own_side == "yes" else "yes"
     mine = _ask_and_depth(own, own_side)
@@ -184,62 +199,91 @@ def compute_hint(
     }
 
 
-def _latest_book(conn: sqlite3.Connection, ticker: str, team: Optional[str]) -> BookRead:
-    row = conn.execute(
-        "SELECT yes_bid_tenths, yes_bid_qty, no_bid_tenths, no_bid_qty, "
-        "COALESCE(confirmed_ms, observed_ms) AS read_ms "
-        "FROM kalshi_quotes WHERE ticker = ? "
-        "ORDER BY observed_ms DESC, id DESC LIMIT 1",
-        (ticker,),
-    ).fetchone()
-    if row is None:
-        return BookRead(ticker, None, None, None, None, None, team)
-    return BookRead(
-        ticker,
-        row["yes_bid_tenths"],
-        row["yes_bid_qty"],
-        row["no_bid_tenths"],
-        row["no_bid_qty"],
-        row["read_ms"],
-        team,
-    )
-
-
-def hint_for_row(
+def hints_for_slate(
     conn: sqlite3.Connection,
-    *,
-    ticker: str,
-    side: str,
-    league: Optional[str],
-) -> Optional[dict]:
-    """Look up the mirror market and compute the hint for one slate row.
+    rows,
+    now_ms: int,
+    staleness: StalenessConfig,
+) -> dict[tuple[str, str], dict]:
+    """Hints for a whole slate in two reads, keyed by `(ticker, side)`.
 
-    Refuses (None) unless the event has exactly two moneyline markets: a third
-    (a Tie market) is the soccer shape and means the two sides are not mirrors.
+    `rows` need `ticker`, `side` and `league` (sqlite rows or dicts). A row
+    with no hint is simply absent. Two queries whatever the row count: one for
+    the markets and their event siblings, one for the latest quote per ticker.
+
+    Refuses an event unless it has exactly two moneyline markets (a third, a
+    Tie market, is the soccer shape) and both are `active`.
     """
-    if not league_allowed(ticker, league):
-        return None
-    me = conn.execute(
-        "SELECT event_ticker, market_type, yes_side_team "
-        "FROM kalshi_markets WHERE ticker = ?",
-        (ticker,),
-    ).fetchone()
-    if me is None or not me["event_ticker"] or me["market_type"] != "moneyline":
-        return None
-    siblings = conn.execute(
-        "SELECT ticker, yes_side_team FROM kalshi_markets "
-        "WHERE event_ticker = ? AND market_type = 'moneyline'",
-        (me["event_ticker"],),
-    ).fetchall()
-    # Exactly one mirror, or none: a second (a Tie market) means the two teams
-    # are not each other's complement. With our own row among `siblings` that
-    # is `len(others) == 1`.
-    others = [s for s in siblings if s["ticker"] != ticker]
-    if len(others) != 1:
-        return None
-    return compute_hint(
-        league=league,
-        own=_latest_book(conn, ticker, me["yes_side_team"]),
-        own_side=side,
-        other=_latest_book(conn, others[0]["ticker"], others[0]["yes_side_team"]),
+    wanted = sorted(
+        {r["ticker"] for r in rows if league_allowed(r["ticker"], r["league"])}
     )
+    if not wanted:
+        return {}
+    marks = ",".join("?" * len(wanted))
+    markets = conn.execute(
+        "SELECT ticker, event_ticker, market_type, status, yes_side_team "
+        "FROM kalshi_markets WHERE market_type = 'moneyline' AND event_ticker IN "
+        f"(SELECT event_ticker FROM kalshi_markets WHERE ticker IN ({marks}))",
+        wanted,
+    ).fetchall()
+    by_event: dict[str, list] = {}
+    for m in markets:
+        by_event.setdefault(m["event_ticker"], []).append(m)
+    by_ticker = {m["ticker"]: m for m in markets}
+
+    tickers = sorted(by_ticker)
+    qmarks = ",".join("?" * len(tickers)) or "NULL"
+    quotes = {
+        q["ticker"]: q
+        for q in conn.execute(
+            "SELECT ticker, yes_bid_tenths, yes_bid_qty, no_bid_tenths, "
+            "no_bid_qty, COALESCE(confirmed_ms, observed_ms) AS read_ms FROM ("
+            "SELECT ticker, observed_ms, confirmed_ms, yes_bid_tenths, "
+            "yes_bid_qty, no_bid_tenths, no_bid_qty, ROW_NUMBER() OVER ("
+            "PARTITION BY ticker ORDER BY observed_ms DESC) AS rn "
+            f"FROM kalshi_quotes WHERE ticker IN ({qmarks})) WHERE rn = 1",
+            tickers,
+        ).fetchall()
+    }
+
+    def book(ticker: str) -> BookRead:
+        q = quotes.get(ticker)
+        team = by_ticker[ticker]["yes_side_team"]
+        if q is None:
+            return BookRead(ticker, None, None, None, None, None, team)
+        return BookRead(
+            ticker,
+            q["yes_bid_tenths"],
+            q["yes_bid_qty"],
+            q["no_bid_tenths"],
+            q["no_bid_qty"],
+            q["read_ms"],
+            team,
+        )
+
+    max_age_ms = staleness.max_kalshi_quote_age_s * 1000
+    out: dict[tuple[str, str], dict] = {}
+    for r in rows:
+        ticker, side = r["ticker"], r["side"]
+        own = by_ticker.get(ticker)
+        if own is None or (ticker, side) in out:
+            continue
+        group = by_event.get(own["event_ticker"], [])
+        others = [m for m in group if m["ticker"] != ticker]
+        # Exactly one mirror: a second (a Tie market) means the two teams are
+        # not each other's complement.
+        if len(others) != 1:
+            continue
+        if own["status"] != "active" or others[0]["status"] != "active":
+            continue
+        hint = compute_hint(
+            league=r["league"],
+            own=book(ticker),
+            own_side=side,
+            other=book(others[0]["ticker"]),
+            now_ms=now_ms,
+            max_age_ms=max_age_ms,
+        )
+        if hint is not None:
+            out[(ticker, side)] = hint
+    return out
