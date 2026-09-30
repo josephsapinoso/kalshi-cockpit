@@ -417,6 +417,30 @@ class TestDerisk:
         assert not hasattr(result, "floor_tenths")
         assert not hasattr(result, "is_guaranteed_profit")
 
+    def test_no_rung_reports_a_worst_case_above_losing_stake_and_hedge(self):
+        # #225: the rungs used to carry `min(if_wins, if_loses)` with if_wins
+        # priced as "the ticket pays", so a live four-leg ticket showed a
+        # positive worst case. If the hedged leg wins and any other leg then
+        # loses, the stake and the hedge are both gone -- nothing is higher
+        # than that and still a worst case.
+        result = self.call(self._legs(3))
+        assert result.ladder
+        for rung in result.ladder:
+            assert not hasattr(rung, "floor_tenths")
+            assert not hasattr(rung, "if_leg_wins_tenths")
+            assert rung.worst_tenths <= -(STAKE + rung.cost_tenths)
+            assert rung.worst_tenths <= rung.if_leg_loses_tenths
+
+    def test_the_payload_says_still_live_and_carries_no_alertable_floor(self):
+        from backend.hedge import _rung_payload
+
+        result = self.call(self._legs(3))
+        for rung in result.ladder:
+            payload = _rung_payload(rung)
+            assert payload["if_leg_wins_display"] == "still live"
+            assert payload["floor_is_a_gain"] is False
+            assert "floor_tenths" not in payload
+
     def test_the_notional_value_is_the_return_times_the_joint(self):
         result = self.call(self._legs(2))
         assert result.joint_probability == pytest.approx(0.49, abs=0.02)

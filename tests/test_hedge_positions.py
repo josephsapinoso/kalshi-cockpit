@@ -712,8 +712,8 @@ class TestTheEntryFeeIsSunkBesideTheStake:
         assert isinstance(slip_a.outcome, Derisk)
         assert isinstance(combo_a.outcome, Derisk)
         assert (
-            slip_a.outcome.ladder[0].if_leg_wins_tenths
-            - combo_a.outcome.ladder[0].if_leg_wins_tenths
+            slip_a.outcome.ladder[0].worst_tenths
+            - combo_a.outcome.ladder[0].worst_tenths
             == 338
         )
 

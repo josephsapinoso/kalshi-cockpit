@@ -555,13 +555,52 @@ def _ladder(
 
 
 @dataclass(frozen=True)
+class DeriskRung:
+    """One hedge size on a ticket with several legs live. Integer tenths.
+
+    **No `if_leg_wins` and no `floor`, on purpose.** If the hedged leg wins,
+    the ticket is still alive on the other legs, so that branch has no settled
+    value: it runs from `worst_tenths` (every other leg loses) up to the full
+    payout (every other leg wins). Until 2026-09-30 these rungs were built by
+    `_rung`, which prices "the leg wins" as "the ticket pays", so the
+    `floor = min(if_wins, if_loses)` it carried was the BEST case dressed as
+    the worst -- a positive "worst case" on a live four-leg ticket (+$8.05
+    shown against about -$11.94 true, #225).
+
+    `worst_tenths` is `-(stake + cost)`: you paid for the ticket and the hedge,
+    the hedged leg won (so the hedge pays nothing), and another leg lost. It
+    sits below `if_leg_loses_tenths` whenever the hedge buys at least one
+    contract, so it is the minimum over every outcome.
+    """
+
+    contracts: int
+    cost_tenths: int
+    fee_tenths: int
+    if_leg_loses_tenths: int
+    worst_tenths: int
+    fillable: bool
+    affordable: bool
+
+
+def _derisk_rung(rung: Rung, *, stake_tenths: int) -> DeriskRung:
+    return DeriskRung(
+        contracts=rung.contracts,
+        cost_tenths=rung.cost_tenths,
+        fee_tenths=rung.fee_tenths,
+        if_leg_loses_tenths=rung.if_leg_loses_tenths,
+        worst_tenths=-(stake_tenths + rung.cost_tenths),
+        fillable=rung.fillable,
+        affordable=rung.affordable,
+    )
+
+
+@dataclass(frozen=True)
 class Derisk:
     """A ticket with more than one leg still live. **This is not a lock.**
 
-    `if_leg_wins_tenths` on each rung is what you have spent, not what you have
-    made: the ticket is still alive on the other legs, so the branch has no
-    settled value. It is reported as a cost against a live position, and the
-    screen must say so.
+    Each rung is a `DeriskRung`, which carries no "if the leg wins" figure: the
+    ticket is still alive on the other legs, so that branch has no settled
+    value. Its worst case is the stake plus the hedge, lost.
 
     `notional_value_tenths` is `return * P(all remaining legs win)` at the
     venue's own **bid** prices — the conservative side, and the only side anyone
@@ -577,7 +616,7 @@ class Derisk:
     joint_probability: Optional[float]
     notional_value_tenths: Optional[int]
     joint_refusal: Optional[Refusal]
-    ladder: tuple[Rung, ...]
+    ladder: tuple[DeriskRung, ...]
 
 
 def derisk(
@@ -616,14 +655,18 @@ def derisk(
     affordable = max(0, int(affordable_contracts))
     exact = return_tenths / SETTLEMENT_TENTHS
     full = max(1, int(round(exact)))
-    ladder = _ladder(
-        full,
-        reachable=min(depth_contracts, affordable, full),
-        ask_tenths=ask,
-        stake_tenths=stake_tenths,
-        return_tenths=return_tenths,
-        depth_contracts=depth_contracts,
-        affordable_contracts=affordable,
+    # The sizes are the lock ladder's; the branches are not (`DeriskRung`).
+    ladder = tuple(
+        _derisk_rung(r, stake_tenths=stake_tenths)
+        for r in _ladder(
+            full,
+            reachable=min(depth_contracts, affordable, full),
+            ask_tenths=ask,
+            stake_tenths=stake_tenths,
+            return_tenths=return_tenths,
+            depth_contracts=depth_contracts,
+            affordable_contracts=affordable,
+        )
     )
 
     joint: Optional[float] = None

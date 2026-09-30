@@ -61,6 +61,7 @@ from typing import Any, Mapping, Optional, Sequence, Union
 from .core.correlation import Leg
 from .core.hedge import (
     Derisk,
+    DeriskRung,
     HedgeQuote,
     Lock,
     Refusal,
@@ -197,8 +198,8 @@ NOTES: dict[str, str] = {
     ),
     "derisk": (
         "More than one leg is still live, so a hedge on one of them locks "
-        "NOTHING. It changes the shape of what can happen, and both branches "
-        "are shown so you can see how."
+        "NOTHING. If that leg wins, the ticket is still riding on the others, "
+        "so the worst case is losing the stake and the hedge together."
     ),
 }
 
@@ -1940,7 +1941,31 @@ def assess(
 # its own floats disagrees with the screen within a week.
 
 
+def _derisk_rung_payload(rung: DeriskRung) -> dict:
+    """A multi-leg rung, in the same shape the ladder renders (#225).
+
+    "If the leg wins" is not a figure here: the ticket is still alive on the
+    other legs. `floor_display` carries the true worst case, the stake plus
+    the hedge lost. There is no `floor_tenths` and `floor_is_a_gain` is always
+    false, so the lock alert's ratchet (`notify.alerts.hedge_key`) has nothing
+    to read even if a derisk block ever reached it.
+    """
+    return {
+        "contracts": rung.contracts,
+        "cost_display": format_dollars(rung.cost_tenths),
+        "fee_display": format_dollars(rung.fee_tenths),
+        "if_leg_wins_display": "still live",
+        "if_leg_loses_display": format_dollars(rung.if_leg_loses_tenths),
+        "floor_display": format_dollars(rung.worst_tenths),
+        "floor_is_a_gain": False,
+        "fillable": rung.fillable,
+        "affordable": rung.affordable,
+    }
+
+
 def _rung_payload(rung) -> dict:
+    if isinstance(rung, DeriskRung):
+        return _derisk_rung_payload(rung)
     return {
         "contracts": rung.contracts,
         "cost_display": format_dollars(rung.cost_tenths),
