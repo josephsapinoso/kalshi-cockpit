@@ -283,6 +283,7 @@ function Quotes({
   value: ComboRfqResult;
   onTakeState: (kind: TakeKind) => void;
 }) {
+  const [acknowledged, setAcknowledged] = useState(false);
   if (value.status === "no_quotes" || value.quotes.length === 0) {
     return <p className="text-sm text-muted">{value.words}</p>;
   }
@@ -291,6 +292,16 @@ function Quotes({
 
   return (
     <div className="space-y-3 text-sm">
+      {/* #232: once per ask, above the quotes, and only while Take it is
+          armed -- the sentence says "spends real money", which an unarmed
+          desk does not. The box lives in this component so a re-ask (which
+          remounts Quotes) starts unticked. */}
+      {value.accepts_are_armed && (
+        <TakeItWarning
+          acknowledged={acknowledged}
+          onChange={setAcknowledged}
+        />
+      )}
       {/* Every price string on this screen is rendered by the backend, through
           the same renderer the order book path uses. A second formatter in
           TypeScript is how two surfaces start disagreeing about what 59.3c
@@ -346,8 +357,53 @@ function Quotes({
         rfqId={value.rfq_id}
         quote={best}
         armed={value.accepts_are_armed}
+        acknowledged={acknowledged}
         onState={onTakeState}
       />
+    </div>
+  );
+}
+
+/**
+ * The same weight of warning the single ticket carries, once per ask (#232).
+ *
+ * Ochre (`accent-2`), not red: it informs a decision Joe has already made.
+ *
+ * **No frequency word anywhere in it.** Every earlier version of the exit
+ * sentence asserted how often something happens and was falsified within
+ * days (#60), so this says what the tap DOES and what the desk will NOT do.
+ * `tests/test_ask_the_market_screen.py` scans this function for them.
+ *
+ * The box sentence is Joe's own, #60 answer (a), 2026-09-17, word for word
+ * as `ManualTicket.tsx` carries it.
+ */
+function TakeItWarning({
+  acknowledged,
+  onChange,
+}: {
+  acknowledged: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-accent-2/50 bg-accent-2-soft px-3 py-2 text-xs leading-relaxed text-accent-2">
+      <p className="max-w-[65ch]">
+        This spends real money at the price shown. You hold it only when Kalshi
+        reports it executed. A quote can still be withdrawn after you accept
+        it. If the reply is lost, the desk shows UNKNOWN and will not try
+        again, so check Kalshi before you tap anything.
+      </p>
+      <label className="mt-2 flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={acknowledged}
+          onChange={(event) => onChange(event.target.checked)}
+          className="mt-0.5 h-5 w-5 shrink-0"
+        />
+        <span>
+          I understand selling this back may cost me more than holding it to
+          the outcome.
+        </span>
+      </label>
     </div>
   );
 }
@@ -380,12 +436,17 @@ function TakeIt({
   rfqId,
   quote,
   armed,
+  acknowledged,
   onState,
 }: {
   rfqId: string;
   quote: ComboRfqResult["quotes"][number];
   /** False while the accept path is unarmed — the button says so up front. */
   armed: boolean;
+  /** Joe's #60 box, ticked for THIS ask. Take it stays disabled without it
+   *  (#232). Screen guard only: whether the server should also refuse is a
+   *  separate question for Joe (#238). */
+  acknowledged: boolean;
   /** Tells the parent which state the take is in, so "Ask again" can stand
    *  down once one has started. Display only; it gates no request. */
   onState: (kind: TakeKind) => void;
@@ -474,7 +535,7 @@ function TakeIt({
       <Button
         tone="primary"
         onClick={take}
-        disabled={state.kind === "sending"}
+        disabled={state.kind === "sending" || !acknowledged}
         className="w-full"
       >
         {state.kind === "sending" ? "Taking it…" : label}

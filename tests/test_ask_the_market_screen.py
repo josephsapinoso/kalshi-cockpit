@@ -242,9 +242,12 @@ class TestAQuoteShowsItsAge:
         and ADR 0112 removed all five of those on Joe's word."""
         source = _read(ASK)
         assert "QUOTE_GETTING_ON_MS" in source
-        assert "disabled={state.kind === \"sending\"}" in source, (
-            "the only thing that may disable the button is a send in flight"
-        )
+        # A send in flight, and since #232 Joe's own #60 acknowledgement --
+        # a consent he ticks, not a ceiling of ours. Never the quote's age.
+        assert (
+            'disabled={state.kind === "sending" || !acknowledged}' in source
+        ), "only a send in flight or the unticked #60 box may disable it"
+        assert "ageMs" not in source[source.index("function TakeIt("):]
 
     def test_the_screen_claims_no_expiry_it_has_not_measured(self):
         """The first version warned "probably expired" past three seconds --
@@ -300,3 +303,62 @@ class TestTheJargonTeachesItself:
         source = _read(ASK)
         for key in ("rfq", "maker", "maker_quote", "shard"):
             assert f'<Term k="{key}">' in source, f"{key} is used unwrapped"
+
+
+class TestTakeItCarriesTheSingleTicketsWarning:
+    """#232: one warning per ask above the quotes, and Joe's #60 box gating
+    every Take-it. Screen guard only; server refusal is #238."""
+
+    SENTENCE = (
+        "This spends real money at the price shown. You hold it only when "
+        "Kalshi reports it executed. A quote can still be withdrawn after you "
+        "accept it. If the reply is lost, the desk shows UNKNOWN and will not "
+        "try again, so check Kalshi before you tap anything."
+    )
+    ACK = (
+        "I understand selling this back may cost me more than holding it to "
+        "the outcome"
+    )
+
+    def _warning_prose(self) -> str:
+        source = _read(ASK)
+        start = source.index("function TakeItWarning")
+        end = source.index("\n/**", start)
+        block = re.sub(r"/\*.*?\*/", " ", source[start:end], flags=re.DOTALL)
+        return re.sub(r"\s+", " ", block)
+
+    def test_the_warning_sentence_is_present(self):
+        assert self.SENTENCE in self._warning_prose()
+
+    def test_the_box_uses_joes_words_as_the_single_ticket_does(self):
+        assert self.ACK in self._warning_prose()
+        assert self.ACK in _prose(FRONTEND / "components" / "ManualTicket.tsx")
+
+    def test_the_warning_is_ochre_and_not_red(self):
+        block = self._warning_prose()
+        assert "accent-2" in block
+        assert "negative" not in block and "red-" not in block
+
+    def test_no_frequency_word_in_the_warning(self):
+        block = self._warning_prose().lower()
+        for word in (
+            "usually", "rarely", "often", "always", "never", "sometimes",
+            "typically", "seldom", "frequently",
+        ):
+            assert not re.search(rf"\b{word}\b", block), word
+
+    def test_the_box_gates_take_it(self):
+        source = _read(ASK)
+        assert 'disabled={state.kind === "sending" || !acknowledged}' in source
+        assert "acknowledged={acknowledged}" in source
+
+    def test_the_warning_renders_exactly_when_take_it_is_armed(self):
+        source = _read(ASK)
+        assert re.search(
+            r"\{value\.accepts_are_armed && \(\s*<TakeItWarning", source
+        )
+
+    def test_the_warning_renders_above_the_quote_tiles_once(self):
+        source = _read(ASK)
+        assert source.count("<TakeItWarning") == 1
+        assert source.index("<TakeItWarning") < source.index('label="Best quote"')
