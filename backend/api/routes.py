@@ -92,6 +92,7 @@ from ..odds.timing import (
     window_status,
 )
 from .. import hedge as held_parlays
+from .. import line_shop
 from .. import parlays
 from ..parlays import (
     COMBO_EXIT_RFQ_BIDS_BELOW_BASIS,
@@ -1482,6 +1483,12 @@ def create_app(
             # time, and the sort below puts unknown kickoffs last.
             item["commence_ms"] = kickoffs.get(row["odds_event_id"])
             item["league"] = row["league"]
+            # Same opinion, cheaper way round (#245). A fact on the row, never
+            # read by any sort below: an ordering is a claim (ADR 0071 s2.5).
+            # `None` whenever the helper refuses.
+            item["line_shop"] = line_shop.hint_for_row(
+                conn, ticker=item["ticker"], side=item["side"], league=row["league"]
+            )
             item["volume_24h"] = row["volume_24h"]
             item["open_interest"] = row["open_interest"]
             item["kalshi_drift_tenths"] = kalshi_drift(
