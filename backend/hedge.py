@@ -247,11 +247,21 @@ class MarketBook:
 
 # Leagues whose series share a fixture segment across GAME / SPREAD / TOTAL
 # and prop series. Longest first so no prefix shadows another.
-_LEAGUE_PREFIXES = ("NCAAF", "NCAAB", "WNBA", "NBA", "NFL", "NHL", "MLB", "MLS")
+# Matched by `startswith` in this order, so a longer name sharing a stem goes
+# first (WNBA before NBA, BRASILEIROB/C before BRASILEIRO). A league missing
+# here keeps the old per-event key -- the unsafe direction -- so every series
+# prefix seen in `tests/fixtures` is listed. EPL has no capture and is listed
+# on its public name; over-merging costs only a refused joint (#229 review).
+_LEAGUE_PREFIXES = (
+    "NCAAF", "NCAAB", "WNBA", "NBA", "NFL", "NHL", "MLB", "MLS", "CFL",
+    "EPL", "UCL", "EFLCUP", "USL", "JLEAGUE", "KLEAGUE", "EREDIVISIE",
+    "BRASILEIROB", "BRASILEIROC", "BRASILEIRO", "LIGAPORTUGAL",
+    "SCOTTISHPREM",
+)
 
 
 def same_game_key(event_ticker: Optional[str]) -> Optional[str]:
-    """`(league, fixture segment)` of a LEG's event ticker, else `None`.
+    """`"LEAGUE:SEGMENT"` of a LEG's event ticker, else `None`.
 
     Kalshi issues a separate event per series, so `KXNFLGAME-26SEP13ATLPIT`
     and `KXNFLSPREAD-26SEP13ATLPIT` are one game under two event tickers;

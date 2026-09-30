@@ -106,3 +106,27 @@ def test_assess_still_prices_legs_of_different_fixtures(conn):
     assert result.state == hedge.STATE_DERISK
     assert result.outcome.joint_refusal is None
     assert result.outcome.joint_probability is not None
+
+
+class TestLeaguesSeenInCaptures:
+    """#229 review: a league missing from the prefix list keeps the per-event
+    key, the unsafe direction. These are series names present in
+    `tests/fixtures`; Brasileiro's B and C divisions must not collapse into
+    Serie A."""
+
+    def test_cfl_and_soccer_series_of_one_fixture_share_a_key(self):
+        from backend.hedge import same_game_key
+
+        assert same_game_key("KXCFLSPREAD-26AUG08EDMMTL") == "CFL:26AUG08EDMMTL"
+        assert (
+            same_game_key("KXUSLGAME-26AUG08LOUTAM")
+            == same_game_key("KXUSL1H-26AUG08LOUTAM")
+            is not None
+        )
+
+    def test_brasileiro_divisions_stay_apart(self):
+        from backend.hedge import same_game_key
+
+        a = same_game_key("KXBRASILEIROGAME-26AUG08FLAPAL")
+        b = same_game_key("KXBRASILEIROBGAME-26AUG08FLAPAL")
+        assert a is not None and b is not None and a != b
