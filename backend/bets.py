@@ -275,6 +275,118 @@ def _chance_when_priced_by_ticker(
     return out
 
 
+def _legs_by_ticker(
+    conn: sqlite3.Connection, tickers: list[str]
+) -> dict[str, list[dict[str, str]]]:
+    """Each combo ticker's legs, in words, where they can be READ (#254).
+
+    Two sources, tried in order, both keyed by the combo's own ticker:
+
+    1. `parlay_position_legs` through `parlay_positions.combo_ticker` -- the
+       legs Joe's recorded position carries (newest position for the ticker,
+       `leg_index` order kept).
+    2. `parlay_lookups.selected_legs` through `minted_market_ticker`, newest
+       row that parses, read by `parlays.legs_for_position` (which returns
+       `None`, never a shorter list, for an unreadable blob).
+
+    **Never a guess.** A ticker appears in the result only when EVERY leg of
+    its chosen source has a non-blank label that is not merely the leg's own
+    market ticker (a pre-2026-09-09 lookup blob has no label and stands the
+    ticker in; a ticker is not words). One unreadable leg drops the whole
+    combination from the result -- a shorter list would read as the whole
+    bet -- and the screen renders "Combination bet".
+
+    Cost: two `IN (...)` reads bounded by the returned window (<= `limit`
+    tickers), no per-row query. Neither `parlay_positions.combo_ticker` nor
+    `parlay_lookups.minted_market_ticker` is indexed, so each read scans its
+    table once; both are small beside `fills`/`venue_settlements`, and
+    `_chance_when_priced_by_ticker` already scans `parlay_lookups` the same
+    way on every request.
+    """
+    out: dict[str, list[dict[str, str]]] = {}
+    if not tickers:
+        return out
+    marks = ",".join("?" for _ in tickers)
+
+    def _readable(label: Any, ticker: Any) -> bool:
+        return (
+            isinstance(label, str)
+            and label.strip() != ""
+            and label.strip() != (ticker or "")
+        )
+
+    by_combo: dict[str, list[Any]] = {}
+    for r in conn.execute(
+        "SELECT p.combo_ticker AS combo, p.id AS pid, l.ticker AS ticker, "
+        "l.side AS side, l.label AS label "
+        "FROM parlay_positions p "
+        "JOIN parlay_position_legs l ON l.position_id = p.id "
+        f"WHERE p.combo_ticker IN ({marks}) "
+        "ORDER BY p.combo_ticker, p.id DESC, l.leg_index",
+        tickers,
+    ).fetchall():
+        by_combo.setdefault(r["combo"], []).append(r)
+    for combo, rows_ in by_combo.items():
+        newest = rows_[0]["pid"]
+        legs = [r for r in rows_ if r["pid"] == newest]
+        if all(_readable(r["label"], r["ticker"]) for r in legs):
+            out[combo] = [
+                {"label": r["label"].strip(), "side": r["side"]} for r in legs
+            ]
+
+    missing = [t for t in tickers if t not in out]
+    if missing:
+        from .parlays import legs_for_position
+
+        marks = ",".join("?" for _ in missing)
+        seen: set[str] = set()
+        for r in conn.execute(
+            "SELECT minted_market_ticker AS combo, selected_legs "
+            "FROM parlay_lookups "
+            f"WHERE minted_market_ticker IN ({marks}) "
+            "AND status IN ('priced', 'book_empty') "
+            "ORDER BY requested_ms DESC, id DESC",
+            missing,
+        ).fetchall():
+            if r["combo"] in seen:
+                continue
+            parsed = legs_for_position(r["selected_legs"])
+            if parsed is None:
+                continue
+            # A missing label comes back as the leg's own ticker, which
+            # `_readable` refuses, so the ticker-as-label case needs no
+            # separate check on `labels_are_tickers`.
+            if not all(_readable(g["label"], g["ticker"]) for g in parsed.legs):
+                continue
+            seen.add(r["combo"])
+            out[r["combo"]] = [
+                {"label": str(leg["label"]).strip(), "side": leg["side"]}
+                for leg in parsed.legs
+            ]
+    return out
+
+
+def _titles_by_ticker(
+    conn: sqlite3.Connection, tickers: list[str]
+) -> dict[str, str]:
+    """Kalshi's own market title for each single, where discovery holds one.
+
+    One batched read over the returned window. A missing or blank title is
+    simply absent (the screen then falls back to what the ticker says).
+    """
+    if not tickers:
+        return {}
+    marks = ",".join("?" for _ in tickers)
+    return {
+        r["ticker"]: r["title"].strip()
+        for r in conn.execute(
+            f"SELECT ticker, title FROM kalshi_markets WHERE ticker IN ({marks})",
+            tickers,
+        ).fetchall()
+        if isinstance(r["title"], str) and r["title"].strip()
+    }
+
+
 # The staleness ceiling for the "tonight" strip: 6x the fills cadence
 # (portfolio_poll.BALANCE_INTERVAL_S = 300s, which fills joined on the
 # 2026-08-21 partner ruling) -- survives two failed polls, too tight for an
@@ -488,6 +600,16 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
         row["ticker"] for row in rows if bet_kind(row["ticker"]) == KIND_COMBO
     })
     chance_by_ticker = _chance_when_priced_by_ticker(conn, combo_tickers)
+    # #254: legs in words and single titles, bounded by the returned window.
+    window = rows[:limit]
+    legs_by_ticker = _legs_by_ticker(
+        conn,
+        sorted({r["ticker"] for r in window if bet_kind(r["ticker"]) == KIND_COMBO}),
+    )
+    titles_by_ticker = _titles_by_ticker(
+        conn,
+        sorted({r["ticker"] for r in window if bet_kind(r["ticker"]) == KIND_SINGLE}),
+    )
 
     bets: list[dict] = []
     net_sum = 0
@@ -619,6 +741,16 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
                 "chance_priced_before_fill_ms": chance_priced_before_fill_ms,
                 "chance_refusal_reason": chance_refusal_reason,
                 "checked_without_chance": checked_without_chance,
+                # #254: a combination's legs in words (None when any leg is
+                # unreadable -- never a partial list) and a single's title.
+                "legs": (
+                    legs_by_ticker.get(row["ticker"])
+                    if kind == KIND_COMBO else None
+                ),
+                "market_title": (
+                    titles_by_ticker.get(row["ticker"])
+                    if kind == KIND_SINGLE else None
+                ),
             }
         )
     return {

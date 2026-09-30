@@ -541,9 +541,18 @@ const GAME_TICKER =
   /^KX[A-Z]+GAME-\d{2}[A-Z]{3}\d{2}\d{4}([A-Z]{3})([A-Z]{3})-([A-Z]{3})$/;
 
 function betLead(bet: SettledBet): string {
+  // #254: a combination leads with its legs when the server could read
+  // them all; one unreadable leg and `legs` is null, so the words stay.
+  if (bet.kind === "combo" && bet.legs && bet.legs.length > 0) {
+    return bet.legs.map((leg) => leg.label).join(" + ");
+  }
   if (bet.kind === "combo") return "Combination bet";
   const m = GAME_TICKER.exec(bet.ticker);
-  if (m === null || (m[3] !== m[1] && m[3] !== m[2])) return "Single game bet";
+  if (m === null || (m[3] !== m[1] && m[3] !== m[2])) {
+    return bet.market_title
+      ? `${bet.market_title} · ${bet.side === "no" ? "NO" : "YES"}`
+      : "Single game bet";
+  }
   return `${m[1]} vs ${m[2]} \u00b7 ${bet.side === "no" ? "against" : "on"} ${m[3]}`;
 }
 

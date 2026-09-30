@@ -3491,6 +3491,14 @@ export type SettledBet = {
   // -- it is a plain fact ("was this ticker checked and refused a joint"),
   // not one of the three chance fields above.
   checked_without_chance: boolean;
+  // #254: a combination's legs in words, in leg order, from the recorded
+  // position or the lookup that minted it. `null` when ANY leg is unreadable
+  // (never a partial list) and always `null` on a single -- the row then says
+  // "Combination bet". Optional: a backend one version behind omits the key.
+  legs?: { label: string; side: "yes" | "no" }[] | null;
+  // #254: Kalshi's own title for a single's market, from discovery; `null`
+  // when discovery holds none, and always `null` on a combination.
+  market_title?: string | null;
 };
 
 /**
