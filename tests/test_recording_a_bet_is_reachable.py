@@ -44,7 +44,6 @@ SCREENS = {
     "Picks": APP / "picks" / "page.tsx",
     "Parlays": COMPONENTS / "ParlayCards.tsx",
     "Your bets": APP / "bets" / "page.tsx",
-    "Hedging": APP / "hedge" / "page.tsx",
 }
 
 

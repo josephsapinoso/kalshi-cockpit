@@ -63,7 +63,10 @@ FOOTER = REPO_ROOT / "frontend" / "src" / "components" / "Footer.tsx"
 #:   only state is its own 503 explainer. It lost its footer slot in the
 #:   2026-08-22 review (Joe approved); the developer who just built the
 #:   warehouse types the URL, which for that reader is a route.
-EXEMPT = {"/", "/login", "/slate", "/dashboards"}
+#: - `/hedge` is a redirect to `/bets#open` (#240, Joe's 234 A, 2026-09-30):
+#:   the Discord alerts and bookmarks still arrive there, and the screen it
+#:   used to render is the top section of `/bets`, which the nav links.
+EXEMPT = {"/", "/login", "/slate", "/dashboards", "/hedge"}
 
 
 def served_routes() -> set[str]:
@@ -153,7 +156,7 @@ class TestEveryScreenCanBeArrivedAt:
         written into this test as a decision, with its date and its reason:
 
         - `/estimate`  the stopped study's record (form retired, ADR 0065)
-        - `/hedge`     ADR 0078; empty until a ticket is recorded
+        - (`/hedge` left 2026-09-30, #240: it redirects to `/bets#open`)
         - `/ledger`    demoted 2026-08-24 when Parlays took its slot
         - `/board`     demoted 2026-09-02 as "Refusals" (#8, #29)
         - `/gate`      demoted 2026-09-02 (#18) -- read, never acted on
@@ -163,7 +166,7 @@ class TestEveryScreenCanBeArrivedAt:
         (and the reachability test above goes red with it, which is the
         point of having both)."""
         assert linked_routes(FOOTER) == {
-            "/estimate", "/hedge", "/ledger", "/board", "/gate", "/playbook",
+            "/estimate", "/ledger", "/board", "/gate", "/playbook",
         }
 
 
