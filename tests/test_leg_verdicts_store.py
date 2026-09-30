@@ -670,7 +670,7 @@ class TestTheRouteServesACachedVerdictWithoutASecondCall:
 
 
 class TestTheRouteRefusesResolutionFailuresWithoutTouchingTheBudget:
-    def test_a_leg_with_no_quote_is_refused_and_writes_no_row(self, app_env):
+    def test_a_leg_with_no_quote_is_refused_and_the_refusal_is_kept(self, app_env):
         db_path, client = app_env
         conn = store.open_db(db_path)
         t = now_ms()
@@ -693,15 +693,25 @@ class TestTheRouteRefusesResolutionFailuresWithoutTouchingTheBudget:
         assert leg["refusal_reason"]
 
         conn = store.open_db(db_path)
-        assert conn.execute(
-            "SELECT COUNT(*) AS c FROM leg_verdicts"
-        ).fetchone()["c"] == 0
+        rows = conn.execute(
+            "SELECT status, refusal_reason FROM leg_verdicts"
+        ).fetchall()
+        assert [r["status"] for r in rows] == ["refused"]
+        assert rows[0]["refusal_reason"] == leg["refusal_reason"]
         assert conn.execute(
             "SELECT COUNT(*) AS c FROM agent_calls"
         ).fetchone()["c"] == 0
         conn.close()
 
-    def test_a_leg_after_kickoff_is_refused_and_writes_no_row(self, app_env):
+        # #223: after a remount the panel only has the GET, and it must say
+        # the leg was refused and why, never "nobody has asked yet".
+        got = client.get(
+            "/api/leg-verdicts", params={"leg": "KXTEST-GAME1-NOQUOTE:yes"}
+        ).json()["legs"][0]
+        assert got["state"] == "refused"
+        assert got["refusal_reason"] == leg["refusal_reason"]
+
+    def test_a_leg_after_kickoff_is_refused_and_spends_nothing(self, app_env):
         db_path, client = app_env
         conn = store.open_db(db_path)
         t = now_ms()
@@ -722,8 +732,11 @@ class TestTheRouteRefusesResolutionFailuresWithoutTouchingTheBudget:
         assert leg["state"] == "refused"
 
         conn = store.open_db(db_path)
+        assert [
+            r["status"] for r in conn.execute("SELECT status FROM leg_verdicts")
+        ] == ["refused"]
         assert conn.execute(
-            "SELECT COUNT(*) AS c FROM leg_verdicts"
+            "SELECT COUNT(*) AS c FROM agent_calls"
         ).fetchone()["c"] == 0
         conn.close()
 

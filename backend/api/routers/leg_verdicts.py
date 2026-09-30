@@ -42,6 +42,7 @@ from ...leg_verdicts import (
     _row_to_response,
     _run_leg_verdict,
     cached_verdict,
+    insert_refused_row,
     insert_running_row,
     read_verdicts,
     resolve_leg,
@@ -185,11 +186,23 @@ def register(app: FastAPI, *, app_config, get_conn, require_auth) -> None:
             now = db.now_ms()
             budget = AgentBudget.from_config(write_conn, agent_config)
             results: list[dict] = []
+
+            def refuse(ticker: str, side: str, reason: str) -> None:
+                # Kept as a row (#223): a refusal held only in the POST
+                # response read "nobody has asked yet" after a remount.
+                logger.info("leg verdict refused %s:%s -- %s", ticker, side, reason)
+                insert_refused_row(
+                    write_conn, ticker, side, reason,
+                    card_key=request.card_key, model=agent_config.model,
+                    trigger=request.trigger, now_ms=now,
+                )
+                results.append(_refusal_item(ticker, side, reason))
+
             for leg in request.legs:
                 ticker, side = leg.ticker, leg.side
                 resolved = resolve_leg(write_conn, ticker, side, now)
                 if isinstance(resolved, LegRefusal):
-                    results.append(_refusal_item(ticker, side, resolved.reason))
+                    refuse(ticker, side, resolved.reason)
                     continue
                 ctx: LegContext = resolved
 
@@ -220,11 +233,7 @@ def register(app: FastAPI, *, app_config, get_conn, require_auth) -> None:
                     reserved_tokens=LEG_VERDICT_TOKEN_RESERVATION * in_flight,
                 )
                 if reason is not None:
-                    results.append(
-                        _refusal_item(
-                            ticker, side, _budget_refusal_message(budget, now)
-                        )
-                    )
+                    refuse(ticker, side, _budget_refusal_message(budget, now))
                     continue
 
                 row_id = insert_running_row(

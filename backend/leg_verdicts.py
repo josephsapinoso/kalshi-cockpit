@@ -465,6 +465,27 @@ async def _run_leg_verdict(
         conn.close()
 
 
+def insert_refused_row(
+    conn, ticker: str, side: str, reason: str, *,
+    card_key, model: str, trigger: str, now_ms: int,
+) -> int:
+    """Keep a refusal so the GET can say why, not "nobody has asked yet" (#223).
+
+    Until 2026-09-30 a refusal wrote no row and its reason lived only in the
+    POST response the panel held in memory. A remount lost it and the leg
+    read as never asked, when Joe had asked. `cached_verdict` never serves a
+    `refused` row, so the next tap still asks afresh. Spends nothing.
+    """
+    cursor = conn.execute(
+        "INSERT INTO leg_verdicts (ticker, side, card_key, requested_ms, "
+        "completed_ms, status, refusal_reason, model, trigger) "
+        "VALUES (?, ?, ?, ?, ?, 'refused', ?, ?, ?)",
+        (ticker, side, card_key, now_ms, now_ms, reason, model, trigger),
+    )
+    conn.commit()
+    return int(cursor.lastrowid)
+
+
 def insert_running_row(conn, ctx: LegContext, *, card_key, model: str, trigger: str, now_ms: int) -> int:
     """Write the `running` row a background call will settle. Returns its id.
 

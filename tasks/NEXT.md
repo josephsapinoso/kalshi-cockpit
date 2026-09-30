@@ -151,6 +151,10 @@ Joe typed `/go`. State was clean: CI green on `2219999`, no PRs, 0 dependabot al
 - **#220** now carries `model:opus` and a trigger: if Sunday's cost reading shows cards crowding out leg verdicts, open a question for Joe under #3 on which games get cards. **Map #3 has no open question**, and that one is owed only after the reading.
 - **Worktrees:** the five leftover `.next/standalone` shells and the stale 210 worktree were removed (no junctions inside). **Branch `lane/210-matchup-tile` is already merged as `7f35c46`** (`git cherry` shows `-`). Deleting it was refused by the classifier, so Joe can delete it; it is recoverable at `a4aafa5`.
 
+- **Joe's phone, the long-ladder card (~14:30Z), two leg-verdict faults, both fixed:**
+  - the scout PASSed "Philadelphia wins by over 1.5 runs" (that day, 18:00Z) as "over a year away". **No seat was ever told the date.** `structured_call` now adds an uncached "Current date and time" system block, which covers every seat (`ac0cbc3`). That PASS stays cached until its 6 h window runs out, which is after first pitch.
+  - Toronto's leg read "nobody has asked yet" after he had asked. There was no row on either side, and a refusal was kept only in the panel's memory. The budget read 39/100 searches, so the budget does not explain it. The cause is unrecoverable. A re-ask ran normally and returned TAKE. **#223 (closed):** each refusal now writes the `refused` row the schema already allowed and is logged, so the GET says why. The #151 registration counts only completed rows, so its population is unchanged.
+
 ### Still open
 
 1. #220 — after Sunday 2026-10-04: sharp-bettor reviews the first automatic cards plus the cost re-read, and counts the search-exhausted skips; the #3 question is opened only if the reading warrants it.

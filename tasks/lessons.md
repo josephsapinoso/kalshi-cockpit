@@ -16,6 +16,28 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-30 - A model seat does not know what day it is unless the prompt says so; a refusal that writes no row reads as "never asked" once the screen reloads
+
+From the seventy-second session (Joe's phone, the long-ladder card).
+
+- **The leg scout PASSed a game kicking off that morning because it was
+  "over a year away".** No seat's prompt carried the current date, and the
+  prompts gave kickoff as an ISO timestamp. A model dates that against its
+  training data, and most verdicts were saved only because a search happened
+  to return current news. Every test passed, because a stub client has no
+  sense of time. **Any prompt that asks a model to judge recency or distance
+  in time must state now**, which now means one uncached block in
+  `structured_call`. A new call path that bypasses it needs the same.
+- **One leg of six showed "nobody has asked yet" after Joe had asked.** A
+  refusal writes no row by design (#155), so its reason lives only in the
+  POST response held by the component. Once the component remounts (after a
+  filter change or a reload), the GET finds nothing and says the leg was
+  never asked, which is false. The cause could not be recovered afterwards.
+  **A state held only in client memory is lost on the next render path that
+  does not carry it. If the screen needs to say something after a
+  remount, the server has to keep it.** #223 now writes the `refused` row the
+  schema already allowed.
+
 ## 2026-09-29 - Two writers of one column must share the derivation; an asyncio lock guards one process; a module nothing reaches merges together with its caller
 
 From the seventy-first session (#214–#217, ADR 0190).
