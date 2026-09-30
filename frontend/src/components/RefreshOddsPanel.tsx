@@ -8,6 +8,7 @@ import {
 import type { ActionableWindow, Refreshable } from "@/lib/api";
 import type { ListFilter } from "@/lib/api";
 import { listFilterQuery } from "@/lib/api";
+import { withKept } from "@/lib/parlaysView";
 import Link from "next/link";
 import RefreshOddsButton from "@/components/RefreshOddsButton";
 import { leagueLabel } from "@/lib/leagueLabel";
@@ -75,7 +76,10 @@ export default async function RefreshOddsPanel({
   actionable,
   filter = null,
   pathname = null,
+  keep = null,
 }: {
+  /** A query fragment the clear-chip link carries, e.g. `view=cards` (#221). */
+  keep?: string | null;
   /**
    * The sweep timetable, passed down rather than fetched again. The panel
    * used to borrow its context from *position* — it sat below the banner and
@@ -124,7 +128,10 @@ export default async function RefreshOddsPanel({
   const allLeaguesHref =
     pathname === null || filter === null
       ? null
-      : `${pathname}${listFilterQuery({ ...filter, league: null })}`;
+      : withKept(
+          `${pathname}${listFilterQuery({ ...filter, league: null })}`,
+          keep,
+        );
 
   if (cut.kind === "league_outside_horizon") {
     // The chosen league is not the same as an empty horizon. The odds feed

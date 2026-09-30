@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import type { ListFilter, ParlayWindow } from "@/lib/api";
 import { listFilterQuery } from "@/lib/api";
+import { withKept } from "@/lib/parlaysView";
 
 /**
  * Which kickoff window the parlay cards are built from (2026-09-06).
@@ -35,10 +36,13 @@ export default function WindowPicker({
   window,
   filter,
   pathname = "/parlays",
+  keep = null,
 }: {
   window: ParlayWindow | undefined;
   filter: ListFilter;
   pathname?: string;
+  /** A query fragment every link carries, e.g. `view=cards` (#221). */
+  keep?: string | null;
 }) {
   if (!window || window.choices.length < 2) return null;
 
@@ -46,7 +50,10 @@ export default function WindowPicker({
   // window silently clears a filter the reader set a moment ago.
   const cut = listFilterQuery(filter);
   const href = (key: string) =>
-    cut ? `${pathname}${cut}&horizon=${key}` : `${pathname}?horizon=${key}`;
+    withKept(
+      cut ? `${pathname}${cut}&horizon=${key}` : `${pathname}?horizon=${key}`,
+      keep,
+    );
 
   return (
     <nav aria-label="Kickoff window" className="mt-4">

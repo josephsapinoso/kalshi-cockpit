@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 
-import { checkParlay, formatAge } from "@/lib/api";
+import {
+  checkParlay,
+  displayZoneLabel,
+  formatAge,
+  formatKickoff,
+} from "@/lib/api";
 import type { CheckedParlayResult } from "@/lib/api";
 import AskTheMarket from "@/components/AskTheMarket";
 import { RestChip } from "@/components/ParlayCards";
@@ -120,6 +125,11 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
             <p className="font-semibold">{leg.label}</p>
             <p className="text-xs uppercase tracking-wide text-muted">
               {leg.side}
+            </p>
+            <p className="tabular text-xs text-muted">
+              {leg.commence_ms === null
+                ? "time unknown"
+                : `${formatKickoff(leg.commence_ms)} ${displayZoneLabel(leg.commence_ms)}`}
             </p>
             <RestChip rest={leg.rest} />
             {/* **The unknown-leg branch, keyed on `chance === null`, never on
