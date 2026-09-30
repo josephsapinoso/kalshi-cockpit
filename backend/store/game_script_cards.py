@@ -76,8 +76,52 @@ def insert_card(
 def _row_to_dict(row: sqlite3.Row) -> dict:
     out = dict(row)
     raw = out.pop("legs_json", None)
-    out["legs"] = json.loads(raw) if raw else None
+    legs = json.loads(raw) if raw else None
+    out["dropped_legs"] = []
+    if legs:
+        legs, out["dropped_legs"] = drop_implied_win_legs(legs)
+    out["legs"] = legs
     return out
+
+
+def _series_and_team(market_ticker: str) -> Optional[tuple[str, str, str]]:
+    """`KXNHLSPREAD-26SEP29CHIVGK-VGK2` -> `("KXNHLSPREAD", "26SEP29CHIVGK",
+    "VGK")`: series, game suffix, team with any trailing rung digits cut.
+    `None` for a ticker that is not three dash-separated parts."""
+    parts = market_ticker.strip().upper().split("-")
+    if len(parts) != 3:
+        return None
+    return parts[0], parts[1], parts[2].rstrip("0123456789")
+
+
+def drop_implied_win_legs(legs: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Drop a YES "team wins" leg when the card also has YES "that team wins
+    by N+" for the same game. Returns `(kept, dropped)`.
+
+    Kalshi refuses the pair as `duplicated_legs` ("Vegas winning by 2+
+    already guarantees Vegas winning"; Joe hit it on /parlays 2026-09-30).
+    Dropping the win leg is lossless: both-happen IS the cover, so the
+    combination pays on exactly the same outcomes. Nothing else is touched.
+    The stored `legs_json` keeps what the scout wrote; this runs on read.
+    """
+    covers = set()
+    for leg in legs:
+        parsed = _series_and_team(leg.get("market_ticker", ""))
+        if parsed and leg.get("side") == "yes" and parsed[0].endswith("SPREAD"):
+            covers.add((parsed[0][: -len("SPREAD")], parsed[1], parsed[2]))
+    kept, dropped = [], []
+    for leg in legs:
+        parsed = _series_and_team(leg.get("market_ticker", ""))
+        if (
+            parsed
+            and leg.get("side") == "yes"
+            and parsed[0].endswith("GAME")
+            and (parsed[0][: -len("GAME")], parsed[1], parsed[2]) in covers
+        ):
+            dropped.append(leg)
+        else:
+            kept.append(leg)
+    return kept, dropped
 
 
 def sport_key_for(game_event_ticker: str) -> str:

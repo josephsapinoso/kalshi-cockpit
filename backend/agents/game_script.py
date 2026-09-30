@@ -45,7 +45,7 @@ AGENT_NAME = "game_script"
 
 #: Bumped whenever `SYSTEM` or the prompt's shape changes, so a stored card
 #: says which instructions built it.
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "2"
 
 GAME_SCRIPT_MAX_SEARCHES = 3
 GAME_SCRIPT_SEARCH_TOOL = {**WEB_SEARCH_TOOL, "max_uses": GAME_SCRIPT_MAX_SEARCHES}
@@ -82,7 +82,7 @@ to be played; (3) schedule and rest -- days off, travel, a back-to-back; \
 Use ONLY the legs in the list you are given. Copy each leg's market_ticker \
 and event_ticker exactly, and pick a side (yes or no) from the sides that leg \
 allows. Some events allow only one leg per ticket; never pick two legs from \
-one of those. Pick two or three legs, never fewer or more.
+one of those. Pick two or three legs, never fewer or more. Never pair a team winning with that same team winning by a margin: Kalshi refuses the pair, because winning by the margin already includes winning.
 
 Write the story in a few short sentences of everyday words: what you found, \
 where you found it, and how the legs fit together. Then write drop_if: the \
@@ -306,7 +306,16 @@ async def build_card(
             why, usage, call_id,
         )
 
-    invalid = validate_card(parsed, listing)
+    # A win leg beside the same team's cover is dropped before validation,
+    # not refused: the pair pays on the same outcomes as the cover alone, and
+    # Kalshi refuses it as `duplicated_legs`. The stored legs stay as the
+    # scout wrote them; `game_script_cards` drops the same leg on read.
+    kept, _dropped = game_script_cards.drop_implied_win_legs(
+        [leg.model_dump() for leg in parsed.legs]
+    )
+    invalid = validate_card(
+        parsed.model_copy(update={"legs": [CardLeg(**leg) for leg in kept]}), listing
+    )
     if invalid is not None:
         budget.settle(call_id, verdict="invalid", usage=usage)
         return CardResult(

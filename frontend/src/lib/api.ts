@@ -4455,6 +4455,8 @@ export type GameScriptCard = {
   combo_ticker: string | null;
   /** Empty on anything but a built card. */
   legs: GameScriptLeg[];
+  /** Win legs left off because the same team's cover already includes them. */
+  dropped_legs: { market_ticker: string; event_ticker: string; side: string }[];
   /** The sentence a game with no built card carries; `null` on a built one. */
   no_card_line: string | null;
   inactives_line: string;

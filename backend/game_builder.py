@@ -60,6 +60,7 @@ from typing import Optional, Sequence
 from .core.ladder import unusable_reason
 from .kalshi.combos import ComboCollection, ComboScope, echoed_legs, lookup_combo
 from .kalshi.orderbook import OrderBook
+from .store import game_script_cards
 from .parlay_check import (
     _leg_label,
     _missing_leg_reason,
@@ -582,7 +583,10 @@ def attach_combo_to_card(
         ).fetchone()
         if row is None:
             return None
-        card_legs = {(l["market_ticker"], l["side"]) for l in json.loads(row[1])}
+        # Compared as the card is SHOWN: a win leg beside its own cover is
+        # dropped on read (`drop_implied_win_legs`), so that is what Joe mints.
+        shown, _ = game_script_cards.drop_implied_win_legs(json.loads(row[1]))
+        card_legs = {(l["market_ticker"], l["side"]) for l in shown}
         if card_legs != set(legs):
             return None
         conn.execute(

@@ -538,3 +538,105 @@ class TestTheRoute:
 
 def _listing_with_kinds():
     return _listing()
+
+
+# --- the win leg beside its own cover (Joe, /parlays 2026-09-30) -------------
+
+SPREAD_ATL = _l("KXNFLSPREAD-26SEP13ATLPIT-ATL3", "KXNFLSPREAD-26SEP13ATLPIT")
+SPREAD_PIT = _l("KXNFLSPREAD-26SEP13ATLPIT-PIT3", "KXNFLSPREAD-26SEP13ATLPIT")
+
+
+def _listing_with_spread():
+    listing = _listing()
+    listing["groups"].append({
+        "series": "KXNFLSPREAD", "kind": "SPREAD", "label": "Spread",
+        "one_per_event": True,
+        "legs": [
+            _leg("KXNFLSPREAD-26SEP13ATLPIT-ATL3", "KXNFLSPREAD-26SEP13ATLPIT",
+                 "Atlanta wins by over 2.5", one=True, cap=1),
+            _leg("KXNFLSPREAD-26SEP13ATLPIT-PIT3", "KXNFLSPREAD-26SEP13ATLPIT",
+                 "Pittsburgh wins by over 2.5", one=True, cap=1),
+        ],
+    })
+    return listing
+
+
+class TestAWinLegBesideItsOwnCoverIsDropped:
+    """Kalshi refused `duplicated_legs`: "Vegas winning by 2+ already
+    guarantees Vegas winning". Both-happen IS the cover, so dropping the win
+    leg pays on exactly the same outcomes."""
+
+    def test_the_same_teams_win_is_dropped(self):
+        kept, dropped = game_script_cards.drop_implied_win_legs([ATL, SPREAD_ATL, TOT40])
+        assert kept == [SPREAD_ATL, TOT40] and dropped == [ATL]
+
+    def test_the_other_teams_cover_leaves_the_win_alone(self):
+        kept, dropped = game_script_cards.drop_implied_win_legs([ATL, SPREAD_PIT])
+        assert kept == [ATL, SPREAD_PIT] and dropped == []
+
+    def test_a_no_side_is_left_alone(self):
+        no_cover = {**SPREAD_ATL, "side": "no"}
+        kept, dropped = game_script_cards.drop_implied_win_legs([ATL, no_cover])
+        assert dropped == []
+
+    def test_the_real_nhl_tickers_joe_hit(self):
+        win = _l("KXNHLGAME-26SEP29CHIVGK-VGK", "KXNHLGAME-26SEP29CHIVGK")
+        cover = _l("KXNHLSPREAD-26SEP29CHIVGK-VGK2", "KXNHLSPREAD-26SEP29CHIVGK")
+        prop = _l("KXNHLPTS-26SEP29CHIVGK-EICHEL1", "KXNHLPTS-26SEP29CHIVGK")
+        kept, dropped = game_script_cards.drop_implied_win_legs([win, cover, prop])
+        assert kept == [cover, prop] and dropped == [win]
+
+    async def test_a_three_leg_card_is_built_with_two(self, tmp_path):
+        conn, budget = _conn_budget(tmp_path)
+        result = await build_card(
+            conn, StubClient(_card(ATL, SPREAD_ATL, TOT40)), CONFIG, budget,
+            game_event_ticker=GAME, sport_key="nfl", kickoff_ms=KICKOFF,
+            game_title="Atlanta at Pittsburgh", kickoff_iso="2026-09-13T17:00Z",
+            listing=_listing_with_spread(), now_ms=NOW,
+        )
+        assert result.status == "built"
+        row = _row(conn, result.card_id)
+        assert row["legs"] == [SPREAD_ATL, TOT40]
+        assert row["dropped_legs"] == [ATL]
+
+    async def test_a_two_leg_card_left_with_one_is_refused(self, tmp_path):
+        conn, budget = _conn_budget(tmp_path)
+        result = await build_card(
+            conn, StubClient(_card(ATL, SPREAD_ATL)), CONFIG, budget,
+            game_event_ticker=GAME, sport_key="nfl", kickoff_ms=KICKOFF,
+            game_title="Atlanta at Pittsburgh", kickoff_iso="2026-09-13T17:00Z",
+            listing=_listing_with_spread(), now_ms=NOW,
+        )
+        assert result.status == "refused_invalid"
+        assert "1 legs" in result.reason
+
+    def test_a_stored_card_reads_without_the_win_leg(self, tmp_path):
+        conn, _ = _conn_budget(tmp_path)
+        card_id = game_script_cards.insert_card(
+            conn, game_event_ticker=GAME, sport_key="nfl", kickoff_ms=KICKOFF,
+            built_ms=NOW, status="built", story="s", drop_if="d",
+            legs=[ATL, SPREAD_ATL, TOT40], prompt_version="1",
+        )
+        row = _row(conn, card_id)
+        assert row["legs"] == [SPREAD_ATL, TOT40]
+        stored = conn.execute(
+            "SELECT legs_json FROM game_script_cards WHERE id = ?", (card_id,)
+        ).fetchone()[0]
+        assert "-ATL\"" in stored  # the scout's own pick is kept on the row
+
+    def test_minting_the_shown_legs_stamps_the_card(self, tmp_path):
+        from backend.game_builder import attach_combo_to_card
+        conn, _ = _conn_budget(tmp_path)
+        card_id = game_script_cards.insert_card(
+            conn, game_event_ticker=GAME, sport_key="nfl", kickoff_ms=KICKOFF,
+            built_ms=NOW, status="built", story="s", drop_if="d",
+            legs=[ATL, SPREAD_ATL, TOT40], prompt_version="1",
+        )
+        shown = [(SPREAD_ATL["market_ticker"], "yes"), (TOT40["market_ticker"], "yes")]
+        assert attach_combo_to_card(
+            conn, game_event_ticker=GAME, legs=shown, minted="KXMVE-X"
+        ) == card_id
+
+    def test_the_prompt_states_the_rule(self):
+        from backend.agents.game_script import SYSTEM
+        assert "Never pair a team winning with that same team winning by a margin" in SYSTEM
