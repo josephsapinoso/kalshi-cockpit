@@ -13,10 +13,12 @@ Choices, each stated because it was a choice:
 - **The unattended share.** Building stops once the day's recorded tokens plus
   this pass's reservations would cross `1 - SCOUT_AUTO_TAP_TOKEN_SHARE` of
   `AGENT_MAX_TOKENS_PER_DAY`, so Joe's own taps keep the rest. Each card is
-  reserved at `CARD_TOKEN_ESTIMATE` = 60,000, the leg-verdict analogue
+  reserved at `CARD_TOKEN_ESTIMATE` = 290,000, the first real card's cost
+  (289,372 tokens, 2026-09-30, `agent_calls.id` 179, n = 1, #218). It was
+  60,000, the leg-verdict analogue
   (`agents/leg_verdict.LEG_VERDICT_TOKEN_RESERVATION`, mean ~51K, range
-  29K-90K). **That is a borrowed number**: no game-script card has been read
-  from `agent-spend` yet (#213 gates the live flag on that reading).
+  29K-90K), and was ~4.8x low. One reading is not a rate: re-read
+  `agent-spend` (agent='game_script') after the first automatic Sunday.
 - **Searches** are reserved at `GAME_SCRIPT_MAX_SEARCHES` (3) per card.
 - **A game with a `built` or `skipped` card is done.** A refused row is not a
   card and does not count (ADR 0190 section 2 dedupe).
@@ -38,7 +40,6 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable, Iterable, Optional, Sequence
 
 from .agents.game_script import GAME_SCRIPT_MAX_SEARCHES
-from .agents.leg_verdict import LEG_VERDICT_TOKEN_RESERVATION
 from .agents.base import AgentConfig
 from .agents.budget import AgentBudget
 from .kalshi.discovery import IN_SCOPE_LEAGUES
@@ -47,8 +48,8 @@ from .store import game_script_cards
 
 logger = logging.getLogger(__name__)
 
-#: Reserved per card against the token ceiling. Borrowed from the leg verdict.
-CARD_TOKEN_ESTIMATE = LEG_VERDICT_TOKEN_RESERVATION
+#: Reserved per card against the token ceiling: the first real card's cost.
+CARD_TOKEN_ESTIMATE = 290_000
 CARD_SEARCHES = GAME_SCRIPT_MAX_SEARCHES
 
 BUILD = "build"

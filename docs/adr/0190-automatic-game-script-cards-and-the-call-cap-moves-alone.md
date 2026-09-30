@@ -34,3 +34,18 @@ On #212 he chose **(A)**: a game-script card is built automatically for every ga
 ## 4. Not doing
 
 A scout convening per game; a second NFL refresh; prices in the prompt; any combined or independent figure; any order but kickoff; any performance registration; moving the token or search ceilings.
+
+## Amendment 1 — the cost reading, and the token ceiling moves to 9M (2026-09-30, Joe's (D) to #219)
+
+**The reading (#218).** The first real card was `KXNFLGAME-26OCT01PITCLE`, built on live at `766b017` on 2026-09-30 00:59Z through the tap path (`agent_calls.id` 179, `inspect_live_db.py agent-spend`). It cost **286,120 input + 3,252 output = 289,372 tokens, with 2 searches**, and took 57.9 s end to end through `/game-card`, so the inline POST survives the Fly/Next timeouts. The 60K in §2.2 and §3 was the leg-verdict analogue, and it was ~4.8x low. n = 1: this is a reading, not a rate.
+
+**What it meant.** At the 0.5 unattended share of 1.5M, about 2 automatic cards fit in a day, against the ~14 an NFL Sunday needs. Joe was offered four options: shrink the card first (recommended), arm at ~2 a day, tap only, or raise the ceiling. He chose **(D), raise the ceiling, and set it at 9M**. The share then holds ~15 cards.
+
+**The changes.**
+- `AGENT_MAX_TOKENS_PER_DAY` 1.5M → **9M**, alone. Calls (100) and searches (100) are unmoved.
+- `CARD_TOKEN_ESTIMATE` 60K → **290K**. Without this, one pass would reserve ~60K a card and line up far more builds than the share holds, and each build checks only the full ceiling. The watcher would then spend into the half kept for Joe's taps.
+- `GAME_SCRIPT_AUTO_ENABLED` → **true**.
+
+**Superseded, not deleted:** §3's "tokens stay 1.5M" and "~714K for an NFL Sunday (406K–1.26M)". At the reading, an NFL Sunday of 14 cards is ~4.1M.
+
+**Worst case ~$18 a day** at the $2/$10 per million rate `fly.live.toml` quotes, which has not been re-checked. The Anthropic account's own spend limit must sit above this, or the account refuses first. Re-read `agent-spend` (`agent='game_script'`) after the first automatic Sunday. If the mean moves far from 290K, move `CARD_TOKEN_ESTIMATE` with it.

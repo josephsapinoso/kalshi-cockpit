@@ -209,11 +209,12 @@ ADR 0186) spend on every tap that asks for one — about 51K tokens a verdict
 (range 29K–90K, n = 17, one day). Unattended scouting ran 2026-09-21 to -25
 and is **off** again (`SCOUT_AUTO_CONVENE_ENABLED = "false"`,
 `fly.live.toml`), its budget given to leg verdicts. What bounds all of it is
-the shared `AgentBudget`'s daily ceilings (`AGENT_MAX_*`: 1.5M tokens and
-100 searches since #157, 100 calls since #212 — calls moved **alone**, on
-Joe's word, for automatic **game-script cards** (#213, ADR 0190): one call
-and ≤3 searches a game at T-24h, inside the 0.5 tap share, so ~750K a day;
-off until one real card's cost is read), checked against recorded
+the shared `AgentBudget`'s daily ceilings (`AGENT_MAX_*`: 100 searches
+since #157, 100 calls since #212 and **9M tokens since #219** — each moved
+alone, on Joe's word, for automatic **game-script cards** (#213, ADR 0190 +
+Amd 1): one call and ≤3 searches a game at T-24h, inside the 0.5 tap share.
+A card measured **289,372 tokens** (n = 1), so the share holds ~15 a day
+and an NFL Sunday costs ~4.1M), checked against recorded
 usage *before* each call — so a day overshoots by what the last call costs,
 and since ADR 0186 Amendment 1 in-flight verdicts hold an estimated 60K
 tokens and 3 searches each, so a burst no longer slips through on settled
