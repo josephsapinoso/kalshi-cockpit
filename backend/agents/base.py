@@ -42,6 +42,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Optional, Type, TypeVar
 
 # `ValidationError` is caught around `messages.parse`: the SDK parses a
@@ -355,6 +356,16 @@ def build_client(config: AgentConfig):
     return anthropic.AsyncAnthropic(api_key=config.api_key, max_retries=0)
 
 
+def current_date_line(now: Optional[datetime] = None) -> str:
+    """The system block that tells a seat what day it is, in UTC."""
+    at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return (
+        f"Current date and time: {at.strftime('%A %Y-%m-%d %H:%M')} UTC. "
+        f"Judge how far away a game is, and how recent news is, from this "
+        f"date, not from your training data."
+    )
+
+
 async def structured_call(
     client,
     *,
@@ -365,6 +376,7 @@ async def structured_call(
     max_tokens: int = 4096,
     effort: str = "medium",
     tools: Optional[list[dict]] = None,
+    now: Optional[datetime] = None,
 ) -> StructuredCallOutcome:
     """One structured call. Returns the parsed model and the recorded usage.
 
@@ -433,6 +445,11 @@ async def structured_call(
                 "text": system,
                 "cache_control": {"type": "ephemeral"},
             },
+            # Today's date, after the cache breakpoint so the cached prefix
+            # is unchanged. Without it a seat reads the date off its training
+            # data: a leg verdict on 2026-09-30 called that day's game "over
+            # a year away" and PASSed it (Joe's phone, 2026-09-30).
+            {"type": "text", "text": current_date_line(now)},
         ],
         "messages": [{"role": "user", "content": user_content}],
         "output_format": output_model,

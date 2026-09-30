@@ -292,7 +292,7 @@ class TestFiledNothingIsNotFoundNothing:
         client = DeskStubClient()
         await _convene(client, budget)
         staff_systems = [
-            c["system"][-1]["text"]
+            c["system"][1]["text"]
             for c in client.messages.calls
             if c["output_format"] is ScoutReport
         ]

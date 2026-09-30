@@ -136,11 +136,28 @@ class TestSharedCall:
             "the breakpoint is back on the shared block, where the prefix is "
             "too short to cache"
         )
-        assert system[-1]["cache_control"] == {"type": "ephemeral"}
+        assert system[1]["cache_control"] == {"type": "ephemeral"}
         # The whole point is that the cached prefix includes the per-agent
-        # half, so a breakpoint on a block that is not last would shrink it
-        # again without moving.
-        assert system[-1]["text"] == "agent specific"
+        # half. Only the date block may follow it, uncached, because it
+        # changes every minute and would otherwise bust the prefix.
+        assert system[1]["text"] == "agent specific"
+        assert len(system) == 3
+        assert "cache_control" not in system[2]
+        assert system[2]["text"].startswith("Current date and time:")
+
+    async def test_every_call_is_told_todays_date(self):
+        """A leg verdict on 2026-09-30 called that day's game "over a year
+        away" and PASSed it: no seat was told the date."""
+        from datetime import datetime, timezone
+
+        client = StubClient(StubResponse(parsed=None))
+        await structured_call(
+            client, model="m", system="agent specific",
+            user_content="hi", output_model=ScoutReport,
+            now=datetime(2026, 9, 30, 14, 5, tzinfo=timezone.utc),
+        )
+        texts = [b["text"] for b in client.messages.last_kwargs["system"]]
+        assert any("Wednesday 2026-09-30 14:05 UTC" in t for t in texts)
 
     async def test_an_api_failure_returns_no_parse_and_no_usage(self):
         """No response arrived, so both halves are None -- the caller settles
