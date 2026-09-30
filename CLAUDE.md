@@ -97,11 +97,16 @@ usable pass-through** — every upper limit sits at or below +0.104 against 0.40
 
 **The gate stays exactly where it is.** It is the live-trading interlock, it is
 never lowered or bypassed, and "the gate will open" is not a step in any plan —
-its 300 counts *actionable* games and the record has 2 in its whole life, both
-soft-book fallbacks (per the 2026-08 audits cited above; this is the same
-shape of decaying live count ADR 0162 covers for the transacted path — re-read
-the Gate screen's game count before trusting "2" in a session more than a
-couple of weeks old).
+its 300 counts *actionable* games. The Gate screen read **57 games / 268 rows**
+on 2026-09-30 (it said 2 in the 2026-08 audits). That count decays the same
+way ADR 0162 describes for the transacted path, so re-read the Gate screen
+rather than trust a number from here. **A deposit would SHRINK it, not grow
+it** (runtime-realist, source trace, 2026-09-30; not observed on live). The
+57 exist only because a $0.04 balance sizes them to zero contracts, which keeps
+them out of review. At a real bankroll they would size above zero, reach
+`review_retired` (runner.py, review.py:124), and have `reference_contracts`
+zeroed (engine.py:315-321). Balance and gate count are two limits on one
+quantity, which is one more reason the gate never plans.
 
 ## The hunt is closed — ADR 0038
 
