@@ -134,7 +134,7 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-29 (seventy-first session) — automatic game-script cards built end to end behind an off flag (#214–#217 merged); live deploy refused by the permission classifier, so nothing new is live and the cost reading waits (#218)
+## 2026-09-29 (seventy-first session) — automatic game-script cards built, deployed and armed (#213–#218); one card cost 289K tokens, so Joe raised the token ceiling to 9M (#219)
 
 Joe typed `/go`. The partner's design and dispatch were already on story #213 and each ticket (`owner:`/`model:` labels), so main did S0 and dispatched the lanes directly.
 
@@ -145,31 +145,35 @@ Joe typed `/go`. The partner's design and dispatch were already on story #213 an
 - **#216 S2 (`d311ec3`, lane):** `GET /api/game-cards` (unauthenticated like `/api/hedge`, behind `middleware.ts`); the card on `/game/<event>` with a Build card button; a kickoff-ordered "Game-script parlays" section on `/parlays`; each leg's own single-leg ask read at request time. `combo_ticker` is written back when a mint's legs equal a built card's legs.
 - **#217 S3a + S3b wiring (`92a256d`, lane + main):** pure `decide()`; `run_pass` and `watch_game_scripts_forever`, started in `scripts/run_loop.py` behind the flag; `MUST_HAVE_CALLERS`. `build_card_for_game` in `routers/game.py` is **the one build path** for the tap and the watcher. The fixture → game link is `event_links`, game series only; an unlinked fixture is skipped, never matched by team names.
 
-### 2. What is NOT done, and why
+### 2. Deploy, the cost reading and the arm (#218, #219)
 
-- **Nothing new is on live.** `gh workflow run deploy.yml -f instance=live` was refused by the auto-mode classifier as a production deploy. Do not work around it; Joe runs Actions → Deploy → live (type `kalshi-cockpit`) or grants the permission. Until then live still has 40 calls, schema v58 and no card routes.
-- **#218 (main) waits on that deploy.** In order:
-  1. Deploy, then check `/api/health` `build.git_sha` and the migrate line in the boot log.
-  2. Build **one** real card from `/game/<event>` for a game inside ~2 days, so its legs have desk context. About 51K tokens, covered by the batch approval on #212.
-  3. Read the cost with `inspect_live_db.py agent-spend` (`agent='game_script'`) and record it in ADR 0190.
-  4. If it is far from 60K, change `CARD_TOKEN_ESTIMATE`.
-  5. Set `GAME_SCRIPT_AUTO_ENABLED = "true"`, deploy, and have runtime-realist confirm the task runs.
-  6. Tell Joe when the first automatic cards exist. For Sunday's NFL that is Saturday from about 17:00Z.
-- **Unverified until live:**
-  - whether the inline ~1 min POST survives the Fly/Next timeouts (the UI waits 150 s);
+- **Joe authorised `gh workflow run deploy.yml` for live, this session and future ones** (memory `live-deploy-workflow-is-authorized`). Before that the classifier had refused it.
+- **Live `766b017`, migrated v58 → v59.** One card was built through the tap path: `KXNFLGAME-26OCT01PITCLE`, `agent_calls.id` 179, 57.9 s. The inline POST therefore survives Fly/Next.
+- **Cost: 289,372 tokens (286,120 in, 3,252 out), 2 searches, n = 1.** The design assumed 60K, so this is ~4.8×. `agent-spend` read it.
+- **#219 (opened, asked, answered and closed in-session): Joe chose (D), ceiling 9M.**
+  - `AGENT_MAX_TOKENS_PER_DAY` 1.5M → 9M, alone.
+  - `CARD_TOKEN_ESTIMATE` 60K → 290K. At 60K one pass over-reserves and spends into his tap half.
+  - The flag is true.
+  - ADR 0190 Amendment 1 and CLAUDE.md record it.
+  - The worst case is about $18/day at the unchecked rate. Joe was told to keep the Anthropic account's spend limit above that.
+- **Live on `82bd9f9`.** The watcher's first pass ran at 01:15:50Z and logged "2 fixture(s) with no Kalshi link". It then built `KXMLBGAME-26SEP292200CHCSD` and `KXNHLGAME-26SEP29VANEDM` on its own. #213, #215, #216, #217 and #218 are all closed.
+- **Found on the first card:** CLE win + CLE -2 cover + NO over 38.
+  - Win and cover are nearly the same bet. The makers price that in, but the card does not say it.
+  - The story quotes a book's 38.5 total that it found by search. That is a price-shaped fact the prompt did not supply.
+  - Neither breaks ADR 0189's letter, and Joe was told about both. **The NHL card was preseason.** It was ~290K spent on a game that may not matter to him. Watch whether he wants preseason excluded.
+- **Still unverified:**
   - the card screens at phone and desktop width;
-  - `/api/game-cards` latency with ~14 cards (about 3 book reads each, gate 6);
-  - NCAAF coverage, since `linker` has known unmatched `KXNCAAFGAME` events.
-- **Known and accepted:** the build lock is per process (API vs loop). A tap and the watcher building the same game in the same minute can both pay once. This is stated in the `build_card_for_game` docstring.
+  - `/api/game-cards` latency with ~14 cards on an NFL Sunday;
+  - NCAAF link coverage.
+- **Accepted:** the build lock is per process (API vs loop), so a same-minute tap and watcher build can both pay once.
 
 ### Still open
 
-1. #218 — deploy (Joe, or his permission), one real card's cost, record in ADR 0190, flip the flag, runtime-realist check. #215 and story #213 close with it.
-2. #210 — matchup tile; stays open until the first real matchup note is read.
-3. #188 — parked. It waits for a loop-lag reading.
-4. #165 — open until a friend actually sends a link (Joe, 2026-09-28).
-5. #169 — parked behind #165.
-6. #151 — collecting. Nothing is owed until the interim look.
+1. #210 — matchup tile; stays open until the first real matchup note is read. Re-read `agent-spend` (`agent='game_script'`) after the first automatic NFL Sunday (2026-10-04). If the mean is far from 290K, move `CARD_TOKEN_ESTIMATE`. No ticket is needed unless it moves.
+2. #188 — parked. It waits for a loop-lag reading.
+3. #165 — open until a friend actually sends a link (Joe, 2026-09-28).
+4. #169 — parked behind #165.
+5. #151 — collecting. Nothing is owed until the interim look.
 
 ## 2026-09-29 (seventieth session) — Joe names parlays: sports factors lead (#200, ADR 0189); rest on every leg (#201), a same-game game page (#202) and a matchup scout tile (#210) ship; automatic game-script cards planned and approved (#213)
 
@@ -1256,7 +1260,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
-- 2026-09-29 (seventy-first session) — automatic game-script cards built end to end behind an off flag (#214–#217 merged); live deploy refused by the permission classifier, so nothing new is live and the cost reading waits (#218)
+- 2026-09-29 (seventy-first session) — automatic game-script cards built, deployed and armed (#213–#218); one card cost 289K tokens, so Joe raised the token ceiling to 9M (#219)
 - 2026-09-29 (seventieth session) — Joe names parlays: sports factors lead (#200, ADR 0189); rest on every leg (#201), a same-game game page (#202) and a matchup scout tile (#210) ship; automatic game-script cards planned and approved (#213)
 - 2026-09-29 (sixty-ninth session) — the queue is empty and Joe will name new work (#196, answer C); board.py says so instead of asking for an owner (#195)
 - 2026-09-29 (sixty-eighth session) — `/hedge` 1,803 → 447 ms on one batched venue read (#191); CI tests 9m30s → 5m29s under xdist (#192); the 30 s health-check trial read UNMOVED and reverted, and #193 closes: the stall is outside the machine (§F, §G)

@@ -38,6 +38,12 @@ From the seventy-first session (#214–#217, ADR 0190).
   disposition would be a false claim that the "escaped" test then flips.
   **Plan the lane and its wiring to land in one merge commit** (merge
   `--no-commit`, wire it, commit), or give the lane the call site.
+- **A seat "shaped like" the leg verdict cost 4.8x the leg verdict.** The
+  design costed it by analogy (~51K), but a card is sent a whole game's leg
+  listing plus search results. It read 289K, and 99% of that was input.
+  **An analogue carries the output shape, not the input size. Cost a new
+  seat by what it is sent**, and keep gating the arm on one real reading.
+  That gate is what stopped a 60K reservation from spending into Joe's half.
 
 ## 2026-09-29 - A covering index makes each row cheap, not the range small; a cited line in a "does not establish" note is still a claim; an absence needs a grep of the writer
 
