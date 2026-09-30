@@ -392,3 +392,42 @@ class TestTheSlateHelperIsBatched:
         source = inspect.getsource(routes)
         assert "hint_for_row" not in source
         assert "line_shop.hints_for_slate(" in source
+
+
+class TestTheNbaRuleResolvesOnTheWinner:
+    """#255: NBA is allowed on the premise that an NBA game cannot tie.
+
+    The premise is read off a captured `rules_primary`
+    (`tests/fixtures/markets_nba_game_rules.json`, GET /markets?series_ticker=
+    KXNBAGAME, 2026-09-30), not assumed. Establishes: the rule text of ONE event
+    (OKC vs SAS, 2026-10-20) resolves on the winner with no tie or third
+    outcome. Does NOT establish: that every KXNBAGAME event shares the wording,
+    or how the venue settles an abandoned game beyond what the text says.
+    """
+
+    def _markets(self):
+        doc = load_fixture("markets_nba_game_rules.json")
+        assert doc["request"]["params"]["series_ticker"] == "KXNBAGAME"
+        return doc["markets"]
+
+    def test_each_market_resolves_yes_when_its_team_wins(self):
+        markets = self._markets()
+        assert len(markets) == 2
+        for m in markets:
+            rule = m["rules_primary"]
+            assert re.search(r"\bwins the .+ game\b.*resolves to Yes", rule), rule
+
+    def test_the_rule_names_no_tie_or_third_outcome(self):
+        for m in self._markets():
+            text = (m["rules_primary"] + " " + (m.get("rules_secondary") or "")).lower()
+            for word in ("tie", "draw", "push", "neither"):
+                assert not re.search(rf"\b{word}\b", text), (word, text)
+
+    def test_the_two_markets_are_the_two_teams_so_one_side_must_win(self):
+        a, b = self._markets()
+        assert a["event_ticker"] == b["event_ticker"]
+        assert a["yes_sub_title"] != b["yes_sub_title"]
+
+    def test_nba_stays_allowed_only_because_the_rule_above_holds(self):
+        assert "KXNBAGAME" in line_shop.ALLOWED_SERIES
+        assert "basketball_nba" in line_shop.ALLOWED_SPORT_KEYS
