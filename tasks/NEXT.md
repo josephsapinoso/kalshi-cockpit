@@ -157,7 +157,7 @@ Joe asked for all the agents to review the site together, with a transcript writ
 2. #233 — the 99c / 3.8% combination: was it placed through the tool? Needs Joe to allow or run the audit.
 3. #220 — now also reads `credits-day --date 2026-10-04`: the first heavy attended day on the 324 slice (#243 A). That reading decides whether the 700 moves.
 4. #210, #165, #169, #151 — unchanged from the seventy-third session below.
-5. #244 — epic, the conference's next tier: #245 line-shopping hint, #246 ages on cards and quotes, #247 Games says it once, #248 Your bets reads like bets, #249 `.hud` radius + `--color-warn`, #250 one live predicate, #251 NHL/college same-game captures, #252 (Haiku, read-only) do the engine caps the Gate names still exist. The record item, that a deposit would shrink the gate count, is written into CLAUDE.md.
+5. #244 — the conference's next tier: built and deployed the same evening. #245 line-shopping hint (kalshi-platform review: MERGE WITH FIXES; freshness, active markets and two batched reads added), #246 card/quote ages, #247 and #253 Games says each sentence once, #248 and #254 Your bets leads with the legs and groups by day, #249 `.hud` radius pinned + `--color-warn`, #250 one `isLive`, #251 NHL captured and NCAAMB/NCAAWB/NCAABB prefixes fixed (NCAAB had matched college BASEBALL). #252 answered: the engine's four caps exist. Follow-up: #255 (capture KXNBAGAME rules before the NBA season; a real college-basketball event in season).
 
 ## 2026-09-30 (seventy-third session) — nothing due: #188 closed as won't-do; #210's close moves into #220 because no matchup tile exists yet
 

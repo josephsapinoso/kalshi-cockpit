@@ -16,6 +16,24 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-30 - Parallel lanes pass their own tests and break each other's pins; run the full suite on merged main before every push
+
+From the seventy-fourth session (epic #244, eight lanes in one afternoon).
+
+- **Three tests went red on main, and no lane's own recipe could see any of
+  them.** #248 regrouped /bets, which killed `test_record_chart`'s anchor
+  string. #250 moved the live predicate into `lib/api.ts`, which broke two
+  hedge tests that grep `HedgePositions.tsx` for it. Each lane ran "every
+  test that greps the files I edited". But those tests grep for a *string*
+  that had moved, not for the file name, and they belonged to an older
+  feature. Two pushes (`28ce70a`, `864a303`) went out red before the full
+  run caught it.
+- **The rule:** a lane's targeted recipe proves the lane. Only a full
+  `pytest -q` on the merged tree proves the batch. Run it after merging and
+  before `git push`, every time, even when every lane reported green. It
+  takes 12 minutes. A red main costs a CI run, and it risks a deploy of a
+  tree nobody ran.
+
 ## 2026-09-30 - A restatement of a threshold can silently change its unit; a correction lands in one place and every restatement keeps the old claim
 
 From the seventy-fourth session (all-hands conference).
