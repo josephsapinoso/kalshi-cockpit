@@ -139,3 +139,13 @@ class TestNoFooterLinkSaysHedging:
     def test_open_now_links_to_the_open_section(self):
         src = code(OPEN_POSITIONS)
         assert re.search(r'<a href="/bets#open"[^>]*> Open now: ', src)
+
+
+def test_the_badge_is_not_polled_on_the_heartbeat():
+    """/api/hedge costs ~1.5 s a call; the badge reads on load and on the tab
+    returning, never on an interval (2026-09-30, merge review of #240)."""
+    from pathlib import Path
+
+    nav = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "components" / "Nav.tsx").read_text(encoding="utf-8")
+    assert "setInterval(loadOpen" not in nav
+    assert 'addEventListener("visibilitychange", loadOpen)' in nav

@@ -249,9 +249,11 @@ export default function Nav() {
     };
   }, []);
 
-  // The open-positions badge. Same visibility gate and cadence as the chip
-  // loop above; `/api/hedge` reads stored state and Kalshi's unmetered books,
-  // so no credits or tokens ride on it. Live = a leg still pending AND no
+  // The open-positions badge. Read once per page load and again when the tab
+  // comes back into view -- NOT on the heartbeat: `/api/hedge` costs ~1.5 s
+  // a call on a warm box (2026-09-16 route timing), and a badge whose count
+  // moves only when Joe places or settles a bet does not earn a poll on every
+  // page. No credits or tokens ride on it. Live = a leg still pending AND no
   // venue settlement -- the predicate `HedgePositions` partitions on.
   useEffect(() => {
     let cancelled = false;
@@ -272,11 +274,9 @@ export default function Nav() {
         });
     };
     loadOpen();
-    const timer = setInterval(loadOpen, HEARTBEAT_INTERVAL_MS);
     document.addEventListener("visibilitychange", loadOpen);
     return () => {
       cancelled = true;
-      clearInterval(timer);
       document.removeEventListener("visibilitychange", loadOpen);
     };
   }, []);
