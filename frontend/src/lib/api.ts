@@ -585,7 +585,11 @@ export function refusalText(detail: unknown): string {
 
 export type Ledger = {
   rows: Recommendation[];
-  /** Independent games scored, which is what the gate counts. Not row count. */
+  /**
+   * Independent ACTIONABLE games scored on CLV: the gate's own population
+   * (`clustered_clv(conn, "actionable")`), so this equals the Gate screen's
+   * count. Not a row count, and not every scored game (#230).
+   */
   clv_scored: number;
   /** Raw recommendation rows behind those games, kept visible beside them. */
   clv_scored_rows: number;

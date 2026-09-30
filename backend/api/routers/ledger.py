@@ -374,7 +374,13 @@ def register(app: FastAPI, *, gate: GateConfig, get_conn) -> None:
                 "FROM recommendations GROUP BY clv_horizon_hours"
             ).fetchall()
         }
-        scored = clustered_clv(conn)
+        # **The gate's own population, not the pooled table (#230).** This
+        # was `clustered_clv(conn)` with no population, which summed every
+        # scored game -- refused and unsized ones included -- so the page read
+        # 1038 / 300 beside a Gate reading 57 / 300 and called the first "what
+        # the gate counts". `_clv_evidence` floors on `"actionable"`; so must
+        # this, through the same function and the same predicate.
+        scored = clustered_clv(conn, "actionable")
 
         return {
             "rows": _ledger_rows,

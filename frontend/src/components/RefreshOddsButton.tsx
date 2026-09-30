@@ -117,8 +117,8 @@ export default function RefreshOddsButton({
       ) : null}
 
       <p className="mt-1 text-xs text-muted">
-        Buys a fresh price. It does not make a row bettable — no row on this
-        instance has ever cleared the fee.
+        Buys a fresh price. It does not make a row bettable — how many games
+        the gate counts as actionable is on the Gate screen.
       </p>
     </div>
   );

@@ -64,7 +64,7 @@ export default async function LedgerPage() {
       <div className="mb-10 rounded-2xl border border-edge bg-card p-6">
         <div className="flex items-baseline justify-between">
           <span className="text-xs font-semibold uppercase tracking-widest text-muted">
-            Independent games scored on <Term k="clv">CLV</Term>
+            Independent actionable games scored on<Term k="clv">CLV</Term>
           </span>
           <span className="tabular text-sm text-muted">
             {ledger.clv_scored} / {ledger.clv_required}
