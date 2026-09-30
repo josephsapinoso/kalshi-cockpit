@@ -30,8 +30,8 @@ import type { SettledBet } from "@/lib/api";
  * changed. Both are claims.
  *
  * What is true instead: after the first uncomputable settlement, every later
- * point is a **lower bound**, not a value. The line is drawn dashed from that
- * point on and the caption says so, rather than the chart looking exact when
+ * point leaves out the settlements it could not compute, so it is not a full
+ * figure. The line is drawn dashed from that point on and the caption says so, rather than the chart looking exact when
  * it is not.
  *
  * COLOUR
@@ -66,7 +66,7 @@ export function cumulative(bets: SettledBet[]): {
 
   for (const bet of ordered) {
     if (typeof bet.net_tenths !== "number") {
-      // Not zero, not skipped: from here on the total is a floor.
+      // Not zero, not skipped: from here on the total is missing this one.
       uncomputable += 1;
       exact = false;
       continue;
@@ -161,8 +161,8 @@ export default function RecordChart({ bets }: { bets: SettledBet[] }) {
           <>
             {" "}
             {uncomputable} settlement{uncomputable === 1 ? "" : "s"} could not
-            be computed from the venue&rsquo;s record, so the dashed part is a
-            floor rather than a figure.
+            be computed from the venue&rsquo;s record, so the dashed part leaves
+            them out and is not a full figure.
           </>
         )}
       </p>

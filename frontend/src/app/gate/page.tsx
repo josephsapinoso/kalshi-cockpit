@@ -117,37 +117,32 @@ export default async function GatePage() {
             stayed open, so tests/test_scope_sentences.py pins these words to
             the wiring -- pointed, since 2026-08-29, at what is true. */}
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          Each cap has a channel, and which door you use decides what can stop
-          you. The per-bet, position and{" "}
-          <Term k="exposure">exposure</Term> caps bind every order this tool
-          sends, and two things here can send one. The automated engine never
-          has: it is still in dry run — it writes down the order it would have
-          placed and sends nothing — and the 300-game count below is the
-          interlock holding it there. That count is a reading, not a plan: the
-          interlock is never lowered or bypassed, and nothing on this desk
-          waits for it to open.
+          Three doors can send an order from this tool, and which one you use
+          decides what can stop you. The automated engine is the first, and it
+          has never sent one: it is still in dry run — it writes down the
+          order it would have placed and sends nothing — and the 300-game
+          count below is the interlock holding it there. That count is a
+          reading, not a plan: the interlock is never lowered or bypassed,
+          and nothing on this desk waits for it to open.
         </p>
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          The Buy button on a market page is the other, and since 26 August
-          2026 it sends real orders — one contract at a time, at your tap.
+          The Buy button on a market page is the second, and since 26 August
+          2026 it sends real orders at your tap, in whatever size you type.
           The 300-game count does not cover it, by design: this gate never
           looks at your hand bets, so arming that button did not arm the
-          engine. What guards it instead is a dozen checks the server runs
-          before the order leaves, none of them waivable from the phone — the
-          desk lockout, the ten-minute cool-off after your last order, the
-          daily-loss switch, the caps above (all derived from the balance the
-          venue reports, never a number you type), a refusal if the ask has
-          moved above the price you agreed to, a check that enough contracts
-          are really resting at that ask, and a refusal if you already hold
-          this market. Any one of them stops the order.
+          engine. No ceiling of ours bounds a hand bet. The checks the server
+          runs before the order leaves are the desk lockout, a refusal if the
+          ask has moved above the price you agreed to, a check that enough
+          contracts are really resting at that ask, a refusal if you already
+          hold this market, and the venue&rsquo;s own collateral rule.
         </p>
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          The daily-loss switch draws its number from the venue&rsquo;s
-          settled record — every bet however placed, hand bets included,
-          refused when the mirror is stale — so your hand losses count
-          against the line. What nothing here can stop is the third door: a
-          bet you place yourself in the Kalshi app fires no check before it
-          happens, and the record sees it only after the venue settles it.
+          The third is taking a quote on a combination: asking the makers for
+          a price commits to nothing, but accepting one spends real money, at
+          the price you were shown, and it is never retried. The gate does not
+          look at that either. And a bet you place yourself in the Kalshi app
+          fires no check of ours before it happens; the record sees it only
+          after the venue settles it.
         </p>
       </div>
 

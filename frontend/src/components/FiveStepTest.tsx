@@ -27,30 +27,6 @@ type Step = {
 
 const STEPS: Step[] = [
   {
-    name: "Write your number before you look.",
-    body: (
-      <>
-        Find the market from Games, open its buy ticket, and type your{" "}
-        <Term k="p_yes">P(YES)</Term> &mdash; your honest percent chance that
-        market ends YES &mdash; before you look at the price. Not after. Not
-        &ldquo;I&rsquo;ll remember what I thought.&rdquo; The ticket keeps the{" "}
-        <Term k="ask">ask</Term> hidden until you have typed it, and that is
-        the whole point of the ordering: the moment you see the ask, your
-        number quietly becomes the ask&rsquo;s number. That pull is called
-        anchoring and it happens to everyone.
-        This is the one habit that converts your betting from an evening out
-        into evidence.
-      </>
-    ),
-    cost:
-      "The bet still happens, but it can never be scored — a number " +
-      "remembered after the fact is just the price wearing your handwriting.",
-    drill:
-      "For a week, log five estimates a day on games you have no intention " +
-      "of betting. Cheap reps, no money at risk, and the number you type " +
-      "stops flinching.",
-  },
-  {
     name: "Say what you know that the price doesn't.",
     body: (
       <>
@@ -90,10 +66,7 @@ const STEPS: Step[] = [
         place. That moves the bar. At a 50c ask you must be right about
         51.75% of the time simply to break even (a sportsbook at &minus;110
         needs 52.38%, which is the whole of Kalshi&rsquo;s advantage &mdash;
-        a discount on your losses, not a reason to bet). Now compare that bar
-        to the <Term k="p_yes">P(YES)</Term> you wrote in step 1. On a NO
-        bet, do the same arithmetic with 100 minus your number against the
-        NO ask.
+        a discount on your losses, not a reason to bet). On a NO bet, do the same arithmetic against the NO ask.
       </>
     ),
     cost:
@@ -114,9 +87,7 @@ const STEPS: Step[] = [
         worth the tap. A fixed stake is what makes the whole record readable:
         the moment size moves with how you feel, a good month tells you your
         feelings were good rather than your numbers, and you can no longer
-        tell those apart. It also keeps the study alive. At $2 the chance of
-        ever hitting the $100 lifetime stop is about 3.6%; at $5 it is about
-        46%. The size is not a judgement call you get to make in the moment
+        tell those apart. The size is not a judgement call you get to make in the moment
         &mdash; it was made once, in advance, by someone calmer.
       </>
     ),
@@ -129,46 +100,18 @@ const STEPS: Step[] = [
       "what the extra would have been. Add that column up at the end of " +
       "the month and look at what it would have done.",
   },
-  {
-    name: "Know what would make you stop.",
-    body: (
-      <>
-        Two rules are already written down, so know them before the bet
-        rather than during it: $100 of cumulative{" "}
-        <Term k="realised_loss">realised loss</Term> since the study opened
-        ends this permanently, and the strip at the top of Log shows how much
-        of it is spent. Running low on balance is not the stop &mdash; that
-        is a top-up; the $100 is the stop. Then know what the scoreboard is
-        not: tonight&rsquo;s win or loss is almost entirely luck, and a good
-        week proves nothing whatsoever. Professionals score themselves on{" "}
-        <Term k="clv">CLV</Term> &mdash; did their price beat the closing
-        price. Yours is the same idea one clock earlier: your number against
-        the price at the instant you typed it. You do not get to see it until
-        the study ends, on purpose, because peeking would change the numbers
-        you type.
-      </>
-    ),
-    cost:
-      "With no stopping rule fixed in advance, the rule you will actually " +
-      "use is your mood — and your mood is at its most confident " +
-      "immediately after a win.",
-    drill:
-      "Before each session, say the number you'd walk away at. Say it to " +
-      "someone, or type it. A rule you only thought about is a rule you " +
-      "will renegotiate at 11pm.",
-  },
 ];
 
 export default function FiveStepTest() {
   return (
     <section className="mb-12">
       <h2 className="text-sm font-semibold uppercase tracking-widest text-muted">
-        The five-step test
+        The pre-bet steps
       </h2>
       <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted">
         This tool was built to find an edge on Kalshi, and it did not find
         one &mdash; that result is the honest product, and it is on this
-        page. So these five steps are not a way to win money; they are the
+        page. So these steps are not a way to win money; they are the
         whole difference between a $2 bet you learn something from and a $2
         bet that merely happens to you. Run them in order, every time. It
         takes about twenty seconds, and the only optional step is the bet.

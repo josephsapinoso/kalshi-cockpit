@@ -214,28 +214,11 @@ export default async function SlatePage({
                 ? "Cash unread"
                 : `${data.money.cash_display} in the account.`}
             </span>
-            {data.money.per_bet_cap_display !== null && (
-              <span className="text-muted">
-                {" "}
-                Your cap is {data.money.per_bet_cap_display} a bet — under one
-                contract on anything above {data.money.per_bet_cap_display}.
-              </span>
-            )}
           </p>
-          {data.money.per_bet_cap_display !== null ? (
+          {data.money.cash_tenths !== null && data.money.cash_tenths < 500 && (
             <p className="text-xs text-muted">
-              At most {data.money.exposure_cap_display} at risk at once; the
-              day stops at {data.money.daily_line_display} down. One contract
-              at 50c needs a {data.money.deposit_for_50c_display} balance to
-              stay inside the cap.
-            </p>
-          ) : (
-            <p className="text-xs text-accent-2">
-              No caps can be derived —{" "}
-              {data.money.caps_basis.refusal ?? "balance unobserved"}. One
-              contract at 50c would need a{" "}
-              {data.money.deposit_for_50c_display} balance to stay inside the
-              cap.
+              You cannot place a bet until you top up; one contract at
+              50c needs a {data.money.deposit_for_50c_display} balance.
             </p>
           )}
           {/* What is at risk right now (B3): a sibling of the money line,
