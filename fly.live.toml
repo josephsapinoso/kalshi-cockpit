@@ -595,6 +595,13 @@ primary_region = "ord"
   # Joe's (D) to #219 raised the token ceiling to fit it.**
   GAME_SCRIPT_AUTO_ENABLED = "true"
 
+  # **No preseason cards -- Joe, 2026-09-30.** By date, because Kalshi
+  # labels NBA/NHL preseason with the same league string as the regular
+  # season. NHL opened 2026-09-29 and NBA opens 2026-10-20 (league
+  # schedules). Update each season; MLB and WNBA need entries before next
+  # spring.
+  GAME_SCRIPT_REGULAR_SEASON_STARTS = "nba=2026-10-20,nhl=2026-09-29"
+
   # **The `odds_snapshots` closing-line prune (#58), Joe 2026-09-23: keep
   # each book's closing line, delete the rest, 14 days after kickoff, no
   # VACUUM.** Enabled and DRY first: the dry run logs what it would delete

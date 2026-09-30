@@ -283,3 +283,41 @@ class TestTheRunnerStartsIt:
         assert "enabled=game_script_config.enabled" in src
         assert "build_card_for_game(" in src
         assert "game_script_task.cancel()" in src
+
+
+class TestNoPreseasonCards:
+    """Joe, 2026-09-30: no automatic card for a preseason game. Kalshi labels
+    NBA/NHL preseason with the regular season's league string, so the cut is
+    a per-sport start date."""
+
+    def test_a_game_before_its_leagues_start_is_not_built(self):
+        start = NOW + 10 * H
+        acts = decide(
+            NOW,
+            [Fixture("KXNBAGAME-PRE", "nba", NOW + 5 * H),
+             Fixture("KXNBAGAME-REG", "nba", NOW + 12 * H),
+             Fixture("KXNFLGAME-X", "nfl", NOW + 3 * H)],
+            [], roomy(), season_starts={"nba": start},
+        )
+        assert [a.game_event_ticker for a in acts] == ["KXNFLGAME-X", "KXNBAGAME-REG"]
+
+    def test_a_skipped_preseason_game_leaves_no_row_and_spends_no_share(self):
+        acts = decide(
+            NOW, [Fixture("KXNBAGAME-PRE", "nba", NOW + 5 * H)], [],
+            roomy(searches_ceiling=1), season_starts={"nba": NOW + 10 * H},
+        )
+        assert acts == []
+
+    def test_the_config_parses_dates_and_refuses_a_bad_one(self):
+        import pytest
+        from backend.config import ConfigError, parse_season_starts
+        got = parse_season_starts(" nba=2026-10-20, NHL=2026-09-29 ")
+        assert got == {"nba": 1792454400000, "nhl": 1790640000000}
+        assert parse_season_starts("") == {}
+        for bad in ("nba", "nba=20-10-2026", "=2026-10-20"):
+            with pytest.raises(ConfigError):
+                parse_season_starts(bad)
+
+    def test_run_loop_passes_the_cut(self):
+        src = Path("scripts/run_loop.py").read_text(encoding="utf-8")
+        assert "season_starts=game_script_config.season_starts" in src

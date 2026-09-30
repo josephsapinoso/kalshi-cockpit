@@ -1184,17 +1184,54 @@ class GameScriptConfig:
       Live stays off until one real card's cost has been read (#213).
     - `lead_hours`: 24, so Sunday's NFL is built Saturday after Friday's
       final injury reports. There is no second refresh.
+    - `season_starts`: card sport key -> the first UTC day of that league's
+      regular season, from `GAME_SCRIPT_REGULAR_SEASON_STARTS`
+      (`nba=2026-10-20,nhl=2026-09-29`). The watcher builds nothing for a
+      game kicking off before it (Joe, 2026-09-30: no preseason cards). By
+      date because Kalshi labels NBA and NHL preseason games with the same
+      league string as the regular season. A sport not named has no cut. A
+      malformed value raises: a silently-dropped cut spends on preseason.
     """
 
     enabled: bool = False
     lead_hours: int = 24
+    season_starts: dict = field(default_factory=dict)
 
     @classmethod
     def load(cls) -> "GameScriptConfig":
         return cls(
             enabled=_bool("GAME_SCRIPT_AUTO_ENABLED", False),
             lead_hours=_int("GAME_SCRIPT_LEAD_HOURS", 24),
+            season_starts=parse_season_starts(
+                os.environ.get("GAME_SCRIPT_REGULAR_SEASON_STARTS", "")
+            ),
         )
+
+
+def parse_season_starts(raw: str) -> dict:
+    """`"nba=2026-10-20,nhl=2026-09-29"` -> `{"nba": <ms at 00:00Z>, ...}`.
+
+    Empty is no cut. Anything else malformed raises `ConfigError`."""
+    from datetime import datetime, timezone
+
+    out: dict = {}
+    for part in (p.strip() for p in raw.split(",")):
+        if not part:
+            continue
+        sport, sep, day = part.partition("=")
+        sport, day = sport.strip().lower(), day.strip()
+        if not sep or not sport:
+            raise ConfigError(
+                f"GAME_SCRIPT_REGULAR_SEASON_STARTS entry {part!r} is not sport=YYYY-MM-DD"
+            )
+        try:
+            start = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError as exc:
+            raise ConfigError(
+                f"GAME_SCRIPT_REGULAR_SEASON_STARTS date {day!r} for {sport} is not YYYY-MM-DD"
+            ) from exc
+        out[sport] = int(start.timestamp() * 1000)
+    return out
 
 
 # --- build identity ---------------------------------------------------------

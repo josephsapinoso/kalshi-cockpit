@@ -37,7 +37,7 @@ import logging
 import sqlite3
 import time
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Iterable, Optional, Sequence
+from typing import Awaitable, Callable, Iterable, Mapping, Optional, Sequence
 
 from .agents.game_script import GAME_SCRIPT_MAX_SEARCHES
 from .agents.base import AgentConfig
@@ -112,12 +112,16 @@ def decide(
     *,
     lead_hours: int = 24,
     sports: Optional[Iterable[str]] = None,
+    season_starts: Optional[Mapping[str, int]] = None,
 ) -> list[Action]:
     """Actions for this pass, soonest kickoff first. Pure.
 
     `cards` are rows with `game_event_ticker` and `status`. `sports` limits to
     those sport keys (default: every sport is accepted; the adapter passes
-    Joe's). Once a ceiling binds every later game is refused for the same one.
+    Joe's). `season_starts` maps a card sport key to its regular season's
+    first ms; a game kicking off before it is preseason and is not built and
+    not recorded (Joe, 2026-09-30). Once a ceiling binds every later game is
+    refused for the same one.
     """
     done = {
         c["game_event_ticker"] for c in cards if c.get("status") in DONE_STATUSES
@@ -133,6 +137,9 @@ def decide(
         if allowed is not None and f.sport_key not in allowed:
             continue
         if not (now_ms < f.kickoff_ms <= horizon):
+            continue
+        start = (season_starts or {}).get(f.sport_key)
+        if start is not None and f.kickoff_ms < start:
             continue
         seen.add(ticker)
         todo.append(f)
@@ -287,6 +294,7 @@ async def run_pass(
     now_ms: int,
     lead_hours: int,
     tap_token_share: float,
+    season_starts: Optional[Mapping[str, int]] = None,
 ) -> dict:
     """One pass: read, decide, record refusals, build each chosen game in turn.
 
@@ -306,7 +314,10 @@ async def run_pass(
         searches_ceiling=state.searches_daily_budget,
         tap_token_share=tap_token_share,
     )
-    actions = decide(now_ms, fixtures, cards, budget, lead_hours=lead_hours)
+    actions = decide(
+        now_ms, fixtures, cards, budget,
+        lead_hours=lead_hours, season_starts=season_starts,
+    )
     refused = record_refusals(conn, actions, now_ms, meter.day_start_ms(now_ms))
     built = failed = 0
     for action in actions:
@@ -333,6 +344,7 @@ async def watch_game_scripts_forever(
     enabled: bool,
     lead_hours: int,
     tap_token_share: float = 0.5,
+    season_starts: Optional[Mapping[str, int]] = None,
     interval_s: float = DEFAULT_INTERVAL_S,
     sleep=asyncio.sleep,
     clock=time.time,
@@ -361,6 +373,7 @@ async def watch_game_scripts_forever(
                             now_ms=int(clock() * 1000),
                             lead_hours=lead_hours,
                             tap_token_share=tap_token_share,
+                            season_starts=season_starts,
                         )
                         if any(counts.values()):
                             logger.info("game-script watch: %s", counts)

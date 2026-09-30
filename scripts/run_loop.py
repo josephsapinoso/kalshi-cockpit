@@ -1221,6 +1221,7 @@ async def main() -> int:
                 enabled=game_script_config.enabled,
                 lead_hours=game_script_config.lead_hours,
                 tap_token_share=scout_auto_config.tap_token_share,
+                season_starts=game_script_config.season_starts,
             ),
             name="game-script-watch",
         )
