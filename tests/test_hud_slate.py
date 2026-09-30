@@ -19,7 +19,7 @@ replaced by an import.
 
 What this establishes
 ----------------------
-- The screen's two headline numbers ("On the slate", "Bettable") render
+- The screen's two headline numbers ("Showing N of M", "Bettable") render
   through a `Stat` whose value line carries the HUD's `glow` and indigo
   (`text-accent`) treatment -- the same classes `ui.tsx`'s `Stat` uses for
   `readout`.
@@ -90,7 +90,7 @@ class TestHeadlineNumbersDrawTheHudReadout:
 
     def test_both_headline_stats_are_mounted(self):
         source = _read(SLATE_PAGE)
-        assert re.search(r'<Stat label="On the slate"[^/]*/>', source)
+        assert re.search(r'<Stat\s+label="Showing"[^/]*/>', source)
         assert re.search(r'<Stat label="Bettable"[^/]*/>', source)
 
 

@@ -238,7 +238,14 @@ export default async function SlatePage({
           two questions a glance actually asks: how many games, and did
           anything clear the bar. */}
       <dl className="mt-8 grid grid-cols-2 gap-x-6 gap-y-4">
-        <Stat label="On the slate" value={counts.returned} />
+        {/* "Showing N of M", not a bare N: the list is cut at the server's
+            LIMIT, so a bare 100 read as the size of the slate when 611 rows
+            were in the window. `in_window` is the count before the cut and
+            `returned` is what is drawn -- both already served. */}
+        <Stat
+          label="Showing"
+          value={`${slate.returned} of ${Math.max(slate.in_window, slate.returned)}`}
+        />
         <Stat label="Bettable" value={counts.surfaced} />
       </dl>
 
@@ -292,6 +299,14 @@ export default async function SlatePage({
               warning fires on about seven rows in ten, and a caveat read
               seven times stops being read — Joe's option A, 2026-09-16. */}
           <AnchorBaseRate rows={rows} />
+          {/* Said once here, not on every row (#247): it was the same two
+              sentences under each of 100 rows. The per-row refusal code
+              stays on the row -- that one is different on each. */}
+          <p className="mt-6 max-w-[65ch] text-xs text-muted">
+            &ldquo;Bet this by hand&rdquo; on any row below is your own bet. It
+            is recorded apart from the engine&rsquo;s record and never counts
+            toward the gate.
+          </p>
           <ul className="mt-8 divide-y divide-border">
             {rows.map((row) => (
               <li key={row.id}>
@@ -689,7 +704,6 @@ function Row({
           ticker={row.ticker}
           variant="inline"
           openLabel="Bet this by hand"
-          note="This is your own bet. It is recorded apart from the engine's record and never counts toward the gate."
         />
       </span>
     </div>
@@ -1101,7 +1115,7 @@ function kickoff(ms: number | null): string {
   });
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value }: { label: string; value: number | string }) {
   /* The HUD's lit readout (#174, Joe's #173 (A)): the same "glow" text-shadow
      and indigo ink `ui.tsx`'s `Stat` draws with `readout` set, on the two
      headline numbers this screen leads with. Not the shared component
