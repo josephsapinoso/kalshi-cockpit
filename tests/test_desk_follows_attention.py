@@ -1438,7 +1438,10 @@ class TestWhatTheTierBuysBackOnTheSlice:
         three playing tomorrow rather than today it is 32/h, which no dwell in
         the nine-day record reaches.
         """
-        slice_credits = DEFAULT_ATTENTION_DAILY_CREDITS
+        # The slice as it stood when this was derived (2026-08-27). It moved
+        # to 324 on 2026-09-30 (#237); this test records why the tier was
+        # built, not what the slice buys today.
+        slice_credits = 300
         fast = self._credits_per_hour(REFRESH_MS)
         slow = self._credits_per_hour(DESK_FLOOR_INTERVAL_MS)
 

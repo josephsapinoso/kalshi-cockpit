@@ -356,7 +356,7 @@ primary_region = "ord"
   # place to record a guess as a number. What is knowable:
   #
   #   idle floor, 4 sports        ~288/day    24h x 4 sports x 3 credits
-  #   attention, capped           <=300/day   ODDS_ATTENTION_DAILY_CREDITS
+  #   attention, capped           <=324/day   ODDS_ATTENTION_DAILY_CREDITS
   #   kickoff windows             UNCAPPED    clusters x 7 calls x 3 credits
   #   the only real ceiling        700/day    ODDS_DAILY_CREDIT_BUDGET
   #
@@ -412,14 +412,25 @@ primary_region = "ord"
   # this is what does. A guard a browser bug can defeat must not be the only
   # thing between a design and its worst case.
   #
-  # 300 of the 700 daily budget. Past it the desk stops re-buying at the
+  # 324 of the 700 daily budget (300 until 2026-09-30). Past it the desk stops re-buying at the
   # attended cadence and **keeps its hourly floor**, so the slate never goes
   # dark -- which is what makes a cap this low safe. Read
   # `ondemand.DEFAULT_MANUAL_DAILY_CREDITS`'s comment before changing it: a
   # slice is sized against what the schedule can lose without a kickoff cluster
   # going dark, and if it binds routinely the answer is a change of design, not
   # a bigger slice.
-  ODDS_ATTENTION_DAILY_CREDITS = "300"
+  #
+  # **Raised 300 -> 324 on 2026-09-30, Joe's answer (A) to #237.** It bound
+  # routinely: on an attended day the 300 was gone by 11:00 with 370 of the
+  # 700 unspent, every row read "quote 9m" and 0 of 358 fixtures were fresh.
+  # He asked for ~450 "after redoing the day's sum first", and the sum
+  # refused 450: the idle floor (288) + this slice + the season's worst four
+  # kickoff clusters (4 x 21 = 84) must fit inside the 700, or the cap binds
+  # and EVERY sport stops until 10:00Z, kickoff windows included. 700 - 288 -
+  # 84 = 328, so 324 (whole 3- and 4-credit sweeps) is the most this slice can take without moving the 700
+  # (`test_desk_follows_attention` enforces it). A bigger slice is a decision
+  # about the daily cap, not about this line.
+  ODDS_ATTENTION_DAILY_CREDITS = "324"
 
   # Ceilings on Anthropic spend, enforced by `backend/agents/budget.py`.
   #

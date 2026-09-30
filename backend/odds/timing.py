@@ -1140,19 +1140,25 @@ _SERVED_SWEEP = (
 
 #: Credits a budget day may spend on attention-triggered sweeps.
 #:
-#: 300 of `ODDS_DAILY_CREDIT_BUDGET`'s 700, proposed 2026-08-25 and approved by
-#: Joe as a shape ("cap it") rather than as this number. Read
+#: 324 of `ODDS_DAILY_CREDIT_BUDGET`'s 700. It was 300 (proposed 2026-08-25,
+#: approved by Joe as a shape, "cap it"); raised 2026-09-30 on his answer (A)
+#: to #237 because it bound by 11:00 on attended days. He asked for ~450 and
+#: the day's sum refused it: floor 288 + slice + the season's worst 4 kickoff
+#: clusters (84) must fit the 700, so the slice is at most 328
+#: (`test_desk_follows_attention`); 324 because it is whole sweeps at a
+#: 3- or 4-credit call. Anything bigger moves the 700 first. Read
 #: `ondemand.DEFAULT_MANUAL_DAILY_CREDITS`'s comment before changing it: the
 #: slice is sized against what the *schedule* can lose without a kickoff cluster
 #: going dark, not against what attention would like to spend.
 #:
-#: In sweep terms at the deployed `ODDS_MARKETS = "h2h,spreads"` (4 credits a
-#: sport), 300 is 75 sport-sweeps -- at two sports, about six hours of continuous
-#: ten-minute refreshing, and at four about three. That is the ceiling on a tab
+#: In sweep terms at today's 3-credit call (three markets, named books), 324 is
+#: 108 sport-sweeps -- at two sports, about nine hours of continuous
+#: ten-minute refreshing, and at four about four and a half. (This read "300 is
+#: 75 sport-sweeps" at the 4-credit call of 2026-08-25.) That is the ceiling on a tab
 #: left open, and the reason it can be set this low without breaking the screen
 #: is that the hourly floor is not charged to it: past the slice the slate stops
 #: re-buying every ten minutes and keeps buying every hour.
-DEFAULT_ATTENTION_DAILY_CREDITS = 300
+DEFAULT_ATTENTION_DAILY_CREDITS = 324
 
 
 def attention_credits_spent_today(conn, *, since_ms: int) -> int:

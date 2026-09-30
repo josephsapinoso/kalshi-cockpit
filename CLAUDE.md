@@ -245,7 +245,7 @@ already wrong at 6 when ADR 0152 added `totals`; re-derive from 3, and
 re-derive again the day the book list or the market list moves.
 
     idle floor, 4 sports         ~288/day    24h x 4 sports x 3 credits
-    attention, capped            <=300/day   ODDS_ATTENTION_DAILY_CREDITS
+    attention, capped            <=324/day   ODDS_ATTENTION_DAILY_CREDITS (300 until 2026-09-30, #237)
     kickoff windows              UNCAPPED    clusters x 7 calls x 3 credits
     the only real ceiling         700/day    ODDS_DAILY_CREDIT_BUDGET
 
