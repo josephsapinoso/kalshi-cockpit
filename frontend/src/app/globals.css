@@ -146,8 +146,13 @@
 
 /* Bare `border` / `border-t` / `divide-y` classes pick up the themed colour,
    which is why the markup rarely names a border colour. */
-* {
-  border-color: var(--border);
+/* In @layer base, not unlayered (#231): an unlayered rule beats every
+   `@layer utilities` rule under Tailwind v4, so this used to overrule
+   border-negative / border-positive / border-accent. */
+@layer base {
+  * {
+    border-color: var(--border);
+  }
 }
 
 html {
