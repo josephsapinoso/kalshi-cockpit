@@ -1089,7 +1089,7 @@ KILLED_LOCK_CLAIMS = (
     "not the price Kalshi charged",
 )
 
-HEDGE_PAGE = ROOT / "frontend" / "src" / "app" / "hedge" / "page.tsx"
+HEDGE_PAGE = ROOT / "frontend" / "src" / "app" / "bets" / "page.tsx"  # #240: the screen moved to /bets#open
 HEDGE_CARDS = ROOT / "frontend" / "src" / "components" / "HedgePositions.tsx"
 
 

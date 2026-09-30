@@ -6,7 +6,12 @@ import { useEffect, useState } from "react";
 import ThemeToggle from "./ThemeToggle";
 import MarketSearch from "./MarketSearch";
 import { SHELL_WIDTH } from "@/lib/shell";
-import { fetchScoutOverview, fetchWindow, recordAttention } from "@/lib/api";
+import {
+  fetchHedge,
+  fetchScoutOverview,
+  fetchWindow,
+  recordAttention,
+} from "@/lib/api";
 import { HEARTBEAT_INTERVAL_MS } from "@/lib/nextOddsWindow";
 import { windowChip } from "@/lib/windowChip";
 import type { Chip } from "@/lib/windowChip";
@@ -183,6 +188,10 @@ export default function Nav() {
   // PAGE renders and is pinned on the page's source; this button asks for a
   // typed name before anything with a price appears.)
   const [searchOpen, setSearchOpen] = useState(false);
+  // The count beside "Your bets" (#240): live positions he holds. `null`
+  // renders no badge at all -- an unreadable answer is not "zero open", and
+  // zero itself shows nothing either.
+  const [openCount, setOpenCount] = useState<number | null>(null);
 
   useEffect(() => {
     setSearchOpen(false);
@@ -237,6 +246,38 @@ export default function Nav() {
       cancelled = true;
       clearInterval(timer);
       document.removeEventListener("visibilitychange", load);
+    };
+  }, []);
+
+  // The open-positions badge. Same visibility gate and cadence as the chip
+  // loop above; `/api/hedge` reads stored state and Kalshi's unmetered books,
+  // so no credits or tokens ride on it. Live = a leg still pending AND no
+  // venue settlement -- the predicate `HedgePositions` partitions on.
+  useEffect(() => {
+    let cancelled = false;
+    const loadOpen = () => {
+      if (document.visibilityState !== "visible") return;
+      fetchHedge()
+        .then((screen) => {
+          if (cancelled) return;
+          setOpenCount(
+            screen.positions.filter(
+              (position) =>
+                position.pending_legs > 0 && position.venue_settlement === null,
+            ).length,
+          );
+        })
+        .catch(() => {
+          if (!cancelled) setOpenCount(null);
+        });
+    };
+    loadOpen();
+    const timer = setInterval(loadOpen, HEARTBEAT_INTERVAL_MS);
+    document.addEventListener("visibilitychange", loadOpen);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", loadOpen);
     };
   }, []);
 
@@ -421,6 +462,15 @@ export default function Nav() {
               }`}
             >
               {link.label}
+              {link.href === "/bets" && openCount !== null && openCount > 0 && (
+                <span
+                  data-open-badge
+                  aria-label={`${openCount} open`}
+                  className="ml-1 rounded-full bg-accent-soft px-1.5 py-0.5 text-[10px] leading-none text-foreground"
+                >
+                  {openCount}
+                </span>
+              )}
             </Link>
           ))}
           <div className="ml-0.5 shrink-0 sm:ml-2">

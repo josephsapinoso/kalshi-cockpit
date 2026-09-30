@@ -7,9 +7,11 @@ import RecordChart from "@/components/RecordChart";
 import OpenPositions from "@/components/OpenPositions";
 import Term from "@/components/Term";
 import RecordParlay from "@/components/RecordParlay";
+import HedgePositions from "@/components/HedgePositions";
 import {
   DISPLAY_TIME_ZONE,
   fetchBets,
+  fetchHedge,
   formatDuration,
   type BetKind,
   type BetsRecord,
@@ -61,6 +63,24 @@ export default async function BetsPage() {
     );
   }
   const { totals } = record;
+  // The open section's data is the same fetch /hedge made (#240): no new
+  // route and no new arithmetic. A failed read is its own state, never a
+  // count of zero -- "0 open" off an unreadable answer would be a claim.
+  let hedge: Awaited<ReturnType<typeof fetchHedge>> | null = null;
+  try {
+    hedge = await fetchHedge();
+  } catch {
+    hedge = null;
+  }
+  // Live = a leg still pending AND the venue has not settled the combination;
+  // the same predicate HedgePositions partitions on and Nav's badge counts.
+  const openCount =
+    hedge === null
+      ? null
+      : hedge.positions.filter(
+          (position) =>
+            position.pending_legs > 0 && position.venue_settlement === null,
+        ).length;
 
   return (
     <Shell>
@@ -102,6 +122,53 @@ export default async function BetsPage() {
           last price before the game started.
         </p>
       </header>
+
+      {/*
+        **Open (N), first on the page (#240, Joe's 234 A, 2026-09-30).** What
+        he still holds is what a bet screen is opened for; /hedge used to be
+        a footer link to it and now redirects here (`/bets#open`). It renders
+        `HedgePositions` off `fetchHedge`, unchanged -- every figure and every
+        caveat on those cards is that component's, and this page adds no
+        arithmetic of its own. N counts live positions only (a pending leg and
+        no venue settlement); settled-but-unclosed tickets stay in the
+        component's own collapsed group. An unreadable answer says so rather
+        than printing 0.
+      */}
+      <section id="open" className="mb-10 scroll-mt-24">
+        <h2 className="display text-2xl sm:text-3xl">
+          Open{openCount === null ? "" : ` (${openCount})`}
+        </h2>
+        {hedge === null ? (
+          <p className="mt-3 max-w-[65ch] text-sm text-muted">
+            What you hold could not be read right now. That is not the same as
+            holding nothing.
+          </p>
+        ) : (
+          <>
+            <p className="mt-3 max-w-[65ch] text-sm leading-relaxed text-muted">
+              Tickets you hold, priced against what the other side costs on
+              Kalshi right now. When one <Term k="leg">leg</Term> is left and
+              the rest have won, a <Term k="hedge">hedge</Term> can pay the
+              same whichever way it goes &mdash; a <Term k="lock">lock</Term>.
+              Before that it can only <Term k="derisk">de-risk</Term>.
+            </p>
+            <p className="mt-2 max-w-[65ch] text-xs leading-relaxed text-muted">
+              {hedge.notes.not_advice}
+            </p>
+            <p className="mt-1 max-w-[65ch] text-xs leading-relaxed text-muted">
+              {hedge.notes.no_button}
+            </p>
+            <HedgePositions
+              positions={hedge.positions}
+              notes={hedge.notes}
+              unrecordedAtVenue={hedge.unrecorded_at_venue}
+              venuePollMs={hedge.venue_poll_ms}
+              asOfMs={hedge.as_of_ms}
+              maxQuoteAgeMs={hedge.max_quote_age_ms}
+            />
+          </>
+        )}
+      </section>
 
       <div className="hud rounded-2xl border border-edge bg-card p-5">
         <div className="text-xs font-semibold uppercase tracking-widest text-muted">
@@ -182,10 +249,11 @@ export default async function BetsPage() {
       */}
       <p className="mt-4 max-w-[65ch] text-sm text-muted">
         A parlay you placed somewhere else is invisible here.{" "}
-        <Link href="/hedge" className="underline decoration-dotted">
-          Record it on the hedging screen
+        <Link href="#open" className="underline decoration-dotted">
+          Record it below
         </Link>{" "}
-        and the desk will watch its legs while the games run.
+        and the desk will watch its legs while the games run; it then appears
+        under Open above.
       </p>
 
       {record.bets.length === 0 ? (

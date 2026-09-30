@@ -124,10 +124,18 @@ export default function OpenPositions({
   return (
     <div>
       <p className="text-sm">
-        <span className="font-semibold tabular">
+        {/* A plain anchor, not next/link: this file is compiled alone by
+            `test_open_positions_renders_every_refusal.py`, whose module map
+            carries react and nothing else. The hash makes it the same-page
+            jump on /bets and a normal navigation from /slate (#240). */}
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+        <a
+          href="/bets#open"
+          className="font-semibold tabular underline decoration-dotted"
+        >
           Open now: {block.count}{" "}
           {block.count === 1 ? "position" : "positions"}
-        </span>
+        </a>
         <span className="text-muted">
           {counted !== null ? ` (counted ${stampText(counted)})` : ""}
           {" · "}
