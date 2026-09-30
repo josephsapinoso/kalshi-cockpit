@@ -187,17 +187,17 @@ class TestTheLivePredicateNamesBothFields:
     def test_isLive_checks_pending_legs_and_venue_settlement(self):
         """(iii). MUTATION (m2): drop `venue_settlement === null` from the
         predicate and this goes red."""
-        body = position_groups_body()
+        # Since #250 (2026-09-30) the predicate lives once, in lib/api.ts,
+        # and HedgePositions imports it.
+        api = Path("frontend/src/lib/api.ts").read_text(encoding="utf-8")
         match = re.search(
-            r"const isLive = \([^)]*\) =>"
-            r"\s*position\.pending_legs > 0"
+            r"export function isLive\([\s\S]*?\)[\s\S]*?\{"
+            r"\s*return position\.pending_legs > 0"
             r"\s*&&\s*position\.venue_settlement === null",
-            body,
+            api,
         )
-        assert match, (
-            "isLive does not check both pending_legs and venue_settlement: "
-            + body[:400]
-        )
+        assert match, "isLive does not check both pending_legs and venue_settlement"
+        assert "isLive(" in position_groups_body()
 
 
 class TestTheSettledGroupIsTheNegation:

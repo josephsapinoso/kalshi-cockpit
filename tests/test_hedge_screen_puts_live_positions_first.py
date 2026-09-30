@@ -101,7 +101,8 @@ class TestThePartition:
         literal disappears under the complement form and would leave a
         venue-settled, legs-pending position matching neither group."""
         body = position_groups_body()
-        assert "pending_legs > 0" in body
+        # The predicate itself moved to lib/api.ts in #250 (2026-09-30).
+        assert "pending_legs > 0" in Path("frontend/src/lib/api.ts").read_text(encoding="utf-8")
         assert "!isLive(" in body
 
     def test_the_pending_group_is_emitted_before_the_settled_group(self):
