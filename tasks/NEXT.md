@@ -134,6 +134,24 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-30 (seventy-third session) — nothing due: #188 closed as won't-do; #210's close moves into #220 because no matchup tile exists yet
+
+Joe typed `/go` with no focus. State was clean: `51ceb99`, CI green, no PRs, 0 dependabot alerts. Partner found nothing to build and dispatched no lanes.
+
+- **#210:** live has **0 scout-desk briefings** in the last 2 budget days (`inspect_live_db.py scout-briefings --days 2`), so no Matchup tile has been produced to read. The desk convenes only on Joe's tap. We did not convene one just to close a ticket. #220 now carries the step: read the first tile with the GET (never the POST), check it has no probability, pick or edge, then close #210 and #197.
+- **#197** has no other open child. The #198 census found no pricing build.
+- **#188 closed as won't-do.** It waited on a loop-lag reading that nobody owns, for a 10–25 ms saving. Reopen it if a timed `/api/health` taken during a `/api/hedge` compute stalls for 250 ms or more.
+- **Map #3 is empty per #196 (C).** The only question owed is #220's, and only after Sunday 2026-10-04's reading.
+- `lane/210-matchup-tile` still exists, it is merged, and it is Joe's to delete (`a4aafa5`).
+
+### Still open
+
+1. #220 — after Sunday 2026-10-04: sharp-bettor reviews the first automatic cards plus the cost re-read, counts the search-exhausted skips, and reads the first Matchup tile (which closes #210 and #197). The #3 question is opened only if the reading warrants it.
+2. #210 — matchup tile; closes when #220 reads the first real note.
+3. #165 — open until a friend actually sends a link (Joe, 2026-09-28).
+4. #169 — parked behind #165.
+5. #151 — collecting. Nothing is owed until the interim look.
+
 ## 2026-09-30 (seventy-second session) — #221 and the cards seen in a browser; two display fixes; a stale season date now builds nothing (#222)
 
 Joe typed `/go`. State was clean: CI green on `2219999`, no PRs, 0 dependabot alerts. Partner judged the queue empty of anything due: #220 waits for Sunday 2026-10-04 and every other item is parked on its own trigger. It dispatched verification, board hygiene and one guard.
@@ -1300,6 +1318,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-30 (seventy-third session) — nothing due: #188 closed as won't-do; #210's close moves into #220 because no matchup tile exists yet
 - 2026-09-30 (seventy-second session) — #221 and the cards seen in a browser; two display fixes; a stale season date now builds nothing (#222)
 - 2026-09-29 (seventy-first session) — automatic game-script cards built, deployed and armed (#213–#218); one card cost 289K tokens, so Joe raised the token ceiling to 9M (#219)
 - 2026-09-29 (seventieth session) — Joe names parlays: sports factors lead (#200, ADR 0189); rest on every leg (#201), a same-game game page (#202) and a matchup scout tile (#210) ship; automatic game-script cards planned and approved (#213)
