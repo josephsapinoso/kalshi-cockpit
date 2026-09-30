@@ -83,7 +83,10 @@ export default async function BetsPage() {
   return (
     <Shell>
       <header className="mb-8">
-        <h1 className="display text-4xl sm:text-5xl">Your bets</h1>
+        {/* Quieter than the net figure below (#248): the page's name is not
+            its news. The h1 steps down to 2xl/3xl; the net readout is
+            3xl/4xl, so the money is the largest type on the screen. */}
+        <h1 className="display text-2xl sm:text-3xl">Your bets</h1>
         {/* Decisions as the unit (B6): counting only bets placed made
             betting the sole recordable act. The pass count is a floor —
             only taps are recorded — and passes are never scored or rated;
@@ -186,7 +189,7 @@ export default async function BetsPage() {
               that is meant to stay scarce. Nor the readout's indigo ink,
               which would erase won vs. lost. Plain, in its own colour. */}
           <span
-            className={`display text-3xl ${
+            className={`display text-3xl sm:text-4xl ${
               totals.net_tenths < 0 ? "text-negative" : "text-positive"
             }`}
           >
@@ -390,16 +393,25 @@ function BetSection({
           still covers the whole record.
         </p>
       ) : (
-        <ul className="mt-4 divide-y border-t">
-          {record.bets.map((bet, index) =>
-            bet.kind === section.kind ? (
-              <BetRow
-                key={`${bet.ticker}-${bet.settled_ms}-${index}`}
-                bet={bet}
-              />
-            ) : null,
-          )}
-        </ul>
+        <div className="mt-4">
+          {groupByDay(
+            record.bets.filter((bet) => bet.kind === section.kind),
+          ).map((group) => (
+            <div key={group.key} className="mt-5 first:mt-0">
+              <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">
+                {group.heading}
+              </h3>
+              <ul className="mt-2 divide-y border-t">
+                {group.bets.map((bet, index) => (
+                  <BetRow
+                    key={`${bet.ticker}-${bet.settled_ms}-${index}`}
+                    bet={bet}
+                  />
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
       )}
     </section>
   );
@@ -484,6 +496,58 @@ const CHECKED_WITHOUT_CHANCE_WORDS =
   "— checked on the desk, no chance for the whole parlay";
 
 /**
+ * Settled rows grouped under the day they settled (#248), in the display
+ * zone like every other clock here. The server sends newest first and this
+ * keeps that order: a new group opens whenever the day changes, so the
+ * grouping never reorders a row and never merges two separate days.
+ */
+function groupByDay(
+  bets: SettledBet[],
+): { key: string; heading: string; bets: SettledBet[] }[] {
+  const groups: { key: string; heading: string; bets: SettledBet[] }[] = [];
+  for (const bet of bets) {
+    const at = new Date(bet.settled_ms);
+    const key = at.toLocaleDateString("en-CA", { timeZone: DISPLAY_TIME_ZONE });
+    const last = groups[groups.length - 1];
+    if (last !== undefined && last.key === key) {
+      last.bets.push(bet);
+      continue;
+    }
+    groups.push({
+      key,
+      heading: at.toLocaleDateString("en-US", {
+        timeZone: DISPLAY_TIME_ZONE,
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      }),
+      bets: [bet],
+    });
+  }
+  return groups;
+}
+
+/**
+ * What the bet WAS, in words, for the row's first line (#248). The payload
+ * carries no leg list and no team names -- only `ticker`, `kind` and `side`
+ * -- so this reads only what the ticker states outright and refuses the
+ * rest: a moneyline ticker `KX<SPORT>GAME-<date><time><AAA><BBB>-<PICK>`
+ * names the two sides and the pick; a combination shard names nothing, so it
+ * says it is a combination; anything unparsed says "Single game bet". Never
+ * a guessed team: a code that does not fit falls through to the plain words.
+ * The ticker stays on the row as small print (`BetRow`).
+ */
+const GAME_TICKER =
+  /^KX[A-Z]+GAME-\d{2}[A-Z]{3}\d{2}\d{4}([A-Z]{3})([A-Z]{3})-([A-Z]{3})$/;
+
+function betLead(bet: SettledBet): string {
+  if (bet.kind === "combo") return "Combination bet";
+  const m = GAME_TICKER.exec(bet.ticker);
+  if (m === null || (m[3] !== m[1] && m[3] !== m[2])) return "Single game bet";
+  return `${m[1]} vs ${m[2]} \u00b7 ${bet.side === "no" ? "against" : "on"} ${m[3]}`;
+}
+
+/**
  * One settled position. The result word and the net are the row's facts;
  * the ticker links to the market screen, which knows how to say what the
  * market was. A refused net renders "—" with the reason class in the words
@@ -539,19 +603,22 @@ function BetRow({ bet }: { bet: SettledBet }) {
         className="flex items-baseline gap-3 py-4 transition-colors hover:bg-accent-soft"
       >
         <span className="min-w-0 flex-1">
+          {/* The row leads with what the bet was, in words (#248); the
+              ticker is small print beneath it. */}
+          <span className="block text-sm font-semibold">{betLead(bet)}</span>
+          <span className="mt-0.5 block text-xs text-muted">
+            {contracts} × {bet.side.toUpperCase()} at{" "}
+            {bet.entry_price_display} · settled {settled}
+          </span>
           {/* tickerLabel keeps the TAIL — CSS truncate cuts the right end,
               which on a combo shard is the only identifying part, so every
               combo row rendered identically (2026-08-22 review). The full
               ticker stays in title= for hover and copy. */}
           <span
-            className="block truncate font-mono text-sm font-semibold"
+            className="mt-0.5 block truncate font-mono text-[11px] text-muted"
             title={bet.ticker}
           >
             {tickerLabel(bet.ticker)}
-          </span>
-          <span className="mt-0.5 block text-xs text-muted">
-            {contracts} × {bet.side.toUpperCase()} at{" "}
-            {bet.entry_price_display} · settled {settled}
           </span>
           {bet.kind === "single" && (
             <span
