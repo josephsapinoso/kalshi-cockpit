@@ -6,15 +6,16 @@ import LeagueTag from "@/components/LeagueTag";
 import Term from "@/components/Term";
 
 /**
- * Who's likely to win tonight (ADR 0067).
+ * Tonight's games, by kickoff (#241, Joe's #235 A; ADR 0067 as amended).
  *
  * The block that answers Joe's actual question — "what are good-chance
  * picks" — which is a different question from the one the Board asks. The
  * Board asks whether Kalshi is *mispriced*, and the measured answer is
  * almost always no; this asks which side the books' consensus makes the
- * favorite, which has an answer every night. The server ranks by
- * `fair_probability` alone (one stored, unscored column — a sort, never a
- * composite) and this component renders the ranking without adding to it.
+ * favorite, which has an answer every night. The server orders by
+ * kickoff time, earliest first (the favorite is still chosen by the books'
+ * chance, but no row is ordered by it, nor by any gap to Kalshi's price —
+ * ADR 0071), and this component renders that order without adding to it.
  *
  * Honesty constraints, each load-bearing:
  *
@@ -38,11 +39,10 @@ import Term from "@/components/Term";
  *   — the server's clock, never a number derived from a price — and what
  *   to do: refresh the books, or open the game screen, whose ticket reads
  *   the live quote. An unreadable age prints nothing, never "0 min".
- * - **A started game is marked, not moved** (#42, the Picks half). The
- *   list is sorted by chance, so the kickoff column cannot be scanned for
- *   what is already in play; a row whose `started_ago_ms` the server sent
- *   says so in the same muted register. Nothing is reordered, filtered or
- *   gated on it (ADR 0067: the order is `fair_probability` alone).
+ * - **A started game is marked, not moved** (#42, the Picks half). A row
+ *   whose `started_ago_ms` the server sent says so in the same muted
+ *   register. Nothing is reordered, filtered or gated on it (the order is
+ *   kickoff alone, which already puts a started game first).
  */
 export default function GoodChancePicks({
   picks,
@@ -58,7 +58,7 @@ export default function GoodChancePicks({
   return (
     <section className="mt-8">
       <h2 className="text-sm font-semibold uppercase tracking-widest text-muted">
-        Likely winners tonight
+        Tonight&rsquo;s games, by kickoff
       </h2>
       <p className="mt-1 max-w-prose text-xs leading-snug text-muted">
         Each game&rsquo;s <Term k="favorite">favorite</Term> by the

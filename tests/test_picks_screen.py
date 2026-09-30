@@ -51,8 +51,8 @@ FOOTER = FRONTEND / "components" / "Footer.tsx"
 PICKS_LEDE = (
     "One line for each game the desk could price: the side the sportsbooks "
     "make more likely, the chance they give it, and what Kalshi charges — "
-    "ordered by that chance, which is not a claim that any of them is worth "
-    "buying."
+    "ordered by kickoff, earliest first, which is not a claim that any of "
+    "them is worth buying."
 )
 
 #: #9's seventh string, as the footer blurb for `/board`, with the exactness
