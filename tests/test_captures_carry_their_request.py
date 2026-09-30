@@ -309,6 +309,13 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
             "GET /series?category=Sports; `open_event_counts` records the "
             "per-series /events probes (all 0, season closed).",
     ),
+    "markets_nba_game_rules.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("series_ticker", "limit"),
+        endpoint_in=("endpoint",),
+        how="A `request` block via `capture_envelope.write_capture` (#255): "
+            "GET /markets?series_ticker=KXNBAGAME, kept to one event.",
+    ),
     "markets_batch_by_ticker.json": RecordsItsRequest(
         params_in=("request",),
         param_names=("tickers", "limit"),
@@ -687,6 +694,7 @@ UPGRADED_WRITERS: dict[str, tuple[str, ...]] = {
     "capture_same_game_series.py": (
         "events_nhl_same_game.json",
         "series_college_basketball.json",
+        "markets_nba_game_rules.json",
     ),
     "capture_team_names.py": (
         "nfl_names_kalshi.json",

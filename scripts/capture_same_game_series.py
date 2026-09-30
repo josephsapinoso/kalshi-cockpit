@@ -6,6 +6,7 @@ No key is read, no order/RFQ/portfolio endpoint is touched.
 Writes (with their request, via `capture_envelope.write_capture`):
   tests/fixtures/events_nhl_same_game.json       one fixture, three event tickers
   tests/fixtures/series_college_basketball.json  series catalogue slice
+  tests/fixtures/markets_nba_game_rules.json     KXNBAGAME markets with rules_primary (#255, `--nba-rules`)
 
 Does NOT establish: college-basketball EVENT tickers. The season was not open
 when this ran (2026-09-30), so `/events?series_ticker=KXNCAAMBGAME` returned no
@@ -45,7 +46,39 @@ def events(client, series):
     return body["events"]
 
 
+def capture_nba_rules() -> int:
+    """#255 part 1: one two-sided NBA game's markets, for their `rules_primary`."""
+    fx = ROOT / "tests" / "fixtures"
+    params = {"series_ticker": "KXNBAGAME", "limit": 4}
+    with httpx.Client(timeout=30.0) as c:
+        r = c.get(f"{BASE}/markets", params=params)
+        r.raise_for_status()
+        body = r.json()
+    markets = body.get("markets")
+    if not markets:
+        print("REFUSED: no KXNBAGAME markets posted; nothing carries the rules")
+        return 2
+    event = markets[0]["event_ticker"]
+    kept = [m for m in markets if m["event_ticker"] == event]
+    write_capture(
+        fx / "markets_nba_game_rules.json",
+        {
+            "request": request_envelope(
+                endpoint=f"{BASE}/markets",
+                params=params,
+                note=f"kept only the markets of event {event}",
+            ),
+            "endpoint": f"{BASE}/markets",
+            "markets": kept,
+        },
+    )
+    print("wrote", event, len(kept))
+    return 0
+
+
 def main() -> int:
+    if "--nba-rules" in sys.argv:
+        return capture_nba_rules()
     fx = ROOT / "tests" / "fixtures"
     with httpx.Client(timeout=30.0) as c:
         got = {s: events(c, s) for s in NHL}
