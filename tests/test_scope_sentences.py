@@ -124,9 +124,11 @@ class TestTheScopeSentencesNameTheirChannel:
             "server-side before it is sent"
         )
         for guard in (
+            # "cool-off" and "the daily-loss switch" left this list on
+            # 2026-09-30 (#228): ADR 0112 removed both from the hand-bet
+            # path on 2026-09-08, and the Gate kept naming them for three
+            # weeks because this test demanded it.
             "the desk lockout",
-            "cool-off",
-            "the daily-loss switch",
             "a refusal if the ask has moved above the price you agreed to",
             "a refusal if you already hold this market",
         ):

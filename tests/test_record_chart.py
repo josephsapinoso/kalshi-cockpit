@@ -87,7 +87,7 @@ class TestTheCumulativeArithmetic:
     def test_the_caption_says_how_many_could_not_be_computed(self):
         text = source()
         assert "uncomputable > 0" in text
-        assert "floor rather than a figure" in text
+        assert "them out and is not a full figure" in text
 
 
 class TestItMakesNoClaimAboutSkill:

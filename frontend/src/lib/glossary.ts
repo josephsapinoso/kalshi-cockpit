@@ -140,15 +140,7 @@ export const GLOSSARY = {
       "chance is worth 40¢ on a $1 payout. Any price above fair value is " +
       "the seller’s margin. The cards here show fair value; Kalshi’s own " +
       "price will differ.",
-  },
-  p_yes: {
-    label: "P(YES)",
-    definition:
-      "Your gut number for how likely this market ends YES, as a percent. " +
-      "A coin flip is 50. It is always the chance of YES — not of “your " +
-      "side”. Think YES only happens 30% of the time? Type 30; that low " +
-      "number is itself the case for betting NO.",
-  },
+  },
   quote_age: {
     label: "quote age",
     definition:
@@ -163,15 +155,7 @@ export const GLOSSARY = {
       "while sportsbook lines are bought in scheduled windows; once the book " +
       "side ages past the freshness limit, the comparison is refused until " +
       "the odds are re-bought. The game and the price are both still real.",
-  },
-  realised_loss: {
-    label: "realised loss",
-    definition:
-      "Money actually gone on bets that have finished — wins minus what " +
-      "they cost, fees included. A bet still open doesn’t count yet. If " +
-      "you staked $5, got $4 back, and paid 20¢ in fees, your realised " +
-      "loss is $1.20.",
-  },
+  },
   ask: {
     label: "ask",
     definition:
