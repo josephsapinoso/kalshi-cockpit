@@ -2020,8 +2020,15 @@ export type Signal = {
   section6_verdict: string;
   /** The group that caused the downgrade, named in A4's own words. */
   downgraded_by: string | null;
-  /** Whether the cluster floor permits a declaring verdict at all. */
+  /** Whether a declaring verdict stands: the cluster floor is met AND no
+   * section A4 downgrade fired (#227). */
   may_declare: boolean;
+  /** Amendment 2 section B6(5)'s sd ratchet check. `null` when nothing was
+   * measured, never `false` in its place. */
+  sigma_exceeds_ratchet: boolean | null;
+  /** True once section 7's stopping rule has fired: the verdict is no longer
+   * recomputed. */
+  frozen: boolean;
   population: {
     rows: number;
     clusters: number;
