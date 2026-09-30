@@ -166,6 +166,14 @@ Joe typed `/go`. The partner's design and dispatch were already on story #213 an
   - `/api/game-cards` latency with ~14 cards on an NFL Sunday;
   - NCAAF link coverage.
 - **Accepted:** the build lock is per process (API vs loop), so a same-minute tap and watcher build can both pay once.
+- **`duplicated_legs` (Joe's phone, 2026-09-30; live `86af51b`).** Kalshi refuses "X wins" together with "X wins by N+". `drop_implied_win_legs` drops the win leg on read and before validation. This is lossless, and the card says why. PROMPT_VERSION is now 2.
+- **#221 /parlays cleanup (Joe named it; live `daa1598`):**
+  - a view switch, *Game scripts* (default) · *Parlay cards* · *Check a parlay*, with the server rendering only the selected one;
+  - compact cards, with the story behind "Why this card";
+  - Today/Tomorrow/All and league chips, with no reordering;
+  - weekday + time + zone on every leg row.
+  
+  **Not yet seen in a browser:** the Chrome extension was disconnected. Joe's phone is the first check.
 - **No preseason cards (Joe, 2026-09-30; live `eb6aa4b`).** Kalshi labels NBA/NHL preseason with the regular season's league string, so the cut is by date. `GAME_SCRIPT_REGULAR_SEASON_STARTS = "nba=2026-10-20,nhl=2026-09-29"`, and a game before its league's date is neither built nor recorded. **Main was wrong in chat:** it called the 4 NHL cards preseason, but the NHL opened 2026-09-29, so they are regular season. **The dates need updating each season.** MLB and WNBA need entries before next spring.
 
 ### Still open
