@@ -31,6 +31,7 @@ import FilterBar from "@/components/FilterBar";
 import ManualTicket from "@/components/ManualTicket";
 import MarketSearch from "@/components/MarketSearch";
 import LeagueTag from "@/components/LeagueTag";
+import LineShopHint from "@/components/LineShopHint";
 import Hint from "@/components/Hint";
 import OpenPositions from "@/components/OpenPositions";
 import Term from "@/components/Term";
@@ -598,6 +599,9 @@ function Row({
         maxQuoteAgeMs={maxQuoteAgeMs}
         maxOddsAgeMs={maxOddsAgeMs}
       />
+      {/* Same opinion, cheaper way round (#245). Printed only when the
+          server found one; the row is not ordered or filtered by it. */}
+      <LineShopHint hint={row.line_shop} />
 
       {/* The code, and where it is explained. The code is the engine's own
           name for the rule and is what the suppression-count disclosure at

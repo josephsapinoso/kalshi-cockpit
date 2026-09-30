@@ -92,6 +92,7 @@ from ..odds.timing import (
     window_status,
 )
 from .. import hedge as held_parlays
+from .. import line_shop
 from .. import parlays
 from ..parlays import (
     COMBO_EXIT_RFQ_BIDS_BELOW_BASIS,
@@ -1447,6 +1448,8 @@ def create_app(
         # `thresholds` is the SuppressionConfig; `staleness` the clocks.
         slate_trust = TrustThresholds.from_configs(staleness, thresholds)
         items, off_basis, with_books = [], 0, 0
+        # The line-shopping hints (#245), for the whole slate in two reads.
+        hints = line_shop.hints_for_slate(conn, rows, now, staleness)
         # Grouping key for the picks block below: the odds fixture, which the
         # serialised item deliberately does not carry. Falls back to the event
         # title so an unlinked row still groups with its own game rather than
@@ -1482,6 +1485,10 @@ def create_app(
             # time, and the sort below puts unknown kickoffs last.
             item["commence_ms"] = kickoffs.get(row["odds_event_id"])
             item["league"] = row["league"]
+            # Same opinion, cheaper way round (#245). A fact on the row, never
+            # read by any sort below: an ordering is a claim (ADR 0071 s2.5).
+            # `None` whenever the helper refuses.
+            item["line_shop"] = hints.get((item["ticker"], item["side"]))
             item["volume_24h"] = row["volume_24h"]
             item["open_interest"] = row["open_interest"]
             item["kalshi_drift_tenths"] = kalshi_drift(

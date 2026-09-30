@@ -2163,6 +2163,25 @@ export type BookDistribution = {
   percentile: number | null;
 };
 
+export type LineShopLeg = {
+  ticker: string;
+  side: "yes" | "no";
+  team: string | null;
+  ask_tenths: number;
+  ask_display: string;
+  depth: number;
+  all_in_tenths_per_contract: number;
+};
+
+export type LineShopData = {
+  cheaper: LineShopLeg;
+  current: LineShopLeg;
+  saving_tenths_per_contract: number;
+  fee_reference_contracts: number;
+  read_ms: number;
+  copy: string;
+};
+
 /**
  * One row of the Slate: a recommendation plus the factors already on the record.
  *
@@ -2197,6 +2216,11 @@ export type SlateRowData = Recommendation & {
    * had nothing honest to score — see `TrustScore`.
    */
   trust?: TrustScore | null;
+  /**
+   * Same opinion, cheaper way round (#245): present only when the other route
+   * is cheaper after fees. A fact on the row, never a sort key (ADR 0071).
+   */
+  line_shop?: LineShopData | null;
 };
 
 /**
