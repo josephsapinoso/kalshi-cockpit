@@ -16,6 +16,26 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-09-30 - A restatement of a threshold can silently change its unit; a correction lands in one place and every restatement keeps the old claim
+
+From the seventy-fourth session (all-hands conference).
+
+- **CLAUDE.md turned the registration's "G ≥ 713" into "G_eff = 713"**, and
+  then concluded the look "is not coming". The registration's §B7 says in so
+  many words that restating the floor in `G_eff` is the forbidden move. The
+  chair of the conference walked in believing the spine, and the code had
+  already taken the look on a page load. **When a sentence says a threshold
+  is unreachable, cite the registration's own line for its unit, not the
+  spine's paraphrase; the code that takes the look is the second witness.**
+- **Same shape, three more times in one audit.** ADR 0112 removed the
+  hand-bet brakes and the backend comment was corrected, but three screens
+  above the Buy button kept listing them, and a test *required* the Gate to
+  name two of them. The same-game fix learned in `gate.py` (ADR 0029) was
+  re-broken in the hedge. The hedge's "no floor" guard checked the summary
+  object while every rung underneath carried the flattering floor. **After a
+  correction, grep for every restatement of the old claim, tests included; a
+  test that pins old copy is a restatement too.**
+
 ## 2026-09-30 - A model seat does not know what day it is unless the prompt says so; a refusal that writes no row reads as "never asked" once the screen reloads
 
 From the seventy-second session (Joe's phone, the long-ladder card).
