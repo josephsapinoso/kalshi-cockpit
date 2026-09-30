@@ -149,6 +149,8 @@ class TestItIsMountedWhereTheRecordLives:
 
     def test_it_sits_above_the_rows_it_summarises(self):
         text = PAGE.read_text(encoding="utf-8")
-        assert text.index("<RecordChart") < text.index("record.bets.map"), (
+        # The rows render through `groupByDay(` since #248 (2026-09-30), not
+        # `record.bets.map`; the call site, not the helper's definition.
+        assert text.index("<RecordChart") < text.index("{groupByDay("), (
             "the picture should precede the rows it is made of"
         )
