@@ -73,6 +73,7 @@ from .core.hedge import (
 )
 from .core.fees import calculate_fee
 from .kalshi.orderbook import OrderBook
+from .match.linker import fixture_segment
 from .kalshi.rfq import QUOTE_FILLED_STATUSES, RfqRefused, mve_legs
 from .core.prices import (
     format_dollars,
@@ -241,6 +242,34 @@ class MarketBook:
             status=quote.status,
             observed_ms=quote.observed_ms,
         )
+
+
+# Leagues whose series share a fixture segment across GAME / SPREAD / TOTAL
+# and prop series. Longest first so no prefix shadows another.
+_LEAGUE_PREFIXES = ("NCAAF", "NCAAB", "WNBA", "NBA", "NFL", "NHL", "MLB", "MLS")
+
+
+def same_game_key(event_ticker: Optional[str]) -> Optional[str]:
+    """`(league, fixture segment)` of a LEG's event ticker, else `None`.
+
+    Kalshi issues a separate event per series, so `KXNFLGAME-26SEP13ATLPIT`
+    and `KXNFLSPREAD-26SEP13ATLPIT` are one game under two event tickers;
+    keying on the event ticker multiplied them at rho 0.05 (#229, the same
+    lesson as `gate.py` / ADR 0029). The key is league AND segment, never the
+    segment alone: WNBA and NFL both play LV/SEA in September. A doubleheader
+    separates by the HHMM inside the segment. `None` on anything unreadable,
+    so the caller keeps its old key rather than merging two real games.
+    """
+    if not event_ticker:
+        return None
+    series = str(event_ticker).strip().upper().split("-")[0]
+    segment = fixture_segment(str(event_ticker).strip().upper())
+    if segment is None or not series.startswith("KX"):
+        return None
+    league = next(
+        (lg for lg in _LEAGUE_PREFIXES if series[2:].startswith(lg)), None
+    )
+    return f"{league}:{segment}" if league else None
 
 
 def event_ticker_for(ticker: Optional[str]) -> Optional[str]:
@@ -1889,11 +1918,16 @@ def assess(
                 Leg(
                     label=str(leg["label"]),
                     probability=probability,
-                    event_key=str(
-                        leg["event_ticker"]
-                        or event_ticker_for(leg["ticker"])
-                        or leg["ticker"]
-                        or leg["id"]
+                    event_key=(
+                        same_game_key(
+                            leg["event_ticker"] or event_ticker_for(leg["ticker"])
+                        )
+                        or str(
+                            leg["event_ticker"]
+                            or event_ticker_for(leg["ticker"])
+                            or leg["ticker"]
+                            or leg["id"]
+                        )
                     ),
                     league=str(leg["league"] or "unknown"),
                     # A leg with no recorded kickoff is treated as today's.
