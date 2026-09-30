@@ -294,6 +294,21 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
             "against a real NFL spread subtitle, so which series was asked for "
             "is the whole point of the file.",
     ),
+    "events_nhl_same_game.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("series_ticker", "status"),
+        endpoint_in=("endpoint",),
+        how="A `request` block via `capture_envelope.write_capture` (#251): "
+            "the three series asked for and the fixture kept.",
+    ),
+    "series_college_basketball.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("category",),
+        endpoint_in=("endpoint",),
+        how="A `request` block via `capture_envelope.write_capture` (#251): "
+            "GET /series?category=Sports; `open_event_counts` records the "
+            "per-series /events probes (all 0, season closed).",
+    ),
     "markets_batch_by_ticker.json": RecordsItsRequest(
         params_in=("request",),
         param_names=("tickers", "limit"),
@@ -669,6 +684,10 @@ LEGACY_WRITERS: dict[str, tuple[str, ...]] = {
 UPGRADED_WRITERS: dict[str, tuple[str, ...]] = {
     "capture_markets_batch_fixture.py": ("markets_batch_by_ticker.json",),
     "capture_nfl_odds_fixture.py": ("odds_nfl_h2h_spreads.json",),
+    "capture_same_game_series.py": (
+        "events_nhl_same_game.json",
+        "series_college_basketball.json",
+    ),
     "capture_team_names.py": (
         "nfl_names_kalshi.json",
         "nfl_names_books.json",
