@@ -8,6 +8,7 @@ import {
   askWhatMakersWouldPay,
   closeHeldPosition,
   DISPLAY_TIME_ZONE,
+  isLive,
   resolveHeldLeg,
   type HedgeBlock,
   type HedgeRung,
@@ -162,8 +163,6 @@ function PositionGroups({
   asOfMs: number;
   maxQuoteAgeMs: number;
 }) {
-  const isLive = (position: HeldPosition) =>
-    position.pending_legs > 0 && position.venue_settlement === null;
   const pending = positions.filter(isLive);
   const settled = positions.filter((position) => !isLive(position));
 

@@ -53,10 +53,6 @@ NAV = SRC / "components" / "Nav.tsx"
 FOOTER = SRC / "components" / "Footer.tsx"
 OPEN_POSITIONS = SRC / "components" / "OpenPositions.tsx"
 
-LIVE = re.compile(
-    r"position\.pending_legs\s*>\s*0\s*&&\s*position\.venue_settlement\s*===\s*null"
-)
-
 
 def code(path: Path) -> str:
     """Source with comments stripped, whitespace collapsed."""
@@ -85,7 +81,7 @@ class TestTheOpenSectionIsOnYourBets:
 
     def test_the_count_uses_the_live_predicate_and_never_prints_a_false_zero(self):
         src = code(BETS)
-        assert LIVE.search(src), "N is not the live-position count"
+        assert ".filter(isLive)" in src, "N is not the live-position count"
         assert "hedge === null ? null" in src
         heading = src[src.index("<h2") :]
         heading = heading[: heading.index("</h2>")]
@@ -116,7 +112,7 @@ class TestTheNavBadge:
     def test_the_badge_counts_live_positions_from_the_hedge_read(self):
         src = code(NAV)
         assert "fetchHedge()" in src
-        assert LIVE.search(src), "the badge is not the live-position count"
+        assert ".filter(isLive)" in src, "the badge is not the live-position count"
 
     def test_the_badge_rides_the_bets_link_only_and_hides_at_zero_or_unknown(self):
         src = code(NAV)
