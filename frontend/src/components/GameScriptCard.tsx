@@ -8,6 +8,7 @@ import {
   DISPLAY_TIME_ZONE,
   displayZoneLabel,
   fetchGameCards,
+  formatAge,
   formatKickoff,
   mintGameCombo,
   type GameScriptCard as CardData,
@@ -55,6 +56,36 @@ const DROPPED_WIN_LINE =
   "The scout also picked this team to win. That pick is left off: winning " +
   "by the margin above already includes winning, so the ticket pays on " +
   "exactly the same results, and Kalshi refuses the pair.";
+
+/** Inactives come out this long before kickoff (the card's own footnote). */
+const INACTIVES_LEAD_MS = 90 * 60_000;
+
+/**
+ * How old this card is (#246), in plain words, from `built_ms`.
+ *
+ * A card written at T-24h predates the inactives list, so when it was built
+ * before its game's inactives time it says so. **Shown only**: nothing on this
+ * card is gated on age. Read after mount, never during render, so the server's
+ * clock cannot disagree with the client's in the markup.
+ */
+function CardAge({ card }: { card: CardData }) {
+  const [nowMs, setNowMs] = useState<number | null>(null);
+  // Once per mount: a card's age is read when it is looked at, and this
+  // component never polls (the card test bars timers on this file).
+  useEffect(() => {
+    setNowMs(Date.now());
+  }, []);
+  if (nowMs === null) return null;
+  const age = formatAge(Math.max(0, nowMs - card.built_ms));
+  const beforeInactives =
+    card.built_ms < card.kickoff_ms - INACTIVES_LEAD_MS;
+  return (
+    <p className="mt-1 text-xs text-muted">
+      Written {age}
+      {beforeInactives ? ", before inactives" : ""}.
+    </p>
+  );
+}
 
 function fixtureOf(gameEventTicker: string): string {
   return gameEventTicker.split("-").slice(1).join("-") || gameEventTicker;
@@ -124,6 +155,7 @@ export default function GameScriptCard({
       <p className="mt-2 max-w-[65ch] text-xs text-muted">
         {NO_COMBINED_CHANCE_LINE}
       </p>
+      <CardAge card={card} />
 
       {/* The reasoning, one tap away rather than in the way. */}
       <details className="mt-3 rounded border border-border p-3">
