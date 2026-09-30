@@ -134,6 +134,7 @@
   --color-accent: var(--accent);
   --color-accent-fill: var(--accent-fill);
   --color-accent-2: var(--accent-2);
+  --color-warn: var(--accent-2); /* the ochre; border-warn / text-warn (#249) */
   --color-accent-soft: var(--accent-soft);
   --color-accent-2-soft: var(--accent-2-soft);
   --color-positive: var(--positive);
@@ -385,7 +386,11 @@ body {
    gap, so nothing here is keyed to an edge, a verdict or a price.
 --------------------------------------------------------------------------- */
 
-/* Corner brackets on a panel, in the accent ink. */
+/* Corner brackets on a panel, in the accent ink.
+   The 2px radius is UNLAYERED on purpose (#249): it beats any `rounded-*`
+   utility on the same element, so the HUD look Joe picked (#171, mockup A)
+   wins everywhere without editing every panel. Do not layer it.
+   tests/test_border_colour_utilities_win.py pins it. */
 .hud {
   position: relative;
   border-radius: 2px;
