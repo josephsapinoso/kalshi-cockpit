@@ -134,7 +134,7 @@ export default function OpenPositions({
           className="font-semibold tabular underline decoration-dotted"
         >
           Open now: {block.count}{" "}
-          {block.count === 1 ? "position" : "positions"}
+          {block.count === 1 ? "position" : "positions"} at Kalshi
         </a>
         <span className="text-muted">
           {counted !== null ? ` (counted ${stampText(counted)})` : ""}

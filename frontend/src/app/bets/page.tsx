@@ -13,6 +13,7 @@ import {
   fetchBets,
   fetchHedge,
   formatDuration,
+  isLive,
   type BetKind,
   type BetsRecord,
   type BetsSection,
@@ -77,10 +78,7 @@ export default async function BetsPage() {
   const openCount =
     hedge === null
       ? null
-      : hedge.positions.filter(
-          (position) =>
-            position.pending_legs > 0 && position.venue_settlement === null,
-        ).length;
+      : hedge.positions.filter(isLive).length;
 
   return (
     <Shell>
@@ -137,6 +135,11 @@ export default async function BetsPage() {
       <section id="open" className="mb-10 scroll-mt-24">
         <h2 className="display text-2xl sm:text-3xl">
           Open{openCount === null ? "" : ` (${openCount})`}
+          {openCount === null ? null : (
+            <span className="ml-2 text-sm font-normal text-muted">
+              {openCount === 1 ? "ticket" : "tickets"} on the desk
+            </span>
+          )}
         </h2>
         {hedge === null ? (
           <p className="mt-3 max-w-[65ch] text-sm text-muted">

@@ -10,6 +10,7 @@ import {
   fetchHedge,
   fetchScoutOverview,
   fetchWindow,
+  isLive,
   recordAttention,
 } from "@/lib/api";
 import { HEARTBEAT_INTERVAL_MS } from "@/lib/nextOddsWindow";
@@ -262,12 +263,7 @@ export default function Nav() {
       fetchHedge()
         .then((screen) => {
           if (cancelled) return;
-          setOpenCount(
-            screen.positions.filter(
-              (position) =>
-                position.pending_legs > 0 && position.venue_settlement === null,
-            ).length,
-          );
+          setOpenCount(screen.positions.filter(isLive).length);
         })
         .catch(() => {
           if (!cancelled) setOpenCount(null);

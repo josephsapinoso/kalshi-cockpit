@@ -3966,6 +3966,18 @@ export type HeldPosition = {
   hedge: HedgeBlock | null;
 };
 
+/**
+ * The ONE "is this bet still live" predicate (#250). Live = a leg still
+ * pending AND the venue has not settled the combination. `/bets`'s Open
+ * heading, `HedgePositions`' live/settled partition and Nav's badge all call
+ * this; nothing else may spell the two terms out.
+ */
+export function isLive(
+  position: Pick<HeldPosition, "pending_legs" | "venue_settlement">,
+): boolean {
+  return position.pending_legs > 0 && position.venue_settlement === null;
+}
+
 /** A Kalshi combination the venue holds that no open `HeldPosition` is
  * watching — bought outside the desk (the Kalshi app), so ADR 0125's writer
  * never saw the fill. Singles are out of scope here: a bare market has no
