@@ -112,8 +112,8 @@ export default function FiveStepTest() {
         This tool was built to find an edge on Kalshi, and it did not find
         one &mdash; that result is the honest product, and it is on this
         page. So these steps are not a way to win money; they are the
-        whole difference between a $2 bet you learn something from and a $2
-        bet that merely happens to you. Run them in order, every time. It
+        whole difference between a bet you learn something from and a bet
+        that merely happens to you. Run them in order, every time. It
         takes about twenty seconds, and the only optional step is the bet.
       </p>
       <ol className="mt-6 space-y-5">
@@ -136,6 +136,16 @@ export default function FiveStepTest() {
           </li>
         ))}
       </ol>
+      {/* Joe's answer (C) to #239, 2026-09-30: no fixed stop rule, and the
+          Playbook says so rather than inventing one. The fixed two-dollar
+          stake and the hundred-dollar lifetime stop this page taught until
+          then were never his rules. */}
+      <p className="mt-6 max-w-xl text-sm leading-relaxed text-muted">
+        <strong className="text-foreground">Stop rule:</strong> you have not
+        set one, so this page does not pretend you have. The desk sets no
+        stake size and no loss limit for you. If you decide on one, it goes
+        here.
+      </p>
     </section>
   );
 }

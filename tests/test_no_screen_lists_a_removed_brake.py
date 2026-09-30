@@ -96,3 +96,16 @@ def test_playbook_steps_do_not_point_at_the_deleted_estimate_field() -> None:
 
 def test_footer_does_not_send_him_to_a_ticket_that_asks() -> None:
     assert "the ticket asks" not in visible_text(FOOTER)
+
+
+def test_the_playbook_states_there_is_no_stop_rule_and_teaches_no_stake():
+    """Joe's (C) to #239, 2026-09-30: no fixed stop rule; say so plainly.
+    The "$2 every time" stake was never his rule either."""
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "components" / "FiveStepTest.tsx").read_text(encoding="utf-8")
+    assert "you have not" in src and "set one" in src
+    # A worked fee example ("a $2 bet there costs roughly 7c") is fine; a
+    # fixed stake taught as a rule is not.
+    assert "$2 every time" not in src
+    assert "$2 bet you learn" not in src
