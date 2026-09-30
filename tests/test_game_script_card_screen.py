@@ -271,6 +271,25 @@ class TestEachLegCarriesKalshisOwnSingleLegAsk:
         ).json()["cards"] == []
 
 
+class TestTheHeadingNamesTheGame:
+    def test_a_card_carries_the_events_own_title(self, tmp_path):
+        http, conn = _app(tmp_path)
+        _built(conn, "KXNFLGAME-26SEP13ATLPIT", NOW + HOUR)
+        _built(conn, "KXNFLGAME-26SEP13OTHERS", NOW + 2 * HOUR)
+        conn.execute(
+            "INSERT OR REPLACE INTO kalshi_events (event_ticker, title, "
+            "first_seen_ms, last_seen_ms) VALUES (?, ?, 0, 0)",
+            ("KXNFLGAME-26SEP13ATLPIT", "ATL Falcons vs PIT Steelers"),
+        )
+        conn.commit()
+        cards = http.get("/api/game-cards").json()["cards"]
+        assert [c["game_title"] for c in cards] == ["ATL Falcons vs PIT Steelers", None]
+
+    def test_the_heading_prefers_the_title_over_the_ticker(self):
+        src = Path("frontend/src/components/GameScriptCard.tsx").read_text(encoding="utf-8")
+        assert "card.game_title ?? fixtureOf(card.game_event_ticker)" in src
+
+
 class TestTheCardComponentClaimsNoCombinedChance:
     def test_the_component_names_no_joint_or_combined_field_or_value_copy(self):
         source = COMPONENT.read_text(encoding="utf-8")

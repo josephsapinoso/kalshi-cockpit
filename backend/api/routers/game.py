@@ -319,6 +319,22 @@ def register(
             if card is not None:
                 cards.append(card)
         cards = kickoff_order(cards)
+        # The game's own name ("Game 1: Chicago C vs San Diego"), from the
+        # event row discovery keeps, so the heading is not a raw ticker.
+        # `None` when discovery has no title; the screen falls back.
+        titles: dict = {}
+        if cards:
+            marks = ",".join("?" * len(cards))
+            titles = {
+                r[0]: r[1]
+                for r in conn.execute(
+                    "SELECT event_ticker, title FROM kalshi_events "
+                    f"WHERE event_ticker IN ({marks})",
+                    [c["game_event_ticker"] for c in cards],
+                ).fetchall()
+            }
+        for card in cards:
+            card["game_title"] = titles.get(card["game_event_ticker"]) or None
 
         api = None
         if any(c["status"] == "built" for c in cards):

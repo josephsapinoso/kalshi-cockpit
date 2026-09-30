@@ -4458,6 +4458,8 @@ export type GameScriptCard = {
   /** The sentence a game with no built card carries; `null` on a built one. */
   no_card_line: string | null;
   inactives_line: string;
+  /** Kalshi's own name for the game, or `null` when discovery has none. */
+  game_title: string | null;
 };
 
 /**

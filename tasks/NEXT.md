@@ -169,11 +169,12 @@ Joe typed `/go`. The partner's design and dispatch were already on story #213 an
 
 ### Still open
 
-1. #210 — matchup tile; stays open until the first real matchup note is read. Re-read `agent-spend` (`agent='game_script'`) after the first automatic NFL Sunday (2026-10-04). If the mean is far from 290K, move `CARD_TOKEN_ESTIMATE`. No ticket is needed unless it moves.
-2. #188 — parked. It waits for a loop-lag reading.
-3. #165 — open until a friend actually sends a link (Joe, 2026-09-28).
-4. #169 — parked behind #165.
-5. #151 — collecting. Nothing is owed until the interim look.
+1. #220 — after Sunday 2026-10-04: sharp-bettor reviews the first automatic cards (self-contradicting legs, near-duplicate legs, wrong facts, price-shaped story facts) plus the cost re-read; repeat faults become tasks. Joe approved it 2026-09-30. The raw-ticker heading was already fixed in-session (cards now show Kalshi's own game title).
+2. #210 — matchup tile; stays open until the first real matchup note is read.
+3. #188 — parked. It waits for a loop-lag reading.
+4. #165 — open until a friend actually sends a link (Joe, 2026-09-28).
+5. #169 — parked behind #165.
+6. #151 — collecting. Nothing is owed until the interim look.
 
 ## 2026-09-29 (seventieth session) — Joe names parlays: sports factors lead (#200, ADR 0189); rest on every leg (#201), a same-game game page (#202) and a matchup scout tile (#210) ship; automatic game-script cards planned and approved (#213)
 

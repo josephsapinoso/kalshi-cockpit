@@ -155,7 +155,7 @@ function GameHeading({ card }: { card: CardData }) {
         href={`/game/${encodeURIComponent(card.game_event_ticker)}`}
         className="font-mono text-xs text-accent underline-offset-4 hover:underline"
       >
-        {fixtureOf(card.game_event_ticker)}
+        {card.game_title ?? fixtureOf(card.game_event_ticker)}
       </Link>
       <span className="ml-2 text-xs text-muted">
         kickoff {kickoffText(card.kickoff_ms)}
