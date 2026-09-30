@@ -134,11 +134,11 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-09-30 (seventy-fourth session) — all-hands conference on the live desk; epic #224 built on local main; six questions for Joe
+## 2026-09-30 (seventy-fourth session) — all-hands conference on the live desk; epic #224 built and deployed; Joe answered all seven questions
 
 Joe asked for all the agents to review the site together, with a transcript written like The Wolf of Wall Street. Partner chaired six seats: sharp-bettor, kalshi-platform, measurement-skeptic, runtime-realist, and a web and a UX designer brought in for this meeting only. They worked from SSR text captures of 11 live pages and the source; there were no screenshots because the Chrome extension was not connected. The seats went through two rounds and partner ranked the findings. The transcript and minutes are a private artifact: https://claude.ai/artifact/8uD4GDTHcqecSQKfFH26o2. The money mechanics held up. The words and numbers around them were wrong, in the flattering direction.
 
-- **Built and merged on local main (NOT pushed or deployed at time of writing; check `git log origin/main..main`):**
+- **Built (batch 1, deployed on `1ea9551`):**
   - #225 (main): multi-leg hedge rungs are now `DeriskRung` and show the real worst case, −(stake + hedge cost). They used to show a floor built from "the leg wins = the ticket pays", which put a positive "worst case" on live four-leg tickets. Mutation-verified.
   - #227: SignalStrip no longer says "declaring" when the verdict was downgraded; `sigma_exceeds_ratchet` and `frozen` are now served, and the verdict stops recomputing once the stopping rule has fired.
   - #228: the brakes removed on 2026-09-08 are gone from Gate, Games and Picks. The RFQ accept is named as the third armed door. The Playbook's steps for the deleted estimate field are removed, and `p_yes` and `realised_loss` are dropped from the glossary.
@@ -147,20 +147,17 @@ Joe asked for all the agents to review the site together, with a transcript writ
   - #231: the global border rule now sits in `@layer base`, so coloured borders render again, as proven by computed style.
   - #232: the combination Take-it shows one warning per ask with no frequency words, and Joe's #60 checkbox gates the button. This is UI only; whether the server should also refuse is #238.
   - #226 (partial): CLAUDE.md and partner.md are corrected. The floor is nominal G ≥ 713; the "not coming … 52,000 games" claim swapped the unit that §B7 forbids swapping. The pull now selects `clv_scored_ms`, `run_signal_test.py --through-clusters 1000` exists, and the cut rule sits in a dated NOT-AN-AMENDMENT note, committed before any pull.
+- **Joe answered all seven questions the same afternoon.** #234 A → #240: an "Open (N)" section at the top of /bets takes over /hedge, with a badge on the tab. The badge reads on page load and when the tab returns, not on the heartbeat, because `/api/hedge` takes ~1.5 s a call. #235 A → #241: Picks is sorted by kickoff and the Likely-winners block is gone (ADR 0067 Amd 1). #236 A → #242: TAKE is shown as "No red flag". #238 A: screen only, nothing built. #239 C: the Playbook says there is no stop rule and stops teaching a $2 stake. #237 A: the **attention slice went 300 → 324, not ~450**: floor 288 + slice + 4 kickoff clusters (84) must fit inside the 700, so 328 is the ceiling. Going higher means moving the 700, and #243 A says read a real heavy day first.
+- **Deployed:** batch 1 is on `1ea9551` (screens checked on live; #225 and #227–#232 closed). Batch 2 (#240–#242, the 324 slice, the Playbook) is pushed after the full suite passed (9,379); check `/api/health` `git_sha` against `origin/main`.
 - **Refused by the permission classifier:** reading `manual-orders-audit` on live for #233.
 
 ### Still open
 
-1. #226 — deploy, then ONE off-hours `clv-signal-pull --i-accept-the-cache-flush` (a whole-file walk on live, so it needs Joe's go-ahead), then the §8 result doc and a measurement-skeptic audit. The verdict at G = 1000 is not known and may come out NO SIGNAL.
+1. #226 — deploy, then ONE off-hours `clv-signal-pull --i-accept-the-cache-flush` (a whole-file walk on live; Joe said yes to running it off-hours tonight, 2026-09-30), then the §8 result doc and a measurement-skeptic audit. The verdict at G = 1000 is not known and may come out NO SIGNAL.
 2. #233 — the 99c / 3.8% combination: was it placed through the tool? Needs Joe to allow or run the audit.
-3. Question for Joe: should the bets you still hold live at the top of Your bets? — #234
-4. Question for Joe: what should Picks be? — #235
-5. Question for Joe: should the leg verdict's TAKE be renamed "No red flag"? — #236
-6. Question for Joe: the odds attention allowance runs out by 11:00; rebalance it or accept hourly? — #237
-7. Question for Joe: should the server refuse a combination Take-it without the acknowledgement? — #238
-8. Question for Joe: what is your real stop rule, for the Playbook? — #239
-9. #220, #210, #165, #169, #151 — unchanged from the seventy-third session below.
-10. Not ticketed yet, from the conference's next tier: the line-shopping hint (two-way sports only, never soccer), ages on game-script cards and RFQ asks, density cuts on Games, `.hud` radius and the missing `--color-warn` token (both flagged by the #231 lane).
+3. #220 — now also reads `credits-day --date 2026-10-04`: the first heavy attended day on the 324 slice (#243 A). That reading decides whether the 700 moves.
+4. #210, #165, #169, #151 — unchanged from the seventy-third session below.
+5. Not ticketed yet, from the conference's next tier: the line-shopping hint (two-way sports only, never soccer), ages on game-script cards and RFQ asks, density cuts on Games, `.hud` radius and the missing `--color-warn` token (both flagged by the #231 lane).
 
 ## 2026-09-30 (seventy-third session) — nothing due: #188 closed as won't-do; #210's close moves into #220 because no matchup tile exists yet
 
@@ -1346,7 +1343,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
-- 2026-09-30 (seventy-fourth session) — all-hands conference on the live desk; epic #224 built on local main; six questions for Joe
+- 2026-09-30 (seventy-fourth session) — all-hands conference on the live desk; epic #224 built and deployed; Joe answered all seven questions
 - 2026-09-30 (seventy-third session) — nothing due: #188 closed as won't-do; #210's close moves into #220 because no matchup tile exists yet
 - 2026-09-30 (seventy-second session) — #221 and the cards seen in a browser; two display fixes; a stale season date now builds nothing (#222)
 - 2026-09-29 (seventy-first session) — automatic game-script cards built, deployed and armed (#213–#218); one card cost 289K tokens, so Joe raised the token ceiling to 9M (#219)
