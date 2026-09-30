@@ -157,7 +157,7 @@ Joe asked for all the agents to review the site together, with a transcript writ
 2. #233 — the 99c / 3.8% combination: was it placed through the tool? Needs Joe to allow or run the audit.
 3. #220 — now also reads `credits-day --date 2026-10-04`: the first heavy attended day on the 324 slice (#243 A). That reading decides whether the 700 moves.
 4. #210, #165, #169, #151 — unchanged from the seventy-third session below.
-5. Not ticketed yet, from the conference's next tier: the line-shopping hint (two-way sports only, never soccer), ages on game-script cards and RFQ asks, density cuts on Games, `.hud` radius and the missing `--color-warn` token (both flagged by the #231 lane).
+5. #244 — epic, the conference's next tier: #245 line-shopping hint, #246 ages on cards and quotes, #247 Games says it once, #248 Your bets reads like bets, #249 `.hud` radius + `--color-warn`, #250 one live predicate, #251 NHL/college same-game captures, #252 (Haiku, read-only) do the engine caps the Gate names still exist. The record item, that a deposit would shrink the gate count, is written into CLAUDE.md.
 
 ## 2026-09-30 (seventy-third session) — nothing due: #188 closed as won't-do; #210's close moves into #220 because no matchup tile exists yet
 
