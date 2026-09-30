@@ -946,10 +946,14 @@ class TestMoneyRendersWithoutAVerdict:
         """The $100 ceiling reads as budget remaining to a reader holding $8.
         The only line on this screen is the daily-loss cap derived from his
         balance — rendered since 2026-08-22 (B2) as the server's
-        `daily_line_display` string rather than a client-formatted float."""
+        `daily_line_display` string rather than a client-formatted float.
+
+        2026-09-30 (#228): that line is gone too. ADR 0112 removed the
+        daily-loss cap from the hand-bet path on 2026-09-08, so the screen
+        stopped naming a cap that binds nothing."""
         page = code(SLATE_PAGE)
         assert "ceiling_dollars" not in page
-        assert "daily_line_display" in page
+        assert "daily_line_display" not in page
 
     def test_the_net_up_parenthetical_is_gone(self):
         """Deleted 2026-08-20: a signed running P&L where bets begin is the
