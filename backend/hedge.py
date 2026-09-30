@@ -253,7 +253,11 @@ class MarketBook:
 # prefix seen in `tests/fixtures` is listed. EPL has no capture and is listed
 # on its public name; over-merging costs only a refused joint (#229 review).
 _LEAGUE_PREFIXES = (
-    "NCAAF", "NCAAB", "WNBA", "NBA", "NFL", "NHL", "MLB", "MLS", "CFL",
+    # Longest first: `next(...)` takes the first match. Kalshi's college
+    # series are KXNCAAMB* (men's), KXNCAAWB* (women's) and KXNCAABB* (BASEBALL)
+    # next to the bare KXNCAAB* -- "NCAAB" alone merged baseball into it and
+    # matched neither basketball series (series catalogue capture, #251).
+    "NCAAMB", "NCAAWB", "NCAABB", "NCAAF", "NCAAB", "WNBA", "NBA", "NFL", "NHL", "MLB", "MLS", "CFL",
     "EPL", "UCL", "EFLCUP", "USL", "JLEAGUE", "KLEAGUE", "EREDIVISIE",
     "BRASILEIROB", "BRASILEIROC", "BRASILEIRO", "LIGAPORTUGAL",
     "SCOTTISHPREM",

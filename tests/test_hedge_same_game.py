@@ -130,3 +130,67 @@ class TestLeaguesSeenInCaptures:
         a = same_game_key("KXBRASILEIROGAME-26AUG08FLAPAL")
         b = same_game_key("KXBRASILEIROBGAME-26AUG08FLAPAL")
         assert a is not None and b is not None and a != b
+
+
+class TestNhlAndCollegeBasketballCaptured:
+    """#251: NHL and college basketball were assumed, now read off captures.
+
+    `events_nhl_same_game.json` is one real fixture's GAME, SPREAD and TOTAL
+    events. `series_college_basketball.json` is the series catalogue slice: the
+    college season was closed on 2026-09-30, so it has series NAMES but no
+    event tickers (its `open_event_counts` are all 0) -- the prefix test below
+    therefore builds a ticker from a captured series name, not a captured event.
+    """
+
+    @staticmethod
+    def _nhl():
+        import json
+
+        doc = json.loads(
+            (FIXTURES / "events_nhl_same_game.json").read_text(encoding="utf-8")
+        )
+        by_series = {}
+        for event in doc["events"]:
+            series = event["event_ticker"].split("-")[0]
+            by_series[series] = event["markets"][0]["ticker"]
+        return by_series
+
+    def test_nhl_game_spread_total_of_one_fixture_share_a_key(self):
+        tickers = self._nhl()
+        assert set(tickers) == {"KXNHLGAME", "KXNHLSPREAD", "KXNHLTOTAL"}
+        keys = {
+            hedge.same_game_key(hedge.event_ticker_for(t))
+            for t in tickers.values()
+        }
+        assert len(keys) == 1 and None not in keys
+        assert next(iter(keys)).startswith("NHL:")
+
+    def test_assess_refuses_the_nhl_joint(self, conn):
+        t = list(self._nhl().values())
+        outcome = _assess(conn, t).outcome
+        assert outcome.joint_probability is None
+        assert outcome.joint_refusal is not None
+        assert "same fixture" in outcome.joint_refusal.detail
+
+    def test_college_basketball_prefix_matches_the_captured_series(self):
+        import json
+
+        doc = json.loads(
+            (FIXTURES / "series_college_basketball.json").read_text(encoding="utf-8")
+        )
+        names = {s["ticker"]: s["title"] for s in doc["series"]}
+        seg = "26NOV05DUKEUNC"
+        for series in ("KXNCAAMBGAME", "KXNCAAMBSPREAD", "KXNCAAWBGAME",
+                       "KXNCAAWBTOTAL", "KXNCAABGAME"):
+            assert series in names, series
+            key = hedge.same_game_key(f"{series}-{seg}")
+            assert key is not None and key.endswith(":" + seg), series
+        # Men's GAME and SPREAD are one fixture; men's and women's stay apart.
+        assert hedge.same_game_key(f"KXNCAAMBGAME-{seg}") == \
+            hedge.same_game_key(f"KXNCAAMBSPREAD-{seg}")
+        assert hedge.same_game_key(f"KXNCAAMBGAME-{seg}") != \
+            hedge.same_game_key(f"KXNCAAWBGAME-{seg}")
+        # College BASEBALL (KXNCAABB*) is its own league, not basketball.
+        assert "Baseball" in names["KXNCAABBGAME"]
+        assert hedge.same_game_key(f"KXNCAABBGAME-{seg}") != \
+            hedge.same_game_key(f"KXNCAABGAME-{seg}")

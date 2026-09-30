@@ -1,0 +1,62 @@
+{
+  "endpoint": "https://api.elections.kalshi.com/trade-api/v2/series",
+  "open_event_counts": {
+    "KXNCAABGAME": 0,
+    "KXNCAAMBGAME": 0,
+    "KXNCAAMBSPREAD": 0,
+    "KXNCAAMBTOTAL": 0,
+    "KXNCAAWBGAME": 0,
+    "KXNCAAWBSPREAD": 0,
+    "KXNCAAWBTOTAL": 0
+  },
+  "request": {
+    "endpoint": "https://api.elections.kalshi.com/trade-api/v2/series",
+    "method": "GET",
+    "note": "kept college GAME/SPREAD/TOTAL series only; open_event_counts is from GET /events per series",
+    "params": {
+      "category": "Sports"
+    }
+  },
+  "series": [
+    {
+      "ticker": "KXNCAABBGAME",
+      "title": "College Baseball Game"
+    },
+    {
+      "ticker": "KXNCAABBSPREAD",
+      "title": "College Baseball Spread"
+    },
+    {
+      "ticker": "KXNCAABBTOTAL",
+      "title": "College Baseball Total Runs"
+    },
+    {
+      "ticker": "KXNCAABGAME",
+      "title": "College Basketball Game"
+    },
+    {
+      "ticker": "KXNCAAMBGAME",
+      "title": "Men's College Basketball Men's Game"
+    },
+    {
+      "ticker": "KXNCAAMBSPREAD",
+      "title": "Men's College Basketball Spread"
+    },
+    {
+      "ticker": "KXNCAAMBTOTAL",
+      "title": "Men's College Basketball Total Points"
+    },
+    {
+      "ticker": "KXNCAAWBGAME",
+      "title": "College Basketball Women's Game"
+    },
+    {
+      "ticker": "KXNCAAWBSPREAD",
+      "title": "Women's College Basketball Spread"
+    },
+    {
+      "ticker": "KXNCAAWBTOTAL",
+      "title": "Women's College Basketball Total Points"
+    }
+  ]
+}
