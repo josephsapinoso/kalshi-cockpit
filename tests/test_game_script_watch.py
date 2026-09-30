@@ -318,6 +318,27 @@ class TestNoPreseasonCards:
             with pytest.raises(ConfigError):
                 parse_season_starts(bad)
 
+    def test_last_seasons_start_date_builds_nothing(self):
+        # A year on, the NBA date still reads "2026-10-20": the next
+        # preseason sits after it, so the date cut alone would build it.
+        day = 24 * H
+        acts = decide(
+            NOW,
+            [Fixture("KXNBAGAME-NEXTPRE", "nba", NOW + 5 * H),
+             Fixture("KXNFLGAME-X", "nfl", NOW + 3 * H)],
+            [], roomy(), season_starts={"nba": NOW - 350 * day},
+        )
+        assert [a.game_event_ticker for a in acts] == ["KXNFLGAME-X"]
+
+    def test_a_game_in_the_playoffs_is_still_built(self):
+        # ~260 days in is the end of the NBA/NHL playoffs; it must not be
+        # mistaken for a stale date.
+        acts = decide(
+            NOW, [Fixture("KXNBAGAME-FINALS", "nba", NOW + 5 * H)], [],
+            roomy(), season_starts={"nba": NOW - 260 * 24 * H},
+        )
+        assert [a.game_event_ticker for a in acts] == ["KXNBAGAME-FINALS"]
+
     def test_run_loop_passes_the_cut(self):
         src = Path("scripts/run_loop.py").read_text(encoding="utf-8")
         assert "season_starts=game_script_config.season_starts" in src

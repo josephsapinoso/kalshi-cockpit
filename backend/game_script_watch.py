@@ -60,6 +60,19 @@ DONE_STATUSES = ("built", "skipped")
 
 _HOUR_MS = 3_600_000
 
+#: A season start more than this far behind a game is last season's date, and
+#: a date cut that old can no longer tell preseason from regular season: the
+#: NBA and NHL regular seasons and playoffs end inside ~260 days of their
+#: starts, and next season's preseason opens ~350 days after. So a game past
+#: this line is refused rather than built, until the date is updated
+#: (`GAME_SCRIPT_REGULAR_SEASON_STARTS`). Without it the cut fails open every
+#: autumn and every preseason game costs a card (~290K tokens).
+STALE_SEASON_START_DAYS = 300
+
+
+def season_start_is_stale(kickoff_ms: int, start_ms: int) -> bool:
+    return kickoff_ms - start_ms > STALE_SEASON_START_DAYS * 24 * _HOUR_MS
+
 
 @dataclass(frozen=True)
 class Fixture:
@@ -120,7 +133,9 @@ def decide(
     those sport keys (default: every sport is accepted; the adapter passes
     Joe's). `season_starts` maps a card sport key to its regular season's
     first ms; a game kicking off before it is preseason and is not built and
-    not recorded (Joe, 2026-09-30). Once a ceiling binds every later game is
+    not recorded (Joe, 2026-09-30). A game more than
+    `STALE_SEASON_START_DAYS` after it is treated the same way, because the
+    date is last season's (`run_pass` logs a warning naming the sport). Once a ceiling binds every later game is
     refused for the same one.
     """
     done = {
@@ -139,7 +154,9 @@ def decide(
         if not (now_ms < f.kickoff_ms <= horizon):
             continue
         start = (season_starts or {}).get(f.sport_key)
-        if start is not None and f.kickoff_ms < start:
+        if start is not None and (
+            f.kickoff_ms < start or season_start_is_stale(f.kickoff_ms, start)
+        ):
             continue
         seen.add(ticker)
         todo.append(f)
@@ -305,6 +322,19 @@ async def run_pass(
     does not stop the next. Returns counts, for the log line.
     """
     fixtures, cards = load_inputs(conn, now_ms, lead_hours)
+    stale = sorted({
+        f.sport_key
+        for f in fixtures
+        if (season_starts or {}).get(f.sport_key) is not None
+        and season_start_is_stale(f.kickoff_ms, season_starts[f.sport_key])
+    })
+    if stale:
+        logger.warning(
+            "game-script watch: no cards for %s -- the season start in "
+            "GAME_SCRIPT_REGULAR_SEASON_STARTS is more than %d days old; "
+            "set this season's date",
+            ",".join(stale), STALE_SEASON_START_DAYS,
+        )
     meter = AgentBudget.from_config(conn, agent_config)
     state = meter.state(now_ms)
     budget = WatchBudget(

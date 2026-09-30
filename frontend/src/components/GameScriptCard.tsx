@@ -18,6 +18,7 @@ import AskTheMarket from "@/components/AskTheMarket";
 import Term from "@/components/Term";
 import { Button, SectionLabel } from "@/components/ui";
 import { leagueLabel } from "@/lib/leagueLabel";
+import { sideLabelAddsWords } from "@/lib/sideLabel";
 
 /**
  * The game-script card (#216, ADR 0190): one game, a short story, two or
@@ -211,7 +212,7 @@ function LegRow({
           {leg.side}
         </span>{" "}
         {leg.title}
-        {leg.side_label ? (
+        {leg.side_label && sideLabelAddsWords(leg.title, leg.side_label) ? (
           <span className="text-xs text-muted"> ({leg.side_label})</span>
         ) : null}
       </span>
@@ -285,6 +286,11 @@ export function GameCardPanel({ eventTicker }: { eventTicker: string }) {
         <p className="max-w-[65ch] text-sm text-accent-2">
           The card could not be read ({error}).
         </p>
+      )}
+      {/* The game's own name, so the page is not headed by a raw ticker
+          alone (seen live 2026-09-30); the ticker stays below the h1. */}
+      {card?.game_title && (
+        <h2 className="text-xl font-semibold">{card.game_title}</h2>
       )}
       {card && <GameScriptCard card={card} />}
       {card === null && !building && (

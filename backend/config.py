@@ -1190,7 +1190,10 @@ class GameScriptConfig:
       game kicking off before it (Joe, 2026-09-30: no preseason cards). By
       date because Kalshi labels NBA and NHL preseason games with the same
       league string as the regular season. A sport not named has no cut. A
-      malformed value raises: a silently-dropped cut spends on preseason.
+      malformed value raises: a silently-dropped cut spends on preseason. A
+      date more than `STALE_SEASON_START_DAYS` (300) behind a game is last
+      season's, and that sport builds nothing until it is updated
+      (`backend/game_script_watch.py`).
     """
 
     enabled: bool = False

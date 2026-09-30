@@ -134,6 +134,32 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-09-30 (seventy-second session) — #221 and the cards seen in a browser; two display fixes; a stale season date now builds nothing (#222)
+
+Joe typed `/go`. State was clean: CI green on `2219999`, no PRs, 0 dependabot alerts. Partner judged the queue empty of anything due: #220 waits for Sunday 2026-10-04 and every other item is parked on its own trigger. It dispatched verification, board hygiene and one guard.
+
+- **#221 and the cards, seen live (Playwright, minted cookie via file://; the Chrome extension was disconnected again).**
+  - `/parlays` and `/game/<event>` fit 390 px with no horizontal scroll, and render at 1440.
+  - The Game scripts view loaded 8 cards: 6 built, 2 NHL "no clean story". Both NHL skips cite search running out ("search access exhausted", "Search tool access broke down after the first query"). That is a spend with no card. **#220 should count these.**
+  - Two display faults, fixed this session:
+    - every leg repeated Kalshi's side label ("Philadelphia wins (Philadelphia)"). `frontend/src/lib/sideLabel.ts` drops it when the title already has every word, and `tests/test_side_label_is_not_repeated.py` drives it through node;
+    - `/game/<event>` was headed by the raw ticker. `GameCardPanel` now shows `game_title` when the card has it.
+- **#222 (opened and closed):** a `GAME_SCRIPT_REGULAR_SEASON_STARTS` date more than 300 days behind a game is last season's.
+  - `decide()` builds nothing for such a game and `run_pass` logs a warning. The guard was removed and the test went red.
+  - NFL needs no date, because discovery already drops "Pro Football Preseason".
+  - MLB and WNBA still have no cut.
+- **#220** now carries `model:opus` and a trigger: if Sunday's cost reading shows cards crowding out leg verdicts, open a question for Joe under #3 on which games get cards. **Map #3 has no open question**, and that one is owed only after the reading.
+- **Worktrees:** the five leftover `.next/standalone` shells and the stale 210 worktree were removed (no junctions inside). **Branch `lane/210-matchup-tile` is already merged as `7f35c46`** (`git cherry` shows `-`). Deleting it was refused by the classifier, so Joe can delete it; it is recoverable at `a4aafa5`.
+
+### Still open
+
+1. #220 — after Sunday 2026-10-04: sharp-bettor reviews the first automatic cards plus the cost re-read, and counts the search-exhausted skips; the #3 question is opened only if the reading warrants it.
+2. #210 — matchup tile; stays open until the first real matchup note is read.
+3. #188 — parked. It waits for a loop-lag reading.
+4. #165 — open until a friend actually sends a link (Joe, 2026-09-28).
+5. #169 — parked behind #165.
+6. #151 — collecting. Nothing is owed until the interim look.
+
 ## 2026-09-29 (seventy-first session) — automatic game-script cards built, deployed and armed (#213–#218); one card cost 289K tokens, so Joe raised the token ceiling to 9M (#219)
 
 Joe typed `/go`. The partner's design and dispatch were already on story #213 and each ticket (`owner:`/`model:` labels), so main did S0 and dispatched the lanes directly.
@@ -1270,6 +1296,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-09-30 (seventy-second session) — #221 and the cards seen in a browser; two display fixes; a stale season date now builds nothing (#222)
 - 2026-09-29 (seventy-first session) — automatic game-script cards built, deployed and armed (#213–#218); one card cost 289K tokens, so Joe raised the token ceiling to 9M (#219)
 - 2026-09-29 (seventieth session) — Joe names parlays: sports factors lead (#200, ADR 0189); rest on every leg (#201), a same-game game page (#202) and a matchup scout tile (#210) ship; automatic game-script cards planned and approved (#213)
 - 2026-09-29 (sixty-ninth session) — the queue is empty and Joe will name new work (#196, answer C); board.py says so instead of asking for an owner (#195)
