@@ -107,12 +107,13 @@ was measured on 2026-08-16 and `beta`, the CLV pass-through coefficient, came
 back **−0.141** with an always-valid interval of [−0.334, +0.052] at G = 199.
 See `docs/measurements/2026-08-16-clv-signal-test-interim-look.md`.
 
-**Do not plan around that verdict changing.** The registered floor is G = 713
-(Amendment 2), the look has not been taken and is not coming — at the measured
-cluster concentration it needs ~52,000 nominal games — so the formal verdict
-is UNRESOLVED and may not be reported as "no signal". For *prioritisation*,
-treat it as settled negative. No roadmap may be built on the look or wait for
-it.
+**Do not plan around that verdict changing.** The registered floor is nominal
+G ≥ 713 (Amendment 2 §B4; §B7 refuses restating it in `G_eff`). The stopping
+rule (G = 1000) fired by 2026-09-30 and the §8 result file is owed (#226); the
+live strip read UNRESOLVED at G = 1047 with an upper limit of +0.104. This
+paragraph said "not coming … ~52,000 games" until then, which swapped the unit
+— and you walked into the 2026-09-30 all-hands believing it. For
+*prioritisation*, treat the signal as settled: no usable pass-through.
 
 **The gate is not a plan and never was — do not let anyone wait on it.** Its
 300 counts *actionable* games, of which the record has 2 in its whole life, and

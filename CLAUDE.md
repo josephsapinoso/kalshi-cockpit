@@ -51,7 +51,7 @@ design: a query carrying a decision rule is not a dump, so that module emits
 the rows and no aggregate. Running it needs a registration first, not a
 volunteer. `docs/measurements/2026-09-01-actionable-population-reaudit.md`.
 
-## The signal is measured and negative
+## The signal is measured and not usable
 
 `beta` — the CLV pass-through coefficient, the registered decision-bearing
 statistic — has been computed twice:
@@ -64,8 +64,11 @@ statistic — has been computed twice:
 VERDICT     UNRESOLVED
 ```
 
-Every interval lies entirely below the registered NO-SIGNAL threshold of 0.40
-and both arms (moneyline, prop) are negative. **The primary runs on the modal
+Every interval lies entirely below the registered NO-SIGNAL threshold of 0.40.
+The arms no longer agree in sign: the live strip on 2026-09-30 read G = 1047,
+`G_eff` 58.56, `beta` +0.0424 [-0.0194, +0.1042], moneyline +0.0432 over 934
+games and prop -0.4337 over 113 (`market_type` is a diagnostic, not a
+registered cut; that reading is the strip, not the registered look). **The primary runs on the modal
 `strategy_config_version` only** (registration §P4); a pooled `G = 311` fit
 was refused as a declaring look on 2026-08-25 and `build_report` now applies
 §P4 itself. **`G_eff` is a required field on every fit**: `G = 311` is 4.26
@@ -74,12 +77,20 @@ effective clusters, WNBA is 95.6% of the leverage, and 93.9% of it sits in
 rule 1 says are bugs, not edges.
 
 **UNRESOLVED is the formal verdict and may not be reported as "no signal."**
-The registered floor is **G = 713** (Amendment 2, 2026-08-29) and that look has
-not been taken. **It is not coming**: at the measured concentration `G_eff = 713`
-needs ~52,000 nominal games against a stopping rule that ends 2027-02-15. No
-roadmap may depend on the look or wait for it. Reopening the question needs a
-successor registration with an `edge_tenths` exclusion fixed in advance. **For
-planning, treat the signal as settled negative.**
+The registered declaring floor is **nominal G ≥ 713** on the modal-version
+population (Amendment 2 §B4, §B6(1)); §B7 makes `G_eff` a mandatory reportable
+and refuses restating the floor in it. **Until 2026-09-30 this paragraph said
+the look "is not coming" because `G_eff = 713` needed ~52,000 games — that
+swapped the unit §B7 forbids swapping, and the look was taken on a page load.**
+§7's stopping condition 1 (**G = 1000**) has fired: collection under this
+registration has ended and the §8 result file is owed (#226), computed on the
+population **at G = 1000**, whose verdict is not yet known — at G = 1047 §6
+alone returned NO SIGNAL and §A4's leave-one-group-out rule lowered it to
+UNRESOLVED, and §A4 is re-run on the cut, so G = 1000 may land either way.
+The live strip is not the registered result; the result file will be.
+Reopening the question needs a successor registration with an `edge_tenths`
+exclusion fixed in advance. **For planning, treat the signal as settled: no
+usable pass-through** — every upper limit sits at or below +0.104 against 0.40.
 
 `docs/measurements/2026-08-16-clv-signal-test-interim-look.md`,
 `2026-08-25-clv-signal-declaring-look-refused.md`.
