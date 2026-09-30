@@ -306,7 +306,8 @@ export default async function SlatePage({
           <p className="mt-6 max-w-[65ch] text-xs text-muted">
             &ldquo;Bet this by hand&rdquo; on any row below is your own bet. It
             is recorded apart from the engine&rsquo;s record and never counts
-            toward the gate.
+            toward the gate. The ticket reads Kalshi&rsquo;s live book and shows
+            you the ask you would pay; nothing is sent until you confirm.
           </p>
           <ul className="mt-8 divide-y divide-border">
             {rows.map((row) => (
@@ -708,6 +709,7 @@ function Row({
           ticker={row.ticker}
           variant="inline"
           openLabel="Bet this by hand"
+          closedNote={false}
         />
       </span>
     </div>

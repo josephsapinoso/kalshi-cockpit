@@ -78,3 +78,49 @@ class TestTheHeadlineSaysShowingNOfM:
 
     def test_the_bare_count_headline_is_gone(self):
         assert 'label="On the slate"' not in _src()
+
+
+TICKET = Path(__file__).resolve().parent.parent / "frontend/src/components/ManualTicket.tsx"
+FRONTEND_SRC = Path(__file__).resolve().parent.parent / "frontend/src"
+CLOSED_SENTENCE = "Nothing is sent until you confirm"
+
+
+class TestTheClosedStateSentenceRendersOnceOnGames:
+    """#253: ManualTicket's closed-state sentence sat under all 100 rows.
+
+    Copy only: the prop gates one paragraph and nothing on the order path.
+    """
+
+    def test_the_ticket_gates_the_sentence_behind_a_prop_defaulting_true(self):
+        src = TICKET.read_text(encoding="utf-8")
+        assert "closedNote = true," in src
+        assert "closedNote?: boolean;" in src
+        flat = _flat(src)
+        assert re.search(
+            r"\{closedNote && \( <p [^>]*> The ticket reads Kalshi&rsquo;s live book"
+            r".{0,120}" + CLOSED_SENTENCE,
+            flat,
+        )
+
+    def test_the_games_row_switches_it_off(self):
+        ticket = _row_body(_src()).split("<ManualTicket", 1)[1].split("/>", 1)[0]
+        assert "closedNote={false}" in ticket
+
+    def test_games_says_it_once_above_the_list(self):
+        flat = _flat(_src())
+        assert flat.count(CLOSED_SENTENCE.replace("Nothing", "nothing")) == 1
+        above = _src().split('<ul className="mt-8 divide-y', 1)[0]
+        assert "nothing is sent until you confirm" in _flat(above)
+
+    def test_every_other_screen_keeps_the_default(self):
+        mounts = 0
+        for path in FRONTEND_SRC.rglob("*.tsx"):
+            if path == SLATE_PAGE or path == TICKET:
+                continue
+            text = path.read_text(encoding="utf-8")
+            for chunk in text.split("<ManualTicket")[1:]:
+                head = chunk.split("/>", 1)[0]
+                if "ticker=" in head:
+                    mounts += 1
+                    assert "closedNote" not in head, path.name
+        assert mounts >= 5

@@ -154,6 +154,7 @@ export default function ManualTicket({
   openLabel,
   note,
   preferSide,
+  closedNote = true,
 }: {
   ticker: string;
   variant?: BuyVariant;
@@ -166,6 +167,10 @@ export default function ManualTicket({
   /** An extra sentence this surface must say before a bet — the parlay
    *  desk's "buying a leg is not buying the parlay", for instance. */
   note?: string;
+  /** Copy only. False drops the closed-state "reads Kalshi's live book"
+   *  sentence for a surface that says it once above a long list (Games,
+   *  #253). Default true: every other screen is unchanged. */
+  closedNote?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>({ name: "closed" });
   // Holds an enclosing slide-over open while the order is out (#158). A
@@ -397,10 +402,12 @@ export default function ManualTicket({
           >
             {openLabel ?? "Open the ticket"}
           </button>
-          <p className="mt-2 max-w-[65ch] text-xs text-muted">
-            The ticket reads Kalshi&rsquo;s live book and shows you the ask you
-            would pay. Nothing is sent until you confirm.
-          </p>
+          {closedNote && (
+            <p className="mt-2 max-w-[65ch] text-xs text-muted">
+              The ticket reads Kalshi&rsquo;s live book and shows you the ask
+              you would pay. Nothing is sent until you confirm.
+            </p>
+          )}
           {note && (
             <p className="mt-2 max-w-[65ch] text-xs text-muted">{note}</p>
           )}
