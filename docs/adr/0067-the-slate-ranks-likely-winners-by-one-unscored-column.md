@@ -1,7 +1,7 @@
 # 0067 — The slate ranks likely winners by one unscored column
 
 **Date:** 2026-08-23
-**Status:** Accepted.
+**Status:** Accepted; **superseded in its ordering by Amendment 1 (2026-09-30)**.
 **Amends** the slate page's "no ordering by anything but kickoff" rule
 (`frontend/src/app/slate/page.tsx`, 2026-08-21) for one new block only;
 **changes nothing** about the rows, the Board, the gate, or any suppression
@@ -73,3 +73,15 @@ a pre-registered measurement scores it; the gate, `ORDERS_ARE_DRY_RUNS`, the
 suppression rules and the Board's edge rendering are untouched. ADR 0038's
 closure stands: this block surfaces the books' opinion, it does not claim
 the tool has one.
+
+## Amendment 1 — 2026-09-30 — the list is ordered by kickoff, and the block leaves Games
+
+Joe answered (A) to #235 after the 2026-09-30 all-hands: Picks stays, sorted
+by kickoff, and the "Likely winners tonight" block goes. The sharp-bettor's
+reason, which the seats accepted: sorting by chance is favourite-picking, and
+a favourite is not a bet — the price is. Sorting by the gap stays forbidden
+(ADR 0071), so the clock is the only neutral order. Built in #241: the route
+orders by `(commence_ms is None, commence_ms, ticker)`; each game's favourite
+is still chosen by `fair_probability`, only the ORDER changed; the block is no
+longer mounted on Games, and Picks renders the list under "Tonight's games,
+by kickoff". The slate page's original kickoff-only rule is whole again.

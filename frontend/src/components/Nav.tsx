@@ -119,7 +119,7 @@ import { GaugeReadout } from "@/components/ui";
 // by Joe 2026-08-27; #29 named what it displaced). For two weeks the word
 // opened `/board`, a screen on which nothing has been a pick in the life of
 // the record and every row carried a live hand-bet button. The slot now
-// opens `/picks` -- the "likely winners" block Games already renders, as a
+// opens `/picks` -- the list Games rendered until #241 (2026-09-30), as a
 // screen of its own with no order route on it -- and `/board` goes to the
 // footer as "Refusals", with the sentence that says what it is. A promotion
 // rather than a move: the block stays on Games too. Same six links, same
