@@ -2192,3 +2192,76 @@ SIGNAL and §A4 lowered it to UNRESOLVED; §A4 is recomputed on the cut, so the
 §8 verdict may land either way. The §B6(5) ratchet (sd of `clv_tenths` against
 31.6915) is printed and applied as §B4 says. The games after `T*` are reported
 beside the result and change nothing.
+
+---
+
+# Amendment 3 — 2026-10-01 — the §B4 ratchet fired at the stopping-rule look, and the floor is raised to 861
+
+**Status: this is an amendment. It changes one number**, the declaring floor
+of §6 and §7, by §B4's own formula, as §B4 instructs: *"If a later look
+measures `sigma` above 31.6915, the floor is raised again by this same
+formula, in a further dated amendment, written before that look declares
+anything."* It is written after the §7(1) pull (2026-10-01 06:00Z) printed
+`sigma` and **before** the §8 result file declares. Nothing else changes.
+
+## C1. The trigger
+
+The §7 condition-1 look, cut by the 2026-09-30 note (`--through-clusters
+1000`, T* = 2026-09-27T00:47:26.874Z, G at T* = 1000, modal version 4 on both
+the cut and the full record), printed:
+
+```
+sd(clv_tenths), modal-version population at T*   35.4271   EXCEEDS 31.6915
+sd(clv_tenths), modal-version full record         36.0995   (no verdict; reported only)
+```
+
+## C2. The recomputed floor — same formula, same target, same tuning
+
+```
+MDE_level(G) = always_valid_multiplier(G, tuning=300, alpha=0.05) * sigma / sqrt(G) = 3.8
+reproduces §B4: G = 713 at sigma 31.6915 -> 3.7982   OK
+sigma 35.4271:  G = 861 -> 3.7996 <= 3.8 OK;  G = 860 -> 3.8021 > 3.8 NOT OK
+```
+
+The floor is computed on the population the declaration is made on — the
+cut, not the full record — exactly as §B4 chose 713 (modal) over 656
+(pooled). The full record's 36.0995 would give 890; it carries no verdict
+and is not used.
+
+> **The declaring floor of §6 and §7 is raised from `G >= 713` to `G >= 861`.**
+
+## C3. What this does and does not do
+
+- **861 < 1000.** The stopping-rule population clears the raised floor, so
+  §6 and §A4 decide the §8 verdict exactly as before; this amendment cannot
+  move it. §7 remains internally consistent. This holds under either sigma because
+  §A4's testability threshold is a separate 300 (`MIN_CLUSTERS_FOR_LOGO_TEST`).
+  Had it been read as the declaring floor, the full record's 890 would have
+  made `too_few_books` (G left 886) untestable and the verdict NO SIGNAL; 861
+  does not.
+- **§B5:** the slope MDE at `G = 861` is 0.319 at the 2026-08-25 ratio
+  2.976, and 0.380 at ratio 3.543 (this look's raw sd 35.4271, which bounds
+  sigma_eps from above, over the registered sigma_x = 10). Both are below
+  0.40, so **0.40 stands**. `tuning = 300` is **unchanged** (§B6(4)).
+- **Code is not changed.** `backend/analysis/signal_test.py` keeps
+  `MIN_CLUSTERS_TO_DECLARE = 713` and `RATCHET_SIGMA_TENTHS = 31.6915`:
+  §7(1) has fired, collection under this registration has ended, and no
+  further declaring look exists under it for the constant to govern. A
+  successor registration fixes its own floor. The harness will keep printing
+  `EXCEEDS` against 31.6915; this amendment is the answer to that line.
+- **No past verdict changes.**
+
+## C4. Registration record for this amendment
+
+```
+amendment          3
+date               2026-10-01
+trigger            §B4 ratchet: sd(clv_tenths) modal at the §7(1) cut = 35.4271 > 31.6915
+formula            unchanged (§B4)
+floor was          G >= 713
+floor is           G >= 861   (modal-version population at T*)
+threshold          0.40  UNCHANGED
+tuning             300   UNCHANGED
+past verdicts      UNCHANGED
+source             docs/measurements/2026-10-01-clv-signal-test-result.md
+```
