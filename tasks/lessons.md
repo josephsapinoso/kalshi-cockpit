@@ -16,6 +16,30 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-01 - A rule the backend obeys can be broken by the screen's fallback sentence; check every hand-written failure string on a spend path against it
+
+From the seventy-sixth session (architecture review, #257–#260, ADR 0191).
+
+- **CLAUDE.md has said "a lost response is an UNKNOWN, not a failure" since
+  ADR 0164, and the backend obeys it.** Meanwhile the armed hand-bet path's
+  browser helper (`placeManualOrder`) answered a dropped connection with
+  "Nothing was sent to the exchange", and a drop after the cockpit had
+  forwarded the order would have made that false. The combo-accept helper
+  rendered a pydantic refusal as `[object Object]`, the exact bug `postHedge`
+  had already fixed nearby. Neither was found by looking for a bug. Both
+  turned up because an architecture review counted copies of one mechanism,
+  14 hand-rolled POST helpers, and the copies disagreed.
+- **The rule:** when a rule about money states governs a path, grep every
+  hand-written fallback string on that path, meaning catch blocks and
+  "unreadable" branches, and read each one against the rule. A sentence
+  written for the case that "can't happen" is the one nobody re-reads. And
+  where a mechanism is copied N times, put it behind one module whose
+  failure sentences are required parameters with no default. Then a new call
+  cannot inherit a sentence that is false for it.
+- **Lane hygiene:** a lane that leaves background work running re-sends its
+  final report every time that work stops. End a dispatch prompt with "once
+  you have reported, stop".
+
 ## 2026-10-01 - A retention rule can quietly cut a registered measurement's population; list the registrations that read a table before shortening how long it is kept
 
 From the seventy-fifth session (#226, the CLV signal test's stopping-rule pull).
