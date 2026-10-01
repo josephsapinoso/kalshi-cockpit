@@ -108,12 +108,15 @@ back **−0.141** with an always-valid interval of [−0.334, +0.052] at G = 199
 See `docs/measurements/2026-08-16-clv-signal-test-interim-look.md`.
 
 **Do not plan around that verdict changing.** The registered floor is nominal
-G ≥ 713 (Amendment 2 §B4; §B7 refuses restating it in `G_eff`). The stopping
-rule (G = 1000) fired by 2026-09-30 and the §8 result file is owed (#226); the
-live strip read UNRESOLVED at G = 1047 with an upper limit of +0.104. This
-paragraph said "not coming … ~52,000 games" until then, which swapped the unit
-— and you walked into the 2026-09-30 all-hands believing it. For
-*prioritisation*, treat the signal as settled: no usable pass-through.
+G ≥ 861 (Amendment 3, 2026-10-01; §B7 refuses restating it in `G_eff`). The
+stopping rule fired and the registered §8 result is in: **UNRESOLVED at
+G = 1000** clusters (889 games), beta +0.0401 [−0.0217, +0.1020]; §A4 lowered
+NO SIGNAL because without `too_few_books` the upper limit is +0.64
+(`docs/measurements/2026-10-01-clv-signal-test-result.md`). No look remains
+under this registration. This paragraph said "not coming … ~52,000 games"
+until 2026-09-30, which swapped the unit — and you walked into the all-hands
+believing it. For *prioritisation*, treat the signal as settled: no usable
+pass-through, because no fit shows a signal — not because 0.40 is ruled out.
 
 **The gate is not a plan and never was — do not let anyone wait on it.** Its
 300 counts *actionable* games, of which the record has 2 in its whole life, and

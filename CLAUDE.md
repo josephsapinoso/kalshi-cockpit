@@ -61,39 +61,35 @@ statistic — has been computed twice:
             always-valid interval [-0.3342, +0.0517]
 2026-08-25  beta_hat -0.0756  se_cluster 0.0246  G = 216   (modal config version only)
             always-valid interval [-0.1728, +0.0216]
-VERDICT     UNRESOLVED
+2026-10-01  beta_hat +0.0401  se_cluster 0.0199  G = 1000  (§7(1) stop; 889 games)
+            always-valid interval [-0.0217, +0.1020]   G_eff 57.76
+VERDICT     UNRESOLVED  -- the registered §8 result; collection has ENDED
 ```
 
-Every interval lies entirely below the registered NO-SIGNAL threshold of 0.40.
-The arms no longer agree in sign: the live strip on 2026-09-30 read G = 1047,
-`G_eff` 58.56, `beta` +0.0424 [-0.0194, +0.1042], moneyline +0.0432 over 934
-games and prop -0.4337 over 113 (`market_type` is a diagnostic, not a
-registered cut; that reading is the strip, not the registered look). **The primary runs on the modal
-`strategy_config_version` only** (registration §P4); a pooled `G = 311` fit
-was refused as a declaring look on 2026-08-25 and `build_report` now applies
-§P4 itself. **`G_eff` is a required field on every fit**: `G = 311` is 4.26
-effective clusters, WNBA is 95.6% of the leverage, and 93.9% of it sits in
-`too_few_books`/`no_market_width` rows whose `edge_tenths` runs to −718 — rows
-rule 1 says are bugs, not edges.
-
-**UNRESOLVED is the formal verdict and may not be reported as "no signal."**
-The registered declaring floor is **nominal G ≥ 713** on the modal-version
-population (Amendment 2 §B4, §B6(1)); §B7 makes `G_eff` a mandatory reportable
-and refuses restating the floor in it. **Until 2026-09-30 this paragraph said
-the look "is not coming" because `G_eff = 713` needed ~52,000 games — that
-swapped the unit §B7 forbids swapping, and the look was taken on a page load.**
-§7's stopping condition 1 (**G = 1000**) has fired: collection under this
-registration has ended and the §8 result file is owed (#226), computed on the
-population **at G = 1000**, whose verdict is not yet known — at G = 1047 §6
-alone returned NO SIGNAL and §A4's leave-one-group-out rule lowered it to
-UNRESOLVED, and §A4 is re-run on the cut, so G = 1000 may land either way.
-The live strip is not the registered result; the result file will be.
-Reopening the question needs a successor registration with an `edge_tenths`
-exclusion fixed in advance. **For planning, treat the signal as settled: no
-usable pass-through** — every upper limit sits at or below +0.104 against 0.40.
+**The registered result is in: UNRESOLVED at the stopping rule** (#226,
+`docs/measurements/2026-10-01-clv-signal-test-result.md`). §6 alone returned
+NO SIGNAL; §A4 lowered it because leaving out `too_few_books` (89% of the
+leverage, the rows rule 1 calls bugs) gives `beta` +0.31 with an upper limit
+of +0.64, above 0.40. **UNRESOLVED may not be reported as "no signal."** G is
+1000 *clusters* on the registered key, 889 distinct games (props share games
+with moneylines). The floor is **nominal G ≥ 861** since Amendment 3
+(2026-10-01, §B4's ratchet: sd(clv) 35.43 > 31.69); §B7 makes `G_eff` a
+mandatory reportable and refuses restating the floor in it. **The primary runs
+on the modal `strategy_config_version` only** (§P4). **Until 2026-09-30 this
+paragraph said the look "is not coming" because `G_eff = 713` needed ~52,000
+games — that swapped the unit §B7 forbids swapping.** No look remains under
+this registration. Reopening needs a successor registration with an
+`edge_tenths`/`too_few_books` exclusion fixed in advance, accruing its own
+record from registration — an exclusion chosen after this table, scored on
+these rows, chooses the population from the answer. **For planning, treat the
+signal as settled: no usable pass-through** — because no fit shows a signal
+(every always-valid lower limit, pooled and in every testable leave-one-out,
+is at or below zero), *not* because 0.40 is ruled out: on rows with sound
+fair values the interval is about [−0.03, +0.64].
 
 `docs/measurements/2026-08-16-clv-signal-test-interim-look.md`,
-`2026-08-25-clv-signal-declaring-look-refused.md`.
+`2026-08-25-clv-signal-declaring-look-refused.md`,
+`2026-10-01-clv-signal-test-result.md`.
 
 **The gate stays exactly where it is.** It is the live-trading interlock, it is
 never lowered or bypassed, and "the gate will open" is not a step in any plan —
