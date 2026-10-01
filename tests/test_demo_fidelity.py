@@ -50,7 +50,7 @@ from backend.seed_demo import seed_all, seed_history
 from backend.store import db
 
 REPO = Path(__file__).resolve().parent.parent
-API_TS = REPO / "frontend" / "src" / "lib" / "api.ts"
+API_TS = REPO / "frontend" / "src" / "lib" / "types" / "slate.ts"
 BANNER_TSX = REPO / "frontend" / "src" / "components" / "WindowBanner.tsx"
 
 

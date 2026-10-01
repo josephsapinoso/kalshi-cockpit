@@ -19,450 +19,265 @@ import {
 export { refusalText };
 export type { WriteResult };
 
-/**
- * All four devig readings for the side bought, plus the one that was used.
- *
- * **Present only on `/api/ledger`**, which is the one route that joins
- * `fair_prices` through `recommendations.fair_price_id`. The Board and the
- * market detail select from `recommendations` alone and omit these keys
- * entirely rather than sending them as `null` — a `null` there would be
- * indistinguishable from a join that ran and found nothing.
- *
- * `fair_probability` is `p_conservative`: the **lowest** reading across
- * methods for the side being bought. That is a deliberate downward bias on
- * fair value, and a downward bias mechanically produces `edge <= 0` — so with
- * only that one column, no consumer can separate "Kalshi is sharp" from "we
- * chose a low fair". These four are what make that question answerable.
- *
- * Each is independently nullable: a devig method that could not be solved
- * resolves to `null`, never `0`, because `0` is a legitimate probability.
- */
-export type DevigMethods = {
-  p_multiplicative: number | null;
-  p_additive: number | null;
-  p_power: number | null;
-  p_shin: number | null;
-  /** Should equal `fair_probability` exactly. Sent so the join can be checked. */
-  p_conservative: number | null;
-};
-
-/**
- * How much consensus produced the fair value, and whose.
- *
- * **Present only on `/api/ledger`**, on the same join and the same
- * present-or-absent rule as `DevigMethods`. The Board and the market detail
- * omit these keys entirely.
- *
- * These answer what the four devig readings cannot. `book_count` is how many
- * books survived sharp-book anchoring, so the standing worry that this tool
- * compares Kalshi only against references as sharp as Kalshi (ADR 0021 §7.2) is
- * checkable from the record instead of from a fixture captured on a different
- * day. `books_used` names *which* books — "three books agreed" means something
- * different when the three are two exchanges and Pinnacle.
- */
-export type ConsensusProvenance = {
-  /**
-   * Disagreement between the best and worst surviving book, in probability
-   * points.
-   *
-   * **`null` is a real state, not a gap.** One book cannot disagree with
-   * itself, so there is no width to report — and `0` is simultaneously a
-   * legitimate reading, two books quoting identically. Never coalesce the two.
-   */
-  market_width: number | null;
-  /**
-   * Books kept after sharp anchoring. `NOT NULL` in the database, so a `null`
-   * here means the join missed — which is what disambiguates a `null`
-   * `market_width` above.
-   */
-  book_count: number | null;
-  /** Which books. `null` if the join missed or the column is unreadable, never `[]`. */
-  books_used: string[] | null;
-  /**
-   * Whether sharp anchoring actually bound on this row.
-   *
-   * The anchoring is `selected = sharp or usable`, so `false` means **no sharp
-   * book quoted** and the fair value came from the full book set — a wide
-   * consensus wearing a sharp consensus's name. `book_count` cannot reveal
-   * this: three sharp books and three soft ones both read `3`.
-   *
-   * `null` means the join missed. The column is `NOT NULL` in the database.
-   */
-  anchored_on_sharp: boolean | null;
-
-  /**
-   * The Odds API market family the consensus was built from: `h2h`,
-   * `spreads`, `totals`, or a prop key.
-   *
-   * Present so a screen can report the anchor base rate per (league, family).
-   * Per league alone would pool populations that disagree — measured on live
-   * 2026-09-16, NCAAF `h2h` anchored on a sharp book about 84% of the time
-   * and NCAAF `spreads` about 30%.
-   *
-   * `null` means the join missed, and a row with a null family must be
-   * counted as unknown rather than filed under any family.
-   */
-  consensus_market: string | null;
-};
-
-/**
- * The sweet spot: how much a number deserves to be acted on (ADR 0090).
- *
- * **Evidence quality, never bet quality.** Joe chose trust over edge on
- * 2026-08-31, and the reason is measured rather than stylistic: the
- * consensus-vs-Kalshi gap has `beta = -0.141`, so a score containing it would
- * rank the least trustworthy rows highest.
- *
- * **All three counts travel and the screen must use them.** `passed/total`
- * alone hides how many checks nobody ran; `passed/known` alone hides that
- * those checks exist. `total - known` is the number of unknowns, and an
- * unknown is never a pass. `components/TrustNote.tsx` is the one renderer —
- * three surfaces now carry this and a second drawing of it would be a second
- * set of honesty properties to keep in step.
- *
- * `null` when the server could not score honestly: no thresholds supplied (a
- * score against defaults would be a second definition of limits that live in
- * config), or the `fair_prices` join found nothing to read.
- */
-export type TrustScore = {
-  passed: number;
-  known: number;
-  total: number;
-  checks: {
-    name: string;
-    state: "pass" | "fail" | "unknown";
-    detail: string;
-  }[];
-};
-
-export type Recommendation = Partial<DevigMethods> &
-  Partial<ConsensusProvenance> & {
-  id: number;
-  ticker: string;
-  created_ms: number;
-  strategy_config_version: number;
-  side: string;
-  /**
-   * The YES-side team, on BOTH rows of a market -- `kalshi_markets.
-   * yes_side_team`. On a NO row this is the opponent of the side priced.
-   * `null` on a prop or a total. Never print it as a NO row's name; see
-   * `side_outcome` and `lib/rowSubject.ts` (ticket #6).
-   */
-  team: string | null;
-  /**
-   * The team (or "Over"/"Under") this row's OWN side pays on --
-   * `fair_prices.outcome_name` on the row's `fair_price_id`, which the runner
-   * binds per side. Optional: emitted by every route through `_serialise`
-   * since 2026-09-02, so a backend one version behind omits it; `null` when
-   * the route did not join `fair_prices` (the ledger) or the row has none.
-   * Never falls back to `team` on a NO row -- that is the defect.
-   */
-  side_outcome?: string | null;
-  event_title: string | null;
-  /**
-   * The odds feed's sport key for the linked fixture (`baseball_mlb`),
-   * rendered through `leagueLabel`. Optional: sent by `/api/slate` and
-   * `/api/board` since 2026-08-24; `null` on an unlinked row — render
-   * nothing, never a guess.
-   */
-  league?: string | null;
-  commence_ms: number | null;
-  ask_tenths: number;
-  ask_display: string;
-  ask_dollars: number;
-  fair_probability: number;
-  /**
-   * The fair value with a **cent** suffix. Do not render it.
-   *
-   * A fair value is a probability; `53.8c` sitting immediately left of a real
-   * ask at the same type size is the one place a left-to-right scan reads the
-   * wrong number as what you pay. Kept in the type because the payload still
-   * carries it and a script may read it — `fair_percent_display` is the one
-   * that goes on screen.
-   *
-   * @deprecated Render `fair_percent_display`.
-   */
-  fair_display: string;
-  /** The same number as `53.8%`, off the same integer tenths. */
-  fair_percent_display: string;
-  edge_tenths: number;
-  edge_cents: number;
-  fee_predicted: number;
-  ev_net_dollars: number;
-  /** Ask times size. What the contracts cost, before the fee. */
-  stake_dollars: number;
-  /** Stake plus fee: what actually leaves the account, and the loss if wrong. */
-  total_cost_dollars: number;
-  suggested_contracts: number;
-  /**
-   * The same decision sized at the **fixed reference bankroll**, which is what
-   * the gate's `actionable` counter reads — not what you may buy. At the
-   * deployed bankroll these differ, and a row can be counted as evidence while
-   * `suggested_contracts` is zero. Do not render it as a size to buy.
-   *
-   * `null` only on a pre-schema-v6 row that escaped the backfill, which is a
-   * different state from "no bet here".
-   */
-  reference_contracts: number | null;
-  kelly_fraction: number;
-  kalshi_quote_age_ms: number;
-  odds_age_ms: number;
-  depth_at_ask: number | null;
-  suppressed_reason: string | null;
-  reason_text: string;
-  clv_tenths: number | null;
-  /**
-   * Which anchor `clv_tenths` was measured against. `null` when unscored.
-   *
-   * Never pool two values of this. The legacy `1` rows are scored against a
-   * weaker benchmark than the current `0`, so mixing them flatters the result;
-   * the gate counts only the primary horizon for exactly that reason.
-   *
-   * **`0` is a real horizon.** Nothing may test this for truthiness.
-   */
-  clv_horizon_hours: number | null;
-  /**
-   * The ages as they are *now*, sent only by the Board.
-   *
-   * `kalshi_quote_age_ms` and `odds_age_ms` above are the ages at the moment
-   * the row was written and never move, which is right on Evidence (`/ledger`)
-   * — there they are a historical fact about the observation — and dangerously
-   * wrong on the Board, where a row from three hours ago still reads "quote 3s
-   * ago".
-   */
-  quote_age_now_ms?: number | null;
-  odds_age_now_ms?: number | null;
-  /**
-   * The server would still accept an order for this row, at this instant.
-   *
-   * That is the **odds** clock alone. The order endpoint re-reads the Kalshi
-   * quote inside the request, so a recorded quote past its thirty-second limit
-   * no longer stops an order — it only means the price below is not the price
-   * you would pay. Nothing refreshes the sportsbook consensus but a credit, so
-   * that is the limit which actually ends a row's life.
-   */
-  actionable?: boolean;
-  /**
-   * Whether the ask shown on the card is inside the Kalshi quote limit.
-   *
-   * `actionable && !price_is_current` is a real state and the most common one
-   * mid-window: the bet is live, and the number on the card is a memory. The
-   * card must say so rather than rendering a size and a cost as though they
-   * were a quote.
-   */
-  price_is_current?: boolean;
-  /**
-   * Whether `quote_age_now_ms` is measured from a **re-derivation** rather than
-   * from when the row was written.
-   *
-   * A quote pass re-reads Kalshi every fifteen seconds while the window is open
-   * and stamps rows whose ask and fair value have not moved, instead of
-   * recording a duplicate. So a live row's quote age is usually the age of the
-   * last confirmation. "Quoted 3s ago" and "re-checked 3s ago" are different
-   * claims and the card says which one it is showing.
-   */
-  freshness_confirmed?: boolean;
-  freshness_measured_from_ms?: number | null;
-};
-
-export type Board = {
-  /** Sized, and the server would still accept it. A claim about this instant. */
-  surfaced: Recommendation[];
-  /** Sized, and the consensus has aged out. Returned rather than dropped. */
-  expired: Recommendation[];
-  suppressed: Recommendation[];
-  /**
-   * The rest of the slate: candidates with no edge at all.
-   *
-   * Sent under the same flag as `suppressed`, and empty without it. Mispricing
-   * is a factor, not a filter — with zero actionable across ~200 decisions the
-   * rows that did not survive are the only content the Board has.
-   */
-  no_edge: Recommendation[];
-  /**
-   * Counted by the gate, unbuyable at the deposit (ticket #25, Joe's 25C).
-   *
-   * No suppression reason, `reference_contracts > 0` — the gate's own
-   * `actionable` test at the fixed $1,000 reference profile (ADR 0015 §3) —
-   * and `suggested_contracts === 0`, because quarter-Kelly at the observed
-   * balance buys none. Every row the gate has ever counted actionable had
-   * this shape and was filed under `no_edge`, captioned "no edge after fees",
-   * two inches below a headline counting it. Same flag as `suppressed` and
-   * `no_edge`; empty without it. Nothing here is bettable, and a row that
-   * sizes to a contract after a top-up leaves this list for `surfaced` on its
-   * own.
-   */
-  sized_to_zero: Recommendation[];
-  counts: {
-    surfaced: number;
-    expired: number;
-    suppressed: number;
-    sized_to_zero: number;
-    no_edge: number;
-    /** Of `surfaced`, how many show a price older than the quote limit. */
-    price_stale?: number;
-  };
-  /** The limits the server judged against, so the page cannot state its own. */
-  staleness: { max_kalshi_quote_age_s: number; max_odds_age_s: number };
-  /**
-   * **Which rows these are, and which rows they are not.**
-   *
-   * The Board used to select `ORDER BY suggested_contracts DESC, edge_tenths
-   * DESC LIMIT 100` over the whole table with no clock in it — and with
-   * `suggested_contracts` 0 on essentially every row ever written, that is the
-   * hundred largest apparent edges in the history of the database, drawn as
-   * today's slate with no date on any of them. Selection is now on the clock;
-   * this block is what stops the four lists above being read as more than they
-   * are.
-   *
-   * `anchor_ms === null` (nothing ever recorded) and `is_current === false` (a
-   * slate, but not this hour's) are different states and must not render the
-   * same way.
-   */
-  slate: {
-    /** When this instance last decided anything. `null` if it never has. */
-    anchor_ms: number | null;
-    /** How old that is. The number that says slate or souvenir. */
-    age_ms: number | null;
-    since_ms: number | null;
-    window_ms: number;
-    is_current: boolean;
-    /** The window before `limit`, and what survived it. */
-    in_window: number;
-    returned: number;
-    /**
-     * Rows inside the window by the stored timestamp and outside it by the age
-     * that was actually measured, so counted in `in_window` and listed nowhere.
-     *
-     * Its own number rather than part of `truncated`, because `LIMIT` and the
-     * server's second freshness reading drop rows for unrelated reasons. Until
-     * this existed those rows set nothing and the page printed nothing.
-     */
-    off_basis: number;
-    /** `in_window > returned`. Both kinds of drop, not just the `LIMIT`. */
-    truncated: boolean;
-    /** The record deliberately left off — what the old query ranked and showed. */
-    recorded_total: number;
-    /**
-     * Rows in the **whole table** the strategy would have bet: the gate's own
-     * `suppressed_reason IS NULL AND reference_contracts > 0`, not this slate's.
-     *
-     * The Board's counts are correctly windowed now, and that windowing took
-     * away its one statement about the record — "Bettable now: 0" reads as a
-     * quiet half-hour when the actual finding is zero across the life of the
-     * database. Nothing else in this payload can reconstruct it.
-     */
-    actionable_total: number;
-    /**
-     * The bankroll `reference_contracts` and `actionable_total` are sized at
-     * (`REFERENCE_BANKROLL_DOLLARS`, ADR 0015 §3). Read off the server so the
-     * SIZED TO ZERO caption prints the figure the gate uses, not a literal.
-     */
-    reference_bankroll_dollars: number;
-    older_than_window: number;
-  };
-  note: string;
-};
-
-export type GateCondition = { name: string; met: boolean; detail: string };
-export type Gate = {
-  open: boolean;
-  conditions: GateCondition[];
-  /** Every unmet condition, not just the first — the distance from open is the useful part. */
-  reason: string;
-  /** Derived from the venue's observed balance; null when never observed. */
-  bankroll_dollars: number | null;
-  /**
-   * How many rows fell into each population over the **whole table**, at every
-   * horizon — not the scored subset the conditions read.
-   *
-   * `counts.actionable` is the gate's binding quantity: a suppressed or
-   * zero-sized row can never increment the 300-game floor however well the CLV
-   * machinery works downstream. It is sized at the fixed reference bankroll,
-   * so it does not move when the deposit does.
-   */
-  populations: {
-    since_ms: number;
-    counts: Record<string, number>;
-    predicates: Record<string, string>;
-    note: string;
-  };
-  note: string;
-};
-
-/**
- * What the order endpoint sends back when it accepts.
- *
- * **Every field is optional and unknown keys are preserved**, deliberately. The
- * response is being extended (an `order_id` for the persisted row, a
- * `resulting_exposure_dollars`), and a ticket that threw on a field it had not
- * been told about would break the one screen a person uses to bet, at the
- * moment the backend improves. So the sheet renders what it recognises, renders
- * anything else generically, and never assumes a key is there.
- *
- * The price appears as `limit_price_dollars` in the extended shape and as
- * `limit_price_cents` in the current one. Both are rendered in their own unit.
- * Converting between them here would be exactly the arithmetic this frontend is
- * not allowed to do -- see the module docstring on `LiveBoard`.
- */
-export type OrderQuote = {
-  recorded_ask_display?: string;
-  live_ask_display?: string;
-  moved_tenths?: number;
-  age_ms?: number;
-  depth_at_ask?: number | null;
-  authorised_contracts?: number;
-  resized_contracts?: number;
-  binding_constraint?: string;
-  note?: string;
-  [key: string]: unknown;
-};
-
-export type OrderPlaced = {
-  status?: string;
-  dry_run?: boolean;
-  client_order_id?: string;
-  /** Present once the endpoint persists the row. Absent until then. */
-  order_id?: number | string | null;
-  ticker?: string;
-  side?: string;
-  book_side?: string;
-  contracts?: number;
-  /** The venue's own count, or `null` when the response was unreadable --
-   * never `0` for "unknown". `undefined` on a row placed before this field
-   * existed (a stale replay). See `fill_count_display` for the reason. */
-  fill_count?: number | null;
-  fill_count_display?: string;
-  limit_price_dollars?: number;
-  limit_price_cents?: number;
-  fill_price_tenths?: number;
-  fill_price_display?: string;
-  price_grid?: string;
-  worst_case_cost_dollars?: number;
-  /** Present once orders are written. Rendered when it is, omitted when not. */
-  resulting_exposure_dollars?: number;
-  quote?: OrderQuote;
-  request_body?: Record<string, unknown>;
-  note?: string;
-  [key: string]: unknown;
-};
-
-/** The 423 body. `conditions` is the gate's own list, not a re-derivation. */
-export type LockedDetail = {
-  message?: string;
-  reason?: string;
-  conditions?: GateCondition[];
-};
-
-/**
- * `status: 0` means the request never reached the server.
- *
- * Given its own value rather than folded into 503, because they call for
- * different sentences: one says the exchange could not be read, the other says
- * this phone could not be heard. Telling a person on a train that Kalshi is
- * down when their signal dropped sends them looking in the wrong place.
- */
-export type OrderResult = WriteResult<OrderPlaced>;
+// The wire types live one file per area in `./types/` (#262, ADR 0191 sec 2.5);
+// api.ts imports what its fetchers use and re-exports every name, so no import
+// elsewhere changes.
+import type {
+  ConfigVersion,
+  ConsensusProvenance,
+  Dashboards,
+  DevigMethods,
+  Gate,
+  GateCondition,
+  Ledger,
+  ListFilter,
+  ListFilterEcho,
+  Panel,
+  Recommendation,
+  Signal,
+  Suppression,
+  TrustScore,
+} from "./types/signal";
+import type {
+  ActionableWindow,
+  Board,
+  EdgeTone,
+  Exposure,
+  OddsRefreshResult,
+  OpenPositionsBlock,
+  PlannedSlot,
+  Refreshable,
+  RefreshableBeyondHorizon,
+  RefreshableFixture,
+  RefreshableSport,
+  Slate,
+  SlatePick,
+  SlatePicks,
+  SlateRowData,
+  TonightActivity,
+} from "./types/slate";
+import type {
+  BookDistribution,
+  ChartCandle,
+  EstimateLogged,
+  EstimateMarket,
+  LineShopData,
+  LineShopLeg,
+  MarketCandles,
+  MarketDetail,
+  RecentEstimate,
+  StudyStop,
+} from "./types/market";
+import type {
+  LockedDetail,
+  ManualMarket,
+  ManualMarketSide,
+  ManualOrderPlaced,
+  ManualOrderResult,
+  OrderPlaced,
+  OrderQuote,
+  OrderResult,
+} from "./types/orders";
+import type {
+  CheckedParlayLeg,
+  CheckedParlayResult,
+  ComboBid,
+  ComboBidResult,
+  ComboRfqAcceptResult,
+  ComboRfqQuote,
+  ComboRfqResult,
+  GameLeg,
+  GameLegGroup,
+  GameLegSide,
+  GameLegs,
+  GameMintResult,
+  GameScriptCard,
+  GameScriptCards,
+  GameScriptLeg,
+  LegRest,
+  LegVerdict,
+  LegVerdictInput,
+  LegVerdictState,
+  LegVerdictTrigger,
+  LegVerdictsResult,
+  ParlayCardData,
+  ParlayCardJoint,
+  ParlayCardLeg,
+  ParlayCardScouting,
+  ParlayHorizon,
+  ParlayLadder,
+  ParlayLeg,
+  ParlayLookupResult,
+  ParlayPrefix,
+  ParlayStake,
+  ParlayValuation,
+  ParlayWindow,
+  TeamRest,
+} from "./types/parlays";
+import type {
+  HedgeBlock,
+  HedgeRefusal,
+  HedgeRung,
+  HedgeScreen,
+  HedgeSellQuote,
+  HeldLeg,
+  HeldLegInput,
+  HeldPosition,
+  HeldPositionInput,
+  UnrecordedAtVenue,
+  VenueSettlement,
+} from "./types/hedge";
+import type {
+  BetKind,
+  BetsRecord,
+  BetsSection,
+  SettledBet,
+} from "./types/bets";
+import type {
+  BoardTile,
+  DeskBriefing,
+  Gauntlet,
+  Lesson,
+  Playbook,
+  RecordPassResult,
+  ScoutBriefingState,
+  ScoutFinding,
+  ScoutOverview,
+  ScoutOverviewRow,
+  ScoutSpend,
+  ScoutStaffNote,
+  ScoutStaffReport,
+  SendDeskResult,
+  SharpTake,
+} from "./types/scout";
+export type {
+  ConfigVersion,
+  ConsensusProvenance,
+  Dashboards,
+  DevigMethods,
+  Gate,
+  GateCondition,
+  Ledger,
+  ListFilter,
+  ListFilterEcho,
+  Panel,
+  Recommendation,
+  Signal,
+  Suppression,
+  TrustScore,
+} from "./types/signal";
+export type {
+  ActionableWindow,
+  Board,
+  EdgeTone,
+  Exposure,
+  OddsRefreshResult,
+  OpenPositionsBlock,
+  PlannedSlot,
+  Refreshable,
+  RefreshableBeyondHorizon,
+  RefreshableFixture,
+  RefreshableSport,
+  Slate,
+  SlatePick,
+  SlatePicks,
+  SlateRowData,
+  TonightActivity,
+} from "./types/slate";
+export type {
+  BookDistribution,
+  ChartCandle,
+  EstimateLogged,
+  EstimateMarket,
+  LineShopData,
+  LineShopLeg,
+  MarketCandles,
+  MarketDetail,
+  RecentEstimate,
+  StudyStop,
+} from "./types/market";
+export type {
+  LockedDetail,
+  ManualMarket,
+  ManualMarketSide,
+  ManualOrderPlaced,
+  ManualOrderResult,
+  OrderPlaced,
+  OrderQuote,
+  OrderResult,
+} from "./types/orders";
+export type {
+  CheckedParlayLeg,
+  CheckedParlayResult,
+  ComboBid,
+  ComboBidResult,
+  ComboRfqAcceptResult,
+  ComboRfqQuote,
+  ComboRfqResult,
+  GameLeg,
+  GameLegGroup,
+  GameLegSide,
+  GameLegs,
+  GameMintResult,
+  GameScriptCard,
+  GameScriptCards,
+  GameScriptLeg,
+  LegRest,
+  LegVerdict,
+  LegVerdictInput,
+  LegVerdictState,
+  LegVerdictTrigger,
+  LegVerdictsResult,
+  ParlayCardData,
+  ParlayCardJoint,
+  ParlayCardLeg,
+  ParlayCardScouting,
+  ParlayHorizon,
+  ParlayLadder,
+  ParlayLeg,
+  ParlayLookupResult,
+  ParlayPrefix,
+  ParlayStake,
+  ParlayValuation,
+  ParlayWindow,
+  TeamRest,
+} from "./types/parlays";
+export type {
+  HedgeBlock,
+  HedgeRefusal,
+  HedgeRung,
+  HedgeScreen,
+  HedgeSellQuote,
+  HeldLeg,
+  HeldLegInput,
+  HeldPosition,
+  HeldPositionInput,
+  UnrecordedAtVenue,
+  VenueSettlement,
+} from "./types/hedge";
+export type {
+  BetKind,
+  BetsRecord,
+  BetsSection,
+  SettledBet,
+} from "./types/bets";
+export type {
+  BoardTile,
+  DeskBriefing,
+  Gauntlet,
+  Lesson,
+  Playbook,
+  RecordPassResult,
+  ScoutBriefingState,
+  ScoutFinding,
+  ScoutOverview,
+  ScoutOverviewRow,
+  ScoutSpend,
+  ScoutStaffNote,
+  ScoutStaffReport,
+  SendDeskResult,
+  SharpTake,
+} from "./types/scout";
 
 /**
  * Ask the server to place an order. The client sends a recommendation id and a
@@ -538,56 +353,6 @@ export function isLockedDetail(detail: unknown): detail is LockedDetail {
   );
 }
 
-export type Ledger = {
-  rows: Recommendation[];
-  /**
-   * Independent ACTIONABLE games scored on CLV: the gate's own population
-   * (`clustered_clv(conn, "actionable")`), so this equals the Gate screen's
-   * count. Not a row count, and not every scored game (#230).
-   */
-  clv_scored: number;
-  /** Raw recommendation rows behind those games, kept visible beside them. */
-  clv_scored_rows: number;
-  clv_required: number;
-  gate_open: boolean;
-  /** Rows in the whole table. Compare with `returned` to tell a slice from it. */
-  total: number;
-  /** How many rows `rows` actually holds. */
-  returned: number;
-  /** The `LIMIT` that was applied. */
-  limit: number;
-  /**
-   * The `OFFSET` that was applied. Echoed because `total`, `returned` and
-   * `limit` cannot tell "I fetched every page" from "I fetched page 0 twice".
-   */
-  offset: number;
-  /**
-   * The snapshot pin in force, or `null` for an unpinned read.
-   *
-   * A multi-page pull **must** pass `newest_id` back as `max_id`. The route
-   * sorts newest-first, so a row written during the pull lands on page 0 and
-   * shifts every later page — and on live one `created_ms` carries 84 rows,
-   * so a single sweep landing mid-pull duplicates a quarter of the result and
-   * drops rows that were there the whole time, with `returned` and `total`
-   * still adding up.
-   */
-  max_id: number | null;
-  /**
-   * The newest `id` in the table, not in the page. Pass it back as `max_id`
-   * to pin a snapshot. Under a pin, `newest_id > max_id` says rows arrived
-   * during the pull and were correctly excluded.
-   */
-  newest_id: number | null;
-  /**
-   * The whole table counted by `clv_horizon_hours`, keyed as strings — `"0"`,
-   * `"1"`, `"unscored"`. Over the table rather than the returned window,
-   * because the legacy rows are the oldest and the window is newest-first.
-   */
-  horizons: Record<string, number>;
-  /** The anchor the gate counts. Everything else is record, not evidence. */
-  primary_horizon_hours: number;
-};
-
 /**
  * Where to reach the API, which differs by execution context.
  *
@@ -630,24 +395,6 @@ async function get<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-/**
- * The two cuts a list screen may make (#15, Joe's option A): one league, by
- * the odds feed's sport key, and a kickoff window in hours. Both are sent as
- * query parameters the server validates -- `backend/list_filters.py` owns
- * the vocabulary, refuses an unknown value with a 422, and this file never
- * pre-validates so that a typo in the URL reaches the one validator rather
- * than being quietly dropped into "the whole list".
- *
- * **No third cut may be added here** without naming which of ADR 0071
- * section 2.5's two rules it does not break: a gap may be shown, never
- * ranked or cut by. There is no sort parameter, and there will not be one.
- */
-export type ListFilter = {
-  league: string | null;
-  /** Sent verbatim: the server, not this file, decides what is an integer. */
-  withinHours: string | null;
-};
-
 export const NO_FILTER: ListFilter = { league: null, withinHours: null };
 
 /** Read the cut out of a page's `searchParams`. Absent is `null`; an empty
@@ -670,72 +417,6 @@ export function listFilterQuery(filter: ListFilter): string {
   const s = qs.toString();
   return s ? `?${s}` : "";
 }
-
-/**
- * The server's echo of the cut it applied -- present on `/api/slate` and
- * `/api/parlays` ONLY when a cut was applied; an unfiltered payload is
- * byte-identical to the pre-#15 one. `hidden` is how many rows (slate) or
- * candidate legs (ladder) the cut removed, so a short list under a filter
- * reads as cut rather than as a quiet night. The kickoff bounds are the
- * server's own milliseconds.
- */
-export type ListFilterEcho = {
-  league: string | null;
-  within_hours: number | null;
-  kickoff_from_ms: number | null;
-  kickoff_until_ms: number | null;
-  hidden: number;
-};
-
-/** One dbt mart, plus the state it is in. */
-export type Panel = {
-  name: string;
-  /**
-   * `unavailable` is not `empty`. A mart missing from the warehouse is unknown;
-   * a mart that built and produced no rows is a real, reportable result. The
-   * dashboard renders them differently on purpose -- collapsing the two is how
-   * an unbuilt warehouse comes to read as "nothing to worry about".
-   */
-  status: "ok" | "empty" | "unavailable";
-  rows: Record<string, string | number | boolean | null>[];
-  note: string | null;
-};
-
-export type Dashboards = {
-  warehouse_built_ms: number;
-  freshness_note: string;
-  missing_required_marts: string[];
-  panels: Record<string, Panel>;
-  headlines: string[];
-};
-
-export type ParlayLeg = {
-  label: string;
-  probability: number;
-  event_key: string;
-  league: string;
-  commence_ms: number;
-};
-
-export type ParlayValuation = {
-  fair_probability: number;
-  naive_probability: number;
-  independence_error_points: number;
-  fair_american: number;
-  offered_american: number;
-  hold: number;
-  ev_per_dollar: number;
-  is_positive_ev: boolean;
-  correlation_was_supplied: boolean;
-  verdict: string;
-  kalshi_alternative: {
-    total_cost_dollars: number;
-    total_fee_dollars: number;
-    fee_share_of_stake: number;
-    expected_value_dollars: number;
-    note: string;
-  };
-};
 
 export const fetchDashboards = () => get<Dashboards>("/api/dashboards");
 
@@ -763,310 +444,6 @@ export async function priceParlay(
   });
 }
 
-/** One leg of a parlay card: a game's YES side at its consensus chance. */
-/**
- * One leg, with the provenance behind its number.
- *
- * Until 2026-08-26 this carried `fair_percent_display` and nothing else — one
- * number standing in for three separate choices (which devig method, which
- * books, how far the field spreads) on a screen that offers money decisions.
- * The slate row has shown all three since ADR 0051.
- *
- * **Every added field is nullable and `null` never means zero.** An ask of 0
- * is a free contract on an empty book, a book count of 0 is "no consensus",
- * and neither is what "we could not read it" means. Render an em-dash.
- */
-export type ParlayCardLeg = {
-  ticker: string;
-  event_ticker: string;
-  event_title: string;
-  /** The team whose YES this is. `null` on a player prop and on a total,
-   *  which have no team -- the card draws `event_title` under those. */
-  team: string | null;
-  /** The player, on a prop leg only. Never a stand-in for `team`. */
-  player: string | null;
-  label: string;
-  league: string;
-  commence_ms: number;
-  market: string;
-  point: number | null;
-  /** Which side of `ticker` this leg buys: "no" is the Under of a total or
-   *  prop, the NO of Kalshi's Over market. Echoed back on the lookup tap. */
-  side: "yes" | "no";
-  fair_percent_display: string;
-  /** Kalshi's derived ask. `null` when the book is one-sided — no price to pay. */
-  ask_display: string | null;
-  depth_at_ask: number | null;
-  quote_age_ms: number | null;
-  /** How far the four devig readings sit apart. `null` on fewer than two. */
-  method_spread_display: string | null;
-  /** Books surviving ANCHORING, often far fewer than quoted. */
-  book_count: number | null;
-  books_used: string[];
-  market_width_display: string | null;
-  /**
-   * **Not a quality mark.** A sharp anchor selects at most three books, so it
-   * is a thinner fair value rather than a better one (CLAUDE.md). Word it
-   * neutrally or not at all.
-   */
-  anchored_on_sharp: boolean | null;
-  odds_age_ms: number | null;
-  /**
-   * `checked` — a recommendation row exists and its verdict stands.
-   * `not_on_this_path` — a spread leg; ADR 0070 keeps spread rows off the
-   *   recommendations path, so the checks did not run and never will.
-   * `absent` — a moneyline the engine has not priced.
-   *
-   * The third value exists because rendering `not_on_this_path` as a blank
-   * would read as "the checks passed", which is the flattering misreading of
-   * a measurement that never happened.
-   */
-  skeptic: "checked" | "not_on_this_path" | "absent";
-  suppressed_reason: string | null;
-  /**
-   * The sweet spot: how much this number deserves to be acted on.
-   *
-   * **Evidence quality, never bet quality.** Joe chose trust over edge on
-   * 2026-08-31, and the reason is measured rather than stylistic: the
-   * consensus-vs-Kalshi gap has `beta = -0.141`, so a score containing it
-   * would rank the least trustworthy rows highest.
-   *
-   * **All three counts travel and the screen must use them.** `passed/total`
-   * alone hides how many checks nobody ran; `passed/known` alone hides that
-   * those checks exist. `total - known` is the number of unknowns, and an
-   * unknown is never a pass.
-   *
-   * `null` when the caller supplied no thresholds — a score computed against
-   * defaults would be a second definition of limits that live in config.
-   */
-  trust: TrustScore | null;
-  /**
-   * The four devig readings plus the one the card took, for `DispersionStrip`.
-   *
-   * **Every key is present; an unsolved method is `null`.** `dispersion.ts`
-   * gives absent and `null` different meanings — absent means the route never
-   * joined `fair_prices`, `null` means the join ran and that method did not
-   * solve. A parlay leg always comes from `fair_prices`, so nothing here is
-   * ever absent, and a consumer can rely on that.
-   *
-   * Shaped to match `DispersionMethods` exactly so it passes through
-   * untouched. A rename on either side draws an empty strip with no error.
-   */
-  methods: {
-    p_multiplicative: number | null;
-    p_additive: number | null;
-    p_power: number | null;
-    p_shin: number | null;
-    p_conservative: number | null;
-  };
-  /**
-   * Kalshi's derived ask as a probability. `null` when unreadable, never 0 —
-   * a 0 ask is a free contract and a real price.
-   *
-   * Drawn as a neutral tick and nothing more: ADR 0071 §2.5 permits the two
-   * prices side by side, and forbids a direction on this one.
-   */
-  ask_probability: number | null;
-  /**
-   * What the scout desk knows about this leg's GAME.
-   *
-   * Joe's ruling, 2026-08-30: the Scout gates eligibility and flags, and
-   * **never moves the price**. Nothing here is an input to any number on the
-   * card, and ADR 0071 §2.5 forbids ranking by it — a flag may be shown on a
-   * leg and must never sort one.
-   *
-   * `absent` is the ordinary case, not a fault. `AGENT_MAX_SEARCHES_PER_DAY`
-   * allows five convenings a day, so most legs will never have been scouted.
-   *
-   * `briefing` — the desk is out now.
-   * `briefed` — it filed something.
-   * `filed_nothing` — it looked and had nothing to say. Not the same as
-   *   `absent`, which means nobody looked.
-   * `refused` — a ceiling turned it away. Not information about the game.
-   * `failed` — it died, or filed content that will not parse.
-   */
-  scout:
-    | "briefed"
-    | "filed_nothing"
-    | "briefing"
-    | "refused"
-    | "failed"
-    | "absent";
-  scout_headline: string | null;
-  /** Board tiles that are NOT `clear` — findings AND gaps. See `ScoutFlags`. */
-  scout_flags: { category: string; state: string; note: string }[];
-  scout_age_ms: number | null;
-  /** The market ticker the briefing was filed against, for a link to it. */
-  scout_ticker: string | null;
-  /**
-   * Each team's rest before this game (#201). A per-row fact: never sorted,
-   * filtered or ranked by. `null` when the game could not be identified;
-   * optional so older fixtures still type.
-   */
-  rest?: LegRest | null;
-};
-
-/** One team's rest. Every field is `null` when no previous game is on record. */
-export type TeamRest = {
-  team: string | null;
-  days_rest: number | null;
-  /** Nightly leagues (basketball, hockey) only; `null` elsewhere. */
-  back_to_back: boolean | null;
-  /** NFL / NCAAF only; `null` elsewhere. */
-  short_week: boolean | null;
-};
-
-/** Both teams of the leg's game. A prop leg shows both: the player's team is not on the leg. */
-export type LegRest = { home: TeamRest; away: TeamRest };
-
-/**
- * The chance the first N legs ALL land, for N = 1..legs.
- *
- * The plain product, not the card's headline. The headline joint adds a small
- * same-day correlation nudge through a seeded copula; the difference is
- * `independence_error_points`, stated in `correlation_note`. Re-running the
- * copula at every prefix would be six more 200,000-sample runs per card for a
- * difference in hundredths of a point.
- */
-export type ParlayPrefix = {
-  legs: number;
-  /** For plotting. The display string beside it is what gets printed. */
-  chance: number;
-  chance_percent_display: string;
-};
-
-/** One preset stake, fully priced server-side (the no-arithmetic rule). */
-export type ParlayStake = {
-  stake_cents: number;
-  stake_display: string;
-  contracts_display: string;
-  payout_display: string;
-  is_default: boolean;
-};
-
-export type ParlayCardJoint = {
-  /** Chance at each prefix, for the difficulty chart. */
-  prefixes: ParlayPrefix[];
-  conservative_percent_display: string;
-  /** The raw joint, 0-1. The bid field's reference price comes from this. */
-  conservative: number;
-  method_range_display: string | null;
-  /**
-   * The break-even price in American odds — what a sportsbook must offer to
-   * match the consensus (ADR 0085). `null` when the joint is not a
-   * probability. Break-even, not a target: at exactly this number the bet is
-   * fair and its expected profit is zero.
-   */
-  price_to_beat_display: string | null;
-  fair_cost_display: string;
-  correlation_note: string;
-};
-
-/**
- * The card-level scouting rollup (ticket #110, ADR 0088): what the desk
- * already knows about this card's legs' games, built server-side from the
- * legs' own `scout`/`scout_flags`/`scout_age_ms` fields — zero new queries,
- * zero credits.
- *
- * **Nothing here is an input to any number on the card, and nothing here
- * may order anything** — the same ADR 0071 §2.5 rule that governs a single
- * leg's scout fields applies to this rollup with the same force.
- */
-export type ParlayCardScouting = {
-  legs_total: number;
-  /** Legs whose game is `briefed` or `filed_nothing` — the desk LOOKED. */
-  legs_briefed: number;
-  /**
-   * Labels of legs whose game is `absent`, `refused`, or `failed` —
-   * "nobody looked", never "nothing found" (ADR 0088).
-   */
-  legs_dark: string[];
-  /** Labels of legs whose game the desk is briefing RIGHT NOW. */
-  legs_out: string[];
-  /** The oldest of the BRIEFED legs' ages, or `null` when none are briefed. */
-  oldest_briefing_age_ms: number | null;
-  /** Union of non-`clear` tile categories across the briefed legs, sorted. */
-  flag_categories: string[];
-  /** The server-worded summary — render this, not a client-built sentence. */
-  words: string;
-};
-
-/** One rung of the ladder. Either `legs` is populated or `not_built_reason` says why not. */
-export type ParlayCardData = {
-  key: string;
-  title: string;
-  /** One server-worded line saying which cut of the pool this card is. */
-  what_it_is: string;
-  legs: ParlayCardLeg[];
-  not_built_reason: string | null;
-  joint: ParlayCardJoint | null;
-  at_stakes: ParlayStake[];
-  /** `null` on an unbuilt card — nothing was built, so nothing was looked at. */
-  scouting: ParlayCardScouting | null;
-};
-
-/**
- * The parlay desk's ladder (ADR 0070). Everything is FAIR value — what the
- * combination is worth by the books' consensus — never Kalshi's own quote,
- * which exists only once the combo is built. The four `notes` sentences are
- * the payload's own honesty copy and render verbatim.
- */
-/**
- * The server's echo of the window it used. Rendered verbatim: every
- * `not_built_reason` and every exclusion count is relative to THIS window,
- * so a label the screen derived itself could print "tonight" over
- * tomorrow's numbers.
- */
-export type ParlayWindow = {
-  key: ParlayHorizon;
-  words: string;
-  ends_ms: number;
-  choices: { key: ParlayHorizon; words: string }[];
-  /**
-   * Present only when the SERVER widened the window because the reader named
-   * none and the narrower one built no card at all. Absent when the reader
-   * picked the window himself, and absent when `tonight` built something.
-   *
-   * The distinction matters on screen: a window the desk chose has to say so,
-   * or the reader reads tomorrow's cards as the ones he asked for. Never
-   * derived here — a client that inferred "widened" from `key !== "tonight"`
-   * would also flag every window the reader deliberately picked.
-   */
-  widened_from?: ParlayHorizon;
-  /** The server's sentence for why, including that it cannot settle tonight. */
-  widened_words?: string;
-};
-
-export type ParlayLadder = {
-  generated_ms: number;
-  window?: ParlayWindow;
-  cards: ParlayCardData[];
-  excluded: Record<string, number>;
-  notes: {
-    chance: string;
-    fair_value: string;
-    unquoted: string;
-    /** What a "Price on Kalshi" tap has actually returned, as a lifetime
-     *  rate. One overall figure, never per card: per-card counts are 2-30
-     *  and would read as an ordering (ADR 0156). */
-    tap_outcome: string;
-    fee: string;
-  };
-  /** The #15 cut, echoed. Absent when the pool was not cut. */
-  filter?: ListFilterEcho;
-};
-
-/**
- * The kickoff window the cards are built from (2026-09-06).
- *
- * **Not a filter.** `ListFilter` only NARROWS the pool; this moves its upper
- * bound, which is why it is a separate parameter rather than another field
- * on the cut. `null` means "say nothing" and the server applies its own
- * default -- the screen never spells the default itself, so there is one
- * place it can change.
- */
-export type ParlayHorizon = "tonight" | "tomorrow" | "48h";
-
 export const fetchParlays = (
   filter: ListFilter = NO_FILTER,
   horizon: ParlayHorizon | null = null,
@@ -1079,226 +456,6 @@ export const fetchParlays = (
         ? `${cut}&horizon=${horizon}`
         : `?horizon=${horizon}`;
   return get<ParlayLadder>(`/api/parlays${query}`);
-};
-
-/** What "Price on Kalshi" came back with. Strings are server-worded. */
-export type ParlayLookupResult =
-  | {
-      status: "priced";
-      minted_market_ticker: string;
-      quoted: {
-        ask_display: string;
-        depth_display: string | null;
-        /**
-         * What the stake buys, BOUNDED BY WHAT IS RESTING. `contracts` and
-         * `payout` are null when the book's depth is unreadable — a payout
-         * you may not be able to buy is not a payout, and on an enter-only
-         * market a lone stale bid manufactures a large one (CLAUDE.md rule
-         * 1). `depth_note` says why, whenever there is something to say.
-         */
-        at_stake: {
-          stake_display: string;
-          contracts_display: string | null;
-          cost_display: string | null;
-          payout_display: string | null;
-          depth_note: string | null;
-        };
-        /**
-         * When this book was read, epoch ms. Every other price surface on the
-         * desk has carried a clock since ADR 0092 (`quote_age_now_ms`,
-         * `price_is_current`); this one did not, and it is the only one that
-         * has been transacted through.
-         *
-         * **What goes stale is the VERDICT, not the price paid.** The buy
-         * route re-fetches Kalshi at the tap and builds the order at that
-         * live ask, so an old read here cannot cause a surprising fill — it
-         * causes a surprising refusal, or a fill inside a generous ceiling
-         * whose EV was never what this said.
-         */
-        quoted_ms: number;
-        /**
-         * How old a quote may be and still count as current, from the server's
-         * own `MAX_KALSHI_QUOTE_AGE_S`. Carried rather than duplicated here:
-         * two surfaces holding their own copy is how they drift into
-         * disagreeing about the same book. `null` when the server named none,
-         * and then the age is shown and nothing is marked.
-         */
-        quote_max_age_ms: number | null;
-      };
-      fair: {
-        conservative_percent_display: string;
-        fair_cost_display: string;
-      };
-      hold_display: string;
-      verdict: string;
-      notes: { unquoted: string; fee: string };
-    }
-  | { status: "book_empty"; minted_market_ticker: string; words: string }
-  | { status: "no_collection"; words: string }
-  /**
-   * The legs are real Kalshi markets that Kalshi will not COMBINE — they
-   * appear in no combination collection. A different refusal from
-   * `no_collection`, which means no collection would take the card's shape at
-   * all; this one names the individual games, because "five of your six games
-   * cannot be parlayed here" is actionable and "invalid parameters" is not.
-   */
-  | {
-      status: "legs_not_combinable";
-      words: string;
-      absent_event_tickers: string[];
-    };
-
-/**
- * Price one card's combination on Kalshi (ADR 0070). Goes through the
- * `/parlay-lookup` route handler so the bearer token stays server-side.
- * The tap mints a real market on the exchange (no money moves); refusals
- * come back as words, rendered verbatim.
- *
- * **Never throws** — `refreshOdds`'s pattern, for the same reason. This
- * function's caller renders a single button that unmounts while the request
- * is in flight, so a rejected promise leaves the card saying "Asking
- * Kalshi…" with nothing to tap. Both failure shapes are covered: the fetch
- * itself (no connection) and an unreadable body on the ok path (a proxy
- * page with a 200). A dropped connection is NOT the same as nothing
- * happening — the POST may have reached Kalshi and minted the market — so
- * the words say so rather than inviting a blind retry.
- */
-/** One maker's private offer on a combination, as `/api/parlays/rfq` sends it. */
-export type ComboRfqQuote = {
-  quote_id: string;
-  /**
-   * What one contract of YES costs, in integer tenths of a cent. DERIVED
-   * server-side as the complement of the maker's NO bid, because Kalshi
-   * publishes bids and a resting NO bid IS the ask you buy at.
-   */
-  yes_ask_tenths: number;
-  no_bid_tenths: number;
-  contracts: number | null;
-  /** Rendered server-side, through the ONE price renderer. */
-  ask_display: string;
-  /**
-   * What leaves the account if this quote is taken, in integer tenths of a
-   * cent, **fee included** — the contracts plus Kalshi's combination taker
-   * fee, which is charged on top of them.
-   *
-   * Null when the size could not be read. A quote with no size has an
-   * unknown cost, and the button says nothing rather than printing the
-   * contracts alone, which would be a smaller and friendlier wrong number.
-   */
-  all_in_tenths: number | null;
-  /** The same figure as dollars, through the ONE dollar renderer. */
-  all_in_display: string | null;
-  /** The fee alone, so the screen can say what the difference is made of. */
-  fee_tenths: number | null;
-};
-
-export type ComboRfqResult = {
-  /**
-   * Three outcomes, not two.
-   *
-   * `priced_too_finely` means makers DID answer and every price was finer
-   * than a tenth of a cent -- the hundredth-cent region combinations quote
-   * near 0c and 100c. The desk refuses such a price rather than rounding it
-   * onto the money path, so there is a real price that this screen is not
-   * showing, and the Kalshi app will show it. It used to arrive as
-   * `no_quotes`, which rendered as "nobody quoted this combination" (#73).
-   */
-  status: "quoted" | "no_quotes" | "priced_too_finely";
-  /**
-   * How many distinct makers were dropped on price precision.
-   *
-   * Counted by quote id across the whole poll loop, not per read: the same
-   * refused quote comes back on every poll, so a per-read count would say
-   * six makers answered when one did.
-   */
-  refused_too_fine: number;
-  rfq_id: string;
-  market_ticker: string;
-  /**
-   * What the VENUE was actually asked for -- not always what Joe typed.
-   *
-   * `create_rfq` reuses an open RFQ whenever its target is at least the one
-   * wanted, and this desk holds RFQs open so the accept stays reachable. So
-   * asking at $1.00 and then at $5.00 returns the $1.00 request, with quotes
-   * sized for $1.00. This field used to report the typed figure (#72).
-   */
-  target_cost_dollars: string;
-  /**
-   * What Joe typed. Equal to the above in the ordinary case.
-   *
-   * When they differ, the venue was never asked at the larger number and
-   * `words` leads with a sentence saying so -- said only on the divergence,
-   * because a warning that is always on is one that gets skipped.
-   */
-  target_cost_requested: string;
-  fair: { conservative: number | null };
-  /** The same fair value as a string, or null when it was unreadable. */
-  fair_display: string | null;
-  /**
-   * What the PUBLIC order book said at the same instant, or null.
-   *
-   * Null is the expected value and means the book carried no ask -- the
-   * normal resting state of a combination, not a fault. It is the number
-   * that made this desk tell Joe a combination could not be bought.
-   */
-  book_yes_ask_tenths: number | null;
-  /**
-   * The same number rendered, or null when the book was empty.
-   *
-   * Shown BESIDE the maker's quote, never instead of it: measured
-   * 2026-09-17, the public book beat the RFQ on two of three held
-   * combinations and the RFQ was the only price on the third. A desk
-   * reading one surface sometimes reports no price when there is one, and
-   * sometimes takes the worse of two.
-   */
-  book_ask_display: string | null;
-  /**
-   * When these prices were captured, in epoch milliseconds.
-   *
-   * A maker has about **three seconds** to stand behind a quote on a
-   * combination, against thirty elsewhere. A price with no age on it is a
-   * price the reader cannot tell is dead.
-   */
-  asked_ms: number;
-  quotes: ComboRfqQuote[];
-  words: string;
-  /**
-   * Whether taking a quote will actually spend.
-   *
-   * False while the accept path is unarmed. Surfaced WITH the price rather
-   * than discovered after the tap, so the button can say what it does
-   * before it is pressed.
-   */
-  accepts_are_armed: boolean;
-};
-
-/**
- * Ask the makers what this combination costs.
- *
- * **This is how a combination is actually priced.** `lookupParlay` above
- * reads the public order book, which for a combination is empty by design
- * between requests -- so it reported "nothing is resting" on markets that
- * were being quoted all day. This fires a real Request for Quote.
- *
- * **No money moves.** Only accepting a quote binds the requester, and there
- * is no accept path. The request is deliberately tiny: the backend reads the
- * legs, the collection and the fair value from the ticker's own recorded
- * lookup, so this call cannot talk it into pricing something else.
- */
-export type ComboRfqAcceptResult = {
-  /** The venue's own quote status: `confirmed`, `executed`, `cancelled`, or
-   *  `unknown` when the outcome could not be observed. */
-  status: string;
-  /** True only when the venue said so. Never inferred from a 204. */
-  filled: boolean;
-  /** True while the accept path is unarmed — nothing reached Kalshi. */
-  dry_run: boolean;
-  rfq_id: string;
-  quote_id: string;
-  accepted_side: string;
-  expected_ask_tenths: number | null;
-  expected_ask_display: string | null;
-  words: string;
 };
 
 /**
@@ -1390,126 +547,6 @@ export async function lookupParlay(
   });
 }
 
-/**
- * One leg of a parlay someone else built, as `POST /api/parlays/check`
- * reads it off the pasted link or ticker.
- *
- * **`chance` is `null`, never `0`, when the desk has no reading for this
- * leg** — a prop, another sport, anything the consensus does not cover. `0`
- * is a legitimate chance; `null` is the honest "cannot tell you" (CLAUDE.md
- * rule: unreadable resolves to `None`, never `0`). `unknown_reason` names
- * why, when the server has a name for it.
- */
-export type CheckedParlayLeg = {
-  market_ticker: string;
-  side: "yes" | "no";
-  label: string;
-  commence_ms: number | null;
-  /** Each team's rest before this game (#201); `null` when unidentified. */
-  rest?: LegRest | null;
-  /** Probability in [0, 1]. `null` means no desk reading — see above. */
-  chance: number | null;
-  chance_display: string | null;
-  /** Plain words for Joe; `unknown_reason_code` keeps the machine code. */
-  unknown_reason: string | null;
-  unknown_reason_code: string | null;
-};
-
-/** What `POST /api/parlays/check` came back with (issue #167). */
-export type CheckedParlayResult = {
-  status: "priced" | "book_empty";
-  minted_market_ticker: string;
-  /**
-   * Whether "Ask the market" can work on this combination: true only on
-   * Kalshi's combinations shard (`exchange_index == 1`, which the RFQ path
-   * hard-codes) while the market is `active`. #166 round 2.
-   */
-  rfq_available: boolean;
-  rfq_unavailable_reason: string | null;
-  legs: CheckedParlayLeg[];
-  fair: {
-    /** Probability in [0, 1]. `null` when `no_joint_reason` is set. */
-    conservative: number | null;
-    conservative_percent_display: string | null;
-    fair_cost_display: string | null;
-    /**
-     * Why there is no joint chance, when there is none. `"unknown_leg"`
-     * means at least one leg has `chance === null`; `"same_game"` means the
-     * desk refuses to price a same-game combination at all. `null` means
-     * the joint fields above are populated.
-     */
-    no_joint_reason: "unknown_leg" | "same_game" | null;
-  };
-  quoted: {
-    ask_display: string;
-    depth_display: string | null;
-    quoted_ms: number;
-    quote_max_age_ms: number | null;
-  } | null;
-  hold_display: string | null;
-  words: string;
-  notes: { unquoted: string; fee: string };
-};
-
-/**
- * One side of one leg on the same-game builder (#202): the desk's own
- * consensus chance, or `null` with a worded reason. `null` is never 0 -- most
- * props, first-half and quarter markets, team totals and touchdown scorers
- * have no desk reading, and they are shown, not hidden.
- */
-export type GameLegSide = {
-  chance: number | null;
-  chance_display: string | null;
-  unknown_reason: string | null;
-  unknown_reason_code: string | null;
-};
-
-export type GameLeg = {
-  market_ticker: string;
-  event_ticker: string;
-  series: string;
-  kind: string;
-  /** Kalshi's own title for the market, verbatim. */
-  title: string;
-  yes_label: string | null;
-  no_label: string | null;
-  strike: number | null;
-  player: string | null;
-  allowed_sides: ("yes" | "no")[];
-  /** How many legs Kalshi lets one combination take from this event; `null`
-   *  when it names no limit (props). */
-  size_max: number | null;
-  one_per_event: boolean;
-  sides: Partial<Record<"yes" | "no", GameLegSide>>;
-};
-
-export type GameLegGroup = {
-  series: string;
-  kind: string;
-  label: string;
-  one_per_event: boolean;
-  legs: GameLeg[];
-};
-
-/**
- * `GET /api/game/{event}/legs`. **The groups arrive in a fixed order that is
- * never a function of any chance or price (ADR 0071), and no combined chance
- * exists anywhere in this shape** -- the desk has no model of how same-game
- * legs move together.
- */
-export type GameLegs = {
-  game_event_ticker: string;
-  fixture: string;
-  collection_ticker: string;
-  /** A market on the game itself, so the page can mount the scout desk. */
-  game_market_ticker: string | null;
-  groups: GameLegGroup[];
-  leg_count: number;
-  unreadable_events: { event_ticker: string; words: string }[];
-  skipped_events: number;
-  now_ms: number;
-};
-
 /** Read one game's legs. Throws with the backend's own words on a refusal. */
 export async function fetchGameLegs(eventTicker: string): Promise<GameLegs> {
   const response = await fetch(
@@ -1526,12 +563,6 @@ export async function fetchGameLegs(eventTicker: string): Promise<GameLegs> {
   }
   return response.json() as Promise<GameLegs>;
 }
-
-export type GameMintResult = {
-  status: "minted" | "no_collection";
-  minted_market_ticker?: string;
-  words: string;
-};
 
 /**
  * Mint the ticked legs as one combination, through the `/game-mint` route
@@ -1583,221 +614,6 @@ export async function checkParlay(
   });
 }
 
-/**
- * Whether a pick could be acted on right now, and when the next chance is.
- *
- * The odds budget affords two sweeps a day and each one makes the slate
- * bettable for fifteen minutes, so for roughly 23.5 hours out of 24 every row
- * on the Board is a row nobody can act on. Without this, an empty Board, a
- * Board of expired rows, and a Board during the window all look the same.
- *
- * `is_open` is a claim about *freshness only*. It never means there is
- * something to bet — most windows open onto an empty Board, which is the
- * expected result of the whole premise.
- */
-/**
- * One planned odds sweep, exactly as `odds.timing.SweepSlot` serialises it.
- *
- * `fire_from_ms`/`fire_until_ms` bound when the sweep may fire;
- * `anchor_commence_ms` is the first kickoff of the cluster it is aimed at, and
- * the window is planned to close before it. `games_covered` is how many
- * fixtures that one sweep makes priceable — the reason the planner picks this
- * slot over another, since a sweep costs the same whether it covers one game or
- * thirteen.
- */
-export type PlannedSlot = {
-  sport_key: string;
-  fire_from_ms: number;
-  fire_until_ms: number;
-  anchor_commence_ms: number;
-  games_covered: number;
-};
-
-export type ActionableWindow = {
-  now_ms: number;
-  is_open: boolean;
-  seconds_remaining: number | null;
-  open_until_ms: number | null;
-  /** Counted, not averaged: a slate can be half stale, and that is a real state. */
-  fixtures_upcoming: number;
-  fixtures_fresh: number;
-  max_odds_age_s: number;
-  last_sweep_ms: number | null;
-  last_sweep_sport: string | null;
-  /**
-   * The last time a pass decided *anything* about odds, and what it decided.
-   *
-   * Not the same question as `last_sweep_ms`, which is the last sweep that was
-   * **served**. Every full pass writes a row whatever it concludes, so:
-   *
-   *   fresh look, fresh sweep   the loop is running and spending
-   *   fresh look, stale sweep   the loop is running and declining, every pass
-   *   stale look, stale sweep   the loop is not running at all
-   *
-   * Those need opposite responses and were one observation until `odds_sweep_log`
-   * existed. The middle row is the state that ran 17 hours unnoticed on
-   * 2026-08-09/10, so the gap between the two is rendered rather than left for a
-   * reader to subtract.
-   *
-   * `null` means this database has never recorded a pass looking, which after a
-   * fresh deploy is the true state and is **not** the same as "it looked and
-   * found nothing". The banner says so instead of drawing a calm dash.
-   */
-  last_look_ms: number | null;
-  last_look_outcome: string | null;
-  last_look_detail: string | null;
-  /**
-   * When the next `/odds` call is wanted — **not** when the next slot opens.
-   *
-   * Since the rolling refresh a slot buys odds every `refresh_interval_s` for
-   * as long as it is due, so a slot mid-window has an opening time in the past.
-   * Publishing that would put a stale time on the one readout a human uses to
-   * decide when to look.
-   *
-   * **The comment here used to claim the page could not disagree with the
-   * loop, and on 2026-08-28 at 04:38Z it did** — the panel said "the next
-   * scheduled sweep is now" in the same minute the loop logged its refusal of
-   * that exact sweep. The guarantee was true of the slot schedule and false of
-   * the budget: the attention slice is checked *after* the desk predicate has
-   * said a call is wanted, so this field answered "is a call wanted?" and the
-   * screen rendered it as "is a call coming?". Ticket #35.
-   *
-   * What is true now: the server applies the slice as well, so a time here is
-   * one the loop can serve, and when the slice is spent the desk contributes
-   * nothing to it. That makes `null` ambiguous on its own — read
-   * `attention_slice_spent`, `next_desk_buy_ms` and `floor_next_buy_ms` beside
-   * it before writing a sentence about why nothing is coming.
-   */
-  next_sweep_ms: number | null;
-  /** How often an open window re-buys its odds. Derived from `max_odds_age_s`. */
-  refresh_interval_s: number;
-  next_sweep_sport: string | null;
-  next_sweep_games: number | null;
-  next_sweep_reason: string | null;
-  /**
-   * Every sweep the planner intends for the rest of the budget day.
-   *
-   * `next_sweep_*` above is this list's first entry, flattened. The array has
-   * been on the wire since `ActionableWindow.to_dict` was written and was
-   * undeclared here until 2026-08-16, so the UI could show the next chance and
-   * nothing beyond it — which is the wrong shape for the question a human
-   * actually asks, which is "when should I open this today".
-   *
-   * Chronological. Bounded by `sweeps_remaining_today`, so it shortens as the
-   * budget is spent and is **empty** both when the credits are gone and when no
-   * fixture is near enough to schedule against. Those are different states and
-   * the list alone cannot tell them apart; read `sweeps_remaining_today` beside
-   * it.
-   *
-   * A slot is a permission to fire within `[fire_from_ms, fire_until_ms]`, not
-   * a firing. Nothing here promises the sweep happens.
-   */
-  slots_planned: PlannedSlot[];
-  sweeps_remaining_today: number;
-  spent_today: number;
-  daily_budget: number;
-  budget_day_start_ms: number;
-  /**
-   * When this budget day's **first sweep window** opens. `null` means none does.
-   *
-   * It sits beside `budget_day_start_ms` because the two are different clocks
-   * and comparing against the wrong one is what made the sweep banner fire every
-   * morning. The boundary above is a *credits-accounting* time (10:00Z); a sweep
-   * window is *kickoff-derived*, opening 75 minutes before the first pitch of a
-   * cluster. Between the two there is no window in which to spend, so "nothing
-   * has swept since the day opened" is arithmetic there, not an observation.
-   * Measured on the live record it held on 6 of 6 budget days sampled, for
-   * 6.5–10.8 hours each.
-   *
-   * Computed from `day_start_ms` rather than from now, so a window that opened
-   * and **closed** earlier today still counts — that is the 17-hour incident
-   * shape, and forgetting it is the one way this field could make the banner
-   * calm over a real outage.
-   *
-   * `null` is "no window opens today", never "unknown", and it is not on its own
-   * reassurance: a loop that is not running at all shows up as `last_look_ms`
-   * going stale, which is a different field and a louder tone.
-   */
-  first_window_open_ms: number | null;
-  /**
-   * Credits spent today on **attention-triggered** sweeps, and the ceiling
-   * they are measured against (`ODDS_ATTENTION_DAILY_CREDITS`, 300 of the
-   * day's 700 on live).
-   *
-   * A separate pool from `spent_today`/`daily_budget`. The odds feed follows
-   * attention over an hourly floor (ADR 0071 §2.6); this slice is what a page
-   * left open is allowed to spend, and the floor is deliberately not charged
-   * to it.
-   */
-  attention_credits_spent: number;
-  attention_daily_credits: number;
-  /**
-   * When today's attention slice ran out, or `null` if it has not.
-   *
-   * The `called_ms` of the buy that took the pool to its ceiling. `null` is
-   * also the honest answer on a day the slice is spent with nothing ever
-   * bought under the trigger, so the copy must degrade to a sentence with no
-   * time in it rather than rendering an epoch.
-   */
-  attention_slice_spent_at_ms: number | null;
-  /** Whether the slice can no longer fund one more sweep. */
-  attention_slice_spent: boolean;
-  /** Whether a heartbeat has landed inside the TTL — i.e. someone is looking. */
-  desk_is_attended: boolean;
-  /**
-   * When the **desk trigger** will next actually buy, at the cadence holding
-   * right now. `null` means it wants nothing at all.
-   *
-   * **The awkward part was retired on 2026-08-29 and the retraction is worth
-   * more than the fact.** This comment used to say attention *replaces* the
-   * hourly floor rather than adding to it — every upcoming sport wanted on the
-   * ten-minute cadence, every one refused once the slice was spent, no
-   * fall-through — so past the slice, keeping the page open was what
-   * suppressed the buying and closing it was what let the floor resume. The
-   * loop now demotes the sport to the floor's own cadence instead of skipping
-   * it, so this field carries an hourly time in the state where it used to
-   * carry `null`. What must never appear here again is the *ten-minute*
-   * answer while the slice is spent: that is the ticket #35 defect, a screen
-   * promising a buy the loop has already refused.
-   */
-  next_desk_buy_ms: number | null;
-  /**
-   * When the **hourly floor** next wants a buy, ignoring the slice the floor
-   * is never charged to.
-   *
-   * A **lookahead** rather than a snapshot, which is what makes it a separate
-   * field from `next_desk_buy_ms`: a sport enters the floor's twelve-hour
-   * horizon at `kickoff - 12h`, so at 04:38Z with an 18:20Z kickoff this reads
-   * ~06:20Z while the desk wants nothing at all. That is the sentence the
-   * 2026-08-28 screen could not write. `null` means no stored fixture ever
-   * brings the floor round, which is a different state again.
-   *
-   * It used to be the "once you stop looking" answer and is not any more —
-   * the floor runs while the page is open. Copy that reads this field must
-   * not make going away a condition of it.
-   */
-  floor_next_buy_ms: number | null;
-  /**
-   * How long the recording loop sleeps between full passes when nothing
-   * wakes it — `RUNNER_INTERVAL_S` as the entrypoint passes it, 900s on live.
-   *
-   * Published so a silence in `last_look_ms` is judged against the cadence
-   * that produced it. Until 2026-09-03 `nextOddsWindow.ts` called the loop
-   * stalled after a hardcoded 180s, a number written when the observed
-   * cadence was a pass every ~18s — the FAST cadence, which runs only while
-   * a window is open. Idle, the loop sleeps this long, so on 8 of 26
-   * measured cold opens the screen called a sleeping loop a fault and
-   * switched off the self-heal thirteen seconds before the buy it was
-   * waiting for landed.
-   *
-   * `null` means the interval could not be read. A reader given `null` may
-   * not call the loop stalled on `last_look_ms` alone — unknown is not a
-   * number, and least of all is it `0`.
-   */
-  loop_idle_interval_ms: number | null;
-  note: string;
-};
-
 export const fetchWindow = () => get<ActionableWindow>("/api/window");
 
 export const fetchBoard = (includeSuppressed = false) =>
@@ -1807,449 +623,10 @@ export const fetchLedger = () => get<Ledger>("/api/ledger");
 
 export const fetchGate = () => get<Gate>("/api/gate");
 
-/**
- * What the product's own conclusion is worth, measured.
- *
- * `beta` is tenths of realised closing-line value per tenth of claimed edge --
- * the registered decision-bearing statistic of the whole project. Until ADR
- * 0039 it appeared **zero times in this directory**: the cockpit stated a
- * conclusion about whether the consensus signal works and stated its measured
- * worth nowhere, because the only way to produce the number was a laptop
- * running a script against an ssh dump.
- *
- * **The shape is deliberately hostile to reading the effect alone.** There is
- * no top-level `beta_hat`. It lives inside `estimate`, which is `null` unless a
- * fit actually happened, and which carries `se_cluster`, `n_clusters` and both
- * interval limits or none of them. A renderer physically cannot show the point
- * estimate on its own, which is the one-number habit the always-valid
- * multiplier exists to defeat.
- */
-export type Signal = {
-  /** When the backend computed this. It is cached; render the age. */
-  computed_ms: number;
-  cache_ttl_ms: number;
-  /** `false` on the demo instance, whose seeded history has no quotes to join. */
-  available: boolean;
-  /** Why there is no estimate. Present exactly when `estimate` is null. */
-  refusal: string | null;
-  /**
-   * The registered string, never a paraphrase. `UNRESOLVED` is a real answer
-   * and **may not be rendered as "no signal"** -- the registration forbids
-   * declaring below 713 clusters (Amendment 2 section B4, which raised the
-   * floor from 300 on 2026-08-29). `REFUSED` is different again: it means no
-   * look happened at all.
-   */
-  verdict: "SIGNAL" | "BUG, NOT SIGNAL" | "NO SIGNAL" | "UNRESOLVED" | "REFUSED";
-  /**
-   * What section 6 returned on the pooled fit alone, before section A4's
-   * leave-one-group-out downgrade. When it differs from `verdict`, a
-   * pre-registered group's removal flipped the claim and the parts disagree.
-   */
-  section6_verdict: string;
-  /** The group that caused the downgrade, named in A4's own words. */
-  downgraded_by: string | null;
-  /** Whether a declaring verdict stands: the cluster floor is met AND no
-   * section A4 downgrade fired (#227). */
-  may_declare: boolean;
-  /** Amendment 2 section B6(5)'s sd ratchet check. `null` when nothing was
-   * measured, never `false` in its place. */
-  sigma_exceeds_ratchet: boolean | null;
-  /** True once section 7's stopping rule has fired: the verdict is no longer
-   * recomputed. */
-  frozen: boolean;
-  population: {
-    rows: number;
-    clusters: number;
-    clusters_to_declare: number;
-    clusters_remaining: number;
-    p1: number;
-    p1_floor: number;
-    p1_passed: boolean;
-    matched: number;
-    quote_mismatch: number;
-    no_quote: number;
-    disclosure_required: boolean;
-    /**
-     * Whether §P4/§7 narrowed the primary to one `strategy_config_version`.
-     *
-     * When true, `clusters` counts only that version's games — which is the
-     * number the 300-game floor governs. It matters on the screen because the
-     * two counts land on opposite sides of that floor: on 2026-08-25 the record
-     * was 216 primary against 311 pooled, and the pooled one is what this
-     * endpoint used to serve. A reader shown `clusters` without this flag
-     * cannot tell which population the verdict is on.
-     */
-    modal_config_applied: boolean;
-    modal_config_version: number | string | null;
-    non_modal_rows_excluded: number;
-    strategy_config_versions: Record<string, number>;
-  };
-  estimate: {
-    /** Comes first because reading the effect first is how a small cell gets believed. */
-    smallest_resolvable_beta: number;
-    beta_hat: number;
-    se_cluster: number;
-    n_clusters: number;
-    /**
-     * Effective clusters -- Kish's count over the per-cluster leverage on
-     * `beta`. **A reportable, never a threshold** (Amendment 2 section B7). It
-     * sits inside `estimate` so a screen cannot render `n_clusters` without it:
-     * on 2026-08-25 `G = 311` was **4.26** effective clusters, one WNBA game
-     * carrying 43.8% of the leverage alone, and the screen that declared
-     * NO SIGNAL on that count had no way to say so.
-     *
-     * `null` means the regressor has no residual variance -- not zero, and not
-     * `n_clusters`.
-     */
-    g_eff: number | null;
-    /** The biggest single game's share of the leverage. `null` if unreadable. */
-    largest_cluster_leverage_share: number | null;
-    n_rows: number;
-    interval_lower: number;
-    interval_upper: number;
-    multiplier: number;
-  } | null;
-  /**
-   * Section A4's leave-one-group-out table. Descriptive: it can turn SIGNAL or
-   * NO SIGNAL into UNRESOLVED and can never raise a verdict, and no row here is
-   * a finding. `one_group_result` marks an untestable group carrying more than
-   * half the leverage, which A4 requires the write-up to state in those words.
-   */
-  a4_groups: {
-    name: string;
-    rows: number;
-    clusters: number;
-    leverage_share: number | null;
-    clusters_remaining: number;
-    testable: boolean;
-    beta_hat: number | null;
-    interval_upper: number | null;
-    refusal: string | null;
-    one_group_result: boolean;
-  }[];
-  /**
-   * Diagnostic only. The per-group view can downgrade a verdict and can never
-   * create one, and `market_type` is not a registered cut -- it is here because
-   * the repo rule requires the parts beside any aggregate, and this pooled
-   * figure is not homogeneous.
-   */
-  by_market_type: {
-    name: string;
-    rows: number;
-    share: number;
-    clusters: number | null;
-    beta_hat: number | null;
-    refusal: string | null;
-  }[];
-  registration: string;
-  note: string;
-};
-
 export const fetchSignal = () => get<Signal>("/api/signal");
-
-/**
- * How often each suppression rule fired.
- *
- * The shape is the route's, read before it was typed: `{"counts": {reason: n}}`,
- * already sorted by count descending server-side, with a row failing several
- * checks counted once under each. So the values sum to more than the number of
- * rejected rows, and that is correct rather than a bug to normalise away.
- */
-export type Suppression = { counts: Record<string, number> };
 
 export const fetchSuppression = (sinceMs = 0) =>
   get<Suppression>(`/api/suppression?since_ms=${sinceMs}`);
-
-/**
- * Where Kalshi's ask sits among the books' own devigged fair values.
- *
- * **Every field can be `null`, and `null` never means zero.** A fixture with no
- * stored book prices and a fixture where every book was unusable are different
- * states, and `percentile: 0` would read as "Kalshi is the cheapest venue
- * here" — the flattering misreading of a measurement that never ran.
- *
- * **The comparison is deliberately unfair to Kalshi.** `kalshi_probability`
- * comes from the *ask*, so it carries half a spread; the book numbers are
- * devigged fair values with the vig removed. A book therefore looks cheaper
- * than Kalshi by roughly half a spread even where the two agree exactly, so
- * `books_below` over-counts. That direction is chosen: the reading this
- * supports is "Kalshi may be the sharp side", and a bias making Kalshi look
- * worse cannot manufacture it.
- */
-export type BookDistribution = {
-  kalshi_probability: number;
-  /** Usable books, i.e. the size of the distribution — not `fair_prices`. */
-  book_count: number;
-  books_below: number;
-  /** Dropped before or during the devig. A distribution over 2 of 21 books
-   *  is a different object from one over 21, so this is never folded away. */
-  books_unusable: number;
-  median_book_probability: number | null;
-  min_book_probability: number | null;
-  max_book_probability: number | null;
-  /** Fraction of usable books priced below Kalshi's ask. `null` if none were. */
-  percentile: number | null;
-};
-
-export type LineShopLeg = {
-  ticker: string;
-  side: "yes" | "no";
-  team: string | null;
-  ask_tenths: number;
-  ask_display: string;
-  depth: number;
-  all_in_tenths_per_contract: number;
-};
-
-export type LineShopData = {
-  cheaper: LineShopLeg;
-  current: LineShopLeg;
-  saving_tenths_per_contract: number;
-  fee_reference_contracts: number;
-  read_ms: number;
-  copy: string;
-};
-
-/**
- * One row of the Slate: a recommendation plus the factors already on the record.
- *
- * **None of these factors has been scored against an outcome**, none of them
- * enters `suggested_contracts`, and the server combines them into nothing. The
- * screen must not present any of them as an edge or blend them into a rating —
- * that would be a model, and it would need its own ADR.
- */
-export type SlateRowData = Recommendation & {
-  /** 24h contract volume on the Kalshi market. Capacity, not price. */
-  volume_24h: number | null;
-  open_interest: number | null;
-  /**
-   * Change in the derived ask over `drift_window_ms`, in tenths. Positive means
-   * the price you would pay has risen. `null` when fewer than two quotes exist
-   * in the window — never 0, which would assert the price held steady.
-   */
-  kalshi_drift_tenths: number | null;
-  books: BookDistribution | null;
-  /**
-   * How often a taker at this ask must win to break even, fee included —
-   * `breakeven_win_rate(ask, 1)` on the server, never recomputed here (the
-   * fee curve stays in one implementation). **Deliberately unaccompanied:**
-   * `edge_tenths` is exactly `1000 × (fair − this)`, so a screen that puts
-   * the consensus fair value beside it hands the reader the measured-negative
-   * edge by subtraction. `null` when the ask is not a tradeable price.
-   */
-  breakeven_win_rate: number | null;
-  /**
-   * The sweet spot for this row (ADR 0090). Optional because a deployed
-   * backend one version behind omits the key entirely; `null` when the server
-   * had nothing honest to score — see `TrustScore`.
-   */
-  trust?: TrustScore | null;
-  /**
-   * Same opinion, cheaper way round (#245): present only when the other route
-   * is cheaper after fees. A fact on the row, never a sort key (ADR 0071).
-   */
-  line_shop?: LineShopData | null;
-};
-
-/**
- * One entry in the "who's likely to win tonight" block (ADR 0067): the side
- * the devigged consensus makes the favorite, ranked server-side by
- * `fair_probability` alone — one stored, unscored column, a sort and never a
- * composite. **No breakeven, edge, or size field exists here**, structurally:
- * fair% beside break-even hands the reader the measured-negative edge by
- * subtraction (the fleet-convening identity), so the two never share a block.
- * `ask_display` is null when the stored quote is no longer current — a price,
- * never a souvenir.
- */
-export type SlatePick = {
-  ticker: string;
-  event_title: string | null;
-  team: string | null;
-  /** Sport key of the linked fixture; optional for a backend one version behind. */
-  league?: string | null;
-  side: string;
-  commence_ms: number | null;
-  fair_percent_display: string | null;
-  ask_display: string | null;
-  /**
-   * How old the recorded Kalshi quote is, on the server's clock at the
-   * request (`_live_ages`). Served whether or not `ask_display` survived, so
-   * a row whose ask was withheld can say how stale it is and what to do
-   * about it (#47). `null` is an unreadable clock and renders as nothing --
-   * never "0 min". Optional for a backend one version behind.
-   */
-  quote_age_now_ms?: number | null;
-  /**
-   * How long ago the game started, on the server's clock; `null` when the
-   * fixture is unknown or still ahead (#42, the Picks half). A fact the row
-   * wears, never a sort key: the order is `fair_probability` alone
-   * (ADR 0067). Optional for a backend one version behind.
-   */
-  started_ago_ms?: number | null;
-  anchored_on_sharp: boolean | null;
-};
-
-export type SlatePicks = {
-  ranked: SlatePick[];
-  /** Games counted out by name — "no pick" and "no measurement" are
-   *  different facts. */
-  not_ranked: {
-    stale_consensus: number;
-    favorite_unpriced: number;
-    /** Distinct player-prop MARKETS in the window, never ranked here
-     *  (ticket #23): a prop shares its game's fixture id and would otherwise
-     *  be printed as the game's likely winner under the player's name.
-     *  Optional for a backend one version behind. */
-    props_excluded?: number;
-  };
-  /** The chance≠edge sentence, rendered verbatim so the server and the
-   *  screen cannot disagree about what this block claims. */
-  note: string;
-};
-
-export type Slate = {
-  /** One flat list in kickoff order. No bucketing by verdict — that is the
-   *  point: edge is a column here, not a gate. */
-  rows: SlateRowData[];
-  /** The #15 cut, echoed. Absent when the list was not cut. */
-  filter?: ListFilterEcho;
-  /** Optional because a deployed backend one version behind omits it. */
-  picks?: SlatePicks | null;
-  /**
-   * The venue's own reading of Joe's money: cash and the value sitting in
-   * open positions, **separately and never summed** — a sum would sign a
-   * P&L, and a signed P&L on the screen where bets are decided is the chase
-   * trigger the tilt review refused.
-   *
-   * The caps are derived server-side, at request time, from the observed
-   * balance (ADR 0045) and arrive as display strings — this file's rule:
-   * no money arithmetic in the frontend. `caps_basis` is never omitted:
-   * it carries either the balance the caps were derived from or the
-   * refusal words ("balance unobserved") the screen must render instead
-   * of rendering nothing. `deposit_for_50c_display` is the server-computed
-   * deposit arithmetic ("one contract at 50c needs a $5.00 balance").
-   * `null` money only from a backend one version behind.
-   */
-  money: {
-    observed_ms: number | null;
-    cash_tenths: number | null;
-    cash_display: string | null;
-    open_positions_tenths: number | null;
-    /** @deprecated render `daily_line_display`; kept for older readers. */
-    daily_line_dollars: number | null;
-    daily_line_display: string | null;
-    per_bet_cap_display: string | null;
-    exposure_cap_display: string | null;
-    deposit_for_50c_display: string;
-    caps_basis: {
-      balance_display: string | null;
-      observed_ms: number | null;
-      refusal: string | null;
-    };
-  } | null;
-  counts: {
-    returned: number;
-    /** Rows a book distribution could be computed for. Its own number because
-     *  "no book disagreed" and "no book price stored" render identically. */
-    with_book_distribution: number;
-    surfaced: number;
-  };
-  /**
-   * Tonight's commitment (2026-08-21 ruling): unsigned count and stake from
-   * the fills mirror since the day roll, a SIBLING of `money` because
-   * `money`'s contract is about never summing. `bets`/`staked_*` are null —
-   * never 0 — when the mirror is stale (`as_of_ms` old or absent). Optional
-   * because a deployed backend one version behind omits the key entirely.
-   */
-  tonight?: TonightActivity | null;
-  /** A sibling of `money` for `tonight`'s reason: `money`'s contract is
-   *  about never summing cash and positions. See `OpenPositionsBlock`. */
-  open_positions?: OpenPositionsBlock | null;
-  staleness: { max_kalshi_quote_age_s: number; max_odds_age_s: number };
-  slate: Board["slate"];
-  drift_window_ms: number;
-  note: string;
-};
-
-export type TonightActivity = {
-  day_start_ms: number;
-  as_of_ms: number | null;
-  bets: number | null;
-  staked_tenths: number | null;
-  staked_display: string | null;
-  lockout_until_ms: number | null;
-};
-
-/**
- * What is open at the venue right now — the largest hole of the 2026-08-22
- * review (nothing showed what was at risk on any screen). Served on the
- * slate and on /bets from the only two things the mirror carries:
- *
- * - `count` is the positions poll's row count, **counted and never
- *   parsed** (the per-row wire shape has never been observed), on the
- *   12-hour mirror clock — stale refuses to null with `count_as_of_ms`
- *   kept so the screen renders "not read since".
- * - `value_*` is the venue's own `portfolio_value` (5-minute cadence),
- *   whose unit is pinned only at zero — any non-zero value refuses with
- *   its reason in `value_refusal`, server-rendered words.
- *
- * **The two stamps are not interchangeable.** `count_as_of_ms` is the
- * mirror's clock, and because the mirror's first cycle runs at process
- * start and no container here lives twelve hours, it is in practice the
- * container's boot time. `value_as_of_ms` is minutes fresh. Each figure is
- * stamped with its own read (`lib/openPositionsStamps.ts`) — until
- * 2026-08-29 the dollars-at-risk figure wore the count's boot clock.
- *
- * `*_age_ms` is each read's age against the same server `now_ms` the
- * staleness bounds use, so the screen never subtracts a server millisecond
- * from a browser one. Optional: a deployed backend one version behind omits
- * them, and the clock alone still renders.
- *
- * - `staked_*` is what Joe asked /bets to say (21A): the money on the
- *   positions open now, unsigned. **It is refused, in server-rendered words
- *   (`staked_refusal`), and the words say why** -- the fills mirror does not
- *   record buy against sell, and a settled position the mirror missed would
- *   read as still open, so no honest figure exists in the record today. Null,
- *   never $0.00, until the poller stores what would pin it
- *   (`backend/bets.py::open_positions`). Optional because a deployed backend
- *   one version behind omits the keys.
- *
- * NO live P&L, no mark-to-market, never summed with cash (TonightStrip's
- * unsigned rule). Optional because a deployed backend one version behind
- * omits the key entirely.
- */
-export type OpenPositionsBlock = {
-  count: number | null;
-  count_as_of_ms: number | null;
-  count_age_ms?: number | null;
-  value_tenths: number | null;
-  value_display: string | null;
-  value_as_of_ms: number | null;
-  value_age_ms?: number | null;
-  value_refusal: string | null;
-  staked_tenths?: number | null;
-  staked_display?: string | null;
-  staked_refusal?: string | null;
-};
-
-/**
- * `GET /api/exposure` — how deep Joe already is, and nothing else.
- *
- * **A separate route from `/api/bets` on purpose.** `/api/bets` serves the
- * same `open_positions` block, and also 200 settled rows, the pass summary
- * and the lockout clock. `<ManualTicket>` opens this on seven surfaces, beside
- * a live Kalshi book read, so the buy button waits on the cheapest possible
- * read (`backend/api/routers/ledger.py`).
- *
- * `open_positions` is the same `OpenPositionsBlock` the slate and /bets carry,
- * passed through unshaped. `as_of_ms` is the server clock its `*_age_ms`
- * fields were subtracted against — no browser millisecond is ever subtracted
- * from a server one.
- */
-export type Exposure = {
-  as_of_ms: number;
-  open_positions: OpenPositionsBlock;
-};
 
 /** Reads, and never gates. A thrown fetch or a non-2xx is rendered as a
  *  refusal beside the buy button (`exposureUnreadable`), never as a reason to
@@ -2292,37 +669,6 @@ export function hasSuppression(
   if (!rec.suppressed_reason) return false;
   return rec.suppressed_reason.split(",").some((part) => part.trim() === code);
 }
-
-/**
- * What the edge number on a row *means*, which is not the sign of a subtraction.
- *
- * The Board rendered `+24.4c` in `text-positive` on `edge_cents > 0` alone,
- * with no reference to whether the row had been refused — so a row reading
- * `REJECTED … suspicious_edge` painted the largest apparent edge in the room in
- * the colour that means take this, and put the code identifying it as a defect
- * in small grey monospace beside it. On a phone at a glance that row was the
- * most attractive thing on the page.
- *
- * `CLAUDE.md` rule 1 is that **a large apparent edge is a bug until proven
- * otherwise**. Colour is a claim about whether a number is money, so the
- * suppression state is consulted *before* the sign and the sign is only ever
- * reached on a row nothing refused:
- *
- *   suspect   `suspicious_edge` fired. The code that means the data is broken,
- *             and the one whose rows sort to the top of any edge ranking. It
- *             gets the loudest treatment on the row, not the quietest.
- *   refused   some other rule fired, or the sizer left the row at zero
- *             contracts. Caution, never money — the number is a record of
- *             what the arithmetic said, not an offer.
- *   positive  nothing refused it, the edge survives fees, and the size is
- *             at least one contract.
- *   negative  nothing refused it and there is no edge.
- *
- * Shared rather than written per screen because a suppressed row reaches the
- * eye down more than one path — the Board's slate rows and Evidence — and a
- * second copy of this rule is a second chance to render green over a defect.
- */
-export type EdgeTone = "suspect" | "refused" | "positive" | "negative";
 
 export function edgeTone(
   rec: Pick<
@@ -2385,72 +731,7 @@ export {
   freshness,
 } from "./format";
 
-/** One strategy version, and the evidence recorded while it was in force. */
-export type ConfigVersion = {
-  version: number;
-  created_ms: number;
-  effective_from_ms: number;
-  effective_to_ms: number | null;
-  is_current: boolean;
-  approved_by_user: boolean;
-  rationale: string;
-  config: Record<string, unknown> | null;
-  recommendations: number;
-  markets: number;
-  unsuppressed: number;
-  actionable: number;
-  clv_scored: number;
-  /**
-   * A version with too few rows to say anything. Rendered as a caveat rather
-   * than used as a filter: a starved version is itself a finding, because it
-   * shortened every neighbouring version's sample too.
-   */
-  has_enough_to_say_anything: boolean;
-  changed_from_previous: Record<string, { from: unknown; to: unknown }>;
-};
-
-export type Lesson = {
-  id: number;
-  created_ms: number;
-  title: string;
-  body: string;
-  evidence: Record<string, unknown> | null;
-  sample_size: number | null;
-  proposed_config_diff: Record<string, unknown> | null;
-  /**
-   * Three states. `null` is "nobody has decided" and `false` is "rejected" --
-   * collapsing them would turn every proposal awaiting a human into one a
-   * human refused.
-   */
-  accepted_by_user: boolean | null;
-};
-
-export type Playbook = {
-  config_versions: ConfigVersion[];
-  current_version: number | null;
-  lessons: Lesson[];
-  proposals_awaiting_approval: Lesson[];
-  /**
-   * The distinction this screen must not collapse. `lessons` has no writer --
-   * its one writer, the Historian, never ran and was deleted on 2026-09-05 --
-   * so an empty list means nothing can write one, not that the record
-   * contains nothing worth learning. The name is historical; the value is
-   * whether a lesson row exists, and on every deployed instance it is false.
-   */
-  historian_has_run: boolean;
-  note: string;
-  min_rows_to_mean_anything: number;
-};
-
 export const fetchPlaybook = () => get<Playbook>("/api/playbook");
-
-/** What `POST /api/odds/refresh` answers with. */
-export type OddsRefreshResult = {
-  accepted: boolean;
-  detail: string;
-  estimated_credits: number;
-  retry_after_ms: number;
-};
 
 /**
  * Ask the runner to buy fresh sportsbook odds now.
@@ -2508,58 +789,6 @@ export async function refreshOdds(
   };
 }
 
-/** One upcoming fixture a refresh may name, as the books see it. */
-export type RefreshableFixture = {
-  odds_event_id: string;
-  commence_ms: number;
-  /** `Away at Home`, from the books' own team names. */
-  title: string;
-};
-
-export type RefreshableSport = {
-  sport_key: string;
-  /** Credits one team-lines refresh costs, from the deployed config. */
-  team_credits: number;
-  /** Credits one fixture's props cost — including the team call that finds
-   * it. `null` when this desk has no prop markets for the sport (#37): the
-   * server refuses such a tap, so there is no price to show. */
-  prop_credits: number | null;
-  /** Whether a prop tap on this sport can buy anything. The only prop keys
-   * the desk requests are baseball markets. */
-  prop_markets_available: boolean;
-  fixtures: RefreshableFixture[];
-};
-
-/**
- * A league with no fixture inside the card's 24-hour horizon, and the first
- * one it has stored past it. Absent (not null) for a league with nothing
- * stored at all, and absent for a league that is in `sports` -- the card
- * lists that league's taps instead.
- */
-export type RefreshableBeyondHorizon = {
-  sport_key: string;
-  odds_event_id: string;
-  commence_ms: number;
-  /** When this fixture enters the tap list: kickoff less the horizon. */
-  enters_ms: number;
-  title: string;
-};
-
-export type Refreshable = {
-  sports: RefreshableSport[];
-  beyond_horizon: RefreshableBeyondHorizon[];
-  manual_daily_credits: number;
-  /** What today's taps have already reserved against that ceiling. Counted at
-      accept time, served or not, so it can only overstate — the safe error. */
-  manual_credits_spent_today: number;
-  /** The whole day's metered budget beside the taps' slice of it. */
-  day_credits_spent: number;
-  day_credits_budget: number;
-  day_credits_remaining: number;
-  cooldown_ms: number;
-  note: string;
-};
-
 /**
  * What the refresh button may buy, and what each purchase costs.
  *
@@ -2569,32 +798,6 @@ export type Refreshable = {
  * keyed for *reading*.
  */
 export const fetchRefreshable = () => get<Refreshable>("/api/odds/refreshable");
-
-/**
- * The calibration bet log (registration 2026-08-17, as amended).
- *
- * Deliberately price-free types. The backend captures the market's book at
- * estimate time for the anchoring tripwires and never serialises it into any
- * payload below -- a quote key appearing here would mean the embargo broke.
- */
-export type EstimateMarket = {
-  ticker: string;
-  title: string | null;
-  player_name: string | null;
-  event_ticker: string | null;
-  event_title: string | null;
-  close_ms: number | null;
-};
-
-export type RecentEstimate = {
-  id: number;
-  ticker: string;
-  /** P(YES) in basis points: 6250 renders as 62.50%. */
-  stated_probability_bp: number;
-  estimate_server_ms: number;
-  had_already_opened_kalshi: number | null;
-  stated_probability_is_revised: number;
-};
 
 /**
  * Find a market to hand-bet that no screen surfaced.
@@ -2620,28 +823,6 @@ export const searchManualMarkets = (q: string) =>
 export const fetchRecentEstimates = () =>
   get<{ estimates: RecentEstimate[] }>("/api/estimates/recent");
 
-/**
- * The money arm's position: realised loss since the study opened, against
- * the $100 stop. Summed over the venue's own settlement record — never the
- * estimate log — which is why showing it breaks no embargo (A7). Nulls mean
- * "cannot read the record right now", which is a state, not a zero.
- */
-export type StudyStop = {
-  /**
-   * The registration's terminal state (Amendment 2, 2026-08-20):
-   * "stopped_without_result" — Joe stopped the study; nothing was scored.
-   * Distinct from `stopped`, the $100 money arm, which never fired.
-   */
-  study_state: string;
-  /** When the owner stopped the study, epoch ms. */
-  stopped_by_owner_ms: number;
-  loss_dollars: number | null;
-  ceiling_dollars: number;
-  stopped: boolean | null;
-  /** When the self-lockout releases (next 10:00Z), or null if none is live. */
-  lockout_until_ms: number | null;
-};
-
 export const fetchStudyStop = () => get<StudyStop>("/api/estimates/stop");
 
 /**
@@ -2658,14 +839,6 @@ export async function engageLockout(): Promise<WriteResult<{ until_ms: number }>
     unreadable: (status) => `lockout failed (${status})`,
   });
 }
-
-/** What `POST /log-estimate` answers with. Quote-free by construction. */
-export type EstimateLogged = {
-  id: number;
-  ticker: string;
-  stated_probability_bp: number;
-  estimate_server_ms: number;
-};
 
 /**
  * Log one estimate, through the Next route handler that holds the bearer
@@ -2704,29 +877,6 @@ export async function reviseEstimate(
   });
 }
 
-/** One drawable bar of a market's price history. Prices in tenths of a cent;
- *  every field independently nullable — a candle in which nothing traded is a
- *  gap on the chart, never a bar invented at zero. */
-export type ChartCandle = {
-  t_ms: number;
-  open_tenths: number | null;
-  high_tenths: number | null;
-  low_tenths: number | null;
-  close_tenths: number | null;
-  yes_bid_close_tenths: number | null;
-  yes_ask_close_tenths: number | null;
-  volume: number | null;
-};
-
-export type MarketCandles = {
-  ticker: string;
-  title: string | null;
-  range: "1d" | "1w" | "1m" | "all";
-  period_minutes: number;
-  candles: ChartCandle[];
-  dropped_unreadable: number;
-};
-
 /**
  * Kalshi's own candlesticks for one market, shaped for the chart. History,
  * not a quote: nothing from this payload may feed a sizing or order decision
@@ -2751,109 +901,6 @@ export async function fetchMarketCandles(
   return response.json() as Promise<MarketCandles>;
 }
 
-/**
- * The scout desk (ADR 0060): two staff scouts and a master, sent on one game.
- *
- * The desk never outputs a probability, a price, or "bet it" -- its schema
- * has no field to put one in, which is enforcement rather than etiquette.
- * Everything numeric on this screen still comes from the deterministic
- * pipeline; the desk carries sourced facts and the master's qualitative read.
- */
-export type ScoutFinding = {
-  category:
-    | "injury"
-    | "lineup"
-    | "weather"
-    | "rest_travel"
-    | "matchup"
-    | "venue"
-    | "sentiment"
-    | "other";
-  fact: string;
-  source: string;
-  source_url: string | null;
-  reported_when: string;
-  likely_already_priced: boolean;
-  affects_side: string | null;
-};
-
-export type ScoutStaffReport = {
-  game: string;
-  findings: ScoutFinding[];
-  summary: string;
-  searched_for: string[];
-};
-
-/** `report: null` means that scout FILED nothing (the call failed) -- a
- * different fact from a report whose findings list is empty. */
-export type ScoutStaffNote = {
-  role: "home" | "away";
-  team: string;
-  report: ScoutStaffReport | null;
-};
-
-/** One instrument on the desk's board. States are words, never scores:
- * `unconfirmed` is a warning (searched, could not verify), not an all-clear. */
-export type BoardTile = {
-  category:
-    | "lineup"
-    | "injury"
-    | "weather"
-    | "rest_travel"
-    | "matchup"
-    | "venue"
-    | "sentiment"
-    | "other";
-  state: "fresh" | "stale_only" | "unconfirmed" | "clear";
-  note: string;
-};
-
-export type DeskBriefing = {
-  /** Absent on briefings filed before the board existed (2026-08-21). */
-  board?: BoardTile[];
-  headline: string;
-  assessment: string;
-  what_matters: string[];
-  conflicts: string[];
-  unanswered: string[];
-};
-
-/**
- * Willy Balters' take (ADR 0069) — the pro-bettor seat's filing. Words
- * only, like every desk schema: no field can carry a forecast. The
- * character is a house fiction; the panel says so on screen.
- */
-export type SharpTake = {
-  headline: string;
-  read: string;
-  discipline: string[];
-  would_change_my_mind: string[];
-};
-
-export type ScoutBriefingState =
-  | { state: "never_sent" }
-  | {
-      state: "sent";
-      id: number;
-      status: "running" | "complete" | "partial" | "failed" | "refused";
-      gone_quiet: boolean;
-      ticker: string;
-      event_title: string;
-      league: string;
-      home_team: string;
-      away_team: string;
-      commence_ms: number | null;
-      requested_ms: number;
-      completed_ms: number | null;
-      refusal_reason: string | null;
-      staff: ScoutStaffNote[] | null;
-      briefing: DeskBriefing | null;
-      /** `null` (or absent, one server version back): the seat filed
-       * nothing here, or the briefing predates the seat. */
-      sharp?: SharpTake | null;
-      model: string;
-    };
-
 export async function fetchScoutBriefing(
   ticker: string,
 ): Promise<ScoutBriefingState> {
@@ -2871,10 +918,6 @@ export async function fetchScoutBriefing(
   }
   return response.json() as Promise<ScoutBriefingState>;
 }
-
-export type SendDeskResult =
-  | { accepted: true; id: number }
-  | { accepted: false; status: number; detail: string };
 
 /**
  * Send the desk, via the `/scout-desk` Next route handler -- the browser
@@ -2901,10 +944,6 @@ export async function sendScoutDesk(ticker: string): Promise<SendDeskResult> {
   }
   return { accepted: false, status: result.status, detail: result.refusal };
 }
-
-export type RecordPassResult =
-  | { recorded: true; id: number }
-  | { recorded: false; status: number; detail: string };
 
 /**
  * Record one deliberate pass on a market, via the `/pass` Next route handler
@@ -2977,98 +1016,6 @@ export async function recordAttention(path?: string): Promise<void> {
   });
 }
 
-/**
- * What the market screen renders of `/api/market/{ticker}` — the venue's own
- * facts (what you transact against), never the tool's opinion of them. The
- * payload also carries fair/edge/EV fields; they are deliberately not typed
- * here, because a single-game page is the screen with the least context to
- * hold a refuted signal's numbers honestly (ADR 0038).
- */
-/**
- * The Skeptic panel's board (ADR 0068): every mechanical check's verdict,
- * reconstructed server-side from the stored `suppressed_reason`. `judged_ms`
- * is the basis the verdicts are facts about — the screen must caption it,
- * because "passed at 19:02" and "passes now" are different claims. `sizing`
- * carries `sizing:`-prefixed refusals verbatim; `unknown` carries codes this
- * build's vocabulary does not name, so a newer server's rule still renders.
- */
-export type Gauntlet = {
-  checks: { code: string; verdict: "passed" | "refused" | "not_taken" }[];
-  sizing: string[];
-  unknown: string[];
-  judged_ms?: number | null;
-};
-
-export type MarketDetail = {
-  /**
-   * The books' raw implied probabilities SUMMED, before devigging.
-   *
-   * A market quoted with no margin sums to 1.0; anything above is the
-   * bookmaker's cut, and that excess is exactly what the four devig methods
-   * remove. `null` when unrecorded — never 1.0, which would assert a
-   * margin-free book.
-   */
-  overround?: number | null;
-  ticker: string;
-  event_title: string | null;
-  team: string | null;
-  home_team: string | null;
-  away_team: string | null;
-  league: string | null;
-  commence_ms: number | null;
-  close_ms: number | null;
-  market_status: string | null;
-  ask_display: string;
-  ask_dollars: number;
-  quote_age_now_ms?: number | null;
-  price_is_current?: boolean;
-  volume_24h: number | null;
-  open_interest: number | null;
-  // The desk's consensus facts (ADR 0068). All optional: a deployed backend
-  // one version behind omits them and the panels render honest absences.
-  // **`breakeven_win_rate` is deliberately NOT here**: fair% and break-even
-  // never share a screen block — their difference IS the measured-negative
-  // edge (the fleet-convening identity).
-  side?: string;
-  /**
-   * The team this row's own side pays on (`fair_prices.outcome_name`), so
-   * the header can say which side the served row prices. Optional for a
-   * backend one version behind; `null` when the row has no fair price.
-   */
-  side_outcome?: string | null;
-  fair_probability?: number | null;
-  fair_percent_display?: string | null;
-  suppressed_reason?: string | null;
-  reason_text?: string | null;
-  anchored_on_sharp?: boolean | null;
-  book_count?: number | null;
-  books_used?: string[] | null;
-  market_width?: number | null;
-  p_multiplicative?: number | null;
-  p_additive?: number | null;
-  p_power?: number | null;
-  p_shin?: number | null;
-  p_conservative?: number | null;
-  books?: BookDistribution | null;
-  kalshi_drift_tenths?: number | null;
-  drift_window_ms?: number;
-  gauntlet?: Gauntlet;
-  /**
-   * The sweet spot for this market (ADR 0090), identical to the value the
-   * slate row for the same ticker carries — both routes call one scorer, so
-   * one tap cannot change the number. Optional for a backend one version
-   * behind; `null` when the server had nothing honest to score.
-   */
-  trust?: TrustScore | null;
-  /**
-   * Tonight's commitment and the "not tonight" release -- the slate's own
-   * block, served here too (#45) so the game screen, where the ticket is,
-   * carries the control Games and Picks both have. One helper, one day
-   * roll, one lockout table. Optional for a backend one version behind.
-   */
-  tonight?: TonightActivity | null;
-};
-
 /** `null` when the record has no row for this ticker — a market the runner
  * never priced still gets its history page, just without the venue facts. */
 export async function fetchMarketDetail(
@@ -3085,49 +1032,6 @@ export async function fetchMarketDetail(
   return response.json() as Promise<MarketDetail>;
 }
 
-/**
- * The desk's own screen (`/scout`): what it has done, and what today cost.
- *
- * `spend` is the v17 token meter -- counts in the three units that actually
- * bill (calls, web searches, tokens), never dollars: the per-token rate in
- * this repo is assumed, not invoiced, and a number on a screen outranks the
- * caveat attached to it. `spend: null` means no Anthropic account is
- * configured (the demo) -- there is no meter to read, which is a different
- * fact from a meter reading zero.
- */
-export type ScoutOverviewRow = {
-  id: number;
-  ticker: string;
-  event_title: string;
-  league: string;
-  home_team: string;
-  away_team: string;
-  commence_ms: number | null;
-  requested_ms: number;
-  completed_ms: number | null;
-  status: "running" | "complete" | "partial" | "failed" | "refused";
-  gone_quiet: boolean;
-  refusal_reason: string | null;
-  has_briefing: boolean;
-};
-
-export type ScoutSpend = {
-  calls_today: number;
-  calls_daily_budget: number;
-  searches_today: number;
-  searches_daily_budget: number;
-  tokens_today: number;
-  tokens_daily_budget: number;
-  /** Calls whose usage never came back -- the sums above do not cover them. */
-  calls_unmetered_today: number;
-  day_start_ms: number;
-};
-
-export type ScoutOverview = {
-  briefings: ScoutOverviewRow[];
-  spend: ScoutSpend | null;
-};
-
 export async function fetchScoutOverview(): Promise<ScoutOverview> {
   const response = await fetch(`${BASE}/api/scout`, { cache: "no-store" });
   if (!response.ok) {
@@ -3135,158 +1039,6 @@ export async function fetchScoutOverview(): Promise<ScoutOverview> {
   }
   return response.json() as Promise<ScoutOverview>;
 }
-
-/**
- * Joe's own settled bets (`/bets`): the venue's settlement mirror read back
- * to its owner. `net_tenths`/`net_display` are null on a row that cannot
- * carry the registered formula (a void, an unreadable price or fee) -- a
- * refusal, never $0.00 -- and `totals` covers the WHOLE table while `bets`
- * is a window, with `uncomputable` counting what the sum excludes.
- */
-/**
- * Which kind of bet a settled position was, by ticker (21A). `combo` is the
- * venue's multi-leg market (`KXMVE*`); everything else is `single`. Decided
- * server-side by the one prefix check the repo has
- * (`estimates.classify_ticker`) -- the page groups by this and never
- * re-derives it from the ticker string.
- */
-export type BetKind = "single" | "combo";
-
-export type SettledBet = {
-  ticker: string;
-  event_ticker: string | null;
-  kind: BetKind;
-  side: "yes" | "no";
-  contracts: number;
-  entry_price_tenths: number | null;
-  entry_price_display: string;
-  fee_cost_tenths: number | null;
-  market_result: string | null;
-  won: boolean | null;
-  net_tenths: number | null;
-  net_display: string | null;
-  settled_ms: number;
-  position_first_seen_ms: number | null;
-  is_taker: number | null;
-  n_fills_in_position: number | null;
-  // Per-bet closing-line value, read on request against Kalshi's own close
-  // (2026-08-22). `clv_refusal_reason` is set only when `clv_tenths` is
-  // null: "no_closing_line" (most hand bets -- no discovery row, no matcher
-  // link, or the game hasn't been scored yet), "unreadable_close",
-  // "entry_time_unknown", or "entry_after_close" -- or "combo_unscorable"
-  // on a combination bet, which has no close to be read (combos are excluded
-  // from discovery) and renders NO CLV words at all rather than "close not
-  // read yet". No average or hit rate is computed anywhere -- per-bet only,
-  // until n >= 30.
-  clv_tenths: number | null;
-  clv_display: string | null;
-  clv_refusal_reason: string | null;
-  close_mid_tenths: number | null;
-  close_display: string | null;
-  // #161: the desk's own consensus chance for a combo at the moment Joe
-  // priced it -- `parlay_lookups.fair_joint_conservative` from the latest
-  // `status = 'priced'` lookup requested at or before the position's first
-  // fill. A per-row FACT (ADR 0071), never a score or a verdict; there is
-  // no aggregate of it anywhere in this repo and there must never be one.
-  // A single carries all three keys as `null`, same as a combo with no
-  // qualifying lookup -- `chance_refusal_reason` says which refusal:
-  // `no_fill_row` (no `fills` row for the ticker) or `not_priced_on_desk`
-  // (no priced lookup at or before the fill, including a single always-null
-  // row, which the page renders as neither reason -- see `BetRow`).
-  chance_when_priced: number | null;
-  chance_priced_before_fill_ms: number | null;
-  chance_refusal_reason: "no_fill_row" | "not_priced_on_desk" | null;
-  // #168: true when the outside-parlay check (#166, `parlay_lookups
-  // .card_key = 'outside'`) looked at this parlay at or before the fill and
-  // could not produce a whole-parlay chance (a leg with no desk reading, or
-  // two legs on one game) -- AND no reading with a real chance exists. A
-  // reading with a chance always wins, so this is only ever `true` beside
-  // `chance_when_priced === null` and `chance_refusal_reason ===
-  // "not_priced_on_desk"`. It carries no chance itself and is never counted
-  // toward `chance_carried`. A single always carries `false`, never `null`
-  // -- it is a plain fact ("was this ticker checked and refused a joint"),
-  // not one of the three chance fields above.
-  checked_without_chance: boolean;
-  // #254: a combination's legs in words, in leg order, from the recorded
-  // position or the lookup that minted it. `null` when ANY leg is unreadable
-  // (never a partial list) and always `null` on a single -- the row then says
-  // "Combination bet". Optional: a backend one version behind omits the key.
-  legs?: { label: string; side: "yes" | "no" }[] | null;
-  // #254: Kalshi's own title for a single's market, from discovery; `null`
-  // when discovery holds none, and always `null` on a combination.
-  market_title?: string | null;
-};
-
-/**
- * One kind's share of the whole record (21A): its count and its net SUM,
- * over the WHOLE table like `totals`. A sum beside the pooled sum is the
- * per-group view the measurement rules ask for; a per-kind rate would be the
- * banned aggregate and is not served.
- */
-export type BetsSection = {
-  total: number;
-  net_tenths: number;
-  net_display: string;
-  computable: number;
-  uncomputable: number;
-  // #161: a whole-table COUNT of rows in this kind whose
-  // `chance_when_priced` is not null -- never a sum or an average of the
-  // values it counts. Present on both kinds for a uniform shape; only the
-  // combo section is ever non-zero, since a single carries no chance.
-  chance_carried: number;
-};
-
-export type BetsRecord = {
-  bets: SettledBet[];
-  total: number;
-  returned: number;
-  /** `MIN(settled_ms)` over the mirror, or null when it is empty. The
-   *  record states its own first day from this and from nothing typed into
-   *  the page. */
-  first_settled_ms: number | null;
-  /** Single games and combination bets, each with its own count and sum.
-   *  `single.total + combo.total === total`. */
-  sections: Record<BetKind, BetsSection>;
-  totals: {
-    net_tenths: number;
-    net_display: string;
-    computable: number;
-    uncomputable: number;
-    wins: number;
-    losses: number;
-  };
-  /** What is at risk right now, beside the settled record. Optional because
-   *  a deployed backend one version behind omits the key. */
-  open_positions?: OpenPositionsBlock;
-  /**
-   * "CLV scored on N of {denominator}" — counts only, over the WHOLE table
-   * like `totals`, and since 21A over the SINGLE-GAME rows only: a combo has
-   * no close to be scored against, so `population` names the cut and
-   * `denominator` is the singles count. `refusals` counts the unscored
-   * singles by reason so unmeasured never renders identically to bad. No
-   * CLV *value* is ever combined (the no-aggregate constraint stands until
-   * n >= 30).
-   */
-  clv_coverage?: {
-    population: BetKind;
-    denominator: number;
-    scored: number;
-    refusals: Record<string, number>;
-  };
-  /** When the "not tonight" lockout releases, or null. Same source as the
-   *  slate's tonight block — one table, one clock, two screens. */
-  lockout_until_ms?: number | null;
-  /**
-   * The pass record's headline numbers (slice B6): how many deliberate
-   * "no"s, and since when. A floor, not a census — only taps are recorded.
-   * Passes are never scored, never rated; this is a count and nothing may
-   * grade it. `first_ms` null means none recorded yet, rendered as words.
-   */
-  passes?: {
-    total: number;
-    first_ms: number | null;
-  };
-};
 
 export async function fetchBets(): Promise<BetsRecord> {
   const response = await fetch(`${BASE}/api/bets`, { cache: "no-store" });
@@ -3297,127 +1049,6 @@ export async function fetchBets(): Promise<BetsRecord> {
 }
 
 // -- the manual order path (ADR 0063) ---------------------------------------
-
-export type ManualMarketSide = {
-  ask_tenths: number | null;
-  ask_display: string | null;
-  depth_at_ask: number | null;
-  /**
-   * The venue's charge on ONE contract at this side's ask, in integer
-   * tenths, rounded up (ticket #39). The ticket multiplies it by the typed
-   * count and formats; it never prices a fee itself -- the fee curve is the
-   * server's (`serialise.py`, beside `total_cost_dollars`), and a copy here
-   * would be two money calculations one refresh apart. `null` when there is
-   * no ask or the fee is unreadable, never `0`.
-   */
-  fee_per_contract_tenths: number | null;
-  /**
-   * The venue's charge on one contract at 50c -- the peak of the fee
-   * curve, so a bound on the fee at any price. The ticket prices the
-   * button off it when the max price is raised above the ask, because
-   * the receipt prices the worst case at the sent limit. `null` with
-   * the fee.
-   */
-  fee_ceiling_per_contract_tenths: number | null;
-  /**
-   * How often a bet at this ask has to win to come out even, fee included,
-   * as a fraction. Served, not divided out here, so 50c reads 51.75% and not
-   * the rounded tenth's 51.8%. `null` with the fee.
-   */
-  breakeven_probability: number | null;
-  authorised_contracts: number | null;
-  /**
-   * WHICH bound produced `authorised_contracts`, so the ticket can name it.
-   *
-   * No ceiling of the desk's own is in that number since 2026-09-08 (ADR 0112
-   * Amendment 1) -- it is the structural ceiling, the depth resting at the ask
-   * and what the market's exchange shard can pay for, which are the three
-   * bounds `POST /api/manual-orders` applies to size.
-   *
-   * The distinction is not decoration: waiting for the book to thicken and
-   * moving money between Kalshi shards are different remedies, and a screen
-   * that does not say which one it hit sends the reader to fix the wrong
-   * thing.
-   */
-  authorised_binding:
-    | "structural"
-    | "depth"
-    | "shard"
-    | "price_grid"
-    | "shard_unreadable"
-    | "no_ask"
-    | "no_price_grid";
-};
-
-export type ManualMarket = {
-  ticker: string;
-  /** When the server read the book. The ticket ages it on a tick and offers
-   *  a re-read (ticket #40); nothing on the ticket is gated on it. */
-  observed_ms: number;
-  reachable: boolean;
-  unreachable_reason: string | null;
-  /**
-   * The sportsbook's kickoff for this market, or `null` when the ticker is
-   * unlinked, unrecorded or a combination (ticket #42). `null` renders
-   * nothing -- never "not started", which an unknown does not establish.
-   */
-  commence_ms: number | null;
-  sides: { yes: ManualMarketSide; no: ManualMarketSide };
-  /**
-   * The exchange shard this market settles on, and what that shard holds.
-   *
-   * Kalshi keeps collateral per shard and will not move it to pay for an
-   * order, so the account total is the wrong number and a bet can be
-   * unpayable while the account is funded. `authorised_binding: "shard"`
-   * says that bound bit; these are the figures that make it actionable.
-   *
-   * Every field is `null` when the shard could not be read. An unreadable
-   * balance is not a zero one -- `0` is a real balance, and rendering it
-   * would tell Joe his money is gone.
-   */
-  shard: {
-    index: number | null;
-    available_tenths: number | null;
-    available_display: string | null;
-  };
-  price_grid: string | null;
-  caps: {
-    derived: boolean;
-    max_position_dollars: number | null;
-    max_exposure_dollars: number | null;
-  };
-  cooloff_until_ms: number | null;
-  lockout_until_ms: number | null;
-  dry_run: boolean;
-  /** The path's own size ceiling, served rather than hardcoded here — a
-   *  second definition of a constant that exists to be raised deliberately
-   *  would be a constant kept in sync by memory (ADR 0063). */
-  max_contracts: number;
-  /** A `KXMVE` combination market (ADR 0073). */
-  is_combo: boolean;
-  /** The sentence a combo order must carry, in the server's own words. */
-  combo_note: string | null;
-};
-
-export type ManualOrderPlaced = {
-  status: string;
-  dry_run: boolean;
-  manual_order_id: number;
-  client_order_id: string;
-  ticker: string;
-  side: string;
-  contracts: number;
-  limit_price_display: string;
-  max_price_display: string;
-  worst_case_cost_display: string;
-  kalshi_order_id: string | null;
-  error_text: string | null;
-  cooloff_until_ms: number;
-  note: string;
-  replayed: boolean;
-};
-
-export type ManualOrderResult = WriteResult<ManualOrderPlaced>;
 
 /** The venue's live facts for any ticker — the manual ticket's read. */
 export async function fetchManualMarket(ticker: string): Promise<ManualMarket> {
@@ -3481,200 +1112,6 @@ export async function placeManualOrder(
 // -- held parlays and their hedges (ADR 0078) --------------------------------
 
 /**
- * One leg of a ticket Joe holds, with the venue's live view of it.
- *
- * `chance_display` is a percentage or `"--"`. It comes from the venue's own
- * BID — what somebody will actually pay — and never from a mid. `"--"` means
- * nobody is bidding or the leg has no Kalshi market at all; it never means 0%.
- */
-export type HeldLeg = {
-  id: number;
-  index: number;
-  label: string;
-  ticker: string | null;
-  side: "yes" | "no";
-  league: string | null;
-  commence_ms: number | null;
-  /** The game, as Kalshi titles the event. `null` on a leg recorded before
-   *  schema v43 or typed by hand; the row then shows the label alone. */
-  event_title: string | null;
-  outcome: "pending" | "won" | "lost" | "void";
-  resolved_ms: number | null;
-  /** `venue` is the exchange's own result; `manual` is Joe's word. */
-  resolved_source: "venue" | "manual" | null;
-  chance_display: string;
-  quote_age_ms: number | null;
-  priceable: boolean;
-  is_hedge_leg: boolean;
-};
-
-/** One hedge size, fully costed. Every money field is a rendered string. */
-export type HedgeRung = {
-  contracts: number;
-  cost_display: string;
-  fee_display: string;
-  if_leg_wins_display: string;
-  if_leg_loses_display: string;
-  floor_display: string;
-  floor_is_a_gain: boolean;
-  fillable: boolean;
-  affordable: boolean;
-};
-
-export type HedgeRefusal = { reason: string; detail: string };
-
-/**
- * What hedging would do, or why it cannot be priced.
- *
- * `kind` separates the two states that must never render alike: a `lock` has
- * a figure for what a hedge comes to either way — an estimate, four terms of
- * mixed sign sit on it — and a `derisk` has none; it carries no `guaranteed`
- * field at all, rather than a false one. (`lock` is the wire name of the
- * state and the alert predicate; the screen does not use the word.)
- */
-export type HedgeBlock = {
-  refusal: HedgeRefusal | null;
-  kind?: "lock" | "derisk";
-  ticker?: string;
-  side?: "yes" | "no";
-  ask_display?: string;
-  depth_at_ask?: number | null;
-  ladder?: HedgeRung[];
-  // lock only
-  equalising?: HedgeRung;
-  best_available?: HedgeRung | null;
-  guaranteed?: boolean;
-  guaranteed_display?: string | null;
-  /** The largest measured error term on this ticket's figure, in dollars for
-   * this ticket, as one sentence (`hedge.estimate_grain`). Rendered beside the
-   * figure at the figure's size; never computed with. `null` when there is
-   * no figure to set it beside. */
-  uncertainty_display?: string | null;
-  full_hedge_is_out_of_reach?: boolean;
-  // derisk only
-  live_legs?: number;
-  chance_display?: string;
-  notional_value_display?: string;
-  chance_refusal?: HedgeRefusal | null;
-};
-
-/**
- * What the venue itself said happened to the position's own (combo) market —
- * distinct from every leg's own `outcome`. A `KXMVE` combination can settle
- * before its leg markets do, so this can be non-null while every leg below
- * still reads `pending`; nothing here marks a leg won or lost.
- */
-export type VenueSettlement = {
-  /** Verbatim from the venue. Observed values are "yes" and "no", but this
-   * is not assumed to be the only two. */
-  market_result: string | null;
-  settled_ms: number;
-};
-
-export type HeldPosition = {
-  id: number;
-  label: string;
-  source: "kalshi_combo" | "sportsbook";
-  book: string | null;
-  created_ms: number;
-  placed_ms: number | null;
-  combo_ticker: string | null;
-  stake_display: string;
-  /**
-   * WHOSE price `stake_display` is (ADR 0160). `"venue_fill"` means Kalshi's
-   * own average fill price times the count the venue reported;
-   * `"as_recorded"` means the figure stored with the position — the price the
-   * desk sent, or Joe's typed stake on a sportsbook slip. `null` only on a
-   * payload that never went through `hedge.build_payload`, and it is NOT a
-   * `"venue_fill"`: the card treats an absent basis as unchecked.
-   *
-   * `"venue_exposure"` (#148) is a position `adopt_venue_combo` wrote: the
-   * stake is Kalshi's own `market_exposure_dollars` for the holding, but —
-   * unlike `"venue_fill"` — never itself checked against a fill, because an
-   * adopted row has no order and no RFQ acceptance behind it to check it
-   * against. It renders its own caveat rather than staying silent like
-   * `"venue_fill"`.
-   *
-   * Declared here as of issue #53 (Joe, 2026-09-16), which reversed ADR 0160
-   * §5 — that section left both fields off this file on the `floor_tenths`
-   * precedent, because nothing rendered them. `HedgePositions.tsx` now does.
-   */
-  stake_basis: "venue_fill" | "as_recorded" | "venue_exposure" | null;
-  /**
-   * Which refusal sent the stake back to the recorded figure; `null` on a
-   * `"venue_fill"`. `string` rather than a union of the nine names on
-   * purpose: a server running a reason this build predates is a real state,
-   * and `lib/stakeBasisGloss.ts` renders it verbatim rather than hiding it.
-   */
-  stake_basis_reason: string | null;
-  /** The entry fee the hedge arithmetic sinks beside the stake on a Kalshi
-   * combo (ADR 0145); `null` on a sportsbook slip, whose vig is in its
-   * price. Rendered, never computed with. */
-  entry_fee_display: string | null;
-  return_display: string;
-  state: "lock" | "derisk" | "dead" | "won" | "void_leg" | "not_hedgeable";
-  state_detail: string;
-  /** False means the affordability cap is the book's depth standing in for a
-   * balance nobody could read — never a limit to act on. */
-  bankroll_known: boolean;
-  pending_legs: number;
-  /** Whether this ticket's own market is in the latest complete venue
-   * positions poll. `null` means the question has no answer: either this is
-   * a sportsbook slip (no `combo_ticker`), or there has never been a
-   * complete poll to check against — neither is a `false`. This field closes
-   * nothing (absence from a poll is not a settlement); the venue's own
-   * settlement does close a combination, on the watcher's pass (ADR 0181),
-   * and a hand-recorded slip is still closed only by Joe's tap. */
-  at_venue: boolean | null;
-  /** The venue's own settlement of this ticket's own market, or `null` when
-   * unsettled (or not a combination at all). */
-  venue_settlement: VenueSettlement | null;
-  /**
-   * What the public order book says this combination could be sold back for
-   * right now (#95). Five states that must never collapse into each other:
-   * `null` means "not applicable" and the row says nothing about the public
-   * book at all — `combo_book_reason` names why (`no_ticket`: a
-   * hand-recorded slip has no ticker to read; `no_reader_wired`: this
-   * instance's `/api/hedge` was built with no combo-book reader — true of
-   * every deploy until #128). A non-null block's `state` carries the other
-   * four: `"bid"` (a priced YES level rests — `price_display` and `size`
-   * are set), `"empty"` (a read succeeded and nothing rests), `"unpriced_
-   * interest"` (a level rests finer than a tenth of a cent, per #106 — no
-   * showable price), `"unreadable"` (the read or the parse failed).
-   *
-   * `price_display` and `size` are `null` on every state but `"bid"` —
-   * never `0`, which is a legitimate settled price (`format_price(0)` ===
-   * `"0c"`).
-   */
-  combo_book: {
-    state: "bid" | "empty" | "unpriced_interest" | "unreadable";
-    observed_ms: number;
-    price_display: string | null;
-    size: number | null;
-  } | null;
-  /** Set only when `combo_book` is `null`; names which of the three designed
-   * "not applicable" causes applied. `nothing_pending` is the third (#130,
-   * extended #132, `backend/hedge.py:1958`): either every leg on this
-   * ticket has already resolved, OR the venue has already settled the
-   * combination itself even while a leg still reads `pending` (a combo can
-   * settle at the venue before its leg markets do, `backend/hedge.py:1201`
-   * -- checked against the same `venue_settlements` read this field's own
-   * `venue_settlement` comes from). Either way there is nothing left to
-   * sell out of. Since ADR 0181 a venue-settled combination leaves the
-   * open list on the watcher's next pass, so this reason now mostly marks
-   * the lag between the venue's settlement and that pass, plus rows whose
-   * legs resolved before the venue settled the combination (re-read
-   * `/api/hedge` for the split; a count here would decay, ADR 0162). It is distinct from `no_ticket` and
-   * `no_reader_wired`, which are both about whether a read could even be
-   * attempted. */
-  combo_book_reason: "no_ticket" | "no_reader_wired" | "nothing_pending" | null;
-  legs: HeldLeg[];
-  /** `null` means there is nothing to hedge, which is not the same as a
-   * refusal — that arrives as a block whose `refusal` is set. */
-  hedge: HedgeBlock | null;
-};
-
-/**
  * The ONE "is this bet still live" predicate (#250). Live = a leg still
  * pending AND the venue has not settled the combination. `/bets`'s Open
  * heading, `HedgePositions`' live/settled partition and Nav's badge all call
@@ -3686,57 +1123,9 @@ export function isLive(
   return position.pending_legs > 0 && position.venue_settlement === null;
 }
 
-/** A Kalshi combination the venue holds that no open `HeldPosition` is
- * watching — bought outside the desk (the Kalshi app), so ADR 0125's writer
- * never saw the fill. Singles are out of scope here: a bare market has no
- * other leg to reshape and so no hedge story. */
-export type UnrecordedAtVenue = {
-  ticker: string;
-  contracts: number | null;
-  exposure_display: string;
-  last_seen_ms: number;
-};
-
-export type HedgeScreen = {
-  as_of_ms: number;
-  positions: HeldPosition[];
-  notes: Record<string, string>;
-  /** Combinations the venue holds that nothing here is watching. `[]` is a
-   * real answer only when `venue_poll_ms` is non-null; with no complete poll
-   * yet this is `[]` too, but that means "unknown", not "confirmed none". */
-  unrecorded_at_venue: UnrecordedAtVenue[];
-  /** When the venue positions poll this coverage read is based on last
-   * completed, or `null` when there has never been one. */
-  venue_poll_ms: number | null;
-  /** The same staleness bound a hedge quote is refused past — for dimming a
-   * leg's price on the screen at the same threshold, rather than a second
-   * hardcoded guess of it. */
-  max_quote_age_ms: number;
-};
-
 export async function fetchHedge(): Promise<HedgeScreen> {
   return get<HedgeScreen>("/api/hedge");
 }
-
-export type HeldLegInput = {
-  ticker?: string | null;
-  side: "yes" | "no";
-  label: string;
-  event_ticker?: string | null;
-  league?: string | null;
-  commence_ms?: number | null;
-};
-
-export type HeldPositionInput = {
-  source: "kalshi_combo" | "sportsbook";
-  label: string;
-  stake_cents: number;
-  return_cents: number;
-  legs: HeldLegInput[];
-  book?: string | null;
-  note?: string | null;
-  combo_ticker?: string | null;
-};
 
 /**
  * Every one of these posts to a Next route handler, never to `/api/` directly:
@@ -3782,41 +1171,6 @@ export function closeHeldPosition(
 ) {
   return postHedge("/hedge-close", { position_id: positionId, status });
 }
-
-/**
- * What makers said they would pay for a held combination, asked once (#96).
- *
- * The RFQ half of Joe's (A) to #63 -- read-only; the desk does not sell. The
- * request was withdrawn before this arrived, so nothing here can be taken.
- */
-export type HedgeSellQuote = {
-  /**
-   * `bid`: one or more makers named a price to buy it back. `bid_too_finely`:
-   * makers bid only in hundredths of a cent, which the desk refuses to round.
-   * `no_bid`: nobody bid in the few seconds the desk listened.
-   */
-  status: "bid" | "bid_too_finely" | "no_bid";
-  position_id: number;
-  market_ticker: string;
-  /** The venue's holding, verbatim, and the floored size actually asked. */
-  held_fp: string;
-  asked_fp: string;
-  asked_ms: number;
-  makers_answered: number;
-  refused_bid_too_fine: number;
-  /** Rendered server-side through the ONE price renderer; null with no bid. */
-  best_bid_display: string | null;
-  best_bid_tenths: number | null;
-  bids: {
-    quote_id: string;
-    yes_bid_tenths: number;
-    bid_display: string;
-    /** Contracts behind that bid; null when the maker did not say. */
-    contracts: number | null;
-  }[];
-  /** The server's own sentence, rendered verbatim. */
-  words: string;
-};
 
 export async function askWhatMakersWouldPay(
   positionId: number,
@@ -3864,31 +1218,6 @@ export async function adoptVenueCombo(
 // no offer to take -- 40 of 40 books this tool has read carried no resting YES
 // bid -- so this places one and waits. The types keep that distinction visible
 // rather than calling it a purchase.
-
-export type ComboBidResult = {
-  status: "resting" | "filled" | "partially_filled" | "rejected" | "dry_run";
-  order_row_id: number;
-  kalshi_order_id?: string | null;
-  ticker: string;
-  exchange_index: number;
-  contracts: number;
-  price_tenths: number;
-  words: string;
-};
-
-export type ComboBid = {
-  id: number;
-  ticker: string;
-  card_key: string;
-  status: string;
-  contracts: number;
-  price_display: string;
-  committed_display: string;
-  placed_ms: number;
-  cancel_after_ms: number | null;
-  dry_run: boolean;
-  note: string | null;
-};
 
 export const fetchComboBids = () =>
   get<{ generated_ms: number; bids: ComboBid[] }>("/api/parlays/bids");
@@ -3954,56 +1283,7 @@ export async function cancelComboBid(
     : { ok: false, refusal: result.refusal };
 }
 
-/**
- * The leg scout's TAKE/PASS on one side of one parlay leg (#151, ADR 0186).
- *
- * **Advisory only, and that is enforced above this file, not in it.**
- * `<LegVerdicts>` (`components/LegVerdicts.tsx`) is the one renderer, takes
- * no callback and disables nothing -- these two functions only move bytes.
- *
- * `state` is the server's own read of where this leg's verdict stands:
- *
- *   `cached`  — a complete verdict already exists and is fresh enough to
- *               show; `verdict` and `reason` are set.
- *   `pending` — a verdict is being written right now (this request or an
- *               earlier one); poll again.
- *   `refused` — the budget or the shard turned the request away;
- *               `refusal_reason` says why. Not information about the leg.
- *   `none`    — nobody has asked about this leg, or a `GET` reader found no
- *               row at all. `refusal_reason` carries the server's sentence
- *               either way, so the two cases render identically on screen.
- */
-export type LegVerdictState = "cached" | "pending" | "refused" | "none";
-
-export type LegVerdict = {
-  ticker: string;
-  side: "yes" | "no";
-  state: LegVerdictState;
-  id: number | null;
-  verdict: "take" | "pass" | null;
-  reason: string | null;
-  /** The ask, in words, AT THE TIME the seat looked -- never re-derived
-   *  here, and never re-read for a live price (that is a different call). */
-  ask_display_at_verdict: string | null;
-  age_ms: number | null;
-  refusal_reason: string | null;
-};
-
-export type LegVerdictsResult = {
-  legs: LegVerdict[];
-  /**
-   * `null` on success. Set on any failure to reach or read the server,
-   * including the 503 the backend sends while the seat is switched off --
-   * that case is always worded exactly `"Scouts are off"`, which is the
-   * only sentence `<LegVerdicts>` is allowed to render for it.
-   */
-  error: string | null;
-};
-
 const LEG_VERDICT_MAX_LEGS = 8;
-
-/** One leg identified for a verdict request: what side of what ticker. */
-export type LegVerdictInput = { ticker: string; side: "yes" | "no" };
 
 function legVerdictBody(body: unknown): LegVerdictsResult | null {
   if (
@@ -4056,8 +1336,6 @@ export async function fetchLegVerdicts(
   return legVerdictBody(body) ?? { legs: [], error: UNREADABLE_LEG_VERDICTS };
 }
 
-export type LegVerdictTrigger = "price_tap" | "leg_buys_open" | "card_button";
-
 /**
  * Ask the leg scout to look at these legs, firing a verdict for any that has
  * none cached. Goes through the `/leg-verdicts` Next route handler so the
@@ -4108,53 +1386,6 @@ export async function requestLegVerdicts(
     legVerdictBody(result.value) ?? { legs: [], error: UNREADABLE_LEG_VERDICTS }
   );
 }
-
-/**
- * One leg of a game-script card (#216), with Kalshi's own single-leg ask read
- * by the server when the card was fetched. `ask_tenths` is `null` with
- * `ask_unread_reason` in words when the book could not be read -- never 0.
- * **There is no combined figure in this shape and none may be added**
- * (ADR 0189): each ask is one leg's, and the makers' quote prices the link.
- */
-export type GameScriptLeg = {
-  market_ticker: string;
-  event_ticker: string;
-  side: "yes" | "no";
-  title: string;
-  side_label: string | null;
-  ask_tenths: number | null;
-  ask_display: string | null;
-  ask_unread_reason: string | null;
-};
-
-export type GameScriptCard = {
-  id: number;
-  game_event_ticker: string;
-  sport_key: string;
-  kickoff_ms: number;
-  built_ms: number;
-  status: "built" | "skipped" | "refused_budget" | "refused_invalid";
-  story: string | null;
-  drop_if: string | null;
-  reason: string | null;
-  combo_ticker: string | null;
-  /** Empty on anything but a built card. */
-  legs: GameScriptLeg[];
-  /** Win legs left off because the same team's cover already includes them. */
-  dropped_legs: { market_ticker: string; event_ticker: string; side: string }[];
-  /** The sentence a game with no built card carries; `null` on a built one. */
-  no_card_line: string | null;
-  inactives_line: string;
-  /** Kalshi's own name for the game, or `null` when discovery has none. */
-  game_title: string | null;
-};
-
-/**
- * `GET /api/game-cards`. **The cards arrive in kickoff order and this file
- * never re-sorts them** (ADR 0071); skipped and refused games are in the list
- * with their reason in `no_card_line`.
- */
-export type GameScriptCards = { now_ms: number; cards: GameScriptCard[] };
 
 /** Read the stored cards: one game's, or every upcoming game's. */
 export async function fetchGameCards(

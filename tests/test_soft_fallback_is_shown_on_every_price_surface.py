@@ -237,7 +237,7 @@ class TestTheSurfaceListCannotSilentlyBecomeASubset:
         listed = {p.values[0] for p in PRICE_SURFACES}
         # `api.ts` is the type surface, not a screen: it declares the field
         # and renders nothing.
-        allowed_unlisted = {FRONTEND / "lib" / "api.ts"}
+        allowed_unlisted = {FRONTEND / "lib" / "api.ts", *(FRONTEND / "lib" / "types").glob("*.ts")}
         found = {
             path
             for path in FRONTEND.rglob("*.ts*")

@@ -45,7 +45,7 @@ from pathlib import Path
 
 import backend.hedge as hedge
 
-API_TS = Path(__file__).resolve().parents[1] / "frontend" / "src" / "lib" / "api.ts"
+API_TS = Path(__file__).resolve().parents[1] / "frontend" / "src" / "lib" / "types" / "hedge.ts"
 
 
 def _backend_values(prefix: str, *, exclude_prefix: str | None = None) -> set[str]:

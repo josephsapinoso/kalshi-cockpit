@@ -103,7 +103,7 @@ class TestTheStampTravelsWithThePrice:
 
 class TestTheScreenShowsTheAgeAndMarksIt:
     def test_the_client_type_carries_both_fields(self):
-        source = read(API_TS)
+        source = read(API_TS.parent / "types" / "parlays.ts")
         assert "quoted_ms: number;" in source
         assert "quote_max_age_ms: number | null;" in source
 

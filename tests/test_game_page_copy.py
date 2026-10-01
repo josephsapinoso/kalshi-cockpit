@@ -23,7 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "frontend" / "src"
 COMPONENT = SRC / "components" / "GameLegs.tsx"
-API = SRC / "lib" / "api.ts"
+API = SRC / "lib" / "types" / "parlays.ts"
 
 #: Words that would mean a combined number is being read or drawn. `joint`
 #: covers `joint_chance`, `fair_joint` and `joint_probability`; the rest are

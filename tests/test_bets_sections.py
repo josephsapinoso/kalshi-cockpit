@@ -56,7 +56,7 @@ from test_desk_panels import code_only  # noqa: E402
 REPO = Path(__file__).resolve().parents[1]
 PAGE = REPO / "frontend" / "src" / "app" / "bets" / "page.tsx"
 STRIP = REPO / "frontend" / "src" / "components" / "OpenPositions.tsx"
-API = REPO / "frontend" / "src" / "lib" / "api.ts"
+API = REPO / "frontend" / "src" / "lib" / "types" / "bets.ts"
 
 
 def code(path: Path) -> str:
@@ -205,5 +205,5 @@ class TestStakedIsNeverSummedWithCash:
             assert banned not in text, f"{banned!r} appears in the strip"
 
     def test_the_type_marks_staked_as_a_refusal_first(self):
-        text = code(API)
+        text = code(API.parent / "slate.ts")
         assert "staked_refusal?: string | null;" in text

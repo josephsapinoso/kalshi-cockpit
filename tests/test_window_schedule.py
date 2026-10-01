@@ -29,7 +29,7 @@ FRONTEND = ROOT / "frontend" / "src"
 SCHEDULE = FRONTEND / "components" / "WindowSchedule.tsx"
 # Followed the Board to /board, 2026-08-20 -- "/" is the Slate now.
 BOARD = FRONTEND / "app" / "board" / "page.tsx"
-API = FRONTEND / "lib" / "api.ts"
+API = FRONTEND / "lib" / "types" / "slate.ts"
 
 
 def source(path: Path) -> str:

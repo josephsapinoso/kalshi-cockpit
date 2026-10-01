@@ -807,7 +807,7 @@ class TestTheVerdictIsActuallyTheOneOnScreen:
         assert '"loop_idle_interval_ms": self.loop_idle_interval_ms' in timing
 
     def test_the_type_declares_them_so_a_dropped_field_breaks_the_build(self):
-        api = (REPO / "frontend" / "src" / "lib" / "api.ts").read_text(
+        api = (REPO / "frontend" / "src" / "lib" / "types" / "slate.ts").read_text(
             encoding="utf-8"
         )
         assert "first_window_open_ms: number | null;" in api

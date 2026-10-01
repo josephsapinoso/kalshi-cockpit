@@ -88,7 +88,7 @@ from tests._node_driver import node_driver
 ROOT = Path(__file__).resolve().parents[1]
 HEDGE_PY = ROOT / "backend" / "hedge.py"
 GLOSS_TS = ROOT / "frontend" / "src" / "lib" / "stakeBasisGloss.ts"
-API_TS = ROOT / "frontend" / "src" / "lib" / "api.ts"
+API_TS = ROOT / "frontend" / "src" / "lib" / "types" / "hedge.ts"
 CARD = ROOT / "frontend" / "src" / "components" / "HedgePositions.tsx"
 # #95's own gloss module -- a second vocabulary rendered on this same card,
 # kept as a second file rather than folded into `GLOSS_TS` because it glosses

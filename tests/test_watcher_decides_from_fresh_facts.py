@@ -63,7 +63,7 @@ REPO = Path(__file__).resolve().parents[1]
 LIB_TS = REPO / "frontend" / "src" / "lib" / "nextOddsWindow.ts"
 WATCHER = REPO / "frontend" / "src" / "components" / "RefreshWhenPriced.tsx"
 NAV = REPO / "frontend" / "src" / "components" / "Nav.tsx"
-API_TS = REPO / "frontend" / "src" / "lib" / "api.ts"
+API_TS = REPO / "frontend" / "src" / "lib" / "types" / "slate.ts"
 ENTRYPOINT = REPO / "docker" / "entrypoint.sh"
 ENV_EXAMPLE = REPO / ".env.example"
 
