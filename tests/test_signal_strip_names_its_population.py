@@ -40,7 +40,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STRIP = ROOT / "frontend" / "src" / "components" / "SignalStrip.tsx"
-API_TS = ROOT / "frontend" / "src" / "lib" / "api.ts"
+API_TS = ROOT / "frontend" / "src" / "lib" / "types" / "signal.ts"
 
 
 def _source() -> str:

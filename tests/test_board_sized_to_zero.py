@@ -385,7 +385,7 @@ if (nul !== "sized to 0 at your balance") {
         )
 
     def test_the_types_carry_the_bucket(self):
-        api = source(API_TS)
+        api = source(API_TS.parent / "types" / "slate.ts")
         board = block(api, "export type Board = {", "\n};")
         assert "sized_to_zero: Recommendation[];" in board
         counts = block(board, "counts: {", "};")

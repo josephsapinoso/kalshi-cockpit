@@ -498,7 +498,7 @@ class TestMatchupCategory:
         assert set(re.findall(r"^\s*(\w+):", labels.group(1), re.M)) == set(
             BOARD_CATEGORIES
         )
-        api = (root / "frontend/src/lib/api.ts").read_text(encoding="utf-8")
+        api = (root / "frontend/src/lib/types/scout.ts").read_text(encoding="utf-8")
         for name in ("ScoutFinding", "BoardTile"):
             block = re.search(
                 rf"export type {name} = \{{\s*category:(.*?);", api, re.S

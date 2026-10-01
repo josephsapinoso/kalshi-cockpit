@@ -305,12 +305,12 @@ class TestTheCardComponentClaimsNoCombinedChance:
         assert "{NO_COMBINED_CHANCE_LINE}" in _strip_comments(source)
 
     def test_the_card_types_carry_no_combined_field(self):
-        api = (SRC / "lib" / "api.ts").read_text(encoding="utf-8")
+        api = (SRC / "lib" / "types" / "parlays.ts").read_text(encoding="utf-8")
         blocks = re.findall(
             r"export type GameScript\w+ = \{.*?^\};", api,
             flags=re.DOTALL | re.MULTILINE,
         )
-        assert blocks, "GameScript* types not found in lib/api.ts"
+        assert blocks, "GameScript* types not found in lib/types/parlays.ts"
         assert not FORBIDDEN.findall(_strip_comments("\n".join(blocks)))
 
     def test_the_card_says_inactives_are_not_covered_and_shows_drop_if(self):

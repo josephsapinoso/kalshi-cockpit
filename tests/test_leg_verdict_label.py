@@ -31,4 +31,4 @@ def test_no_user_facing_string_renders_bare_take():
 
 def test_wire_enum_still_contains_take():
     assert re.search(r'["\']take["\']', _text(BACKEND), re.I)
-    assert '"take"' in _text(ROOT / "frontend/src/lib/api.ts")
+    assert '"take"' in _text(ROOT / "frontend/src/lib/types/parlays.ts")

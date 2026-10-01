@@ -176,7 +176,7 @@ class TestPositionRenderingIsUntouched:
 
 class TestTheWireTypeNamesNothingPending:
     def test_the_wire_type_names_nothing_pending(self):
-        source = API_TS.read_text(encoding="utf-8")
+        source = (API_TS.parent / "types" / "hedge.ts").read_text(encoding="utf-8")
         assert '"nothing_pending"' in source
         # Must sit in the same union as the two existing reasons, not a
         # stray string elsewhere in the file.
