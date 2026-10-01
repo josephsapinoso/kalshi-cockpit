@@ -1,4 +1,5 @@
 import type { SettledBet } from "@/lib/api";
+import { dollarsFromTenths } from "@/lib/format";
 
 /**
  * Money in and out, cumulatively, in settlement order.
@@ -77,11 +78,6 @@ export function cumulative(bets: SettledBet[]): {
   return { points, uncomputable };
 }
 
-function dollars(tenths: number): string {
-  const sign = tenths < 0 ? "-" : "";
-  return `${sign}$${(Math.abs(tenths) / 1000).toFixed(2)}`;
-}
-
 export default function RecordChart({ bets }: { bets: SettledBet[] }) {
   const { points, uncomputable } = cumulative(bets);
 
@@ -122,7 +118,7 @@ export default function RecordChart({ bets }: { bets: SettledBet[] }) {
         role="img"
         aria-label={
           `Cumulative net over ${points.length} settled bets, ending ` +
-          `${dollars(last.cumulative)}${last.exact ? "" : " or better"}.`
+          `${dollarsFromTenths(last.cumulative)}${last.exact ? "" : " or better"}.`
         }
       >
         {/* Zero. The only reference a money line needs. */}
@@ -151,7 +147,7 @@ export default function RecordChart({ bets }: { bets: SettledBet[] }) {
           y={y(last.cumulative) + 3}
           className="fill-current font-mono text-[10px]"
         >
-          {dollars(last.cumulative)}
+          {dollarsFromTenths(last.cumulative)}
         </text>
       </svg>
       <p className="mt-1 max-w-[65ch] text-[11px] text-muted">

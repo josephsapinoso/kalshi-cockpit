@@ -34,7 +34,7 @@ from pathlib import Path
 import pytest
 
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend" / "src"
-API_TS = FRONTEND / "lib" / "api.ts"
+API_TS = FRONTEND / "lib" / "format.ts"  # moved from api.ts (#261); api.ts re-exports it
 
 # The single source of truth the components must import.
 PINNED_ZONE = "America/Los_Angeles"

@@ -2,6 +2,9 @@ import Link from "next/link";
 
 import type { Recommendation } from "@/lib/api";
 import { EDGE_TONE_CLASS, EDGE_TONE_MARK, edgeTone } from "@/lib/api";
+import { formatBankroll } from "@/lib/format";
+// `board/page.tsx` imports it from here; the definition moved to `lib/format.ts` (#261).
+export { formatBankroll };
 import { whyRefusedHref } from "@/lib/suppressionGloss";
 import { rowSubject } from "@/lib/rowSubject";
 import LeagueTag from "@/components/LeagueTag";
@@ -55,14 +58,6 @@ import ManualTicket from "@/components/ManualTicket";
  */
 
 export type SlateState = "expired" | "rejected" | "sized-to-zero" | "no-edge";
-
-/**
- * `$1,000`, from the server's `reference_bankroll_dollars`. One place, so the
- * page's sentence and the row's caption cannot print two different figures.
- */
-export function formatBankroll(dollars: number): string {
-  return `$${Math.round(dollars).toLocaleString("en-US")}`;
-}
 
 const CHIP: Record<SlateState, { label: string; className: string }> = {
   expired: {

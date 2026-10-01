@@ -298,9 +298,11 @@ class TestTheScreenNamesTheState:
         """Run the real declarations, as `test_board_screen` does for
         `edgeTone`. Node strips erasable TypeScript natively."""
         row = source(SLATE_ROW)
+        # `formatBankroll` moved to lib/format.ts (#261); the row imports it.
+        fmt = source(SLATE_ROW.parent.parent / "lib" / "format.ts")
         fns = "".join(
-            f"export function {name}(" + block(row, f"export function {name}(", "\n}") + "\n}\n"
-            for name in ("formatBankroll", "sizedToZeroCaption")
+            f"export function {name}(" + block(src, f"export function {name}(", "\n}") + "\n}\n"
+            for name, src in (("formatBankroll", fmt), ("sizedToZeroCaption", row))
         )
         harness = (
             "type Recommendation = { reference_contracts: number | null };\n"

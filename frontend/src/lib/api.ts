@@ -2372,98 +2372,18 @@ export const EDGE_TONE_MARK: Record<EdgeTone, string> = {
   negative: "",
 };
 
-/** Freshness band for a quote age. Drives colour, so the eye reads it. */
-export function freshness(ageMs: number, limitMs: number) {
-  if (ageMs <= limitMs * 0.5) return "fresh" as const;
-  if (ageMs <= limitMs) return "aging" as const;
-  return "stale" as const;
-}
-
-export function formatAge(ms: number): string {
-  if (ms < 1000) return "just now";
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s ago`;
-  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m ago`;
-  return `${(ms / 3_600_000).toFixed(1)}h ago`;
-}
-
-/**
- * The same duration as a *length* rather than a point in time.
- *
- * "quote 40s ago" reads correctly in a metadata row and "this price is 40s ago"
- * does not. Two functions rather than one with a flag, because the difference is
- * grammatical and shows up only when the string is read in a sentence — which
- * is exactly where nothing automated in this repo would catch it.
- */
-export function formatDuration(ms: number): string {
-  if (ms < 1000) return "under a second";
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
-  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
-  return `${(ms / 3_600_000).toFixed(1)}h`;
-}
-
-/**
- * The one timezone every human-facing clock on this product renders in.
- *
- * **Pinned to a zone, not left to the device, and that is the point.** These
- * used to pass `undefined` as the locale, which renders in whatever the browser
- * says -- so the same slot read 16:51 on the phone, 19:51 on a laptop borrowed
- * in another zone, and something else again in a screenshot pasted into a chat.
- * A schedule whose times depend on which screen is reading it cannot be quoted,
- * compared against a previous session, or acted on with any confidence.
- *
- * `America/Los_Angeles`, not a fixed -8 offset, so the switch to and from
- * daylight saving is handled by the platform rather than by us being wrong for
- * eight months of the year. In August this renders PDT; the label is drawn from
- * the same formatter, so it says PDT rather than claiming PST.
- *
- * **The record stays UTC.** Every millisecond on the wire, in the database and
- * in `docs/measurements` is UTC, and none of that changes -- this is a display
- * decision at the last possible moment. The mixing that let a three-hour offset
- * hide for eleven build steps was in *stored* and *compared* values, not in
- * what a phone prints.
- */
-export const DISPLAY_TIME_ZONE = "America/Los_Angeles";
-
-/** `PDT` / `PST`, drawn from the formatter so it cannot claim the wrong one. */
-export function displayZoneLabel(ms: number = Date.now()): string {
-  const part = new Intl.DateTimeFormat("en-US", {
-    timeZone: DISPLAY_TIME_ZONE,
-    timeZoneName: "short",
-  })
-    .formatToParts(new Date(ms))
-    .find((p) => p.type === "timeZoneName");
-  return part?.value ?? "PT";
-}
-
-/** A clock time, for a moment the user has to act at rather than react to. */
-export function formatClock(ms: number | null): string {
-  if (!ms) return "";
-  return new Date(ms).toLocaleTimeString("en-US", {
-    timeZone: DISPLAY_TIME_ZONE,
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-/** "in 12m" / "in 3h 20m". Used for a future instant; `formatAge` is the past. */
-export function formatUntil(ms: number): string {
-  if (ms <= 0) return "now";
-  const minutes = Math.round(ms / 60_000);
-  if (minutes < 1) return "in under a minute";
-  if (minutes < 60) return `in ${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  return `in ${hours}h ${minutes % 60}m`;
-}
-
-export function formatKickoff(ms: number | null): string {
-  if (!ms) return "";
-  return new Date(ms).toLocaleString("en-US", {
-    timeZone: DISPLAY_TIME_ZONE,
-    weekday: "short",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
+// The formatters live in `./format` (ADR 0191 follow-up, #261); re-exported so every
+// existing import from `@/lib/api` keeps working.
+export {
+  DISPLAY_TIME_ZONE,
+  displayZoneLabel,
+  formatAge,
+  formatClock,
+  formatDuration,
+  formatKickoff,
+  formatUntil,
+  freshness,
+} from "./format";
 
 /** One strategy version, and the evidence recorded while it was in force. */
 export type ConfigVersion = {
