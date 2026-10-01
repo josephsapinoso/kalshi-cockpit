@@ -134,7 +134,7 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-10-01 (seventy-sixth session) — architecture review; every frontend write goes through one transport module (ADR 0191, #257–#260 live on `7b7693c`); the formatter lane is out (#261)
+## 2026-10-01 (seventy-sixth session) — architecture review; every frontend write goes through one transport module (ADR 0191); api.ts split into transport, format and types (#257–#262, live on `ea53d22`); A+B positions module grilled and ticketed (#263)
 
 Joe ran `/improve-codebase-architecture` with no direction. Hot spots by commits since 09-01: `lib/api.ts` (68), `routes.py` (45), `db.py`/`schema.sql`, `parlays.py`, `hedge.py`. The review covered nine candidates, A–I. The report was a temp HTML file, not committed. Joe picked **C** and answered twelve grilling questions, taking every recommendation.
 
@@ -143,16 +143,21 @@ Joe ran `/improve-codebase-architecture` with no direction. Hot spots by commits
 - **#259 (lane, merged `3550a72`).** The transport, plus the 15 non-spending writes. The three throwers (lockout, log/revise estimate) now return a result.
 - **#260 (main, `7b7693c`).** The five spend/order writes are on the transport. **`placeManualOrder` and `placeOrder` no longer say "Nothing was sent to the exchange"** when a connection drops, because a drop after the cockpit has forwarded the order would make that false. A 2xx that can't be read no longer renders as a placed order. `TestASpendWriteNeverClaimsNothingHappened` pins this; mutation-checked.
 - **Live on `7b7693c`.** CI 36913330692 green, deploy 36914146238, `/api/health` read. Joe approved the merges and the deploy in this session.
-- **Opened under story #258:** #261 (formatter module, candidate D, lane **dispatched**) and #262 (type split, blocked by #261).
-- **The other eight candidates have no ticket, and none is owed; Joe picked C.** **A + B** (one positions module, plus moving the manual-order path out of `create_app`) carry the most leverage, but they conflict with ADR 0160 and are money-path work for the main session. Only reopen them if Joe names them.
+- **#261 (lane, merged `d9b98c6`, live).** `lib/format.ts` owns time, age, duration, dollars and percent. Every lookalike pair differed at a pinned boundary, so **none merged**; each copy is a named function. The test hard-codes outputs captured before the move. The lane missed one test, which read `DISPLAY_TIME_ZONE` from api.ts; I repointed it in `8b5e215`.
+- **#262 (lane, merged `ea53d22`, live).** 112 wire types moved into `lib/types/{parlays,slate,scout,signal,hedge,market,orders,bets}.ts`. `api.ts` went from 4,219 to 1,450 lines and holds functions only. The priced-surface registry names `types/parlays.ts` and `types/signal.ts`, and its completeness test still fails on any unregistered priced file. Story #258 is closed.
+- **Every merge this session** got a full-suite run on the branch first: 9,528 and 9,536 passed, 0 failed. CI was green before each deploy, and `/api/health` was read after each one.
+- **A+B grilled → story #263.** Joe answered 8 questions, taking every recommendation:
+  - Schema v60 records which fill produced each position, and new rows store the venue's fill price with its basis. This supersedes ADR 0160 §2.1 for new rows only. No backfill.
+  - Fractional fills are recorded on both paths, and the stake checks run once at write.
+  - The work is three main-session slices, S1–S3. S2 and S3 get a kalshi-platform review.
+  - The ADR is the next step and is **not written yet**.
+- **Candidates E–I have no ticket and none is owed.** Joe named C, D and A+B.
 
 ### Still open
 
-1. #261 — the formatter lane was dispatched this session. Read its report, check that the captured pre-move outputs are hard-coded, then merge. It was told to change no displayed string.
-2. #262 — wire types move out of `api.ts` into `lib/types/`. Blocked by #261. Joe has not yet said whether to dispatch it.
-3. #258 — the story closes when #261 and #262 do.
-4. #220 — on or after 2026-10-05: game-script cards review, plus `credits-day --date 2026-10-04`, plus the first Matchup tile.
-5. #210, #165, #169, #151 — unchanged. #255 — November.
+1. #263 — write ADR 0192 (A+B positions module) from the eight settled answers in the story body, then open tasks S1–S3 under it. Main session only.
+2. #220 — on or after 2026-10-05: game-script cards review, `credits-day --date 2026-10-04`, first Matchup tile.
+3. #210, #165, #169, #151 — unchanged. #255 — November.
 
 ## 2026-10-01 (seventy-fifth session) — the CLV signal test's registered result is in: UNRESOLVED at G = 1000; #233 answered
 
@@ -1379,7 +1384,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
-- 2026-10-01 (seventy-sixth session) — architecture review; every frontend write goes through one transport module (ADR 0191, #257–#260 live on `7b7693c`); the formatter lane is out (#261)
+- 2026-10-01 (seventy-sixth session) — architecture review; every frontend write goes through one transport module (ADR 0191); api.ts split into transport, format and types (#257–#262, live on `ea53d22`); A+B positions module grilled and ticketed (#263)
 - 2026-10-01 (seventy-fifth session) — the CLV signal test's registered result is in: UNRESOLVED at G = 1000; #233 answered
 - 2026-09-30 (seventy-fourth session) — all-hands conference on the live desk; epic #224 built and deployed; Joe answered all seven questions
 - 2026-09-30 (seventy-third session) — nothing due: #188 closed as won't-do; #210's close moves into #220 because no matchup tile exists yet
