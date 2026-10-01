@@ -84,6 +84,12 @@ from .signal_test import (
 # The CLV signal test's registered extraction.
 # ---------------------------------------------------------------------------
 #
+# The registered section 8 result file (#226, #256). A constant pointer only:
+# the strip names it once section 7's stop has fired, because the strip's own
+# figure is a live recompute and not the registered result. It changes no
+# statistic.
+REGISTERED_RESULT_DOC = "docs/measurements/2026-10-01-clv-signal-test-result.md"
+#
 # **This is §S1 of `docs/measurements/2026-08-09-preregistration-clv-signal-test.md`,
 # as amended, and it is a transcription rather than a design.** Every clause
 # below is fixed in that file. Nothing here chooses a population, a horizon or

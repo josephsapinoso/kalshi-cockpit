@@ -155,6 +155,19 @@ export default function SignalStrip({
         because nothing on the page said which games were being counted. A
         number compared against a threshold has to name its population.
       */}
+      {signal.frozen && (
+        <p className="mt-1 max-w-[65ch] px-5 text-xs leading-relaxed text-muted">
+          Collection under this registration has ended. This strip is a
+          frozen live recompute and is{" "}
+          <strong className="font-semibold text-foreground">not the registered result</strong>.
+          The registered result is{" "}
+          <code className="rounded bg-accent-soft px-1 py-0.5 font-mono text-xs text-accent">
+            docs/measurements/2026-10-01-clv-signal-test-result.md
+          </code>
+          : UNRESOLVED, which is not the same as no signal.
+        </p>
+      )}
+
       {modal_config_applied && (
         <p className="mt-1 max-w-[65ch] px-5 text-xs leading-relaxed text-muted">
           Counting <strong className="font-semibold text-foreground">

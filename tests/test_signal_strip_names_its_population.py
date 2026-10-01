@@ -97,3 +97,45 @@ class TestTheScreenNamesThePopulationItCounted:
             "strategy_config_versions",
         ):
             assert field in api, field
+
+
+RESULT_DOC = "docs/measurements/2026-10-01-clv-signal-test-result.md"
+
+
+class TestTheStripNamesTheRegisteredResultOnceTheStopFired:
+    """#256. Past section 7's stop the strip is a frozen live recompute, and
+    the registered answer is the section 8 file, not the strip.
+
+    Source-text assertions only (no JS runner): they prove the pointer is
+    written and conditional on `signal.frozen`, not that it renders.
+    """
+
+    def test_the_copy_names_the_result_file(self):
+        """Mutation observed red: remove the path from SignalStrip.tsx."""
+        assert RESULT_DOC in _source()
+
+    def test_the_pointer_is_conditional_on_the_stop_having_fired(self):
+        """Before the stop there is no result file to point at.
+
+        Mutation observed red: drop the `signal.frozen &&` guard.
+        """
+        assert "{signal.frozen && (" in _source()
+
+    def test_it_says_its_own_figure_is_not_the_registered_one(self):
+        assert "not the registered result" in _source()
+
+    def test_the_backend_constant_matches_the_frontend_pointer(self):
+        from backend.analysis.clv_signal import REGISTERED_RESULT_DOC
+
+        assert REGISTERED_RESULT_DOC == RESULT_DOC
+        assert (ROOT / RESULT_DOC).exists()
+
+    def test_unresolved_is_never_rendered_as_no_signal_in_the_stopped_copy(self):
+        """The stopped-state copy may only say 'no signal' to refuse it."""
+        source = _source()
+        start = source.index("{signal.frozen && (")
+        block = source[start : source.index(")}", start)].lower()
+        assert "unresolved" in block
+        for line in block.splitlines():
+            if "no signal" in line:
+                assert "not " in line or "never" in line, line
