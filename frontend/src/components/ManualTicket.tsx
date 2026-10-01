@@ -108,7 +108,6 @@ import {
   formatAge,
   formatDuration,
   placeManualOrder,
-  refusalText,
   type ManualMarket,
   type ManualMarketSide,
   type ManualOrderPlaced,
@@ -366,7 +365,7 @@ export default function ManualTicket({
       setPhase({
         name: "refused",
         status: result.status,
-        words: refusalText(result.detail),
+        words: result.refusal,
         calm: result.status === 423,
       });
     }

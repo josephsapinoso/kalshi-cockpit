@@ -24,6 +24,11 @@ export type WriteOptions<T> = {
   /** Omitted: no body and no Content-Type are sent (`/lockout`). */
   body?: unknown;
   signal?: AbortSignal;
+  /**
+   * Extra request headers, merged over the JSON Content-Type. Only the engine
+   * order path uses it, for its optional bearer (`placeOrder`).
+   */
+  headers?: Record<string, string>;
   /** The sentence when the request got no reply. REQUIRED, no default. */
   noReply: (error: unknown) => string;
   /** The sentence when a reply cannot be read. REQUIRED, no default. */
@@ -81,16 +86,27 @@ export function refusalText(detail: unknown): string {
 }
 
 export async function postJson<T>(options: WriteOptions<T>): Promise<WriteResult<T>> {
-  const { path, body, signal, noReply, unreadable, shape, tolerateEmptyBody, noDetail } =
-    options;
+  const {
+    path,
+    body,
+    signal,
+    headers,
+    noReply,
+    unreadable,
+    shape,
+    tolerateEmptyBody,
+    noDetail,
+  } = options;
   let response: Response;
   try {
     response = await fetch(path, {
       method: "POST",
       ...(body === undefined
-        ? {}
+        ? headers
+          ? { headers }
+          : {}
         : {
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...(headers ?? {}) },
             body: JSON.stringify(body),
           }),
       cache: "no-store",

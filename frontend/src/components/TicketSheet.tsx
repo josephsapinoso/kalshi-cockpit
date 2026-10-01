@@ -579,7 +579,7 @@ function Answer({ result }: { result: OrderResult }) {
   if (result.status === 423 && isLockedDetail(result.detail)) {
     return <GateLocked detail={result.detail} />;
   }
-  return <Refused status={result.status} detail={result.detail} />;
+  return <Refused status={result.status} detail={result.refusal} />;
 }
 
 /**

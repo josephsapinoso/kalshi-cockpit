@@ -15,8 +15,8 @@ Establishes:
     `engageLockout` (a former thrower) now returns a result instead of throwing.
   * by source text: the two sentences are REQUIRED parameters with no default,
     every `postJson` call in `api.ts` supplies both, and no `method: "POST"`
-    remains in `api.ts` outside the five spend helpers (#260 removes that
-    allowlist).
+    remains in `api.ts` outside the transport (#260 emptied the spend
+    allowlist), and every spend write sends Joe to the Kalshi app on a lost reply.
 
 Does not establish: what any component does with the result, or that the
 route handlers behind the paths answer as the stub does.
@@ -40,15 +40,15 @@ TRANSPORT = LIB / "transport.ts"
 API = LIB / "api.ts"
 NODE = shutil.which("node")
 
-#: The five writes #260 converts under the money-path rule. Removed by that
-#: task, not by this one.
-SPEND_HELPERS = {
-    "placeOrder",
-    "placeManualOrder",
-    "acceptComboQuote",
-    "placeComboBid",
-    "cancelComboBid",
-}
+#: Was the five spend writes until #260 converted them (2026-10-01). Empty
+#: now: no write in `api.ts` may POST outside the transport.
+SPEND_HELPERS: set[str] = set()
+
+#: The writes that can move money at the venue (CONTEXT.md "Spend write").
+#: A lost or unreadable reply on these is UNKNOWN (ADR 0191 section 2.3), so
+#: their sentences must send Joe to the Kalshi app and never claim nothing
+#: happened.
+SPENDING = ("placeOrder", "placeManualOrder", "acceptComboQuote", "placeComboBid")
 
 # Node strips types but does not resolve `./transport` to `./transport.ts`;
 # the bundler does. Same hook as tests/test_sweep_tone_predicate.py.
@@ -236,3 +236,36 @@ class TestNoStrayPost:
             if owner not in SPEND_HELPERS:
                 stray.append(owner)
         assert stray == []
+
+
+def _function_body(code: str, name: str) -> str:
+    start = code.index(f"export async function {name}(")
+    return code[start : code.index("\n}\n", start)]
+
+
+class TestASpendWriteNeverClaimsNothingHappened:
+    """ADR 0191 section 2.3: on a spend write a lost reply is UNKNOWN."""
+
+    @pytest.mark.parametrize("name", SPENDING)
+    def test_it_goes_through_the_transport(self, name):
+        body = _function_body(API.read_text(encoding="utf-8"), name)
+        assert "postJson<" in body
+
+    @pytest.mark.parametrize("name", SPENDING)
+    @pytest.mark.parametrize("sentence", ["noReply", "unreadable"])
+    def test_both_sentences_send_him_to_the_kalshi_app(self, name, sentence):
+        body = _function_body(API.read_text(encoding="utf-8"), name)
+        if sentence == "unreadable" and re.search(r"^\s*unreadable,", body, re.M):
+            # Shorthand for a local `const unreadable = ...` in the same body.
+            text = body[body.index("const unreadable") : body.index("return postJson")]
+        else:
+            text = body[body.index(f"{sentence}:") :]
+            text = text[: re.search(r"\n\s*\w+[:,]\s", text[1:]).start() + 1]
+        assert "Kalshi app" in text, (name, sentence, text)
+        assert not re.search(
+            r"\bnothing\b|\bnot (been )?sent\b|\bnot placed\b", text, re.I
+        ), (name, sentence, text)
+
+    def test_no_spend_sentence_says_nothing_was_sent(self):
+        code = _code_only(API.read_text(encoding="utf-8"))
+        assert "Nothing was sent to the exchange" not in code

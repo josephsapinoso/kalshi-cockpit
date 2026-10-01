@@ -462,9 +462,7 @@ export type LockedDetail = {
  * this phone could not be heard. Telling a person on a train that Kalshi is
  * down when their signal dropped sends them looking in the wrong place.
  */
-export type OrderResult =
-  | { ok: true; status: number; value: OrderPlaced }
-  | { ok: false; status: number; detail: unknown };
+export type OrderResult = WriteResult<OrderPlaced>;
 
 /**
  * Ask the server to place an order. The client sends a recommendation id and a
@@ -507,47 +505,27 @@ export async function placeOrder(
   idempotencyKey: string,
   token?: string,
 ): Promise<OrderResult> {
-  let response: Response;
-  try {
-    response = await fetch(`${BASE}/api/orders`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      cache: "no-store",
-      body: JSON.stringify({
-        recommendation_id: recommendationId,
-        contracts,
-        idempotency_key: idempotencyKey,
-      }),
-    });
-  } catch (error) {
-    // A thrown fetch is not a refusal and must not render as one. Nothing was
-    // decided, so nothing can be reported about the order -- only about the
-    // connection.
-    return {
-      ok: false,
-      status: 0,
-      detail: `The request did not reach the cockpit (${
-        error instanceof Error ? error.message : "network error"
-      }). Nothing was sent to the exchange.`,
-    };
-  }
-
-  // A body that is not JSON is itself information -- a proxy error page, a
-  // login redirect. Keep the status and say the body was unreadable rather
-  // than swallowing it into an empty object that renders as a blank refusal.
-  const body: unknown = await response.json().catch(() => null);
-  if (response.ok) {
-    return { ok: true, status: response.status, value: (body ?? {}) as OrderPlaced };
-  }
-  const detail =
-    body && typeof body === "object" && "detail" in body
-      ? (body as { detail: unknown }).detail
-      : (body ??
-        `HTTP ${response.status}, and the body was not readable as JSON.`);
-  return { ok: false, status: response.status, detail };
+  // A lost reply is UNKNOWN, not "nothing happened" (ADR 0191 section 2.3):
+  // a connection can drop after the cockpit has already sent the order on, so
+  // neither sentence below may claim nothing was sent. The engine path is dry
+  // today (ORDERS_ARE_DRY_RUNS); the words are written for the day it is not.
+  // A 2xx that cannot be read is unreadable too, never a placed order.
+  return postJson<OrderPlaced>({
+    path: `${BASE}/api/orders`,
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: {
+      recommendation_id: recommendationId,
+      contracts,
+      idempotency_key: idempotencyKey,
+    },
+    noReply: (error) =>
+      `The order's answer never arrived (${networkMessage(error)}). It may ` +
+      "have reached the exchange -- check the Kalshi app before trying again.",
+    unreadable: (status) =>
+      `HTTP ${status}, and the answer was not readable. The order may have ` +
+      "reached the exchange -- check the Kalshi app before trying again.",
+    noDetail: (status) => `HTTP ${status}, and the refusal carried no reason.`,
+  });
 }
 
 /** Whether a refusal body is the gate's structured one rather than a string. */
@@ -1337,45 +1315,23 @@ export type ComboRfqAcceptResult = {
 export async function acceptComboQuote(
   rfqId: string,
   quoteId: string,
-): Promise<
-  { ok: true; value: ComboRfqAcceptResult } | { ok: false; refusal: string }
-> {
-  let response: Response;
-  try {
-    response = await fetch("/parlay-rfq-accept", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({ rfq_id: rfqId, quote_id: quoteId }),
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      refusal:
-        `The acceptance did not complete (${
-          error instanceof Error ? error.message : "network error"
-        }). It may still have reached Kalshi — this desk will not send it ` +
-        "again. Check the Kalshi app before tapping anything else.",
-    };
-  }
-
-  const body: unknown = await response.json().catch(() => null);
-  if (response.ok) {
-    if (body && typeof body === "object" && "status" in body) {
-      return { ok: true, value: body as ComboRfqAcceptResult };
-    }
-    return {
-      ok: false,
-      refusal:
-        "The answer came back in a shape this screen cannot read. Check the " +
-        "Kalshi app rather than trusting anything shown here.",
-    };
-  }
-  const detail =
-    body && typeof body === "object" && "detail" in body
-      ? refusalText((body as { detail: unknown }).detail)
-      : `HTTP ${response.status}`;
-  return { ok: false, refusal: detail };
+): Promise<WriteResult<ComboRfqAcceptResult>> {
+  // This call SPENDS. Nothing on it retries, ever (ADR 0164/0165), and a lost
+  // or unreadable answer is UNKNOWN: the acceptance may have executed.
+  const unreadable = () =>
+    "The answer came back in a shape this screen cannot read. Check the " +
+    "Kalshi app rather than trusting anything shown here.";
+  return postJson<ComboRfqAcceptResult>({
+    path: "/parlay-rfq-accept",
+    body: { rfq_id: rfqId, quote_id: quoteId },
+    shape: (body) => !!body && typeof body === "object" && "status" in body,
+    noReply: (error) =>
+      `The acceptance did not complete (${networkMessage(error)}). It may ` +
+      "still have reached Kalshi — this desk will not send it again. " +
+      "Check the Kalshi app before tapping anything else.",
+    unreadable,
+    noDetail: unreadable,
+  });
 }
 
 export async function askMarketToPrice(
@@ -2807,7 +2763,7 @@ export async function logEstimate(body: {
     body,
     noReply: (error) =>
       `The request did not reach the cockpit (${networkMessage(error)}). ` +
-      "The estimate was not logged.",
+      "The estimate may not have been logged -- check the recent list before logging it again.",
     unreadable: (status) => `logging failed (${status})`,
   });
 }
@@ -2822,7 +2778,7 @@ export async function reviseEstimate(
     body: { id, reason },
     noReply: (error) =>
       `The request did not reach the cockpit (${networkMessage(error)}). ` +
-      "The revision was not recorded.",
+      "The revision may not have been recorded -- check the recent list before revising again.",
     unreadable: (status) => `revision failed (${status})`,
     tolerateEmptyBody: true,
   });
@@ -3541,9 +3497,7 @@ export type ManualOrderPlaced = {
   replayed: boolean;
 };
 
-export type ManualOrderResult =
-  | { ok: true; status: number; value: ManualOrderPlaced }
-  | { ok: false; status: number; detail: unknown };
+export type ManualOrderResult = WriteResult<ManualOrderPlaced>;
 
 /** The venue's live facts for any ticker — the manual ticket's read. */
 export async function fetchManualMarket(ticker: string): Promise<ManualMarket> {
@@ -3579,43 +3533,29 @@ export async function placeManualOrder(
     combo_acknowledged?: boolean;
   },
 ): Promise<ManualOrderResult> {
-  let response: Response;
-  try {
-    // **No token parameter since 2026-09-08.** This posts to the same-origin
-    // `/manual-order` route handler, which proves session by cookie and adds
-    // the bearer server-side -- the pattern `/parlay-bid` and `/refresh-odds`
-    // already used. The browser deliberately holds no bearer token
-    // (`lib/session.ts`), and Joe removed the typed one
-    // (`docs/adr/0112-the-caps-come-off-the-hand-bet-path.md` §1).
-    response = await fetch(`/manual-order`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify(body),
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      status: 0,
-      detail: `The request did not reach the cockpit (${
-        error instanceof Error ? error.message : "network error"
-      }). Nothing was sent to the exchange.`,
-    };
-  }
-  const parsed: unknown = await response.json().catch(() => null);
-  if (response.ok) {
-    return {
-      ok: true,
-      status: response.status,
-      value: (parsed ?? {}) as ManualOrderPlaced,
-    };
-  }
-  const detail =
-    parsed && typeof parsed === "object" && "detail" in parsed
-      ? (parsed as { detail: unknown }).detail
-      : (parsed ??
-        `HTTP ${response.status}, and the body was not readable as JSON.`);
-  return { ok: false, status: response.status, detail };
+  // **No token parameter since 2026-09-08.** This posts to the same-origin
+  // `/manual-order` route handler, which proves session by cookie and adds
+  // the bearer server-side -- the pattern `/parlay-bid` and `/refresh-odds`
+  // already used. The browser deliberately holds no bearer token
+  // (`lib/session.ts`), and Joe removed the typed one
+  // (`docs/adr/0112-the-caps-come-off-the-hand-bet-path.md` section 1).
+  //
+  // This is the ARMED path. A lost or unreadable reply is UNKNOWN (ADR 0191
+  // section 2.3): the order may have filled. Until 2026-10-01 the no-reply
+  // sentence said "Nothing was sent to the exchange", which a connection
+  // dropped after the cockpit forwarded the order would have made false.
+  return postJson<ManualOrderPlaced>({
+    path: "/manual-order",
+    body,
+    noReply: (error) =>
+      `The order's answer never arrived (${networkMessage(error)}). It may ` +
+      "have reached Kalshi and filled -- check the Kalshi app before tapping " +
+      "again.",
+    unreadable: (status) =>
+      `HTTP ${status}, and the answer was not readable. The order may have ` +
+      "reached Kalshi and filled -- check the Kalshi app before tapping again.",
+    noDetail: (status) => `HTTP ${status}, and the refusal carried no reason.`,
+  });
 }
 
 // -- held parlays and their hedges (ADR 0078) --------------------------------
@@ -4046,78 +3986,52 @@ export async function placeComboBid(input: {
   legs: { event_ticker: string; market_ticker: string }[];
   priceTenths: number;
   stakeCents: number;
-}): Promise<
-  { ok: true; value: ComboBidResult } | { ok: false; refusal: string }
-> {
-  let response: Response;
-  try {
-    response = await fetch("/parlay-bid", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({
-        card_key: input.cardKey,
-        legs: input.legs,
-        price_tenths: input.priceTenths,
-        stake_cents: input.stakeCents,
-        combo_acknowledged: true,
-      }),
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      // **Not "nothing happened".** The request may have reached the exchange
-      // and left a bid standing; telling him otherwise is how he places a
-      // second one.
-      refusal:
-        `The request did not reach the cockpit (${
-          error instanceof Error ? error.message : "network error"
-        }). The bid may still have been placed — check the resting bids ` +
-        "panel and the Kalshi app before trying again.",
-    };
-  }
-
-  const body: unknown = await response.json().catch(() => null);
-  if (response.ok && body && typeof body === "object" && "status" in body) {
-    return { ok: true, value: body as ComboBidResult };
-  }
-  const detail =
-    body && typeof body === "object" && "detail" in body
-      ? refusalText((body as { detail: unknown }).detail)
-      : `The cockpit refused the bid (HTTP ${response.status}).`;
-  return { ok: false, refusal: detail };
+}): Promise<WriteResult<ComboBidResult>> {
+  // **Not "nothing happened".** The request may have reached the exchange
+  // and left a bid standing; telling him otherwise is how he places a
+  // second one. The bid path is disarmed (ADR 0115); the words are kept for
+  // the day it is re-armed.
+  return postJson<ComboBidResult>({
+    path: "/parlay-bid",
+    body: {
+      card_key: input.cardKey,
+      legs: input.legs,
+      price_tenths: input.priceTenths,
+      stake_cents: input.stakeCents,
+      combo_acknowledged: true,
+    },
+    shape: (body) => !!body && typeof body === "object" && "status" in body,
+    noReply: (error) =>
+      `The request did not reach the cockpit (${networkMessage(error)}). ` +
+      "The bid may still have been placed — check the resting bids " +
+      "panel and the Kalshi app before trying again.",
+    unreadable: (status) =>
+      `The cockpit's answer about the bid was not readable (HTTP ${status}). ` +
+      "The bid may still have been placed — check the resting bids " +
+      "panel and the Kalshi app before trying again.",
+    noDetail: (status) => `The cockpit refused the bid (HTTP ${status}).`,
+  });
 }
 
 /** Take a resting bid back. Same no-throw contract as placing one. */
 export async function cancelComboBid(
   bidId: number,
 ): Promise<{ ok: true; words: string } | { ok: false; refusal: string }> {
-  let response: Response;
-  try {
-    response = await fetch("/parlay-bid-cancel", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({ bid_id: bidId }),
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      refusal:
-        `The cancel did not reach the cockpit (${
-          error instanceof Error ? error.message : "network error"
-        }). The bid may still be resting — check the Kalshi app.`,
-    };
-  }
-  const body: unknown = await response.json().catch(() => null);
-  if (response.ok && body && typeof body === "object" && "words" in body) {
-    return { ok: true, words: String((body as { words: unknown }).words) };
-  }
-  const detail =
-    body && typeof body === "object" && "detail" in body
-      ? refusalText((body as { detail: unknown }).detail)
-      : `The cancel was refused (HTTP ${response.status}).`;
-  return { ok: false, refusal: detail };
+  const result = await postJson<{ words: unknown }>({
+    path: "/parlay-bid-cancel",
+    body: { bid_id: bidId },
+    shape: (body) => !!body && typeof body === "object" && "words" in body,
+    noReply: (error) =>
+      `The cancel did not reach the cockpit (${networkMessage(error)}). ` +
+      "The bid may still be resting — check the Kalshi app.",
+    unreadable: (status) =>
+      `The cancel's answer was not readable (HTTP ${status}). The bid may ` +
+      "still be resting — check the Kalshi app.",
+    noDetail: (status) => `The cancel was refused (HTTP ${status}).`,
+  });
+  return result.ok
+    ? { ok: true, words: String(result.value.words) }
+    : { ok: false, refusal: result.refusal };
 }
 
 /**
