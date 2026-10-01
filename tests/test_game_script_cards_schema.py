@@ -41,7 +41,7 @@ class TestTheMigration:
         conn.close()
 
         conn = db.init_db(tmp_path / "a.db")
-        assert db.get_meta(conn, "schema_version") == "59"
+        assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
         names = {
             r[0]
             for r in conn.execute(

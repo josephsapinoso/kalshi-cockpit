@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from ... import hedge as held_parlays
+from ... import positions
 from ...combo_rfq import ask_makers_to_buy_back
 from ...config import AppConfig, ConfigError, StalenessConfig
 from ...parlays import LookupRefused
@@ -102,7 +103,9 @@ def register(
         """
         write_conn = db.open_db(app_config.db_path)
         try:
-            position_id = held_parlays.record_position(
+            # ADR 0192: through the one writer, which stores the slip's
+            # provenance (`fill_source = 'hand'`) with it.
+            position_id = positions.record_hand_entry(
                 write_conn,
                 now_ms=db.now_ms(),
                 source=request.source,

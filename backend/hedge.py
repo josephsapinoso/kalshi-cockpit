@@ -453,8 +453,19 @@ def record_position(
     combo_ticker: Optional[str] = None,
     parlay_lookup_id: Optional[int] = None,
     note: Optional[str] = None,
+    fill_source: Optional[str] = None,
+    fill_ref: Optional[int] = None,
+    stake_basis: Optional[str] = None,
+    stake_basis_reason: Optional[str] = None,
 ) -> int:
     """Record a ticket Joe holds. Returns its id, or raises `PositionRefused`.
+
+    **The insert, not the policy** (ADR 0192). `backend/positions.py` is its
+    caller: that module decides the stake, the fractional rule and the four
+    provenance fields (`fill_source`, `fill_ref`, `stake_basis`,
+    `stake_basis_reason`) and passes them here. They default to NULL, which is
+    what every row written before schema v60 carries and what `/hedge` reads
+    as "resolve this one by ADR 0160's join".
 
     The ticket arithmetic is validated HERE, at entry, and not only at alert
     time -- a misplaced decimal point can still be corrected while he is typing
@@ -476,8 +487,9 @@ def record_position(
         """
         INSERT INTO parlay_positions (
             created_ms, source, book, label, stake_tenths, return_tenths,
-            placed_ms, status, combo_ticker, parlay_lookup_id, note
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)
+            placed_ms, status, combo_ticker, parlay_lookup_id, note,
+            fill_source, fill_ref, stake_basis, stake_basis_reason
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             now_ms,
@@ -490,6 +502,10 @@ def record_position(
             combo_ticker,
             parlay_lookup_id,
             note,
+            fill_source,
+            fill_ref,
+            stake_basis,
+            stake_basis_reason,
         ),
     )
     position_id = int(cursor.lastrowid)
@@ -882,6 +898,26 @@ def stake_basis_for(
     return StakeBasis(contracts * int(price), STAKE_BASIS_VENUE_FILL, None)
 
 
+def stored_stake_basis(position: Mapping[str, Any]) -> Optional[StakeBasis]:
+    """The basis `backend/positions.py` decided and stored at write time, or
+    `None` when the row carries none (ADR 0192 §2.5).
+
+    `None` is every row written before schema v60 and any row the writer
+    could not classify; those are resolved by the read-time join below,
+    exactly as before. A stored basis is trusted as written: the stake on the
+    row IS the stake it names (the writer stores the venue's figure in
+    `stake_tenths` when it says `venue_fill`), so nothing is recomputed.
+    """
+    keys = position.keys() if hasattr(position, "keys") else ()
+    if "stake_basis" not in keys:
+        return None
+    basis = position["stake_basis"]
+    if not basis:
+        return None
+    reason = position["stake_basis_reason"] if "stake_basis_reason" in keys else None
+    return StakeBasis(int(position["stake_tenths"]), str(basis), reason or None)
+
+
 #: More than one `manual_orders` row answered to a position's join key. A
 #: distinct value from `None` (no row at all) because the two are different
 #: facts and the screen's reason vocabulary names them separately.
@@ -914,6 +950,17 @@ def stake_bases(
     table (ADR 0167, 0168).
     """
     bases: dict[int, StakeBasis] = {}
+    # A row whose basis was stored at write (ADR 0192) needs no join. It is
+    # answered first and kept out of `wanted`, so the two bounded reads below
+    # only ever run for rows written before schema v60.
+    unresolved = []
+    for position in positions:
+        stored = stored_stake_basis(position)
+        if stored is not None:
+            bases[int(position["id"])] = stored
+        else:
+            unresolved.append(position)
+    positions = unresolved
     wanted = {k for k in (_order_key(p) for p in positions) if k is not None}
     orders: dict[tuple[str, int], Any] = {}
     if wanted:
@@ -1700,11 +1747,14 @@ async def adopt_venue_combo(
             "desk -- another request adopted it first. Nothing was "
             "adopted.",
         )
+    # Late import: `backend.positions` imports this module. ADR 0192 -- the
+    # one writer stores `fill_source = 'adopted'` and the basis with the row.
+    from backend import positions
+
     try:
-        return record_position(
+        return positions.record_adopted(
             conn,
             now_ms=now_ms,
-            source="kalshi_combo",
             label=position_label,
             stake_tenths=stake_tenths,
             return_tenths=return_tenths,

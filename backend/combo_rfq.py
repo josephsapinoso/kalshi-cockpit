@@ -75,6 +75,7 @@ from backend.kalshi.rfq import (
     read_quotes,
 )
 import backend.hedge as held_parlays
+import backend.positions as positions
 import backend.parlays as parlays
 from backend.parlays import LookupRefused, _cost_per_contract
 from backend.store import combo_rfqs as store
@@ -1404,102 +1405,13 @@ def _record_accepted_position(
     it was asked and did not answer for this combination -- and the screen
     says which. See `hedge.stake_basis_for`.
     """
-    try:
-        ask = store.rfq_row(conn, rfq_id)
-        if ask is None:
-            logger.error("rfq %s: no ask row, so no position was built", rfq_id)
-            return None
-        parsed = parlays.legs_for_position(ask["selected_legs"])
-        if parsed is None:
-            logger.error("rfq %s: legs unreadable, so no position", rfq_id)
-            return None
-
-        # Kalshi's own record first. `VenueFill.usable` is true only for an
-        # outcome that names a fill this acceptance provably caused, with
-        # both numbers present -- every refusal leaves them None and falls
-        # through to the quote, which is the behaviour that shipped before.
-        from_venue = venue is not None and venue.usable
-        if from_venue:
-            contracts = float(venue.count)
-            price = int(venue.avg_price_tenths)
-        else:
-            contracts = _quote_size(quote)
-            if contracts is None:
-                logger.error(
-                    "rfq %s: quote carries no usable size, so no position", rfq_id
-                )
-                return None
-
-            price = quote["yes_ask_tenths"]
-            if price is None:
-                logger.error(
-                    "rfq %s: quote carries no price, so no position", rfq_id
-                )
-                return None
-
-        # A settlement is a whole 1000 tenths a contract, so a size carrying
-        # more than two decimals cannot be reproduced exactly in the unit the
-        # table stores. Refused rather than rounded, for the reason
-        # `stake_basis_for`'s `fractional_venue_fill_count` refuses the same
-        # shape on the order path: a size a later audit cannot reproduce is
-        # not a size to build a money figure on.
-        exact_return = contracts * SETTLEMENT_TENTHS
-        if abs(exact_return - round(exact_return)) > 1e-6:
-            logger.error(
-                "rfq %s: quote size %r is finer than a tenth, so no position",
-                rfq_id, contracts,
-            )
-            return None
-
-        # Rounded, and it is the only rounding here: the ask is per contract
-        # and the size is fractional, so the product is not integral in
-        # general. Half a tenth of a cent, once, on the entry figure.
-        stake_tenths = int(round(contracts * int(price)))
-        if from_venue:
-            note = (
-                "Recorded automatically from a maker's quote you took on the "
-                "Parlays screen, at Kalshi's own record of the fill: "
-                f"{contracts:g} contracts at the average price it charged, "
-                "before fees."
-            )
-        else:
-            note = (
-                "Recorded automatically from a maker's quote you took on the "
-                "Parlays screen. The stake is the price you accepted times "
-                "the size quoted, before fees -- Kalshi's own record of the "
-                "fill was asked for and did not answer for this combination."
-            )
-        if parsed.labels_are_tickers:
-            note += (
-                " Leg names are market tickers -- this combination was priced "
-                "before the desk began recording leg labels, and inventing "
-                "them was refused."
-            )
-        return held_parlays.record_position(
-            conn,
-            now_ms=now_ms,
-            source="kalshi_combo",
-            label=held_parlays.position_label(ask["card_key"], str(ask["ticker"])),
-            stake_tenths=stake_tenths,
-            return_tenths=int(round(exact_return)),
-            legs=parsed.legs,
-            # Both halves of `/hedge`'s join key, from one variable, as the
-            # order path does it. There is no `manual_orders` row to join TO
-            # -- that is the point of the `rfq_accept` reason -- but the key
-            # still says this was bought through the desk rather than typed
-            # in by hand, which is the distinction issue #56 bought.
-            placed_ms=now_ms,
-            combo_ticker=str(ask["ticker"]),
-            # No `parlay_lookup_id`: `combo_rfqs` does not carry one, and
-            # re-deriving it by ticker would join whichever lookup last
-            # minted that ticker, which is not necessarily the one asked.
-            note=note,
-        )
-    except Exception:  # noqa: BLE001 -- the trade is done; bookkeeping may not raise
-        logger.exception(
-            "rfq %s: the position for a filled accept could not be written", rfq_id
-        )
-        return None
+    # ADR 0192: the rules above live in `backend/positions.py` now, which
+    # also stores which quote produced the row and whose price its stake is.
+    # This name is kept because `accept_quote_for_joe` and the docstring
+    # history both point here.
+    return positions.record_rfq_accept(
+        conn, rfq_id=rfq_id, quote=quote, now_ms=now_ms, venue=venue
+    )
 
 
 def _venue_refusal_words(exc: Exception) -> Optional[str]:

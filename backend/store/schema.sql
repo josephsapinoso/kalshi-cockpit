@@ -2625,6 +2625,26 @@ CREATE TABLE IF NOT EXISTS parlay_positions (
     -- desk closing it after a tap on a LEG. NULL on every other close,
     -- including every row closed before v55.
     closed_reason   TEXT CHECK (closed_reason IS NULL OR closed_reason IN ('lost_leg')),
+    -- Which fill produced this row, and whose price its stake is (v60,
+    -- 2026-10-01, ADR 0192). Written ONLY by `backend/positions.py`, at the
+    -- moment of the write, so `/hedge` no longer has to rebuild the link by
+    -- matching `(combo_ticker, placed_ms)` against the order and quote
+    -- tables (ADR 0160's read-time join). `fill_ref` is the producing row's
+    -- id -- `manual_orders.id` or `combo_rfq_quotes.id` -- and NULL for a
+    -- slip Joe typed (`hand`) or a holding adopted off the venue
+    -- (`adopted`). No FK, for `parlay_lookup_id`'s reason. `stake_basis` and
+    -- `stake_basis_reason` are `hedge.StakeBasis`, stored: the same
+    -- vocabulary `/api/hedge` serves, decided once at write.
+    --
+    -- **NULL on every row written before v60, and never backfilled** (ADR
+    -- 0192 §2.6, ADR 0160 §2.3): those rows keep the read-time join, and a
+    -- NULL here means "not recorded", never any particular source. A row
+    -- whose `stake_basis` is NULL is resolved by that join, whatever its
+    -- `fill_source` says.
+    fill_source     TEXT CHECK (fill_source IS NULL OR fill_source IN ('manual_order', 'rfq_quote', 'hand', 'adopted')),
+    fill_ref        INTEGER,
+    stake_basis     TEXT CHECK (stake_basis IS NULL OR stake_basis IN ('venue_fill', 'as_recorded', 'venue_exposure')),
+    stake_basis_reason TEXT,
     CHECK (source IN ('kalshi_combo', 'sportsbook')),
     CHECK (status IN ('open', 'settled', 'closed', 'void')),
     CHECK (stake_tenths > 0),

@@ -259,7 +259,14 @@ logger = logging.getLogger(__name__)
 #: game-script parlay card per game, built at T-24h, or a skip with its
 #: reason. A new table and nothing else, so tableless. It has no price,
 #: probability or edge column, by design (ADR 0189, 0038).
-SCHEMA_VERSION = 59
+#:
+#: v60 `parlay_positions` gains `fill_source`, `fill_ref`, `stake_basis` and
+#: `stake_basis_reason` (ADR 0192, 2026-10-01, #264): which fill produced a
+#: held combo and whose price its stake is, written once by
+#: `backend/positions.py`. Four nullable column steps on the v54/v55
+#: template; no backfill -- every earlier row keeps NULL and ADR 0160's
+#: read-time join.
+SCHEMA_VERSION = 60
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1316,6 +1323,28 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45, 57, 59)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # Which fill made a held combo, and whose price its stake is. See the v60
+    # note above and the column comment in `schema.sql`. Column-level CHECKs
+    # for v51's reason; NO backfill (ADR 0192 §2.6) -- NULL is the truth
+    # about every row written before the writer existed.
+    60: _Migration(
+        columns=(
+            (
+                "parlay_positions",
+                "fill_source",
+                "TEXT CHECK (fill_source IS NULL OR fill_source IN "
+                "('manual_order', 'rfq_quote', 'hand', 'adopted'))",
+            ),
+            ("parlay_positions", "fill_ref", "INTEGER"),
+            (
+                "parlay_positions",
+                "stake_basis",
+                "TEXT CHECK (stake_basis IS NULL OR stake_basis IN "
+                "('venue_fill', 'as_recorded', 'venue_exposure'))",
+            ),
+            ("parlay_positions", "stake_basis_reason", "TEXT"),
+        ),
+    ),
     # The leg scout's third trigger, the card's own button (#151). See the
     # v58 note above. Cheap on the live volume: a handful of rows.
     58: _Migration(

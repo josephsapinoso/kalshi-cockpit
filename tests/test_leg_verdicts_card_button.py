@@ -55,7 +55,10 @@ class TestTheRebuild:
 
     def test_a_v57_database_keeps_its_rows_and_admits_card_button(self, tmp_path):
         conn = _wound_back_to_v57(tmp_path / "a.db")
-        assert db.migrate(conn) == [58]
+        # Every step after v57 runs, 58 first; later versions (v60, ADR 0192)
+        # add their own steps and must not make this test name them.
+        assert db.migrate(conn) == sorted(v for v in db._MIGRATIONS if v > 57)
+        assert 58 in db._MIGRATIONS
         rows = conn.execute("SELECT id, verdict, trigger FROM leg_verdicts").fetchall()
         assert [tuple(r) for r in rows] == [(1, "take", "price_tap")]
         _card_button_insert(conn)

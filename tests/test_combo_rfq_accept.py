@@ -487,6 +487,18 @@ def _positions(conn):
         "SELECT * FROM parlay_positions ORDER BY id"
     ).fetchall()
 
+def _as_pre_v60(conn):
+    """Strip the provenance `backend/positions.py` stores (ADR 0192), so the
+    row is shaped like one written before schema v60. The tests that call it
+    are about ADR 0160's read-time join, which still resolves every such row;
+    a row carrying a stored basis never reaches that join."""
+    conn.execute(
+        "UPDATE parlay_positions SET fill_source = NULL, fill_ref = NULL, "
+        "stake_basis = NULL, stake_basis_reason = NULL"
+    )
+    conn.commit()
+
+
 
 class TestAFillBecomesAWatchedPosition:
     """Issue #69. The newest armed door was the one the record could not see.
@@ -682,6 +694,7 @@ class TestTheHedgeScreenNamesWhereTheStakeCameFrom:
         )
         conn.execute("UPDATE combo_rfq_quotes SET accept_dry_run = 1")
         conn.commit()
+        _as_pre_v60(conn)
         rows = _positions(conn)
         basis = hedge.stake_bases(conn, rows)[int(rows[0]["id"])]
         assert basis.reason == "no_order_row"
@@ -693,6 +706,7 @@ class TestTheHedgeScreenNamesWhereTheStakeCameFrom:
         )
         conn.execute("UPDATE combo_rfq_quotes SET outcome_status = 'cancelled'")
         conn.commit()
+        _as_pre_v60(conn)
         rows = _positions(conn)
         basis = hedge.stake_bases(conn, rows)[int(rows[0]["id"])]
         assert basis.reason == "no_order_row"
@@ -740,6 +754,7 @@ class TestTheHedgeScreenNamesWhereTheStakeCameFrom:
         )
         conn.execute("UPDATE combo_rfqs SET ticker = 'KXMVE-OTHER'")
         conn.commit()
+        _as_pre_v60(conn)
         rows = _positions(conn)
         basis = hedge.stake_bases(conn, rows)[int(rows[0]["id"])]
         assert basis.reason == "no_order_row"
@@ -1142,6 +1157,7 @@ class TestTheHedgeScreenReadsTheVenuesFill:
             conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000,
             api=FakeApi(statuses=["executed"], fills=[]), dry_run=False,
         )
+        _as_pre_v60(conn)
         rows = _positions(conn)
         assert hedge.stake_bases(conn, rows)[int(rows[0]["id"])].reason == (
             "rfq_fill_unmatched"
@@ -1164,6 +1180,7 @@ class TestTheHedgeScreenReadsTheVenuesFill:
         )
         conn.execute("UPDATE combo_rfq_quotes SET venue_fill_count = 4.0")
         conn.commit()
+        _as_pre_v60(conn)
         rows = _positions(conn)
         basis = hedge.stake_bases(conn, rows)[int(rows[0]["id"])]
         assert basis.basis == hedge.STAKE_BASIS_AS_RECORDED
