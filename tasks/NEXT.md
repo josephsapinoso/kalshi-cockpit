@@ -150,12 +150,12 @@ Joe ran `/improve-codebase-architecture` with no direction. Hot spots by commits
   - Schema v60 records which fill produced each position, and new rows store the venue's fill price with its basis. This supersedes ADR 0160 §2.1 for new rows only. No backfill.
   - Fractional fills are recorded on both paths, and the stake checks run once at write.
   - The work is three main-session slices, S1–S3. S2 and S3 get a kalshi-platform review.
-  - The ADR is the next step and is **not written yet**.
+  - **ADR 0192 written** (`docs/adr/0192-one-positions-module-records-which-fill-made-each-held-combo.md`). It supersedes ADR 0160 §2.1 for new rows only, and keeps 0160's read path for old rows. Tasks #264–#266 are open with blocking edges.
 - **Candidates E–I have no ticket and none is owed.** Joe named C, D and A+B.
 
 ### Still open
 
-1. #263 — write ADR 0192 (A+B positions module) from the eight settled answers in the story body, then open tasks S1–S3 under it. Main session only.
+1. #264 — S1 of ADR 0192: schema v60 + `backend/positions.py` for the RFQ, hand-entry and adoption writers. Main session only. Then #265 (S2, armed order path, kalshi-platform review) and #266 (S3, the order path leaves `create_app`). Story #263.
 2. #220 — on or after 2026-10-05: game-script cards review, `credits-day --date 2026-10-04`, first Matchup tile.
 3. #210, #165, #169, #151 — unchanged. #255 — November.
 
