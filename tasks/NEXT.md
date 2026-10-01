@@ -155,7 +155,7 @@ Joe ran `/improve-codebase-architecture` with no direction. Hot spots by commits
 
 ### Still open
 
-1. #265 — S2 of ADR 0192: the hand-bet order path (`routes._record_combo_position`) writes through `backend/positions.py`. It stores the venue's price and basis, and records a fractional fill. This is the armed path: kalshi-platform review before merge, then deploy alone. Afterwards remove `routes.py` from `RECORD_POSITION_ALLOWED` in `tests/test_positions_module.py`. Then #266 (S3). Story #263. **S1 (#264) is live on `d2b80dc`**, schema v60.
+1. #266 — S3 of ADR 0192: `place_manual_order` leaves `create_app` for `backend/manual_order.py`. Every check moves byte for byte, and the location pins are repointed and mutation-checked. kalshi-platform review, then deploy alone. Story #263. **S1 (#264) is live on `d2b80dc`; S2 (#265) is live on `ef1a309`.** After Joe's next combo bought through the desk, read its `parlay_positions` row once: `fill_source='manual_order'`, `fill_ref`, `stake_basis`. It will be the first real row written this way; no look is registered, so this is a check, not a measurement.
 2. #220 — on or after 2026-10-05: game-script cards review, `credits-day --date 2026-10-04`, first Matchup tile.
 3. #210, #165, #169, #151 — unchanged. #255 — November.
 
