@@ -24,6 +24,8 @@
  * renderer must show "—" and an unlit bar for it, never a lit one.
  */
 
+import { pctFromFraction } from "./format";
+
 /** A gauge: a fraction for the bar (or `null` if unreadable) and the label
  * that names what is being measured. */
 export type Gauge = {
@@ -39,10 +41,6 @@ function isReadableNonNegative(n: unknown): n is number {
 
 function isReadableBudget(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n) && n > 0;
-}
-
-function pct(fraction: number): string {
-  return `${Math.round(fraction * 100)}%`;
 }
 
 /** Exactly the fields `scoutGauge` reads off `ScoutOverview.spend`
@@ -89,7 +87,7 @@ export function scoutGauge(spend: ScoutSpendFacts): Gauge {
       bestName = cap.name;
     }
   }
-  return { fraction: bestFraction, label: `${bestName} ${pct(bestFraction)}` };
+  return { fraction: bestFraction, label: `${bestName} ${pctFromFraction(bestFraction)}` };
 }
 
 /** Exactly the fields `oddsGauge` reads off `ActionableWindow`
@@ -113,5 +111,5 @@ export function oddsGauge(window: OddsSpendFacts): Gauge {
     return UNREADABLE;
   }
   const fraction = (window.spent_today as number) / (window.daily_budget as number);
-  return { fraction, label: `credits ${pct(fraction)}` };
+  return { fraction, label: `credits ${pctFromFraction(fraction)}` };
 }

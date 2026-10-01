@@ -32,7 +32,7 @@
  *   a deploy fact this module cannot see.
  */
 
-import { DISPLAY_TIME_ZONE } from "./api";
+import { DISPLAY_TIME_ZONE } from "./format";
 
 export type ComboBookState = "bid" | "empty" | "unpriced_interest" | "unreadable";
 

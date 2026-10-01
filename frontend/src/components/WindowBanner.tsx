@@ -6,6 +6,7 @@ import {
   formatUntil,
 } from "@/lib/api";
 import type { Tone } from "@/lib/sweepTone";
+import { formatCountdown } from "@/lib/format";
 import { loopIsSilent, sweepTone } from "@/lib/sweepTone";
 
 /**
@@ -492,12 +493,6 @@ function explain(
     "consensus ages. Any card showing a price older than the quote limit says " +
     "so, and its size and cost will move when the order is priced."
   );
-}
-
-function formatCountdown(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return m > 0 ? `${m}m ${String(s).padStart(2, "0")}s` : `${s}s`;
 }
 
 function Item({ label, value }: { label: string; value: string }) {

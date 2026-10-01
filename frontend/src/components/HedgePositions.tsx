@@ -18,30 +18,10 @@ import {
   type UnrecordedAtVenue,
 } from "@/lib/api";
 import { kalshiMarketUrl } from "@/lib/kalshiLink";
+import { describeQuoteAgeFloor } from "@/lib/format";
 import { stakeBasisNote } from "@/lib/stakeBasisGloss";
 import { comboBookNote, COMBO_BOOK_ASK_POINTER } from "@/lib/comboBookGloss";
 import Term from "@/components/Term";
-
-/**
- * How old a Kalshi quote or a venue positions read is, at second precision.
- *
- * `describeAge` in `lib/openPositionsStamps.ts` answers the same question at
- * minute precision, which is right for a figure that moves every five
- * minutes and wrong here: `MAX_KALSHI_QUOTE_AGE_S` is 30 seconds, so a quote
- * halfway to stale would read "just now" under that formatter and the whole
- * point of showing the age -- letting Joe see a price about to be refused
- * before the refusal fires -- would be lost.
- */
-function describeQuoteAge(ms: number | null | undefined): string | null {
-  if (ms === null || ms === undefined || ms < 0) return null;
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 1) return "just now";
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ago`;
-}
 
 /**
  * What Joe holds, and what hedging it would do (ADR 0078).
@@ -426,7 +406,7 @@ function VenueStatusLine({
   }
   if (position.at_venue === false) {
     const age =
-      venuePollMs !== null ? describeQuoteAge(asOfMs - venuePollMs) : null;
+      venuePollMs !== null ? describeQuoteAgeFloor(asOfMs - venuePollMs) : null;
     return (
       <p className="mt-1 text-xs text-muted">
         This ticket is no longer at the venue
@@ -534,7 +514,7 @@ function SellQuote({ position }: { position: HeldPosition }) {
 
 /** One leg: what it is, what the venue says it is worth now, and how it settled. */
 function Leg({ leg, maxQuoteAgeMs }: { leg: HeldLeg; maxQuoteAgeMs: number }) {
-  const age = describeQuoteAge(leg.quote_age_ms);
+  const age = describeQuoteAgeFloor(leg.quote_age_ms);
   const stale = leg.quote_age_ms !== null && leg.quote_age_ms > maxQuoteAgeMs;
   return (
     <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1.5">

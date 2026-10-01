@@ -137,6 +137,8 @@ class TestAStaleRowSaysTheAgeAndTheRemedy:
         """`ageWords` takes the seconds branch below a minute, so no served
         age can print as "0 min"; and the literal is nowhere in the file."""
         text = code_only(source(PICKS))
+        # `ageWords` moved to lib/format.ts (#261); the picks card imports it.
+        text = code_only((FRONTEND / "lib" / "format.ts").read_text(encoding="utf-8"))
         body = text.split("function ageWords(")[1].split("}")[0]
         assert "ms < 60_000" in body
         assert "0 min" not in text

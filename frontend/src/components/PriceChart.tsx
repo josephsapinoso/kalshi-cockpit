@@ -24,6 +24,7 @@
 import { useMemo } from "react";
 
 import type { ChartCandle } from "@/lib/api";
+import { pctFromTenths } from "@/lib/format";
 
 const W = 360;
 const H = 220;
@@ -46,13 +47,6 @@ function fitDomain(values: number[]): Span {
     hi = Math.min(1000, mid + 20);
   }
   return { lo, hi };
-}
-
-function pct(tenths: number): string {
-  // One decimal, trimmed when whole: ~25% of Kalshi markets tick in
-  // deci-cents, and the one screen entirely about price must not round the
-  // tick away.
-  return `${(tenths / 10).toFixed(1).replace(/\.0$/, "")}%`;
 }
 
 /**
@@ -190,7 +184,7 @@ export default function PriceChart({
             className="fill-current text-muted"
             fontSize="8"
           >
-            {pct(level)}
+            {pctFromTenths(level)}
           </text>
         </g>
       ))}
@@ -220,7 +214,7 @@ export default function PriceChart({
             fontSize="9"
             fontWeight="700"
           >
-            Y {pct(lastYes)}
+            Y {pctFromTenths(lastYes)}
           </text>
           {!yesOnly && (
             <text
@@ -230,7 +224,7 @@ export default function PriceChart({
               fontSize="9"
               fontWeight="700"
             >
-              N {pct(1000 - lastYes)}
+              N {pctFromTenths(1000 - lastYes)}
             </text>
           )}
         </>

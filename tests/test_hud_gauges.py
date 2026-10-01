@@ -51,12 +51,39 @@ console.log(JSON.stringify(gauge));
 """
 
 
+#: `gauges.ts` imports `./format` (#261); node does not resolve an
+#: extensionless relative specifier, so retry with `.ts` -- the same hook
+#: `tests/test_sweep_tone_predicate.py` registers. It changes which file a
+#: specifier finds, never what the file says.
+_HOOK = """
+import { registerHooks } from "node:module";
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    try {
+      return nextResolve(specifier, context);
+    } catch (e) {
+      const relative = specifier.startsWith("./") || specifier.startsWith("../");
+      const bare = !/\\.[cm]?[jt]sx?$/.test(specifier);
+      if (e && e.code === "ERR_MODULE_NOT_FOUND" && relative && bare) {
+        return nextResolve(specifier + ".ts", context);
+      }
+      throw e;
+    }
+  },
+});
+"""
+
+
 def gauge_of(kind: str, facts) -> dict:
-    with node_driver(GAUGES_TS.parent, _DRIVER) as driver:
+    with node_driver(GAUGES_TS.parent, _DRIVER) as driver, node_driver(
+        GAUGES_TS.parent, _HOOK
+    ) as hook:
         out = subprocess.run(
             [
                 NODE,
                 "--experimental-strip-types",
+                "--import",
+                hook.resolve().as_uri(),
                 str(driver),
                 json.dumps([kind, json.dumps(facts)]),
             ],

@@ -22,6 +22,7 @@ import {
   slateIsUnpricedByTheClock,
 } from "@/lib/nextOddsWindow";
 import { refreshIsUrgent } from "@/lib/refreshUrgency";
+import { formatAgeShort } from "@/lib/format";
 import Link from "next/link";
 
 import AnchorBaseRate from "@/components/AnchorBaseRate";
@@ -845,13 +846,6 @@ function Books({ row }: { row: SlateRowData }) {
   );
 }
 
-/** "12s" / "3m" / "2h" -- rounded to the unit a glance can use. */
-function formatAge(ms: number): string {
-  if (ms < 90_000) return `${Math.round(ms / 1000)}s`;
-  if (ms < 90 * 60_000) return `${Math.round(ms / 60_000)}m`;
-  return `${Math.round(ms / 3_600_000)}h`;
-}
-
 /**
  * How old this row's Kalshi quote is, right now.
  *
@@ -882,7 +876,7 @@ function QuoteAge({
     <span
       className={`tabular text-xs ${stale ? "text-negative" : "text-muted"}`}
     >
-      <Term k="quote_age">quote</Term> {formatAge(ageMs)}
+      <Term k="quote_age">quote</Term> {formatAgeShort(ageMs)}
     </span>
   );
 }

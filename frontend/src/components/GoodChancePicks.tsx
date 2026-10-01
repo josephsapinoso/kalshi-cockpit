@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { DISPLAY_TIME_ZONE } from "@/lib/api";
+import { ageWords } from "@/lib/format";
 import type { SlatePicks } from "@/lib/api";
 import LeagueTag from "@/components/LeagueTag";
 import Term from "@/components/Term";
@@ -136,17 +137,6 @@ export default function GoodChancePicks({
       </p>
     </section>
   );
-}
-
-/**
- * A server-sent duration in plain words: "40 s", "12 min", "1.3 h". Every
- * input here is a number the server measured on its own clock; nothing on
- * this screen subtracts two timestamps to make one.
- */
-function ageWords(ms: number): string {
-  if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1000))} s`;
-  if (ms < 3_600_000) return `${Math.round(ms / 60_000)} min`;
-  return `${(ms / 3_600_000).toFixed(1)} h`;
 }
 
 /** Pacific, matching the slate rows' kickoff column. */

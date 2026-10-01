@@ -14,6 +14,7 @@ import {
 } from "@/lib/api";
 import { HEARTBEAT_INTERVAL_MS } from "@/lib/nextOddsWindow";
 import { scoutGauge } from "@/lib/gauges";
+import { scoutAge } from "@/lib/format";
 import type { Gauge } from "@/lib/gauges";
 import type {
   ActionableWindow,
@@ -676,15 +677,6 @@ function SkepticNote({ leg }: { leg: ParlayCardLeg }) {
       {gloss && <span className="block">{gloss}</span>}
     </>
   );
-}
-
-/** How old a briefing is, in the coarsest unit that is still honest. */
-function scoutAge(ms: number | null): string {
-  if (ms === null) return "";
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return " Filed just now.";
-  if (minutes < 60) return ` Filed ${minutes}m ago.`;
-  return ` Filed ${Math.floor(minutes / 60)}h ago.`;
 }
 
 /**
