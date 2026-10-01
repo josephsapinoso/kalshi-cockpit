@@ -76,14 +76,14 @@ export default function EstimatePage() {
   const flagRevised = async (id: number) => {
     const text = reason.trim();
     if (!text) return;
-    try {
-      await reviseEstimate(id, text);
-      setRevising(null);
-      setReason("");
-      loadRecent();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Revision failed.");
+    const result = await reviseEstimate(id, text);
+    if (!result.ok) {
+      setError(result.refusal);
+      return;
     }
+    setRevising(null);
+    setReason("");
+    loadRecent();
   };
 
   return (

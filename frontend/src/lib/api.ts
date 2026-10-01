@@ -7,6 +7,18 @@
  * places drift apart.
  */
 
+import {
+  networkMessage,
+  postJson,
+  refusalText,
+  type WriteResult,
+} from "./transport";
+
+// `refusalText` lives in the transport (ADR 0191); it is re-exported so every
+// existing import of it from `@/lib/api` keeps working.
+export { refusalText };
+export type { WriteResult };
+
 /**
  * All four devig readings for the side bought, plus the one that was used.
  *
@@ -548,41 +560,6 @@ export function isLockedDetail(detail: unknown): detail is LockedDetail {
   );
 }
 
-/**
- * A refusal body as text, whatever shape it arrived in.
- *
- * Three shapes reach here and all three are real: FastAPI's plain string, the
- * list of dicts pydantic produces when the request body itself is invalid, and
- * an object. The endpoint's plain-language strings are the useful output and
- * are passed through untouched -- there are a dozen distinct refusals and each
- * one explains itself better than a generic sentence could.
- */
-export function refusalText(detail: unknown): string {
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) {
-    return detail
-      .map((entry) => {
-        if (typeof entry === "string") return entry;
-        if (entry && typeof entry === "object") {
-          const item = entry as { loc?: unknown[]; msg?: string };
-          const field = Array.isArray(item.loc)
-            ? item.loc.filter((p) => p !== "body").join(".")
-            : "";
-          return field && item.msg ? `${field}: ${item.msg}` : (item.msg ?? "");
-        }
-        return String(entry);
-      })
-      .filter(Boolean)
-      .join("\n");
-  }
-  if (detail && typeof detail === "object") {
-    const message = (detail as LockedDetail).message;
-    if (typeof message === "string") return message;
-    return JSON.stringify(detail);
-  }
-  return "The server refused and gave no reason, which is itself a defect.";
-}
-
 export type Ledger = {
   rows: Recommendation[];
   /**
@@ -792,22 +769,20 @@ export async function priceParlay(
   legs: ParlayLeg[],
   offeredAmerican: number,
   overrides: { a: string; b: string; rho: number }[] = [],
-): Promise<{ ok: true; value: ParlayValuation } | { ok: false; refusal: string }> {
-  const response = await fetch(`${BASE}/api/builder/parlay`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    cache: "no-store",
-    body: JSON.stringify({
+): Promise<WriteResult<ParlayValuation>> {
+  return postJson<ParlayValuation>({
+    path: `${BASE}/api/builder/parlay`,
+    body: {
       legs,
       offered_american: offeredAmerican,
       correlation_overrides: overrides,
-    }),
+    },
+    noReply: (error) =>
+      `The request did not reach the cockpit (${networkMessage(error)}). ` +
+      "Nothing was priced.",
+    unreadable: (status) =>
+      `HTTP ${status}, and the body was not readable as JSON.`,
   });
-  if (response.ok) {
-    return { ok: true, value: (await response.json()) as ParlayValuation };
-  }
-  const body = await response.json().catch(() => ({}));
-  return { ok: false, refusal: body.detail != null ? refusalText(body.detail) : `HTTP ${response.status}` };
 }
 
 /** One leg of a parlay card: a game's YES side at its consensus chance. */
@@ -1406,48 +1381,22 @@ export async function acceptComboQuote(
 export async function askMarketToPrice(
   marketTicker: string,
   targetCostDollars: string,
-): Promise<
-  { ok: true; value: ComboRfqResult } | { ok: false; refusal: string }
-> {
-  let response: Response;
-  try {
-    response = await fetch("/parlay-rfq", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({
-        market_ticker: marketTicker,
-        target_cost_dollars: targetCostDollars,
-      }),
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      refusal:
-        `The request did not reach the cockpit (${
-          error instanceof Error ? error.message : "network error"
-        }). Nothing was bought and nothing is resting -- asking for a price ` +
-        "never commits you to anything.",
-    };
-  }
-
-  const body: unknown = await response.json().catch(() => null);
-  if (response.ok) {
-    if (body && typeof body === "object" && "status" in body) {
-      return { ok: true, value: body as ComboRfqResult };
-    }
-    return {
-      ok: false,
-      refusal:
-        "The answer came back in a shape this screen cannot read. Nothing " +
-        "is shown rather than a price that might be wrong.",
-    };
-  }
-  const detail =
-    body && typeof body === "object" && "detail" in body
-      ? refusalText((body as { detail: unknown }).detail)
-      : `HTTP ${response.status}`;
-  return { ok: false, refusal: detail };
+): Promise<WriteResult<ComboRfqResult>> {
+  return postJson<ComboRfqResult>({
+    path: "/parlay-rfq",
+    body: {
+      market_ticker: marketTicker,
+      target_cost_dollars: targetCostDollars,
+    },
+    noReply: (error) =>
+      `The request did not reach the cockpit (${networkMessage(error)}). ` +
+      "Nothing was bought and nothing is resting -- asking for a price " +
+      "never commits you to anything.",
+    unreadable: () =>
+      "The answer came back in a shape this screen cannot read. Nothing " +
+      "is shown rather than a price that might be wrong.",
+    shape: (b) => typeof b === "object" && b !== null && "status" in b,
+  });
 }
 
 export async function lookupParlay(
@@ -1455,60 +1404,34 @@ export async function lookupParlay(
   stakeCents: number,
   legs: { event_ticker: string; market_ticker: string; side: "yes" | "no" }[],
   horizon?: ParlayHorizon,
-): Promise<
-  { ok: true; value: ParlayLookupResult } | { ok: false; refusal: string }
-> {
-  let response: Response;
-  try {
-    response = await fetch("/parlay-lookup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({
-        card_key: cardKey,
-        stake_cents: stakeCents,
-        legs,
-        // **The window the card was BUILT under, not a client guess.**
-        // Until 2026-09-10 this call never sent one, so the backend always
-        // priced against `tonight` regardless of which window
-        // `GET /api/parlays` used to build the card -- every leg beyond
-        // tonight on a card built under `tomorrow` or `48h` was refused by
-        // a lookup that could not tell "started" from "not tonight" (item 0,
-        // `docs/adr/0138-a-lookup-prices-the-window-the-card-was-built-
-        // in.md`). `undefined` is omitted by `JSON.stringify` rather than
-        // sent as `null`, so an old caller that never passes `horizon`
-        // still gets the server's own `tonight` default.
-        ...(horizon ? { horizon } : {}),
-      }),
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      refusal:
-        `The request did not reach the cockpit (${
-          error instanceof Error ? error.message : "network error"
-        }). No money moves either way, but the combination may already have ` +
-        "been created on Kalshi — check the app before tapping again.",
-    };
-  }
-
-  const body: unknown = await response.json().catch(() => null);
-  if (response.ok) {
-    if (body && typeof body === "object" && "status" in body) {
-      return { ok: true, value: body as ParlayLookupResult };
-    }
-    return {
-      ok: false,
-      refusal:
-        "Kalshi's answer came back in a shape this screen cannot read. " +
-        "Nothing is shown rather than a number that might be wrong.",
-    };
-  }
-  const detail =
-    body && typeof body === "object" && "detail" in body
-      ? refusalText((body as { detail: unknown }).detail)
-      : `HTTP ${response.status}`;
-  return { ok: false, refusal: detail };
+): Promise<WriteResult<ParlayLookupResult>> {
+  return postJson<ParlayLookupResult>({
+    path: "/parlay-lookup",
+    body: {
+      card_key: cardKey,
+      stake_cents: stakeCents,
+      legs,
+      // **The window the card was BUILT under, not a client guess.**
+      // Until 2026-09-10 this call never sent one, so the backend always
+      // priced against `tonight` regardless of which window
+      // `GET /api/parlays` used to build the card -- every leg beyond
+      // tonight on a card built under `tomorrow` or `48h` was refused by
+      // a lookup that could not tell "started" from "not tonight" (item 0,
+      // `docs/adr/0138-a-lookup-prices-the-window-the-card-was-built-
+      // in.md`). `undefined` is omitted by `JSON.stringify` rather than
+      // sent as `null`, so an old caller that never passes `horizon`
+      // still gets the server's own `tonight` default.
+      ...(horizon ? { horizon } : {}),
+    },
+    noReply: (error) =>
+      `The request did not reach the cockpit (${networkMessage(error)}). ` +
+      "No money moves either way, but the combination may already have " +
+      "been created on Kalshi — check the app before tapping again.",
+    unreadable: () =>
+      "Kalshi's answer came back in a shape this screen cannot read. " +
+      "Nothing is shown rather than a number that might be wrong.",
+    shape: (b) => typeof b === "object" && b !== null && "status" in b,
+  });
 }
 
 /**
@@ -1663,44 +1586,19 @@ export type GameMintResult = {
 export async function mintGameCombo(
   eventTicker: string,
   legs: { market_ticker: string; event_ticker: string; side: "yes" | "no" }[],
-): Promise<
-  { ok: true; value: GameMintResult } | { ok: false; refusal: string }
-> {
-  let response: Response;
-  try {
-    response = await fetch("/game-mint", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({ event_ticker: eventTicker, legs }),
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      refusal:
-        `The request did not reach the cockpit (${
-          error instanceof Error ? error.message : "network error"
-        }). No money moves either way, but the combination may already have ` +
-        "been created on Kalshi — check the app before tapping again.",
-    };
-  }
-  const body: unknown = await response.json().catch(() => null);
-  if (response.ok) {
-    if (body && typeof body === "object" && "status" in body) {
-      return { ok: true, value: body as GameMintResult };
-    }
-    return {
-      ok: false,
-      refusal:
-        "Kalshi's answer came back in a shape this screen cannot read. " +
-        "The combination may exist; check the Kalshi app.",
-    };
-  }
-  const detail =
-    body && typeof body === "object" && "detail" in body
-      ? refusalText((body as { detail: unknown }).detail)
-      : `HTTP ${response.status}`;
-  return { ok: false, refusal: detail };
+): Promise<WriteResult<GameMintResult>> {
+  return postJson<GameMintResult>({
+    path: "/game-mint",
+    body: { event_ticker: eventTicker, legs },
+    noReply: (error) =>
+      `The request did not reach the cockpit (${networkMessage(error)}). ` +
+      "No money moves either way, but the combination may already have " +
+      "been created on Kalshi — check the app before tapping again.",
+    unreadable: () =>
+      "Kalshi's answer came back in a shape this screen cannot read. " +
+      "The combination may exist; check the Kalshi app.",
+    shape: (b) => typeof b === "object" && b !== null && "status" in b,
+  });
 }
 
 /**
@@ -1715,44 +1613,18 @@ export async function mintGameCombo(
  */
 export async function checkParlay(
   text: string,
-): Promise<
-  { ok: true; value: CheckedParlayResult } | { ok: false; refusal: string }
-> {
-  let response: Response;
-  try {
-    response = await fetch("/parlay-check", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({ text }),
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      refusal:
-        `The request did not reach the cockpit (${
-          error instanceof Error ? error.message : "network error"
-        }). Nothing was checked.`,
-    };
-  }
-
-  const body: unknown = await response.json().catch(() => null);
-  if (response.ok) {
-    if (body && typeof body === "object" && "status" in body) {
-      return { ok: true, value: body as CheckedParlayResult };
-    }
-    return {
-      ok: false,
-      refusal:
-        "Kalshi's answer came back in a shape this screen cannot read. " +
-        "Nothing is shown rather than a number that might be wrong.",
-    };
-  }
-  const detail =
-    body && typeof body === "object" && "detail" in body
-      ? refusalText((body as { detail: unknown }).detail)
-      : `HTTP ${response.status}`;
-  return { ok: false, refusal: detail };
+): Promise<WriteResult<CheckedParlayResult>> {
+  return postJson<CheckedParlayResult>({
+    path: "/parlay-check",
+    body: { text },
+    noReply: (error) =>
+      `The request did not reach the cockpit (${networkMessage(error)}). ` +
+      "Nothing was checked.",
+    unreadable: () =>
+      "Kalshi's answer came back in a shape this screen cannot read. " +
+      "Nothing is shown rather than a number that might be wrong.",
+    shape: (b) => typeof b === "object" && b !== null && "status" in b,
+  });
 }
 
 /**
@@ -2731,49 +2603,30 @@ export async function refreshOdds(
   sportKey: string,
   oddsEventId: string | null,
 ): Promise<OddsRefreshResult> {
-  let response: Response;
-  try {
-    // `/refresh-odds`, not `/api/odds/refresh`. The browser has no bearer token
-    // -- by design, see `lib/session.ts` -- so the Next route handler at that
-    // path adds it server-side. It also explains what that widens.
-    response = await fetch(`/refresh-odds`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({
-        sport_key: sportKey,
-        odds_event_id: oddsEventId,
-      }),
-    });
-  } catch (error) {
-    return {
-      accepted: false,
-      detail: `The request did not reach the cockpit (${
-        error instanceof Error ? error.message : "network error"
-      }). No credits were spent.`,
-      estimated_credits: 0,
-      retry_after_ms: 0,
-    };
-  }
-
-  const body: unknown = await response.json().catch(() => null);
-  if (
-    response.ok &&
-    body &&
-    typeof body === "object" &&
-    "accepted" in body
-  ) {
-    return body as OddsRefreshResult;
-  }
+  // `/refresh-odds`, not `/api/odds/refresh`. The browser has no bearer token
+  // -- by design, see `lib/session.ts` -- so the Next route handler at that
+  // path adds it server-side. It also explains what that widens.
+  const unreadable = (status: number) =>
+    `HTTP ${status}, and the body was not readable as JSON.`;
+  const result = await postJson<OddsRefreshResult>({
+    path: `/refresh-odds`,
+    body: {
+      sport_key: sportKey,
+      odds_event_id: oddsEventId,
+    },
+    noReply: (error) =>
+      `The request did not reach the cockpit (${networkMessage(error)}). ` +
+      "No credits were spent.",
+    unreadable,
+    noDetail: unreadable,
+    shape: (b) => typeof b === "object" && b !== null && "accepted" in b,
+  });
+  if (result.ok) return result.value;
   // 401, 403, or a proxy page. Not a refusal from the endpoint, so it must not
   // be rendered as one -- and above all it must not read as "no odds available".
-  const detail =
-    body && typeof body === "object" && "detail" in body
-      ? refusalText((body as { detail: unknown }).detail)
-      : `HTTP ${response.status}, and the body was not readable as JSON.`;
   return {
     accepted: false,
-    detail,
+    detail: result.refusal,
     estimated_credits: 0,
     retry_after_ms: 0,
   };
@@ -2920,17 +2773,14 @@ export const fetchStudyStop = () => get<StudyStop>("/api/estimates/stop");
  * No parameters and no cancel — the release is the clock. The backend owns
  * both the 423 and the release instant; this only carries the tap.
  */
-export async function engageLockout(): Promise<{ until_ms: number }> {
-  const response = await fetch(`/lockout`, { method: "POST", cache: "no-store" });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    const detail =
-      payload && typeof payload.detail === "string"
-        ? payload.detail
-        : `lockout failed (${response.status})`;
-    throw new Error(detail);
-  }
-  return payload as { until_ms: number };
+export async function engageLockout(): Promise<WriteResult<{ until_ms: number }>> {
+  return postJson<{ until_ms: number }>({
+    path: `/lockout`,
+    noReply: (error) =>
+      `The request did not reach the cockpit (${networkMessage(error)}). ` +
+      "The lockout may not be on -- tap again.",
+    unreadable: (status) => `lockout failed (${status})`,
+  });
 }
 
 /** What `POST /log-estimate` answers with. Quote-free by construction. */
@@ -2951,40 +2801,31 @@ export async function logEstimate(body: {
   stated_probability_bp: number;
   had_already_opened_kalshi: 0 | 1;
   estimate_client_ms: number;
-}): Promise<EstimateLogged> {
-  const response = await fetch(`/log-estimate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    cache: "no-store",
-    body: JSON.stringify(body),
+}): Promise<WriteResult<EstimateLogged>> {
+  return postJson<EstimateLogged>({
+    path: `/log-estimate`,
+    body,
+    noReply: (error) =>
+      `The request did not reach the cockpit (${networkMessage(error)}). ` +
+      "The estimate was not logged.",
+    unreadable: (status) => `logging failed (${status})`,
   });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    const detail =
-      payload && typeof payload.detail === "string"
-        ? payload.detail
-        : `logging failed (${response.status})`;
-    throw new Error(detail);
-  }
-  return payload as EstimateLogged;
 }
 
 /** Flag an estimate as mistyped. Append-only; nothing is edited in place. */
-export async function reviseEstimate(id: number, reason: string): Promise<void> {
-  const response = await fetch(`/revise-estimate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    cache: "no-store",
-    body: JSON.stringify({ id, reason }),
+export async function reviseEstimate(
+  id: number,
+  reason: string,
+): Promise<WriteResult<null>> {
+  return postJson<null>({
+    path: `/revise-estimate`,
+    body: { id, reason },
+    noReply: (error) =>
+      `The request did not reach the cockpit (${networkMessage(error)}). ` +
+      "The revision was not recorded.",
+    unreadable: (status) => `revision failed (${status})`,
+    tolerateEmptyBody: true,
   });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => null);
-    const detail =
-      payload && typeof payload.detail === "string"
-        ? payload.detail
-        : `revision failed (${response.status})`;
-    throw new Error(detail);
-  }
 }
 
 /** One drawable bar of a market's price history. Prices in tenths of a cent;
@@ -3165,36 +3006,24 @@ export type SendDeskResult =
  * it server-side, exactly as `/refresh-odds` does for odds credits.
  */
 export async function sendScoutDesk(ticker: string): Promise<SendDeskResult> {
-  let response: Response;
-  try {
-    response = await fetch(`/scout-desk`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({ ticker }),
-    });
-  } catch (error) {
-    return {
-      accepted: false,
-      status: 0,
-      detail: `The request did not reach the cockpit (${
-        error instanceof Error ? error.message : "network error"
-      }). Nothing was spent.`,
-    };
-  }
-  const body: unknown = await response.json().catch(() => null);
-  if (response.ok) {
+  const result = await postJson<unknown>({
+    path: `/scout-desk`,
+    body: { ticker },
+    noReply: (error) =>
+      `The request did not reach the cockpit (${networkMessage(error)}). ` +
+      "Nothing was spent.",
+    unreadable: (status) => `HTTP ${status}`,
+    tolerateEmptyBody: true,
+  });
+  if (result.ok) {
+    const body = result.value;
     const id =
       body && typeof body === "object" && "id" in body
         ? Number((body as { id: unknown }).id)
         : 0;
     return { accepted: true, id };
   }
-  const detail =
-    body && typeof body === "object" && "detail" in body
-      ? refusalText((body as { detail: unknown }).detail)
-      : `HTTP ${response.status}`;
-  return { accepted: false, status: response.status, detail };
+  return { accepted: false, status: result.status, detail: result.refusal };
 }
 
 export type RecordPassResult =
@@ -3214,38 +3043,24 @@ export async function recordPass(
   ticker: string,
   reason?: string,
 ): Promise<RecordPassResult> {
-  let response: Response;
-  try {
-    response = await fetch(`/pass`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify(
-        reason && reason.trim().length > 0 ? { ticker, reason } : { ticker },
-      ),
-    });
-  } catch (error) {
-    return {
-      recorded: false,
-      status: 0,
-      detail: `The request did not reach the cockpit (${
-        error instanceof Error ? error.message : "network error"
-      }). Nothing was recorded.`,
-    };
-  }
-  const body: unknown = await response.json().catch(() => null);
-  if (response.ok) {
+  const result = await postJson<unknown>({
+    path: `/pass`,
+    body: reason && reason.trim().length > 0 ? { ticker, reason } : { ticker },
+    noReply: (error) =>
+      `The request did not reach the cockpit (${networkMessage(error)}). ` +
+      "Nothing was recorded.",
+    unreadable: (status) => `HTTP ${status}`,
+    tolerateEmptyBody: true,
+  });
+  if (result.ok) {
+    const body = result.value;
     const id =
       body && typeof body === "object" && "id" in body
         ? Number((body as { id: unknown }).id)
         : 0;
     return { recorded: true, id };
   }
-  const detail =
-    body && typeof body === "object" && "detail" in body
-      ? refusalText((body as { detail: unknown }).detail)
-      : `HTTP ${response.status}`;
-  return { recorded: false, status: response.status, detail };
+  return { recorded: false, status: result.status, detail: result.refusal };
 }
 
 /**
@@ -3261,7 +3076,7 @@ export async function recordPass(
  * happen. Here there is no component and nothing for a reader to do: a missed
  * heartbeat costs one delayed sweep, the next tick retries a minute later, and
  * an error in the chrome of every page would be noise about a request the
- * reader never made. It throws on a transport failure like any `fetch`, and
+ * reader never made. It no longer throws on a transport failure (the transport returns it), and
  * `Nav.tsx` swallows that deliberately.
  *
  * **The body carries the path and nothing else** (v34, question E, Joe
@@ -3277,11 +3092,12 @@ export async function recordPass(
  * function stays callable from a test and from a non-browser context.
  */
 export async function recordAttention(path?: string): Promise<void> {
-  await fetch(`/desk-attention`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    cache: "no-store",
-    body: JSON.stringify(path ? { path } : {}),
+  await postJson<unknown>({
+    path: `/desk-attention`,
+    body: path ? { path } : {},
+    noReply: () => "The heartbeat did not reach the cockpit.",
+    unreadable: (status) => `HTTP ${status}`,
+    tolerateEmptyBody: true,
   });
 }
 
@@ -4072,33 +3888,24 @@ async function postHedge(
   path: string,
   body: unknown,
 ): Promise<{ ok: true; body: unknown } | { ok: false; detail: string }> {
-  let response: Response;
-  try {
-    response = await fetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      cache: "no-store",
-    });
-  } catch {
-    return { ok: false, detail: "The cockpit did not answer. Nothing changed." };
-  }
-  const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    // `refusalText` above, not a second copy of it. It already handles the
-    // three shapes that reach here -- FastAPI's plain string, the list of
-    // dicts pydantic produces when the body itself is invalid, and an object
-    // -- and an empty hedge form hits pydantic before it reaches any of the
-    // backend's own checks, so the list case is the common one rather than
-    // the exotic one. A `String(detail)` here rendered that as gibberish
-    // exactly where the screen promises the server's words.
-    const detail =
-      payload && typeof payload === "object" && "detail" in payload
-        ? refusalText((payload as { detail: unknown }).detail)
-        : `The cockpit refused that (${response.status}). Nothing changed.`;
-    return { ok: false, detail };
-  }
-  return { ok: true, body: payload };
+  // The transport turns a refusal into words with `refusalText`, which
+  // handles the three shapes that reach here -- FastAPI's plain string, the
+  // list of dicts pydantic produces when the body itself is invalid, and an
+  // object -- and an empty hedge form hits pydantic before it reaches any of
+  // the backend's own checks, so the list case is the common one rather than
+  // the exotic one.
+  const refused = (status: number) =>
+    `The cockpit refused that (${status}). Nothing changed.`;
+  const result = await postJson<unknown>({
+    path,
+    body,
+    noReply: () => "The cockpit did not answer. Nothing changed.",
+    unreadable: refused,
+    noDetail: refused,
+    tolerateEmptyBody: true,
+  });
+  if (!result.ok) return { ok: false, detail: result.refusal };
+  return { ok: true, body: result.value };
 }
 
 export function recordHeldPosition(input: HeldPositionInput) {
@@ -4451,32 +4258,21 @@ export async function requestLegVerdicts(
   const sent = legs
     .slice(0, LEG_VERDICT_MAX_LEGS)
     .map((leg) => ({ ticker: leg.ticker, side: leg.side }));
-  let response: Response;
-  try {
-    response = await fetch("/leg-verdicts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({ trigger, card_key: cardKey, legs: sent }),
-    });
-  } catch (error) {
-    return {
-      legs: [],
-      error: `The scouts could not be reached (${
-        error instanceof Error ? error.message : "network error"
-      }). Nothing was sent.`,
-    };
+  const result = await postJson<unknown>({
+    path: "/leg-verdicts",
+    body: { trigger, card_key: cardKey, legs: sent },
+    noReply: (error) =>
+      `The scouts could not be reached (${networkMessage(error)}). ` +
+      "Nothing was sent.",
+    unreadable: () => UNREADABLE_LEG_VERDICTS,
+  });
+  if (!result.ok) {
+    if (result.status === 503) return { legs: [], error: "Scouts are off" };
+    return { legs: [], error: result.refusal };
   }
-  if (response.status === 503) return { legs: [], error: "Scouts are off" };
-  const body: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    const detail =
-      body && typeof body === "object" && "detail" in body
-        ? refusalText((body as { detail: unknown }).detail)
-        : `HTTP ${response.status}`;
-    return { legs: [], error: detail };
-  }
-  return legVerdictBody(body) ?? { legs: [], error: UNREADABLE_LEG_VERDICTS };
+  return (
+    legVerdictBody(result.value) ?? { legs: [], error: UNREADABLE_LEG_VERDICTS }
+  );
 }
 
 /**
@@ -4557,37 +4353,33 @@ export async function buildGameCard(
 ): Promise<{ ok: true; reused: boolean } | { ok: false; refusal: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), BUILD_CARD_WAIT_MS);
-  let response: Response;
+  const answered = (status: number) =>
+    `The card build answered HTTP ${status}.`;
+  let result: WriteResult<unknown>;
   try {
-    response = await fetch("/game-card", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
+    result = await postJson<unknown>({
+      path: "/game-card",
+      body: { event_ticker: eventTicker },
       signal: controller.signal,
-      body: JSON.stringify({ event_ticker: eventTicker }),
+      noReply: (error) => {
+        const timedOut =
+          error instanceof DOMException && error.name === "AbortError";
+        return timedOut
+          ? "The card is taking longer than this screen will wait. It may " +
+              "still be building: reload the game in a minute before tapping again."
+          : "The request did not reach the cockpit. The card may still be " +
+              "building: reload the game before tapping again.";
+      },
+      unreadable: answered,
+      noDetail: answered,
+      tolerateEmptyBody: true,
     });
-  } catch (error) {
-    const timedOut = error instanceof DOMException && error.name === "AbortError";
-    return {
-      ok: false,
-      refusal: timedOut
-        ? "The card is taking longer than this screen will wait. It may " +
-          "still be building: reload the game in a minute before tapping again."
-        : "The request did not reach the cockpit. The card may still be " +
-          "building: reload the game before tapping again.",
-    };
   } finally {
     clearTimeout(timer);
   }
-  const body: unknown = await response.json().catch(() => null);
-  if (response.ok) {
-    const reused =
-      !!body && typeof body === "object" && (body as { reused?: unknown }).reused === true;
-    return { ok: true, reused };
-  }
-  const detail =
-    body && typeof body === "object" && "detail" in body
-      ? refusalText((body as { detail: unknown }).detail)
-      : `The card build answered HTTP ${response.status}.`;
-  return { ok: false, refusal: detail };
+  if (!result.ok) return { ok: false, refusal: result.refusal };
+  const body = result.value;
+  const reused =
+    !!body && typeof body === "object" && (body as { reused?: unknown }).reused === true;
+  return { ok: true, reused };
 }

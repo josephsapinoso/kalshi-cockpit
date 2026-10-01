@@ -31,6 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend" / "src"
 API_TS = FRONTEND / "lib" / "api.ts"
+TRANSPORT_TS = FRONTEND / "lib" / "transport.ts"
 PRICE_ON_KALSHI = FRONTEND / "components" / "PriceOnKalshi.tsx"
 
 
@@ -46,18 +47,21 @@ def _lookup_parlay_source() -> str:
 
 class TestTheLookupNeverStrandsTheCard:
     def test_the_fetch_itself_is_guarded(self):
-        body = _lookup_parlay_source()
-        assert "try {" in body and "} catch (error) {" in body, (
+        # The guard moved into the transport (ADR 0191): lookupParlay goes
+        # through it, and the transport owns the try/catch around fetch.
+        assert "postJson<" in _lookup_parlay_source()
+        transport = TRANSPORT_TS.read_text(encoding="utf-8")
+        assert "try {" in transport and "} catch (error) {" in transport, (
             "lookupParlay must not let a transport failure reject: its caller "
             "renders one button and unmounts it while the request is in "
             "flight, so a rejection freezes the card at 'Asking Kalshi…'."
         )
 
     def test_the_body_parse_cannot_throw(self):
-        body = _lookup_parlay_source()
-        # Every `.json()` in this function must be followed by a `.catch`.
-        assert ".json().catch(" in body
-        assert "await response.json()) as ParlayLookupResult" not in body, (
+        transport = TRANSPORT_TS.read_text(encoding="utf-8")
+        # Every `.json()` in the transport must be followed by a `.catch`.
+        assert ".json().catch(" in transport
+        assert "await response.json()) as" not in transport, (
             "an unguarded response.json() on the ok path throws on a proxy "
             "page served with a 200"
         )

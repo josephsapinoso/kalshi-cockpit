@@ -60,10 +60,10 @@ export default function TonightStrip({
     setLocking(true);
     setError(null);
     engageLockout()
-      .then((result) => setTappedUntil(result.until_ms))
-      .catch((err) =>
-        setError(err instanceof Error ? err.message : "lockout failed"),
-      )
+      .then((result) => {
+        if (result.ok) setTappedUntil(result.value.until_ms);
+        else setError(result.refusal);
+      })
       .finally(() => setLocking(false));
   };
 

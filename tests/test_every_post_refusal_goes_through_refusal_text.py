@@ -41,6 +41,26 @@ globalThis.fetch = async () => new Response(JSON.stringify({{ detail }}), {{
 console.log(JSON.stringify(await acceptComboQuote("rfq-1", "q-1")));
 """
 
+# `api.ts` imports `./transport` extensionless (ADR 0191), which the bundler
+# resolves and node does not; same hook as tests/test_sweep_tone_predicate.py.
+_HOOK = """
+import { registerHooks } from "node:module";
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    try {
+      return nextResolve(specifier, context);
+    } catch (e) {
+      const relative = specifier.startsWith("./") || specifier.startsWith("../");
+      const bare = !/\\.[cm]?[jt]sx?$/.test(specifier);
+      if (e && e.code === "ERR_MODULE_NOT_FOUND" && relative && bare) {
+        return nextResolve(specifier + ".ts", context);
+      }
+      throw e;
+    }
+  },
+});
+"""
+
 PYDANTIC = [
     {"loc": ["body", "quote_id"], "msg": "field required", "type": "missing"}
 ]
@@ -52,9 +72,18 @@ def _code_only(source: str) -> str:
 
 
 def _run(detail) -> dict:
-    with node_driver(API.parent, _DRIVER.format(module="./api.ts")) as driver:
+    with node_driver(API.parent, _DRIVER.format(module="./api.ts")) as driver, node_driver(
+        API.parent, _HOOK
+    ) as hook:
         out = subprocess.run(
-            [NODE, "--experimental-strip-types", str(driver), json.dumps(detail)],
+            [
+                NODE,
+                "--experimental-strip-types",
+                "--import",
+                hook.resolve().as_uri(),
+                str(driver),
+                json.dumps(detail),
+            ],
             capture_output=True,
             text=True,
             timeout=60,
