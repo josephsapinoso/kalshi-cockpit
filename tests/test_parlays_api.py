@@ -1296,13 +1296,14 @@ class TestTheDeskIsScopedToTonight:
         Two definitions of "today" in one process is how the looser one wins
         in silence -- this repo has paid for that once already, in the odds
         budget's day boundary."""
-        api_ts = (
+        # Lives in lib/format.ts since #261; api.ts re-exports it.
+        format_ts = (
             Path(__file__).resolve().parents[1]
-            / "frontend" / "src" / "lib" / "api.ts"
+            / "frontend" / "src" / "lib" / "format.ts"
         ).read_text(encoding="utf-8")
         assert (
             f'export const DISPLAY_TIME_ZONE = "{parlays.DESK_TIME_ZONE}"'
-            in api_ts
+            in format_ts
         )
 
     def test_the_screen_has_words_for_the_new_refusal(self):
