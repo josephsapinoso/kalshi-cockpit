@@ -92,6 +92,7 @@ from ..odds.timing import (
     window_status,
 )
 from .. import hedge as held_parlays
+from .. import positions
 from .. import line_shop
 from .. import parlays
 from ..parlays import (
@@ -4288,9 +4289,12 @@ def create_app(
                 row_id, ticker, outcome.status,
             )
 
-        # 13. THE EXIT, WIRED TO THE ENTRY. A combination is enter-only, so
-        # `/hedge` is the only way out of one -- and it watches
-        # `parlay_positions`, which this path never wrote. Two real
+        # 13. THE EXIT THE DESK WATCHES, WIRED TO THE ENTRY. `/hedge` watches
+        # `parlay_positions`, which this path never wrote. (A combination CAN
+        # be sold back by RFQ or into a resting book bid, which was measured
+        # 2026-09-17; the hedge is the exit the desk watches, not the only one
+        # that exists. This comment called a combination enter-only until
+        # 2026-10-01.) Two real
         # combination fills landed on 2026-09-08 and that table was empty for
         # the entire life of both positions.
         #
@@ -4304,41 +4308,45 @@ def create_app(
         position_id = None
         position_note = None
         filled = outcome.fill_count
-        # `fill_count` is a float off the wire (`fill_count_fp`-shaped), and a
-        # position is an integer number of contracts. Until 2026-09-15 this was
-        # `int(filled)`, which TRUNCATES: 2.5 became 2, understating the
-        # holding, so the stake, so the `/hedge` figure -- the flattering
-        # direction, refused by policy (ADR 0151; the shape of "unreadable
-        # resolves to None, never 0"). A non-integral fill is recorded as no
-        # position at all and said out loud, exactly as `unrecognised_response`
-        # is twelve lines above. No real fill has ever been fractional; the
-        # refusal exists so the first one cannot be silently rounded.
-        fractional_fill = (
-            filled is not None and filled > 0 and float(filled) != int(filled)
+        # `fill_count` is a float off the wire (`fill_count_fp`-shaped). Until
+        # 2026-09-15 this was `int(filled)`, which TRUNCATES: 2.5 became 2,
+        # understating the holding, so the stake, so the `/hedge` figure --
+        # the flattering direction, refused by policy (ADR 0151). From then
+        # until ADR 0192 (#265, 2026-10-01) any fraction was refused. Now a
+        # fraction the table can hold exactly (2.5) is recorded at the
+        # venue's count, as the RFQ path has done since ADR 0178. Only a
+        # count finer than that (`count x 1000` not whole tenths) records no
+        # position, and the screen says so -- never rounded.
+        unholdable_fill = (
+            filled is not None and filled > 0
+            and not positions.holdable_count(filled)
         )
-        if combo and not outcome.dry_run and fractional_fill:
+        if combo and not outcome.dry_run and unholdable_fill:
             logger.error(
-                "manual order row %d filled on combo %s with a NON-INTEGRAL "
-                "fill_count %r; no hedge position recorded rather than a "
-                "truncated one.", row_id, ticker, filled,
+                "manual order row %d filled on combo %s with a count %r finer "
+                "than the table can hold; no hedge position recorded rather "
+                "than a rounded one.", row_id, ticker, filled,
             )
             position_note = (
                 f"This combination is NOT being watched for a hedge — the venue "
-                f"reported a fractional fill of {filled} contracts, which the "
-                f"desk will not round into a holding. Record it by hand on "
-                f"/hedge with the count Kalshi shows."
+                f"reported a fill of {filled} contracts, a fraction finer than "
+                f"the desk can record, and it will not round it into a holding. "
+                f"Record it by hand on /hedge with the count Kalshi shows."
             )
         elif combo and not outcome.dry_run and filled is not None and filled > 0:
+            refused = None
             try:
-                position_id = await run_in_threadpool(
+                recorded = await run_in_threadpool(
                     _record_combo_position,
                     app_config.db_path,
+                    manual_order_id=row_id,
                     ticker=ticker,
-                    contracts=int(filled),
+                    filled=float(filled),
                     fill_price_tenths=order.fill_price_tenths,
                     now_ms=db.now_ms(),
                     placed_ms=submitted_ms,
                 )
+                position_id, refused = recorded.position_id, recorded.refused
             except Exception:                           # noqa: BLE001
                 # Never into the order path: the money is already spent and a
                 # bookkeeping failure must not report the purchase as failed.
@@ -4346,7 +4354,17 @@ def create_app(
                     "manual order row %d filled on combo %s and its hedge "
                     "position could not be recorded.", row_id, ticker,
                 )
-            if position_id is None:
+            if position_id is None and refused is not None:
+                # The legs were fine; the SIZE or PRICE could not be held
+                # (a tiny fraction whose stake rounds to its return). Saying
+                # "legs could not be recovered" here would send him looking
+                # for the wrong fault (kalshi-platform review of #265).
+                position_note = (
+                    "This combination is NOT being watched for a hedge — the "
+                    f"desk could not record it as a ticket: {refused} Record "
+                    "it by hand on /hedge with what Kalshi shows."
+                )
+            elif position_id is None:
                 # Said out loud, on the screen. Silence here is the exact
                 # failure being fixed -- he would believe the desk was
                 # watching a position it had never heard of.
@@ -4657,94 +4675,44 @@ def _write_manual_response(db_path, row_id: int, body: dict) -> None:
 def _record_combo_position(
     db_path,
     *,
+    manual_order_id: int,
     ticker: str,
-    contracts: int,
+    filled: float,
     fill_price_tenths: int,
     now_ms: int,
     placed_ms: int,
-) -> Optional[int]:
+) -> "positions.OrderFill":
     """Put a combination bought through the desk under `/hedge`'s watch.
 
-    **The exit, wired to the entry.** A `KXMVE` combination is enter-only --
-    `yes_dollars` empty on 40 of 40 books this repo has read, zero resting
-    YES bids over 36 levels (ADR 0012 §5) -- so hedging a leg is the only way
-    out of one, and `/hedge` can only watch what `parlay_positions` holds.
-    Until 2026-09-09 the only writer of that table was `POST
-    /api/hedge/positions`, a separate tap on a separate screen: the desk
-    armed the entry and left the exit to Joe's memory. On 2026-09-08 it took
-    two real combination fills and `parlay_positions` was empty for the whole
-    life of both positions.
+    **The exit the desk watches, wired to the entry.** Until 2026-09-09 the
+    only writer of `parlay_positions` was `POST /api/hedge/positions`, a
+    separate tap on a separate screen. On 2026-09-08 the desk took two real
+    combination fills and the table stayed empty for the whole life of both.
 
-    Returns the new position id, or `None` when the position could not be
-    built honestly. **`None` is never an error the caller may hide**: it
-    means the money moved and nothing is watching it, which is exactly the
-    state this function exists to end, so the caller says so on the screen.
+    Since ADR 0192 (2026-10-01, #265) the rules live in
+    `positions.record_order_fill`, and this only opens the connection.
+    Writing there changes two things:
+    - The stake is the venue's own average fill price whenever this order's
+      `manual_orders` row proves it, and the sent price otherwise. Which one
+      is stored with the row (`stake_basis`). This supersedes ADR 0160 §2.1
+      for new rows.
+    - A fractional fill the table can hold is recorded at the venue's count.
 
-    Nothing here may raise into the order path. The order is already placed
-    and the money is already spent; a bookkeeping failure must not turn a
-    successful purchase into a 500 that tells Joe nothing happened.
+    Returns `positions.OrderFill`. An id of `None` is never an error the
+    caller may hide: it means the money moved and nothing is watching it, so
+    the caller says so on the screen -- with the ticket check's own reason
+    when `refused` carries one. Nothing here raises into the order path.
     """
     conn = db.open_db(db_path)
     try:
-        lookup = parlays.priced_lookup_for(conn, ticker)
-        if lookup is None:
-            return None
-        parsed = parlays.legs_for_position(lookup["selected_legs"])
-        if parsed is None:
-            return None
-        # **Stake here is the price the desk SENT, and it is not necessarily
-        # the price the venue charged.** Until 2026-09-16 this comment said
-        # the opposite -- that the number below was what he had paid -- and
-        # that was false. (The dead sentence is not reproduced here: a
-        # correction trail that quotes the killed wording re-trips the guard
-        # that killed it, `tasks/lessons.md` 2026-09-16 tenth.)
-        #
-        # `fill_price_tenths` is `OrderRequest.fill_price_tenths`, what one
-        # contract of our side costs at the price being SENT, fixed at
-        # intent time before anything matched. What the venue charged
-        # arrives separately, on this same order's row, as
-        # `manual_orders.venue_avg_fill_price_tenths` (schema
-        # v40, ADR 0143). On the registered census's twelve joined rows the
-        # two were equal on eleven and 22 tenths a contract apart on the
-        # twelfth, with the sent price above the venue's.
-        #
-        # The sent price stays the number written here on purpose. `/hedge`
-        # re-reads the stake at the venue's own price when it builds the
-        # screen (`hedge.stake_bases`), so the correction lives on the read
-        # and this permanent row keeps the number the desk actually sent --
-        # which is the one a later audit needs to compare against. Nothing on
-        # the armed order path was changed to do it.
-        #
-        # Return is what the venue pays a winning contract, $1.00 each. Both
-        # in tenths of a cent, integer, per CLAUDE.md -- and `return > stake`
-        # holds by construction because a price is 1..999 tenths, which is
-        # what the table's CHECK requires.
-        stake_tenths = contracts * fill_price_tenths
-        return_tenths = contracts * 1000
-        note = (
-            "Recorded automatically from the hand-bet path. A combination can "
-            "be sold back, though selling back may cost more than holding it "
-            "to the outcome; a hedge is the exit the desk watches, not the "
-            "only one that exists."
-        )
-        if parsed.labels_are_tickers:
-            note += (
-                " Leg names are market tickers -- this combination was priced "
-                "before the desk began recording leg labels, and inventing "
-                "them was refused."
-            )
-        return held_parlays.record_position(
+        return positions.record_order_fill(
             conn,
+            manual_order_id=manual_order_id,
+            ticker=ticker,
+            filled=filled,
+            sent_price_tenths=fill_price_tenths,
             now_ms=now_ms,
-            source="kalshi_combo",
-            label=held_parlays.position_label(lookup["card_key"], ticker),
-            stake_tenths=stake_tenths,
-            return_tenths=return_tenths,
-            legs=parsed.legs,
             placed_ms=placed_ms,
-            combo_ticker=ticker,
-            parlay_lookup_id=int(lookup["id"]),
-            note=note,
         )
     finally:
         conn.close()

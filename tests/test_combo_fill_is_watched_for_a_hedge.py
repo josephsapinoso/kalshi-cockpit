@@ -615,17 +615,18 @@ class TestTheLookupRecordsWhatThePositionNeeds:
 
 
 class TestAFractionalFillIsRefusedNotTruncated:
-    """ADR 0151. `contracts=int(filled)` truncated: a venue-reported 2.5 became
-    a 2-contract holding, understating the stake and flattering the `/hedge`
-    figure -- the direction this repo refuses by policy. No real fill has ever
-    been fractional; this exists so the first one is said out loud instead of
-    rounded.
+    """ADR 0151, then ADR 0192 §2.4. `contracts=int(filled)` truncated: a
+    venue-reported 2.5 became a 2-contract holding, understating the stake and
+    flattering the `/hedge` figure. From 2026-09-15 any fraction was refused;
+    since #265 a fraction the table can hold exactly is recorded at the
+    venue's count (the RFQ path's rule), and only a finer one is refused --
+    never rounded, never truncated.
 
-    Mutation seen red: the `fractional_fill` branch removed (the pre-2026-09-15
-    `int(filled)` path) -- a 2-contract position then lands and the note is
-    the "being watched" sentence."""
+    Mutations seen red: the `unholdable_fill` branch removed (a 2.5005 count
+    then reaches the writer, which refuses it with the generic note); the old
+    `int(filled)` path restored (2.5 lands as 2)."""
 
-    async def test_a_fractional_fill_records_no_position_and_says_why(
+    async def test_a_holdable_fraction_is_a_position_at_the_venues_count(
         self, tmp_path, fills_for_real
     ):
         fills_for_real(fill_count=2.5)
@@ -638,11 +639,58 @@ class TestAFractionalFillIsRefusedNotTruncated:
 
         body = (await _buy_combo(app)).json()
 
+        rows = _positions(path)
+        assert len(rows) == 1
+        assert rows[0]["return_tenths"] == 2_500
+        assert body["hedge_position_id"] == rows[0]["id"]
+
+    async def test_a_count_finer_than_the_table_records_nothing_and_says_why(
+        self, tmp_path, fills_for_real
+    ):
+        fills_for_real(fill_count=2.5005)
+        path = _base_db(tmp_path)
+        _seed_lookup(path)
+        quotes = StubQuotes(
+            _payload(ticker=COMBO_TICKER, yes_ask_size=1000.0, exchange_index=1)
+        )
+        app = _app(path, quotes=quotes)
+
+        body = (await _buy_combo(app)).json()
+
         assert _positions(path) == []
         assert body["hedge_position_id"] is None
         note = body["hedge_position_note"]
-        assert "NOT being watched" in note and "2.5" in note
-        assert "fractional" in note
+        assert "NOT being watched" in note and "2.5005" in note
+        assert "finer than" in note
+
+    async def test_a_ticket_refusal_is_not_blamed_on_the_legs(
+        self, tmp_path, fills_for_real, monkeypatch
+    ):
+        """kalshi-platform review of #265: a tiny fraction (0.01 at 95c) rounds
+        its stake to its return, and the ticket check refuses it. The legs
+        were fine, so the screen carries the check's own reason rather than
+        "legs could not be recovered". The writer's answer is stubbed: the
+        harness caps the price below where the rounding bites, and the
+        writer's own refusal is pinned in `test_positions_module.py`."""
+        from backend import positions
+
+        monkeypatch.setattr(
+            positions, "record_order_fill",
+            lambda conn, **kw: positions.OrderFill(None, "The ticket pays nothing."),
+        )
+        fills_for_real(fill_count=4.0)
+        path = _base_db(tmp_path)
+        _seed_lookup(path)
+        quotes = StubQuotes(
+            _payload(ticker=COMBO_TICKER, yes_ask_size=1000.0, exchange_index=1)
+        )
+        app = _app(path, quotes=quotes)
+
+        note = (await _buy_combo(app)).json()["hedge_position_note"]
+
+        assert "The ticket pays nothing." in note
+        assert "NOT being watched" in note
+        assert "legs could not be recovered" not in note
 
     async def test_an_integral_float_fill_is_still_a_position(
         self, tmp_path, fills_for_real

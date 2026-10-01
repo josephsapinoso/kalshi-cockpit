@@ -14,11 +14,14 @@ rebuilds it by matching `(combo_ticker, placed_ms)` against the order and
 quote tables on every read. `hedge.record_position` is the insert underneath,
 and this module is its caller.
 
-**Slice S1 (#264)** moves three writers here: the RFQ accept, the slip Joe
-types on `/hedge`, and a holding adopted off the venue. The hand-bet order
-path (`routes._record_combo_position`) still writes through
-`hedge.record_position` directly and stores no provenance until S2 (#265).
-Its rows resolve exactly as before, through ADR 0160's read-time join.
+Four writers come through here:
+- the hand-bet order path (`routes._record_combo_position`, S2, #265);
+- the RFQ accept;
+- the slip Joe types on `/hedge`;
+- a holding adopted off the venue.
+
+Rows written before schema v60 carry no provenance and resolve exactly as
+before, through ADR 0160's read-time join.
 
 What this module does NOT establish:
 - that a stored `venue_fill` stake is what Kalshi finally charged after
@@ -30,7 +33,9 @@ What this module does NOT establish:
 from __future__ import annotations
 
 import logging
+import math
 import sqlite3
+from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Sequence
 
 import backend.hedge as held_parlays
@@ -53,6 +58,158 @@ def _quote_size(quote: Mapping[str, Any]) -> Optional[float]:
     from backend.combo_rfq import _quote_size as quote_size
 
     return quote_size(quote)
+
+
+def holdable_count(count: Optional[float]) -> bool:
+    """Whether a venue-reported count can be held exactly in the table.
+
+    A settlement is a whole 1000 tenths a contract, so `count x 1000` must be
+    whole tenths: 2.5 can be held, 2.5005 cannot. The second is refused and
+    said out loud, never rounded (ADR 0151's direction, ADR 0192 §2.4).
+    `None`, zero, negative and non-finite counts are not holdings at all.
+    """
+    if count is None:
+        return False
+    try:
+        value = float(count)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(value) or value <= 0:
+        return False
+    exact_return = value * SETTLEMENT_TENTHS
+    return abs(exact_return - round(exact_return)) <= 1e-6
+
+
+#: The permanent note on a combination bought through the hand-bet path.
+#: Pinned by `test_combo_exit_copy_names_the_cost_on_every_surface.py`: it
+#: names what an exit costs, not how often one exists (Joe's rule, #60/#64).
+ORDER_PATH_NOTE = (
+    "Recorded automatically from the hand-bet path. A combination can "
+    "be sold back, though selling back may cost more than holding it "
+    "to the outcome; a hedge is the exit the desk watches, not the "
+    "only one that exists."
+)
+
+
+@dataclass(frozen=True)
+class OrderFill:
+    """What `record_order_fill` did. `refused` is the ticket check's own
+    sentence when the position was refused for its SIZE or PRICE (a tiny
+    fraction whose stake rounds to the return, or to zero) -- a different
+    fact from legs that could not be recovered, so the screen must not say
+    the second when the first happened (kalshi-platform review of #265)."""
+
+    position_id: Optional[int]
+    refused: Optional[str] = None
+
+
+def record_order_fill(
+    conn: sqlite3.Connection,
+    *,
+    manual_order_id: int,
+    ticker: str,
+    filled: float,
+    sent_price_tenths: int,
+    now_ms: int,
+    placed_ms: int,
+) -> OrderFill:
+    """A combination bought through `POST /api/manual-orders` (step 13).
+
+    **The stake is decided by `hedge.stake_basis_for`, the function ADR
+    0160's read-time join calls**, applied to this order's own
+    `manual_orders` row, read by id. The stored figure is therefore exactly
+    what `/hedge` would have computed on read:
+    - the venue's average fill price x the venue's count, stored as
+      `venue_fill`, when that row proves it;
+    - otherwise the price the desk SENT, stored as `as_recorded` with the
+      reason (`no_venue_price`, `side_convention_unresolved`, and so on).
+
+    This supersedes ADR 0160 §2.1 for rows written from here on (ADR 0192
+    §2.3).
+
+    `filled` is the venue's count. A fraction the table can hold is recorded
+    at that count (§2.4). A finer one is refused here as well as by the
+    caller.
+
+    Returns an `OrderFill`: the id, or `None` with `refused` set when the
+    ticket check refused the size or price, or `None` alone when the legs
+    could not be recovered. **Nothing here raises**: the order is placed and
+    the money is spent.
+    """
+    try:
+        if not holdable_count(filled):
+            logger.error(
+                "manual order %d on %s: count %r cannot be held exactly; "
+                "no position", manual_order_id, ticker, filled,
+            )
+            return OrderFill(None, f"a fill of {filled} contracts cannot be held exactly")
+        lookup = parlays.priced_lookup_for(conn, ticker)
+        if lookup is None:
+            return OrderFill(None)
+        parsed = parlays.legs_for_position(lookup["selected_legs"])
+        if parsed is None:
+            return OrderFill(None)
+        count = float(filled)
+        return_tenths = int(round(count * SETTLEMENT_TENTHS))
+        # The sent figure, rounded once to the nearest tenth -- the only
+        # rounding, as on the RFQ path. A whole count gives the exact product
+        # the order path always wrote.
+        sent_stake = int(round(count * int(sent_price_tenths)))
+        order = conn.execute(
+            "SELECT side, venue_fill_count, venue_avg_fill_price_tenths "
+            "FROM manual_orders WHERE id = ? AND dry_run = 0",
+            (int(manual_order_id),),
+        ).fetchone()
+        basis = held_parlays.stake_basis_for(
+            {
+                "source": "kalshi_combo",
+                "combo_ticker": ticker,
+                "placed_ms": placed_ms,
+                "stake_tenths": sent_stake,
+                "return_tenths": return_tenths,
+                "note": None,
+            },
+            order,
+        )
+        note = ORDER_PATH_NOTE
+        if parsed.labels_are_tickers:
+            note += (
+                " Leg names are market tickers -- this combination was priced "
+                "before the desk began recording leg labels, and inventing "
+                "them was refused."
+            )
+        position_id = held_parlays.record_position(
+            conn,
+            now_ms=now_ms,
+            source="kalshi_combo",
+            label=held_parlays.position_label(lookup["card_key"], ticker),
+            stake_tenths=basis.stake_tenths,
+            return_tenths=return_tenths,
+            legs=parsed.legs,
+            placed_ms=placed_ms,
+            combo_ticker=ticker,
+            parlay_lookup_id=int(lookup["id"]),
+            note=note,
+            fill_source=FILL_MANUAL_ORDER,
+            fill_ref=int(manual_order_id),
+            stake_basis=basis.basis,
+            stake_basis_reason=basis.reason,
+        )
+        return OrderFill(position_id)
+    except held_parlays.PositionRefused as exc:
+        # Reachable since fractions are held: 0.01 of a contract at 95c rounds
+        # to a stake equal to its return, which the ticket check refuses.
+        logger.error(
+            "manual order %d on %s: position refused: %s",
+            manual_order_id, ticker, exc.refusal.detail,
+        )
+        return OrderFill(None, exc.refusal.detail)
+    except Exception:  # noqa: BLE001 -- the order is placed; bookkeeping may not raise
+        logger.exception(
+            "manual order %d on %s: the position could not be written",
+            manual_order_id, ticker,
+        )
+        return OrderFill(None)
 
 
 def record_rfq_accept(

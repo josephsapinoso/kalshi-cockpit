@@ -18,8 +18,13 @@ Establishes:
     tables.
   * The RFQ writer never raises.
 
+  * The hand-bet order path (S2, #265) stores, per its order row read by
+    id, the stake the join computes: whole and 2.5-contract venue fills,
+    no venue price, no count, a NO order, and no order row. A count finer
+    than a tenth writes nothing.
+
 Does not establish: anything about live rows (none are rewritten, ADR 0192
-§2.6), or the hand-bet order path's stake (S2, #265).
+§2.6), or what Kalshi charged after fees.
 """
 
 from __future__ import annotations
@@ -34,6 +39,16 @@ import backend.hedge as hedge
 import backend.positions as positions
 from backend import combo_rfq
 from backend.store import combo_rfqs as store
+from backend.store import db
+from tests.test_combo_fill_is_watched_for_a_hedge import (
+    COMBO_TICKER as ORDER_COMBO,
+)
+from tests.test_combo_fill_is_watched_for_a_hedge import _seed_lookup
+from tests.test_stake_basis_is_the_venue_fill import (
+    SENT_TENTHS,
+    VENUE_TENTHS,
+    an_order,
+)
 from tests.test_combo_rfq_accept import (
     QUOTE,
     RFQ,
@@ -69,12 +84,11 @@ def conn():
     yield c
     c.close()
 
-#: Production callers of `hedge.record_position` other than the one writer.
-#: `routes.py` is the hand-bet order path, which #265 (S2) moves onto
-#: `positions`; it leaves this set in that slice, not this one.
+#: Production callers of `hedge.record_position`: the one writer, and two
+#: operator scripts. `routes.py` left this set with #265 (S2), when the
+#: hand-bet order path moved onto `positions.record_order_fill`.
 RECORD_POSITION_ALLOWED = {
     "backend/positions.py",
-    "backend/api/routes.py",
     "scripts/backfill_orphan_combo_position.py",
     "scripts/drive_hedge.py",
 }
@@ -184,6 +198,105 @@ class TestTheOtherWritersStoreTheReadsAnswer:
         stored, joined = _stored_then_joined(conn)
         assert stored == joined
         assert stored.basis == hedge.STAKE_BASIS_VENUE_EXPOSURE
+
+
+@pytest.fixture()
+def order_conn(tmp_path):
+    """A database holding the priced lookup the order path recovers legs from."""
+    path = tmp_path / "orders.db"
+    connection = db.init_db(path)
+    _seed_lookup(path)
+    yield connection
+    connection.close()
+
+
+def _order_fill(conn, *, filled=4.0, write_order=True, **order_kw):
+    order_id = (
+        an_order(conn, ticker=ORDER_COMBO, submitted_ms=1_500, **order_kw)
+        if write_order
+        else 999
+    )
+    result = positions.record_order_fill(
+        conn, manual_order_id=order_id, ticker=ORDER_COMBO, filled=filled,
+        sent_price_tenths=SENT_TENTHS, now_ms=2_000, placed_ms=1_500,
+    )
+    return order_id, result.position_id
+
+
+class TestAnOrderFillStoresWhatTheJoinWouldHaveRead:
+    """S2 (#265, ADR 0192 §2.3–§2.5): the armed path's position, decided by
+    the read's own function on this order's row, read by id."""
+
+    @pytest.mark.parametrize(
+        "kw, basis, reason, stake",
+        [
+            ({}, hedge.STAKE_BASIS_VENUE_FILL, None, 4 * VENUE_TENTHS),
+            (
+                {"filled": 2.5, "venue_count": 2.5},
+                hedge.STAKE_BASIS_VENUE_FILL, None, round(2.5 * VENUE_TENTHS),
+            ),
+            (
+                {"venue_price": None},
+                hedge.STAKE_BASIS_AS_RECORDED, "no_venue_price", 4 * SENT_TENTHS,
+            ),
+            (
+                {"venue_count": None},
+                hedge.STAKE_BASIS_AS_RECORDED, "no_venue_fill_count", 4 * SENT_TENTHS,
+            ),
+            (
+                {"side": "no"},
+                hedge.STAKE_BASIS_AS_RECORDED, "side_convention_unresolved",
+                4 * SENT_TENTHS,
+            ),
+            (
+                {"write_order": False},
+                hedge.STAKE_BASIS_AS_RECORDED, "no_order_row", 4 * SENT_TENTHS,
+            ),
+        ],
+        ids=["venue-fill", "fraction-2.5", "no-price", "no-count", "no-side", "no-row"],
+    )
+    def test_stored_equals_joined(self, order_conn, kw, basis, reason, stake):
+        order_id, position_id = _order_fill(order_conn, **kw)
+        assert position_id is not None
+        row = _positions(order_conn)[0]
+        assert row["fill_source"] == positions.FILL_MANUAL_ORDER
+        assert row["fill_ref"] == order_id
+        stored, joined = _stored_then_joined(order_conn)
+        assert stored == joined
+        assert (stored.basis, stored.reason, stored.stake_tenths) == (
+            basis, reason, stake,
+        )
+
+    def test_a_tiny_fraction_is_refused_for_its_size_not_its_legs(
+        self, order_conn
+    ):
+        """0.01 of a contract at 95.0c: the stake rounds to the return, the
+        ticket check refuses it, and the reason travels back so the screen
+        does not blame the legs."""
+        an_order(
+            order_conn, ticker=ORDER_COMBO, submitted_ms=1_500,
+            venue_count=0.01, venue_price=950,
+        )
+        result = positions.record_order_fill(
+            order_conn, manual_order_id=1, ticker=ORDER_COMBO, filled=0.01,
+            sent_price_tenths=950, now_ms=2_000, placed_ms=1_500,
+        )
+        assert result.position_id is None
+        assert result.refused
+        assert _positions(order_conn) == []
+
+    def test_a_count_finer_than_the_table_writes_nothing(self, order_conn):
+        _, position_id = _order_fill(order_conn, filled=2.5005, venue_count=2.5005)
+        assert position_id is None
+        assert _positions(order_conn) == []
+
+    @pytest.mark.parametrize("count", [2.5, 4.0, 60.97, 8.22])
+    def test_a_holdable_count_is_whole_tenths(self, count):
+        assert positions.holdable_count(count)
+
+    @pytest.mark.parametrize("count", [2.5005, 0, -1, None, float("nan")])
+    def test_an_unholdable_count_is_refused(self, count):
+        assert not positions.holdable_count(count)
 
 
 class TestAStoredBasisIsWhatTheScreenReads:

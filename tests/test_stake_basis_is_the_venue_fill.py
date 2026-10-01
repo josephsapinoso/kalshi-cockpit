@@ -253,14 +253,36 @@ class TestTheRecordedStakeStandsAndSaysWhy:
         assert basis.reason == "contract_count_disagrees"
         assert basis.stake_tenths == STAKE_AT_SENT
 
-    def test_a_fractional_venue_count_is_refused_rather_than_rounded(self, conn):
+    def test_a_count_finer_than_the_table_is_refused_rather_than_rounded(
+        self, conn
+    ):
+        """ADR 0192 §2.4: only a count whose return cannot be stored exactly
+        is refused. (A whole-contract position joined to a 2.5 order is
+        `contract_count_disagrees`, below; a 2.5 position is priced.)"""
         position_id = a_position(conn)
-        an_order(conn, venue_count=2.5)
+        an_order(conn, venue_count=2.0005)
 
         basis = basis_of(conn, position_id)
 
         assert basis.reason == "fractional_venue_fill_count"
         assert basis.stake_tenths == STAKE_AT_SENT
+
+    def test_a_fraction_the_table_can_hold_is_priced_at_the_venue(self, conn):
+        position_id = a_position(
+            conn, stake=round(2.5 * SENT_TENTHS), payout=2_500
+        )
+        an_order(conn, venue_count=2.5)
+
+        basis = basis_of(conn, position_id)
+
+        assert basis.basis == hedge.STAKE_BASIS_VENUE_FILL
+        assert basis.stake_tenths == round(2.5 * VENUE_TENTHS)
+
+    def test_a_fraction_that_is_not_this_positions_count_disagrees(self, conn):
+        position_id = a_position(conn)
+        an_order(conn, venue_count=2.5)
+
+        assert basis_of(conn, position_id).reason == "contract_count_disagrees"
 
     def test_a_count_of_zero_is_a_count_that_answered_not_a_silent_one(self, conn):
         """An IOC that matched no one reports `0.0` -- a real observation, and
@@ -590,18 +612,23 @@ class TestWhatThisReadMayNotTouch:
         assert "AND ticker IN (" in source
         assert "AND submitted_ms IN (" in source
 
-    def test_the_write_path_still_records_the_price_it_sent(self):
-        """The armed path is untouched. `_record_combo_position` writes the
-        sent price, as it always did, and the permanent row keeps it."""
-        source = (ROOT / "backend" / "api" / "routes.py").read_text(
+    def test_the_write_path_stores_the_basis_the_read_would_give(self):
+        """**Reversed by ADR 0192 §2.3 (#265), 2026-10-01.** Until then this
+        pinned that the order path wrote the SENT price and left the venue's
+        to the read (ADR 0160 §2.1). The writer now decides the stake with
+        the read's own function, applied to this order's row by id, and
+        stores the basis -- so a new row's stake is the figure `/hedge`
+        would have shown. Pre-v60 rows are untouched (no backfill)."""
+        source = (ROOT / "backend" / "positions.py").read_text(encoding="utf-8")
+        body = source[source.index("def record_order_fill("):]
+        body = body[: body.index("\ndef ")]
+        assert "held_parlays.stake_basis_for(" in body
+        assert "FROM manual_orders WHERE id = ?" in body
+        assert "stake_basis=basis.basis" in body
+        routes = (ROOT / "backend" / "api" / "routes.py").read_text(
             encoding="utf-8"
         )
-        assert "stake_tenths = contracts * fill_price_tenths" in source
-        assert not [
-            literal
-            for literal in _code_strings(source, inside="_record_combo_position")
-            if "venue_" in literal
-        ]
+        assert "stake_tenths = contracts * fill_price_tenths" not in routes
 
     def test_the_route_no_longer_claims_the_stored_stake_is_what_he_paid(self):
         """The killed sentence, gone and not reproduced in its own correction

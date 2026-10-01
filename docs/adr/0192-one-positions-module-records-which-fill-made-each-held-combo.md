@@ -70,6 +70,12 @@ A position written from a fill stores **the venue's own average fill price × th
   - "It is reversible by deletion." So is this: delete the write-side basis and the read path in §2.6 still serves every row.
 - ADR 0178 already writes the venue's price on the RFQ path, so the table has carried two meanings for one column since 2026-09-18. One of them had to go.
 
+**Rounding.** Two error terms come from the kalshi-platform review of #265, 2026-10-01. Both were already present on the read, and S2 makes them permanent on the row.
+- `venue_avg_fill_price_tenths` is a volume-weighted average, rounded half-up to tenths (`manual_orders.py`, `VenueFill`). Multiplying it by the count spreads up to ½ tenth per contract in either direction: about ±11 tenths at 227 contracts. The exact figure would be the sum of the fills off `/portfolio/fills`, and reading it is out of scope here.
+- The single `round()` on `count × price` rounds an exact half to even. It can understate a stake by ½ tenth a position, which is the flattering direction, and that is the bound on it.
+
+Neither is a reason to keep the sent price: the sent price is off by the full sent-vs-charged gap, observed at 22 tenths a contract.
+
 ### 2.4 A fractional fill is recorded on both paths (the RFQ rule)
 
 The hand-bet path's refusal (`routes.py:4310–4328`) is replaced by the RFQ path's rule (`combo_rfq.py:1440–1457`):

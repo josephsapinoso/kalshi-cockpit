@@ -82,6 +82,9 @@ PARLAYS_PAGE = FRONTEND / "app" / "parlays" / "page.tsx"
 ROUTES = BACKEND / "api" / "routes.py"
 BID_ROUTER = BACKEND / "api" / "routers" / "parlays.py"
 PARLAYS = BACKEND / "parlays.py"
+#: The one writer of held combos since ADR 0192; the order path's
+#: permanent position note lives here (`positions.ORDER_PATH_NOTE`).
+POSITIONS = BACKEND / "positions.py"
 
 #: The wording of the dead universal, in every form it has been found in.
 #: Matched case-insensitively over comment-stripped source, so a comment that
@@ -230,8 +233,8 @@ BACKEND_SURFACES = [
         id="routes-position_note",
     ),
     pytest.param(
-        BackendSurface(ROUTES, "Recorded automatically from the hand-bet path"),
-        id="routes-recorded-position-note",
+        BackendSurface(POSITIONS, "Recorded automatically from the hand-bet path"),
+        id="positions-recorded-position-note",
     ),
     pytest.param(
         BackendSurface(BID_ROUTER, "a combination can be sold back"),

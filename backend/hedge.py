@@ -829,10 +829,10 @@ def stake_basis_for(
       be a holding: zero (an IOC that matched no one), negative, or not
       finite. Distinct from the two above, because a column that answered
       and a column that stayed silent are different facts.
-    - **`fractional_venue_fill_count`** -- the route refuses to record a
-      position at a truncated size (ADR 0151); this refuses to re-price one
-      at a size it cannot reproduce, for the same reason and in the same
-      direction.
+    - **`fractional_venue_fill_count`** -- a count finer than the table can
+      store (`count x 1000` not whole tenths). A fraction such as 2.5 is a
+      holding and is priced (ADR 0192 §2.4); a size that cannot be
+      reproduced is refused rather than rounded, the direction ADR 0151 set.
     - **`contract_count_disagrees`** -- the proof that the joined order is
       the order behind THIS position. `_record_combo_position` writes
       `return_tenths = contracts * 1000` from the same fill count the venue
@@ -886,16 +886,22 @@ def stake_basis_for(
         return StakeBasis(
             recorded, STAKE_BASIS_AS_RECORDED, "venue_fill_count_unusable"
         )
-    if count != int(count):
+    # A fractional count is a holding (ADR 0192 §2.4, the RFQ path's rule
+    # since ADR 0178). Only a count whose return cannot be stored exactly --
+    # finer than a thousandth of a contract, so `count x 1000` is not whole
+    # tenths -- is refused. For a whole count every line below is the
+    # arithmetic it always was. Until 2026-10-01 any fraction was refused,
+    # and the order path refused to record such a holding at all.
+    exact_return = count * SETTLEMENT_TENTHS
+    if abs(exact_return - round(exact_return)) > 1e-6:
         return StakeBasis(
             recorded, STAKE_BASIS_AS_RECORDED, "fractional_venue_fill_count"
         )
-    contracts = int(count)
-    if contracts * SETTLEMENT_TENTHS != int(position["return_tenths"]):
+    if abs(exact_return - int(position["return_tenths"])) > 1e-6:
         return StakeBasis(
             recorded, STAKE_BASIS_AS_RECORDED, "contract_count_disagrees"
         )
-    return StakeBasis(contracts * int(price), STAKE_BASIS_VENUE_FILL, None)
+    return StakeBasis(int(round(count * int(price))), STAKE_BASIS_VENUE_FILL, None)
 
 
 def stored_stake_basis(position: Mapping[str, Any]) -> Optional[StakeBasis]:
