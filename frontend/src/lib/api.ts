@@ -807,7 +807,7 @@ export async function priceParlay(
     return { ok: true, value: (await response.json()) as ParlayValuation };
   }
   const body = await response.json().catch(() => ({}));
-  return { ok: false, refusal: String(body.detail ?? `HTTP ${response.status}`) };
+  return { ok: false, refusal: body.detail != null ? refusalText(body.detail) : `HTTP ${response.status}` };
 }
 
 /** One leg of a parlay card: a game's YES side at its consensus chance. */
@@ -1398,7 +1398,7 @@ export async function acceptComboQuote(
   }
   const detail =
     body && typeof body === "object" && "detail" in body
-      ? String((body as { detail: unknown }).detail)
+      ? refusalText((body as { detail: unknown }).detail)
       : `HTTP ${response.status}`;
   return { ok: false, refusal: detail };
 }
@@ -1445,7 +1445,7 @@ export async function askMarketToPrice(
   }
   const detail =
     body && typeof body === "object" && "detail" in body
-      ? String((body as { detail: unknown }).detail)
+      ? refusalText((body as { detail: unknown }).detail)
       : `HTTP ${response.status}`;
   return { ok: false, refusal: detail };
 }
@@ -1506,7 +1506,7 @@ export async function lookupParlay(
   }
   const detail =
     body && typeof body === "object" && "detail" in body
-      ? String((body as { detail: unknown }).detail)
+      ? refusalText((body as { detail: unknown }).detail)
       : `HTTP ${response.status}`;
   return { ok: false, refusal: detail };
 }
@@ -1698,7 +1698,7 @@ export async function mintGameCombo(
   }
   const detail =
     body && typeof body === "object" && "detail" in body
-      ? String((body as { detail: unknown }).detail)
+      ? refusalText((body as { detail: unknown }).detail)
       : `HTTP ${response.status}`;
   return { ok: false, refusal: detail };
 }
@@ -1750,7 +1750,7 @@ export async function checkParlay(
   }
   const detail =
     body && typeof body === "object" && "detail" in body
-      ? String((body as { detail: unknown }).detail)
+      ? refusalText((body as { detail: unknown }).detail)
       : `HTTP ${response.status}`;
   return { ok: false, refusal: detail };
 }
@@ -2769,7 +2769,7 @@ export async function refreshOdds(
   // be rendered as one -- and above all it must not read as "no odds available".
   const detail =
     body && typeof body === "object" && "detail" in body
-      ? String((body as { detail: unknown }).detail)
+      ? refusalText((body as { detail: unknown }).detail)
       : `HTTP ${response.status}, and the body was not readable as JSON.`;
   return {
     accepted: false,
@@ -3192,7 +3192,7 @@ export async function sendScoutDesk(ticker: string): Promise<SendDeskResult> {
   }
   const detail =
     body && typeof body === "object" && "detail" in body
-      ? String((body as { detail: unknown }).detail)
+      ? refusalText((body as { detail: unknown }).detail)
       : `HTTP ${response.status}`;
   return { accepted: false, status: response.status, detail };
 }
@@ -3243,7 +3243,7 @@ export async function recordPass(
   }
   const detail =
     body && typeof body === "object" && "detail" in body
-      ? String((body as { detail: unknown }).detail)
+      ? refusalText((body as { detail: unknown }).detail)
       : `HTTP ${response.status}`;
   return { recorded: false, status: response.status, detail };
 }
@@ -3739,7 +3739,7 @@ export async function fetchManualMarket(ticker: string): Promise<ManualMarket> {
     const body: unknown = await response.json().catch(() => null);
     const detail =
       body && typeof body === "object" && "detail" in body
-        ? String((body as { detail: unknown }).detail)
+        ? refusalText((body as { detail: unknown }).detail)
         : `HTTP ${response.status}`;
     throw new Error(detail);
   }
@@ -4276,7 +4276,7 @@ export async function placeComboBid(input: {
   }
   const detail =
     body && typeof body === "object" && "detail" in body
-      ? String((body as { detail: unknown }).detail)
+      ? refusalText((body as { detail: unknown }).detail)
       : `The cockpit refused the bid (HTTP ${response.status}).`;
   return { ok: false, refusal: detail };
 }
@@ -4308,7 +4308,7 @@ export async function cancelComboBid(
   }
   const detail =
     body && typeof body === "object" && "detail" in body
-      ? String((body as { detail: unknown }).detail)
+      ? refusalText((body as { detail: unknown }).detail)
       : `The cancel was refused (HTTP ${response.status}).`;
   return { ok: false, refusal: detail };
 }
@@ -4472,7 +4472,7 @@ export async function requestLegVerdicts(
   if (!response.ok) {
     const detail =
       body && typeof body === "object" && "detail" in body
-        ? String((body as { detail: unknown }).detail)
+        ? refusalText((body as { detail: unknown }).detail)
         : `HTTP ${response.status}`;
     return { legs: [], error: detail };
   }
@@ -4587,7 +4587,7 @@ export async function buildGameCard(
   }
   const detail =
     body && typeof body === "object" && "detail" in body
-      ? String((body as { detail: unknown }).detail)
+      ? refusalText((body as { detail: unknown }).detail)
       : `The card build answered HTTP ${response.status}.`;
   return { ok: false, refusal: detail };
 }
