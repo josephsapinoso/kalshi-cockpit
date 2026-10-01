@@ -155,7 +155,7 @@ Joe ran `/improve-codebase-architecture` with no direction. Hot spots by commits
 
 ### Still open
 
-1. #264 — S1 of ADR 0192: schema v60 + `backend/positions.py` for the RFQ, hand-entry and adoption writers. Main session only. Then #265 (S2, armed order path, kalshi-platform review) and #266 (S3, the order path leaves `create_app`). Story #263.
+1. #265 — S2 of ADR 0192: the hand-bet order path (`routes._record_combo_position`) writes through `backend/positions.py`. It stores the venue's price and basis, and records a fractional fill. This is the armed path: kalshi-platform review before merge, then deploy alone. Afterwards remove `routes.py` from `RECORD_POSITION_ALLOWED` in `tests/test_positions_module.py`. Then #266 (S3). Story #263. **S1 (#264) is live on `d2b80dc`**, schema v60.
 2. #220 — on or after 2026-10-05: game-script cards review, `credits-day --date 2026-10-04`, first Matchup tile.
 3. #210, #165, #169, #151 — unchanged. #255 — November.
 
