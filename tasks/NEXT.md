@@ -134,6 +134,22 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-01 (seventy-fifth session) — the CLV signal test's registered result is in: UNRESOLVED at G = 1000; #233 answered
+
+`/go` with no focus. State was clean: `7798d97` on main, origin and live, CI green, no PRs, 0 dependabot alerts. Partner found one real job, #226, with an unwritten deadline. #122's 60-day quote retention would start eroding the registered population around 2026-10-07.
+
+- **#226 done.** The off-hours pull ran 2026-10-01 06:00:47Z: 157,372 rows, `truncated: false`. `sd(clv_tenths)` on the cut came in at 35.43, above 31.69, so the §B4 ratchet fired. **Amendment 3** (`ac6b742`, committed alone, before the result) raises the floor 713 → **861**. **Result** (`0de6c96`, `docs/measurements/2026-10-01-clv-signal-test-result.md`): **UNRESOLVED** at G = 1000 clusters, which is 889 games, because props share games with moneylines. beta +0.0401 [−0.0217, +0.1020], G_eff 57.76. §6 alone said NO SIGNAL; §A4 lowered it, because without `too_few_books` (89% of the leverage) the upper limit is +0.64. measurement-skeptic: PASS WITH FIXES, all applied. CLAUDE.md and partner.md were restated: planning still treats the signal as settled, on the basis that no fit shows a signal, not that 0.40 is ruled out. No look remains under this registration.
+- **#233 closed.** Joe allowed the read with an option button. `manual-orders-audit` shows that the 2026-09-15 99c combination has one `manual_orders` row, so it **went through the tool**. The 99c on /bets is the venue's average cost basis, with no time label (`bets/page.tsx:620`). The 3.8% is the last desk reading before the fill, and it is labelled with its age.
+- **#255 and #220** have dated status comments: November and 2026-10-05.
+- **Map #3:** empty. The only question owed is #220's, and it is date-gated to after 2026-10-04. No other exists.
+
+### Still open
+
+1. #256 — the signal strip names the registered §8 result file (lane dispatched this session; check whether it merged).
+2. #220 — on or after 2026-10-05: review the game-script cards, plus `credits-day --date 2026-10-04` (decides whether the 700 moves), plus the first Matchup tile (closes #210 and #197).
+3. #210, #165, #169, #151 — unchanged.
+4. #255 — part 2 waits on college-basketball postings (November).
+
 ## 2026-09-30 (seventy-fourth session) — all-hands conference on the live desk; epic #224 built and deployed; Joe answered all seven questions
 
 Joe asked for all the agents to review the site together, with a transcript written like The Wolf of Wall Street. Partner chaired six seats: sharp-bettor, kalshi-platform, measurement-skeptic, runtime-realist, and a web and a UX designer brought in for this meeting only. They worked from SSR text captures of 11 live pages and the source; there were no screenshots because the Chrome extension was not connected. The seats went through two rounds and partner ranked the findings. The transcript and minutes are a private artifact: https://claude.ai/artifact/8uD4GDTHcqecSQKfFH26o2. The money mechanics held up. The words and numbers around them were wrong, in the flattering direction.
@@ -1343,6 +1359,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-01 (seventy-fifth session) — the CLV signal test's registered result is in: UNRESOLVED at G = 1000; #233 answered
 - 2026-09-30 (seventy-fourth session) — all-hands conference on the live desk; epic #224 built and deployed; Joe answered all seven questions
 - 2026-09-30 (seventy-third session) — nothing due: #188 closed as won't-do; #210's close moves into #220 because no matchup tile exists yet
 - 2026-09-30 (seventy-second session) — #221 and the cards seen in a browser; two display fixes; a stale season date now builds nothing (#222)

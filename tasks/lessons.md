@@ -16,6 +16,23 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-01 - A retention rule can quietly cut a registered measurement's population; list the registrations that read a table before shortening how long it is kept
+
+From the seventy-fifth session (#226, the CLV signal test's stopping-rule pull).
+
+- **#122 set a 60-day retention on `kalshi_quotes` (2026-09-23), and the
+  registered signal test reads its half-spread control from that table.**
+  The harness drops a row without a control, so from about 2026-10-07 a
+  re-pull would have returned a smaller, different population than the one
+  the 2026-09-30 cut note fixed. Nobody wrote that deadline down; partner
+  found it at session start, with six days to spare. The pull ran in time.
+- **The rule:** before shortening any table's retention, grep
+  `docs/measurements/*preregistration*` and `backend/analysis/` for that
+  table and list every open registration that joins it. Then either pull
+  first, or state the date each one's population starts to erode in the
+  retention ADR. A retention change is a change to every measurement that
+  reads the table.
+
 ## 2026-09-30 - Parallel lanes pass their own tests and break each other's pins; run the full suite on merged main before every push
 
 From the seventy-fourth session (epic #244, eight lanes in one afternoon).
