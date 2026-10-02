@@ -11,14 +11,20 @@ import {
   formatAge,
   formatKickoff,
   mintGameCombo,
+  requestLegVerdicts,
   type GameScriptCard as CardData,
   type GameScriptCards,
   type GameScriptLeg,
+  type LegVerdictInput,
+  type LegVerdictsResult,
 } from "@/lib/api";
 import AskTheMarket from "@/components/AskTheMarket";
+import LegVerdicts from "@/components/LegVerdicts";
 import Term from "@/components/Term";
 import { Button, SectionLabel } from "@/components/ui";
 import { leagueLabel } from "@/lib/leagueLabel";
+import { splitDropIf } from "@/lib/dropIfNames";
+import { formatClock } from "@/lib/format";
 import { sideLabelAddsWords } from "@/lib/sideLabel";
 
 /**
@@ -57,6 +63,24 @@ const DROPPED_WIN_LINE =
   "by the margin above already includes winning, so the ticket pays on " +
   "exactly the same results, and Kalshi refuses the pair.";
 
+/**
+ * What this ticket needs, as the card's own heading for `ticket_needs` (#284).
+ * Plain words about the game, never a probability.
+ */
+const TICKET_NEEDS_LABEL = "What this ticket needs:";
+
+function newsSearchUrl(name: string): string {
+  return `https://news.google.com/search?q=${encodeURIComponent(name)}`;
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
 /** Inactives come out this long before kickoff (the card's own footnote). */
 const INACTIVES_LEAD_MS = 90 * 60_000;
 
@@ -77,13 +101,73 @@ function CardAge({ card }: { card: CardData }) {
   }, []);
   if (nowMs === null) return null;
   const age = formatAge(Math.max(0, nowMs - card.built_ms));
+  // Only the NFL has an inactives time this repo can cite; another sport's
+  // card does not claim one (#284).
   const beforeInactives =
+    card.sport_key === "nfl" &&
     card.built_ms < card.kickoff_ms - INACTIVES_LEAD_MS;
   return (
     <p className="mt-1 text-xs text-muted">
       Written {age}
       {beforeInactives ? ", before inactives" : ""}.
     </p>
+  );
+}
+
+/**
+ * "Check these legs" (#290): the leg scouts' read on these legs, on a tap.
+ *
+ * **Tap only.** `requestLegVerdicts` is called from this button's click
+ * handler and from nowhere else: not on mount, not on a re-render, and never
+ * from `build`/`ask` below, so "Get a price" and "Ask the market" cannot
+ * start it and it cannot start them. A tap spends the shared scout
+ * allowance (about 51K tokens a verdict), which is why nothing here is
+ * automatic. The verdict is an opinion shown beside the legs, never a gate.
+ * Used by this card and by the combination panel on `/game/<event>`.
+ */
+export function CheckTheseLegs({
+  legs,
+  cardKey,
+}: {
+  legs: LegVerdictInput[];
+  cardKey: string;
+}) {
+  const [posted, setPosted] = useState<LegVerdictsResult | null>(null);
+  const [requestedAtMs, setRequestedAtMs] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const check = async () => {
+    setBusy(true);
+    setRequestedAtMs(Date.now());
+    setPosted(await requestLegVerdicts(legs, "card_button", cardKey));
+    setBusy(false);
+  };
+
+  return (
+    <div className="mt-3">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <Button
+          tone="quiet"
+          className="-ml-2"
+          onClick={check}
+          disabled={busy || legs.length === 0}
+        >
+          {busy ? "Asking the scouts…" : "Check these legs"}
+        </Button>
+        <span className="max-w-[65ch] text-xs text-muted">
+          Asks the scouts for a TAKE or PASS on each leg, in about 20 seconds.
+          It uses part of today&rsquo;s scout allowance.
+        </span>
+      </div>
+      {requestedAtMs !== null && (
+        <LegVerdicts
+          legs={legs}
+          requestedAtMs={requestedAtMs}
+          hideUnasked
+          posted={posted}
+        />
+      )}
+    </div>
   );
 }
 
@@ -173,16 +257,68 @@ export default function GameScriptCard({
             {DROPPED_WIN_LINE}
           </p>
         )}
+        {card.ticket_needs && (
+          <p className="mt-2 max-w-[65ch] text-sm">
+            <span className="font-semibold">{TICKET_NEEDS_LABEL}</span>{" "}
+            {card.ticket_needs}
+          </p>
+        )}
         <p className="mt-3 max-w-[65ch] text-sm">
           <span className="font-semibold">
             <Term k="drop_if">Drop it if</Term>:
           </span>{" "}
-          {card.drop_if}
+          {card.drop_if === null
+            ? null
+            : splitDropIf(card.drop_if).map((part, i) =>
+                part.name === null ? (
+                  <span key={i}>{part.text}</span>
+                ) : (
+                  <a
+                    key={i}
+                    href={newsSearchUrl(part.name)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-accent underline underline-offset-2"
+                  >
+                    {part.text}
+                  </a>
+                ),
+              )}
         </p>
         <p className="mt-1 max-w-[65ch] text-xs text-muted">
-          <Term k="inactives">Inactives</Term> come out 90 minutes before
-          kickoff and are not covered.
+          <span className="font-semibold">Lineups:</span>{" "}
+          {card.inactives_line}
+          {card.sport_key === "nfl" && (
+            <>
+              {" "}
+              (<Term k="inactives">what are inactives?</Term>)
+            </>
+          )}
         </p>
+        {card.sources && card.sources.length > 0 && (
+          <div className="mt-3">
+            <p className="max-w-[65ch] text-xs font-semibold text-muted">
+              Sources the scout read
+            </p>
+            <ul className="mt-1 max-w-[65ch] space-y-0.5 text-xs">
+              {card.sources.map((src) => (
+                <li key={src.url} className="min-w-0 break-words">
+                  <a
+                    href={src.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-accent underline underline-offset-2"
+                  >
+                    {hostOf(src.url)}
+                  </a>
+                  {src.published ? (
+                    <span className="text-muted"> &middot; {src.published}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </details>
 
       <div className="mt-3">
@@ -190,7 +326,7 @@ export default function GameScriptCard({
           onClick={ask}
           disabled={mint.kind === "minting" || card.legs.length < 2}
         >
-          {mint.kind === "minting" ? "Building…" : "Ask the market"}
+          {mint.kind === "minting" ? "Building…" : "Get a price"}
         </Button>
         {card.combo_ticker && mint.kind === "idle" && (
           <p className="mt-2 text-xs text-muted">
@@ -207,6 +343,14 @@ export default function GameScriptCard({
           </div>
         )}
       </div>
+
+      <CheckTheseLegs
+        legs={card.legs.map((leg) => ({
+          ticker: leg.market_ticker,
+          side: leg.side,
+        }))}
+        cardKey={`game_card:${card.id}`}
+      />
     </article>
   );
 }
@@ -248,15 +392,55 @@ function LegRow({
           <span className="text-xs text-muted"> ({leg.side_label})</span>
         ) : null}
       </span>
-      <span className="tabular text-xs text-muted">
-        {kickoffText(kickoffMs)} ·{" "}
-        {leg.ask_display !== null ? (
-          <>Kalshi ask {leg.ask_display}</>
-        ) : (
-          (leg.ask_unread_reason ?? "Kalshi's ask was not read.")
-        )}
-      </span>
+      <div className="tabular text-xs text-muted">
+        {kickoffText(kickoffMs)} · <ThenNow leg={leg} />
+      </div>
     </li>
+  );
+}
+
+/**
+ * The leg's price twice, as two stamped facts (#285): "58c now · read 9:14"
+ * and "53c when written", from the server's read and the leg's `at_build`.
+ * **No arrow, no colour, and no sportsbook line beside it**: a mark between
+ * the two numbers would read as momentum, which nothing here measures. Size
+ * at each ask is behind a tap. Plain muted text, each figure one leg's own.
+ */
+function ThenNow({ leg }: { leg: GameScriptLeg }) {
+  const then = leg.at_build;
+  return (
+    <>
+      {leg.ask_display !== null ? (
+        <>
+          Kalshi ask {leg.ask_display} now
+          {leg.read_ms !== null ? <> · read {formatClock(leg.read_ms)}</> : null}
+        </>
+      ) : (
+        (leg.ask_unread_reason ?? "Kalshi's ask was not read.")
+      )}
+      {" · "}
+      {then && then.ask_display !== null ? (
+        <>{then.ask_display} when written</>
+      ) : (
+        "no price was kept when written"
+      )}
+      <details className="mt-0.5 block">
+        <summary className="inline-block min-h-[24px] cursor-pointer">
+          Show depth
+        </summary>
+        <span className="block">
+          <Term k="depth">Depth</Term> now:{" "}
+          {leg.size_now !== null
+            ? `${leg.size_now.toLocaleString("en-US")} contracts at the ask`
+            : "not read"}
+          . When written:{" "}
+          {then && then.size !== null
+            ? `${then.size.toLocaleString("en-US")} contracts at the ask`
+            : "not kept"}
+          .
+        </span>
+      </details>
+    </>
   );
 }
 

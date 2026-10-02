@@ -798,6 +798,20 @@ export type GameScriptLeg = {
   ask_tenths: number | null;
   ask_display: string | null;
   ask_unread_reason: string | null;
+  /** When the ask above was read, or `null` when no book read succeeded. */
+  read_ms: number | null;
+  /** Contracts resting at that ask now; `null` when unread. */
+  size_now: number | null;
+  /**
+   * This leg's listed ask when the card was written (#283), or `null` on a
+   * card built before it was kept. Per leg: nothing here is combined.
+   */
+  at_build: {
+    ask_tenths: number | null;
+    ask_display: string | null;
+    size: number | null;
+    read_ms: number | null;
+  } | null;
 };
 
 export type GameScriptCard = {
@@ -817,7 +831,12 @@ export type GameScriptCard = {
   dropped_legs: { market_ticker: string; event_ticker: string; side: string }[];
   /** The sentence a game with no built card carries; `null` on a built one. */
   no_card_line: string | null;
+  /** The sport's own sentence about when lineups are confirmed (#284). */
   inactives_line: string;
+  /** Pages the scout read, or `null` on a card built before sources were kept. */
+  sources: { url: string; published: string }[] | null;
+  /** What has to happen in the game for every leg to win; `null` on older cards. */
+  ticket_needs: string | null;
   /** Kalshi's own name for the game, or `null` when discovery has none. */
   game_title: string | null;
 };

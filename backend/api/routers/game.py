@@ -164,10 +164,39 @@ async def recheck_card_for_game(
     finally:
         write_conn.close()
 
-#: The line every card carries about news that lands after it is built.
+#: The line an NFL card carries about news that lands after it is built. The
+#: 90 minutes is the one lineup time this repo cites (ADR 0190 section 6).
 INACTIVES_LINE = (
     "Inactives come out 90 minutes before kickoff and are not covered."
 )
+
+#: NHL: the starting goalie is confirmed around warmups, not at a fixed
+#: clock time before the game (town hall 2026-10-02, #284).
+NHL_GOALIE_LINE = (
+    "Starting goalies are confirmed around warmups, not at a fixed time, and "
+    "are not covered."
+)
+
+#: Every other sport: no confirmation time is cited anywhere in this repo, so
+#: none is invented (#284).
+NO_FIXED_TIME_LINE = (
+    "Lineups for this sport have no fixed confirmation time and are not "
+    "covered. Check the lineup before you bet."
+)
+
+
+def lineup_line(sport_key: str) -> str:
+    """The card's sentence about when lineups are confirmed, per sport.
+
+    Only NFL (90 minutes before kickoff) and NHL (goalies, around warmups)
+    carry a time we can cite; any other sport says it has no fixed time
+    rather than borrowing the NFL's."""
+    key = (sport_key or "").strip().lower()
+    if key == "nfl":
+        return INACTIVES_LINE
+    if key == "nhl":
+        return NHL_GOALIE_LINE
+    return NO_FIXED_TIME_LINE
 
 #: How many single-leg reads one list call may have in flight.
 _ASK_READ_CONCURRENCY = 6
@@ -193,6 +222,21 @@ def no_card_line(card: dict) -> Optional[str]:
     if status == "refused_budget":
         return f"No card today: {reason}"
     return f"No clean story: {reason}"
+
+
+def at_build_view(stored: Optional[dict]) -> Optional[dict]:
+    """A leg's frozen `at_build` (#283) with its price worded, or `None` for a
+    card built before that freeze existed (never an invented zero). The number
+    stays an integer tenth; `ask_display` is the same figure in cents."""
+    if not isinstance(stored, dict):
+        return None
+    ask = stored.get("ask_tenths")
+    return {
+        "ask_tenths": ask,
+        "ask_display": format_price(ask) if ask is not None else None,
+        "size": stored.get("size"),
+        "read_ms": stored.get("read_ms"),
+    }
 
 
 async def _read_leg_asks(
@@ -235,6 +279,13 @@ async def _read_leg_asks(
             "ask_tenths": None,
             "ask_display": None,
             "ask_unread_reason": None,
+            # When this ask was read, and the size at it (#285). `None` until
+            # a book read succeeds: an unread leg claims no read time.
+            "read_ms": None,
+            "size_now": None,
+            # The same leg's listed ask as it stood when the card was built
+            # (#283), for the "when written" figure. Per leg, never combined.
+            "at_build": at_build_view(leg.get("at_build")),
         }
         try:
             async with gate:
@@ -257,6 +308,8 @@ async def _read_leg_asks(
         else:
             out["ask_tenths"] = ask
             out["ask_display"] = format_price(ask)
+            out["read_ms"] = now_ms
+            out["size_now"] = book.depth_at_ask(side)
         return out
 
     return list(await asyncio.gather(*(one(leg) for leg in legs)))
@@ -386,7 +439,7 @@ def register(
                 api = None
         for card in cards:
             card["no_card_line"] = no_card_line(card)
-            card["inactives_line"] = INACTIVES_LINE
+            card["inactives_line"] = lineup_line(card["sport_key"])
             if card["status"] != "built":
                 card["legs"] = []
             elif api is None:
@@ -401,6 +454,9 @@ def register(
                             "This instance has no Kalshi credentials, so no "
                             "ask was read."
                         ),
+                        "read_ms": None,
+                        "size_now": None,
+                        "at_build": at_build_view(leg.get("at_build")),
                     }
                     for leg in card["legs"]
                 ]
