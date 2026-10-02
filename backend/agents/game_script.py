@@ -255,6 +255,37 @@ def validate_card(card: CardOutput, listing: dict) -> Optional[str]:
     return None
 
 
+def freeze_leg_at_build(leg: dict, listing: dict) -> dict:
+    """The stored leg plus `at_build`: Kalshi's listed ask for the side the
+    scout picked, the size at it, and when the listing was read (#283).
+
+    **Per leg only.** Nothing here multiplies, adds or otherwise combines the
+    legs' asks; a product would read as the combination's price, which only
+    the makers' quote is (ADR 0189, rule 2). An ask the listing could not read
+    stays `None`, never `0`. The model never saw these numbers: they are read
+    from the same listing AFTER the call, for the record and for the
+    "when written" figure on the card, and nothing scores a card on them
+    (ADR 0190 section 7).
+    """
+    facts = next(
+        (
+            l for group in listing.get("groups", []) for l in group.get("legs", [])
+            if l.get("market_ticker") == leg["market_ticker"]
+        ),
+        None,
+    )
+    listed = (facts or {}).get("listed") or {}
+    side = listed.get(leg["side"]) or {}
+    return {
+        **leg,
+        "at_build": {
+            "ask_tenths": side.get("ask_tenths"),
+            "size": side.get("size"),
+            "read_ms": listed.get("read_ms"),
+        },
+    }
+
+
 @dataclass(frozen=True)
 class CardResult:
     """One seat run, already stored. `status` is the row's status."""
@@ -372,7 +403,7 @@ async def build_card(
         store(
             "built",
             story=parsed.story.strip(),
-            legs=[leg.model_dump() for leg in parsed.legs],
+            legs=[freeze_leg_at_build(leg.model_dump(), listing) for leg in parsed.legs],
             drop_if=parsed.drop_if.strip(),
             sources=[
                 src.model_dump() for src in parsed.sources

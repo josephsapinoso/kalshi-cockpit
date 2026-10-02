@@ -284,6 +284,37 @@ class TestTheServerRefusesBeforeItStores:
         assert row["sources"] == [SOURCE.model_dump()]
         assert row["ticket_needs"] == needs
 
+    async def test_card_legs_freeze_ask_depth_read_ms_per_leg_only(self, tmp_path):
+        """#283: each stored leg carries the listed ask for ITS side, the size
+        at it and the listing's read time; a leg the listing could not price
+        carries None, never 0; and no combined figure is stored anywhere."""
+        listing = _listing()
+        atl = listing["groups"][0]["legs"][0]
+        atl["listed"] = {
+            "read_ms": NOW - 1_000,
+            "yes": {"ask_tenths": 437, "size": 120.0},
+            "no": {"ask_tenths": 575, "size": 40.0},
+        }
+        conn, budget = _conn_budget(tmp_path)
+        result = await build_card(
+            conn, StubClient(_card(ATL, TOT40)), CONFIG, budget,
+            game_event_ticker=GAME, sport_key="nfl", kickoff_ms=KICKOFF,
+            game_title="Atlanta at Pittsburgh", kickoff_iso="2026-09-13T17:00Z",
+            listing=listing, now_ms=NOW,
+        )
+        assert result.status == "built"
+        legs = _row(conn, result.card_id)["legs"]
+        assert legs[0]["at_build"] == {"ask_tenths": 437, "size": 120.0, "read_ms": NOW - 1_000}
+        assert legs[1]["at_build"] == {"ask_tenths": None, "size": None, "read_ms": None}
+        raw = conn.execute(
+            "SELECT * FROM game_script_cards WHERE id = ?", (result.card_id,)
+        ).fetchone()
+        stored_numbers = {
+            v for leg in json.loads(raw["legs_json"]) for v in leg["at_build"].values()
+        }
+        assert 437 * 575 not in stored_numbers and 437 + 575 not in stored_numbers
+        assert set(legs[0]) == {"market_ticker", "event_ticker", "side", "at_build"}
+
     async def test_a_skip_claims_no_sources(self, tmp_path):
         conn, _c, result = await _run(
             tmp_path, CardOutput(skip=True, reason="too thin")
@@ -649,8 +680,8 @@ class TestAWinLegBesideItsOwnCoverIsDropped:
         )
         assert result.status == "built"
         row = _row(conn, result.card_id)
-        assert row["legs"] == [SPREAD_ATL, TOT40]
-        assert row["dropped_legs"] == [ATL]
+        assert [{k: l[k] for k in ("market_ticker", "event_ticker", "side")} for l in row["legs"]] == [SPREAD_ATL, TOT40]
+        assert [{k: l[k] for k in ("market_ticker", "event_ticker", "side")} for l in row["dropped_legs"]] == [ATL]
 
     async def test_a_two_leg_card_left_with_one_is_refused(self, tmp_path):
         conn, budget = _conn_budget(tmp_path)
@@ -671,7 +702,7 @@ class TestAWinLegBesideItsOwnCoverIsDropped:
             legs=[ATL, SPREAD_ATL, TOT40], prompt_version="1",
         )
         row = _row(conn, card_id)
-        assert row["legs"] == [SPREAD_ATL, TOT40]
+        assert [{k: l[k] for k in ("market_ticker", "event_ticker", "side")} for l in row["legs"]] == [SPREAD_ATL, TOT40]
         stored = conn.execute(
             "SELECT legs_json FROM game_script_cards WHERE id = ?", (card_id,)
         ).fetchone()[0]
