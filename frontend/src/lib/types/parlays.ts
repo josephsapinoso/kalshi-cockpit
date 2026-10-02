@@ -671,6 +671,9 @@ export type GameLeg = {
   size_max: number | null;
   one_per_event: boolean;
   sides: Partial<Record<"yes" | "no", GameLegSide>>;
+  /** Each team's rest before this game (#293): a fact per leg, never sorted
+   *  or filtered by. `null` when the game could not be identified. */
+  rest?: LegRest | null;
 };
 
 export type GameLegGroup = {
@@ -693,6 +696,11 @@ export type GameLegs = {
   collection_ticker: string;
   /** A market on the game itself, so the page can mount the scout desk. */
   game_market_ticker: string | null;
+  /** Kalshi's own name for the game, the desk's kickoff and the odds feed's
+   *  sport key (#293); each `null`/absent when the desk cannot say. */
+  game_title?: string | null;
+  kickoff_ms?: number | null;
+  sport_key?: string | null;
   groups: GameLegGroup[];
   leg_count: number;
   unreadable_events: { event_ticker: string; words: string }[];
@@ -802,6 +810,8 @@ export type GameScriptLeg = {
   read_ms: number | null;
   /** Contracts resting at that ask now; `null` when unread. */
   size_now: number | null;
+  /** Each team's rest before this game (#293); a fact, never ranked by. */
+  rest?: LegRest | null;
   /**
    * This leg's listed ask when the card was written (#283), or `null` on a
    * card built before it was kept. Per leg: nothing here is combined.

@@ -20,6 +20,7 @@ import {
 } from "@/lib/api";
 import AskTheMarket from "@/components/AskTheMarket";
 import LegVerdicts from "@/components/LegVerdicts";
+import { RestChip } from "@/components/ParlayCards";
 import Term from "@/components/Term";
 import { Button, SectionLabel } from "@/components/ui";
 import { leagueLabel } from "@/lib/leagueLabel";
@@ -437,6 +438,7 @@ function LegRow({
       <div className="tabular text-xs text-muted">
         {kickoffText(kickoffMs)} · <ThenNow leg={leg} />
       </div>
+      <RestChip rest={leg.rest} />
     </li>
   );
 }

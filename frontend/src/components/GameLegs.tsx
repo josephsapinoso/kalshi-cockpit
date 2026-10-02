@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  displayZoneLabel,
   fetchGameLegs,
+  formatKickoff,
   mintGameCombo,
   type GameLeg,
   type GameLegGroup,
@@ -11,10 +13,12 @@ import {
 } from "@/lib/api";
 import AskTheMarket from "@/components/AskTheMarket";
 import { CheckTheseLegs } from "@/components/GameScriptCard";
+import { RestChip } from "@/components/ParlayCards";
 import ScoutDesk from "@/components/ScoutDesk";
 import Term from "@/components/Term";
 import { Button, SectionLabel } from "@/components/ui";
 import { formatClock } from "@/lib/format";
+import { leagueLabel } from "@/lib/leagueLabel";
 import { sideLabelAddsWords } from "@/lib/sideLabel";
 
 /**
@@ -214,16 +218,26 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
 
   if (error) {
     return (
-      <p className="mt-6 max-w-[65ch] text-sm text-accent-2">
-        {error} Nothing was created.
-      </p>
+      <>
+        <GameHeading eventTicker={eventTicker} data={null} />
+        <p className="mt-6 max-w-[65ch] text-sm text-accent-2">
+          {error} Nothing was created.
+        </p>
+      </>
     );
   }
   if (!data) {
-    return <p className="mt-6 text-sm text-muted">Reading Kalshi&rsquo;s legs for this game…</p>;
+    return (
+      <>
+        <GameHeading eventTicker={eventTicker} data={null} />
+        <p className="mt-6 text-sm text-muted">Reading Kalshi&rsquo;s legs for this game…</p>
+      </>
+    );
   }
 
   return (
+    <>
+    <GameHeading eventTicker={eventTicker} data={data} />
     <div className="mt-6 grid gap-6 pb-24 lg:grid-cols-[minmax(0,1fr)_22rem] lg:pb-0">
       <div className="min-w-0 space-y-4">
         <p className="max-w-[65ch] text-sm text-muted">
@@ -354,6 +368,45 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
         </Button>
       </div>
     </div>
+    </>
+  );
+}
+
+/**
+ * The game's own name, kickoff and league (#293), where the page used to
+ * print only the raw ticker. Each part is shown only when the listing could
+ * say it; with none, the ticker stays as the fallback, never a guess.
+ */
+function GameHeading({
+  eventTicker,
+  data,
+}: {
+  eventTicker: string;
+  data: GameLegsData | null;
+}) {
+  const title = data?.game_title ?? null;
+  const kickoff = data?.kickoff_ms ?? null;
+  const sport = data?.sport_key ?? null;
+  return (
+    <div className="mt-2">
+      <p className="max-w-[65ch] text-base font-semibold">
+        {title ?? <span className="font-mono text-xs font-normal text-muted">{eventTicker}</span>}
+      </p>
+      {(kickoff !== null || sport) && (
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted">
+          {kickoff !== null && (
+            <span className="tabular">
+              kickoff {formatKickoff(kickoff)} {displayZoneLabel(kickoff)}
+            </span>
+          )}
+          {sport && (
+            <span className="rounded border border-border px-1 font-mono text-[0.65rem] uppercase tracking-wide">
+              {leagueLabel(sport)}
+            </span>
+          )}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -403,6 +456,7 @@ function Group({
           return (
             <li key={leg.market_ticker} className="py-2">
               <p className="text-sm">{leg.title}</p>
+              <RestChip rest={leg.rest} />
               <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
                 {leg.allowed_sides.map((side) => {
                   const facts = leg.sides[side];

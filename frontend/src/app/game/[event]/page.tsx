@@ -25,7 +25,6 @@ export default async function GamePage({
   return (
     <div className={`${SHELL_WIDTH} px-4 py-12 sm:px-6 sm:py-16 xl:px-8`}>
       <h1 className="display text-4xl sm:text-5xl">Same-game parlay</h1>
-      <p className="mt-2 font-mono text-xs text-muted">{eventTicker}</p>
       <GameCardPanel eventTicker={eventTicker} />
       <GameLegs eventTicker={eventTicker} />
     </div>

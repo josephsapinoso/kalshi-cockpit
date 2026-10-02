@@ -56,6 +56,7 @@ import json
 import logging
 import math
 import re
+import sqlite3
 from typing import Optional, Sequence
 
 from .core.ladder import unusable_reason
@@ -69,6 +70,7 @@ from .core.prices import (
 from .kalshi.combos import ComboCollection, ComboScope, echoed_legs, lookup_combo
 from .kalshi.orderbook import OrderBook
 from .store import game_script_cards
+from .team_rest_reader import rest_for_games
 from .parlay_check import (
     _leg_label,
     _missing_leg_reason,
@@ -390,6 +392,53 @@ def _listed_side(market: dict, side: str) -> dict:
     }
 
 
+GAME_CONTEXT_SQL = (
+    "SELECT l.odds_event_id, f.sport_key, f.commence_ms "
+    "FROM event_links l "
+    "JOIN odds_fixtures f ON f.odds_event_id = l.odds_event_id "
+    "WHERE l.kalshi_event_ticker = ? "
+    "ORDER BY f.commence_ms LIMIT 1"
+)
+
+
+def game_context(
+    conn, game_event_ticker: str, other_event_tickers: Sequence[str] = ()
+) -> dict:
+    """The game's own name, kickoff, league and each team's rest (#293).
+
+    One fixture per game, so one lookup serves every leg: `rest` is the same
+    `{home, away}` shape `RestChip` reads on the parlay cards, and each leg
+    carries it. **A per-row fact, never a sort key or a filter** (ADR 0071,
+    0189); nothing reads it to order anything. Every field is `None` when the
+    desk cannot identify the game -- never a guessed kickoff, never a zero --
+    and a failed read logs and degrades to `None`, because a side fact must
+    not take the listing down. Reads `kalshi_events` and `odds_fixtures` by
+    key, never `odds_snapshots`.
+    """
+    game = game_event_ticker.strip().upper()
+    out: dict = {
+        "game_title": None, "kickoff_ms": None, "sport_key": None, "rest": None,
+    }
+    try:
+        row = conn.execute(
+            "SELECT title FROM kalshi_events WHERE event_ticker = ?", (game,)
+        ).fetchone()
+        if row is not None and row[0]:
+            out["game_title"] = str(row[0])
+        for ticker in (game, *other_event_tickers):
+            fixture = conn.execute(GAME_CONTEXT_SQL, (ticker,)).fetchone()
+            if fixture is not None:
+                out["sport_key"] = fixture[1]
+                out["kickoff_ms"] = fixture[2]
+                out["rest"] = rest_for_games(
+                    conn, {(fixture[0], fixture[2])}
+                ).get(fixture[0])
+                break
+    except sqlite3.Error:
+        logger.exception("game context read failed; the game carries nulls")
+    return out
+
+
 async def list_game_legs(
     conn,
     *,
@@ -465,6 +514,9 @@ async def list_game_legs(
             })
 
     _price_sides(conn, legs, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms)
+    context = game_context(conn, game_event_ticker, [e.event_ticker for e in events])
+    for leg in legs:
+        leg["rest"] = context["rest"]
 
     # **The fixed order. Nothing below reads `sides`, `chance`, or any price.**
     # Player before strike, so a prop series reads one player's ladder at a
@@ -503,6 +555,9 @@ async def list_game_legs(
         "game_market_ticker": game_markets[0] if game_markets else None,
         "groups": groups,
         "leg_count": len(legs),
+        "game_title": context["game_title"],
+        "kickoff_ms": context["kickoff_ms"],
+        "sport_key": context["sport_key"],
         "unreadable_events": unreadable,
         "skipped_events": skipped,
         "now_ms": now_ms,
