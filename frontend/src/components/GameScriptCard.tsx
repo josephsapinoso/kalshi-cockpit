@@ -11,11 +11,15 @@ import {
   formatAge,
   formatKickoff,
   mintGameCombo,
+  requestLegVerdicts,
   type GameScriptCard as CardData,
   type GameScriptCards,
   type GameScriptLeg,
+  type LegVerdictInput,
+  type LegVerdictsResult,
 } from "@/lib/api";
 import AskTheMarket from "@/components/AskTheMarket";
+import LegVerdicts from "@/components/LegVerdicts";
 import Term from "@/components/Term";
 import { Button, SectionLabel } from "@/components/ui";
 import { leagueLabel } from "@/lib/leagueLabel";
@@ -107,6 +111,63 @@ function CardAge({ card }: { card: CardData }) {
       Written {age}
       {beforeInactives ? ", before inactives" : ""}.
     </p>
+  );
+}
+
+/**
+ * "Check these legs" (#290): the leg scouts' read on these legs, on a tap.
+ *
+ * **Tap only.** `requestLegVerdicts` is called from this button's click
+ * handler and from nowhere else: not on mount, not on a re-render, and never
+ * from `build`/`ask` below, so "Get a price" and "Ask the market" cannot
+ * start it and it cannot start them. A tap spends the shared scout
+ * allowance (about 51K tokens a verdict), which is why nothing here is
+ * automatic. The verdict is an opinion shown beside the legs, never a gate.
+ * Used by this card and by the combination panel on `/game/<event>`.
+ */
+export function CheckTheseLegs({
+  legs,
+  cardKey,
+}: {
+  legs: LegVerdictInput[];
+  cardKey: string;
+}) {
+  const [posted, setPosted] = useState<LegVerdictsResult | null>(null);
+  const [requestedAtMs, setRequestedAtMs] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const check = async () => {
+    setBusy(true);
+    setRequestedAtMs(Date.now());
+    setPosted(await requestLegVerdicts(legs, "card_button", cardKey));
+    setBusy(false);
+  };
+
+  return (
+    <div className="mt-3">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <Button
+          tone="quiet"
+          className="-ml-2"
+          onClick={check}
+          disabled={busy || legs.length === 0}
+        >
+          {busy ? "Asking the scouts…" : "Check these legs"}
+        </Button>
+        <span className="max-w-[65ch] text-xs text-muted">
+          Asks the scouts for a TAKE or PASS on each leg, in about 20 seconds.
+          It uses part of today&rsquo;s scout allowance.
+        </span>
+      </div>
+      {requestedAtMs !== null && (
+        <LegVerdicts
+          legs={legs}
+          requestedAtMs={requestedAtMs}
+          hideUnasked
+          posted={posted}
+        />
+      )}
+    </div>
   );
 }
 
@@ -282,6 +343,14 @@ export default function GameScriptCard({
           </div>
         )}
       </div>
+
+      <CheckTheseLegs
+        legs={card.legs.map((leg) => ({
+          ticker: leg.market_ticker,
+          side: leg.side,
+        }))}
+        cardKey={`game_card:${card.id}`}
+      />
     </article>
   );
 }

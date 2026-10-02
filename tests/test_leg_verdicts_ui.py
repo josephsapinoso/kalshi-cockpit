@@ -40,13 +40,17 @@ SRC = REPO / "frontend" / "src"
 LEG_VERDICTS = SRC / "components" / "LegVerdicts.tsx"
 PRICE_ON_KALSHI = SRC / "components" / "PriceOnKalshi.tsx"
 PARLAY_CARDS = SRC / "components" / "ParlayCards.tsx"
+GAME_SCRIPT_CARD = SRC / "components" / "GameScriptCard.tsx"
 ASK_THE_MARKET = SRC / "components" / "AskTheMarket.tsx"
 MANUAL_TICKET = SRC / "components" / "ManualTicket.tsx"
 API_TS = SRC / "lib" / "api.ts"
 
 #: Every file `requestLegVerdicts` may be CALLED from (not merely imported
 #: by -- `api.ts` defines it, which is not a call).
-ALLOWED_REQUEST_CALLERS = {PRICE_ON_KALSHI, PARLAY_CARDS}
+#: `GameScriptCard.tsx` joined with #290: its `CheckTheseLegs` button, which
+#: `GameLegs.tsx` also renders, is the one tap-only call on the game surfaces
+#: (`tests/test_leg_verdicts_surfaces.py` pins it).
+ALLOWED_REQUEST_CALLERS = {PRICE_ON_KALSHI, PARLAY_CARDS, GAME_SCRIPT_CARD}
 
 #: Every frontend source file under `src/`, so "everything else" in claim 3
 #: has a concrete membership.
@@ -146,7 +150,10 @@ class TestRequestLegVerdictsOnlyFiresFromTheTwoTriggers:
         """The inverse of claim 3: any file touching leg verdicts at all,
         outside the two trigger handlers, must use the non-spending read."""
         for path in ALL_TSX:
-            if path in (API_TS, PRICE_ON_KALSHI, PARLAY_CARDS, LEG_VERDICTS):
+            if path in (
+                API_TS, PRICE_ON_KALSHI, PARLAY_CARDS, LEG_VERDICTS,
+                GAME_SCRIPT_CARD,
+            ):
                 continue
             source = _text(path)
             if "LegVerdict" not in source and "leg-verdict" not in source:

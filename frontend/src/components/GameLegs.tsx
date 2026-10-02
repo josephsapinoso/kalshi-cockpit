@@ -10,6 +10,7 @@ import {
   type GameLegs as GameLegsData,
 } from "@/lib/api";
 import AskTheMarket from "@/components/AskTheMarket";
+import { CheckTheseLegs } from "@/components/GameScriptCard";
 import ScoutDesk from "@/components/ScoutDesk";
 import Term from "@/components/Term";
 import { Button, SectionLabel } from "@/components/ui";
@@ -313,6 +314,18 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
               <AskTheMarket marketTicker={mint.ticker} />
             </div>
           )}
+          {/* Tap-only, and apart from Build and Ask the market: it needs no
+              minted combination, and nothing here starts it. Keyed by the
+              ticked set, so a verdict for the old legs never sits beside a
+              new ticket. */}
+          <CheckTheseLegs
+            key={tickedLegs.map(({ leg, side }) => `${leg.market_ticker}:${side}`).join("|")}
+            legs={tickedLegs.map(({ leg, side }) => ({
+              ticker: leg.market_ticker,
+              side,
+            }))}
+            cardKey={`game_legs:${eventTicker}`}
+          />
         </section>
       </aside>
 
