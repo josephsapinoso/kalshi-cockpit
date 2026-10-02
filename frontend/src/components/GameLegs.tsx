@@ -183,6 +183,9 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
       side === "yes" && coverTickedFor(leg, ticked, legsByMarket) !== null,
   );
 
+  const buildDisabled =
+    tickedLegs.length < 2 || mint.kind === "minting" || impliedPair;
+
   const build = async () => {
     setMint({ kind: "minting" });
     const result = await mintGameCombo(
@@ -220,7 +223,7 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
   }
 
   return (
-    <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+    <div className="mt-6 grid gap-6 pb-24 lg:grid-cols-[minmax(0,1fr)_22rem] lg:pb-0">
       <div className="min-w-0 space-y-4">
         <p className="max-w-[65ch] text-sm text-muted">
           Tick two or more <Term k="leg">legs</Term> to build a{" "}
@@ -268,8 +271,9 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
         )}
 
         <section
+          id="your-combination"
           aria-label="Your combination"
-          className="rounded-xl border border-border bg-card p-4"
+          className="scroll-mt-16 rounded-xl border border-border bg-card p-4"
         >
           <SectionLabel>Your combination</SectionLabel>
           {tickedLegs.length === 0 ? (
@@ -288,9 +292,7 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
             tone="primary"
             className="mt-3"
             onClick={build}
-            disabled={
-              tickedLegs.length < 2 || mint.kind === "minting" || impliedPair
-            }
+            disabled={buildDisabled}
           >
             {mint.kind === "minting" ? "Building…" : "Build this combination"}
           </Button>
@@ -313,6 +315,31 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
           )}
         </section>
       </aside>
+
+      {/* Below lg the combination panel sits under the whole menu, so the
+          count and Build ride at the bottom of the screen (#278). It calls the
+          same build() and reads the same buildDisabled as the panel's button;
+          from lg up it is not drawn and the desktop layout is unchanged. */}
+      <div
+        aria-label="Build bar"
+        className="sheet-safe-bottom fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-3 border-t border-border bg-card px-4 pt-3 lg:hidden"
+      >
+        <span className="tabular text-sm">
+          {tickedLegs.length} {tickedLegs.length === 1 ? "leg" : "legs"} ticked
+        </span>
+        <Button
+          tone="primary"
+          disabled={buildDisabled}
+          onClick={async () => {
+            await build();
+            document
+              .getElementById("your-combination")
+              ?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
+        >
+          {mint.kind === "minting" ? "Building…" : "Build"}
+        </Button>
+      </div>
     </div>
   );
 }
