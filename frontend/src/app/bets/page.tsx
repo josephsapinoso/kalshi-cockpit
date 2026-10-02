@@ -624,6 +624,24 @@ function groupByDay(
 const GAME_TICKER =
   /^KX[A-Z]+GAME-\d{2}[A-Z]{3}\d{2}\d{4}([A-Z]{3})([A-Z]{3})-([A-Z]{3})$/;
 
+/**
+ * #294: each leg's own result, as the server serves it (`result` is null when
+ * the desk has not read that leg's market). Declared here because the shared
+ * `SettledBet` type is outside this lane. Every leg renders through ONE
+ * element with ONE style: no losing-leg highlight, no tally by bet type.
+ */
+type LegWithResult = { label: string; side: "yes" | "no"; result?: "won" | "lost" | "void" | null };
+
+function legResultWord(result: LegWithResult["result"]): string {
+  return result === "won"
+    ? "won"
+    : result === "lost"
+      ? "lost"
+      : result === "void"
+        ? "void"
+        : "result not read";
+}
+
 function betLead(bet: SettledBet): string {
   // #254: a combination leads with its legs when the server could read
   // them all; one unreadable leg and `legs` is null, so the words stay.
@@ -713,6 +731,15 @@ function BetRow({ bet }: { bet: SettledBet }) {
           >
             {tickerLabel(bet.ticker)}
           </span>
+          {bet.kind === "combo" && bet.legs && bet.legs.length > 0 && (
+            <span className="mt-1 block text-xs text-muted" data-leg-results>
+              {(bet.legs as LegWithResult[]).map((leg, i) => (
+                <span key={i} className="block" data-leg-result>
+                  {leg.label} · {legResultWord(leg.result)}
+                </span>
+              ))}
+            </span>
+          )}
           {bet.kind === "single" && (
             <span
               className={`mt-0.5 block text-xs ${

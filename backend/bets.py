@@ -356,7 +356,7 @@ def _legs_by_ticker(
     by_combo: dict[str, list[Any]] = {}
     for r in conn.execute(
         "SELECT p.combo_ticker AS combo, p.id AS pid, l.ticker AS ticker, "
-        "l.side AS side, l.label AS label "
+        "l.side AS side, l.label AS label, l.outcome AS outcome "
         "FROM parlay_positions p "
         "JOIN parlay_position_legs l ON l.position_id = p.id "
         f"WHERE p.combo_ticker IN ({marks}) "
@@ -369,7 +369,13 @@ def _legs_by_ticker(
         legs = [r for r in rows_ if r["pid"] == newest]
         if all(_readable(r["label"], r["ticker"]) for r in legs):
             out[combo] = [
-                {"label": r["label"].strip(), "side": r["side"]} for r in legs
+                {
+                    "label": r["label"].strip(),
+                    "side": r["side"],
+                    "ticker": r["ticker"],
+                    "recorded_outcome": r["outcome"],
+                }
+                for r in legs
             ]
 
     missing = [t for t in tickers if t not in out]
@@ -398,9 +404,71 @@ def _legs_by_ticker(
                 continue
             seen.add(r["combo"])
             out[r["combo"]] = [
-                {"label": str(leg["label"]).strip(), "side": leg["side"]}
+                {
+                    "label": str(leg["label"]).strip(),
+                    "side": leg["side"],
+                    "ticker": leg["ticker"],
+                    "recorded_outcome": None,
+                }
                 for leg in parsed.legs
             ]
+    return _with_leg_results(conn, out)
+
+
+def leg_result(
+    recorded_outcome: Optional[str], market_result: Optional[str], side: Any
+) -> Optional[str]:
+    """One leg's own result: "won" | "lost" | "void", or None when unread.
+
+    #294. Two sources, both ALREADY on this instance -- nothing here asks
+    Kalshi anything, so a page load never re-reads the venue:
+
+    1. the desk's own record, `parlay_position_legs.outcome`, where it has
+       left 'pending' (the `hedge` resolver wrote it once, from the venue or
+       by hand; it is the only source that can say "void");
+    2. `kalshi_markets.result`, which `market_results.py` writes once, at
+       `finalized`, for every market discovery has seen -- compared with the
+       leg's side exactly as `hedge.resolve_from_venue` does.
+
+    **None is not "lost".** A leg whose market was never discovered, or
+    whose result has not been read, is unread, and the screen says so.
+    """
+    if recorded_outcome in ("won", "lost", "void"):
+        return recorded_outcome
+    result = market_result.strip().lower() if isinstance(market_result, str) else ""
+    if result not in ("yes", "no") or side not in ("yes", "no"):
+        return None
+    return "won" if result == side else "lost"
+
+
+def _with_leg_results(
+    conn: sqlite3.Connection, out: dict[str, list[dict[str, Any]]]
+) -> dict[str, list[dict[str, Any]]]:
+    """Attach `result` to every leg: one batched `kalshi_markets` read.
+
+    Every leg gets the same key and the same vocabulary, so no leg is
+    singled out on the payload (#294: no losing-leg highlight, no tally).
+    """
+    tickers = sorted({
+        leg["ticker"] for legs in out.values() for leg in legs if leg.get("ticker")
+    })
+    results: dict[str, Any] = {}
+    if tickers:
+        marks = ",".join("?" for _ in tickers)
+        results = {
+            r["ticker"]: r["result"]
+            for r in conn.execute(
+                f"SELECT ticker, result FROM kalshi_markets WHERE ticker IN ({marks})",
+                tickers,
+            ).fetchall()
+        }
+    for legs in out.values():
+        for leg in legs:
+            leg["result"] = leg_result(
+                leg.pop("recorded_outcome", None),
+                results.get(leg.get("ticker")),
+                leg["side"],
+            )
     return out
 
 
