@@ -39,7 +39,7 @@ import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Iterable, Mapping, Optional, Sequence
 
-from .agents.game_script import GAME_SCRIPT_MAX_SEARCHES
+from .agents.game_script import GAME_SCRIPT_MAX_SEARCHES, RECHECK_MAX_SEARCHES
 from .agents.base import AgentConfig
 from .agents.budget import AgentBudget
 from .kalshi.discovery import IN_SCOPE_LEAGUES
@@ -51,6 +51,14 @@ logger = logging.getLogger(__name__)
 #: Reserved per card against the token ceiling: the first real card's cost.
 CARD_TOKEN_ESTIMATE = 290_000
 CARD_SEARCHES = GAME_SCRIPT_MAX_SEARCHES
+
+#: The T-2h drop-if re-check (#289, Joe's (A) to #270). Reserved at the
+#: top of the town hall's 20-40K estimate until a real one is read; one
+#: search. Only for a game Joe opened, inside `RECHECK_LEAD_MS` of kickoff.
+RECHECK_TOKEN_ESTIMATE = 40_000
+RECHECK_SEARCHES = RECHECK_MAX_SEARCHES
+RECHECK_LEAD_MS = 2 * 3_600_000
+RECHECK = "recheck"
 
 BUILD = "build"
 REFUSED_BUDGET = "refused_budget"
@@ -194,6 +202,53 @@ def decide(
     return actions
 
 
+def decide_rechecks(
+    now_ms: int,
+    cards: Iterable[dict],
+    opened: Iterable[str],
+    budget: WatchBudget,
+    *,
+    already_reserved_tokens: int = 0,
+    already_reserved_searches: int = 0,
+) -> list[dict]:
+    """The built cards to re-check this pass, soonest kickoff first. Pure.
+
+    A card qualifies when it is `built`, has never been re-checked, kicks off
+    within `RECHECK_LEAD_MS` and has not started, and its game is in `opened`
+    (Joe looked at it on the desk: Joe's (A) to #270, not every card). The
+    unattended token share and the search ceiling bind as for builds, on top
+    of whatever this pass already reserved for builds. A card past a ceiling
+    is simply not chosen; it is not stamped, so a later pass may still take it.
+    """
+    opened_set = {t.strip().upper() for t in opened}
+    todo = sorted(
+        (
+            c for c in cards
+            if c.get("status") == "built"
+            and c.get("recheck_ms") is None
+            and now_ms < c["kickoff_ms"] <= now_ms + RECHECK_LEAD_MS
+            and c["game_event_ticker"].strip().upper() in opened_set
+        ),
+        key=lambda c: (c["kickoff_ms"], c["game_event_ticker"]),
+    )
+    token_line = (
+        int(budget.tokens_ceiling * (1.0 - budget.tap_token_share))
+        if budget.tokens_ceiling > 0
+        else None
+    )
+    chosen: list[dict] = []
+    for card in todo:
+        n = len(chosen) + 1
+        tokens = budget.tokens_today + already_reserved_tokens + n * RECHECK_TOKEN_ESTIMATE
+        searches = budget.searches_today + already_reserved_searches + n * RECHECK_SEARCHES
+        if token_line is not None and tokens > token_line:
+            break
+        if budget.searches_ceiling > 0 and searches > budget.searches_ceiling:
+            break
+        chosen.append(card)
+    return chosen
+
+
 # --- the impure edge ---------------------------------------------------------
 
 _FIXTURE_SQL = (
@@ -257,6 +312,42 @@ def load_inputs(
     return fixtures, cards
 
 
+#: How far back a visit to `/game/<event>` counts as Joe having opened it.
+OPENED_LOOKBACK_MS = 48 * _HOUR_MS
+
+
+def load_recheck_inputs(conn: sqlite3.Connection, now_ms: int) -> tuple[list[dict], set[str]]:
+    """Built, never-re-checked cards kicking off inside `RECHECK_LEAD_MS`,
+    and the games Joe opened.
+
+    "Opened" is read from the desk's own heartbeat (`desk_attention.path`,
+    one row a minute while a page is visible): a `/game/<event>` path in the
+    last `OPENED_LOOKBACK_MS`. A card he minted (`combo_ticker` set) counts
+    too. Both reads are bounded: the cards by kickoff, the heartbeat by its
+    `seen_ms` index.
+    """
+    cards = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT id, game_event_ticker, kickoff_ms, status, recheck_ms, "
+            "drop_if, combo_ticker FROM game_script_cards "
+            "WHERE status = 'built' AND recheck_ms IS NULL "
+            "AND kickoff_ms > ? AND kickoff_ms <= ?",
+            (now_ms, now_ms + RECHECK_LEAD_MS),
+        ).fetchall()
+    ]
+    opened = {c["game_event_ticker"].upper() for c in cards if c.get("combo_ticker")}
+    for (path,) in conn.execute(
+        "SELECT DISTINCT path FROM desk_attention "
+        "WHERE seen_ms >= ? AND path LIKE '/game/%'",
+        (now_ms - OPENED_LOOKBACK_MS,),
+    ).fetchall():
+        ticker = (path or "").split("?")[0].rstrip("/").split("/")[-1]
+        if ticker:
+            opened.add(ticker.upper())
+    return cards, opened
+
+
 def record_refusals(
     conn: sqlite3.Connection, actions: Sequence[Action], now_ms: int, day_start_ms: int
 ) -> int:
@@ -312,8 +403,10 @@ async def run_pass(
     lead_hours: int,
     tap_token_share: float,
     season_starts: Optional[Mapping[str, int]] = None,
+    recheck: Optional[Callable[[dict], Awaitable[str]]] = None,
 ) -> dict:
-    """One pass: read, decide, record refusals, build each chosen game in turn.
+    """One pass: read, decide, record refusals, build each chosen game in turn,
+    then re-check any opened game's card inside two hours of kickoff (#289).
 
     `build(game_event_ticker)` is the one build path
     (`backend/api/routers/game.build_card_for_game`, bound by the caller), so
@@ -363,7 +456,28 @@ async def run_pass(
             logger.exception(
                 "game-script watch: build failed for %s", action.game_event_ticker
             )
-    return {"built": built, "failed": failed, "refused_written": refused}
+    rechecked = 0
+    if recheck is not None:
+        recheck_cards, opened = load_recheck_inputs(conn, now_ms)
+        for card in decide_rechecks(
+            now_ms, recheck_cards, opened, budget,
+            already_reserved_tokens=built * CARD_TOKEN_ESTIMATE,
+            already_reserved_searches=built * CARD_SEARCHES,
+        ):
+            try:
+                await recheck(card)
+                rechecked += 1
+            except asyncio.CancelledError:
+                raise
+            except Exception:                                    # noqa: BLE001
+                failed += 1
+                logger.exception(
+                    "game-script watch: re-check failed for %s", card["game_event_ticker"]
+                )
+    return {
+        "built": built, "failed": failed, "refused_written": refused,
+        "rechecked": rechecked,
+    }
 
 
 async def watch_game_scripts_forever(
@@ -375,6 +489,7 @@ async def watch_game_scripts_forever(
     lead_hours: int,
     tap_token_share: float = 0.5,
     season_starts: Optional[Mapping[str, int]] = None,
+    recheck: Optional[Callable[[dict, AgentConfig], Awaitable[str]]] = None,
     interval_s: float = DEFAULT_INTERVAL_S,
     sleep=asyncio.sleep,
     clock=time.time,
@@ -404,6 +519,10 @@ async def watch_game_scripts_forever(
                             lead_hours=lead_hours,
                             tap_token_share=tap_token_share,
                             season_starts=season_starts,
+                            recheck=(
+                                None if recheck is None
+                                else (lambda card: recheck(card, agent_config))
+                            ),
                         )
                         if any(counts.values()):
                             logger.info("game-script watch: %s", counts)

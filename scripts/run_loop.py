@@ -126,7 +126,7 @@ from backend.hedge_watch import watch_hedges_forever  # noqa: E402
 from backend.kalshi.quotes import LiveQuoteSource  # noqa: E402
 from backend.scout_watch import watch_scouts_forever  # noqa: E402
 from backend.game_script_watch import watch_game_scripts_forever  # noqa: E402
-from backend.api.routers.game import build_card_for_game  # noqa: E402
+from backend.api.routers.game import build_card_for_game, recheck_card_for_game  # noqa: E402
 from backend.runner import run_once, run_quote_pass  # noqa: E402
 from backend.scheduler import (  # noqa: E402
     DEFAULT_FAST_INTERVAL_S,
@@ -1222,6 +1222,9 @@ async def main() -> int:
                 lead_hours=game_script_config.lead_hours,
                 tap_token_share=scout_auto_config.tap_token_share,
                 season_starts=game_script_config.season_starts,
+                recheck=lambda card, agent_config: recheck_card_for_game(
+                    args.db, card, agent_config=agent_config
+                ),
             ),
             name="game-script-watch",
         )

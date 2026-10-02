@@ -78,6 +78,32 @@ def insert_card(
     return int(cursor.lastrowid)
 
 
+RECHECK_STATUSES = ("triggered", "not_found", "unknown", "refused_budget")
+
+
+def record_recheck(
+    conn: sqlite3.Connection,
+    card_id: int,
+    *,
+    recheck_ms: int,
+    status: str,
+    note: Optional[str] = None,
+    source: Optional[dict] = None,
+) -> None:
+    """Stamp a card's T-2h drop-if re-check (#289). Once only: a card that
+    already carries a re-check is never overwritten, so a second pass cannot
+    pay twice or replace a `triggered` with a later `not_found`."""
+    if status not in RECHECK_STATUSES:
+        raise ValueError(f"unknown recheck status {status!r}")
+    conn.execute(
+        "UPDATE game_script_cards SET recheck_ms = ?, recheck_status = ?, "
+        "recheck_note = ?, recheck_source_json = ? "
+        "WHERE id = ? AND recheck_ms IS NULL",
+        (recheck_ms, status, note, json.dumps(source) if source else None, card_id),
+    )
+    conn.commit()
+
+
 def _row_to_dict(row: sqlite3.Row) -> dict:
     out = dict(row)
     raw = out.pop("legs_json", None)
@@ -90,6 +116,8 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     # asked for, so none are claimed. Never an empty list standing in for one.
     raw_sources = out.pop("sources_json", None)
     out["sources"] = json.loads(raw_sources) if raw_sources else None
+    raw_recheck = out.pop("recheck_source_json", None)
+    out["recheck_source"] = json.loads(raw_recheck) if raw_recheck else None
     return out
 
 

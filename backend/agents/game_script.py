@@ -414,3 +414,115 @@ async def build_card(
         ),
         None, usage, call_id,
     )
+
+
+# --- the T-2h drop-if re-check (#289, Joe's (A) to #270) ---------------------
+
+RECHECK_AGENT_NAME = "game_script_recheck"
+RECHECK_PROMPT_VERSION = "1"
+RECHECK_MAX_SEARCHES = 1
+RECHECK_SEARCH_TOOL = {**WEB_SEARCH_TOOL, "max_uses": RECHECK_MAX_SEARCHES}
+
+RECHECK_SYSTEM = """\
+You are re-checking one condition for a betting research desk, about two \
+hours before a game. Earlier today the desk wrote a card for this game and \
+said Joe should drop it if a specific thing happened. Do ONE search for \
+today's news on exactly that thing, and report what you found.
+
+Set status to "triggered" ONLY if a page you found says the thing happened, \
+and give that page's address and published date in source. Set status to \
+"not_found" if your one search did not find it. Set status to "unknown" if \
+the news is unclear, conflicting, or you could not search. "not_found" is \
+not a confirmation that the card is right; it only means one search did not \
+find the drop-if news.
+
+In note, say in one or two plain sentences what you found. Never estimate a \
+probability, price or edge, and never say whether to bet."""
+
+
+class RecheckOutput(BaseModel):
+    """The re-check's answer. No field carries a probability, confidence or
+    edge, and `tests/test_game_script_recheck.py` walks the schema."""
+
+    status: Literal["triggered", "not_found", "unknown"] = Field(
+        default="unknown",
+        description="triggered only with a dated source; not_found if one "
+        "search did not find it; unknown otherwise.",
+    )
+    note: str = Field(default="", description="One or two plain sentences.")
+    source: Optional[CardSource] = Field(
+        default=None, description="The page that says it happened, with its date."
+    )
+
+
+def recheck_prompt(*, game_title: str, kickoff_iso: str, drop_if: str) -> str:
+    return "\n".join([
+        f"Game: {game_title}.",
+        f"Kickoff: {kickoff_iso}.",
+        f"Drop the card if: {drop_if}",
+    ])
+
+
+def settle_recheck(parsed: Optional[RecheckOutput]) -> tuple[str, Optional[str], Optional[dict]]:
+    """`(status, note, source)` as stored. A `triggered` with no web-address
+    source is downgraded to `unknown`: the claim that the drop-if happened is
+    the one that would change Joe's mind, so it is the one that needs a page.
+    Nothing the model returns becomes `not_found` by default."""
+    if parsed is None:
+        return "unknown", "The re-check returned nothing.", None
+    note = parsed.note.strip() or None
+    source = parsed.source
+    has_source = source is not None and source.url.strip().startswith(("http://", "https://"))
+    if parsed.status == "triggered" and not has_source:
+        return "unknown", note, None
+    return parsed.status, note, (source.model_dump() if has_source else None)
+
+
+async def recheck_card(
+    conn: sqlite3.Connection,
+    client,
+    config: AgentConfig,
+    budget: AgentBudget,
+    *,
+    card: dict,
+    game_title: str,
+    kickoff_iso: str,
+    now_ms: int,
+) -> str:
+    """One metered call with one search, or a budget refusal that spends
+    nothing. Always stamps the card once; returns the stored status."""
+    reason = budget.refusal_reason(1, now_ms, searches_worst_case=RECHECK_MAX_SEARCHES)
+    if reason is not None:
+        game_script_cards.record_recheck(
+            conn, card["id"], recheck_ms=now_ms, status="refused_budget", note=reason
+        )
+        return "refused_budget"
+    call_id = budget.reserve(
+        called_ms=now_ms, agent=RECHECK_AGENT_NAME, model=config.model,
+        ticker=card["game_event_ticker"], side=None,
+    )
+    try:
+        outcome = await structured_call(
+            client,
+            model=config.model,
+            system=RECHECK_SYSTEM,
+            user_content=recheck_prompt(
+                game_title=game_title, kickoff_iso=kickoff_iso,
+                drop_if=card.get("drop_if") or "",
+            ),
+            output_model=RecheckOutput,
+            max_tokens=1000,
+            effort="low",
+            tools=[RECHECK_SEARCH_TOOL],
+        )
+        parsed, usage = outcome.parsed, outcome.usage
+    except Exception:
+        logger.exception("the drop-if re-check died")
+        parsed, usage = None, None
+    status, note, source = settle_recheck(parsed)
+    budget.settle(call_id, verdict=status, usage=usage)
+    game_script_cards.record_recheck(
+        conn, card["id"], recheck_ms=now_ms, status=status, note=note, source=source
+    )
+    return status
+

@@ -271,7 +271,11 @@ logger = logging.getLogger(__name__)
 #: gains `sources_json` and `ticket_needs`; `combo_rfq_quotes` gains
 #: `first_seen_ms` and `last_seen_ms`. Four nullable column steps; no
 #: backfill -- NULL is the truth about every earlier row.
-SCHEMA_VERSION = 61
+#:
+#: v62 `game_script_cards` gains the T-2h drop-if re-check (#289, Joe's (A)
+#: to #270): `recheck_ms`, `recheck_status` (column CHECK), `recheck_note`,
+#: `recheck_source_json`. Nullable column steps; NULL = never re-checked.
+SCHEMA_VERSION = 62
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1328,6 +1332,20 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45, 57, 59)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # The T-2h drop-if re-check. See the v62 note above.
+    62: _Migration(
+        columns=(
+            ("game_script_cards", "recheck_ms", "INTEGER"),
+            (
+                "game_script_cards",
+                "recheck_status",
+                "TEXT CHECK (recheck_status IS NULL OR recheck_status IN "
+                "('triggered', 'not_found', 'unknown', 'refused_budget'))",
+            ),
+            ("game_script_cards", "recheck_note", "TEXT"),
+            ("game_script_cards", "recheck_source_json", "TEXT"),
+        ),
+    ),
     # The parlay town hall's columns. See the v61 note above.
     61: _Migration(
         columns=(

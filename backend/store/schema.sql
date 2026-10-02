@@ -3098,6 +3098,17 @@ CREATE TABLE IF NOT EXISTS game_script_cards (
     -- number about the bet (ADR 0189). NULL on every card before v61.
     sources_json      TEXT,
     ticket_needs      TEXT,
+    -- v62 (#289, Joe's (A) to #270): one search on `drop_if` about two
+    -- hours before kickoff, only for a game Joe opened. `recheck_status`:
+    -- `triggered` (a dated page says the drop-if happened), `not_found`
+    -- (one search did not find it -- NOT a confirmation of the card),
+    -- `unknown` (the default when the answer is unclear or unsourced),
+    -- `refused_budget`. NULL on a card never re-checked.
+    recheck_ms        INTEGER,
+    recheck_status    TEXT CHECK (recheck_status IS NULL OR recheck_status IN
+                          ('triggered', 'not_found', 'unknown', 'refused_budget')),
+    recheck_note      TEXT,
+    recheck_source_json TEXT,
     CHECK (status != 'built' OR (story IS NOT NULL AND legs_json IS NOT NULL)),
     CHECK (status = 'built' OR reason IS NOT NULL)
 );

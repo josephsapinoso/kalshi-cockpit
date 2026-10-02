@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from ...agents.base import AgentConfig, build_client
 from ...agents.budget import AgentBudget
-from ...agents.game_script import build_card
+from ...agents.game_script import build_card, recheck_card
 from ...config import AppConfig, ConfigError, StalenessConfig
 from ...core.leg_words import no_words_for
 from ...core.prices import format_price
@@ -134,6 +134,35 @@ async def build_card_for_game(
         finally:
             write_conn.close()
 
+
+
+async def recheck_card_for_game(
+    db_path, card: dict, *, agent_config: AgentConfig, client=None
+) -> str:
+    """The T-2h drop-if re-check for one card (#289), called by the watcher
+    only, never by a route: Joe answered (A) to #270, games he opened, so it
+    is decided in `game_script_watch.decide_rechecks`, not tapped.
+
+    `client` is for tests; `None` is this module's literal `build_client`.
+    One metered call with one search, or a budget refusal that spends nothing.
+    """
+    write_conn = db.open_db(db_path)
+    try:
+        now = db.now_ms()
+        return await recheck_card(
+            write_conn,
+            client if client is not None else build_client(agent_config),
+            agent_config,
+            AgentBudget.from_config(write_conn, agent_config),
+            card=card,
+            game_title=card["game_event_ticker"],
+            kickoff_iso=datetime.fromtimestamp(
+                card["kickoff_ms"] / 1000, tz=timezone.utc
+            ).strftime("%Y-%m-%dT%H:%MZ"),
+            now_ms=now,
+        )
+    finally:
+        write_conn.close()
 
 #: The line every card carries about news that lands after it is built.
 INACTIVES_LINE = (
