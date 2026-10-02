@@ -137,6 +137,19 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-02 (seventy-ninth session) — nothing due before 2026-10-05; #3 frontier empty by finding, not by neglect
+
+State at start: `main` = `origin/main` = `2512e91`, clean; CI green; no open PRs; 0 Dependabot alerts; live on `47a3cb3`. Partner checked every open ticket against `git log` and its last comment.
+
+- **Nothing is buildable before #220's date.** #169 is parked (option A killed, `e602daa`) and leans on #165. #165 waits on a friend actually sending a link (Joe, 2026-09-28). #151 collects toward its registered look (1,800 eligible legs or 2027-01-15) and forbids a running read. #210 and #197 close with #220. #267 is November.
+- **Map #3 has no open children, and no question for Joe exists.** Every owner:main story waits on something outside the desk, not on a decision of his. #220's reading may produce one (whether the 700/day credit cap moves); that is where it should come from.
+- **Two stale worktrees left in place** (`agent-a5b1585…` at `8b5e215`, `agent-a852cc1…` at `098ff1f`), both clean and 0 ahead of main. Both are locked by pid 20340, which is a *live* `claude.exe`, so they were not unlocked. Remove them once that pid is gone (unlink any `node_modules` junction first).
+
+### Still open
+
+1. #220: on or after 2026-10-05, review the game-script cards, run `credits-day --date 2026-10-04`, and read the first Matchup tile. #210 and #197 close with it.
+2. #165, #169 and #151 are unchanged. #267 is due in November.
+
 ## 2026-10-02 (seventy-eighth session) — #268 read: Joe's combo came through RFQ, its row is consistent; new `position-provenance` inspector query (live on `47a3cb3`); #268 closed
 
 Joe's focus: he had already bought a combination for #268. Single errand he named, so no partner run.
@@ -1431,6 +1444,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-02 (seventy-ninth session) — nothing due before 2026-10-05; #3 frontier empty by finding, not by neglect
 - 2026-10-02 (seventy-eighth session) — #268 read: Joe's combo came through RFQ, its row is consistent; new `position-provenance` inspector query (live on `47a3cb3`); #268 closed
 - 2026-10-01 (seventy-seventh session) — S3 of ADR 0192: the armed hand-bet path leaves `create_app` for `backend/manual_order.py` (#266, live on `86affa0`); story #263 closed; both lanes found their tickets already shipped
 - 2026-10-01 (seventy-sixth session) — architecture review; every frontend write goes through one transport module (ADR 0191); api.ts split into transport, format and types (#257–#262, live on `ea53d22`); A+B positions module grilled and ticketed (#263)
