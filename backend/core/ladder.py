@@ -21,8 +21,10 @@ WHAT THIS MODULE DOES NOT ESTABLISH
 - **That any card is worth buying.** The fair joint is what the sportsbook
   consensus implies the combination is worth; Kalshi's quoted cost (read only
   by the lookup path, off the minted market's order book) decides the hold,
-  and the measured record says combos are enter-only with an unverified fee
-  model. The card carries those sentences; this module carries the arithmetic.
+  and the fee model is unverified. A combination is priced by asking its
+  makers (an RFQ), not by reading its book, and it can be sold back (ADR
+  0164; "enter-only" was refuted 2026-09-17 and is not restated). The card
+  carries those sentences; this module carries the arithmetic.
 - **The true joint probability.** Each leg's headline is `p_conservative` —
   the LOWEST of four devig methods for that side. Multiplying N conservative
   legs compounds that bias N-fold, which is why the four per-method joints are

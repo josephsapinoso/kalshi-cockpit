@@ -314,6 +314,17 @@ export type ParlayLadder = {
   window?: ParlayWindow;
   cards: ParlayCardData[];
   excluded: Record<string, number>;
+  /**
+   * Present only when EVERY widening window built nothing (#279): what the
+   * widest window tried left out, so the screen can say why instead of
+   * "the slate has 0". `stale_consensus` is that window's stale-side count.
+   */
+  all_windows_empty?: {
+    widest_key: string;
+    widest_words: string;
+    excluded: Record<string, number>;
+    stale_consensus: number;
+  };
   notes: {
     chance: string;
     fair_value: string;

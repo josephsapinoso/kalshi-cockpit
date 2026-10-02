@@ -350,8 +350,11 @@ NOTES: dict[str, str] = {
         f"{TAP_CENSUS_DATE}, {TAP_CENSUS_PRICED} returned a price and "
         f"{TAP_CENSUS_BOOK_EMPTY} found nothing resting on the combination — "
         f"the “no one is selling it” answer. That is the venue’s book "
-        f"being empty, not a fault in the card, and tapping again later is "
-        f"what usually works. It says nothing about which card is better."
+        f"being empty, not a fault in the card. A combination’s book is "
+        f"empty between requests by design (ADR 0164): its price comes from "
+        f"asking, and “Ask the market for a price” sends the request to "
+        f"makers, who quote privately. It says nothing about which card is "
+        f"better."
     ),
     "fee": (
         "Kalshi's combo fee model is unverified. Every combo fill ever "
@@ -3667,6 +3670,7 @@ def build_ladder_payload_widening(
         conn, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms
     )
     first: Optional[dict] = None
+    widest: Optional[dict] = None
     for key in HORIZON_LADDER:
         payload = build_ladder_payload(
             conn,
@@ -3679,6 +3683,7 @@ def build_ladder_payload_widening(
         )
         if first is None:
             first = payload
+        widest = payload
         if any(not card.get("not_built_reason") for card in payload["cards"]):
             if key != HORIZON_LADDER[0]:
                 _, empty_words = HORIZONS[HORIZON_LADDER[0]]
@@ -3691,5 +3696,17 @@ def build_ladder_payload_widening(
             return payload
     # Every window was empty. Return the narrowest, so the words on screen
     # describe the window Joe asked about rather than the widest one tried.
-    assert first is not None  # HORIZON_LADDER is never empty
+    assert first is not None and widest is not None  # never empty
+    # **#279: name what the widest window left out, so an empty screen can
+    # say WHY.** Every card reading "needs N fresh games and the slate has 0"
+    # sounds like an empty schedule; observed 2026-10-02 04:17Z it was stale
+    # odds (152-271 min old against a 900 s limit). Copy only -- which legs
+    # qualify is untouched, and the cards stay tonight's.
+    widest_excluded = {k: n for k, n in widest["excluded"].items() if n > 0}
+    first["all_windows_empty"] = {
+        "widest_key": widest["window"]["key"],
+        "widest_words": widest["window"]["words"],
+        "excluded": widest_excluded,
+        "stale_consensus": widest_excluded.get("stale_consensus", 0),
+    }
     return first
