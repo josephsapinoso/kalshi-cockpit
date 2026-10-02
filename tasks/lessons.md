@@ -16,6 +16,16 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-02 - A lane's "stopped at 39%, no failures" is an unrun inventory, and GitHub caps a parent at 100 sub-issues
+
+From the seventy-ninth session (parlay town hall, #269).
+
+- **Lane F reported its whole-tree inventory as "stopped at 39% with no failures" and asked the integrator to rerun it.** I ran three inventory files and not the source-reading pins (`test_desktop_tier`, `test_wire_types_live_by_area`). CI failed on exactly those, one push later. A partial run that found nothing is not a pass; it is an unrun check with a reassuring sentence attached.
+- **Map #3 hit GitHub's hard cap of 100 sub-issues mid-session** (HTTP 422 on the 101st link). The board, the frontier query and the Question-for-Joe test all assume #3 can always take another child. When it can't, a new question has nowhere visible to go. Opened #292.
+- **The rule:**
+  - When a lane names a check it did not finish, the integrator runs that whole check before pushing. Include every test that greps the files the lane touched, not only the ones the lane named.
+  - Before opening several of Joe's questions in one go, count #3's children (`gh api .../issues/3/sub_issues --paginate --jq length`). At 100, use the continuation map, not an unrelated epic.
+
 ## 2026-10-01 - An open ticket is not proof the work is undone, and a pin list written from memory is not the pin list; grep for both before dispatching
 
 From the seventy-seventh session (#266, S3 of ADR 0192).

@@ -137,6 +137,64 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-02 (seventy-ninth session, continued) — parlay town hall: batch 1 (17 tickets) live on `734f460`, schema v61 + v62; Joe answered five; batch 2 ticketed
+
+Joe asked partner to convene a town hall on the parlay changes and recommend what makes his selections better, then "let's get creating".
+
+- **How it ran.** Partner chaired five seats over two rounds. The seats were sharp-bettor, kalshi-platform, measurement-skeptic, runtime-realist and a one-meeting UX guest. They worked from live SSR and API captures taken about 04:10Z plus two bounded live reads (`combo-rfqs -n 40`, `position-provenance -n 40`). Runtime-realist's round-2 reply was lost in transit twice, so its round 1 stands.
+- **Minutes:** a private Claude Doc, https://claude.ai/artifact/EaAgXPneYH8uwmiza5bZhz. **Epic:** #269.
+- **Headline.** Every seat independently found two things:
+  - NO legs worded as YES. "NO Over 42.5" pays on the Under, and Kalshi sends the same subtitle on both sides.
+  - No Kalshi price on the /game legs, although the listing already carried it.
+- **Joe answered five questions with option buttons, plus a batch merge+deploy approval:**
+  - #270 (A): T-2h re-check only for games he opened.
+  - #271 (A): a tap-only "Check these legs" button on /game and the cards.
+  - #272 (A): Your bets gets the expected-vs-won line, with buckets behind a tap.
+  - #273 (A): too-fine quotes are shown, never takeable.
+  - #274 (A): win plus the same team's cover is refused in words.
+  - All five are closed.
+- **Built and live on `734f460`** (deploy runs 36970373930 and 36973684256; each screen read on live through the authed API):
+  - #275 NO-leg wording.
+  - #276 the /game listed ask, size and read time.
+  - #277 the win+cover refusal before any venue call.
+  - #278 the phone Build bar.
+  - #279 empty presets name stale odds (live read: 271 stale-consensus sides).
+  - #280 "tap again later" retired.
+  - #281 card sources and `ticket_needs`, prompt v3, **schema v61**.
+  - #282 quote first/last-seen times.
+  - #283 per-leg `at_build` ask freeze.
+  - #284 per-sport lineup line, drop-if news links and "Get a price".
+  - #285 now / when-written prices with no arrow or colour.
+  - #286 three bounded inspectors (`game-script-card-stamps`, `parlay-lookup-errors`, `own-open-rfqs`).
+  - #287 Your bets per-kind summary.
+  - #288 fee share before Take it, labelled an estimate.
+  - #289 the T-2h drop-if re-check, **schema v62**, which reserves 40K tokens and one search.
+  - #290 Check these legs.
+  - #291 refused too-fine quotes. kalshi-platform said MERGE WITH FIXES, and the copy fix is in: a refused quote dies with the request.
+- **Process notes.**
+  - Lanes A, B, E, F and D ran Sonnet in worktrees; main built C1–C3, G1, H1 and H3.
+  - Two CI failures came from lane F's frontend pins (an uncapped paragraph, and new types missing from `test_wire_types_live_by_area`). The lane had stopped its inventory run at 39%; fixed in `c6622eb`.
+  - Every guard was mutation-checked red.
+- **Not yet observed:**
+  - No card has been built since C3, so `at_build` is NULL on today's cards.
+  - No T-2h re-check has fired.
+  - The first `game-script-card-stamps` and `own-open-rfqs` reads are owed.
+- **Killed by the chair:**
+  - auto-RFQ on build
+  - making too-fine quotes takeable
+  - auto-chained verdicts
+  - highlighting the losing leg
+  - scoring the cards (ADR 0038, ADR 0190 §7)
+  - an arrow on then/now
+- **Map #3 is full** at GitHub's 100-sub-issue cap. The answered questions #271–#274 sit under epic #269, and #292 is the fix.
+
+### Still open
+
+1. #220: on or after 2026-10-05, review the game-script cards, run `credits-day --date 2026-10-04`, and read the first Matchup tile. #210 and #197 close with it. **Add to it:** the first prompt-v3 card (`sources`, `ticket_needs`, `at_build`), the first T-2h re-check, and one `game-script-card-stamps` plus `own-open-rfqs` read.
+2. #293–#299: the town hall's batch 2 (owner:agent, Sonnet), under epic #269. Merge approval is per batch; ask Joe once for the whole batch.
+3. #292: map #3 is full; a new question for Joe has nowhere visible to go until it lands.
+4. #165, #169 and #151 are unchanged. #267 is due in November.
+
 ## 2026-10-02 (seventy-ninth session) — nothing due before 2026-10-05; #3 frontier empty by finding, not by neglect
 
 State at start: `main` = `origin/main` = `2512e91`, clean; CI green; no open PRs; 0 Dependabot alerts; live on `47a3cb3`. Partner checked every open ticket against `git log` and its last comment.
@@ -1444,6 +1502,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-02 (seventy-ninth session, continued) — parlay town hall: batch 1 (17 tickets) live on `734f460`, schema v61 + v62; Joe answered five; batch 2 ticketed
 - 2026-10-02 (seventy-ninth session) — nothing due before 2026-10-05; #3 frontier empty by finding, not by neglect
 - 2026-10-02 (seventy-eighth session) — #268 read: Joe's combo came through RFQ, its row is consistent; new `position-provenance` inspector query (live on `47a3cb3`); #268 closed
 - 2026-10-01 (seventy-seventh session) — S3 of ADR 0192: the armed hand-bet path leaves `create_app` for `backend/manual_order.py` (#266, live on `86affa0`); story #263 closed; both lanes found their tickets already shipped
