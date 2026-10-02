@@ -187,6 +187,7 @@ scripts/*
 # `/app/scripts/` path, so the derivation does not demand it and it must not
 # be added by hand.
 !scripts/rehearse_fair_price_window.py
+!scripts/relabel_untitled_legs.py
 
 *.md
 !README.md
