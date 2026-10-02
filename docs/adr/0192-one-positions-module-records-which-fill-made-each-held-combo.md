@@ -192,3 +192,5 @@ Each slice names its test in its ticket. Across the whole story:
 Elsewhere: add a third `OrderPlacer(` in another backend file. Restores were done by file copy.
 
 **New proof:** `tests/test_manual_order_direct.py` calls the function with no app. It covers checks 0, 4 and 13. Check 13 uses the **armed** construction against a fake REST port that answers with the synthetic create-order fixture.
+
+**After the review.** The kalshi-platform review approved the change. On its advice, one line was added ahead of check 0: `now_ms = now_ms or db.now_ms`. The default clock is now resolved on each call rather than bound at import, so a test that patches `db.now_ms` still reaches this path. It changes no check.

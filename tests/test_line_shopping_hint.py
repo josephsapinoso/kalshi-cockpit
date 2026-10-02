@@ -420,8 +420,11 @@ class TestTheNbaRuleResolvesOnTheWinner:
     def test_the_rule_names_no_tie_or_third_outcome(self):
         for m in self._markets():
             text = (m["rules_primary"] + " " + (m.get("rules_secondary") or "")).lower()
+            # A word STEM, not a whole word: `\btie\b` let "ties" and "tied"
+            # through, so a tie-allowing rule was caught only by the wording
+            # test above (found by the #255 re-verification, session 77).
             for word in ("tie", "draw", "push", "neither"):
-                assert not re.search(rf"\b{word}\b", text), (word, text)
+                assert not re.search(rf"\b{word}\w*", text), (word, text)
 
     def test_the_two_markets_are_the_two_teams_so_one_side_must_win(self):
         a, b = self._markets()

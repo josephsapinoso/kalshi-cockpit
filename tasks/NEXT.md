@@ -56,9 +56,12 @@ item had left the list).
 
 **Two things to know before planning. CLAUDE.md is current on both:**
 
-1. **The signal test has NOT declared.** The verdict is UNRESOLVED at
-   `G = 216`, the floor is 713, the look is not coming, and every interval sits
-   entirely below the 0.40 threshold — settled negative for planning.
+1. **The signal test's registered result is in: UNRESOLVED at the stopping
+   rule** (#226, 2026-10-01: `G = 1000` clusters, 889 games, floor nominal
+   861). Collection has ended and no look remains. UNRESOLVED may not be
+   reported as "no signal"; for planning, treat it as no usable
+   pass-through. CLAUDE.md carries the table. (Until session 77 this line
+   said `G = 216`, floor 713, "the look is not coming", stale since #226.)
 2. **What the tool is FOR is settled — ADR 0071.** A personal betting desk
    first; price transparency as the job; a gap you may show on a row and
    never rank by; sharing means someone runs their own copy. Do not re-derive
