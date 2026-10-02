@@ -365,6 +365,18 @@ export default function GameScriptCard({
       </details>
 
       <div className="mt-3">
+        {/* Opens the game page with this card's legs already ticked (#295),
+            so a leg can be swapped without starting over. A link, not a
+            tap that spends: it reads the same listing the page always reads. */}
+        <Link
+          href={`/game/${encodeURIComponent(card.game_event_ticker)}?legs=${encodeURIComponent(
+            card.legs.map((leg) => `${leg.market_ticker}:${leg.side}`).join(","),
+          )}`}
+          className="mb-2 inline-block min-h-[36px] text-sm text-accent underline underline-offset-2"
+        >
+          Change a leg
+        </Link>
+        <br />
         <Button
           onClick={ask}
           disabled={mint.kind === "minting" || card.legs.length < 2}

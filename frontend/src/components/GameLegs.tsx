@@ -127,7 +127,58 @@ function ListedAsk({ leg, side }: { leg: GameLeg; side: Side }) {
   );
 }
 
-export default function GameLegs({ eventTicker }: { eventTicker: string }) {
+/**
+ * `ticker:side,ticker:side` from a card's "Change a leg" link (#295), as
+ * `[ticker, side]` pairs. Anything that is not `<ticker>:yes|no` is dropped
+ * here; whether the ticker is on this game's listing is checked against the
+ * listing in `preTick`, never assumed.
+ */
+export function parseLegsParam(raw: string | undefined): [string, Side][] {
+  if (!raw) return [];
+  const out: [string, Side][] = [];
+  for (const part of raw.split(",")) {
+    const [ticker, side, ...extra] = part.trim().split(":");
+    if (!ticker || extra.length > 0) continue;
+    const s = (side ?? "").toLowerCase();
+    if (s === "yes" || s === "no") out.push([ticker.toUpperCase(), s]);
+  }
+  return out;
+}
+
+/**
+ * The legs of `raw` that the listing really offers, on a side that leg
+ * allows, one per one-rung event. **A leg named in the URL that is not in the
+ * listing is ignored, never invented** (#295): the page never ticks a box the
+ * server did not list, so a stale or hand-edited link ticks fewer legs, not
+ * different ones.
+ */
+function preTick(raw: string | undefined, listing: GameLegsData): Record<string, Side> {
+  const byMarket = new Map<string, GameLeg>();
+  for (const group of listing.groups) {
+    for (const leg of group.legs) byMarket.set(leg.market_ticker, leg);
+  }
+  const ticked: Record<string, Side> = {};
+  const takenEvents = new Set<string>();
+  for (const [ticker, side] of parseLegsParam(raw)) {
+    const leg = byMarket.get(ticker);
+    if (!leg || !leg.allowed_sides.includes(side) || ticker in ticked) continue;
+    if (leg.one_per_event) {
+      if (takenEvents.has(leg.event_ticker)) continue;
+      takenEvents.add(leg.event_ticker);
+    }
+    ticked[ticker] = side;
+  }
+  return ticked;
+}
+
+export default function GameLegs({
+  eventTicker,
+  initialLegs,
+}: {
+  eventTicker: string;
+  /** The raw `?legs=` value; ticked once, when the listing first arrives. */
+  initialLegs?: string;
+}) {
   const [data, setData] = useState<GameLegsData | null>(null);
   const [error, setError] = useState<string | null>(null);
   // market_ticker -> the side ticked on it. One side per market by shape.
@@ -143,7 +194,10 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
     let live = true;
     fetchGameLegs(eventTicker)
       .then((payload) => {
-        if (live) setData(payload);
+        if (!live) return;
+        setData(payload);
+        const wanted = preTick(initialLegs, payload);
+        if (Object.keys(wanted).length > 0) setTicked(wanted);
       })
       .catch((err) => {
         if (live)
@@ -152,6 +206,9 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
     return () => {
       live = false;
     };
+    // `initialLegs` is read once per game: a later edit to the ticket is the
+    // reader's, and a re-run here would tick his legs back.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventTicker]);
 
   const legsByMarket = useMemo(() => {
