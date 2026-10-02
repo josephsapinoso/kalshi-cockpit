@@ -135,6 +135,40 @@ SERIES_LABELS: dict[str, str] = {
     "REC": "Receptions",
 }
 
+#: Per-league overrides (#296). A hockey total counts goals, not points, and
+#: a basketball prop series has its own words. Every key below is a series
+#: suffix seen in a captured payload (`events_nhl_same_game.json` for NHL,
+#: `combo_collections.json` for NBA); none is invented. A league with no entry
+#: here, or a series a league's entry lacks, falls back to `SERIES_LABELS`.
+LEAGUE_SERIES_LABELS: dict[str, dict[str, str]] = {
+    "KXNHL": {
+        "GAME": "Who wins",
+        "SPREAD": "Winning margin in goals",
+        "TOTAL": "Total goals",
+    },
+    "KXNBA": {
+        "PTS": "Player points",
+        "REB": "Player rebounds",
+        "AST": "Player assists",
+        "3PT": "Player three-pointers made",
+        "STL": "Player steals",
+        "BLK": "Player blocks",
+    },
+}
+
+#: What a series nobody has put words to is called. Never the raw code.
+UNKNOWN_SERIES_LABEL = "Other markets"
+
+
+def series_label(prefix: str, kind: str) -> str:
+    """The section heading for one series: league words, then the generic
+    ones, then plain words -- never the raw Kalshi code."""
+    return (
+        LEAGUE_SERIES_LABELS.get(prefix, {}).get(kind)
+        or SERIES_LABELS.get(kind)
+        or UNKNOWN_SERIES_LABEL
+    )
+
 #: How many of a game's events are read at once, and how many at most. A game
 #: has ~20 events on an NFL Sunday; the cap is a bound, not an expectation,
 #: and a game past it is listed short WITH a stated count of what was left
@@ -481,7 +515,7 @@ async def list_game_legs(
             groups.append({
                 "series": leg["series"],
                 "kind": leg["kind"],
-                "label": SERIES_LABELS.get(leg["kind"], leg["kind"]),
+                "label": series_label(prefix, leg["kind"]),
                 "one_per_event": leg["one_per_event"],
                 "legs": [],
             })
