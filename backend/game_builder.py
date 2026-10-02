@@ -564,6 +564,29 @@ def _validate_request(game: tuple[str, str, str], legs: Sequence[dict]) -> list[
             )
         seen[market] = side
         out.append({"market_ticker": market, "event_ticker": event, "side": side})
+    # A team to win beside that same team's cover (#277). Kalshi refuses the
+    # pair as `duplicated_legs` AFTER the mint call, so it is refused here, in
+    # words, before any venue call. The detector is the one the scout cards
+    # use, for DETECTION only: this path never drops the win leg and mints the
+    # rest, because the ticker would then differ from what Joe ticked (#274 A).
+    _kept, implied = game_script_cards.drop_implied_win_legs(out)
+    if implied:
+        win = implied[0]["market_ticker"]
+        team = win.rsplit("-", 1)[-1]
+        covers = [
+            leg["market_ticker"] for leg in out
+            if leg["side"] == "yes"
+            and leg["event_ticker"].split("-")[0].endswith("SPREAD")
+            and leg["market_ticker"].split("-")[-1].rstrip("0123456789") == team
+        ]
+        cover = covers[0] if covers else "its cover"
+        raise _refuse(
+            422,
+            f"{win} (the team to win) and {cover} (the same team winning by a "
+            "margin) are both ticked. Kalshi refuses that pair as duplicated "
+            "legs, because winning by that margin already guarantees the win. "
+            "Untick one of them. Nothing was created.",
+        )
     return out
 
 

@@ -63,6 +63,40 @@ type GameLegListed = GameLeg & {
   listed?: { read_ms: number } & Partial<Record<Side, ListedSide>>;
 };
 
+const IMPLIED_WIN_LINE =
+  "Winning by a margin already guarantees the win, and Kalshi refuses both " +
+  "in one combination. Untick the cover to tick the win.";
+
+/**
+ * The market ticker of a ticked YES cover ("that team wins by N+") on the same
+ * game and team as `leg`, when `leg` is that team's moneyline; else `null`.
+ * Mirrors `drop_implied_win_legs` (backend/store/game_script_cards.py), which
+ * the server uses to refuse the pair; the screen only keeps the pair from
+ * being ticked by accident.
+ */
+function coverTickedFor(
+  leg: GameLeg,
+  ticked: Record<string, Side>,
+  legsByMarket: Map<string, GameLeg>,
+): string | null {
+  if (leg.kind !== "GAME") return null;
+  const [, fixture, team] = leg.market_ticker.split("-");
+  for (const [market, side] of Object.entries(ticked)) {
+    if (side !== "yes") continue;
+    const other = legsByMarket.get(market);
+    if (!other || other.kind !== "SPREAD") continue;
+    const [, otherFixture, otherTeam] = market.split("-");
+    if (
+      otherFixture === fixture &&
+      otherTeam !== undefined &&
+      otherTeam.replace(/\d+$/, "") === team
+    ) {
+      return market;
+    }
+  }
+  return null;
+}
+
 function ListedAsk({ leg, side }: { leg: GameLeg; side: Side }) {
   const listed = (leg as GameLegListed).listed;
   const facts = listed?.[side];
@@ -141,6 +175,13 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
   const tickedLegs = Object.entries(ticked)
     .map(([market, side]) => ({ leg: legsByMarket.get(market), side }))
     .filter((t): t is { leg: GameLeg; side: Side } => t.leg !== undefined);
+
+  // A ticked YES win beside that team's ticked YES cover: Kalshi refuses it,
+  // and so does the server before any venue call (#277). Build is off.
+  const impliedPair = tickedLegs.some(
+    ({ leg, side }) =>
+      side === "yes" && coverTickedFor(leg, ticked, legsByMarket) !== null,
+  );
 
   const build = async () => {
     setMint({ kind: "minting" });
@@ -247,10 +288,15 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
             tone="primary"
             className="mt-3"
             onClick={build}
-            disabled={tickedLegs.length < 2 || mint.kind === "minting"}
+            disabled={
+              tickedLegs.length < 2 || mint.kind === "minting" || impliedPair
+            }
           >
             {mint.kind === "minting" ? "Building…" : "Build this combination"}
           </Button>
+          {impliedPair && (
+            <p className="mt-2 text-xs text-accent-2">{IMPLIED_WIN_LINE}</p>
+          )}
           {tickedLegs.length === 1 && (
             <p className="mt-2 text-xs text-muted">
               Tick one more leg. A combination needs at least two.
@@ -308,6 +354,12 @@ function Group({
             leg.one_per_event &&
             holder !== undefined &&
             holder !== leg.market_ticker;
+          // The win leg of a team whose cover is ticked (#277). Greyed only
+          // when it is NOT itself ticked, so a pair ticked in the other order
+          // can still be unticked; the Build button refuses that pair too.
+          const impliedByCover = coverTickedFor(leg, ticked, legsByMarket);
+          const winGreyed =
+            impliedByCover !== null && ticked[leg.market_ticker] !== "yes";
           return (
             <li key={leg.market_ticker} className="py-2">
               <p className="text-sm">{leg.title}</p>
@@ -320,17 +372,19 @@ function Group({
                   // says anything the title does not.
                   const sideWords =
                     side === "yes" ? leg.yes_label : leg.no_label;
+                  const sideBlocked =
+                    blocked || (side === "yes" && winGreyed);
                   return (
                     <label
                       key={side}
                       className={`flex items-center gap-2 text-sm ${
-                        blocked ? "opacity-50" : ""
+                        sideBlocked ? "opacity-50" : ""
                       }`}
                     >
                       <input
                         type="checkbox"
                         checked={checked}
-                        disabled={blocked}
+                        disabled={sideBlocked}
                         onChange={() => onToggle(leg, side)}
                       />
                       <span className="font-mono text-xs uppercase">
@@ -365,6 +419,11 @@ function Group({
                 <p className="mt-0.5 text-[11px] text-muted">
                   Kalshi takes one leg from this group, and one is already
                   ticked.
+                </p>
+              )}
+              {impliedByCover !== null && (
+                <p className="mt-0.5 text-[11px] text-muted">
+                  {IMPLIED_WIN_LINE}
                 </p>
               )}
             </li>
