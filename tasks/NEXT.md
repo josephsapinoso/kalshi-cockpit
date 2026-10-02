@@ -191,7 +191,15 @@ Joe asked partner to convene a town hall on the parlay changes and recommend wha
 ### Still open
 
 1. #220: on or after 2026-10-05, review the game-script cards, run `credits-day --date 2026-10-04`, and read the first Matchup tile. #210 and #197 close with it. **Add to it:** the first prompt-v3 card (`sources`, `ticket_needs`, `at_build`), the first T-2h re-check, and one `game-script-card-stamps` plus `own-open-rfqs` read.
-2. #293–#299: the town hall's batch 2 (owner:agent, Sonnet), under epic #269. Merge approval is per batch; ask Joe once for the whole batch.
+2. **Batch 2 is DONE, live on `ae4e0d3d`** (Joe said run it, AskUserQuestion; deploy run 37014854360). It shipped:
+   - #293: rest, title and kickoff on /game.
+   - #294: per-leg results on Your bets, read from local `kalshi_markets` / `parlay_position_legs`. Live read: 289 of 289 legs read, no venue call.
+   - #295: Change a leg.
+   - #296: per-league headings, plus `ANYTD`/`2TD` named in `4a9c9bb1`.
+   - #297: `scripts/collection_coverage_census.py`, files-only. Its fixture has no NHL/NCAAF events, so it needs a fresh read-only capture before it can answer.
+   - #298: the footer is off /parlays and /game.
+   - #299: the 8-leg notice.
+   Epic #269 is closed. Layout note: the /game title and kickoff sit below the card panel (lane 1 chose this to avoid a second listing fetch).
 3. #292: map #3 is full; a new question for Joe has nowhere visible to go until it lands.
 4. #165, #169 and #151 are unchanged. #267 is due in November.
 
