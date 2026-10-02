@@ -131,6 +131,7 @@ import type {
   BetKind,
   BetsRecord,
   BetsSection,
+  ExpectedBlock,
   SettledBet,
 } from "./types/bets";
 import type {
@@ -257,8 +258,10 @@ export type {
 } from "./types/hedge";
 export type {
   BetKind,
+  BetsKindSummary,
   BetsRecord,
   BetsSection,
+  ExpectedBlock,
   SettledBet,
 } from "./types/bets";
 export type {

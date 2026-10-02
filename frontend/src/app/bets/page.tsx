@@ -492,7 +492,7 @@ function KindSummary({
             </li>
           ))}
         </ul>
-        <p className="mt-1">
+        <p className="mt-1 max-w-prose">
           Each price is read as a chance, so the expected figure says nothing
           about skill and nothing about money.
         </p>

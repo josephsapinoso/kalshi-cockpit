@@ -25,8 +25,10 @@ TYPES = LIB / "types"
 PRE_MOVE_EXPORTS = [
     "ActionableWindow",
     "BetKind",
+    "BetsKindSummary",
     "BetsRecord",
     "BetsSection",
+    "ExpectedBlock",
     "Board",
     "BoardTile",
     "BookDistribution",
