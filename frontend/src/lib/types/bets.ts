@@ -23,6 +23,35 @@ import type { OpenPositionsBlock } from "./slate";
  */
 export type BetKind = "single" | "combo";
 
+/**
+ * #287: expected wins at the prices paid, what happened, and a range. All
+ * computed by the server from entry prices; the page renders these and never
+ * re-derives one. `too_few` means expected wins or expected losses is under
+ * 5, and the range is then null.
+ */
+export type ExpectedBlock = {
+  n: number;
+  won: number;
+  expected: number;
+  too_few: boolean;
+  range_low: number | null;
+  range_high: number | null;
+};
+
+export type BetsKindSummary = {
+  wins: number;
+  losses: number;
+  computable: number;
+  /** The single-game floor (30); null for combinations. */
+  floor: number | null;
+  /** True below the floor: counts only, `expected` is null. */
+  counts_only: boolean;
+  excluded_from_expected: number;
+  expected:
+    | (ExpectedBlock & { buckets: (ExpectedBlock & { label: string })[] })
+    | null;
+};
+
 export type SettledBet = {
   ticker: string;
   event_ticker: string | null;
@@ -118,6 +147,8 @@ export type BetsRecord = {
   /** Single games and combination bets, each with its own count and sum.
    *  `single.total + combo.total === total`. */
   sections: Record<BetKind, BetsSection>;
+  /** #287: wins and losses per kind, never pooled, and the expected line. */
+  summary?: Record<BetKind, BetsKindSummary>;
   totals: {
     net_tenths: number;
     net_display: string;

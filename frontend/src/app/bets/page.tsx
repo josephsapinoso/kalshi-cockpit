@@ -6,6 +6,7 @@ import NotTonight from "@/components/NotTonight";
 import RecordChart from "@/components/RecordChart";
 import OpenPositions from "@/components/OpenPositions";
 import Term from "@/components/Term";
+import type { BetsKindSummary } from "@/lib/types/bets";
 import RecordParlay from "@/components/RecordParlay";
 import HedgePositions from "@/components/HedgePositions";
 import {
@@ -196,9 +197,6 @@ export default async function BetsPage() {
             {totals.net_display}
           </span>
           <span className="ml-3 font-mono text-sm text-muted">
-            <Term k="wl">
-              {totals.wins}W / {totals.losses}L
-            </Term>{" "}
             over {totals.computable} <Term k="settled">settled</Term>
           </span>
         </p>
@@ -372,6 +370,13 @@ function BetSection({
             : ""}
         </p>
       )}
+      {/* #287: wins and losses for THIS kind, and under combinations the
+          expected line. Every figure is the server's; nothing is pooled
+          across the two sections and nothing is divided here. */}
+      <KindSummary
+        kind={section.kind}
+        summary={record.summary?.[section.kind]}
+      />
       {/* #161: how many of this kind carry the desk's chance at the moment
           it was priced -- a whole-table COUNT, never a rate. Combo only:
           a single carries no chance at all, so the sentence would always
@@ -414,6 +419,85 @@ function BetSection({
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * #287 (Joe answered #272 A): one kind's wins and losses, and the line
+ * "at the prices you paid, about N were expected to win; K did" with its
+ * range and its price buckets behind a tap. The expected figure is the
+ * prices paid read as chances; it says nothing about skill and carries no
+ * return figure. A cell the server marks `too_few` gets no range. A single
+ * game below the floor gets counts only (`counts_only`).
+ */
+function KindSummary({
+  kind,
+  summary,
+}: {
+  kind: BetKind;
+  summary: BetsKindSummary | undefined;
+}) {
+  if (!summary || summary.computable === 0) return null;
+  const counts = (
+    <p className="mt-1 max-w-[65ch] font-mono text-xs text-muted">
+      <Term k="wl">
+        {summary.wins}W / {summary.losses}L
+      </Term>
+      {summary.counts_only && summary.floor !== null
+        ? ` · counts only until ${summary.floor} settled`
+        : ""}
+    </p>
+  );
+  const expected = summary.expected;
+  if (!expected) return counts;
+  return (
+    <>
+      {counts}
+      <p className="mt-1 max-w-[65ch] text-sm">
+        At the prices you paid, about{" "}
+        <Term k="expected_wins">
+          <span className="tabular">{expected.expected}</span> were expected to
+          win
+        </Term>
+        ; <span className="tabular">{expected.won}</span> did.{" "}
+        {expected.too_few ? (
+          <span className="text-muted">
+            Too few {kind === "combo" ? "combos" : "bets"} to put a{" "}
+            <Term k="plausible_range">range</Term> on it yet.
+          </span>
+        ) : (
+          <span className="text-muted">
+            The <Term k="plausible_range">range</Term> is{" "}
+            <span className="tabular">{expected.range_low}</span> to{" "}
+            <span className="tabular">{expected.range_high}</span>.
+          </span>
+        )}
+      </p>
+      {summary.excluded_from_expected > 0 && (
+        <p className="mt-1 max-w-[65ch] text-xs text-muted">
+          {summary.excluded_from_expected} settled without a readable price and
+          {" "}left out of this line.
+        </p>
+      )}
+      <details className="mt-1 max-w-[65ch] text-xs text-muted">
+        <summary className="cursor-pointer">By price paid</summary>
+        <ul className="mt-1 space-y-1 font-mono">
+          {expected.buckets.map((bucket) => (
+            <li key={bucket.label}>
+              {bucket.label}: {bucket.n} {bucket.n === 1 ? "bet" : "bets"},
+              about {bucket.expected} expected, {bucket.won} won
+              {bucket.too_few
+                ? " — too few to judge"
+                : ` — range ${bucket.range_low} to ${bucket.range_high}`}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-1">
+          Each price is read as a chance, so the expected figure says nothing
+          about skill and nothing about money.
+        </p>
+      </details>
+    </>
   );
 }
 

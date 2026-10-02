@@ -72,6 +72,24 @@ A reading with a chance always wins -- this flag is consulted only once
 never counted toward `chance_carried` (that count is chance coverage, and
 this row carries no chance to be covered by).
 
+**#287: the summary never pools the kinds, and its one "expected" line is
+parlays'.** `summary` carries wins and losses PER KIND and no pooled count
+(the pooled `totals.wins`/`losses` stay on the payload for old readers; the
+screen does not render them). Under combinations only, it answers "at the
+prices you paid, about N were expected to win; K did": N is the sum of the
+entry prices (a 25c entry is a 25% chance by the price itself), recomputed
+live from the rows every request -- never a stored constant -- and the range
+is N plus or minus two standard deviations of that sum, `sqrt(sum p(1-p))`.
+It is a statement about the price paid, never about skill or edge: it
+carries no return or ROI figure and no word that grades the run. A cell
+(overall or one price bucket) whose expected wins OR expected losses are
+under 5 is `too_few` and carries no range -- the measurement rules' >= 5 each
+side before a normal approximation may speak. Singles get counts only until
+`SINGLES_SUMMARY_FLOOR` (30) computable bets exist, and past it the same
+line, same rules. Rows that cannot carry it (a void, an unreadable or
+out-of-range entry price) are counted in `excluded_from_expected`, never
+zero-filled.
+
 What this module does NOT establish
 -----------------------------------
 That the record is complete. It is the poller's mirror: the settlements
@@ -87,6 +105,7 @@ not here at all: it reaches this table only when the venue settles it.
 from __future__ import annotations
 
 import logging
+import math
 import sqlite3
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
@@ -118,6 +137,25 @@ CLV_REFUSAL_COMBO = "combo_unscorable"
 # -- pinned to `None` alongside the chance itself, never one of these words.
 CHANCE_REFUSAL_NO_FILL = "no_fill_row"
 CHANCE_REFUSAL_NOT_PRICED = "not_priced_on_desk"
+
+
+# #287: the thirty-scored-bets floor this module's docstrings have held since
+# 21A, now a named constant. Below it a single-game section shows counts only.
+SINGLES_SUMMARY_FLOOR = 30
+
+# #287: a cell's normal approximation may speak only when it expects at least
+# this many wins AND this many losses (CLAUDE.md measurement rules).
+MIN_EXPECTED_EACH_SIDE = 5
+
+# #287: price buckets for the expected-wins breakdown, in tenths of a cent of
+# the price PAID (never a mid), half-open [low, high). Edges are plain
+# round prices so the labels can be read aloud.
+EXPECTED_BUCKETS: tuple[tuple[int, int, str], ...] = (
+    (1, 100, "under 10c"),
+    (100, 250, "10c to 25c"),
+    (250, 500, "25c to 50c"),
+    (500, 1000, "50c and up"),
+)
 
 
 def bet_kind(ticker: str) -> str:
@@ -539,6 +577,76 @@ def bet_clv(row: Any) -> tuple[Optional[float], Optional[str]]:
     return _clv_tenths(row["entry_price_tenths"], mid, row["side"]), None
 
 
+def expected_block(cells: list[tuple[int, bool]]) -> dict[str, Any]:
+    """Expected wins at the prices paid, what happened, and a range.
+
+    `cells` is one `(entry_price_tenths, won)` per bet, entry price in
+    1..999. Expected wins = sum(price) / 1000; variance = sum(p(1 - p)).
+    The range is expected +/- 2 sd, rounded outward to whole bets and
+    clamped to [0, n] -- about 19 runs in 20 land inside it IF the prices
+    were fair. `too_few` (and no range) when expected wins or expected
+    losses is under `MIN_EXPECTED_EACH_SIDE`.
+    """
+    n = len(cells)
+    won = sum(1 for _price, w in cells if w)
+    expected = sum(price for price, _w in cells) / 1000
+    block: dict[str, Any] = {
+        "n": n,
+        "won": won,
+        "expected": round(expected, 1),
+        "too_few": True,
+        "range_low": None,
+        "range_high": None,
+    }
+    if expected >= MIN_EXPECTED_EACH_SIDE and n - expected >= MIN_EXPECTED_EACH_SIDE:
+        variance = sum(price * (1000 - price) for price, _w in cells) / 1_000_000
+        sd = variance ** 0.5
+        block["too_few"] = False
+        block["range_low"] = max(0, math.floor(expected - 2 * sd))
+        block["range_high"] = min(n, math.ceil(expected + 2 * sd))
+    return block
+
+
+def _expected_summary(cells: list[tuple[int, bool]]) -> dict[str, Any]:
+    """The overall block plus one block per price bucket (empty ones kept,
+    so the screen's rows do not move with the data)."""
+    return {
+        **expected_block(cells),
+        "buckets": [
+            {
+                "label": label,
+                **expected_block([c for c in cells if low <= c[0] < high]),
+            }
+            for low, high, label in EXPECTED_BUCKETS
+        ],
+    }
+
+
+def bets_summary(
+    wins_losses: dict[str, tuple[int, int]],
+    cells: dict[str, list[tuple[int, bool]]],
+    excluded: dict[str, int],
+) -> dict[str, dict[str, Any]]:
+    """Per-kind W/L and the expected-at-the-price line. Never pooled: the
+    returned dict has exactly the two kinds and nothing that spans them.
+    Combinations always carry the line; singles only from the floor."""
+    out: dict[str, dict[str, Any]] = {}
+    for kind in (KIND_SINGLE, KIND_COMBO):
+        wins, losses = wins_losses[kind]
+        computable = wins + losses
+        meets_floor = kind == KIND_COMBO or computable >= SINGLES_SUMMARY_FLOOR
+        out[kind] = {
+            "wins": wins,
+            "losses": losses,
+            "computable": computable,
+            "floor": SINGLES_SUMMARY_FLOOR if kind == KIND_SINGLE else None,
+            "counts_only": not meets_floor,
+            "excluded_from_expected": excluded[kind],
+            "expected": _expected_summary(cells[kind]) if meets_floor else None,
+        }
+    return out
+
+
 def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
     """The record and its honest totals, newest settlement first.
 
@@ -638,6 +746,14 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
         }
         for kind in (KIND_SINGLE, KIND_COMBO)
     }
+    # #287: per-kind W/L and the (price paid, won) cells behind the expected
+    # line, over the WHOLE table. Rows that cannot carry a probability are
+    # counted in `expected_excluded`, never zero-filled.
+    kind_wl = {KIND_SINGLE: [0, 0], KIND_COMBO: [0, 0]}
+    expected_cells: dict[str, list[tuple[int, bool]]] = {
+        KIND_SINGLE: [], KIND_COMBO: [],
+    }
+    expected_excluded = {KIND_SINGLE: 0, KIND_COMBO: 0}
     first_settled_ms: Optional[int] = None
     for row in rows:
         kind = bet_kind(row["ticker"])
@@ -659,8 +775,15 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
             section["net_tenths"] += net
             if won:
                 wins += 1
+                kind_wl[kind][0] += 1
             else:
                 losses += 1
+                kind_wl[kind][1] += 1
+            price = row["entry_price_tenths"]
+            if isinstance(price, int) and 1 <= price <= 999:
+                expected_cells[kind].append((price, bool(won)))
+            else:
+                expected_excluded[kind] += 1
         if kind == KIND_COMBO:
             # Structurally unscorable: not a refusal to count among the
             # singles' refusals, and never rendered as "close not read yet".
@@ -783,6 +906,11 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
             "scored": clv_scored,
             "refusals": clv_refusals,
         },
+        "summary": bets_summary(
+            {k: (v[0], v[1]) for k, v in kind_wl.items()},
+            expected_cells,
+            expected_excluded,
+        ),
         "totals": {
             "net_tenths": net_sum,
             "net_display": format_net_dollars(net_sum),
