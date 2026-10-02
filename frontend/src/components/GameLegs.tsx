@@ -13,6 +13,8 @@ import AskTheMarket from "@/components/AskTheMarket";
 import ScoutDesk from "@/components/ScoutDesk";
 import Term from "@/components/Term";
 import { Button, SectionLabel } from "@/components/ui";
+import { formatClock } from "@/lib/format";
+import { sideLabelAddsWords } from "@/lib/sideLabel";
 
 /**
  * The same-game parlay builder (#202): every leg Kalshi offers on one game,
@@ -44,6 +46,81 @@ const EXTRA_LEG_LINE =
   "Each extra leg is one more thing a maker can charge for.";
 
 type Side = "yes" | "no";
+
+/**
+ * Kalshi's ask for one side as the listing printed it (#276), integer tenths
+ * from the server; `null` is "unreadable", never zero. Depth at the YES ask is
+ * the YES ask size; depth at the NO ask is the size of the resting YES bid.
+ * The type lives here because `GameLeg` is not this lane's file.
+ */
+type ListedSide = {
+  ask_tenths: number | null;
+  ask_display: string | null;
+  size: number | null;
+  size_display: string | null;
+};
+type GameLegListed = GameLeg & {
+  listed?: { read_ms: number } & Partial<Record<Side, ListedSide>>;
+};
+
+const IMPLIED_WIN_LINE =
+  "Winning by a margin already guarantees the win, and Kalshi refuses both " +
+  "in one combination. Untick the cover to tick the win.";
+
+/**
+ * The market ticker of a ticked YES cover ("that team wins by N+") on the same
+ * game and team as `leg`, when `leg` is that team's moneyline; else `null`.
+ * Mirrors `drop_implied_win_legs` (backend/store/game_script_cards.py), which
+ * the server uses to refuse the pair; the screen only keeps the pair from
+ * being ticked by accident.
+ */
+function coverTickedFor(
+  leg: GameLeg,
+  ticked: Record<string, Side>,
+  legsByMarket: Map<string, GameLeg>,
+): string | null {
+  if (leg.kind !== "GAME") return null;
+  const [, fixture, team] = leg.market_ticker.split("-");
+  for (const [market, side] of Object.entries(ticked)) {
+    if (side !== "yes") continue;
+    const other = legsByMarket.get(market);
+    if (!other || other.kind !== "SPREAD") continue;
+    const [, otherFixture, otherTeam] = market.split("-");
+    if (
+      otherFixture === fixture &&
+      otherTeam !== undefined &&
+      otherTeam.replace(/\d+$/, "") === team
+    ) {
+      return market;
+    }
+  }
+  return null;
+}
+
+function ListedAsk({ leg, side }: { leg: GameLeg; side: Side }) {
+  const listed = (leg as GameLegListed).listed;
+  const facts = listed?.[side];
+  return (
+    <p className="mt-0.5 text-[11px] text-muted">
+      {side.toUpperCase()}:{" "}
+      <Term k="ask">Kalshi ask, as listed</Term>{" "}
+      {facts && facts.ask_display !== null ? (
+        <>
+          <span className="tabular">{facts.ask_display}</span>
+          {facts.size_display !== null && (
+            <>
+              {" "}&middot; <Term k="depth">depth</Term>{" "}
+              <span className="tabular">{facts.size_display}</span> at that price
+            </>
+          )}
+          {listed && <> &middot; read {formatClock(listed.read_ms)}</>}
+        </>
+      ) : (
+        <>none readable{listed ? <> &middot; read {formatClock(listed.read_ms)}</> : null}</>
+      )}
+    </p>
+  );
+}
 
 export default function GameLegs({ eventTicker }: { eventTicker: string }) {
   const [data, setData] = useState<GameLegsData | null>(null);
@@ -99,6 +176,16 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
     .map(([market, side]) => ({ leg: legsByMarket.get(market), side }))
     .filter((t): t is { leg: GameLeg; side: Side } => t.leg !== undefined);
 
+  // A ticked YES win beside that team's ticked YES cover: Kalshi refuses it,
+  // and so does the server before any venue call (#277). Build is off.
+  const impliedPair = tickedLegs.some(
+    ({ leg, side }) =>
+      side === "yes" && coverTickedFor(leg, ticked, legsByMarket) !== null,
+  );
+
+  const buildDisabled =
+    tickedLegs.length < 2 || mint.kind === "minting" || impliedPair;
+
   const build = async () => {
     setMint({ kind: "minting" });
     const result = await mintGameCombo(
@@ -136,7 +223,7 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
   }
 
   return (
-    <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+    <div className="mt-6 grid gap-6 pb-24 lg:grid-cols-[minmax(0,1fr)_22rem] lg:pb-0">
       <div className="min-w-0 space-y-4">
         <p className="max-w-[65ch] text-sm text-muted">
           Tick two or more <Term k="leg">legs</Term> to build a{" "}
@@ -184,8 +271,9 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
         )}
 
         <section
+          id="your-combination"
           aria-label="Your combination"
-          className="rounded-xl border border-border bg-card p-4"
+          className="scroll-mt-16 rounded-xl border border-border bg-card p-4"
         >
           <SectionLabel>Your combination</SectionLabel>
           {tickedLegs.length === 0 ? (
@@ -204,10 +292,13 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
             tone="primary"
             className="mt-3"
             onClick={build}
-            disabled={tickedLegs.length < 2 || mint.kind === "minting"}
+            disabled={buildDisabled}
           >
             {mint.kind === "minting" ? "Building…" : "Build this combination"}
           </Button>
+          {impliedPair && (
+            <p className="mt-2 text-xs text-accent-2">{IMPLIED_WIN_LINE}</p>
+          )}
           {tickedLegs.length === 1 && (
             <p className="mt-2 text-xs text-muted">
               Tick one more leg. A combination needs at least two.
@@ -224,6 +315,31 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
           )}
         </section>
       </aside>
+
+      {/* Below lg the combination panel sits under the whole menu, so the
+          count and Build ride at the bottom of the screen (#278). It calls the
+          same build() and reads the same buildDisabled as the panel's button;
+          from lg up it is not drawn and the desktop layout is unchanged. */}
+      <div
+        aria-label="Build bar"
+        className="sheet-safe-bottom fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-3 border-t border-border bg-card px-4 pt-3 lg:hidden"
+      >
+        <span className="tabular text-sm">
+          {tickedLegs.length} {tickedLegs.length === 1 ? "leg" : "legs"} ticked
+        </span>
+        <Button
+          tone="primary"
+          disabled={buildDisabled}
+          onClick={async () => {
+            await build();
+            document
+              .getElementById("your-combination")
+              ?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
+        >
+          {mint.kind === "minting" ? "Building…" : "Build"}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -265,6 +381,12 @@ function Group({
             leg.one_per_event &&
             holder !== undefined &&
             holder !== leg.market_ticker;
+          // The win leg of a team whose cover is ticked (#277). Greyed only
+          // when it is NOT itself ticked, so a pair ticked in the other order
+          // can still be unticked; the Build button refuses that pair too.
+          const impliedByCover = coverTickedFor(leg, ticked, legsByMarket);
+          const winGreyed =
+            impliedByCover !== null && ticked[leg.market_ticker] !== "yes";
           return (
             <li key={leg.market_ticker} className="py-2">
               <p className="text-sm">{leg.title}</p>
@@ -272,22 +394,33 @@ function Group({
                 {leg.allowed_sides.map((side) => {
                   const facts = leg.sides[side];
                   const checked = ticked[leg.market_ticker] === side;
+                  // Kalshi's NO sub-title repeats the YES one, so the server
+                  // words the NO side as its opposite (#275); show it when it
+                  // says anything the title does not.
+                  const sideWords =
+                    side === "yes" ? leg.yes_label : leg.no_label;
+                  const sideBlocked =
+                    blocked || (side === "yes" && winGreyed);
                   return (
                     <label
                       key={side}
                       className={`flex items-center gap-2 text-sm ${
-                        blocked ? "opacity-50" : ""
+                        sideBlocked ? "opacity-50" : ""
                       }`}
                     >
                       <input
                         type="checkbox"
                         checked={checked}
-                        disabled={blocked}
+                        disabled={sideBlocked}
                         onChange={() => onToggle(leg, side)}
                       />
                       <span className="font-mono text-xs uppercase">
                         {side}
                       </span>
+                      {sideWords &&
+                        sideLabelAddsWords(leg.title, sideWords) && (
+                          <span className="text-xs">{sideWords}</span>
+                        )}
                       <span className="tabular text-xs text-muted">
                         {facts && facts.chance !== null
                           ? facts.chance_display
@@ -297,6 +430,9 @@ function Group({
                   );
                 })}
               </div>
+              {leg.allowed_sides.map((side) => (
+                <ListedAsk key={`ask-${side}`} leg={leg} side={side} />
+              ))}
               {leg.allowed_sides.map((side) => {
                 const facts = leg.sides[side];
                 if (!facts || facts.chance !== null) return null;
@@ -310,6 +446,11 @@ function Group({
                 <p className="mt-0.5 text-[11px] text-muted">
                   Kalshi takes one leg from this group, and one is already
                   ticked.
+                </p>
+              )}
+              {impliedByCover !== null && (
+                <p className="mt-0.5 text-[11px] text-muted">
+                  {IMPLIED_WIN_LINE}
                 </p>
               )}
             </li>

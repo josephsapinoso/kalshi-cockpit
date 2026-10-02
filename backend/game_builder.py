@@ -54,10 +54,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
 from typing import Optional, Sequence
 
 from .core.ladder import unusable_reason
+from .core.leg_words import no_words_for
+from .core.prices import (
+    dollars_to_tenths_exact,
+    format_price,
+    is_valid_price,
+    parse_quantity,
+)
 from .kalshi.combos import ComboCollection, ComboScope, echoed_legs, lookup_combo
 from .kalshi.orderbook import OrderBook
 from .store import game_script_cards
@@ -351,6 +359,37 @@ def _price_sides(
             }
 
 
+def _listed_side(market: dict, side: str) -> dict:
+    """Kalshi's own listed ask for one side of a market, and the size at it.
+
+    Read straight off the market object the listing already fetched (no extra
+    Kalshi call), through `core.prices`. The YES side is `yes_ask_dollars` with
+    `yes_ask_size_fp` behind it. The NO side is `no_ask_dollars`, and what is
+    offered at that price is the YES BID's size (`yes_bid_size_fp`): a NO ask
+    IS a resting YES bid, so there is no `no_bid_size_fp` and none is read
+    (#276, chair's correction).
+
+    An ask that is missing, unparseable, finer than a tenth of a cent, or not a
+    tradeable level (0 or $1.00 is a settled outcome, not a quote) is `None`,
+    never `0`; so is a size that is missing, unparseable, or negative. A size
+    is never shown without an ask to attach it to.
+    """
+    ask_field = f"{side}_ask_dollars"
+    size_field = "yes_ask_size_fp" if side == "yes" else "yes_bid_size_fp"
+    ask, refused = dollars_to_tenths_exact(market.get(ask_field))
+    if refused is not None or not is_valid_price(ask):
+        ask = None
+    size = parse_quantity(market.get(size_field)) if ask is not None else None
+    if size is not None and not (math.isfinite(size) and size >= 0):
+        size = None
+    return {
+        "ask_tenths": ask,
+        "ask_display": format_price(ask) if ask is not None else None,
+        "size": size,
+        "size_display": f"{size:,.0f}" if size is not None else None,
+    }
+
+
 async def list_game_legs(
     conn,
     *,
@@ -401,13 +440,28 @@ async def list_game_legs(
                 "kind": kind,
                 "title": str(market.get("title") or ticker),
                 "yes_label": market.get("yes_sub_title") or None,
-                "no_label": market.get("no_sub_title") or None,
+                # Kalshi's own `no_sub_title` equals the YES one (#275), so the
+                # NO side is worded as its opposite per leg kind instead.
+                "no_label": no_words_for(
+                    series=event.series,
+                    game_event_ticker=game_event_ticker,
+                    yes_label=market.get("yes_sub_title"),
+                ),
                 "strike": _strike_of(market),
                 "player": _player_of(market),
                 "allowed_sides": ["yes"] if event.is_yes_only else ["yes", "no"],
                 "size_max": cap,
                 "one_per_event": cap == 1,
                 "sides": {},
+                # Kalshi's ask as the listing printed it, per allowed side,
+                # stamped with when this listing was read (#276).
+                "listed": {
+                    "read_ms": now_ms,
+                    **{
+                        s: _listed_side(market, s)
+                        for s in (["yes"] if event.is_yes_only else ["yes", "no"])
+                    },
+                },
             })
 
     _price_sides(conn, legs, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms)
@@ -510,6 +564,29 @@ def _validate_request(game: tuple[str, str, str], legs: Sequence[dict]) -> list[
             )
         seen[market] = side
         out.append({"market_ticker": market, "event_ticker": event, "side": side})
+    # A team to win beside that same team's cover (#277). Kalshi refuses the
+    # pair as `duplicated_legs` AFTER the mint call, so it is refused here, in
+    # words, before any venue call. The detector is the one the scout cards
+    # use, for DETECTION only: this path never drops the win leg and mints the
+    # rest, because the ticker would then differ from what Joe ticked (#274 A).
+    _kept, implied = game_script_cards.drop_implied_win_legs(out)
+    if implied:
+        win = implied[0]["market_ticker"]
+        team = win.rsplit("-", 1)[-1]
+        covers = [
+            leg["market_ticker"] for leg in out
+            if leg["side"] == "yes"
+            and leg["event_ticker"].split("-")[0].endswith("SPREAD")
+            and leg["market_ticker"].split("-")[-1].rstrip("0123456789") == team
+        ]
+        cover = covers[0] if covers else "its cover"
+        raise _refuse(
+            422,
+            f"{win} (the team to win) and {cover} (the same team winning by a "
+            "margin) are both ticked. Kalshi refuses that pair as duplicated "
+            "legs, because winning by that margin already guarantees the win. "
+            "Untick one of them. Nothing was created.",
+        )
     return out
 
 
