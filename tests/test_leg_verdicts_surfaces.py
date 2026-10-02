@@ -112,3 +112,31 @@ class TestBothSurfacesRenderTheButtonAndThePanel:
         legs = _code(LEGS)
         panel = legs[legs.index("<CheckTheseLegs"):]
         assert "key={tickedLegs" in panel[:200]
+
+
+def test_more_than_eight_legs_says_only_eight_are_checked():
+    """#299: `requestLegVerdicts` slices to 8, so the panel must be handed the
+    same 8 and the screen must say the rest are not checked, instead of
+    drawing them as legs nobody has asked about."""
+    card = _code(CARD)
+    api = _code(SRC / "lib" / "api.ts")
+    body = _function(card, "CheckTheseLegs")
+
+    # The component's limit is the sender's limit.
+    limit = re.search(r"const CHECK_LEG_LIMIT = (\d+);", card)
+    sender = re.search(r"const LEG_VERDICT_MAX_LEGS = (\d+);", api)
+    assert limit and sender and limit.group(1) == sender.group(1) == "8"
+
+    # The legs sent AND the legs the panel draws are the cut list.
+    assert "const legs = allLegs.slice(0, CHECK_LEG_LIMIT);" in body
+    assert "const unchecked = allLegs.length - legs.length;" in body
+    assert "requestLegVerdicts(legs," in body
+    assert re.search(r"<LegVerdicts\s+legs=\{legs\}", body)
+    assert "allLegs" not in body[re.search(r"<LegVerdicts\s", body).start():]
+
+    # The sentence names the limit, the ticked count and the unchecked rest,
+    # and is shown without waiting for a tap.
+    notice = body[body.index("{unchecked > 0 && ("): body.index("{requestedAtMs !== null")]
+    assert "Only the first {CHECK_LEG_LIMIT} of your {allLegs.length} legs are" in notice
+    assert "{unchecked}" in notice and "not" in notice
+    assert "max-w-[65ch]" in notice

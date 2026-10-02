@@ -20,6 +20,7 @@ import {
 } from "@/lib/api";
 import AskTheMarket from "@/components/AskTheMarket";
 import LegVerdicts from "@/components/LegVerdicts";
+import { RestChip } from "@/components/ParlayCards";
 import Term from "@/components/Term";
 import { Button, SectionLabel } from "@/components/ui";
 import { leagueLabel } from "@/lib/leagueLabel";
@@ -156,6 +157,15 @@ function CardAge({ card }: { card: CardData }) {
 }
 
 /**
+ * How many legs one tap sends to the scouts. Mirrors `LEG_VERDICT_MAX_LEGS`
+ * in `lib/api.ts`, which cuts a list to the same length before sending it
+ * (`tests/test_leg_verdicts_surfaces.py` pins the two equal). The panel gets
+ * exactly the legs that were sent, so a ninth leg is SAID to be unchecked
+ * rather than drawn as one nobody has asked about (#299).
+ */
+const CHECK_LEG_LIMIT = 8;
+
+/**
  * "Check these legs" (#290): the leg scouts' read on these legs, on a tap.
  *
  * **Tap only.** `requestLegVerdicts` is called from this button's click
@@ -167,12 +177,16 @@ function CardAge({ card }: { card: CardData }) {
  * Used by this card and by the combination panel on `/game/<event>`.
  */
 export function CheckTheseLegs({
-  legs,
+  legs: allLegs,
   cardKey,
 }: {
   legs: LegVerdictInput[];
   cardKey: string;
 }) {
+  // Only the first CHECK_LEG_LIMIT legs, in the order they are listed, are
+  // ever sent. Nothing ranks them: the cut is the list's own order.
+  const legs = allLegs.slice(0, CHECK_LEG_LIMIT);
+  const unchecked = allLegs.length - legs.length;
   const [posted, setPosted] = useState<LegVerdictsResult | null>(null);
   const [requestedAtMs, setRequestedAtMs] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -200,6 +214,16 @@ export function CheckTheseLegs({
           It uses part of today&rsquo;s scout allowance.
         </span>
       </div>
+      {unchecked > 0 && (
+        <p
+          className="mt-1 max-w-[65ch] text-xs text-accent-2"
+          data-testid="leg-check-limit"
+        >
+          Only the first {CHECK_LEG_LIMIT} of your {allLegs.length} legs are
+          checked. The other {unchecked} {unchecked === 1 ? "is" : "are"} not
+          checked.
+        </p>
+      )}
       {requestedAtMs !== null && (
         <LegVerdicts
           legs={legs}
@@ -364,6 +388,18 @@ export default function GameScriptCard({
       </details>
 
       <div className="mt-3">
+        {/* Opens the game page with this card's legs already ticked (#295),
+            so a leg can be swapped without starting over. A link, not a
+            tap that spends: it reads the same listing the page always reads. */}
+        <Link
+          href={`/game/${encodeURIComponent(card.game_event_ticker)}?legs=${encodeURIComponent(
+            card.legs.map((leg) => `${leg.market_ticker}:${leg.side}`).join(","),
+          )}`}
+          className="mb-2 inline-block min-h-[36px] text-sm text-accent underline underline-offset-2"
+        >
+          Change a leg
+        </Link>
+        <br />
         <Button
           onClick={ask}
           disabled={mint.kind === "minting" || card.legs.length < 2}
@@ -437,6 +473,7 @@ function LegRow({
       <div className="tabular text-xs text-muted">
         {kickoffText(kickoffMs)} · <ThenNow leg={leg} />
       </div>
+      <RestChip rest={leg.rest} />
     </li>
   );
 }

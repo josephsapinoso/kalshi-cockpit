@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { SHELL_WIDTH } from "@/lib/shell";
 
 /**
@@ -142,7 +145,24 @@ const SECONDARY = [
   },
 ];
 
+/**
+ * The betting screens, where the footer is not drawn (#298, town hall
+ * 2026-10-02): a reference list of audit pages under a parlay or a same-game
+ * builder is decoration on a screen a bet is placed from. The pages stay
+ * served and linked from every other screen; nothing here is deleted.
+ */
+const BETTING_SCREENS = ["/parlays", "/game"];
+
+export function isBettingScreen(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return BETTING_SCREENS.some(
+    (screen) => pathname === screen || pathname.startsWith(`${screen}/`),
+  );
+}
+
 export default function Footer() {
+  const pathname = usePathname();
+  if (isBettingScreen(pathname)) return null;
   return (
     <footer className="mt-16 border-t">
       <div className={`${SHELL_WIDTH} px-5 py-8 xl:px-8`}>

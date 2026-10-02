@@ -28,6 +28,7 @@ from ...core.leg_words import no_words_for
 from ...core.prices import format_price
 from ...game_builder import (
     _read_event_markets,
+    game_context,
     list_game_legs,
     mint_game_combo,
     parse_game_ticker,
@@ -465,6 +466,16 @@ def register(
                     api, card["legs"], now_ms=now,
                     game_event_ticker=card["game_event_ticker"],
                 )
+        # Each team's rest before the game (#293): one fixture per card, the
+        # same `{home, away}` the parlay cards carry. A fact per leg, never
+        # read to order or filter anything.
+        for card in cards:
+            rest = (
+                game_context(conn, card["game_event_ticker"])["rest"]
+                if card["status"] == "built" else None
+            )
+            for leg in card["legs"]:
+                leg["rest"] = rest
         return {"now_ms": now, "cards": cards}
 
     @app.post(

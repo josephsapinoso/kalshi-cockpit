@@ -17,17 +17,23 @@ export const dynamic = "force-dynamic";
  */
 export default async function GamePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ event: string }>;
+  searchParams: Promise<{ legs?: string | string[] }>;
 }) {
   const { event } = await params;
+  // `?legs=ticker:side,...` from a card's "Change a leg" link (#295): the
+  // legs GameLegs pre-ticks on first load. Read as text here; the component
+  // checks each against the live listing and ignores any it does not list.
+  const { legs } = await searchParams;
+  const initialLegs = Array.isArray(legs) ? legs[0] : legs;
   const eventTicker = decodeURIComponent(event);
   return (
     <div className={`${SHELL_WIDTH} px-4 py-12 sm:px-6 sm:py-16 xl:px-8`}>
       <h1 className="display text-4xl sm:text-5xl">Same-game parlay</h1>
-      <p className="mt-2 font-mono text-xs text-muted">{eventTicker}</p>
       <GameCardPanel eventTicker={eventTicker} />
-      <GameLegs eventTicker={eventTicker} />
+      <GameLegs eventTicker={eventTicker} initialLegs={initialLegs} />
     </div>
   );
 }

@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  displayZoneLabel,
   fetchGameLegs,
+  formatKickoff,
   mintGameCombo,
   type GameLeg,
   type GameLegGroup,
@@ -11,10 +13,12 @@ import {
 } from "@/lib/api";
 import AskTheMarket from "@/components/AskTheMarket";
 import { CheckTheseLegs } from "@/components/GameScriptCard";
+import { RestChip } from "@/components/ParlayCards";
 import ScoutDesk from "@/components/ScoutDesk";
 import Term from "@/components/Term";
 import { Button, SectionLabel } from "@/components/ui";
 import { formatClock } from "@/lib/format";
+import { leagueLabel } from "@/lib/leagueLabel";
 import { sideLabelAddsWords } from "@/lib/sideLabel";
 
 /**
@@ -123,7 +127,58 @@ function ListedAsk({ leg, side }: { leg: GameLeg; side: Side }) {
   );
 }
 
-export default function GameLegs({ eventTicker }: { eventTicker: string }) {
+/**
+ * `ticker:side,ticker:side` from a card's "Change a leg" link (#295), as
+ * `[ticker, side]` pairs. Anything that is not `<ticker>:yes|no` is dropped
+ * here; whether the ticker is on this game's listing is checked against the
+ * listing in `preTick`, never assumed.
+ */
+export function parseLegsParam(raw: string | undefined): [string, Side][] {
+  if (!raw) return [];
+  const out: [string, Side][] = [];
+  for (const part of raw.split(",")) {
+    const [ticker, side, ...extra] = part.trim().split(":");
+    if (!ticker || extra.length > 0) continue;
+    const s = (side ?? "").toLowerCase();
+    if (s === "yes" || s === "no") out.push([ticker.toUpperCase(), s]);
+  }
+  return out;
+}
+
+/**
+ * The legs of `raw` that the listing really offers, on a side that leg
+ * allows, one per one-rung event. **A leg named in the URL that is not in the
+ * listing is ignored, never invented** (#295): the page never ticks a box the
+ * server did not list, so a stale or hand-edited link ticks fewer legs, not
+ * different ones.
+ */
+function preTick(raw: string | undefined, listing: GameLegsData): Record<string, Side> {
+  const byMarket = new Map<string, GameLeg>();
+  for (const group of listing.groups) {
+    for (const leg of group.legs) byMarket.set(leg.market_ticker, leg);
+  }
+  const ticked: Record<string, Side> = {};
+  const takenEvents = new Set<string>();
+  for (const [ticker, side] of parseLegsParam(raw)) {
+    const leg = byMarket.get(ticker);
+    if (!leg || !leg.allowed_sides.includes(side) || ticker in ticked) continue;
+    if (leg.one_per_event) {
+      if (takenEvents.has(leg.event_ticker)) continue;
+      takenEvents.add(leg.event_ticker);
+    }
+    ticked[ticker] = side;
+  }
+  return ticked;
+}
+
+export default function GameLegs({
+  eventTicker,
+  initialLegs,
+}: {
+  eventTicker: string;
+  /** The raw `?legs=` value; ticked once, when the listing first arrives. */
+  initialLegs?: string;
+}) {
   const [data, setData] = useState<GameLegsData | null>(null);
   const [error, setError] = useState<string | null>(null);
   // market_ticker -> the side ticked on it. One side per market by shape.
@@ -139,7 +194,10 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
     let live = true;
     fetchGameLegs(eventTicker)
       .then((payload) => {
-        if (live) setData(payload);
+        if (!live) return;
+        setData(payload);
+        const wanted = preTick(initialLegs, payload);
+        if (Object.keys(wanted).length > 0) setTicked(wanted);
       })
       .catch((err) => {
         if (live)
@@ -148,6 +206,9 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
     return () => {
       live = false;
     };
+    // `initialLegs` is read once per game: a later edit to the ticket is the
+    // reader's, and a re-run here would tick his legs back.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventTicker]);
 
   const legsByMarket = useMemo(() => {
@@ -214,16 +275,26 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
 
   if (error) {
     return (
-      <p className="mt-6 max-w-[65ch] text-sm text-accent-2">
-        {error} Nothing was created.
-      </p>
+      <>
+        <GameHeading eventTicker={eventTicker} data={null} />
+        <p className="mt-6 max-w-[65ch] text-sm text-accent-2">
+          {error} Nothing was created.
+        </p>
+      </>
     );
   }
   if (!data) {
-    return <p className="mt-6 text-sm text-muted">Reading Kalshi&rsquo;s legs for this game…</p>;
+    return (
+      <>
+        <GameHeading eventTicker={eventTicker} data={null} />
+        <p className="mt-6 text-sm text-muted">Reading Kalshi&rsquo;s legs for this game…</p>
+      </>
+    );
   }
 
   return (
+    <>
+    <GameHeading eventTicker={eventTicker} data={data} />
     <div className="mt-6 grid gap-6 pb-24 lg:grid-cols-[minmax(0,1fr)_22rem] lg:pb-0">
       <div className="min-w-0 space-y-4">
         <p className="max-w-[65ch] text-sm text-muted">
@@ -354,6 +425,45 @@ export default function GameLegs({ eventTicker }: { eventTicker: string }) {
         </Button>
       </div>
     </div>
+    </>
+  );
+}
+
+/**
+ * The game's own name, kickoff and league (#293), where the page used to
+ * print only the raw ticker. Each part is shown only when the listing could
+ * say it; with none, the ticker stays as the fallback, never a guess.
+ */
+function GameHeading({
+  eventTicker,
+  data,
+}: {
+  eventTicker: string;
+  data: GameLegsData | null;
+}) {
+  const title = data?.game_title ?? null;
+  const kickoff = data?.kickoff_ms ?? null;
+  const sport = data?.sport_key ?? null;
+  return (
+    <div className="mt-2">
+      <p className="max-w-[65ch] text-base font-semibold">
+        {title ?? <span className="font-mono text-xs font-normal text-muted">{eventTicker}</span>}
+      </p>
+      {(kickoff !== null || sport) && (
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted">
+          {kickoff !== null && (
+            <span className="tabular">
+              kickoff {formatKickoff(kickoff)} {displayZoneLabel(kickoff)}
+            </span>
+          )}
+          {sport && (
+            <span className="rounded border border-border px-1 font-mono text-[0.65rem] uppercase tracking-wide">
+              {leagueLabel(sport)}
+            </span>
+          )}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -403,6 +513,7 @@ function Group({
           return (
             <li key={leg.market_ticker} className="py-2">
               <p className="text-sm">{leg.title}</p>
+              <RestChip rest={leg.rest} />
               <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
                 {leg.allowed_sides.map((side) => {
                   const facts = leg.sides[side];
