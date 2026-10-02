@@ -275,7 +275,10 @@ logger = logging.getLogger(__name__)
 #: v62 `game_script_cards` gains the T-2h drop-if re-check (#289, Joe's (A)
 #: to #270): `recheck_ms`, `recheck_status` (column CHECK), `recheck_note`,
 #: `recheck_source_json`. Nullable column steps; NULL = never re-checked.
-SCHEMA_VERSION = 62
+#:
+#: v63 `pick_sources` (Joe, 2026-10-02): his one-tap tag for where a pick
+#: came from, keyed by ticker. A new table and nothing else, so tableless.
+SCHEMA_VERSION = 63
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1323,12 +1326,13 @@ _LEG_VERDICTS_ADMIT_CARD_BUTTON_UNDO = (
 #: - v22 `loop_failures`, v23 `parlay_card_candidates`, v24 the hedge tables,
 #:   v27 `combo_eligible_events`, v29 `manual_order_refusals`,
 #:   v30 `combo_orders`, v42 `api_read_incidents`,
-#:   v45 `combo_rfqs` and `combo_rfq_quotes`, v59 `game_script_cards`.
+#:   v45 `combo_rfqs` and `combo_rfq_quotes`, v59 `game_script_cards`,
+#:   v63 `pick_sources`.
 #:
 #: v33 is NOT here although it adds a table (`venue_positions`): it also adds
 #: a column to `poll_log`, which makes it a step. A version is one or the
 #: other, never both.
-_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45, 57, 59)
+_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45, 57, 59, 63)
 
 
 _MIGRATIONS: dict[int, _Migration] = {

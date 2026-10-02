@@ -2097,7 +2097,10 @@ def create_app(
         app, app_config=app_config, get_conn=get_conn, require_auth=require_auth,
     )
 
-    ledger_router.register(app, gate=gate, get_conn=get_conn)
+    ledger_router.register(
+        app, gate=gate, get_conn=get_conn,
+        db_path=app_config.db_path, require_auth=require_auth,
+    )
 
     status_router.register(
         app, app_config=app_config, gate=gate, risk=risk, get_conn=get_conn,

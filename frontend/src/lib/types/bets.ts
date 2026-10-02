@@ -123,6 +123,37 @@ export type SettledBet = {
   // #254: Kalshi's own title for a single's market, from discovery; `null`
   // when discovery holds none, and always `null` on a combination.
   market_title?: string | null;
+  // v63: where Joe says this pick came from; null when untagged (never
+  // "own"). Optional: a backend one version behind omits the key.
+  pick_source?: PickSourceKey | null;
+};
+
+/** v63: the six tags, in the server's fixed order. */
+export type PickSourceKey =
+  | "card"
+  | "verdict"
+  | "preset"
+  | "chat"
+  | "friend"
+  | "own";
+
+/** What the chips need: the options with their words, each ticker's stored
+ *  tag, and the record-proven suggestions for untagged tickers (never
+ *  stored until he taps). */
+export type PickSourcesBlock = {
+  options: { key: PickSourceKey; label: string }[];
+  tagged: Record<string, PickSourceKey>;
+  suggested: Record<string, PickSourceKey>;
+};
+
+/** v63: one source's settled bets of one kind. Fixed order, never sorted
+ *  by result. `expected` is null for a single-game source below the floor. */
+export type BySourceBlock = {
+  source: PickSourceKey | "untagged";
+  label: string;
+  wins: number;
+  losses: number;
+  expected: ExpectedBlock | null;
 };
 
 /**
@@ -157,6 +188,10 @@ export type BetsRecord = {
   sections: Record<BetKind, BetsSection>;
   /** #287: wins and losses per kind, never pooled, and the expected line. */
   summary?: Record<BetKind, BetsKindSummary>;
+  /** v63: wins and losses per pick source, per kind, never pooled. */
+  by_source?: Record<BetKind, BySourceBlock[]>;
+  /** v63: the tag chips' data, for settled rows and open tickets. */
+  pick_sources?: PickSourcesBlock;
   totals: {
     net_tenths: number;
     net_display: string;

@@ -22,6 +22,8 @@ import { describeQuoteAgeFloor } from "@/lib/format";
 import { stakeBasisNote } from "@/lib/stakeBasisGloss";
 import { comboBookNote, COMBO_BOOK_ASK_POINTER } from "@/lib/comboBookGloss";
 import Term from "@/components/Term";
+import PickSourceChips from "@/components/PickSourceChips";
+import type { PickSourcesBlock } from "@/lib/types/bets";
 
 /**
  * What Joe holds, and what hedging it would do (ADR 0078).
@@ -75,6 +77,7 @@ export default function HedgePositions({
   venuePollMs = null,
   asOfMs,
   maxQuoteAgeMs = 30_000,
+  pickSources,
 }: {
   positions: HeldPosition[];
   notes: Record<string, string>;
@@ -84,6 +87,9 @@ export default function HedgePositions({
   venuePollMs?: number | null;
   asOfMs: number;
   maxQuoteAgeMs?: number;
+  /** v63: the tag chips' data, from `/api/bets`. Absent elsewhere, and
+   *  then no chips render. */
+  pickSources?: PickSourcesBlock;
 }) {
   return (
     <div className="mt-6 flex flex-col gap-4">
@@ -100,6 +106,7 @@ export default function HedgePositions({
           venuePollMs={venuePollMs}
           asOfMs={asOfMs}
           maxQuoteAgeMs={maxQuoteAgeMs}
+          pickSources={pickSources}
         />
       )}
     </div>
@@ -136,12 +143,14 @@ function PositionGroups({
   venuePollMs,
   asOfMs,
   maxQuoteAgeMs,
+  pickSources,
 }: {
   positions: HeldPosition[];
   notes: Record<string, string>;
   venuePollMs: number | null;
   asOfMs: number;
   maxQuoteAgeMs: number;
+  pickSources?: PickSourcesBlock;
 }) {
   const pending = positions.filter(isLive);
   const settled = positions.filter((position) => !isLive(position));
@@ -157,6 +166,7 @@ function PositionGroups({
               venuePollMs={venuePollMs}
               asOfMs={asOfMs}
               maxQuoteAgeMs={maxQuoteAgeMs}
+              pickSources={pickSources}
             />
           ))
         : settled.length > 0 && (
@@ -176,6 +186,7 @@ function PositionGroups({
                 venuePollMs={venuePollMs}
                 asOfMs={asOfMs}
                 maxQuoteAgeMs={maxQuoteAgeMs}
+                pickSources={pickSources}
               />
             ))}
           </div>
@@ -284,12 +295,14 @@ function Position({
   venuePollMs,
   asOfMs,
   maxQuoteAgeMs,
+  pickSources,
 }: {
   position: HeldPosition;
   notes: Record<string, string>;
   venuePollMs: number | null;
   asOfMs: number;
   maxQuoteAgeMs: number;
+  pickSources?: PickSourcesBlock;
 }) {
   return (
     <section
@@ -317,6 +330,7 @@ function Position({
         </span>
       </header>
       <StakeBasisLine position={position} />
+      <PickSourceChips ticker={position.combo_ticker} block={pickSources} />
       <p className="mt-1 text-xs leading-snug text-muted">
         {position.source === "kalshi_combo" ? "Kalshi combo" : "Sportsbook"}
         {position.book ? ` · ${position.book}` : ""} ·{" "}

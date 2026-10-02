@@ -14,7 +14,7 @@ import inspect
 
 import httpx
 
-from backend import bets
+from backend import bets, pick_sources
 from backend.analysis.clv import DEFAULT_HORIZON_HOURS
 from backend.api.routes import create_app
 from backend.config import AppConfig
@@ -424,6 +424,15 @@ class TestTheRoute:
                 "uncomputable": 0,
                 "wins": 0,
                 "losses": 0,
+            },
+            # v63: the chips' fixed options; nothing tagged, nothing proven.
+            "pick_sources": {
+                "options": [
+                    {"key": k, "label": pick_sources.PICK_SOURCE_LABELS[k]}
+                    for k in pick_sources.PICK_SOURCES
+                ],
+                "tagged": {},
+                "suggested": {},
             },
             # A database that has never polled refuses everything, in words.
             "open_positions": {

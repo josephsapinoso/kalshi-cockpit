@@ -136,6 +136,9 @@ const JSON_ROUTE_HANDLERS = new Set([
   // `/api/leg-verdicts` directly, through the `/api/:path*` rewrite, and is
   // not in this set: it spends nothing.
   "/leg-verdicts",
+  // Joe's tag for where a pick came from (v63). Writes one table; spends
+  // nothing. Listed for the same JSON-401 reason as the rest.
+  "/pick-source",
 ]);
 
 /**

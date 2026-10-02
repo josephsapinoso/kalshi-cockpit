@@ -15,11 +15,13 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from ... import bets as bets_module
 from ... import estimates as bet_estimates
 from ... import passes as desk_passes
+from ... import pick_sources
 from ...analysis.clv import DEFAULT_HORIZON_HOURS
 from ...config import GateConfig
 from ...gate import clustered_clv, evaluate_gate
@@ -37,7 +39,21 @@ def _gate_open(conn, gate: GateConfig) -> bool:
     return evaluate_gate(conn, gate).open
 
 
-def register(app: FastAPI, *, gate: GateConfig, get_conn) -> None:
+class PickSourceRequest(BaseModel):
+    """Joe's tag for one ticker; `source` None clears it."""
+
+    ticker: str = Field(min_length=1, max_length=pick_sources.MAX_TICKER_LEN)
+    source: Optional[str] = None
+
+
+def register(
+    app: FastAPI,
+    *,
+    gate: GateConfig,
+    get_conn,
+    db_path=None,
+    require_auth=None,
+) -> None:
     """Attach the ledger handlers to `app`, in their original order.
 
     `/api/exposure` joined them on 2026-09-10 and is deliberately FIRST: it
@@ -102,6 +118,30 @@ def register(app: FastAPI, *, gate: GateConfig, get_conn) -> None:
             "as_of_ms": now,
             "open_positions": bets_module.open_positions(conn, now_ms=now),
         }
+
+    if require_auth is not None and db_path is not None:
+
+        @app.post("/api/pick-sources", dependencies=[Depends(require_auth)])
+        def tag_pick_source(request: PickSourceRequest) -> dict:
+            """Store where a pick came from, in Joe's word (v63).
+
+            Auth-gated because it writes. It writes ONE table,
+            `pick_sources`, and reads nothing on the order, RFQ or hedge
+            path: a tag is a note about a bet already placed.
+            """
+            write_conn = db.open_db(db_path)
+            try:
+                pick_sources.set_pick_source(
+                    write_conn,
+                    ticker=request.ticker,
+                    source=request.source,
+                    now_ms=db.now_ms(),
+                )
+            except pick_sources.PickSourceRefused as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            finally:
+                write_conn.close()
+            return {"ticker": request.ticker.strip(), "source": request.source}
 
     @app.get("/api/bets")
     def bets(conn=Depends(get_conn), limit: int = Query(200, le=1000)) -> dict:

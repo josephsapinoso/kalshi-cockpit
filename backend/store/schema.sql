@@ -3116,3 +3116,15 @@ CREATE INDEX IF NOT EXISTS idx_game_script_cards_kickoff
     ON game_script_cards(kickoff_ms);
 CREATE INDEX IF NOT EXISTS idx_game_script_cards_game
     ON game_script_cards(game_event_ticker, built_ms);
+
+-- v63 (Joe, 2026-10-02): where a pick came from, in his own word, one tag
+-- per market ticker, set by a tap on /bets (`backend/pick_sources.py`).
+-- Keyed by ticker because that is what an open combination, a settled one
+-- and a single share. Never inferred and never backfilled: no row means
+-- untagged, which is counted on its own and never read as `own`.
+CREATE TABLE IF NOT EXISTS pick_sources (
+    ticker     TEXT PRIMARY KEY,
+    source     TEXT NOT NULL CHECK (source IN
+                   ('card', 'verdict', 'preset', 'chat', 'friend', 'own')),
+    tagged_ms  INTEGER NOT NULL
+);

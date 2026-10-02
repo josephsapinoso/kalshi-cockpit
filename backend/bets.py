@@ -115,6 +115,14 @@ from .analysis.clv import clv_tenths as _clv_tenths
 from .core.prices import format_price
 from .estimates import classify_ticker
 from .odds.timing import day_start_ms
+from .pick_sources import (
+    PICK_SOURCE_LABELS,
+    PICK_SOURCES,
+    UNTAGGED,
+    open_combo_tickers,
+    pick_source_payload,
+    pick_sources_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -725,6 +733,51 @@ def bets_summary(
     return out
 
 
+def by_source_summary(
+    rows: list[tuple[str, Optional[str], bool, Optional[int]]],
+) -> dict[str, list[dict[str, Any]]]:
+    """Per kind, one block per pick source Joe tagged (v63), in the FIXED
+    order of `PICK_SOURCES` with `untagged` last -- never sorted by any
+    result, because an ordering is a claim (ADR 0071 §2.5).
+
+    `rows` is one `(kind, source_or_None, won, entry_price_tenths)` per
+    computable settled bet. A source with no settled bet of that kind is
+    left out rather than shown as zeros. Combinations carry the
+    expected-vs-won line (`expected_block`, so `too_few` and no range below
+    5 expected each side); singles carry it only once that source alone
+    reaches `SINGLES_SUMMARY_FLOOR`, the kinds' own rule. Never pooled
+    across kinds, and no rate is computed.
+    """
+    order = (*PICK_SOURCES, UNTAGGED)
+    out: dict[str, list[dict[str, Any]]] = {}
+    for kind in (KIND_SINGLE, KIND_COMBO):
+        blocks: list[dict[str, Any]] = []
+        for source in order:
+            mine = [
+                r for r in rows
+                if r[0] == kind and (r[1] or UNTAGGED) == source
+            ]
+            if not mine:
+                continue
+            wins = 0
+            for r in mine:
+                wins += 1 if r[2] else 0
+            cells = [
+                (r[3], r[2]) for r in mine
+                if isinstance(r[3], int) and 1 <= r[3] <= 999
+            ]
+            speaks = kind == KIND_COMBO or len(mine) >= SINGLES_SUMMARY_FLOOR
+            blocks.append({
+                "source": source,
+                "label": PICK_SOURCE_LABELS.get(source, "Not tagged yet"),
+                "wins": wins,
+                "losses": len(mine) - wins,
+                "expected": expected_block(cells) if speaks else None,
+            })
+        out[kind] = blocks
+    return out
+
+
 def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
     """The record and its honest totals, newest settlement first.
 
@@ -833,6 +886,9 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
     }
     expected_excluded = {KIND_SINGLE: 0, KIND_COMBO: 0}
     first_settled_ms: Optional[int] = None
+    # v63: Joe's own tag per ticker, over the WHOLE table like `totals`.
+    tags = pick_sources_for(conn, [r["ticker"] for r in rows])
+    source_rows: list[tuple[str, Optional[str], bool, Optional[int]]] = []
     for row in rows:
         kind = bet_kind(row["ticker"])
         section = sections[kind]
@@ -858,6 +914,9 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
                 losses += 1
                 kind_wl[kind][1] += 1
             price = row["entry_price_tenths"]
+            source_rows.append(
+                (kind, tags.get(row["ticker"]), bool(won), price)
+            )
             if isinstance(price, int) and 1 <= price <= 999:
                 expected_cells[kind].append((price, bool(won)))
             else:
@@ -952,6 +1011,8 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
                     titles_by_ticker.get(row["ticker"])
                     if kind == KIND_SINGLE else None
                 ),
+                # v63: Joe's tag, None when untagged -- never `own`.
+                "pick_source": tags.get(row["ticker"]),
             }
         )
     record: dict[str, Any] = {
@@ -1001,6 +1062,12 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
             expected_cells,
             expected_excluded,
         )
+        record["by_source"] = by_source_summary(source_rows)
+    # v63: what the chips need, for the settled window AND every open
+    # recorded combination (the Open section above the settled list).
+    record["pick_sources"] = pick_source_payload(
+        conn, [b["ticker"] for b in bets] + open_combo_tickers(conn)
+    )
     return record
 
 

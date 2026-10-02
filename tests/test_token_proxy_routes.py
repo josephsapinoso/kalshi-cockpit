@@ -111,6 +111,9 @@ TOKEN_HANDLERS = (
     # written) is not here: it spends nothing and goes straight through the
     # `/api/:path*` rewrite.
     "leg-verdicts",
+    # v63 -- Joe's tag for where a pick came from. Writes `pick_sources`
+    # only; reaches no venue and spends nothing.
+    "pick-source",
 )
 
 

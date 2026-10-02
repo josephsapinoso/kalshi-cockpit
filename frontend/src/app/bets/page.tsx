@@ -9,6 +9,7 @@ import Term from "@/components/Term";
 import type { BetsKindSummary } from "@/lib/types/bets";
 import RecordParlay from "@/components/RecordParlay";
 import HedgePositions from "@/components/HedgePositions";
+import PickSourceChips from "@/components/PickSourceChips";
 import {
   DISPLAY_TIME_ZONE,
   fetchBets,
@@ -18,6 +19,8 @@ import {
   type BetKind,
   type BetsRecord,
   type BetsSection,
+  type BySourceBlock,
+  type PickSourcesBlock,
   type SettledBet,
 } from "@/lib/api";
 
@@ -172,6 +175,7 @@ export default async function BetsPage() {
               venuePollMs={hedge.venue_poll_ms}
               asOfMs={hedge.as_of_ms}
               maxQuoteAgeMs={hedge.max_quote_age_ms}
+              pickSources={record.pick_sources}
             />
           </>
         )}
@@ -377,6 +381,7 @@ function BetSection({
         kind={section.kind}
         summary={record.summary?.[section.kind]}
       />
+      <BySource kind={section.kind} blocks={record.by_source?.[section.kind]} />
       {/* #161: how many of this kind carry the desk's chance at the moment
           it was priced -- a whole-table COUNT, never a rate. Combo only:
           a single carries no chance at all, so the sentence would always
@@ -411,6 +416,7 @@ function BetSection({
                   <BetRow
                     key={`${bet.ticker}-${bet.settled_ms}-${index}`}
                     bet={bet}
+                    pickSources={record.pick_sources}
                   />
                 ))}
               </ul>
@@ -498,6 +504,52 @@ function KindSummary({
         </p>
       </details>
     </>
+  );
+}
+
+/**
+ * v63 (Joe, 2026-10-02): the same wins/losses and expected line, split by
+ * where he says each pick came from. Rows in the server's FIXED order
+ * (card, verdict, preset, chat, friend, own, then untagged) and never sorted
+ * by any result -- an ordering is a claim (ADR 0071). A source whose
+ * expected wins or losses is under 5 gets no range, the kinds' own rule.
+ * Collapsed: it is a record to look back on, not a headline.
+ */
+function BySource({
+  kind,
+  blocks,
+}: {
+  kind: BetKind;
+  blocks: BySourceBlock[] | undefined;
+}) {
+  if (!blocks || blocks.length === 0) return null;
+  const noun = kind === "combo" ? "combos" : "bets";
+  return (
+    <details className="mt-1 max-w-[65ch] text-xs text-muted">
+      <summary className="cursor-pointer">By where the pick came from</summary>
+      <ul className="mt-1 space-y-1 font-mono">
+        {blocks.map((block) => (
+          <li key={block.source}>
+            {block.label}: {block.wins}W / {block.losses}L
+            {block.expected === null
+              ? " · counts only"
+              : ` · about ${block.expected.expected} expected to win`}
+            {block.expected === null
+              ? ""
+              : block.expected.too_few
+                ? ` — too few ${noun} to judge`
+                : ` — range ${block.expected.range_low} to ${block.expected.range_high}`}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 max-w-prose">
+        Tag each bet below with where the pick came from. Each price is read
+        as a chance, so this says how a source&rsquo;s picks did against the
+        prices you paid, not whether the source is any good. It needs about
+        five expected wins and five expected losses before it can say even
+        that.
+      </p>
+    </details>
   );
 }
 
@@ -666,7 +718,13 @@ function betLead(bet: SettledBet): string {
  * single game only: a combination market has no close to be read, and the
  * absence of a line says so better than any words would.
  */
-function BetRow({ bet }: { bet: SettledBet }) {
+function BetRow({
+  bet,
+  pickSources,
+}: {
+  bet: SettledBet;
+  pickSources: PickSourcesBlock | undefined;
+}) {
   const settled = new Date(bet.settled_ms).toLocaleString("en-US", {
     timeZone: DISPLAY_TIME_ZONE,
     month: "short",
@@ -772,6 +830,10 @@ function BetRow({ bet }: { bet: SettledBet }) {
           <span className="mt-0.5 block text-xs text-muted">{result}</span>
         </span>
       </Link>
+      {/* Outside the link: a tap here tags the bet, it does not open it. */}
+      <div className="pb-3">
+        <PickSourceChips ticker={bet.ticker} block={pickSources} />
+      </div>
     </li>
   );
 }

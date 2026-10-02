@@ -261,7 +261,10 @@ export type {
   BetsKindSummary,
   BetsRecord,
   BetsSection,
+  BySourceBlock,
   ExpectedBlock,
+  PickSourceKey,
+  PickSourcesBlock,
   SettledBet,
 } from "./types/bets";
 export type {
@@ -1158,6 +1161,14 @@ async function postHedge(
   });
   if (!result.ok) return { ok: false, detail: result.refusal };
   return { ok: true, body: result.value };
+}
+
+/**
+ * v63: Joe's tag for where a pick came from, one ticker at a time; `null`
+ * clears it. Writes `pick_sources` only -- no order, RFQ or hedge path.
+ */
+export function setPickSource(ticker: string, source: string | null) {
+  return postHedge("/pick-source", { ticker, source });
 }
 
 export function recordHeldPosition(input: HeldPositionInput) {
