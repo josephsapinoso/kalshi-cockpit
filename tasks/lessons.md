@@ -16,6 +16,18 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-02 - A background wait that prints a word has to be read before the next action, and a remembered command form is the command
+
+From the eightieth session (#301).
+
+- **A CI wait printed `failure`, and in the same tool call I ran the deploy.** The workflow's default sent it to demo, so live was never at risk. It would have reached live had I typed the right form, because the deploy did not depend on the CI result I had just printed.
+- **Memory held the exact live deploy form** (`-f instance=live -f confirm_live=kalshi-cockpit`). I typed the bare `gh workflow run deploy.yml` instead. The run went green, deployed demo, and only `/api/health`'s `git_sha` showed that live had not moved.
+- **A source pin's span is a range of the file.** `test_exposure_route` reads everything between two decorators, so a new handler placed between them is inspected as part of the old one.
+- **The rule:**
+  - Gate a deploy on the CI conclusion inside the same command (`[ "$c" = success ] && gh workflow run ...`), never on reading it afterwards.
+  - Copy deploy commands from memory verbatim.
+  - Add new handlers outside any span that a test splits on, and grep `tests/` for the file name before choosing where.
+
 ## 2026-10-02 - A lane's "stopped at 39%, no failures" is an unrun inventory, and GitHub caps a parent at 100 sub-issues
 
 From the seventy-ninth session (parlay town hall, #269).

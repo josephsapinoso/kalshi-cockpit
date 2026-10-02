@@ -137,6 +137,38 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-02 (eightieth session) — Your bets: tag where each pick came from, live on `b07ef3e1`, schema v63, ADR 0193
+
+Joe bet off the desk's recommendations today and asked to "track them and learn from them". He named five sources: game-script cards, leg verdicts, presets, a Claude chat pick, and a friend's link. He chose the one-tap tag (AskUserQuestion) over a read-only review.
+
+- **Today's bets were all recorded through the cockpit.** Positions 75–79, placed 15:53–15:56Z:
+  - #75 `checked`: the outside-parlay check, likely the friend's link. RFQ fill.
+  - #76 `safe`: RFQ. Its stake is `as_recorded`, with `rfq_fill_unmatched`.
+  - #77 `lottery`: RFQ, paid about 5.3c against a desk fair of 6.2%.
+  - #78 `short_spreads` and #79 `totals`: manual orders.
+  - `unrecorded_at_venue` is empty.
+- **Two of the five tickets bet against each other.** #75 holds NO Penn St −2.5 and Over 54.5 Pitt/VT; #78 holds YES Penn St −2.5, and #79 holds Under 54.5 Pitt/VT. In each pair one ticket must lose that leg. Told to Joe; nothing is built for it.
+- **Built (#301, ADR 0193, schema v63):**
+  - A `pick_sources` table keyed by ticker, so open, settled and outside-placed bets share it.
+  - Chips on /bets: settled rows sit outside the row link, and open tickets show them inside `HedgePositions`.
+  - Dashed suggestions only from a card stamp or a preset label, never stored without a tap.
+  - "By where the pick came from" under each kind. It reuses `expected_block`, keeps a fixed order, is never sorted by result, and shows `too_few` below 5 expected each side.
+  - Five mutations, all red.
+- **Live read after deploy:**
+  - Live serves `pick_sources`. The 20-row window suggests `preset` on 14 tickets, including #76–79, and `card` on 3.
+  - Nothing is tagged yet: `by_source.combo` is `untagged` 20W/148L.
+- **Process slips, now lessons:**
+  - The first CI run failed: `test_exposure_route` pins the exposure handler's span, and the new POST landed inside it. Fixed by moving the route in `b07ef3e1`.
+  - I fired a deploy before reading that CI result. It went to demo, the workflow default, because I left out `-f instance=live`. The live deploy that followed was run 37035964679.
+
+### Still open
+
+1. #301 follow-through: Joe tags today's five bets (and older ones, if he likes) on /bets. When they settle, review each leg in plain words: price paid against the desk's chance, which leg lost, and whether a card's drop-if fired. No per-source verdict until the `too_few` gate opens.
+2. #220: on or after 2026-10-05, review the game-script cards, run `credits-day --date 2026-10-04`, and read the first Matchup tile. #210 and #197 close with it. Also owed: the first prompt-v3 card, the first T-2h re-check, and one `game-script-card-stamps` plus `own-open-rfqs` read.
+3. #297: `collection_coverage_census.py` needs a fresh read-only capture with NHL and NCAAF events before it can answer.
+4. #292: map #3 is full; a new question for Joe has nowhere visible to go until it lands.
+5. #165, #169 and #151 are unchanged. #267 is due in November.
+
 ## 2026-10-02 (seventy-ninth session, continued) — parlay town hall: batch 1 (17 tickets) live on `734f460`, schema v61 + v62; Joe answered five; batch 2 ticketed
 
 Joe asked partner to convene a town hall on the parlay changes and recommend what makes his selections better, then "let's get creating".
