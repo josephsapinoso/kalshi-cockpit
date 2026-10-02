@@ -350,8 +350,11 @@ NOTES: dict[str, str] = {
         f"{TAP_CENSUS_DATE}, {TAP_CENSUS_PRICED} returned a price and "
         f"{TAP_CENSUS_BOOK_EMPTY} found nothing resting on the combination — "
         f"the “no one is selling it” answer. That is the venue’s book "
-        f"being empty, not a fault in the card, and tapping again later is "
-        f"what usually works. It says nothing about which card is better."
+        f"being empty, not a fault in the card. A combination’s book is "
+        f"empty between requests by design (ADR 0164): its price comes from "
+        f"asking, and “Ask the market for a price” sends the request to "
+        f"makers, who quote privately. It says nothing about which card is "
+        f"better."
     ),
     "fee": (
         "Kalshi's combo fee model is unverified. Every combo fill ever "

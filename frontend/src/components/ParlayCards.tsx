@@ -203,6 +203,16 @@ function Card({
         </p>
       )}
 
+      {card.key === "props" && (
+        /* #280: this card is empty unless a player-prop lookup has run for
+           the game; saying so beats a bare "the slate has 0". It states no
+           frequency and does not hide the card. */
+        <p className="mt-1 max-w-[60ch] text-xs leading-snug text-muted">
+          Player props appear here only after a prop lookup has been run for
+          the game.
+        </p>
+      )}
+
       {card.not_built_reason !== null ? (
         <p className="mt-3 text-sm text-muted">
           Not built right now: {card.not_built_reason}.
