@@ -133,7 +133,7 @@ class TestTheCardIsCompact:
             "<GameHeading",
             "<LegRow",
             "{NO_COMBINED_CHANCE_LINE}",
-            "Ask the market",
+            "Get a price",
         ):
             assert needle in outside, needle
         assert "{card.story}" not in outside

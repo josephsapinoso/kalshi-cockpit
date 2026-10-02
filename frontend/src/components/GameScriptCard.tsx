@@ -179,9 +179,25 @@ export default function GameScriptCard({
           </span>{" "}
           {card.drop_if}
         </p>
+        {card.sources && card.sources.length > 0 && (
+          <ul className="mt-2 max-w-[65ch] space-y-1 text-xs text-muted">
+            {card.sources.map((source) => (
+              <li key={source.url}>
+                <a
+                  href={source.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2"
+                >
+                  {source.url}
+                </a>
+                {source.published ? ` (${source.published})` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
         <p className="mt-1 max-w-[65ch] text-xs text-muted">
-          <Term k="inactives">Inactives</Term> come out 90 minutes before
-          kickoff and are not covered.
+          <Term k="inactives">Inactives</Term>: {card.inactives_line}
         </p>
       </details>
 
@@ -190,7 +206,7 @@ export default function GameScriptCard({
           onClick={ask}
           disabled={mint.kind === "minting" || card.legs.length < 2}
         >
-          {mint.kind === "minting" ? "Building…" : "Ask the market"}
+          {mint.kind === "minting" ? "Building…" : "Get a price"}
         </Button>
         {card.combo_ticker && mint.kind === "idle" && (
           <p className="mt-2 text-xs text-muted">

@@ -135,10 +135,36 @@ async def build_card_for_game(
             write_conn.close()
 
 
-#: The line every card carries about news that lands after it is built.
-INACTIVES_LINE = (
-    "Inactives come out 90 minutes before kickoff and are not covered."
+#: What each sport's own lineup-confirmation process is, in plain words, for
+#: the line every card carries about news that lands after it is built
+#: (#284, the 2026-10-02 town hall). A sport with no fixed leaguewide clock
+#: says so instead of inventing one: NHL goalies are confirmed around
+#: warmups, not on a timer, and MLB lineups are posted a few hours out with
+#: no single leaguewide rule.
+_INACTIVES_LINES: dict[str, str] = {
+    "nfl": "Inactives come out 90 minutes before kickoff and are not covered.",
+    "ncaaf": "Inactives come out 90 minutes before kickoff and are not covered.",
+    "nba": "Starting lineups are confirmed about 30 minutes before tipoff "
+    "and are not covered.",
+    "wnba": "Starting lineups are confirmed about 30 minutes before tipoff "
+    "and are not covered.",
+    "mlb": "Lineups are posted a few hours before first pitch, on no fixed "
+    "clock, and are not covered.",
+    "nhl": "Goalies are confirmed around warmups, on no fixed clock, and "
+    "are not covered.",
+}
+
+#: What a sport outside `_INACTIVES_LINES` says: no invented clock.
+_DEFAULT_INACTIVES_LINE = (
+    "This sport has no fixed lineup-confirmation time tracked here."
 )
+
+
+def inactives_line_for(sport_key: str) -> str:
+    """The per-sport line every card carries about news that lands after it
+    is built (#284). Falls back to `_DEFAULT_INACTIVES_LINE` rather than
+    inventing a clock for a sport this map has not met."""
+    return _INACTIVES_LINES.get(sport_key, _DEFAULT_INACTIVES_LINE)
 
 #: How many single-leg reads one list call may have in flight.
 _ASK_READ_CONCURRENCY = 6
@@ -357,7 +383,7 @@ def register(
                 api = None
         for card in cards:
             card["no_card_line"] = no_card_line(card)
-            card["inactives_line"] = INACTIVES_LINE
+            card["inactives_line"] = inactives_line_for(card["sport_key"])
             if card["status"] != "built":
                 card["legs"] = []
             elif api is None:

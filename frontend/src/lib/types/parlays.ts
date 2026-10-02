@@ -818,6 +818,10 @@ export type GameScriptCard = {
   /** The sentence a game with no built card carries; `null` on a built one. */
   no_card_line: string | null;
   inactives_line: string;
+  /** One page a fact came from (#281, v61); `published` is a date string,
+   * empty when the page gave none. `null` before v61 and on every skip or
+   * refusal. */
+  sources: { url: string; published: string }[] | null;
   /** Kalshi's own name for the game, or `null` when discovery has none. */
   game_title: string | null;
 };

@@ -313,10 +313,9 @@ class TestTheCardComponentClaimsNoCombinedChance:
         assert blocks, "GameScript* types not found in lib/types/parlays.ts"
         assert not FORBIDDEN.findall(_strip_comments("\n".join(blocks)))
 
-    def test_the_card_says_inactives_are_not_covered_and_shows_drop_if(self):
+    def test_the_card_shows_its_own_inactives_line_and_drop_if(self):
         source = _strip_comments(COMPONENT.read_text(encoding="utf-8"))
-        assert "come out 90 minutes before" in source
-        assert "kickoff and are not covered." in source
+        assert "{card.inactives_line}" in source
         assert "{card.drop_if}" in source
 
     def test_new_terms_go_through_term_and_the_glossary(self):
@@ -326,10 +325,10 @@ class TestTheCardComponentClaimsNoCombinedChance:
             assert f'k="{key}"' in source
             assert re.search(rf"^  {key}: \{{", glossary, flags=re.MULTILINE)
 
-    def test_ask_the_market_goes_through_mint_and_ask_the_market(self):
+    def test_get_a_price_goes_through_mint_and_ask_the_market(self):
         source = _strip_comments(COMPONENT.read_text(encoding="utf-8"))
         assert "mintGameCombo(" in source and "<AskTheMarket" in source
-        assert "Ask the market" in source
+        assert "Get a price" in source
 
     def test_build_card_never_retries(self):
         source = _strip_comments(COMPONENT.read_text(encoding="utf-8"))

@@ -462,9 +462,10 @@ export const GLOSSARY = {
   inactives: {
     label: "inactives",
     definition:
-      "The list of players a team declares out for the game, released " +
-      "about 90 minutes before kickoff. A card is built a day earlier, " +
-      "so it cannot know them. Check the list before you bet.",
+      "Who a team confirms is out, or who starts. When that comes out " +
+      "depends on the sport -- this card names its own game's timing. " +
+      "A card is built a day earlier, so it cannot know them. Check " +
+      "before you bet.",
   },
 } as const;
 
