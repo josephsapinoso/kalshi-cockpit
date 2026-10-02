@@ -225,6 +225,30 @@ def _remember_listing(game_event_ticker: str, now_ms: int, markets: dict) -> Non
         del _listing_memory[next(iter(_listing_memory))]
 
 
+async def _venue_titles(api, pairs: Sequence[tuple[str, str]]) -> dict:
+    """`{market_ticker: title}` read from the venue for `(event, market)`
+    pairs, one `markets_for_event` read per event. Best-effort: an event that
+    cannot be read leaves its legs untitled (the bare-ticker fallback), and
+    never fails the mint -- the combination already exists."""
+    wanted: dict[str, set[str]] = {}
+    for event_ticker, market_ticker in pairs:
+        wanted.setdefault(event_ticker, set()).add(market_ticker)
+    out: dict = {}
+    if not wanted:
+        return out
+    gate = asyncio.Semaphore(MARKET_READ_CONCURRENCY)
+    reads = await asyncio.gather(
+        *(_read_event_markets(api, e, gate) for e in sorted(wanted))
+    )
+    for event_ticker, markets, _words in reads:
+        for market in markets or []:
+            ticker = str(market.get("ticker") or "")
+            title = market.get("title")
+            if ticker in wanted[event_ticker] and title:
+                out[ticker] = str(title)
+    return out
+
+
 def _refuse(status: int, words: str) -> LookupRefused:
     return LookupRefused(status, words)
 
@@ -865,6 +889,13 @@ async def mint_game_combo(
     for ticker in tickers:
         if ticker in remembered:
             titles[ticker] = remembered[ticker]["title"]
+    # Neither copy holds a market discovery never ingests (a first-half
+    # winner, a first-half total) once the 30-minute listing has expired, and
+    # the leg was then recorded under its bare ticker. Ask the venue for those
+    # events' markets -- one read per event, only for legs still untitled.
+    titles.update(await _venue_titles(
+        api, [(e, m) for e, m in pairs if not titles.get(m)]
+    ))
     kickoffs = _commence_ms_for_tickers(conn, tickers)
     leg_details = {
         (e, m): {
