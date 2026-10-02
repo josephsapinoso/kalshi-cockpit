@@ -319,12 +319,16 @@ async def ask_market_to_price(
     # on every pass; adding the counts up would tell him six makers answered
     # when one did. `QuoteRead` carries ids for exactly this.
     too_fine: set[str] = set()
+    # The refused quotes' own exact prices, by id (#291): shown, never taken.
+    too_fine_asks: dict[str, tuple[str, Optional[float]]] = {}
     deadline = time.monotonic() + QUOTE_WAIT_S
     try:
         while time.monotonic() < deadline:
             try:
                 read = await read_quotes(api, rfq_id)
                 too_fine |= read.refused_finer_than_tenths
+                for qid, ask_dollars, contracts in read.finer_than_tenths_asks:
+                    too_fine_asks[qid] = (ask_dollars, contracts)
                 read_ms = int(time.time() * 1000)
                 for quote in read.quotes:
                     seen[quote.quote_id] = quote
@@ -385,6 +389,12 @@ async def ask_market_to_price(
         # How many distinct quotes were refused on precision. Unioned by id
         # across polls (see the loop above), so it is makers, not reads.
         "refused_too_fine": len(too_fine),
+        # Each refused quote's YES ask as the venue's exact decimal, cheapest
+        # first (#291, Joe's (A) to #273). DISPLAY ONLY: no id is served, so
+        # nothing on the screen can address one to the accept route, and the
+        # accept path reads only rows `record_quotes` stored -- which a
+        # refused quote never becomes.
+        "refused_too_fine_quotes": refused_fine_quote_rows(too_fine_asks),
         "rfq_id": rfq_id,
         "market_ticker": market_ticker,
         "target_cost_dollars": held_target,
@@ -1514,3 +1524,24 @@ def _accept_words(
         "idempotency key and a retry would be a second real trade. Check the "
         "Kalshi app before doing anything else."
     )
+
+
+def refused_fine_quote_rows(
+    asks: dict[str, tuple[str, Optional[float]]],
+) -> list[dict]:
+    """The refused-too-fine quotes as display rows, cheapest YES ask first.
+
+    `ask_display` is the exact price in cents (`0.0055` -> `0.55c`), never
+    rounded onto the tenths grid this desk trades on. Contracts are None
+    when the venue's field was unreadable, never 0.
+    """
+    rows = []
+    for ask_dollars, contracts in asks.values():
+        cents = Decimal(ask_dollars) * 100
+        rows.append({
+            "yes_ask_dollars": ask_dollars,
+            "ask_display": f"{format(cents.normalize(), 'f')}c",
+            "contracts": contracts,
+        })
+    rows.sort(key=lambda r: Decimal(r["yes_ask_dollars"]))
+    return rows

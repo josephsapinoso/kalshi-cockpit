@@ -276,6 +276,36 @@ function QuotesAge({ askedMs }: { askedMs: number }) {
   );
 }
 
+/**
+ * Quotes a maker priced finer than a tenth of a cent (#291, Joe's (A) to
+ * #273). Listed with the venue's exact price and labelled refused. There is
+ * deliberately no button here: the desk trades in whole tenths of a cent.
+ * These quotes die when the request is withdrawn, so Joe would have to ask
+ * again in Kalshi's own app and may get a different price.
+ */
+function RefusedFineQuotes({ value }: { value: ComboRfqResult }) {
+  const rows = value.refused_too_fine_quotes ?? [];
+  if (rows.length === 0) return null;
+  return (
+    <div className="text-xs text-muted">
+      <p className="max-w-prose leading-snug">
+        Refused: finer than a tenth of a cent. This desk can&rsquo;t take these
+        prices. To take one, ask again in Kalshi&rsquo;s app; the price you get
+        there may differ.
+      </p>
+      <ul className="tabular">
+        {rows.map((r, i) => (
+          <li key={`${r.yes_ask_dollars}-${i}`}>
+            {r.ask_display}
+            {r.contracts !== null && ` · ${r.contracts.toFixed(2)} contracts`}
+            {" · refused"}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function Quotes({
   value,
   onTakeState,
@@ -285,7 +315,12 @@ function Quotes({
 }) {
   const [acknowledged, setAcknowledged] = useState(false);
   if (value.status === "no_quotes" || value.quotes.length === 0) {
-    return <p className="text-sm text-muted">{value.words}</p>;
+    return (
+      <div className="space-y-2">
+        <p className="max-w-prose text-sm text-muted">{value.words}</p>
+        <RefusedFineQuotes value={value} />
+      </div>
+    );
   }
 
   const best = value.quotes[0];
@@ -346,6 +381,8 @@ function Quotes({
       )}
 
       <p className="text-xs leading-snug text-muted">{value.words}</p>
+
+      <RefusedFineQuotes value={value} />
 
       <QuotesAge askedMs={value.asked_ms} />
 
@@ -558,6 +595,28 @@ function TakeIt({
         The maker has a few seconds to confirm and may decline, which costs you
         nothing.
       </p>
+      <FeeShare quote={quote} />
     </div>
+  );
+}
+
+/**
+ * Kalshi's fee as a share of what the contracts cost (#288). The 2026-10-02
+ * town hall found this the one non-noise fact in Joe's record: the fee is a
+ * far larger slice of a long-shot ticket than of a near-even one. It is the
+ * desk's ESTIMATE, labelled so, because the fee model is unresolved; the
+ * venue's own charge on a past bet is on Your bets. No line when either
+ * number is unreadable: a missing fee is never shown as 0%.
+ */
+function FeeShare({ quote }: { quote: ComboRfqResult["quotes"][number] }) {
+  if (quote.fee_tenths === null || quote.all_in_tenths === null) return null;
+  const contracts = quote.all_in_tenths - quote.fee_tenths;
+  if (contracts <= 0) return null;
+  const pct = Math.round((quote.fee_tenths * 1000) / contracts) / 10;
+  return (
+    <p className="mt-1 max-w-prose text-xs leading-snug text-muted">
+      Fee &asymp; {pct.toFixed(1)}% of what you stake on the contracts (an
+      estimate).
+    </p>
   );
 }

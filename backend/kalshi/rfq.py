@@ -199,6 +199,29 @@ def _read_tenths(dollars: Any) -> tuple[Optional[int], Optional[str]]:
     return tenths, None
 
 
+def _exact_complement_dollars(no_bid_dollars: Any) -> Optional[str]:
+    """`1 - no_bid` as an exact decimal string, or None (#291).
+
+    For DISPLAY of a refused quote only. `Decimal`, so `0.9945` gives
+    `0.0055` and nothing is rounded onto a tenths grid. A result outside
+    (0, 1) is not an offer and resolves to None.
+    """
+    try:
+        ask = Decimal(1) - Decimal(str(no_bid_dollars))
+    except (InvalidOperation, ValueError):
+        return None
+    if not Decimal(0) < ask < Decimal(1):
+        return None
+    return format(ask.normalize(), "f")
+
+
+def _fp(value: Any) -> Optional[float]:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _exact_tenths(dollars: Any) -> Optional[int]:
     """`_read_tenths`'s price alone, for callers that do not classify."""
     return _read_tenths(dollars)[0]
@@ -233,6 +256,12 @@ class QuoteRead:
     #: position back at a price this screen cannot print. Recorded on every
     #: read, buy or sell; only the sell-side reader says anything about it.
     refused_bid_finer_than_tenths: frozenset[str] = frozenset()
+    #: The buy-side refusals' own prices (#291, Joe's (A) to #273):
+    #: `(quote_id, yes_ask_dollars, contracts)`, the YES ask written as the
+    #: venue's exact decimal string (`1 - no_bid_dollars`, in `Decimal`, never
+    #: rounded). SHOWN, never takeable: nothing on the accept path reads it,
+    #: and the integer-tenths money convention is unchanged.
+    finer_than_tenths_asks: tuple[tuple[str, str, Optional[float]], ...] = ()
 
 
 def parse_quotes(
@@ -265,6 +294,7 @@ def parse_quotes(
     too_fine: set[str] = set()
     unreadable: set[str] = set()
     bid_too_fine: set[str] = set()
+    fine_asks: list[tuple[str, str, Optional[float]]] = []
     for row in payload.get("quotes") or ():
         if rfq_id is not None and row.get("rfq_id") != rfq_id:
             continue
@@ -285,6 +315,10 @@ def parse_quotes(
         buy_side_usable = False
         if no_bid is None:
             buy_refusal = too_fine if reason == REFUSED_FINER_THAN_TENTHS else unreadable
+            if reason == REFUSED_FINER_THAN_TENTHS:
+                exact_ask = _exact_complement_dollars(row.get("no_bid_dollars"))
+                if exact_ask is not None:
+                    fine_asks.append((row_id, exact_ask, _fp(row.get("no_contracts_fp"))))
         else:
             ask = complement(no_bid)
             # 0 and 1000 are settled outcomes, not quotes. A maker bidding
@@ -356,6 +390,7 @@ def parse_quotes(
         refused_finer_than_tenths=frozenset(too_fine),
         refused_unreadable=frozenset(unreadable),
         refused_bid_finer_than_tenths=frozenset(bid_too_fine),
+        finer_than_tenths_asks=tuple(fine_asks),
     )
 
 

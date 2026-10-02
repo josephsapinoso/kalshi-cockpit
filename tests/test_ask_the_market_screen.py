@@ -362,3 +362,47 @@ class TestTakeItCarriesTheSingleTicketsWarning:
         source = _read(ASK)
         assert source.count("<TakeItWarning") == 1
         assert source.index("<TakeItWarning") < source.index('label="Best quote"')
+
+
+class TestTooFineQuotesAreShownNotTaken:
+    """#291 (Joe's (A) to #273): a quote priced finer than a tenth of a cent
+    is listed with its venue price and the word refused, and the block that
+    lists them offers nothing to tap."""
+
+    def _block(self) -> str:
+        src = _read(ASK)
+        start = src.index("function RefusedFineQuotes")
+        return src[start : src.index("function Quotes(", start)]
+
+    def test_the_refused_block_has_no_button_and_no_handler(self):
+        block = self._block()
+        assert "<button" not in block and "onClick" not in block
+        assert "TakeIt" not in block
+
+    def test_the_refused_block_says_refused_and_finer_than_a_tenth(self):
+        block = self._block()
+        assert "Refused: finer than a tenth of a cent" in block
+        assert "ask_display" in block
+
+    def test_both_outcomes_render_it(self):
+        assert _read(ASK).count("<RefusedFineQuotes value={value} />") == 2
+
+
+class TestTheFeeShareIsAnEstimate:
+    """#288: before Take it, the fee as a share of the stake, labelled an
+    estimate, and absent rather than 0% when either number is unreadable."""
+
+    def _block(self) -> str:
+        src = _read(ASK)
+        return src[src.index("function FeeShare"):]
+
+    def test_it_says_estimate(self):
+        assert "(an\n      estimate)" in self._block().replace("\r\n", "\n")
+
+    def test_an_unreadable_fee_or_total_renders_nothing(self):
+        block = self._block()
+        assert "quote.fee_tenths === null || quote.all_in_tenths === null" in block
+        assert "return null" in block
+
+    def test_it_sits_under_the_take_button(self):
+        assert "<FeeShare quote={quote} />" in _read(ASK)

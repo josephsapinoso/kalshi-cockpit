@@ -212,6 +212,33 @@ class TestWhatComesBack:
         # loop that stamped only one sighting would leave first == last.
         assert last > first
 
+    async def test_a_too_fine_quote_is_shown_with_its_venue_price_and_cannot_be_taken(
+        self, build
+    ):
+        """#291 (Joe's (A) to #273): a maker quote priced finer than a tenth of
+        a cent is served with its exact venue price, cheapest first, but
+        carries no quote id -- so nothing can address it to the accept route
+        -- and it never becomes a stored, takeable quote."""
+        import sqlite3
+
+        app, _, path = build(quotes=[
+            _quote_row("fine-1", "0.9945"),   # YES ask 0.55c
+            _quote_row("fine-2", "0.99925"),  # YES ask 0.075c
+            _quote_row("ok-1", "0.3690"),     # YES ask 63.1c, representable
+        ])
+        body = (await _post(app, _body())).json()
+        assert body["refused_too_fine"] == 2
+        assert body["refused_too_fine_quotes"] == [
+            {"yes_ask_dollars": "0.00075", "ask_display": "0.075c", "contracts": 8.19},
+            {"yes_ask_dollars": "0.0055", "ask_display": "0.55c", "contracts": 8.19},
+        ]
+        assert all("quote_id" not in r for r in body["refused_too_fine_quotes"])
+        assert [q["quote_id"] for q in body["quotes"]] == ["ok-1"]
+        conn = sqlite3.connect(path)
+        stored = {r[0] for r in conn.execute("SELECT quote_id FROM combo_rfq_quotes")}
+        conn.close()
+        assert stored == {"ok-1"}, "a refused quote must never become a takeable row"
+
     async def test_quotes_are_returned_cheapest_first(self, build):
         app, _, _ = build(
             quotes=[_quote_row("q1", "0.3690"), _quote_row("q2", "0.4070")]

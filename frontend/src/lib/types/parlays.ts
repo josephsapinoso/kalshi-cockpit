@@ -481,6 +481,16 @@ export type ComboRfqResult = {
    * six makers answered when one did.
    */
   refused_too_fine: number;
+  /**
+   * The refused quotes' own prices, cheapest first (#291, Joe's (A) to
+   * #273): the venue's exact decimal and its cents display. Shown, never
+   * takeable -- no quote id is served, so nothing can be accepted from it.
+   */
+  refused_too_fine_quotes?: {
+    yes_ask_dollars: string;
+    ask_display: string;
+    contracts: number | null;
+  }[];
   rfq_id: string;
   market_ticker: string;
   /**

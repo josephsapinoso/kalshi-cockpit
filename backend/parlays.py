@@ -351,7 +351,7 @@ NOTES: dict[str, str] = {
         f"{TAP_CENSUS_BOOK_EMPTY} found nothing resting on the combination — "
         f"the “no one is selling it” answer. That is the venue’s book "
         f"being empty, not a fault in the card. A combination’s book is "
-        f"empty between requests by design (ADR 0164): its price comes from "
+        f"empty between requests by design: its price comes from "
         f"asking, and “Ask the market for a price” sends the request to "
         f"makers, who quote privately. It says nothing about which card is "
         f"better."
