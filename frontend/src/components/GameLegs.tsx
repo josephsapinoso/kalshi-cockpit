@@ -13,6 +13,7 @@ import AskTheMarket from "@/components/AskTheMarket";
 import ScoutDesk from "@/components/ScoutDesk";
 import Term from "@/components/Term";
 import { Button, SectionLabel } from "@/components/ui";
+import { formatClock } from "@/lib/format";
 import { sideLabelAddsWords } from "@/lib/sideLabel";
 
 /**
@@ -45,6 +46,47 @@ const EXTRA_LEG_LINE =
   "Each extra leg is one more thing a maker can charge for.";
 
 type Side = "yes" | "no";
+
+/**
+ * Kalshi's ask for one side as the listing printed it (#276), integer tenths
+ * from the server; `null` is "unreadable", never zero. Depth at the YES ask is
+ * the YES ask size; depth at the NO ask is the size of the resting YES bid.
+ * The type lives here because `GameLeg` is not this lane's file.
+ */
+type ListedSide = {
+  ask_tenths: number | null;
+  ask_display: string | null;
+  size: number | null;
+  size_display: string | null;
+};
+type GameLegListed = GameLeg & {
+  listed?: { read_ms: number } & Partial<Record<Side, ListedSide>>;
+};
+
+function ListedAsk({ leg, side }: { leg: GameLeg; side: Side }) {
+  const listed = (leg as GameLegListed).listed;
+  const facts = listed?.[side];
+  return (
+    <p className="mt-0.5 text-[11px] text-muted">
+      {side.toUpperCase()}:{" "}
+      <Term k="ask">Kalshi ask, as listed</Term>{" "}
+      {facts && facts.ask_display !== null ? (
+        <>
+          <span className="tabular">{facts.ask_display}</span>
+          {facts.size_display !== null && (
+            <>
+              {" "}&middot; <Term k="depth">depth</Term>{" "}
+              <span className="tabular">{facts.size_display}</span> at that price
+            </>
+          )}
+          {listed && <> &middot; read {formatClock(listed.read_ms)}</>}
+        </>
+      ) : (
+        <>none readable{listed ? <> &middot; read {formatClock(listed.read_ms)}</> : null}</>
+      )}
+    </p>
+  );
+}
 
 export default function GameLegs({ eventTicker }: { eventTicker: string }) {
   const [data, setData] = useState<GameLegsData | null>(null);
@@ -307,6 +349,9 @@ function Group({
                   );
                 })}
               </div>
+              {leg.allowed_sides.map((side) => (
+                <ListedAsk key={`ask-${side}`} leg={leg} side={side} />
+              ))}
               {leg.allowed_sides.map((side) => {
                 const facts = leg.sides[side];
                 if (!facts || facts.chance !== null) return null;
