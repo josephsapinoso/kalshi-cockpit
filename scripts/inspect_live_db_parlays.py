@@ -2,7 +2,8 @@
 
 Queries: `parlay-candidates-timing`, `parlay-lookups-tail`,
 `combo-bids-tail`, `combo-position-gaps`, `combo-position-orphans`,
-`ladder-fixtures`, `scout-briefings`, `scout-watch-log`, `agent-spend`.
+`ladder-fixtures`, `scout-briefings`, `scout-watch-log`, `agent-spend`,
+`game-script-card-stamps`, `parlay-lookup-errors`, `own-open-rfqs`.
 
 The candidate scan timed and EXPLAINed on the live database, the "Price on
 Kalshi" taps that minted a combination market -- the only record anywhere
@@ -1211,3 +1212,157 @@ def _q_agent_spend(conn: sqlite3.Connection, args) -> list[Section]:
         ),
         rows,
     ]
+
+
+# ---------------------------------------------------------------------------
+# Three bounded reads for the parlay desk (#286, town hall 2026-10-02).
+# ---------------------------------------------------------------------------
+#
+# Each scans only the NEWEST `args.limit` rows of its table by an indexed
+# order (primary key or `idx_combo_rfqs_time`), through a subquery, so the
+# cost is the row cap and never the table. The window is printed beside the
+# answer: a count over "the newest 2000 rows" and a count over "all rows" read
+# the same and are not, so every result says how many rows it looked at.
+#
+# The venue's cap on simultaneously open RFQs. A copy of
+# `backend.kalshi.rfq.MAX_OPEN_RFQS`, held by a test, because this family
+# imports nothing from `backend`.
+_VENUE_MAX_OPEN_RFQS = 100
+
+_SQL_GAME_SCRIPT_CARD_STAMPS = (
+    "SELECT status, COUNT(*) AS cards, "
+    "       SUM(combo_ticker IS NOT NULL) AS combo_stamped "
+    "FROM (SELECT status, combo_ticker FROM game_script_cards "
+    "      ORDER BY id DESC LIMIT ?) "
+    "GROUP BY status ORDER BY status"
+)
+_SQL_GAME_SCRIPT_CARD_WINDOW = (
+    "SELECT COUNT(*) AS rows_scanned, MIN(built_ms) AS oldest_built_ms, "
+    "       MAX(built_ms) AS newest_built_ms "
+    "FROM (SELECT built_ms FROM game_script_cards ORDER BY id DESC LIMIT ?)"
+)
+
+
+def _q_game_script_card_stamps(conn: sqlite3.Connection, args) -> list[Section]:
+    """`game_script_cards` counted by `status`, beside how many carry a
+    `combo_ticker`, over the newest `args.limit` rows.
+
+    `combo_ticker` is stamped when Joe bets a card (`game_builder.py` UPDATEs
+    it), so `built` against `combo_stamped` on the `built` row is built cards
+    against cards he took. At most four rows (one per status).
+
+    What this does not establish
+    -----------------------------
+    - **Not a take rate.** `combo_stamped` is a stamp on a row, not a fill: a
+      stamped card may have been priced, asked about or abandoned, and a
+      combination built from a card's legs by hand stamps nothing.
+    - **Not the whole table when `rows_scanned` equals the cap.** The window
+      is the newest rows by `id`; older cards are not counted, and the
+      window's `oldest_built_ms` says how far back it reaches.
+    - **No per-sport, per-game or per-day split, and no cost.** Spend is
+      `agent-spend`'s.
+    """
+    stamps = _fetch(
+        conn, _SQL_GAME_SCRIPT_CARD_STAMPS, (args.limit,),
+        title="game_script_cards: status x combo_ticker stamped, newest window",
+        cap=args.limit,
+    )
+    window = _fetch(
+        conn, _SQL_GAME_SCRIPT_CARD_WINDOW, (args.limit,),
+        title="game_script_cards: the window those counts cover",
+        cap=args.limit,
+    )
+    window = _derive_iso(window, "oldest_built_ms", "oldest_built_iso")
+    window = _derive_iso(window, "newest_built_ms", "newest_built_iso")
+    return [stamps, window]
+
+
+_SQL_PARLAY_LOOKUP_ERRORS = (
+    "SELECT status, error, COUNT(*) AS lookups, "
+    "       MAX(requested_ms) AS last_seen_ms "
+    "FROM (SELECT status, error, requested_ms FROM parlay_lookups "
+    "      ORDER BY id DESC LIMIT ?) "
+    "WHERE error IS NOT NULL "
+    "GROUP BY status, error ORDER BY lookups DESC, last_seen_ms DESC"
+)
+_SQL_PARLAY_LOOKUP_WINDOW = (
+    "SELECT COUNT(*) AS rows_scanned, "
+    "       COALESCE(SUM(error IS NOT NULL), 0) AS with_error, "
+    "       MIN(requested_ms) AS oldest_requested_ms "
+    "FROM (SELECT error, requested_ms FROM parlay_lookups "
+    "      ORDER BY id DESC LIMIT ?)"
+)
+
+
+def _q_parlay_lookup_errors(conn: sqlite3.Connection, args) -> list[Section]:
+    """`parlay_lookups.error` texts by count, newest `args.limit` lookups,
+    top `-n` distinct (status, error) pairs by count.
+
+    The `error` column holds the refusal's or the venue's own words, verbatim
+    and never parsed into a category (`scout_watch_log.detail`'s rule); a
+    message that embeds a ticker or a leg makes every row its own group.
+
+    What this does not establish
+    -----------------------------
+    - **Not a rate.** `lookups` is a count in a window; the window's
+      `rows_scanned` and `with_error` are printed so the share is checkable,
+      and nothing here divides them.
+    - **Not why.** An `error` is what was recorded, not a diagnosis, and a
+      `refused` row is the desk stopping a tap before any venue call
+      (schema v38), not a venue refusal.
+    - **Only the newest window**, and only taps that wrote a row.
+    """
+    top = _fetch(
+        conn, _SQL_PARLAY_LOOKUP_ERRORS, (args.limit,),
+        title=f"parlay_lookups: top {args.tail} error texts by count",
+        cap=min(args.tail, args.limit), requested=args.tail,
+    )
+    window = _fetch(
+        conn, _SQL_PARLAY_LOOKUP_WINDOW, (args.limit,),
+        title="parlay_lookups: the window those counts cover",
+        cap=args.limit,
+    )
+    return [
+        _derive_iso(top, "last_seen_ms", "last_seen_iso"),
+        _derive_iso(window, "oldest_requested_ms", "oldest_requested_iso"),
+    ]
+
+
+_SQL_OWN_OPEN_RFQS = (
+    "SELECT COUNT(*) AS rows_scanned, "
+    "       COALESCE(SUM(is_open), 0) AS open_rows, "
+    f"       {_VENUE_MAX_OPEN_RFQS} AS venue_cap, "
+    f"       {_VENUE_MAX_OPEN_RFQS} - COALESCE(SUM(is_open), 0) AS headroom, "
+    "       MIN(CASE WHEN is_open = 1 THEN requested_ms END) AS oldest_open_ms, "
+    "       MAX(CASE WHEN is_open = 1 THEN requested_ms END) AS newest_open_ms "
+    "FROM (SELECT requested_ms, "
+    "             (deleted_ms IS NULL AND status != 'error') AS is_open "
+    "      FROM combo_rfqs ORDER BY requested_ms DESC, id DESC LIMIT ?)"
+)
+
+
+def _q_own_open_rfqs(conn: sqlite3.Connection, args) -> list[Section]:
+    """Our `combo_rfqs` rows never marked deleted, against the venue's cap of
+    100 simultaneously open RFQs, over the newest `args.limit` rows.
+
+    A row counts as open when `deleted_ms IS NULL` and `status != 'error'`
+    (an `error` row is a failed create that never stood). One row out.
+
+    What this does not establish
+    -----------------------------
+    - **Not what the venue holds.** This is the desk's own bookkeeping: an
+      RFQ that expired or was withdrawn elsewhere keeps `deleted_ms` NULL
+      here, so `open_rows` can overcount and `headroom` can understate. The
+      venue's `GET /communications/rfqs?user_filter=self` is the only count of
+      what is actually open, and nothing here calls it.
+    - **Not RFQs made outside the desk**, or a second process's.
+    - **Only the newest window**; `rows_scanned` equal to the cap means older
+      rows were not looked at and could add open ones.
+    """
+    section = _fetch(
+        conn, _SQL_OWN_OPEN_RFQS, (args.limit,),
+        title="combo_rfqs: our rows not marked deleted vs the venue cap",
+        cap=1,
+    )
+    section = _derive_iso(section, "oldest_open_ms", "oldest_open_iso")
+    return [_derive_iso(section, "newest_open_ms", "newest_open_iso")]

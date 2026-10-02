@@ -348,8 +348,11 @@ from inspect_live_db_parlays import (  # noqa: E402,F401
     _q_combo_bids_tail,
     _q_combo_position_gaps,
     _q_combo_position_orphans,
+    _q_game_script_card_stamps,
     _q_ladder_fixtures,
+    _q_own_open_rfqs,
     _q_parlay_candidates_timing,
+    _q_parlay_lookup_errors,
     _q_parlay_lookups_tail,
     _q_scout_briefings,
     _q_scout_watch_log,
@@ -1244,6 +1247,32 @@ QUERIES: dict[str, QueryDef] = {
         # measurement, so this cost is structural and stays whatever
         # the numbers say about scoring.py's own statement.
         cost=WALKS_THE_FILE,
+    ),
+    "game-script-card-stamps": QueryDef(
+        "game_script_cards counted per status beside how many carry a "
+        "combo_ticker (a card Joe bet), over the newest --limit rows, plus "
+        "the window those counts cover. Built vs combo-stamped. Not a take "
+        "rate: a stamp is not a fill.",
+        _q_game_script_card_stamps,
+        # Newest --limit rows by primary key through a subquery; at most four
+        # status groups out.
+        cost=CHEAP,
+    ),
+    "parlay-lookup-errors": QueryDef(
+        "parlay_lookups.error texts by count (top -n, default 5) over the "
+        "newest --limit lookups, with the window's rows_scanned and "
+        "with_error. Verbatim, never categorised; not a rate, not a cause.",
+        _q_parlay_lookup_errors,
+        # Newest --limit rows by primary key through a subquery.
+        cost=CHEAP,
+    ),
+    "own-open-rfqs": QueryDef(
+        "Our combo_rfqs rows not marked deleted (status != 'error') over the "
+        "newest --limit rows, against the venue's cap of 100 open RFQs. "
+        "Local bookkeeping, can overcount; not the venue's own count.",
+        _q_own_open_rfqs,
+        # idx_combo_rfqs_time order, newest --limit rows; one row out.
+        cost=CHEAP,
     ),
     "parlay-lookups-tail": QueryDef(
         "The last N \"Price on Kalshi\" taps (-n, default 5), newest first: "
