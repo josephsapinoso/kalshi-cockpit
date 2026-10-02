@@ -172,3 +172,30 @@ class TestTheOutputCarriesNoNumberAboutTheBet:
         assert "'number'" not in text and "'integer'" not in text
         for name in RecheckOutput.model_fields:
             assert not any(name.startswith(f) for f in self.FORBIDDEN)
+
+
+class TestTheCardSaysWhatTheCheckFound:
+    """The card face never turns "not found" into reassurance."""
+
+    SRC = (
+        __import__("pathlib").Path(__file__).parent.parent
+        / "frontend" / "src" / "components" / "GameScriptCard.tsx"
+    )
+
+    def _block(self) -> str:
+        text = self.SRC.read_text(encoding="utf-8")
+        return text[text.index("const RECHECK_WORDS"):text.index("function RecheckLine")]
+
+    def test_not_found_says_it_is_not_a_confirmation(self):
+        assert "That is not a confirmation." in self._block()
+
+    @pytest.mark.parametrize("word", ["holds", "confirmed", "safe", "all clear", "good to go"])
+    def test_no_reassuring_word(self, word):
+        assert word not in self._block().lower().replace("not a confirmation", "")
+
+    def test_every_stored_status_has_words(self):
+        for status in game_script_cards.RECHECK_STATUSES:
+            assert f"{status}:" in self._block()
+
+    def test_the_line_is_on_the_card(self):
+        assert "<RecheckLine card={card} />" in self.SRC.read_text(encoding="utf-8")

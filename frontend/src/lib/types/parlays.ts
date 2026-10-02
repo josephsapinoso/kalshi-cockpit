@@ -837,6 +837,15 @@ export type GameScriptCard = {
   sources: { url: string; published: string }[] | null;
   /** What has to happen in the game for every leg to win; `null` on older cards. */
   ticket_needs: string | null;
+  /**
+   * The T-2h drop-if re-check (#289), only on a game Joe opened. `null`
+   * until it has run. `not_found` means one search did not find the drop-if
+   * news; it never confirms the card.
+   */
+  recheck_ms?: number | null;
+  recheck_status?: "triggered" | "not_found" | "unknown" | "refused_budget" | null;
+  recheck_note?: string | null;
+  recheck_source?: { url: string; published: string } | null;
   /** Kalshi's own name for the game, or `null` when discovery has none. */
   game_title: string | null;
 };

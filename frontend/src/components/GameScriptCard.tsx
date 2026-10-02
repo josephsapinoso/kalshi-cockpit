@@ -69,6 +69,47 @@ const DROPPED_WIN_LINE =
  */
 const TICKET_NEEDS_LABEL = "What this ticket needs:";
 
+/**
+ * The T-2h drop-if re-check (#289, Joe's (A) to #270): one search on the
+ * drop-if line about two hours before kickoff, only for a game he opened.
+ * "Not found" is said as exactly that -- one search did not find it -- and
+ * never as "holds" or "confirmed": the check has never been scored.
+ */
+const RECHECK_WORDS: Record<string, string> = {
+  triggered: "a page says the drop-if news happened.",
+  not_found: "one search did not find the drop-if news. That is not a confirmation.",
+  unknown: "the answer was unclear.",
+  refused_budget: "not run; the day's research budget was used up.",
+};
+
+function RecheckLine({ card }: { card: CardData }) {
+  if (!card.recheck_status || card.recheck_ms == null) return null;
+  return (
+    <p
+      className={`mt-1 max-w-[65ch] text-xs ${
+        card.recheck_status === "triggered" ? "font-semibold" : "text-muted"
+      }`}
+    >
+      <span className="font-semibold">Checked at {formatClock(card.recheck_ms)}:</span>{" "}
+      {RECHECK_WORDS[card.recheck_status]}
+      {card.recheck_note ? <> {card.recheck_note}</> : null}
+      {card.recheck_source ? (
+        <>
+          {" "}
+          <a
+            href={card.recheck_source.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-accent underline underline-offset-2"
+          >
+            source{card.recheck_source.published ? `, ${card.recheck_source.published}` : ""}
+          </a>
+        </>
+      ) : null}
+    </p>
+  );
+}
+
 function newsSearchUrl(name: string): string {
   return `https://news.google.com/search?q=${encodeURIComponent(name)}`;
 }
@@ -285,6 +326,7 @@ export default function GameScriptCard({
                 ),
               )}
         </p>
+        <RecheckLine card={card} />
         <p className="mt-1 max-w-[65ch] text-xs text-muted">
           <span className="font-semibold">Lineups:</span>{" "}
           {card.inactives_line}
