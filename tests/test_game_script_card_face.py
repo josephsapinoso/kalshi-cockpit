@@ -185,3 +185,58 @@ class TestGetAPriceBuildsOnly:
         ask = src[src.index("const ask = async"): src.index("if (card.status")]
         assert "AskTheMarket" not in ask and "accept" not in ask.lower()
         assert src.count("<AskTheMarket") == 1
+
+
+class TestThenAndNowHasNoArrowOrColour:
+    def test_then_and_now_are_two_stamped_facts(self):
+        src = _code(COMPONENT)
+        assert "leg.at_build" in src
+        assert "{then.ask_display} when written" in src
+        assert "ask {leg.ask_display} now" in src
+        assert re.search(r"read \{formatClock\(", src)
+
+    def test_then_and_now_has_no_arrow_or_colour(self):
+        src = _code(COMPONENT)
+        start = src.index("function ThenNow")
+        block = src[start: src.index("\n}\n", start)]
+        for glyph in ("↑", "↓", "→", "▲", "▼", "&uarr;",
+                      "&darr;", "&rarr;", "↗", "↘"):
+            assert glyph not in block, glyph
+        assert not re.search(
+            r"text-(accent|accent-2|go|red|green|amber)|bg-|border-(accent|go)",
+            block,
+        ), "then-and-now must not be coloured"
+        assert not re.search(r"\b(up|down|rose|fell|moved|move|steam)\b", block, re.I)
+        assert "line" not in block.lower().replace("inline", "")
+
+    def test_depth_is_behind_a_tap(self):
+        src = _code(COMPONENT)
+        start = src.index("function ThenNow")
+        block = src[start: src.index("\n}\n", start)]
+        assert "<details" in block and "<summary" in block
+        assert "depth" in block.lower()
+        assert block.index("<details") < block.lower().index("depth")
+
+
+class TestServerServesTheStamps:
+    def test_each_leg_carries_at_build_and_read_ms(self, tmp_path, monkeypatch):
+        from backend.store import db
+        from tests.test_game_script_card_screen import (
+            LEGS, NOW, HOUR, _app, _built,
+        )
+
+        monkeypatch.setattr(db, "now_ms", lambda: NOW)
+        http, conn = _app(tmp_path)
+        legs = [
+            {**LEGS[0], "at_build": {"ask_tenths": 530, "size": 12.0, "read_ms": NOW - 5000}},
+            {**LEGS[1], "at_build": {"ask_tenths": None, "size": None, "read_ms": None}},
+        ]
+        _built(conn, "KXNFLGAME-26SEP13ATLPIT", NOW + 5 * HOUR, legs=legs)
+        out = http.get("/api/game-cards").json()["cards"][0]["legs"]
+        assert out[0]["read_ms"] == NOW
+        assert out[0]["at_build"]["ask_display"] == "53c"
+        assert out[0]["at_build"]["read_ms"] == NOW - 5000
+        assert out[1]["at_build"]["ask_display"] is None
+        assert out[1]["at_build"]["ask_tenths"] is None
+        # Depth now is the size at the ask the server just read.
+        assert out[0]["size_now"] == 10.0

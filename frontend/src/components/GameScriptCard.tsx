@@ -20,6 +20,7 @@ import Term from "@/components/Term";
 import { Button, SectionLabel } from "@/components/ui";
 import { leagueLabel } from "@/lib/leagueLabel";
 import { splitDropIf } from "@/lib/dropIfNames";
+import { formatClock } from "@/lib/format";
 import { sideLabelAddsWords } from "@/lib/sideLabel";
 
 /**
@@ -322,15 +323,55 @@ function LegRow({
           <span className="text-xs text-muted"> ({leg.side_label})</span>
         ) : null}
       </span>
-      <span className="tabular text-xs text-muted">
-        {kickoffText(kickoffMs)} ·{" "}
-        {leg.ask_display !== null ? (
-          <>Kalshi ask {leg.ask_display}</>
-        ) : (
-          (leg.ask_unread_reason ?? "Kalshi's ask was not read.")
-        )}
-      </span>
+      <div className="tabular text-xs text-muted">
+        {kickoffText(kickoffMs)} · <ThenNow leg={leg} />
+      </div>
     </li>
+  );
+}
+
+/**
+ * The leg's price twice, as two stamped facts (#285): "58c now · read 9:14"
+ * and "53c when written", from the server's read and the leg's `at_build`.
+ * **No arrow, no colour, and no sportsbook line beside it**: a mark between
+ * the two numbers would read as momentum, which nothing here measures. Size
+ * at each ask is behind a tap. Plain muted text, each figure one leg's own.
+ */
+function ThenNow({ leg }: { leg: GameScriptLeg }) {
+  const then = leg.at_build;
+  return (
+    <>
+      {leg.ask_display !== null ? (
+        <>
+          Kalshi ask {leg.ask_display} now
+          {leg.read_ms !== null ? <> · read {formatClock(leg.read_ms)}</> : null}
+        </>
+      ) : (
+        (leg.ask_unread_reason ?? "Kalshi's ask was not read.")
+      )}
+      {" · "}
+      {then && then.ask_display !== null ? (
+        <>{then.ask_display} when written</>
+      ) : (
+        "no price was kept when written"
+      )}
+      <details className="mt-0.5 block">
+        <summary className="inline-block min-h-[24px] cursor-pointer">
+          Show depth
+        </summary>
+        <span className="block">
+          <Term k="depth">Depth</Term> now:{" "}
+          {leg.size_now !== null
+            ? `${leg.size_now.toLocaleString("en-US")} contracts at the ask`
+            : "not read"}
+          . When written:{" "}
+          {then && then.size !== null
+            ? `${then.size.toLocaleString("en-US")} contracts at the ask`
+            : "not kept"}
+          .
+        </span>
+      </details>
+    </>
   );
 }
 

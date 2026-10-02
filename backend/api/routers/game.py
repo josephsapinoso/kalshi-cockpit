@@ -195,6 +195,21 @@ def no_card_line(card: dict) -> Optional[str]:
     return f"No clean story: {reason}"
 
 
+def at_build_view(stored: Optional[dict]) -> Optional[dict]:
+    """A leg's frozen `at_build` (#283) with its price worded, or `None` for a
+    card built before that freeze existed (never an invented zero). The number
+    stays an integer tenth; `ask_display` is the same figure in cents."""
+    if not isinstance(stored, dict):
+        return None
+    ask = stored.get("ask_tenths")
+    return {
+        "ask_tenths": ask,
+        "ask_display": format_price(ask) if ask is not None else None,
+        "size": stored.get("size"),
+        "read_ms": stored.get("read_ms"),
+    }
+
+
 async def _read_leg_asks(
     api, legs: list[dict], *, now_ms: int, game_event_ticker: str = ""
 ) -> list[dict]:
@@ -235,6 +250,13 @@ async def _read_leg_asks(
             "ask_tenths": None,
             "ask_display": None,
             "ask_unread_reason": None,
+            # When this ask was read, and the size at it (#285). `None` until
+            # a book read succeeds: an unread leg claims no read time.
+            "read_ms": None,
+            "size_now": None,
+            # The same leg's listed ask as it stood when the card was built
+            # (#283), for the "when written" figure. Per leg, never combined.
+            "at_build": at_build_view(leg.get("at_build")),
         }
         try:
             async with gate:
@@ -257,6 +279,8 @@ async def _read_leg_asks(
         else:
             out["ask_tenths"] = ask
             out["ask_display"] = format_price(ask)
+            out["read_ms"] = now_ms
+            out["size_now"] = book.depth_at_ask(side)
         return out
 
     return list(await asyncio.gather(*(one(leg) for leg in legs)))
@@ -401,6 +425,9 @@ def register(
                             "This instance has no Kalshi credentials, so no "
                             "ask was read."
                         ),
+                        "read_ms": None,
+                        "size_now": None,
+                        "at_build": at_build_view(leg.get("at_build")),
                     }
                     for leg in card["legs"]
                 ]

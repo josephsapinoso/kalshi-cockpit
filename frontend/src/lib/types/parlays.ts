@@ -788,6 +788,20 @@ export type GameScriptLeg = {
   ask_tenths: number | null;
   ask_display: string | null;
   ask_unread_reason: string | null;
+  /** When the ask above was read, or `null` when no book read succeeded. */
+  read_ms: number | null;
+  /** Contracts resting at that ask now; `null` when unread. */
+  size_now: number | null;
+  /**
+   * This leg's listed ask when the card was written (#283), or `null` on a
+   * card built before it was kept. Per leg: nothing here is combined.
+   */
+  at_build: {
+    ask_tenths: number | null;
+    ask_display: string | null;
+    size: number | null;
+    read_ms: number | null;
+  } | null;
 };
 
 export type GameScriptCard = {
