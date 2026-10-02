@@ -151,6 +151,7 @@ SUBCOMMANDS = (
     "parlay-candidates-timing",
     "parlay-lookups-tail",
     "pass-gaps",
+    "position-provenance",
     "prop-bookmakers",
     "prop-rungs",
     "prune-frontier",

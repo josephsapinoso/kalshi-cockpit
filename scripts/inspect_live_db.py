@@ -597,6 +597,59 @@ def _q_lost_leg_closures(conn: sqlite3.Connection, args) -> list[Section]:
 
 
 # ---------------------------------------------------------------------------
+# position-provenance: the newest parlay_positions rows with the provenance a
+# writer stored on them (ADR 0192, #268), beside the manual_orders row their
+# fill_ref names.
+# ---------------------------------------------------------------------------
+
+_SQL_POSITION_PROVENANCE = (
+    "SELECT p.id, p.status, p.source, p.combo_ticker, p.placed_ms, "
+    "p.fill_source, p.fill_ref, p.stake_basis, p.stake_basis_reason, "
+    "p.stake_tenths, m.id AS order_id, m.ticker AS order_ticker, "
+    "m.status AS order_status, m.dry_run AS order_dry_run, "
+    "m.limit_price_tenths, m.venue_fill_count, m.venue_avg_fill_price_tenths "
+    "FROM parlay_positions p "
+    "LEFT JOIN manual_orders m "
+    "ON p.fill_source = 'manual_order' AND m.id = p.fill_ref "
+    "ORDER BY p.id DESC"
+)
+
+
+def _q_position_provenance(conn: sqlite3.Connection, args) -> list[Section]:
+    """The newest `parlay_positions` rows with `fill_source`, `fill_ref`,
+    `stake_basis` and `stake_basis_reason` as stored, and the `manual_orders`
+    row `fill_ref` names when `fill_source = 'manual_order'`.
+
+    #268's check: the first combination bought through the desk after ADR
+    0192's S2 should carry `fill_source = 'manual_order'`, a `fill_ref` that
+    is its order's `manual_orders.id`, and `stake_basis = 'venue_fill'`
+    exactly when that order row carries `venue_avg_fill_price_tenths`.
+    `/api/hedge` serves `stake_basis` but neither provenance column, so this
+    is the only read of them.
+
+    Newest first by `id`, `-n`/`--tail` bounds it; the `--limit` row cap
+    still applies underneath. `order_*` columns are NULL when `fill_source`
+    is anything else or `fill_ref` matches no order -- the join refuses to
+    guess, it does not fall back to ticker or time.
+
+    What this does not establish
+    -----------------------------
+    - **No aggregate, no rate, no P&L.** A dump, ordered; nothing summed.
+    - **Nothing about rows written before ADR 0192.** Their provenance
+      columns are NULL by construction, not because a writer failed.
+    """
+    section = _fetch(
+        conn,
+        _SQL_POSITION_PROVENANCE,
+        (),
+        title="parlay_positions: stored provenance, newest first",
+        cap=args.limit,
+        requested=args.tail,
+    )
+    return [_derive_iso(section, "placed_ms", "placed_iso")]
+
+
+# ---------------------------------------------------------------------------
 # combo-rfqs: a durable read of `combo_rfqs`, newest first (#149).
 # ---------------------------------------------------------------------------
 #
@@ -1542,6 +1595,18 @@ QUERIES: dict[str, QueryDef] = {
         # closed_reason is non-NULL on a small, bounded subset of
         # parlay_positions -- one row per hand-recorded slip the desk closed
         # itself, the same bounded-by-activity shape as manual-order-refusals.
+        cost=CHEAP,
+    ),
+    "position-provenance": QueryDef(
+        "The newest parlay_positions rows (-n, default 5) with the "
+        "provenance a writer stored (fill_source, fill_ref, stake_basis, "
+        "stake_basis_reason, stake_tenths) beside the manual_orders row "
+        "fill_ref names when fill_source = 'manual_order' (ADR 0192, #268). "
+        "No aggregate. /api/hedge serves neither provenance column.",
+        _q_position_provenance,
+        # Walks parlay_positions newest-first by primary key under a -n cap
+        # (one row per position Joe holds or held) and seeks manual_orders
+        # by primary key per row. No large table is touched.
         cost=CHEAP,
     ),
     "combo-rfqs": QueryDef(
