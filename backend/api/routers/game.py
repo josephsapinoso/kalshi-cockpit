@@ -24,6 +24,7 @@ from ...agents.base import AgentConfig, build_client
 from ...agents.budget import AgentBudget
 from ...agents.game_script import build_card
 from ...config import AppConfig, ConfigError, StalenessConfig
+from ...core.leg_words import no_words_for
 from ...core.prices import format_price
 from ...game_builder import (
     _read_event_markets,
@@ -165,7 +166,9 @@ def no_card_line(card: dict) -> Optional[str]:
     return f"No clean story: {reason}"
 
 
-async def _read_leg_asks(api, legs: list[dict], *, now_ms: int) -> list[dict]:
+async def _read_leg_asks(
+    api, legs: list[dict], *, now_ms: int, game_event_ticker: str = ""
+) -> list[dict]:
     """Kalshi's own single-leg ask for each card leg, read now.
 
     One `markets_for_event` per distinct event (the title) and one order book
@@ -189,7 +192,17 @@ async def _read_leg_asks(api, legs: list[dict], *, now_ms: int) -> list[dict]:
             "event_ticker": leg["event_ticker"],
             "side": side,
             "title": str(market.get("title") or leg["market_ticker"]),
-            "side_label": market.get(f"{side}_sub_title") or None,
+            # Kalshi's no_sub_title repeats the YES one (#275), so a NO leg is
+            # worded as its opposite; the YES side keeps Kalshi's own words.
+            "side_label": (
+                no_words_for(
+                    series=str(leg["event_ticker"]).split("-")[0],
+                    game_event_ticker=game_event_ticker,
+                    yes_label=market.get("yes_sub_title"),
+                )
+                if side == "no"
+                else market.get("yes_sub_title") or None
+            ),
             "ask_tenths": None,
             "ask_display": None,
             "ask_unread_reason": None,
@@ -363,7 +376,10 @@ def register(
                     for leg in card["legs"]
                 ]
             else:
-                card["legs"] = await _read_leg_asks(api, card["legs"], now_ms=now)
+                card["legs"] = await _read_leg_asks(
+                    api, card["legs"], now_ms=now,
+                    game_event_ticker=card["game_event_ticker"],
+                )
         return {"now_ms": now, "cards": cards}
 
     @app.post(

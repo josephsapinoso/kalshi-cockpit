@@ -58,6 +58,7 @@ import re
 from typing import Optional, Sequence
 
 from .core.ladder import unusable_reason
+from .core.leg_words import no_words_for
 from .kalshi.combos import ComboCollection, ComboScope, echoed_legs, lookup_combo
 from .kalshi.orderbook import OrderBook
 from .store import game_script_cards
@@ -401,7 +402,13 @@ async def list_game_legs(
                 "kind": kind,
                 "title": str(market.get("title") or ticker),
                 "yes_label": market.get("yes_sub_title") or None,
-                "no_label": market.get("no_sub_title") or None,
+                # Kalshi's own `no_sub_title` equals the YES one (#275), so the
+                # NO side is worded as its opposite per leg kind instead.
+                "no_label": no_words_for(
+                    series=event.series,
+                    game_event_ticker=game_event_ticker,
+                    yes_label=market.get("yes_sub_title"),
+                ),
                 "strike": _strike_of(market),
                 "player": _player_of(market),
                 "allowed_sides": ["yes"] if event.is_yes_only else ["yes", "no"],

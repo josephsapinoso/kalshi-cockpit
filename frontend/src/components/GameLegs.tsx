@@ -13,6 +13,7 @@ import AskTheMarket from "@/components/AskTheMarket";
 import ScoutDesk from "@/components/ScoutDesk";
 import Term from "@/components/Term";
 import { Button, SectionLabel } from "@/components/ui";
+import { sideLabelAddsWords } from "@/lib/sideLabel";
 
 /**
  * The same-game parlay builder (#202): every leg Kalshi offers on one game,
@@ -272,6 +273,11 @@ function Group({
                 {leg.allowed_sides.map((side) => {
                   const facts = leg.sides[side];
                   const checked = ticked[leg.market_ticker] === side;
+                  // Kalshi's NO sub-title repeats the YES one, so the server
+                  // words the NO side as its opposite (#275); show it when it
+                  // says anything the title does not.
+                  const sideWords =
+                    side === "yes" ? leg.yes_label : leg.no_label;
                   return (
                     <label
                       key={side}
@@ -288,6 +294,10 @@ function Group({
                       <span className="font-mono text-xs uppercase">
                         {side}
                       </span>
+                      {sideWords &&
+                        sideLabelAddsWords(leg.title, sideWords) && (
+                          <span className="text-xs">{sideWords}</span>
+                        )}
                       <span className="tabular text-xs text-muted">
                         {facts && facts.chance !== null
                           ? facts.chance_display
