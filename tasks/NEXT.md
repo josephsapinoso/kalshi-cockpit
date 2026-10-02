@@ -137,6 +137,19 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-02 (seventy-eighth session) — #268 read: Joe's combo came through RFQ, its row is consistent; new `position-provenance` inspector query (live on `47a3cb3`); #268 closed
+
+Joe's focus: he had already bought a combination for #268. Single errand he named, so no partner run.
+
+- **`/api/hedge` could not do #268's check.** It serves `stake_basis` but neither `fill_source` nor `fill_ref`, and no inspector query emitted them. Added `inspect_live_db.py position-provenance` (CHEAP, `-n` bounded): the newest `parlay_positions` rows' stored provenance beside the `manual_orders` row `fill_ref` names, joined on `fill_ref` only. `tests/test_inspect_live_db_position_provenance.py`; the `fill_source` guard and the ordering each mutated red. CI 36959228915 green, deploy 36959806920, `/api/health` `build.git_sha` = `47a3cb3`.
+- **The combo was bought by RFQ, not the buy button.** Position 74 (placed 2026-10-02T00:13:43Z): `fill_source = rfq_quote`, `fill_ref = 1646` (the accepted quote), `stake_basis = venue_fill`, reason NULL, stake 3783 tenths, matching `/api/hedge`'s $3.78 `venue_fill`. Consistent with `positions.record_rfq_accept`. It has since settled.
+- **The path #268 named has not fired since 2026-09-17.** `manual-orders-audit`: 18 rows, the last at 2026-09-17T19:30:52Z, the day `<TakeIt>` was armed. Every combo since has gone through RFQ. #268 closed with the result on the ticket; if a `manual_orders` combo ever fills again, `position-provenance -n 3` checks it in one command.
+
+### Still open
+
+1. #220: on or after 2026-10-05, review the game-script cards, run `credits-day --date 2026-10-04`, and read the first Matchup tile. #210 closes with it.
+2. #165, #169 and #151 are unchanged. #267 is due in November.
+
 ## 2026-10-01 (seventy-seventh session) — S3 of ADR 0192: the armed hand-bet path leaves `create_app` for `backend/manual_order.py` (#266, live on `86affa0`); story #263 closed; both lanes found their tickets already shipped
 
 Joe gave no focus. Partner ranked the work: #266 on main, #210 and #255 part 1 as Sonnet lanes, then housekeeping. Joe approved the plan, which covered the merges and deploys.
@@ -1418,6 +1431,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-02 (seventy-eighth session) — #268 read: Joe's combo came through RFQ, its row is consistent; new `position-provenance` inspector query (live on `47a3cb3`); #268 closed
 - 2026-10-01 (seventy-seventh session) — S3 of ADR 0192: the armed hand-bet path leaves `create_app` for `backend/manual_order.py` (#266, live on `86affa0`); story #263 closed; both lanes found their tickets already shipped
 - 2026-10-01 (seventy-sixth session) — architecture review; every frontend write goes through one transport module (ADR 0191); api.ts split into transport, format and types (#257–#262, live on `ea53d22`); A+B positions module grilled and ticketed (#263)
 - 2026-10-01 (seventy-fifth session) — the CLV signal test's registered result is in: UNRESOLVED at G = 1000; #233 answered
