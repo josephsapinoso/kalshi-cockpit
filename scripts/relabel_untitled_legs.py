@@ -32,10 +32,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from backend.config import KalshiConfig  # noqa: E402
-from backend.kalshi.rest import KalshiRestClient  # noqa: E402
+import httpx  # noqa: E402
 
 NO_PREFIX = "NO -- "
+
+#: Market titles are public: the venue's market listing needs no signature,
+#: so this runs under `flyctl ssh`, whose shell does not carry the app's
+#: Kalshi credentials. Read-only, one GET per event.
+REST_URL = os.environ.get(
+    "KALSHI_REST_URL", "https://api.elections.kalshi.com/trade-api/v2"
+)
 
 
 def untitled_legs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -56,10 +62,14 @@ def event_of(row: sqlite3.Row) -> str:
 
 async def venue_titles(events: set[str]) -> dict[str, str]:
     out: dict[str, str] = {}
-    async with KalshiRestClient(KalshiConfig.load()) as api:
+    async with httpx.AsyncClient(base_url=REST_URL, timeout=20) as client:
         for event in sorted(events):
             try:
-                markets = await api.markets_for_event(event)
+                response = await client.get(
+                    "/markets", params={"event_ticker": event, "limit": 200}
+                )
+                response.raise_for_status()
+                markets = response.json().get("markets") or []
             except Exception as exc:  # noqa: BLE001 -- one event failing is a stated gap
                 print(f"  {event}: unreadable ({type(exc).__name__}); its legs keep their ticker")
                 continue
