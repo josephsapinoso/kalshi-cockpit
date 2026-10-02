@@ -169,6 +169,8 @@ Joe bet off the desk's recommendations today and asked to "track them and learn 
 4. #292: map #3 is full; a new question for Joe has nowhere visible to go until it lands.
 5. #165, #169 and #151 are unchanged. #267 is due in November.
 
+---
+
 ## 2026-10-02 (seventy-ninth session, continued) — parlay town hall: batch 1 (17 tickets) live on `734f460`, schema v61 + v62; Joe answered five; batch 2 ticketed
 
 Joe asked partner to convene a town hall on the parlay changes and recommend what makes his selections better, then "let's get creating".
