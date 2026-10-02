@@ -127,6 +127,7 @@ export default function ParlayCards({
         actionable={actionable}
         refreshable={refreshable}
       />
+      <EmptyEverywhere ladder={ladder} />
       <Excluded excluded={ladder.excluded} />
       {/* The four server caveats, verbatim, behind one tap rather than four
           paragraphs under the grid (#158). */}
@@ -1327,6 +1328,50 @@ function Freshness({
       */}
       {actionable && (
         <RefreshWhenPriced renderedFresh={actionable.fixtures_fresh} />
+      )}
+    </section>
+  );
+}
+
+/**
+ * Why every window came back empty (#279). "Needs 2 fresh games and the slate
+ * has 0" reads as an empty schedule; observed 2026-10-02 04:17Z it was odds
+ * 152-271 minutes old against a 15-minute limit. When the widest window the
+ * desk tried left out stale sides, say the odds are stale; and always carry
+ * that window's own left-out counts, not tonight's. Copy only: it changes
+ * nothing about which legs qualify, and states no frequency.
+ */
+function EmptyEverywhere({ ladder }: { ladder: ParlayLadder }) {
+  const empty = ladder.all_windows_empty;
+  if (!empty) return null;
+  const entries = Object.entries(empty.excluded).filter(([, n]) => n > 0);
+  return (
+    <section
+      aria-label="Why every window is empty"
+      className="max-w-[65ch] space-y-1 text-xs leading-snug text-muted"
+    >
+      <p>
+        No window built a card, including {empty.widest_words}.
+        {empty.stale_consensus > 0 && (
+          <>
+            {" "}
+            <span className="font-semibold text-foreground">
+              The sportsbook odds are stale:
+            </span>{" "}
+            {empty.stale_consensus} side
+            {empty.stale_consensus === 1 ? "" : "s"} had consensus too old to
+            use, so the schedule may not be what is empty.
+          </>
+        )}
+      </p>
+      {entries.length > 0 && (
+        <p>
+          Left out in that widest window:{" "}
+          {entries
+            .map(([reason, n]) => `${n} ${EXCLUSION_WORDS[reason] ?? reason}`)
+            .join("; ")}
+          .
+        </p>
       )}
     </section>
   );
