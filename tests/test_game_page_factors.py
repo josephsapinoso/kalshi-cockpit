@@ -137,3 +137,17 @@ class TestTheScreens:
             code = _code(path)
             assert not re.search(r"\.(sort|toSorted)\(", code)
             assert not re.search(r"\.rest\s*[<>]|\.rest\b.*\.(sort|filter)\(", code)
+
+
+def test_the_game_title_and_kickoff_lead_the_page():
+    """Joe, 2026-10-02: the game's heading comes before the card panel. The
+    page hands the panel to GameLegs, which draws GameHeading first."""
+    from pathlib import Path
+
+    root = Path(__file__).parent.parent / "frontend" / "src"
+    page = (root / "app" / "game" / "[event]" / "page.tsx").read_text(encoding="utf-8")
+    legs = (root / "components" / "GameLegs.tsx").read_text(encoding="utf-8")
+    assert "belowHeading={<GameCardPanel" in page
+    assert page.count("<GameCardPanel") == 1
+    for state in ("data={null} />\n        {belowHeading}", "data={data} />\n    {belowHeading}"):
+        assert state in legs.replace("\r\n", "\n")

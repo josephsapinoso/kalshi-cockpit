@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import {
   displayZoneLabel,
@@ -174,10 +174,17 @@ function preTick(raw: string | undefined, listing: GameLegsData): Record<string,
 export default function GameLegs({
   eventTicker,
   initialLegs,
+  belowHeading,
 }: {
   eventTicker: string;
   /** The raw `?legs=` value; ticked once, when the listing first arrives. */
   initialLegs?: string;
+  /**
+   * What sits between the game's heading and the leg menu -- the page passes
+   * the game-script card panel, so the title and kickoff come first on the
+   * page (Joe, 2026-10-02) without a second read of the listing.
+   */
+  belowHeading?: ReactNode;
 }) {
   const [data, setData] = useState<GameLegsData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -277,6 +284,7 @@ export default function GameLegs({
     return (
       <>
         <GameHeading eventTicker={eventTicker} data={null} />
+        {belowHeading}
         <p className="mt-6 max-w-[65ch] text-sm text-accent-2">
           {error} Nothing was created.
         </p>
@@ -287,6 +295,7 @@ export default function GameLegs({
     return (
       <>
         <GameHeading eventTicker={eventTicker} data={null} />
+        {belowHeading}
         <p className="mt-6 text-sm text-muted">Reading Kalshi&rsquo;s legs for this game…</p>
       </>
     );
@@ -295,6 +304,7 @@ export default function GameLegs({
   return (
     <>
     <GameHeading eventTicker={eventTicker} data={data} />
+    {belowHeading}
     <div className="mt-6 grid gap-6 pb-24 lg:grid-cols-[minmax(0,1fr)_22rem] lg:pb-0">
       <div className="min-w-0 space-y-4">
         <p className="max-w-[65ch] text-sm text-muted">

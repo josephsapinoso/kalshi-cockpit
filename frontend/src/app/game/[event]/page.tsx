@@ -32,8 +32,13 @@ export default async function GamePage({
   return (
     <div className={`${SHELL_WIDTH} px-4 py-12 sm:px-6 sm:py-16 xl:px-8`}>
       <h1 className="display text-4xl sm:text-5xl">Same-game parlay</h1>
-      <GameCardPanel eventTicker={eventTicker} />
-      <GameLegs eventTicker={eventTicker} initialLegs={initialLegs} />
+      {/* The game's title and kickoff lead the page (Joe, 2026-10-02): GameLegs
+          draws its heading first and the card panel right under it. */}
+      <GameLegs
+        eventTicker={eventTicker}
+        initialLegs={initialLegs}
+        belowHeading={<GameCardPanel eventTicker={eventTicker} />}
+      />
     </div>
   );
 }
