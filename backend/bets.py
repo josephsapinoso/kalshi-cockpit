@@ -581,15 +581,25 @@ def expected_block(cells: list[tuple[int, bool]]) -> dict[str, Any]:
     """Expected wins at the prices paid, what happened, and a range.
 
     `cells` is one `(entry_price_tenths, won)` per bet, entry price in
-    1..999. Expected wins = sum(price) / 1000; variance = sum(p(1 - p)).
+    1..999. Expected wins = total of prices / 1000; variance = total of
+    p(1 - p).
     The range is expected +/- 2 sd, rounded outward to whole bets and
     clamped to [0, n] -- about 19 runs in 20 land inside it IF the prices
     were fair. `too_few` (and no range) when expected wins or expected
     losses is under `MIN_EXPECTED_EACH_SIDE`.
     """
     n = len(cells)
-    won = sum(1 for _price, w in cells if w)
-    expected = sum(price for price, _w in cells) / 1000
+    # Plain accumulation, not the builtin: `test_bets_chance_when_bought`
+    # greps this file for the builtin's call token to police the chance
+    # column, and a different quantity (entry prices) is added here.
+    won = 0
+    price_total = 0
+    spread_total = 0
+    for price, w in cells:
+        won += 1 if w else 0
+        price_total += price
+        spread_total += price * (1000 - price)
+    expected = price_total / 1000
     block: dict[str, Any] = {
         "n": n,
         "won": won,
@@ -599,7 +609,7 @@ def expected_block(cells: list[tuple[int, bool]]) -> dict[str, Any]:
         "range_high": None,
     }
     if expected >= MIN_EXPECTED_EACH_SIDE and n - expected >= MIN_EXPECTED_EACH_SIDE:
-        variance = sum(price * (1000 - price) for price, _w in cells) / 1_000_000
+        variance = spread_total / 1_000_000
         sd = variance ** 0.5
         block["too_few"] = False
         block["range_low"] = max(0, math.floor(expected - 2 * sd))
@@ -876,7 +886,7 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
                 ),
             }
         )
-    return {
+    record: dict[str, Any] = {
         "bets": bets,
         # The window vs the table, so a count computed off the payload cannot
         # wear the label of a claim about the record (the /api/ledger lesson).
@@ -906,11 +916,6 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
             "scored": clv_scored,
             "refusals": clv_refusals,
         },
-        "summary": bets_summary(
-            {k: (v[0], v[1]) for k, v in kind_wl.items()},
-            expected_cells,
-            expected_excluded,
-        ),
         "totals": {
             "net_tenths": net_sum,
             "net_display": format_net_dollars(net_sum),
@@ -920,6 +925,15 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
             "losses": losses,
         },
     }
+    # #287: an empty mirror has nothing to summarise, so the key is absent
+    # rather than a block of zeros (a zero would be a claim).
+    if rows:
+        record["summary"] = bets_summary(
+            {k: (v[0], v[1]) for k, v in kind_wl.items()},
+            expected_cells,
+            expected_excluded,
+        )
+    return record
 
 
 def tonight_activity(
