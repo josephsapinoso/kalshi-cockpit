@@ -16,6 +16,7 @@ What this does not establish: that the chip renders at phone width, or that
 rest is right for a real fixture (`tests/test_team_rest_reader.py` owns that).
 """
 
+# ruff: noqa: F811  (pytest fixtures imported from test_game_builder)
 from __future__ import annotations
 
 import re
