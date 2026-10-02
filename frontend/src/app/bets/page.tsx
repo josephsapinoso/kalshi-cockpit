@@ -630,7 +630,7 @@ const GAME_TICKER =
  * `SettledBet` type is outside this lane. Every leg renders through ONE
  * element with ONE style: no losing-leg highlight, no tally by bet type.
  */
-type LegWithResult = { label: string; side: "yes" | "no"; result?: "won" | "lost" | "void" | null };
+type LegWithResult = NonNullable<SettledBet["legs"]>[number];
 
 function legResultWord(result: LegWithResult["result"]): string {
   return result === "won"
@@ -733,7 +733,7 @@ function BetRow({ bet }: { bet: SettledBet }) {
           </span>
           {bet.kind === "combo" && bet.legs && bet.legs.length > 0 && (
             <span className="mt-1 block text-xs text-muted" data-leg-results>
-              {(bet.legs as LegWithResult[]).map((leg, i) => (
+              {bet.legs.map((leg, i) => (
                 <span key={i} className="block" data-leg-result>
                   {leg.label} · {legResultWord(leg.result)}
                 </span>

@@ -111,7 +111,15 @@ export type SettledBet = {
   // position or the lookup that minted it. `null` when ANY leg is unreadable
   // (never a partial list) and always `null` on a single -- the row then says
   // "Combination bet". Optional: a backend one version behind omits the key.
-  legs?: { label: string; side: "yes" | "no" }[] | null;
+  // #294: each leg's own result; `null` when not read yet (never "lost").
+  legs?:
+    | {
+        label: string;
+        side: "yes" | "no";
+        ticker?: string;
+        result?: "won" | "lost" | "void" | null;
+      }[]
+    | null;
   // #254: Kalshi's own title for a single's market, from discovery; `null`
   // when discovery holds none, and always `null` on a combination.
   market_title?: string | null;

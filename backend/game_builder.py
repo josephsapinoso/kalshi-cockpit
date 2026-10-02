@@ -127,6 +127,10 @@ SERIES_LABELS: dict[str, str] = {
     "FIRSTTD": "First touchdown scorer",
     "FIRSTTDTEAM": "Which team scores first",
     "TD": "Anytime touchdown",
+    # The captured NFL series codes (#296 follow-up): `TD` above never matched
+    # a real series, so anytime-touchdown legs fell through to the fallback.
+    "ANYTD": "Anytime touchdown",
+    "2TD": "Two or more touchdowns",
     "PASSYDS": "Passing yards",
     "PASSTDS": "Passing touchdowns",
     "PASSINT": "Interceptions thrown",

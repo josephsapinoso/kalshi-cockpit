@@ -52,3 +52,12 @@ def test_league_labels_only_name_captured_series():
         )
         seen = _captured(prefix, fixture)
         assert set(labels) <= seen, (prefix, set(labels) - seen)
+
+
+def test_the_captured_nfl_touchdown_series_are_named():
+    """#296 follow-up: KXNFLANYTD / KXNFL2TD are the captured codes; the old
+    generic key `TD` matched nothing, so they read as "Other markets"."""
+    from backend.game_builder import UNKNOWN_SERIES_LABEL, series_label
+
+    assert series_label("KXNFL", "ANYTD") == "Anytime touchdown"
+    assert series_label("KXNFL", "2TD") != UNKNOWN_SERIES_LABEL
