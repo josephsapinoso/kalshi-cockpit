@@ -140,7 +140,7 @@ export const GLOSSARY = {
       "chance is worth 40¢ on a $1 payout. Any price above fair value is " +
       "the seller’s margin. The cards here show fair value; Kalshi’s own " +
       "price will differ.",
-  },
+  },
   quote_age: {
     label: "quote age",
     definition:
@@ -155,7 +155,7 @@ export const GLOSSARY = {
       "while sportsbook lines are bought in scheduled windows; once the book " +
       "side ages past the freshness limit, the comparison is refused until " +
       "the odds are re-bought. The game and the price are both still real.",
-  },
+  },
   ask: {
     label: "ask",
     definition:
@@ -316,6 +316,20 @@ export const GLOSSARY = {
       "An order actually matching — the moment your buy found a seller. " +
       "The fill price is what you truly paid, and it can differ from the " +
       "ask you were looking at.",
+  },
+  expected_wins: {
+    label: "expected to win",
+    definition:
+      "A price is a chance: a combo bought at 25 cents is priced as a 1-in-4 " +
+      "shot. Add those chances up across your bets and you get how many " +
+      "should have won if the prices were fair. 40 bets at 25 cents: about 10.",
+  },
+  plausible_range: {
+    label: "range",
+    definition:
+      "Wins bounce around even when prices are fair, like heads in 40 coin " +
+      "flips. The range is where the win count lands about 19 times in 20 if " +
+      "the prices were fair, so 10 expected might read 4 to 16.",
   },
   wl: {
     label: "W / L",
