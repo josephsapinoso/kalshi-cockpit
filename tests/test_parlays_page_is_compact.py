@@ -117,7 +117,7 @@ class TestTheCardIsCompact:
         for needle in (
             "{card.story}",
             "{DROPPED_WIN_LINE}",
-            "{card.drop_if}",
+            "splitDropIf(card.drop_if)",
             'k="inactives"',
         ):
             assert needle in details.group(0), needle
@@ -133,7 +133,7 @@ class TestTheCardIsCompact:
             "<GameHeading",
             "<LegRow",
             "{NO_COMBINED_CHANCE_LINE}",
-            "Ask the market",
+            "Get a price",
         ):
             assert needle in outside, needle
         assert "{card.story}" not in outside

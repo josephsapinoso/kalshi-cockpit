@@ -19,6 +19,7 @@ import AskTheMarket from "@/components/AskTheMarket";
 import Term from "@/components/Term";
 import { Button, SectionLabel } from "@/components/ui";
 import { leagueLabel } from "@/lib/leagueLabel";
+import { splitDropIf } from "@/lib/dropIfNames";
 import { sideLabelAddsWords } from "@/lib/sideLabel";
 
 /**
@@ -57,6 +58,24 @@ const DROPPED_WIN_LINE =
   "by the margin above already includes winning, so the ticket pays on " +
   "exactly the same results, and Kalshi refuses the pair.";
 
+/**
+ * What this ticket needs, as the card's own heading for `ticket_needs` (#284).
+ * Plain words about the game, never a probability.
+ */
+const TICKET_NEEDS_LABEL = "What this ticket needs:";
+
+function newsSearchUrl(name: string): string {
+  return `https://news.google.com/search?q=${encodeURIComponent(name)}`;
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
 /** Inactives come out this long before kickoff (the card's own footnote). */
 const INACTIVES_LEAD_MS = 90 * 60_000;
 
@@ -77,7 +96,10 @@ function CardAge({ card }: { card: CardData }) {
   }, []);
   if (nowMs === null) return null;
   const age = formatAge(Math.max(0, nowMs - card.built_ms));
+  // Only the NFL has an inactives time this repo can cite; another sport's
+  // card does not claim one (#284).
   const beforeInactives =
+    card.sport_key === "nfl" &&
     card.built_ms < card.kickoff_ms - INACTIVES_LEAD_MS;
   return (
     <p className="mt-1 text-xs text-muted">
@@ -173,16 +195,68 @@ export default function GameScriptCard({
             {DROPPED_WIN_LINE}
           </p>
         )}
+        {card.ticket_needs && (
+          <p className="mt-2 max-w-[65ch] text-sm">
+            <span className="font-semibold">{TICKET_NEEDS_LABEL}</span>{" "}
+            {card.ticket_needs}
+          </p>
+        )}
         <p className="mt-3 max-w-[65ch] text-sm">
           <span className="font-semibold">
             <Term k="drop_if">Drop it if</Term>:
           </span>{" "}
-          {card.drop_if}
+          {card.drop_if === null
+            ? null
+            : splitDropIf(card.drop_if).map((part, i) =>
+                part.name === null ? (
+                  <span key={i}>{part.text}</span>
+                ) : (
+                  <a
+                    key={i}
+                    href={newsSearchUrl(part.name)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-accent underline underline-offset-2"
+                  >
+                    {part.text}
+                  </a>
+                ),
+              )}
         </p>
         <p className="mt-1 max-w-[65ch] text-xs text-muted">
-          <Term k="inactives">Inactives</Term> come out 90 minutes before
-          kickoff and are not covered.
+          <span className="font-semibold">Lineups:</span>{" "}
+          {card.inactives_line}
+          {card.sport_key === "nfl" && (
+            <>
+              {" "}
+              (<Term k="inactives">what are inactives?</Term>)
+            </>
+          )}
         </p>
+        {card.sources && card.sources.length > 0 && (
+          <div className="mt-3">
+            <p className="max-w-[65ch] text-xs font-semibold text-muted">
+              Sources the scout read
+            </p>
+            <ul className="mt-1 max-w-[65ch] space-y-0.5 text-xs">
+              {card.sources.map((src) => (
+                <li key={src.url} className="min-w-0 break-words">
+                  <a
+                    href={src.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-accent underline underline-offset-2"
+                  >
+                    {hostOf(src.url)}
+                  </a>
+                  {src.published ? (
+                    <span className="text-muted"> &middot; {src.published}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </details>
 
       <div className="mt-3">
@@ -190,7 +264,7 @@ export default function GameScriptCard({
           onClick={ask}
           disabled={mint.kind === "minting" || card.legs.length < 2}
         >
-          {mint.kind === "minting" ? "Building…" : "Ask the market"}
+          {mint.kind === "minting" ? "Building…" : "Get a price"}
         </Button>
         {card.combo_ticker && mint.kind === "idle" && (
           <p className="mt-2 text-xs text-muted">

@@ -807,7 +807,12 @@ export type GameScriptCard = {
   dropped_legs: { market_ticker: string; event_ticker: string; side: string }[];
   /** The sentence a game with no built card carries; `null` on a built one. */
   no_card_line: string | null;
+  /** The sport's own sentence about when lineups are confirmed (#284). */
   inactives_line: string;
+  /** Pages the scout read, or `null` on a card built before sources were kept. */
+  sources: { url: string; published: string }[] | null;
+  /** What has to happen in the game for every leg to win; `null` on older cards. */
+  ticket_needs: string | null;
   /** Kalshi's own name for the game, or `null` when discovery has none. */
   game_title: string | null;
 };
