@@ -1520,7 +1520,7 @@ class TestDerivedAsks:
         """One definition, not four.
 
         This rule was patched at three call sites before it was put in the
-        derivation (`runner.py`'s prop path, `routes.py::_tradeable_ask`, and
+        derivation (`runner.py`'s prop path, `manual_order.py::tradeable_ask`, and
         then here). The guard against a fourth is that the derivation uses the
         SAME predicate the consumers do, so the two cannot drift apart.
         """

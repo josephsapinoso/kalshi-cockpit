@@ -556,7 +556,7 @@ def _scout_states_at_bet(
     and is left out, so it records NULL.
 
     **Nothing here may raise into the writer.** `record_position` sits on the
-    armed order path (`routes._record_combo_position`) and the RFQ accept, and
+    armed order path (`manual_order._record_combo_position`) and the RFQ accept, and
     a bookkeeping lookup failing must not turn a purchase that already
     happened into an error that says nothing happened. A failure records
     NULL -- "not recorded" -- which the column's comment says is its meaning,
@@ -807,7 +807,7 @@ def stake_basis_for(
     - **`no_order_row` / `ambiguous_order_rows`** -- the join key is
       `(combo_ticker, placed_ms)`, and `placed_ms` is the same
       `submitted_ms` the route wrote on the order in the same request
-      (`routes.py`, `_write_manual_intent` and `_record_combo_position` take
+      (`manual_order.py`, `_write_manual_intent` and `_record_combo_position` take
       one variable). **Both mean the key WAS formed and the lookup DID run**:
       zero matches or more than one means the link is unreadable, and an
       unreadable link resolves to the recorded number, never to a plausible
@@ -1408,7 +1408,7 @@ def _latest_ok_positions_poll(conn: sqlite3.Connection) -> Optional[sqlite3.Row]
 
     `bets.open_positions` established this exact selector (`ok = 1 AND
     mirrored = 1`) and the reason for the second clause: `poll_log` has a
-    second writer, `routes.py::_stamp_positions_read`, which logs a real
+    second writer, `manual_order.py::_stamp_positions_read`, which logs a real
     `row_count` on every hand bet but keeps no rows under it. `ok = 1` alone
     would sometimes select that bare stamp, find zero `venue_positions` rows
     under it, and read as "the venue holds nothing" for as long as five
@@ -1583,7 +1583,7 @@ async def adopt_venue_combo(
 
     Each leg's label is `kalshi_markets.title` where this instance's own
     market ingest has seen that leg's market, prefixed `"NO -- "` when the
-    leg's own side is `'no'` -- the order path (`routes.py::
+    leg's own side is `'no'` -- the order path (`manual_order.py::
     _record_combo_position`, `parlays.leg_details_for`) has no convention
     for this because every leg it has ever recorded carries a label already
     chosen to describe the side bought, and an adopted leg has no such
@@ -1874,7 +1874,7 @@ def assess(
     position_id = int(position["id"])
     # The sunk stake is what left the account: the contracts at their price
     # PLUS the taker fee the venue charged on entry, which the stored
-    # `stake_tenths` does not carry -- `routes._record_combo_position` writes
+    # `stake_tenths` does not carry -- `manual_order._record_combo_position` writes
     # a price times a count and no fee. Left out, every branch of every rung
     # reads too high by the fee -- ~17 tenths a contract at 41c, the size of
     # the smallest floors `Lock.is_guaranteed_profit` fires on. ADR 0145. A
@@ -2124,7 +2124,7 @@ def estimate_grain(position: Mapping[str, Any], outcome: Lock) -> Optional[str]:
       22 tenths a contract on one of twelve rows and zero on the other
       eleven, and it is the largest measured term (the result doc, §5).
       `return_tenths` is `contracts * 1000` on a recorded combo
-      (`routes._record_combo_position`), so the contract count is read back
+      (`manual_order._record_combo_position`), so the contract count is read back
       from it and the observed gap is dollarised for this ticket. A return
       that is not a whole number of contracts was typed by hand and the
       count is unreadable; the sentence then carries the per-contract figure

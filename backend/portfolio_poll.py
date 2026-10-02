@@ -1145,7 +1145,7 @@ def store_positions_snapshot(
     kept", and it exists as its own function because `poll_log` has two
     writers of positions reads and only one of them keeps rows.**
     **Both writers call this**, as of the ADR 0107 merge on 2026-09-05.
-    `poll_positions` above is one. The other is `backend/api/routes.py::
+    `poll_positions` above is one. The other is `backend/manual_order.py::
     _stamp_positions_read` -- the hand-bet path's own read, check 10 of
     `POST /api/manual-orders` -- which logs through the same
     `log_poll_attempt` under the same endpoint name and now hands its rows

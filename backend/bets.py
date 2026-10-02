@@ -407,7 +407,7 @@ TONIGHT_STALE_AFTER_MS = 30 * 60 * 1000
 STAKED_NEVER_POLLED = "no positions poll has succeeded yet"
 # A positions read HAS been logged and none has kept its rows: every
 # `poll_log` row is from before v33, or is the hand-bet path's own stamp
-# (`routes.py::_stamp_positions_read` logs the read and keeps no rows). The
+# (`manual_order.py::_stamp_positions_read` logs the read and keeps no rows). The
 # poller's next successful poll is the first one the figure can come from.
 # Neither the count nor the money is served off a bare row -- they wear one
 # stamp or none -- so this is words with no clock, and distinct from
@@ -423,7 +423,7 @@ STAKED_NOT_READ = "not read in the last 30 minutes"
 # thirty-minute staleness bound would still serve.
 #
 # **It is no longer how a second writer shows up, and the second writer is
-# live, not hypothetical.** `routes.py::_stamp_positions_read` logs a
+# live, not hypothetical.** `manual_order.py::_stamp_positions_read` logs a
 # positions read on every hand bet, with a real `row_count`, and keeps no
 # rows. Before the marker this reader selected that stamp as the newest
 # successful poll, counted N against 0 rows, and refused here for up to five
@@ -887,7 +887,7 @@ def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
       the count means "open now" rather than "ever traded". **What changed
       in the selection, and why.** Until the marker this took the newest
       successful positions poll of any kind, and `poll_log` has a second
-      writer: `routes.py::_stamp_positions_read` logs the hand-bet path's own
+      writer: `manual_order.py::_stamp_positions_read` logs the hand-bet path's own
       positions read on every bet, with a real `row_count`, and keeps no
       rows. That stamp was the newest poll for up to five minutes after every
       hand bet, so the count was served off it and the money figure refused

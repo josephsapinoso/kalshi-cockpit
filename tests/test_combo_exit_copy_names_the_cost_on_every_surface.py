@@ -80,6 +80,9 @@ PARLAY_CARDS = FRONTEND / "components" / "ParlayCards.tsx"
 PRICE_ON_KALSHI = FRONTEND / "components" / "PriceOnKalshi.tsx"
 PARLAYS_PAGE = FRONTEND / "app" / "parlays" / "page.tsx"
 ROUTES = BACKEND / "api" / "routes.py"
+#: The hand-bet handler's body since ADR 0192 S3 (#266): the combo
+#: acknowledgement refusal and the position notes moved here with it.
+MANUAL_ORDER = BACKEND / "manual_order.py"
 BID_ROUTER = BACKEND / "api" / "routers" / "parlays.py"
 PARLAYS = BACKEND / "parlays.py"
 #: The one writer of held combos since ADR 0192; the order path's
@@ -225,12 +228,12 @@ BACKEND_SURFACES = [
         id="routes-combo_note",
     ),
     pytest.param(
-        BackendSurface(ROUTES, "need the acknowledgement"),
-        id="routes-acknowledgement-refusal",
+        BackendSurface(MANUAL_ORDER, "need the acknowledgement"),
+        id="manual_order-acknowledgement-refusal",
     ),
     pytest.param(
-        BackendSurface(ROUTES, "legs could not be recovered"),
-        id="routes-position_note",
+        BackendSurface(MANUAL_ORDER, "legs could not be recovered"),
+        id="manual_order-position_note",
     ),
     pytest.param(
         BackendSurface(POSITIONS, "Recorded automatically from the hand-bet path"),

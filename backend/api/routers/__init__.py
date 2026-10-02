@@ -39,7 +39,9 @@ Two properties every module here keeps:
 
 What stays in `routes.py`, deliberately: `/api/health` and the quote stream,
 `/api/board`, `/api/slate`, `/api/window`, `/api/market/{ticker}` and its
-candles, `/api/orders`, and the manual order path. `test_board_sized_to_zero`
-needs the board and slate decorators adjacent in one file, and the two
-`OrderPlacer(` constructions are a counted guard on the live order path.
+candles, `/api/orders`, and the manual order route's thin adapter.
+`test_board_sized_to_zero` needs the board and slate decorators adjacent in
+one file. The manual order path's body left for `backend/manual_order.py` in
+ADR 0192 S3 (#266), so the two counted placer constructions now sit one in
+`routes.py` (engine) and one there (manual); the count walks the tree.
 """

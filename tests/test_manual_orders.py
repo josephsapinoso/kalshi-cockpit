@@ -629,12 +629,14 @@ class TestTheGuardsRefuse:
         the guard off.
 
         Mutation observed red: replace `{COMBO_EXIT_CENSUS_BOOKS_READ}` with a
-        literal `40` in `backend/api/routes.py`.
+        literal `40` in `backend/api/routes.py`. Since ADR 0192 S3 (#266) the
+        handler body is `backend/manual_order.py`'s; re-checked there by
+        typing a literal into `{COMBO_EXIT_RFQ_POSITIONS}`.
         """
         route = next(
             node
             for node in ast.walk(ast.parse(
-                (REPO / "backend" / "api" / "routes.py").read_text(
+                (REPO / "backend" / "manual_order.py").read_text(
                     encoding="utf-8"
                 )
             ))
@@ -1230,7 +1232,7 @@ class TestTheLivePositionsReadIsStamped:
         a read the venue then failed. Called at the function rather than
         through the route, which is the only level the branch is reachable
         from."""
-        from backend.api.routes import _stamp_positions_read
+        from backend.manual_order import _stamp_positions_read
 
         path = _base_db(tmp_path)
         await _stamp_positions_read(
@@ -1335,9 +1337,24 @@ class TestTheSeparationIsArchitecture:
         point the regex stopped matching that call and the pin quietly
         covered one construction instead of two, while staying green. The
         count assertion is here so that silence cannot repeat: a third
-        production placer has to be looked at rather than absorbed."""
-        routes = (REPO / "backend" / "api" / "routes.py").read_text(encoding="utf-8")
-        calls = re.findall(r"OrderPlacer\(([^)]*)\)", routes, re.S)
+        production placer has to be looked at rather than absorbed.
+
+        **Counted across the whole production tree since ADR 0192 S3**
+        (#266): the manual construction moved to `backend/manual_order.py`,
+        and a scan of one file would have seen one placer and called the
+        other gone -- or, worse, a third added elsewhere would never have been
+        seen at all. `backend/kalshi/orders.py` defines the class and is the
+        one file excluded."""
+        calls = [
+            args
+            for path in sorted((REPO / "backend").rglob("*.py"))
+            if path != REPO / "backend" / "kalshi" / "orders.py"
+            for args in re.findall(
+                r"OrderPlacer\(([^)]*)\)",
+                path.read_text(encoding="utf-8"),
+                re.S,
+            )
+        ]
         assert len(calls) == 2, (
             f"expected exactly two production OrderPlacer constructions "
             f"(engine, manual); found {len(calls)}"
@@ -1355,9 +1372,10 @@ class TestTheSeparationIsArchitecture:
         be driven while the constant is True: a live `OrderPlacer` with no
         REST client raises, so arming without this wiring produces a 503
         rather than an order. Mutation observed red: drop `rest=placer_rest`
-        from the construction."""
-        routes = (REPO / "backend" / "api" / "routes.py").read_text(encoding="utf-8")
-        manual = routes[routes.index("def place_manual_order"):]
+        from the construction. Reads `backend/manual_order.py` since ADR 0192
+        S3 (#266), where the construction moved."""
+        source = (REPO / "backend" / "manual_order.py").read_text(encoding="utf-8")
+        manual = source[source.index("def place_manual_order"):]
         placer = manual[manual.index("OrderPlacer("):]
         placer = placer[: placer.index(")")]
         assert "rest=" in placer, (
@@ -2115,16 +2133,23 @@ class TestACombinationCarriesTheConsensusTheDeskComputed:
             encoding="utf-8"
         )
         assert "manual_store.is_combo_ticker(ticker)" in source
-        literals = [
-            node
-            for node in ast.walk(ast.parse(source))
-            if isinstance(node, ast.Constant)
-            and node.value == manual_store.COMBO_PREFIX
-        ]
-        assert literals == [], (
-            "routes.py carries its own copy of the combination prefix; the "
-            "predicate lives in store/manual_orders.is_combo_ticker"
+        # The hand-bet handler left routes.py in ADR 0192 S3 (#266); its
+        # module answers the same question and is held to the same rule.
+        manual = (REPO / "backend" / "manual_order.py").read_text(
+            encoding="utf-8"
         )
+        assert "manual_store.is_combo_ticker(ticker)" in manual
+        for name, text in (("routes.py", source), ("manual_order.py", manual)):
+            literals = [
+                node
+                for node in ast.walk(ast.parse(text))
+                if isinstance(node, ast.Constant)
+                and node.value == manual_store.COMBO_PREFIX
+            ]
+            assert literals == [], (
+                f"{name} carries its own copy of the combination prefix; the "
+                "predicate lives in store/manual_orders.is_combo_ticker"
+            )
 
 
 class TestTheConsensusStampSurvivedTheDedupe:
@@ -2672,8 +2697,9 @@ class TestTheDeskNamesTheShardBeforeTheVenueRefuses:
     async def test_the_shard_is_read_off_the_market_not_the_ticker_prefix(self):
         """Kalshi's docs call `exchange_index` the authoritative source of
         truth and say ticker formats move. A prefix heuristic would be a
-        second definition that silently rots."""
-        source = (REPO / "backend" / "api" / "routes.py").read_text(
+        second definition that silently rots. The check lives in
+        `backend/manual_order.py` since ADR 0192 S3 (#266)."""
+        source = (REPO / "backend" / "manual_order.py").read_text(
             encoding="utf-8"
         )
         start = source.index('name="shard_collateral"')

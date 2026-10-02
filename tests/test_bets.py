@@ -942,7 +942,7 @@ class TestStakedNowIsServedFromTheMirrorAndRefusesInWords:
     ):
         """A `poll_log` row with no rows under it and no `mirrored` mark is
         the shape of a poll written before v33 AND of the hand-bet path's
-        own stamp (`routes.py::_stamp_positions_read`), which is written on
+        own stamp (`manual_order.py::_stamp_positions_read`), which is written on
         every bet. **This test used to assert the count was served off it
         and the money refused with a mismatch.** That was the defect: "Open
         now: 3" beside a refusal sentence for five minutes after every hand

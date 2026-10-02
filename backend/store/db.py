@@ -1915,7 +1915,7 @@ _MIGRATIONS: dict[int, _Migration] = {
     # `mirrored = 1` says "this attempt's rows were written to
     # `venue_positions` under this id". NULL is the honest value for every row
     # written before the marker existed -- none of them kept its rows -- and
-    # for every row the hand-bet path's stamp (`routes.py::
+    # for every row the hand-bet path's stamp (`manual_order.py::
     # _stamp_positions_read`) writes after it, until the integrator wires that
     # writer through `store_positions_snapshot`. A default of 0 would be a
     # second spelling of NULL and the column's CHECK refuses it.
@@ -3254,7 +3254,7 @@ def _set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
 #      whole pricing pass on 2026-08-15. Its comment predicted the team path
 #      would never trip "because a game moneyline does not reach 0 or 1000
 #      while it is still pre-game and open".
-#   2. `routes.py::_tradeable_ask` -- the manual ticket, after the screen
+#   2. `manual_order.py::tradeable_ask` -- the manual ticket, after the screen
 #      rendered "YES 0c" on a live combination on 2026-08-26.
 #   3. This one. The prediction in (1) was falsified on live 2026-08-26: the
 #      TEAM path at `runner.py:1859` checked only `is not None`, took a

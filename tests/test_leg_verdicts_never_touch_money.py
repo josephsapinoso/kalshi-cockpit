@@ -104,8 +104,12 @@ class TestMoneyPathHandlersNeverMentionTheTable:
         assert "leg_verdicts" not in src
 
     def test_manual_orders_never_mentions_leg_verdicts(self):
-        src = _function_source(REPO / "backend/api/routes.py", "place_manual_order")
-        assert "leg_verdicts" not in src
+        # The handler's body moved to `backend/manual_order.py` in ADR 0192
+        # S3 (#266); the route in routes.py is now a thin adapter. Both are
+        # checked, so a read added on either side of the seam is caught.
+        for path in ("backend/manual_order.py", "backend/api/routes.py"):
+            src = _function_source(REPO / path, "place_manual_order")
+            assert "leg_verdicts" not in src, path
 
 
 def test_leg_verdicts_table_is_never_joined_by_gate_or_hedge():

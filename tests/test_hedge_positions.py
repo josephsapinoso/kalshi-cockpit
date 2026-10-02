@@ -1058,7 +1058,7 @@ class TestThePayload:
 #: do not share a sign -- the entry fee left out of `stake_tenths` and the
 #: untested settlement charge (H4, ADR 0027) push the true number DOWN; the
 #: stake recorded at the ask the desk SENT rather than the price the venue
-#: charged (`routes._record_combo_position`, ADR 0143 §4) and the flat 0.070
+#: charged (`manual_order._record_combo_position`, ADR 0143 §4) and the flat 0.070
 #: hedge fee push it UP -- so "a ceiling", "can only be smaller" and "an exact
 #: answer" were each a bound the figure does not have, and the flattering
 #: error is calling it a floor. "capped at one contract" is a separate
@@ -1348,7 +1348,7 @@ class TestUnrecordedAtVenue:
         assert hedge.unrecorded_at_venue(conn) == []
 
     def test_a_bare_unmirrored_stamp_is_also_ignored(self, conn):
-        """Isolates the `mirrored = 1` clause. `routes.py::
+        """Isolates the `mirrored = 1` clause. `manual_order.py::
         _stamp_positions_read` logs a real, successful (`ok = 1`) 'positions'
         poll on every hand bet but keeps no rows under it -- the shape
         `bets.open_positions` already guards against and this module reuses

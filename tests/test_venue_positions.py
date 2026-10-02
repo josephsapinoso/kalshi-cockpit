@@ -800,7 +800,7 @@ class TestTheReaderServesOneReadWithOneStamp:
 class TestTheMarkerSaysWhichReadKeptItsRows:
     """`poll_log.mirrored` (v33). `poll_log` has two writers of positions
     reads: `poll_positions`, which keeps the rows, and
-    `backend/api/routes.py::_stamp_positions_read`, the hand-bet path's own
+    `backend/manual_order.py::_stamp_positions_read`, the hand-bet path's own
     read on every `POST /api/manual-orders`, which logs through the same
     `log_poll_attempt` with a real `row_count` and keeps nothing. Before the
     marker the reader took the newest successful positions poll, found the

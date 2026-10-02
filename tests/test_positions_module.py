@@ -318,7 +318,7 @@ class TestAStoredBasisIsWhatTheScreenReads:
 
 class TestARowWithNoStoredBasisIsServedByTheJoin:
     def test_the_order_paths_shape_is_unchanged(self, conn):
-        """What `routes._record_combo_position` writes until #265: a formed
+        """What `manual_order._record_combo_position` writes until #265: a formed
         key, no provenance. The join answers, exactly as before v60."""
         hedge.record_position(
             conn, now_ms=1_000, source="kalshi_combo", label="Bought",

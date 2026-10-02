@@ -56,7 +56,7 @@ from typing import Any, Optional
 from ..core.prices import dollars_to_tenths, is_valid_price, probability_to_tenths
 from ..kalshi.orders import OrderOutcome, OrderRequest, canonical_body_json
 # The combination's consensus, read through the SAME query that the order
-# route already runs to wire up `/hedge` (`routes._record_combo_position`).
+# route already runs to wire up `/hedge` (`manual_order._record_combo_position`).
 # A store module reaching up to `backend.parlays` is the wrong direction and
 # it is the lesser wrong: the alternative is a second SELECT over
 # `parlay_lookups` with its own "most recent priced row" rule, and two

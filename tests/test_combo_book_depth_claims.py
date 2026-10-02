@@ -167,6 +167,7 @@ class TestTheCapturesSayWhatTheProseSaysTheySay:
 #: day it is written. A list would have to be remembered.
 PINNED = [
     Path("backend") / "api" / "routes.py",
+    Path("backend") / "manual_order.py",
     Path("backend") / "store" / "manual_orders.py",
     Path("frontend") / "src" / "components" / "PriceOnKalshi.tsx",
     Path("CLAUDE.md"),
@@ -301,10 +302,12 @@ class TestTheStruckPhrasingStaysStruck:
 
         Checked on the f-string fragments rather than the file, because the
         correction note above them is allowed to quote what it replaced.
+        Reads `backend/manual_order.py`, where the refusal moved in ADR 0192
+        S3 (#266).
         """
-        routes = (REPO / "backend" / "api" / "routes.py").read_text(encoding="utf-8")
-        detail_start = routes.index("a combination order is capped at")
-        detail = routes[detail_start:detail_start + 900]
+        source = (REPO / "backend" / "manual_order.py").read_text(encoding="utf-8")
+        detail_start = source.index("a combination order is capped at")
+        detail = source[detail_start:detail_start + 900]
         assert "could not fill" not in detail
         assert "18 units" not in detail
         assert "resting YES bid" in detail, "the true half must still be said"
@@ -317,9 +320,12 @@ class TestTheStruckPhrasingStaysStruck:
         assert "kills nearly every combo order" not in source
 
     def test_the_surviving_exit_claim_is_still_stated_where_it_is_load_bearing(self):
-        """A correction that deletes the true half too is not a correction."""
-        routes = (REPO / "backend" / "api" / "routes.py").read_text(encoding="utf-8")
-        assert "resting YES bid" in routes
+        """A correction that deletes the true half too is not a correction.
+
+        The load-bearing statement is the hand-bet refusal, which lives in
+        `backend/manual_order.py` since ADR 0192 S3 (#266)."""
+        source = (REPO / "backend" / "manual_order.py").read_text(encoding="utf-8")
+        assert "resting YES bid" in source
         manual = (REPO / "backend" / "store" / "manual_orders.py").read_text(encoding="utf-8")
         assert "40/40" in manual or "40 of 40" in manual
 

@@ -625,16 +625,16 @@ class TestWhatThisReadMayNotTouch:
         assert "held_parlays.stake_basis_for(" in body
         assert "FROM manual_orders WHERE id = ?" in body
         assert "stake_basis=basis.basis" in body
-        routes = (ROOT / "backend" / "api" / "routes.py").read_text(
-            encoding="utf-8"
-        )
-        assert "stake_tenths = contracts * fill_price_tenths" not in routes
+        # The order path's body is `backend/manual_order.py`'s since ADR 0192
+        # S3 (#266); the old raw-stake write must be absent on both sides.
+        for rel in ("api/routes.py", "manual_order.py"):
+            source = (ROOT / "backend" / rel).read_text(encoding="utf-8")
+            assert "stake_tenths = contracts * fill_price_tenths" not in source
 
     def test_the_route_no_longer_claims_the_stored_stake_is_what_he_paid(self):
         """The killed sentence, gone and not reproduced in its own correction
         trail -- `tasks/lessons.md` 2026-09-16 (tenth): a trail that quotes
         the dead wording re-trips the guard that killed it."""
-        source = (ROOT / "backend" / "api" / "routes.py").read_text(
-            encoding="utf-8"
-        )
-        assert "Stake is what he paid" not in source
+        for rel in ("api/routes.py", "manual_order.py"):
+            source = (ROOT / "backend" / rel).read_text(encoding="utf-8")
+            assert "Stake is what he paid" not in source, rel

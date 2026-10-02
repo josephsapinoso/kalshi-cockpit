@@ -152,3 +152,43 @@ Each slice names its test in its ticket. Across the whole story:
 - Delete ADR 0160's read-time join while any open position has `fill_source IS NULL`.
 - Add, remove or loosen a check while moving the order path (§2.7).
 - Let any caller insert into `parlay_positions` except the positions module.
+
+## Amendment 1 — what S3 actually moved, and the pins §2.8 missed (2026-10-01, #266)
+
+**What moved.** `place_manual_order`'s body is now `backend/manual_order.place_manual_order`. Three `create_app` closures went with it as module functions: `reachable_refusal`, `tradeable_ask` and `worst_case_dollars`. Five module-level helpers went too: `_stamp_positions_read`, `_write_manual_intent`, `_write_manual_outcome`, `_write_manual_response` and `_record_combo_position`.
+- **The diff against the old handler is twelve lines, all mechanical.** Three are definition renames. Five replace `db.now_ms()` with the injected `now_ms()`. One replaces `_manual_reachable()` with `reachable_refusal(app_config, manual_config)`. One spells `_is_combo(ticker)` as `manual_store.is_combo_ticker(ticker)`, the predicate it delegated to. Two change call sites (`tradeable_ask` and `worst_case_dollars`).
+- No check, refusal sentence or status code changed.
+- `routes.py` went from **247,479 to 196,555 bytes**.
+
+**The ports are factories, not built objects.** The ports are `live_quotes` and `combo_api`, passed exactly as `create_app` holds them. Building either one raises `ConfigError` on a keyless instance. The checks catch that error at their own step (7 and 11), and the refusal recorder writes it there. Calling a factory in the adapter would move that refusal out of the record.
+
+**Refusals are still `HTTPException`.** The checks raise it and the refusal recorder catches it. Changing it to a domain exception, the way `accept_quote_for_joe` raises `LookupRefused`, would have edited every check on the spending path. §2.7 forbids that.
+
+**§2.8 counted four pins; the move broke nine, and all nine were repointed:**
+- `test_manual_orders.py`: the combo-ack AST lookup, the `OrderPlacer(` count, the REST guard and the shard-collateral block. The `_stamp_positions_read` import moved too.
+  - The count now walks every production file. It excludes only `kalshi/orders.py`, which defines the class.
+  - The combo-predicate test now also holds `manual_order.py` to "no prefix literal".
+- `test_leg_verdicts_never_touch_money.py`: it found the thin adapter and passed vacuously, so it now checks both sides.
+- `test_combo_fill_is_watched_for_a_hedge.py`: both monkeypatches (`OrderPlacer` and `_record_combo_position`) now target `manual_order`, not the positions module §2.8 named, because the helper moved with the handler.
+- `test_combo_exit_copy_names_the_cost_on_every_surface.py`: the acknowledgement refusal and the position note now point at `manual_order.py`.
+- `test_combo_book_depth_claims.py`: the struck-phrasing detail, the load-bearing exit claim, and `PINNED`, which gains `manual_order.py`.
+- `test_stake_basis_is_the_venue_fill.py`: S2 had already reversed the `:594` claim, so nothing was left to retire. Its two "absent from routes.py" asserts now cover `manual_order.py` too.
+
+**Mutation-checked (14, all red).** In `manual_order.py`:
+- drop `rest=`;
+- set `dry_run=False`;
+- build the REST client unconditionally;
+- infer the shard from the ticker prefix;
+- type a census digit into the acknowledgement refusal;
+- put the fill bound back in the cap refusal;
+- write a prefix literal for the combo test;
+- reword the acknowledgement marker;
+- let a position-write failure escape;
+- add a `leg_verdicts` name;
+- add the killed stake sentence;
+- mirror rows on a failed read;
+- ignore the injected clock at `submitted_ms`.
+
+Elsewhere: add a third `OrderPlacer(` in another backend file. Restores were done by file copy.
+
+**New proof:** `tests/test_manual_order_direct.py` calls the function with no app. It covers checks 0, 4 and 13. Check 13 uses the **armed** construction against a fake REST port that answers with the synthetic create-order fixture.

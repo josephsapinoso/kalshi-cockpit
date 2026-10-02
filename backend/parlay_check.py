@@ -133,7 +133,7 @@ logger = logging.getLogger(__name__)
 #: registered card (`core.ladder.CARD_SHAPES`) -- this parlay was not built
 #: by this desk, so it does not share a recipe's key. Named "checked" rather
 #: than the original "outside": `/hedge` labels a position it watches with
-#: its `card_key` (`routes.py::_record_combo_position`), and
+#: its `card_key` (`manual_order.py::_record_combo_position`), and
 #: `hand_recorded_position` already uses "outside" to mean "not bought
 #: through this desk at all" -- a different fact from "this desk priced a
 #: combination it did not build", which is what this key actually records.

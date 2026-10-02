@@ -33,7 +33,7 @@ import sqlite3
 
 import pytest
 
-from backend.api import routes as routes_module
+from backend import manual_order as manual_order_module
 from backend.kalshi.orders import OrderOutcome
 from backend.store import db
 from backend.store import manual_orders as manual_store
@@ -158,7 +158,7 @@ def fills_for_real(monkeypatch):
                     remaining_count=0.0,
                 )
 
-        monkeypatch.setattr(routes_module, "OrderPlacer", StubPlacer)
+        monkeypatch.setattr(manual_order_module, "OrderPlacer", StubPlacer)
 
     return _placer_factory
 
@@ -562,7 +562,9 @@ class TestBookkeepingNeverFailsAPurchase:
         def _explode(*args, **kwargs):
             raise RuntimeError("the position table is on fire")
 
-        monkeypatch.setattr(routes_module, "_record_combo_position", _explode)
+        monkeypatch.setattr(
+            manual_order_module, "_record_combo_position", _explode
+        )
         quotes = StubQuotes(
             _payload(ticker=COMBO_TICKER, yes_ask_size=1000.0, exchange_index=1)
         )

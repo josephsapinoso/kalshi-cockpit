@@ -15,7 +15,7 @@ quote tables on every read. `hedge.record_position` is the insert underneath,
 and this module is its caller.
 
 Four writers come through here:
-- the hand-bet order path (`routes._record_combo_position`, S2, #265);
+- the hand-bet order path (`manual_order._record_combo_position`, S2, #265);
 - the RFQ accept;
 - the slip Joe types on `/hedge`;
 - a holding adopted off the venue.
