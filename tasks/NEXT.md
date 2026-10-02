@@ -137,6 +137,37 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-01 (seventy-seventh session) — S3 of ADR 0192: the armed hand-bet path leaves `create_app` for `backend/manual_order.py` (#266, live on `86affa0`); story #263 closed; both lanes found their tickets already shipped
+
+Joe gave no focus. Partner ranked the work: #266 on main, #210 and #255 part 1 as Sonnet lanes, then housekeeping. Joe approved the plan, which covered the merges and deploys.
+
+- **#266 (live on `86affa0`).** `place_manual_order`'s body is now `backend/manual_order.place_manual_order`. The route is a thin adapter.
+  - The diff against the old handler is 12 mechanical lines, plus one line the review asked for that resolves the clock on each call. No check changed.
+  - `routes.py` went from **247,479 to 196,555 bytes**.
+  - The ports go in as factories (`live_quotes`, `combo_api`), so a keyless instance still refuses at checks 7 and 11, inside the refusal record.
+  - Refusals stay `HTTPException`. Changing them would have edited every check.
+- **ADR 0192 §2.8 named 4 pins; the move broke 9.** All 9 are repointed.
+  - The `OrderPlacer(` count now walks the production tree.
+  - The leg-verdicts pin had been passing vacuously against the adapter; it now checks both files.
+  - 14 mutations, all red.
+  - `tests/test_manual_order_direct.py` calls checks 0, 4 and 13 with no app. Check 13 runs the **armed** construction against a fake REST port.
+  - ADR 0192 Amendment 1 records all of it.
+- **Gates passed.** kalshi-platform review approved, and its nits are applied. Full suite on the tree: 9,603 passed, 0 failed. CI 36951078847 green. Deploy 36951640195. `/api/health` reports `build.git_sha` = `86affa0`. An unauthenticated `POST /api/manual-orders` returns 401. Stories #263 and #266 are closed.
+- **Both lanes found their work already shipped.**
+  - #210, the Matchup tile, was built in `7f35c46` and has been live since 09-29. It stays open only for its own live read: the first matchup note from Joe's tap, the no-pick rule, and the token cost.
+  - #255 part 1 shipped in `cd5b216`. I closed it, and part 2 is now **#267** (November).
+  - The #255 re-check found `\btie\b` let "ties" through. It now matches word stems, and a mutation confirmed it.
+- **Housekeeping.**
+  - The session-start box's signal line was stale since #226 and is now current.
+  - Three merged lane worktrees were removed. Two are **locked** and were left alone.
+- **Map #3 frontier: none exists, and none is owed.** The only real candidate, #169 (a screenshot slip), first needs #165's link path to be used enough to count how often a screenshot is all Joe gets. #220 is not due until 10-05. A question invented to fill the frontier would be noise.
+
+### Still open
+
+1. #268: after Joe's next combination bought through the desk, read its `parlay_positions` row once (`fill_source='manual_order'`, `fill_ref`, `stake_basis`). This is a check, not a measurement.
+2. #220: on or after 2026-10-05, review the game-script cards, run `credits-day --date 2026-10-04`, and read the first Matchup tile. #210 closes with it.
+3. #165, #169 and #151 are unchanged. #267 is due in November.
+
 ## 2026-10-01 (seventy-sixth session) — architecture review; every frontend write goes through one transport module (ADR 0191); api.ts split into transport, format and types (#257–#262, live on `ea53d22`); A+B positions module grilled and ticketed (#263)
 
 Joe ran `/improve-codebase-architecture` with no direction. Hot spots by commits since 09-01: `lib/api.ts` (68), `routes.py` (45), `db.py`/`schema.sql`, `parlays.py`, `hedge.py`. The review covered nine candidates, A–I. The report was a temp HTML file, not committed. Joe picked **C** and answered twelve grilling questions, taking every recommendation.
@@ -1387,6 +1418,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-01 (seventy-seventh session) — S3 of ADR 0192: the armed hand-bet path leaves `create_app` for `backend/manual_order.py` (#266, live on `86affa0`); story #263 closed; both lanes found their tickets already shipped
 - 2026-10-01 (seventy-sixth session) — architecture review; every frontend write goes through one transport module (ADR 0191); api.ts split into transport, format and types (#257–#262, live on `ea53d22`); A+B positions module grilled and ticketed (#263)
 - 2026-10-01 (seventy-fifth session) — the CLV signal test's registered result is in: UNRESOLVED at G = 1000; #233 answered
 - 2026-09-30 (seventy-fourth session) — all-hands conference on the live desk; epic #224 built and deployed; Joe answered all seven questions

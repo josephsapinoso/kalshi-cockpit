@@ -16,6 +16,17 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-01 - An open ticket is not proof the work is undone, and a pin list written from memory is not the pin list; grep for both before dispatching
+
+From the seventy-seventh session (#266, S3 of ADR 0192).
+
+- **Two Sonnet lanes were dispatched on tickets that had already shipped.** #210 had been live since 09-29 and was kept open for a live read. #255 part 1 had been committed in `cd5b216`. The board lists open tickets, partner ranks what the board lists, and neither reads `git log`. Both lanes came back with nothing to do. They cost two lane runs and nothing worse, but on a money-path ticket the same gap would mean a second build of something already live.
+- **ADR 0192 §2.8 named four location pins. Moving the handler broke nine.** One of the missed ones, the leg-verdicts pin, did not break at all: it found the new thin adapter by name and kept passing **vacuously**. A pin that locates code by function name survives a move by checking the wrong body.
+- **The rule:**
+  - Before dispatching any ticket, run `git log --oneline --grep "#NN"` and read the ticket's last comment. "Kept open for a live check" is not "unbuilt".
+  - Before moving code that tests pin by location, grep `tests/` for the file path, the function name, and every helper that moves. Do not trust a list written when the move was planned.
+  - After the move, make each pin fail on purpose by breaking its guard at the NEW location. A pin that stays green under that mutation is pointed at the wrong body.
+
 ## 2026-10-01 - A rule the backend obeys can be broken by the screen's fallback sentence; check every hand-written failure string on a spend path against it
 
 From the seventy-sixth session (architecture review, #257–#260, ADR 0191).
