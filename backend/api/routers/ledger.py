@@ -62,6 +62,30 @@ def register(
     already served from, not because it is a ledger screen.
     """
 
+    if require_auth is not None and db_path is not None:
+
+        @app.post("/api/pick-sources", dependencies=[Depends(require_auth)])
+        def tag_pick_source(request: PickSourceRequest) -> dict:
+            """Store where a pick came from, in Joe's word (v63).
+
+            Auth-gated because it writes. It writes ONE table,
+            `pick_sources`, and reads nothing on the order, RFQ or hedge
+            path: a tag is a note about a bet already placed.
+            """
+            write_conn = db.open_db(db_path)
+            try:
+                pick_sources.set_pick_source(
+                    write_conn,
+                    ticker=request.ticker,
+                    source=request.source,
+                    now_ms=db.now_ms(),
+                )
+            except pick_sources.PickSourceRefused as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            finally:
+                write_conn.close()
+            return {"ticker": request.ticker.strip(), "source": request.source}
+
     @app.get("/api/exposure")
     def exposure(conn=Depends(get_conn)) -> dict:
         """How deep Joe already is — the one figure a buy button needs.
@@ -118,30 +142,6 @@ def register(
             "as_of_ms": now,
             "open_positions": bets_module.open_positions(conn, now_ms=now),
         }
-
-    if require_auth is not None and db_path is not None:
-
-        @app.post("/api/pick-sources", dependencies=[Depends(require_auth)])
-        def tag_pick_source(request: PickSourceRequest) -> dict:
-            """Store where a pick came from, in Joe's word (v63).
-
-            Auth-gated because it writes. It writes ONE table,
-            `pick_sources`, and reads nothing on the order, RFQ or hedge
-            path: a tag is a note about a bet already placed.
-            """
-            write_conn = db.open_db(db_path)
-            try:
-                pick_sources.set_pick_source(
-                    write_conn,
-                    ticker=request.ticker,
-                    source=request.source,
-                    now_ms=db.now_ms(),
-                )
-            except pick_sources.PickSourceRefused as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-            finally:
-                write_conn.close()
-            return {"ticker": request.ticker.strip(), "source": request.source}
 
     @app.get("/api/bets")
     def bets(conn=Depends(get_conn), limit: int = Query(200, le=1000)) -> dict:
