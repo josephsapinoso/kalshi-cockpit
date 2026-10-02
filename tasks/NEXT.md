@@ -199,7 +199,7 @@ Joe asked partner to convene a town hall on the parlay changes and recommend wha
    - #297: `scripts/collection_coverage_census.py`, files-only. Its fixture has no NHL/NCAAF events, so it needs a fresh read-only capture before it can answer.
    - #298: the footer is off /parlays and /game.
    - #299: the 8-leg notice.
-   Epic #269 is closed. Layout note: the /game title and kickoff sit below the card panel (lane 1 chose this to avoid a second listing fetch).
+   Epic #269 is closed. The /game title and kickoff lead the page since `7a055096` (Joe asked; the card panel is passed into GameLegs as `belowHeading`, so the listing is still read once).
 3. #292: map #3 is full; a new question for Joe has nowhere visible to go until it lands.
 4. #165, #169 and #151 are unchanged. #267 is due in November.
 
