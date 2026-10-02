@@ -35,6 +35,7 @@ from backend.agents.game_script import (
     GAME_SCRIPT_MAX_SEARCHES,
     CardLeg,
     CardOutput,
+    CardSource,
     build_card,
     build_prompt,
     validate_card,
@@ -116,9 +117,17 @@ def _listing():
     }
 
 
-def _card(*legs, story="A slow game.", drop_if="A starter is ruled out.", **kw):
+SOURCE = CardSource(url="https://example.com/preview", published="2026-09-12")
+NEEDS = "Atlanta wins and the game stays low-scoring."
+
+
+def _card(
+    *legs, story="A slow game.", drop_if="A starter is ruled out.",
+    sources=(SOURCE,), ticket_needs=NEEDS, **kw,
+):
     return CardOutput(
-        story=story, drop_if=drop_if, legs=[CardLeg(**l) for l in legs], **kw
+        story=story, drop_if=drop_if, legs=[CardLeg(**l) for l in legs],
+        sources=list(sources), ticket_needs=ticket_needs, **kw,
     )
 
 
@@ -244,6 +253,50 @@ class TestTheServerRefusesBeforeItStores:
                 l["market_ticker"] for l in legs
             ]
             assert row["story"] and row["drop_if"]
+
+    async def test_card_without_sources_is_refused(self, tmp_path):
+        """#281: every fact needs a page behind it. No source, or a source
+        that is not a web address, is a `refused_invalid` row."""
+        for i, sources in enumerate(((), (CardSource(url="ESPN", published=""),))):
+            sub = tmp_path / str(i)
+            sub.mkdir()
+            conn, _c, result = await _run(sub, _card(ATL, TOT40, sources=sources))
+            assert result.status == "refused_invalid"
+            assert "no source page" in _row(conn, result.card_id)["reason"]
+
+    @pytest.mark.parametrize(
+        "needs",
+        ["", "  ", "Atlanta wins (about a 30% shot)", "A 0.3 chance both land",
+         "Good odds that Atlanta covers", "Likely an Atlanta win",
+         "Atlanta wins; a real edge here"],
+    )
+    async def test_ticket_needs_is_words_not_a_number(self, tmp_path, needs):
+        """#281 / rule 2: `ticket_needs` describes the game, never a chance,
+        a price or an edge."""
+        conn, _c, result = await _run(tmp_path, _card(ATL, TOT40, ticket_needs=needs))
+        assert result.status == "refused_invalid"
+
+    async def test_a_built_card_stores_its_sources_and_what_it_needs(self, tmp_path):
+        needs = "Virginia Tech wins by 1 to 3 points and the game stays under 52."
+        conn, _c, result = await _run(tmp_path, _card(ATL, TOT40, ticket_needs=needs))
+        assert result.status == "built"
+        row = _row(conn, result.card_id)
+        assert row["sources"] == [SOURCE.model_dump()]
+        assert row["ticket_needs"] == needs
+
+    async def test_a_skip_claims_no_sources(self, tmp_path):
+        conn, _c, result = await _run(
+            tmp_path, CardOutput(skip=True, reason="too thin")
+        )
+        row = _row(conn, result.card_id)
+        assert row["sources"] is None and row["ticket_needs"] is None
+
+    def test_the_prompt_asks_for_todays_news_first_and_no_doubled_totals(self):
+        system = game_script.SYSTEM
+        assert "TODAY'S news first" in system
+        assert "first-half total in the same direction" in system
+        assert "able to change before kickoff" in system
+        assert game_script.PROMPT_VERSION == "3"
 
     def test_validate_card_accepts_two_size_max_2_legs_from_one_event(self):
         listing = _listing()

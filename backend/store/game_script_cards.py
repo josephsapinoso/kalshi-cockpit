@@ -39,6 +39,8 @@ def insert_card(
     story: Optional[str] = None,
     legs: Optional[Sequence[dict]] = None,
     drop_if: Optional[str] = None,
+    sources: Optional[Sequence[dict]] = None,
+    ticket_needs: Optional[str] = None,
     reason: Optional[str] = None,
     prompt_version: Optional[str] = None,
     agent_call_id: Optional[int] = None,
@@ -53,8 +55,9 @@ def insert_card(
     built = status == "built"
     cursor = conn.execute(
         "INSERT INTO game_script_cards (game_event_ticker, sport_key, "
-        "kickoff_ms, built_ms, status, story, legs_json, drop_if, reason, "
-        "prompt_version, agent_call_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "kickoff_ms, built_ms, status, story, legs_json, drop_if, sources_json, "
+        "ticket_needs, reason, prompt_version, agent_call_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             game_event_ticker,
             sport_key,
@@ -64,6 +67,8 @@ def insert_card(
             story if built else None,
             json.dumps(list(legs)) if built else None,
             drop_if if built else None,
+            json.dumps(list(sources)) if built and sources else None,
+            ticket_needs if built and ticket_needs else None,
             reason,
             prompt_version,
             agent_call_id,
@@ -81,6 +86,10 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     if legs:
         legs, out["dropped_legs"] = drop_implied_win_legs(legs)
     out["legs"] = legs
+    # NULL on every card built before v61 and on every skip: no sources were
+    # asked for, so none are claimed. Never an empty list standing in for one.
+    raw_sources = out.pop("sources_json", None)
+    out["sources"] = json.loads(raw_sources) if raw_sources else None
     return out
 
 

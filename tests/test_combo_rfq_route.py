@@ -188,6 +188,30 @@ class TestTheDoorIsGuarded:
 
 
 class TestWhatComesBack:
+    async def test_quote_seen_times_bracket_the_poll(self, build):
+        """#282 (v61): each stored quote carries the wall-clock ms of the
+        first and last poll that returned it, inside the ask's own window.
+        `captured_ms` is the ask time on every quote, so it cannot say when a
+        maker answered; these two can."""
+        import sqlite3
+        import time as _time
+
+        app, _, path = build(quotes=[_quote_row("q1", "0.3690")])
+        before = int(_time.time() * 1000)
+        assert (await _post(app, _body())).json()["status"] == "quoted"
+        after = int(_time.time() * 1000)
+        conn = sqlite3.connect(path)
+        first, last = conn.execute(
+            "SELECT first_seen_ms, last_seen_ms FROM combo_rfq_quotes "
+            "WHERE quote_id = 'q1'"
+        ).fetchone()
+        conn.close()
+        assert first is not None and last is not None
+        assert before <= first <= last <= after
+        # The fake answers on every poll of a 0.05 s window at 0.01 s, so a
+        # loop that stamped only one sighting would leave first == last.
+        assert last > first
+
     async def test_quotes_are_returned_cheapest_first(self, build):
         app, _, _ = build(
             quotes=[_quote_row("q1", "0.3690"), _quote_row("q2", "0.4070")]

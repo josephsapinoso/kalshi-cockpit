@@ -30,7 +30,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from typing import Iterable, Optional, Sequence
+from typing import Iterable, Mapping, Optional, Sequence
 
 from backend.kalshi.rfq import RfqQuote
 
@@ -126,6 +126,7 @@ def record_quotes(
     quotes: Iterable[RfqQuote],
     captured_ms: int,
     refused_too_fine: int = 0,
+    seen_ms: Optional[Mapping[str, tuple[int, int]]] = None,
 ) -> int:
     """Persist the quotes and stamp the RFQ's outcome. Returns rows touched.
 
@@ -169,7 +170,14 @@ def record_quotes(
     so the caller passes the count it unioned by quote id across the poll
     loop. It defaults to 0 so that every other writer and every test keeps
     its current meaning, and 0 with no stored quotes is still `no_quotes`.
+
+    **`seen_ms` maps a quote id to the wall-clock ms of the first and last
+    poll that returned it** (v61, #282). A quote id it does not name is
+    stored with both NULL: unobserved, never zero. On a re-ask that returns
+    the same quote id, `first_seen_ms` keeps the earliest sighting and
+    `last_seen_ms` takes the newest.
     """
+    seen_ms = seen_ms or {}
     written = 0
     for quote in quotes:
         cur = conn.execute(
@@ -177,8 +185,9 @@ def record_quotes(
             INSERT INTO combo_rfq_quotes (
                 rfq_id, quote_id, captured_ms, maker_id,
                 yes_ask_tenths, no_bid_tenths, yes_bid_tenths, contracts,
-                status, created_ts, yes_bid_contracts
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                status, created_ts, yes_bid_contracts,
+                first_seen_ms, last_seen_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(rfq_id, quote_id) DO UPDATE SET
                 captured_ms    = excluded.captured_ms,
                 maker_id       = excluded.maker_id,
@@ -188,7 +197,13 @@ def record_quotes(
                 contracts      = excluded.contracts,
                 status         = excluded.status,
                 created_ts     = excluded.created_ts,
-                yes_bid_contracts = excluded.yes_bid_contracts
+                yes_bid_contracts = excluded.yes_bid_contracts,
+                first_seen_ms  = COALESCE(
+                    MIN(combo_rfq_quotes.first_seen_ms, excluded.first_seen_ms),
+                    combo_rfq_quotes.first_seen_ms, excluded.first_seen_ms),
+                last_seen_ms   = COALESCE(
+                    MAX(combo_rfq_quotes.last_seen_ms, excluded.last_seen_ms),
+                    combo_rfq_quotes.last_seen_ms, excluded.last_seen_ms)
             WHERE combo_rfq_quotes.accepted_ms IS NULL
             """,
             (
@@ -196,6 +211,7 @@ def record_quotes(
                 quote.yes_ask_tenths, quote.no_bid_tenths,
                 quote.yes_bid_tenths, quote.contracts,
                 quote.status, quote.created_ts, quote.yes_bid_contracts,
+                *seen_ms.get(quote.quote_id, (None, None)),
             ),
         )
         written += cur.rowcount or 0

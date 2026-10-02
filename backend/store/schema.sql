@@ -3003,6 +3003,14 @@ CREATE TABLE IF NOT EXISTS combo_rfq_quotes (
     -- `contracts` above carries. NULL when the maker named no bid, and on
     -- every row before v56 -- nothing read the field until then.
     yes_bid_contracts           REAL,
+    -- Wall-clock ms of the first and last poll that returned this quote id,
+    -- v61 (#282, the 2026-10-02 town hall). `captured_ms` above is the time
+    -- the ASK was made, the same on every quote, so until v61 nothing said
+    -- when a maker answered inside the `QUOTE_WAIT_S` window. Recorded so
+    -- that window can be measured before anyone tunes it. NULL on every
+    -- row before v61.
+    first_seen_ms               INTEGER,
+    last_seen_ms                INTEGER,
     UNIQUE (rfq_id, quote_id)
 );
 CREATE INDEX IF NOT EXISTS idx_combo_rfq_quotes_rfq
@@ -3084,6 +3092,12 @@ CREATE TABLE IF NOT EXISTS game_script_cards (
     combo_ticker      TEXT,
     prompt_version    TEXT,
     agent_call_id     INTEGER REFERENCES agent_calls(id),
+    -- v61 (#281, the 2026-10-02 town hall). The pages the story's facts
+    -- came from, JSON `[{url, published}]`, and in plain words what has to
+    -- happen in the game for every leg to win at once. Words, never a
+    -- number about the bet (ADR 0189). NULL on every card before v61.
+    sources_json      TEXT,
+    ticket_needs      TEXT,
     CHECK (status != 'built' OR (story IS NOT NULL AND legs_json IS NOT NULL)),
     CHECK (status = 'built' OR reason IS NOT NULL)
 );

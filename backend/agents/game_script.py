@@ -45,7 +45,7 @@ AGENT_NAME = "game_script"
 
 #: Bumped whenever `SYSTEM` or the prompt's shape changes, so a stored card
 #: says which instructions built it.
-PROMPT_VERSION = "2"
+PROMPT_VERSION = "3"
 
 GAME_SCRIPT_MAX_SEARCHES = 3
 GAME_SCRIPT_SEARCH_TOOL = {**WEB_SEARCH_TOOL, "max_uses": GAME_SCRIPT_MAX_SEARCHES}
@@ -73,22 +73,31 @@ this, is a beginner. For ONE game you build a single same-game parlay card: \
 two or three bets on this game, joined into one ticket, chosen because they \
 tell one coherent story about how the game is likely to go.
 
-Build the story from four things, in this order, and search for current \
-facts on each: (1) who is playing -- injuries, inactives, starters, lineups; \
+Build the story from four things, in this order: (1) who is playing -- \
+injuries, inactives, starters, lineups, starting goalies or quarterbacks; \
 (2) the game script -- pace, who is likely to lead, how the game is expected \
 to be played; (3) schedule and rest -- days off, travel, a back-to-back; \
-(4) matchups -- how these two teams or players match up on the stats.
+(4) matchups. Spend your searches on TODAY'S news first: confirmed lineups \
+and starters, then the injury report. Last season's stats are already in \
+every price, so never spend a search on them alone.
 
 Use ONLY the legs in the list you are given. Copy each leg's market_ticker \
 and event_ticker exactly, and pick a side (yes or no) from the sides that leg \
 allows. Some events allow only one leg per ticket; never pick two legs from \
-one of those. Pick two or three legs, never fewer or more. Never pair a team winning with that same team winning by a margin: Kalshi refuses the pair, because winning by the margin already includes winning.
+one of those. Pick two or three legs, never fewer or more. Never pair a team winning with that same team winning by a margin: Kalshi refuses the pair, because winning by the margin already includes winning. Never pick a full-game total and a first-half total in the same direction (both over, or both under): that is one opinion counted twice, not two.
 
-Write the story in a few short sentences of everyday words: what you found, \
-where you found it, and how the legs fit together. Then write drop_if: the \
-specific news that would make Joe drop this card (for example a starter \
-ruled out). If you cannot build a coherent card, or the facts are too thin, \
-set skip to true and say why in reason; a skip is a good answer.
+Write the story in a few short sentences of everyday words: what you found \
+and how the legs fit together. List every page you took a fact from in \
+sources, each with its address and the date it was published (YYYY-MM-DD, \
+or empty if the page gives none); a card with no source is refused. Write \
+ticket_needs: in plain words, what has to happen in the game for every leg \
+to win at once (for example "Virginia Tech wins by 1 to 3 points and the \
+game stays under 52 points"). Then write drop_if: the specific news, still \
+unknown now and able to change before kickoff, that would make Joe drop \
+this card (for example a starter ruled out). Never name something already \
+settled, like a suspension that runs past the game. If you cannot build a \
+coherent card, or the facts are too thin, set skip to true and say why in \
+reason; a skip is a good answer.
 
 Two hard rules.
 
@@ -106,6 +115,16 @@ class CardLeg(BaseModel):
     market_ticker: str
     event_ticker: str
     side: Literal["yes", "no"]
+
+
+class CardSource(BaseModel):
+    """One page a fact came from. `published` is a date string, never parsed
+    into a number: an unknown date is the empty string, not a guess."""
+
+    url: str = Field(description="The page's full address.")
+    published: str = Field(
+        default="", description="The date the page was published, YYYY-MM-DD, or empty."
+    )
 
 
 class CardOutput(BaseModel):
@@ -129,7 +148,17 @@ class CardOutput(BaseModel):
     )
     drop_if: str = Field(
         default="",
-        description="The specific news that should make Joe drop this card.",
+        description="The specific news, still unknown and able to change before "
+        "kickoff, that should make Joe drop this card.",
+    )
+    sources: list[CardSource] = Field(
+        default_factory=list,
+        description="Every page a fact in the story came from, with its date.",
+    )
+    ticket_needs: str = Field(
+        default="",
+        description="In plain words, what has to happen in the game for every "
+        "leg to win at once. Words only: no probability, price or edge.",
     )
 
 
@@ -177,6 +206,12 @@ def build_prompt(*, game_title: str, sport_key: str, kickoff_iso: str, listing: 
     ])
 
 
+#: Words that would turn `ticket_needs` from a description of the game into a
+#: forecast or a price (rule 2: no combined chance). Matched on lower-cased
+#: text; a margin like "by 1 to 3 points" is a fact about the game and passes.
+TICKET_NEEDS_FORBIDDEN = ("%", "probab", "chance", "odds", "likel", "edge", "cents", "price")
+
+
 def validate_card(card: CardOutput, listing: dict) -> Optional[str]:
     """`None` if the card may be stored as built, else the reason it may not.
 
@@ -185,6 +220,13 @@ def validate_card(card: CardOutput, listing: dict) -> Optional[str]:
     """
     if not card.story.strip() or not card.drop_if.strip():
         return "the card has no story or no drop-if condition"
+    if not any(src.url.strip().startswith(("http://", "https://")) for src in card.sources):
+        return "the card names no source page for its facts"
+    needs = card.ticket_needs.strip()
+    if not needs:
+        return "the card does not say what the ticket needs to happen"
+    if any(word in needs.lower() for word in TICKET_NEEDS_FORBIDDEN):
+        return "what the ticket needs must be words about the game, not a chance or a price"
     if not MIN_LEGS <= len(card.legs) <= MAX_LEGS:
         return f"the card has {len(card.legs)} legs; it needs {MIN_LEGS} to {MAX_LEGS}"
     by_market = {
@@ -332,6 +374,11 @@ async def build_card(
             story=parsed.story.strip(),
             legs=[leg.model_dump() for leg in parsed.legs],
             drop_if=parsed.drop_if.strip(),
+            sources=[
+                src.model_dump() for src in parsed.sources
+                if src.url.strip().startswith(("http://", "https://"))
+            ],
+            ticket_needs=parsed.ticket_needs.strip(),
             agent_call_id=call_id,
         ),
         None, usage, call_id,

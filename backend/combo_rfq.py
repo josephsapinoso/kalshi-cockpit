@@ -312,6 +312,8 @@ async def ask_market_to_price(
     conn.commit()
 
     seen: dict[str, RfqQuote] = {}
+    # When each maker's quote id was first and last returned (v61, #282).
+    seen_ms: dict[str, tuple[int, int]] = {}
     # **Unioned by id across polls, not summed** (#73). The loop below reads
     # the same RFQ every `QUOTE_POLL_S`, so a quote refused once is refused
     # on every pass; adding the counts up would tell him six makers answered
@@ -323,8 +325,11 @@ async def ask_market_to_price(
             try:
                 read = await read_quotes(api, rfq_id)
                 too_fine |= read.refused_finer_than_tenths
+                read_ms = int(time.time() * 1000)
                 for quote in read.quotes:
                     seen[quote.quote_id] = quote
+                    first = seen_ms.get(quote.quote_id, (read_ms, read_ms))[0]
+                    seen_ms[quote.quote_id] = (first, read_ms)
             except Exception as exc:  # noqa: BLE001 -- keep polling, record at the end
                 logger.warning("rfq %s: quote read failed (%s)", rfq_id, exc)
             await asyncio.sleep(QUOTE_POLL_S)
@@ -353,6 +358,7 @@ async def ask_market_to_price(
             # durable row and the screen cannot disagree about how many
             # makers answered.
             refused_too_fine=len(too_fine),
+            seen_ms=seen_ms,
         )
         conn.commit()
         if not hold_open:
@@ -714,6 +720,8 @@ async def ask_makers_to_buy_back(
     conn.commit()
 
     seen: dict[str, RfqQuote] = {}
+    # When each maker's quote id was first and last returned (v61, #282).
+    seen_ms: dict[str, tuple[int, int]] = {}
     # Union by id across polls (#73's rule): a count of MAKERS, not reads.
     bid_too_fine: set[str] = set()
     deadline = time.monotonic() + QUOTE_WAIT_S
@@ -722,8 +730,11 @@ async def ask_makers_to_buy_back(
             try:
                 read = await read_quotes(api, rfq_id, keep_sell_only=True)
                 bid_too_fine |= read.refused_bid_finer_than_tenths
+                read_ms = int(time.time() * 1000)
                 for quote in read.quotes:
                     seen[quote.quote_id] = quote
+                    first = seen_ms.get(quote.quote_id, (read_ms, read_ms))[0]
+                    seen_ms[quote.quote_id] = (first, read_ms)
             except Exception as exc:  # noqa: BLE001 -- keep polling
                 logger.warning("exit rfq %s: quote read failed (%s)", rfq_id, exc)
             await asyncio.sleep(QUOTE_POLL_S)
@@ -732,6 +743,7 @@ async def ask_makers_to_buy_back(
         store.record_quotes(
             conn, rfq_id=rfq_id, quotes=seen.values(), captured_ms=now_ms,
             refused_too_fine=len(bid_too_fine),
+            seen_ms=seen_ms,
         )
         conn.commit()
         await delete_rfq(api, rfq_id)

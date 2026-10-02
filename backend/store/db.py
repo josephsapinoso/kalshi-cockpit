@@ -266,7 +266,12 @@ logger = logging.getLogger(__name__)
 #: `backend/positions.py`. Four nullable column steps on the v54/v55
 #: template; no backfill -- every earlier row keeps NULL and ADR 0160's
 #: read-time join.
-SCHEMA_VERSION = 60
+#:
+#: v61 the 2026-10-02 parlay town hall (#281, #282): `game_script_cards`
+#: gains `sources_json` and `ticket_needs`; `combo_rfq_quotes` gains
+#: `first_seen_ms` and `last_seen_ms`. Four nullable column steps; no
+#: backfill -- NULL is the truth about every earlier row.
+SCHEMA_VERSION = 61
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1323,6 +1328,15 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45, 57, 59)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # The parlay town hall's columns. See the v61 note above.
+    61: _Migration(
+        columns=(
+            ("game_script_cards", "sources_json", "TEXT"),
+            ("game_script_cards", "ticket_needs", "TEXT"),
+            ("combo_rfq_quotes", "first_seen_ms", "INTEGER"),
+            ("combo_rfq_quotes", "last_seen_ms", "INTEGER"),
+        ),
+    ),
     # Which fill made a held combo, and whose price its stake is. See the v60
     # note above and the column comment in `schema.sql`. Column-level CHECKs
     # for v51's reason; NO backfill (ADR 0192 §2.6) -- NULL is the truth
