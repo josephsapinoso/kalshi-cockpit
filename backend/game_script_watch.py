@@ -206,19 +206,22 @@ def decide_rechecks(
     now_ms: int,
     cards: Iterable[dict],
     opened: Iterable[str],
-    budget: WatchBudget,
-    *,
-    already_reserved_tokens: int = 0,
-    already_reserved_searches: int = 0,
 ) -> list[dict]:
     """The built cards to re-check this pass, soonest kickoff first. Pure.
 
     A card qualifies when it is `built`, has never been re-checked, kicks off
     within `RECHECK_LEAD_MS` and has not started, and its game is in `opened`
-    (Joe looked at it on the desk: Joe's (A) to #270, not every card). The
-    unattended token share and the search ceiling bind as for builds, on top
-    of whatever this pass already reserved for builds. A card past a ceiling
-    is simply not chosen; it is not stamped, so a later pass may still take it.
+    (Joe looked at it on the desk: Joe's (A) to #270, not every card).
+
+    **No budget gate here, deliberately (Joe, 2026-10-03).** Until then the
+    unattended token share bound re-checks as it binds builds, and on
+    2026-10-02 the T-24h builds had spent that share (4.47M of a 4.5M line)
+    by 22:35Z: five cards Joe had minted were never re-checked, and nothing
+    said so, because a card past the line was "simply not chosen". A
+    re-check runs only for a game Joe opened or minted -- spend on his
+    behalf, like a tap -- so it now answers to the day's real ceilings
+    alone, which `recheck_card` reads per call and STAMPS as
+    `refused_budget` when they bind.
     """
     opened_set = {t.strip().upper() for t in opened}
     todo = sorted(
@@ -231,22 +234,7 @@ def decide_rechecks(
         ),
         key=lambda c: (c["kickoff_ms"], c["game_event_ticker"]),
     )
-    token_line = (
-        int(budget.tokens_ceiling * (1.0 - budget.tap_token_share))
-        if budget.tokens_ceiling > 0
-        else None
-    )
-    chosen: list[dict] = []
-    for card in todo:
-        n = len(chosen) + 1
-        tokens = budget.tokens_today + already_reserved_tokens + n * RECHECK_TOKEN_ESTIMATE
-        searches = budget.searches_today + already_reserved_searches + n * RECHECK_SEARCHES
-        if token_line is not None and tokens > token_line:
-            break
-        if budget.searches_ceiling > 0 and searches > budget.searches_ceiling:
-            break
-        chosen.append(card)
-    return chosen
+    return todo
 
 
 # --- the impure edge ---------------------------------------------------------
@@ -459,11 +447,7 @@ async def run_pass(
     rechecked = 0
     if recheck is not None:
         recheck_cards, opened = load_recheck_inputs(conn, now_ms)
-        for card in decide_rechecks(
-            now_ms, recheck_cards, opened, budget,
-            already_reserved_tokens=built * CARD_TOKEN_ESTIMATE,
-            already_reserved_searches=built * CARD_SEARCHES,
-        ):
+        for card in decide_rechecks(now_ms, recheck_cards, opened):
             try:
                 await recheck(card)
                 rechecked += 1

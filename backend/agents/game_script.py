@@ -421,6 +421,8 @@ async def build_card(
 RECHECK_AGENT_NAME = "game_script_recheck"
 RECHECK_PROMPT_VERSION = "1"
 RECHECK_MAX_SEARCHES = 1
+#: A re-check that answers `unknown` is asked once more (Joe, 2026-10-03).
+RECHECK_ATTEMPTS = 2
 RECHECK_SEARCH_TOOL = {**WEB_SEARCH_TOOL, "max_uses": RECHECK_MAX_SEARCHES}
 
 RECHECK_SYSTEM = """\
@@ -489,38 +491,57 @@ async def recheck_card(
     kickoff_iso: str,
     now_ms: int,
 ) -> str:
-    """One metered call with one search, or a budget refusal that spends
-    nothing. Always stamps the card once; returns the stored status."""
-    reason = budget.refusal_reason(1, now_ms, searches_worst_case=RECHECK_MAX_SEARCHES)
-    if reason is not None:
-        game_script_cards.record_recheck(
-            conn, card["id"], recheck_ms=now_ms, status="refused_budget", note=reason
+    """Up to `RECHECK_ATTEMPTS` metered calls with one search each, or a budget
+    refusal that spends nothing. Always stamps the card once; returns the
+    stored status.
+
+    **One retry, on `unknown` only (Joe, 2026-10-03).** On 2026-10-02 a
+    re-check came back `unknown` because the search tool errored, and the
+    card carried "could not tell" into the game. A second attempt is one
+    more call and one more search inside the same ceilings; if it is also
+    `unknown`, the note says it was tried twice. `triggered` and `not_found`
+    are answers and are never re-asked -- re-asking until the answer changes
+    would be shopping for one.
+    """
+    status, note, source = "unknown", None, None
+    for attempt in range(1, RECHECK_ATTEMPTS + 1):
+        reason = budget.refusal_reason(1, now_ms, searches_worst_case=RECHECK_MAX_SEARCHES)
+        if reason is not None:
+            if attempt == 1:
+                game_script_cards.record_recheck(
+                    conn, card["id"], recheck_ms=now_ms, status="refused_budget",
+                    note=reason,
+                )
+                return "refused_budget"
+            break
+        call_id = budget.reserve(
+            called_ms=now_ms, agent=RECHECK_AGENT_NAME, model=config.model,
+            ticker=card["game_event_ticker"], side=None,
         )
-        return "refused_budget"
-    call_id = budget.reserve(
-        called_ms=now_ms, agent=RECHECK_AGENT_NAME, model=config.model,
-        ticker=card["game_event_ticker"], side=None,
-    )
-    try:
-        outcome = await structured_call(
-            client,
-            model=config.model,
-            system=RECHECK_SYSTEM,
-            user_content=recheck_prompt(
-                game_title=game_title, kickoff_iso=kickoff_iso,
-                drop_if=card.get("drop_if") or "",
-            ),
-            output_model=RecheckOutput,
-            max_tokens=1000,
-            effort="low",
-            tools=[RECHECK_SEARCH_TOOL],
-        )
-        parsed, usage = outcome.parsed, outcome.usage
-    except Exception:
-        logger.exception("the drop-if re-check died")
-        parsed, usage = None, None
-    status, note, source = settle_recheck(parsed)
-    budget.settle(call_id, verdict=status, usage=usage)
+        try:
+            outcome = await structured_call(
+                client,
+                model=config.model,
+                system=RECHECK_SYSTEM,
+                user_content=recheck_prompt(
+                    game_title=game_title, kickoff_iso=kickoff_iso,
+                    drop_if=card.get("drop_if") or "",
+                ),
+                output_model=RecheckOutput,
+                max_tokens=1000,
+                effort="low",
+                tools=[RECHECK_SEARCH_TOOL],
+            )
+            parsed, usage = outcome.parsed, outcome.usage
+        except Exception:
+            logger.exception("the drop-if re-check died")
+            parsed, usage = None, None
+        status, note, source = settle_recheck(parsed)
+        budget.settle(call_id, verdict=status, usage=usage)
+        if status != "unknown":
+            break
+    if status == "unknown" and attempt > 1:
+        note = f"Tried twice. {note}" if note else "Tried twice; neither attempt could tell."
     game_script_cards.record_recheck(
         conn, card["id"], recheck_ms=now_ms, status=status, note=note, source=source
     )

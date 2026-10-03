@@ -37,7 +37,6 @@ CONFIG = AgentConfig(api_key="test", model="claude-sonnet-5")
 NOW = 1_790_400_000_000
 GAME = "KXNHLGAME-26OCT02WSHCAR"
 OTHER = "KXNHLGAME-26OCT02BOSWPG"
-ROOMY = WatchBudget(tokens_today=0, tokens_ceiling=0, searches_today=0, searches_ceiling=0)
 
 
 def _card(ticker=GAME, kickoff=NOW + 90 * 60_000, **kw):
@@ -49,11 +48,11 @@ def _card(ticker=GAME, kickoff=NOW + 90 * 60_000, **kw):
 
 class TestOnlyOpenedGamesAreRechecked:
     def test_a_card_for_a_game_joe_did_not_open_is_never_rechecked(self):
-        assert decide_rechecks(NOW, [_card()], opened=[OTHER], budget=ROOMY) == []
+        assert decide_rechecks(NOW, [_card()], opened=[OTHER]) == []
 
     def test_an_opened_game_inside_two_hours_is_rechecked(self):
         assert [c["game_event_ticker"] for c in decide_rechecks(
-            NOW, [_card()], opened=[GAME.lower()], budget=ROOMY
+            NOW, [_card()], opened=[GAME.lower()]
         )] == [GAME]
 
     @pytest.mark.parametrize("card", [
@@ -63,15 +62,15 @@ class TestOnlyOpenedGamesAreRechecked:
         _card(status="skipped"),
     ], ids=["too_early", "already_started", "already_rechecked", "not_built"])
     def test_outside_the_window_or_done_is_not_rechecked(self, card):
-        assert decide_rechecks(NOW, [card], opened=[GAME], budget=ROOMY) == []
+        assert decide_rechecks(NOW, [card], opened=[GAME]) == []
 
-    def test_the_unattended_share_binds(self):
-        tight = WatchBudget(
-            tokens_today=0, tokens_ceiling=2 * RECHECK_TOKEN_ESTIMATE + 1,
-            searches_today=0, searches_ceiling=0, tap_token_share=0.5,
-        )
+    def test_every_due_opened_card_is_chosen_whatever_the_unattended_share(self):
+        # 2026-10-02: the T-24h builds spent the unattended share and five
+        # minted cards were silently never re-checked. The day's real
+        # ceilings are read per call by `recheck_card`, which stamps a
+        # refusal; choosing is no longer a budget decision.
         cards = [_card(), _card(ticker=OTHER, id=2)]
-        assert len(decide_rechecks(NOW, cards, [GAME, OTHER], tight)) == 1
+        assert len(decide_rechecks(NOW, cards, [GAME, OTHER])) == 2
 
     def test_opened_is_read_from_the_desks_heartbeat_and_minted_cards(self, tmp_path):
         conn = db.init_db(tmp_path / "r.db")
@@ -161,6 +160,55 @@ class TestWhatIsStored:
         status = await recheck_card(conn, client, CONFIG, _budget(conn, daily=-1), card=card,
                                     game_title=GAME, kickoff_iso="x", now_ms=NOW)
         assert status == "refused_budget" and client.calls == []
+
+
+class _Sequence:
+    """A client whose answers come from a list, one per call."""
+
+    def __init__(self, answers):
+        self.calls = []
+        parent = self
+        queue = list(answers)
+
+        class _Messages:
+            async def parse(self, **kw):
+                parent.calls.append(kw)
+                return type("R", (), {"parsed_output": queue.pop(0),
+                                      "stop_reason": "end_turn", "usage": _Usage()})()
+
+        self.messages = _Messages()
+
+
+class TestOneRetryOnUnknown:
+    async def _run(self, tmp_path, answers, budget=None):
+        conn = db.init_db(tmp_path / "r.db")
+        card = _stored_card(conn)
+        client = _Sequence(answers)
+        status = await recheck_card(conn, client, CONFIG, budget or _budget(conn),
+                                    card=card, game_title=GAME, kickoff_iso="x", now_ms=NOW)
+        return status, client, game_script_cards.card_by_id(conn, card["id"])
+
+    async def test_unknown_then_an_answer_stores_the_answer(self, tmp_path):
+        status, client, row = await self._run(tmp_path, [
+            RecheckOutput(status="unknown", note="The search tool errored."),
+            RecheckOutput(status="not_found", note="Nothing found."),
+        ])
+        assert status == "not_found" and len(client.calls) == 2
+        assert row["recheck_status"] == "not_found"
+
+    async def test_unknown_twice_says_it_was_tried_twice(self, tmp_path):
+        status, client, row = await self._run(tmp_path, [
+            RecheckOutput(status="unknown", note="Tool error."),
+            RecheckOutput(status="unknown", note="Still unclear."),
+        ])
+        assert status == "unknown" and len(client.calls) == 2
+        assert row["recheck_note"].startswith("Tried twice.")
+
+    async def test_an_answer_is_never_reasked(self, tmp_path):
+        status, client, _ = await self._run(tmp_path, [
+            RecheckOutput(status="not_found", note="Nothing found."),
+        ])
+        assert status == "not_found" and len(client.calls) == 1
 
 
 class TestTheOutputCarriesNoNumberAboutTheBet:
