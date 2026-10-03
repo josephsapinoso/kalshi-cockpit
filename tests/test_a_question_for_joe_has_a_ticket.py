@@ -28,7 +28,8 @@ What this test establishes
 1. Every `Question for Joe` marker in the LATEST `tasks/NEXT.md` entry, and in
    every `docs/measurements/*.md` dated on or after the rule, names an issue
    number on the same line -- and `#3` does not count, because `#3` is the map
-   and naming the map is how "I will open one later" gets written.
+   and naming the map is how "I will open one later" gets written. Nor does
+   `#302`, the map that continues #3 past GitHub's 100 sub-issue cap (#292).
 2. No item in the latest entry's **Still open** list hands a decision to Joe
    in the looser wordings that actually decayed -- *for Joe*, *Joe's call*,
    *until he answers*, *ask Joe* -- without a ticket number in that item.
@@ -65,7 +66,9 @@ MEASUREMENTS = ROOT / "docs" / "measurements"
 # Measurement docs are named YYYY-MM-DD-<slug>.md. Docs dated on or after this
 # day are inside the rule; earlier ones are a record and are left alone.
 RULE_DATE = "2026-09-17"
-MAP_ISSUE = 3
+# #3 is full at GitHub's 100 sub-issue cap; #302 continues it (#292). Keep in
+# step with MAP_ISSUES in scripts/board.py.
+MAP_ISSUES = frozenset({3, 302})
 
 MARKER = re.compile(r"question for joe\s*:", re.IGNORECASE)
 TICKET = re.compile(r"#(\d+)\b")
@@ -89,8 +92,8 @@ ITEM_START = re.compile(r"^\d+\.\s")
 
 
 def names_a_ticket(text: str) -> bool:
-    """True when `text` cites an issue number that is not the map itself."""
-    return any(int(n) != MAP_ISSUE for n in TICKET.findall(text))
+    """True when `text` cites an issue number that is not one of the maps."""
+    return any(int(n) not in MAP_ISSUES for n in TICKET.findall(text))
 
 
 def latest_entry(text: str) -> str:
@@ -150,6 +153,11 @@ class TestTheMarkerNamesATicket:
         # "#3" is how "I will open one on the map later" gets written.
         assert markers_without_a_ticket("Question for Joe: anchor rate — map #3") == [
             "Question for Joe: anchor rate — map #3"
+        ]
+
+    def test_the_continuation_map_is_not_a_ticket_either(self):
+        assert markers_without_a_ticket("Question for Joe: anchor rate — map #302") == [
+            "Question for Joe: anchor rate — map #302"
         ]
 
     def test_the_number_must_be_on_the_marker_line(self):
@@ -258,8 +266,8 @@ class TestTheRecordHonoursTheRule:
         entry = latest_entry(NEXT.read_text(encoding="utf-8"))
         assert markers_without_a_ticket(entry) == [], (
             "a `Question for Joe:` line in the latest tasks/NEXT.md entry names no ticket. "
-            "Open a sub-issue of map #3 (docs/agents/issue-tracker.md, 'Open a ticket for Joe') "
-            "and write its number on that line. #3 is the map, not a ticket."
+            "Open a sub-issue of map #302 (docs/agents/issue-tracker.md, 'Open a ticket for Joe') "
+            "and write its number on that line. #3 and #302 are maps, not tickets."
         )
 
     def test_no_open_item_hands_joe_a_decision_without_a_ticket(self):
@@ -274,7 +282,7 @@ class TestTheRecordHonoursTheRule:
         entry = latest_entry(NEXT.read_text(encoding="utf-8"))
         assert open_items_without_a_ticket(entry) == [], (
             "an item in the latest entry's Still open list names no ticket. Since 2026-09-19 "
-            "there is one queue: every open item is a GitHub issue under map #3 or the backlog "
+            "there is one queue: every open item is a GitHub issue under map #3/#302 or the backlog "
             "root, and this list is `#NN — one line` pointers (docs/agents/orchestration.md). "
             "Open the ticket, then write its number on the item."
         )

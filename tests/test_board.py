@@ -241,12 +241,12 @@ class TestStillOpenTicketWarning:
 
     def test_a_still_open_item_naming_no_ticket_warns(self):
         lines = board.warnings([], self.NEXT_WITH_UNTICKETED_ITEM)
-        assert any("no ticket besides #3" in ln for ln in lines)
+        assert any("no ticket besides a map" in ln for ln in lines)
         assert any("shard probe" in ln for ln in lines)
 
     def test_an_item_naming_only_the_map_number_still_warns(self):
         lines = board.warnings([], self.NEXT_WITH_ONLY_MAP_NUMBER)
-        assert any("no ticket besides #3" in ln for ln in lines)
+        assert any("no ticket besides a map" in ln for ln in lines)
 
     def test_an_item_with_a_real_ticket_does_not_warn(self):
         lines = board.warnings([], self.NEXT_ALL_TICKETED)
@@ -308,7 +308,7 @@ class TestExitCodes:
         # cases -- those are what manufacture the warnings) and a NEXT.md
         # whose Still-open items are all ticketed.
         data = load_fixture_data()
-        clean = {"roots": {"3": data["roots"]["3"], "80": data["roots"]["80"]}}
+        clean = {"roots": {"3": data["roots"]["3"], "302": data["roots"]["302"], "80": data["roots"]["80"]}}
         # Strip the two real untyped/no-owner open leaves under #3 (#76, #78),
         # and the five open/no-owner epics under #80 -- give #80 itself an
         # owner so it (a now-childless leaf) is not itself a warning. This
@@ -321,6 +321,9 @@ class TestExitCodes:
         clean["roots"]["80"] = dict(clean["roots"]["80"])
         clean["roots"]["80"]["children"] = []
         clean["roots"]["80"]["labels"] = clean["roots"]["80"]["labels"] + [{"name": "owner:joe"}]
+        # #302 is a childless map, an EMPTY-frontier warning by design; claim
+        # it so it is held on purpose, as #151 is.
+        clean["roots"]["302"] = dict(clean["roots"]["302"], assignee={"login": "josephsapinoso"})
         fixture_path = tmp_path / "clean.json"
         fixture_path.write_text(json.dumps(clean), encoding="utf-8")
         next_path = tmp_path / "NEXT.md"
@@ -364,7 +367,7 @@ class TestExitCodes:
         assert result.returncode == 1, result.stdout + result.stderr
         parsed = json.loads(result.stdout)
         assert isinstance(parsed, list)
-        assert {t["number"] for t in parsed} == {3, 80}
+        assert {t["number"] for t in parsed} == {3, 302, 80}
 
 
 # --------------------------------------------------------------------------
@@ -379,6 +382,13 @@ class TestReimplementedNextMdParsers:
         assert board.names_a_ticket("see map #3") is False
         assert board.names_a_ticket("see #3 and #41") is True
 
+    def test_names_a_ticket_refuses_the_continuation_map_alone(self):
+        # #302 continues #3 past GitHub's 100 sub-issue cap (#292); it is a
+        # map, so naming it is still "I will open a ticket later".
+        assert board.names_a_ticket("open one under map #302") is False
+        assert board.names_a_ticket("see #3 and #302") is False
+        assert board.names_a_ticket("see #302 and #303") is True
+
     def test_latest_entry_stops_at_a_rule(self):
         text = "## 2026-09-19 a\nbody\n---\n## 2026-09-18 b\nolder\n"
         entry = board.latest_entry(text)
@@ -390,3 +400,41 @@ class TestReimplementedNextMdParsers:
         items = board.still_open_items(entry)
         assert len(items) == 2
         assert "continued" in items[0]
+
+
+# --------------------------------------------------------------------------
+# the continuation map (#292): #3 is full at GitHub's 100 sub-issue cap, so a
+# new question for Joe is linked under #302 -- and must not vanish from the
+# frontier for living there.
+# --------------------------------------------------------------------------
+
+
+class TestContinuationMap:
+    def test_both_maps_are_roots(self):
+        assert 3 in board.ROOTS and 302 in board.ROOTS and 80 in board.ROOTS
+        assert board.MAP_ISSUES == frozenset({3, 302})
+
+    def test_a_map_with_no_children_yet_is_an_empty_frontier_not_an_ownerless_leaf(self):
+        node = board.classify(load_fixture_data()["roots"]["302"])
+        assert node["ready"] is False
+        lines = board.warnings([node], next_text=None)
+        assert any("frontier is EMPTY" in ln for ln in lines)
+        assert not any("no owner" in ln for ln in lines)
+
+    def test_an_open_question_parked_under_the_continuation_map_reaches_the_frontier(self, tmp_path):
+        data = load_fixture_data()
+        question = dict(synthetic("grilling_infers_joe"), number=9302,
+                        title="synthetic: a question for Joe under map #302",
+                        body="Part of #302\n\nA decision only Joe can make.")
+        roots = dict(data["roots"])
+        roots["302"] = dict(roots["302"], children=[question],
+                            sub_issues_summary={"total": 1})
+        fixture_path = tmp_path / "with_question.json"
+        fixture_path.write_text(json.dumps({"roots": roots}), encoding="utf-8")
+
+        result = run_cli("--fixture", str(fixture_path))
+        assert result.returncode in (0, 1), result.stdout + result.stderr
+        frontier = result.stdout.split("FRONTIER", 1)[1].split("WARNINGS", 1)[0]
+        assert "#9302" in frontier, result.stdout
+        # And the map holding it is no longer reported empty.
+        assert "#302 has no open children" not in result.stdout

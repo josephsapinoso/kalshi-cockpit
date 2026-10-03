@@ -603,8 +603,8 @@ build steps. See `backend/kalshi/combos.py` and `tasks/lessons.md`.
 ## Workflow
 
 0. **Run `scripts/board.py`, then invoke the `partner` agent, before planning
-   anything.** The board is the generated frontier of the one queue (map #3
-   for Joe's decisions, backlog root #80 for build work — ADR 0179,
+   anything.** The board is the generated frontier of the one queue (maps #3
+   and #302 for Joe's decisions, backlog root #80 for build work — ADR 0179,
    `docs/agents/orchestration.md`). Hand it and the state (what landed, what
    is blocked) to `partner`; it returns a ranked list **and a dispatch table**
    — ticket → agent → model → lane files. This session is the orchestrator:
@@ -628,7 +628,7 @@ build steps. See `backend/kalshi/combos.py` and `tasks/lessons.md`.
    audit that raises a decision only he can make — including a user-facing
    sentence found to contradict this repo's own measured record, which is
    where three of the first five tickets under this rule came from — opens a
-   sub-issue of map #3
+   sub-issue of map #302 (#3 is full at GitHub's 100 cap, #292)
    **in the same session** (recipe: `docs/agents/issue-tracker.md`, "Open a
    ticket for Joe"), and the handoff names it as
    `Question for Joe: <one sentence> — #NN`. **Without the ticket the question
@@ -637,7 +637,7 @@ build steps. See `backend/kalshi/combos.py` and `tasks/lessons.md`.
    did, twice, in three sessions (`tasks/lessons.md` 2026-09-16 eighth). The
    map is the only queue that does not refill itself. An empty frontier is a
    finding, not a clean desk. `tests/test_a_question_for_joe_has_a_ticket.py`
-   refuses the marker without a number and refuses `#3` (the map) as the number.
+   refuses the marker without a number and refuses `#3` and `#302` (the maps) as the number.
 8. **Every open item is a ticket, and NEXT.md points at it** (ADR 0179,
    2026-09-19, superseding the three-queue answer of 2026-08-28). The
    Still-open list is `#NN — one line` per item; the same test refuses an

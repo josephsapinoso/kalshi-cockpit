@@ -89,6 +89,8 @@ re-derive them. Read the map body, then the frontier (open, unblocked `0`,
 unassigned `-`, first in map order wins):
 
     gh issue view 3 --json body --jq .body
+    # #3 is full at GitHub's 100 sub-issue cap; new questions live under #302 (#292).
+    # Run this for 302 as well as 3, or just run scripts/board.py, which reads both.
     gh api repos/josephsapinoso/kalshi-cockpit/issues/3/sub_issues --paginate \
       --jq '.[] | select(.state=="open") | [.number,(.assignee.login // "-"),(.issue_dependencies_summary.blocked_by // 0),.title] | @tsv'
 
@@ -96,7 +98,7 @@ Conventions: `docs/agents/issue-tracker.md`. Claim a ticket by assigning it to
 yourself before any work; resolve one per session. The map produces
 *decisions*, not builds. **An empty frontier is a finding, not a clean desk**
 (2026-09-16): the map is the only queue that does not refill itself, and a
-question for Joe that is not a sub-issue of #3 decays into the instrument
+question for Joe that is not a sub-issue of a map (#302 since 2026-10-03) decays into the instrument
 that raised it. Write one as `Question for Joe: <sentence> — #NN` (recipe:
 "Open a ticket for Joe" in the conventions file);
 `tests/test_a_question_for_joe_has_a_ticket.py` refuses the marker without a
@@ -136,6 +138,26 @@ live. The terminal spread/total look was **VETOED by Joe 2026-08-21 16:11Z**
 nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
+
+## 2026-10-03 (eighty-first session) — question board: #3 is full, #302 continues it (#292 closed)
+
+Joe asked me to go through the question board because it "is full at 100".
+
+- **Nothing was waiting on him.** All 100 of #3's children were closed. #3 was full because GitHub refuses a 101st sub-issue (HTTP 422), not because questions had piled up. The only open `owner:joe` item is #220, which is due on or after 10-05.
+- **Fixed per #292 option (a).** I opened map **#302**, "Cockpit for the pilot, part 2", and new questions for Joe are linked under it. `scripts/board.py` reads roots 3, 302 and 80. `MAP_ISSUES = {3, 302}` lives in board.py and in `test_a_question_for_joe_has_a_ticket.py`, so neither map number counts as a ticket.
+- **A map with no children is an empty frontier, not a leaf with no owner.** This is new in `classify()`, so a fresh #302 warns "frontier is EMPTY" instead of asking for an owner.
+- The recipe (`docs/agents/issue-tracker.md`), CLAUDE.md step 0/7, partner.md and orchestration.md now name #302. The fixture carries a real capture of #302 from 2026-10-03.
+- **Tests:** a question parked under #302 reaches the FRONTIER (`TestContinuationMap`). Two mutations went red: dropping 302 from `ROOTS`, and reverting the map rule.
+
+### Still open
+
+1. #301 follow-through is done: the 2026-10-02 tickets were tagged and reviewed in chat. Per the operator-data rule, no figures are kept here. **Gap found:** a card's `drop_if` cannot be read once its game has kicked off. `/api/game-cards` serves upcoming cards only, and no inspector reads past cards. Nothing is built for it.
+2. #220: on or after 2026-10-05, review the game-script cards, run `credits-day --date 2026-10-04`, and read the first Matchup tile. #210 and #197 close with it. Also owed: the first prompt-v3 card and one `game-script-card-stamps` plus `own-open-rfqs` read. Read the first night's T-2h re-checks (`21677337`): every minted card should carry a `recheck_status`, with no silent NULLs.
+3. #297: `collection_coverage_census.py` needs a fresh read-only capture with NHL and NCAAF events before it can answer.
+4. #292 (closed this session): new questions for Joe are linked under map #302. Its frontier is empty by finding: nothing is open for him.
+5. #165, #169 and #151 are unchanged. #267 is due in November.
+
+---
 
 ## 2026-10-02 (eightieth session) — Your bets: tag where each pick came from, live on `b07ef3e1`, schema v63, ADR 0193
 

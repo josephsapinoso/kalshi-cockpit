@@ -49,7 +49,7 @@ unblocked when every blocker is closed.
        .venv\Scripts\python.exe scripts/board.py        # the ticket frontier
        .venv\Scripts\python.exe scripts/lane_board.py   # worktrees and claims
 
-   `board.py` walks map #3 and backlog root #80 through their sub-issues and
+   `board.py` walks maps #3 and #302 and backlog root #80 through their sub-issues and
    prints the tree, the FRONTIER (open, unassigned, unblocked leaves grouped
    by owner then model) and WARNINGS (a leaf with no `owner:`, an agent leaf
    with no `model:` or no **Done when** line, a Still-open item with no

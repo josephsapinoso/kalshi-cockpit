@@ -1,4 +1,4 @@
-"""Backlog board: two GitHub trees (map #3, backlog root #80), one frontier. Read-only.
+"""Backlog board: three GitHub trees (maps #3 and #302, backlog root #80), one frontier. Read-only.
 
     .venv\\Scripts\\python.exe scripts/board.py
     .venv\\Scripts\\python.exe scripts/board.py --json
@@ -79,8 +79,12 @@ from pathlib import Path
 
 OWNER = "josephsapinoso"
 REPO = "kalshi-cockpit"
-ROOTS: tuple[int, ...] = (3, 80)
-MAP_ISSUE = 3
+ROOTS: tuple[int, ...] = (3, 302, 80)
+#: Joe's question maps. #3 hit GitHub's 100 sub-issue cap with #270 (a 101st
+#: link is refused, HTTP 422), so #302 continues it (#292). Neither number is a
+#: ticket. When #302 fills, open part 3 and add it here and in
+#: tests/test_a_question_for_joe_has_a_ticket.py.
+MAP_ISSUES: frozenset[int] = frozenset({3, 302})
 
 _TIMEOUT = 45.0
 
@@ -106,8 +110,8 @@ _DONE_WHEN = re.compile(r"(?m)^\s*(?:#{1,6}\s*)?\*{0,2}\s*done when\b", re.IGNOR
 
 
 def names_a_ticket(text: str) -> bool:
-    """True when `text` cites an issue number that is not the map itself."""
-    return any(int(n) != MAP_ISSUE for n in _TICKET.findall(text))
+    """True when `text` cites an issue number that is not one of the maps."""
+    return any(int(n) not in MAP_ISSUES for n in _TICKET.findall(text))
 
 
 def latest_entry(text: str) -> str:
@@ -138,7 +142,7 @@ def still_open_items(entry: str) -> list[str]:
 
 
 def still_open_items_without_a_ticket(next_text: str) -> list[str]:
-    """Every Still-open item in the latest NEXT.md entry naming no #NN besides #3.
+    """Every Still-open item in the latest NEXT.md entry naming no #NN besides a map.
 
     Broader than the test file's `open_items_asking_joe_without_a_ticket`: this
     checks every item, not only ones matching a decayed "for Joe" wording --
@@ -319,13 +323,16 @@ def classify(node: dict) -> dict:
     leaf = not any(child.get("state") == "open" for child in raw_children)
     # A parent whose children are ALL closed has nothing on its own frontier:
     # that is a finding about the queue (CLAUDE.md step 7), not a unit of work,
-    # so it is never ready. A node with no children at all is still a plain leaf.
-    frontier_empty = bool(raw_children) and leaf
+    # so it is never ready. A node with no children at all is still a plain leaf
+    # -- unless it is a map (`wayfinder:map`): a map is a queue, never a unit of
+    # work, so a fresh one with no children yet (#302 on the day it opened) is
+    # an empty frontier, not "an open leaf with no owner".
+    node_type = classify_type(labels)
+    frontier_empty = (bool(raw_children) or node_type == "map") and leaf
     blocked_by = (node.get("issue_dependencies_summary") or {}).get("blocked_by", 0) or 0
     assignee = node.get("assignee")
     assignee_login = assignee.get("login") if assignee else None
     state = node.get("state", "open")
-    node_type = classify_type(labels)
     # An epic is a container, never a unit of work: an epic with no children
     # yet is empty, not ready, and it has no owner because its children do.
     ready = state == "open" and leaf and not frontier_empty and assignee_login is None and blocked_by == 0 and node_type != "epic"
@@ -421,7 +428,7 @@ def warnings(nodes: list[dict], next_text: str | None) -> list[str]:
     if next_text is not None:
         for item in still_open_items_without_a_ticket(next_text):
             first_line = item.splitlines()[0].strip()
-            out.append(f"Still-open item names no ticket besides #3: {first_line}")
+            out.append(f"Still-open item names no ticket besides a map (#3/#302): {first_line}")
     return out
 
 
@@ -524,7 +531,7 @@ def _default_next_path() -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Backlog board over map #3 and backlog root #80 (read-only).",
+        description="Backlog board over maps #3 and #302 and backlog root #80 (read-only).",
         epilog="exit 0 clean; 1 one or more warnings; 3 a tree or NEXT.md could not be read.",
     )
     parser.add_argument("--json", action="store_true", help="dump the classified tree as JSON")

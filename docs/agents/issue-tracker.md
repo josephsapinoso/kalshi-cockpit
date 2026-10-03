@@ -51,8 +51,13 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
       gh issue create --title "<the question, as a sentence>" \
         --label wayfinder:grilling --body-file body.md          # prints the URL; note the #NN
       gh api repos/josephsapinoso/kalshi-cockpit/issues/<NN> --jq .id   # the DATABASE id, not NN
-      gh api --method POST repos/josephsapinoso/kalshi-cockpit/issues/3/sub_issues \
+      gh api --method POST repos/josephsapinoso/kalshi-cockpit/issues/302/sub_issues \
         -F sub_issue_id=<database-id>
+
+  **Link under #302, not #3.** #3 hit GitHub's 100 sub-issue cap with #270 and
+  refuses a 101st (HTTP 422); #302 continues it (#292). `board.py` reads both
+  maps. When #302 fills, open part 3 and add it to `MAP_ISSUES` in
+  `scripts/board.py` and the question test.
 
   The body carries: the question in one sentence; lettered options with the
   recommendation first and every term defined (Joe is a novice and answers
@@ -60,7 +65,7 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   that produced it; what changes on screen under each answer. Then write
   `Question for Joe: <sentence> — #NN` in the session's handoff —
   `tests/test_a_question_for_joe_has_a_ticket.py` refuses the marker without
-  a number and refuses `#3`. Label `wayfinder:grilling` for a decision he
+  a number and refuses `#3` and `#302`. Label `wayfinder:grilling` for a decision he
   makes in conversation, `wayfinder:research` if a fact must be surfaced
   first, `wayfinder:prototype` if he needs something to react to.
 - **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.

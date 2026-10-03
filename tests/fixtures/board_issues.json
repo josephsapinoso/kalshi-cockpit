@@ -3,6 +3,7 @@
   "params": {
     "roots": [
       3,
+      302,
       80
     ],
     "paginate": true
@@ -1549,6 +1550,26 @@
         }
       ]
     },
+    "302": {
+      "assignee": null,
+      "assignees": [],
+      "body": "Continuation of #3 (\"Cockpit for the pilot\"). #3 reached GitHub's 100 sub-issue cap with #270 (a 101st link is refused with HTTP 422), so every new **question for Joe** is linked as a sub-issue of **this** map instead. #3 keeps its history, its Destination, Notes and Decisions-so-far; read them there. This map adds nothing to them except new children.\n\n`scripts/board.py` reads both maps as roots, and `tests/test_a_question_for_joe_has_a_ticket.py` refuses this map's number as a ticket number, exactly as it refuses `#3`. Opened by #292.\n\nWhen this map reaches 100 children too, open part 3 the same way and add it to `MAP_ISSUES` in both files.\n",
+      "issue_dependencies_summary": {
+        "blocked_by": 0
+      },
+      "labels": [
+        {
+          "name": "wayfinder:map"
+        }
+      ],
+      "number": 302,
+      "state": "open",
+      "sub_issues_summary": {
+        "total": 0
+      },
+      "title": "Cockpit for the pilot, part 2 (questions for Joe, continued from #3)",
+      "children": []
+    },
     "80": {
       "number": 80,
       "title": "Engineering backlog",
@@ -1881,5 +1902,6 @@
       },
       "children": []
     }
-  }
+  },
+  "root_302_note": "Root #302 (map #3's continuation, opened 2026-10-03 by #292 when #3 hit GitHub's 100 sub-issue cap) is a real capture of 2026-10-03, taken the day it opened: no children yet. Roots #3 and #80 are still the 2026-09-19 capture."
 }
