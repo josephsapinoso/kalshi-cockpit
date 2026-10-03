@@ -126,6 +126,14 @@ export type SettledBet = {
   // v63: where Joe says this pick came from; null when untagged (never
   // "own"). Optional: a backend one version behind omits the key.
   pick_source?: PickSourceKey | null;
+  // The game-script card this combo was minted from: its "drop this if"
+  // words and what the T-2h re-check found. Null when no card is stamped
+  // with this ticker; optional for a backend one version behind.
+  card?: {
+    drop_if: string | null;
+    recheck_status: "triggered" | "not_found" | "unknown" | "refused_budget" | null;
+    recheck_note: string | null;
+  } | null;
 };
 
 /** v63: the six tags, in the server's fixed order. */

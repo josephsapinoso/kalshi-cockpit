@@ -480,6 +480,36 @@ def _with_leg_results(
     return out
 
 
+def _cards_by_combo(
+    conn: sqlite3.Connection, tickers: list[str]
+) -> dict[str, dict[str, Any]]:
+    """The game-script card a combination was minted from, for the cards
+    stamped with its ticker (`game_script_cards.combo_ticker`, set only when
+    the minted legs match the card exactly): its "drop this if" line and
+    what the T-2h re-check found (Joe, 2026-10-03). `/api/game-cards` serves
+    upcoming cards only, so without this the line was unreadable once the
+    game had kicked off. Words only -- no score, no verdict on the card
+    (ADR 0190 §2.7). Newest card wins when one ticker was stamped twice."""
+    out: dict[str, dict[str, Any]] = {}
+    if not tickers:
+        return out
+    marks = ",".join("?" for _ in tickers)
+    for r in conn.execute(
+        "SELECT combo_ticker, drop_if, recheck_status, recheck_note "
+        f"FROM game_script_cards WHERE combo_ticker IN ({marks}) "
+        "ORDER BY built_ms DESC, id DESC",
+        tickers,
+    ).fetchall():
+        if r["combo_ticker"] in out:
+            continue
+        out[r["combo_ticker"]] = {
+            "drop_if": r["drop_if"],
+            "recheck_status": r["recheck_status"],
+            "recheck_note": r["recheck_note"],
+        }
+    return out
+
+
 def _titles_by_ticker(
     conn: sqlite3.Connection, tickers: list[str]
 ) -> dict[str, str]:
@@ -845,6 +875,10 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
         conn,
         sorted({r["ticker"] for r in window if bet_kind(r["ticker"]) == KIND_COMBO}),
     )
+    cards_by_combo = _cards_by_combo(
+        conn,
+        sorted({r["ticker"] for r in window if bet_kind(r["ticker"]) == KIND_COMBO}),
+    )
     titles_by_ticker = _titles_by_ticker(
         conn,
         sorted({r["ticker"] for r in window if bet_kind(r["ticker"]) == KIND_SINGLE}),
@@ -1011,6 +1045,9 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
                     titles_by_ticker.get(row["ticker"])
                     if kind == KIND_SINGLE else None
                 ),
+                # The card this combo was minted from, if any: its drop-if
+                # line and the T-2h re-check, in words. None otherwise.
+                "card": cards_by_combo.get(row["ticker"]),
                 # v63: Joe's tag, None when untagged -- never `own`.
                 "pick_source": tags.get(row["ticker"]),
             }

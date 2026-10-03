@@ -809,6 +809,7 @@ function BetRow({
               {clvWords}
             </span>
           )}
+          {bet.kind === "combo" && bet.card && <CardWarning card={bet.card} />}
           {bet.kind === "combo" && chanceWords !== null && (
             <span className="mt-0.5 block text-xs text-muted">
               {chanceWords}
@@ -835,6 +836,31 @@ function BetRow({
         <PickSourceChips ticker={bet.ticker} block={pickSources} />
       </div>
     </li>
+  );
+}
+
+/**
+ * What the game-script card said would kill this ticket, and what the
+ * two-hours-before check found (Joe, 2026-10-03). Words only, and never a
+ * grade on the card: the re-check is one search, and "did not find it" is
+ * not a confirmation that it did not happen.
+ */
+function CardWarning({ card }: { card: NonNullable<SettledBet["card"]> }) {
+  if (!card.drop_if) return null;
+  const found =
+    card.recheck_status === "triggered"
+      ? "Two hours before kickoff, a dated report said it had happened."
+      : card.recheck_status === "not_found"
+        ? "Two hours before kickoff, one search did not find it — which is not proof it did not happen."
+        : card.recheck_status === "unknown"
+          ? "Two hours before kickoff, the check could not tell."
+          : card.recheck_status === "refused_budget"
+            ? "The two-hours-before check was skipped for budget."
+            : "It was not re-checked before kickoff.";
+  return (
+    <span className="mt-0.5 block max-w-[65ch] text-xs text-muted">
+      The card said drop it if: {card.drop_if} {found}
+    </span>
   );
 }
 
