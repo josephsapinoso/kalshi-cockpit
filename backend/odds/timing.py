@@ -1814,6 +1814,15 @@ class FiringSweep:
     # remaining option -- buy props for whatever the slate returned -- is what
     # spent 384 of 400 credits in a single pass on 2026-08-15.
     prop_event_ids: tuple[str, ...] = ()
+    # Fixtures whose alternate spreads/totals this firing buys (#303). Set only
+    # on a hand-requested alt-line firing, which buys nothing else: the runner
+    # serves it through the per-event endpoint and never through `fetch_odds`.
+    alt_line_event_ids: tuple[str, ...] = ()
+
+
+#: The vendor's keys for a game's other lines (#303). Stored under these names,
+#: never folded into `spreads`/`totals` -- see `backend/alt_lines.py`.
+ALT_LINE_MARKETS: tuple[str, ...] = ("alternate_spreads", "alternate_totals")
 
 
 @dataclass(frozen=True)
@@ -1831,6 +1840,9 @@ class ManualRefresh:
     # `None` buys team lines only. Set additionally buys that one fixture's
     # player props, which is the expensive half.
     odds_event_id: Optional[str] = None
+    # True buys that one fixture's alternate spreads/totals and NOTHING else --
+    # no team sweep, no props (#303). Priced at `alt_line_cost`.
+    alt_lines: bool = False
 
 
 def _prop_ids(request: ManualRefresh) -> tuple[str, ...]:
@@ -1884,6 +1896,7 @@ def decide_sweeps(
     desk_window: Optional[tuple[int, int]] = None,
     attention_ttl_ms: int = attention.DEFAULT_ATTENTION_TTL_MS,
     attention_daily_credits: int = DEFAULT_ATTENTION_DAILY_CREDITS,
+    alt_line_cost: int = 0,
 ) -> SweepDecision:
     """Whether to spend an odds credit on this pass, and on what.
 
@@ -2055,9 +2068,47 @@ def decide_sweeps(
     # would be a refusal with no reader.
     manual_firing: list[FiringSweep] = []
     for request in manual:
+        if request.alt_lines:
+            # One fixture's other lines and nothing else (#303). Charged against
+            # the same `credits_left`, so a second spend path is not opened.
+            alt_ids = (request.odds_event_id,) if request.odds_event_id else ()
+            if not alt_ids or any(
+                f.sport_key == request.sport_key and f.alt_line_event_ids == alt_ids
+                for f in manual_firing
+            ):
+                continue
+            if alt_line_cost <= 0:
+                refused_for_cost.append(
+                    f"{request.sport_key} alternate lines requested by hand cannot "
+                    f"be served: no alt-line cost was configured for this pass"
+                )
+                continue
+            if alt_line_cost > credits_left:
+                refused_for_cost.append(
+                    f"{request.sport_key} alternate lines requested by hand cannot "
+                    f"be served: {alt_line_cost} credits and {credits_left} remain"
+                )
+                continue
+            credits_left -= alt_line_cost
+            manual_firing.append(
+                FiringSweep(
+                    sport_key=request.sport_key,
+                    cost=alt_line_cost,
+                    trigger=MANUAL,
+                    detail=(
+                        f"alternate spreads/totals requested by hand for fixture "
+                        f"{request.odds_event_id}"
+                    ),
+                    slot=None,
+                    projected_total_cost=alt_line_cost,
+                    alt_line_event_ids=alt_ids,
+                )
+            )
+            continue
         if any(
             f.sport_key == request.sport_key
             and f.prop_event_ids == _prop_ids(request)
+            and not f.alt_line_event_ids
             for f in manual_firing
         ):
             # The same tap twice in one pass. The cooldown in `ondemand.submit`

@@ -1018,12 +1018,20 @@ async def main() -> int:
             len(due),
             ", ".join(
                 f"{r.sport_key}"
-                + (f"/props:{r.odds_event_id}" if r.odds_event_id else "")
+                + (
+                    f"/alt:{r.odds_event_id}"
+                    if r.kind == ondemand.KIND_ALT_LINES
+                    else (f"/props:{r.odds_event_id}" if r.odds_event_id else "")
+                )
                 for r in due
             ),
         )
         return [
-            ManualRefresh(sport_key=r.sport_key, odds_event_id=r.odds_event_id)
+            ManualRefresh(
+                sport_key=r.sport_key,
+                odds_event_id=r.odds_event_id,
+                alt_lines=r.kind == ondemand.KIND_ALT_LINES,
+            )
             for r in due
         ]
 

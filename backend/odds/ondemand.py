@@ -62,7 +62,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence
 
-from .timing import DEFAULT_DAY_START_UTC_HOUR, day_start_ms
+from .timing import ALT_LINE_MARKETS, DEFAULT_DAY_START_UTC_HOUR, day_start_ms  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +126,27 @@ DEFAULT_COOLDOWN_MS = 120_000
 # a tap buys one person one screen, where a scheduled sweep buys the record.
 DEFAULT_MANUAL_DAILY_CREDITS = 150
 
+# What a request buys. `team` is the tap this module was written for: the
+# sport's team lines, plus one fixture's props when an event is named.
+# `alt_lines` (#303, Joe's answer on #304) buys ONE fixture's alternate spreads
+# and totals, so `POST /api/parlays/check` can price a friend's leg that sits
+# off the books' main number. It buys no team sweep: the per-event endpoint
+# needs only the odds event id, which the check already has from `event_links`.
+KIND_TEAM = "team"
+KIND_ALT_LINES = "alt_lines"
+KINDS = (KIND_TEAM, KIND_ALT_LINES)
+
+# `ALT_LINE_MARKETS` (defined in `.timing`, imported above) names what such a
+# buy asks the vendor for; it is re-exported from here for the API.
+
+# Alt-line buys may take this much of the day, **inside** the manual slice
+# above, not beside it: the same `_reserved_since` tally counts both, so the
+# day's worst case does not move. 2 credits a game at the deployed ten books
+# (measured 2026-10-03, docs/measurements/2026-10-03-ncaaf-alternate-lines-
+# are-two-sided.md), so this is fifteen game-checks a day. A ceiling, not a
+# forecast: "check this parlay" was used twice in its first week.
+DEFAULT_ALT_LINE_DAILY_CREDITS = 30
+
 # A request nobody served within this long is dropped rather than served late.
 # Someone who tapped, waited, and put the phone down does not want a refresh
 # five minutes later -- and would not see it. Comfortably above the 15s quote
@@ -154,7 +175,8 @@ def inbox_path(db_path: str | os.PathLike[str]) -> Path:
 
 @dataclass(frozen=True)
 class RefreshRequest:
-    """One tap: a sport's team lines, and optionally one fixture's props."""
+    """One tap: a sport's team lines and optionally one fixture's props, or
+    (`kind == KIND_ALT_LINES`) one fixture's alternate spreads and totals."""
 
     sport_key: str
     # `None` means team lines only -- `h2h`/`spreads`/`totals` for the whole
@@ -167,6 +189,8 @@ class RefreshRequest:
     # region lists the vendor will bill on. Carried so the runner's log and the
     # API's refusal can quote the same number.
     estimated_credits: int
+    # Defaulted so every entry written before #303 decodes as what it was.
+    kind: str = KIND_TEAM
 
     @property
     def key(self) -> str:
@@ -176,6 +200,10 @@ class RefreshRequest:
         purchases and must not share a cooldown: blocking the second on the
         first would make one tap on one game silence the whole board.
         """
+        if self.kind == KIND_ALT_LINES:
+            # Its own purchase: an alt-line buy must not cool down a props
+            # tap on the same fixture, or the other way round.
+            return f"alt|{self.sport_key}|{self.odds_event_id}"
         return f"{self.sport_key}|{self.odds_event_id or '-'}"
 
 
@@ -279,16 +307,30 @@ def _decode(item: dict) -> Optional[RefreshRequest]:
         return None
     if event is not None and (not isinstance(event, str) or not event):
         return None
+    kind = item.get("kind", KIND_TEAM)
+    if kind not in KINDS:
+        return None
+    if kind == KIND_ALT_LINES and event is None:
+        # An alt-line buy is per fixture by construction; one with no fixture
+        # would reach the per-event endpoint with no event id.
+        return None
     return RefreshRequest(
         sport_key=sport,
         odds_event_id=event,
         requested_ms=requested,
         estimated_credits=cost,
+        kind=kind,
     )
 
 
-def _reserved_since(decoded: list[RefreshRequest], start_ms: int) -> int:
-    return sum(r.estimated_credits for r in decoded if r.requested_ms >= start_ms)
+def _reserved_since(
+    decoded: list[RefreshRequest], start_ms: int, kind: Optional[str] = None
+) -> int:
+    return sum(
+        r.estimated_credits
+        for r in decoded
+        if r.requested_ms >= start_ms and (kind is None or r.kind == kind)
+    )
 
 
 def manual_spent_today(
@@ -320,6 +362,8 @@ def submit(
     cooldown_ms: int = DEFAULT_COOLDOWN_MS,
     manual_daily_credits: int = DEFAULT_MANUAL_DAILY_CREDITS,
     day_start_hour: int = DEFAULT_DAY_START_UTC_HOUR,
+    kind: str = KIND_TEAM,
+    alt_line_daily_credits: int = DEFAULT_ALT_LINE_DAILY_CREDITS,
 ) -> Submission:
     """Accept a tap, or refuse it and say which ceiling refused.
 
@@ -341,7 +385,10 @@ def submit(
         odds_event_id=odds_event_id,
         requested_ms=now_ms,
         estimated_credits=estimated_credits,
+        kind=kind,
     )
+    if kind not in KINDS or (kind == KIND_ALT_LINES and not odds_event_id):
+        raise ValueError(f"not a refresh this inbox can carry: {kind!r}, {odds_event_id!r}")
     retained = _read(path)
     decoded = [r for r in (_decode(item) for item in retained) if r is not None]
 
@@ -378,6 +425,19 @@ def submit(
             estimated_credits=estimated_credits,
         )
 
+    if kind == KIND_ALT_LINES:
+        alt_spent = _reserved_since(decoded, start, KIND_ALT_LINES)
+        if alt_spent + estimated_credits > alt_line_daily_credits:
+            return Submission(
+                accepted=False,
+                detail=(
+                    f"buying other lines for checked parlays has used {alt_spent} "
+                    f"of the {alt_line_daily_credits} credits allowed for it today "
+                    f"and this game costs {estimated_credits}."
+                ),
+                estimated_credits=estimated_credits,
+            )
+
     if budget_refusal is not None:
         return Submission(
             accepted=False,
@@ -393,6 +453,7 @@ def submit(
                 "odds_event_id": r.odds_event_id,
                 "requested_ms": r.requested_ms,
                 "estimated_credits": r.estimated_credits,
+                "kind": r.kind,
             }
             # Newest first, so the cap trims the oldest.
             for r in sorted(
@@ -404,13 +465,19 @@ def submit(
         accepted=True,
         detail=(
             f"buying {_describe(request)} now -- {estimated_credits} credits. "
-            f"The board updates within about 15 seconds."
+            + (
+                "Check again in about 30 seconds."
+                if kind == KIND_ALT_LINES
+                else "The board updates within about 15 seconds."
+            )
         ),
         estimated_credits=estimated_credits,
     )
 
 
 def _describe(request: RefreshRequest) -> str:
+    if request.kind == KIND_ALT_LINES:
+        return f"the other spreads and totals for {request.sport_key} fixture {request.odds_event_id}"
     if request.odds_event_id:
         return f"player props for {request.sport_key} fixture {request.odds_event_id}"
     return f"{request.sport_key} team lines"

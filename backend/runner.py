@@ -141,6 +141,7 @@ from .odds.client import (
 )
 from .odds.sweeplog import NO_DATA, REFUSED, SERVED, SKIPPED, record_sweep_outcome
 from .odds.timing import (
+    ALT_LINE_MARKETS,
     ATTENTION,
     DEFAULT_DAY_START_UTC_HOUR,
     MANUAL,
@@ -2792,6 +2793,11 @@ async def fetch_and_store_odds(
         # environment rather than the code default -- `fly.live.toml` is where a
         # money control should be readable.
         attention_daily_credits=config.attention_daily_credits,
+        # One fixture's alternate spreads/totals (#303): the per-event call's
+        # own price, the same `sweep_cost` rule every other call uses.
+        alt_line_cost=sweep_cost(
+            ALT_LINE_MARKETS, config.regions, config.bookmakers
+        ),
     )
     logger.info("sweep decision: %s", decision.detail)
 
@@ -2813,6 +2819,32 @@ async def fetch_and_store_odds(
 
     sweeps = stored = 0
     for firing in decision.fire:
+        if firing.alt_line_event_ids:
+            # A hand-requested alt-line buy (#303): the per-event endpoint, the
+            # alternate keys only, stamped MANUAL so `_SERVED_SWEEP` never
+            # counts it as the sport's sweep -- it bought no main line, and
+            # counting it would cost the next window its opening call.
+            alt_quotes = await odds_client.fetch_props(
+                firing.sport_key,
+                list(firing.alt_line_event_ids),
+                now_ms=now,
+                markets=list(ALT_LINE_MARKETS),
+                trigger=MANUAL,
+            )
+            if alt_quotes:
+                n = store_quotes(conn, alt_quotes)
+                stored += n
+                record_sweep_outcome(
+                    conn, pass_ms=now, sport_key=firing.sport_key,
+                    outcome=SERVED, detail=firing.detail, quotes_stored=n,
+                )
+            else:
+                record_sweep_outcome(
+                    conn, pass_ms=now, sport_key=firing.sport_key,
+                    outcome=NO_DATA,
+                    detail=f"{firing.detail}: the books returned no alternate lines",
+                )
+            continue
         # Asked *before* the call, not after. A call that succeeds and exhausts
         # the budget would make an after-the-fact check report "refused" for a
         # sweep that was served -- the flattering direction is the dangerous one
