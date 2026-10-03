@@ -275,7 +275,17 @@ def max_prop_cost_per_event(regions, bookmakers=()) -> int:
         default=0,
     )
 
-PRICEABLE_MARKETS = TEAM_MARKETS | PROP_MARKETS
+# Alternate team lines (#303): every spread and total a book offers, not just
+# its main number. **Stored under the vendor's own keys, never folded into
+# `spreads` / `totals`.** The main-line reads take MAX(fetched_ms) for the
+# market and drop a book that does not carry exactly two rows (the runner's
+# spread pass), so an alternate row filed as `spreads` would blind the main
+# line. Nothing REQUESTS these on the scheduled sweep: they are stored only
+# when a per-event response carries them, and `ODDS_MARKETS` is unchanged.
+# Reading them is `backend/alt_lines.py`'s job alone.
+ALT_TEAM_MARKETS = frozenset({"alternate_spreads", "alternate_totals"})
+
+PRICEABLE_MARKETS = TEAM_MARKETS | ALT_TEAM_MARKETS | PROP_MARKETS
 
 # Recognised, and deliberately **not** stored, each with the reason. The API
 # returns these without being asked: a request for `markets=h2h,spreads,totals`
