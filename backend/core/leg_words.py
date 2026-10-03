@@ -83,3 +83,40 @@ def no_words_for(
     """`no_side_words` for a leg named by its series and its game's ticker."""
     kind = kind_of_series(series, league_prefix_of(game_event_ticker))
     return no_side_words(kind=kind, yes_label=yes_label)
+
+
+#: A section prefix Kalshi puts on some titles ("1st Half: ", "Full Game: "),
+#: kept verbatim in front of the reworded body.
+_TITLE_SECTION = re.compile(r"^((?:1st|2nd) Half: |Full Game: |1st Quarter: )?(.*)$")
+_TITLE_WINS = re.compile(r"^([A-Z][\w .&'()-]*?) wins$")
+
+
+def no_title_words(title: Optional[str]) -> Optional[str]:
+    """What a NO leg pays on, worded from the market's TITLE (the label a
+    held leg is recorded under), or `None` when the title is not one of
+    three shapes whose opposite is exact:
+
+        "Over 47.5 points scored"            -> "Under 47.5 points scored"
+        "Virginia Tech wins by over 3.5 points" -> "Not: Virginia Tech wins by 4+"
+        "Vegas wins"                          -> "Vegas does not win"
+
+    A "1st Half: " / "Full Game: " prefix is kept. Anything else -- a whole
+    number strike, a player prop, a tie market -- returns `None` and the
+    caller keeps its "NO -- " prefix rather than guess.
+    """
+    text = (title or "").strip()
+    if not text:
+        return None
+    section, body = _TITLE_SECTION.match(text).groups()
+    section = section or ""
+    over = _OVER.match(body)
+    if over:
+        return f"{section}Under {over.group(1)}{over.group(2)}"
+    cover = _COVER.match(body)
+    if cover:
+        needed = math.floor(float(cover.group(2))) + 1
+        return f"{section}Not: {cover.group(1)} wins by {needed}+"
+    wins = _TITLE_WINS.match(body)
+    if wins:
+        return f"{section}{wins.group(1)} does not win"
+    return None

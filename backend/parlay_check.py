@@ -103,6 +103,7 @@ import re
 from typing import Optional, Sequence
 
 from backend.core.correlation import CorrelationRefused
+from backend.core.leg_words import no_title_words
 from backend.core.ladder import (
     UNUSABLE_REASONS,
     CandidateLeg,
@@ -307,7 +308,12 @@ def _leg_label(ticker: str, side: str, titles: dict) -> str:
     a phrasing for it.
     """
     base = titles.get(ticker) or ticker
-    return f"NO -- {base}" if side == "no" else base
+    if side != "no":
+        return base
+    # A NO leg pays on the opposite; say it in words where the title's shape
+    # makes the opposite exact (`leg_words.no_title_words`), else keep the
+    # prefix rather than guess.
+    return no_title_words(titles.get(ticker)) or f"NO -- {base}"
 
 
 def _titles_for(conn, tickers: Sequence[str]) -> dict:

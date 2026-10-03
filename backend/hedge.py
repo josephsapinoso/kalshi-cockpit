@@ -73,6 +73,7 @@ from .core.hedge import (
     ticket_refusal,
 )
 from .core.fees import calculate_fee
+from .core.leg_words import no_title_words
 from .kalshi.orderbook import OrderBook
 from .match.linker import fixture_segment
 from .kalshi.rfq import QUOTE_FILLED_STATUSES, RfqRefused, mve_legs
@@ -1704,7 +1705,12 @@ async def adopt_venue_combo(
             base_label = leg_ticker
         else:
             base_label = title
-        label = f"NO -- {base_label}" if leg_side == "no" else base_label
+        if leg_side == "no":
+            # Worded as the opposite where the title makes it exact; else
+            # the prefix, never a guess (`leg_words.no_title_words`).
+            label = no_title_words(title) or f"NO -- {base_label}"
+        else:
+            label = base_label
         legs.append(
             {
                 "ticker": leg_ticker,
