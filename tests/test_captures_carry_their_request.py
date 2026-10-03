@@ -294,6 +294,14 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
             "against a real NFL spread subtitle, so which series was asked for "
             "is the whole point of the file.",
     ),
+    "odds_ncaaf_alternate_lines.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("bookmakers", "markets", "oddsFormat"),
+        endpoint_in=("endpoint",),
+        how="A `request` block via `capture_envelope.write_capture` (#303 step 1): "
+            "the per-event alternate_spreads/alternate_totals call, ten books asked. "
+            "The response is verbatim.",
+    ),
     "events_nhl_same_game.json": RecordsItsRequest(
         params_in=("request",),
         param_names=("series_ticker", "status"),

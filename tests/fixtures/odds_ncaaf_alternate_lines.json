@@ -1,0 +1,5015 @@
+{
+  "captured_at": "2026-10-03T19:10:00Z",
+  "endpoint": "/v4/sports/americanfootball_ncaaf/events/{event_id}/odds",
+  "request": {
+    "endpoint": "/v4/sports/americanfootball_ncaaf/events/{event_id}/odds",
+    "method": "GET",
+    "note": "The credential parameter is left out. Ten books asked, six answered: matchbook, betfair_ex_eu, williamhill_us and sport888 returned no bookmaker entry for these keys.",
+    "params": {
+      "bookmakers": "pinnacle,matchbook,betfair_ex_eu,fanduel,draftkings,williamhill_us,fanatics,sport888,bovada,betmgm",
+      "dateFormat": "iso",
+      "event_id": "b58c0d24e66471e6095c0a5f9afb7ce3",
+      "markets": "alternate_spreads,alternate_totals",
+      "oddsFormat": "decimal"
+    }
+  },
+  "response": {
+    "away_team": "BYU Cougars",
+    "bookmakers": [
+      {
+        "key": "draftkings",
+        "markets": [
+          {
+            "key": "alternate_spreads",
+            "last_update": "2026-10-03T18:55:17Z",
+            "outcomes": [
+              {
+                "name": "BYU Cougars",
+                "point": -27.5,
+                "price": 10.1
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -26.5,
+                "price": 9.2
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -25.5,
+                "price": 8.7
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -24.5,
+                "price": 7.9
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -23.5,
+                "price": 6.82
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -22.5,
+                "price": 6.39
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -21.5,
+                "price": 6.03
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -20.5,
+                "price": 5.25
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -19.5,
+                "price": 4.83
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -18.5,
+                "price": 4.57
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -17.5,
+                "price": 4.19
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -16.5,
+                "price": 3.71
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -15.5,
+                "price": 3.55
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -14.5,
+                "price": 3.37
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -13.5,
+                "price": 3.01
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -12.5,
+                "price": 2.84
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -11.5,
+                "price": 2.72
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -10.5,
+                "price": 2.57
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -9.5,
+                "price": 2.34
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -8.5,
+                "price": 2.27
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -7.5,
+                "price": 2.17
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -6.5,
+                "price": 1.93
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -5.5,
+                "price": 1.82
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -4.5,
+                "price": 1.75
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -3.5,
+                "price": 1.68
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -2.5,
+                "price": 1.52
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -1.5,
+                "price": 1.47
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 1.5,
+                "price": 1.39
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 2.5,
+                "price": 1.35
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 3.5,
+                "price": 1.27
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 4.5,
+                "price": 1.24
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 5.5,
+                "price": 1.21
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 6.5,
+                "price": 1.19
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 7.5,
+                "price": 1.13
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 8.5,
+                "price": 1.12
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 9.5,
+                "price": 1.11
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 10.5,
+                "price": 1.08
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 11.5,
+                "price": 1.07
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 12.5,
+                "price": 1.06
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 13.5,
+                "price": 1.05
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 14.5,
+                "price": 1.04
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 15.5,
+                "price": 1.03
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 27.5,
+                "price": 1.03
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 26.5,
+                "price": 1.04
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 25.5,
+                "price": 1.05
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 24.5,
+                "price": 1.06
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 23.5,
+                "price": 1.08
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 22.5,
+                "price": 1.09
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 21.5,
+                "price": 1.11
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 20.5,
+                "price": 1.14
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 19.5,
+                "price": 1.16
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 18.5,
+                "price": 1.18
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 17.5,
+                "price": 1.2
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 16.5,
+                "price": 1.25
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 15.5,
+                "price": 1.27
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 14.5,
+                "price": 1.29
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 13.5,
+                "price": 1.35
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 12.5,
+                "price": 1.39
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 11.5,
+                "price": 1.42
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 10.5,
+                "price": 1.47
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 9.5,
+                "price": 1.56
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 8.5,
+                "price": 1.59
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 7.5,
+                "price": 1.64
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 6.5,
+                "price": 1.81
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 5.5,
+                "price": 1.92
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 4.5,
+                "price": 2.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 3.5,
+                "price": 2.1
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 2.5,
+                "price": 2.44
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 1.5,
+                "price": 2.57
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -1.5,
+                "price": 2.86
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -2.5,
+                "price": 3.02
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -3.5,
+                "price": 3.58
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -4.5,
+                "price": 3.81
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -5.5,
+                "price": 4.06
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -6.5,
+                "price": 4.4
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -7.5,
+                "price": 5.31
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -8.5,
+                "price": 5.69
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -9.5,
+                "price": 5.94
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -10.5,
+                "price": 6.78
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -11.5,
+                "price": 7.3
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -12.5,
+                "price": 7.6
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -13.5,
+                "price": 8.2
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -14.5,
+                "price": 9.4
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -15.5,
+                "price": 9.9
+              }
+            ]
+          },
+          {
+            "key": "alternate_totals",
+            "last_update": "2026-10-03T18:55:17Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "point": 27.5,
+                "price": 1.03
+              },
+              {
+                "name": "Over",
+                "point": 28.5,
+                "price": 1.04
+              },
+              {
+                "name": "Over",
+                "point": 29.5,
+                "price": 1.05
+              },
+              {
+                "name": "Over",
+                "point": 30.5,
+                "price": 1.07
+              },
+              {
+                "name": "Over",
+                "point": 31.5,
+                "price": 1.09
+              },
+              {
+                "name": "Over",
+                "point": 32.5,
+                "price": 1.1
+              },
+              {
+                "name": "Over",
+                "point": 33.5,
+                "price": 1.12
+              },
+              {
+                "name": "Over",
+                "point": 34.5,
+                "price": 1.15
+              },
+              {
+                "name": "Over",
+                "point": 35.5,
+                "price": 1.17
+              },
+              {
+                "name": "Over",
+                "point": 36.5,
+                "price": 1.18
+              },
+              {
+                "name": "Over",
+                "point": 37.5,
+                "price": 1.24
+              },
+              {
+                "name": "Over",
+                "point": 38.5,
+                "price": 1.28
+              },
+              {
+                "name": "Over",
+                "point": 39.5,
+                "price": 1.3
+              },
+              {
+                "name": "Over",
+                "point": 40.5,
+                "price": 1.34
+              },
+              {
+                "name": "Over",
+                "point": 41.5,
+                "price": 1.42
+              },
+              {
+                "name": "Over",
+                "point": 42.5,
+                "price": 1.45
+              },
+              {
+                "name": "Over",
+                "point": 43.5,
+                "price": 1.5
+              },
+              {
+                "name": "Over",
+                "point": 44.5,
+                "price": 1.58
+              },
+              {
+                "name": "Over",
+                "point": 45.5,
+                "price": 1.68
+              },
+              {
+                "name": "Over",
+                "point": 46.5,
+                "price": 1.72
+              },
+              {
+                "name": "Over",
+                "point": 48.5,
+                "price": 1.93
+              },
+              {
+                "name": "Over",
+                "point": 49.5,
+                "price": 2.04
+              },
+              {
+                "name": "Over",
+                "point": 50.5,
+                "price": 2.13
+              },
+              {
+                "name": "Over",
+                "point": 51.5,
+                "price": 2.32
+              },
+              {
+                "name": "Over",
+                "point": 52.5,
+                "price": 2.48
+              },
+              {
+                "name": "Over",
+                "point": 53.5,
+                "price": 2.59
+              },
+              {
+                "name": "Over",
+                "point": 54.5,
+                "price": 2.75
+              },
+              {
+                "name": "Over",
+                "point": 55.5,
+                "price": 3.07
+              },
+              {
+                "name": "Over",
+                "point": 56.5,
+                "price": 3.23
+              },
+              {
+                "name": "Over",
+                "point": 57.5,
+                "price": 3.45
+              },
+              {
+                "name": "Over",
+                "point": 58.5,
+                "price": 3.77
+              },
+              {
+                "name": "Over",
+                "point": 59.5,
+                "price": 4.17
+              },
+              {
+                "name": "Over",
+                "point": 60.5,
+                "price": 4.35
+              },
+              {
+                "name": "Over",
+                "point": 61.5,
+                "price": 4.7
+              },
+              {
+                "name": "Over",
+                "point": 62.5,
+                "price": 5.15
+              },
+              {
+                "name": "Over",
+                "point": 63.5,
+                "price": 5.53
+              },
+              {
+                "name": "Over",
+                "point": 64.5,
+                "price": 5.86
+              },
+              {
+                "name": "Over",
+                "point": 65.5,
+                "price": 6.65
+              },
+              {
+                "name": "Over",
+                "point": 66.5,
+                "price": 7.2
+              },
+              {
+                "name": "Over",
+                "point": 67.5,
+                "price": 7.6
+              },
+              {
+                "name": "Over",
+                "point": 68.5,
+                "price": 8.1
+              },
+              {
+                "name": "Over",
+                "point": 69.5,
+                "price": 9.1
+              },
+              {
+                "name": "Under",
+                "point": 27.5,
+                "price": 9.7
+              },
+              {
+                "name": "Under",
+                "point": 28.5,
+                "price": 9.2
+              },
+              {
+                "name": "Under",
+                "point": 29.5,
+                "price": 8.6
+              },
+              {
+                "name": "Under",
+                "point": 30.5,
+                "price": 7.5
+              },
+              {
+                "name": "Under",
+                "point": 31.5,
+                "price": 6.58
+              },
+              {
+                "name": "Under",
+                "point": 32.5,
+                "price": 6.32
+              },
+              {
+                "name": "Under",
+                "point": 33.5,
+                "price": 5.7
+              },
+              {
+                "name": "Under",
+                "point": 34.5,
+                "price": 5.06
+              },
+              {
+                "name": "Under",
+                "point": 35.5,
+                "price": 4.7
+              },
+              {
+                "name": "Under",
+                "point": 36.5,
+                "price": 4.43
+              },
+              {
+                "name": "Under",
+                "point": 37.5,
+                "price": 3.81
+              },
+              {
+                "name": "Under",
+                "point": 38.5,
+                "price": 3.47
+              },
+              {
+                "name": "Under",
+                "point": 39.5,
+                "price": 3.32
+              },
+              {
+                "name": "Under",
+                "point": 40.5,
+                "price": 3.08
+              },
+              {
+                "name": "Under",
+                "point": 41.5,
+                "price": 2.73
+              },
+              {
+                "name": "Under",
+                "point": 42.5,
+                "price": 2.61
+              },
+              {
+                "name": "Under",
+                "point": 43.5,
+                "price": 2.47
+              },
+              {
+                "name": "Under",
+                "point": 44.5,
+                "price": 2.27
+              },
+              {
+                "name": "Under",
+                "point": 45.5,
+                "price": 2.1
+              },
+              {
+                "name": "Under",
+                "point": 46.5,
+                "price": 2.04
+              },
+              {
+                "name": "Under",
+                "point": 48.5,
+                "price": 1.81
+              },
+              {
+                "name": "Under",
+                "point": 49.5,
+                "price": 1.72
+              },
+              {
+                "name": "Under",
+                "point": 50.5,
+                "price": 1.67
+              },
+              {
+                "name": "Under",
+                "point": 51.5,
+                "price": 1.56
+              },
+              {
+                "name": "Under",
+                "point": 52.5,
+                "price": 1.5
+              },
+              {
+                "name": "Under",
+                "point": 53.5,
+                "price": 1.46
+              },
+              {
+                "name": "Under",
+                "point": 54.5,
+                "price": 1.41
+              },
+              {
+                "name": "Under",
+                "point": 55.5,
+                "price": 1.34
+              },
+              {
+                "name": "Under",
+                "point": 56.5,
+                "price": 1.31
+              },
+              {
+                "name": "Under",
+                "point": 57.5,
+                "price": 1.28
+              },
+              {
+                "name": "Under",
+                "point": 58.5,
+                "price": 1.24
+              },
+              {
+                "name": "Under",
+                "point": 59.5,
+                "price": 1.2
+              },
+              {
+                "name": "Under",
+                "point": 60.5,
+                "price": 1.19
+              },
+              {
+                "name": "Under",
+                "point": 61.5,
+                "price": 1.17
+              },
+              {
+                "name": "Under",
+                "point": 62.5,
+                "price": 1.14
+              },
+              {
+                "name": "Under",
+                "point": 63.5,
+                "price": 1.12
+              },
+              {
+                "name": "Under",
+                "point": 64.5,
+                "price": 1.11
+              },
+              {
+                "name": "Under",
+                "point": 65.5,
+                "price": 1.09
+              },
+              {
+                "name": "Under",
+                "point": 66.5,
+                "price": 1.07
+              },
+              {
+                "name": "Under",
+                "point": 67.5,
+                "price": 1.07
+              },
+              {
+                "name": "Under",
+                "point": 68.5,
+                "price": 1.06
+              },
+              {
+                "name": "Under",
+                "point": 69.5,
+                "price": 1.04
+              }
+            ]
+          }
+        ],
+        "title": "DraftKings"
+      },
+      {
+        "key": "fanduel",
+        "markets": [
+          {
+            "key": "alternate_spreads",
+            "last_update": "2026-10-03T18:55:33Z",
+            "outcomes": [
+              {
+                "name": "BYU Cougars",
+                "point": 19.5,
+                "price": 1.02
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 18.5,
+                "price": 1.02
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 17.5,
+                "price": 1.02
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 16.5,
+                "price": 1.03
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 15.5,
+                "price": 1.03
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 14.5,
+                "price": 1.04
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 13.5,
+                "price": 1.06
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 12.5,
+                "price": 1.06
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 11.5,
+                "price": 1.07
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 10.5,
+                "price": 1.09
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 9.5,
+                "price": 1.11
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 8.5,
+                "price": 1.12
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 7.5,
+                "price": 1.14
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 6.5,
+                "price": 1.19
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 5.5,
+                "price": 1.22
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 4.5,
+                "price": 1.24
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 3.5,
+                "price": 1.29
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 2.5,
+                "price": 1.36
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 1.5,
+                "price": 1.38
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -1.5,
+                "price": 1.47
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -2.5,
+                "price": 1.52
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -3.5,
+                "price": 1.68
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -4.5,
+                "price": 1.77
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -5.5,
+                "price": 1.83
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -6.5,
+                "price": 1.94
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -7.5,
+                "price": 2.22
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -8.5,
+                "price": 2.32
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -9.5,
+                "price": 2.4
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -10.5,
+                "price": 2.62
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -11.5,
+                "price": 2.76
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -12.5,
+                "price": 2.9
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -13.5,
+                "price": 3.1
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -14.5,
+                "price": 3.5
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -15.5,
+                "price": 3.6
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -16.5,
+                "price": 3.85
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -17.5,
+                "price": 4.2
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -18.5,
+                "price": 4.5
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -19.5,
+                "price": 5.0
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -20.5,
+                "price": 5.3
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -21.5,
+                "price": 6.2
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -22.5,
+                "price": 6.6
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -23.5,
+                "price": 7.0
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -24.5,
+                "price": 8.0
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -25.5,
+                "price": 9.0
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -26.5,
+                "price": 9.7
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -27.5,
+                "price": 10.0
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -28.5,
+                "price": 12.0
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -29.5,
+                "price": 13.0
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -30.5,
+                "price": 13.0
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -31.5,
+                "price": 15.0
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -32.5,
+                "price": 16.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -19.5,
+                "price": 15.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -18.5,
+                "price": 14.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -17.5,
+                "price": 13.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -16.5,
+                "price": 11.6
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -15.5,
+                "price": 11.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -14.5,
+                "price": 10.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -13.5,
+                "price": 9.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -12.5,
+                "price": 8.5
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -11.5,
+                "price": 7.8
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -10.5,
+                "price": 7.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -9.5,
+                "price": 6.2
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -8.5,
+                "price": 6.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -7.5,
+                "price": 5.5
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -6.5,
+                "price": 4.5
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -5.5,
+                "price": 4.2
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -4.5,
+                "price": 3.9
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -3.5,
+                "price": 3.55
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -2.5,
+                "price": 3.1
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -1.5,
+                "price": 2.96
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 1.5,
+                "price": 2.64
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 2.5,
+                "price": 2.48
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 3.5,
+                "price": 2.16
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 4.5,
+                "price": 2.02
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 5.5,
+                "price": 1.94
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 6.5,
+                "price": 1.83
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 7.5,
+                "price": 1.64
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 8.5,
+                "price": 1.59
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 9.5,
+                "price": 1.56
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 10.5,
+                "price": 1.48
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 11.5,
+                "price": 1.43
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 12.5,
+                "price": 1.4
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 13.5,
+                "price": 1.36
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 14.5,
+                "price": 1.29
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 15.5,
+                "price": 1.28
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 16.5,
+                "price": 1.25
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 17.5,
+                "price": 1.22
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 18.5,
+                "price": 1.19
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 19.5,
+                "price": 1.16
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 20.5,
+                "price": 1.15
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 21.5,
+                "price": 1.11
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 22.5,
+                "price": 1.1
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 23.5,
+                "price": 1.09
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 24.5,
+                "price": 1.07
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 25.5,
+                "price": 1.06
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 26.5,
+                "price": 1.05
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 27.5,
+                "price": 1.04
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 28.5,
+                "price": 1.02
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 29.5,
+                "price": 1.02
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 30.5,
+                "price": 1.02
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 31.5,
+                "price": 1.02
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 32.5,
+                "price": 1.01
+              }
+            ]
+          },
+          {
+            "key": "alternate_totals",
+            "last_update": "2026-10-03T18:55:33Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "point": 19.5,
+                "price": 1.0
+              },
+              {
+                "name": "Over",
+                "point": 20.5,
+                "price": 1.0
+              },
+              {
+                "name": "Over",
+                "point": 21.5,
+                "price": 1.0
+              },
+              {
+                "name": "Over",
+                "point": 22.5,
+                "price": 1.01
+              },
+              {
+                "name": "Over",
+                "point": 23.5,
+                "price": 1.01
+              },
+              {
+                "name": "Over",
+                "point": 24.5,
+                "price": 1.02
+              },
+              {
+                "name": "Over",
+                "point": 25.5,
+                "price": 1.02
+              },
+              {
+                "name": "Over",
+                "point": 26.5,
+                "price": 1.02
+              },
+              {
+                "name": "Over",
+                "point": 27.5,
+                "price": 1.03
+              },
+              {
+                "name": "Over",
+                "point": 28.5,
+                "price": 1.04
+              },
+              {
+                "name": "Over",
+                "point": 29.5,
+                "price": 1.05
+              },
+              {
+                "name": "Over",
+                "point": 30.5,
+                "price": 1.07
+              },
+              {
+                "name": "Over",
+                "point": 31.5,
+                "price": 1.09
+              },
+              {
+                "name": "Over",
+                "point": 32.5,
+                "price": 1.1
+              },
+              {
+                "name": "Over",
+                "point": 33.5,
+                "price": 1.12
+              },
+              {
+                "name": "Over",
+                "point": 34.5,
+                "price": 1.15
+              },
+              {
+                "name": "Over",
+                "point": 35.5,
+                "price": 1.18
+              },
+              {
+                "name": "Over",
+                "point": 36.5,
+                "price": 1.2
+              },
+              {
+                "name": "Over",
+                "point": 37.5,
+                "price": 1.25
+              },
+              {
+                "name": "Over",
+                "point": 38.5,
+                "price": 1.29
+              },
+              {
+                "name": "Over",
+                "point": 39.5,
+                "price": 1.3
+              },
+              {
+                "name": "Over",
+                "point": 40.5,
+                "price": 1.34
+              },
+              {
+                "name": "Over",
+                "point": 41.5,
+                "price": 1.43
+              },
+              {
+                "name": "Over",
+                "point": 42.5,
+                "price": 1.47
+              },
+              {
+                "name": "Over",
+                "point": 43.5,
+                "price": 1.52
+              },
+              {
+                "name": "Over",
+                "point": 44.5,
+                "price": 1.59
+              },
+              {
+                "name": "Over",
+                "point": 45.5,
+                "price": 1.68
+              },
+              {
+                "name": "Over",
+                "point": 46.5,
+                "price": 1.74
+              },
+              {
+                "name": "Over",
+                "point": 47.5,
+                "price": 1.83
+              },
+              {
+                "name": "Over",
+                "point": 48.5,
+                "price": 1.96
+              },
+              {
+                "name": "Over",
+                "point": 49.5,
+                "price": 2.08
+              },
+              {
+                "name": "Over",
+                "point": 50.5,
+                "price": 2.16
+              },
+              {
+                "name": "Over",
+                "point": 51.5,
+                "price": 2.34
+              },
+              {
+                "name": "Over",
+                "point": 52.5,
+                "price": 2.5
+              },
+              {
+                "name": "Over",
+                "point": 53.5,
+                "price": 2.62
+              },
+              {
+                "name": "Over",
+                "point": 54.5,
+                "price": 2.76
+              },
+              {
+                "name": "Over",
+                "point": 55.5,
+                "price": 3.0
+              },
+              {
+                "name": "Over",
+                "point": 56.5,
+                "price": 3.2
+              },
+              {
+                "name": "Over",
+                "point": 57.5,
+                "price": 3.4
+              },
+              {
+                "name": "Over",
+                "point": 58.5,
+                "price": 3.8
+              },
+              {
+                "name": "Over",
+                "point": 59.5,
+                "price": 4.1
+              },
+              {
+                "name": "Over",
+                "point": 60.5,
+                "price": 4.3
+              },
+              {
+                "name": "Over",
+                "point": 61.5,
+                "price": 4.6
+              },
+              {
+                "name": "Over",
+                "point": 62.5,
+                "price": 5.0
+              },
+              {
+                "name": "Over",
+                "point": 63.5,
+                "price": 5.6
+              },
+              {
+                "name": "Over",
+                "point": 64.5,
+                "price": 5.8
+              },
+              {
+                "name": "Over",
+                "point": 65.5,
+                "price": 6.6
+              },
+              {
+                "name": "Over",
+                "point": 66.5,
+                "price": 7.0
+              },
+              {
+                "name": "Over",
+                "point": 67.5,
+                "price": 7.8
+              },
+              {
+                "name": "Over",
+                "point": 68.5,
+                "price": 8.5
+              },
+              {
+                "name": "Over",
+                "point": 69.5,
+                "price": 9.3
+              },
+              {
+                "name": "Over",
+                "point": 70.5,
+                "price": 10.0
+              },
+              {
+                "name": "Over",
+                "point": 71.5,
+                "price": 11.0
+              },
+              {
+                "name": "Over",
+                "point": 72.5,
+                "price": 11.6
+              },
+              {
+                "name": "Over",
+                "point": 73.5,
+                "price": 12.0
+              },
+              {
+                "name": "Over",
+                "point": 74.5,
+                "price": 13.0
+              },
+              {
+                "name": "Over",
+                "point": 75.5,
+                "price": 14.0
+              },
+              {
+                "name": "Over",
+                "point": 76.5,
+                "price": 15.0
+              },
+              {
+                "name": "Over",
+                "point": 77.5,
+                "price": 16.0
+              },
+              {
+                "name": "Over",
+                "point": 78.5,
+                "price": 16.0
+              },
+              {
+                "name": "Over",
+                "point": 79.5,
+                "price": 18.0
+              },
+              {
+                "name": "Under",
+                "point": 19.5,
+                "price": 31.0
+              },
+              {
+                "name": "Under",
+                "point": 20.5,
+                "price": 23.0
+              },
+              {
+                "name": "Under",
+                "point": 21.5,
+                "price": 19.0
+              },
+              {
+                "name": "Under",
+                "point": 22.5,
+                "price": 18.0
+              },
+              {
+                "name": "Under",
+                "point": 23.5,
+                "price": 16.0
+              },
+              {
+                "name": "Under",
+                "point": 24.5,
+                "price": 15.0
+              },
+              {
+                "name": "Under",
+                "point": 25.5,
+                "price": 14.0
+              },
+              {
+                "name": "Under",
+                "point": 26.5,
+                "price": 12.0
+              },
+              {
+                "name": "Under",
+                "point": 27.5,
+                "price": 11.0
+              },
+              {
+                "name": "Under",
+                "point": 28.5,
+                "price": 10.0
+              },
+              {
+                "name": "Under",
+                "point": 29.5,
+                "price": 9.3
+              },
+              {
+                "name": "Under",
+                "point": 30.5,
+                "price": 7.8
+              },
+              {
+                "name": "Under",
+                "point": 31.5,
+                "price": 7.0
+              },
+              {
+                "name": "Under",
+                "point": 32.5,
+                "price": 6.6
+              },
+              {
+                "name": "Under",
+                "point": 33.5,
+                "price": 5.8
+              },
+              {
+                "name": "Under",
+                "point": 34.5,
+                "price": 5.2
+              },
+              {
+                "name": "Under",
+                "point": 35.5,
+                "price": 4.7
+              },
+              {
+                "name": "Under",
+                "point": 36.5,
+                "price": 4.4
+              },
+              {
+                "name": "Under",
+                "point": 37.5,
+                "price": 3.85
+              },
+              {
+                "name": "Under",
+                "point": 38.5,
+                "price": 3.55
+              },
+              {
+                "name": "Under",
+                "point": 39.5,
+                "price": 3.4
+              },
+              {
+                "name": "Under",
+                "point": 40.5,
+                "price": 3.15
+              },
+              {
+                "name": "Under",
+                "point": 41.5,
+                "price": 2.8
+              },
+              {
+                "name": "Under",
+                "point": 42.5,
+                "price": 2.64
+              },
+              {
+                "name": "Under",
+                "point": 43.5,
+                "price": 2.5
+              },
+              {
+                "name": "Under",
+                "point": 44.5,
+                "price": 2.32
+              },
+              {
+                "name": "Under",
+                "point": 45.5,
+                "price": 2.14
+              },
+              {
+                "name": "Under",
+                "point": 46.5,
+                "price": 2.08
+              },
+              {
+                "name": "Under",
+                "point": 47.5,
+                "price": 1.93
+              },
+              {
+                "name": "Under",
+                "point": 48.5,
+                "price": 1.82
+              },
+              {
+                "name": "Under",
+                "point": 49.5,
+                "price": 1.72
+              },
+              {
+                "name": "Under",
+                "point": 50.5,
+                "price": 1.68
+              },
+              {
+                "name": "Under",
+                "point": 51.5,
+                "price": 1.58
+              },
+              {
+                "name": "Under",
+                "point": 52.5,
+                "price": 1.52
+              },
+              {
+                "name": "Under",
+                "point": 53.5,
+                "price": 1.48
+              },
+              {
+                "name": "Under",
+                "point": 54.5,
+                "price": 1.43
+              },
+              {
+                "name": "Under",
+                "point": 55.5,
+                "price": 1.38
+              },
+              {
+                "name": "Under",
+                "point": 56.5,
+                "price": 1.34
+              },
+              {
+                "name": "Under",
+                "point": 57.5,
+                "price": 1.3
+              },
+              {
+                "name": "Under",
+                "point": 58.5,
+                "price": 1.26
+              },
+              {
+                "name": "Under",
+                "point": 59.5,
+                "price": 1.23
+              },
+              {
+                "name": "Under",
+                "point": 60.5,
+                "price": 1.21
+              },
+              {
+                "name": "Under",
+                "point": 61.5,
+                "price": 1.19
+              },
+              {
+                "name": "Under",
+                "point": 62.5,
+                "price": 1.16
+              },
+              {
+                "name": "Under",
+                "point": 63.5,
+                "price": 1.13
+              },
+              {
+                "name": "Under",
+                "point": 64.5,
+                "price": 1.12
+              },
+              {
+                "name": "Under",
+                "point": 65.5,
+                "price": 1.1
+              },
+              {
+                "name": "Under",
+                "point": 66.5,
+                "price": 1.09
+              },
+              {
+                "name": "Under",
+                "point": 67.5,
+                "price": 1.07
+              },
+              {
+                "name": "Under",
+                "point": 68.5,
+                "price": 1.06
+              },
+              {
+                "name": "Under",
+                "point": 69.5,
+                "price": 1.05
+              },
+              {
+                "name": "Under",
+                "point": 70.5,
+                "price": 1.04
+              },
+              {
+                "name": "Under",
+                "point": 71.5,
+                "price": 1.03
+              },
+              {
+                "name": "Under",
+                "point": 72.5,
+                "price": 1.03
+              },
+              {
+                "name": "Under",
+                "point": 73.5,
+                "price": 1.02
+              },
+              {
+                "name": "Under",
+                "point": 74.5,
+                "price": 1.02
+              },
+              {
+                "name": "Under",
+                "point": 75.5,
+                "price": 1.02
+              },
+              {
+                "name": "Under",
+                "point": 76.5,
+                "price": 1.02
+              },
+              {
+                "name": "Under",
+                "point": 77.5,
+                "price": 1.01
+              },
+              {
+                "name": "Under",
+                "point": 78.5,
+                "price": 1.01
+              },
+              {
+                "name": "Under",
+                "point": 79.5,
+                "price": 1.01
+              }
+            ]
+          }
+        ],
+        "title": "FanDuel"
+      },
+      {
+        "key": "fanatics",
+        "markets": [
+          {
+            "key": "alternate_spreads",
+            "last_update": "2026-10-03T18:55:05Z",
+            "outcomes": [
+              {
+                "name": "BYU Cougars",
+                "point": -4.5,
+                "price": 1.8
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -5.5,
+                "price": 1.87
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -1.5,
+                "price": 1.48
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -2.5,
+                "price": 1.51
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -3.0,
+                "price": 1.57
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -8.5,
+                "price": 2.35
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 13.5,
+                "price": 1.07
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -6.0,
+                "price": 1.91
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -1.0,
+                "price": 1.44
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -20.5,
+                "price": 4.75
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -9.0,
+                "price": 2.4
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -4.0,
+                "price": 1.74
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -28.5,
+                "price": 10.5
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -7.5,
+                "price": 2.25
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -7.0,
+                "price": 2.1
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 8.5,
+                "price": 1.12
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -16.5,
+                "price": 3.65
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 12.5,
+                "price": 1.08
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -27.5,
+                "price": 8.5
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 7.5,
+                "price": 1.14
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 12.0,
+                "price": 1.08
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -15.5,
+                "price": 3.4
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 15.0,
+                "price": 1.06
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -30.5,
+                "price": 11.5
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 10.0,
+                "price": 1.11
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 13.0,
+                "price": 1.07
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 18.0,
+                "price": 1.04
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 15.5,
+                "price": 1.06
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 16.0,
+                "price": 1.05
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 11.0,
+                "price": 1.09
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 14.0,
+                "price": 1.06
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -26.5,
+                "price": 8.0
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 17.0,
+                "price": 1.04
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 6.5,
+                "price": 1.2
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -14.5,
+                "price": 3.3
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -25.5,
+                "price": 7.5
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -3.5,
+                "price": 1.69
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 14.5,
+                "price": 1.06
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -13.5,
+                "price": 3.0
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 4.5,
+                "price": 1.25
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 5.5,
+                "price": 1.22
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 3.0,
+                "price": 1.3
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 6.0,
+                "price": 1.2
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -24.5,
+                "price": 7.0
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 2.0,
+                "price": 1.38
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 17.5,
+                "price": 1.04
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 9.0,
+                "price": 1.12
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 5.0,
+                "price": 1.22
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 8.0,
+                "price": 1.13
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 16.5,
+                "price": 1.05
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -12.5,
+                "price": 2.8
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 1.0,
+                "price": 1.4
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -19.5,
+                "price": 4.5
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 4.0,
+                "price": 1.25
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 7.0,
+                "price": 1.15
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 3.5,
+                "price": 1.29
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -22.5,
+                "price": 5.75
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -9.5,
+                "price": 2.4
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -12.0,
+                "price": 2.8
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -11.0,
+                "price": 2.65
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -23.5,
+                "price": 6.0
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -15.0,
+                "price": 3.4
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -14.0,
+                "price": 3.2
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -11.5,
+                "price": 2.7
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -18.5,
+                "price": 4.2
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 11.5,
+                "price": 1.09
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -18.0,
+                "price": 4.2
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -17.0,
+                "price": 3.8
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -10.5,
+                "price": 2.6
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -10.0,
+                "price": 2.5
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -21.0,
+                "price": 5.3
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -13.0,
+                "price": 2.9
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -20.0,
+                "price": 4.75
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -24.0,
+                "price": 7.0
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -16.0,
+                "price": 3.5
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -23.0,
+                "price": 5.75
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -19.0,
+                "price": 4.5
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 10.5,
+                "price": 1.11
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -2.0,
+                "price": 1.49
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -26.0,
+                "price": 8.0
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -27.0,
+                "price": 8.5
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -5.0,
+                "price": 1.83
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -29.0,
+                "price": 11.5
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -30.0,
+                "price": 11.5
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -8.0,
+                "price": 2.3
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 18.5,
+                "price": 1.04
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 2.5,
+                "price": 1.36
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -21.5,
+                "price": 5.3
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -22.0,
+                "price": 5.5
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 9.5,
+                "price": 1.12
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -25.0,
+                "price": 7.5
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -29.5,
+                "price": 11.5
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 1.5,
+                "price": 1.4
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -28.0,
+                "price": 10.0
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -17.5,
+                "price": 3.9
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -6.5,
+                "price": 1.95
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 4.5,
+                "price": 2.05
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 5.5,
+                "price": 1.95
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 1.5,
+                "price": 2.65
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 2.5,
+                "price": 2.55
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 3.0,
+                "price": 2.4
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 8.5,
+                "price": 1.59
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -13.5,
+                "price": 8.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 6.0,
+                "price": 1.91
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 1.0,
+                "price": 2.75
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 20.5,
+                "price": 1.17
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 9.0,
+                "price": 1.57
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 4.0,
+                "price": 2.1
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 28.5,
+                "price": 1.05
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 7.5,
+                "price": 1.65
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 7.0,
+                "price": 1.74
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -8.5,
+                "price": 5.75
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 16.5,
+                "price": 1.27
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -12.5,
+                "price": 7.5
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 27.5,
+                "price": 1.07
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -7.5,
+                "price": 5.3
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -12.0,
+                "price": 7.5
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 15.5,
+                "price": 1.3
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -15.0,
+                "price": 9.5
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 30.5,
+                "price": 1.04
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -10.0,
+                "price": 6.5
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -13.0,
+                "price": 8.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -18.0,
+                "price": 12.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -15.5,
+                "price": 9.5
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -16.0,
+                "price": 10.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -11.0,
+                "price": 7.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -14.0,
+                "price": 9.5
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 26.5,
+                "price": 1.07
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -17.0,
+                "price": 11.5
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -6.5,
+                "price": 4.3
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 14.5,
+                "price": 1.32
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 25.5,
+                "price": 1.08
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 3.5,
+                "price": 2.2
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -14.5,
+                "price": 9.5
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 13.5,
+                "price": 1.38
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -4.5,
+                "price": 3.8
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -5.5,
+                "price": 4.1
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -3.0,
+                "price": 3.4
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -6.0,
+                "price": 4.3
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 24.5,
+                "price": 1.09
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -2.0,
+                "price": 3.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -17.5,
+                "price": 11.5
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -9.0,
+                "price": 6.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -5.0,
+                "price": 4.1
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -8.0,
+                "price": 5.5
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -16.5,
+                "price": 10.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 12.5,
+                "price": 1.43
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -1.0,
+                "price": 2.9
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 19.5,
+                "price": 1.19
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -4.0,
+                "price": 3.8
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -7.0,
+                "price": 5.1
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -3.5,
+                "price": 3.5
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 22.5,
+                "price": 1.12
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 9.5,
+                "price": 1.57
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 12.0,
+                "price": 1.43
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 11.0,
+                "price": 1.48
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 23.5,
+                "price": 1.12
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 15.0,
+                "price": 1.3
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 14.0,
+                "price": 1.33
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 11.5,
+                "price": 1.45
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 18.5,
+                "price": 1.21
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -11.5,
+                "price": 7.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 18.0,
+                "price": 1.21
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 17.0,
+                "price": 1.25
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 10.5,
+                "price": 1.49
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 10.0,
+                "price": 1.53
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 21.0,
+                "price": 1.14
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 13.0,
+                "price": 1.4
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 20.0,
+                "price": 1.17
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 24.0,
+                "price": 1.09
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 16.0,
+                "price": 1.29
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 23.0,
+                "price": 1.12
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 19.0,
+                "price": 1.19
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -10.5,
+                "price": 6.5
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 2.0,
+                "price": 2.6
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 26.0,
+                "price": 1.07
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 27.0,
+                "price": 1.07
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 5.0,
+                "price": 2.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 29.0,
+                "price": 1.04
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 30.0,
+                "price": 1.04
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 8.0,
+                "price": 1.62
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -18.5,
+                "price": 12.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -2.5,
+                "price": 3.1
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 21.5,
+                "price": 1.14
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 22.0,
+                "price": 1.13
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -9.5,
+                "price": 6.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 25.0,
+                "price": 1.08
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 29.5,
+                "price": 1.04
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -1.5,
+                "price": 2.9
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 28.0,
+                "price": 1.05
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 17.5,
+                "price": 1.24
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 6.5,
+                "price": 1.87
+              }
+            ]
+          },
+          {
+            "key": "alternate_totals",
+            "last_update": "2026-10-03T18:55:05Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "point": 43.0,
+                "price": 1.53
+              },
+              {
+                "name": "Over",
+                "point": 42.0,
+                "price": 1.48
+              },
+              {
+                "name": "Over",
+                "point": 44.0,
+                "price": 1.59
+              },
+              {
+                "name": "Over",
+                "point": 46.0,
+                "price": 1.74
+              },
+              {
+                "name": "Over",
+                "point": 47.0,
+                "price": 1.83
+              },
+              {
+                "name": "Over",
+                "point": 45.0,
+                "price": 1.69
+              },
+              {
+                "name": "Over",
+                "point": 49.0,
+                "price": 2.05
+              },
+              {
+                "name": "Over",
+                "point": 66.5,
+                "price": 6.0
+              },
+              {
+                "name": "Over",
+                "point": 48.0,
+                "price": 1.91
+              },
+              {
+                "name": "Over",
+                "point": 43.5,
+                "price": 1.56
+              },
+              {
+                "name": "Over",
+                "point": 50.0,
+                "price": 2.1
+              },
+              {
+                "name": "Over",
+                "point": 28.5,
+                "price": 1.07
+              },
+              {
+                "name": "Over",
+                "point": 52.0,
+                "price": 2.4
+              },
+              {
+                "name": "Over",
+                "point": 53.0,
+                "price": 2.5
+              },
+              {
+                "name": "Over",
+                "point": 51.0,
+                "price": 2.25
+              },
+              {
+                "name": "Over",
+                "point": 55.0,
+                "price": 2.85
+              },
+              {
+                "name": "Over",
+                "point": 56.0,
+                "price": 3.0
+              },
+              {
+                "name": "Over",
+                "point": 54.0,
+                "price": 2.65
+              },
+              {
+                "name": "Over",
+                "point": 58.0,
+                "price": 3.4
+              },
+              {
+                "name": "Over",
+                "point": 59.0,
+                "price": 3.65
+              },
+              {
+                "name": "Over",
+                "point": 57.0,
+                "price": 3.15
+              },
+              {
+                "name": "Over",
+                "point": 54.5,
+                "price": 2.7
+              },
+              {
+                "name": "Over",
+                "point": 39.5,
+                "price": 1.35
+              },
+              {
+                "name": "Over",
+                "point": 61.0,
+                "price": 4.1
+              },
+              {
+                "name": "Over",
+                "point": 62.0,
+                "price": 4.3
+              },
+              {
+                "name": "Over",
+                "point": 60.0,
+                "price": 3.8
+              },
+              {
+                "name": "Over",
+                "point": 65.0,
+                "price": 5.5
+              },
+              {
+                "name": "Over",
+                "point": 63.0,
+                "price": 4.75
+              },
+              {
+                "name": "Over",
+                "point": 64.0,
+                "price": 5.1
+              },
+              {
+                "name": "Over",
+                "point": 68.0,
+                "price": 6.5
+              },
+              {
+                "name": "Over",
+                "point": 31.5,
+                "price": 1.12
+              },
+              {
+                "name": "Over",
+                "point": 67.0,
+                "price": 6.25
+              },
+              {
+                "name": "Over",
+                "point": 27.5,
+                "price": 1.07
+              },
+              {
+                "name": "Over",
+                "point": 66.0,
+                "price": 6.0
+              },
+              {
+                "name": "Over",
+                "point": 65.5,
+                "price": 5.5
+              },
+              {
+                "name": "Over",
+                "point": 71.0,
+                "price": 8.5
+              },
+              {
+                "name": "Over",
+                "point": 69.0,
+                "price": 7.5
+              },
+              {
+                "name": "Over",
+                "point": 74.0,
+                "price": 10.5
+              },
+              {
+                "name": "Over",
+                "point": 70.0,
+                "price": 8.0
+              },
+              {
+                "name": "Over",
+                "point": 42.5,
+                "price": 1.51
+              },
+              {
+                "name": "Over",
+                "point": 72.0,
+                "price": 9.5
+              },
+              {
+                "name": "Over",
+                "point": 73.0,
+                "price": 10.0
+              },
+              {
+                "name": "Over",
+                "point": 75.0,
+                "price": 12.0
+              },
+              {
+                "name": "Over",
+                "point": 76.0,
+                "price": 13.0
+              },
+              {
+                "name": "Over",
+                "point": 38.5,
+                "price": 1.32
+              },
+              {
+                "name": "Over",
+                "point": 30.5,
+                "price": 1.11
+              },
+              {
+                "name": "Over",
+                "point": 53.5,
+                "price": 2.55
+              },
+              {
+                "name": "Over",
+                "point": 49.5,
+                "price": 2.05
+              },
+              {
+                "name": "Over",
+                "point": 26.5,
+                "price": 1.05
+              },
+              {
+                "name": "Over",
+                "point": 64.5,
+                "price": 5.1
+              },
+              {
+                "name": "Over",
+                "point": 41.5,
+                "price": 1.48
+              },
+              {
+                "name": "Over",
+                "point": 75.5,
+                "price": 12.0
+              },
+              {
+                "name": "Over",
+                "point": 37.5,
+                "price": 1.29
+              },
+              {
+                "name": "Over",
+                "point": 48.5,
+                "price": 2.0
+              },
+              {
+                "name": "Over",
+                "point": 52.5,
+                "price": 2.45
+              },
+              {
+                "name": "Over",
+                "point": 63.5,
+                "price": 4.75
+              },
+              {
+                "name": "Over",
+                "point": 25.5,
+                "price": 1.04
+              },
+              {
+                "name": "Over",
+                "point": 59.5,
+                "price": 3.65
+              },
+              {
+                "name": "Over",
+                "point": 36.5,
+                "price": 1.22
+              },
+              {
+                "name": "Over",
+                "point": 40.5,
+                "price": 1.38
+              },
+              {
+                "name": "Over",
+                "point": 51.5,
+                "price": 2.3
+              },
+              {
+                "name": "Over",
+                "point": 74.5,
+                "price": 10.5
+              },
+              {
+                "name": "Over",
+                "point": 24.5,
+                "price": 1.03
+              },
+              {
+                "name": "Over",
+                "point": 47.5,
+                "price": 1.87
+              },
+              {
+                "name": "Over",
+                "point": 62.5,
+                "price": 4.5
+              },
+              {
+                "name": "Over",
+                "point": 58.5,
+                "price": 3.4
+              },
+              {
+                "name": "Over",
+                "point": 35.5,
+                "price": 1.2
+              },
+              {
+                "name": "Over",
+                "point": 73.5,
+                "price": 10.0
+              },
+              {
+                "name": "Over",
+                "point": 69.5,
+                "price": 7.5
+              },
+              {
+                "name": "Over",
+                "point": 50.5,
+                "price": 2.15
+              },
+              {
+                "name": "Over",
+                "point": 46.5,
+                "price": 1.8
+              },
+              {
+                "name": "Over",
+                "point": 61.5,
+                "price": 4.2
+              },
+              {
+                "name": "Over",
+                "point": 57.5,
+                "price": 3.2
+              },
+              {
+                "name": "Over",
+                "point": 34.5,
+                "price": 1.18
+              },
+              {
+                "name": "Over",
+                "point": 72.5,
+                "price": 9.5
+              },
+              {
+                "name": "Over",
+                "point": 45.5,
+                "price": 1.74
+              },
+              {
+                "name": "Over",
+                "point": 60.5,
+                "price": 3.9
+              },
+              {
+                "name": "Over",
+                "point": 68.5,
+                "price": 6.5
+              },
+              {
+                "name": "Over",
+                "point": 33.5,
+                "price": 1.15
+              },
+              {
+                "name": "Over",
+                "point": 56.5,
+                "price": 3.0
+              },
+              {
+                "name": "Over",
+                "point": 71.5,
+                "price": 8.5
+              },
+              {
+                "name": "Over",
+                "point": 26.0,
+                "price": 1.04
+              },
+              {
+                "name": "Over",
+                "point": 29.0,
+                "price": 1.07
+              },
+              {
+                "name": "Over",
+                "point": 25.0,
+                "price": 1.03
+              },
+              {
+                "name": "Over",
+                "point": 29.5,
+                "price": 1.08
+              },
+              {
+                "name": "Over",
+                "point": 27.0,
+                "price": 1.05
+              },
+              {
+                "name": "Over",
+                "point": 32.0,
+                "price": 1.12
+              },
+              {
+                "name": "Over",
+                "point": 28.0,
+                "price": 1.07
+              },
+              {
+                "name": "Over",
+                "point": 67.5,
+                "price": 6.25
+              },
+              {
+                "name": "Over",
+                "point": 35.0,
+                "price": 1.19
+              },
+              {
+                "name": "Over",
+                "point": 44.5,
+                "price": 1.65
+              },
+              {
+                "name": "Over",
+                "point": 38.0,
+                "price": 1.29
+              },
+              {
+                "name": "Over",
+                "point": 31.0,
+                "price": 1.11
+              },
+              {
+                "name": "Over",
+                "point": 30.0,
+                "price": 1.08
+              },
+              {
+                "name": "Over",
+                "point": 34.0,
+                "price": 1.17
+              },
+              {
+                "name": "Over",
+                "point": 33.0,
+                "price": 1.13
+              },
+              {
+                "name": "Over",
+                "point": 37.0,
+                "price": 1.24
+              },
+              {
+                "name": "Over",
+                "point": 36.0,
+                "price": 1.21
+              },
+              {
+                "name": "Over",
+                "point": 41.0,
+                "price": 1.42
+              },
+              {
+                "name": "Over",
+                "point": 32.5,
+                "price": 1.13
+              },
+              {
+                "name": "Over",
+                "point": 39.0,
+                "price": 1.33
+              },
+              {
+                "name": "Over",
+                "point": 55.5,
+                "price": 2.9
+              },
+              {
+                "name": "Over",
+                "point": 40.0,
+                "price": 1.36
+              },
+              {
+                "name": "Over",
+                "point": 70.5,
+                "price": 8.0
+              },
+              {
+                "name": "Under",
+                "point": 43.0,
+                "price": 2.5
+              },
+              {
+                "name": "Under",
+                "point": 42.0,
+                "price": 2.65
+              },
+              {
+                "name": "Under",
+                "point": 44.0,
+                "price": 2.35
+              },
+              {
+                "name": "Under",
+                "point": 46.0,
+                "price": 2.1
+              },
+              {
+                "name": "Under",
+                "point": 47.0,
+                "price": 2.0
+              },
+              {
+                "name": "Under",
+                "point": 45.0,
+                "price": 2.2
+              },
+              {
+                "name": "Under",
+                "point": 49.0,
+                "price": 1.8
+              },
+              {
+                "name": "Under",
+                "point": 66.5,
+                "price": 1.12
+              },
+              {
+                "name": "Under",
+                "point": 48.0,
+                "price": 1.91
+              },
+              {
+                "name": "Under",
+                "point": 43.5,
+                "price": 2.45
+              },
+              {
+                "name": "Under",
+                "point": 50.0,
+                "price": 1.74
+              },
+              {
+                "name": "Under",
+                "point": 28.5,
+                "price": 8.5
+              },
+              {
+                "name": "Under",
+                "point": 52.0,
+                "price": 1.57
+              },
+              {
+                "name": "Under",
+                "point": 53.0,
+                "price": 1.53
+              },
+              {
+                "name": "Under",
+                "point": 51.0,
+                "price": 1.65
+              },
+              {
+                "name": "Under",
+                "point": 55.0,
+                "price": 1.42
+              },
+              {
+                "name": "Under",
+                "point": 56.0,
+                "price": 1.38
+              },
+              {
+                "name": "Under",
+                "point": 54.0,
+                "price": 1.48
+              },
+              {
+                "name": "Under",
+                "point": 58.0,
+                "price": 1.3
+              },
+              {
+                "name": "Under",
+                "point": 59.0,
+                "price": 1.27
+              },
+              {
+                "name": "Under",
+                "point": 57.0,
+                "price": 1.35
+              },
+              {
+                "name": "Under",
+                "point": 54.5,
+                "price": 1.45
+              },
+              {
+                "name": "Under",
+                "point": 39.5,
+                "price": 3.15
+              },
+              {
+                "name": "Under",
+                "point": 61.0,
+                "price": 1.22
+              },
+              {
+                "name": "Under",
+                "point": 62.0,
+                "price": 1.2
+              },
+              {
+                "name": "Under",
+                "point": 60.0,
+                "price": 1.25
+              },
+              {
+                "name": "Under",
+                "point": 65.0,
+                "price": 1.13
+              },
+              {
+                "name": "Under",
+                "point": 63.0,
+                "price": 1.17
+              },
+              {
+                "name": "Under",
+                "point": 64.0,
+                "price": 1.15
+              },
+              {
+                "name": "Under",
+                "point": 68.0,
+                "price": 1.11
+              },
+              {
+                "name": "Under",
+                "point": 31.5,
+                "price": 6.0
+              },
+              {
+                "name": "Under",
+                "point": 67.0,
+                "price": 1.11
+              },
+              {
+                "name": "Under",
+                "point": 27.5,
+                "price": 8.5
+              },
+              {
+                "name": "Under",
+                "point": 66.0,
+                "price": 1.12
+              },
+              {
+                "name": "Under",
+                "point": 65.5,
+                "price": 1.13
+              },
+              {
+                "name": "Under",
+                "point": 71.0,
+                "price": 1.07
+              },
+              {
+                "name": "Under",
+                "point": 69.0,
+                "price": 1.08
+              },
+              {
+                "name": "Under",
+                "point": 74.0,
+                "price": 1.05
+              },
+              {
+                "name": "Under",
+                "point": 70.0,
+                "price": 1.07
+              },
+              {
+                "name": "Under",
+                "point": 42.5,
+                "price": 2.55
+              },
+              {
+                "name": "Under",
+                "point": 72.0,
+                "price": 1.06
+              },
+              {
+                "name": "Under",
+                "point": 73.0,
+                "price": 1.05
+              },
+              {
+                "name": "Under",
+                "point": 75.0,
+                "price": 1.04
+              },
+              {
+                "name": "Under",
+                "point": 76.0,
+                "price": 1.03
+              },
+              {
+                "name": "Under",
+                "point": 38.5,
+                "price": 3.3
+              },
+              {
+                "name": "Under",
+                "point": 30.5,
+                "price": 6.5
+              },
+              {
+                "name": "Under",
+                "point": 53.5,
+                "price": 1.51
+              },
+              {
+                "name": "Under",
+                "point": 49.5,
+                "price": 1.8
+              },
+              {
+                "name": "Under",
+                "point": 26.5,
+                "price": 10.5
+              },
+              {
+                "name": "Under",
+                "point": 64.5,
+                "price": 1.15
+              },
+              {
+                "name": "Under",
+                "point": 41.5,
+                "price": 2.65
+              },
+              {
+                "name": "Under",
+                "point": 75.5,
+                "price": 1.04
+              },
+              {
+                "name": "Under",
+                "point": 37.5,
+                "price": 3.5
+              },
+              {
+                "name": "Under",
+                "point": 48.5,
+                "price": 1.83
+              },
+              {
+                "name": "Under",
+                "point": 52.5,
+                "price": 1.56
+              },
+              {
+                "name": "Under",
+                "point": 63.5,
+                "price": 1.17
+              },
+              {
+                "name": "Under",
+                "point": 25.5,
+                "price": 12.0
+              },
+              {
+                "name": "Under",
+                "point": 59.5,
+                "price": 1.27
+              },
+              {
+                "name": "Under",
+                "point": 36.5,
+                "price": 4.1
+              },
+              {
+                "name": "Under",
+                "point": 40.5,
+                "price": 3.0
+              },
+              {
+                "name": "Under",
+                "point": 51.5,
+                "price": 1.62
+              },
+              {
+                "name": "Under",
+                "point": 74.5,
+                "price": 1.05
+              },
+              {
+                "name": "Under",
+                "point": 24.5,
+                "price": 13.0
+              },
+              {
+                "name": "Under",
+                "point": 47.5,
+                "price": 1.95
+              },
+              {
+                "name": "Under",
+                "point": 62.5,
+                "price": 1.19
+              },
+              {
+                "name": "Under",
+                "point": 58.5,
+                "price": 1.3
+              },
+              {
+                "name": "Under",
+                "point": 35.5,
+                "price": 4.3
+              },
+              {
+                "name": "Under",
+                "point": 73.5,
+                "price": 1.05
+              },
+              {
+                "name": "Under",
+                "point": 69.5,
+                "price": 1.08
+              },
+              {
+                "name": "Under",
+                "point": 50.5,
+                "price": 1.71
+              },
+              {
+                "name": "Under",
+                "point": 46.5,
+                "price": 2.05
+              },
+              {
+                "name": "Under",
+                "point": 61.5,
+                "price": 1.21
+              },
+              {
+                "name": "Under",
+                "point": 57.5,
+                "price": 1.33
+              },
+              {
+                "name": "Under",
+                "point": 34.5,
+                "price": 4.6
+              },
+              {
+                "name": "Under",
+                "point": 72.5,
+                "price": 1.06
+              },
+              {
+                "name": "Under",
+                "point": 45.5,
+                "price": 2.1
+              },
+              {
+                "name": "Under",
+                "point": 60.5,
+                "price": 1.24
+              },
+              {
+                "name": "Under",
+                "point": 68.5,
+                "price": 1.11
+              },
+              {
+                "name": "Under",
+                "point": 33.5,
+                "price": 5.1
+              },
+              {
+                "name": "Under",
+                "point": 56.5,
+                "price": 1.38
+              },
+              {
+                "name": "Under",
+                "point": 71.5,
+                "price": 1.07
+              },
+              {
+                "name": "Under",
+                "point": 26.0,
+                "price": 12.0
+              },
+              {
+                "name": "Under",
+                "point": 29.0,
+                "price": 8.5
+              },
+              {
+                "name": "Under",
+                "point": 25.0,
+                "price": 13.0
+              },
+              {
+                "name": "Under",
+                "point": 29.5,
+                "price": 7.5
+              },
+              {
+                "name": "Under",
+                "point": 27.0,
+                "price": 10.5
+              },
+              {
+                "name": "Under",
+                "point": 32.0,
+                "price": 5.75
+              },
+              {
+                "name": "Under",
+                "point": 28.0,
+                "price": 8.5
+              },
+              {
+                "name": "Under",
+                "point": 67.5,
+                "price": 1.11
+              },
+              {
+                "name": "Under",
+                "point": 35.0,
+                "price": 4.5
+              },
+              {
+                "name": "Under",
+                "point": 44.5,
+                "price": 2.25
+              },
+              {
+                "name": "Under",
+                "point": 38.0,
+                "price": 3.5
+              },
+              {
+                "name": "Under",
+                "point": 31.0,
+                "price": 6.5
+              },
+              {
+                "name": "Under",
+                "point": 30.0,
+                "price": 7.5
+              },
+              {
+                "name": "Under",
+                "point": 34.0,
+                "price": 4.9
+              },
+              {
+                "name": "Under",
+                "point": 33.0,
+                "price": 5.5
+              },
+              {
+                "name": "Under",
+                "point": 37.0,
+                "price": 3.9
+              },
+              {
+                "name": "Under",
+                "point": 36.0,
+                "price": 4.2
+              },
+              {
+                "name": "Under",
+                "point": 41.0,
+                "price": 2.85
+              },
+              {
+                "name": "Under",
+                "point": 32.5,
+                "price": 5.5
+              },
+              {
+                "name": "Under",
+                "point": 39.0,
+                "price": 3.2
+              },
+              {
+                "name": "Under",
+                "point": 55.5,
+                "price": 1.4
+              },
+              {
+                "name": "Under",
+                "point": 40.0,
+                "price": 3.1
+              },
+              {
+                "name": "Under",
+                "point": 70.5,
+                "price": 1.07
+              }
+            ]
+          }
+        ],
+        "title": "Fanatics"
+      },
+      {
+        "key": "betmgm",
+        "markets": [
+          {
+            "key": "alternate_spreads",
+            "last_update": "2026-10-03T18:55:46Z",
+            "outcomes": [
+              {
+                "name": "BYU Cougars",
+                "point": -7.0,
+                "price": 2.0
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -6.5,
+                "price": 1.91
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -6.0,
+                "price": 1.91
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -7.5,
+                "price": 2.15
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -5.5,
+                "price": 1.83
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -5.0,
+                "price": 1.77
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -4.5,
+                "price": 1.74
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -8.0,
+                "price": 2.2
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -8.5,
+                "price": 2.3
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -4.0,
+                "price": 1.69
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -9.0,
+                "price": 2.3
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -3.5,
+                "price": 1.67
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -9.5,
+                "price": 2.35
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -3.0,
+                "price": 1.54
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -10.0,
+                "price": 2.45
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -2.5,
+                "price": 1.5
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -10.5,
+                "price": 2.55
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -2.0,
+                "price": 1.48
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -11.0,
+                "price": 2.65
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -1.5,
+                "price": 1.45
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -11.5,
+                "price": 2.7
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -1.0,
+                "price": 1.43
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -12.0,
+                "price": 2.75
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -13.0,
+                "price": 2.88
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -12.5,
+                "price": 2.8
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -13.5,
+                "price": 2.9
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 1.0,
+                "price": 1.4
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -14.0,
+                "price": 3.2
+              },
+              {
+                "name": "BYU Cougars",
+                "point": 1.5,
+                "price": 1.4
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 7.0,
+                "price": 1.74
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 6.5,
+                "price": 1.83
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 6.0,
+                "price": 1.93
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 7.5,
+                "price": 1.67
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 5.5,
+                "price": 1.93
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 5.0,
+                "price": 1.98
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 4.5,
+                "price": 2.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 8.0,
+                "price": 1.62
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 8.5,
+                "price": 1.57
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 4.0,
+                "price": 2.1
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 9.0,
+                "price": 1.57
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 3.5,
+                "price": 2.15
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 9.5,
+                "price": 1.57
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 3.0,
+                "price": 2.35
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 10.0,
+                "price": 1.5
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 2.5,
+                "price": 2.5
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 10.5,
+                "price": 1.48
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 2.0,
+                "price": 2.6
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 11.0,
+                "price": 1.45
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 1.5,
+                "price": 2.65
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 11.5,
+                "price": 1.44
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 1.0,
+                "price": 2.7
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 12.0,
+                "price": 1.43
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 13.0,
+                "price": 1.4
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 12.5,
+                "price": 1.43
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 13.5,
+                "price": 1.36
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -1.0,
+                "price": 2.85
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 14.0,
+                "price": 1.34
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": -1.5,
+                "price": 2.9
+              }
+            ]
+          },
+          {
+            "key": "alternate_totals",
+            "last_update": "2026-10-03T18:55:46Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "point": 50.5,
+                "price": 2.15
+              },
+              {
+                "name": "Over",
+                "point": 49.5,
+                "price": 2.05
+              },
+              {
+                "name": "Over",
+                "point": 48.5,
+                "price": 1.95
+              },
+              {
+                "name": "Over",
+                "point": 51.5,
+                "price": 2.38
+              },
+              {
+                "name": "Over",
+                "point": 47.5,
+                "price": 1.89
+              },
+              {
+                "name": "Over",
+                "point": 45.5,
+                "price": 1.69
+              },
+              {
+                "name": "Over",
+                "point": 46.5,
+                "price": 1.74
+              },
+              {
+                "name": "Over",
+                "point": 44.5,
+                "price": 1.61
+              },
+              {
+                "name": "Over",
+                "point": 43.5,
+                "price": 1.53
+              },
+              {
+                "name": "Over",
+                "point": 52.5,
+                "price": 2.55
+              },
+              {
+                "name": "Over",
+                "point": 42.5,
+                "price": 1.48
+              },
+              {
+                "name": "Over",
+                "point": 53.5,
+                "price": 2.65
+              },
+              {
+                "name": "Over",
+                "point": 41.5,
+                "price": 1.44
+              },
+              {
+                "name": "Over",
+                "point": 54.5,
+                "price": 2.8
+              },
+              {
+                "name": "Over",
+                "point": 40.5,
+                "price": 1.36
+              },
+              {
+                "name": "Over",
+                "point": 55.5,
+                "price": 3.1
+              },
+              {
+                "name": "Over",
+                "point": 39.5,
+                "price": 1.33
+              },
+              {
+                "name": "Over",
+                "point": 56.5,
+                "price": 3.3
+              },
+              {
+                "name": "Over",
+                "point": 57.5,
+                "price": 3.5
+              },
+              {
+                "name": "Over",
+                "point": 38.5,
+                "price": 1.31
+              },
+              {
+                "name": "Over",
+                "point": 37.5,
+                "price": 1.27
+              },
+              {
+                "name": "Over",
+                "point": 58.5,
+                "price": 3.9
+              },
+              {
+                "name": "Over",
+                "point": 36.5,
+                "price": 1.21
+              },
+              {
+                "name": "Over",
+                "point": 59.5,
+                "price": 4.33
+              },
+              {
+                "name": "Over",
+                "point": 35.5,
+                "price": 1.18
+              },
+              {
+                "name": "Over",
+                "point": 60.5,
+                "price": 4.5
+              },
+              {
+                "name": "Over",
+                "point": 34.5,
+                "price": 1.16
+              },
+              {
+                "name": "Over",
+                "point": 33.5,
+                "price": 1.14
+              },
+              {
+                "name": "Over",
+                "point": 61.5,
+                "price": 5.0
+              },
+              {
+                "name": "Under",
+                "point": 50.5,
+                "price": 1.67
+              },
+              {
+                "name": "Under",
+                "point": 49.5,
+                "price": 1.71
+              },
+              {
+                "name": "Under",
+                "point": 48.5,
+                "price": 1.8
+              },
+              {
+                "name": "Under",
+                "point": 51.5,
+                "price": 1.54
+              },
+              {
+                "name": "Under",
+                "point": 47.5,
+                "price": 1.95
+              },
+              {
+                "name": "Under",
+                "point": 45.5,
+                "price": 2.1
+              },
+              {
+                "name": "Under",
+                "point": 46.5,
+                "price": 2.05
+              },
+              {
+                "name": "Under",
+                "point": 44.5,
+                "price": 2.25
+              },
+              {
+                "name": "Under",
+                "point": 43.5,
+                "price": 2.45
+              },
+              {
+                "name": "Under",
+                "point": 52.5,
+                "price": 1.48
+              },
+              {
+                "name": "Under",
+                "point": 42.5,
+                "price": 2.6
+              },
+              {
+                "name": "Under",
+                "point": 53.5,
+                "price": 1.45
+              },
+              {
+                "name": "Under",
+                "point": 41.5,
+                "price": 2.7
+              },
+              {
+                "name": "Under",
+                "point": 54.5,
+                "price": 1.4
+              },
+              {
+                "name": "Under",
+                "point": 40.5,
+                "price": 3.0
+              },
+              {
+                "name": "Under",
+                "point": 55.5,
+                "price": 1.34
+              },
+              {
+                "name": "Under",
+                "point": 39.5,
+                "price": 3.25
+              },
+              {
+                "name": "Under",
+                "point": 56.5,
+                "price": 1.33
+              },
+              {
+                "name": "Under",
+                "point": 57.5,
+                "price": 1.29
+              },
+              {
+                "name": "Under",
+                "point": 38.5,
+                "price": 3.4
+              },
+              {
+                "name": "Under",
+                "point": 37.5,
+                "price": 3.7
+              },
+              {
+                "name": "Under",
+                "point": 58.5,
+                "price": 1.24
+              },
+              {
+                "name": "Under",
+                "point": 36.5,
+                "price": 4.33
+              },
+              {
+                "name": "Under",
+                "point": 59.5,
+                "price": 1.21
+              },
+              {
+                "name": "Under",
+                "point": 35.5,
+                "price": 4.6
+              },
+              {
+                "name": "Under",
+                "point": 60.5,
+                "price": 1.19
+              },
+              {
+                "name": "Under",
+                "point": 34.5,
+                "price": 5.0
+              },
+              {
+                "name": "Under",
+                "point": 33.5,
+                "price": 5.75
+              },
+              {
+                "name": "Under",
+                "point": 61.5,
+                "price": 1.17
+              }
+            ]
+          }
+        ],
+        "title": "BetMGM"
+      },
+      {
+        "key": "bovada",
+        "markets": [
+          {
+            "key": "alternate_spreads",
+            "last_update": "2026-10-03T18:53:17Z",
+            "outcomes": [
+              {
+                "name": "BYU Cougars",
+                "point": -4.0,
+                "price": 1.69
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -4.5,
+                "price": 1.74
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -5.0,
+                "price": 1.77
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -5.5,
+                "price": 1.8
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -6.5,
+                "price": 1.95
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -7.0,
+                "price": 2.15
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -7.5,
+                "price": 2.25
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -8.0,
+                "price": 2.3
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 4.0,
+                "price": 2.1
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 4.5,
+                "price": 2.05
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 5.0,
+                "price": 2.0
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 5.5,
+                "price": 1.95
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 6.5,
+                "price": 1.8
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 7.0,
+                "price": 1.67
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 7.5,
+                "price": 1.61
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 8.0,
+                "price": 1.59
+              }
+            ]
+          },
+          {
+            "key": "alternate_totals",
+            "last_update": "2026-10-03T18:53:17Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "point": 46.0,
+                "price": 1.69
+              },
+              {
+                "name": "Over",
+                "point": 46.5,
+                "price": 1.74
+              },
+              {
+                "name": "Over",
+                "point": 47.0,
+                "price": 1.77
+              },
+              {
+                "name": "Over",
+                "point": 47.5,
+                "price": 1.83
+              },
+              {
+                "name": "Over",
+                "point": 48.5,
+                "price": 1.95
+              },
+              {
+                "name": "Over",
+                "point": 49.0,
+                "price": 2.05
+              },
+              {
+                "name": "Over",
+                "point": 49.5,
+                "price": 2.1
+              },
+              {
+                "name": "Over",
+                "point": 50.0,
+                "price": 2.15
+              },
+              {
+                "name": "Under",
+                "point": 46.0,
+                "price": 2.1
+              },
+              {
+                "name": "Under",
+                "point": 46.5,
+                "price": 2.05
+              },
+              {
+                "name": "Under",
+                "point": 47.0,
+                "price": 2.0
+              },
+              {
+                "name": "Under",
+                "point": 47.5,
+                "price": 1.91
+              },
+              {
+                "name": "Under",
+                "point": 48.5,
+                "price": 1.8
+              },
+              {
+                "name": "Under",
+                "point": 49.0,
+                "price": 1.74
+              },
+              {
+                "name": "Under",
+                "point": 49.5,
+                "price": 1.69
+              },
+              {
+                "name": "Under",
+                "point": 50.0,
+                "price": 1.67
+              }
+            ]
+          }
+        ],
+        "title": "Bovada"
+      },
+      {
+        "key": "pinnacle",
+        "markets": [
+          {
+            "key": "alternate_spreads",
+            "last_update": "2026-10-03T18:56:00Z",
+            "outcomes": [
+              {
+                "name": "BYU Cougars",
+                "point": -6.0,
+                "price": 1.96
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -8.0,
+                "price": 2.39
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -7.5,
+                "price": 2.34
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -7.0,
+                "price": 2.19
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -6.5,
+                "price": 2.02
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -5.5,
+                "price": 1.87
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -5.0,
+                "price": 1.82
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -4.5,
+                "price": 1.78
+              },
+              {
+                "name": "BYU Cougars",
+                "point": -4.0,
+                "price": 1.73
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 6.0,
+                "price": 1.93
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 8.0,
+                "price": 1.61
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 7.5,
+                "price": 1.63
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 7.0,
+                "price": 1.71
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 6.5,
+                "price": 1.83
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 5.5,
+                "price": 1.99
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 5.0,
+                "price": 2.04
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 4.5,
+                "price": 2.09
+              },
+              {
+                "name": "TCU Horned Frogs",
+                "point": 4.0,
+                "price": 2.17
+              }
+            ]
+          },
+          {
+            "key": "alternate_totals",
+            "last_update": "2026-10-03T18:56:00Z",
+            "outcomes": [
+              {
+                "name": "Over",
+                "point": 48.0,
+                "price": 1.95
+              },
+              {
+                "name": "Over",
+                "point": 46.0,
+                "price": 1.7
+              },
+              {
+                "name": "Over",
+                "point": 46.5,
+                "price": 1.75
+              },
+              {
+                "name": "Over",
+                "point": 47.0,
+                "price": 1.81
+              },
+              {
+                "name": "Over",
+                "point": 47.5,
+                "price": 1.88
+              },
+              {
+                "name": "Over",
+                "point": 48.5,
+                "price": 2.0
+              },
+              {
+                "name": "Over",
+                "point": 49.0,
+                "price": 2.08
+              },
+              {
+                "name": "Over",
+                "point": 49.5,
+                "price": 2.14
+              },
+              {
+                "name": "Over",
+                "point": 50.0,
+                "price": 2.22
+              },
+              {
+                "name": "Under",
+                "point": 48.0,
+                "price": 1.89
+              },
+              {
+                "name": "Under",
+                "point": 46.0,
+                "price": 2.16
+              },
+              {
+                "name": "Under",
+                "point": 46.5,
+                "price": 2.09
+              },
+              {
+                "name": "Under",
+                "point": 47.0,
+                "price": 2.02
+              },
+              {
+                "name": "Under",
+                "point": 47.5,
+                "price": 1.94
+              },
+              {
+                "name": "Under",
+                "point": 48.5,
+                "price": 1.82
+              },
+              {
+                "name": "Under",
+                "point": 49.0,
+                "price": 1.76
+              },
+              {
+                "name": "Under",
+                "point": 49.5,
+                "price": 1.72
+              },
+              {
+                "name": "Under",
+                "point": 50.0,
+                "price": 1.68
+              }
+            ]
+          }
+        ],
+        "title": "Pinnacle"
+      }
+    ],
+    "commence_time": "2026-10-03T23:00:00Z",
+    "home_team": "TCU Horned Frogs",
+    "id": "b58c0d24e66471e6095c0a5f9afb7ce3",
+    "sport_key": "americanfootball_ncaaf",
+    "sport_title": "NCAAF"
+  },
+  "source": "The Odds API v4, live call from a scratch script for #303 step 1 (docs/measurements/2026-10-03-ncaaf-alternate-lines-are-two-sided.md). Verbatim response; nothing trimmed. Billed 2 credits (x-requests-last)."
+}
