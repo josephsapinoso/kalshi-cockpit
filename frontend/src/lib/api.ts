@@ -253,6 +253,8 @@ export type {
   HeldLegInput,
   HeldPosition,
   HeldPositionInput,
+  HeldConflict,
+  HeldConflicts,
   UnrecordedAtVenue,
   VenueSettlement,
 } from "./types/hedge";
@@ -1312,6 +1314,34 @@ function legVerdictBody(body: unknown): LegVerdictsResult | null {
 
 const UNREADABLE_LEG_VERDICTS =
   "The scouts' answer came back in a shape this screen cannot read.";
+
+/**
+ * Legs of `ticker` that bet against a ticket already held. A plain read that
+ * spends nothing. **Never throws**: an unreadable answer is `null`, and the
+ * screen then says nothing rather than "no clash".
+ */
+export async function fetchHeldConflicts(
+  ticker: string,
+): Promise<import("./types/hedge").HeldConflicts | null> {
+  try {
+    const response = await fetch(
+      `${BASE}/api/held-conflicts?ticker=${encodeURIComponent(ticker)}`,
+      { cache: "no-store" },
+    );
+    if (!response.ok) return null;
+    const body = (await response.json()) as unknown;
+    if (
+      body &&
+      typeof body === "object" &&
+      Array.isArray((body as { conflicts?: unknown }).conflicts)
+    ) {
+      return body as import("./types/hedge").HeldConflicts;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Read whatever verdicts already exist for these legs. Spends nothing --

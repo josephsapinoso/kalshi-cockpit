@@ -71,6 +71,8 @@ PRE_MOVE_EXPORTS = [
     "HeldLeg",
     "HeldLegInput",
     "HeldPosition",
+    "HeldConflict",
+    "HeldConflicts",
     "HeldPositionInput",
     "Ledger",
     "LegRest",

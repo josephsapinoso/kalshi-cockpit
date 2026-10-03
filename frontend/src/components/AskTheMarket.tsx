@@ -7,6 +7,7 @@ import type { ComboRfqAcceptResult, ComboRfqResult } from "@/lib/api";
 import Term from "@/components/Term";
 import { useReportBusy } from "@/components/Sheet";
 import { Button, Stat } from "@/components/ui";
+import HeldConflictsNote from "@/components/HeldConflictsNote";
 
 /**
  * "Nobody is selling this" was wrong, and this is the control that fixes it.
@@ -124,6 +125,8 @@ export default function AskTheMarket({
 
   return (
     <div className="mt-2">
+      {/* Warns, never blocks (Joe, 2026-10-03). */}
+      <HeldConflictsNote ticker={marketTicker} />
       {state.kind === "idle" && (
         <>
           <div className="flex flex-wrap items-center gap-2">

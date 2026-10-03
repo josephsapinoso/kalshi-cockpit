@@ -203,6 +203,26 @@ export type HeldPosition = {
  * watching — bought outside the desk (the Kalshi app), so ADR 0125's writer
  * never saw the fill. Singles are out of scope here: a bare market has no
  * other leg to reshape and so no hedge story. */
+/**
+ * A leg of a combination about to be bought that bets against a ticket
+ * already held (`backend/held_conflicts.py`): the same market on the other
+ * side, or another team to win the same full game. Exact clashes only.
+ */
+export type HeldConflict = {
+  kind: "opposite_side" | "other_winner";
+  leg_label: string;
+  held_label: string;
+  position_id: number;
+  position_label: string;
+};
+
+/** `checked: false` means the desk could not read this combination's legs
+ *  -- not that nothing clashes. */
+export type HeldConflicts = {
+  checked: boolean;
+  conflicts: HeldConflict[];
+};
+
 export type UnrecordedAtVenue = {
   ticker: string;
   contracts: number | null;

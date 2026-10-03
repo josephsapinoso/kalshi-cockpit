@@ -8,10 +8,11 @@ is the design: no model, no tokens, no credits, no `recommendations` row --
 
 from __future__ import annotations
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ... import hedge as held_parlays
+from ... import held_conflicts
 from ... import positions
 from ...combo_rfq import ask_makers_to_buy_back
 from ...config import AppConfig, ConfigError, StalenessConfig
@@ -88,6 +89,16 @@ def register(
             fetch_quotes=live_quotes().fetch_many,
             read_combo_book=read_combo_book,
         )
+
+    @app.get("/api/held-conflicts")
+    def held_conflicts_route(
+        ticker: str = Query(..., min_length=1, max_length=120),
+        conn=Depends(get_conn),
+    ) -> dict:
+        """Legs of `ticker` that bet against a ticket Joe already holds
+        (`backend/held_conflicts.py`). A read: it warns, never blocks, and
+        nothing on a spend path calls it."""
+        return held_conflicts.held_conflicts(conn, ticker.strip())
 
     @app.post("/api/hedge/positions", dependencies=[Depends(require_auth)])
     def record_held_position(request: HeldPositionRequest) -> dict:
