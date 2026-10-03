@@ -16,6 +16,15 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-03 - A budget gate that drops work without stamping it makes the work look done-and-empty
+
+From the eightieth session (#289 follow-through).
+
+- **Five cards Joe had minted were never re-checked two hours before kickoff, and nothing said so.** `decide_rechecks` gated on the unattended token share, which the T-24h builds had spent: 4.47M of a 4.5M line by 22:35Z. A card past the line was "simply not chosen", so its `recheck_status` stayed NULL, and NULL rendered as "not re-checked". That was literally true and told Joe nothing. It surfaced only because the review wanted to say whether a drop-if had fired.
+- **The rule:**
+  - A gate that declines work must leave a mark on the thing it declined (a status or a reason), or the decline is indistinguishable from never being due.
+  - When two kinds of spend share one allowance, check whether the earlier, bulk kind can starve the later one Joe asked for.
+
 ## 2026-10-02 - A background wait that prints a word has to be read before the next action, and a remembered command form is the command
 
 From the eightieth session (#301).
