@@ -149,9 +149,18 @@ DEFAULT_ALT_LINE_DAILY_CREDITS = 30
 
 # A request nobody served within this long is dropped rather than served late.
 # Someone who tapped, waited, and put the phone down does not want a refresh
-# five minutes later -- and would not see it. Comfortably above the 15s quote
-# cadence that serves it.
-DEFAULT_TTL_MS = 90_000
+# five minutes later -- and would not see it.
+#
+# **It must outlive a full pass, not only the 15s quote cadence.** The inbox
+# is served on the quote pass, which a full pass blocks while it runs. That
+# pass measured 103.8s on 2026-10-03, and a request filed as it began was
+# served about 94s later, at the edge of the 90s this used to be (#306). 180s
+# covers that measured pass with room to spare, and is still well short of
+# "five minutes later".
+DEFAULT_TTL_MS = 180_000
+#: The longest full pass measured inside an open window (#306), pinned by
+#: `tests/test_ondemand_refresh.py` against the TTL above.
+LONGEST_MEASURED_FULL_PASS_MS = 103_800
 
 # The tail kept in the file. Only wide enough to enforce the cooldown across a
 # realistic burst; this is not a log, and `odds_sweep_log` is.

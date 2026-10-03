@@ -139,7 +139,7 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-10-03 (eighty-first session) — question board: #3 is full, #302 continues it (#292 closed)
+## 2026-10-03 (eighty-first session) — #3 full, #302 continues it; a friend's off-main-line leg is now priced from alternate lines, live on `93bc6ba0`
 
 Joe asked me to go through the question board because it "is full at 100".
 
@@ -148,6 +148,21 @@ Joe asked me to go through the question board because it "is full at 100".
 - **A map with no children is an empty frontier, not a leaf with no owner.** This is new in `classify()`, so a fresh #302 warns "frontier is EMPTY" instead of asking for an owner.
 - The recipe (`docs/agents/issue-tracker.md`), CLAUDE.md step 0/7, partner.md and orchestration.md now name #302. The fixture carries a real capture of #302 from 2026-10-03.
 - **Tests:** a question parked under #302 reaches the FRONTIER (`TestContinuationMap`). Two mutations went red: dropping 302 from `ROOTS`, and reverting the map rule.
+- **Joe's answers (option buttons):**
+  - #169: keep parked.
+  - #165: he had **already used it**. Two real friend links were checked, on 10-02 (bought as position #75) and 10-03. #165 is closed.
+- **Why a checked parlay showed no chance.** The desk prices one spread and one total per game, the books' main number (`/api/game/{event}/legs` on live).
+  - The friend's BYU −6.5 and Over 45.5 had gone `stale_consensus` after the books moved a point.
+  - Montana St–Idaho was `not_served`, an FCS game.
+  - Joe chose **(A): buy that game's alternate lines on a check** (#304, the first question under #302).
+- **Built (#303, #305):**
+  - Measured first: `docs/measurements/2026-10-03-ncaaf-alternate-lines-are-two-sided.md`. n = 1 event, 6 books, every line two-sided, 2 credits.
+  - `ondemand` kind `alt_lines`, with a 30/day sub-cap inside the 150. The runner serves it via `fetch_props` stamped MANUAL.
+  - `alt_lines.py` (lane #305) prices one exact line at worst-of-four, with no sharp anchor.
+  - `parlay_check` uses it for `not_served`/`stale_consensus` legs, or files one buy per game (`buying_line`).
+  - The screen says "from the books' other lines · N books". Never written to `fair_prices`, which is pinned.
+- **Verified live:** on Joe's real 10-03 parlay, the first check filed the buy. The runner served it at 19:35:59Z (cost 2, trigger manual). The re-check priced **BYU −6.5 at 48% from 6 books incl. Pinnacle**, where the main line read −5.5 at 51%.
+- **#306, found live and fixed in this session:** an on-demand request lived 90s, but a full pass blocks the inbox for up to 103.8s. The TTL is now 180s, pinned against the measured pass.
 
 ### Still open
 
@@ -155,7 +170,8 @@ Joe asked me to go through the question board because it "is full at 100".
 2. #220: on or after 2026-10-05, review the game-script cards, run `credits-day --date 2026-10-04`, and read the first Matchup tile. #210 and #197 close with it. Also owed: the first prompt-v3 card and one `game-script-card-stamps` plus `own-open-rfqs` read. Read the first night's T-2h re-checks (`21677337`): every minted card should carry a `recheck_status`, with no silent NULLs.
 3. #297: `collection_coverage_census.py` needs a fresh read-only capture with NHL and NCAAF events before it can answer.
 4. #292 (closed this session): new questions for Joe are linked under map #302. Its frontier is empty by finding: nothing is open for him.
-5. #165, #169 and #151 are unchanged. #267 is due in November.
+5. #303 (closed): alternate lines are verified on NCAAF only (n = 1 event). The first NFL or MLB friend check is unmeasured. A friend's total will often rest on 4 books with no Pinnacle, and the screen shows the count.
+6. #169 and #151 are unchanged. #267 is due in November.
 
 ---
 

@@ -294,6 +294,14 @@ class TestTakingRequests:
         late = NOW + ondemand.DEFAULT_TTL_MS + 1
         assert ondemand.take(inbox, now_ms=late, after_ms=NOW - 1) == []
 
+    def test_a_request_filed_as_a_full_pass_begins_is_still_taken_after_it(self, inbox):
+        """#306: the quote pass that serves the inbox waits out a full pass. A
+        request filed as the longest measured full pass began, then a quote
+        pass's worth more, must still come back. At the old 90s it did not."""
+        accept(inbox)
+        after_pass = NOW + ondemand.LONGEST_MEASURED_FULL_PASS_MS + 15_000
+        assert ondemand.take(inbox, now_ms=after_pass, after_ms=NOW - 1) != []
+
     def test_taking_does_not_modify_the_file(self, inbox):
         """The API is the only writer, and that is what removes the race.
 
