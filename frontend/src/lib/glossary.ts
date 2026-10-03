@@ -133,6 +133,15 @@ export const GLOSSARY = {
       "fair value. A 40% chance sold at 50¢ is a 20% hold — pay $1.00 for " +
       "80¢ of chance. Parlays usually carry the biggest hold of any bet.",
   },
+  alt_line: {
+    label: "other line",
+    definition:
+      "A sportsbook posts one main spread and one main total for a game, " +
+      "plus a ladder of other numbers at different prices. If the main " +
+      "spread is BYU −5.5, “BYU wins by over 6.5” is one of the other " +
+      "lines. Fewer books post each one, so a chance read from them rests " +
+      "on fewer opinions.",
+  },
   fair_value: {
     label: "fair value",
     definition:

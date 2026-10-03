@@ -145,9 +145,29 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
             ) : (
               <p className="tabular text-sm">{leg.chance_display}</p>
             )}
+            {/* #303: a chance read off the books' other lines says so, and
+                says how many books spoke -- often fewer than the main line. */}
+            {leg.line_source === "alternate" && leg.alt_books_used !== null && (
+              <p className="text-xs text-muted">
+                From the books’ <Term k="alt_line">other lines</Term> at this
+                exact number · {leg.alt_books_used.length}{" "}
+                {leg.alt_books_used.length === 1 ? "book" : "books"}
+              </p>
+            )}
           </li>
         ))}
       </ol>
+
+      {/* #303: a buy the inbox REFUSED is said in its own words. An accepted
+          one needs no line here -- its legs already carry the server
+          `buying_line` words, which it sets only on acceptance. */}
+      {value.alt_buys
+        .filter((buy) => !buy.accepted)
+        .map((buy) => (
+          <p key={buy.odds_event_id} className="text-xs text-muted">
+            Could not buy this game’s other lines: {buy.detail}
+          </p>
+        ))}
 
       {value.fair.no_joint_reason === null ? (
         <div className="grid grid-cols-2 gap-3 rounded-lg bg-accent-soft p-3">

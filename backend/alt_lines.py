@@ -41,13 +41,20 @@ What this does not establish
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
 from .core.devig import DevigError, consensus_devig
-from .kalshi.spreads import spread_book_point
-from .kalshi.totals import total_book_point
+from .core.ladder import CandidateLeg
+from .kalshi.spreads import (
+    parse_spread_subtitle,
+    spread_book_point,
+    spread_margin_agrees,
+)
+from .kalshi.totals import parse_total_subtitle, total_book_point, total_line_agrees
+from .match.linker import load_aliases, resolve_outcome
 
 logger = logging.getLogger(__name__)
 
@@ -202,3 +209,133 @@ def alt_line_chance(
         age_ms=age_ms,
         fetched_ms=fetched_ms,
     )
+
+
+# ---------------------------------------------------------------------------
+# A Kalshi leg -> the book's line -> a CandidateLeg (#303 step 6)
+# ---------------------------------------------------------------------------
+
+#: Why a Kalshi leg could not be put to the alternate reading at all. Distinct
+#: from the reasons above, which say why a line that WAS identified has no price.
+NOT_A_LINE_MARKET = "not_a_line_market"      # moneyline, prop, or unknown market
+UNREADABLE_LINE = "unreadable_line"          # subtitle grammar or strike cross-check failed
+NO_ODDS_EVENT = "no_odds_event"              # no single event_links row for the Kalshi event
+TEAM_UNRESOLVED = "team_unresolved"          # Kalshi's team did not resolve to a book name
+
+
+@dataclass(frozen=True)
+class AltLeg:
+    """What the alternate reading says about one Kalshi leg.
+
+    `candidate` is set only when the reading is usable as it stands; the
+    caller still runs `core.ladder.unusable_reason` on it, so freshness has
+    one spelling. `buyable` is True when the leg resolved to an exact book
+    line on a known odds event -- a fresh alternate fetch could price it --
+    whatever `reason` says about the reading on file now.
+    """
+
+    candidate: Optional[CandidateLeg]
+    reason: Optional[str]
+    odds_event_id: Optional[str] = None
+    sport_key: Optional[str] = None
+    buyable: bool = False
+    reading: Optional[AltLineChance] = None
+
+
+def alt_candidate_for_leg(
+    conn,
+    *,
+    event_ticker: str,
+    market_ticker: str,
+    side: str,
+    now_ms: int,
+) -> AltLeg:
+    """Price one Kalshi spread or total leg from the alternate lines on file.
+
+    Every mapping step is one the main ladder already performs
+    (`parlays.ladder_candidates`): the subtitle grammar, the strike
+    cross-check, the one point identity, and `resolve_outcome` with the sport
+    key's alias file. A step that cannot be done refuses with a reason; it is
+    never guessed. A NO on a spread is the other team at +S, priced as its own
+    side, never one minus the YES.
+    """
+    m = conn.execute(
+        "SELECT ticker, title, yes_side_team, market_type, strike "
+        "FROM kalshi_markets WHERE ticker = ?",
+        (market_ticker,),
+    ).fetchone()
+    if m is None or m["market_type"] not in ("spread", "total"):
+        return AltLeg(None, NOT_A_LINE_MARKET)
+    if side not in ("yes", "no"):
+        return AltLeg(None, UNKNOWN_SIDE)
+
+    links = conn.execute(
+        "SELECT odds_event_id FROM event_links WHERE kalshi_event_ticker = ?",
+        (event_ticker,),
+    ).fetchall()
+    if len({r["odds_event_id"] for r in links}) != 1:
+        return AltLeg(None, NO_ODDS_EVENT)
+    odds_event_id = str(links[0]["odds_event_id"])
+
+    game = conn.execute(
+        "SELECT sport_key, commence_ms, home_team, away_team FROM odds_snapshots "
+        "WHERE odds_event_id = ? ORDER BY fetched_ms DESC LIMIT 1",
+        (odds_event_id,),
+    ).fetchone()
+    if game is None or game["commence_ms"] is None:
+        return AltLeg(None, NO_ODDS_EVENT, odds_event_id=odds_event_id)
+    sport_key = str(game["sport_key"])
+    base = dict(odds_event_id=odds_event_id, sport_key=sport_key)
+
+    if m["market_type"] == "spread":
+        parsed = parse_spread_subtitle(m["yes_side_team"])
+        if parsed is None or m["strike"] is None or not spread_margin_agrees(
+            parsed[1], m["strike"]
+        ):
+            return AltLeg(None, UNREADABLE_LINE, **base)
+        teams = [t for t in (game["home_team"], game["away_team"]) if t]
+        favourite = resolve_outcome(parsed[0], teams, load_aliases(sport_key))
+        others = [t for t in teams if t != favourite]
+        if favourite is None or len(others) != 1:
+            return AltLeg(None, TEAM_UNRESOLVED, **base)
+        yes_point = spread_book_point(parsed[1])
+        market, team = "spreads", favourite
+        outcome, point = (
+            (favourite, yes_point) if side == "yes" else (others[0], -yes_point)
+        )
+    else:
+        line = parse_total_subtitle(m["yes_side_team"])
+        if line is None or m["strike"] is None or not total_line_agrees(
+            line, m["strike"]
+        ):
+            return AltLeg(None, UNREADABLE_LINE, **base)
+        market, team = "totals", None
+        outcome, point = ("Over" if side == "yes" else "Under"), total_book_point(line)
+
+    reading = alt_line_chance(conn, odds_event_id, market, outcome, point, now_ms)
+    leg_base = dict(base, buyable=True, reading=reading)
+    if reading.chance is None:
+        return AltLeg(None, reading.reason, **leg_base)
+
+    candidate = CandidateLeg(
+        label=m["yes_side_team"] or m["title"] or market_ticker,
+        event_title=m["title"] or "",
+        kalshi_event_ticker=event_ticker,
+        kalshi_market_ticker=market_ticker,
+        odds_event_id=odds_event_id,
+        league=sport_key,
+        commence_ms=int(game["commence_ms"]),
+        market=market,
+        team=team,
+        point=point,
+        p_conservative=reading.chance,
+        # Only the conservative figure is carried; a method this reading did
+        # not report is absent, never substituted (`JointEstimate.by_method`).
+        p_by_method={},
+        odds_age_now_ms=reading.age_ms,
+        book_count=len(reading.books_used),
+        books_used_json=json.dumps(list(reading.books_used)),
+        anchored_on_sharp=False,
+        side=side,
+    )
+    return AltLeg(candidate, None, **leg_base)

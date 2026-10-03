@@ -603,6 +603,23 @@ export type CheckedParlayLeg = {
   /** Plain words for Joe; `unknown_reason_code` keeps the machine code. */
   unknown_reason: string | null;
   unknown_reason_code: string | null;
+  /**
+   * Where the chance came from (#303): the books' main line, or their other
+   * lines at this leg's exact number. `null` when there is no chance.
+   */
+  line_source: "main" | "alternate" | null;
+  /** The books an `alternate` chance was read from; `null` otherwise. */
+  alt_books_used: string[] | null;
+};
+
+/** One game whose other lines a check asked to buy (#303). */
+export type CheckedParlayAltBuy = {
+  odds_event_id: string;
+  accepted: boolean;
+  /** The inbox's own words, accepted or refused. */
+  detail: string;
+  estimated_credits: number;
+  retry_after_ms: number;
 };
 
 /** What `POST /api/parlays/check` came back with (issue #167). */
@@ -617,6 +634,7 @@ export type CheckedParlayResult = {
   rfq_available: boolean;
   rfq_unavailable_reason: string | null;
   legs: CheckedParlayLeg[];
+  alt_buys: CheckedParlayAltBuy[];
   fair: {
     /** Probability in [0, 1]. `null` when `no_joint_reason` is set. */
     conservative: number | null;

@@ -79,6 +79,7 @@ import type {
   OrderResult,
 } from "./types/orders";
 import type {
+  CheckedParlayAltBuy,
   CheckedParlayLeg,
   CheckedParlayResult,
   ComboBid,
@@ -208,6 +209,7 @@ export type {
   OrderResult,
 } from "./types/orders";
 export type {
+  CheckedParlayAltBuy,
   CheckedParlayLeg,
   CheckedParlayResult,
   ComboBid,

@@ -72,6 +72,8 @@ from ..schemas import (
     ParlayRequest,
 )
 from ...parlay_check import check_parlay_text
+from ...odds import ondemand
+from ...odds.budget import CreditBudget, sweep_cost
 
 
 def register(
@@ -83,6 +85,7 @@ def register(
     combo_api,
     get_conn,
     require_auth,
+    odds=None,
 ) -> None:
     """Attach the seven builder and parlay handlers, in their original order."""
 
@@ -362,6 +365,29 @@ def register(
         # is deliberately read-only, and every check writes a `parlay_lookups`
         # row.
         write_conn = db.open_db(app_config.db_path)
+
+        def request_alt_lines(sport_key: str, odds_event_id: str):
+            # One game's alternate spreads/totals (#303, Joe's answer on
+            # #304). Every ceiling is `ondemand.submit`'s; the day's budget is
+            # read through `CreditBudget`, the planner's own implementation.
+            cost = sweep_cost(ondemand.ALT_LINE_MARKETS, odds.regions, odds.bookmakers)
+            budget = CreditBudget(
+                write_conn,
+                daily_budget=odds.daily_credit_budget,
+                monthly_budget=odds.monthly_credit_budget,
+                day_start_hour=odds.budget_day_start_utc_hour,
+            )
+            return ondemand.submit(
+                ondemand.inbox_path(app_config.db_path),
+                sport_key=sport_key,
+                odds_event_id=odds_event_id,
+                now_ms=now,
+                estimated_credits=cost,
+                budget_refusal=budget.refusal_reason(cost, now),
+                day_start_hour=odds.budget_day_start_utc_hour,
+                kind=ondemand.KIND_ALT_LINES,
+            )
+
         try:
             return await check_parlay_text(
                 write_conn,
@@ -370,6 +396,7 @@ def register(
                 api=api,
                 max_odds_age_ms=staleness.max_odds_age_s * 1000,
                 max_kalshi_quote_age_ms=staleness.max_kalshi_quote_age_s * 1000,
+                request_alt_lines=request_alt_lines if odds is not None else None,
             )
         except LookupRefused as exc:
             raise HTTPException(

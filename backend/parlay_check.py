@@ -28,11 +28,22 @@ the one writer of `parlay_lookups`.
 **Never mints, never spends.** The ticket already exists on the venue by the
 time a friend has shared it, so there is no `lookup_combo` call and no
 `allow_market_creation` -- the one difference from `price_card_on_kalshi`,
-which mints (or finds) the combination its own card names. No agent, no
-scout, no odds fetch: everything this function reads is already in the
-database or on one or two venue calls (`GET /markets/{ticker}`, or, for a
-link that only names the EVENT, `GET /markets?event_ticker=...` to find its
-one market first) plus the order book.
+which mints (or finds) the combination its own card names. No agent and no
+scout. Everything this function reads is already in the database or comes
+from one or two venue calls (`GET /markets/{ticker}`, or, for a link that only
+names the EVENT, `GET /markets?event_ticker=...` to find its one market first)
+plus the order book.
+
+**One odds purchase, and only when the caller wires it (#303, Joe's answer
+on #304).** This sentence said "no odds fetch" until 2026-10-03. A spread or
+total leg the main line cannot price (`not_served` or `stale_consensus`) is
+first priced from the books' alternate lines on file (`alt_lines.py`). When
+there is no fresh reading, `request_alt_lines(sport_key, odds_event_id)` is
+called once per game. The route wires it to `ondemand.submit(kind=
+KIND_ALT_LINES)`, the inbox the runner serves at 2 credits a game, under its
+own cooldown and a 30-credit daily sub-ceiling. The call itself is never made
+here: this function only files the request. Called without `request_alt_lines`,
+a check stays a pure read.
 
 **A leg the pool cannot answer for is `chance: null` with a named reason,
 never `0.0`.** CLAUDE.md's rule ("unreadable resolves to `None`, never `0`")
@@ -70,7 +81,11 @@ must match verbatim; #167):
   "legs": [{"market_ticker": str, "side": "yes"|"no", "label": str,
             "commence_ms": int|null, "chance": float|null,
             "chance_display": str|null,
-            "unknown_reason": str|null, "unknown_reason_code": str|null}],
+            "unknown_reason": str|null, "unknown_reason_code": str|null,
+            "line_source": "main"|"alternate"|null,
+            "alt_books_used": [str]|null}],
+  "alt_buys": [{"odds_event_id": str, "accepted": bool, "detail": str,
+                "estimated_credits": int, "retry_after_ms": int}],
   "fair": {"conservative": float|null, "conservative_percent_display": str|null,
            "fair_cost_display": str|null, "no_joint_reason": "unknown_leg"|"same_game"|null},
   "quoted": {"ask_display": str, "depth_display": str|null, "quoted_ms": int,
@@ -100,8 +115,9 @@ from __future__ import annotations
 import logging
 import sqlite3
 import re
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
+from backend.alt_lines import alt_candidate_for_leg
 from backend.core.correlation import CorrelationRefused
 from backend.core.leg_words import no_title_words
 from backend.core.ladder import (
@@ -179,6 +195,15 @@ _EVENT_TAIL_RE = re.compile(r"-S[0-9A-F]+$")
 REASON_GAME_STARTED = "game_started"
 REASON_OUTSIDE_WINDOW = "outside_window"
 REASON_NOT_SERVED = "not_served"
+#: The leg's exact line is not on file and a buy of that game's alternate
+#: lines was just accepted (#303). Not a chance and not a refusal: check again.
+REASON_BUYING_LINE = "buying_line"
+
+#: The two codes an alternate reading may answer (#303): a leg the pool never
+#: served at this line, or one whose main-line reading went stale because the
+#: books moved off its number. `game_started` and `outside_window` are not
+#: here -- no purchase changes either.
+_ALT_RETRY_CODES = frozenset({REASON_NOT_SERVED, "stale_consensus"})
 
 #: Words for the three reasons above, in the same voice
 #: `resolve_requested_legs` already uses for a drifted leg on the desk's own
@@ -191,6 +216,10 @@ _MISSING_LEG_REASON_WORDS: dict[str, str] = {
         "this leg kicks off further out than this desk's widest window reads"
     ),
     REASON_NOT_SERVED: "this desk has no consensus reading for this leg",
+    REASON_BUYING_LINE: (
+        "buying this exact line from the books now -- check again in about "
+        "30 seconds"
+    ),
 }
 
 
@@ -425,6 +454,7 @@ async def check_parlay_text(
     max_odds_age_ms: int,
     horizon: str = WIDEST_HORIZON,
     max_kalshi_quote_age_ms: Optional[int] = None,
+    request_alt_lines: Optional[Callable[[str, str], object]] = None,
 ) -> dict:
     """Read a pasted combination's legs off Kalshi and price it. See module
     docstring for the pipeline, the response contract and what is
@@ -585,6 +615,8 @@ async def check_parlay_text(
     any_unusable = False
     leg_details: dict[tuple, dict] = {}
     legs_pairs: list[tuple] = []
+    # (sport_key, odds_event_id) -> indexes of legs a fresh alt fetch could price.
+    wanted_buys: dict[tuple[str, str], list[int]] = {}
 
     for leg in venue_legs:
         event_ticker = str(leg["event_ticker"])
@@ -597,6 +629,8 @@ async def check_parlay_text(
         unknown_reason_code: Optional[str] = None
         commence_ms: Optional[int] = None
 
+        line_source: Optional[str] = None
+        alt_books: Optional[list[str]] = None
         if candidate is None:
             # **Absent from the pool is never a chance, and never a zero.**
             # `chance` already starts `None` above; restated here, on its own
@@ -605,7 +639,6 @@ async def check_parlay_text(
             # -- a leg this desk has no consensus for is not "0% likely", it
             # is "unknown", and the two must never render the same.
             chance = None
-            any_unusable = True
             commence_ms = kickoffs.get(market_ticker)
             unknown_reason_code = _missing_leg_reason(
                 commence_ms, now_ms=now_ms, horizon=horizon
@@ -614,11 +647,43 @@ async def check_parlay_text(
             commence_ms = candidate.commence_ms
             reason_code = unusable_reason(candidate, max_odds_age_ms=max_odds_age_ms)
             if reason_code is not None:
-                any_unusable = True
                 unknown_reason_code = reason_code
             else:
                 chance = candidate.p_conservative
+                line_source = "main"
                 usable.append(candidate)
+
+        if unknown_reason_code in _ALT_RETRY_CODES:
+            # **The friend's exact line, from the books' alternate lines
+            # (#303).** The same freshness predicate decides it, so an
+            # alternate reading is never fresher by a second spelling.
+            alt = alt_candidate_for_leg(
+                conn,
+                event_ticker=event_ticker,
+                market_ticker=market_ticker,
+                side=side,
+                now_ms=now_ms,
+            )
+            alt_code = (
+                unusable_reason(alt.candidate, max_odds_age_ms=max_odds_age_ms)
+                if alt.candidate is not None
+                else None
+            )
+            if alt.candidate is not None and alt_code is None:
+                candidate = alt.candidate
+                commence_ms = candidate.commence_ms
+                chance = candidate.p_conservative
+                unknown_reason_code = None
+                line_source = "alternate"
+                alt_books = list(alt.reading.books_used) if alt.reading else []
+                usable.append(candidate)
+            elif alt.buyable and alt.sport_key and alt.odds_event_id:
+                wanted_buys.setdefault(
+                    (alt.sport_key, alt.odds_event_id), []
+                ).append(len(response_legs))
+
+        if chance is None:
+            any_unusable = True
 
         label = _leg_label(market_ticker, side, titles)
         response_legs.append(
@@ -636,6 +701,11 @@ async def check_parlay_text(
                 "chance_display": _percent_display(chance),
                 "unknown_reason": _reason_words(unknown_reason_code),
                 "unknown_reason_code": unknown_reason_code,
+                # "main" | "alternate" | None (#303). An alternate price is
+                # read off the books' other lines, often fewer books and no
+                # sharp anchor, so the screen says whose it is.
+                "line_source": line_source,
+                "alt_books_used": alt_books,
             }
         )
         leg_details[(event_ticker, market_ticker)] = {
@@ -643,6 +713,30 @@ async def check_parlay_text(
             "label": label,
             "commence_ms": commence_ms,
         }
+
+    # One buy per game, never one per leg, and only when the caller wired a
+    # buyer: a check stays a read wherever it is called without one.
+    alt_buys: list[dict] = []
+    if request_alt_lines is not None:
+        for (sport_key, odds_event_id), indexes in wanted_buys.items():
+            submission = request_alt_lines(sport_key, odds_event_id)
+            alt_buys.append(
+                {
+                    "odds_event_id": odds_event_id,
+                    "accepted": bool(getattr(submission, "accepted", False)),
+                    "detail": str(getattr(submission, "detail", "")),
+                    "estimated_credits": int(
+                        getattr(submission, "estimated_credits", 0)
+                    ),
+                    "retry_after_ms": int(getattr(submission, "retry_after_ms", 0)),
+                }
+            )
+            if alt_buys[-1]["accepted"]:
+                for i in indexes:
+                    response_legs[i]["unknown_reason_code"] = REASON_BUYING_LINE
+                    response_legs[i]["unknown_reason"] = _reason_words(
+                        REASON_BUYING_LINE
+                    )
 
     fair_joint: Optional[float] = None
     no_joint_reason: Optional[str] = None
@@ -809,6 +903,10 @@ async def check_parlay_text(
         "rfq_available": rfq_available,
         "rfq_unavailable_reason": rfq_unavailable_reason,
         "legs": response_legs,
+        # One entry per game whose other lines this check asked to buy (#303),
+        # accepted or refused, in the inbox's own words. Empty when nothing
+        # was bought.
+        "alt_buys": alt_buys,
         "fair": {
             "conservative": fair_joint,
             "conservative_percent_display": _percent_display(fair_joint),

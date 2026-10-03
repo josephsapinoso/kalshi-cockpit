@@ -268,6 +268,11 @@ zero today only because `ODDS_BUY_PROPS_ON_SCHEDULE = "false"`
 The slice is a **ceiling, not an off switch**: past it a sport falls through to
 the floor's hourly timetable, stamped `DESK`, and floor and slice are
 separately capped and additive. Its worst case is a tab left open all day.
+**"Check this parlay" can buy a game's alternate lines** (#303). That costs 2
+credits a game and is capped at 30 a day **inside** the 150 on-demand slice
+(`ondemand.DEFAULT_ALT_LINE_DAILY_CREDITS`), so the day's worst case does not
+move. Those readings never enter `fair_prices`, so they never reach a card or
+the gate.
 `trigger = 'attention'` in `api_credits` is a **lower bound** on attention
 buying (a kickoff slot can satisfy the cadence first), and a counter that emits
 on a cadence while a condition holds measures the condition's **duration**, not

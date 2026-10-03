@@ -2114,6 +2114,7 @@ def create_app(
         combo_api=combo_api,
         get_conn=get_conn,
         require_auth=require_auth,
+        odds=odds,
     )
 
     # `/api/game/*`: the same-game parlay builder (#202). Beside the parlay

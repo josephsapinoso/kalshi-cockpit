@@ -36,6 +36,7 @@ PRE_MOVE_EXPORTS = [
     "BoardTile",
     "BookDistribution",
     "ChartCandle",
+    "CheckedParlayAltBuy",
     "CheckedParlayLeg",
     "CheckedParlayResult",
     "ComboBid",
