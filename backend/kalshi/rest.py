@@ -168,12 +168,27 @@ class MalformedOrderbookResponse(RuntimeError):
 
 
 class KalshiAPIError(RuntimeError):
-    """A Kalshi request failed in a way we could not recover from."""
+    """A Kalshi request failed in a way we could not recover from.
 
-    def __init__(self, status_code: int, url: str, body: str = ""):
+    `earlier_attempt_lost` (#318): `request` retries, POSTs included, so the
+    status here describes only the LAST attempt. True when an earlier attempt
+    ended in a transport error or a 5xx -- an answer we never read, so the
+    venue may have acted on it. A 4xx with this set does not prove nothing
+    happened. A 429 does not set it: rate-limited means not processed.
+    """
+
+    def __init__(
+        self,
+        status_code: int,
+        url: str,
+        body: str = "",
+        *,
+        earlier_attempt_lost: bool = False,
+    ):
         self.status_code = status_code
         self.url = url
         self.body = body[:500]
+        self.earlier_attempt_lost = earlier_attempt_lost
         hint = ""
         if status_code == 401:
             hint = (
@@ -334,6 +349,9 @@ class KalshiRestClient:
         url = f"{self.base_url}{path}" + (f"?{query}" if query else "")
 
         last_error: Optional[Exception] = None
+        # Set when an attempt's answer was lost (transport error or 5xx), so a
+        # later 4xx is not mistaken for proof that nothing happened (#318).
+        lost = False
 
         for attempt in range(self.max_retries + 1):
             await self._limiter.acquire()
@@ -360,6 +378,7 @@ class KalshiRestClient:
                 )
             except httpx.HTTPError as exc:
                 last_error = exc
+                lost = True
                 if attempt >= self.max_retries:
                     raise
                 delay = self._backoff(attempt)
@@ -375,6 +394,8 @@ class KalshiRestClient:
                 return response.json() if response.content else {}
 
             if response.status_code in _RETRY_STATUSES and attempt < self.max_retries:
+                if response.status_code >= 500:
+                    lost = True
                 delay = self._retry_delay(response, attempt)
                 logger.warning(
                     "%s %s: HTTP %d -- retrying in %.1fs (attempt %d/%d)",
@@ -386,9 +407,14 @@ class KalshiRestClient:
 
             # Not transient, or retries exhausted. Raise -- never return an
             # empty dict that a caller could mistake for "no data".
-            raise KalshiAPIError(response.status_code, url, response.text)
+            raise KalshiAPIError(
+                response.status_code, url, response.text,
+                earlier_attempt_lost=lost,
+            )
 
-        raise KalshiAPIError(-1, url, f"exhausted retries: {last_error}")
+        raise KalshiAPIError(
+            -1, url, f"exhausted retries: {last_error}", earlier_attempt_lost=lost
+        )
 
     def _backoff(self, attempt: int) -> float:
         """Exponential backoff with full jitter, capped at 60s.

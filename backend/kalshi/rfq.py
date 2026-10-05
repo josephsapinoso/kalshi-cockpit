@@ -53,7 +53,12 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Optional, Sequence
 
 from backend.core.prices import complement, dollars_to_tenths, is_valid_price
-from backend.kalshi.rest import EXCHANGE_INDEX_COMBOS, KalshiRestClient
+from backend.kalshi.rest import (
+    EXCHANGE_INDEX_COMBOS,
+    KalshiAPIError,
+    KalshiCredentialsRequired,
+    KalshiRestClient,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +88,45 @@ class RfqRefused(RuntimeError):
     Carries the venue's own words where there are any. Never raised for "no
     maker answered": that is a legitimate, empty, non-error outcome.
     """
+
+
+class RfqOutcomeUnknown(RfqRefused):
+    """The create failed in a way that does NOT prove the venue refused it (#318).
+
+    A timeout or dropped connection after the POST left, a 5xx, retries
+    exhausted, or a 2xx we could not read an id from. In each of these
+    Kalshi may already hold a live RFQ of ours, so a reader must not be told
+    "nothing was asked". A subclass, so every existing `except RfqRefused`
+    still catches it; callers that word the outcome check for it first.
+    """
+
+
+def _earlier_attempt_lost(exc: BaseException) -> bool:
+    """True when `request` retried past an answer it never read (#318)."""
+    return bool(getattr(exc, "earlier_attempt_lost", False))
+
+
+def _create_failure(prefix: str, exc: BaseException) -> RfqRefused:
+    """Classify a failed create POST: a proven refusal, or an unknown outcome.
+
+    **Refused only on proof.** A 4xx on an attempt with no lost predecessor
+    is the venue answering no, and a missing credential never left this
+    process; both mean no RFQ exists. Everything else -- a transport error,
+    a 5xx, a 4xx after an earlier attempt's answer was lost (`request`
+    retries POSTs), or anything unexpected such as an unparseable 2xx body
+    -- is unknown, because the default that flatters is "nothing was asked".
+    """
+    if isinstance(exc, KalshiCredentialsRequired):
+        return RfqRefused(f"{prefix}: {exc}")
+    if (
+        isinstance(exc, KalshiAPIError)
+        and 400 <= exc.status_code < 500
+        and not _earlier_attempt_lost(exc)
+    ):
+        return RfqRefused(f"{prefix}: {exc}")
+    return RfqOutcomeUnknown(
+        f"{prefix}, and Kalshi may have created it anyway: {exc}"
+    )
 
 
 @dataclass(frozen=True)
@@ -614,6 +658,15 @@ async def create_rfq(
         # back the RFQ that already exists rather than to refuse -- or to
         # delete it, which would destroy the quotes it is holding.
         already_exists = "already_exists" in str(getattr(exc, "body", "") or exc)
+        if already_exists and target_cost_dollars is None and _earlier_attempt_lost(exc):
+            # #318: `already_exists` after a lost attempt is most likely THIS
+            # ask, created by the attempt whose answer was lost -- not one
+            # "asked at another size". Unknown, never a refusal.
+            raise RfqOutcomeUnknown(
+                "an earlier attempt of this request lost its answer and the "
+                "retry found an RFQ already open (already_exists) -- Kalshi "
+                "may have created this one"
+            ) from exc
         if already_exists and target_cost_dollars is None:
             # A size-based ask (#96 defect 4): see the docstring. Neither
             # reused nor deleted -- the open one is not this ask's.
@@ -663,15 +716,19 @@ async def create_rfq(
                         "POST", _RFQS, params=_SHARD, json_body=body
                     )
                 except Exception as retry_exc:  # noqa: BLE001
-                    raise RfqRefused(
-                        f"Kalshi would not create the RFQ after withdrawing "
-                        f"an oversized one: {retry_exc}"
+                    raise _create_failure(
+                        "Kalshi would not create the RFQ after withdrawing "
+                        "an oversized one", retry_exc,
                     ) from retry_exc
                 rfq = (created.get("rfq") if isinstance(created.get("rfq"), dict)
                        else created)
                 new_id = rfq.get("id") or created.get("id")
                 if not new_id:
-                    raise RfqRefused(f"Kalshi returned no RFQ id: {created!r}")
+                    # A 2xx: the venue accepted the POST, so an RFQ likely
+                    # exists that we cannot name.
+                    raise RfqOutcomeUnknown(
+                        f"Kalshi returned no RFQ id: {created!r}"
+                    )
                 # Freshly created at OUR target, so the two agree here.
                 return RfqHandle(
                     rfq_id=str(new_id),
@@ -681,6 +738,14 @@ async def create_rfq(
             # somewhere), but `open_rfq_for` could not prove any row on
             # the market-wide list is ours (#147). Falls through to the
             # plain-language refusal below -- never reused, never guessed.
+            # After a lost attempt (#318) the open one may be THIS ask, which
+            # the list could not prove ours: unknown, not refused.
+            if _earlier_attempt_lost(exc):
+                raise RfqOutcomeUnknown(
+                    "an earlier attempt of this request lost its answer and "
+                    "an RFQ is now open on this combination that could not be "
+                    "proven ours -- Kalshi may have created this one"
+                ) from exc
             raise RfqRefused(
                 "an RFQ is already open on this combination -- wait for it "
                 "to close and ask again."
@@ -689,12 +754,15 @@ async def create_rfq(
         # the most useful thing a reader has, so they pass through raw here,
         # unlike the already_exists branches above which are common enough
         # to deserve plain language of their own.
-        raise RfqRefused(f"Kalshi would not create the RFQ: {exc}") from exc
+        # #318: only a 4xx is a refusal; a timeout or 5xx may have created
+        # the RFQ before the answer was lost.
+        raise _create_failure("Kalshi would not create the RFQ", exc) from exc
 
     rfq = created.get("rfq") if isinstance(created.get("rfq"), dict) else created
     rfq_id = rfq.get("id") or created.get("id")
     if not rfq_id:
-        raise RfqRefused(f"Kalshi returned no RFQ id: {created!r}")
+        # A 2xx we cannot read an id from: unknown, not refused (#318).
+        raise RfqOutcomeUnknown(f"Kalshi returned no RFQ id: {created!r}")
     return RfqHandle(
         rfq_id=str(rfq_id), target_cost_dollars=target_cost_dollars
     )

@@ -1229,6 +1229,9 @@ def _q_agent_spend(conn: sqlite3.Connection, args) -> list[Section]:
 # `backend.kalshi.rfq.MAX_OPEN_RFQS`, held by a test, because this family
 # imports nothing from `backend`.
 _VENUE_MAX_OPEN_RFQS = 100
+# How `combo_rfqs.error_text` starts on a create whose outcome is unknown
+# (#318). A copy of `backend.combo_rfq.UNKNOWN_CREATE_PREFIX`, held by a test.
+_UNKNOWN_CREATE_PREFIX = "unknown: "
 
 _SQL_GAME_SCRIPT_CARD_STAMPS = (
     "SELECT status, COUNT(*) AS cards, "
@@ -1485,9 +1488,13 @@ _SQL_OWN_OPEN_RFQS = (
     f"       {_VENUE_MAX_OPEN_RFQS} AS venue_cap, "
     f"       {_VENUE_MAX_OPEN_RFQS} - COALESCE(SUM(is_open), 0) AS headroom, "
     "       MIN(CASE WHEN is_open = 1 THEN requested_ms END) AS oldest_open_ms, "
-    "       MAX(CASE WHEN is_open = 1 THEN requested_ms END) AS newest_open_ms "
+    "       MAX(CASE WHEN is_open = 1 THEN requested_ms END) AS newest_open_ms, "
+    "       COALESCE(SUM(is_unknown), 0) AS possibly_open "
     "FROM (SELECT requested_ms, "
-    "             (deleted_ms IS NULL AND status != 'error') AS is_open "
+    "             (deleted_ms IS NULL AND status != 'error') AS is_open, "
+    "             (status = 'error' AND substr(error_text, 1, "
+    f"{len(_UNKNOWN_CREATE_PREFIX)}) = '{_UNKNOWN_CREATE_PREFIX}') "
+    "AS is_unknown "
     "      FROM combo_rfqs ORDER BY requested_ms DESC, id DESC LIMIT ?)"
 )
 
@@ -1498,6 +1505,11 @@ def _q_own_open_rfqs(conn: sqlite3.Connection, args) -> list[Section]:
 
     A row counts as open when `deleted_ms IS NULL` and `status != 'error'`
     (an `error` row is a failed create that never stood). One row out.
+
+    `possibly_open` (#318) counts the `error` rows whose create outcome is
+    UNKNOWN -- a timeout, 5xx or id-less 2xx, where Kalshi may hold a live
+    RFQ of ours that we cannot name. Kept apart from `open_rows`, never
+    added to it: whether any of them stood is exactly what is not known.
 
     What this does not establish
     -----------------------------

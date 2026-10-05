@@ -507,3 +507,36 @@ class TestARefusedExitCreateLeavesARow:
         assert row["ticker"] == TICKER
         assert row["contracts_fp_requested"] == "2.01"
         assert row["rfq_id"].startswith("refused-")
+
+
+class _TimingOutVenue(FakeVenue):
+    async def request(self, method, path, *, params=None, json_body=None):
+        if method == "POST" and path.endswith("/rfqs"):
+            self.calls.append("create")
+            raise httpx.ReadTimeout("read timed out")
+        return await super().request(
+            method, path, params=params, json_body=json_body
+        )
+
+
+class TestALostExitAnswerIsNotARefusal:
+    """#318 on the exit path, where a stray RFQ blocks the next exit ask."""
+
+    async def test_a_timeout_is_recorded_and_worded_as_unknown(self, build):
+        app, _, path, position_id, _ = build(venue=_TimingOutVenue())
+        response = await _ask(app, position_id)
+        assert response.status_code == 502
+        detail = response.json()["detail"]
+        assert "Nothing was asked" not in detail
+        assert "may have created" in detail
+        conn = sqlite3.connect(path)
+        try:
+            rows = conn.execute(
+                "SELECT status, error_text, purpose FROM combo_rfqs"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert len(rows) == 1
+        status, text, purpose = rows[0]
+        assert (status, purpose) == ("error", "exit")
+        assert text.startswith("unknown: ")

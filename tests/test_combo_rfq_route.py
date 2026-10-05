@@ -742,14 +742,24 @@ class TestTheStoredRowAgreesWithTheScreen:
 
 
 class _RefusingApi(FakeApi):
-    """The venue refuses the create; every other call behaves as FakeApi."""
+    """The venue refuses the create; every other call behaves as FakeApi.
 
-    VENUE_WORDS = 'HTTP 400 {"error":{"code":"rfq_limit_exceeded"}}'
+    A real `KalshiAPIError` 400 by default: since #318 only a 4xx proves a
+    refusal. `failure` swaps in any other exception.
+    """
+
+    VENUE_WORDS = '{"error":{"code":"rfq_limit_exceeded"}}'
+
+    def __init__(self, *, failure=None, **kw):
+        super().__init__(**kw)
+        self.failure = failure
 
     async def request(self, method, path, *, params=None, json_body=None):
         if method == "POST" and path.endswith("/rfqs"):
             self.calls.append("create")
-            raise RuntimeError(self.VENUE_WORDS)
+            from backend.kalshi.rest import KalshiAPIError
+
+            raise self.failure or KalshiAPIError(400, path, self.VENUE_WORDS)
         return await super().request(
             method, path, params=params, json_body=json_body
         )
@@ -760,9 +770,9 @@ class TestARefusedCreateLeavesARow:
 
     @pytest.fixture()
     def refusing(self, build, monkeypatch):
-        def _make():
+        def _make(failure=None):
             app, _, path = build()
-            fake = _RefusingApi()
+            fake = _RefusingApi(failure=failure)
             monkeypatch.setattr(
                 "backend.api.routes.KalshiRestClient",
                 lambda config, client=None: fake,
@@ -809,3 +819,54 @@ class TestARefusedCreateLeavesARow:
         assert response.status_code == 502
         assert "rfq_limit_exceeded" in response.json()["detail"]
         assert "disk full" not in response.json()["detail"]
+
+
+class TestALostAnswerIsNotARefusal:
+    """#318: a create whose answer was lost may have created the RFQ."""
+
+    def _install(self, build, monkeypatch, failure=None):
+        app, _, path = build()
+        fake = _RefusingApi(failure=failure)
+        monkeypatch.setattr(
+            "backend.api.routes.KalshiRestClient",
+            lambda config, client=None: fake,
+        )
+        return app, path
+
+    def _row(self, path):
+        import sqlite3
+
+        conn = sqlite3.connect(path)
+        try:
+            rows = conn.execute(
+                "SELECT status, error_text FROM combo_rfqs"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert len(rows) == 1
+        return rows[0]
+
+    async def test_a_timeout_is_recorded_and_worded_as_unknown(
+        self, build, monkeypatch
+    ):
+        app, path = self._install(
+            build, monkeypatch, failure=httpx.ReadTimeout("read timed out")
+        )
+        response = await _post(app, _body())
+        assert response.status_code == 502
+        detail = response.json()["detail"]
+        assert "Nothing was asked" not in detail
+        assert "may have created" in detail
+        status, text = self._row(path)
+        assert status == "error"
+        assert text.startswith("unknown: ")
+        assert "read timed out" in text
+
+    async def test_a_venue_refusal_still_says_nothing_was_asked(
+        self, build, monkeypatch
+    ):
+        app, path = self._install(build, monkeypatch)
+        response = await _post(app, _body())
+        assert "Nothing was asked" in response.json()["detail"]
+        _, text = self._row(path)
+        assert not text.startswith("unknown: ")

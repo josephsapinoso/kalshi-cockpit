@@ -64,6 +64,7 @@ from backend.kalshi.rfq import (
     ACCEPT_SIDE_FOR_BUYING_YES,
     QUOTE_DEAD_STATUSES,
     QUOTE_FILLED_STATUSES,
+    RfqOutcomeUnknown,
     RfqQuote,
     RfqRefused,
     accept_quote,
@@ -154,6 +155,18 @@ async def _book_ask_tenths(api, ticker: str) -> Optional[int]:
         return None
 
 
+#: Leads `combo_rfqs.error_text` on a create whose outcome is unknown (#318).
+#: The open-RFQ instruments match on it, so it is a constant, not prose.
+UNKNOWN_CREATE_PREFIX = "unknown: "
+
+#: What the screen says instead of "Nothing was asked" when it may not be so.
+_UNKNOWN_CREATE_WORDS = (
+    "The answer was lost, so Kalshi may have created the request anyway -- "
+    "if so it expires on its own. A price request commits you to nothing, "
+    "so no money moved."
+)
+
+
 def _record_refused_create(
     conn: sqlite3.Connection,
     exc: Exception,
@@ -167,7 +180,7 @@ def _record_refused_create(
     target_cost_dollars: Optional[str] = None,
     contracts_fp_requested: Optional[str] = None,
 ) -> None:
-    """Leave a `status = 'error'` row for a create that was refused (#317).
+    """Leave a `status = 'error'` row for a create that failed (#317).
 
     Until this existed a refused create -- a cap refusal, a 404, "already
     open" -- lived only as a 502 on the screen and a line in Fly's logs.
@@ -176,6 +189,12 @@ def _record_refused_create(
     no venue id to record. That is also why `store.mark_error` is not the
     writer: it UPDATEs by rfq_id, so on a row that was never inserted it
     would write nothing and raise nothing.
+
+    **An unknown outcome is marked, not merged** (#318): when `exc` is
+    `RfqOutcomeUnknown` the venue may hold a live RFQ of ours, so
+    `error_text` starts with `UNKNOWN_CREATE_PREFIX`. The status stays
+    `error` -- the call did fail -- and the open-RFQ instruments count these
+    rows apart as possibly open rather than as closed.
 
     `fair_joint` and the book's ask are deliberately left NULL: `bets.py`
     reads `combo_rfqs.fair_joint` as a chance recorded at an ask, and a
@@ -196,7 +215,10 @@ def _record_refused_create(
             exchange_index=EXCHANGE_INDEX_COMBOS,
             target_cost_dollars=target_cost_dollars,
             status=store.STATUS_ERROR,
-            error_text=str(exc),
+            error_text=(
+                f"{UNKNOWN_CREATE_PREFIX}{exc}"
+                if isinstance(exc, RfqOutcomeUnknown) else str(exc)
+            ),
             purpose=purpose,
             contracts_fp_requested=contracts_fp_requested,
         )
@@ -336,6 +358,12 @@ async def ask_market_to_price(
             purpose="buy", card_key=lookup["card_key"],
             target_cost_dollars=target,
         )
+        if isinstance(exc, RfqOutcomeUnknown):
+            raise LookupRefused(
+                502,
+                f"The price request did not come back: {exc}. "
+                f"{_UNKNOWN_CREATE_WORDS}",
+            ) from exc
         raise LookupRefused(
             502,
             f"Kalshi would not take the price request: {exc}. Nothing was "
@@ -775,6 +803,12 @@ async def ask_makers_to_buy_back(
             collection_ticker=collection, legs=legs, purpose="exit",
             contracts_fp_requested=contracts_fp,
         )
+        if isinstance(exc, RfqOutcomeUnknown):
+            raise LookupRefused(
+                502,
+                f"The question did not come back: {exc}. "
+                f"{_UNKNOWN_CREATE_WORDS}",
+            ) from exc
         raise LookupRefused(
             409 if "already open" in str(exc) else 502,
             f"Kalshi would not take the question: {exc} Nothing was asked "

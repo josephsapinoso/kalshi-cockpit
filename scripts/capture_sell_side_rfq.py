@@ -264,10 +264,11 @@ async def capture_one(
             contracts=contracts,
         )
     except RfqRefused as exc:
-        # The venue said 409: one of ours was already open. `create_rfq`
-        # refuses a size-based ask there rather than reusing (#96 defect 4)
-        # -- its quotes were priced for another ask, and a desk tab may be
-        # holding it with a confirm pending. No read, no delete, no file.
+        # Usually the venue said 409: one of ours was already open, and
+        # `create_rfq` refuses a size-based ask there rather than reusing
+        # (#96 defect 4). Since #318 it may instead be `RfqOutcomeUnknown`
+        # (a lost answer -- the RFQ may exist); its text says so. Either way:
+        # no read, no delete, no file.
         raise Refused(f"{ticker}: {exc}. Not read, not deleted.") from exc
     capture["rfq"] = {
         "id": handle.rfq_id,

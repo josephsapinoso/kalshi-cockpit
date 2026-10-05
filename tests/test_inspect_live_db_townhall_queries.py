@@ -109,13 +109,14 @@ def _lookup(conn, status, error, ms=1000):
 _N = [0]
 
 
-def _rfq(conn, status="quoted", deleted_ms=None, ms=1000):
+def _rfq(conn, status="quoted", deleted_ms=None, ms=1000, error_text=None):
     _N[0] += 1
     conn.execute(
         "INSERT INTO combo_rfqs (rfq_id, requested_ms, ticker,"
-        " collection_ticker, selected_legs, exchange_index, status, deleted_ms)"
-        " VALUES (?, ?, 'KXMVE-T', 'KXMVE-C', '[]', 1, ?, ?)",
-        (f"rfq-{_N[0]}", ms, status, deleted_ms),
+        " collection_ticker, selected_legs, exchange_index, status, deleted_ms,"
+        " error_text)"
+        " VALUES (?, ?, 'KXMVE-T', 'KXMVE-C', '[]', 1, ?, ?, ?)",
+        (f"rfq-{_N[0]}", ms, status, deleted_ms, error_text),
     )
 
 
@@ -192,6 +193,26 @@ def test_open_rfqs_against_the_cap(tmp_path):
     assert r["open_rows"] == 2
     assert r["venue_cap"] == 100 and r["headroom"] == 98
     assert (r["oldest_open_ms"], r["newest_open_ms"]) == (1000, 2000)
+    assert r["possibly_open"] == 0
+
+
+def test_an_unknown_create_is_possibly_open_and_never_open(tmp_path):
+    """#318: a create whose answer was lost is counted apart, not as closed."""
+    conn = _conn(tmp_path)
+    _rfq(conn, "quoted", ms=1000)
+    _rfq(conn, "error", ms=2000, error_text="unknown: timed out")
+    _rfq(conn, "error", ms=3000, error_text="HTTP 400 refused")
+    conn.commit()
+    (s,) = _run(conn, "own-open-rfqs")
+    (r,) = _rows(s)
+    assert r["open_rows"] == 1
+    assert r["possibly_open"] == 1
+
+
+def test_the_copied_unknown_prefix_matches_the_backend_constant():
+    from backend.combo_rfq import UNKNOWN_CREATE_PREFIX
+
+    assert parlays._UNKNOWN_CREATE_PREFIX == UNKNOWN_CREATE_PREFIX
 
 
 def test_the_copied_venue_cap_matches_the_backend_constant():

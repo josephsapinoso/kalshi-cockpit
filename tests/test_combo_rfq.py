@@ -17,11 +17,19 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 
 from backend.core.prices import complement
 from backend.combo_rfq import _words
-from backend.kalshi.rfq import RfqRefused, create_rfq, open_rfq_for, parse_quotes
+from backend.kalshi.rest import KalshiAPIError, KalshiCredentialsRequired
+from backend.kalshi.rfq import (
+    RfqOutcomeUnknown,
+    RfqRefused,
+    create_rfq,
+    open_rfq_for,
+    parse_quotes,
+)
 
 
 class _Err(RuntimeError):
@@ -242,7 +250,9 @@ class TestTheWriteRoutesToTheCombinationShard:
             async def request(self, *a, **k):
                 return {"ok": True}
 
-        with pytest.raises(RfqRefused, match="no RFQ id"):
+        # #318: a 2xx means the venue took the POST, so the outcome is
+        # unknown -- still an RfqRefused (subclass), never a guessed id.
+        with pytest.raises(RfqOutcomeUnknown, match="no RFQ id"):
             await create_rfq(
                 FakeApi(), market_ticker="T", collection_ticker="C",
                 legs=[{"market_ticker": "L", "side": "yes"}],
@@ -873,3 +883,43 @@ class TestOpenRfqForFiltersToOurOwnRow:
             )
         assert "already_exists" not in str(excinfo.value)
         assert "already open" in str(excinfo.value)
+
+
+class TestOnlyAProvenRefusalIsARefusal:
+    """#318: `create_rfq` calls a failure refused only when nothing can exist.
+
+    A 4xx is the venue answering no; a missing credential never left the
+    process. Anything else may have created an RFQ whose answer was lost.
+    """
+
+    async def _create_raising(self, exc):
+        class FakeApi:
+            async def request(self, *a, **k):
+                raise exc
+
+        return await create_rfq(
+            FakeApi(), market_ticker="T", collection_ticker="C",
+            legs=[{"market_ticker": "L", "side": "yes"}],
+            target_cost_dollars="5.0000",
+        )
+
+    @pytest.mark.parametrize("exc", [
+        KalshiAPIError(400, "u", "bad request"),
+        KalshiAPIError(404, "u", "not_found"),
+        KalshiCredentialsRequired("no key"),
+    ])
+    async def test_a_proven_refusal_is_not_unknown(self, exc):
+        with pytest.raises(RfqRefused) as got:
+            await self._create_raising(exc)
+        assert not isinstance(got.value, RfqOutcomeUnknown)
+
+    @pytest.mark.parametrize("exc", [
+        httpx.ReadTimeout("read timed out"),
+        httpx.RemoteProtocolError("server disconnected"),
+        KalshiAPIError(503, "u", "unavailable"),
+        KalshiAPIError(-1, "u", "exhausted retries"),
+        ValueError("unparseable 2xx body"),
+    ])
+    async def test_a_lost_answer_is_unknown(self, exc):
+        with pytest.raises(RfqOutcomeUnknown):
+            await self._create_raising(exc)
