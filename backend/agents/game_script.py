@@ -28,6 +28,8 @@ are current, or that Kalshi will mint the combination.
 from __future__ import annotations
 
 import logging
+import math
+import re
 import sqlite3
 from dataclasses import dataclass
 from typing import Literal, Optional
@@ -212,6 +214,164 @@ def build_prompt(*, game_title: str, sport_key: str, kickoff_iso: str, listing: 
 TICKET_NEEDS_FORBIDDEN = ("%", "probab", "chance", "odds", "likel", "edge", "cents", "price")
 
 
+_NUM_WORDS = {
+    w: i for i, w in enumerate(
+        "zero one two three four five six seven eight nine ten eleven twelve "
+        "thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split()
+    )
+}
+_NUM_WORDS.update({
+    "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+    "seventy": 70, "eighty": 80, "ninety": 90,
+})
+_NUM = (
+    r"(\d+(?:\.\d+)?|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)"
+    r"(?:[- ](?:one|two|three|four|five|six|seven|eight|nine))?|"
+    + "|".join(sorted((w for w in _NUM_WORDS), key=len, reverse=True))
+    + r")"
+)
+#: `(pattern, side, inclusive)` for a stated bound in `ticket_needs`. A phrase
+#: like "seven or fewer" is matched before a bare "under" so one number is read
+#: one way.
+_BOUND_PATTERNS = (
+    (rf"\b{_NUM}\s+or\s+(?:fewer|less|under|lower|below)\b", "hi", True),
+    (rf"\b(?:at most|no more than|up to|a maximum of)\s+{_NUM}\b", "hi", True),
+    (rf"\b{_NUM}\s+or\s+(?:more|higher|greater|over|above)\b", "lo", True),
+    (rf"\b{_NUM}\s*\+", "lo", True),
+    (rf"\b(?:at least|a minimum of)\s+{_NUM}\b", "lo", True),
+    (rf"\b(?:fewer than|less than|under|below)\s+{_NUM}\b", "hi", False),
+    (rf"\b(?:more than|over|above|exceeds?|greater than)\s+{_NUM}\b", "lo", False),
+)
+_TOTAL_WORDS = ("total", "combined", "combine", "together", "two teams", "both teams")
+
+
+def _number_of(token: str) -> Optional[float]:
+    token = token.strip().lower()
+    try:
+        return float(token)
+    except ValueError:
+        pass
+    parts = re.split(r"[- ]", token)
+    if all(p in _NUM_WORDS for p in parts):
+        return float(sum(_NUM_WORDS[p] for p in parts))
+    return None
+
+
+def _stated_bound(clause: str) -> Optional[tuple[str, int]]:
+    """`("hi", n)` (at most n) or `("lo", n)` (at least n) when `clause` states
+    exactly one bound with one number; `None` for none, a range, or anything
+    read two ways. Whole numbers: "under 7" is at most 6."""
+    text = clause.lower()
+    found: list[tuple[str, int]] = []
+    taken: list[tuple[int, int]] = []
+    for pattern, side, inclusive in _BOUND_PATTERNS:
+        for m in re.finditer(pattern, text):
+            if any(m.start() < e and s < m.end() for s, e in taken):
+                continue
+            value = _number_of(m.group(1))
+            if value is None:
+                return None
+            taken.append((m.start(), m.end()))
+            if inclusive:
+                n = math.ceil(value) if side == "lo" else math.floor(value)
+            elif side == "hi":
+                n = math.ceil(value) - 1
+            else:
+                n = math.floor(value) + 1
+            found.append((side, n))
+    # Any number left outside a matched bound ("1 to 3") makes it ambiguous.
+    rest = text
+    for s, e in sorted(taken, reverse=True):
+        rest = rest[:s] + " " + rest[e:]
+    for phrase in _TOTAL_WORDS:  # "the two teams" names the teams, not a bound
+        rest = rest.replace(phrase, " ")
+    if re.search(rf"\b{_NUM}\b", rest):
+        return None
+    return found[0] if len(found) == 1 else None
+
+
+_TOTAL_LEG = re.compile(r"^(Over|Under) (\d+(?:\.\d+)?)\b", re.IGNORECASE)
+_SPREAD_LEG = re.compile(r"^(.+?) wins by over (\d+(?:\.\d+)?)\b", re.IGNORECASE)
+_PROP_LEG = re.compile(r"^(.+?):\s*(\d+)\+")
+
+
+def _leg_constraint(leg_side: str, facts: dict) -> Optional[tuple[str, str, str, int]]:
+    """`(kind, who, bound side, n)` for a leg whose served wording states a
+    strike we can read, else `None`. Wording is what the desk serves: the YES
+    sub-title, or the reworded NO label (a NO the desk cannot reword is
+    skipped, never guessed)."""
+    if leg_side == "no":
+        candidates = [facts.get("no_label")]
+    else:
+        candidates = [facts.get("yes_label"), facts.get("title")]
+    for text in candidates:
+        text = (text or "").strip()
+        m = _TOTAL_LEG.match(text)
+        if m:
+            line = float(m.group(2))
+            if m.group(1).lower() == "over":
+                return ("total", "", "lo", math.floor(line) + 1)
+            return ("total", "", "hi", math.ceil(line) - 1)
+        if leg_side == "no":
+            continue
+        m = _SPREAD_LEG.match(text)
+        if m:
+            return ("spread", m.group(1).strip(), "lo", math.floor(float(m.group(2))) + 1)
+        m = _PROP_LEG.match(text)
+        if m:
+            return ("prop", m.group(1).strip(), "lo", int(m.group(2)))
+    return None
+
+
+def _names_in(clause: str, who: str) -> bool:
+    low = clause.lower()
+    who = who.lower()
+    return bool(who) and (who in low or who.split()[-1] in low)
+
+
+def ticket_needs_mismatch(needs: str, constraints: list[tuple[str, str, str, int]]) -> Optional[str]:
+    """The reason `needs` disagrees with a leg's strike, or `None`.
+
+    Conservative on purpose: a clause is checked only when it states exactly
+    one number and is tied to exactly one leg (a total clause needs one total
+    leg; a spread or prop clause must name the team or player). Anything
+    ambiguous passes; this refuses a stated number that contradicts, nothing
+    more."""
+    clauses = re.split(r"[,;]|\band\b|\bwhile\b|\bbut\b|\bwhereas\b", needs, flags=re.IGNORECASE)
+    for clause in clauses:
+        bound = _stated_bound(clause)
+        if bound is None:
+            continue
+        low = clause.lower()
+        tied = None
+        props = [c for c in constraints if c[0] == "prop" and _names_in(clause, c[1])]
+        if len(props) == 1:
+            tied = props[0]
+        elif any(w in low for w in _TOTAL_WORDS):
+            totals = [c for c in constraints if c[0] == "total"]
+            if len(totals) == 1:
+                tied = totals[0]
+        else:
+            spreads = [
+                c for c in constraints
+                if c[0] == "spread" and _names_in(clause, c[1]) and re.search(r"\bby\b", low)
+            ]
+            if len(spreads) == 1:
+                tied = spreads[0]
+        if tied is None:
+            continue
+        kind, who, leg_side, leg_n = tied
+        if bound != (leg_side, leg_n):
+            word = "at most" if leg_side == "hi" else "at least"
+            stated = "at most" if bound[0] == "hi" else "at least"
+            return (
+                f"what the ticket needs says {stated} {bound[1]} "
+                f"({clause.strip()!r}) but the {kind} leg"
+                f"{' for ' + who if who else ''} needs {word} {leg_n}"
+            )
+    return None
+
+
 def validate_card(card: CardOutput, listing: dict) -> Optional[str]:
     """`None` if the card may be stored as built, else the reason it may not.
 
@@ -236,6 +396,7 @@ def validate_card(card: CardOutput, listing: dict) -> Optional[str]:
     }
     seen: set[str] = set()
     per_event: dict[str, int] = {}
+    constraints: list[tuple[str, str, str, int]] = []
     for leg in card.legs:
         facts = by_market.get(leg.market_ticker)
         if facts is None or facts["event_ticker"] != leg.event_ticker:
@@ -252,7 +413,10 @@ def validate_card(card: CardOutput, listing: dict) -> Optional[str]:
                 f"{leg.event_ticker} allows {cap} leg"
                 f"{'' if cap == 1 else 's'} in a combination"
             )
-    return None
+        constraint = _leg_constraint(leg.side, facts)
+        if constraint is not None:
+            constraints.append(constraint)
+    return ticket_needs_mismatch(needs, constraints)
 
 
 def freeze_leg_at_build(leg: dict, listing: dict) -> dict:

@@ -724,3 +724,94 @@ class TestAWinLegBesideItsOwnCoverIsDropped:
     def test_the_prompt_states_the_rule(self):
         from backend.agents.game_script import SYSTEM
         assert "Never pair a team winning with that same team winning by a margin" in SYSTEM
+
+
+class TestTicketNeedsMatchesLegs:
+    """#308: a number in `ticket_needs` that disagrees with a leg's strike
+    refuses the card; text with no number, or no unambiguous tie, passes."""
+
+    EV = "KXNHLGAME-26OCT04WPGPIT"
+
+    def _listing(self, *legs):
+        # (market suffix, title, yes_label, no_label)
+        return {"groups": [{"legs": [
+            _leg(f"{self.EV}-{s}", self.EV, title, yes_label=yes, no_label=no)
+            for s, title, yes, no in legs
+        ]}]}
+
+    def _check(self, listing, needs, *sides):
+        legs = [_l(m["market_ticker"], self.EV, s)
+                for m, s in zip(listing["groups"][0]["legs"], sides)]
+        return validate_card(_card(*legs, ticket_needs=needs), listing)
+
+    def test_card_218_under_6_5_called_seven_or_fewer_is_refused(self):
+        listing = self._listing(
+            ("T", "Winnipeg at Pittsburgh: Totals", "Under 6.5 goals scored", "Over 6.5 goals scored"),
+            ("W", "Winnipeg", "Winnipeg", "Winnipeg does not win"),
+        )
+        reason = self._check(
+            listing,
+            "the two teams combined need to score seven or fewer goals",
+            "yes", "yes",
+        )
+        assert reason and "at most 7" in reason and "at most 6" in reason
+
+    def test_card_218_with_the_right_number_is_accepted(self):
+        listing = self._listing(
+            ("T", "t", "Under 6.5 goals scored", "x"),
+            ("W", "Winnipeg", "Winnipeg", "x"),
+        )
+        for needs in ("the two teams combined need to score six or fewer goals",
+                      "the total stays under 6.5 goals", "fewer than seven goals in total"):
+            assert self._check(listing, needs, "yes", "yes") is None, needs
+
+    def test_spread_and_over_total_live_text_is_accepted(self):
+        listing = self._listing(
+            ("S", "Boston wins by over 1.5 goals", "Boston wins by over 1.5 goals", "Not: Boston wins by 2+"),
+            ("T", "Over 5.5 goals scored", "Over 5.5 goals scored", "Under 5.5 goals scored"),
+        )
+        needs = ("Boston needs to win by two or more goals, and the game needs "
+                 "at least six total goals")
+        assert self._check(listing, needs, "yes", "yes") is None
+
+    def test_spread_and_over_disagreement_is_refused(self):
+        listing = self._listing(
+            ("S", "s", "Boston wins by over 1.5 goals", "x"),
+            ("T", "t", "Over 5.5 goals scored", "x"),
+        )
+        for needs in (
+            "Boston wins by three or more goals, and at least six total goals",
+            "Boston wins by two or more goals, and at least seven total goals",
+            "Boston wins by two or more goals, and at most five total goals",
+        ):
+            assert self._check(listing, needs, "yes", "yes") is not None, needs
+
+    def test_under_total_and_player_prop_live_text_is_accepted(self):
+        listing = self._listing(
+            ("T", "t", "Over 6.5 runs scored", "Under 6.5 runs scored"),
+            ("P", "p", "Cam Schlittler: 6+", "x"),
+        )
+        needs = ("the total runs scored stay under 6.5, and Cam Schlittler "
+                 "records at least 6 strikeouts")
+        assert self._check(listing, needs, "no", "yes") is None
+
+    def test_player_prop_number_disagreement_is_refused(self):
+        listing = self._listing(
+            ("T", "t", "Over 6.5 runs scored", "Under 6.5 runs scored"),
+            ("P", "p", "Cam Schlittler: 6+", "x"),
+        )
+        reason = self._check(
+            listing,
+            "the total runs scored stay under 6.5, and Cam Schlittler records at least 7 strikeouts",
+            "no", "yes")
+        assert reason and "Cam Schlittler" in reason
+
+    def test_no_number_or_an_ambiguous_one_passes(self):
+        listing = self._listing(
+            ("T", "t", "Under 6.5 goals scored", "x"),
+            ("W", "Winnipeg", "Winnipeg", "x"),
+        )
+        for needs in ("Winnipeg wins and the game stays low-scoring",
+                      "Winnipeg wins by 1 to 3 goals and the game stays under 52",
+                      "the first period has at least two goals"):
+            assert self._check(listing, needs, "yes", "yes") is None, needs
