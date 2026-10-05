@@ -74,8 +74,18 @@ _HOUR_MS = 3_600_000
 #: tokens were lost settles NULL usage, so the token and search brakes do not
 #: see it and only the daily call ceiling would. One retry an hour per game,
 #: and at most this many failed rows before the game is left to a tap.
+#:
+#: **A card the validator refused is paced the same way** (session 82). It
+#: was billed in full (~150K-290K tokens), and #308/#310 added refusal rules a
+#: model can trip on every attempt, so an unpaced retry re-spends a card's
+#: tokens every 900 s pass until the unattended share binds for every game.
 RETRY_BACKOFF_MS = _HOUR_MS
 MAX_FAILED_ATTEMPTS = 3
+
+#: The reason the pre-#309 code stored for every failed call. Only the
+#: 2026-10-05 credit outage wrote it in bulk (65 rows) and nothing writes it
+#: now; counting those rows would leave the outage's games capped for good.
+_LEGACY_OUTAGE_REASON = "the call returned nothing"
 
 
 def _is_call_failure(card: dict) -> bool:
@@ -85,8 +95,15 @@ def _is_call_failure(card: dict) -> bool:
     )
 
 
+def _counts_toward_retry_pause(card: dict) -> bool:
+    return (
+        card.get("status") == "refused_invalid"
+        and str(card.get("reason") or "").strip() != _LEGACY_OUTAGE_REASON
+    )
+
+
 def _in_retry_pause(now_ms: int, rows: list[dict]) -> bool:
-    failed = [c for c in rows if _is_call_failure(c)]
+    failed = [c for c in rows if _counts_toward_retry_pause(c)]
     if len(failed) >= MAX_FAILED_ATTEMPTS:
         return True
     last = max((int(c.get("built_ms") or 0) for c in failed), default=0)

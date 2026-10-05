@@ -171,6 +171,18 @@ class TestARetryIsNotATightLoop:
         assert gsw.MAX_FAILED_ATTEMPTS <= 3
         assert decide(NOW, self._fx(), rows, _roomy()) == []
 
-    def test_a_scouts_own_invalid_card_is_not_paused(self):
-        acts = decide(NOW, self._fx(), [self._row(NOW - 60_000, "the card has 4 legs")], _roomy())
+    def test_a_validator_refused_card_is_paced_like_a_failed_call(self):
+        # Billed in full, and a rule the model trips once it can trip every
+        # pass: an hour's backoff, and the same cap (session 82).
+        invalid = "the card has 4 legs; it needs 2 to 3"
+        assert decide(NOW, self._fx(), [self._row(NOW - 60_000, invalid)], _roomy()) == []
+        rows = [self._row(NOW - (5 + i) * H, invalid) for i in range(3)]
+        assert decide(NOW, self._fx(), rows, _roomy()) == []
+        acts = decide(NOW, self._fx(), [self._row(NOW - 2 * H, invalid)], _roomy())
+        assert [a.kind for a in acts] == [BUILD]
+
+    def test_the_outages_legacy_rows_do_not_cap_a_game(self):
+        rows = [self._row(NOW - 60_000 * (i + 1), "the call returned nothing")
+                for i in range(10)]
+        acts = decide(NOW, self._fx(), rows, _roomy())
         assert [a.kind for a in acts] == [BUILD]
