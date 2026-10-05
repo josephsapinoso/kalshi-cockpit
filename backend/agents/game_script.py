@@ -47,7 +47,7 @@ AGENT_NAME = "game_script"
 
 #: Bumped whenever `SYSTEM` or the prompt's shape changes, so a stored card
 #: says which instructions built it.
-PROMPT_VERSION = "3"
+PROMPT_VERSION = "4"
 
 GAME_SCRIPT_MAX_SEARCHES = 3
 GAME_SCRIPT_SEARCH_TOOL = {**WEB_SEARCH_TOOL, "max_uses": GAME_SCRIPT_MAX_SEARCHES}
@@ -96,8 +96,13 @@ ticket_needs: in plain words, what has to happen in the game for every leg \
 to win at once (for example "Virginia Tech wins by 1 to 3 points and the \
 game stays under 52 points"). Then write drop_if: the specific news, still \
 unknown now and able to change before kickoff, that would make Joe drop \
-this card (for example a starter ruled out). Never name something already \
-settled, like a suspension that runs past the game. If you cannot build a \
+this card (for example a starter ruled out). Name ONE person and a status \
+that is public before kickoff (out, scratched, in the lineup, starting): \
+never something that happens in the game ("pulled early"), never "than \
+expected", never "or" between triggers. Never name something already \
+settled, like a suspension that runs past the game. \
+Say "confirmed" or "starting" only when a source dated TODAY says so; \
+otherwise say "expected". If you cannot build a \
 coherent card, or the facts are too thin, set skip to true and say why in \
 reason; a skip is a good answer.
 
@@ -372,14 +377,60 @@ def ticket_needs_mismatch(needs: str, constraints: list[tuple[str, str, str, int
     return None
 
 
-def validate_card(card: CardOutput, listing: dict) -> Optional[str]:
+#: Wording a pre-kickoff re-check cannot search for (#310): what happens in the
+#: game, an unnamed baseline, or a workload no team announces. Deliberately
+#: narrow: a plain "X is ruled out" or "X is not in the lineup" passes.
+_DROP_IF_UNCHECKABLE = re.compile(
+    r"\bpulled\b|\bduring (?:the |a )?(?:game|play|match)\b|\bin[- ]game\b"
+    r"|\bthan expected\b|\bworkload\b",
+    re.IGNORECASE,
+)
+
+#: A claim that something is settled today, which needs a source from today.
+_CONFIRMED_CLAIM = re.compile(
+    r"\bconfirmed\b|\b(?:is|are|will be|to be)\s+(?:the\s+)?starting\b|\bwill start\b",
+    re.IGNORECASE,
+)
+
+#: The zone kickoff dates are shown in everywhere else: the frontend's
+#: `DISPLAY_TIME_ZONE` (frontend/src/lib/format.ts) and `parlays.DESK_TIME_ZONE`
+#: are both America/Los_Angeles. Not imported, to keep agents free of parlays.
+GAME_DAY_TIME_ZONE = "America/Los_Angeles"
+
+
+def _game_day(kickoff_ms: int) -> str:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    return datetime.fromtimestamp(kickoff_ms / 1000, ZoneInfo(GAME_DAY_TIME_ZONE)).strftime(
+        "%Y-%m-%d"
+    )
+
+
+def validate_card(
+    card: CardOutput, listing: dict, kickoff_ms: Optional[int] = None
+) -> Optional[str]:
     """`None` if the card may be stored as built, else the reason it may not.
 
     Runs on the server before anything is stored; the model is never asked
-    again on a failure.
+    again on a failure. `kickoff_ms` arms the game-day-source rule; without it
+    that one rule cannot be judged and is skipped.
     """
     if not card.story.strip() or not card.drop_if.strip():
         return "the card has no story or no drop-if condition"
+    hit = _DROP_IF_UNCHECKABLE.search(card.drop_if)
+    if hit:
+        return (
+            f"the drop-if condition says {hit.group(0)!r}, which cannot be checked "
+            "before kickoff; name one person and a status public before the game"
+        )
+    if kickoff_ms is not None and _CONFIRMED_CLAIM.search(card.story):
+        day = _game_day(kickoff_ms)
+        if not any((src.published or "").strip()[:10] == day for src in card.sources):
+            return (
+                "the story says confirmed or starting but no source is dated on "
+                f"game day ({day})"
+            )
     if not any(src.url.strip().startswith(("http://", "https://")) for src in card.sources):
         return "the card names no source page for its facts"
     needs = card.ticket_needs.strip()
@@ -602,7 +653,8 @@ async def build_card(
         [leg.model_dump() for leg in parsed.legs]
     )
     invalid = validate_card(
-        parsed.model_copy(update={"legs": [CardLeg(**leg) for leg in kept]}), listing
+        parsed.model_copy(update={"legs": [CardLeg(**leg) for leg in kept]}), listing,
+        kickoff_ms=kickoff_ms,
     )
     if invalid is not None:
         budget.settle(call_id, verdict="invalid", usage=usage)
