@@ -156,6 +156,7 @@ the channel diagnostic (A17.6/A17.11).
   - `own-open-rfqs` gains `possibly_open`, kept apart from `open_rows`.
   - **The 409 is now captured** (Joe's ask, ~23:45Z, `scripts/capture_rfq_create_conflict.py` on a held combination; the script's own RFQ was withdrawn). A second identical create returns HTTP 409 with body `{"error":{"code":"already_exists","message":"already exists"}}` and no identifiers. Committed as `tests/fixtures/rfq_create_conflict_409.json`, and the substring detection is pinned to it; disabling the detection turns the test red. n = 1.
   - Still uncaptured: an RFQ-create 429 body.
+- **#169 closed, not planned:** Joe answered (C) with the option buttons. A screenshot-only slip is handled by asking the friend for the link, or by copying the parlay in the Kalshi app and pasting its ticker into the #165 link path.
 - **#316 read at ~22:15Z:** one post-deploy call so far, a `game_script` with `{}` (searches clean). No error code yet. Everything earlier is NULL (pre-v64).
 - Dependabot: zero open alerts. Run 37371370321's "failure" was degraded Actions again: its jobs had 0 steps, and the rerun was green.
 - Partner's ruling: little buildable today, so the session ends early. #310's read is due at about 18:00Z on 10-06.
@@ -164,7 +165,7 @@ the channel diagnostic (A17.6/A17.11).
 
 1. #316 — read `agent-tool-errors` after the next search failure, promote its logged block to a fixture, then decide on `max_uses`/tool version. #210 closes on the first convening whose searches succeed.
 2. #310 — re-read `game-script-latest-prompt` after 18:00Z on 2026-10-06, which is a full day of v4 cards.
-3. #197 stays open with #210. #169 and #151 wait until search is reliable. #267 is due in November.
+3. #197 stays open with #210. #151 waits until search is reliable. #267 is due in November.
 
 ## 2026-10-05 (eighty-third session) — web-search error codes recorded (#316); Kalshi holds 3 open RFQs, not 97 (#314)
 
