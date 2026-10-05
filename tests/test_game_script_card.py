@@ -18,6 +18,7 @@ good card. The schema and the server-side validation are the enforcement.
 
 from __future__ import annotations
 
+import datetime
 import json
 import sqlite3
 import typing
@@ -327,7 +328,7 @@ class TestTheServerRefusesBeforeItStores:
         assert "TODAY'S news first" in system
         assert "first-half total in the same direction" in system
         assert "able to change before kickoff" in system
-        assert game_script.PROMPT_VERSION == "3"
+        assert game_script.PROMPT_VERSION == "4"
 
     def test_validate_card_accepts_two_size_max_2_legs_from_one_event(self):
         listing = _listing()
@@ -815,3 +816,63 @@ class TestTicketNeedsMatchesLegs:
                       "Winnipeg wins by 1 to 3 goals and the game stays under 52",
                       "the first period has at least two goals"):
             assert self._check(listing, needs, "yes", "yes") is None, needs
+
+
+class TestDropIfAndGameDaySource:
+    """#310: drop_if must be checkable before kickoff; 'confirmed' needs a
+    source dated on game day (America/Los_Angeles, as kickoffs are shown)."""
+
+    # Kickoff 2026-10-05 23:00Z = 16:00 on 2026-10-05 in Los Angeles.
+    KO = int(datetime.datetime(2026, 10, 5, 23, 0, tzinfo=datetime.timezone.utc).timestamp() * 1000)
+
+    def _v(self, *, story="A slow game.", drop_if="A starter is ruled out.",
+           sources=(SOURCE,), ko=True):
+        return validate_card(
+            _card(ATL, TOT40, story=story, drop_if=drop_if, sources=sources),
+            _listing(), kickoff_ms=self.KO if ko else None,
+        )
+
+    @pytest.mark.parametrize("drop_if", [
+        "scratched or pulled early for any reason before first pitch",
+        "a different starting goalie than expected",
+        "cleared to play a full workload",
+        "he leaves during the game",
+        "an in-game injury",
+    ])
+    def test_uncheckable_drop_ifs_are_refused(self, drop_if):
+        assert "before kickoff" in (self._v(drop_if=drop_if) or "")
+
+    @pytest.mark.parametrize("drop_if", [
+        "Jake Sanderson is in Ottawa's lineup",
+        "Jake Sanderson is ruled out",
+        "Jake Sanderson is not in the lineup",
+    ])
+    def test_a_named_pre_kickoff_status_is_accepted(self, drop_if):
+        assert self._v(drop_if=drop_if) is None
+
+    def test_card_217_confirmed_with_no_game_day_source_is_refused(self):
+        stale = CardSource(url="https://example.com/bos", published="2026-09-30")
+        undated = CardSource(url="https://example.com/x", published="")
+        story = "Jeremy Swayman confirmed as the starting goalie."
+        reason = self._v(story=story, sources=(stale, undated))
+        assert reason and "game day" in reason
+
+    def test_confirmed_with_a_game_day_source_is_accepted(self):
+        today = CardSource(url="https://example.com/t", published="2026-10-05")
+        story = "Jeremy Swayman confirmed as the starting goalie."
+        assert self._v(story=story, sources=(today,)) is None
+
+    def test_a_story_that_says_expected_needs_no_game_day_source(self):
+        assert self._v(story="Swayman is expected in goal.") is None
+
+    def test_without_a_kickoff_the_game_day_rule_is_skipped(self):
+        assert self._v(story="X confirmed in goal.", ko=False) is None
+
+
+class TestTheBuildPathPassesTheKickoff:
+    async def test_a_stale_confirmed_card_is_refused_on_the_build_path(self, tmp_path):
+        # KICKOFF is 2026-09-13-ish in the helper; SOURCE is dated 09-12.
+        card = _card(ATL, TOT40, story="Atlanta's QB is confirmed to start.")
+        conn, _c, result = await _run(tmp_path, card)
+        assert result.status == "refused_invalid"
+        assert "game day" in result.reason
