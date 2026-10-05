@@ -423,6 +423,33 @@ def _price_sides(
             }
 
 
+def consensus_for_legs(
+    conn, legs: list[dict], *, now_ms: int, max_odds_age_ms: int
+) -> list[dict]:
+    """The desk's consensus chance for each `{market_ticker, event_ticker,
+    side}` leg, in the same order: `{chance, chance_display, unknown_reason,
+    unknown_reason_code}` per leg (#312).
+
+    **The one consensus reader.** This is `_price_sides` (what `list_game_legs`
+    runs for the game page) pointed at a card's legs, not a second lookup, so
+    a card and the game page cannot disagree about a leg. A leg the pool does
+    not hold is `chance: None` and a reason, never `0`. Each result is one
+    leg's own: nothing here combines legs (ADR 0189).
+    """
+    shaped = [
+        {
+            "market_ticker": leg["market_ticker"],
+            "event_ticker": leg["event_ticker"],
+            "allowed_sides": [leg["side"]],
+            "sides": {},
+        }
+        for leg in legs
+    ]
+    if shaped:
+        _price_sides(conn, shaped, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms)
+    return [s["sides"][leg["side"]] for s, leg in zip(shaped, legs)]
+
+
 def _listed_side(market: dict, side: str) -> dict:
     """Kalshi's own listed ask for one side of a market, and the size at it.
 
