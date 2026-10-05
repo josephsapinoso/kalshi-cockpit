@@ -39,7 +39,9 @@ import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Iterable, Mapping, Optional, Sequence
 
-from .agents.game_script import GAME_SCRIPT_MAX_SEARCHES, RECHECK_MAX_SEARCHES
+from .agents.game_script import (
+    CALL_FAILED_PREFIX, GAME_SCRIPT_MAX_SEARCHES, RECHECK_MAX_SEARCHES,
+)
 from .agents.base import AgentConfig
 from .agents.budget import AgentBudget
 from .kalshi.discovery import IN_SCOPE_LEAGUES
@@ -67,6 +69,28 @@ REFUSED_BUDGET = "refused_budget"
 DONE_STATUSES = ("built", "skipped")
 
 _HOUR_MS = 3_600_000
+
+#: A failed call (#309) is retried, but not in a tight loop: a failure whose
+#: tokens were lost settles NULL usage, so the token and search brakes do not
+#: see it and only the daily call ceiling would. One retry an hour per game,
+#: and at most this many failed rows before the game is left to a tap.
+RETRY_BACKOFF_MS = _HOUR_MS
+MAX_FAILED_ATTEMPTS = 3
+
+
+def _is_call_failure(card: dict) -> bool:
+    return (
+        card.get("status") == "refused_invalid"
+        and str(card.get("reason") or "").startswith(CALL_FAILED_PREFIX)
+    )
+
+
+def _in_retry_pause(now_ms: int, rows: list[dict]) -> bool:
+    failed = [c for c in rows if _is_call_failure(c)]
+    if len(failed) >= MAX_FAILED_ATTEMPTS:
+        return True
+    last = max((int(c.get("built_ms") or 0) for c in failed), default=0)
+    return bool(last) and now_ms - last < RETRY_BACKOFF_MS
 
 #: A season start more than this far behind a game is last season's date, and
 #: a date cut that old can no longer tell preseason from regular season: the
@@ -149,6 +173,10 @@ def decide(
     done = {
         c["game_event_ticker"] for c in cards if c.get("status") in DONE_STATUSES
     }
+    cards = list(cards)
+    by_game: dict[str, list[dict]] = {}
+    for c in cards:
+        by_game.setdefault(c["game_event_ticker"], []).append(c)
     allowed = None if sports is None else set(sports)
     horizon = now_ms + lead_hours * _HOUR_MS
     seen: set[str] = set()
@@ -156,6 +184,8 @@ def decide(
     for f in fixtures:
         ticker = f.game_event_ticker
         if not ticker or ticker in done or ticker in seen:
+            continue
+        if _in_retry_pause(now_ms, by_game.get(ticker, [])):
             continue
         if allowed is not None and f.sport_key not in allowed:
             continue
@@ -292,7 +322,8 @@ def load_inputs(
         cards = [
             dict(r)
             for r in conn.execute(
-                "SELECT game_event_ticker, status FROM game_script_cards "
+                "SELECT game_event_ticker, status, reason, built_ms "
+                "FROM game_script_cards "
                 f"WHERE game_event_ticker IN ({marks})",
                 list(linked),
             ).fetchall()

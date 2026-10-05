@@ -28,6 +28,7 @@ are current, or that Kalshi will mint the combination.
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from dataclasses import dataclass
 from typing import Literal, Optional
@@ -286,6 +287,41 @@ def freeze_leg_at_build(leg: dict, listing: dict) -> dict:
     }
 
 
+#: A reason that starts with this is a machine failure, not a judgement of the
+#: scout's (#309): the card is retried and the screen says so.
+CALL_FAILED_PREFIX = "the call failed"
+
+_FAILURE_WORDS = {
+    "schema_mismatch": (
+        "the scout's answer did not match the card schema (a refusal or "
+        "malformed output); its tokens are not counted"
+    ),
+    "call_error": "the call to the model errored (connection or API failure)",
+    "refusal": "the model refused to answer",
+    "no_output": "the model returned no parseable card",
+    "search_failed": "the web search failed",
+}
+
+_SEARCH_FAILURE_RE = re.compile(
+    r"search[^.]{0,40}(unavailable|error|fail|not available|could not|couldn't|unable)"
+    r"|(unavailable|unable|could not|couldn't|failed)[^.]{0,40}search",
+    re.IGNORECASE,
+)
+
+
+def call_failed_reason(kind: str, *, detail: str = "") -> str:
+    text = f"{CALL_FAILED_PREFIX}: {_FAILURE_WORDS.get(kind, kind)}"
+    return f"{text} ({detail})" if detail else text
+
+
+def skip_is_search_failure(reason: str, usage: Optional[CallUsage]) -> bool:
+    """A skip is a machine failure when the call searched zero times (usage
+    read and 0, never an unreadable usage) or its reason says search broke."""
+    if usage is not None and usage.web_searches == 0:
+        return True
+    return bool(_SEARCH_FAILURE_RE.search(reason or ""))
+
+
 @dataclass(frozen=True)
 class CardResult:
     """One seat run, already stored. `status` is the row's status."""
@@ -356,14 +392,14 @@ async def build_card(
             effort="medium",
             tools=[GAME_SCRIPT_SEARCH_TOOL],
         )
-        parsed, usage = outcome.parsed, outcome.usage
+        parsed, usage, failure = outcome.parsed, outcome.usage, outcome.failure
     except Exception:
         logger.exception("the game-script scout died")
-        parsed, usage = None, None
+        parsed, usage, failure = None, None, "call_error"
 
     if parsed is None:
         budget.settle(call_id, verdict="filed_nothing", usage=usage)
-        why = "the call returned nothing"
+        why = call_failed_reason(failure or "no_output")
         return CardResult(
             "refused_invalid",
             store("refused_invalid", reason=why, agent_call_id=call_id),
@@ -371,8 +407,19 @@ async def build_card(
         )
 
     if parsed.skip:
-        budget.settle(call_id, verdict="skip", usage=usage)
         why = parsed.reason.strip() or "the scout skipped this game without saying why"
+        if skip_is_search_failure(parsed.reason, usage):
+            # A machine failure, not the scout's judgement (#309). Stored as
+            # `refused_invalid`, which the watcher and the tap both retry;
+            # `skipped` is a done status and would end the game's chances.
+            budget.settle(call_id, verdict="search_failed", usage=usage)
+            why = call_failed_reason("search_failed", detail=why)
+            return CardResult(
+                "refused_invalid",
+                store("refused_invalid", reason=why, agent_call_id=call_id),
+                why, usage, call_id,
+            )
+        budget.settle(call_id, verdict="skip", usage=usage)
         return CardResult(
             "skipped",
             store("skipped", reason=why, agent_call_id=call_id),

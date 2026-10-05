@@ -198,6 +198,10 @@ class StructuredCallOutcome:
 
     parsed: Optional[Any]
     usage: Optional[CallUsage]
+    #: Why `parsed` is None, for a caller that wants to say so (#309):
+    #: `schema_mismatch` (billed, tokens lost), `call_error` (transport or any
+    #: other exception), `refusal`, `no_output`. None when parsed is present.
+    failure: Optional[str] = None
 
 
 def _usage_from(response) -> Optional[CallUsage]:
@@ -485,10 +489,10 @@ async def structured_call(
             "agent output did not match the schema (a refusal, or malformed "
             "output); the call was billed and its token count is lost"
         )
-        return StructuredCallOutcome(parsed=None, usage=None)
+        return StructuredCallOutcome(parsed=None, usage=None, failure="schema_mismatch")
     except Exception:
         logger.exception("agent call failed; continuing without a verdict")
-        return StructuredCallOutcome(parsed=None, usage=None)
+        return StructuredCallOutcome(parsed=None, usage=None, failure="call_error")
 
     usage = _usage_from(response)
 
@@ -510,9 +514,11 @@ async def structured_call(
             "agent call refused (%s)",
             getattr(getattr(response, "stop_details", None), "category", "unknown"),
         )
-        return StructuredCallOutcome(parsed=None, usage=usage)
+        return StructuredCallOutcome(parsed=None, usage=usage, failure="refusal")
 
     parsed = getattr(response, "parsed_output", None)
     if parsed is None:
         logger.warning("agent returned no parseable structured output")
-    return StructuredCallOutcome(parsed=parsed, usage=usage)
+    return StructuredCallOutcome(
+        parsed=parsed, usage=usage, failure=None if parsed is not None else "no_output"
+    )

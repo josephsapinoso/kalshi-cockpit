@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from ...agents.base import AgentConfig, build_client
 from ...agents.budget import AgentBudget
-from ...agents.game_script import build_card, recheck_card
+from ...agents.game_script import CALL_FAILED_PREFIX, build_card, recheck_card
 from ...config import AppConfig, ConfigError, StalenessConfig
 from ...core.leg_words import no_words_for
 from ...core.prices import format_price
@@ -222,6 +222,10 @@ def no_card_line(card: dict) -> Optional[str]:
     reason = (card.get("reason") or "").strip() or "no reason was recorded"
     if status == "refused_budget":
         return f"No card today: {reason}"
+    if status == "refused_invalid" and reason.startswith(CALL_FAILED_PREFIX):
+        # A machine failure, retried on a later pass (#309): not the scout's
+        # judgement, so never "No clean story".
+        return f"No card yet: {reason}; it will be retried"
     return f"No clean story: {reason}"
 
 
