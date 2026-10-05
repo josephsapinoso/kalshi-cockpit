@@ -484,3 +484,26 @@ class TestTheSellOnlyQuoteIsStorable:
                 )
         finally:
             conn.close()
+
+
+class TestARefusedExitCreateLeavesARow:
+    """#317: the exit path's refused create is recorded too."""
+
+    async def test_already_open_is_recorded_as_an_error_row(self, build):
+        app, _, path, position_id, _ = build(venue=FakeVenue(conflict=True))
+        response = await _ask(app, position_id)
+        assert response.status_code == 409
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute("SELECT * FROM combo_rfqs").fetchall()
+        finally:
+            conn.close()
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["status"] == "error"
+        assert "already open" in row["error_text"]
+        assert row["purpose"] == "exit"
+        assert row["ticker"] == TICKER
+        assert row["contracts_fp_requested"] == "2.01"
+        assert row["rfq_id"].startswith("refused-")

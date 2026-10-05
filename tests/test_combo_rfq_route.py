@@ -739,3 +739,73 @@ class TestTheStoredRowAgreesWithTheScreen:
             conn.close()
         assert row["status"] == "no_quotes"
         assert row["refused_too_fine"] == 0
+
+
+class _RefusingApi(FakeApi):
+    """The venue refuses the create; every other call behaves as FakeApi."""
+
+    VENUE_WORDS = 'HTTP 400 {"error":{"code":"rfq_limit_exceeded"}}'
+
+    async def request(self, method, path, *, params=None, json_body=None):
+        if method == "POST" and path.endswith("/rfqs"):
+            self.calls.append("create")
+            raise RuntimeError(self.VENUE_WORDS)
+        return await super().request(
+            method, path, params=params, json_body=json_body
+        )
+
+
+class TestARefusedCreateLeavesARow:
+    """#317: a refused create used to exist only as a 502 and a log line."""
+
+    @pytest.fixture()
+    def refusing(self, build, monkeypatch):
+        def _make():
+            app, _, path = build()
+            fake = _RefusingApi()
+            monkeypatch.setattr(
+                "backend.api.routes.KalshiRestClient",
+                lambda config, client=None: fake,
+            )
+            return app, fake, path
+        return _make
+
+    def _rows(self, path):
+        import sqlite3
+
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        try:
+            return conn.execute("SELECT * FROM combo_rfqs").fetchall()
+        finally:
+            conn.close()
+
+    async def test_the_refusal_is_recorded_with_the_venues_words(self, refusing):
+        app, fake, path = refusing()
+        response = await _post(app, _body())
+        assert response.status_code == 502
+        assert "create" in fake.calls
+        rows = self._rows(path)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["status"] == "error"
+        assert "rfq_limit_exceeded" in row["error_text"]
+        assert row["purpose"] == "buy"
+        assert row["ticker"] == TICKER
+        # Our id, never a venue one: a refused create was given none.
+        assert row["rfq_id"].startswith("refused-")
+        # A refused create asked nobody, so it carries no chance for bets.py.
+        assert row["fair_joint"] is None
+
+    async def test_a_failed_record_does_not_hide_the_refusal(
+        self, refusing, monkeypatch
+    ):
+        def _boom(*a, **kw):
+            raise RuntimeError("disk full")
+
+        monkeypatch.setattr("backend.store.combo_rfqs.record_rfq", _boom)
+        app, _, _ = refusing()
+        response = await _post(app, _body())
+        assert response.status_code == 502
+        assert "rfq_limit_exceeded" in response.json()["detail"]
+        assert "disk full" not in response.json()["detail"]

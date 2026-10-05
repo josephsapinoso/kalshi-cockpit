@@ -45,6 +45,7 @@ import logging
 import math
 import sqlite3
 import time
+import uuid
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Optional
@@ -151,6 +152,60 @@ async def _book_ask_tenths(api, ticker: str) -> Optional[int]:
     except Exception as exc:  # noqa: BLE001 -- context, not the answer
         logger.warning("rfq: could not read %s's book for context (%s)", ticker, exc)
         return None
+
+
+def _record_refused_create(
+    conn: sqlite3.Connection,
+    exc: Exception,
+    *,
+    now_ms: int,
+    ticker: str,
+    collection_ticker: str,
+    legs: list,
+    purpose: str,
+    card_key: Optional[str] = None,
+    target_cost_dollars: Optional[str] = None,
+    contracts_fp_requested: Optional[str] = None,
+) -> None:
+    """Leave a `status = 'error'` row for a create that was refused (#317).
+
+    Until this existed a refused create -- a cap refusal, a 404, "already
+    open" -- lived only as a 502 on the screen and a line in Fly's logs.
+
+    **The rfq_id is ours, prefixed `refused-`**, because a refused create has
+    no venue id to record. That is also why `store.mark_error` is not the
+    writer: it UPDATEs by rfq_id, so on a row that was never inserted it
+    would write nothing and raise nothing.
+
+    `fair_joint` and the book's ask are deliberately left NULL: `bets.py`
+    reads `combo_rfqs.fair_joint` as a chance recorded at an ask, and a
+    refused create asked nobody.
+
+    **Never raises.** The caller is about to surface the venue's refusal,
+    and a failed bookkeeping write must not replace it with its own error.
+    """
+    try:
+        store.record_rfq(
+            conn,
+            rfq_id=f"refused-{uuid.uuid4().hex}",
+            requested_ms=now_ms,
+            card_key=card_key,
+            ticker=ticker,
+            collection_ticker=collection_ticker,
+            legs=legs,
+            exchange_index=EXCHANGE_INDEX_COMBOS,
+            target_cost_dollars=target_cost_dollars,
+            status=store.STATUS_ERROR,
+            error_text=str(exc),
+            purpose=purpose,
+            contracts_fp_requested=contracts_fp_requested,
+        )
+        conn.commit()
+    except Exception as write_exc:  # noqa: BLE001 -- the refusal outranks it
+        logger.warning(
+            "rfq: could not record the refused create on %s (%s); the "
+            "refusal was: %s", ticker, write_exc, exc,
+        )
 
 
 def _recorded_lookup(conn: sqlite3.Connection, ticker: str) -> sqlite3.Row:
@@ -275,6 +330,12 @@ async def ask_market_to_price(
             target_cost_dollars=target,
         )
     except RfqRefused as exc:
+        _record_refused_create(
+            conn, exc, now_ms=now_ms, ticker=market_ticker,
+            collection_ticker=lookup["collection_ticker"], legs=legs,
+            purpose="buy", card_key=lookup["card_key"],
+            target_cost_dollars=target,
+        )
         raise LookupRefused(
             502,
             f"Kalshi would not take the price request: {exc}. Nothing was "
@@ -709,6 +770,11 @@ async def ask_makers_to_buy_back(
             contracts_fp=contracts_fp,
         )
     except RfqRefused as exc:
+        _record_refused_create(
+            conn, exc, now_ms=now_ms, ticker=ticker,
+            collection_ticker=collection, legs=legs, purpose="exit",
+            contracts_fp_requested=contracts_fp,
+        )
         raise LookupRefused(
             409 if "already open" in str(exc) else 502,
             f"Kalshi would not take the question: {exc} Nothing was asked "
