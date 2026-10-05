@@ -139,6 +139,39 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-05 (eighty-second session) — Next.js RCE patched; Anthropic credits ran out at 10:19Z and the desk hid it; #220 reviewed into four fixes, three live
+
+- **Dependabot #19, critical** (GHSA-vcvr-r3jv-pc5j): an RCE in `next/og` `ImageResponse`, which `app/apple-icon.tsx` uses.
+  - Next went 16.3.3 → 16.3.8 (`40f17e2`). Live exposure was probably low: `/apple-icon` is prerendered static and takes no parameters.
+  - Verified from what live serves: the client bundle carries `version:"16.3.8"`. No committed script reads package versions in the container, and the inline-ssh rule bars a `cat`.
+  - Zero open alerts after.
+- **The Anthropic credit balance ran out at 2026-10-05 10:19:36Z** (#313). Every agent call since is a 400 "credit balance is too low": automatic cards, Joe's leg verdicts (6 at 17:08Z), and the scout desk.
+  - The desk showed it as "the call returned nothing" / "No clean story". Fly's logs were the only place the error existed.
+  - Daily spend had climbed 2.4M → 7.2M tokens over 09-29..10-04.
+  - **Joe answered (A): he tops up himself**, and `SCOUT_AUTO_TAP_TOKEN_SHARE` 0.5 → 0.75, so automatic cards may use ~2.25M a day (live on `c934515`).
+  - **Until he tops up, every AI feature stays dark.**
+- **#220 review** (sharp-bettor, over the 6 live prompt-v3 cards). Faults turned into tickets:
+  - **#308 live** (`d78dd3e`): a card whose `ticket_needs` contradicts a leg's number is refused. Card 218 said "seven or fewer goals" beside Under 6.5, which loses at 7. Joe was told; that stored card stays until its game passes.
+  - **#309 live** (`c934515`): a failed call stores the exception class and message, the screen says "No card yet: …; it will be retried", and a zero-search skip is retryable. Retries are capped at 1 an hour and 3 per game, because failed calls settle NULL tokens that the token brake cannot see.
+  - **#310 open** (blocked on nothing now that #308 is closed): prompt v4. `drop_if` must name one person and a pre-kickoff status, and "confirmed" needs a game-day source. Card 217 called Swayman "confirmed" from a 09-30 article, and put McAvoy (a defenseman) on the "top line".
+  - **#312 merged, not yet live at this writing**: each card leg shows "books: N%" (the `consensus_chance` term) beside the ask, through `_price_sides`, the game page's own lookup. Joe's (A) to #311.
+- **New instruments** (`1bc1e06`): `game-script-card-rechecks` (#307; past cards by status × recheck_status, NULL named, plus `combo_stamped` from `2a858ac`) and `game-script-card-refusals` (reason text by count).
+  - Over the newest 273 cards: 125 `refused_budget`, all one reason (the unattended share). 65 of 65 `refused_invalid` say "the call returned nothing".
+  - 54 past built cards have NULL `recheck_status`. The minted split ships with `2a858ac`; read it before claiming the T-2h re-check reached every minted card.
+- **Other reads:**
+  - `credits-day 20261004`: 366 of 700, no budget refusal.
+  - `own-open-rfqs`: 97 of 100 by our bookkeeping. This is an overcount: the venue closes an RFQ after ~10 min and we never stamp it. Nothing reads the venue's own list.
+- **Housekeeping:** five stale worktrees removed. Their locks named a reused PID, now an unrelated process.
+
+### Still open
+
+1. #210 — **Joe tops up Anthropic credits** (#313 answered). Then: one scout-desk convening produces the first Matchup tile to read. Convening id 21 on `KXNHLGAME-26OCT05WPGPIT-PIT` failed on the credit 400. #210 closes on that read.
+2. #310 — prompt v4 for `drop_if` and "confirmed" claims (lane-ready, Sonnet).
+3. #197 — stays open with #210 (#220 closed this session).
+4. #309, #312 — verify on live: a new failed card's reason starts "the call failed:", and a built card leg on `/api/game-cards` carries `books_chance`.
+5. #314 — nothing stamps an RFQ the venue expired, so `own-open-rfqs` cannot see the real cap.
+6. #297, #169 and #151 are unchanged. #267 is due in November.
+
 ## 2026-10-03 (eighty-first session) — #3 full, #302 continues it; a friend's off-main-line leg is now priced from alternate lines, live on `93bc6ba0`
 
 Joe asked me to go through the question board because it "is full at 100".

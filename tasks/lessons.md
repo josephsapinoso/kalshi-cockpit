@@ -16,6 +16,17 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-05 - A fallback string that drops the exception turns an outage into a content judgement
+
+From the eighty-second session (#220, #309, #313).
+
+- **The Anthropic credit balance ran out at 10:19Z. For seven hours every agent call failed, and nothing named the cause.** The card writer stored "the call returned nothing", the screen said "No clean story", and leg verdicts and the scout desk "filed nothing". The exception (a 400, "credit balance is too low") existed only in Fly's logs. A sharp-bettor review theorised a max-token truncation, and the scout desk's 0.4-second failure looked like a new bug.
+- **The count hid it too.** `status` × count showed 61 `refused_invalid` rows, which reads as a validation problem. Grouping by the reason *text* showed one reason was 65 of 65.
+- **The rule:**
+  - A fallback reason for a failed external call carries the exception class and message (#309 now does).
+  - When every call of a kind fails at once, read the error itself (the logs, or the stored reason grouped by text) before theorising about content, prompts or token caps.
+  - When a status count looks wrong, group by the reason text before reading anything into the count.
+
 ## 2026-10-03 - A budget gate that drops work without stamping it makes the work look done-and-empty
 
 From the eightieth session (#289 follow-through).
