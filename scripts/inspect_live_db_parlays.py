@@ -1360,6 +1360,41 @@ def _q_game_script_card_refusals(conn: sqlite3.Connection, args) -> list[Section
     return [_derive_iso(top, "last_seen_ms", "last_seen_iso")]
 
 
+_SQL_AGENT_TOOL_ERRORS = (
+    "SELECT agent, tool_error_codes, COUNT(*) AS calls, "
+    "       MAX(called_ms) AS last_seen_ms "
+    "FROM (SELECT agent, tool_error_codes, called_ms FROM agent_calls "
+    "      ORDER BY id DESC LIMIT ?) "
+    "GROUP BY agent, tool_error_codes ORDER BY calls DESC, last_seen_ms DESC"
+)
+
+
+def _q_agent_tool_errors(conn: sqlite3.Connection, args) -> list[Section]:
+    """`agent_calls` by (agent, tool_error_codes) over the newest
+    `args.limit` calls, top `-n` pairs by count (#316, schema v64).
+
+    `tool_error_codes` is a JSON object of `<block type>:<error_code>` ->
+    count, verbatim: `{}` means the response was read and held no error
+    block, NULL means no response arrived or the call predates v64. NULL is
+    printed as its own group, never folded into `{}`.
+
+    What this does not establish
+    -----------------------------
+    - **Not a rate.** Groups are calls, not searches or games; a call's row
+      can carry several codes.
+    - **Not a schema-mismatch's codes.** When the reply fails the output
+      schema the SDK raises before returning the response, so those calls
+      settle NULL here whatever their searches did.
+    - **Only the newest window.**
+    """
+    top = _fetch(
+        conn, _SQL_AGENT_TOOL_ERRORS, (args.limit,),
+        title=f"agent_calls: top {args.tail} (agent, tool_error_codes) by count",
+        cap=min(args.tail, args.limit), requested=args.tail,
+    )
+    return [_derive_iso(top, "last_seen_ms", "last_seen_iso")]
+
+
 _SQL_PARLAY_LOOKUP_ERRORS = (
     "SELECT status, error, COUNT(*) AS lookups, "
     "       MAX(requested_ms) AS last_seen_ms "

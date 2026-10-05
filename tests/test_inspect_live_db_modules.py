@@ -111,6 +111,7 @@ READ_BUDGET_BYTES = int(READ_TOOL_LIMIT_BYTES * 0.60)
 SUBCOMMANDS = (
     "actionable-audit",
     "agent-spend",
+    "agent-tool-errors",
     "book-rows",
     "closing-lines-for-pull",
     "clv-coverage",

@@ -88,6 +88,7 @@ see it.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from dataclasses import dataclass
@@ -428,8 +429,8 @@ class AgentBudget:
         """
         self.conn.execute(
             "UPDATE agent_calls SET verdict = ?, blocked = ?, "
-            "input_tokens = ?, output_tokens = ?, web_searches = ? "
-            "WHERE id = ?",
+            "input_tokens = ?, output_tokens = ?, web_searches = ?, "
+            "tool_error_codes = ? WHERE id = ?",
             (
                 verdict,
                 None if blocked is None else int(blocked),
@@ -439,6 +440,9 @@ class AgentBudget:
                 None if usage is None else usage.input_tokens,
                 None if usage is None else usage.output_tokens,
                 None if usage is None else usage.web_searches,
+                # '{}' when the content was read and held no error block;
+                # NULL when no response arrived, as for the token columns.
+                None if usage is None else json.dumps(dict(usage.tool_errors)),
                 call_id,
             ),
         )

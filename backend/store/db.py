@@ -278,7 +278,11 @@ logger = logging.getLogger(__name__)
 #:
 #: v63 `pick_sources` (Joe, 2026-10-02): his one-tap tag for where a pick
 #: came from, keyed by ticker. A new table and nothing else, so tableless.
-SCHEMA_VERSION = 63
+#:
+#: v64 `agent_calls.tool_error_codes` (#316): the server-tool error codes a
+#: response carried, so a failed web search has the API's own reason, not the
+#: model's paraphrase. Nullable column step; no backfill.
+SCHEMA_VERSION = 64
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1336,6 +1340,10 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45, 57, 59, 
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # Server-tool error codes on each agent call. See the v64 note above.
+    64: _Migration(
+        columns=(("agent_calls", "tool_error_codes", "TEXT"),),
+    ),
     # The T-2h drop-if re-check. See the v62 note above.
     62: _Migration(
         columns=(

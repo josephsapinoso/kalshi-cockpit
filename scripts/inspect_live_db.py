@@ -345,6 +345,7 @@ from inspect_live_db_parlays import (  # noqa: E402,F401
     _AGENT_SPEND_DEFAULT_DAYS,
     _AGENT_SPEND_MAX_DAYS,
     _q_agent_spend,
+    _q_agent_tool_errors,
     _q_combo_bids_tail,
     _q_combo_position_gaps,
     _q_combo_position_orphans,
@@ -1275,6 +1276,15 @@ QUERIES: dict[str, QueryDef] = {
         "Verbatim; a refused game is retried, so not distinct games and "
         "not a rate.",
         _q_game_script_card_refusals,
+        # Newest --limit rows by primary key through a subquery.
+        cost=CHEAP,
+    ),
+    "agent-tool-errors": QueryDef(
+        "agent_calls by (agent, tool_error_codes) -- the server-tool error "
+        "codes a response carried, v64 (#316) -- top -n (default 5) over the "
+        "newest --limit calls. NULL (no response, or pre-v64) is its own "
+        "group. Not a rate.",
+        _q_agent_tool_errors,
         # Newest --limit rows by primary key through a subquery.
         cost=CHEAP,
     ),

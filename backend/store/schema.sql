@@ -1405,6 +1405,10 @@ CREATE TABLE IF NOT EXISTS agent_calls (
     input_tokens    INTEGER,
     output_tokens   INTEGER,
     web_searches    INTEGER,
+    -- Server-tool error codes the response carried, a JSON object of
+    -- `<block type>:<error_code>` -> count (v64, #316). '{}' = read, none;
+    -- NULL = no response arrived, or the call predates v64.
+    tool_error_codes TEXT,
     CHECK (blocked IS NULL OR blocked IN (0, 1))
 );
 CREATE INDEX IF NOT EXISTS idx_agent_calls_time ON agent_calls(called_ms DESC);

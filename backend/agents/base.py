@@ -39,6 +39,7 @@ descriptions of what runs.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -179,6 +180,12 @@ class CallUsage:
     input_tokens: int
     output_tokens: int
     web_searches: int
+    #: Server-tool errors the response carried, as sorted `(key, count)` pairs
+    #: keyed `<block type>:<error_code>` (#316). `()` means the content was
+    #: read and held no error block; that is an observation, not a default.
+    #: A web search that fails still counts in `web_searches` -- the counter
+    #: says a search was attempted, this says what came back.
+    tool_errors: tuple[tuple[str, int], ...] = ()
 
     @property
     def total_tokens(self) -> int:
@@ -227,7 +234,49 @@ def _usage_from(response) -> Optional[CallUsage]:
         ),
         output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
         web_searches=int(searches or 0),
+        tool_errors=tool_errors_from(response),
     )
+
+
+def tool_errors_from(response) -> tuple[tuple[str, int], ...]:
+    """Count the server-tool error blocks in a response's content (#316).
+
+    A `web_search_tool_result` whose `content` is an object with an
+    `error_code` (`max_uses_exceeded`, `too_many_requests`, `unavailable`,
+    ...) is the API saying why a search failed. Before this, nothing kept it:
+    the model's own paraphrase ("server tool use limit exceeded") was the only
+    evidence, which cannot tell our `max_uses` from the vendor's rate limit.
+
+    Matched on shape, not on one block type, because `web_search_20260209`
+    runs searches from inside code execution and a `*_tool_result` of that
+    tool can carry its own `error_code` the same way. A success's `content`
+    is a list (web search) or an object with no `error_code` (code
+    execution), so neither counts.
+    """
+    counts: dict[str, int] = {}
+    for block in getattr(response, "content", None) or ():
+        block_type = getattr(block, "type", None)
+        if not isinstance(block_type, str) or not block_type.endswith("_tool_result"):
+            continue
+        code = getattr(getattr(block, "content", None), "error_code", None)
+        if code is None:
+            continue
+        key = f"{block_type}:{code}"
+        counts[key] = counts.get(key, 0) + 1
+    return tuple(sorted(counts.items()))
+
+
+def _error_blocks_json(response) -> str:
+    """The error blocks `tool_errors_from` counted, as wire JSON. Best effort."""
+    out = []
+    for block in getattr(response, "content", None) or ():
+        if getattr(getattr(block, "content", None), "error_code", None) is None:
+            continue
+        try:
+            out.append(block.model_dump(mode="json"))
+        except Exception:  # noqa: BLE001 -- a log line must not fail the call
+            out.append(repr(block))
+    return json.dumps(out)[:2000]
 
 
 @dataclass(frozen=True)
@@ -508,6 +557,13 @@ async def structured_call(
         )
 
     usage = _usage_from(response)
+    if usage is not None and usage.tool_errors:
+        # The raw blocks too: no real error block has been captured yet, and
+        # this line is where the first one will come from (#316, Joe's (A)).
+        logger.warning(
+            "agent call carried server-tool errors: %s; blocks: %s",
+            dict(usage.tool_errors), _error_blocks_json(response),
+        )
 
     # A safety refusal returns HTTP 200 with stop_reason "refusal" and content
     # that will not match the schema.
