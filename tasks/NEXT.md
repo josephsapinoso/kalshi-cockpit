@@ -139,6 +139,29 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-05 (eighty-third session) — web-search error codes recorded (#316); Kalshi holds 3 open RFQs, not 97 (#314)
+
+- **#316 live** (`5cdca77`, schema v64; live on `ca8b76b` ~20:50Z): every agent call writes `agent_calls.tool_error_codes`. The value is a JSON object, `<block type>:<error_code>` → count, where `{}` means read and clean and NULL means no response arrived. Error blocks are also logged raw.
+  - `runtime-realist` confirmed that every deployed web-search path (scout staff, cards, T-2h rechecks, leg verdicts) goes through `structured_call` → `settle` with usage.
+  - Gap: a reply that fails our output schema raises inside the SDK, so its codes settle NULL.
+  - The test payload is **derived from the real scout capture, not captured**. Joe's (A): no paid call to stage one. Promote the first natural failure's logged block into `tests/fixtures/`.
+  - Search failed again at 19:00Z (card 284), before the deploy, so it is NULL. New instrument: `agent-tool-errors`.
+- **#314 closed** (`7ddb498`): `scripts/read_own_rfqs.py` (GET only) reads the venue's own list. At ~19:38Z: 470 in history, 467 closed, **3 open**, headroom 97, oldest open created 17:09Z. `exchange_index=1` changes nothing.
+  - `own-open-rfqs`'s 97 is bookkeeping (rows never stamped closed), not headroom.
+  - The fixture is committed redacted on Joe's (A) to #315.
+  - Follow-up **#317** (a refused create writes no row): not urgent.
+- **#310 first read** (new instrument `game-script-latest-prompt`, `ca8b76b`): n = 3 v4 cards. One built, with a single-person, pre-kickoff `drop_if` ("Bijan Robinson is ruled out or scratched…"); one skipped; one search-failed. None refused by the new rules. Too few to judge.
+- **#210** relabelled owner:main: the tile shipped and the ticket closes on observation, so the nightly routine must not rebuild it.
+- **CI under GitHub's degraded Actions**: jobs with no runner were cancelled at the 15-minute cap, which reads as `failure`. A job with an empty `runner_name` never ran. Python tests passed on CI for `ca8b76b`, and the local full suite passed: 9942 passed, 2 skipped, 10 xfailed. Frontend got no runner; `tsc` was clean locally and there were no frontend changes.
+- **Map #302 has no open questions**, a finding, not a gap. The next likely question (raise `max_uses` or the token ceilings) waits on #316's first code.
+
+### Still open
+
+1. #316 — read `agent-tool-errors` after the next search failure, promote its logged block to a fixture, then decide on `max_uses`/tool version. #210 closes on the first convening whose searches succeed.
+2. #310 — re-read `game-script-latest-prompt` after a full day of v4 cards.
+3. #317 — a refused RFQ create writes no `combo_rfqs` row (RFQ path, main, not urgent).
+4. #197 stays open with #210. #169 and #151 wait until search is reliable (both spend more agent calls). #267 is due in November.
+
 ## 2026-10-05 (eighty-second session) — Next.js RCE patched; Anthropic credits ran out at 10:19Z and the desk hid it; #220 reviewed into four fixes, three live
 
 - **Dependabot #19, critical** (GHSA-vcvr-r3jv-pc5j): an RCE in `next/og` `ImageResponse`, which `app/apple-icon.tsx` uses.
