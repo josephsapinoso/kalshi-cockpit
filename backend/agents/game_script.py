@@ -28,7 +28,6 @@ are current, or that Kalshi will mint the combination.
 from __future__ import annotations
 
 import logging
-import re
 import sqlite3
 from dataclasses import dataclass
 from typing import Literal, Optional
@@ -302,11 +301,14 @@ _FAILURE_WORDS = {
     "search_failed": "the web search failed",
 }
 
-_SEARCH_FAILURE_RE = re.compile(
-    r"search[^.]{0,40}(unavailable|error|fail|not available|could not|couldn't|unable)"
-    r"|(unavailable|unable|could not|couldn't|failed)[^.]{0,40}search",
-    re.IGNORECASE,
+_SEARCH_BROKE_WORDS = (
+    "unavailable", "not available", "error", "failed", "could not", "couldn't", "unable",
 )
+
+
+def _reason_says_search_broke(reason: str) -> bool:
+    low = (reason or "").lower()
+    return "search" in low and any(w in low for w in _SEARCH_BROKE_WORDS)
 
 
 def call_failed_reason(kind: str, *, detail: str = "") -> str:
@@ -319,7 +321,7 @@ def skip_is_search_failure(reason: str, usage: Optional[CallUsage]) -> bool:
     read and 0, never an unreadable usage) or its reason says search broke."""
     if usage is not None and usage.web_searches == 0:
         return True
-    return bool(_SEARCH_FAILURE_RE.search(reason or ""))
+    return _reason_says_search_broke(reason)
 
 
 @dataclass(frozen=True)
@@ -392,14 +394,16 @@ async def build_card(
             effort="medium",
             tools=[GAME_SCRIPT_SEARCH_TOOL],
         )
-        parsed, usage, failure = outcome.parsed, outcome.usage, outcome.failure
+        parsed, usage = outcome.parsed, outcome.usage
+        failure = outcome.failure
+        detail = outcome.failure_detail or ""
     except Exception:
         logger.exception("the game-script scout died")
-        parsed, usage, failure = None, None, "call_error"
+        parsed, usage, failure, detail = None, None, "call_error", "exception"
 
     if parsed is None:
         budget.settle(call_id, verdict="filed_nothing", usage=usage)
-        why = call_failed_reason(failure or "no_output")
+        why = call_failed_reason(failure or "no_output", detail=detail)
         return CardResult(
             "refused_invalid",
             store("refused_invalid", reason=why, agent_call_id=call_id),

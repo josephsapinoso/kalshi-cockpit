@@ -114,6 +114,18 @@ class TestTheFailureKindIsNamed:
         reason = _row(conn, result.card_id)["reason"]
         assert "errored" in reason and "schema" not in reason
 
+    async def test_the_reason_carries_the_exception_class_or_pydantic_error_types(
+        self, tmp_path
+    ):
+        conn, result = await _run(tmp_path, _Messages(exc=_schema_error()))
+        assert "ValidationError:" in _row(conn, result.card_id)["reason"]
+        conn, result = await _run(
+            tmp_path / "b",
+            _Messages(exc=RuntimeError("Error code: 400 credit balance is too low")),
+        )
+        reason = _row(conn, result.card_id)["reason"]
+        assert "RuntimeError: Error code: 400 credit balance is too low" in reason
+
     async def test_a_lost_usage_settles_null_not_zero(self, tmp_path):
         conn, result = await _run(tmp_path, _Messages(exc=_schema_error()))
         got = conn.execute(
@@ -155,7 +167,8 @@ class TestARetryIsNotATightLoop:
         assert [a.kind for a in acts] == [BUILD]
 
     def test_a_game_that_keeps_failing_stops_at_the_cap(self):
-        rows = [self._row(NOW - (5 + i) * H) for i in range(gsw.MAX_FAILED_ATTEMPTS)]
+        rows = [self._row(NOW - (5 + i) * H) for i in range(3)]
+        assert gsw.MAX_FAILED_ATTEMPTS <= 3
         assert decide(NOW, self._fx(), rows, _roomy()) == []
 
     def test_a_scouts_own_invalid_card_is_not_paused(self):
