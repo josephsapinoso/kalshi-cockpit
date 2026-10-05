@@ -223,6 +223,17 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
     # #147 -- the RFQ LIST is market-wide: every requester's rows, and the
     # discriminator the fix keeps as a second guard. Written by
     # `scripts/capture_rfq_list.py` on a combination the account does NOT hold.
+    # #314 -- the account's OWN RFQ list, four reads (with/without
+    # status=open, with/without exchange_index=1). Joe's (A) to #315: every
+    # value but status and created_ts is REDACTED. `scripts/read_own_rfqs.py`.
+    "combo_rfq_list_own.json": RecordsItsRequest(
+        params_in=("params", "queries"),
+        param_names=("user_filter", "status", "exchange_index", "limit"),
+        endpoint_in=("endpoint",),
+        how="A `queries` list, one entry per read, each with its `endpoint` "
+            "string and `params`; every value but status and created_ts is "
+            "REDACTED.",
+    ),
     "combo_rfq_list_market_wide.json": RecordsItsRequest(
         params_in=("endpoint",),
         param_names=("market_ticker", "limit"),
@@ -673,6 +684,7 @@ LEGACY_WRITERS: dict[str, tuple[str, ...]] = {
     "capture_settled_markets.py": ("markets_settled.json",),
     "capture_ws_fixture.py": ("ws_orderbook_stream.json",),
     "measure_occurrence_datetime.py": ("occurrence_datetime_probe.json",),
+    "read_own_rfqs.py": ("combo_rfq_list_own.json",),
     "redact_captures.py": (
         "portfolio_fills_redacted.json",
         "portfolio_settlements_redacted.json",
