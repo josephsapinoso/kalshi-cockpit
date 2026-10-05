@@ -59,6 +59,7 @@ is any good; that the Scout is worth its money (ADR 0071 §3 and the
 from __future__ import annotations
 
 import json
+import re
 
 from pathlib import Path
 
@@ -192,7 +193,7 @@ class TestARefusalNeverReachesTheRefusalBranch:
         source = (
             REPO / "backend" / "agents" / "base.py"
         ).read_text(encoding="utf-8")
-        assert "except ValidationError:" in source, (
+        assert re.search(r"except ValidationError(?: as \w+)?:", source), (
             "a billed-but-unparseable response is logged as a transport "
             "failure again, so a refusal and a dead network read alike"
         )
