@@ -1303,7 +1303,7 @@ def _q_game_script_card_rechecks(conn: sqlite3.Connection, args) -> list[Section
     What this does not establish
     -----------------------------
     - **Not whether a re-check was owed.** The T-2h re-check runs only for a
-      game Joe opened (v62), so a NULL on a `built` card is "never
+      game Joe opened or minted (v62), so a NULL on a `built` card is "never
       re-checked", not necessarily a bug; this counts, it does not judge.
     - **`not_found` is not a confirmation** of the card, and `unknown` is the
       default for an unclear answer.
