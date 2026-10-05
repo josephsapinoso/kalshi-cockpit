@@ -160,12 +160,14 @@ the channel diagnostic (A17.6/A17.11).
   - 54 past built cards have NULL `recheck_status`. The minted split ships with `2a858ac`; read it before claiming the T-2h re-check reached every minted card.
 - **Other reads:**
   - `credits-day 20261004`: 366 of 700, no budget refusal.
-  - `own-open-rfqs`: 97 of 100 by our bookkeeping. This is an overcount: the venue closes an RFQ after ~10 min and we never stamp it. Nothing reads the venue's own list.
+  - `own-open-rfqs`: 97 of 100 by our bookkeeping. Probably an overcount: an RFQ we hold open is never stamped closed, and nothing reads the venue's own list. (This line first said the venue closes an RFQ "after ~10 min". That figure has no source: Kalshi documents that it can expire an RFQ, but not when. #314.)
 - **Housekeeping:** five stale worktrees removed. Their locks named a reused PID, now an unrelated process.
 
 ### Still open
 
-1. #210 — **Joe tops up Anthropic credits** (#313 answered). Then: one scout-desk convening produces the first Matchup tile to read. Convening id 21 on `KXNHLGAME-26OCT05WPGPIT-PIT` failed on the credit 400. #210 closes on that read.
+1. #316 — **Credits were topped up ~18:10Z and calls work again**, but web search fails intermittently. Convening 24 (~18:45Z) got "server tool use limit exceeded" on all 6 searches, and the Jets scout's output failed the schema. No raw search error code is stored. Record the code first, then decide.
+   #210 — the Matchup tile renders on the board but was empty in convening 24. It closes on the first convening whose searches succeed.
+   #314 — Joe answered (A) to #315: commit a redacted capture of his own RFQ list. Spec is in #314's body. Main runs the capture with live creds.
 2. #310 — prompt v4 shipped with this record. **A validator-refused card is now paced like a failed call** (1/hour, cap 3; it is billed in full, and #308/#310 rules can trip every pass), except the outage's legacy "the call returned nothing" rows. Read the first v4 cards after the top-up: are `drop_if`s single-person and pre-kickoff, and how many are refused by the new rules?
 3. #197 — stays open with #210 (#220 closed this session).
 4. #309, #312 — both verified live and closed. #312's figures read null at ~18:40Z (stale before the kickoff sweep), identical to the game page's reason for the same leg.
