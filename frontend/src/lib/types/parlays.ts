@@ -831,6 +831,15 @@ export type GameScriptLeg = {
   /** Each team's rest before this game (#293); a fact, never ranked by. */
   rest?: LegRest | null;
   /**
+   * The books' chance this leg wins (#312), read now through the game page's
+   * lookup; `null` with `books_chance_reason` in words when the desk has no
+   * usable consensus for it. One leg's own figure: never combined, never
+   * sorted, filtered or coloured by.
+   */
+  books_chance?: number | null;
+  books_chance_display?: string | null;
+  books_chance_reason?: string | null;
+  /**
    * This leg's listed ask when the card was written (#283), or `null` on a
    * card built before it was kept. Per leg: nothing here is combined.
    */

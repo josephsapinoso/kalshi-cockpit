@@ -28,6 +28,7 @@ from ...core.leg_words import no_words_for
 from ...core.prices import format_price
 from ...game_builder import (
     _read_event_markets,
+    consensus_for_legs,
     game_context,
     list_game_legs,
     mint_game_combo,
@@ -480,6 +481,22 @@ def register(
             )
             for leg in card["legs"]:
                 leg["rest"] = rest
+        # The books' chance for each leg (#312, Joe's (A) to #311): read now
+        # through the game page's own lookup, so the two cannot disagree.
+        # **Served after the order is fixed and read by nothing**: the model
+        # never sees it (ADR 0190 section 3), the stored row never holds it,
+        # and no card is sorted, filtered or marked by it.
+        for card in cards:
+            if card["status"] != "built" or not card["legs"]:
+                continue
+            chances = consensus_for_legs(
+                conn, card["legs"], now_ms=now,
+                max_odds_age_ms=staleness.max_odds_age_s * 1000,
+            )
+            for leg, chance in zip(card["legs"], chances):
+                leg["books_chance"] = chance["chance"]
+                leg["books_chance_display"] = chance["chance_display"]
+                leg["books_chance_reason"] = chance["unknown_reason"]
         return {"now_ms": now, "cards": cards}
 
     @app.post(

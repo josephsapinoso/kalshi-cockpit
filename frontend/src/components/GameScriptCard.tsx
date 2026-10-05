@@ -472,6 +472,7 @@ function LegRow({
       </span>
       <div className="tabular text-xs text-muted">
         {kickoffText(kickoffMs)} · <ThenNow leg={leg} />
+        <BooksChance leg={leg} />
       </div>
       <RestChip rest={leg.rest} />
     </li>
@@ -481,8 +482,9 @@ function LegRow({
 /**
  * The leg's price twice, as two stamped facts (#285): "58c now · read 9:14"
  * and "53c when written", from the server's read and the leg's `at_build`.
- * **No arrow, no colour, and no sportsbook line beside it**: a mark between
- * the two numbers would read as momentum, which nothing here measures. Size
+ * **No arrow and no colour between the two numbers**: a mark there would
+ * read as momentum, which nothing here measures. (The books' chance sits on
+ * its own line below, `BooksChance`, #312, never inside this pair.) Size
  * at each ask is behind a tap. Plain muted text, each figure one leg's own.
  */
 function ThenNow({ leg }: { leg: GameScriptLeg }) {
@@ -520,6 +522,26 @@ function ThenNow({ leg }: { leg: GameScriptLeg }) {
         </span>
       </details>
     </>
+  );
+}
+
+/**
+ * What the books think this one leg's chance is (#312, Joe's (A) to #311),
+ * beside Kalshi's ask: "books: 31%", or the server's reason when the desk has
+ * no usable consensus. A fact on the row. **Plain text with no colour, no
+ * arrow and no comparison to the ask**, and nothing reads it to order or
+ * filter: the server never sent it to the scout and no figure is combined
+ * across legs (ADR 0071, ADR 0189).
+ */
+function BooksChance({ leg }: { leg: GameScriptLeg }) {
+  if (leg.books_chance === undefined) return null;
+  return (
+    <span className="mt-0.5 block">
+      <Term k="consensus_chance">books</Term>:{" "}
+      {leg.books_chance_display ??
+        leg.books_chance_reason ??
+        "the books' chance was not read."}
+    </span>
   );
 }
 
