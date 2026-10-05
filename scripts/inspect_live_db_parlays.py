@@ -3,7 +3,8 @@
 Queries: `parlay-candidates-timing`, `parlay-lookups-tail`,
 `combo-bids-tail`, `combo-position-gaps`, `combo-position-orphans`,
 `ladder-fixtures`, `scout-briefings`, `scout-watch-log`, `agent-spend`,
-`game-script-card-stamps`, `parlay-lookup-errors`, `own-open-rfqs`.
+`game-script-card-stamps`, `game-script-card-rechecks`,
+`parlay-lookup-errors`, `own-open-rfqs`.
 
 The candidate scan timed and EXPLAINed on the live database, the "Price on
 Kalshi" taps that minted a combination market -- the only record anywhere
@@ -1275,6 +1276,47 @@ def _q_game_script_card_stamps(conn: sqlite3.Connection, args) -> list[Section]:
     window = _derive_iso(window, "oldest_built_ms", "oldest_built_iso")
     window = _derive_iso(window, "newest_built_ms", "newest_built_iso")
     return [stamps, window]
+
+
+_SQL_GAME_SCRIPT_CARD_RECHECKS = (
+    "SELECT status, COALESCE(recheck_status, '(NULL)') AS recheck_status, "
+    "       COUNT(*) AS cards, "
+    "       COALESCE(SUM(drop_if IS NOT NULL AND TRIM(drop_if) <> ''), 0) "
+    "         AS with_drop_if "
+    "FROM (SELECT status, recheck_status, drop_if FROM game_script_cards "
+    "      WHERE kickoff_ms <= ? ORDER BY id DESC LIMIT ?) "
+    "GROUP BY status, COALESCE(recheck_status, '(NULL)') "
+    "ORDER BY status, recheck_status"
+)
+
+
+def _q_game_script_card_rechecks(conn: sqlite3.Connection, args) -> list[Section]:
+    """`game_script_cards` whose kickoff has passed, counted by `status` x
+    `recheck_status`, over the newest `args.limit` such rows by `id`.
+
+    "Kickoff has passed" is `kickoff_ms <= now`, the card's own column
+    (schema v59). A NULL `recheck_status` is its own group, labelled
+    `(NULL)` (the column CHECK allows no such literal), never folded into
+    another; `with_drop_if` counts the cards in each group carrying a
+    non-empty `drop_if`. Counts only, no ticker, no game.
+
+    What this does not establish
+    -----------------------------
+    - **Not whether a re-check was owed.** The T-2h re-check runs only for a
+      game Joe opened (v62), so a NULL on a `built` card is "never
+      re-checked", not necessarily a bug; this counts, it does not judge.
+    - **`not_found` is not a confirmation** of the card, and `unknown` is the
+      default for an unclear answer.
+    - **Only the newest window of past-kickoff cards**; older ones are not
+      counted. At most `status` x five groups out.
+    """
+    now_ms = int(time.time() * 1000)
+    return [_fetch(
+        conn, _SQL_GAME_SCRIPT_CARD_RECHECKS, (now_ms, args.limit),
+        title="game_script_cards past kickoff: status x recheck_status "
+        "(NULL named), newest window",
+        cap=args.limit,
+    )]
 
 
 _SQL_PARLAY_LOOKUP_ERRORS = (

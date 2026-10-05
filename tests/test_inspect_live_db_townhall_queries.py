@@ -26,12 +26,18 @@ from scripts.inspect_live_db import CHEAP, QUERIES  # noqa: I001 (sets sys.path)
 import inspect_live_db_parlays as parlays
 from backend.store import db
 
-NEW = ("game-script-card-stamps", "parlay-lookup-errors", "own-open-rfqs")
+NEW = (
+    "game-script-card-stamps",
+    "game-script-card-rechecks",
+    "parlay-lookup-errors",
+    "own-open-rfqs",
+)
 SQLS = {
     "game-script-card-stamps": (
         parlays._SQL_GAME_SCRIPT_CARD_STAMPS,
         parlays._SQL_GAME_SCRIPT_CARD_WINDOW,
     ),
+    "game-script-card-rechecks": (parlays._SQL_GAME_SCRIPT_CARD_RECHECKS,),
     "parlay-lookup-errors": (
         parlays._SQL_PARLAY_LOOKUP_ERRORS,
         parlays._SQL_PARLAY_LOOKUP_WINDOW,
@@ -73,6 +79,18 @@ def _card(conn, status, combo=None, built_ms=1000):
         " VALUES ('KX-G', 'nba', 5000, ?, ?, ?, ?, ?, ?)",
         (built_ms, status, story, legs, reason, combo),
     )
+
+
+def _recheck_card(conn, recheck_status, kickoff_ms, drop_if="d", status="built"):
+    conn.execute(
+        "INSERT INTO game_script_cards (game_event_ticker, sport_key,"
+        " kickoff_ms, built_ms, status, story, legs_json, drop_if, recheck_status)"
+        " VALUES ('KX-G', 'nba', ?, 1000, ?, 's', '[]', ?, ?)",
+        (kickoff_ms, status, drop_if, recheck_status),
+    )
+
+
+_FAR_FUTURE_MS = 4_102_444_800_000  # 2100-01-01
 
 
 def _lookup(conn, status, error, ms=1000):
@@ -175,3 +193,33 @@ def test_the_copied_venue_cap_matches_the_backend_constant():
     from backend.kalshi.rfq import MAX_OPEN_RFQS
 
     assert parlays._VENUE_MAX_OPEN_RFQS == MAX_OPEN_RFQS
+
+
+def test_rechecks_name_the_null_group_and_exclude_future_kickoffs(tmp_path):
+    conn = _conn(tmp_path)
+    _recheck_card(conn, None, 5000)
+    _recheck_card(conn, None, 5000, drop_if="")
+    _recheck_card(conn, "unknown", 5000)
+    _recheck_card(conn, "triggered", 5000, drop_if=None)
+    _recheck_card(conn, None, _FAR_FUTURE_MS)  # not yet kicked off
+    conn.commit()
+    (sec,) = _run(conn, "game-script-card-rechecks")
+    by = {(r["status"], r["recheck_status"]): r for r in _rows(sec)}
+    assert set(by) == {
+        ("built", "(NULL)"), ("built", "unknown"), ("built", "triggered")}
+    # NULL is its own group: two past cards, one with an empty drop_if.
+    assert by[("built", "(NULL)")]["cards"] == 2
+    assert by[("built", "(NULL)")]["with_drop_if"] == 1
+    assert by[("built", "unknown")]["cards"] == 1
+    assert by[("built", "triggered")]["with_drop_if"] == 0
+
+
+def test_rechecks_window_binds_on_newest_past_rows(tmp_path):
+    conn = _conn(tmp_path)
+    for _ in range(3):
+        _recheck_card(conn, "unknown", 5000)
+    _recheck_card(conn, None, 5000)
+    conn.commit()
+    (sec,) = _run(conn, "game-script-card-rechecks", limit=1)
+    assert [(r["recheck_status"], r["cards"]) for r in _rows(sec)] == [
+        ("(NULL)", 1)]

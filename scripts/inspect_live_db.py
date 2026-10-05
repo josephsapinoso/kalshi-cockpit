@@ -348,6 +348,7 @@ from inspect_live_db_parlays import (  # noqa: E402,F401
     _q_combo_bids_tail,
     _q_combo_position_gaps,
     _q_combo_position_orphans,
+    _q_game_script_card_rechecks,
     _q_game_script_card_stamps,
     _q_ladder_fixtures,
     _q_own_open_rfqs,
@@ -1256,6 +1257,15 @@ QUERIES: dict[str, QueryDef] = {
         _q_game_script_card_stamps,
         # Newest --limit rows by primary key through a subquery; at most four
         # status groups out.
+        cost=CHEAP,
+    ),
+    "game-script-card-rechecks": QueryDef(
+        "game_script_cards whose kickoff has passed, counted by status x "
+        "recheck_status with NULL as its own '(NULL)' group, plus how many "
+        "carry a non-empty drop_if, over the newest --limit such rows. "
+        "Counts only; not whether a re-check was owed.",
+        _q_game_script_card_rechecks,
+        # Newest --limit rows by primary key through a subquery.
         cost=CHEAP,
     ),
     "parlay-lookup-errors": QueryDef(
