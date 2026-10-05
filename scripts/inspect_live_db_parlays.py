@@ -1360,6 +1360,39 @@ def _q_game_script_card_refusals(conn: sqlite3.Connection, args) -> list[Section
     return [_derive_iso(top, "last_seen_ms", "last_seen_iso")]
 
 
+_SQL_GAME_SCRIPT_LATEST_PROMPT = (
+    "SELECT id, built_ms, status, sport_key, drop_if, reason "
+    "FROM (SELECT * FROM game_script_cards ORDER BY id DESC LIMIT ?) "
+    "WHERE prompt_version = (SELECT prompt_version FROM game_script_cards "
+    "      WHERE prompt_version IS NOT NULL ORDER BY id DESC LIMIT 1) "
+    "ORDER BY id DESC"
+)
+
+
+def _q_game_script_latest_prompt(conn: sqlite3.Connection, args) -> list[Section]:
+    """The newest `-n` cards written under the newest `prompt_version`,
+    within the newest `args.limit` cards: status, `drop_if` and `reason`
+    verbatim (#310, reading prompt v4's first cards).
+
+    `drop_if` is the seat's own sentence about the game -- no account data.
+
+    What this does not establish
+    -----------------------------
+    - **Whether a `drop_if` is checkable.** That is a reader's judgement on
+      the printed text; this prints it.
+    - **Not a refusal rate.** A refused card is retried, so one game can
+      contribute several rows; `game-script-card-refusals` groups reasons.
+    - **Cards built while search was failing look the same as any other.**
+      Read `agent-tool-errors` beside it.
+    """
+    rows = _fetch(
+        conn, _SQL_GAME_SCRIPT_LATEST_PROMPT, (args.limit,),
+        title=f"game_script_cards: newest {args.tail} under the newest prompt_version",
+        cap=min(args.tail, args.limit), requested=args.tail,
+    )
+    return [_derive_iso(rows, "built_ms", "built_iso")]
+
+
 _SQL_AGENT_TOOL_ERRORS = (
     "SELECT agent, tool_error_codes, COUNT(*) AS calls, "
     "       MAX(called_ms) AS last_seen_ms "

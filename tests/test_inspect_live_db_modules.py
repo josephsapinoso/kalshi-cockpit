@@ -157,6 +157,7 @@ SUBCOMMANDS = (
     "game-script-card-rechecks",
     "game-script-card-refusals",
     "game-script-card-stamps",
+    "game-script-latest-prompt",
     "position-provenance",
     "prop-bookmakers",
     "prop-rungs",

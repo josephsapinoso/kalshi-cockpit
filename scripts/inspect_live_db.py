@@ -352,6 +352,7 @@ from inspect_live_db_parlays import (  # noqa: E402,F401
     _q_game_script_card_rechecks,
     _q_game_script_card_refusals,
     _q_game_script_card_stamps,
+    _q_game_script_latest_prompt,
     _q_ladder_fixtures,
     _q_own_open_rfqs,
     _q_parlay_candidates_timing,
@@ -1276,6 +1277,14 @@ QUERIES: dict[str, QueryDef] = {
         "Verbatim; a refused game is retried, so not distinct games and "
         "not a rate.",
         _q_game_script_card_refusals,
+        # Newest --limit rows by primary key through a subquery.
+        cost=CHEAP,
+    ),
+    "game-script-latest-prompt": QueryDef(
+        "The newest -n (default 5) game_script_cards written under the newest "
+        "prompt_version, within the newest --limit cards: status, drop_if and "
+        "reason verbatim. Text to read, not a rate.",
+        _q_game_script_latest_prompt,
         # Newest --limit rows by primary key through a subquery.
         cost=CHEAP,
     ),

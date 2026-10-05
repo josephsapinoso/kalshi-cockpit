@@ -258,3 +258,21 @@ def test_refusals_group_by_reason_and_leave_built_cards_out(tmp_path):
     ]
     (top,) = _run(conn, "game-script-card-refusals", tail=1)
     assert len(top.rows) == 1 and _rows(top)[0]["cards"] == 3
+
+
+def test_latest_prompt_reads_only_the_newest_version(tmp_path):
+    conn = _conn(tmp_path)
+    for version, drop_if in (("3", "old"), ("4", "Swayman scratched"), ("4", "X out")):
+        conn.execute(
+            "INSERT INTO game_script_cards (game_event_ticker, sport_key,"
+            " kickoff_ms, built_ms, status, story, legs_json, drop_if,"
+            " prompt_version) VALUES ('KX-G', 'nhl', 5000, 1000, 'built',"
+            " 's', '[]', ?, ?)",
+            (drop_if, version),
+        )
+    _card(conn, "refused_budget")  # no prompt_version: not the newest version
+    conn.commit()
+    (section,) = _run(conn, "game-script-latest-prompt")
+    assert [r["drop_if"] for r in _rows(section)] == ["X out", "Swayman scratched"]
+    assert "LIMIT ?" in parlays._SQL_GAME_SCRIPT_LATEST_PROMPT
+    assert QUERIES["game-script-latest-prompt"].cost == CHEAP
