@@ -29,6 +29,7 @@ from backend.store import db
 NEW = (
     "game-script-card-stamps",
     "game-script-card-rechecks",
+    "game-script-card-refusals",
     "parlay-lookup-errors",
     "own-open-rfqs",
 )
@@ -38,6 +39,7 @@ SQLS = {
         parlays._SQL_GAME_SCRIPT_CARD_WINDOW,
     ),
     "game-script-card-rechecks": (parlays._SQL_GAME_SCRIPT_CARD_RECHECKS,),
+    "game-script-card-refusals": (parlays._SQL_GAME_SCRIPT_CARD_REFUSALS,),
     "parlay-lookup-errors": (
         parlays._SQL_PARLAY_LOOKUP_ERRORS,
         parlays._SQL_PARLAY_LOOKUP_WINDOW,
@@ -223,3 +225,29 @@ def test_rechecks_window_binds_on_newest_past_rows(tmp_path):
     (sec,) = _run(conn, "game-script-card-rechecks", limit=1)
     assert [(r["recheck_status"], r["cards"]) for r in _rows(sec)] == [
         ("(NULL)", 1)]
+
+
+def _refused(conn, status, reason, built_ms=1000):
+    conn.execute(
+        "INSERT INTO game_script_cards (game_event_ticker, sport_key,"
+        " kickoff_ms, built_ms, status, reason)"
+        " VALUES ('KX-G', 'nba', 5000, ?, ?, ?)",
+        (built_ms, status, reason),
+    )
+
+
+def test_refusals_group_by_reason_and_leave_built_cards_out(tmp_path):
+    conn = _conn(tmp_path)
+    for _ in range(3):
+        _refused(conn, "refused_invalid", "the card has 4 legs; it needs 2 to 3")
+    _refused(conn, "refused_budget", "100 of 100 calls already made today")
+    _card(conn, "built")
+    _card(conn, "skipped")  # reason 'why', but not a refusal
+    conn.commit()
+    (top,) = _run(conn, "game-script-card-refusals")
+    assert [(r["status"], r["reason"], r["cards"]) for r in _rows(top)] == [
+        ("refused_invalid", "the card has 4 legs; it needs 2 to 3", 3),
+        ("refused_budget", "100 of 100 calls already made today", 1),
+    ]
+    (top,) = _run(conn, "game-script-card-refusals", tail=1)
+    assert len(top.rows) == 1 and _rows(top)[0]["cards"] == 3

@@ -349,6 +349,7 @@ from inspect_live_db_parlays import (  # noqa: E402,F401
     _q_combo_position_gaps,
     _q_combo_position_orphans,
     _q_game_script_card_rechecks,
+    _q_game_script_card_refusals,
     _q_game_script_card_stamps,
     _q_ladder_fixtures,
     _q_own_open_rfqs,
@@ -1265,6 +1266,15 @@ QUERIES: dict[str, QueryDef] = {
         "carry a non-empty drop_if, over the newest --limit such rows. "
         "Counts only; not whether a re-check was owed.",
         _q_game_script_card_rechecks,
+        # Newest --limit rows by primary key through a subquery.
+        cost=CHEAP,
+    ),
+    "game-script-card-refusals": QueryDef(
+        "Refused game_script_cards (refused_budget, refused_invalid) by "
+        "reason text, top -n (default 5) over the newest --limit cards. "
+        "Verbatim; a refused game is retried, so not distinct games and "
+        "not a rate.",
+        _q_game_script_card_refusals,
         # Newest --limit rows by primary key through a subquery.
         cost=CHEAP,
     ),

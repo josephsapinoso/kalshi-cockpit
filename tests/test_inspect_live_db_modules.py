@@ -154,6 +154,7 @@ SUBCOMMANDS = (
     "own-open-rfqs",
     "parlay-lookup-errors",
     "game-script-card-rechecks",
+    "game-script-card-refusals",
     "game-script-card-stamps",
     "position-provenance",
     "prop-bookmakers",

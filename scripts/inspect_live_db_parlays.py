@@ -4,7 +4,7 @@ Queries: `parlay-candidates-timing`, `parlay-lookups-tail`,
 `combo-bids-tail`, `combo-position-gaps`, `combo-position-orphans`,
 `ladder-fixtures`, `scout-briefings`, `scout-watch-log`, `agent-spend`,
 `game-script-card-stamps`, `game-script-card-rechecks`,
-`parlay-lookup-errors`, `own-open-rfqs`.
+`game-script-card-refusals`, `parlay-lookup-errors`, `own-open-rfqs`.
 
 The candidate scan timed and EXPLAINed on the live database, the "Price on
 Kalshi" taps that minted a combination market -- the only record anywhere
@@ -1317,6 +1317,42 @@ def _q_game_script_card_rechecks(conn: sqlite3.Connection, args) -> list[Section
         "(NULL named), newest window",
         cap=args.limit,
     )]
+
+
+_SQL_GAME_SCRIPT_CARD_REFUSALS = (
+    "SELECT status, reason, COUNT(*) AS cards, "
+    "       MAX(built_ms) AS last_seen_ms "
+    "FROM (SELECT status, reason, built_ms FROM game_script_cards "
+    "      ORDER BY id DESC LIMIT ?) "
+    "WHERE status IN ('refused_budget', 'refused_invalid') "
+    "GROUP BY status, reason ORDER BY cards DESC, last_seen_ms DESC"
+)
+
+
+def _q_game_script_card_refusals(conn: sqlite3.Connection, args) -> list[Section]:
+    """Refused `game_script_cards` by (status, reason) text, over the newest
+    `args.limit` cards, top `-n` pairs by count.
+
+    `reason` is `budget.refusal_reason()`'s or `validate_card()`'s own words
+    (`backend/agents/game_script.py`), verbatim. A budget reason embeds the
+    day's running counts, so those rows tend to be one group each; the
+    invalid ones name the rule that refused the card.
+
+    What this does not establish
+    -----------------------------
+    - **Not a rate, and not distinct games.** A refused card is retried on a
+      later pass (the dedupe asks for `built`/`skipped` only), so one game
+      can contribute many rows.
+    - **Not what a refusal cost.** A `refused_invalid` card was refused after
+      the model call; its spend is in `agent_calls`, not here.
+    - **Only the newest window.**
+    """
+    top = _fetch(
+        conn, _SQL_GAME_SCRIPT_CARD_REFUSALS, (args.limit,),
+        title=f"game_script_cards: top {args.tail} refusal reasons by count",
+        cap=min(args.tail, args.limit), requested=args.tail,
+    )
+    return [_derive_iso(top, "last_seen_ms", "last_seen_iso")]
 
 
 _SQL_PARLAY_LOOKUP_ERRORS = (
