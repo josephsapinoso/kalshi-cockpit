@@ -12,13 +12,17 @@ that cannot prove the open RFQ is someone else's, into `RfqOutcomeUnknown`.
 
 What they do not establish
 --------------------------
-- **Nothing about the venue's real error bodies.** No RFQ-create 409 or 429
-  body has been captured; the `already_exists` text here is the shape the
-  order path's fixture carries, and the detection is a substring match.
+- **Nothing about a 429 body.** The 409 is real: `_ALREADY` is the body
+  captured 2026-10-05 (`tests/fixtures/rfq_create_conflict_409.json`, n = 1).
+  No RFQ-create 429 has been captured, and the detection is a substring
+  match, so a change in the venue's wording would not be caught here.
 - **Nothing about how often a create loses its answer.** These are
   constructed sequences, not observations.
 """
 from __future__ import annotations
+
+import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -27,7 +31,11 @@ from backend.config import KalshiConfig
 from backend.kalshi.rest import KalshiAPIError, KalshiRestClient
 from backend.kalshi.rfq import RfqOutcomeUnknown, RfqRefused, create_rfq
 
-_ALREADY = '{"error":{"code":"already_exists"}}'
+_FIXTURE = json.loads(
+    (Path(__file__).parent / "fixtures" / "rfq_create_conflict_409.json")
+    .read_text(encoding="utf-8")
+)
+_ALREADY = _FIXTURE["body"]
 _LEGS = [{"market_ticker": "L", "side": "yes"}]
 
 
@@ -161,3 +169,34 @@ class TestCreateAfterALostAnswer:
                 api, market_ticker="T", collection_ticker="C", legs=_LEGS,
                 target_cost_dollars="5.0000",
             )
+
+
+class TestTheCapturedConflict:
+    """The venue's real reply to a second create, captured 2026-10-05."""
+
+    def test_the_capture_is_a_409_naming_already_exists(self):
+        assert _FIXTURE["status_code"] == 409
+        assert json.loads(_ALREADY)["error"]["code"] == "already_exists"
+
+    async def test_the_captured_reply_reaches_the_already_exists_branch(
+        self, client
+    ):
+        """A first-attempt 409 on a sized ask is the refusal that names
+        another size -- not the generic "would not create" text, which is
+        what a body the substring missed would produce."""
+        api = client([(_FIXTURE["status_code"], _ALREADY)])
+        with pytest.raises(RfqRefused, match="already_exists") as got:
+            await create_rfq(
+                api, market_ticker="T", collection_ticker="C", legs=_LEGS,
+                contracts_fp="2.01",
+            )
+        assert "would not create" not in str(got.value)
+        assert not isinstance(got.value, RfqOutcomeUnknown)
+
+
+def test_the_capture_script_never_reaches_the_accept_path():
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "scripts" / "capture_rfq_create_conflict.py"
+    ).read_text(encoding="utf-8")
+    assert "accept_quote" not in source and "/accept" not in source

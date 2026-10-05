@@ -1,0 +1,7 @@
+{
+  "note": "The venue's reply to a SECOND RFQ create with the identical body on the same combination, while the first was open. Captured 2026-10-05T23:45:31Z by scripts/capture_rfq_create_conflict.py on a held combination (sell-side ask, contracts floored from the holding); the first RFQ was withdrawn afterwards. STATUS AND BODY ARE VERBATIM. The ticker and legs are omitted: the reply carries no identifier and the request is not what this pins. n = 1.",
+  "captured_at": "2026-10-05T23:45:31Z",
+  "request": "POST /trade-api/v2/communications/rfqs?exchange_index=1",
+  "status_code": 409,
+  "body": "{\"error\":{\"code\":\"already_exists\",\"message\":\"already exists\"}}"
+}

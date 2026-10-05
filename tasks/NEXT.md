@@ -154,7 +154,8 @@ the channel diagnostic (A17.6/A17.11).
   - Rows are `status='error'` with `error_text` starting `unknown: `. No schema change; a CHECK rebuild was not worth it for hygiene.
   - The screen no longer says "Nothing was asked" for these.
   - `own-open-rfqs` gains `possibly_open`, kept apart from `open_rows`.
-  - Still open: no RFQ-create 409 or 429 body has ever been captured, and `already_exists` is matched by substring.
+  - **The 409 is now captured** (Joe's ask, ~23:45Z, `scripts/capture_rfq_create_conflict.py` on a held combination; the script's own RFQ was withdrawn). A second identical create returns HTTP 409 with body `{"error":{"code":"already_exists","message":"already exists"}}` and no identifiers. Committed as `tests/fixtures/rfq_create_conflict_409.json`, and the substring detection is pinned to it; disabling the detection turns the test red. n = 1.
+  - Still uncaptured: an RFQ-create 429 body.
 - **#316 read at ~22:15Z:** one post-deploy call so far, a `game_script` with `{}` (searches clean). No error code yet. Everything earlier is NULL (pre-v64).
 - Dependabot: zero open alerts. Run 37371370321's "failure" was degraded Actions again: its jobs had 0 steps, and the rerun was green.
 - Partner's ruling: little buildable today, so the session ends early. #310's read is due at about 18:00Z on 10-06.
