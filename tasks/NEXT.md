@@ -139,7 +139,7 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-10-05 (eighty-fourth session) — a refused RFQ create now leaves a row (#317); #318 split off; #316 still has no error code
+## 2026-10-05 (eighty-fourth session) — a refused RFQ create now leaves a row (#317); a lost create answer is unknown, not refused (#318); #316 still has no error code
 
 - **#317 shipped and live** (`0fe9e67`; CI green on all three jobs, with real runners; live `build.git_sha` confirmed ~23:00Z. A bare `gh workflow run deploy.yml` deployed DEMO first, so pass `-f instance=live -f confirm_live=kalshi-cockpit`). Both create sites, buy and exit, write a `combo_rfqs` row with `status='error'` and the refusal text.
   - The rfq_id is ours, `refused-<uuid>`, because a refused create has no venue id. That is also why `mark_error`, an UPDATE by rfq_id, is not the writer.
@@ -148,6 +148,13 @@ the channel diagnostic (A17.6/A17.11).
   - Mutation-checked: disabling the write turns both row tests red, and narrowing the guard turns the refusal-survives test red.
   - The `kalshi-platform` review found no reader that sends a `refused-` id to the venue, and the open counts already exclude `error`.
 - **#318 opened** (from that review): a timeout or a missing id *after* the venue created the RFQ is still labelled refused, and the screen says "Nothing was asked". This predates #317 (no row was written before). No money is at risk.
+- **#318 built on Joe's word, same session** (`a4c5b35`). `create_rfq` now calls a create refused only on proof: a 4xx with no lost earlier attempt, or a missing credential.
+  - A timeout, a 5xx, a 2xx with no id, or a 4xx after an earlier attempt lost its answer now raises `RfqOutcomeUnknown`, a subclass of `RfqRefused`.
+  - **The second `kalshi-platform` review caught the real hole:** `request()` retries POSTs, so a final 4xx proves only the LAST attempt. A sized exit ask meeting its own lost create read as "asked at another size". `KalshiAPIError.earlier_attempt_lost` now carries this; a 429 does not set it.
+  - Rows are `status='error'` with `error_text` starting `unknown: `. No schema change; a CHECK rebuild was not worth it for hygiene.
+  - The screen no longer says "Nothing was asked" for these.
+  - `own-open-rfqs` gains `possibly_open`, kept apart from `open_rows`.
+  - Still open: no RFQ-create 409 or 429 body has ever been captured, and `already_exists` is matched by substring.
 - **#316 read at ~22:15Z:** one post-deploy call so far, a `game_script` with `{}` (searches clean). No error code yet. Everything earlier is NULL (pre-v64).
 - Dependabot: zero open alerts. Run 37371370321's "failure" was degraded Actions again: its jobs had 0 steps, and the rerun was green.
 - Partner's ruling: little buildable today, so the session ends early. #310's read is due at about 18:00Z on 10-06.
@@ -156,8 +163,7 @@ the channel diagnostic (A17.6/A17.11).
 
 1. #316 — read `agent-tool-errors` after the next search failure, promote its logged block to a fixture, then decide on `max_uses`/tool version. #210 closes on the first convening whose searches succeed.
 2. #310 — re-read `game-script-latest-prompt` after 18:00Z on 2026-10-06, which is a full day of v4 cards.
-3. #318 — tell a timed-out RFQ create (unknown) apart from a refused one (RFQ path, main, not urgent).
-4. #197 stays open with #210. #169 and #151 wait until search is reliable. #267 is due in November.
+3. #197 stays open with #210. #169 and #151 wait until search is reliable. #267 is due in November.
 
 ## 2026-10-05 (eighty-third session) — web-search error codes recorded (#316); Kalshi holds 3 open RFQs, not 97 (#314)
 

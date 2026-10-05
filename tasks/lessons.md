@@ -16,6 +16,16 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-05 - A retrying client's final status describes only its last attempt
+
+From the eighty-fourth session (#318).
+
+- **"A 4xx proves the venue refused" was wrong for one reason: `KalshiRestClient.request` retries POSTs.** A first attempt can create the RFQ and lose its answer, and the retry then meets `already_exists`. The code read that as "one of ours, asked at another size", and the screen said "Nothing was asked" about the very request it had just made. The first build of #318 missed this; the second `kalshi-platform` review found it.
+- **The rule:**
+  - Before classifying a failed write by its status code, check whether the client retried. If it did, the status describes the last attempt only, and every earlier lost answer (a transport error or a 5xx) makes the outcome unknown.
+  - Carry "an earlier attempt was lost" on the exception, rather than inferring it from the final status.
+  - The default that flatters is "nothing happened". Call an outcome refused only on proof.
+
 ## 2026-10-05 - A fallback string that drops the exception turns an outage into a content judgement
 
 From the eighty-second session (#220, #309, #313).
