@@ -83,12 +83,15 @@ def _card(conn, status, combo=None, built_ms=1000):
     )
 
 
-def _recheck_card(conn, recheck_status, kickoff_ms, drop_if="d", status="built"):
+def _recheck_card(
+    conn, recheck_status, kickoff_ms, drop_if="d", status="built", combo=None
+):
     conn.execute(
         "INSERT INTO game_script_cards (game_event_ticker, sport_key,"
-        " kickoff_ms, built_ms, status, story, legs_json, drop_if, recheck_status)"
-        " VALUES ('KX-G', 'nba', ?, 1000, ?, 's', '[]', ?, ?)",
-        (kickoff_ms, status, drop_if, recheck_status),
+        " kickoff_ms, built_ms, status, story, legs_json, drop_if,"
+        " recheck_status, combo_ticker)"
+        " VALUES ('KX-G', 'nba', ?, 1000, ?, 's', '[]', ?, ?, ?)",
+        (kickoff_ms, status, drop_if, recheck_status, combo),
     )
 
 
@@ -199,9 +202,9 @@ def test_the_copied_venue_cap_matches_the_backend_constant():
 
 def test_rechecks_name_the_null_group_and_exclude_future_kickoffs(tmp_path):
     conn = _conn(tmp_path)
-    _recheck_card(conn, None, 5000)
+    _recheck_card(conn, None, 5000, combo="KXMVE-A")  # minted, never re-checked
     _recheck_card(conn, None, 5000, drop_if="")
-    _recheck_card(conn, "unknown", 5000)
+    _recheck_card(conn, "unknown", 5000, combo="KXMVE-B")
     _recheck_card(conn, "triggered", 5000, drop_if=None)
     _recheck_card(conn, None, _FAR_FUTURE_MS)  # not yet kicked off
     conn.commit()
@@ -212,6 +215,10 @@ def test_rechecks_name_the_null_group_and_exclude_future_kickoffs(tmp_path):
     # NULL is its own group: two past cards, one with an empty drop_if.
     assert by[("built", "(NULL)")]["cards"] == 2
     assert by[("built", "(NULL)")]["with_drop_if"] == 1
+    # A minted card the re-check never reached is visible as such.
+    assert by[("built", "(NULL)")]["combo_stamped"] == 1
+    assert by[("built", "unknown")]["combo_stamped"] == 1
+    assert by[("built", "triggered")]["combo_stamped"] == 0
     assert by[("built", "unknown")]["cards"] == 1
     assert by[("built", "triggered")]["with_drop_if"] == 0
 

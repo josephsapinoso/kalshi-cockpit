@@ -1282,8 +1282,10 @@ _SQL_GAME_SCRIPT_CARD_RECHECKS = (
     "SELECT status, COALESCE(recheck_status, '(NULL)') AS recheck_status, "
     "       COUNT(*) AS cards, "
     "       COALESCE(SUM(drop_if IS NOT NULL AND TRIM(drop_if) <> ''), 0) "
-    "         AS with_drop_if "
-    "FROM (SELECT status, recheck_status, drop_if FROM game_script_cards "
+    "         AS with_drop_if, "
+    "       COALESCE(SUM(combo_ticker IS NOT NULL), 0) AS combo_stamped "
+    "FROM (SELECT status, recheck_status, drop_if, combo_ticker "
+    "      FROM game_script_cards "
     "      WHERE kickoff_ms <= ? ORDER BY id DESC LIMIT ?) "
     "GROUP BY status, COALESCE(recheck_status, '(NULL)') "
     "ORDER BY status, recheck_status"
@@ -1298,7 +1300,10 @@ def _q_game_script_card_rechecks(conn: sqlite3.Connection, args) -> list[Section
     (schema v59). A NULL `recheck_status` is its own group, labelled
     `(NULL)` (the column CHECK allows no such literal), never folded into
     another; `with_drop_if` counts the cards in each group carrying a
-    non-empty `drop_if`. Counts only, no ticker, no game.
+    non-empty `drop_if`, and `combo_stamped` the ones Joe minted
+    (`combo_ticker` set) -- a re-check is owed on those, so a minted card in
+    the `(NULL)` group is one the re-check never reached. Counts only, no
+    ticker, no game.
 
     What this does not establish
     -----------------------------
