@@ -198,6 +198,13 @@ class StructuredCallOutcome:
 
     parsed: Optional[Any]
     usage: Optional[CallUsage]
+    #: Why `parsed` is None, for a caller that wants to say so (#309):
+    #: `schema_mismatch` (billed, tokens lost), `call_error` (transport or any
+    #: other exception), `refusal`, `no_output`. None when parsed is present.
+    failure: Optional[str] = None
+    #: The exception class and, for a schema mismatch, pydantic's error types
+    #: (`json_invalid` is what a reply cut off at `max_tokens` looks like).
+    failure_detail: Optional[str] = None
 
 
 def _usage_from(response) -> Optional[CallUsage]:
@@ -463,7 +470,7 @@ async def structured_call(
 
     try:
         response = await client.messages.parse(**kwargs)
-    except ValidationError:
+    except ValidationError as exc:
         # **The call SUCCEEDED and we were billed for it.** `messages.parse`
         # runs the SDK's `parse_response` over every text block with no regard
         # for `stop_reason`, so a response whose content does not match the
@@ -485,10 +492,20 @@ async def structured_call(
             "agent output did not match the schema (a refusal, or malformed "
             "output); the call was billed and its token count is lost"
         )
-        return StructuredCallOutcome(parsed=None, usage=None)
-    except Exception:
+        try:
+            kinds = sorted({str(e.get("type")) for e in exc.errors()})
+        except Exception:  # noqa: BLE001 -- the detail is best effort
+            kinds = []
+        return StructuredCallOutcome(
+            parsed=None, usage=None, failure="schema_mismatch",
+            failure_detail="ValidationError: " + (",".join(kinds) or "unreadable"),
+        )
+    except Exception as exc:  # noqa: BLE001
         logger.exception("agent call failed; continuing without a verdict")
-        return StructuredCallOutcome(parsed=None, usage=None)
+        return StructuredCallOutcome(
+            parsed=None, usage=None, failure="call_error",
+            failure_detail=f"{type(exc).__name__}: {' '.join(str(exc).split())[:200]}",
+        )
 
     usage = _usage_from(response)
 
@@ -510,9 +527,17 @@ async def structured_call(
             "agent call refused (%s)",
             getattr(getattr(response, "stop_details", None), "category", "unknown"),
         )
-        return StructuredCallOutcome(parsed=None, usage=usage)
+        return StructuredCallOutcome(
+            parsed=None, usage=usage, failure="refusal",
+            failure_detail=f"stop_reason={getattr(response, 'stop_reason', None)}",
+        )
 
     parsed = getattr(response, "parsed_output", None)
     if parsed is None:
         logger.warning("agent returned no parseable structured output")
-    return StructuredCallOutcome(parsed=parsed, usage=usage)
+    return StructuredCallOutcome(
+        parsed=parsed, usage=usage,
+        failure=None if parsed is not None else "no_output",
+        failure_detail=None if parsed is not None
+        else f"stop_reason={getattr(response, 'stop_reason', None)}",
+    )
