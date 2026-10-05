@@ -957,4 +957,6 @@ class TestTheShareReachesTheWatcher:
     def test_live_sets_it_explicitly(self):
         from pathlib import Path
         src = Path("fly.live.toml").read_text(encoding="utf-8")
-        assert 'SCOUT_AUTO_TAP_TOKEN_SHARE = "0.5"' in src
+        # 0.5 on Joe's (A) to #145 (2026-09-24); 0.75 on his (A) to #313
+        # (2026-10-05), after the Anthropic credit balance ran out.
+        assert 'SCOUT_AUTO_TAP_TOKEN_SHARE = "0.75"' in src

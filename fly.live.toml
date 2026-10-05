@@ -594,7 +594,13 @@ primary_region = "ord"
   # was false on the first full day. The count cap limits how many
   # convenings run, not what they cost. From this line on, the watcher
   # starts nothing once 250K is recorded. No ceiling moved.
-  SCOUT_AUTO_TAP_TOKEN_SHARE = "0.5"
+  #
+  # **0.5 -> 0.75 on Joe's (A) to #313, 2026-10-05.** The Anthropic credit
+  # balance ran out at 10:19:36Z that day (every call a 400 "credit balance
+  # is too low"), after daily spend climbed 2.4M -> 7.2M tokens over 09-29 to
+  # 10-04, mostly automatic cards. Unattended spend may now reach
+  # 9M x 0.25 = 2.25M a day; the other 6.75M is kept for his taps.
+  SCOUT_AUTO_TAP_TOKEN_SHARE = "0.75"
 
   # **Automatic game-script cards -- #213, Joe's (A) to #212, ADR 0190.** One
   # card per game at T-24h, one call and at most 3 searches each, inside the
