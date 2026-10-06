@@ -243,6 +243,20 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
             "placeholder and every non-empty `creator_user_id` / `creator_id` "
             "is replaced; which rows carried the field survives redaction.",
     ),
+    # #318 -- the venue's 409 to a SECOND identical RFQ create. Captured
+    # 2026-10-05 by `scripts/capture_rfq_create_conflict.py` on a held
+    # combination; the reply carries no identifier, and the body the fixture
+    # pins is the `already_exists` code. Session 84 committed it without this
+    # row and CI was red from 23:46Z until session 85 read the run.
+    "rfq_create_conflict_409.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("exchange_index",),
+        endpoint_in=("request",),
+        how="A `request` string spelling the create's method and URL with "
+            "`exchange_index=1` in its query. The ticker and legs are omitted "
+            "on purpose: the status and body are what the fixture pins, and "
+            "both are verbatim.",
+    ),
     # #107 -- a real combination book with a resting YES bid. Captured on a
     # HELD combination on Joe's word (2026-09-24), ticker redacted; the
     # response body carries no identifying field.
