@@ -6,20 +6,32 @@ cannot tell our `max_uses` from the vendor's rate limit. The API says which
 in a `web_search_tool_result` whose `content` is
 `{"type": "web_search_tool_result_error", "error_code": ...}`.
 
-**The error payload is DERIVED, not captured, and that is a known gap.** No
-real error block exists yet. Joe chose (A) on 2026-10-05: no paid call to
-stage one; `structured_call` logs each error block raw, and the first natural
-failure's block is promoted into `tests/fixtures/` to replace the derivation
-below. The derivation starts from the REAL captured scout response
-(`anthropic_scout_captured.json`) and swaps one result block's content for the
-error shape the installed SDK's own models define, then validates it through
-`Message.model_validate` -- so the SDK accepts it, but the SDK's models are
-only our belief about the wire, and this file cannot falsify them.
+**The limit IS captured, and it is not a `web_search_tool_result` error.**
+Read 2026-10-06 off the committed scout capture
+(`anthropic_scout_captured.json`): its fourth `code_execution_tool_result`
+carries `return_code: 1` and `stderr: "Server tool use limit exceeded during
+code execution."`, after exactly six billed searches of a `max_uses: 6` tool.
+No `web_search_tool_result` error block accompanies it. Under dynamic
+filtering (`web_search_20260209`) the search runs inside the sandbox, so the
+cap surfaces as a failed execution, and until this file read it that way
+five post-v64 cards that said "limit exceeded on every attempt" recorded
+`{}`. The vendor's docs say a failed search is not billed, so the billed count
+equalling the cap is the signature: every search up to the cap succeeded and
+the next one killed the execution that held their output.
 
-What this establishes: an error block is counted by block type and code; a
-clean response records `{}`, not NULL; a call with no response records NULL;
-and the code survives `settle` onto the row. What it does not establish: that
-the API sends this shape, or what convening 24's code was.
+**The `web_search_tool_result_error` payload is still DERIVED.** Joe chose (A)
+on 2026-10-05: no paid call to stage one. `_with_errors` starts from the real
+capture and swaps one result block's content for the error shape the
+installed SDK's own models define, validated through `Message.model_validate`
+-- the SDK accepts it, but the SDK's models are only our belief about the
+wire for THAT path.
+
+What this establishes: a nonzero code-execution exit is counted, and the
+captured limit text is named `server_tool_use_limit`; a derived error block
+is counted by block type and code; a response with no errors records `{}`,
+not NULL; a call with no response records NULL; and the code survives
+`settle` onto the row. What it does not establish: that the API ever sends a
+`web_search_tool_result_error` under dynamic filtering.
 """
 
 from __future__ import annotations
@@ -45,9 +57,20 @@ def _captured() -> dict:
     )
 
 
-def _with_errors(codes: list[str]) -> dict:
-    """The captured response with the first len(codes) search results failed."""
+def _clean_captured() -> dict:
+    """The capture with its one failed execution made to succeed, so the
+    derived web-search-error cases start from a response with no errors."""
     payload = copy.deepcopy(_captured())
+    for b in payload["content"]:
+        if b["type"] == "code_execution_tool_result":
+            b["content"]["return_code"] = 0
+            b["content"]["stderr"] = ""
+    return payload
+
+
+def _with_errors(codes: list[str]) -> dict:
+    """The clean capture with the first len(codes) search results failed."""
+    payload = _clean_captured()
     results = [b for b in payload["content"] if b["type"] == "web_search_tool_result"]
     assert len(results) >= len(codes)
     for block, code in zip(results, codes):
@@ -78,10 +101,58 @@ class TestTheErrorCodeIsRead:
             ("web_search_tool_result:too_many_requests", 1),
         )
 
-    def test_a_clean_captured_response_has_no_errors(self):
-        """The real capture's six search results and four code-execution
-        results all succeeded; none of them may read as an error."""
-        assert tool_errors_from(_message(_captured())) == ()
+    def test_the_captured_limit_is_a_failed_execution_not_a_search_error(self):
+        """The real capture: six searches succeeded, and the fourth code
+        execution died on the cap. Until 2026-10-06 this test asserted the
+        capture had NO errors, which pinned the blind spot."""
+        payload = _captured()
+        failed = [
+            b for b in payload["content"]
+            if b["type"] == "code_execution_tool_result" and b["content"]["return_code"] != 0
+        ]
+        assert len(failed) == 1
+        assert failed[0]["content"]["stderr"] == (
+            "Server tool use limit exceeded during code execution."
+        )
+        assert not any(
+            isinstance(b.get("content"), dict) and "error_code" in b["content"]
+            for b in payload["content"]
+        ), "no web_search_tool_result error block accompanies the limit"
+        assert tool_errors_from(_message(payload)) == (
+            ("code_execution_tool_result:server_tool_use_limit", 1),
+        )
+
+    def test_the_billed_count_equals_the_cap_when_the_limit_hit(self):
+        """A failed search is not billed (vendor docs), so billed == max_uses
+        is the signature of the cap, not of six clean searches."""
+        from backend.agents.scout import WEB_SEARCH_TOOL
+
+        payload = _captured()
+        assert payload["usage"]["server_tool_use"]["web_search_requests"] == (
+            WEB_SEARCH_TOOL["max_uses"]
+        )
+
+    def test_a_capture_with_the_execution_fixed_has_no_errors(self):
+        payload = _clean_captured()
+        assert tool_errors_from(_message(payload)) == ()
+
+    def test_any_other_nonzero_exit_is_counted_by_its_code(self):
+        payload = _captured()
+        for b in payload["content"]:
+            if b["type"] == "code_execution_tool_result" and b["content"]["return_code"] != 0:
+                b["content"]["return_code"] = 137
+                b["content"]["stderr"] = "Killed"
+        assert tool_errors_from(_message(payload)) == (
+            ("code_execution_tool_result:exit_137", 1),
+        )
+
+    def test_the_log_line_keeps_the_stderr_and_drops_the_encrypted_stdout(self):
+        from backend.agents.base import _error_blocks_json
+
+        line = json.loads(_error_blocks_json(_message(_captured())))
+        assert len(line) == 1
+        assert line[0]["content"]["stderr"].startswith("Server tool use limit exceeded")
+        assert line[0]["content"]["encrypted_stdout"].endswith(" chars>")
 
     def test_the_usage_carries_the_errors(self):
         usage = _usage_from(_message(_with_errors(["unavailable"])))

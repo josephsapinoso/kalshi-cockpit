@@ -252,13 +252,26 @@ def tool_errors_from(response) -> tuple[tuple[str, int], ...]:
     tool can carry its own `error_code` the same way. A success's `content`
     is a list (web search) or an object with no `error_code` (code
     execution), so neither counts.
+
+    **The limit does not arrive as an `error_code` at all** -- read off the
+    committed capture (`tests/fixtures/anthropic_scout_captured.json`,
+    2026-10-06): after the sixth billed search of a `max_uses: 6` tool, the
+    seventh raised INSIDE the sandbox, and the only trace is a
+    `code_execution_tool_result` whose `content.return_code` is 1 and whose
+    `content.stderr` reads "Server tool use limit exceeded during code
+    execution." No `web_search_tool_result` error block accompanies it, so
+    five post-v64 cards that said "limit exceeded on every attempt" all
+    recorded `{}`. A nonzero `return_code` is therefore an error code here:
+    `server_tool_use_limit` when the stderr names the limit, else
+    `exit_<return_code>` (a script bug, a timeout, anything else the sandbox
+    rejected -- the raw stderr is on the log line).
     """
     counts: dict[str, int] = {}
     for block in getattr(response, "content", None) or ():
         block_type = getattr(block, "type", None)
         if not isinstance(block_type, str) or not block_type.endswith("_tool_result"):
             continue
-        code = getattr(getattr(block, "content", None), "error_code", None)
+        code = _block_error_code(block)
         if code is None:
             continue
         key = f"{block_type}:{code}"
@@ -266,14 +279,45 @@ def tool_errors_from(response) -> tuple[tuple[str, int], ...]:
     return tuple(sorted(counts.items()))
 
 
+#: What the sandbox prints when a search inside code execution would pass the
+#: tool's `max_uses`. Captured, not guessed; see `tool_errors_from`.
+SERVER_TOOL_LIMIT_STDERR = "tool use limit exceeded"
+
+
+def _block_error_code(block) -> Optional[str]:
+    """The error code a `*_tool_result` block carries, or None for a success."""
+    content = getattr(block, "content", None)
+    code = getattr(content, "error_code", None)
+    if code is not None:
+        return str(code)
+    return_code = getattr(content, "return_code", None)
+    if isinstance(return_code, int) and return_code != 0:
+        stderr = getattr(content, "stderr", None) or ""
+        if SERVER_TOOL_LIMIT_STDERR in str(stderr).lower():
+            return "server_tool_use_limit"
+        return f"exit_{return_code}"
+    return None
+
+
 def _error_blocks_json(response) -> str:
-    """The error blocks `tool_errors_from` counted, as wire JSON. Best effort."""
+    """The error blocks `tool_errors_from` counted, as wire JSON. Best effort.
+
+    `encrypted_stdout` is replaced by its length: it is unreadable to us and
+    would push the stderr, the one readable field, past the line's cap.
+    """
     out = []
     for block in getattr(response, "content", None) or ():
-        if getattr(getattr(block, "content", None), "error_code", None) is None:
+        block_type = getattr(block, "type", None)
+        if not isinstance(block_type, str) or not block_type.endswith("_tool_result"):
+            continue
+        if _block_error_code(block) is None:
             continue
         try:
-            out.append(block.model_dump(mode="json"))
+            dumped = block.model_dump(mode="json")
+            content = dumped.get("content")
+            if isinstance(content, dict) and "encrypted_stdout" in content:
+                content["encrypted_stdout"] = f"<{len(content['encrypted_stdout'] or '')} chars>"
+            out.append(dumped)
         except Exception:  # noqa: BLE001 -- a log line must not fail the call
             out.append(repr(block))
     return json.dumps(out)[:2000]
