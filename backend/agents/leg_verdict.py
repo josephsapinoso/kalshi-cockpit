@@ -58,7 +58,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from .base import AgentConfig, CallUsage, structured_call
+from .base import AgentConfig, CallUsage, search_cap_rule, structured_call
 from .budget import AgentBudget
 from .scout import WEB_SEARCH_TOOL
 
@@ -118,6 +118,8 @@ Two hard rules.
 
 Never state a probability, a fair price, a line, a point spread, or how much \
 to stake. Your answer is TAKE or PASS and words, nothing more.
+
+{search_cap_rule(LEG_VERDICT_MAX_SEARCHES)}
 
 {PLAIN_WORDS_RULE}"""
 

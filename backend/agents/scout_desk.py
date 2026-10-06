@@ -67,7 +67,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from .base import AgentConfig, CallUsage, structured_call
+from .base import AgentConfig, CallUsage, search_cap_rule, structured_call
 from .budget import AgentBudget
 from .pro_bettor import SYSTEM as PRO_BETTOR_SYSTEM
 from .pro_bettor import SharpTake
@@ -131,7 +131,9 @@ of a money path is worse than no estimate.
 
 If you find nothing noteworthy, say so and return an empty findings list. An \
 empty result is a useful answer. Inventing minor observations to look thorough \
-makes the whole desk less trustworthy."""
+makes the whole desk less trustworthy.
+
+""" + search_cap_rule(int(WEB_SEARCH_TOOL["max_uses"]))
 
 HOME_VENUE_CLAUSE = (
     "- Conditions at your venue: your team is the host, so the ground is "

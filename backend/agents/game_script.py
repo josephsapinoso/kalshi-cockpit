@@ -37,7 +37,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 from ..store import game_script_cards
-from .base import AgentConfig, CallUsage, structured_call
+from .base import AgentConfig, CallUsage, search_cap_rule, structured_call
 from .budget import AgentBudget
 from .scout import WEB_SEARCH_TOOL
 
@@ -47,7 +47,7 @@ AGENT_NAME = "game_script"
 
 #: Bumped whenever `SYSTEM` or the prompt's shape changes, so a stored card
 #: says which instructions built it.
-PROMPT_VERSION = "4"
+PROMPT_VERSION = "5"
 
 GAME_SCRIPT_MAX_SEARCHES = 3
 GAME_SCRIPT_SEARCH_TOOL = {**WEB_SEARCH_TOOL, "max_uses": GAME_SCRIPT_MAX_SEARCHES}
@@ -105,6 +105,8 @@ Say "confirmed" or "starting" only when a source dated TODAY says so; \
 otherwise say "expected". If you cannot build a \
 coherent card, or the facts are too thin, set skip to true and say why in \
 reason; a skip is a good answer.
+
+""" + search_cap_rule(GAME_SCRIPT_MAX_SEARCHES) + """
 
 Two hard rules.
 
@@ -686,7 +688,7 @@ async def build_card(
 # --- the T-2h drop-if re-check (#289, Joe's (A) to #270) ---------------------
 
 RECHECK_AGENT_NAME = "game_script_recheck"
-RECHECK_PROMPT_VERSION = "1"
+RECHECK_PROMPT_VERSION = "2"
 RECHECK_MAX_SEARCHES = 1
 #: A re-check that answers `unknown` is asked once more (Joe, 2026-10-03).
 RECHECK_ATTEMPTS = 2
@@ -704,6 +706,8 @@ and give that page's address and published date in source. Set status to \
 the news is unclear, conflicting, or you could not search. "not_found" is \
 not a confirmation that the card is right; it only means one search did not \
 find the drop-if news.
+
+""" + search_cap_rule(RECHECK_MAX_SEARCHES) + """
 
 In note, say in one or two plain sentences what you found. Never estimate a \
 probability, price or edge, and never say whether to bet."""

@@ -328,7 +328,7 @@ class TestTheServerRefusesBeforeItStores:
         assert "TODAY'S news first" in system
         assert "first-half total in the same direction" in system
         assert "able to change before kickoff" in system
-        assert game_script.PROMPT_VERSION == "4"
+        assert game_script.PROMPT_VERSION == "5"
 
     def test_validate_card_accepts_two_size_max_2_legs_from_one_event(self):
         listing = _listing()

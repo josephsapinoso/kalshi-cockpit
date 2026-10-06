@@ -284,6 +284,30 @@ def tool_errors_from(response) -> tuple[tuple[str, int], ...]:
 SERVER_TOOL_LIMIT_STDERR = "tool use limit exceeded"
 
 
+def search_cap_rule(max_uses: int) -> str:
+    """The paragraph every search-carrying prompt ends with (#319, Joe's (A),
+    2026-10-06).
+
+    Under `web_search_20260209` the model writes a code block that runs
+    searches and filters them. A search past the tool's `max_uses` fails the
+    WHOLE block and loses every result it held (`tool_errors_from`), so a
+    model that loops five queries in one block with a cap of three gets
+    nothing from any of them and reports "search unavailable". Telling it
+    the cap, and to search one query per block, is the fix Joe chose over
+    a bigger cap. Whether it works is measured by
+    `code_execution_tool_result:server_tool_use_limit` falling on
+    `inspect_live_db.py agent-tool-errors`, not assumed.
+    """
+    n = "one web search" if max_uses == 1 else f"{max_uses} web searches"
+    return (
+        f"You have {n} for this call, and no more. Run ONE search per code "
+        "block and read its result before you write the next; never loop "
+        "over several queries in one block. A search past the cap fails the "
+        "whole block and loses every result it held, and reads back to you "
+        "as 'tool use limit exceeded' -- that is the cap, not an outage."
+    )
+
+
 def _block_error_code(block) -> Optional[str]:
     """The error code a `*_tool_result` block carries, or None for a success."""
     content = getattr(block, "content", None)
