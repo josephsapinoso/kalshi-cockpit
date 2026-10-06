@@ -139,6 +139,21 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-06 (eighty-sixth session) — README rewritten as a short user guide on Joe's call; the research record archived verbatim; five stale remote branches deleted
+
+- **Joe asked for a README that is simple to read and appealing to someone who wants to use the tool, and to close branches no longer needed.** He chose (option buttons): drop the measurement record from the README entirely, and add one screenshot of the demo.
+- **The old README is archived verbatim** at `docs/history/readme-2026-10-06.md` (same pattern as `docs/history/claude-md-2026-09-08.md`, ADR 0116). Its beta table was already two fits stale against CLAUDE.md (no 2026-10-01 fit, `G = 713` floor, gate at 2). Nothing in it is maintained; CLAUDE.md and `docs/` are the record.
+- **New README** (~5.6 KB, was 20 KB): pitch, demo link, one screenshot of the demo's Games rows at 1440 (`docs/images/games-rows.png`, 116 KB, captured via Playwright against the demo instance, no credits bought), what each screen does, how a bet is priced in one paragraph with the cost-not-information premise stated, run-it commands, the five `.env` keys that matter, before-you-trust-it-with-money bullets, the §3.1 run-your-own-copy note and the Retrosheet notice verbatim. No decaying counts (ADR 0162). `tests/test_combo_book_depth_claims.py` still pins README.md and passes.
+- **Branches deleted on origin**: `lane/198-leg-census`, `lane/201-rest-chip`, `lane/202-game-page`, `lane/205-game-batching` (PRs 199/203/204/207 merged, `git cherry` 0 unmerged each) and `claude/284-card-face` (PR 300 closed; #284 landed as `59b95acc`). `origin/claude/174-hud-slate` and `origin/lane/206-hedge-label` were already gone on fetch. Only `main` remains; no worktrees. Each is restorable from its PR page.
+- No ADR: no decision changed, only where the record is read from.
+
+### Still open
+
+Carried forward unchanged from the eighty-fifth session:
+
+1. #316 — closes on the first post-`e8e2531d` call that records `code_execution_tool_result:server_tool_use_limit`. Read `agent-tool-errors` and `game-script-card-refusals` together after 18:00Z on 2026-10-07, a full day of v5 cards.
+2. #210 — closes on the first convening whose searches succeed and whose Matchup tile carries sourced notes.
+3. #197 stays open with #210. #151 waits until search is reliable. #267 is due in November.
 ## 2026-10-06 (eighty-fifth session) — #316's code is read and it is OUR cap: the limit surfaces as a failed code execution, already in the scout capture; Joe's (A) to #319 ships the prompt rule, live on `e8e2531d`
 
 - **CI was red on main from 2026-10-05T23:46Z** (two pushes): session 84's `rfq_create_conflict_409.json` had no `DISPOSITIONS` row. Its handoff said "CI green on all three jobs"; that run was for the commit before. Classified in `6e8339c`.
@@ -1687,6 +1702,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-06 (eighty-sixth session) — README rewritten as a short user guide on Joe's call; the research record archived verbatim; five stale remote branches deleted
 - 2026-10-06 (eighty-fifth session) — #316's code is read and it is our cap; the limit surfaces as a failed code execution, already in the scout capture; Joe's (A) to #319 ships the prompt rule, live on `e8e2531d`
 - 2026-10-05 (eighty-fourth session) — a refused RFQ create now leaves a row (#317); a lost create answer is unknown, not refused (#318)
 - 2026-10-05 (eighty-third session) — web-search error codes recorded (#316); Kalshi holds 3 open RFQs, not 97 (#314)
