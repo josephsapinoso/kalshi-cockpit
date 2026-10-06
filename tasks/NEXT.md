@@ -139,6 +139,25 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-06 (eighty-fifth session) — #316's code is read and it is OUR cap: the limit surfaces as a failed code execution, already in the scout capture; Joe's (A) to #319 ships the prompt rule, live on `e8e2531d`
+
+- **CI was red on main from 2026-10-05T23:46Z** (two pushes): session 84's `rfq_create_conflict_409.json` had no `DISPOSITIONS` row. Its handoff said "CI green on all three jobs"; that run was for the commit before. Classified in `6e8339c`.
+- **#316 read at 14:22Z** (`agent-tool-errors --limit 200`): all 19 post-deploy calls `{}`; every NULL predates the v64 deploy. Yet `game-script-card-refusals` shows **five** post-deploy cards refused with "server tool use limit exceeded on every attempt" (23:35Z, 10:13Z, 10:14Z, 10:32Z, 11:22Z), and `agent-spend` shows each of them **billed exactly 3 searches**, the cards' cap. Anthropic's docs: a failed search is not billed. So the 3 succeeded and the failure came after.
+- **The wire shape was already committed.** `tests/fixtures/anthropic_scout_captured.json`'s fourth `code_execution_tool_result` carries `return_code: 1`, `stderr: "Server tool use limit exceeded during code execution."`, after exactly 6 billed searches (the scouts' cap). No `web_search_tool_result` error block. Under `web_search_20260209` the search runs inside the sandbox; the cap-plus-one search kills the whole code block and every result it held, and the model reports "unavailable". The capture's own test asserted it was clean and stayed green over it.
+- **Shipped `976e9e8`**: `tool_errors_from` counts a nonzero `return_code` as `code_execution_tool_result:server_tool_use_limit` (stderr names it) or `exit_<rc>`; the log line keeps stderr and replaces `encrypted_stdout` with its length. Three guards, each red under mutation. The derived `web_search_tool_result_error` payload stays derived.
+- **#319 opened under #302 and answered (A) by Joe with the option buttons (~15:00Z): a prompt line, no money change.** Shipped `e8e2531`: `search_cap_rule(max_uses)` in `backend/agents/base.py`, appended to the card (**prompt v5**), T-2h re-check (v2), leg-verdict and staff-scout prompts, each built from the constant that sets its tool's `max_uses`. `tests/test_search_cap_rule.py` pins all four; dropping the rule or moving a cap without it goes red. **Not established: that the model obeys it.** Read `agent-tool-errors` for `server_tool_use_limit` after a day of v5 cards; the count falling is the evidence, the prompt is not.
+- **Deployed live** (run `37492816081`, `-f instance=live -f confirm_live=kalshi-cockpit`); `/api/health` `build.git_sha` = `e8e2531d` read back 16:07Z.
+- **#310 is CLOSED (2026-10-05T18:39Z)**; session 84's Still-open list carried its 18:00Z re-read as if open. The v4 full-day read is superseded: v5 cards start at the next T-24h pass, so the first read worth taking is after a full day of **v5** cards, ~18:00Z on 2026-10-07.
+- **#302 frontier was empty at session start — a finding, not neglect**: no open decision was Joe's until the #316 read produced one, and that one was ticketed and answered in-session.
+- Joe, mid-session: partner may run the same committed read-only live instruments main runs, this and future sessions (saved to memory). The auto-mode classifier still refused it once; main ran the read.
+- Dependabot: zero open alerts. Partner's ruling at start: nothing buildable; the #316 read produced the day's work.
+
+### Still open
+
+1. #316 — closes on the first post-`e8e2531d` call that records `code_execution_tool_result:server_tool_use_limit` (confirms the recorder end to end on live). Read `agent-tool-errors` and `game-script-card-refusals` together after 18:00Z on 2026-10-07, a full day of v5 cards; the limit count falling beside v4's five-in-a-morning is the only evidence the rule works.
+2. #210 — closes on the first convening whose searches succeed and whose Matchup tile carries sourced notes; the staff prompt now carries the cap rule.
+3. #197 stays open with #210. #151 waits until search is reliable. #267 is due in November.
+
 ## 2026-10-05 (eighty-fourth session) — a refused RFQ create now leaves a row (#317); a lost create answer is unknown, not refused (#318); #316 still has no error code
 
 - **#317 shipped and live** (`0fe9e67`; CI green on all three jobs, with real runners; live `build.git_sha` confirmed ~23:00Z. A bare `gh workflow run deploy.yml` deployed DEMO first, so pass `-f instance=live -f confirm_live=kalshi-cockpit`). Both create sites, buy and exit, write a `combo_rfqs` row with `status='error'` and the refusal text.
@@ -1668,6 +1687,12 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-06 (eighty-fifth session) — #316's code is read and it is our cap; the limit surfaces as a failed code execution, already in the scout capture; Joe's (A) to #319 ships the prompt rule, live on `e8e2531d`
+- 2026-10-05 (eighty-fourth session) — a refused RFQ create now leaves a row (#317); a lost create answer is unknown, not refused (#318)
+- 2026-10-05 (eighty-third session) — web-search error codes recorded (#316); Kalshi holds 3 open RFQs, not 97 (#314)
+- 2026-10-05 (eighty-second session) — Next.js RCE patched; Anthropic credits ran out at 10:19Z and the desk hid it; #220 reviewed into four fixes, three live
+- 2026-10-03 (eighty-first session) — #3 full, #302 continues it; a friend's off-main-line leg is now priced from alternate lines, live on `93bc6ba0`
+- 2026-10-02 (eightieth session) — Your bets: tag where each pick came from, live on `b07ef3e1`, schema v63, ADR 0193
 - 2026-10-02 (seventy-ninth session, continued) — parlay town hall: batch 1 (17 tickets) live on `734f460`, schema v61 + v62; Joe answered five; batch 2 ticketed
 - 2026-10-02 (seventy-ninth session) — nothing due before 2026-10-05; #3 frontier empty by finding, not by neglect
 - 2026-10-02 (seventy-eighth session) — #268 read: Joe's combo came through RFQ, its row is consistent; new `position-provenance` inspector query (live on `47a3cb3`); #268 closed

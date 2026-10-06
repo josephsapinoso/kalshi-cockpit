@@ -16,6 +16,20 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-06 - The failure you are waiting to capture may already be in a capture you have; a test that asserts a capture is clean pins the blind spot
+
+From the eighty-fifth session (#316, #319).
+
+- **Session 83 built a recorder for web-search error codes and waited for the first natural failure to capture the wire shape.** Five failures then recorded `{}`. The shape was in `tests/fixtures/anthropic_scout_captured.json` the whole time: a `code_execution_tool_result` with `return_code: 1` and `stderr: "Server tool use limit exceeded during code execution."`. The recorder matched `error_code`, which that path never emits. The capture's own test said "four code-execution results all succeeded", written from belief, and it stayed green over a fixture that contradicted it.
+- **The cause was ours, and the billing count said so.** The vendor does not bill a failed search, and every failed call billed exactly the cap. A tool that batches several calls in one script loses the whole script on the cap-plus-one call, so "unavailable on every attempt" was the cap, not an outage.
+- **The handoff said CI was green.** It was green for the commit before; the fixture commit after it failed on both pushes, and nobody read the run for HEAD.
+- **The rule:**
+  - Before waiting on the next natural failure, grep the captures you already hold for the failure text the model paraphrased.
+  - A test on a capture asserts what the capture contains, never that it is clean; "no errors" is a claim to read off the file, not to write.
+  - When a server tool runs inside another (search inside code execution), the error surfaces in the OUTER tool's result; match on exit status and stderr, not only on the inner tool's error code.
+  - A per-call cap times a billed count equal to it is a signature; read the cap before theorising about the vendor.
+  - "CI green" names a sha. Read the run for HEAD before writing it, and `gh run list` before the first push of a session.
+
 ## 2026-10-05 - A retrying client's final status describes only its last attempt
 
 From the eighty-fourth session (#318).
