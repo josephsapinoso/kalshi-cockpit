@@ -485,3 +485,57 @@ def _ref_cr1(points):
     g = len(clusters)
     v *= (g / (g - 1)) * ((n - 1) / (n - 2))
     return b1, math.sqrt(v), g
+
+
+class TestKickoffIsTheOddsFixtureStart:
+    """Amendment: the start is odds_fixtures via event_links, not the Kalshi
+    clock (three hours late). One linked ask, one unlinked ask."""
+
+    def _build(self, tmp_path):
+        path = tmp_path / "start.db"
+        conn = db.init_db(path)
+        req = _BASE_MS
+        for i, (et, linked) in enumerate((("EVL", True), ("EVU", False))):
+            # Kalshi clock says 6.5h out (3h late); the true start is 3.5h out.
+            conn.execute(
+                "INSERT INTO kalshi_events (event_ticker, commence_ms, first_seen_ms, last_seen_ms) VALUES (?,?,0,0)",
+                (et, req + 6_500_000 * 3600 // 1000))
+            if linked:
+                conn.execute(
+                    "INSERT INTO odds_fixtures (odds_event_id, sport_key, commence_ms, last_fetched_ms) VALUES ('OL','x',?,0)",
+                    (req + 3_500_000 * 3600 // 1000,))
+                conn.execute(
+                    "INSERT INTO event_links (kalshi_event_ticker, odds_event_id, league, method, commence_skew_ms, linked_ms) VALUES (?,?,?,?,0,0)",
+                    (et, "OL", "x", "exact_alias_pair"))
+            legs = _legs((et, f"M-{et}"), (et, f"M2-{et}"))
+            _add_ask(conn, i + 1, day=0, legs=2, f=0.5, quotes=[550], legs_json=legs, lookup_age_ms=0)
+        conn.execute("UPDATE combo_rfqs SET requested_ms = ?", (req,))
+        conn.execute("UPDATE combo_rfq_quotes SET captured_ms = ?", (req,))
+        conn.execute("UPDATE parlay_lookups SET requested_ms = ?", (req,))
+        conn.commit()
+        conn.close()
+        return path
+
+    def test_linked_ask_uses_the_fixture_start_and_unlinked_is_unknown(self, tmp_path):
+        secs = _run(self._build(tmp_path), cutoff=str(_BASE_MS + _DAY))
+        cuts = {r["level"]: r for r in _rows(_section(secs, "Secondary cuts"))
+                if r["cut"] == "hours_to_first_game"}
+        # fixture start 3.5h -> [2h,6h); the Kalshi clock (6.5h) would say [6h,24h)
+        assert cuts["[2h,6h)"]["n"] == 1
+        assert cuts["unknown"]["n"] == 1
+        assert "[6h,24h)" not in cuts
+        left = _rows(_section(secs, "P2 asks left out"))[0]
+        assert left["p2_unknown_start"] == 1
+        assert left["already_started"] == 0
+        # Linked ask's band differs from the Kalshi clock's; the unlinked
+        # one differs too (unknown vs [6h,24h)).
+        assert left["band_changed_vs_kalshi_clock"] == 2
+
+    def test_the_true_start_reads_use_keys_not_scans(self, tmp_path):
+        conn = db.init_db(tmp_path / "plan3.db")
+        plan = " | ".join(
+            str(r[3]) for r in conn.execute(
+                "EXPLAIN QUERY PLAN " + P._SQL_CM_TRUE_START, ("x",)))
+        conn.close()
+        assert "SCAN f" not in plan and "SCAN l" not in plan and "SCAN event_links" not in plan
+        assert "SEARCH" in plan

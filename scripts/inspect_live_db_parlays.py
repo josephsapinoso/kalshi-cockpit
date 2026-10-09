@@ -1617,6 +1617,17 @@ _SQL_CM_EVENT = (
     "FROM kalshi_events e LEFT JOIN kalshi_series s "
     "ON s.series_ticker = e.series_ticker WHERE e.event_ticker = ?"
 )
+#: **The true start (registration amendment, 2026-10-08).** The odds fixture's
+#: start reached through `event_links` (UNIQUE on kalshi_event_ticker,
+#: odds_event_id) and `odds_fixtures` (PRIMARY KEY odds_event_id), MIN over
+#: links. `kalshi_events.commence_ms` runs three hours late and is read only
+#: to count how many asks change band, never as a start.
+_SQL_CM_TRUE_START = (
+    "SELECT MIN(f.commence_ms) AS commence_ms, COUNT(f.commence_ms) AS fixtures "
+    "FROM event_links l LEFT JOIN odds_fixtures f "
+    "ON f.odds_event_id = l.odds_event_id "
+    "WHERE l.kalshi_event_ticker = ?"
+)
 _SQL_CM_LINKS = (
     "SELECT l.id AS link_id, l.kalshi_event_ticker AS kalshi_event_ticker, "
     "       l.odds_event_id AS odds_event_id, e.title AS event_title "
@@ -1850,6 +1861,7 @@ class _CmAsk:
     recon_reason: Optional[str] = None
     hours_to_first: Optional[float] = None
     first_unknown: bool = True
+    kalshi_clock_hours: Optional[float] = None
     size_cut: str = "size unknown"
     leagues: Optional[tuple] = None
     refused_too_fine: Optional[int] = None
@@ -2188,18 +2200,31 @@ def _cm_collect(conn: sqlite3.Connection, args, cutoff_ms: int) -> _CmCollected:
     for ask, legs_json in everyone:
         legs = json.loads(legs_json)
         commences, leagues, unknown = [], [], False
+        kalshi_clock, kalshi_clock_unknown = [], False
         for leg in legs:
             ev = conn.execute(
                 _SQL_CM_EVENT, (leg.get("event_ticker") if isinstance(leg, dict) else None,)
             ).fetchone()
-            if ev is None or ev[0] is None:
-                unknown = True
+            ts = conn.execute(
+                _SQL_CM_TRUE_START,
+                (leg.get("event_ticker") if isinstance(leg, dict) else None,),
+            ).fetchone()
+            if ts is None or ts[0] is None or not ts[1]:
+                unknown = True  # any unlinked leg: unknown, never guessed
             else:
-                commences.append(ev[0])
+                commences.append(ts[0])
+            if ev is not None and ev[0] is not None:
+                kalshi_clock.append(ev[0])
+            else:
+                kalshi_clock_unknown = True
             leagues.append(ev[1] if ev is not None else None)
         ask.first_unknown = unknown or not commences
         if not ask.first_unknown:
             ask.hours_to_first = (min(commences) - ask.requested_ms) / _CM_HOUR_MS
+        if kalshi_clock and not kalshi_clock_unknown:
+            ask.kalshi_clock_hours = (
+                (min(kalshi_clock) - ask.requested_ms) / _CM_HOUR_MS
+            )
         ask.leagues = tuple(sorted({l for l in leagues if l is not None})) if all(
             l is not None for l in leagues
         ) else None
@@ -2565,10 +2590,25 @@ def _cm_sections(col: _CmCollected, cutoff_ms: int, args) -> list[Section]:
         columns=("fit", "against", "n", "G_days", "kappa", "se_cr1", "t"),
         rows=p2_variant_rows,
     ))
-    left_out = len(pop) - len(p2_pop)
+    unknown_start = sum(1 for a in pop if a.first_unknown)
+    already_started = sum(
+        1 for a in pop
+        if not a.first_unknown and a.hours_to_first is not None
+        and a.hours_to_first < 0
+    )
+    band_changed = sum(
+        1 for a in pop
+        if _cm_hours_cut(a.hours_to_first, a.first_unknown)
+        != _cm_hours_cut(a.kalshi_clock_hours, a.kalshi_clock_hours is None)
+    )
     sections.append(Section(
-        title="P2 asks left out (first leg already started, or a start unknown)",
-        columns=("asks_left_out",), rows=[(left_out,)],
+        title="P2 asks left out: start from the odds fixture via event_links "
+              "(MIN over links; any unlinked leg = unknown, never guessed); "
+              "band_changed counts asks whose hours-to-first band differs "
+              "from the Kalshi-clock source (kalshi_events.commence_ms, "
+              "three hours late)",
+        columns=("p2_unknown_start", "already_started", "band_changed_vs_kalshi_clock"),
+        rows=[(unknown_start, already_started, band_changed)],
     ))
 
     # Leave-one-day-out for the primary P1.
@@ -2774,7 +2814,12 @@ def _q_combo_markup(conn: sqlite3.Connection, args) -> list[Section]:
     as `leg_has_no_fair_row`; (5) `g` is rebuilt by calling the ladder's own
     `ladder_candidates` over a pool built as of the lookup, which requires
     `backend` to import; if it cannot, every ask is `ladder_unavailable` and
-    no g test can pass.
+    no g test can pass; (6) kickoff, as amended: the registration's
+    `kalshi_events.commence_ms` is a clock three hours late, so hours to
+    first game and the P2 indicator use the odds fixture's start reached
+    through `event_links` and `odds_fixtures` (MIN over links, earliest over
+    the ask's legs). Any unlinked leg makes the ask `unknown` and out of P2
+    (`p2_unknown_start`); the Kalshi clock is read only to count band changes.
     """
     cutoff_ms = _cm_parse_cutoff(getattr(args, "cutoff", None))
     col = _cm_collect(conn, args, cutoff_ms)
