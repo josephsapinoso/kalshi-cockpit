@@ -959,10 +959,11 @@ class TestEachLegCarriesItsAskAndChance:
         t1, e1 = seed_game(conn, game="qe", team="Team QEA", other="Team QEB",
                             p=0.7, computed_ms=base)
         conn.commit()
-        pool = candidate_pool(conn, now_ms=now_ms(), max_odds_age_ms=MAX_ODDS_AGE_MS)
+        now = now_ms()
+        pool = candidate_pool(conn, now_ms=now, max_odds_age_ms=MAX_ODDS_AGE_MS)
         pool = pool._replace(eligible_events=None)
         candidates, _ = ladder_candidates(
-            conn, now_ms=now_ms(), max_odds_age_ms=MAX_ODDS_AGE_MS,
+            conn, now_ms=now, max_odds_age_ms=MAX_ODDS_AGE_MS,
             horizon=parlay_check.WIDEST_HORIZON, pool=pool,
         )
         [leg] = [c for c in candidates if c.kalshi_market_ticker == t1
