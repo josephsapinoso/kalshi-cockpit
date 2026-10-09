@@ -101,6 +101,8 @@
 
 import { useCallback, useEffect, useId, useState } from "react";
 
+import HeldConflictsNote from "@/components/HeldConflictsNote";
+
 import {
   DISPLAY_TIME_ZONE,
   fetchExposure,
@@ -730,6 +732,10 @@ function TicketBody({
       )}
 
       {note && <p className="max-w-[65ch] text-xs text-muted">{note}</p>}
+
+      {/* Warns, never blocks: a bet on the other side can be deliberate
+          (#333; ADR 0112 leaves no brake of ours on a hand bet). */}
+      <HeldConflictsNote ticker={market.ticker} side={side} />
 
       <DollarAmount
         askTenths={facts.ask_tenths}

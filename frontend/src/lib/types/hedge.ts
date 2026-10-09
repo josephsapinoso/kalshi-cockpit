@@ -209,7 +209,7 @@ export type HeldPosition = {
  * side, or another team to win the same full game. Exact clashes only.
  */
 export type HeldConflict = {
-  kind: "opposite_side" | "other_winner";
+  kind: "opposite_side" | "other_winner" | "same_side";
   leg_label: string;
   held_label: string;
   position_id: number;
