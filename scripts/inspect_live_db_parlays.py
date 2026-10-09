@@ -4,7 +4,8 @@ Queries: `parlay-candidates-timing`, `parlay-lookups-tail`,
 `combo-bids-tail`, `combo-position-gaps`, `combo-position-orphans`,
 `ladder-fixtures`, `scout-briefings`, `scout-watch-log`, `agent-spend`,
 `game-script-card-stamps`, `game-script-card-rechecks`,
-`game-script-card-refusals`, `parlay-lookup-errors`, `own-open-rfqs`.
+`game-script-card-refusals`, `parlay-lookup-errors`, `own-open-rfqs`,
+`combo-markup`.
 
 The candidate scan timed and EXPLAINed on the live database, the "Price on
 Kalshi" taps that minted a combination market -- the only record anywhere
@@ -23,15 +24,24 @@ that file's docstring.
 
 from __future__ import annotations
 
+import json
+import math
+import random
 import sqlite3
+import statistics
+import sys
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Optional
 
 from inspect_live_db_common import (
     Section,
     _MS_PER_DAY,
     _derive_iso,
     _fetch,
+    _iso,
     _window_section,
 )
 
@@ -1529,3 +1539,1288 @@ def _q_own_open_rfqs(conn: sqlite3.Connection, args) -> list[Section]:
     )
     section = _derive_iso(section, "oldest_open_ms", "oldest_open_iso")
     return [_derive_iso(section, "newest_open_ms", "newest_open_iso")]
+
+
+# ---------------------------------------------------------------------------
+# combo-markup: the makers' markup over the desk's fair, by leg count (#327).
+# ---------------------------------------------------------------------------
+#
+# **Spec: `docs/measurements/2026-10-08-preregistration-combo-markup-by-leg-count.md`.**
+# That file fixes the unit, the filters, the statistics, the cells, the floors
+# and the looks; every constant below is copied from it and none was tuned.
+# Where this module could not do what it says, the deviation is listed in the
+# `combo_markup` docstring under "Deviations", not left implicit.
+#
+# **The one number this module prints that the registration calls a verdict
+# is gated twice**: by the floor (an unmet floor prints no test, only counts)
+# and by the registered cutoff (`--cutoff`, default Look A). It is NOT a
+# running figure and must never be wired to a route, a push or a log line
+# (registration section 6, "No running figure, anywhere").
+
+#: Look A's cutoff, registration section 7. `--cutoff` overrides it for look B.
+_CM_LOOK_A_CUTOFF = "2026-10-08T00:00:00Z"
+_CM_FLOOR_ASKS = 20
+_CM_FLOOR_DAYS = 10
+_CM_FAIR_AGE_MS = 30 * 60 * 1000
+_CM_ALPHA = 0.0125
+_CM_BOOT_RESAMPLES = 10_000
+_CM_BOOT_SEED = 20261008
+_CM_BOOT_TAIL = 0.00125  # 99.75% two-sided
+_CM_RECON_FLOOR = 0.80
+_CM_REPRO_TOLERANCE = 0.05
+_CM_PLANNING_SIGMA_R = 0.10
+#: How far back a lookup is searched for (rule 7). Bounded so the read walks
+#: `idx_parlay_lookups_time` over a day, never the table; `parlay_lookups` has
+#: no index on `minted_market_ticker`. A lookup older than this counts as "not
+#: found", which only matters to the no-age-limit variant (rule 8 is 30 min).
+_CM_LOOKUP_LOOKBACK_MS = 24 * 3600 * 1000
+#: How far back a `fair_prices` row may have been computed and still be "the
+#: one in force". `computed_ms` freezes at first appearance (ADR 0133) and the
+#: ladder scan has seen rows up to eight days before kickoff, so 9 days.
+_CM_FAIR_LOOKBACK_MS = 9 * 24 * 3600 * 1000
+_CM_LEG_LEVELS = (2, 3, 4, 5, 6)
+_CM_BANDS = (
+    (0, 100, "[0,100)"),
+    (100, 250, "[100,250)"),
+    (250, 500, "[250,500)"),
+    (500, 1001, "[500,1000]"),
+)
+_CM_HOUR_MS = 3600 * 1000
+
+#: A copy of the literal market list inside `_SQL_PARLAY_CANDIDATES` (which is
+#: itself pinned to `backend.parlays.CANDIDATE_SQL`); a test pins this one to
+#: that one. The ladder's `else` arm treats any unknown market as a moneyline,
+#: so the as-of read must filter exactly as the live scan does.
+_CM_POOL_MARKETS_SQL = (
+    "('h2h', 'spreads', 'totals', 'pitcher_strikeouts', 'batter_total_bases', "
+    "'batter_hits', 'batter_home_runs', 'batter_rbis', 'player_pass_yds', "
+    "'player_reception_yds', 'player_rush_yds')"
+)
+
+_SQL_CM_ASKS = (
+    "SELECT id, rfq_id, requested_ms, card_key, ticker, selected_legs, "
+    "       target_cost_dollars, contracts_requested, fair_joint, "
+    "       book_yes_ask_tenths, quote_count, refused_too_fine, status, purpose "
+    "FROM combo_rfqs WHERE requested_ms < ? "
+    "ORDER BY requested_ms DESC, id DESC"
+)
+_SQL_CM_QUOTES = (
+    "SELECT yes_ask_tenths, captured_ms FROM combo_rfq_quotes WHERE rfq_id = ?"
+)
+_SQL_CM_LOOKUP = (
+    "SELECT id, requested_ms, fair_joint_conservative FROM parlay_lookups "
+    "WHERE minted_market_ticker = ? AND requested_ms <= ? AND requested_ms >= ? "
+    "ORDER BY requested_ms DESC, id DESC LIMIT 1"
+)
+_SQL_CM_EVENT = (
+    "SELECT e.commence_ms AS commence_ms, s.league AS league "
+    "FROM kalshi_events e LEFT JOIN kalshi_series s "
+    "ON s.series_ticker = e.series_ticker WHERE e.event_ticker = ?"
+)
+#: **The true start (registration amendment, 2026-10-08).** The odds fixture's
+#: start reached through `event_links` (UNIQUE on kalshi_event_ticker,
+#: odds_event_id) and `odds_fixtures` (PRIMARY KEY odds_event_id), MIN over
+#: links. `kalshi_events.commence_ms` runs three hours late and is read only
+#: to count how many asks change band, never as a start.
+_SQL_CM_TRUE_START = (
+    "SELECT MIN(f.commence_ms) AS commence_ms, COUNT(f.commence_ms) AS fixtures "
+    "FROM event_links l LEFT JOIN odds_fixtures f "
+    "ON f.odds_event_id = l.odds_event_id "
+    "WHERE l.kalshi_event_ticker = ?"
+)
+_SQL_CM_LINKS = (
+    "SELECT l.id AS link_id, l.kalshi_event_ticker AS kalshi_event_ticker, "
+    "       l.odds_event_id AS odds_event_id, e.title AS event_title "
+    "FROM event_links l JOIN kalshi_events e "
+    "ON e.event_ticker = l.kalshi_event_ticker "
+    "WHERE l.kalshi_event_ticker = ?"
+)
+_SQL_CM_SPORT = "SELECT sport_key FROM odds_snapshots WHERE odds_event_id = ? LIMIT 1"
+_SQL_CM_MARKETS = (
+    "SELECT ticker, title, yes_side_team, player_name, market_type, "
+    "strike, status "
+    "FROM kalshi_markets WHERE event_ticker = ? "
+    "AND ("
+    "  (market_type IN ('moneyline', 'spread', 'total') "
+    "   AND yes_side_team IS NOT NULL)"
+    "  OR (market_type = 'prop' AND player_name IS NOT NULL "
+    "      AND strike IS NOT NULL)"
+    ")"
+)
+#: **The as-of read.** The freshest row per identity that existed at the
+#: lookup's `requested_ms`, keyed by link and bounded below by the lookback.
+#: `INDEXED BY idx_fair_link` makes a planner that prefers
+#: `idx_fair_market_computed` fail loudly instead of walking the market's
+#: whole history; `tests/test_inspect_live_db_parlays.py` pins the plan, and
+#: the `computed_ms <=` bound is what the pin goes red without.
+_SQL_CM_FAIR_ASOF = (
+    "SELECT computed_ms, market, outcome_name, outcome_point, "
+    "       outcome_description, p_multiplicative, p_additive, p_power, p_shin, "
+    "       p_conservative, oldest_book_age_ms, confirmed_ms, "
+    "       confirmed_oldest_book_age_ms, link_id, market_width, book_count, "
+    "       books_used, anchored_on_sharp "
+    "FROM ("
+    "  SELECT f.*, ROW_NUMBER() OVER ("
+    "           PARTITION BY f.market, f.outcome_name, f.outcome_description, "
+    "                        f.outcome_point "
+    "           ORDER BY f.computed_ms DESC, f.id DESC) AS rn "
+    "  FROM fair_prices f INDEXED BY idx_fair_link "
+    "  WHERE f.link_id = ? AND f.computed_ms <= ? AND f.computed_ms > ? "
+    f"   AND f.market IN {_CM_POOL_MARKETS_SQL}"
+    ") WHERE rn = 1"
+)
+
+
+# --- pure helpers: time, quantiles, OLS, t ----------------------------------
+
+
+def _cm_nth_sunday(year: int, month: int, n: int) -> int:
+    first = datetime(year, month, 1, tzinfo=timezone.utc)
+    return 1 + (6 - first.weekday()) % 7 + 7 * (n - 1)
+
+
+def _cm_eastern_day(ms: int) -> str:
+    """The US Eastern calendar day of an instant, with the US DST rule
+    (second Sunday of March 02:00 local to first Sunday of November 02:00
+    local) applied by hand: `zoneinfo` needs a tz database the box may lack.
+    """
+    utc = datetime.fromtimestamp(ms / 1000, timezone.utc)
+    start = datetime(
+        utc.year, 3, _cm_nth_sunday(utc.year, 3, 2), 7, tzinfo=timezone.utc
+    )
+    end = datetime(
+        utc.year, 11, _cm_nth_sunday(utc.year, 11, 1), 6, tzinfo=timezone.utc
+    )
+    offset = timedelta(hours=-4 if start <= utc < end else -5)
+    return (utc + offset).date().isoformat()
+
+
+def _cm_q(values: list[float], q: float) -> Optional[float]:
+    """Linear-interpolation quantile (inclusive, type 7). None on empty."""
+    if not values:
+        return None
+    s = sorted(values)
+    if len(s) == 1:
+        return s[0]
+    pos = q * (len(s) - 1)
+    lo = int(math.floor(pos))
+    hi = min(lo + 1, len(s) - 1)
+    return s[lo] + (s[hi] - s[lo]) * (pos - lo)
+
+
+def _cm_median(values: list[float]) -> Optional[float]:
+    return statistics.median(values) if values else None
+
+
+def _cm_round(x: Optional[float], nd: int = 4) -> Optional[float]:
+    return None if x is None else round(x, nd)
+
+
+def _cm_betacf(a: float, b: float, x: float) -> float:
+    tiny = 1e-300
+    qab, qap, qam = a + b, a + 1.0, a - 1.0
+    c, d = 1.0, 1.0 - qab * x / qap
+    d = 1.0 / (d if abs(d) > tiny else tiny)
+    h = d
+    for m in range(1, 300):
+        m2 = 2 * m
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        d = 1.0 / (d if abs(d) > tiny else tiny)
+        c = 1.0 + aa / c
+        c = c if abs(c) > tiny else tiny
+        h *= d * c
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        d = 1.0 / (d if abs(d) > tiny else tiny)
+        c = 1.0 + aa / c
+        c = c if abs(c) > tiny else tiny
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 3e-14:
+            break
+    return h
+
+
+def _cm_betainc(a: float, b: float, x: float) -> float:
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    ln_front = (
+        math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b)
+        + a * math.log(x) + b * math.log(1.0 - x)
+    )
+    front = math.exp(ln_front)
+    if x < (a + 1.0) / (a + b + 2.0):
+        return front * _cm_betacf(a, b, x) / a
+    return 1.0 - front * _cm_betacf(b, a, 1.0 - x) / b
+
+
+def _cm_t_cdf(t: float, df: float) -> float:
+    x = df / (df + t * t)
+    tail = 0.5 * _cm_betainc(df / 2.0, 0.5, x)
+    return 1.0 - tail if t > 0 else tail
+
+
+def _cm_t_crit(g_days: int, alpha: float = _CM_ALPHA) -> Optional[float]:
+    """One-sided upper `alpha` quantile of t on `G - 1` df (None if G < 2)."""
+    if g_days < 2:
+        return None
+    df = g_days - 1
+    lo, hi = 0.0, 1000.0
+    for _ in range(200):
+        mid = (lo + hi) / 2.0
+        if 1.0 - _cm_t_cdf(mid, df) > alpha:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
+
+
+def _cm_invert(m: list[list[float]]) -> Optional[list[list[float]]]:
+    k = len(m)
+    a = [row[:] + [1.0 if i == j else 0.0 for j in range(k)] for i, row in enumerate(m)]
+    for col in range(k):
+        piv = max(range(col, k), key=lambda r: abs(a[r][col]))
+        if abs(a[piv][col]) < 1e-12:
+            return None
+        a[col], a[piv] = a[piv], a[col]
+        p = a[col][col]
+        a[col] = [v / p for v in a[col]]
+        for r in range(k):
+            if r != col:
+                f = a[r][col]
+                a[r] = [v - f * w for v, w in zip(a[r], a[col])]
+    return [row[k:] for row in a]
+
+
+def _cm_ols_cr1(xs: list[list[float]], ys: list[float], clusters: list[str]):
+    """OLS with the CR1 cluster-robust covariance.
+
+    Returns `(beta, se, G, n)`; `se` is None when fewer than two clusters or
+    `n <= k` (the small-sample factor is undefined), `beta` is None when the
+    design is singular. CR1 = G/(G-1) * (n-1)/(n-k) * (X'X)^-1 M (X'X)^-1,
+    M the sum over clusters of (X_g'u_g)(X_g'u_g)'.
+    """
+    n, k = len(ys), len(xs[0]) if xs else 0
+    g_days = len(set(clusters))
+    if n == 0:
+        return None, None, g_days, n
+    xtx = [[sum(x[a] * x[b] for x in xs) for b in range(k)] for a in range(k)]
+    inv = _cm_invert(xtx)
+    if inv is None:
+        return None, None, g_days, n
+    xty = [sum(x[a] * y for x, y in zip(xs, ys)) for a in range(k)]
+    beta = [sum(inv[a][b] * xty[b] for b in range(k)) for a in range(k)]
+    if g_days < 2 or n <= k:
+        return beta, None, g_days, n
+    scores: dict[str, list[float]] = {}
+    for x, y, c in zip(xs, ys, clusters):
+        u = y - sum(beta[a] * x[a] for a in range(k))
+        s = scores.setdefault(c, [0.0] * k)
+        for a in range(k):
+            s[a] += x[a] * u
+    meat = [[sum(s[a] * s[b] for s in scores.values()) for b in range(k)] for a in range(k)]
+    scale = (g_days / (g_days - 1.0)) * ((n - 1.0) / (n - k))
+    # V = scale * inv * meat * inv
+    tmp = [[sum(inv[a][c] * meat[c][b] for c in range(k)) for b in range(k)] for a in range(k)]
+    se = []
+    for a in range(k):
+        v = scale * sum(tmp[a][c] * inv[c][a] for c in range(k))
+        se.append(math.sqrt(v) if v > 0 else None)
+    return beta, se, g_days, n
+
+
+# --- the per-ask record -----------------------------------------------------
+
+
+@dataclass
+class _CmAsk:
+    ask_id: int
+    requested_ms: int
+    day: str
+    ticker: str
+    card_key: Optional[str]
+    legs: int
+    b: Optional[int] = None
+    fair: Optional[float] = None
+    f_tenths: Optional[float] = None
+    r_f: Optional[float] = None
+    pct_f: Optional[float] = None
+    tenths_markup: Optional[float] = None
+    band: Optional[str] = None
+    quotes_asks: list = field(default_factory=list)
+    single_read: bool = True
+    lookup_ms: Optional[int] = None
+    prov_ok: bool = False
+    age_ok: bool = False
+    g_tenths: Optional[float] = None
+    r_g: Optional[float] = None
+    pct_g: Optional[float] = None
+    recon_reason: Optional[str] = None
+    hours_to_first: Optional[float] = None
+    first_unknown: bool = True
+    kalshi_clock_hours: Optional[float] = None
+    size_cut: str = "size unknown"
+    leagues: Optional[tuple] = None
+    refused_too_fine: Optional[int] = None
+    book_ask: Optional[int] = None
+
+
+def _cm_band(b: int) -> Optional[str]:
+    for lo, hi, label in _CM_BANDS:
+        if lo <= b < hi:
+            return label
+    return None
+
+
+def _cm_leg_count(selected_legs: str) -> Optional[int]:
+    try:
+        legs = json.loads(selected_legs)
+    except (TypeError, ValueError):
+        return None
+    return len(legs) if isinstance(legs, list) else None
+
+
+def _cm_level(legs: int) -> int:
+    return min(legs, 6)
+
+
+def _cm_size_cut(target: Optional[str], contracts: Optional[int]) -> str:
+    if contracts is not None:
+        return "sized by contracts_requested"
+    try:
+        d = float(target) if target is not None else None
+    except ValueError:
+        d = None
+    if d is None:
+        return "size unknown"
+    if d <= 1:
+        return "up to $1"
+    if d <= 5:
+        return "over $1 to $5"
+    if d <= 20:
+        return "over $5 to $20"
+    return "over $20"
+
+
+def _cm_hours_cut(hours: Optional[float], unknown: bool) -> str:
+    if unknown or hours is None:
+        return "unknown"
+    if hours < 0:
+        return "already started"
+    if hours < 2:
+        return "[0,2h)"
+    if hours < 6:
+        return "[2h,6h)"
+    if hours < 24:
+        return "[6h,24h)"
+    return "24h or more"
+
+
+# --- the generous fair g: rebuilt through the ladder's own mapping ----------
+
+
+def _cm_load_ladder():
+    """`backend.parlays` and `backend.core.ladder`, or `(None, reason)`.
+
+    Imported lazily and only here. The family imports nothing from `backend`
+    at module load (`python /app/scripts/...` does not put `/app` on the
+    path), so this adds the repo root to the path for the one call that needs
+    the ladder's own leg-to-row mapping (registration section 4: "reuse the
+    ladder's own mapping ... not write a second one").
+    """
+    try:
+        try:
+            from backend import parlays as parlays_mod
+        except ImportError:
+            root = str(Path(__file__).resolve().parent.parent)
+            if root not in sys.path:
+                sys.path.insert(0, root)
+            from backend import parlays as parlays_mod
+        return parlays_mod, None
+    except Exception as exc:  # noqa: BLE001 -- reported, never swallowed
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+class _CmReconstructor:
+    """Rebuilds `g` for one ask: every leg at its most generous devig method."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+        self.parlays, self.unavailable = _cm_load_ladder()
+        self._links: dict[str, Any] = {}
+        self._markets: dict[str, list] = {}
+        self.fair_reads = 0
+
+    def _link(self, event_ticker: str):
+        if event_ticker not in self._links:
+            row = self.conn.execute(_SQL_CM_LINKS, (event_ticker,)).fetchone()
+            sport = None
+            if row is not None:
+                s = self.conn.execute(_SQL_CM_SPORT, (row[2],)).fetchone()
+                sport = s[0] if s else None
+            self._links[event_ticker] = (row, sport)
+        return self._links[event_ticker]
+
+    def reconstruct(self, legs: list[dict], asof_ms: int, f_prob: float):
+        """`(g_prob, None)` or `(None, reason)`."""
+        if self.parlays is None:
+            return None, "ladder_unavailable"
+        freshest: dict = {}
+        events: list[str] = []
+        for leg in legs:
+            et = leg.get("event_ticker") if isinstance(leg, dict) else None
+            if not et:
+                return None, "leg_unreadable"
+            if et not in events:
+                events.append(et)
+        for et in events:
+            link, sport = self._link(et)
+            if link is None:
+                return None, "no_event_link"
+            if et not in self._markets:
+                self._markets[et] = self.conn.execute(
+                    _SQL_CM_MARKETS, (et,)
+                ).fetchall()
+            self.fair_reads += 1
+            for r in self.conn.execute(
+                _SQL_CM_FAIR_ASOF,
+                (link[0], asof_ms, asof_ms - _CM_FAIR_LOOKBACK_MS),
+            ).fetchall():
+                row = {
+                    "computed_ms": r[0], "market": r[1], "outcome_name": r[2],
+                    "outcome_point": r[3], "outcome_description": r[4],
+                    "p_multiplicative": r[5], "p_additive": r[6],
+                    "p_power": r[7], "p_shin": r[8], "p_conservative": r[9],
+                    "oldest_book_age_ms": r[10], "confirmed_ms": r[11],
+                    "confirmed_oldest_book_age_ms": r[12], "link_id": r[13],
+                    "market_width": r[14], "book_count": r[15],
+                    "books_used": r[16], "anchored_on_sharp": r[17],
+                    "kalshi_event_ticker": link[1], "odds_event_id": link[2],
+                    "event_title": link[3], "commence_ms": None,
+                    "home_team": None, "away_team": None, "sport_key": sport,
+                }
+                key = (r[13], r[1], r[2], r[4], r[3])
+                freshest.setdefault(key, row)
+        outcomes_by_link: dict[int, list[str]] = {}
+        for (link_id, market, outcome, _d, _p), _row in freshest.items():
+            if market in ("h2h", "spreads"):
+                if outcome not in outcomes_by_link.setdefault(link_id, []):
+                    outcomes_by_link[link_id].append(outcome)
+        pool = self.parlays.CandidatePool(
+            freshest=freshest,
+            outcomes_by_link=outcomes_by_link,
+            markets_by_event={et: self._markets[et] for et in events},
+            eligible_events=None,
+            now_ms=asof_ms,
+            max_odds_age_ms=None,
+        )
+        cands, _excluded = self.parlays.ladder_candidates(
+            self.conn, now_ms=asof_ms, max_odds_age_ms=None, horizon="48h",
+            pool=pool,
+        )
+        by_key = {
+            (c.kalshi_event_ticker, c.kalshi_market_ticker, c.side): c
+            for c in cands
+        }
+        prod_lo, prod_ratio = 1.0, 1.0
+        for leg in legs:
+            side = leg.get("side") or "yes"
+            c = by_key.get(
+                (leg.get("event_ticker"), leg.get("market_ticker"), side)
+            )
+            if c is None:
+                return None, "leg_has_no_fair_row"
+            hi = [v for v in c.p_by_method.values() if v is not None]
+            if not hi or not c.p_conservative or c.p_conservative <= 0:
+                return None, "no_method_columns"
+            prod_lo *= c.p_conservative
+            prod_ratio *= max(hi) / c.p_conservative
+        if f_prob <= 0 or prod_lo <= 0:
+            return None, "reproduction_failed"
+        if abs(math.log(prod_lo / f_prob)) > _CM_REPRO_TOLERANCE:
+            return None, "reproduction_failed"
+        return f_prob * prod_ratio, None
+
+
+# --- collection: DB rows to asks and counts ---------------------------------
+
+
+@dataclass
+class _CmCollected:
+    scanned: int = 0
+    truncated: bool = False
+    status_by_level: dict = field(default_factory=dict)
+    fair_null_by_card: dict = field(default_factory=dict)
+    asks: list = field(default_factory=list)  # passes 1-5 + extras, any flags
+    disp_asks: list = field(default_factory=list)  # (level|None, has_fair, [asks])
+    quotes_read: int = 0
+    lookups_read: int = 0
+    recon_unavailable: Optional[str] = None
+    multi_ticker_asks: int = 0
+    multi_ticker_tickers: int = 0
+    fair_reads: int = 0
+    funnel_after_6: int = 0
+    final: list = field(default_factory=list)
+    everyone: list = field(default_factory=list)
+    removed: dict = field(default_factory=dict)
+
+
+def _cm_parse_cutoff(value: Optional[str]) -> int:
+    text = value or _CM_LOOK_A_CUTOFF
+    if text.isdigit():
+        return int(text)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(
+            f"--cutoff {text!r} is neither epoch milliseconds nor ISO-8601"
+        ) from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return int(parsed.timestamp() * 1000)
+
+
+def _cm_collect(conn: sqlite3.Connection, args, cutoff_ms: int) -> _CmCollected:
+    out = _CmCollected()
+    section = _fetch(
+        conn, _SQL_CM_ASKS, (cutoff_ms,),
+        title="asks", cap=args.limit, requested=args.limit,
+    )
+    rows = section.rows
+    out.scanned = len(rows)
+    out.truncated = section.truncated
+
+    removed = {k: 0 for k in (
+        "2 purpose", "3 status", "4 fair NULL", "5 fair outside (0,1)",
+        "6 single-read", "7 provenance", "8 fair age",
+        "9 no best ask / not positive", "10 legs unreadable or fewer than 2",
+    )}
+    for row in rows:
+        (ask_id, rfq_id, req_ms, card_key, ticker, legs_json, target, contracts,
+         fair, book_ask, _qc, refused, status, purpose) = row
+        n_legs = _cm_leg_count(legs_json)
+        lvl = "unreadable" if n_legs is None else _cm_level(n_legs)
+        if purpose not in (None, "buy"):
+            removed["2 purpose"] += 1
+            continue
+        if status != "quoted":
+            removed["3 status"] += 1
+            d = out.status_by_level.setdefault(status, {})
+            d[lvl] = d.get(lvl, 0) + 1
+            continue
+        d = out.status_by_level.setdefault("quoted", {})
+        d[lvl] = d.get(lvl, 0) + 1
+        qrows = conn.execute(_SQL_CM_QUOTES, (rfq_id,)).fetchall()
+        out.quotes_read += len(qrows)
+        single = all(q[1] == req_ms for q in qrows)
+        asks_q = [q[0] for q in qrows if q[0] is not None]
+        has_fair = fair is not None
+        out.disp_asks.append((
+            None if n_legs is None else n_legs, has_fair, single, asks_q,
+        ))
+        ask = _CmAsk(
+            ask_id=ask_id, requested_ms=req_ms, day=_cm_eastern_day(req_ms),
+            ticker=ticker, card_key=card_key,
+            legs=n_legs if n_legs is not None else -1,
+            quotes_asks=asks_q, single_read=single,
+            refused_too_fine=refused, book_ask=book_ask,
+            size_cut=_cm_size_cut(target, contracts),
+        )
+        ask.fair = fair
+        if not has_fair:
+            removed["4 fair NULL"] += 1
+            k = card_key if card_key is not None else "NULL"
+            out.fair_null_by_card[k] = out.fair_null_by_card.get(k, 0) + 1
+            continue
+        if not (0 < fair < 1):
+            removed["5 fair outside (0,1)"] += 1
+            continue
+        ask.f_tenths = fair * 1000.0
+        out.asks.append((ask, legs_json))
+
+    # Rules 6-8 and the extras are applied to the survivors of 1-5, in order,
+    # but their FLAGS are all kept so the registered variants (rule 6 put
+    # back, no age limit) read the same rows.
+    recon = _CmReconstructor(conn)
+    out.recon_unavailable = recon.unavailable
+    survivors: list = []
+    for ask, legs_json in out.asks:
+        lk = conn.execute(
+            _SQL_CM_LOOKUP,
+            (ask.ticker, ask.requested_ms, ask.requested_ms - _CM_LOOKUP_LOOKBACK_MS),
+        ).fetchone()
+        out.lookups_read += 1
+        if lk is not None:
+            ask.lookup_ms = lk[1]
+            ask.prov_ok = (
+                lk[2] is not None and abs(lk[2] - ask.fair) < 1e-12
+            )
+            ask.age_ok = (ask.requested_ms - lk[1]) <= _CM_FAIR_AGE_MS
+        if not ask.single_read:
+            removed["6 single-read"] += 1
+            continue
+        survivors.append((ask, legs_json))
+    out.funnel_after_6 = len(survivors)
+    kept: list = []
+    for ask, legs_json in survivors:
+        if not ask.prov_ok:
+            removed["7 provenance"] += 1
+            continue
+        if not ask.age_ok:
+            removed["8 fair age"] += 1
+            continue
+        kept.append((ask, legs_json))
+
+    final: list = []
+    for ask, legs_json in kept:
+        if not ask.quotes_asks or min(ask.quotes_asks) <= 0:
+            removed["9 no best ask / not positive"] += 1
+            continue
+        if ask.legs < 2:
+            removed["10 legs unreadable or fewer than 2"] += 1
+            continue
+        final.append(ask)
+
+    # Fill the derived fields for EVERY ask that passed 1-5 and has a legs
+    # count and a best ask, so the variants can reuse them; mark the primary.
+    everyone = []
+    for ask, legs_json in out.asks:
+        if not ask.quotes_asks or min(ask.quotes_asks) <= 0 or ask.legs < 2:
+            continue
+        ask.b = min(ask.quotes_asks)
+        ask.r_f = math.log(ask.b / ask.f_tenths)
+        ask.pct_f = 100.0 * (ask.b - ask.f_tenths) / ask.f_tenths
+        ask.tenths_markup = ask.b - ask.f_tenths
+        ask.band = _cm_band(ask.b)
+        everyone.append((ask, legs_json))
+    # Secondary facts (event commence, league) and g, per ask.
+    for ask, legs_json in everyone:
+        legs = json.loads(legs_json)
+        commences, leagues, unknown = [], [], False
+        kalshi_clock, kalshi_clock_unknown = [], False
+        for leg in legs:
+            ev = conn.execute(
+                _SQL_CM_EVENT, (leg.get("event_ticker") if isinstance(leg, dict) else None,)
+            ).fetchone()
+            ts = conn.execute(
+                _SQL_CM_TRUE_START,
+                (leg.get("event_ticker") if isinstance(leg, dict) else None,),
+            ).fetchone()
+            if ts is None or ts[0] is None or not ts[1]:
+                unknown = True  # any unlinked leg: unknown, never guessed
+            else:
+                commences.append(ts[0])
+            if ev is not None and ev[0] is not None:
+                kalshi_clock.append(ev[0])
+            else:
+                kalshi_clock_unknown = True
+            leagues.append(ev[1] if ev is not None else None)
+        ask.first_unknown = unknown or not commences
+        if not ask.first_unknown:
+            ask.hours_to_first = (min(commences) - ask.requested_ms) / _CM_HOUR_MS
+        if kalshi_clock and not kalshi_clock_unknown:
+            ask.kalshi_clock_hours = (
+                (min(kalshi_clock) - ask.requested_ms) / _CM_HOUR_MS
+            )
+        ask.leagues = tuple(sorted({l for l in leagues if l is not None})) if all(
+            l is not None for l in leagues
+        ) else None
+        if ask.lookup_ms is None:
+            ask.recon_reason = "no_lookup"
+            continue
+        g_prob, why = recon.reconstruct(legs, ask.lookup_ms, ask.fair)
+        if g_prob is None:
+            ask.recon_reason = why
+        else:
+            ask.g_tenths = g_prob * 1000.0
+            ask.r_g = math.log(ask.b / ask.g_tenths)
+            ask.pct_g = 100.0 * (ask.b - ask.g_tenths) / ask.g_tenths
+    out.fair_reads = recon.fair_reads
+    out.final = final
+    out.everyone = [a for a, _ in everyone]
+    out.removed = removed
+    counts: dict[str, int] = {}
+    for a in final:
+        counts[a.ticker] = counts.get(a.ticker, 0) + 1
+    out.multi_ticker_tickers = sum(1 for c in counts.values() if c > 1)
+    out.multi_ticker_asks = sum(c for c in counts.values() if c > 1)
+    return out
+
+
+# --- analysis ---------------------------------------------------------------
+
+
+def _cm_days(asks) -> int:
+    return len({a.day for a in asks})
+
+
+def _cm_floor(asks) -> bool:
+    return len(asks) >= _CM_FLOOR_ASKS and _cm_days(asks) >= _CM_FLOOR_DAYS
+
+
+def _cm_largest_day(asks) -> tuple[Optional[str], Optional[float]]:
+    if not asks:
+        return None, None
+    counts: dict[str, int] = {}
+    for a in asks:
+        counts[a.day] = counts.get(a.day, 0) + 1
+    day = max(sorted(counts), key=lambda d: counts[d])
+    return day, counts[day] / len(asks)
+
+
+def _cm_fit(asks, use_g: bool, p2: bool = False):
+    """`(coef, se, G, n)` of the coefficient of interest.
+
+    P1: `r ~ 1 + L`, coefficient of interest `L`. P2: `r ~ 1 + under6 + L`,
+    coefficient of interest the indicator.
+    """
+    sel = [a for a in asks if (a.r_g if use_g else a.r_f) is not None]
+    if p2:
+        xs = [[1.0, 1.0 if a.hours_to_first < 6 else 0.0, float(_cm_level(a.legs))]
+              for a in sel]
+    else:
+        xs = [[1.0, float(_cm_level(a.legs))] for a in sel]
+    ys = [a.r_g if use_g else a.r_f for a in sel]
+    beta, se, g_days, n = _cm_ols_cr1(xs, ys, [a.day for a in sel])
+    idx = 1
+    if beta is None:
+        return None, None, g_days, n
+    return beta[idx], (se[idx] if se else None), g_days, n
+
+
+def _cm_slope_point(asks, use_g: bool) -> Optional[float]:
+    sel = [a for a in asks if (a.r_g if use_g else a.r_f) is not None]
+    if len({_cm_level(a.legs) for a in sel}) < 2:
+        return None
+    beta, _se, _g, _n = _cm_ols_cr1(
+        [[1.0, float(_cm_level(a.legs))] for a in sel],
+        [a.r_g if use_g else a.r_f for a in sel],
+        [a.day for a in sel],
+    )
+    return None if beta is None else beta[1]
+
+
+def _cm_boot_interval(asks, attr: str) -> tuple[Optional[float], Optional[float]]:
+    """Day-cluster bootstrap of the median of `attr`: 10,000 resamples, seed
+    20261008, 99.75% percentile interval. Not a test."""
+    by_day: dict[str, list[float]] = {}
+    for a in asks:
+        v = getattr(a, attr)
+        if v is not None:
+            by_day.setdefault(a.day, []).append(v)
+    days = sorted(by_day)
+    if len(days) < 2:
+        return None, None
+    rng = random.Random(_CM_BOOT_SEED)
+    meds = []
+    for _ in range(_CM_BOOT_RESAMPLES):
+        pool: list[float] = []
+        for d in rng.choices(days, k=len(days)):
+            pool.extend(by_day[d])
+        meds.append(statistics.median(pool))
+    meds.sort()
+    return _cm_q(meds, _CM_BOOT_TAIL), _cm_q(meds, 1.0 - _CM_BOOT_TAIL)
+
+
+def _cm_describe(label_cols: tuple, asks, *, interval: bool) -> tuple:
+    f_vals = [a.pct_f for a in asks]
+    g_asks = [a for a in asks if a.pct_g is not None]
+    g_vals = [a.pct_g for a in g_asks]
+    row = label_cols + (
+        len(asks), _cm_days(asks),
+        _cm_round(_cm_median([a.tenths_markup for a in asks]), 2),
+        _cm_round(_cm_median(f_vals), 2),
+        _cm_round(_cm_q(f_vals, 0.25), 2), _cm_round(_cm_q(f_vals, 0.75), 2),
+        len(g_asks),
+        _cm_round(_cm_median(g_vals), 2),
+        _cm_round(_cm_q(g_vals, 0.25), 2), _cm_round(_cm_q(g_vals, 0.75), 2),
+    )
+    if interval:
+        if _cm_floor(asks):
+            lo, hi = _cm_boot_interval(asks, "pct_f")
+            row += (_cm_round(lo, 2), _cm_round(hi, 2))
+        else:
+            row += ("below floor", "below floor")
+        if _cm_floor(g_asks):
+            lo, hi = _cm_boot_interval(g_asks, "pct_g")
+            row += (_cm_round(lo, 2), _cm_round(hi, 2))
+        else:
+            row += ("below floor", "below floor")
+    return row
+
+
+_CM_DESC_COLS = (
+    "n", "days", "median_markup_tenths", "median_pct_f", "q1_pct_f",
+    "q3_pct_f", "n_g", "median_pct_g", "q1_pct_g", "q3_pct_g",
+)
+_CM_INT_COLS = ("ci_lo_pct_f", "ci_hi_pct_f", "ci_lo_pct_g", "ci_hi_pct_g")
+
+
+def _cm_p1_outcome(bc, bg, drop_day_bg, refused0_bg, t_c, recon_ok):
+    """The registered P1 outcome word, checked in the registered order.
+
+    `bc`/`bg` are `(coef, se)`; the `*_bg` points are coefficients only.
+    """
+    def t_of(fit):
+        coef, se = fit
+        return None if coef is None or not se else coef / se
+
+    tc = t_of(bc)
+    tg = t_of(bg) if recon_ok else None
+    if tc is not None and tc >= t_c:
+        if (tg is not None and tg >= t_c
+                and drop_day_bg is not None and drop_day_bg > 0
+                and refused0_bg is not None and refused0_bg > 0):
+            return "MAKERS CHARGE MORE PER LEG"
+        return "GROWTH NOT SEPARATED FROM THE DESK'S OWN FAIR"
+    if tc is not None and tc <= -t_c:
+        return "REVERSED"
+    return "UNRESOLVED"
+
+
+def _cm_p2_outcome(kc, kg, drop_day_kg, t_c, recon_ok):
+    def t_of(fit):
+        coef, se = fit
+        return None if coef is None or not se else coef / se
+
+    tc = t_of(kc)
+    tg = t_of(kg) if recon_ok else None
+    if tc is None or tg is None:
+        return "UNRESOLVED"
+    if tc <= -t_c and tg <= -t_c and drop_day_kg is not None and drop_day_kg < 0:
+        return "TIGHTER INSIDE 6 HOURS"
+    if tc >= t_c and tg >= t_c and drop_day_kg is not None and drop_day_kg > 0:
+        return "WIDER INSIDE 6 HOURS"
+    return "UNRESOLVED"
+
+
+def _cm_sections(col: _CmCollected, cutoff_ms: int, args) -> list[Section]:
+    sections: list[Section] = []
+    pop = col.final
+    {a.ask_id for a in pop}
+
+    sections.append(Section(
+        title="combo-markup: window (registration: 2026-10-08-preregistration-"
+              "combo-markup-by-leg-count.md)",
+        columns=("cutoff_ms", "cutoff_iso", "asks_scanned", "limit",
+                 "truncated_at_limit", "quote_rows_read", "lookup_reads",
+                 "fair_as_of_reads", "ladder_import"),
+        rows=[(cutoff_ms, _iso(cutoff_ms), col.scanned, args.limit,
+               col.truncated, col.quotes_read, col.lookups_read,
+               col.fair_reads, col.recon_unavailable or "ok")],
+    ))
+
+    remaining = col.scanned
+    rows = [("1 requested_ms before cutoff", 0, remaining)]
+    removed = col.removed
+    for key in ("2 purpose", "3 status", "4 fair NULL", "5 fair outside (0,1)",
+                "6 single-read", "7 provenance", "8 fair age",
+                "9 no best ask / not positive",
+                "10 legs unreadable or fewer than 2"):
+        remaining -= removed[key]
+        rows.append((key, removed[key], remaining))
+    sections.append(Section(
+        title="Exclusion funnel (registration section 2 order; steps 9-10 are "
+              "guards the registration does not name -- see Deviations)",
+        columns=("step", "removed", "remaining"), rows=rows,
+    ))
+
+    lv = lambda k: str(k)  # noqa: E731
+    status_rows = []
+    for status in sorted(col.status_by_level):
+        d = col.status_by_level[status]
+        for lvl in sorted(d, key=lv):
+            status_rows.append((status, lvl, d[lvl]))
+    sections.append(Section(
+        title="Status of buy-side asks, by leg count (6 = 6+): counts, not rates",
+        columns=("status", "leg_count", "asks"), rows=status_rows,
+    ))
+    sections.append(Section(
+        title="Quoted asks with fair_joint NULL, by card_key (same-game or an "
+              "unpriceable leg); these still enter dispersion",
+        columns=("card_key", "asks"),
+        rows=sorted(col.fair_null_by_card.items()),
+    ))
+
+    passed_1_5 = col.scanned - sum(
+        removed[k] for k in ("2 purpose", "3 status", "4 fair NULL",
+                             "5 fair outside (0,1)")
+    )
+    r6 = removed["6 single-read"]
+    sections.append(Section(
+        title="Rule 6: single-read against re-asked (rule 6 is not provably "
+              "independent of the outcome; if the share removed exceeds 20% "
+              "the result's first paragraph says so)",
+        columns=("passed_rules_1_to_5", "single_read", "re_asked_removed",
+                 "share_removed", "over_20_pct"),
+        rows=[(passed_1_5, passed_1_5 - r6, r6,
+               _cm_round(r6 / passed_1_5, 4) if passed_1_5 else None,
+               (r6 / passed_1_5 > 0.20) if passed_1_5 else None)],
+    ))
+
+    day, share = _cm_largest_day(pop)
+    r_vals = [a.r_f for a in pop]
+    lvls = [float(_cm_level(a.legs)) for a in pop]
+    sections.append(Section(
+        title="Markup population (primary)",
+        columns=("n", "G_days", "largest_day", "largest_day_share",
+                 "tickers_asked_more_than_once", "asks_on_those_tickers",
+                 "share_of_asks_on_repeat_tickers", "observed_sigma_r",
+                 "planning_sigma_r", "sd_leg_count"),
+        rows=[(len(pop), _cm_days(pop), day, _cm_round(share, 4),
+               col.multi_ticker_tickers, col.multi_ticker_asks,
+               _cm_round(col.multi_ticker_asks / len(pop), 4) if pop else None,
+               _cm_round(statistics.stdev(r_vals), 4) if len(pop) > 1 else None,
+               _CM_PLANNING_SIGMA_R,
+               _cm_round(statistics.stdev(lvls), 4) if len(pop) > 1 else None)],
+    ))
+
+    # Reconstruction of g.
+    recon_rows = []
+    for lvl in _CM_LEG_LEVELS:
+        grp = [a for a in pop if _cm_level(a.legs) == lvl]
+        ok = [a for a in grp if a.g_tenths is not None]
+        recon_rows.append((lvl, len(grp), len(ok),
+                           _cm_round(len(ok) / len(grp), 4) if grp else None))
+    ok_all = [a for a in pop if a.g_tenths is not None]
+    recon_rows.append(("all", len(pop), len(ok_all),
+                       _cm_round(len(ok_all) / len(pop), 4) if pop else None))
+    sections.append(Section(
+        title="g reconstructed from fair_prices as of the lookup (a "
+              "reconstruction, not a stored value), by leg count",
+        columns=("leg_count", "asks", "reconstructed", "share"),
+        rows=recon_rows,
+    ))
+    reasons: dict[str, int] = {}
+    for a in pop:
+        if a.g_tenths is None:
+            reasons[a.recon_reason or "unknown"] = reasons.get(
+                a.recon_reason or "unknown", 0) + 1
+    sections.append(Section(
+        title="Why asks were not reconstructed (alternate-line legs carry no "
+              "per-method values and fall under leg_has_no_fair_row)",
+        columns=("reason", "asks"), rows=sorted(reasons.items()),
+    ))
+    recon_ok = bool(pop) and len(ok_all) / len(pop) >= _CM_RECON_FLOOR
+
+    # The 20 cells.
+    cell_rows = []
+    for lvl in _CM_LEG_LEVELS:
+        for lo, hi, label in _CM_BANDS:
+            grp = [a for a in pop if _cm_level(a.legs) == lvl and a.band == label]
+            cell_rows.append(_cm_describe((lvl, label), grp, interval=True))
+    sections.append(Section(
+        title="Cells: leg count x best-quote price band (never tested; "
+              "intervals only at the floor of 20 asks on 10 days)",
+        columns=("leg_count", "price_band") + _CM_DESC_COLS + _CM_INT_COLS,
+        rows=cell_rows,
+    ))
+
+    # Floors.
+    level_floor = {
+        lvl: _cm_floor([a for a in pop if _cm_level(a.legs) == lvl])
+        for lvl in _CM_LEG_LEVELS
+    }
+    p1_evaluable = sum(level_floor.values()) >= 2
+    p2_pop = [a for a in pop
+              if not a.first_unknown and a.hours_to_first is not None
+              and a.hours_to_first >= 0]
+    arm_under = [a for a in p2_pop if a.hours_to_first < 6]
+    arm_over = [a for a in p2_pop if a.hours_to_first >= 6]
+    p2_evaluable = _cm_floor(arm_under) and _cm_floor(arm_over)
+    sections.append(Section(
+        title="Floors (20 asks on 10 days): P1 needs two leg-count levels, "
+              "P2 needs each arm; any g test also needs 80% reconstructed",
+        columns=("item", "asks", "days", "meets_floor"),
+        rows=[(f"leg_count {lvl}",
+               len([a for a in pop if _cm_level(a.legs) == lvl]),
+               _cm_days([a for a in pop if _cm_level(a.legs) == lvl]),
+               level_floor[lvl]) for lvl in _CM_LEG_LEVELS]
+        + [("P2 arm under 6h", len(arm_under), _cm_days(arm_under), _cm_floor(arm_under)),
+           ("P2 arm 6h or more", len(arm_over), _cm_days(arm_over), _cm_floor(arm_over)),
+           ("P1 evaluable", len(pop), _cm_days(pop), p1_evaluable),
+           ("P2 evaluable", len(p2_pop), _cm_days(p2_pop), p2_evaluable),
+           ("g reconstructed share >= 80%", len(ok_all), _cm_days(ok_all), recon_ok)],
+    ))
+
+    # Variants (point estimates, printed beside the primary).
+    def fit_row(name, asks, p2=False):
+        out = []
+        for use_g in (False, True):
+            coef, se, g_days, n = _cm_fit(asks, use_g, p2=p2)
+            tt = coef / se if coef is not None and se else None
+            out.append((name, "g" if use_g else "f", n, g_days,
+                        _cm_round(coef, 5), _cm_round(se, 5), _cm_round(tt, 3)))
+        return out
+
+    big_day, _share = _cm_largest_day(pop)
+    no_age = [a for a in col.everyone if a.single_read and a.prov_ok]
+    with_r6 = [a for a in col.everyone if a.prov_ok and a.age_ok]
+    variant_rows = []
+    variant_rows += fit_row("P1 primary", pop)
+    variant_rows += fit_row("P1 largest day dropped", [a for a in pop if a.day != big_day])
+    variant_rows += fit_row("P1 refused_too_fine = 0",
+                            [a for a in pop if a.refused_too_fine == 0])
+    variant_rows += fit_row("P1 rule 6 rows put back", with_r6)
+    variant_rows += fit_row("P1 no fair-age limit", no_age)
+    sections.append(Section(
+        title="P1: OLS slope of r on leg count (6+ coded 6), CR1 by Eastern "
+              "day, against f and against g (variants are point estimates)",
+        columns=("fit", "against", "n", "G_days", "beta", "se_cr1", "t"),
+        rows=variant_rows,
+    ))
+    p2_variant_rows = []
+    p2_variant_rows += fit_row("P2 primary", p2_pop, p2=True)
+    p2_variant_rows += fit_row("P2 largest day dropped",
+                               [a for a in p2_pop if a.day != big_day], p2=True)
+    p2_variant_rows += fit_row("P2 rule 6 rows put back",
+                               [a for a in with_r6 if not a.first_unknown
+                                and a.hours_to_first is not None
+                                and a.hours_to_first >= 0], p2=True)
+    p2_variant_rows += fit_row("P2 no fair-age limit",
+                               [a for a in no_age if not a.first_unknown
+                                and a.hours_to_first is not None
+                                and a.hours_to_first >= 0], p2=True)
+    sections.append(Section(
+        title="P2: coefficient on 'earliest leg starts under 6h' with leg "
+              "count as a linear control, CR1 by day (variants are points)",
+        columns=("fit", "against", "n", "G_days", "kappa", "se_cr1", "t"),
+        rows=p2_variant_rows,
+    ))
+    unknown_start = sum(1 for a in pop if a.first_unknown)
+    already_started = sum(
+        1 for a in pop
+        if not a.first_unknown and a.hours_to_first is not None
+        and a.hours_to_first < 0
+    )
+    band_changed = sum(
+        1 for a in pop
+        if _cm_hours_cut(a.hours_to_first, a.first_unknown)
+        != _cm_hours_cut(a.kalshi_clock_hours, a.kalshi_clock_hours is None)
+    )
+    sections.append(Section(
+        title="P2 asks left out: start from the odds fixture via event_links "
+              "(MIN over links; any unlinked leg = unknown, never guessed); "
+              "band_changed counts asks whose hours-to-first band differs "
+              "from the Kalshi-clock source (kalshi_events.commence_ms, "
+              "three hours late)",
+        columns=("p2_unknown_start", "already_started", "band_changed_vs_kalshi_clock"),
+        rows=[(unknown_start, already_started, band_changed)],
+    ))
+
+    # Leave-one-day-out for the primary P1.
+    loo = []
+    for d in sorted({a.day for a in pop}):
+        rest = [a for a in pop if a.day != d]
+        cc, cs, cg, cn = _cm_fit(rest, False)
+        gc, gs, gg, gn = _cm_fit(rest, True)
+        loo.append((d, sum(1 for a in pop if a.day == d), cn,
+                    _cm_round(cc, 5), _cm_round(cc / cs if cc is not None and cs else None, 3),
+                    gn, _cm_round(gc, 5),
+                    _cm_round(gc / gs if gc is not None and gs else None, 3)))
+    sections.append(Section(
+        title="Primary P1, leave one Eastern day out",
+        columns=("day_dropped", "asks_on_day", "n_f", "beta_c", "t_c",
+                 "n_g", "beta_g", "t_g"),
+        rows=loo,
+    ))
+
+    # Secondary slopes (points only).
+    sec = []
+    for name, keyfn in (
+        ("card_key", lambda a: a.card_key or "NULL"),
+        ("price_band", lambda a: a.band),
+        ("league_mix", lambda a: ("more than one" if a.leagues and len(a.leagues) > 1
+                                   else "one league" if a.leagues else "unknown")),
+    ):
+        for val in sorted({str(keyfn(a)) for a in pop}):
+            grp = [a for a in pop if str(keyfn(a)) == val]
+            sec.append((name, val, len(grp), _cm_days(grp),
+                        _cm_round(_cm_slope_point(grp, False), 5),
+                        len([a for a in grp if a.r_g is not None]),
+                        _cm_round(_cm_slope_point(grp, True), 5)))
+    sections.append(Section(
+        title="P1 slope per card_key, price band and league mix (point "
+              "estimates, never tested)",
+        columns=("cut", "level", "n", "days", "beta_c_point", "n_g", "beta_g_point"),
+        rows=sec,
+    ))
+
+    # The four tests.
+    t_c = _cm_t_crit(_cm_days(pop))
+    test_rows: list = []
+    if p1_evaluable and t_c is not None:
+        bc = _cm_fit(pop, False)[:2]
+        bg = _cm_fit(pop, True)[:2]
+        drop_bg = _cm_fit([a for a in pop if a.day != big_day], True)[0]
+        ref0_bg = _cm_fit([a for a in pop if a.refused_too_fine == 0], True)[0]
+        tc = bc[0] / bc[1] if bc[0] is not None and bc[1] else None
+        tg = bg[0] / bg[1] if bg[0] is not None and bg[1] else None
+        test_rows.append(("P1 up (beta_c and beta_g >= +t_crit)",
+                          bool(tc is not None and tc >= t_c and recon_ok
+                               and tg is not None and tg >= t_c)))
+        test_rows.append(("P1 down (beta_c <= -t_crit)",
+                          bool(tc is not None and tc <= -t_c)))
+        outcome1 = _cm_p1_outcome(bc, bg, drop_bg, ref0_bg, t_c, recon_ok)
+        sections.append(Section(
+            title="P1 outcome (registered words; UNRESOLVED may not be "
+                  "written as 'makers do not charge more for more legs')",
+            columns=("t_crit_G_minus_1", "G_days", "outcome"),
+            rows=[(_cm_round(t_c, 4), _cm_days(pop), outcome1)],
+        ))
+    else:
+        sections.append(Section(
+            title="P1 outcome", columns=("outcome",),
+            rows=[("FLOOR NOT MET: no test run (look B owed if this is look A)",)],
+        ))
+    t_c2 = _cm_t_crit(_cm_days(p2_pop))
+    if p2_evaluable and t_c2 is not None:
+        kc = _cm_fit(p2_pop, False, p2=True)[:2]
+        kg = _cm_fit(p2_pop, True, p2=True)[:2]
+        drop_kg = _cm_fit([a for a in p2_pop if a.day != big_day], True, p2=True)[0]
+        tkc = kc[0] / kc[1] if kc[0] is not None and kc[1] else None
+        tkg = kg[0] / kg[1] if kg[0] is not None and kg[1] else None
+        test_rows.append(("P2 tighter (both kappa <= -t_crit)",
+                          bool(tkc is not None and tkg is not None and recon_ok
+                               and tkc <= -t_c2 and tkg <= -t_c2)))
+        test_rows.append(("P2 wider (both kappa >= +t_crit)",
+                          bool(tkc is not None and tkg is not None and recon_ok
+                               and tkc >= t_c2 and tkg >= t_c2)))
+        sections.append(Section(
+            title="P2 outcome", columns=("t_crit_G_minus_1", "G_days", "outcome"),
+            rows=[(_cm_round(t_c2, 4), _cm_days(p2_pop),
+                   _cm_p2_outcome(kc, kg, drop_kg, t_c2, recon_ok))],
+        ))
+    else:
+        sections.append(Section(
+            title="P2 outcome", columns=("outcome",),
+            rows=[("FLOOR NOT MET: no test run (look B owed if this is look A)",)],
+        ))
+    sections.append(Section(
+        title="The four registered one-sided tests at 0.0125 each (family "
+              "alpha 0.05); only those whose floor holds are listed",
+        columns=("test", "passes"), rows=test_rows,
+    ))
+
+    # Secondary cuts.
+    sec_rows = []
+    cuts = (
+        ("hours_to_first_game", lambda a: _cm_hours_cut(a.hours_to_first, a.first_unknown)),
+        ("target_size", lambda a: a.size_cut),
+        ("league_mix", lambda a: ("more than one league" if a.leagues and len(a.leagues) > 1
+                                   else "one league" if a.leagues else "unknown")),
+        ("one_league_by_league", lambda a: (a.leagues[0] if a.leagues and len(a.leagues) == 1 else None)),
+        ("card_key", lambda a: a.card_key or "NULL"),
+    )
+    for name, keyfn in cuts:
+        for val in sorted({keyfn(a) for a in pop if keyfn(a) is not None}):
+            grp = [a for a in pop if keyfn(a) == val]
+            sec_rows.append(_cm_describe((name, val), grp, interval=False))
+    sections.append(Section(
+        title="Secondary cuts (descriptive: n, days, median and IQR; no "
+              "interval, no test)",
+        columns=("cut", "level") + _CM_DESC_COLS, rows=sec_rows,
+    ))
+
+    # Book beside the quote.
+    book_rows = []
+    for lvl in _CM_LEG_LEVELS:
+        grp = [a for a in pop if _cm_level(a.legs) == lvl]
+        have = [a for a in grp if a.book_ask is not None]
+        book_rows.append((lvl, len(grp), len(have),
+                          sum(1 for a in have if a.book_ask <= a.b)))
+    sections.append(Section(
+        title="The order book's own ask beside the best quote (counts only)",
+        columns=("leg_count", "asks", "book_ask_non_null", "book_at_or_below_best_quote"),
+        rows=book_rows,
+    ))
+
+    # Dispersion: rules 1, 2, 3 and 6 only, fair or not.
+    disp = [d for d in col.disp_asks if d[2] and d[0] is not None]
+    count_rows = []
+    for k in (0, 1, 2):
+        count_rows.append((str(k), sum(1 for d in disp if len(d[3]) == k)))
+    count_rows.append(("3 or more", sum(1 for d in disp if len(d[3]) >= 3)))
+    sections.append(Section(
+        title="Dispersion population (rules 1,2,3,6; fair or no fair): asks "
+              "by stored quotes carrying a yes_ask",
+        columns=("stored_quotes", "asks"), rows=count_rows,
+    ))
+    two_plus = [d for d in disp if len(d[3]) >= 2]
+    disp_rows = []
+    groups = [("all", lambda d: True)]
+    groups += [(f"leg_count {lvl}", (lambda lvl: lambda d: _cm_level(d[0]) == lvl)(lvl))
+               for lvl in _CM_LEG_LEVELS]
+    groups += [("cross-game (fair present)", lambda d: d[1]),
+               ("no fair (same-game or unpriceable)", lambda d: not d[1])]
+    for name, pred in groups:
+        grp = [d for d in two_plus if pred(d)]
+        spreads = [max(d[3]) - min(d[3]) for d in grp]
+        pcts = [100.0 * (max(d[3]) - min(d[3])) / min(d[3]) for d in grp if min(d[3]) > 0]
+        disp_rows.append((name, len(grp),
+                          _cm_round(_cm_median(spreads), 2),
+                          _cm_round(_cm_q(spreads, 0.25), 2),
+                          _cm_round(_cm_q(spreads, 0.75), 2),
+                          _cm_round(_cm_median(pcts), 2),
+                          _cm_round(_cm_q(pcts, 0.25), 2),
+                          _cm_round(_cm_q(pcts, 0.75), 2)))
+    sections.append(Section(
+        title="Dispersion, worst minus best among an ask's stored yes_asks "
+              "(asks with two or more quotes; no test, no interval)",
+        columns=("group", "asks", "median_tenths", "q1_tenths", "q3_tenths",
+                 "median_pct_of_best", "q1_pct", "q3_pct"),
+        rows=disp_rows,
+    ))
+    return sections
+
+
+def _q_combo_markup(conn: sqlite3.Connection, args) -> list[Section]:
+    """The makers' markup over the desk's fair on a combination, by leg count
+    (#327; spec: `docs/measurements/2026-10-08-preregistration-combo-markup-by-
+    leg-count.md`, whose decision rule this prints and nothing more).
+
+    **Row bound.** `combo_rfqs` is walked once, newest first, through
+    `--limit` (`idx_combo_rfqs_time`, rows before `--cutoff`); the default
+    cutoff is Look A's, 2026-10-08T00:00:00Z. `combo_rfq_quotes` is read per
+    ask by `idx_combo_rfq_quotes_rfq`. `parlay_lookups` is read per ask on
+    `idx_parlay_lookups_time` inside a 24 hour window (the table has no
+    ticker index). `fair_prices` is read per leg-event by `idx_fair_link`,
+    bounded by the lookup's `requested_ms` and a nine day floor, and is never
+    scanned (`INDEXED BY` makes any other plan an error; a test pins it).
+
+    **What this does not establish** is registration section 10, which the
+    result document quotes verbatim: not markup against the truth (`f` is the
+    minimum-of-four joint and grows pessimistic with every leg; `g` is the
+    other end of the band, reconstructed, not stored); not the fair at the
+    instant of the ask (frozen at lookup, up to 30 minutes earlier); not
+    Kalshi's combination market, only this desk's self-selected asks; not
+    other sizes; not what is paid (before the taker fee); not every maker;
+    nothing about same-game combinations; nothing about outcomes or edge;
+    not causal; not "ask again". It reads no settlement and no fill.
+
+    **No running figure.** Run it once per registered look. Wiring this to a
+    route, a push or a log line spends the registration (section 6).
+
+    Deviations from the registration, where it could not be followed exactly:
+    (1) steps 9-10 of the funnel (no representable best ask, fewer than two
+    legs or an unreadable `selected_legs`) are guards the registration does
+    not name; (2) the lookup is searched for within 24 hours and the as-of
+    `fair_prices` row within nine days; (3) the largest day dropped in a g
+    fit is the largest day of the primary population; (4) an alternate-line
+    leg is not told apart from any other leg with no fair row and both count
+    as `leg_has_no_fair_row`; (5) `g` is rebuilt by calling the ladder's own
+    `ladder_candidates` over a pool built as of the lookup, which requires
+    `backend` to import; if it cannot, every ask is `ladder_unavailable` and
+    no g test can pass; (6) kickoff, as amended: the registration's
+    `kalshi_events.commence_ms` is a clock three hours late, so hours to
+    first game and the P2 indicator use the odds fixture's start reached
+    through `event_links` and `odds_fixtures` (MIN over links, earliest over
+    the ask's legs). Any unlinked leg makes the ask `unknown` and out of P2
+    (`p2_unknown_start`); the Kalshi clock is read only to count band changes.
+    """
+    cutoff_ms = _cm_parse_cutoff(getattr(args, "cutoff", None))
+    col = _cm_collect(conn, args, cutoff_ms)
+    return _cm_sections(col, cutoff_ms, args)

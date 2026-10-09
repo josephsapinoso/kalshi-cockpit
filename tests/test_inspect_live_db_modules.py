@@ -153,6 +153,7 @@ SUBCOMMANDS = (
     "parlay-lookups-tail",
     "pass-gaps",
     "own-open-rfqs",
+    "combo-markup",
     "parlay-lookup-errors",
     "game-script-card-rechecks",
     "game-script-card-refusals",
