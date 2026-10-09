@@ -825,3 +825,150 @@ class TestALegWithNoReadableSideIsRefused:
             "SELECT COUNT(*) AS n FROM parlay_lookups"
         ).fetchone()["n"]
         assert count == 0
+
+
+def _quote(conn, ticker, *, yes_bid=None, no_bid=None):
+    conn.execute(
+        "INSERT INTO kalshi_quotes (ticker, observed_ms, confirmed_ms, source, "
+        "yes_bid_tenths, yes_bid_qty, no_bid_tenths, no_bid_qty) "
+        "VALUES (?, ?, ?, 'ws', ?, 10, ?, 10)",
+        (ticker, now_ms() - 5_000, now_ms() - 1_000, yes_bid, no_bid),
+    )
+    conn.commit()
+
+
+class TestEachLegCarriesItsAskAndChance:
+    """#323 / ADR 0194 s2.1: a check writes, per leg, Kalshi's ask for the side
+    held (`kalshi_ask_tenths`) and the books' chance (`desk_chance`) -- NULL
+    where unknown, never 0 -- and a position bought from that row keeps the
+    ask on the leg as `ask_at_purchase_tenths` with `ask_source = 'lookup'`.
+    """
+
+    async def _checked(self, conn):
+        ticker, payload, t1, t2 = _two_leg_combo(
+            conn, game_a="qa", game_b="qb", ticker=_mk_ticker("AE06"),
+        )
+        # Leg 1 has a book: best NO bid 55.0c -> derived YES ask 45.0c.
+        # Leg 2 has no quote at all.
+        _quote(conn, t1, yes_bid=420, no_bid=550)
+        api = FakeApi(market_payload=payload, book_payload=PRICED_BOOK)
+        result = await parlay_check.check_parlay_text(
+            conn, text=ticker, now_ms=now_ms(), api=api,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        row = conn.execute(
+            "SELECT selected_legs FROM parlay_lookups "
+            "WHERE minted_market_ticker = ?", (ticker,),
+        ).fetchone()
+        return result, json.loads(row["selected_legs"]), ticker, t1, t2
+
+    async def test_the_checks_legs_json_carries_both_keys(self, conn):
+        result, blob, _ticker, t1, t2 = await self._checked(conn)
+        by_ticker = {leg["market_ticker"]: leg for leg in blob}
+        assert by_ticker[t1]["kalshi_ask_tenths"] == 450
+        shown = {leg["market_ticker"]: leg["chance"] for leg in result["legs"]}
+        assert by_ticker[t1]["desk_chance"] == pytest.approx(shown[t1])
+        assert by_ticker[t2]["desk_chance"] == pytest.approx(shown[t2])
+
+    async def test_a_leg_with_no_book_is_null_not_zero(self, conn):
+        _result, blob, _ticker, _t1, t2 = await self._checked(conn)
+        leg = {l["market_ticker"]: l for l in blob}[t2]
+        assert "kalshi_ask_tenths" in leg
+        assert leg["kalshi_ask_tenths"] is None
+
+    async def test_an_unknown_chance_is_null_not_zero(self, conn):
+        """A leg the pool cannot answer for keeps `desk_chance` NULL."""
+        base = now_ms() - 30_000
+        t1, e1 = seed_game(conn, game="qc", team="Team QCA", other="Team QCB",
+                            p=0.7, computed_ms=base)
+        conn.commit()
+        unknown = {"event_ticker": "KXMLBGAME-qz", "market_ticker":
+                   "KXMLBGAME-qz-NOPOOL", "side": "yes"}
+        ticker = _mk_ticker("AE07")
+        legs = [{"event_ticker": e1, "market_ticker": t1, "side": "yes"}, unknown]
+        api = FakeApi(market_payload=_market_payload(legs),
+                      book_payload=PRICED_BOOK)
+        await parlay_check.check_parlay_text(
+            conn, text=ticker, now_ms=now_ms(), api=api,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        blob = json.loads(conn.execute(
+            "SELECT selected_legs FROM parlay_lookups "
+            "WHERE minted_market_ticker = ?", (ticker,)).fetchone()[0])
+        by_ticker = {l["market_ticker"]: l for l in blob}
+        assert by_ticker["KXMLBGAME-qz-NOPOOL"]["desk_chance"] is None
+        assert by_ticker[t1]["desk_chance"] is not None
+
+    async def test_the_position_keeps_the_ask_with_source_lookup(self, conn):
+        from backend import hedge, parlays
+
+        _result, blob, ticker, t1, t2 = await self._checked(conn)
+        parsed = parlays.legs_for_position(json.dumps(blob))
+        assert parsed is not None
+        position_id = hedge.record_position(
+            conn, now_ms=now_ms(), source="kalshi_combo", label="checked",
+            stake_tenths=1000, return_tenths=5000, legs=parsed.legs,
+        )
+        rows = {
+            r["ticker"]: r for r in conn.execute(
+                "SELECT ticker, ask_at_purchase_tenths, ask_source "
+                "FROM parlay_position_legs WHERE position_id = ?",
+                (position_id,))
+        }
+        assert rows[t1]["ask_at_purchase_tenths"] == 450
+        assert rows[t1]["ask_source"] == "lookup"
+        # No ask on the blob: NULL on both columns, never 0.
+        assert rows[t2]["ask_at_purchase_tenths"] is None
+        assert rows[t2]["ask_source"] is None
+
+    @pytest.mark.parametrize("bad", [0, 1000, -5, True, "450", None, 12.5e9])
+    async def test_an_unreadable_ask_is_stored_null_never_zero(self, conn, bad):
+        from backend import hedge
+
+        position_id = hedge.record_position(
+            conn, now_ms=now_ms(), source="kalshi_combo", label="x",
+            stake_tenths=1000, return_tenths=5000,
+            legs=[{"ticker": "KXMLBGAME-26SEP01AAABBB-AAA", "side": "yes",
+                   "label": "A", "kalshi_ask_tenths": bad}],
+        )
+        row = conn.execute(
+            "SELECT ask_at_purchase_tenths, ask_source FROM "
+            "parlay_position_legs WHERE position_id = ?", (position_id,)
+        ).fetchone()
+        assert row["ask_at_purchase_tenths"] is None
+        assert row["ask_source"] is None
+
+    async def test_a_no_leg_is_priced_off_the_yes_bid(self, conn):
+        from backend.parlays import held_side_asks
+
+        base = now_ms() - 30_000
+        t1, _ = seed_game(conn, game="qd", team="Team QDA", other="Team QDB",
+                           p=0.7, computed_ms=base)
+        _quote(conn, t1, yes_bid=420, no_bid=550)
+        asks = held_side_asks(conn, [(t1, "no")], now_ms=now_ms())
+        assert asks[t1] == 580            # 1000 - best YES bid
+        asks = held_side_asks(conn, [(t1, "yes")], now_ms=now_ms())
+        assert asks[t1] == 450            # 1000 - best NO bid
+
+    async def test_the_lookups_leg_details_carry_both_keys_too(self, conn):
+        """`parlays.leg_details_for` is the builder behind the priced-lookup
+        blob; it must write the same two keys the check does."""
+        from backend.parlays import leg_details_for
+
+        base = now_ms() - 30_000
+        t1, e1 = seed_game(conn, game="qe", team="Team QEA", other="Team QEB",
+                            p=0.7, computed_ms=base)
+        conn.commit()
+        pool = candidate_pool(conn, now_ms=now_ms(), max_odds_age_ms=MAX_ODDS_AGE_MS)
+        pool = pool._replace(eligible_events=None)
+        candidates, _ = ladder_candidates(
+            conn, now_ms=now_ms(), max_odds_age_ms=MAX_ODDS_AGE_MS,
+            horizon=parlay_check.WIDEST_HORIZON, pool=pool,
+        )
+        [leg] = [c for c in candidates if c.kalshi_market_ticker == t1
+                 and c.side == "yes"]
+        with_ask = leg_details_for([leg], {t1: 450})[(e1, t1)]
+        assert with_ask["kalshi_ask_tenths"] == 450
+        assert with_ask["desk_chance"] == pytest.approx(leg.p_conservative)
+        without = leg_details_for([leg])[(e1, t1)]
+        assert without["kalshi_ask_tenths"] is None
