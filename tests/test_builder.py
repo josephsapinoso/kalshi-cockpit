@@ -1,4 +1,4 @@
-"""Builder tests: correlation, parlays, teasers.
+"""Builder tests: correlation and parlay valuation.
 
 The assertion that matters most is `test_same_game_legs_are_refused`. Assuming
 independence on correlated legs overstates the parlay's chance of landing, and
@@ -25,25 +25,7 @@ from backend.core.parlay import (
     ParlayQuote,
     american_to_decimal,
     decimal_to_american,
-    kalshi_equivalent,
     value_parlay,
-)
-from backend.core.teaser import (
-    STANDARD_TWO_TEAM_DECIMAL,
-    TeaserUnpriceable,
-    build_leg,
-    find_wong_candidates,
-    value_teaser,
-)
-from backend.model.margins import (
-    MarginDistribution,
-    default_distribution,
-    fit_by_spread,
-    spread_bucket_for,
-)
-from backend.model.synthetic import (
-    synthetic_bucket_observations,
-    synthetic_margins,
 )
 
 DAY = 86_400_000
@@ -54,21 +36,6 @@ def leg(label, p, event="E1", league="americanfootball_nfl", offset=0):
     return Leg(
         label=label, probability=p, event_key=event, league=league,
         commence_ms=NOW + offset,
-    )
-
-
-@pytest.fixture(scope="module")
-def nfl_buckets():
-    """Synthetic NFL margins fitted per closing-spread bucket.
-
-    A single league-wide fit cannot price a teaser: reaching an eight-point
-    favourite means dragging the distribution eight points, which relocates
-    every key number. `core.teaser` refuses on exactly that, so the fixture has
-    to be bucketed for the teaser tests to be testing anything real.
-    """
-    return fit_by_spread(
-        "americanfootball_nfl",
-        synthetic_bucket_observations([-8.0, 2.0, -4.0], n_per_bucket=1200),
     )
 
 
@@ -236,179 +203,3 @@ class TestParlayValuation:
     def test_a_single_leg_is_not_a_parlay(self):
         with pytest.raises(ValueError):
             value_parlay(ParlayQuote(legs=(leg("A", 0.5),), offered_decimal=2.0))
-
-
-class TestKalshiEquivalent:
-    def test_it_is_described_as_a_different_bet(self):
-        """Legs settle independently, so partial success pays partially."""
-        legs = [
-            leg("A", 0.55, event="E1", offset=0),
-            leg("B", 0.52, event="E2", offset=8 * DAY),
-        ]
-        equivalent = kalshi_equivalent(legs)
-        assert "Not the same bet" in equivalent.note
-        assert "fee per leg" in equivalent.note
-
-    def test_fees_scale_with_the_number_of_legs(self):
-        two = kalshi_equivalent([
-            leg("A", 0.5, event="E1", offset=0),
-            leg("B", 0.5, event="E2", offset=8 * DAY),
-        ])
-        three = kalshi_equivalent([
-            leg("A", 0.5, event="E1", offset=0),
-            leg("B", 0.5, event="E2", offset=8 * DAY),
-            leg("C", 0.5, event="E3", offset=16 * DAY),
-        ])
-        assert three.total_fee_dollars > two.total_fee_dollars
-
-    def test_fee_share_is_worst_at_the_money(self):
-        """Kalshi fees peak at 50c."""
-        at_money = kalshi_equivalent([
-            leg("A", 0.5, event="E1", offset=0),
-            leg("B", 0.5, event="E2", offset=8 * DAY),
-        ])
-        assert at_money.fee_share_of_stake > 0
-
-
-class TestTeasers:
-    def _leg(self, buckets, team, line, margin, event, offset=0):
-        return build_leg(
-            buckets[spread_bucket_for(line)],
-            team=team, original_line=line, points=6.0,
-            predicted_margin=margin, event_key=event,
-            league="americanfootball_nfl", commence_ms=NOW + offset,
-        )
-
-    def test_a_league_wide_fit_is_refused(self, nfl_buckets):
-        """The subtler of the two refusals. A pooled empirical distribution has
-        to be dragged onto the game, and dragging moves the key numbers -- so it
-        would price this game worse than the normal curve it replaced, while
-        looking like evidence."""
-        pooled = MarginDistribution("americanfootball_nfl").fit(
-            synthetic_margins(0.0, 1200, seed=14)
-        )
-        assert pooled.is_empirical
-        with pytest.raises(TeaserUnpriceable) as exc:
-            build_leg(
-                pooled, team="A", original_line=-8.0, points=6.0,
-                predicted_margin=8.0, event_key="E1",
-                league="americanfootball_nfl", commence_ms=NOW,
-            )
-        assert "league-wide fit" in str(exc.value)
-        assert "fit_by_spread" in str(exc.value)
-
-    def test_the_bucketed_fit_prices_it_instead(self, nfl_buckets):
-        """The other half of the previous test: same game, right distribution."""
-        teased = self._leg(nfl_buckets, "A", -8.0, 8.0, "E1")
-        assert 0.0 < teased.cover_probability < 1.0
-
-    def test_a_smooth_distribution_is_refused(self, ):
-        """A normal approximation prices a point through 3 like a point through
-        11, which makes the entire basis of a teaser invisible."""
-        with pytest.raises(TeaserUnpriceable) as exc:
-            build_leg(
-                default_distribution("americanfootball_nfl"),
-                team="A", original_line=-8.0, points=6.0, predicted_margin=8.0,
-                event_key="E1", league="americanfootball_nfl", commence_ms=NOW,
-            )
-        assert "invisible" in str(exc.value)
-
-    def test_a_wong_leg_crosses_both_three_and_seven(self, nfl_buckets):
-        teased = self._leg(nfl_buckets, "A", -8.0, 8.0, "E1")
-        assert teased.is_wong
-        assert set(teased.crosses_key_numbers) >= {3, 7}
-
-    def test_a_non_wong_leg_is_flagged(self, nfl_buckets):
-        valuation = value_teaser([
-            self._leg(nfl_buckets, "A", -8.0, 8.0, "E1"),
-            self._leg(nfl_buckets, "B", -4.0, 4.0, "E2", offset=8 * DAY),
-        ])
-        assert not valuation.all_legs_are_wong
-        assert "Not a Wong teaser" in valuation.verdict
-        assert "Don't" in valuation.verdict
-
-    def test_a_full_wong_teaser_is_recognised(self, nfl_buckets):
-        valuation = value_teaser([
-            self._leg(nfl_buckets, "A", -8.0, 8.0, "E1"),
-            self._leg(nfl_buckets, "B", 2.0, -2.0, "E2", offset=8 * DAY),
-        ])
-        assert valuation.all_legs_are_wong
-        assert set(valuation.key_numbers_crossed) >= {3, 7}
-
-    def test_teasing_moves_the_line_toward_the_bettor(self, nfl_buckets):
-        teased = self._leg(nfl_buckets, "A", -8.0, 8.0, "E1")
-        assert teased.teased_line == pytest.approx(-2.0)
-
-    def test_same_game_teaser_legs_are_refused(self, nfl_buckets):
-        with pytest.raises(CorrelationRefused):
-            value_teaser([
-                self._leg(nfl_buckets, "A", -8.0, 8.0, "E1"),
-                self._leg(nfl_buckets, "B", 2.0, -2.0, "E1"),
-            ])
-
-    def test_the_screen_finds_only_the_documented_windows(self):
-        board = [
-            ("Chiefs", -8.0), ("Eagles", -3.5), ("Jets", 2.0),
-            ("Bears", 7.5), ("Rams", -13.0), ("Bills", -7.5),
-        ]
-        found = dict(find_wong_candidates(board))
-        assert set(found) == {"Chiefs", "Jets", "Bills"}
-
-    def test_the_standard_price_is_around_minus_120(self):
-        assert 1.80 < STANDARD_TWO_TEAM_DECIMAL < 1.90
-
-
-class TestTheTeaserEvIsAssertedNotJustDescribed:
-    """**No test anywhere asserted the teaser's EV.**
-
-    That is the one assertion that would have caught the +28.4% Wong teaser — a
-    number roughly five times any plausible real edge, printed by a demo, caused
-    by a synthetic generator that matched the mean and not the variance. Every
-    teaser test checked structure, refusals and monotonicity; none checked the
-    number the whole module exists to produce.
-
-    A modern Wong teaser is priced through: crossing 3 and 7 is real and the
-    books know it, so the honest answer at -120 is comfortably negative. Bounded
-    on BOTH sides, because an implausibly *good* result is as much a bug as a bad
-    one — and it is the direction this project is built to distrust.
-    """
-
-    def _legs(self, buckets):
-        return [
-            build_leg(
-                buckets[spread_bucket_for(-8.0)],
-                team="A", original_line=-8.0, points=6.0,
-                predicted_margin=8.0, event_key="E1",
-                league="americanfootball_nfl", commence_ms=NOW,
-            ),
-            build_leg(
-                buckets[spread_bucket_for(-8.0)],
-                team="C", original_line=-8.0, points=6.0,
-                predicted_margin=8.0, event_key="E2",
-                league="americanfootball_nfl", commence_ms=NOW + 8 * DAY,
-            ),
-        ]
-
-    def test_a_wong_teaser_at_minus_120_is_negative_ev(self, nfl_buckets):
-        valued = value_teaser(self._legs(nfl_buckets), offered_decimal=american_to_decimal(-120))
-        assert valued.ev_per_dollar < 0, (
-            f"a two-leg Wong teaser priced at -120 came out at "
-            f"{valued.ev_per_dollar:+.1%} EV. The books price this correctly, so "
-            f"a positive result means the margin distribution is wrong rather "
-            f"than that an edge was found."
-        )
-
-    def test_the_ev_is_within_a_plausible_band(self, nfl_buckets):
-        """The +28.4% bug produced a number in the right *format* and a wildly
-        wrong magnitude, which no structural assertion could catch."""
-        valued = value_teaser(self._legs(nfl_buckets), offered_decimal=american_to_decimal(-120))
-        assert -0.45 < valued.ev_per_dollar < 0.0
-
-    def test_a_generous_price_moves_it(self, nfl_buckets):
-        """The discriminating half: the bound above must not pass merely because
-        the function always returns something negative."""
-        legs = self._legs(nfl_buckets)
-        assert (
-            value_teaser(legs, offered_decimal=american_to_decimal(400)).ev_per_dollar
-            > value_teaser(legs, offered_decimal=american_to_decimal(-120)).ev_per_dollar
-        )

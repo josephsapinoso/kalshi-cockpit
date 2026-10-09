@@ -1210,12 +1210,6 @@ DISPOSITIONS: dict[str, Tool | Quarantined] = {
                 "the one open door being starters with no prior season, whom "
                 "both measurements exclude by construction.",
     ),
-    "backend/model/synthetic.py": Tool(
-        run_by=("scripts/demo_builder.py",),
-        purpose="Synthetic margin generator, documented as not-evidence. It "
-                "must never reach the image: it manufactured a +28.4% EV "
-                "teaser once already (`tasks/lessons.md`, 2026-08-06).",
-    ),
 
     # -- Quarantined ---------------------------------------------------------
     # ADR 0040 declared quarantine the *settled* state for Scout and Historian,
@@ -1245,6 +1239,17 @@ DISPOSITIONS: dict[str, Tool | Quarantined] = {
                   "`actionable = 0` away. Blending it into `fair_probability` "
                   "would move rows, but that is a new decision needing its own "
                   "ADR, not the completion of this one.",
+        adr="docs/adr/0022-quarantine-the-orphaned-modules.md",
+    ),
+    # Not a module with behaviour: the (empty) package marker for the three
+    # model files above. It was reached only through `model.margins`, which
+    # `core.teaser` imported until the `/api/builder/*` routes, `teaser.py`,
+    # `margins.py` and `synthetic.py` were deleted (#332).
+    "backend/model/__init__.py": Quarantined(
+        reason="The empty package marker for `elo.py`, `backtest.py` and "
+               "`strikeouts.py`, none of which the image reaches.",
+        revive_if="any file in `backend/model/` joins the chain; then this "
+                  "is reached through it and the row goes.",
         adr="docs/adr/0022-quarantine-the-orphaned-modules.md",
     ),
     "backend/model/backtest.py": Quarantined(
@@ -2598,3 +2603,35 @@ class TestShippedScriptsCanReadTheFilesTheyOpen:
             "what reaches the image (fix by naming the file in a COPY). "
             "Passing one and failing the other still produces an absent file."
         )
+
+
+class TestTheBuilderRoutesStayDeleted:
+    """#332: `/api/builder/parlay` and `/api/builder/wong-screen` had no caller.
+
+    `priceParlay` was called by no screen, the route priced a *sportsbook*
+    parlay (Joe bets into Kalshi), and the wong screen served a teaser product
+    he does not buy. Deleted rather than wired, with `core/teaser.py`,
+    `model/margins.py` and `model/synthetic.py`, which only they reached.
+    Establishes that no route under `/api/builder` is registered and the
+    teaser modules are gone; does not establish that nothing else is unreached
+    (`test_every_unreachable_module_is_classified` does that).
+    """
+
+    def test_no_route_is_registered_under_api_builder(self):
+        registered = [
+            str(p.relative_to(ROOT))
+            for p in (ROOT / "backend").rglob("*.py")
+            if re.search(
+                r"@\w+\.(?:get|post|put|delete|patch)\(\s*[\"']/api/builder",
+                p.read_text("utf-8", errors="replace"),
+            )
+        ]
+        assert not registered, registered
+
+    def test_the_teaser_modules_are_gone(self):
+        for rel in (
+            "backend/core/teaser.py",
+            "backend/model/margins.py",
+            "backend/model/synthetic.py",
+        ):
+            assert not (ROOT / rel).exists(), f"{rel} came back (#332)"

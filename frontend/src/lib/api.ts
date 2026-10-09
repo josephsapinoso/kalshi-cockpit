@@ -107,11 +107,9 @@ import type {
   ParlayCardScouting,
   ParlayHorizon,
   ParlayLadder,
-  ParlayLeg,
   ParlayLookupResult,
   ParlayPrefix,
   ParlayStake,
-  ParlayValuation,
   ParlayWindow,
   TeamRest,
 } from "./types/parlays";
@@ -237,11 +235,9 @@ export type {
   ParlayCardScouting,
   ParlayHorizon,
   ParlayLadder,
-  ParlayLeg,
   ParlayLookupResult,
   ParlayPrefix,
   ParlayStake,
-  ParlayValuation,
   ParlayWindow,
   TeamRest,
 } from "./types/parlays";
@@ -429,30 +425,6 @@ export function listFilterQuery(filter: ListFilter): string {
 }
 
 export const fetchDashboards = () => get<Dashboards>("/api/dashboards");
-
-/**
- * Price a parlay. Same-game legs come back as a 422 carrying the refusal text,
- * which the Builder shows verbatim -- the explanation is the useful output.
- */
-export async function priceParlay(
-  legs: ParlayLeg[],
-  offeredAmerican: number,
-  overrides: { a: string; b: string; rho: number }[] = [],
-): Promise<WriteResult<ParlayValuation>> {
-  return postJson<ParlayValuation>({
-    path: `${BASE}/api/builder/parlay`,
-    body: {
-      legs,
-      offered_american: offeredAmerican,
-      correlation_overrides: overrides,
-    },
-    noReply: (error) =>
-      `The request did not reach the cockpit (${networkMessage(error)}). ` +
-      "Nothing was priced.",
-    unreadable: (status) =>
-      `HTTP ${status}, and the body was not readable as JSON.`,
-  });
-}
 
 export const fetchParlays = (
   filter: ListFilter = NO_FILTER,

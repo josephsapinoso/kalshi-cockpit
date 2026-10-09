@@ -1,4 +1,4 @@
-"""`/api/builder/*` and `/api/parlays/*`: the builder and the parlay desk.
+"""`/api/parlays/*`: the parlay desk (`/api/builder/*` was deleted, #332).
 
 Moved verbatim from `backend/api/routes.py` on 2026-09-04; see
 `backend/api/routers/__init__.py` for the `register()` shape and why.
@@ -19,17 +19,8 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from ...combo_bids import place_resting_bid
 from ...combo_rfq import accept_quote_for_joe, ask_market_to_price
 from ...config import AppConfig, ConfigError, StalenessConfig
-from ...core.correlation import CorrelationRefused
-from ...core.parlay import (
-    ParlayQuote,
-    american_to_decimal,
-    decimal_to_american,
-    kalshi_equivalent,
-    value_parlay,
-)
 from ...core.prices import format_dollars, format_price
 from ...core.suppression import SuppressionConfig
-from ...core.teaser import find_wong_candidates
 from ...core.trust import TrustThresholds
 from ...list_filters import MAX_WITHIN_HOURS, FilterRefused, parse_list_filter
 from ...parlays import (
@@ -69,7 +60,6 @@ from ..schemas import (
     ComboRfqRequest,
     ParlayCheckRequest,
     ParlayLookupRequest,
-    ParlayRequest,
 )
 from ...parlay_check import check_parlay_text
 from ...odds import ondemand
@@ -87,96 +77,7 @@ def register(
     require_auth,
     odds=None,
 ) -> None:
-    """Attach the seven builder and parlay handlers, in their original order."""
-
-    # -- builder -----------------------------------------------------------
-
-    @app.post("/api/builder/parlay")
-    def price_parlay(request: ParlayRequest) -> dict:
-        """Price a sportsbook parlay against devigged consensus.
-
-        A read-only calculation on numbers the caller supplies, so it needs no
-        auth -- and it is available on the demo instance, where it is one of the
-        more interesting things to show.
-
-        Same-game legs return 422 with the refusal text rather than a number.
-        """
-        legs = tuple(l.to_leg() for l in request.legs)
-        try:
-            valuation = value_parlay(
-                ParlayQuote(
-                    legs=legs,
-                    offered_decimal=american_to_decimal(request.offered_american),
-                ),
-                correlation_overrides=request.overrides(),
-            )
-        except CorrelationRefused as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        alternative = kalshi_equivalent(
-            legs,
-            contracts_per_leg=request.kalshi_contracts_per_leg,
-            correlation_overrides=request.overrides(),
-        )
-        return {
-            "fair_probability": valuation.fair_probability,
-            "naive_probability": valuation.naive_probability,
-            "independence_error_points": valuation.independence_error_points,
-            "fair_american": decimal_to_american(valuation.fair_decimal),
-            "offered_american": request.offered_american,
-            "hold": valuation.hold,
-            "ev_per_dollar": valuation.ev_per_dollar,
-            "is_positive_ev": valuation.is_positive_ev,
-            "correlation_was_supplied": valuation.correlation_was_supplied,
-            "verdict": valuation.verdict,
-            "kalshi_alternative": {
-                "total_cost_dollars": alternative.total_cost_dollars,
-                "total_fee_dollars": alternative.total_fee_dollars,
-                "fee_share_of_stake": alternative.fee_share_of_stake,
-                "expected_value_dollars": alternative.expected_value_dollars,
-                "note": alternative.note,
-            },
-        }
-
-    @app.get("/api/builder/wong-screen")
-    def wong_screen(
-        lines: str = Query(
-            ...,
-            description="Comma-separated team:line pairs, e.g. 'Chiefs:-8,Jets:2'",
-        ),
-        points: float = Query(6.0),
-    ) -> dict:
-        """Filter a slate to the legs inside the documented Wong windows.
-
-        Deliberately strict. The entire effect lives in favourites of −7.5 to
-        −8.5 and underdogs of +1.5 to +2.5 on a six-point teaser, and a screen
-        that returned near-misses would defeat its own purpose.
-        """
-        board: list[tuple[str, float]] = []
-        for pair in lines.split(","):
-            team, _, raw = pair.partition(":")
-            try:
-                board.append((team.strip(), float(raw)))
-            except ValueError as exc:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"{pair!r} is not 'team:line'",
-                ) from exc
-
-        candidates = find_wong_candidates(board, points=points)
-        return {
-            "points": points,
-            "screened": [{"team": t, "line": l} for t, l in board],
-            "candidates": [{"team": t, "line": l} for t, l in candidates],
-            "note": (
-                "Being in the window is necessary, not sufficient. Pricing the "
-                "teaser needs an empirical margin distribution fitted per "
-                "spread bucket; without one the Builder refuses rather than "
-                "guessing."
-            ),
-        }
+    """Attach the parlay handlers, in their original order."""
 
     # -- parlay desk (ADR 0070) --------------------------------------------
 
