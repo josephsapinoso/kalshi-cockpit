@@ -441,6 +441,100 @@ def position_state_key(
     return f"position_state:{pid}:{day_start_ms}"
 
 
+#: The `notifications.kind` of the last-leg push (#329). Its own kind and its own
+#: key, so it neither spends nor is silenced by the `position_state` ceiling:
+#: it is once per ticket per state, and the state is "one leg left, unstarted".
+LAST_LEG_KIND = "last_leg_watch"
+
+
+def _last_leg_state(position: Mapping[str, Any], *, now_ms: int):
+    """`(won, total, last_leg)` when the ticket is in the last-leg state, else
+    `None`: every leg but one `won`, the one left `pending` with a kickoff
+    strictly in the future.
+
+    A void or lost leg, a second pending leg, an unknown kickoff or a kickoff
+    already past all return `None`. The unknown-kickoff case is the opposite of
+    the watcher's cadence rule on purpose: the sentence says the game has not
+    started, and an unrecorded start cannot support that.
+    """
+    legs = position.get("legs") or []
+    total = len(legs)
+    if total < 2:
+        return None
+    won = [x for x in legs if x.get("outcome") == "won"]
+    rest = [x for x in legs if x.get("outcome") != "won"]
+    if len(won) != total - 1 or len(rest) != 1:
+        return None
+    last = rest[0]
+    commence = last.get("commence_ms")
+    if last.get("outcome") != "pending" or commence is None:
+        return None
+    if int(commence) <= now_ms:
+        return None
+    return len(won), total, last
+
+
+def last_leg_key(position: Mapping[str, Any], *, now_ms: int) -> Optional[str]:
+    """`last_leg_watch:<position id>:<won>of<total>` -- once per position per
+    state (#329). No day bucket: the state is entered once and the sentence
+    carries figures that move, so repeating it daily would be a nudge."""
+    pid = position.get("id")
+    state = _last_leg_state(position, now_ms=now_ms)
+    if pid is None or state is None:
+        return None
+    won, total, _ = state
+    return f"{LAST_LEG_KIND}:{pid}:{won}of{total}"
+
+
+def last_leg_sentence(position: Mapping[str, Any], *, now_ms: int) -> Optional[str]:
+    """The push text, or `None` when the ticket is not in the last-leg state
+    or its public book was never read (#329).
+
+    States numbers and "about"; carries no recommendation and not what he paid.
+    `combo_book` is `None` when no read was attempted (a hand-recorded slip, no
+    reader wired): then there is nothing true to say about the book, so there
+    is no sentence rather than a "no public bid" the desk never saw. An
+    unreadable or unpriceable book is said as such, not as an empty one.
+
+    The last leg's price is the leg's `chance_display`, which `hedge.
+    _leg_payload` renders from the venue BID for the side held
+    (`leg_probability`): the bid because it values a position by what somebody
+    will pay, not by what buying would cost. Same integer tenths as the price,
+    so `91.5%` is read as `91.5c`.
+    """
+    state = _last_leg_state(position, now_ms=now_ms)
+    if state is None:
+        return None
+    book = position.get("combo_book")
+    if not book:
+        return None
+    won, total, last = state
+    kind = book.get("state")
+    if kind == "bid" and book.get("price_display"):
+        book_part = (
+            f"The book bids {book['price_display']} a contract for this card now."
+        )
+    elif kind == "unreadable":
+        book_part = "The public book could not be read just now; makers on tap."
+    elif kind == "unpriced_interest":
+        book_part = (
+            "The public book has interest at a price finer than a tenth of a "
+            "cent that this desk does not show; makers on tap."
+        )
+    else:
+        book_part = "No public bid right now; makers on tap."
+    chance = str(last.get("chance_display") or "")
+    if chance.endswith("%") and chance[:-1].replace(".", "", 1).isdigit():
+        hold_part = (
+            f"Holding is worth about {chance[:-1]}c a contract at the last "
+            "leg's Kalshi price."
+        )
+    else:
+        hold_part = "The last leg has no live Kalshi price right now."
+    tail = " Makers on tap." if kind == "bid" and book.get("price_display") else ""
+    return f"{won} of {total} legs won. {book_part} {hold_part}{tail}"
+
+
 @dataclass(frozen=True)
 class AlertResult:
     """What one pass decided to say. Returned so the loop can log it.
@@ -1140,6 +1234,56 @@ class Alerter:
 
         return AlertResult(
             sent=tuple(sent), failed=tuple(failed), skipped=tuple(skipped)
+        )
+
+    async def last_leg_watch(
+        self, screen: Mapping[str, Any], *, now_ms: int
+    ) -> AlertResult:
+        """Push, once per ticket per state, that one unstarted leg is all that
+        is left (#329; Joe, 2026-10-08: "Book only; makers on my tap").
+
+        Reads the combination's public book bid and the last leg's venue price
+        off the screen the watcher already built. **Writes nothing to the venue
+        and asks no maker**: the sentence ends in "makers on tap" because the
+        tap is his.
+        """
+        if not self.enabled:
+            return AlertResult()
+        sent: list[str] = []
+        failed: list[str] = []
+        skipped: list[str] = []
+        for position in screen.get("positions") or []:
+            key = last_leg_key(position, now_ms=now_ms)
+            text = last_leg_sentence(position, now_ms=now_ms)
+            if key is None or text is None:
+                continue
+            outcome = await self._send(
+                LAST_LEG_KIND,
+                key,
+                lambda p=position, t=text: self._post_last_leg(p, t),
+                now_ms=now_ms,
+                detail=text[:200],
+            )
+            if outcome is None:
+                skipped.append(key)
+            elif outcome:
+                sent.append(key)
+            else:
+                failed.append(key)
+        return AlertResult(
+            sent=tuple(sent), failed=tuple(failed), skipped=tuple(skipped)
+        )
+
+    async def _post_last_leg(self, position: Mapping[str, Any], text: str):
+        """Deliver one last-leg sentence through the notifier's embed post."""
+        post = getattr(self.notifier, "last_leg_watch", None)
+        if post is not None:
+            return await post(position, text)
+        return await self.notifier._post(
+            {
+                "title": f"One leg left — {position.get('label')}",
+                "description": text,
+            }
         )
 
     def _surfaced_this_pass(self, pass_ms: int) -> Sequence:
