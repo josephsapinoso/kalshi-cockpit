@@ -2699,6 +2699,46 @@ file, above* are the ones not yet archived. Regenerate it from the headings in
 the same edit as the entry — an index that is not is stale by one entry
 immediately and by dozens within a week.
 
+### 2026-10-08 — in this file, above
+
+- A wrong number can be inherited without anyone typing it: from an old sentence, from a guess about retention, from a registration that names a clock the repo already refuted
+
+### 2026-10-06 — in this file, above
+
+- The failure you are waiting to capture may already be in a capture you have; a test that asserts a capture is clean pins the blind spot
+
+### 2026-10-05 — in this file, above
+
+- A retrying client's final status describes only its last attempt
+- A fallback string that drops the exception turns an outage into a content judgement
+
+### 2026-10-03 — in this file, above
+
+- A budget gate that drops work without stamping it makes the work look done-and-empty
+
+### 2026-10-02 — in this file, above
+
+- A background wait that prints a word has to be read before the next action, and a remembered command form is the command
+- A lane's "stopped at 39%, no failures" is an unrun inventory, and GitHub caps a parent at 100 sub-issues
+
+### 2026-10-01 — in this file, above
+
+- An open ticket is not proof the work is undone, and a pin list written from memory is not the pin list; grep for both before dispatching
+- A rule the backend obeys can be broken by the screen's fallback sentence; check every hand-written failure string on a spend path against it
+- A retention rule can quietly cut a registered measurement's population; list the registrations that read a table before shortening how long it is kept
+
+### 2026-09-30 — in this file, above
+
+- Parallel lanes pass their own tests and break each other's pins; run the full suite on merged main before every push
+- A restatement of a threshold can silently change its unit; a correction lands in one place and every restatement keeps the old claim
+- A model seat does not know what day it is unless the prompt says so; a refusal that writes no row reads as "never asked" once the screen reloads
+
+### 2026-09-29 — in this file, above
+
+- Two writers of one column must share the derivation; an asyncio lock guards one process; a module nothing reaches merges together with its caller
+- A covering index makes each row cheap, not the range small; a cited line in a "does not establish" note is still a claim; an absence needs a grep of the writer
+- Batching N reads into one widens the blast radius to N; one client cannot tell its own path from the far side; check a bind address before planning an arm on it
+
 ### 2026-09-28 — in this file, above
 
 - A look recipe written for neutral counts does not transfer to a money result; merge approval covers the PRs it named
