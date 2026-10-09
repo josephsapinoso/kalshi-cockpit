@@ -106,25 +106,19 @@ class ParlayValuation:
 
     @property
     def verdict(self) -> str:
-        """Plain language, leading with the hold.
+        """The per-row fact in cents, with no verdict word.
 
-        The hold is the number that generalises: a bettor who learns that
-        three-leg parlays at their book hold 24% has learned something durable,
-        whereas "this one is -18% EV" is about one ticket.
+        Kalshi's ask against the books' fair value, and the hold -- the numbers
+        the tiles already carry. No verdict word: ADR 0071 section 2.1 (the
+        desk informs, it does not abstain on his behalf) and ADR 0046 (a
+        fee-net figure on a combination overstates by construction). The hold
+        is the number that generalises across tickets.
         """
-        hold_pct = self.hold * 100
-        if self.is_positive_ev:
-            return (
-                f"Fair price {decimal_to_american(self.fair_decimal):+d}, book "
-                f"offers {decimal_to_american(self.offered_decimal):+d}. "
-                f"+{self.ev_per_dollar * 100:.1f}% EV. Rare -- verify the legs "
-                f"are correctly matched before acting."
-            )
+        ask_cents = 100.0 / self.offered_decimal
+        fair_cents = 100.0 / self.fair_decimal
         return (
-            f"The book holds {hold_pct:.1f}% on this parlay. Fair price is "
-            f"{decimal_to_american(self.fair_decimal):+d} against the offered "
-            f"{decimal_to_american(self.offered_decimal):+d}, so this is "
-            f"{self.ev_per_dollar * 100:.1f}% EV. Don't."
+            f"Kalshi's ask is {ask_cents:.1f}c against the books' fair value "
+            f"of {fair_cents:.1f}c; hold {self.hold * 100:.1f}%."
         )
 
 

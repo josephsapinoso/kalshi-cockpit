@@ -59,7 +59,7 @@ discipline above), and counted, never averaged or summed, in
 
 **#168: "not priced on the desk" was false for a parlay the desk had in fact
 looked at.** The outside-parlay check (#166, `parlay_lookups.card_key =
-'outside'`) can write a row with `status IN ('priced', 'book_empty')` and a
+'checked'`) can write a row with `status IN ('priced', 'book_empty')` and a
 NULL `fair_joint_conservative` -- the desk read the parlay and could not
 produce one number for the whole thing (a leg with no desk reading, or two
 legs on one game). Before this, such a row was invisible to
