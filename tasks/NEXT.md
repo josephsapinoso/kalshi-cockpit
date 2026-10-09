@@ -157,7 +157,7 @@ the channel diagnostic (A17.6/A17.11).
 
 ### Still open
 
-1. #327 — look A of the markup measurement on live (`combo-markup --limit 400 --cutoff 2026-10-08T00:00:00Z`), result doc, measurement-skeptic. Not on `instrument.yml` because its output may carry dates of Joe's asks and the Actions log is public; it needs a laptop `flyctl auth login`, or an instrument that prints the registration's cells only.
+1. #327 — look A of the markup measurement. `flyctl` is logged in on the laptop again (2026-10-09, via `scripts/wizard_fly_login_and_look_a.sh`, committed as a one-off). The first run crashed in collection (tuple rows reaching the ladder) and printed no statistic, so it was not a look; fixed in `50bc36f6`, live. Next: in a real Git Bash window run `bash scripts/wizard_fly_login_and_look_a.sh`; stage 4 saves `docs/measurements/data/2026-10-09-combo-markup-look-a.txt` (gitignored). Then write the result doc from it and send it to measurement-skeptic before any number enters the record. Not on `instrument.yml`: the Actions log is public and the output may carry dates of Joe's asks.
 2. #334 — serve `fee_coefficient` on the lookup/check payloads and complete the cost line beside the book tile (was blocked by #321/#325, both merged).
 3. #332 — `/api/builder/parlay` + `wong-screen` have no caller: wire or delete.
 4. #331 — 2026-11-01: the leg census by kind (NHL puck lines and totals are unparsed; the same-game share).
