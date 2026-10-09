@@ -105,8 +105,9 @@ PRICED_SURFACES = [
     pytest.param(FRONTEND / "components" / "OpportunityCard.tsx", id="board-card"),
     pytest.param(FRONTEND / "components" / "TicketSheet.tsx", id="ticket-sheet"),
     # The payload types moved out of api.ts one file per area (#262); the
-    # two that name a per-row money figure are registered by hand.
-    pytest.param(FRONTEND / "lib" / "types" / "parlays.ts", id="payload-types-parlays"),
+    # one that names a per-row money figure is registered by hand. parlays.ts
+    # left with `ParlayValuation` (total_cost_dollars) when #332 deleted the
+    # builder routes; the sweep below re-flags it if a money figure returns.
     pytest.param(FRONTEND / "lib" / "types" / "signal.ts", id="payload-types-signal"),
     pytest.param(BACKEND / "api" / "serialise.py", id="serialiser"),
 ]
