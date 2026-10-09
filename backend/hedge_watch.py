@@ -102,6 +102,69 @@ def anything_in_progress(conn, *, now_ms: int) -> bool:
     return bool(row and int(row[0]) > 0)
 
 
+def last_leg_waiting(conn, *, now_ms: int) -> bool:
+    """Whether an open ticket has every leg but one `won` and that one still
+    `pending` with a kickoff strictly ahead (#329).
+
+    The mirror image of `anything_in_progress`, and deliberately NOT built on
+    the same rule: there an unknown kickoff counts as started, so the loop
+    never sleeps through a game. Here an unknown kickoff does NOT count as
+    "not yet" -- the sentence this gates says the last game has not started,
+    and a start nobody recorded cannot support that. Such a ticket stays with
+    the existing in-play path.
+    """
+    row = conn.execute(
+        """
+        SELECT COUNT(*)
+          FROM parlay_positions p
+         WHERE p.status = 'open'
+           AND (SELECT COUNT(*) FROM parlay_position_legs l
+                 WHERE l.position_id = p.id) >= 2
+           AND (SELECT COUNT(*) FROM parlay_position_legs l
+                 WHERE l.position_id = p.id AND l.outcome = 'won')
+             = (SELECT COUNT(*) FROM parlay_position_legs l
+                 WHERE l.position_id = p.id) - 1
+           AND (SELECT COUNT(*) FROM parlay_position_legs l
+                 WHERE l.position_id = p.id AND l.outcome = 'pending'
+                   AND l.commence_ms IS NOT NULL AND l.commence_ms > ?) = 1
+        """,
+        (now_ms,),
+    ).fetchone()
+    return bool(row and int(row[0]) > 0)
+
+
+async def watch_last_leg_once(
+    conn,
+    alerter: Alerter,
+    *,
+    now_ms: int,
+    max_quote_age_ms: int,
+    fetch_quote=None,
+    fetch_quotes=None,
+    read_combo_book=None,
+) -> dict:
+    """One cycle for the quiet state `anything_in_progress` cannot see: every
+    other leg won, the last not yet started (#329).
+
+    Reads the same screen `/api/hedge` serves, including the public-book bid
+    through `read_combo_book` (#95), and asks the alerter for one push. **It
+    never asks the makers**: no request for quotes -- and a test walks this
+    module's imports and calls to keep it so.
+    """
+    settled = held_parlays.resolve_from_venue(conn, now_ms=now_ms)
+    screen = await held_parlays.build_payload(
+        conn,
+        now_ms=now_ms,
+        max_quote_age_ms=max_quote_age_ms,
+        spendable_tenths=store_db.latest_balance_tenths(conn),
+        fetch_quote=fetch_quote,
+        fetch_quotes=fetch_quotes,
+        read_combo_book=read_combo_book,
+    )
+    result = await alerter.last_leg_watch(screen, now_ms=now_ms)
+    return {"legs_settled": settled, **result.as_dict()}
+
+
 async def watch_once(
     conn,
     alerter: Alerter,
@@ -166,6 +229,7 @@ async def watch_hedges_forever(
     *,
     fetch_quote=None,
     fetch_quotes=None,
+    read_combo_book=None,
     max_quote_age_ms: int,
     watch_interval_s: float = WATCH_INTERVAL_S,
     idle_interval_s: float = IDLE_INTERVAL_S,
@@ -202,6 +266,7 @@ async def watch_hedges_forever(
     try:
         alerter = alerter_factory(conn)
         cycles = 0
+        last_leg_due_ms = 0
         while max_cycles is None or cycles < max_cycles:
             cycles += 1
             now_ms = int(clock() * 1000)
@@ -263,6 +328,32 @@ async def watch_hedges_forever(
                         or summary["position_alerts_sent"]
                     ):
                         logger.info("hedge watch: %s", summary)
+                if now_ms >= last_leg_due_ms and last_leg_waiting(
+                    conn, now_ms=now_ms
+                ):
+                    # At most once per idle interval even while another game
+                    # keeps the cycle busy at 60 s, so a game in play does not
+                    # turn this into a per-minute combination-book read.
+                    last_leg_due_ms = now_ms + int(idle_interval_s * 1000)
+                    # Nothing is in play, but one ticket is a single unstarted
+                    # game from paying (#329). Idle cadence: the push is once
+                    # per ticket per state, so a faster poll buys nothing.
+                    # **Only this branch reads the combination book** -- the
+                    # 60 s in-play cycle above deliberately does not (pinned in
+                    # test_the_combo_book_reader_is_wired.py); the last-leg
+                    # state is entered when the second-to-last game settles,
+                    # which the next idle tick sees.
+                    summary = await watch_last_leg_once(
+                        conn,
+                        alerter,
+                        now_ms=now_ms,
+                        max_quote_age_ms=max_quote_age_ms,
+                        fetch_quote=fetch_quote,
+                        fetch_quotes=fetch_quotes,
+                        read_combo_book=read_combo_book,
+                    )
+                    if summary["alerts_sent"] or summary["legs_settled"]:
+                        logger.info("hedge watch (last leg): %s", summary)
             except asyncio.CancelledError:
                 raise
             except Exception:                                    # noqa: BLE001
