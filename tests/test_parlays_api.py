@@ -1054,6 +1054,9 @@ class TestTotalLegsEnterThePool:
         def seed(conn):
             for i in range(3):
                 seed_total(conn, game=f"g{i}", line=8.5 + i, p=0.60 - i * 0.02)
+            # #325: a total is judged from its fair_prices row; the fixture
+            # writes no width, so give it one.
+            conn.execute("UPDATE fair_prices SET market_width = 0.01")
         app = build(seed)
         body = (await get(app, "/api/parlays")).json()
         card = next(c for c in body["cards"] if c["key"] == "totals")

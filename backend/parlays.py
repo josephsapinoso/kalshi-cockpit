@@ -44,6 +44,7 @@ from backend.core.ladder import (
     usable_legs,
 )
 from backend.core.parlay import ParlayQuote, value_parlay
+from backend.core.suppression import SuppressionConfig
 from backend.core.trust import (
     TrustThresholds,
     method_spread_points,
@@ -1212,19 +1213,56 @@ def _names_a_probable_bug(suppressed_reason: Optional[str]) -> bool:
     return bool(codes & PROBABLE_BUG_CODES)
 
 
-def _suppressed_reasons(
-    conn, candidates: Sequence[CandidateLeg]
-) -> dict[tuple[str, str], str]:
-    """`suppressed_reason` for every `(ticker, side)` the pool holds.
+#: Markets whose legs never get a `recommendations` row (runner.py writes
+#: recommendations for moneylines and props only), so the row cannot be the
+#: judge of them: a missing row there means "nobody asked", not "passed".
+_NO_RECOMMENDATION_MARKETS: frozenset[str] = frozenset({"spreads", "totals"})
 
-    The same read `leg_facts` runs (`recommendations`, freshest row per
-    `(ticker, side)`), widened from the SELECTED legs to the whole candidate
-    pool -- this has to run before `_best_per_game` chooses, not after, or a
-    suppressed leg has already displaced the leg that should have taken its
-    place. Only rows carrying a non-empty `suppressed_reason` are returned;
-    a row that ran and passed, and a ticker with no row at all, are both
-    absent from the result, and the caller reads that absence as "not
-    suppressed" (see `drop_suppressed_legs`).
+
+def probable_bug_codes(
+    leg: CandidateLeg,
+    *,
+    has_recommendation: bool,
+    suppressed_reason: Optional[str],
+) -> list[str]:
+    """The probable-bug codes one priced leg carries (empty = clean).
+
+    #325 (a rule-1 judgement made by main). A leg WITH a `recommendations`
+    row is judged by that row's `suppressed_reason`, exactly as before. A
+    **spread or total** leg has no such row, so reading its absence as "not
+    suppressed" waved through the one-book prices the singles screen would
+    refuse; for those the two consensus-quality codes are evaluated from the
+    leg's own `fair_prices` row with the thresholds `evaluate_suppression`
+    applies (`too_few_books`: fewer than `min_book_count` books;
+    `no_market_width`: width unmeasurable). `suspicious_edge` needs a
+    recommendation and stays moneyline/prop only. A moneyline or prop with no
+    row stays clean, as the singles screen reads it ("absent").
+    """
+    if has_recommendation:
+        codes = {e.strip() for e in (suppressed_reason or "").split(",")}
+        return sorted(codes & PROBABLE_BUG_CODES)
+    if leg.market not in _NO_RECOMMENDATION_MARKETS:
+        return []
+    found: list[str] = []
+    if leg.book_count is not None and (
+        leg.book_count < SuppressionConfig().min_book_count
+    ):
+        found.append("too_few_books")
+    if leg.market_width is None:
+        found.append("no_market_width")
+    return sorted(found)
+
+
+def _recommendation_reasons(
+    conn, candidates: Sequence[CandidateLeg]
+) -> dict[tuple[str, str], Optional[str]]:
+    """`suppressed_reason` of the freshest `recommendations` row for every
+    `(ticker, side)` the pool holds that HAS one (value `None` when the row
+    ran and passed). A ticker+side with no row is absent from the result --
+    the caller decides what absence means (`probable_bug_codes`).
+
+    The same read `leg_facts` runs, widened from the SELECTED legs to the
+    whole candidate pool: this has to run before `_best_per_game` chooses.
     """
     if not candidates:
         return {}
@@ -1245,7 +1283,23 @@ def _suppressed_reasons(
             """,
             tickers,
         ).fetchall()
-        if _names_a_probable_bug(row["suppressed_reason"])
+    }
+
+
+def probable_bugs_for_legs(
+    conn, legs: Sequence[CandidateLeg]
+) -> dict[tuple[str, str], list[str]]:
+    """`(ticker, side) -> probable-bug codes` for each priced leg. The one
+    reader both the ladder's #79 drop and the Check screen use, so cards and
+    the check agree."""
+    rows = _recommendation_reasons(conn, legs)
+    return {
+        (leg.kalshi_market_ticker, leg.side): probable_bug_codes(
+            leg,
+            has_recommendation=(leg.kalshi_market_ticker, leg.side) in rows,
+            suppressed_reason=rows.get((leg.kalshi_market_ticker, leg.side)),
+        )
+        for leg in legs
     }
 
 
@@ -1256,33 +1310,24 @@ def drop_suppressed_legs(
 
     #79 (a), Joe 2026-09-23: "refuse a suppressed leg outright". CLAUDE.md
     rule 1 -- a large apparent edge is a bug until proven otherwise -- was
-    applied on the singles screen and nowhere else; `suppressed_reason`
-    reached the parlay screen as *display* only, so a leg the singles path
-    hides as untrustworthy was still selected, priced, and multiplied into a
-    card's headline. This runs BEFORE `_best_per_game` (via `build_ladder`),
-    exactly where `usable_legs` runs its own freshness cut, so the next
-    unsuppressed leg in a suppressed leg's game can take its place instead
-    of the game dropping out.
+    applied on the singles screen and nowhere else. This runs BEFORE
+    `_best_per_game` (via `build_ladder`), so the next unsuppressed leg in a
+    suppressed leg's game can take its place instead of the game dropping out.
 
-    **Side-aware, matching `leg_facts`/`_verdict_facts_for_side`.** A prop or
-    total's Over and Under are two `recommendations` rows on one ticker
-    (ADR 0154); suppressing the Over must not drop the Under, which is a
-    different bet scored separately and may have passed every check.
+    **Side-aware**: a prop or total's Over and Under are two `recommendations`
+    rows on one ticker (ADR 0154); suppressing the Over must not drop the
+    Under.
 
-    **Absent resolves to NOT suppressed, matching the singles screen's own
-    reading.** A ticker+side with no `recommendations` row at all reports
-    `skeptic = "absent"` there (`leg_facts`, `_NO_FACTS`) -- a measurement
-    that has not run -- never a suppression; the ONLY thing that suppresses
-    a row is a `recommendations` row whose `suppressed_reason` is set. This
-    is not the CLAUDE.md "unreadable resolves to None" rule for a
-    probability (there is no probability being read here); it is matching
-    the one screen this ticket says must agree with the other.
+    **A moneyline or prop with no `recommendations` row resolves to NOT
+    suppressed**, matching the singles screen (`skeptic = "absent"`). **A
+    spread or total with none does not** (#325): it never gets a row, so it
+    is judged from its `fair_prices` row (`probable_bug_codes`).
     """
-    reasons = _suppressed_reasons(conn, candidates)
+    bugs = probable_bugs_for_legs(conn, candidates)
     kept: list[CandidateLeg] = []
     excluded: dict[str, int] = {}
     for leg in candidates:
-        if (leg.kalshi_market_ticker, leg.side) in reasons:
+        if bugs[(leg.kalshi_market_ticker, leg.side)]:
             excluded[SUPPRESSED_AS_BUG_REASON] = (
                 excluded.get(SUPPRESSED_AS_BUG_REASON, 0) + 1
             )

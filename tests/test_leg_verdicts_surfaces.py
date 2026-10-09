@@ -140,3 +140,36 @@ def test_more_than_eight_legs_says_only_eight_are_checked():
     assert "Only the first {CHECK_LEG_LIMIT} of your {allLegs.length} legs are" in notice
     assert "{unchecked}" in notice and "not" in notice
     assert "max-w-[65ch]" in notice
+
+
+CHECK_SCREEN = SRC / "components" / "CheckAParlay.tsx"
+
+
+def _ask_the_scouts(check: str) -> str:
+    return check[check.index("function AskTheScouts"): check.index("function CheckedResult")]
+
+
+class TestTheCheckScreenAsksOnATapOnly:
+    """#325: the Check-a-parlay result mounts the scouts behind ONE button.
+    Leg-verdict registration Amendment 1: the `check_button` verdict is fired
+    only by Joe's tap -- never on load, paste or from a watcher."""
+
+    def test_the_check_screen_mounts_the_panel_and_the_button(self):
+        check = _code(CHECK_SCREEN)
+        assert "Ask the scouts" in check
+        assert "<LegVerdicts" in _ask_the_scouts(check)
+        assert "<AskTheScouts" in check
+
+    def test_the_call_is_one_tap_handler_sending_check_button(self):
+        check = _code(CHECK_SCREEN)
+        assert len(re.findall(r"requestLegVerdicts\(", check)) == 1
+        body = _ask_the_scouts(check)
+        handler = body[body.index("const ask = async"): body.index("return (")]
+        assert 'requestLegVerdicts(legs, "check_button", null)' in handler
+        assert "onClick={ask}" in body
+        assert "useEffect" not in check and "useMemo" not in check
+        # Nothing before a tap: the panel draws only after one.
+        assert "requestedAtMs !== null" in body
+
+    def test_the_route_admits_the_check_trigger(self):
+        assert '"check_button"' in LEG_VERDICTS_ROUTE.read_text(encoding="utf-8")

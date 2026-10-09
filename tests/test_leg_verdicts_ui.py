@@ -50,7 +50,12 @@ API_TS = SRC / "lib" / "api.ts"
 #: `GameScriptCard.tsx` joined with #290: its `CheckTheseLegs` button, which
 #: `GameLegs.tsx` also renders, is the one tap-only call on the game surfaces
 #: (`tests/test_leg_verdicts_surfaces.py` pins it).
-ALLOWED_REQUEST_CALLERS = {PRICE_ON_KALSHI, PARLAY_CARDS, GAME_SCRIPT_CARD}
+#: `CheckAParlay.tsx` joined with #325: its "Ask the scouts" button, the
+#: `check_button` trigger (`tests/test_leg_verdicts_surfaces.py` pins it).
+CHECK_A_PARLAY = SRC / "components" / "CheckAParlay.tsx"
+ALLOWED_REQUEST_CALLERS = {
+    PRICE_ON_KALSHI, PARLAY_CARDS, GAME_SCRIPT_CARD, CHECK_A_PARLAY,
+}
 
 #: Every frontend source file under `src/`, so "everything else" in claim 3
 #: has a concrete membership.
@@ -152,7 +157,7 @@ class TestRequestLegVerdictsOnlyFiresFromTheTwoTriggers:
         for path in ALL_TSX:
             if path in (
                 API_TS, PRICE_ON_KALSHI, PARLAY_CARDS, LEG_VERDICTS,
-                GAME_SCRIPT_CARD,
+                GAME_SCRIPT_CARD, CHECK_A_PARLAY,
             ):
                 continue
             source = _text(path)
