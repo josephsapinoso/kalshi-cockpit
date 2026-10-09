@@ -1024,6 +1024,7 @@ class TestAnUnderLegReachesTheVenueAsNo:
         # Under likelier on both, so the card's likeliest legs are NO legs.
         seed_total(conn, game="t0", line=8.5, p=0.40)
         seed_total(conn, game="t1", line=9.5, p=0.38)
+        conn.execute("UPDATE fair_prices SET market_width = 0.01")  # #325: totals are judged from fair_prices
         conn.commit()
         conn.close()
 
@@ -1069,6 +1070,7 @@ class TestAnUnderLegReachesTheVenueAsNo:
         conn = store.connect(path)
         seed_total(conn, game="t0", line=8.5, p=0.40)
         seed_total(conn, game="t1", line=9.5, p=0.38)
+        conn.execute("UPDATE fair_prices SET market_width = 0.01")  # #325: totals are judged from fair_prices
         conn.commit()
         conn.close()
         body = (await get(app, "/api/parlays")).json()

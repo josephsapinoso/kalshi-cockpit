@@ -26,6 +26,10 @@ ship this lane's frontend before that lands.
   total a `market_width`, because a total with no recommendation row is now
   judged from its fair_prices row and the fixture writes no width.
 
+- `tests/test_parlays_api.py` and `tests/test_parlay_lookup.py`: one
+  `UPDATE fair_prices SET market_width = 0.01` each in the seeded-total
+  tests (same fixture gap: `seed_total` writes no width).
+
 ## Behaviour notes
 - Spread/total legs with no recommendations row: `too_few_books`
   (book_count < SuppressionConfig().min_book_count) and `no_market_width`
