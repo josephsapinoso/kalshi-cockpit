@@ -1664,7 +1664,10 @@ class TestBuilderParlay:
         payload = (await post(demo_app, "/api/builder/parlay", json=body)).json()
         assert payload["hold"] > 0.10
         assert not payload["is_positive_ev"]
-        assert "holds" in payload["verdict"]
+        # #321: the sentence states the fact ("...; hold 13.9%."), never a
+        # verdict word; the hold is still in it.
+        assert "hold" in payload["verdict"]
+        assert "Don't" not in payload["verdict"]
 
     async def test_same_game_legs_are_refused_with_the_reason(self, demo_app):
         """422 carrying the refusal text, not a plausible number."""
