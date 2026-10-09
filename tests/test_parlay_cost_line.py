@@ -33,6 +33,7 @@ SCREENS = {
     "AskTheMarket": SRC / "components" / "AskTheMarket.tsx",
     "CheckAParlay": SRC / "components" / "CheckAParlay.tsx",
     "ParlayCards": SRC / "components" / "ParlayCards.tsx",
+    "PriceOnKalshi": SRC / "components" / "PriceOnKalshi.tsx",
 }
 
 
@@ -113,3 +114,37 @@ class TestTheLineIsThePriceRestated:
             assert not re.search(rf"\b{word}\b", component, re.IGNORECASE), word
         for word in ("cheap", "predict"):
             assert word not in code(COST).lower()
+
+
+class TestTheServedCoefficientIsPreferred:
+    """#334: `fee_coefficient` rides on the lookup and check payloads."""
+
+    def test_the_served_coefficient_wins_over_a_quote_derived_one(self):
+        body = function_body(code(COST), "resolveCoefficient")
+        served = body.index("typeof served === \"number\"")
+        assert "return served;" in body[served : served + 160]
+        assert body.rstrip().rstrip("}").rstrip().endswith("return fromQuote;")
+
+    def test_the_cost_line_resolves_through_it(self):
+        component = code(SCREENS["AskTheMarket"])
+        component = component[component.index("export function ParlayCostLine") :]
+        assert "resolveCoefficient(legs?.feeCoefficient, coefficient)" in component
+
+    def test_the_line_beside_the_book_tile_carries_the_fee_clause(self):
+        """PriceOnKalshi renders the line under the tiles, with the served
+        coefficient in the context -- not `null` all the way down."""
+        source = code(SCREENS["PriceOnKalshi"])
+        assert re.search(r"<ParlayCostLine\b", source)
+        assert "tenthsFromDisplay(value.quoted.ask_display)" in source
+        assert "feeCoefficient: value.fee_coefficient ?? null" in source
+        # The line sits after the tiles and before the stake line.
+        assert re.search(r"<ParlayCostLine\b", source).start() > source.index("<Stat")
+
+    def test_check_a_parlay_completes_the_line_from_the_payload(self):
+        source = code(SCREENS["CheckAParlay"])
+        assert source.count("feeCoefficient: value.fee_coefficient ?? null") == 2
+
+    def test_the_payload_types_carry_the_field(self):
+        types = code(SRC / "lib" / "types" / "parlays.ts")
+        assert types.count("fee_coefficient?: number | null;") == 2
+

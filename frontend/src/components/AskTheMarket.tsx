@@ -11,6 +11,7 @@ import HeldConflictsNote from "@/components/HeldConflictsNote";
 import {
   ParlayLegsContext,
   coefficientFromQuote,
+  resolveCoefficient,
   costLine,
 } from "@/lib/parlayCost";
 
@@ -673,7 +674,8 @@ export function ParlayCostLine({
   const line = costLine({
     legCount: legs?.legCount ?? null,
     priceTenths,
-    coefficient,
+    // The served coefficient wins; a quote-derived one is the fallback (#334).
+    coefficient: resolveCoefficient(legs?.feeCoefficient, coefficient),
     legAsksTenths: legs?.legAsksTenths ?? null,
   });
   if (line === null) return null;

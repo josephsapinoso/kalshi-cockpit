@@ -400,6 +400,12 @@ export type ParlayLookupResult =
       };
       hold_display: string;
       verdict: string;
+      /**
+       * The fee coefficient the Take-it button's all-in cost uses (#334).
+       * Absent on an older payload; then the cost line derives `k` from a
+       * served quote or leaves the fee clauses out.
+       */
+      fee_coefficient?: number | null;
       notes: { unquoted: string; fee: string };
     }
   | { status: "book_empty"; minted_market_ticker: string; words: string }
@@ -641,6 +647,8 @@ export type CheckedParlayResult = {
    */
   rfq_available: boolean;
   rfq_unavailable_reason: string | null;
+  /** The Take-it path's fee coefficient (#334); see the lookup type. */
+  fee_coefficient?: number | null;
   legs: CheckedParlayLeg[];
   alt_buys: CheckedParlayAltBuy[];
   /** How cards from a friend have done so far (#325): one fixed line. */

@@ -31,6 +31,7 @@ import sqlite3
 from typing import Mapping, NamedTuple, Optional, Sequence
 
 from backend.core.correlation import Leg
+from backend.core.fees import COMBO_TAKER_COEFFICIENT
 from backend.core.ladder import (
     CARD_SHAPES,
     METHODS,
@@ -3596,6 +3597,11 @@ async def price_card_on_kalshi(
         "minted_market": _minted_market_facts(response),
         "hold_display": f"{valuation.hold * 100:.1f}%",
         "verdict": valuation.verdict,
+        # #334: the coefficient the Take-it button's all-in cost charges
+        # (`combo_rfq._all_in` -> `core.hedge.combo_entry_fee_tenths` ->
+        # `core.fees.COMBO_TAKER_COEFFICIENT`), imported, never retyped. An
+        # applied estimate, not the measured k (CLAUDE.md, cost bars).
+        "fee_coefficient": float(COMBO_TAKER_COEFFICIENT),
         "notes": {
             "unquoted": NOTES["unquoted"],
             "fee": NOTES["fee"],

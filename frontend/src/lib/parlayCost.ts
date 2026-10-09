@@ -12,10 +12,11 @@
  * factor predicting anything, calls no price cheap or good, and ranks
  * nothing (ADR 0071, ADR 0189 section 5).
  *
- * **`k`, the fee coefficient, is never a literal here.** It comes from a
+ * **`k`, the fee coefficient, is never a literal here.** It is the served
+ * `fee_coefficient` (#334) when the payload carries one, else it comes from a
  * served quote: the fee and contract cost the Take-it button already shows,
- * so `k = fee / (contract cost * (1 - P))`. With no served fee there is no
- * `k`, and the fee and singles clauses are absent rather than guessed.
+ * so `k = fee / (contract cost * (1 - P))`. With neither there is no `k`,
+ * and the fee and singles clauses are absent rather than guessed.
  * The singles clause uses the SAME `k` as the card (ADR 0058 reserves the
  * measured baseball figure for record-writing code).
  *
@@ -30,6 +31,8 @@ export type ParlayLegsInfo = {
   legCount: number;
   /** Each leg's Kalshi ask in tenths of a cent; `null` where unreadable. */
   legAsksTenths: (number | null)[] | null;
+  /** The served `fee_coefficient` (#334), where the payload carried one. */
+  feeCoefficient?: number | null;
 };
 
 export const ParlayLegsContext = createContext<ParlayLegsInfo | null>(null);
@@ -99,6 +102,21 @@ export function singlesFeeSharePercent(
     stake += p;
   }
   return (fee / stake) * 100;
+}
+
+/**
+ * The coefficient to use: the SERVED one (`fee_coefficient`, the constant the
+ * Take-it button's all-in cost charges, #334) when it is a usable number,
+ * else the one a quote implies, else `null` (the fee clauses are left out).
+ */
+export function resolveCoefficient(
+  served: number | null | undefined,
+  fromQuote: number | null,
+): number | null {
+  if (typeof served === "number" && Number.isFinite(served) && served > 0) {
+    return served;
+  }
+  return fromQuote;
 }
 
 export type CostLine = {
