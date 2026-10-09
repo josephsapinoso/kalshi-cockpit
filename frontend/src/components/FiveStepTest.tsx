@@ -120,7 +120,7 @@ export default function FiveStepTest() {
       <p className="mt-6 max-w-xl text-sm leading-relaxed text-muted">
         <strong className="text-foreground">Stop rule:</strong> you have not
         set one, so this page does not pretend you have. The desk sets no
-        stake size and no loss limit for you. If you decide on one, it goes
+        <Term k="stake">stake</Term> size and no loss limit for you. If you decide on one, it goes
         here.
       </p>
     </section>
