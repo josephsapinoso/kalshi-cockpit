@@ -191,6 +191,8 @@ scripts/*
 # ADR 0194: fills each held leg's own price and close from candlesticks, run
 # by path on the box after the v65 deploy (`--dry-run`, then `--commit`).
 !scripts/backfill_leg_prices.py
+# The counts-only /api/bets reader for a public log (`instrument.yml`).
+!scripts/fetch_live_bets_summary.py
 
 *.md
 !README.md

@@ -1,0 +1,128 @@
+# Run ONE committed instrument on the live box, by name, triggered by hand.
+#
+# Why: every read of the live instance goes through `flyctl ssh console`
+# invoking a committed script by path (CLAUDE.md's standing rule), and
+# `flyctl` lives on a laptop whose login expires. On 2026-10-08 the token had
+# expired, Joe was on his phone (where `!` commands cannot run), and three
+# reads the day's work needed -- the /bets expected-vs-won line, the per-leg
+# price backfill, the markup look -- all waited on a laptop. This workflow
+# uses the same repository secret the deploy already uses, so the reads need
+# no laptop.
+#
+# THE LOG IS PUBLIC. This repo is public, so everything an instrument prints
+# here is published. Only instruments that print COUNTS AND AGGREGATES are
+# listed below, and each is a fixed command: there is no free-text command
+# input, no way to pass a different script, and no way to pass extra flags.
+# An instrument that prints rows (tickers, prices, labels, dates) does not
+# belong here; it stays a laptop read. `tests/test_instrument_workflow.py`
+# pins every command to a script `.dockerignore` ships and to the flags below.
+#
+# `backfill-leg-prices-commit` WRITES the live database -- the five ADR 0194
+# columns on `parlay_position_legs`, NULLs only, never a money column and
+# never a table `gate.py` reads (ADR 0063). It needs the app name typed, like
+# a live deploy does. Everything else here is a read.
+#
+# Required repository secret: FLY_API_TOKEN
+
+name: Instrument
+
+on:
+  workflow_dispatch:
+    inputs:
+      instrument:
+        # A sentinel first option, for the reason `ops.yml` gives: a choice
+        # input always has a default, and the GitHub mobile app has dropped
+        # inputs before. The job refuses the sentinel.
+        description: "Which committed instrument to run on LIVE (counts only; this log is public)"
+        required: true
+        default: choose-one
+        type: choice
+        options:
+          - choose-one
+          - health
+          - bets-summary
+          - backfill-leg-prices-dry-run
+          - backfill-leg-prices-commit
+      confirm_live:
+        description: "For backfill-leg-prices-commit (a write), type the app name: kalshi-cockpit"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instrument-live
+  cancel-in-progress: false
+
+jobs:
+  run:
+    name: ${{ inputs.instrument }} on live
+    runs-on: ubuntu-latest
+    # The backfill reads up to 400 legs' candlesticks sequentially (two venue
+    # GETs each); minutes, not tens of minutes.
+    timeout-minutes: 15
+    steps:
+      - name: Refuse an unchosen instrument
+        if: inputs.instrument == 'choose-one'
+        run: |
+          echo "::error::No instrument was chosen. Pick one from the list."
+          exit 1
+
+      - name: Guard the write
+        if: inputs.instrument == 'backfill-leg-prices-commit'
+        run: |
+          if [ "${{ inputs.confirm_live }}" != "kalshi-cockpit" ]; then
+            echo "::error::backfill-leg-prices-commit writes the live database and"
+            echo "::error::needs the app name typed into confirm_live. Got: '${{ inputs.confirm_live }}'"
+            exit 1
+          fi
+
+      # The commands are fixed here, one per instrument. Adding one means
+      # adding a case AND a `!scripts/<name>.py` line in `.dockerignore` AND
+      # a line in the test; the test refuses a command that names a script
+      # the image does not ship.
+      - name: Resolve the command
+        id: cmd
+        run: |
+          case "${{ inputs.instrument }}" in
+            health)
+              cmd="python /app/scripts/fetch_live_route.py /api/health" ;;
+            bets-summary)
+              cmd="python /app/scripts/fetch_live_bets_summary.py" ;;
+            backfill-leg-prices-dry-run)
+              cmd="python /app/scripts/backfill_leg_prices.py --db /data/cockpit.db --dry-run --limit 400" ;;
+            backfill-leg-prices-commit)
+              cmd="python /app/scripts/backfill_leg_prices.py --db /data/cockpit.db --commit --limit 400" ;;
+            *)
+              echo "::error::unknown instrument '${{ inputs.instrument }}'"; exit 1 ;;
+          esac
+          echo "cmd=$cmd" >> "$GITHUB_OUTPUT"
+          echo "will run on kalshi-cockpit: $cmd"
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      # `flyctl ssh console -C` has been seen to exit 1 after a complete, good
+      # read (`tasks/lessons.md`, the verification-methods family), so the exit
+      # code is recorded but does not decide the job; the printed output does.
+      - name: Run it on the box
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set +e
+          flyctl ssh console -a kalshi-cockpit -C "${{ steps.cmd.outputs.cmd }}" | tee instrument.out
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "flyctl exit code: $code (recorded, not decisive)"
+          if [ ! -s instrument.out ]; then
+            echo "::error::the instrument printed nothing"
+            exit 1
+          fi
+          {
+            echo "## ${{ inputs.instrument }} on kalshi-cockpit"
+            echo
+            echo '```'
+            head -c 20000 instrument.out
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
