@@ -139,6 +139,27 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-09 (eighty-eighth session) — #316 closed by its live read; card output cap 3000→6000 (#338); builder routes deleted (#332); fee_coefficient served (#334); Joe's (C) withholds baseball singles (#339); live on `a6532df6`
+
+- **/go, no focus from Joe.** Partner ranked: the overdue #316 read, then #332 and #334 as parallel Sonnet lanes, #336 folded into #337. Joe approved merge + live deploy of both lanes as one batch (option buttons) and answered #339 (C) mid-session.
+- **Housekeeping.** Dependabot: 0 open. PR #335 (nightly routine) was an independent re-implementation of #333, already live; closed as superseded. Seven merged lane branches and their worktrees removed (none held a node_modules junction).
+- **#316 closed by its live read** (`agent-tool-errors --limit 200`, `game-script-card-refusals --limit 200`, `agent-spend --days 3`, ~16:40Z): `code_execution_tool_result:server_tool_use_limit` recorded on 48 calls, so the recorder works end to end. Search-limit refusals: 3 cards, 201,143 of 5,982,430 metered card tokens over 10-07..10-09 (3.4%), under the partner's 20% bar, so no question for Joe on search.
+- **#338, found in that read.** 17.6% of metered card tokens (1,055,000) bought no card. That is a lower bound, because 5 calls settled with NULL usage. On 10-09: 4 cards stopped with `stop_reason=max_tokens` and 5 with `json_invalid`, which `base.py:213` says is what a reply cut off at the cap looks like. The card call's cap is now `GAME_SCRIPT_MAX_OUTPUT_TOKENS = 6000` (`3834a7ce`, the scout staff's figure), pinned by a test that records the kwargs sent; mutation-checked. Also seen: the 2.25M unattended share refuses later cards daily (75 `refused_budget` in the newest 200), so every wasted card costs some later game its card. **Open until a later budget day shows `max_tokens` refusals near zero.**
+- **#210** stays waiting: no scout convening since 10-05 (none in the 3-day spend).
+- **#332** (`6c897097`): deleted, not wired. The `/api/builder/*` routes, `priceParlay`, `ParlayValuation`, `core/teaser.py`, `model/margins.py`, `model/synthetic.py` and `scripts/demo_builder.py` are gone; `TestTheBuilderRoutesStayDeleted` pins it. CI went red once: the priced-surface scan registered `types/parlays.ts` for `total_cost_dollars`, which left with `ParlayValuation`; unregistered in `a6532df6`. Lesson written.
+- **#334** (`031fb065`): lookup and check payloads serve `fee_coefficient = float(COMBO_TAKER_COEFFICIENT)` (`core/fees.py:372`, the constant Take-it charges; identity-pinned across hedge/parlays/parlay_check). The cost line prefers it and now renders beside the book tile and on Check a parlay. kalshi-platform review said MERGE; 0.071 sits above every measured combo k, so the fee shown leans about 1% high, the safe direction.
+- **#339** (Joe's (C), `21c6903d`): the review found that the singles comparison charged baseball singles at about 2× the measured rate (k ≈ 0.035 on nine fills), which flatters the parlay. A card with any KXMLB leg now withholds the singles clause. `ParlayCards` is the only provider of leg asks and goes through `singlesLegAsks`.
+- **#336 closed into #337**: the cause is fixed on main (Amendment 2); the confirming live count is now mandatory step 1 of #337's "Before the run". The 336→337 blocker was removed.
+- **#302 frontier**: #339 was opened and answered in-session; nothing else is waiting on Joe.
+
+### Still open
+
+1. #338 — after a full budget day on `a6532df6`: `game-script-card-refusals` shows `stop_reason=max_tokens` / `json_invalid` near zero, then close.
+2. #337 — 2027-01-15: look B for P1 only; step 1 is #336's live count.
+3. #331 — 2026-11-01: the leg census by kind.
+4. #210 — closes on the first scout convening with a sourced Matchup tile.
+5. #151, #197, #267 — carried forward unchanged.
+
 ## 2026-10-08 (eighty-seventh session) — Joe's parlay challenge: success rate is the price; the record reaches each leg (ADR 0194, v65/v66); the friend's-parlay path gets its guards; cash-out watch; cost line; markup registered; live on `7f135730`
 
 - **Joe: "I challenge you to come up with ideas to improve parlay picks and success rates."** Planned in plan mode with three read-only scouts, the sharp-bettor and the partner; Joe approved the plan, answered two questions by option buttons (scouts' button on Check a parlay: **yes**; cash-out watch: **book only, makers on his tap**) and approved merging and deploying the whole lane batch. Story **#320** under epic #83; tasks #321 to #334.
@@ -1727,6 +1748,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-09 (eighty-eighth session) — #316 closed by its live read; card output cap 3000→6000 (#338); builder routes deleted (#332); fee_coefficient served (#334); Joe's (C) withholds baseball singles (#339); live on `a6532df6`
 - 2026-10-08 (eighty-seventh session) — Joe's parlay challenge: success rate is the price; the record reaches each leg (ADR 0194, v65/v66); the friend's-parlay path gets its guards; cash-out watch; cost line; markup registered; live on `7f135730`
 - 2026-10-06 (eighty-sixth session) — README rewritten as a short user guide on Joe's call; the research record archived verbatim; five stale remote branches deleted
 - 2026-10-06 (eighty-fifth session) — #316's code is read and it is our cap; the limit surfaces as a failed code execution, already in the scout capture; Joe's (A) to #319 ships the prompt rule, live on `e8e2531d`

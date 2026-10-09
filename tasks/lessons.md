@@ -16,6 +16,15 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-09 - A deletion lane's red is in a registry, not a caller: run the full suite before the merge, not after
+
+From the eighty-eighth session (#332).
+
+- **Lane #332 deleted `ParlayValuation` and grepped every caller clean**, ran eight test files and was green. CI went red on `test_no_priced_surface_claims_the_edge_is_real.py`, a registry that lists `types/parlays.ts` as a priced surface because that type carried `total_cost_dollars`. A registry keyed on a *file* holding a *word* is invisible to a grep for the deleted *name*. Second session running where the red was a pin outside the lane's grep set (2026-10-08, `test_api`).
+- **The rule:**
+  - A lane that deletes a type, field or module runs the full suite before it reports done; the targeted set is for iteration, not for the hand-back.
+  - Main runs the full suite locally on the merged tree before pushing a deletion merge, or accepts that the first CI run is the full suite and holds the deploy for it.
+
 ## 2026-10-09 - An as-of rebuild must take EVERY input as of the time, status flags included; and a write-up quotes a registration's direction, it does not re-derive it
 
 From the eighty-seventh session, look A of the combo-markup measurement (#327, #336).
@@ -2712,6 +2721,7 @@ immediately and by dozens within a week.
 
 ### 2026-10-09 — in this file, above
 
+- A deletion lane's red is in a registry, not a caller: run the full suite before the merge, not after
 - An as-of rebuild must take EVERY input as of the time, status flags included; and a write-up quotes a registration's direction, it does not re-derive it
 
 ### 2026-10-08 — in this file, above
