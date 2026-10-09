@@ -19,6 +19,10 @@
  * and the fee and singles clauses are absent rather than guessed.
  * The singles clause uses the SAME `k` as the card (ADR 0058 reserves the
  * measured baseball figure for record-writing code).
+ * **On a card with a baseball leg the singles clause is withheld** (Joe,
+ * #339, 2026-10-09): nine baseball singles fills were charged about half the
+ * applied rate (k ~ 0.035), so the shared `k` would overstate the singles' fee
+ * about 2x and flatter the parlay. It shows nothing until the split is explained.
  *
  * Money is integer tenths of a cent throughout; a missing figure is `null`
  * and a clause that needs it is left out.
@@ -44,6 +48,26 @@ export function tenthsFromDisplay(display: string | null): number | null {
   if (match === null) return null;
   const tenths = Math.round(Number(match[1]) * 10);
   return tenths > 0 && tenths < 1000 ? tenths : null;
+}
+
+/** Kalshi's baseball series all start KXMLB (KXMLBGAME, KXMLBTOTAL, ...). */
+const BASEBALL_SERIES_PREFIX = "KXMLB";
+
+/**
+ * The leg asks the singles clause may use: `null` (clause withheld) when any
+ * leg is baseball (#339), else each leg's ask, `null` where unreadable.
+ */
+export function singlesLegAsks(
+  legs: { ticker: string; ask_display: string | null }[],
+): (number | null)[] | null {
+  if (
+    legs.some((leg) =>
+      leg.ticker.toUpperCase().startsWith(BASEBALL_SERIES_PREFIX),
+    )
+  ) {
+    return null;
+  }
+  return legs.map((leg) => tenthsFromDisplay(leg.ask_display));
 }
 
 /** Wins about 1 in N: the price restated. `null` on an unreadable price. */

@@ -42,7 +42,7 @@ import RefreshWhenPriced from "@/components/RefreshWhenPriced";
 import Sheet from "@/components/Sheet";
 import StaleOddsExit from "@/components/StaleOddsExit";
 import Term from "@/components/Term";
-import { ParlayLegsContext, tenthsFromDisplay } from "@/lib/parlayCost";
+import { ParlayLegsContext, singlesLegAsks } from "@/lib/parlayCost";
 import TrustNote from "@/components/TrustNote";
 import { Button, GaugeReadout, Segments, SectionLabel, Stat } from "@/components/ui";
 
@@ -469,9 +469,8 @@ function BuyTabs({
             <ParlayLegsContext.Provider
               value={{
                 legCount: card.legs.length,
-                legAsksTenths: card.legs.map((leg) =>
-                  tenthsFromDisplay(leg.ask_display),
-                ),
+                // null on a card with a baseball leg: singles withheld (#339).
+                legAsksTenths: singlesLegAsks(card.legs),
               }}
             >
               <PriceOnKalshi card={card} horizon={horizon} />

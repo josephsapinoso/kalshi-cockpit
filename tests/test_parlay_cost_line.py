@@ -92,8 +92,12 @@ class TestTheLineIsThePriceRestated:
         body = function_body(code(COST), "singlesFeeSharePercent")
         guard = body.index("if (tenths === null")
         assert "return null;" in body[guard : guard + 120]
-        # A card hands the legs' asks through; an unreadable one is null.
-        assert "tenthsFromDisplay(leg.ask_display)" in code(SCREENS["ParlayCards"])
+        # A card hands the legs' asks through singlesLegAsks (#339); an
+        # unreadable one is null.
+        assert "tenthsFromDisplay(leg.ask_display)" in function_body(
+            code(COST), "singlesLegAsks"
+        )
+        assert "singlesLegAsks(card.legs)" in code(SCREENS["ParlayCards"])
         # CheckAParlay's payload carries no per-leg ask, so it passes none.
         assert "legAsksTenths: null" in code(SCREENS["CheckAParlay"])
 
@@ -148,3 +152,25 @@ class TestTheServedCoefficientIsPreferred:
         types = code(SRC / "lib" / "types" / "parlays.ts")
         assert types.count("fee_coefficient?: number | null;") == 2
 
+
+
+class TestSinglesAreWithheldOnBaseball:
+    """#339 (Joe, 2026-10-09, (C)): nine baseball singles fills were charged
+    about half the applied k, so the shared-k singles figure would flatter
+    the parlay there. A card with any baseball leg shows no singles clause."""
+
+    def test_a_baseball_leg_withholds_the_leg_asks(self):
+        body = function_body(code(COST), "singlesLegAsks")
+        assert 'BASEBALL_SERIES_PREFIX = "KXMLB"' in code(COST)
+        assert "legs.some(" in body
+        assert ".startsWith(BASEBALL_SERIES_PREFIX)" in body
+        assert body.index("return null;") < body.index("tenthsFromDisplay(")
+
+    def test_the_only_provider_of_leg_asks_goes_through_it(self):
+        assert "legAsksTenths: singlesLegAsks(card.legs)" in code(SCREENS["ParlayCards"])
+        for name, path in SCREENS.items():
+            if name == "ParlayCards":
+                continue
+            for line in code(path).splitlines():
+                if "legAsksTenths:" in line:
+                    assert "null" in line, (name, line)
