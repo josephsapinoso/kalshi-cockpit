@@ -78,6 +78,13 @@ WATCH_INTERVAL_S = 60.0
 #: fixture has started or a ticket was recorded from the screen.
 IDLE_INTERVAL_S = 600.0
 
+#: How long the last-leg read waits on the combination's public book (#329).
+#: The same value `/api/hedge`'s reader uses (`backend/api/routes.py`,
+#: `COMBO_BOOK_READ_TIMEOUT_S`): the read sits on the shared 8/s client the
+#: armed order path also queues behind, so it is bounded twice -- once per
+#: idle interval, and here per call.
+COMBO_BOOK_READ_TIMEOUT_S = 3.0
+
 
 def anything_in_progress(conn, *, now_ms: int) -> bool:
     """Whether an open ticket has a pending leg whose game has started.

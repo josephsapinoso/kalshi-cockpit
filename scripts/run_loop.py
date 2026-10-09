@@ -84,6 +84,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from backend.config import (  # noqa: E402
+    AppConfig,
     FairPriceDownsampleConfig,
     OddsSnapshotPruneConfig,
     GateConfig,
@@ -122,7 +123,10 @@ from backend.parlays import (  # noqa: E402
 )
 from backend.agents.base import AgentConfig  # noqa: E402
 from backend.bid_watch import watch_bids_forever  # noqa: E402
-from backend.hedge_watch import watch_hedges_forever  # noqa: E402
+from backend.hedge_watch import (  # noqa: E402
+    COMBO_BOOK_READ_TIMEOUT_S,
+    watch_hedges_forever,
+)
 from backend.kalshi.quotes import LiveQuoteSource  # noqa: E402
 from backend.scout_watch import watch_scouts_forever  # noqa: E402
 from backend.game_script_watch import watch_game_scripts_forever  # noqa: E402
@@ -1148,6 +1152,19 @@ async def main() -> int:
         # writes no `recommendations` row, so ADR 0006's evidence guard is
         # untouched, and `gate.py` cannot see any table it uses (ADR 0078 §4).
         hedge_quotes = LiveQuoteSource()
+        # The last-leg push (#329, Joe 2026-10-08: "book only; makers on my
+        # tap") reads the combination's PUBLIC book once per idle interval
+        # through the same reader shape `/api/hedge` uses (`routes.py`).
+        # A keyless demo instance gets no reader and the push stays silent,
+        # which is its designed state: there is no book to state. Nothing
+        # here asks a maker or writes to the venue; `tests/test_hedge_watch_last_leg.py`
+        # walks the watcher's imports to pin that.
+        read_combo_book = None
+        if not AppConfig.load().is_demo:
+            async def read_combo_book(ticker: str) -> dict:
+                return await asyncio.wait_for(
+                    kalshi.orderbook(ticker), timeout=COMBO_BOOK_READ_TIMEOUT_S
+                )
         hedge_task = asyncio.create_task(
             watch_hedges_forever(
                 args.db,
@@ -1157,6 +1174,7 @@ async def main() -> int:
                 # task on that handle would interleave two transactions.
                 lambda watch_conn: Alerter(watch_conn, discord),
                 fetch_quotes=hedge_quotes.fetch_many,
+                read_combo_book=read_combo_book,
                 max_quote_age_ms=staleness.max_kalshi_quote_age_s * 1000,
             ),
             name="hedge-watch",

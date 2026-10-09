@@ -645,6 +645,27 @@ class DiscordNotifier:
             }
         )
 
+    async def last_leg_watch(self, position: dict, text: str) -> bool:
+        """One unstarted leg is all that is left of a held combination (#329;
+        Joe, 2026-10-08: "Book only; makers on my tap").
+
+        The sentence is pre-rendered by `alerts.last_leg_sentence` and posted
+        verbatim -- the public book's bid and the last leg's venue price, and
+        nothing else -- so the push and the screen cannot disagree. It names
+        no stake, no "lock", no "cash out" and no advice; the makers' bid is
+        behind his tap on /bets#open, and this method asks nobody for it.
+        """
+        return await self._post(
+            {
+                "title": f"One leg left — {position.get('label')}",
+                "description": text,
+                "url": f"{self.config.cockpit_base_url}/bets#open",
+                # The parlay colour, for `position_state`'s reason: this is
+                # not an opportunity and it is not bad news by construction.
+                "color": COLOUR_PARLAY,
+            }
+        )
+
     # -- digests -----------------------------------------------------------
 
     async def daily_digest(
