@@ -61,7 +61,7 @@ def conn(tmp_path):
 
 
 def make_ticket(conn, *, outcomes, last_commence=NOW_MS + 3_600_000,
-                combo_ticker=COMBO):
+                combo_ticker=COMBO, earlier_commence=NOW_MS - 86_400_000):
     legs = []
     for i, outcome in enumerate(outcomes):
         is_last = i == len(outcomes) - 1
@@ -69,7 +69,7 @@ def make_ticket(conn, *, outcomes, last_commence=NOW_MS + 3_600_000,
             "ticker": LAST if is_last else f"KXMLBGAME-26AUG26T{i}-T{i}",
             "side": "yes",
             "label": f"Team {i} to win",
-            "commence_ms": last_commence if is_last else NOW_MS - 86_400_000,
+            "commence_ms": last_commence if is_last else earlier_commence,
         })
     pid = hedge.record_position(
         conn, now_ms=NOW_MS, source="kalshi_combo", label="Five legs",
@@ -186,7 +186,8 @@ class TestItFiresOnTheLastLegState:
 
 class TestItStaysQuietOtherwise:
     async def test_two_pending_legs_do_not_fire(self, conn):
-        make_ticket(conn, outcomes=["won", "won", "won", "pending", "pending"])
+        make_ticket(conn, outcomes=["won", "won", "won", "pending", "pending"],
+                    earlier_commence=NOW_MS + 1_800_000)
         notifier = Notifier()
         result = await run(conn, notifier, reader=book_reader([["0.0510", "9"]]))
         assert result["alerts_sent"] == [] and notifier.texts == []
@@ -276,6 +277,31 @@ class TestTheLoopReachesIt:
             sleep=sleep, clock=lambda: NOW_MS / 1000, max_cycles=1,
         )
         assert len(notifier.texts) == 1
+
+    async def test_the_book_is_read_once_per_idle_interval_not_per_cycle(
+        self, tmp_path
+    ):
+        path = tmp_path / "cockpit.db"
+        setup = db.init_db(path)
+        try:
+            make_ticket(setup, outcomes=WON4)
+        finally:
+            setup.close()
+        reads: list[str] = []
+
+        async def counting(ticker):
+            reads.append(ticker)
+            return {"yes_dollars": [], "no_dollars": []}
+
+        async def sleep(seconds):
+            return None
+
+        await hedge_watch.watch_hedges_forever(
+            path, lambda c: Alerter(c, Notifier()), fetch_quote=fetch_quote,
+            read_combo_book=counting, max_quote_age_ms=30_000, sleep=sleep,
+            clock=lambda: NOW_MS / 1000, max_cycles=3,
+        )
+        assert reads == [COMBO]
 
     async def test_the_sixty_second_cycle_reads_no_combination_book(self, conn):
         make_ticket(conn, outcomes=WON4)
