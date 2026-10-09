@@ -84,7 +84,7 @@ def _rows(section):
 def _add_ask(
     conn, n, *, day, legs, f, quotes, status="quoted", purpose=None,
     single=True, lookup=True, lookup_age_ms=60_000, card="safe",
-    legs_json=None, ticker=None,
+    legs_json=None, ticker=None, lookup_fair=None,
 ):
     """One `combo_rfqs` row, its quotes, and the lookup that minted it."""
     req = _BASE_MS + day * _DAY + n * 1000
@@ -113,17 +113,15 @@ def _add_ask(
             "INSERT INTO parlay_lookups (requested_ms, card_key, stake_cents, "
             "selected_legs, status, minted_market_ticker, fair_joint_conservative) "
             "VALUES (?,?,?,?,?,?,?)",
-            (req - lookup_age_ms, card, 100, legs_json, "priced", ticker, f),
+            (req - lookup_age_ms, card, 100, legs_json, "priced", ticker,
+             f if lookup_fair is None else lookup_fair),
         )
     return req
 
 
 def _fixture(tmp_path):
-    """Level 2: 20 asks on 10 days
-    level 3: 20 asks on 10 days
-    level 6+:
-    5 asks
-    and seven asks each removed at a different registered step."""
+    """Level 2: 20 asks on 10 days. Level 3: 20 asks on 10 days. Level 6+:
+    5 asks. Plus eight asks, each removed at a different registered step."""
     path = tmp_path / "markup.db"
     conn = db.init_db(path)
     n = 0
@@ -146,7 +144,7 @@ def _fixture(tmp_path):
         n += 1
         _add_ask(conn, n, day=i, legs=6, f=0.1, quotes=[160])
         points.append((i, 6, math.log(160 / 100.0)))
-    # The seven removed asks, one per registered step.
+    # The eight removed asks, one per registered step.
     n += 1
     _add_ask(conn, n, day=1, legs=2, f=0.5, quotes=[550], purpose="exit")
     n += 1
@@ -161,6 +159,9 @@ def _fixture(tmp_path):
     _add_ask(conn, n, day=1, legs=2, f=0.5, quotes=[550], lookup=False)
     n += 1
     _add_ask(conn, n, day=1, legs=2, f=0.5, quotes=[550], lookup_age_ms=31 * 60_000)
+    n += 1
+    # A lookup exists but copied a DIFFERENT fair: provenance cannot be shown.
+    _add_ask(conn, n, day=1, legs=2, f=0.5, quotes=[550], lookup_fair=0.4)
     conn.commit()
     conn.close()
     return path, points
@@ -189,13 +190,13 @@ class TestComboMarkup:
     def test_funnel_counts_equal_the_hand_count(self, fx):
         path, _ = fx
         rows = {r["step"]: r for r in _rows(_section(_run(path), "Exclusion funnel"))}
-        assert rows["1 requested_ms before cutoff"]["remaining"] == 52
+        assert rows["1 requested_ms before cutoff"]["remaining"] == 53
         assert rows["2 purpose"]["removed"] == 1
         assert rows["3 status"]["removed"] == 1
         assert rows["4 fair NULL"]["removed"] == 1
         assert rows["5 fair outside (0,1)"]["removed"] == 1
         assert rows["6 single-read"]["removed"] == 1
-        assert rows["7 provenance"]["removed"] == 1
+        assert rows["7 provenance"]["removed"] == 2
         assert rows["8 fair age"]["removed"] == 1
         assert rows["8 fair age"]["remaining"] == 45
 
@@ -215,8 +216,8 @@ class TestComboMarkup:
         path, _ = fx
         row = _rows(_section(_run(path), "Rule 6"))[0]
         assert row["re_asked_removed"] == 1
-        # passed rules 1-5: 45 primary + no-lookup(1) + stale(1) + re-asked(1)
-        assert row["passed_rules_1_to_5"] == 48
+        # passed rules 1-5: 45 primary + no-lookup(1) + wrong-fair lookup(1) + stale(1) + re-asked(1)
+        assert row["passed_rules_1_to_5"] == 49
 
     def test_cells_equal_hand_computed_values_and_never_pool_leg_counts(self, fx):
         path, _ = fx
