@@ -613,6 +613,11 @@ class TestTheLookupRecordsWhatThePositionNeeds:
             "event_title": "Detroit at Green Bay",
             "league": "nfl",
             "commence_ms": 1_700_000_500_000,
+            # ADR 0194 / #323: the leg's own Kalshi ask and the desk's chance
+            # ride the lookup blob so the position row can keep them. No
+            # quote was read for this fixture leg, so the ask is NULL, never 0.
+            "kalshi_ask_tenths": None,
+            "desk_chance": 0.55,
         }
 
 
