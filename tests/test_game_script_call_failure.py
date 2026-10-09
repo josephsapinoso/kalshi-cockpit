@@ -186,3 +186,25 @@ class TestARetryIsNotATightLoop:
                 for i in range(10)]
         acts = decide(NOW, self._fx(), rows, _roomy())
         assert [a.kind for a in acts] == [BUILD]
+
+
+class _RecordingMessages(_Messages):
+    def __init__(self):
+        super().__init__(exc=RuntimeError("stop after the request is recorded"))
+        self.sent = None
+
+    async def parse(self, **kwargs):
+        self.sent = kwargs
+        return await super().parse(**kwargs)
+
+
+class TestTheCardIsNotCutOffAtTheOldCap:
+    """#338: 3000 output tokens cut finished research off at the final answer."""
+
+    async def test_the_card_call_sends_the_named_output_cap(self, tmp_path):
+        messages = _RecordingMessages()
+        await _run(tmp_path, messages)
+        assert messages.sent["max_tokens"] == game_script.GAME_SCRIPT_MAX_OUTPUT_TOKENS
+
+    def test_the_cap_is_at_least_the_scout_staffs(self):
+        assert game_script.GAME_SCRIPT_MAX_OUTPUT_TOKENS >= 6000

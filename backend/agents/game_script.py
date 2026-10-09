@@ -51,6 +51,12 @@ PROMPT_VERSION = "5"
 
 GAME_SCRIPT_MAX_SEARCHES = 3
 GAME_SCRIPT_SEARCH_TOOL = {**WEB_SEARCH_TOOL, "max_uses": GAME_SCRIPT_MAX_SEARCHES}
+# The card call's output cap. Was 3000 until #338: on 2026-10-09 four cards
+# stopped at `max_tokens` and five failed `json_invalid` (a reply cut off at the
+# cap, base.py), each after paying up to ~240K input tokens of research; over
+# 10-07..10-09 17.6% of metered card tokens bought no card. Thinking at
+# effort="medium" counts against it. Matches the scout staff's 6000.
+GAME_SCRIPT_MAX_OUTPUT_TOKENS = 6000
 
 MIN_LEGS = 2
 MAX_LEGS = 3
@@ -607,7 +613,7 @@ async def build_card(
             system=SYSTEM,
             user_content=prompt,
             output_model=CardOutput,
-            max_tokens=3000,
+            max_tokens=GAME_SCRIPT_MAX_OUTPUT_TOKENS,
             effort="medium",
             tools=[GAME_SCRIPT_SEARCH_TOOL],
         )
