@@ -347,6 +347,7 @@ from inspect_live_db_parlays import (  # noqa: E402,F401
     _q_agent_spend,
     _q_agent_tool_errors,
     _q_combo_bids_tail,
+    _q_combo_markup,
     _q_combo_position_gaps,
     _q_combo_position_orphans,
     _q_game_script_card_rechecks,
@@ -1305,6 +1306,20 @@ QUERIES: dict[str, QueryDef] = {
         # Newest --limit rows by primary key through a subquery.
         cost=CHEAP,
     ),
+    "combo-markup": QueryDef(
+        "The makers' markup over the desk's fair on a combination, by leg "
+        "count (#327): registered exclusion funnel, 20 descriptive cells, "
+        "P1/P2 only where their floors hold, dispersion. Spec: "
+        "docs/measurements/2026-10-08-preregistration-combo-markup-by-leg-"
+        "count.md. --limit bounds asks (newest first), --cutoff is Look A's "
+        "2026-10-08T00:00:00Z by default. Run once per look; never wire to a "
+        "route, push or log line.",
+        _q_combo_markup,
+        # idx_combo_rfqs_time range, newest --limit asks; per-ask keyed reads
+        # (rfq_id index, 24h lookup window, fair_prices by idx_fair_link and
+        # an as-of bound). No table is scanned.
+        cost=CHEAP,
+    ),
     "own-open-rfqs": QueryDef(
         "Our combo_rfqs rows not marked deleted (status != 'error') over the "
         "newest --limit rows, against the venue's cap of 100 open RFQs. "
@@ -1868,6 +1883,15 @@ def _build_parser() -> argparse.ArgumentParser:
             "scout-briefings: same shape, default "
             f"{_SCOUT_BRIEFINGS_DEFAULT_DAYS}, hard ceiling "
             f"{_SCOUT_BRIEFINGS_MAX_DAYS}"
+        ),
+    )
+    parser.add_argument(
+        "--cutoff",
+        default=None,
+        help=(
+            "combo-markup: only asks with requested_ms before this instant, "
+            "ISO-8601 or epoch milliseconds (default 2026-10-08T00:00:00Z, "
+            "registered Look A). Malformed is refused, not ignored"
         ),
     )
     parser.add_argument(
