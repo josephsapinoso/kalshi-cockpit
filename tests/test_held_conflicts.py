@@ -167,3 +167,60 @@ class TestTheRoute:
             path = REPO / rel
             if path.exists():
                 assert "held_conflicts" not in path.read_text(encoding="utf-8"), rel
+
+
+def _single(conn, ticker, side):
+    return held_conflicts.single_conflicts(conn, ticker, side)
+
+
+class TestASingleMarketIsChecked:
+    """#333: the manual-order ticket asks about one market and side, with no
+    `parlay_lookups` row behind it."""
+
+    def test_the_other_side_of_a_held_leg_is_one_conflict(self, tmp_path):
+        conn = _conn(tmp_path)
+        _hold(conn, [(PSU, "yes")])
+        out = _single(conn, PSU, "no")
+        assert out["checked"] is True
+        assert [c["kind"] for c in out["conflicts"]] == ["opposite_side"]
+
+    def test_the_same_side_is_named_same_side(self, tmp_path):
+        conn = _conn(tmp_path)
+        _hold(conn, [(PSU, "yes")])
+        out = _single(conn, PSU, "yes")
+        assert [c["kind"] for c in out["conflicts"]] == ["same_side"]
+
+    def test_a_hand_recorded_slip_with_no_combo_ticker_is_in_the_held_set(self, tmp_path):
+        conn = _conn(tmp_path)
+        _hold(conn, [(PSU, "yes")], combo=None)
+        assert [c["kind"] for c in _single(conn, PSU, "no")["conflicts"]] == ["opposite_side"]
+        assert [c["kind"] for c in _single(conn, PSU, "yes")["conflicts"]] == ["same_side"]
+
+    def test_another_teams_win_in_the_same_game_is_other_winner(self, tmp_path):
+        conn = _conn(tmp_path)
+        _hold(conn, [(PSU_WIN, "yes")])
+        assert [c["kind"] for c in _single(conn, NW_WIN, "yes")["conflicts"]] == ["other_winner"]
+
+    def test_an_unheld_market_is_checked_and_clean(self, tmp_path):
+        conn = _conn(tmp_path)
+        _hold(conn, [(PSU, "yes")])
+        assert _single(conn, TOTAL, "yes") == {"checked": True, "conflicts": []}
+
+    def test_settled_and_resolved_holdings_are_ignored(self, tmp_path):
+        conn = _conn(tmp_path)
+        _hold(conn, [(PSU, "yes")], status="settled", combo="A")
+        _hold(conn, [(PSU, "yes")], outcome="won", combo="B")
+        assert _single(conn, PSU, "no")["conflicts"] == []
+
+    async def test_the_route_serves_the_single_market(self, tmp_path):
+        path = tmp_path / "r.db"
+        conn = db.init_db(path)
+        _hold(conn, [(PSU, "yes")], combo=None)
+        conn.close()
+        app = create_app(AppConfig(instance_mode="demo", db_path=path))
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            body = (await c.get("/api/held-conflicts", params={"ticker": PSU, "side": "no"})).json()
+            bad = await c.get("/api/held-conflicts", params={"ticker": PSU, "side": "maybe"})
+        assert [x["kind"] for x in body["conflicts"]] == ["opposite_side"]
+        assert bad.status_code == 422

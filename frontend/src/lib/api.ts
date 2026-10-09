@@ -1324,10 +1324,13 @@ const UNREADABLE_LEG_VERDICTS =
  */
 export async function fetchHeldConflicts(
   ticker: string,
+  side?: "yes" | "no",
 ): Promise<import("./types/hedge").HeldConflicts | null> {
   try {
     const response = await fetch(
-      `${BASE}/api/held-conflicts?ticker=${encodeURIComponent(ticker)}`,
+      `${BASE}/api/held-conflicts?ticker=${encodeURIComponent(ticker)}${
+        side ? `&side=${side}` : ""
+      }`,
       { cache: "no-store" },
     );
     if (!response.ok) return null;

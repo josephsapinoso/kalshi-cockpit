@@ -40,6 +40,7 @@ from .parlays import legs_for_position
 
 OPPOSITE_SIDE = "opposite_side"
 OTHER_WINNER = "other_winner"
+SAME_SIDE = "same_side"
 
 #: A full-game winner market: `<league>GAME-<fixture>-<team>`.
 _GAME_MARKET = re.compile(r"^(KX[A-Z0-9]*GAME-[A-Z0-9]+)-[A-Z0-9]+$")
@@ -115,3 +116,30 @@ def held_conflicts(conn: sqlite3.Connection, combo_ticker: str) -> dict:
     if legs is None:
         return {"checked": False, "conflicts": []}
     return {"checked": True, "conflicts": clashes(legs, _held_legs(conn, combo_ticker))}
+
+
+def single_conflicts(conn: sqlite3.Connection, ticker: str, side: str) -> dict:
+    """The payload for ONE market and side about to be bought on its own (the
+    manual-order ticket, #333). A single market has no `parlay_lookups` row,
+    so it is always `checked: true` -- the held set is the only input.
+
+    The same two exact clashes as a combination's leg, plus `same_side`: the
+    same market and side already held, which he would hold twice. It warns and
+    never blocks. A held leg on a hand-recorded slip (NULL `combo_ticker`) is
+    in the held set; the combination's own exclusion does not apply.
+    """
+    if side not in ("yes", "no"):
+        return {"checked": False, "conflicts": []}
+    held = _held_legs(conn, "")
+    leg = {"ticker": ticker, "side": side, "label": f"{ticker} {side}"}
+    out = clashes([leg], held)
+    for h in held:
+        if h["ticker"] == ticker and h["side"] == side:
+            out.append({
+                "kind": SAME_SIDE,
+                "leg_label": leg["label"],
+                "held_label": h["label"],
+                "position_id": h["position_id"],
+                "position_label": h["position_label"],
+            })
+    return {"checked": True, "conflicts": out}
