@@ -114,6 +114,8 @@ from .analysis.clv import DEFAULT_HORIZON_HOURS
 from .analysis.clv import clv_tenths as _clv_tenths
 from .core.prices import format_price
 from .estimates import classify_ticker
+from .kalshi.discovery import _SERIES_RE, _SUFFIX_TO_MARKET_TYPE
+from .kalshi.props import is_prop_series
 from .odds.timing import day_start_ms
 from .pick_sources import (
     PICK_SOURCE_LABELS,
@@ -808,6 +810,138 @@ def by_source_summary(
     return out
 
 
+# ---------------------------------------------------------------------------
+# #323 / ADR 0194: the legs of the combinations Joe holds, by league and kind.
+# ---------------------------------------------------------------------------
+
+#: The kinds a held leg can be, in the FIXED order the block is served in.
+#: An ordering is a claim (ADR 0071 s2.5); this one is the order the kinds
+#: are named everywhere else in the desk, and no result ever moves a row.
+LEG_KINDS: tuple[str, ...] = ("moneyline", "spread", "total", "prop", "other")
+
+#: Where a leg with no league on its row is filed. Last, always.
+LEG_LEAGUE_UNKNOWN = "Unknown"
+
+
+def leg_kind(event_ticker: Optional[str], market_ticker: Optional[str]) -> str:
+    """moneyline | spread | total | prop | other, from the leg's series.
+
+    The same classification `scripts/count_combo_leg_sides.py::classify_leg`
+    makes -- props decided first by series name, then the `GAME` / `SPREAD` /
+    `TOTAL` suffix -- built on the same `backend.kalshi` primitives. It is
+    NOT imported from that script: `.dockerignore` ships only an allowlist of
+    `scripts/`, and a `/bets` that imported a file the image lacks would 500.
+    `tests/test_bets_summary.py::TestByLegKind` pins agreement with the script
+    over every series it knows, so there is one rule in two places that
+    cannot drift unseen. `TEAMTOTAL` and an unrecognised series are `other`,
+    never dropped.
+    """
+    series = (event_ticker or market_ticker or "").split("-")[0]
+    if is_prop_series(series):
+        return "prop"
+    match = _SERIES_RE.match(series)
+    if match is None:
+        return "other"
+    market_type = _SUFFIX_TO_MARKET_TYPE.get(match.group(2))
+    return market_type if market_type in ("moneyline", "spread", "total") else "other"
+
+
+def _median(values: list[float]) -> float:
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def by_leg_kind_summary(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Per league and kind: wins at the price paid, and the close beaten or not.
+
+    Reads `parlay_position_legs` and nothing else. **It never reads
+    `leg_verdicts`** (the leg-verdict registration's s6 forbids any running
+    scout-accuracy figure) **and never splits anything by the books' chance
+    minus Kalshi's ask** (that is ADR 0038's consensus row, `beta = -0.141`,
+    run again without a registration). `desk_chance` is deliberately not even
+    selected. What it shows is counts: ADR 0194 s2.6.
+
+    Population: settled legs only (`outcome` won or lost; a void has no
+    result and a pending leg none yet), one cell per `(league, kind)`.
+
+    * `expected` is `expected_block` over legs with a readable ask, price =
+      `ask_at_purchase_tenths` (the price paid for the side held), won =
+      `outcome = 'won'`; so `too_few` and no range below 5 expected each side.
+    * `ask_not_recorded` counts the settled legs with no readable ask. They
+      are in no cell and are never a 0c price (a 0 ask is a free contract).
+    * `clv` is `clv_tenths(ask, close_mid, side)` over legs with both an ask
+      and a two-sided close: `n`, `sum_cents`, `median_cents`. `None` where
+      `n` is 0, never 0. `close_not_recorded` counts the settled legs with
+      an ask but no close.
+
+    No hit rate, no average, no trend, no ranking: leagues are alphabetical
+    (`Unknown` last) and kinds are `LEG_KINDS` order, whatever the results.
+    """
+    rows = conn.execute(
+        "SELECT ticker, event_ticker, league, side, outcome, "
+        "       ask_at_purchase_tenths, close_yes_bid_tenths, "
+        "       close_yes_ask_tenths "
+        "FROM parlay_position_legs "
+        "WHERE ticker IS NOT NULL AND outcome IN ('won', 'lost')"
+    ).fetchall()
+
+    cells: dict[tuple[str, str], dict[str, Any]] = {}
+    for r in rows:
+        league = r["league"] or LEG_LEAGUE_UNKNOWN
+        kind = leg_kind(r["event_ticker"], r["ticker"])
+        cell = cells.setdefault(
+            (league, kind),
+            {"settled": 0, "priced": [], "ask_missing": 0,
+             "clv": [], "close_missing": 0},
+        )
+        cell["settled"] += 1
+        ask = r["ask_at_purchase_tenths"]
+        if not (isinstance(ask, int) and 1 <= ask <= 999):
+            cell["ask_missing"] += 1
+            continue
+        cell["priced"].append((ask, r["outcome"] == "won"))
+        bid, close_ask = r["close_yes_bid_tenths"], r["close_yes_ask_tenths"]
+        if bid is None or close_ask is None:
+            cell["close_missing"] += 1
+        else:
+            cell["clv"].append(_clv_tenths(ask, (bid + close_ask) / 2, r["side"]))
+
+    leagues = {league for league, _ in cells}
+    ordered_leagues = sorted(
+        leagues, key=lambda name: (name == LEG_LEAGUE_UNKNOWN, name)
+    )
+    out_leagues: list[dict[str, Any]] = []
+    for league in ordered_leagues:
+        blocks: list[dict[str, Any]] = []
+        for kind in LEG_KINDS:
+            cell = cells.get((league, kind))
+            if cell is None:
+                continue
+            clv_total = 0.0
+            for v in cell["clv"]:
+                clv_total += v
+            has_clv = bool(cell["clv"])
+            blocks.append({
+                "kind": kind,
+                "settled": cell["settled"],
+                "ask_not_recorded": cell["ask_missing"],
+                "expected": expected_block(cell["priced"]),
+                "clv": {
+                    "n": len(cell["clv"]),
+                    "sum_cents": round(clv_total / 10, 1) if has_clv else None,
+                    "median_cents": (
+                        round(_median(cell["clv"]) / 10, 1) if has_clv else None
+                    ),
+                    "close_not_recorded": cell["close_missing"],
+                },
+            })
+        out_leagues.append({"league": league, "kinds": blocks})
+    return {"kind_order": list(LEG_KINDS), "leagues": out_leagues}
+
+
 def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
     """The record and its honest totals, newest settlement first.
 
@@ -1100,6 +1234,12 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
             expected_excluded,
         )
         record["by_source"] = by_source_summary(source_rows)
+    # #323: the legs of the combinations he holds. Outside `if rows`: it reads
+    # `parlay_position_legs`, which can hold settled legs on an empty mirror.
+    # Absent, not a block of zeros, when no leg has settled (as `summary` is).
+    by_leg_kind = by_leg_kind_summary(conn)
+    if by_leg_kind["leagues"]:
+        record["by_leg_kind"] = by_leg_kind
     # v63: what the chips need, for the settled window AND every open
     # recorded combination (the Open section above the settled list).
     record["pick_sources"] = pick_source_payload(

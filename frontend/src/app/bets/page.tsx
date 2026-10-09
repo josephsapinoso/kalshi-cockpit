@@ -382,6 +382,13 @@ function BetSection({
         summary={record.summary?.[section.kind]}
       />
       <BySource kind={section.kind} blocks={record.by_source?.[section.kind]} />
+      {section.kind === "combo" && (
+        <ByLegKindBlock
+          data={
+            (record as BetsRecord & { by_leg_kind?: ByLegKind }).by_leg_kind
+          }
+        />
+      )}
       {/* #161: how many of this kind carry the desk's chance at the moment
           it was priced -- a whole-table COUNT, never a rate. Combo only:
           a single carries no chance at all, so the sentence would always
@@ -548,6 +555,97 @@ function BySource({
         prices you paid, not whether the source is any good. It needs about
         five expected wins and five expected losses before it can say even
         that.
+      </p>
+    </details>
+  );
+}
+
+/**
+ * #323 / ADR 0194: the legs of the combinations he holds, by league and kind.
+ *
+ * "Price when bought" is the leg's own Kalshi ask for the side held, kept
+ * when the desk priced or checked the card; "Kalshi's close" is the last
+ * quote before the game's true start. Everything is the server's: rows in
+ * its FIXED order (leagues alphabetical, kinds moneyline / spread / total /
+ * prop / other) and never sorted by a result, no colour, nothing divided
+ * here. A cell expecting fewer than 5 wins or 5 losses gets no range. A leg
+ * with no recorded price or close is COUNTED as "not recorded" -- never
+ * drawn as 0. The books' chance is deliberately absent: this block neither
+ * shows it nor splits by it (ADR 0194 s2.6).
+ *
+ * Types are local because `lib/types/bets.ts` is outside this ticket's lane.
+ */
+type LegKindClv = {
+  n: number;
+  sum_cents: number | null;
+  median_cents: number | null;
+  close_not_recorded: number;
+};
+type LegKindBlock = {
+  kind: string;
+  settled: number;
+  ask_not_recorded: number;
+  expected: {
+    n: number;
+    won: number;
+    expected: number;
+    too_few: boolean;
+    range_low: number | null;
+    range_high: number | null;
+  };
+  clv: LegKindClv;
+};
+type ByLegKind = {
+  kind_order: string[];
+  leagues: { league: string; kinds: LegKindBlock[] }[];
+};
+
+function signedCents(value: number | null): string {
+  if (value === null) return "not recorded";
+  return `${value < 0 ? "-" : "+"}${Math.abs(value).toFixed(1)}c`;
+}
+
+function ByLegKindBlock({ data }: { data: ByLegKind | undefined }) {
+  if (!data || data.leagues.length === 0) return null;
+  return (
+    <details className="mt-1 max-w-[65ch] text-xs text-muted">
+      <summary className="cursor-pointer">
+        Each leg of your combinations, by league and kind
+      </summary>
+      {data.leagues.map((league) => (
+        <div key={league.league} className="mt-2">
+          <p className="font-medium">{league.league}</p>
+          <ul className="mt-1 space-y-1 font-mono">
+            {league.kinds.map((block) => (
+              <li key={block.kind}>
+                {block.kind}: {block.settled} settled
+                {block.expected.n > 0
+                  ? ` · at the price paid about ${block.expected.expected} expected to win, ${block.expected.won} did`
+                  : ""}
+                {block.expected.n > 0
+                  ? block.expected.too_few
+                    ? " — too few to judge"
+                    : ` — range ${block.expected.range_low} to ${block.expected.range_high}`
+                  : ""}
+                {block.ask_not_recorded > 0
+                  ? ` · price when bought not recorded on ${block.ask_not_recorded}`
+                  : ""}
+                {block.clv.n > 0
+                  ? ` · against Kalshi's close, ${signedCents(block.clv.sum_cents)} in all, middle leg ${signedCents(block.clv.median_cents)}, on ${block.clv.n}`
+                  : " · close not read on any"}
+                {block.clv.close_not_recorded > 0
+                  ? ` · close not recorded on ${block.clv.close_not_recorded}`
+                  : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      <p className="mt-2 max-w-prose">
+        Each leg&rsquo;s own price is read as its chance, so this counts how a
+        kind of leg did against the prices you paid. It says nothing about
+        skill, and it needs about five expected wins and five expected losses
+        in a row before it can say even that.
       </p>
     </details>
   );

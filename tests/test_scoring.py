@@ -588,3 +588,173 @@ class TestAStoreFailureLosesOneLineNotThePass:
             "a zero loss count should not be reported; `as_dict` omits falsy "
             "fields outside ALWAYS_REPORT and this is not one of them"
         )
+
+
+def _seed_held_leg(conn, *, ticker="KXMLBGAME-T-L", side="yes",
+                   true_commence=TRUE_COMMENCE, linked=True, legs=1):
+    """`legs` leg rows on `ticker`, held in as many positions (ADR 0194)."""
+    from backend import hedge
+
+    conn.execute(
+        "INSERT OR IGNORE INTO kalshi_series (series_ticker, league, "
+        "has_game_markets, first_seen_ms, last_seen_ms) "
+        "VALUES ('KXMLBGAME','Pro Baseball',1,?,?)", (NOW, NOW),
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO kalshi_events (event_ticker, series_ticker, title, "
+        "category, commence_ms, status, first_seen_ms, last_seen_ms) "
+        "VALUES ('EVT','KXMLBGAME','A vs B','Sports',?,'open',?,?)",
+        (KALSHI_COMMENCE, NOW, NOW),
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO kalshi_markets (ticker, event_ticker, series_ticker, "
+        "first_seen_ms, last_seen_ms) VALUES (?,'EVT','KXMLBGAME',?,?)",
+        (ticker, NOW, NOW),
+    )
+    if linked:
+        conn.execute(
+            "INSERT OR IGNORE INTO event_links (kalshi_event_ticker, odds_event_id, "
+            "league, method, commence_skew_ms, linked_ms) "
+            "VALUES ('EVT','odds-1','Pro Baseball','exact_alias_pair',?,?)",
+            (-3 * HOUR_MS, NOW),
+        )
+        conn.execute(
+            "INSERT INTO odds_snapshots (fetched_ms, book_updated_ms, sport_key, "
+            "odds_event_id, commence_ms, home_team, away_team, bookmaker, market, "
+            "outcome_name, price_decimal) "
+            "VALUES (?,?,'baseball_mlb','odds-1',?,'B','A','pinnacle','h2h','A',2.0)",
+            (NOW, NOW, true_commence),
+        )
+    conn.commit()
+    for _ in range(legs):
+        hedge.record_position(
+            conn, now_ms=NOW - 10 * HOUR_MS, source="kalshi_combo",
+            label="held", stake_tenths=1000, return_tenths=5000,
+            legs=[{"ticker": ticker, "side": side, "label": "A to win",
+                   "event_ticker": "EVT"}],
+        )
+
+
+def _legs(conn, ticker="KXMLBGAME-T-L"):
+    return conn.execute(
+        "SELECT close_yes_bid_tenths AS b, close_yes_ask_tenths AS a, "
+        "close_observed_ms AS o FROM parlay_position_legs WHERE ticker = ?",
+        (ticker,),
+    ).fetchall()
+
+
+class TestCombinationLegs:
+    """ADR 0194 s2.2-2.3: a held combination leg gets its Kalshi close on the
+    LEG ROW once its true start has passed, and never a `closing_lines` row."""
+
+    async def test_a_leg_is_returned_once_its_true_start_has_passed(self, conn):
+        _seed_held_leg(conn)
+        [market] = markets_awaiting_scoring(conn, now=NOW)
+        assert market["ticker"] == "KXMLBGAME-T-L"
+        assert market["true_commence_ms"] == TRUE_COMMENCE
+        assert market["started"] is True
+        assert market["awaits_leg_close"] is True
+        assert market["awaits_closing_line"] is False
+
+    async def test_the_true_start_not_kalshis_clock_decides(self, conn):
+        """The odds fixture says the game begins an hour from now, so the
+        leg is not started and nothing is fetched or stored."""
+        _seed_held_leg(conn, true_commence=NOW + HOUR_MS)
+        [market] = markets_awaiting_scoring(conn, now=NOW)
+        assert market["started"] is False
+        fake = FakeKalshi()
+        counts = await run_scoring_pass(conn, fake, now=NOW)
+        assert counts.not_started_yet == 1
+        assert fake.calls == []
+        assert [tuple(r) for r in _legs(conn)] == [(None, None, None)]
+
+    async def test_an_unlinked_leg_is_never_returned(self, conn):
+        _seed_held_leg(conn, linked=False)
+        assert markets_awaiting_scoring(conn, now=NOW) == []
+
+    async def test_the_pass_stores_the_close_on_the_leg_row(self, conn):
+        _seed_held_leg(conn)
+        fake = FakeKalshi()
+        counts = await run_scoring_pass(conn, fake, now=NOW)
+        [row] = _legs(conn)
+        assert (row["b"], row["a"]) == (520, 540)
+        assert row["o"] is not None
+        assert counts.leg_closes_stored == 1 and counts.leg_rows_closed == 1
+        # primary horizon only: a leg's close has no control horizon
+        assert len(fake.calls) == 1
+
+    async def test_no_leg_row_reaches_closing_lines(self, conn):
+        _seed_held_leg(conn)
+        counts = await run_scoring_pass(conn, FakeKalshi(), now=NOW)
+        assert counts.lines_stored == 0
+        assert conn.execute("SELECT COUNT(*) FROM closing_lines").fetchone()[0] == 0
+
+    async def test_every_leg_row_for_a_ticker_takes_the_close(self, conn):
+        _seed_held_leg(conn, legs=3)
+        counts = await run_scoring_pass(conn, FakeKalshi(), now=NOW)
+        assert counts.leg_rows_closed == 3
+        assert {(r["b"], r["a"]) for r in _legs(conn)} == {(520, 540)}
+
+    async def test_a_leg_with_a_close_is_not_refetched_or_overwritten(self, conn):
+        _seed_held_leg(conn)
+        await run_scoring_pass(conn, FakeKalshi(), now=NOW)
+        assert markets_awaiting_scoring(conn, now=NOW) == []
+        again = FakeKalshi(candles=[{"yes_bid": {"close_dollars": "0.1000"},
+                                     "yes_ask": {"close_dollars": "0.1200"}}])
+        await run_scoring_pass(conn, again, now=NOW + 60_000)
+        assert again.calls == []
+        assert {(r["b"], r["a"]) for r in _legs(conn)} == {(520, 540)}
+
+    async def test_a_bar_with_neither_side_leaves_the_close_null(self, conn):
+        """Unknown is NULL, never 0."""
+        _seed_held_leg(conn)
+        empty = FakeKalshi(candles=[{"yes_bid": {}, "yes_ask": {}}])
+        counts = await run_scoring_pass(conn, empty, now=NOW)
+        assert counts.leg_closes_unreadable == 1
+        assert [tuple(r) for r in _legs(conn)] == [(None, None, None)]
+
+    async def test_a_ticker_in_both_populations_is_one_market_and_gets_both(
+        self, conn
+    ):
+        _seed(conn, ticker="KXMLBGAME-T-L")
+        _seed_held_leg(conn)
+        [market] = markets_awaiting_scoring(conn, now=NOW)
+        assert market["awaits_closing_line"] and market["awaits_leg_close"]
+        counts = await run_scoring_pass(conn, FakeKalshi(), now=NOW)
+        assert counts.lines_stored == 2          # the recommendation's two horizons
+        assert {(r["b"], r["a"]) for r in _legs(conn)} == {(520, 540)}
+
+    async def test_the_new_branch_plans_onto_the_leg_ticker_index(self, conn):
+        """#87's rule, applied to the third branch: an index on the legs
+        table, `odds_fixtures` for the start, and never a walk of
+        `odds_snapshots`."""
+        from backend.scoring import LEG_CLOSE_SQL
+
+        plan = " | ".join(
+            str(r[3]) for r in conn.execute("EXPLAIN QUERY PLAN " + LEG_CLOSE_SQL)
+        )
+        assert "idx_parlay_position_legs_ticker" in plan, plan
+        assert "odds_snapshots" not in plan, plan
+        assert "SCAN odds_fixtures" not in plan, plan
+
+    async def test_a_leg_row_that_already_has_a_close_keeps_it(self, conn):
+        """Two leg rows on one ticker, one already closed: the pass fills
+        the open one and leaves the closed one's numbers alone."""
+        _seed_held_leg(conn, legs=2)
+        first = conn.execute(
+            "SELECT id FROM parlay_position_legs ORDER BY id LIMIT 1"
+        ).fetchone()["id"]
+        conn.execute(
+            "UPDATE parlay_position_legs SET close_yes_bid_tenths = 111, "
+            "close_yes_ask_tenths = 222, close_observed_ms = 5 WHERE id = ?",
+            (first,),
+        )
+        conn.commit()
+        counts = await run_scoring_pass(conn, FakeKalshi(), now=NOW)
+        assert counts.leg_rows_closed == 1
+        kept = conn.execute(
+            "SELECT close_yes_bid_tenths AS b, close_yes_ask_tenths AS a, "
+            "close_observed_ms AS o FROM parlay_position_legs WHERE id = ?",
+            (first,),
+        ).fetchone()
+        assert (kept["b"], kept["a"], kept["o"]) == (111, 222, 5)

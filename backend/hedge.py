@@ -514,12 +514,14 @@ def record_position(
         conn, [leg.get("ticker") for leg in legs], now_ms=now_ms
     )
     for index, leg in enumerate(legs):
+        ask_tenths = _readable_ask_tenths(leg.get("kalshi_ask_tenths"))
         conn.execute(
             """
             INSERT INTO parlay_position_legs (
                 position_id, leg_index, ticker, side, label, event_ticker,
-                league, commence_ms, event_title, outcome, scout_state
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+                league, commence_ms, event_title, outcome, scout_state,
+                ask_at_purchase_tenths, ask_source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
             """,
             (
                 position_id,
@@ -538,10 +540,28 @@ def record_position(
                 # alone rather than a title derived from a ticker.
                 leg.get("event_title") or None,
                 scout_states.get(leg.get("ticker") or ""),
+                # ADR 0194 s2.1: the leg's own ask for the side held, as the
+                # lookup/check read it. A key that is absent or unreadable is
+                # NULL, never 0 -- a 0 ask is a free contract.
+                ask_tenths,
+                "lookup" if ask_tenths is not None else None,
             ),
         )
     conn.commit()
     return position_id
+
+
+def _readable_ask_tenths(value: Any) -> Optional[int]:
+    """A leg dict's `kalshi_ask_tenths` as a tenths integer, or `None`.
+
+    A price payable is strictly between 0 and 1000 tenths; anything else
+    (absent, `None`, a bool, a string, 0, 1000) is unreadable and resolves to
+    `None`, never to 0 (CLAUDE.md, Conventions).
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    ask = int(value)
+    return ask if 0 < ask < 1000 else None
 
 
 def _scout_states_at_bet(

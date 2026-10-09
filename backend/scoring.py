@@ -105,6 +105,13 @@ class ScoringCounts:
     calls_skipped_no_mid: int = 0
     calls_skipped_entry_after_close: int = 0
     calls_rows_joined: int = 0
+    #: The third population (ADR 0194 s2.2, #323): combination legs Joe holds.
+    #: Counted apart from `lines_stored` on purpose -- a leg's close goes on
+    #: its own row, never into `closing_lines`, so folding the two together
+    #: would hide an arm that had stopped behind one that had not.
+    leg_closes_stored: int = 0
+    leg_rows_closed: int = 0
+    leg_closes_unreadable: int = 0
     errors: list[str] = field(default_factory=list)
 
     # Always reported, even at zero. `scored: 0` alone cannot distinguish "the
@@ -158,6 +165,24 @@ def markets_awaiting_scoring(conn, *, now: int) -> list[dict[str, Any]]:
     A market is only returned once its true start has passed, because a closing
     line does not exist until then. Rows for games still ahead are counted as
     `not_started_yet`, which is a normal state and not a failure.
+
+    **A third population, since #323 / ADR 0194: the legs of a combination Joe
+    holds** (`parlay_position_legs` rows with a ticker and no close yet). Each
+    returned dict says which population(s) a ticker is in:
+
+        awaits_closing_line   the first two branches -- the pass stores a
+                              `closing_lines` row, as it always has
+        awaits_leg_close      the leg branch -- the pass stores the close ON
+                              THE LEG ROW and **never** in `closing_lines`
+                              (ADR 0194 s2.3: a held leg's row there would
+                              enter the gate's CLV population)
+
+    A ticker in both is returned once. The leg branch reads the true start
+    from `odds_fixtures` through `event_links` -- one row per game, the
+    trigger-maintained schedule -- and never from `odds_snapshots`, so it
+    adds no aggregate over that table; and never from `kalshi_events`, whose
+    clock runs three hours late. `tests/test_scoring.py::TestCombinationLegs`
+    pins its plan onto `idx_parlay_position_legs_ticker`.
     """
     rows = conn.execute(
         """
@@ -197,15 +222,73 @@ def markets_awaiting_scoring(conn, *, now: int) -> list[dict[str, Any]]:
         """
     ).fetchall()
 
-    return [
-        {
+    merged: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        merged[r["ticker"]] = {
             "ticker": r["ticker"],
             "series_ticker": r["series_ticker"],
             "true_commence_ms": int(r["true_commence_ms"]),
             "started": int(r["true_commence_ms"]) <= now,
+            "awaits_closing_line": True,
+            "awaits_leg_close": False,
         }
-        for r in rows
-    ]
+
+    for r in conn.execute(LEG_CLOSE_SQL).fetchall():
+        entry = merged.get(r["ticker"])
+        if entry is None:
+            merged[r["ticker"]] = {
+                "ticker": r["ticker"],
+                "series_ticker": r["series_ticker"],
+                "true_commence_ms": int(r["true_commence_ms"]),
+                "started": int(r["true_commence_ms"]) <= now,
+                "awaits_closing_line": False,
+                "awaits_leg_close": True,
+            }
+        else:
+            entry["awaits_leg_close"] = True
+    return list(merged.values())
+
+
+#: ADR 0194 s2.2: held combination legs still without a close. `IS NOT NULL`
+#: on the ticker is what lets the planner use the partial index
+#: `idx_parlay_position_legs_ticker`. The start is `odds_fixtures`' (one row
+#: per game), never `kalshi_events`'. MIN per ticker: an event can carry more
+#: than one `event_links` row, and the earliest recorded start is the same
+#: reschedule-protecting choice the other branches make.
+LEG_CLOSE_SQL = """
+    SELECT pl.ticker,
+           m.series_ticker,
+           MIN(f.commence_ms) AS true_commence_ms
+    FROM parlay_position_legs pl
+    JOIN kalshi_markets m ON m.ticker = pl.ticker
+    JOIN event_links l    ON l.kalshi_event_ticker = m.event_ticker
+    JOIN odds_fixtures f  ON f.odds_event_id = l.odds_event_id
+    WHERE pl.ticker IS NOT NULL
+      AND pl.close_yes_bid_tenths IS NULL
+      AND pl.close_yes_ask_tenths IS NULL
+      AND m.series_ticker IS NOT NULL
+    GROUP BY pl.ticker, m.series_ticker
+"""
+
+
+def store_leg_close(conn, line: ClosingLine) -> int:
+    """Write a close onto every still-open leg row for the line's ticker.
+
+    **Never `store_closing_line`** (ADR 0194 s2.3). A ticker can sit in more
+    than one leg row (two positions, or two bets on one card); every row whose
+    close is still NULL takes it, and a row that already has one is left alone.
+    Returns how many rows were written.
+    """
+    cursor = conn.execute(
+        "UPDATE parlay_position_legs "
+        "SET close_yes_bid_tenths = ?, close_yes_ask_tenths = ?, "
+        "    close_observed_ms = ? "
+        "WHERE ticker = ? AND close_yes_bid_tenths IS NULL "
+        "  AND close_yes_ask_tenths IS NULL",
+        (line.yes_bid_tenths, line.yes_ask_tenths, line.observed_ms, line.ticker),
+    )
+    conn.commit()
+    return cursor.rowcount
 
 
 async def fetch_closing_line(
@@ -284,7 +367,14 @@ async def run_scoring_pass(
         ready = ready[:max_markets]
 
     for market in ready:
-        for horizon in (primary_horizon, control_horizon):
+        # A leg-only ticker needs the primary horizon alone: its close is one
+        # number on the leg row, with no control horizon to compare against.
+        horizons = (
+            (primary_horizon, control_horizon)
+            if market["awaits_closing_line"]
+            else (primary_horizon,)
+        )
+        for horizon in horizons:
             try:
                 line = await fetch_closing_line(
                     kalshi_client,
@@ -299,6 +389,26 @@ async def run_scoring_pass(
 
             if line is None:
                 counts.candles_missing += 1
+                continue
+            if market["awaits_leg_close"] and horizon == primary_horizon:
+                if line.yes_bid_tenths is None and line.yes_ask_tenths is None:
+                    # Same rule as the backfill: a bar with neither side is
+                    # not a close, so the legs keep NULL and it is counted.
+                    counts.leg_closes_unreadable += 1
+                else:
+                    try:
+                        written = store_leg_close(conn, line)
+                    except Exception as exc:              # noqa: BLE001
+                        with contextlib.suppress(Exception):
+                            conn.rollback()
+                        counts.errors.append(
+                            f"{market['ticker']}@{horizon}h: leg close "
+                            f"store failed: {exc}"
+                        )
+                    else:
+                        counts.leg_closes_stored += 1
+                        counts.leg_rows_closed += written
+            if not market["awaits_closing_line"]:
                 continue
             if line.mid_tenths is None:
                 # One side unreadable. Stored anyway -- `score_recommendations`
