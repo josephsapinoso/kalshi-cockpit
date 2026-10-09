@@ -610,6 +610,14 @@ export type CheckedParlayLeg = {
   line_source: "main" | "alternate" | null;
   /** The books an `alternate` chance was read from; `null` otherwise. */
   alt_books_used: string[] | null;
+  /**
+   * Whether the singles screen would call this price a probable bug (#325).
+   * `unknown` means the desk has no price for the leg at all, which is never
+   * the same as `clean`.
+   */
+  probable_bug_status: "bug" | "clean" | "unknown";
+  /** Plain words, present only when `probable_bug_status` is `bug`. */
+  probable_bug_reason: string | null;
 };
 
 /** One game whose other lines a check asked to buy (#303). */
@@ -635,6 +643,8 @@ export type CheckedParlayResult = {
   rfq_unavailable_reason: string | null;
   legs: CheckedParlayLeg[];
   alt_buys: CheckedParlayAltBuy[];
+  /** How cards from a friend have done so far (#325): one fixed line. */
+  friend_source_line: string | null;
   fair: {
     /** Probability in [0, 1]. `null` when `no_joint_reason` is set. */
     conservative: number | null;
@@ -806,7 +816,11 @@ export type LegVerdictsResult = {
 /** One leg identified for a verdict request: what side of what ticker. */
 export type LegVerdictInput = { ticker: string; side: "yes" | "no" };
 
-export type LegVerdictTrigger = "price_tap" | "leg_buys_open" | "card_button";
+export type LegVerdictTrigger =
+  | "price_tap"
+  | "leg_buys_open"
+  | "card_button"
+  | "check_button";
 
 /**
  * One leg of a game-script card (#216), with Kalshi's own single-leg ask read

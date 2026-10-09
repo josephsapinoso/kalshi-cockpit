@@ -7,9 +7,11 @@ import {
   displayZoneLabel,
   formatAge,
   formatKickoff,
+  requestLegVerdicts,
 } from "@/lib/api";
-import type { CheckedParlayResult } from "@/lib/api";
+import type { CheckedParlayResult, LegVerdictsResult } from "@/lib/api";
 import AskTheMarket, { ParlayCostLine } from "@/components/AskTheMarket";
+import LegVerdicts from "@/components/LegVerdicts";
 import { RestChip } from "@/components/ParlayCards";
 import Term from "@/components/Term";
 import { ParlayLegsContext, tenthsFromDisplay } from "@/lib/parlayCost";
@@ -117,6 +119,71 @@ export default function CheckAParlay() {
   );
 }
 
+/** Mirrors `LEG_VERDICT_MAX_LEGS` in `lib/api.ts`, which cuts to the same. */
+const SCOUT_LEG_LIMIT = 8;
+
+/**
+ * "Ask the scouts" (#325): the leg scouts' read on every checked leg, on ONE
+ * tap. **Tap only**: `requestLegVerdicts` is called from this button's click
+ * handler and nowhere else -- not on load, not on paste, not from a watcher
+ * (leg-verdict registration, Amendment 1). A check can be days out and the
+ * seat refuses a started game, so nothing here is automatic. The scouts get
+ * the same input as for any other leg; they are not told whose parlay it is.
+ * An opinion shown beside the legs, never a gate, and it sorts nothing.
+ */
+function AskTheScouts({ value }: { value: CheckedParlayResult }) {
+  const allLegs = value.legs.map((leg) => ({
+    ticker: leg.market_ticker,
+    side: leg.side,
+  }));
+  const legs = allLegs.slice(0, SCOUT_LEG_LIMIT);
+  const unchecked = allLegs.length - legs.length;
+  const [posted, setPosted] = useState<LegVerdictsResult | null>(null);
+  const [requestedAtMs, setRequestedAtMs] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const ask = async () => {
+    setBusy(true);
+    setRequestedAtMs(Date.now());
+    setPosted(await requestLegVerdicts(legs, "check_button", null));
+    setBusy(false);
+  };
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <Button
+          tone="quiet"
+          className="-ml-2"
+          onClick={ask}
+          disabled={busy || legs.length === 0}
+        >
+          {busy ? "Asking the scouts…" : "Ask the scouts"}
+        </Button>
+        <span className="max-w-[65ch] text-xs text-muted">
+          Asks the scouts about each leg, in about 20 seconds. It uses part of
+          today&rsquo;s scout allowance, and a game that has started is
+          refused.
+        </span>
+      </div>
+      {unchecked > 0 && (
+        <p className="mt-1 max-w-[65ch] text-xs text-accent-2">
+          Only the first {SCOUT_LEG_LIMIT} of {allLegs.length} legs are asked
+          about. The other {unchecked} {unchecked === 1 ? "is" : "are"} not.
+        </p>
+      )}
+      {requestedAtMs !== null && (
+        <LegVerdicts
+          legs={legs}
+          requestedAtMs={requestedAtMs}
+          hideUnasked
+          posted={posted}
+        />
+      )}
+    </div>
+  );
+}
+
 function CheckedResult({ value }: { value: CheckedParlayResult }) {
   return (
     <div className="mt-4 space-y-3 text-sm">
@@ -145,6 +212,18 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
               </p>
             ) : (
               <p className="tabular text-sm">{leg.chance_display}</p>
+            )}
+            {/* #325: the singles screen's probable-bug reading, a fact on the
+                row. Never sorts, never blocks. A leg with no desk price is
+                "unknown", never read as clean. */}
+            {leg.probable_bug_status === "bug" && (
+              <p className="text-xs text-accent-2">
+                The singles screen calls this price a probable bug:{" "}
+                {leg.probable_bug_reason}.
+              </p>
+            )}
+            {leg.probable_bug_status === "unknown" && (
+              <p className="text-xs text-muted">No desk price.</p>
             )}
             {/* #303: a chance read off the books' other lines says so, and
                 says how many books spoke -- often fewer than the main line. */}
@@ -220,6 +299,14 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
           <Term k="hold">Hold</Term>: {value.hold_display}
         </p>
       )}
+
+      {/* #325: how cards from this source have done so far. A fixed line in
+          a fixed place: no colour, no verdict, nothing sorted by it. */}
+      {value.friend_source_line && (
+        <p className="text-xs text-muted">{value.friend_source_line}</p>
+      )}
+
+      <AskTheScouts key={value.minted_market_ticker} value={value} />
 
       {/* #328. No per-leg Kalshi ask and no served fee on this payload, so
           the line stops at "wins about 1 in N": the fee and singles clauses

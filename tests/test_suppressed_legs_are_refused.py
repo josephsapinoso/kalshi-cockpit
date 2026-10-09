@@ -127,6 +127,10 @@ class TestASuppressedOverDoesNotDropTheUnder:
     def test_a_suppressed_over_does_not_drop_the_under(self, conn):
         t = now_ms()
         seed_total(conn, game="g1", line=8.5, p=0.56)
+        # #325: a total with no `recommendations` row is judged from its
+        # `fair_prices` row, and the fixture writes no width; give it one so
+        # this test still isolates the side-aware rule it is about.
+        conn.execute("UPDATE fair_prices SET market_width = 0.01")
         conn.commit()
         legs, _ = ladder_candidates(conn, now_ms=now_ms(), max_odds_age_ms=MAX_AGE_MS)
         over = next(l for l in legs if l.market == "totals" and l.side == "yes")

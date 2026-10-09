@@ -132,6 +132,7 @@ from backend.kalshi.orderbook import OrderBook
 from backend.kalshi.rest import EXCHANGE_INDEX_COMBOS
 from backend.kalshi.rfq import RfqRefused, mve_legs
 from backend.team_rest_reader import rest_for_games
+from backend.bets import KIND_COMBO, bets_record
 from backend.parlays import (
     HORIZON_LADDER,
     NOTES,
@@ -142,6 +143,7 @@ from backend.parlays import (
     candidate_pool,
     horizon_end_ms,
     ladder_candidates,
+    probable_bugs_for_legs,
 )
 
 logger = logging.getLogger(__name__)
@@ -237,6 +239,75 @@ def _reason_words(code: Optional[str]) -> Optional[str]:
     if code in _MISSING_LEG_REASON_WORDS:
         return _MISSING_LEG_REASON_WORDS[code]
     return UNUSABLE_REASONS.get(code, code)
+
+
+#: A probable-bug code, in the words the singles screen's reason would use
+#: (#325). Three codes only: they are `parlays.PROBABLE_BUG_CODES`.
+_PROBABLE_BUG_WORDS: dict[str, str] = {
+    "too_few_books": "fewer than two books priced this line",
+    "no_market_width": "no two-sided price to read",
+    "suspicious_edge": "the apparent edge is larger than the desk trusts",
+}
+
+
+def _probable_bug_fields(
+    candidate: Optional[CandidateLeg], bugs: dict[tuple[str, str], list[str]]
+) -> dict:
+    """The three probable-bug fields one checked leg serves.
+
+    `probable_bug_status` is `"bug"`, `"clean"` or `"unknown"`. **A leg with no
+    desk price is unknown, never clean**: there is no `fair_prices` row to
+    judge, and "nothing to flag" would read as a pass (#325). The reason is
+    present only on `"bug"`.
+    """
+    if candidate is not None:
+        codes = bugs[(candidate.kalshi_market_ticker, candidate.side)]
+        return {
+            "probable_bug_status": "bug" if codes else "clean",
+            "probable_bug_codes": codes,
+            "probable_bug_reason": (
+                "; ".join(_PROBABLE_BUG_WORDS.get(c, c) for c in codes)
+                if codes
+                else None
+            ),
+        }
+    return {
+        "probable_bug_status": "unknown",
+        "probable_bug_codes": [],
+        "probable_bug_reason": None,
+    }
+
+
+def friend_source_line(conn) -> Optional[str]:
+    """One line on how a friend's cards have done so far (#325), from the
+    existing `by_source` block for the `friend` source on combinations.
+
+    Fixed wording, no colour, no verdict: either "about {expected} expected
+    to win, {won} did" or "too few to tell yet ({n} cards)" below
+    `expected_block`'s floor. `None` when the record cannot be read."""
+    try:
+        record = bets_record(conn, limit=1)
+    except sqlite3.Error:
+        logger.exception("by-source read failed; the check carries no line")
+        return None
+    block = next(
+        (
+            b
+            for b in record.get("by_source", {}).get(KIND_COMBO, [])
+            if b["source"] == "friend"
+        ),
+        None,
+    )
+    if block is None:
+        return "Friend's picks so far: too few to tell yet (0 cards)"
+    cards = block["wins"] + block["losses"]
+    expected = block["expected"]
+    if expected is None or expected["too_few"]:
+        return f"Friend's picks so far: too few to tell yet ({cards} cards)"
+    return (
+        f"Friend's picks so far: about {expected['expected']:g} expected to "
+        f"win, {block['wins']} did"
+    )
 
 
 def _strip_trailing_punctuation(token: str) -> str:
@@ -611,6 +682,7 @@ async def check_parlay_text(
         rest_by_event = {}
 
     response_legs: list[dict] = []
+    priced_for_leg: list[Optional[CandidateLeg]] = []
     usable: list[CandidateLeg] = []
     any_unusable = False
     leg_details: dict[tuple, dict] = {}
@@ -686,6 +758,7 @@ async def check_parlay_text(
             any_unusable = True
 
         label = _leg_label(market_ticker, side, titles)
+        priced_for_leg.append(candidate)
         response_legs.append(
             {
                 "market_ticker": market_ticker,
@@ -713,6 +786,15 @@ async def check_parlay_text(
             "label": label,
             "commence_ms": commence_ms,
         }
+
+    # The probable-bug fields (#325), read by the SAME reader the ladder's #79
+    # drop uses so cards and the check agree. A pure read; never sorts or
+    # blocks, and a leg with no desk price is "unknown", not clean.
+    bugs = probable_bugs_for_legs(
+        conn, [c for c in priced_for_leg if c is not None]
+    )
+    for entry, priced in zip(response_legs, priced_for_leg):
+        entry.update(_probable_bug_fields(priced, bugs))
 
     # One buy per game, never one per leg, and only when the caller wired a
     # buyer: a check stays a read wherever it is called without one.
@@ -919,6 +1001,8 @@ async def check_parlay_text(
         },
         "quoted": quoted,
         "hold_display": f"{hold * 100:.1f}%" if hold is not None else None,
+        # How cards from a friend have done so far (#325): one fixed line.
+        "friend_source_line": friend_source_line(conn),
         "words": words,
         "notes": {"unquoted": NOTES["unquoted"], "fee": NOTES["fee"]},
     }

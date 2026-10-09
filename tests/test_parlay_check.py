@@ -825,3 +825,147 @@ class TestALegWithNoReadableSideIsRefused:
             "SELECT COUNT(*) AS n FROM parlay_lookups"
         ).fetchone()["n"]
         assert count == 0
+
+
+# ---------------------------------------------------------------------------
+# #325 -- the probable-bug reading on a checked leg
+# ---------------------------------------------------------------------------
+
+
+def _total_and_game_combo(conn, *, one_book_total: bool):
+    """A moneyline leg and a total leg in two games. With `one_book_total`
+    the total's `fair_prices` rows are rewritten to a one-book consensus (no
+    width), which is what a thin spread/total reading looks like."""
+    from tests.test_parlays_api import seed_total
+
+    base = now_ms() - 30_000
+    t1, e1 = seed_game(conn, game="pb1", team="Team pbA", other="Team pbB",
+                        p=0.70, computed_ms=base)
+    seed_total(conn, game="pb2", line=8.5, p=0.56)
+    if one_book_total:
+        conn.execute(
+            "UPDATE fair_prices SET book_count = 1, market_width = NULL "
+            "WHERE market = 'totals'"
+        )
+    conn.commit()
+    legs = [
+        {"event_ticker": e1, "market_ticker": t1, "side": "yes"},
+        {"event_ticker": "KXMLBTOTAL-pb2", "market_ticker": "KXMLBTOTAL-pb2-8.5",
+         "side": "yes"},
+    ]
+    return _market_payload(legs), t1, "KXMLBTOTAL-pb2-8.5"
+
+
+async def _check(conn, payload, ticker):
+    return await parlay_check.check_parlay_text(
+        conn, text=ticker, now_ms=now_ms(),
+        api=FakeApi(market_payload=payload, book_payload=PRICED_BOOK),
+        max_odds_age_ms=MAX_ODDS_AGE_MS,
+    )
+
+
+class TestProbableBug:
+    """A spread or total has no `recommendations` row, so a missing row must
+    not read as "not suppressed" (#325). Mutation targets: restore the
+    "missing row = not suppressed" reading in `probable_bug_codes` (returns
+    [] for a spread/total with no row) and the one-book test goes red; serve
+    a no-price leg as `"clean"` in `_probable_bug_fields` and the unknown test
+    goes red."""
+
+    async def test_a_one_book_total_leg_serves_a_probable_bug_reason(self, conn):
+        payload, t1, total = _total_and_game_combo(conn, one_book_total=True)
+        result = await _check(conn, payload, _mk_ticker("AB01"))
+        legs = {l["market_ticker"]: l for l in result["legs"]}
+        assert legs[total]["chance"] is not None  # priced, and still flagged
+        assert legs[total]["probable_bug_status"] == "bug"
+        assert "fewer than two books" in legs[total]["probable_bug_reason"]
+        assert "no two-sided price" in legs[total]["probable_bug_reason"]
+        # The moneyline beside it has 3 books and no recommendation row:
+        # clean, with no reason, and nothing reorders the legs.
+        assert legs[t1]["probable_bug_status"] == "clean"
+        assert legs[t1]["probable_bug_reason"] is None
+        assert [l["market_ticker"] for l in result["legs"]] == [t1, total]
+
+    async def test_a_well_covered_total_leg_is_clean(self, conn):
+        payload, t1, total = _total_and_game_combo(conn, one_book_total=False)
+        conn.execute(
+            "UPDATE fair_prices SET market_width = 0.01 WHERE market = 'totals'"
+        )
+        conn.commit()
+        result = await _check(conn, payload, _mk_ticker("AB02"))
+        leg = next(l for l in result["legs"] if l["market_ticker"] == total)
+        assert leg["probable_bug_status"] == "clean"
+        assert leg["probable_bug_reason"] is None
+
+    async def test_a_moneyline_is_judged_by_its_recommendation_row(self, conn):
+        payload, t1, total = _total_and_game_combo(conn, one_book_total=False)
+        conn.execute(
+            "INSERT OR IGNORE INTO strategy_configs (version, created_ms, "
+            "effective_from_ms, config_json, rationale) "
+            "VALUES (1, ?, ?, '{}', 'test')", (now_ms(), now_ms()),
+        )
+        conn.execute(
+            "INSERT INTO recommendations (created_ms, strategy_config_version, "
+            "ticker, side, entry_ask_tenths, fair_probability, edge_tenths, "
+            "fee_predicted, ev_net_dollars, kelly_fraction, "
+            "suggested_contracts, kalshi_quote_age_ms, odds_age_ms, "
+            "reason_text, suppressed_reason) VALUES (?, 1, ?, 'yes', 500, 0.5, "
+            "0.0, 0.0, 0.0, 0.0, 0, 0, 0, 'No edge.', 'suspicious_edge')",
+            (now_ms(), t1),
+        )
+        conn.commit()
+        result = await _check(conn, payload, _mk_ticker("AB03"))
+        leg = next(l for l in result["legs"] if l["market_ticker"] == t1)
+        assert leg["probable_bug_status"] == "bug"
+        assert "larger than the desk trusts" in leg["probable_bug_reason"]
+
+    async def test_a_leg_with_no_fair_prices_row_is_unknown_not_clean(self, conn):
+        payload, t1, total = _total_and_game_combo(conn, one_book_total=False)
+        conn.execute("DELETE FROM fair_prices WHERE market = 'totals'")
+        conn.commit()
+        result = await _check(conn, payload, _mk_ticker("AB04"))
+        leg = next(l for l in result["legs"] if l["market_ticker"] == total)
+        assert leg["chance"] is None
+        assert leg["probable_bug_status"] == "unknown"
+        assert leg["probable_bug_reason"] is None
+
+    def test_the_ladder_drop_uses_the_same_rule(self, conn):
+        """Cards and the check agree: the #79 drop refuses the one-book
+        total too (it used to wave it through for want of a row)."""
+        from backend.parlays import drop_suppressed_legs
+
+        _total_and_game_combo(conn, one_book_total=True)
+        legs, _ = ladder_candidates(
+            conn, now_ms=now_ms(), max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        totals = [l for l in legs if l.market == "totals"]
+        assert totals, "the seeded total must reach the pool"
+        kept, excluded = drop_suppressed_legs(conn, legs)
+        assert not [l for l in kept if l.market == "totals"]
+        assert excluded["suppressed_as_probable_bug"] >= 1
+
+
+class TestFriendSourceLine:
+    async def test_no_settled_friend_cards_says_too_few(self, conn):
+        payload, _, _ = _total_and_game_combo(conn, one_book_total=False)
+        result = await _check(conn, payload, _mk_ticker("AB05"))
+        assert result["friend_source_line"] == (
+            "Friend's picks so far: too few to tell yet (0 cards)"
+        )
+
+    def test_the_line_states_expected_and_won_above_the_floor(self, conn, monkeypatch):
+        block = {
+            "source": "friend", "wins": 3, "losses": 17,
+            "expected": {"too_few": False, "expected": 4.2, "n": 20},
+        }
+        monkeypatch.setattr(
+            parlay_check, "bets_record",
+            lambda c, limit=1: {"by_source": {"combo": [block]}},
+        )
+        assert parlay_check.friend_source_line(conn) == (
+            "Friend's picks so far: about 4.2 expected to win, 3 did"
+        )
+        block["expected"] = {"too_few": True, "expected": 1.0, "n": 20}
+        assert parlay_check.friend_source_line(conn) == (
+            "Friend's picks so far: too few to tell yet (20 cards)"
+        )
