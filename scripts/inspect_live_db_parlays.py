@@ -2001,7 +2001,16 @@ class _CmReconstructor:
                 # this connection has no row factory (the 2026-10-09 crash).
                 cur = self.conn.execute(_SQL_CM_MARKETS, (et,))
                 names = [d[0] for d in cur.description]
-                self._markets[et] = [dict(zip(names, r)) for r in cur.fetchall()]
+                rows = [dict(zip(names, r)) for r in cur.fetchall()]
+                # As of the lookup, every one of these markets was open: a
+                # priced card means the desk read a live book then. TODAY's
+                # status is `finalized` once the game settled, and the ladder
+                # drops a terminal market (`parlays._TERMINAL_STATUSES`), which
+                # is how look A reconstructed 0 of 69 (registration Amendment
+                # 2, #336). The status handed to the ladder is the as-of one.
+                for m in rows:
+                    m["status"] = "open"
+                self._markets[et] = rows
             self.fair_reads += 1
             for r in self.conn.execute(
                 _SQL_CM_FAIR_ASOF,

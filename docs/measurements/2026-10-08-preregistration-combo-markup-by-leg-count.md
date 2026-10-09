@@ -625,3 +625,39 @@ P1 stands as run, and P2 is recorded NOT EVALUABLE at look A for this reason
 and is not tested at look B either. A run on the wrong clock cannot be set
 aside and re-run on the right one, because by then its P2 numbers have been
 seen.
+
+---
+
+## Amendment 2 (2026-10-09, after look A, before look B): the rebuild of `g` reads a market's status as of the lookup
+
+**Written after look A was read and before any look B row.** Look A
+(`2026-10-09-combo-markup-look-a-result.md`) reconstructed `g` for 0 of 69
+asks, every one as `leg_has_no_fair_row`. No `g` figure was computed, so
+nothing about `g` was seen, and this amendment moves no statistic, floor,
+test, look or cutoff.
+
+**What was wrong.** The rebuild handed the ladder each leg's `kalshi_markets`
+row as it is today. `ladder_candidates` drops a market whose status is
+terminal (`backend/parlays.py:1117`, `_TERMINAL_STATUSES` at `:107`), and the
+result writer sets a settled market to `finalized`
+(`backend/market_results.py:573`, `:598`). Every leg in look A was 2 to 22 days
+past its game, so every leg was dropped before its fair row was read, and the
+rebuild's catch-all label called that "no fair row". A fixture that seeds the
+market as `finalized` reproduces the miss
+(`tests/test_combo_markup_rebuild_on_a_plain_connection.py`, the status
+mutation).
+
+**The rule.** `g` is reconstructed "from `fair_prices` as of the lookup"
+(§4). As of the lookup the market was open: a priced card means the desk read
+a live book at that instant. So the status the rebuild hands the ladder is
+`open`, the as-of value, for every leg. Every other input to the rebuild
+(the as-of fair rows, the nine-day lookback, the reproduction check, the 80%
+rule) is unchanged. This is an instrument correction under the registered
+definition, not a new definition.
+
+**What look B prints because of this.** Beside the reconstruction share, the
+count of legs whose market is terminal today (all of them are expected to
+be), so a future reader can see that the as-of rule did the work. If the
+share is still under 80% with the status read as of the lookup, the next
+cause is found by #336's count and recorded as its own dated amendment; no
+`g` number from a run that missed the floor is ever restated.

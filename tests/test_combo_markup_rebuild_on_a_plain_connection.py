@@ -35,10 +35,13 @@ def _seed(path) -> None:
         (EVENT, SERIES),
     )
     for team in ("TOR", "PHI"):
+        # `finalized`: the game has settled by the time the look runs, which
+        # is every leg's state at look A (2 to 22 days old). The rebuild must
+        # read the status AS OF THE LOOKUP, when the market was open.
         conn.execute(
             "INSERT INTO kalshi_markets (ticker, event_ticker, series_ticker, title, "
             "yes_side_team, market_type, strike, status, first_seen_ms, last_seen_ms) "
-            "VALUES (?, ?, ?, ?, ?, 'moneyline', NULL, 'open', 1, 1)",
+            "VALUES (?, ?, ?, ?, ?, 'moneyline', NULL, 'finalized', 1, 1)",
             (f"{EVENT}-{team}", EVENT, SERIES, f"{team} wins", team),
         )
     conn.execute(
@@ -70,11 +73,14 @@ class TestTheRebuildSurvivesThePlainConnection:
                 {"event_ticker": EVENT, "market_ticker": f"{EVENT}-TOR", "side": "yes"},
             ]
             g, why = recon.reconstruct(legs, ASOF_MS, 0.55)
-            # The ladder ran on dict rows: whatever it concluded about this
-            # thin fixture, it did not die indexing a tuple by name.
-            assert why is None or not why.startswith("ladder_error"), why
+            # Reconstructed, on a market that is `finalized` TODAY: the
+            # rebuild read the status as of the lookup. `g` is the fair at
+            # the most generous method, so it sits above f = 0.55.
+            assert why is None, why
+            assert g is not None and 0.55 < g < 0.60
             assert isinstance(recon._markets[EVENT][0], dict)
             assert recon._markets[EVENT][0]["market_type"] == "moneyline"
+            assert recon._markets[EVENT][0]["status"] == "open"
         finally:
             conn.close()
 

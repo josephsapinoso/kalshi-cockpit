@@ -16,6 +16,17 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-09 - An as-of rebuild must take EVERY input as of the time, status flags included; and a write-up quotes a registration's direction, it does not re-derive it
+
+From the eighty-seventh session, look A of the combo-markup measurement (#327, #336).
+
+- **The `g` rebuild read each leg's fair rows as of the lookup and its market's status as of today.** Every leg was `finalized` by the time the look ran, the ladder dropped every one, and the rebuild's catch-all label said "no fair row". The fixture that passed had seeded the market `open`, so the test could not see it. The measurement-skeptic found it by reading the ladder, not the data.
+- **The draft result stated the registered confound backwards.** §10 says the pessimistic fair OVERSTATES markup, more on longer cards, so it biases the slope up; the draft said the opposite and used it to explain a negative slope. The skeptic caught it against the registration's own text.
+- **The rule:**
+  - When reconstructing anything "as of" a time, list every input the downstream code branches on (status, eligibility, horizon, retention) and freeze each at that time; a fixture for it seeds the AFTER state (settled, pruned, delisted), not the convenient one.
+  - A write-up quotes the registration's stated direction of every named confound verbatim and reasons from the quote; a sign re-derived from memory under time pressure inverts.
+  - A pooled descriptive whose parts disagree with it by a factor of five is not a number for CLAUDE.md, however clean the median looks.
+
 ## 2026-10-08 - A wrong number can be inherited without anyone typing it: from an old sentence, from a guess about retention, from a registration that names a clock the repo already refuted
 
 From the eighty-seventh session (#320 to #334, Joe's parlay challenge).
@@ -2698,6 +2709,10 @@ each is in the linked archive file, unchanged; the sections marked *in this
 file, above* are the ones not yet archived. Regenerate it from the headings in
 the same edit as the entry — an index that is not is stale by one entry
 immediately and by dozens within a week.
+
+### 2026-10-09 — in this file, above
+
+- An as-of rebuild must take EVERY input as of the time, status flags included; and a write-up quotes a registration's direction, it does not re-derive it
 
 ### 2026-10-08 — in this file, above
 
