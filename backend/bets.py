@@ -225,7 +225,7 @@ def _chance_when_priced_by_ticker(
       `status IN ('priced', 'book_empty')`, `fair_joint_conservative IS
       NULL`, `minted_market_ticker = ticker`, and `requested_ms <=
       anchor_ms`. Such a row is written by the outside-parlay check (#166,
-      `card_key = 'outside'`) when the desk looked at the parlay and could
+      `card_key = 'checked'`) when the desk looked at the parlay and could
       not produce one number for the whole thing -- a leg with no desk
       reading, or two legs on one game. It never enters `readings` (that
       CTE requires a non-NULL joint), so it can never win the latest-reading
