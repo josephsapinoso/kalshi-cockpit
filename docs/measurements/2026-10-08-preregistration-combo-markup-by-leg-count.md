@@ -516,3 +516,112 @@ dispersion counts. Below that, the sentence's fate is not an evidence decision
 > best-quote price-band cells are never tested. Look A: rows before
 > 2026-10-08T00:00:00Z. Look B (2027-01-15 cutoff) only for a test whose
 > floor missed at A. No look C.
+
+---
+
+## Amendment 1 (2026-10-08): hours to the first game is read on the sportsbook's clock, not Kalshi's
+
+**Written 2026-10-08 with no live row read.** No `combo_rfqs`,
+`combo_rfq_quotes`, `parlay_lookups`, `event_links`, `odds_fixtures` or
+`kalshi_events` row, and no aggregate of any kind, was looked at for this
+amendment. The QueryDef lane (#327) built the instrument and did not run it
+against live. Look A has not happened.
+
+**What was wrong.** §3's "hours to first game" cut, and through it the P2 arm
+(§1, §4), took each leg's start from `kalshi_events.commence_ms`. That column
+is Kalshi's `occurrence_datetime`, and this repo has measured it running late
+(`backend/match/linker.py`, the comment above `DEFAULT_COMMENCE_TOLERANCE_MS`):
+14 of 18 MLB and 6 of 6 WNBA same-day pairs at plus three hours on 2026-08-07,
+then, over 2,263 live links on 2026-09-06, a shift with its mass at three hours
+plus up to about 30 minutes of per-fixture noise, with the sign reversed on
+some NCAA Football links. P2's edge is 6 hours, so a three-hour error is half
+the band. `backend/scoring.py` refuses that clock for the same reason.
+
+**1. The replacement source.** For each leg in `selected_legs`, take the leg's
+`event_ticker`, find every `event_links` row whose `kalshi_event_ticker` equals
+it, and read `odds_fixtures.commence_ms` for each linked `odds_event_id`. The
+leg's start is the `MIN` of those. The ask's **first start** is the earliest
+leg start over all its legs. "Hours to first game" is first start minus
+`requested_ms`, cut into the same six levels as §3. The P2 indicator is "first
+start minus `requested_ms` is at least 0 and under 6 hours", and the other arm
+is "6 hours or more".
+
+This is the sportsbook's fixture reached through the matcher's link, which is
+the start `backend/scoring.py` scores against. **One difference from that
+module, stated so this is not mistaken for a copy of it:** `scoring.py` (like
+the slate and the ledger, ticket #26) takes `MIN(odds_snapshots.commence_ms)`
+per fixture, the earliest start the feed ever stated. This amendment reads
+`odds_fixtures`, the trigger-maintained one-row-per-game table (schema v47,
+ADR 0167), which holds the latest start the feed stated. The two agree on
+every fixture whose kickoff the feed never moved. The choice is fixed now, and
+the snapshot version is not computed.
+
+**2. Unknown, and out of P2.** An ask goes to the **unknown** level, and is out
+of P2, if any one of its legs:
+
+- has no `event_links` row (counted as "no link"), or
+- has links, but none of its linked `odds_event_id` values has an
+  `odds_fixtures` row (counted as "link, no fixture").
+
+A leg's start is never filled in from `kalshi_events.commence_ms`, and never by
+shifting that column by a fixed three hours. The lateness was measured as a
+shift plus noise, of the opposite sign on some links, and this repo applies it
+as a constant nowhere (`OBSERVED_KALSHI_COMMENCE_OFFSET_MS` is read only by
+tests). One unknown leg makes the whole ask unknown, because the earliest start
+among the other legs may not be the ask's first game.
+
+"Link, no fixture" is not expected: v47's backfill seeded every fixture kicking
+off from seven days before its migration (2026-09-18) onward, and the earliest
+possible ask dates from schema v45 (2026-09-17). Any found are counted
+separately and not explained away.
+
+**3. Already started.** An ask whose first start is before `requested_ms` is in
+the "already started" level and out of P2, as §4 already said. Its count is
+printed.
+
+**4. What this amendment does not change.** The unit, the cluster, every §2
+rule and its order, `f`, `r`, `g` and its reconstruction, the leg-count and
+price-band cells, P1 and all four tests, `t_crit`, the alphas, the 6-hour edge,
+the floors (for P2, 20 asks on 10 days in each arm after the removals above),
+the 80% reconstruction condition, both looks and their cutoffs, the §8
+destinations, and the decision rule block, which is read with "under 6 hours"
+measured on the clock defined here. `kalshi_events` is still read for one thing
+only: `series_ticker`, to reach `kalshi_series.league` for the league-mix cut.
+
+**5. Printed beside P2, counts only, never tested.**
+
+- Asks in the unknown level under this source, split into "no link" and "link,
+  no fixture", and of those, how many had a known start on the Kalshi clock
+  (the asks that **moved to unknown**).
+- Asks whose level among §3's six differs between this source and the Kalshi
+  clock, as a 6 by 6 table, and asks whose P2 arm differs (under 6 hours, 6
+  hours or more, out of P2). These are point counts. No `kappa` is fitted on
+  the Kalshi clock, so there is no second P2 result to choose between.
+- Asks with a leg linked to more than one fixture, where the `MIN` decided the
+  start.
+- Asks in "already started" under this source.
+
+**6. Caveats added to §10, quoted with it in each result.**
+
+- **Start times are the latest known, not as of the ask.**
+  `odds_fixtures.commence_ms` is overwritten in place by its trigger whenever a
+  newer snapshot states a different kickoff. A game rescheduled after the ask
+  is read at its new time, so its ask can land in the wrong level, or in
+  "already started" when it had not started at the time of asking. Already
+  started asks are counted (point 3) and out of P2. Nothing here can say which
+  asks were affected, because that table does not keep the earlier start. This
+  replaces the §10 line naming `kalshi_events.commence_ms`, which is no longer
+  read for a start.
+- **A link is the matcher's claim, not a verified identity.** The start is only
+  as right as `event_links`, and the matcher refuses rather than guesses when
+  two fixtures fit (an MLB doubleheader), so doubleheader legs are expected
+  among "no link".
+
+**7. The instrument.** The QueryDef from lane #327
+(`scripts/inspect_live_db_parlays.py`, as committed in `ab57fe54`) reads
+`kalshi_events.commence_ms` for the start and must read the source above before
+look A. A run of that instrument against live before it does so **is look A**:
+P1 stands as run, and P2 is recorded NOT EVALUABLE at look A for this reason
+and is not tested at look B either. A run on the wrong clock cannot be set
+aside and re-run on the right one, because by then its P2 numbers have been
+seen.
