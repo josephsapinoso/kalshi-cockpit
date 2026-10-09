@@ -16,6 +16,18 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-08 - A wrong number can be inherited without anyone typing it: from an old sentence, from a guess about retention, from a registration that names a clock the repo already refuted
+
+From the eighty-seventh session (#320 to #334, Joe's parlay challenge).
+
+- **A changed sentence has pins you cannot find by file name.** Lane #321 replaced the "−Y% EV. Don't." sentence, grepped the tests for the words it removed, and was green; CI went red on `tests/test_api.py`, which reached the sentence through a route and asserted "holds". The recipe's file-name grep cannot see a test that exercises a route.
+- **"Lost for good" is a claim about retention, and retention is a measured number.** The sharp-bettor wrote that every week without the per-leg record was data lost for good; the partner read ADR 0016 and found Kalshi keeps candlesticks about 80 days, so nearly the whole history was recoverable and the real deadline was the retention window. The build order changed on that one fact.
+- **A registration can name a column the repo has already measured wrong, and a faithful lane will build on it.** The markup registration defined its six-hour band on `kalshi_events.commence_ms`, which `scoring.py` refuses because it runs about three hours late; lane #327 implemented it exactly. The amendment landed before any row was read, which is the only time it can.
+- **The rule:**
+  - When a served sentence changes, grep the tests for every distinctive word of the OLD sentence, not only the words being removed, and run the route tests that could render it.
+  - Before calling any data unrecoverable, read the venue's retention from the record (ADR 0016 for candlesticks); state the deadline as a date.
+  - Before a registration names a timestamp column, check `backend/match/linker.py` for a measured offset on it. A wrong clock found after the look cannot be fixed by re-running; found before, it is one amendment.
+
 ## 2026-10-06 - The failure you are waiting to capture may already be in a capture you have; a test that asserts a capture is clean pins the blind spot
 
 From the eighty-fifth session (#316, #319).
