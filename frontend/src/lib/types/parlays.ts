@@ -7,34 +7,6 @@
 
 import type { ListFilterEcho, TrustScore } from "./signal";
 
-export type ParlayLeg = {
-  label: string;
-  probability: number;
-  event_key: string;
-  league: string;
-  commence_ms: number;
-};
-
-export type ParlayValuation = {
-  fair_probability: number;
-  naive_probability: number;
-  independence_error_points: number;
-  fair_american: number;
-  offered_american: number;
-  hold: number;
-  ev_per_dollar: number;
-  is_positive_ev: boolean;
-  correlation_was_supplied: boolean;
-  verdict: string;
-  kalshi_alternative: {
-    total_cost_dollars: number;
-    total_fee_dollars: number;
-    fee_share_of_stake: number;
-    expected_value_dollars: number;
-    note: string;
-  };
-};
-
 /** One leg of a parlay card: a game's YES side at its consensus chance. */
 /**
  * One leg, with the provenance behind its number.

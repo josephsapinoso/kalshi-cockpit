@@ -1559,21 +1559,6 @@ class TestExecutionBoundary:
         assert "locked" in str(response.json()["detail"]).lower()
 
 
-NFL = "americanfootball_nfl"
-DAY = 86_400_000
-NOW = 1_754_800_000_000
-
-
-def _leg(label, p, event, offset=0):
-    return {
-        "label": label,
-        "probability": p,
-        "event_key": event,
-        "league": NFL,
-        "commence_ms": NOW + offset,
-    }
-
-
 class TestDashboards:
     async def test_an_unbuilt_warehouse_returns_503_not_an_empty_payload(
         self, demo_db, tmp_path
@@ -1649,117 +1634,6 @@ class TestPlaybook:
         assert (await get(
             demo_app, "/api/playbook", params={"limit": "0"}
         )).status_code == 200
-
-
-class TestBuilderParlay:
-    async def test_a_typical_parlay_reports_the_book_hold(self, demo_app):
-        body = {
-            "legs": [
-                _leg("A", 0.50, "E1"),
-                _leg("B", 0.50, "E2", 8 * DAY),
-                _leg("C", 0.53, "E3", 16 * DAY),
-            ],
-            "offered_american": 550,
-        }
-        payload = (await post(demo_app, "/api/builder/parlay", json=body)).json()
-        assert payload["hold"] > 0.10
-        assert not payload["is_positive_ev"]
-        # #321: the sentence states the fact ("...; hold 13.9%."), never a
-        # verdict word; the hold is still in it.
-        assert "hold" in payload["verdict"]
-        assert "Don't" not in payload["verdict"]
-
-    async def test_same_game_legs_are_refused_with_the_reason(self, demo_app):
-        """422 carrying the refusal text, not a plausible number."""
-        body = {
-            "legs": [_leg("Chiefs ML", 0.62, "E1"), _leg("Over 44.5", 0.51, "E1")],
-            "offered_american": 250,
-        }
-        response = await post(demo_app, "/api/builder/parlay", json=body)
-        assert response.status_code == 422
-        assert "same fixture" in response.json()["detail"]
-        assert "overstate" in response.json()["detail"]
-
-    async def test_a_measured_correlation_unlocks_the_same_game_price(
-        self, demo_app
-    ):
-        body = {
-            "legs": [_leg("Chiefs ML", 0.62, "E1"), _leg("Over 44.5", 0.51, "E1")],
-            "offered_american": 250,
-            "correlation_overrides": [
-                {"a": "Chiefs ML", "b": "Over 44.5", "rho": 0.35}
-            ],
-        }
-        payload = (await post(demo_app, "/api/builder/parlay", json=body)).json()
-        assert payload["correlation_was_supplied"] is True
-        assert 0.0 < payload["fair_probability"] < 1.0
-
-    async def test_the_independence_error_is_always_returned(self, demo_app):
-        body = {
-            "legs": [_leg("A", 0.55, "E1"), _leg("B", 0.52, "E2", 3_600_000)],
-            "offered_american": 260,
-        }
-        payload = (await post(demo_app, "/api/builder/parlay", json=body)).json()
-        assert "independence_error_points" in payload
-
-    async def test_a_certainty_is_rejected_at_the_schema(self, demo_app):
-        body = {
-            "legs": [_leg("A", 1.0, "E1"), _leg("B", 0.5, "E2", 8 * DAY)],
-            "offered_american": 260,
-        }
-        assert (
-            await post(demo_app, "/api/builder/parlay", json=body)
-        ).status_code == 422
-
-    async def test_one_leg_is_not_a_parlay(self, demo_app):
-        body = {"legs": [_leg("A", 0.5, "E1")], "offered_american": 260}
-        assert (
-            await post(demo_app, "/api/builder/parlay", json=body)
-        ).status_code == 422
-
-    async def test_the_kalshi_alternative_is_framed_as_a_different_bet(
-        self, demo_app
-    ):
-        body = {
-            "legs": [_leg("A", 0.50, "E1"), _leg("B", 0.50, "E2", 8 * DAY)],
-            "offered_american": 260,
-        }
-        payload = (await post(demo_app, "/api/builder/parlay", json=body)).json()
-        assert "Not the same bet" in payload["kalshi_alternative"]["note"]
-
-    async def test_the_builder_is_available_on_the_demo_instance(self, demo_app):
-        """It computes on supplied numbers and touches no credentials, so it is
-        one of the more interesting things the public demo can show."""
-        body = {
-            "legs": [_leg("A", 0.50, "E1"), _leg("B", 0.50, "E2", 8 * DAY)],
-            "offered_american": 260,
-        }
-        assert (
-            await post(demo_app, "/api/builder/parlay", json=body)
-        ).status_code == 200
-
-
-class TestWongScreen:
-    async def test_only_the_documented_windows_come_back(self, demo_app):
-        response = await get(
-            demo_app,
-            "/api/builder/wong-screen",
-            params={"lines": "Chiefs:-8,Eagles:-3.5,Jets:2,Bears:7.5,Bills:-7.5"},
-        )
-        teams = {c["team"] for c in response.json()["candidates"]}
-        assert teams == {"Chiefs", "Jets", "Bills"}
-
-    async def test_being_in_the_window_is_flagged_as_not_sufficient(self, demo_app):
-        response = await get(
-            demo_app, "/api/builder/wong-screen", params={"lines": "Chiefs:-8"}
-        )
-        assert "necessary, not sufficient" in response.json()["note"]
-
-    async def test_a_malformed_pair_is_rejected(self, demo_app):
-        response = await get(
-            demo_app, "/api/builder/wong-screen", params={"lines": "Chiefs:banana"}
-        )
-        assert response.status_code == 400
 
 
 class TestConfigIsInjectedNotAmbient:

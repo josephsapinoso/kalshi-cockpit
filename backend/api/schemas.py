@@ -167,50 +167,6 @@ class EstimateRevisionRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
-class LegRequest(BaseModel):
-    """One leg of a combination, as the Builder screen sends it."""
-
-    label: str
-    probability: float = Field(gt=0.0, lt=1.0)
-    event_key: str
-    league: str
-    commence_ms: int
-
-    def to_leg(self) -> Leg:
-        return Leg(
-            label=self.label,
-            probability=self.probability,
-            event_key=self.event_key,
-            league=self.league,
-            commence_ms=self.commence_ms,
-        )
-
-
-class CorrelationOverride(BaseModel):
-    """A measured correlation for one specific pair.
-
-    The only sanctioned way to price same-game legs. It is a required, explicit
-    act by the caller rather than a default, because the sign varies by pair and
-    a plausible guess here is worse than no number at all.
-    """
-
-    a: str
-    b: str
-    rho: float = Field(ge=-1.0, le=1.0)
-
-
-class ParlayRequest(BaseModel):
-    legs: list[LegRequest] = Field(min_length=2)
-    offered_american: int
-    correlation_overrides: list[CorrelationOverride] = Field(default_factory=list)
-    kalshi_contracts_per_leg: int = Field(default=100, gt=0, le=1000)
-
-    def overrides(self) -> Optional[dict[tuple[str, str], float]]:
-        if not self.correlation_overrides:
-            return None
-        return {(o.a, o.b): o.rho for o in self.correlation_overrides}
-
-
 class ParlayLookupLeg(BaseModel):
     event_ticker: str
     market_ticker: str
