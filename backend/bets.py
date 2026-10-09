@@ -859,9 +859,9 @@ def by_leg_kind_summary(conn: sqlite3.Connection) -> dict[str, Any]:
 
     Reads `parlay_position_legs` and nothing else. **It never reads the
     leg-verdict table** (its registration's s6 forbids any running
-    scout-accuracy figure; `tests/test_leg_verdicts_never_touch_money.py`
-    keeps this module off that table's reader list, which is why the table
-    is not named here) **and never splits anything by the books' chance
+    scout-accuracy figure; the money-path allowlist test keeps this module
+    off that table's reader list, which is why the table is not named here)
+    **and never splits anything by the books' chance
     minus Kalshi's ask** (that is ADR 0038's consensus row, `beta = -0.141`,
     run again without a registration). `desk_chance` is deliberately not even
     selected. What it shows is counts: ADR 0194 s2.6.
