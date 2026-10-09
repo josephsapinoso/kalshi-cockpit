@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 
 import { formatAge, lookupParlay, requestLegVerdicts } from "@/lib/api";
 import type {
@@ -10,7 +10,8 @@ import type {
   ParlayHorizon,
   ParlayLookupResult,
 } from "@/lib/api";
-import AskTheMarket from "@/components/AskTheMarket";
+import AskTheMarket, { ParlayCostLine } from "@/components/AskTheMarket";
+import { ParlayLegsContext, tenthsFromDisplay } from "@/lib/parlayCost";
 import LegVerdicts from "@/components/LegVerdicts";
 import ManualTicket from "@/components/ManualTicket";
 import Term from "@/components/Term";
@@ -318,6 +319,10 @@ function Result({
   requestedAtMs: number | null;
   posted: LegVerdictsResult | null;
 }) {
+  // #334: the card's leg count and asks come from the enclosing provider
+  // (ParlayCards); the served `fee_coefficient` is added here so the cost
+  // line beside the book tile, and the one inside AskTheMarket, both read it.
+  const outer = useContext(ParlayLegsContext);
   // Every non-priced status must be listed here. The fallthrough below reads
   // `value.quoted`, which only `priced` has, so a status missing from this
   // guard does not degrade -- it renders undefined into the price line.
@@ -341,7 +346,15 @@ function Result({
   ) {
     return <p className="text-sm text-muted">{value.words}</p>;
   }
+  const legsInfo = {
+    legCount: outer?.legCount ?? legs.length,
+    legAsksTenths: outer?.legAsksTenths ?? null,
+    feeCoefficient: value.fee_coefficient ?? null,
+  };
   return (
+    <ParlayLegsContext.Provider
+      value={legsInfo}
+    >
     <div className="space-y-2 text-sm">
       {/* Three tiles in a fixed order, as on the maker-quote block below:
           the price, what the books say it is worth, and the gap as the
@@ -355,6 +368,12 @@ function Result({
         <Stat label="Fair value" value={value.fair.fair_cost_display} />
         <Stat label={<Term k="hold">Hold</Term>} value={value.hold_display} />
       </div>
+      {/* #328, #334: the book tile's price restated, with the served fee
+          coefficient so the fee and singles clauses show here too. */}
+      <ParlayCostLine
+        priceTenths={tenthsFromDisplay(value.quoted.ask_display)}
+        coefficient={null}
+      />
       {/*
         The stake line is bounded by the book (server-side). When depth is
         unreadable there is no contracts/payout to render at all -- only the
@@ -418,5 +437,6 @@ function Result({
         <AskTheMarket marketTicker={value.minted_market_ticker} />
       </div>
     </div>
+    </ParlayLegsContext.Provider>
   );
 }

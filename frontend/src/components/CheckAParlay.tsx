@@ -308,13 +308,16 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
 
       <AskTheScouts key={value.minted_market_ticker} value={value} />
 
-      {/* #328. No per-leg Kalshi ask and no served fee on this payload, so
-          the line stops at "wins about 1 in N": the fee and singles clauses
-          need a coefficient and the legs' asks, and are left out rather than
-          guessed. Absent when the book has no ask. */}
+      {/* #328, #334. The payload serves `fee_coefficient`, so the fee clause
+          shows; there is still no per-leg Kalshi ask, so the singles clause
+          is left out rather than guessed. Absent when the book has no ask. */}
       {value.quoted !== null && (
         <ParlayLegsContext.Provider
-          value={{ legCount: value.legs.length, legAsksTenths: null }}
+          value={{
+            legCount: value.legs.length,
+            legAsksTenths: null,
+            feeCoefficient: value.fee_coefficient ?? null,
+          }}
         >
           <ParlayCostLine
             priceTenths={tenthsFromDisplay(value.quoted.ask_display)}
@@ -332,7 +335,11 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
           reading above stands either way; only the button is withheld. */}
       {value.rfq_available ? (
         <ParlayLegsContext.Provider
-          value={{ legCount: value.legs.length, legAsksTenths: null }}
+          value={{
+            legCount: value.legs.length,
+            legAsksTenths: null,
+            feeCoefficient: value.fee_coefficient ?? null,
+          }}
         >
           <AskTheMarket marketTicker={value.minted_market_ticker} />
         </ParlayLegsContext.Provider>

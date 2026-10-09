@@ -119,6 +119,7 @@ from typing import Callable, Optional, Sequence
 
 from backend.alt_lines import alt_candidate_for_leg
 from backend.core.correlation import CorrelationRefused
+from backend.core.fees import COMBO_TAKER_COEFFICIENT
 from backend.core.leg_words import no_title_words
 from backend.core.ladder import (
     UNUSABLE_REASONS,
@@ -1016,6 +1017,8 @@ async def check_parlay_text(
         "hold_display": f"{hold * 100:.1f}%" if hold is not None else None,
         # How cards from a friend have done so far (#325): one fixed line.
         "friend_source_line": friend_source_line(conn),
+        # #334: the Take-it path's coefficient (`core.fees`), imported.
+        "fee_coefficient": float(COMBO_TAKER_COEFFICIENT),
         "words": words,
         "notes": {"unquoted": NOTES["unquoted"], "fee": NOTES["fee"]},
     }
