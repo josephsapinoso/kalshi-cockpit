@@ -48,6 +48,9 @@ What this does not establish
   prefix (`series_from_ticker`): the venue's series for it was never captured.
 - That a bar's close equals the ask the fill crossed. It is the minute's
   close; `scripts/reconcile_candle_ask.py` is the harness for that identity.
+- Nothing that needs a credential. The venue is read unauthenticated
+  (`PublicCandles`), so the script runs from an `ssh console` shell that
+  holds no key, and from `.github/workflows/instrument.yml`.
 """
 
 from __future__ import annotations
@@ -266,17 +269,53 @@ async def fill(
     return counts
 
 
+#: Kalshi's public REST base. Candlesticks answer 200 with no headers
+#: (`scripts/measure_candlestick_retention.py`, verified 2026-08-09), so this
+#: script never loads the private key: it reads nothing a credential guards,
+#: and an `ssh console` shell on the box carries no key in its environment
+#: (`docker/entrypoint.sh` materialises it for the app process only). The
+#: same reader shape as `scripts/reconcile_candle_ask.py`'s.
+PUBLIC_REST_URL = "https://api.elections.kalshi.com/trade-api/v2"
+PUBLIC_TIMEOUT_S = 30.0
+
+
+class PublicCandles:
+    """Unauthenticated candlestick reads, one shared client, sequential."""
+
+    def __init__(self, client: Any, *, base_url: str = PUBLIC_REST_URL) -> None:
+        self._client = client
+        self._base = base_url.rstrip("/")
+
+    async def candlesticks(
+        self, series_ticker: str, ticker: str, *, start_ts: int, end_ts: int,
+        period_interval: int,
+    ) -> list[dict]:
+        path = f"/series/{series_ticker}/markets/{ticker}/candlesticks"
+        params = {"start_ts": start_ts, "end_ts": end_ts, "period_interval": period_interval}
+        for attempt in range(5):
+            response = await self._client.get(f"{self._base}{path}", params=params)
+            if response.status_code == 429:
+                await asyncio.sleep(0.5 * (attempt + 1))
+                continue
+            if response.status_code == 404:
+                return []  # history the venue no longer has: counted as no bar
+            response.raise_for_status()
+            return response.json().get("candlesticks") or []
+        response.raise_for_status()
+        return []
+
+
 async def _run(args: argparse.Namespace) -> int:
-    from backend.config import KalshiConfig
-    from backend.kalshi.rest import KalshiRestClient
+    import httpx
+
     from backend.logging_setup import configure_logging
 
     configure_logging()
     conn = open_db(args.db, read_only=not args.commit)
     conn.row_factory = sqlite3.Row
     try:
-        config = KalshiConfig.load()
-        async with KalshiRestClient(config) as api:
+        async with httpx.AsyncClient(timeout=PUBLIC_TIMEOUT_S) as client:
+            api = PublicCandles(client)
             counts = await fill(conn, api, limit=args.limit, commit=args.commit)
     finally:
         conn.close()

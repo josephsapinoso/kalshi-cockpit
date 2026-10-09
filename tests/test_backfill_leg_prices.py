@@ -246,6 +246,42 @@ class TestTheSeriesComesFromTheCaptureFirst:
         assert {series for series, *_ in api.calls} == {SERIES}
 
 
+class TestTheVenueIsReadWithoutACredential:
+    """The box's ssh shell holds no Kalshi key (the first live dry run died in
+    `KalshiConfig.load`), and candlesticks are public, so the script must not
+    ask for one."""
+
+    def test_the_script_never_loads_the_kalshi_credentials(self):
+        source = Path(bf.__file__).read_text(encoding="utf-8")
+        assert "KalshiConfig" not in source
+        assert "KalshiRestClient" not in source
+        assert "KALSHI_PRIVATE_KEY" not in source
+
+    def test_public_candles_reads_the_candlesticks_path_and_treats_404_as_no_bar(self):
+        import httpx
+        import respx
+
+        async def run():
+            with respx.mock(assert_all_called=True) as mock:
+                ok = mock.get(
+                    f"{bf.PUBLIC_REST_URL}/series/{SERIES}/markets/{YES_LEG}/candlesticks"
+                ).mock(return_value=httpx.Response(200, json={"candlesticks": [{"end_period_ts": 1}]}))
+                gone = mock.get(
+                    f"{bf.PUBLIC_REST_URL}/series/{SERIES}/markets/{NO_LEG}/candlesticks"
+                ).mock(return_value=httpx.Response(404, json={"error": "not_found"}))
+                async with httpx.AsyncClient() as client:
+                    api = bf.PublicCandles(client)
+                    bars = await api.candlesticks(SERIES, YES_LEG, start_ts=0, end_ts=60, period_interval=1)
+                    none = await api.candlesticks(SERIES, NO_LEG, start_ts=0, end_ts=60, period_interval=1)
+                assert ok.calls[0].request.url.params["period_interval"] == "1"
+                assert ok.calls[0].request.headers.get("KALSHI-ACCESS-KEY") is None
+                return bars, none
+
+        bars, none = asyncio.run(run())
+        assert bars == [{"end_period_ts": 1}]
+        assert none == []
+
+
 class TestTheCommandLine:
     def test_it_refuses_to_run_without_a_mode(self):
         with pytest.raises(SystemExit):
