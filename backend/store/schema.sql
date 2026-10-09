@@ -2702,6 +2702,32 @@ CREATE TABLE IF NOT EXISTS parlay_position_legs (
     -- and no measurement is registered over it; it exists so the question
     -- can be registered when the count supports one.
     scout_state     TEXT CHECK (scout_state IS NULL OR scout_state IN ('absent', 'briefing', 'briefed', 'filed_nothing', 'refused', 'failed')),
+    -- The leg's OWN Kalshi price when the ticket was bought, for the side
+    -- held (v65, 2026-10-08, ADR 0194): the YES ask for a YES leg, the NO ask
+    -- (1000 - the YES bid) for a NO leg. The whole card's price lives on the
+    -- position; until v65 no leg's own price was kept anywhere, so the record
+    -- could never say which KIND of leg loses more often than its price says
+    -- (Joe, 2026-10-02: "track them and learn from them"). `ask_source` names
+    -- the resolution: `lookup` is the book's derived ask at the instant the
+    -- desk priced or checked the card; `candle` is the close of the one-minute
+    -- bar ending at or before `parlay_positions.placed_ms`, which is how
+    -- history was filled (`scripts/backfill_leg_prices.py`). NULL means not
+    -- recorded -- no placed_ms, no bar, a hand-typed slip -- never 0: a
+    -- settled loser genuinely trades at 0.
+    ask_at_purchase_tenths INTEGER,
+    ask_source      TEXT CHECK (ask_source IS NULL OR ask_source IN ('lookup', 'candle')),
+    -- The leg's last Kalshi quote before its TRUE start (the odds fixture's
+    -- commence through `event_links`, never `kalshi_events`' 3-hour-late
+    -- clock; `backend/scoring.py`'s rule), at `analysis.clv.DEFAULT_HORIZON_HOURS`,
+    -- kept as the YES bid and ask the way `closing_lines` keeps one, so the
+    -- mid and the signed closing-line value come from the same helpers. Stored
+    -- HERE and never in `closing_lines`: `score_recommendations` scores every
+    -- ticker that has a line, and a leg row there would enter the gate's CLV
+    -- population (ADR 0063 keeps the gate blind to what Joe holds). NULL until
+    -- the game has started and a bar was read.
+    close_yes_bid_tenths INTEGER,
+    close_yes_ask_tenths INTEGER,
+    close_observed_ms INTEGER,
     CHECK (side IN ('yes', 'no')),
     CHECK (outcome IN ('pending', 'won', 'lost', 'void')),
     CHECK (resolved_source IS NULL OR resolved_source IN ('venue', 'manual')),

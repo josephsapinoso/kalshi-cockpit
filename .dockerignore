@@ -188,6 +188,9 @@ scripts/*
 # be added by hand.
 !scripts/rehearse_fair_price_window.py
 !scripts/relabel_untitled_legs.py
+# ADR 0194: fills each held leg's own price and close from candlesticks, run
+# by path on the box after the v65 deploy (`--dry-run`, then `--commit`).
+!scripts/backfill_leg_prices.py
 
 *.md
 !README.md

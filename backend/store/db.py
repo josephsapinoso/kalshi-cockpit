@@ -282,7 +282,15 @@ logger = logging.getLogger(__name__)
 #: v64 `agent_calls.tool_error_codes` (#316): the server-tool error codes a
 #: response carried, so a failed web search has the API's own reason, not the
 #: model's paraphrase. Nullable column step; no backfill.
-SCHEMA_VERSION = 64
+#:
+#: v65 (2026-10-08) `parlay_position_legs.{ask_at_purchase_tenths, ask_source,
+#: close_yes_bid_tenths, close_yes_ask_tenths, close_observed_ms}` (#322,
+#: ADR 0194): each held leg's OWN Kalshi price when the ticket was bought and
+#: its quote before the true start, so the record can say which kind of leg
+#: loses more often than its price says. Nullable column step. The history is
+#: filled from candlesticks by `scripts/backfill_leg_prices.py`, run by path,
+#: never by a migration -- a migration must not reach the venue.
+SCHEMA_VERSION = 65
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1340,6 +1348,22 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45, 57, 59, 
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # Each held leg's own price at purchase and its close. See the v65 note
+    # above and the column comments in `schema.sql`. The CHECK rides the
+    # column declaration for v51's reason.
+    65: _Migration(
+        columns=(
+            ("parlay_position_legs", "ask_at_purchase_tenths", "INTEGER"),
+            (
+                "parlay_position_legs",
+                "ask_source",
+                "TEXT CHECK (ask_source IS NULL OR ask_source IN ('lookup', 'candle'))",
+            ),
+            ("parlay_position_legs", "close_yes_bid_tenths", "INTEGER"),
+            ("parlay_position_legs", "close_yes_ask_tenths", "INTEGER"),
+            ("parlay_position_legs", "close_observed_ms", "INTEGER"),
+        ),
+    ),
     # Server-tool error codes on each agent call. See the v64 note above.
     64: _Migration(
         columns=(("agent_calls", "tool_error_codes", "TEXT"),),
