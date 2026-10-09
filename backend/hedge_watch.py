@@ -148,8 +148,8 @@ async def watch_last_leg_once(
 
     Reads the same screen `/api/hedge` serves, including the public-book bid
     through `read_combo_book` (#95), and asks the alerter for one push. **It
-    never asks the makers**: no RFQ, no sell-quote -- the RFQ module is not
-    imported here and a test walks this module's imports to keep it so.
+    never asks the makers**: no request for quotes -- and a test walks this
+    module's imports and calls to keep it so.
     """
     settled = held_parlays.resolve_from_venue(conn, now_ms=now_ms)
     screen = await held_parlays.build_payload(
@@ -174,7 +174,6 @@ async def watch_once(
     fetch_quote=None,
     day_start_hour: int = DEFAULT_DAY_START_UTC_HOUR,
     fetch_quotes=None,
-    read_combo_book=None,
 ) -> dict:
     """One cycle: settle what the venue has settled, re-price, alert.
 
@@ -204,7 +203,6 @@ async def watch_once(
         spendable_tenths=store_db.latest_balance_tenths(conn),
         fetch_quote=fetch_quote,
         fetch_quotes=fetch_quotes,
-        read_combo_book=read_combo_book,
     )
     day_ms = day_start_ms(now_ms, hour=day_start_hour)
     lock_result = await alerter.hedge_locks(
@@ -218,12 +216,6 @@ async def watch_once(
         # Distinct keys so a caller can tell the two pushes apart rather than
         # summing them into one number that answers neither question.
         merged[f"position_{key}"] = value
-    # The settle above may have just turned the second-to-last leg `won`, so
-    # this screen can already show the last-leg state (#329). Same screen, no
-    # extra read; the existing two pushes are untouched.
-    last_leg_result = await alerter.last_leg_watch(screen, now_ms=now_ms)
-    for key, value in last_leg_result.as_dict().items():
-        merged[f"last_leg_{key}"] = value
     return {
         "legs_settled": settled,
         "positions": len(screen["positions"]),
@@ -274,6 +266,7 @@ async def watch_hedges_forever(
     try:
         alerter = alerter_factory(conn)
         cycles = 0
+        last_leg_due_ms = 0
         while max_cycles is None or cycles < max_cycles:
             cycles += 1
             now_ms = int(clock() * 1000)
@@ -327,7 +320,6 @@ async def watch_hedges_forever(
                         max_quote_age_ms=max_quote_age_ms,
                         fetch_quote=fetch_quote,
                         fetch_quotes=fetch_quotes,
-                        read_combo_book=read_combo_book,
                         day_start_hour=day_start_hour,
                     )
                     if (
@@ -336,10 +328,21 @@ async def watch_hedges_forever(
                         or summary["position_alerts_sent"]
                     ):
                         logger.info("hedge watch: %s", summary)
-                elif last_leg_waiting(conn, now_ms=now_ms):
+                if now_ms >= last_leg_due_ms and last_leg_waiting(
+                    conn, now_ms=now_ms
+                ):
+                    # At most once per idle interval even while another game
+                    # keeps the cycle busy at 60 s, so a game in play does not
+                    # turn this into a per-minute combination-book read.
+                    last_leg_due_ms = now_ms + int(idle_interval_s * 1000)
                     # Nothing is in play, but one ticket is a single unstarted
                     # game from paying (#329). Idle cadence: the push is once
                     # per ticket per state, so a faster poll buys nothing.
+                    # **Only this branch reads the combination book** -- the
+                    # 60 s in-play cycle above deliberately does not (pinned in
+                    # test_the_combo_book_reader_is_wired.py); the last-leg
+                    # state is entered when the second-to-last game settles,
+                    # which the next idle tick sees.
                     summary = await watch_last_leg_once(
                         conn,
                         alerter,

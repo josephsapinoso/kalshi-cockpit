@@ -103,6 +103,16 @@ async def run(conn, notifier, *, reader=None, now_ms=NOW_MS):
     )
 
 
+class _Plain(Alerter):
+    """An Alerter whose in-play pushes are inert, so the test sees only ours."""
+
+    async def hedge_locks(self, *a, **k):
+        return alerts_module.AlertResult()
+
+    async def position_states(self, *a, **k):
+        return alerts_module.AlertResult()
+
+
 def notification_count(conn):
     return conn.execute(
         "SELECT COUNT(*) FROM notifications WHERE kind = ?", (LAST_LEG_KIND,)
@@ -240,15 +250,41 @@ class TestTheLoopReachesIt:
         assert len(notifier.texts) == 1
         assert slept == [hedge_watch.IDLE_INTERVAL_S] * 2
 
-    async def test_the_in_play_cycle_also_carries_it(self, conn):
+    async def test_it_still_fires_while_another_game_is_in_play(self, tmp_path):
+        path = tmp_path / "cockpit.db"
+        setup = db.init_db(path)
+        try:
+            make_ticket(setup, outcomes=WON4)
+            # A second ticket whose game is under way keeps the cycle busy.
+            hedge.record_position(
+                setup, now_ms=NOW_MS, source="sportsbook", label="Live one",
+                stake_tenths=5_000, return_tenths=100_000,
+                legs=[{"ticker": "KXMLBGAME-26AUG26CINSF-CIN", "side": "yes",
+                       "label": "Cincinnati", "commence_ms": NOW_MS - 1}],
+            )
+            assert hedge_watch.anything_in_progress(setup, now_ms=NOW_MS)
+        finally:
+            setup.close()
+        notifier = Notifier()
+
+        async def sleep(seconds):
+            return None
+
+        await hedge_watch.watch_hedges_forever(
+            path, lambda c: _Plain(c, notifier), fetch_quote=fetch_quote,
+            read_combo_book=book_reader([]), max_quote_age_ms=30_000,
+            sleep=sleep, clock=lambda: NOW_MS / 1000, max_cycles=1,
+        )
+        assert len(notifier.texts) == 1
+
+    async def test_the_sixty_second_cycle_reads_no_combination_book(self, conn):
         make_ticket(conn, outcomes=WON4)
         notifier = Notifier()
         summary = await hedge_watch.watch_once(
             conn, Alerter(conn, notifier), now_ms=NOW_MS,
             max_quote_age_ms=30_000, fetch_quote=fetch_quote,
-            read_combo_book=book_reader([]),
         )
-        assert len(summary["last_leg_alerts_sent"]) == 1
+        assert notifier.texts == [] and "last_leg_alerts_sent" not in summary
 
 
 class TestTheDiscordPath:
