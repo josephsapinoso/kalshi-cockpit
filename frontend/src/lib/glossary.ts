@@ -475,6 +475,28 @@ export const GLOSSARY = {
       "about 90 minutes before kickoff. A card is built a day earlier, " +
       "so it cannot know them. Check the list before you bet.",
   },
+  single: {
+    label: "single",
+    definition:
+      "One bet on one pick, paid on its own. Three singles are three " +
+      "separate bets that win or lose independently; a parlay of the same " +
+      "three is one bet that pays only if all three win.",
+  },
+  fee_share: {
+    label: "fee share",
+    definition:
+      "The fee as a slice of what you stake. A 5c card pays about 6.7% " +
+      "of its stake in fee; a 50c card about 3.5%. The same fee formula " +
+      "takes a bigger bite of a small price.",
+  },
+  sunk_cost: {
+    label: "sunk cost",
+    definition:
+      "Money already spent that selling or holding cannot bring back. " +
+      "What you paid for a card is sunk: the only question left is " +
+      "whether a bid now is worth more to you than waiting for the " +
+      "result.",
+  },
 } as const;
 
 export type GlossaryKey = keyof typeof GLOSSARY;

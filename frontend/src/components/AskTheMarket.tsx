@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 
 import { acceptComboQuote, askMarketToPrice, formatAge } from "@/lib/api";
 import type { ComboRfqAcceptResult, ComboRfqResult } from "@/lib/api";
@@ -8,6 +8,11 @@ import Term from "@/components/Term";
 import { useReportBusy } from "@/components/Sheet";
 import { Button, Stat } from "@/components/ui";
 import HeldConflictsNote from "@/components/HeldConflictsNote";
+import {
+  ParlayLegsContext,
+  coefficientFromQuote,
+  costLine,
+} from "@/lib/parlayCost";
 
 /**
  * "Nobody is selling this" was wrong, and this is the control that fixes it.
@@ -385,6 +390,29 @@ function Quotes({
 
       <p className="text-xs leading-snug text-muted">{value.words}</p>
 
+      {/* #328: the price restated in plain words, at the moment of buying.
+          k comes from the best quote's own served fee, never a literal. */}
+      <ParlayCostLine
+        priceTenths={best.yes_ask_tenths}
+        coefficient={coefficientFromQuote(
+          best.fee_tenths,
+          best.all_in_tenths,
+          best.yes_ask_tenths,
+        )}
+        lead="At the best quote:"
+      />
+      {value.book_yes_ask_tenths !== null && (
+        <ParlayCostLine
+          priceTenths={value.book_yes_ask_tenths}
+          coefficient={coefficientFromQuote(
+            best.fee_tenths,
+            best.all_in_tenths,
+            best.yes_ask_tenths,
+          )}
+          lead="At the public book's price:"
+        />
+      )}
+
       <RefusedFineQuotes value={value} />
 
       <QuotesAge askedMs={value.asked_ms} />
@@ -620,6 +648,57 @@ function FeeShare({ quote }: { quote: ComboRfqResult["quotes"][number] }) {
     <p className="mt-1 max-w-prose text-xs leading-snug text-muted">
       Fee &asymp; {pct.toFixed(1)}% of what you stake on the contracts (an
       estimate).
+    </p>
+  );
+}
+
+/**
+ * The cost line (#328): "{n} legs. Wins about 1 in {N}. Fee is {x}% of
+ * stake. The same picks as singles: {y}%." It restates the price on screen
+ * and nothing else -- no claim a factor predicts anything, no word for the
+ * price, no ordering. Arithmetic lives in `lib/parlayCost.ts`. Absent when
+ * the price is null; the fee and singles clauses are absent when no served
+ * fee gave a coefficient, and the singles clause when any leg lacks an ask.
+ */
+export function ParlayCostLine({
+  priceTenths,
+  coefficient,
+  lead,
+}: {
+  priceTenths: number | null;
+  coefficient: number | null;
+  lead?: string;
+}) {
+  const legs = useContext(ParlayLegsContext);
+  const line = costLine({
+    legCount: legs?.legCount ?? null,
+    priceTenths,
+    coefficient,
+    legAsksTenths: legs?.legAsksTenths ?? null,
+  });
+  if (line === null) return null;
+  return (
+    <p className="max-w-prose text-xs leading-snug text-muted">
+      {lead ? `${lead} ` : null}
+      {line.legs !== null && (
+        <>
+          {line.legs} <Term k="leg">legs</Term>.{" "}
+        </>
+      )}
+      Wins about 1 in {line.oneIn}.
+      {line.feePercent !== null && (
+        <>
+          {" "}
+          <Term k="fee">Fee</Term> is {line.feePercent}% of stake.
+        </>
+      )}
+      {line.singlesPercent !== null && (
+        <>
+          {" "}
+          The same picks as <Term k="single">singles</Term>:{" "}
+          {line.singlesPercent}%.
+        </>
+      )}
     </p>
   );
 }

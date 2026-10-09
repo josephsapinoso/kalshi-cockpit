@@ -42,6 +42,7 @@ import RefreshWhenPriced from "@/components/RefreshWhenPriced";
 import Sheet from "@/components/Sheet";
 import StaleOddsExit from "@/components/StaleOddsExit";
 import Term from "@/components/Term";
+import { ParlayLegsContext, tenthsFromDisplay } from "@/lib/parlayCost";
 import TrustNote from "@/components/TrustNote";
 import { Button, GaugeReadout, Segments, SectionLabel, Stat } from "@/components/ui";
 
@@ -461,7 +462,20 @@ function BuyTabs({
       <div className="mt-4">
         {seen.has("whole") && (
           <div role="tabpanel" hidden={tab !== "whole"}>
-            <PriceOnKalshi card={card} horizon={horizon} />
+            {/* #328: hands the card's leg count and each leg's Kalshi ask
+                to the cost line inside AskTheMarket, below PriceOnKalshi.
+                An unreadable ask is null, and the singles clause is then
+                left out. */}
+            <ParlayLegsContext.Provider
+              value={{
+                legCount: card.legs.length,
+                legAsksTenths: card.legs.map((leg) =>
+                  tenthsFromDisplay(leg.ask_display),
+                ),
+              }}
+            >
+              <PriceOnKalshi card={card} horizon={horizon} />
+            </ParlayLegsContext.Provider>
           </div>
         )}
         {seen.has("legs") && (

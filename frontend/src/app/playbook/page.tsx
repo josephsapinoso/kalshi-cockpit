@@ -7,6 +7,7 @@ import {
 } from "@/lib/api";
 
 import FiveStepTest from "@/components/FiveStepTest";
+import ParlayChapter from "@/components/ParlayChapter";
 import Term from "@/components/Term";
 
 export const dynamic = "force-dynamic";
@@ -76,6 +77,7 @@ export default async function PlaybookPage() {
           seconds", and on a phone the thing you act on goes where the thumb
           lands first. */}
       <FiveStepTest />
+      <ParlayChapter />
 
       <h2 className="text-sm font-semibold uppercase tracking-widest text-muted">
         Strategy versions
