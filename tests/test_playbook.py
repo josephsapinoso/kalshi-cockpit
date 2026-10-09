@@ -22,6 +22,8 @@ population only, and nothing here second-guesses it.
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 
 import pytest
 
@@ -304,3 +306,71 @@ class TestAnEmptyListIsNotAHealthySilence:
         )
         conn.commit()
         assert read_playbook(conn)["historian_has_run"] is True
+
+
+class TestParlayChapter:
+    """The Playbook's parlay chapter (#328): six facts, every term glossed.
+
+    Static text read at the source, like the five steps. What this does not
+    establish: that any sentence is persuasive, or that the page renders.
+    """
+
+    ROOT = Path(__file__).resolve().parents[1] / "frontend" / "src"
+
+    def chapter(self) -> str:
+        return (self.ROOT / "components" / "ParlayChapter.tsx").read_text(
+            encoding="utf-8"
+        )
+
+    def plain(self) -> str:
+        text = re.sub(r"/\*.*?\*/", "", self.chapter(), flags=re.DOTALL)
+        text = re.sub(r"<[^>]+>", "", text)
+        for entity, char in (
+            ("&ldquo;", '"'),
+            ("&rdquo;", '"'),
+            ("&rsquo;", "'"),
+        ):
+            text = text.replace(entity, char)
+        return re.sub(r"\s+", " ", text)
+
+    def test_the_six_facts_are_present(self):
+        text = self.plain()
+        for fact in (
+            "12 cents wins about 1 time in 8",
+            "5 cents, about 1 in 20",
+            "Three 80% legs land together 51%",
+            "six land 26%",
+            "loses the whole card 1 time in 10",
+            "about 11% more payout",
+            "about 6.65% at 5 cents, 5.25% at 25 cents, 3.5% at 50 cents",
+            "pay about half that share",
+            "3.8 cents and 36.6 cents apart",
+            "every bid on the three combinations this desk held sat below",
+            "Expected vs won",
+            "below 5 expected on each side",
+        ):
+            assert fact in text, fact
+
+    def test_each_new_term_is_wrapped_and_defined(self):
+        source = self.chapter()
+        glossary = (self.ROOT / "lib" / "glossary.ts").read_text(encoding="utf-8")
+        for key in ("fee_share", "sunk_cost", "single", "parlay", "leg", "fee"):
+            assert f'k="{key}"' in source, key
+        for key in ("fee_share", "sunk_cost", "single"):
+            assert f"  {key}: {{" in glossary, key
+
+    def test_it_is_mounted_on_the_playbook_below_the_five_steps(self):
+        page = (self.ROOT / "app" / "playbook" / "page.tsx").read_text(
+            encoding="utf-8"
+        )
+        assert page.index("<FiveStepTest />") < page.index("<ParlayChapter />")
+        assert "<details" in self.chapter()
+
+    def test_it_never_tells_him_what_to_stake_or_praises_a_price(self):
+        text = self.plain()
+        assert "Bet two dollars" not in text
+        for word in ("cheap", "predict", "an edge", "bargain"):
+            assert not re.search(rf"\b{word}", text, re.IGNORECASE), word
+
+    def test_no_literal_fee_coefficient_in_the_chapter(self):
+        assert not re.search(r"(?<![\d.])0\.07\d?(?!\d)", self.plain())

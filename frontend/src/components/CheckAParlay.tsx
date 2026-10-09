@@ -9,9 +9,10 @@ import {
   formatKickoff,
 } from "@/lib/api";
 import type { CheckedParlayResult } from "@/lib/api";
-import AskTheMarket from "@/components/AskTheMarket";
+import AskTheMarket, { ParlayCostLine } from "@/components/AskTheMarket";
 import { RestChip } from "@/components/ParlayCards";
 import Term from "@/components/Term";
+import { ParlayLegsContext, tenthsFromDisplay } from "@/lib/parlayCost";
 import { Button, Stat } from "@/components/ui";
 
 /**
@@ -220,6 +221,21 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
         </p>
       )}
 
+      {/* #328. No per-leg Kalshi ask and no served fee on this payload, so
+          the line stops at "wins about 1 in N": the fee and singles clauses
+          need a coefficient and the legs' asks, and are left out rather than
+          guessed. Absent when the book has no ask. */}
+      {value.quoted !== null && (
+        <ParlayLegsContext.Provider
+          value={{ legCount: value.legs.length, legAsksTenths: null }}
+        >
+          <ParlayCostLine
+            priceTenths={tenthsFromDisplay(value.quoted.ask_display)}
+            coefficient={null}
+          />
+        </ParlayLegsContext.Provider>
+      )}
+
       <p className="text-xs leading-snug text-muted">
         {value.notes.unquoted} {value.notes.fee}
       </p>
@@ -228,7 +244,11 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
           hard-coded to shard 1, and a closed market draws no quotes. The
           reading above stands either way; only the button is withheld. */}
       {value.rfq_available ? (
-        <AskTheMarket marketTicker={value.minted_market_ticker} />
+        <ParlayLegsContext.Provider
+          value={{ legCount: value.legs.length, legAsksTenths: null }}
+        >
+          <AskTheMarket marketTicker={value.minted_market_ticker} />
+        </ParlayLegsContext.Provider>
       ) : (
         <p className="text-sm text-muted">
           {value.rfq_unavailable_reason ??
