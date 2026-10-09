@@ -290,7 +290,13 @@ logger = logging.getLogger(__name__)
 #: loses more often than its price says. Nullable column step. The history is
 #: filled from candlesticks by `scripts/backfill_leg_prices.py`, run by path,
 #: never by a migration -- a migration must not reach the venue.
-SCHEMA_VERSION = 65
+#:
+#: v66 (2026-10-08) rebuilds `leg_verdicts` so `trigger` admits
+#: `'check_button'` (#325; the registration's Amendment 1 of the same day).
+#: The Check-a-parlay screen's "Ask the scouts" button fires it, on Joe's
+#: tap only. A CHECK cannot be altered in place, so this is the v58 rebuild
+#: again; the rows are copied by id and nothing else changes.
+SCHEMA_VERSION = 66
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1244,10 +1250,14 @@ _COMBO_RFQ_QUOTES_ADMIT_SELL_ONLY_UNDO = (
 )
 
 
-def _leg_verdicts_create(table: str, *, card_button: bool) -> str:
-    """The `leg_verdicts` shape on either side of v58, which admits the
-    `'card_button'` trigger. It is identical to `schema.sql` otherwise."""
+def _leg_verdicts_create(
+    table: str, *, card_button: bool, check_button: bool = False
+) -> str:
+    """The `leg_verdicts` shape on either side of v58 (admits `'card_button'`)
+    and of v66 (admits `'check_button'`, the Check-a-parlay screen's own
+    button, #325). It is identical to `schema.sql` otherwise."""
     triggers = "'price_tap', 'leg_buys_open'" + (", 'card_button'" if card_button else "")
+    triggers += ", 'check_button'" if check_button else ""
     return (
         f"CREATE TABLE IF NOT EXISTS {table} (\n"
         "    id              INTEGER PRIMARY KEY AUTOINCREMENT,\n"
@@ -1318,6 +1328,36 @@ _LEG_VERDICTS_ADMIT_CARD_BUTTON_UNDO = (
     "ON leg_verdicts(ticker, side, requested_ms DESC)",
 )
 
+#: v66 (#325, the leg-verdict registration's Amendment 1 of 2026-10-08): the
+#: fourth trigger, `'check_button'`, the Check-a-parlay screen's own "Ask the
+#: scouts" button. Same rebuild shape as v58, for the same reason: a CHECK
+#: cannot be altered in place. The v58 shape is created first so a database
+#: older than v58 reaching this step has the table; on any v58+ database that
+#: is a no-op.
+_LEG_VERDICTS_ADMIT_CHECK_BUTTON = (
+    _leg_verdicts_create("leg_verdicts", card_button=True),
+    _leg_verdicts_create("leg_verdicts_v66", card_button=True, check_button=True),
+    f"INSERT OR IGNORE INTO leg_verdicts_v66 ({_LEG_VERDICTS_COLUMNS}) "
+    f"SELECT {_LEG_VERDICTS_COLUMNS} FROM leg_verdicts",
+    "DROP TABLE leg_verdicts",
+    "ALTER TABLE leg_verdicts_v66 RENAME TO leg_verdicts",
+    "CREATE INDEX IF NOT EXISTS idx_leg_verdicts_leg "
+    "ON leg_verdicts(ticker, side, requested_ms DESC)",
+)
+
+#: The v58..v65 shape, for tests that wind a database back. A `check_button`
+#: row could not exist before v66, so none survives the trip back.
+_LEG_VERDICTS_ADMIT_CHECK_BUTTON_UNDO = (
+    _leg_verdicts_create("leg_verdicts_v65", card_button=True),
+    f"INSERT OR IGNORE INTO leg_verdicts_v65 ({_LEG_VERDICTS_COLUMNS}) "
+    f"SELECT {_LEG_VERDICTS_COLUMNS} FROM leg_verdicts "
+    "WHERE trigger != 'check_button'",
+    "DROP TABLE leg_verdicts",
+    "ALTER TABLE leg_verdicts_v65 RENAME TO leg_verdicts",
+    "CREATE INDEX IF NOT EXISTS idx_leg_verdicts_leg "
+    "ON leg_verdicts(ticker, side, requested_ms DESC)",
+)
+
 
 #: Schema versions that added ONLY new tables, and so need no `_MIGRATIONS`
 #: step at all.
@@ -1348,6 +1388,14 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45, 57, 59, 
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # The leg scout's fourth trigger, the Check-a-parlay screen's own button
+    # (#325). See the v66 note above. Cheap on the live volume: a few hundred
+    # rows at most.
+    66: _Migration(
+        statements=_LEG_VERDICTS_ADMIT_CHECK_BUTTON,
+        indexes=("idx_leg_verdicts_leg",),
+        undo_statements=_LEG_VERDICTS_ADMIT_CHECK_BUTTON_UNDO,
+    ),
     # Each held leg's own price at purchase and its close. See the v65 note
     # above and the column comments in `schema.sql`. The CHECK rides the
     # column declaration for v51's reason.

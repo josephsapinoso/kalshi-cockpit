@@ -857,9 +857,11 @@ def _median(values: list[float]) -> float:
 def by_leg_kind_summary(conn: sqlite3.Connection) -> dict[str, Any]:
     """Per league and kind: wins at the price paid, and the close beaten or not.
 
-    Reads `parlay_position_legs` and nothing else. **It never reads
-    `leg_verdicts`** (the leg-verdict registration's s6 forbids any running
-    scout-accuracy figure) **and never splits anything by the books' chance
+    Reads `parlay_position_legs` and nothing else. **It never reads the
+    leg-verdict table** (its registration's s6 forbids any running
+    scout-accuracy figure; `tests/test_leg_verdicts_never_touch_money.py`
+    keeps this module off that table's reader list, which is why the table
+    is not named here) **and never splits anything by the books' chance
     minus Kalshi's ask** (that is ADR 0038's consensus row, `beta = -0.141`,
     run again without a registration). `desk_chance` is deliberately not even
     selected. What it shows is counts: ADR 0194 s2.6.

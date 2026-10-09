@@ -614,7 +614,7 @@ function ByLegKindBlock({ data }: { data: ByLegKind | undefined }) {
       </summary>
       {data.leagues.map((league) => (
         <div key={league.league} className="mt-2">
-          <p className="font-medium">{league.league}</p>
+          <p className="max-w-[65ch] font-medium">{league.league}</p>
           <ul className="mt-1 space-y-1 font-mono">
             {league.kinds.map((block) => (
               <li key={block.kind}>

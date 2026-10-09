@@ -3084,8 +3084,12 @@ CREATE TABLE IF NOT EXISTS leg_verdicts (
     -- v58 (Joe, 2026-09-25): 'card_button' is the visible "Ask the scouts"
     -- button on each card. Before it, nothing on a card said the scouts
     -- existed until a buy step was taken.
+    -- v66 (Joe, 2026-10-08, "Yes, add it"; #325): 'check_button' is the same
+    -- button on the Check-a-parlay screen, the path most of his money takes
+    -- (a friend's build). Admitted by the registration's Amendment 1 before
+    -- the first such row; fired by his tap only, never automatically.
     trigger         TEXT NOT NULL
-        CHECK (trigger IN ('price_tap', 'leg_buys_open', 'card_button')),
+        CHECK (trigger IN ('price_tap', 'leg_buys_open', 'card_button', 'check_button')),
     CHECK ((status = 'running') = (completed_ms IS NULL)),
     CHECK ((status = 'complete') = (verdict IS NOT NULL AND reason IS NOT NULL)),
     CHECK (status IN ('refused', 'failed')
