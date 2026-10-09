@@ -18,3 +18,7 @@ Caveat to state in the ADR 0194 amendment if wanted: for the order and RFQ paths
 - Scorer cost: a leg whose candle bar never appears (aged out, thin market) stays NULL and is re-requested every full pass, at one horizon, exactly as an unscoreable recommendation is today (`inspect_live_db_decisions.py` section B names that). Bounded by the number of open legs; worth a retry cap only if `candles_missing` grows.
 - `ScoringCounts` gained `leg_closes_stored`, `leg_rows_closed`, `leg_closes_unreadable` (not in `ALWAYS_REPORT`, so they print only when non-zero).
 - Schema version: this lane writes no schema; ADR 0194 / v65 is already on main.
+
+## One test outside the lane now needs its expectation widened (not touched)
+
+`tests/test_combo_fill_is_watched_for_a_hedge.py::TestTheLookupRecordsWhatThePositionNeeds::test_a_priced_lookup_carries_side_label_league_and_commence` (line ~606) pins `leg_details_for([leg])` to an exact dict. The lane's change adds two keys to that dict, so the expected dict needs `"kalshi_ask_tenths": None, "desk_chance": 0.55` (the fixture leg's `p_conservative`). Failure is the dict-equality, nothing else. Everything else in the recipe's grep set is green.

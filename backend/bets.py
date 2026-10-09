@@ -1236,7 +1236,10 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
         record["by_source"] = by_source_summary(source_rows)
     # #323: the legs of the combinations he holds. Outside `if rows`: it reads
     # `parlay_position_legs`, which can hold settled legs on an empty mirror.
-    record["by_leg_kind"] = by_leg_kind_summary(conn)
+    # Absent, not a block of zeros, when no leg has settled (as `summary` is).
+    by_leg_kind = by_leg_kind_summary(conn)
+    if by_leg_kind["leagues"]:
+        record["by_leg_kind"] = by_leg_kind
     # v63: what the chips need, for the settled window AND every open
     # recorded combination (the Open section above the settled list).
     record["pick_sources"] = pick_source_payload(
