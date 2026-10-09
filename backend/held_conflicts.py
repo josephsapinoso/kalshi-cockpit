@@ -20,6 +20,14 @@ team to cover a spread, a moneyline beside a total) is not detected: whether
 two such legs can both win depends on the score, and saying so would be a
 guess. The module says it found nothing, never that nothing clashes.
 
+**A single market (`single_market_conflicts`, #333) also gets `same_side`**
+-- the same market and side already held, so he would hold it twice and pay
+the fee twice. The manual-order ticket is this module's other caller and has
+no `parlay_lookups` row to check against, only the one `(ticker, side)` it
+is about to buy; a combination's own two legs skip this third kind on
+purpose (agreeing with an old position can be the point of adding a leg),
+but a single market has no second leg to make that distinction with.
+
 **It warns and never blocks.** Nothing on the order, RFQ or hedge path reads
 this module; a clash is a fact on the screen, and sometimes a deliberate one
 (a hedge is exactly a bet on the other side).
@@ -40,6 +48,7 @@ from .parlays import legs_for_position
 
 OPPOSITE_SIDE = "opposite_side"
 OTHER_WINNER = "other_winner"
+SAME_SIDE = "same_side"
 
 #: A full-game winner market: `<league>GAME-<fixture>-<team>`.
 _GAME_MARKET = re.compile(r"^(KX[A-Z0-9]*GAME-[A-Z0-9]+)-[A-Z0-9]+$")
@@ -64,7 +73,30 @@ def candidate_legs(
     return None
 
 
-def _held_legs(conn: sqlite3.Connection, exclude_combo: str) -> list[sqlite3.Row]:
+def _held_legs(
+    conn: sqlite3.Connection, exclude_combo: Optional[str] = None
+) -> list[sqlite3.Row]:
+    """Every pending leg of an open position, newest first ignored (order is
+    by position then leg index, not recency). `exclude_combo` drops the
+    candidate combination's own position, when it has one -- a single
+    market being checked has none, so `None` means "nothing excluded".
+
+    A NULL `combo_ticker` (a hand-recorded slip, ADR 0160) always stays IN
+    the held set: it is never equal to `exclude_combo`, but binding `None`
+    as the SQL parameter instead of branching the query would make
+    `combo_ticker != ?` evaluate to NULL against a NULL parameter too --
+    silently dropping every hand-recorded slip rather than keeping them.
+    """
+    if exclude_combo is None:
+        return conn.execute(
+            "SELECT p.id AS position_id, p.label AS position_label, "
+            "l.ticker, l.side, l.label "
+            "FROM parlay_positions p "
+            "JOIN parlay_position_legs l ON l.position_id = p.id "
+            "WHERE p.status = 'open' AND l.outcome = 'pending' "
+            "AND l.ticker IS NOT NULL "
+            "ORDER BY p.id, l.leg_index"
+        ).fetchall()
     return conn.execute(
         "SELECT p.id AS position_id, p.label AS position_label, "
         "l.ticker, l.side, l.label "
@@ -115,3 +147,42 @@ def held_conflicts(conn: sqlite3.Connection, combo_ticker: str) -> dict:
     if legs is None:
         return {"checked": False, "conflicts": []}
     return {"checked": True, "conflicts": clashes(legs, _held_legs(conn, combo_ticker))}
+
+
+def single_market_conflicts(
+    conn: sqlite3.Connection, ticker: str, side: str
+) -> list[dict]:
+    """Held legs that clash with buying `side` of `ticker` alone -- the
+    manual-order ticket's case, which has no `parlay_lookups` row to parse
+    (#333, after the 2026-10-02 incident: positions #78 and #79 were manual
+    orders holding the opposite sides of two legs of a combination the
+    combo check never saw, because a single market was never checked at
+    all).
+
+    A third kind beyond `clashes()`'s two: `same_side`, the same market and
+    side already held -- holding it twice, paying the fee twice, for no
+    second opinion. `clashes()` deliberately does not flag this for a
+    CANDIDATE COMBINATION (two legs of one new combo can agree with an old
+    position on purpose), but a single market offers no second leg to make
+    that distinction with, so Joe is always told rather than guessing which
+    case he is in.
+    """
+    out: list[dict] = []
+    leg_game = _GAME_MARKET.match(ticker or "")
+    for h in _held_legs(conn):
+        kind = None
+        if h["ticker"] == ticker:
+            kind = SAME_SIDE if h["side"] == side else OPPOSITE_SIDE
+        elif leg_game and side == "yes" and h["side"] == "yes":
+            held_game = _GAME_MARKET.match(h["ticker"] or "")
+            if held_game and held_game.group(1) == leg_game.group(1):
+                kind = OTHER_WINNER
+        if kind:
+            out.append({
+                "kind": kind,
+                "leg_label": ticker,
+                "held_label": h["label"],
+                "position_id": h["position_id"],
+                "position_label": h["position_label"],
+            })
+    return out

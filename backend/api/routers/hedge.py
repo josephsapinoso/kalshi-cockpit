@@ -8,6 +8,8 @@ is the design: no model, no tokens, no credits, no `recommendations` row --
 
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
@@ -93,12 +95,27 @@ def register(
     @app.get("/api/held-conflicts")
     def held_conflicts_route(
         ticker: str = Query(..., min_length=1, max_length=120),
+        side: Optional[str] = Query(None, pattern="^(yes|no)$"),
         conn=Depends(get_conn),
     ) -> dict:
         """Legs of `ticker` that bet against a ticket Joe already holds
         (`backend/held_conflicts.py`). A read: it warns, never blocks, and
-        nothing on a spend path calls it."""
-        return held_conflicts.held_conflicts(conn, ticker.strip())
+        nothing on a spend path calls it.
+
+        `side` switches the check: absent, `ticker` is a combination read
+        from `parlay_lookups` (the original case); given, `ticker` is a
+        single market with no lookup row -- the manual-order ticket's case
+        (#333) -- and the answer is always `checked: true`, because there is
+        no lookup parse to fail."""
+        stripped = ticker.strip()
+        if side is not None:
+            return {
+                "checked": True,
+                "conflicts": held_conflicts.single_market_conflicts(
+                    conn, stripped, side
+                ),
+            }
+        return held_conflicts.held_conflicts(conn, stripped)
 
     @app.post("/api/hedge/positions", dependencies=[Depends(require_auth)])
     def record_held_position(request: HeldPositionRequest) -> dict:

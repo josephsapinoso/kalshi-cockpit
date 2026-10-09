@@ -1321,13 +1321,21 @@ const UNREADABLE_LEG_VERDICTS =
  * Legs of `ticker` that bet against a ticket already held. A plain read that
  * spends nothing. **Never throws**: an unreadable answer is `null`, and the
  * screen then says nothing rather than "no clash".
+ *
+ * `side` switches the check from a combination (`ticker` read from
+ * `parlay_lookups`) to a single market with no lookup row -- the
+ * manual-order ticket's case (#333). Omitted, this is the original combo
+ * read, unchanged.
  */
 export async function fetchHeldConflicts(
   ticker: string,
+  side?: "yes" | "no",
 ): Promise<import("./types/hedge").HeldConflicts | null> {
   try {
+    const params = new URLSearchParams({ ticker });
+    if (side !== undefined) params.set("side", side);
     const response = await fetch(
-      `${BASE}/api/held-conflicts?ticker=${encodeURIComponent(ticker)}`,
+      `${BASE}/api/held-conflicts?${params.toString()}`,
       { cache: "no-store" },
     );
     if (!response.ok) return null;

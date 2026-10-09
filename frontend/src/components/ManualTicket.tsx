@@ -121,6 +121,7 @@ import { KALSHI_MARKETS_INDEX, kalshiMarketUrl } from "@/lib/kalshiLink";
 import Term from "@/components/Term";
 import { Notice } from "@/components/ui";
 import { useReportBusy } from "@/components/Sheet";
+import HeldConflictsNote from "@/components/HeldConflictsNote";
 
 /** How often the ask's age and the in-play clock advance. */
 const TICKET_TICK_MS = 1_000;
@@ -590,6 +591,11 @@ function TicketBody({
 
   return (
     <div className="mt-3 space-y-4">
+      {/* #333: the same check `AskTheMarket.tsx` runs for a combination,
+          here for the single market this ticket is about to buy. Read-only
+          and mounted above the price, same as there -- it warns and never
+          touches `canConfirm` or the order below. */}
+      <HeldConflictsNote ticker={market.ticker} side={side} />
       <div className="grid grid-cols-2 gap-2">
         {(["yes", "no"] as const).map((s) => (
           <button

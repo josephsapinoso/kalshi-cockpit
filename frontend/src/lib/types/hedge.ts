@@ -204,12 +204,14 @@ export type HeldPosition = {
  * never saw the fill. Singles are out of scope here: a bare market has no
  * other leg to reshape and so no hedge story. */
 /**
- * A leg of a combination about to be bought that bets against a ticket
- * already held (`backend/held_conflicts.py`): the same market on the other
- * side, or another team to win the same full game. Exact clashes only.
+ * A leg of a combination, or a single market, about to be bought that bets
+ * against a ticket already held (`backend/held_conflicts.py`): the same
+ * market on the other side, the same market and side held twice
+ * (`same_side` -- a single-market check only, #333), or another team to win
+ * the same full game. Exact clashes only.
  */
 export type HeldConflict = {
-  kind: "opposite_side" | "other_winner";
+  kind: "opposite_side" | "same_side" | "other_winner";
   leg_label: string;
   held_label: string;
   position_id: number;

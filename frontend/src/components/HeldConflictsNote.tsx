@@ -12,18 +12,30 @@ import { fetchHeldConflicts, type HeldConflicts } from "@/lib/api";
  * desk finds none, or cannot read the combination, it says nothing rather
  * than "no clash", because a clash between different market families is
  * never checked.
+ *
+ * `side` switches the check to a single market -- the manual-order ticket's
+ * case (#333), mounted on `ManualTicket.tsx` for the side the ticket is on.
+ * Omitted, this is the original combination check (`AskTheMarket.tsx`),
+ * unchanged.
  */
-export default function HeldConflictsNote({ ticker }: { ticker: string }) {
+export default function HeldConflictsNote({
+  ticker,
+  side,
+}: {
+  ticker: string;
+  side?: "yes" | "no";
+}) {
   const [answer, setAnswer] = useState<HeldConflicts | null>(null);
   useEffect(() => {
     let live = true;
-    fetchHeldConflicts(ticker).then((value) => {
+    setAnswer(null);
+    fetchHeldConflicts(ticker, side).then((value) => {
       if (live) setAnswer(value);
     });
     return () => {
       live = false;
     };
-  }, [ticker]);
+  }, [ticker, side]);
   if (!answer || answer.conflicts.length === 0) return null;
   return (
     <div
@@ -36,12 +48,22 @@ export default function HeldConflictsNote({ ticker }: { ticker: string }) {
       <ul className="mt-1 space-y-1">
         {answer.conflicts.map((c, i) => (
           <li key={`${c.position_id}-${i}`}>
-            &ldquo;{c.leg_label}&rdquo;{" "}
-            {c.kind === "opposite_side"
-              ? "is the other side of"
-              : "cannot win alongside"}{" "}
-            &ldquo;{c.held_label}&rdquo; on ticket #{c.position_id}. At most
-            one of the two can win, and each pays its own fee.
+            {c.kind === "same_side" ? (
+              <>
+                You already hold &ldquo;{c.held_label}&rdquo; on ticket #
+                {c.position_id} — this would be the same bet a second time,
+                paying the fee twice.
+              </>
+            ) : (
+              <>
+                &ldquo;{c.leg_label}&rdquo;{" "}
+                {c.kind === "opposite_side"
+                  ? "is the other side of"
+                  : "cannot win alongside"}{" "}
+                &ldquo;{c.held_label}&rdquo; on ticket #{c.position_id}. At
+                most one of the two can win, and each pays its own fee.
+              </>
+            )}
           </li>
         ))}
       </ul>
