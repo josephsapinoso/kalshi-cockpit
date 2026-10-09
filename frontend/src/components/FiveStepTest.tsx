@@ -77,29 +77,6 @@ const STEPS: Step[] = [
       "price a game from your own number, then check, is the skill; the " +
       "screen is just the answer key.",
   },
-  {
-    name: "Bet two dollars.",
-    body: (
-      <>
-        The <Term k="stake">stake</Term> is $2. Not $2 unless it&rsquo;s a
-        lock, not $5 to get even, not $1 because you&rsquo;re unsure &mdash;
-        $2, every time, and if a bet isn&rsquo;t worth $2 it isn&rsquo;t
-        worth the tap. A fixed stake is what makes the whole record readable:
-        the moment size moves with how you feel, a good month tells you your
-        feelings were good rather than your numbers, and you can no longer
-        tell those apart. The size is not a judgement call you get to make in the moment
-        &mdash; it was made once, in advance, by someone calmer.
-      </>
-    ),
-    cost:
-      "Vary the size and you lose two things at once: the bankroll, to the " +
-      "biggest bet, and any ability to tell whether the small ones were " +
-      "any good.",
-    drill:
-      "Next time you want to bet more than $2, place the $2 and write down " +
-      "what the extra would have been. Add that column up at the end of " +
-      "the month and look at what it would have done.",
-  },
 ];
 
 export default function FiveStepTest() {
@@ -114,7 +91,7 @@ export default function FiveStepTest() {
         page. So these steps are not a way to win money; they are the
         whole difference between a bet you learn something from and a bet
         that merely happens to you. Run them in order, every time. It
-        takes about twenty seconds, and the only optional step is the bet.
+        takes about twenty seconds.
       </p>
       <ol className="mt-6 space-y-5">
         {STEPS.map((step, index) => (
@@ -143,7 +120,7 @@ export default function FiveStepTest() {
       <p className="mt-6 max-w-xl text-sm leading-relaxed text-muted">
         <strong className="text-foreground">Stop rule:</strong> you have not
         set one, so this page does not pretend you have. The desk sets no
-        stake size and no loss limit for you. If you decide on one, it goes
+        <Term k="stake">stake</Term> size and no loss limit for you. If you decide on one, it goes
         here.
       </p>
     </section>

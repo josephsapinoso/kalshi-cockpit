@@ -47,11 +47,11 @@ import TrustNote from "@/components/TrustNote";
 import { Button, GaugeReadout, Segments, SectionLabel, Stat } from "@/components/ui";
 
 /**
- * The ladder: six parlay cards at fair value (ADR 0070).
+ * The ladder: parlay cards at fair value (ADR 0070).
  *
- * Six CUTS of one pool, not six products built separately — the server's
+ * Nine CUTS of one pool (`CARD_SHAPES`), not nine products built separately — the server's
  * `CARD_SHAPES` owns which cuts exist and this component renders however
- * many arrive. Each carries a `what_it_is` line, because six cards on one
+ * many arrive. Each carries a `what_it_is` line, because nine cards on one
  * screen cannot be told apart from their legs alone.
  *
  * Renders what the server worded and adds nothing to it. Honesty rules,
@@ -163,8 +163,8 @@ function Card({
   // The buy panel (#158). `mounted` flips once, on the first open, and never
   // back: the panel's flows hold quotes, receipts and UNKNOWN acceptances
   // that must survive a close, so a closed panel is hidden, not unmounted.
-  // Before the first open nothing inside is mounted, so a page of six cards
-  // does not start six ticket and verdict components on load.
+  // Before the first open nothing inside is mounted, so a page of nine cards
+  // does not start nine ticket and verdict components on load.
   const [buyOpen, setBuyOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const openBuy = () => {
@@ -544,12 +544,13 @@ function BuyTabs({
  * combination (ADR 0012 §5, ADR 0046). That is the whole reason this exists
  * beside the combo control rather than instead of the legs' own screens.
  *
- * In the buy panel's second tab (#158), not on the card: six cards times up
- * to six legs is thirty-six controls, and a card whose loudest feature is a
- * wall of buy buttons is the chase surface ADR 0067 refuses. This card prints fair value and never
- * Kalshi's ask, which used to be what made it the one surface where ADR
- * 0065's mask genuinely held; the mask went with the P(YES) field on
- * 2026-09-09 and the card is unchanged by that.
+ * In the buy panel's second tab (#158), not on the card: nine cards times up
+ * to six legs is fifty-four controls, and a card whose loudest feature is a
+ * wall of buy buttons is the chase surface ADR 0067 refuses. The card's
+ * headline number is fair value; Kalshi's ask is printed per leg in
+ * `LegFacts` below, beside it. That used to be what made this the one surface
+ * where ADR 0065's mask genuinely held; the mask went with the P(YES) field
+ * on 2026-09-09 and the card is unchanged by that.
  */
 /** An em-dash, so a missing fact keeps its column instead of shifting the rest. */
 const MISSING = "—";
@@ -713,7 +714,7 @@ function SkepticNote({ leg }: { leg: ParlayCardLeg }) {
  * §2.5 nothing here may order a list.
  *
  * **`absent` is the ordinary case and must not read as an alarm.** Five
- * convenings a day (`AGENT_MAX_SEARCHES_PER_DAY`) against a six-card ladder
+ * convenings a day (`AGENT_MAX_SEARCHES_PER_DAY`) against a nine-card ladder
  * means most legs have never been scouted, and a screen that shouted about it
  * would be shouting almost always.
  *
@@ -1434,6 +1435,8 @@ const EXCLUSION_WORDS: Record<string, string> = {
   total_row_missing_line: "total rows with no line",
   total_line_disagrees: "total rungs whose Kalshi wording and strike disagree",
   total_no_kalshi_rung: "game totals with no matching Kalshi rung",
+  suppressed_as_probable_bug:
+    "sides the singles screen calls a probable bug in its price",
 };
 
 /** Weekday, time and zone, in the desk's zone (#221). It was a bare 24-hour

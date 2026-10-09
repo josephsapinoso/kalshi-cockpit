@@ -25,7 +25,10 @@ CARDS_TSX = REPO / "frontend" / "src" / "components" / "ParlayCards.tsx"
 
 def _pool_reason_codes() -> set[str]:
     src = PARLAYS_PY.read_text(encoding="utf-8")
-    return set(re.findall(r'count\("([a-z_]+)"\)', src))
+    codes = set(re.findall(r'count\("([a-z_]+)"\)', src))
+    # Counted through a named constant, so the `count("...")` scan cannot see it.
+    codes.update(re.findall(r'^SUPPRESSED_AS_BUG_REASON = "([a-z_]+)"', src, flags=re.MULTILINE))
+    return codes
 
 
 def _ladder_reason_codes() -> set[str]:

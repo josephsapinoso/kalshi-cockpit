@@ -252,7 +252,7 @@ export default function PriceOnKalshi({
  * **What a stale verdict can and cannot do.** It cannot produce a surprising
  * fill: `POST /api/manual-orders` re-fetches Kalshi at the tap and builds the
  * order at that live ask, refusing above the ceiling Joe types. It can produce
- * a surprising refusal, or a fill inside a generous ceiling whose EV was never
+ * a surprising refusal, or a fill inside a generous ceiling whose price was never
  * what this screen said. Justified on that asymmetry rather than on frequency
  * — n = 1, and it is in the words below.
  *
@@ -298,8 +298,8 @@ function QuoteAge({
       ago, and this desk treats a Kalshi price over{" "}
       {formatAge(maxAgeMs as number)} old as out of date — so the fair value,
       hold and verdict above describe a book that may have moved. One
-      combination went from &ldquo;+0.3% EV&rdquo; to &ldquo;&minus;7.9%
-      EV&rdquo; in forty minutes as its book thinned. The buy below re-reads
+      combination went from &ldquo;30.2c&rdquo; to &ldquo;32.9c&rdquo; ask
+      in forty minutes as its book thinned. The buy below re-reads
       Kalshi and charges the live price, so this is the verdict going out of
       date, not the cost. Ask again to re-price it — it re-reads this same
       market and mints nothing new.

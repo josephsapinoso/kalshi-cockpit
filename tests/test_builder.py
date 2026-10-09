@@ -208,13 +208,13 @@ class TestParlayValuation:
     def test_the_verdict_leads_with_the_hold(self):
         """The hold generalises; 'this ticket is -14% EV' does not."""
         verdict = value_parlay(self._three_leg(+550)).verdict
-        assert "holds" in verdict
-        assert "Don't" in verdict
+        assert verdict.startswith("Kalshi's ask is ")
+        assert "; hold " in verdict
 
     def test_a_generous_price_is_recognised(self):
         valuation = value_parlay(self._three_leg(+900))
         assert valuation.is_positive_ev
-        assert "verify the legs" in valuation.verdict
+        assert "; hold " in valuation.verdict
 
     def test_the_fair_price_is_longer_than_the_offered_one(self):
         """The direction that makes a parlay bad, asserted directly."""

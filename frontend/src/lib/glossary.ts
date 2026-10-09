@@ -39,9 +39,10 @@ export const GLOSSARY = {
     label: "quote",
     definition:
       "One maker's price for the whole size you asked for. It is " +
-      "all-or-nothing: you take it at that size or not at all. It also " +
-      "dies in about three seconds, so an old quote on screen is a price " +
-      "that was offered, not one still standing.",
+      "all-or-nothing: you take it at that size or not at all. Quotes " +
+      "vanish when the request is deleted; how long one otherwise lives " +
+      "is unmeasured, so an old quote on screen is a price that was " +
+      "offered, not one known to be standing.",
   },
   shard: {
     label: "shard",

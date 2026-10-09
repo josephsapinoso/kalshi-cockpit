@@ -63,10 +63,6 @@ EXEMPT: dict[tuple[str, str], str] = {
     ("components/HowToRead.tsx", "consensus"): (
         "teaching prose that defines its own words in full sentences"
     ),
-    ("components/FiveStepTest.tsx", "bankroll"): (
-        "the word sits inside a step's concatenated teaching string; the "
-        "component's own prose defines it in the same sentence"
-    ),
     ("lib/suppressionGloss.ts", "bankroll"): (
         "gloss sentences define in place; a Term inside a gloss would nest "
         "popovers"

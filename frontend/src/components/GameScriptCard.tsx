@@ -210,7 +210,7 @@ export function CheckTheseLegs({
           {busy ? "Asking the scouts…" : "Check these legs"}
         </Button>
         <span className="max-w-[65ch] text-xs text-muted">
-          Asks the scouts for a TAKE or PASS on each leg, in about 20 seconds.
+          Asks the scouts for PASS or No red flag on each leg, in about 20 seconds.
           It uses part of today&rsquo;s scout allowance.
         </span>
       </div>
