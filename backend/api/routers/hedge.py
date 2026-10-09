@@ -8,6 +8,8 @@ is the design: no model, no tokens, no credits, no `recommendations` row --
 
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
@@ -93,11 +95,16 @@ def register(
     @app.get("/api/held-conflicts")
     def held_conflicts_route(
         ticker: str = Query(..., min_length=1, max_length=120),
+        side: Optional[str] = Query(None, pattern="^(yes|no)$"),
         conn=Depends(get_conn),
     ) -> dict:
         """Legs of `ticker` that bet against a ticket Joe already holds
-        (`backend/held_conflicts.py`). A read: it warns, never blocks, and
-        nothing on a spend path calls it."""
+        (`backend/held_conflicts.py`). With `side` it checks that one market
+        and side (the manual-order ticket, #333); without, it checks the
+        combination. A read: it warns, never blocks, and nothing on a spend
+        path calls it."""
+        if side is not None:
+            return held_conflicts.single_conflicts(conn, ticker.strip(), side)
         return held_conflicts.held_conflicts(conn, ticker.strip())
 
     @app.post("/api/hedge/positions", dependencies=[Depends(require_auth)])
