@@ -300,3 +300,106 @@ HARMS in particular. Below that, keeping the seat is a cost decision (§8).
 > HELPS BY PRICE LEVEL. z ≤ −boundary is HARMS. Anything else is UNRESOLVED
 > and may not be reported as "no help". Floors per arm: ≥ 100 games, Σp ≥ 5,
 > Σ(1−p) ≥ 5. Stop at 3,600 eligible legs or 2027-06-30, whichever first.
+
+---
+
+## Amendment 1 (2026-10-08): verdicts fired from "Check a parlay" join the population
+
+**Written 2026-10-08 with no live row read.** No `leg_verdicts` row, no leg
+settlement and no aggregate of any kind was looked at for this amendment. On
+this date `POST /api/leg-verdicts` accepts only `price_tap`, `leg_buys_open`
+and `card_button` (`backend/api/routers/leg_verdicts.py:155`), and
+`check_button` appears nowhere in the repo, so no row with the new trigger can
+exist yet. This amendment is written before the build that adds it (#325,
+blocked on #324) lands.
+
+**Joe's answer.** Asked on 2026-10-08, by option buttons, whether a verdict
+fired from the "Check a parlay" screen should count, with the cost put to him
+as about 51K tokens a leg out of the same daily share the game-script cards
+use, Joe answered: "Yes, add it".
+
+**What changes.** §2 condition 4 admits one more value of `trigger`:
+`check_button`, a verdict fired from the "Check a parlay" screen. That screen
+checks a parlay someone else built, usually a friend's, before Joe decides
+whether to tail it. Rows with this trigger enter §2 on exactly the same four
+conditions as the other three triggers, unchanged:
+
+1. completed status and `verdict ∈ {'TAKE','PASS'}`;
+2. `completed_ms ≤ commence_ms − 300,000`;
+3. `commence_ms` written once, at request time;
+4. a live, pre-commence trigger, now one of `price_tap`, `leg_buys_open`,
+   `card_button` or `check_button`. Retrospective verdicts stay forbidden
+   outright.
+
+**One row per `(ticker, side)` still means the first qualifying verdict across
+all four triggers together.** A leg first verdicted on the check screen and
+later opened by Joe on his own card counts once, as `check_button`. A leg
+verdicted on his card first counts once under that card's trigger. A cached
+verdict served to the check screen writes no row and changes nothing. The
+per-`trigger` split below always uses the trigger of the row that survives
+this reduction.
+
+**Fired only by Joe's tap.** A `check_button` verdict is requested only when
+Joe taps for it on the check screen. It is never fired automatically: not on
+page load, not on paste, not by a watcher, not in a batch over past checks. If
+the build ever fires one any other way, those rows are not this trigger, and an
+amendment is owed before any row is read.
+
+**A check can come days before kickoff.** The ≥ 5-minute margin (condition 2)
+and the route's refusal of a game that has already started
+(`backend/leg_verdicts.py:209`) both still apply, and neither is relaxed for
+this trigger. `p` stays the ask recorded at request time, whenever that was. It
+is not refreshed to a later price, and it is not replaced by the price Joe paid
+if he later tailed the parlay. Joe's buying is still never read (§2).
+
+**The one new confound: who chose the leg.** Under the original three
+triggers, every leg was one Joe chose to open. A `check_button` leg was chosen
+by someone else, usually a friend building a parlay. Pooling the two mixes two
+selection processes in one `b`. A seat that does well or badly on one kind of
+leg could move the pooled `b` in a way neither group alone shows. So the
+following is **printed beside `b` at every look**, as a point estimate with
+legs, games and `G_eff` per arm, and **never tested**:
+
+- `b` for `check_button` rows alone;
+- `b` for the other three triggers pooled;
+- `b` for each of the four trigger values separately.
+
+Where an arm is empty within a trigger, that line prints the counts and no `b`.
+None of these figures enters any HELPS, HELPS BY PRICE LEVEL or HARMS
+condition, none has a boundary, and none counts toward the §6 family α.
+
+**What this does not change.**
+
+- The statistic and estimator (§4): `b`, the OLS slope of `e = y − ask/1000`
+  on the TAKE indicator, its CR1 SE clustered by (league, fixture segment), and
+  `b_strat` on the same five price buckets.
+- Everything else printed beside `b` (§4), and §3's unit, cluster and bucket
+  edges.
+- The floors (§5): ≥ 100 games per arm, Σp ≥ 5 and Σ(1−p) ≥ 5.
+- The two looks and their boundaries (§6): interim |z| ≥ 3.00, declaring
+  |z| ≥ 2.00, one-sided per direction, family α ≤ 0.048. The four outcomes and
+  their order are unchanged.
+- The stop (§7): interim at 1,800 eligible legs or 2027-01-15, declaring at
+  3,600 eligible legs or 2027-06-30, not extended. Because the stop counts
+  eligible legs, the extra legs can bring a look forward in time. That depends
+  on how many checks Joe runs, not on any outcome, and the counts are not
+  moved to offset it.
+- The no-running-figure rule (§6). The check screen may show one leg's verdict,
+  and later that one leg's settlement, per row. It may not show a running
+  TAKE-vs-PASS figure, a "scout was right X of Y", or any per-trigger tally.
+  If it does, this registration is spent, exactly as §6 says.
+- The decision rule quoted under "Registration status". It never named a
+  trigger and is not edited.
+
+**Model, prompt and input.** The seat, its prompt and its model are the same
+for this trigger. If the build gives the seat different input for a
+`check_button` leg (for example, telling it the parlay is someone else's),
+that is a §7 prompt change and is recorded as its own dated amendment before
+any row is read.
+
+**§9 and §10.** A checked parlay is not a card Joe opened, so it is not
+classified in §9's all-TAKE / any-PASS counts. The number of checked parlays
+is printed beside them. §10's "Not all legs" now reads: only legs Joe chose to
+open, or chose to check on someone else's parlay, are in, so the result is
+conditional on both selections. The result documents quote §10 with this
+sentence in place of the original and cite this amendment.
