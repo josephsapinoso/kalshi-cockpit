@@ -141,6 +141,7 @@ from backend.parlays import (
     _record_lookup,
     candidate_pool,
     horizon_end_ms,
+    held_side_asks,
     ladder_candidates,
 )
 
@@ -555,6 +556,13 @@ async def check_parlay_text(
 
     leg_tickers = [str(leg["market_ticker"]) for leg in venue_legs]
     titles = _titles_for(conn, leg_tickers)
+    # Each leg's Kalshi ask for the side the combination holds (ADR 0194,
+    # #323). `None` where the book has no price; never 0.
+    leg_asks = held_side_asks(
+        conn,
+        [(str(leg["market_ticker"]), str(leg["side"])) for leg in venue_legs],
+        now_ms=now_ms,
+    )
 
     # **`eligible_events` cleared to `None`.** A minted ticker already proves
     # the venue will combine these legs -- that is what "it exists" means --
@@ -712,6 +720,11 @@ async def check_parlay_text(
             "side": side,
             "label": label,
             "commence_ms": commence_ms,
+            # ADR 0194 / #323: what Kalshi charges for the side held, and the
+            # books' chance for it -- both NULL when unknown, never 0. The
+            # chance is the one the leg row above already shows.
+            "kalshi_ask_tenths": leg_asks.get(market_ticker),
+            "desk_chance": chance,
         }
 
     # One buy per game, never one per leg, and only when the caller wired a

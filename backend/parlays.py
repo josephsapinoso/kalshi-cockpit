@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from typing import NamedTuple, Optional, Sequence
+from typing import Mapping, NamedTuple, Optional, Sequence
 
 from backend.core.correlation import Leg
 from backend.core.ladder import (
@@ -2564,7 +2564,41 @@ def _combinable_events(collections) -> set[str]:
     }
 
 
-def leg_details_for(selected: Sequence[CandidateLeg]) -> dict[tuple[str, str], dict]:
+def held_side_asks(
+    conn, legs: Sequence[tuple[str, str]], *, now_ms: int
+) -> dict[str, Optional[int]]:
+    """The Kalshi ask for the side each leg buys, keyed by market ticker.
+
+    `legs` is `(market_ticker, side)`. This is the ask the desk's own
+    `leg_facts` reader derives from the latest `kalshi_quotes` row through
+    `ask_for_side` -- the one definition of "payable" -- so what a position
+    records (ADR 0194 s2.1, `parlay_position_legs.ask_at_purchase_tenths`) is
+    the number the card showed, not a second derivation. **`None` when the
+    book has no price on that side, and `None` when the read itself fails:
+    unreadable resolves to `None`, never `0`.** A failed read must never fail
+    the lookup that asked, so a sqlite error is logged and every leg comes
+    back unknown.
+    """
+    if not legs:
+        return {}
+    try:
+        facts = leg_facts(conn, [t for t, _ in legs], now_ms=now_ms)
+    except sqlite3.Error:
+        logger.exception("leg asks unreadable; legs record kalshi_ask_tenths = null")
+        return {t: None for t, _ in legs}
+    out: dict[str, Optional[int]] = {}
+    for ticker, side in legs:
+        row = facts.get(ticker)
+        out[ticker] = (
+            _ask_facts_for_side(row, side)[0] if row is not None else None
+        )
+    return out
+
+
+def leg_details_for(
+    selected: Sequence[CandidateLeg],
+    asks: Optional[Mapping[str, Optional[int]]] = None,
+) -> dict[tuple[str, str], dict]:
     """What a `parlay_positions` row needs about a leg, keyed by its tickers.
 
     Everything here is already on the `CandidateLeg` at lookup time and was
@@ -2598,6 +2632,13 @@ def leg_details_for(selected: Sequence[CandidateLeg]) -> dict[tuple[str, str], d
             "event_title": leg.event_title,
             "league": leg.league,
             "commence_ms": leg.commence_ms,
+            # ADR 0194 / #323. The Kalshi ask for the side held and the
+            # books' chance for it, at this instant. NULL when unknown --
+            # never 0. Recorded so `/bets` can say what a kind of leg cost
+            # and how it closed; neither is ever ranked by or subtracted
+            # from the other (ADR 0194 s2.6).
+            "kalshi_ask_tenths": (asks or {}).get(leg.kalshi_market_ticker),
+            "desk_chance": leg.p_conservative,
         }
         for leg in selected
     }
@@ -2661,6 +2702,9 @@ def legs_for_position(selected_legs_json: Optional[str]) -> Optional[PositionLeg
             "event_title": entry.get("event_title") or None,
             "league": entry.get("league"),
             "commence_ms": entry.get("commence_ms"),
+            # Absent on a blob written before #323; `record_position` then
+            # writes NULL, never 0.
+            "kalshi_ask_tenths": entry.get("kalshi_ask_tenths"),
         })
     return PositionLegs(legs=legs, labels_are_tickers=degraded)
 
@@ -3284,6 +3328,12 @@ async def price_card_on_kalshi(
     # correction does not need a second copy.
     best_no_bid = book.best_no_bid
     ask_tenths = book.best_yes_ask
+    # Each leg's own ask, for the side it buys, from the desk's quote reader.
+    leg_asks = held_side_asks(
+        conn,
+        [(l.kalshi_market_ticker, l.side) for l in selected],
+        now_ms=now_ms,
+    )
 
     if ask_tenths is None:
         # **The two sides of "empty" are not the same fact.** No resting NO
@@ -3316,7 +3366,7 @@ async def price_card_on_kalshi(
             collection_ticker=collection.collection_ticker, minted=minted,
             fair_joint=joint.conservative, collection_unverified=unverified,
             error=book_detail,
-            leg_details=leg_details_for(selected),
+            leg_details=leg_details_for(selected, leg_asks),
         )
         return {
             "status": "book_empty",
@@ -3411,7 +3461,7 @@ async def price_card_on_kalshi(
         # can actually buy, so it is the only one whose legs a position row
         # will ever be built from; carrying them on a refusal would be
         # recording detail about a market nobody can enter.
-        leg_details=leg_details_for(selected),
+        leg_details=leg_details_for(selected, leg_asks),
     )
 
     return {
