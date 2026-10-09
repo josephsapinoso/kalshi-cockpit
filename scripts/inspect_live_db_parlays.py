@@ -1965,9 +1965,24 @@ class _CmReconstructor:
         return self._links[event_ticker]
 
     def reconstruct(self, legs: list[dict], asof_ms: int, f_prob: float):
-        """`(g_prob, None)` or `(None, reason)`."""
+        """`(g_prob, None)` or `(None, reason)`.
+
+        A crash inside the rebuild is a reason, never the end of the run:
+        the first live look (2026-10-09) died in `ladder_candidates` on a
+        `TypeError` and printed no statistic at all, because this instrument's
+        connection returns plain tuples while the ladder reads market rows
+        by column name. The rows are now built as dicts off the cursor's
+        description, and anything else the ladder raises is counted as
+        `ladder_error:<Type>` and shown in the reconstruction funnel.
+        """
         if self.parlays is None:
             return None, "ladder_unavailable"
+        try:
+            return self._reconstruct(legs, asof_ms, f_prob)
+        except Exception as exc:  # noqa: BLE001 -- counted, never swallowed
+            return None, f"ladder_error:{type(exc).__name__}"
+
+    def _reconstruct(self, legs: list[dict], asof_ms: int, f_prob: float):
         freshest: dict = {}
         events: list[str] = []
         for leg in legs:
@@ -1981,9 +1996,12 @@ class _CmReconstructor:
             if link is None:
                 return None, "no_event_link"
             if et not in self._markets:
-                self._markets[et] = self.conn.execute(
-                    _SQL_CM_MARKETS, (et,)
-                ).fetchall()
+                # Dicts keyed by column name: `ladder_candidates` reads
+                # `m["market_type"]`, `m["strike"]`, `m["yes_side_team"]`, and
+                # this connection has no row factory (the 2026-10-09 crash).
+                cur = self.conn.execute(_SQL_CM_MARKETS, (et,))
+                names = [d[0] for d in cur.description]
+                self._markets[et] = [dict(zip(names, r)) for r in cur.fetchall()]
             self.fair_reads += 1
             for r in self.conn.execute(
                 _SQL_CM_FAIR_ASOF,
