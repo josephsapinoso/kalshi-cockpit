@@ -736,3 +736,25 @@ class TestCombinationLegs:
         assert "idx_parlay_position_legs_ticker" in plan, plan
         assert "odds_snapshots" not in plan, plan
         assert "SCAN odds_fixtures" not in plan, plan
+
+    async def test_a_leg_row_that_already_has_a_close_keeps_it(self, conn):
+        """Two leg rows on one ticker, one already closed: the pass fills
+        the open one and leaves the closed one's numbers alone."""
+        _seed_held_leg(conn, legs=2)
+        first = conn.execute(
+            "SELECT id FROM parlay_position_legs ORDER BY id LIMIT 1"
+        ).fetchone()["id"]
+        conn.execute(
+            "UPDATE parlay_position_legs SET close_yes_bid_tenths = 111, "
+            "close_yes_ask_tenths = 222, close_observed_ms = 5 WHERE id = ?",
+            (first,),
+        )
+        conn.commit()
+        counts = await run_scoring_pass(conn, FakeKalshi(), now=NOW)
+        assert counts.leg_rows_closed == 1
+        kept = conn.execute(
+            "SELECT close_yes_bid_tenths AS b, close_yes_ask_tenths AS a, "
+            "close_observed_ms AS o FROM parlay_position_legs WHERE id = ?",
+            (first,),
+        ).fetchone()
+        assert (kept["b"], kept["a"], kept["o"]) == (111, 222, 5)
