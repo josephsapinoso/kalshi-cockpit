@@ -1178,7 +1178,20 @@ function legVerdictBody(body: unknown): LegVerdictsResult | null {
   ) {
     return null;
   }
-  return { legs: (body as { legs: LegVerdict[] }).legs, error: null };
+  const raw = (body as { take_rate?: { take?: unknown; judged?: unknown } })
+    .take_rate;
+  const takeRate =
+    raw &&
+    Number.isInteger(raw.take) &&
+    Number.isInteger(raw.judged) &&
+    (raw.judged as number) > 0
+      ? { take: raw.take as number, judged: raw.judged as number }
+      : undefined;
+  return {
+    legs: (body as { legs: LegVerdict[] }).legs,
+    error: null,
+    ...(takeRate ? { take_rate: takeRate } : {}),
+  };
 }
 
 const UNREADABLE_LEG_VERDICTS =

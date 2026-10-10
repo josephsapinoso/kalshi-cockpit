@@ -93,6 +93,22 @@ def _refusal_item(ticker: str, side: str, reason: str) -> dict:
 _MS_PER_HOUR = 60 * 60 * 1000
 
 
+#: One bounded aggregate over `agent_calls` (no index on `agent`; the scan is
+#: the table, which holds ~3 rows per scout convening). Counts decided verdicts
+#: only: `take`/`pass`, so over_length and filed_nothing rows are not "judged".
+TAKE_RATE_SQL = (
+    "SELECT COALESCE(SUM(verdict = 'take'), 0) AS take, COUNT(*) AS judged "
+    "FROM agent_calls WHERE agent = 'leg_verdict' AND verdict IN ('take', 'pass')"
+)
+
+
+def take_rate(conn) -> dict:
+    """How often the leg scouts have said take, as counts. A BASE RATE: it
+    compares no verdict to any outcome (#320 forbids a scout-accuracy figure)."""
+    row = conn.execute(TAKE_RATE_SQL).fetchone()
+    return {"take": int(row["take"]), "judged": int(row["judged"])}
+
+
 def _running_verdicts(conn, now_ms: int) -> int:
     """Leg verdicts still in flight: `running` and younger than the patience
     window `cached_verdict` uses, so a row whose process died stops holding
@@ -287,4 +303,7 @@ def register(app: FastAPI, *, app_config, get_conn, require_auth) -> None:
                     detail=f"{raw!r} is not TICKER:yes or TICKER:no.",
                 )
             parsed.append((ticker, side))
-        return {"legs": read_verdicts(conn, parsed, now_ms=db.now_ms())}
+        return {
+            "legs": read_verdicts(conn, parsed, now_ms=db.now_ms()),
+            "take_rate": take_rate(conn),
+        }
