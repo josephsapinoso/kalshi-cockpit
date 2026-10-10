@@ -38,7 +38,6 @@ from tests._node_driver import node_driver
 
 REPO = Path(__file__).resolve().parents[1]
 MODULE = REPO / "frontend" / "src" / "lib" / "betDirection.ts"
-SHEET = REPO / "frontend" / "src" / "components" / "TicketSheet.tsx"
 
 NODE = shutil.which("node")
 
@@ -184,27 +183,3 @@ class TestEveryClauseIsLoadBearing:
             "team": "",
         }
 
-
-class TestTheSheetActuallyUsesIt:
-    """A correct predicate no component calls is this repo's signature defect.
-
-    Source text is the right tool for *"does the component call this"* and is
-    worth nothing for *"does it reach the right answer"* -- which is why that
-    claim is tested by execution above and this one by substring.
-    """
-
-    def test_the_sheet_imports_the_predicate(self):
-        assert 'from "@/lib/betDirection"' in SHEET.read_text(encoding="utf-8")
-
-    def test_the_sheet_calls_it(self):
-        assert "betDirection(rec)" in SHEET.read_text(encoding="utf-8")
-
-    def test_the_sheet_renders_both_words_from_the_answer(self):
-        """The preposition and the team, not a hardcoded sentence."""
-        source = SHEET.read_text(encoding="utf-8")
-        assert "direction.preposition" in source
-        assert "direction.team" in source
-
-    def test_the_sentence_is_conditional_on_an_answer(self):
-        """`null` must render nothing, not an empty sentence."""
-        assert "{direction && (" in SHEET.read_text(encoding="utf-8")

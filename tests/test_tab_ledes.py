@@ -58,7 +58,6 @@ GAMES = APP / "slate" / "page.tsx"
 PARLAYS = APP / "parlays" / "page.tsx"
 BETS = APP / "bets" / "page.tsx"
 PLAYBOOK = APP / "playbook" / "page.tsx"
-BOARD = APP / "board" / "page.tsx"
 MARKET = APP / "market" / "[ticker]" / "page.tsx"
 FAIR_VALUE_STEPS = COMPONENTS / "FairValueSteps.tsx"
 PARLAY_DIFFICULTY = COMPONENTS / "ParlayDifficulty.tsx"
@@ -258,7 +257,7 @@ class TestNoCommentSaysTheAccentIsTheLossColour:
     def test_the_four_repaired_comments(self):
         """Mutation observed red: change "was byte-identical" back to "is
         byte-identical" in `board/page.tsx`'s Stat comment."""
-        for path in (FAIR_VALUE_STEPS, PARLAY_DIFFICULTY, BOARD, GAMES):
+        for path in (FAIR_VALUE_STEPS, PARLAY_DIFFICULTY, GAMES):
             text = comments(path)
             hit = self.PRESENT_TENSE.search(text)
             assert hit is None, (
@@ -273,7 +272,7 @@ class TestNoCommentSaysTheAccentIsTheLossColour:
         cut "a mark on a chart is a claim" from `FairValueSteps.tsx`."""
         assert "a mark on a chart is a claim" in comments(FAIR_VALUE_STEPS)
         assert "a mark on a chart is a claim" in comments(PARLAY_DIFFICULTY)
-        for path in (BOARD, GAMES):
+        for path in (GAMES,):
             stat = path.read_text(encoding="utf-8").split("function Stat(", 1)[1]
             assert "count is a fact, not a verdict" in re.sub(r"\s+", " ", stat).lower(), (
                 f"{path.name}'s Stat comment lost its reason"

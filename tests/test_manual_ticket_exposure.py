@@ -5,7 +5,7 @@ only thing in the product that read Joe's exposure before a bet, so after they
 went, nothing on any screen carried it -- and `/parlays`, the screen all four
 real combination fills were placed on, fetched no position data at all. The
 line goes INSIDE `ManualTicket.tsx` because that is the one edit that reaches
-all seven surfaces a bet can start from.
+all five surfaces a bet can start from.
 
 Two halves, tested two ways.
 
@@ -32,8 +32,8 @@ What this establishes
 - A fresh venue holding nothing says so in words rather than printing $0.00.
 - The buy button's `canConfirm` does not read the exposure state, and no
   branch of the ticket returns early on it.
-- All seven mount points still mount `<ManualTicket`, so "one edit reaches
-  seven surfaces" stays true rather than becoming a comment.
+- All five mount points still mount `<ManualTicket`, so "one edit reaches
+  five surfaces" stays true rather than becoming a comment.
 
 What it does NOT establish
 --------------------------
@@ -406,24 +406,22 @@ class TestTheLineInformsAndNeverBlocks:
         assert "exposure: {" in glossary
 
 
-class TestOneEditReachesSevenSurfaces:
+class TestOneEditReachesFiveSurfaces:
     def test_every_mount_point_still_mounts_the_ticket(self):
         """The claim that justifies putting the line inside the component
         rather than on each screen. If a surface stops mounting
         `<ManualTicket`, it silently stops showing exposure too."""
         mounts = [
-            "components/LiveBoard.tsx",
             "components/MarketSearch.tsx",
             "components/ParlayCards.tsx",
             "components/PriceOnKalshi.tsx",
-            "components/SlateRow.tsx",
             "app/market/[ticker]/page.tsx",
             "app/slate/page.tsx",
         ]
         for rel in mounts:
             text = (REPO / "frontend" / "src" / rel).read_text(encoding="utf-8")
             assert "<ManualTicket" in code_only(text), rel
-        assert len(mounts) == 7
+        assert len(mounts) == 5
 
 
 #: The `exposure` gloss, ratified by Joe 2026-09-11.

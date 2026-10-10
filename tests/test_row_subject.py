@@ -3,7 +3,7 @@
 Ticket #6. `frontend/src/lib/rowSubject.ts` chooses between two recorded names
 -- `team` (the YES-side team on both rows of a market) and `side_outcome` (the
 team the row's own side pays on, `fair_prices.outcome_name`) -- by the row's
-`side`. Both `SlateRow.tsx` (rendered by /board and /slate) and the Games
+`side`. Both `SlateRow.tsx` (deleted 2026-10-10, #342) and the Games
 screen's own row call it.
 
 **Why this runs `node` rather than asserting on source text.** The wrong answer
@@ -33,7 +33,6 @@ from tests._node_driver import node_driver
 
 REPO = Path(__file__).resolve().parents[1]
 MODULE = REPO / "frontend" / "src" / "lib" / "rowSubject.ts"
-SLATE_ROW = REPO / "frontend" / "src" / "components" / "SlateRow.tsx"
 GAMES_PAGE = REPO / "frontend" / "src" / "app" / "slate" / "page.tsx"
 MARKET_PAGE = REPO / "frontend" / "src" / "app" / "market" / "[ticker]" / "page.tsx"
 
@@ -171,19 +170,19 @@ class TestBothLiveReachableRowsUseIt:
     execution.
     """
 
-    @pytest.mark.parametrize("path", [SLATE_ROW, GAMES_PAGE], ids=["SlateRow", "slate-page"])
+    @pytest.mark.parametrize("path", [GAMES_PAGE], ids=["slate-page"])
     def test_the_row_imports_and_calls_the_helper(self, path):
         source = path.read_text(encoding="utf-8")
         assert 'from "@/lib/rowSubject"' in source
         assert "rowSubject(" in source
 
-    @pytest.mark.parametrize("path", [SLATE_ROW, GAMES_PAGE], ids=["SlateRow", "slate-page"])
+    @pytest.mark.parametrize("path", [GAMES_PAGE], ids=["slate-page"])
     def test_the_row_renders_both_halves_of_the_answer(self, path):
         source = path.read_text(encoding="utf-8")
         assert "{subject.name}" in source
         assert "{subject.how}" in source
 
-    @pytest.mark.parametrize("path", [SLATE_ROW, GAMES_PAGE], ids=["SlateRow", "slate-page"])
+    @pytest.mark.parametrize("path", [GAMES_PAGE], ids=["slate-page"])
     def test_the_row_no_longer_prints_team_as_its_name(self, path):
         """`team ?? ticker` was the defect. Its absence is the claim."""
         source = path.read_text(encoding="utf-8")

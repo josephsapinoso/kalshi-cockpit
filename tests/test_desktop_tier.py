@@ -22,11 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "frontend" / "src"
 
 PROSE_FILES = [
-    SRC / "components" / "WindowBanner.tsx",
     SRC / "components" / "SignalStrip.tsx",
-    SRC / "components" / "WindowSchedule.tsx",
-    SRC / "components" / "HowToRead.tsx",
-    SRC / "app" / "board" / "page.tsx",
     # The market screen joined the shell on 2026-08-21 (the desktop
     # convening); its widened main column is exactly where an uncapped
     # paragraph would hit ~190ch.
@@ -52,8 +48,6 @@ class TestProseKeepsItsMeasureAtEveryWidth:
         listed file still contains at least one paragraph the guard can see."""
         for path in PROSE_FILES:
             matches = P_TAG.findall(path.read_text(encoding="utf-8"))
-            if path.name == "HowToRead.tsx":
-                continue  # its prose is a <ul>, asserted separately below
             assert matches, f"{path.name} has no <p className=...> the guard can read"
 
     def test_every_paragraph_declares_a_width_cap(self):
@@ -67,16 +61,6 @@ class TestProseKeepsItsMeasureAtEveryWidth:
                     f"className=\"{classes}\">"
                 )
 
-    def test_how_to_read_caps_its_list(self):
-        text = (SRC / "components" / "HowToRead.tsx").read_text(encoding="utf-8")
-        ul = re.search(r"<ul\s+className=\"([^\"]*)\"", text)
-        assert ul is not None, "HowToRead no longer renders its list the guard reads"
-        assert "max-w-" in ul.group(1), (
-            "HowToRead's list is uncapped; it measured 132ch inside the old "
-            "1024px shell before the cap."
-        )
-
-
 class TestTheChromeAndTheContentShareOneWidth:
     """Board shell, nav and footer import `SHELL_WIDTH` rather than repeating
     it. A board widened without its chrome hangs cards outside the nav rails,
@@ -85,7 +69,6 @@ class TestTheChromeAndTheContentShareOneWidth:
 
     def test_every_shell_surface_imports_the_constant(self):
         for path in (
-            SRC / "app" / "board" / "page.tsx",
             SRC / "components" / "Nav.tsx",
             SRC / "components" / "Footer.tsx",
             # Joined 2026-08-21: this page hardcoded `max-w-3xl`, rendering
@@ -116,71 +99,12 @@ class TestTheChromeAndTheContentShareOneWidth:
         assert '"mx-auto w-full max-w-5xl xl:max-w-[84rem] 2xl:max-w-[96rem]"' in text.replace("\n  ", " ")
 
 
-class TestTheRailIsALayoutAndNotAReordering:
-    """At xl the Board's context (banner, schedule, refresh panel) moves into
-    a right-hand rail. The move is done with grid column assignment only, so
-    below xl the DOM renders in the exact order the phone-first design chose:
-    banner, schedule, panel, then the evidence column. A reordering would be a
-    UX change smuggled in as a layout change."""
-
-    def test_the_phone_reading_order_is_unchanged_in_the_dom(self):
-        """SignalStrip moved from above the cards to below them on 2026-08-22
-        (every-page review: measurement post-mortems do not outrank tonight's
-        games) — a deliberate reorder, so the pinned sequence moved with it.
-        The banner → schedule → panel → cards order is unchanged; the
-        schedule and panel merely collapsed into <details> in place."""
-        page = (SRC / "app" / "board" / "page.tsx").read_text(encoding="utf-8")
-        sequence = [
-            "<WindowBanner",
-            "<WindowSchedule",
-            "<RefreshOddsPanel",
-            "<LiveBoard",
-            "<SignalStrip",
-            "The rest of the slate",
-            "<HowToRead",
-        ]
-        positions = [page.index(token) for token in sequence]
-        assert positions == sorted(positions), (
-            "the Board's DOM order changed; the rail must move blocks with "
-            "grid column assignment, never by reordering the source"
-        )
-
-    def test_the_rail_is_assigned_to_the_second_column_at_xl_only(self):
-        page = (SRC / "app" / "board" / "page.tsx").read_text(encoding="utf-8")
-        assert "xl:grid-cols-[minmax(0,1fr)_24rem]" in page
-        rail = page.index("xl:col-start-2")
-        main = page.index("xl:col-start-1")
-        assert rail < main, (
-            "the rail block must come first in the DOM (it is the phone's "
-            "banner-first order) and be *assigned* to column 2, not moved there"
-        )
-        # Both blocks share row 1, or the grid stacks them and the rail
-        # becomes a full-width band above the cards at xl.
-        assert page.count("xl:row-start-1") == 2
-
-    def test_the_wide_main_column_can_shrink(self):
-        """`minmax(0,1fr)` + `min-w-0`: without the min-width release, one
-        long unbroken string in a card would widen the whole column past the
-        shell and push the rail off-screen."""
-        page = (SRC / "app" / "board" / "page.tsx").read_text(encoding="utf-8")
-        assert 'className="min-w-0 xl:col-start-1 xl:row-start-1"' in page
-
-
 class TestTheTicketIsADialogOnADesktop:
     """`TicketSheet` is a bottom sheet: `fixed inset-0` with a `w-full` panel.
     On a 2560px monitor that rendered a monitor-wide filled Confirm on the
     order path — the largest, brightest control in the app, on the one screen
     that spends money. From `lg` it becomes a centred, width-capped dialog.
     `check_mobile` cannot see any of this: the sheet mounts on a tap."""
-
-    def test_the_panel_is_width_capped_and_centred_from_lg(self):
-        sheet = (SRC / "components" / "TicketSheet.tsx").read_text(encoding="utf-8")
-        assert "lg:items-center" in sheet and "lg:justify-center" in sheet
-        assert "lg:max-w-xl" in sheet, "the panel is monitor-wide again at lg"
-
-    def test_the_drag_handle_is_a_phone_affordance(self):
-        sheet = (SRC / "components" / "TicketSheet.tsx").read_text(encoding="utf-8")
-        assert "lg:hidden" in sheet
 
     def test_the_scroll_lock_does_not_jump_the_page(self):
         """The sheet sets `body.overflow = hidden` while open; without a

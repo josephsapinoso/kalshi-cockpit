@@ -22,7 +22,7 @@ only rows that were ever going to match it:
 What these tests do NOT establish
 ---------------------------------
 **The frontend checks are reachability, not rendering.** This repo has no
-JavaScript test runner, so they assert that `WindowBanner.tsx` reads the fields
+JavaScript test runner, so they assert that the window types declare the fields
 and branches on the states -- not that the resulting pixels are legible, not
 that the tone classes resolve, and not that a human would notice the gap. Those
 need `npm run build` plus a pair of eyes, and the build is run separately.
@@ -51,7 +51,6 @@ from backend.store import db
 
 REPO = Path(__file__).resolve().parent.parent
 API_TS = REPO / "frontend" / "src" / "lib" / "types" / "slate.ts"
-BANNER_TSX = REPO / "frontend" / "src" / "components" / "WindowBanner.tsx"
 
 
 # `slots_planned` is the whole schedule; the banner renders the *next* slot,
@@ -128,50 +127,6 @@ class TestTheSweepTraceReachesTheScreen:
             f"can read: they are absent from `type ActionableWindow` in "
             f"{API_TS}"
         )
-
-    @pytest.mark.parametrize(
-        "field", ["last_look_ms", "last_look_outcome", "last_look_detail"]
-    )
-    def test_the_banner_reads_each_sweep_trace_field(self, field):
-        """Typed is not rendered. The type is necessary and it is not enough."""
-        assert field in BANNER_TSX.read_text(encoding="utf-8"), (
-            f"`{field}` is on the wire and typed, but {BANNER_TSX.name} never "
-            f"reads it, so it reaches no phone"
-        )
-
-    def test_the_banner_shows_the_gap_rather_than_the_two_ages_alone(self):
-        """The gap IS the failure state, and nobody subtracts two ages by eye.
-
-        A fresh `last_look` beside a stale `last_sweep` is the loop looking and
-        declining every pass -- the 17-hour shape. Printing both numbers and
-        leaving the reader to difference them puts the whole diagnostic in the
-        one step that does not happen on a phone at a glance.
-        """
-        source = BANNER_TSX.read_text(encoding="utf-8")
-        subtraction = re.search(
-            r"last_look_ms\s*-\s*w\.last_sweep_ms", source
-        ) or re.search(r"w\.last_look_ms\s*-\s*w\.last_sweep_ms", source)
-        assert subtraction, (
-            "WindowBanner renders `last_look_ms` and `last_sweep_ms` without "
-            "ever differencing them; the gap between the two is the state the "
-            "sweep log exists to expose"
-        )
-
-    def test_a_null_sweep_log_is_not_rendered_as_calm(self):
-        """`null` means "never looked", which is blind, not clear.
-
-        The repo's standing rule -- unreadable resolves to `None`, never `0` --
-        has a rendering half: a missing measurement must not be drawn as a
-        passing one. A dash where the trace should be is the calm-looking
-        version of the outage itself.
-        """
-        source = BANNER_TSX.read_text(encoding="utf-8")
-        assert re.search(r"last_look_ms === null", source), (
-            "WindowBanner does not branch on `last_look_ms === null`, so a "
-            "database that has never recorded a pass renders the same as one "
-            "that looked and declined"
-        )
-
 
 def _run_demo_execution() -> str:
     """The script's real stdout, from a real process.

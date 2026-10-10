@@ -102,8 +102,6 @@ BACKEND = ROOT / "backend"
 #: one module that composes them. Enumerated so a new one has to be added by
 #: hand; swept below so forgetting is a failure rather than an exemption.
 PRICED_SURFACES = [
-    pytest.param(FRONTEND / "components" / "OpportunityCard.tsx", id="board-card"),
-    pytest.param(FRONTEND / "components" / "TicketSheet.tsx", id="ticket-sheet"),
     # The payload types moved out of api.ts one file per area (#262); the
     # one that names a per-row money figure is registered by hand. parlays.ts
     # left with `ParlayValuation` (total_cost_dollars) when #332 deleted the
@@ -261,7 +259,7 @@ class TestTheScanReadsRealFiles:
 
     def test_the_tree_walk_finds_the_screens(self):
         names = {p.name for p in frontend_files()}
-        for expected in ("OpportunityCard.tsx", "TicketSheet.tsx", "HowToRead.tsx"):
+        for expected in ("ManualTicket.tsx", "ParlayCards.tsx", "PriceOnKalshi.tsx"):
             assert expected in names
 
     def test_the_claim_patterns_match_the_sentences_they_retired(self):

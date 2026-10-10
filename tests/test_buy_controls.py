@@ -65,8 +65,6 @@ def _without_comments(ts: str) -> str:
 
 #: Every surface that must offer a hand bet, and what it is.
 MOUNTS = {
-    "components/SlateRow.tsx": "a Picks row",
-    "components/LiveBoard.tsx": "a Picks card",
     "app/slate/page.tsx": "a Games row",
     "app/market/[ticker]/page.tsx": "the market screen",
     "components/ParlayCards.tsx": "a parlay leg",
@@ -85,16 +83,6 @@ class TestTheControlIsActuallyMounted:
         ]
         assert not missing, (
             f"these surfaces import nothing that can place a bet: {missing}"
-        )
-
-    def test_the_picks_card_mounts_outside_the_engine_trigger(self):
-        """`TicketTrigger` wraps a whole card in a `<button>`; a ticket
-        nested inside one is invalid markup whose inputs swallow their own
-        clicks. Pinned on ordering, because the bug is silent."""
-        board = source("components/LiveBoard.tsx")
-        trigger_close = board.index("</TicketTrigger>")
-        assert board.index("<ManualTicket") > trigger_close, (
-            "the hand-bet ticket is inside TicketTrigger's button"
         )
 
     def test_the_search_is_reachable_from_both_reading_screens(self):
@@ -186,8 +174,6 @@ class TestTheWordsThatCarryTheClaim:
                 f"masks nothing"
             )
         for surface in (
-            "components/SlateRow.tsx",
-            "components/LiveBoard.tsx",
             "components/PriceOnKalshi.tsx",
             "app/market/[ticker]/page.tsx",
         ):

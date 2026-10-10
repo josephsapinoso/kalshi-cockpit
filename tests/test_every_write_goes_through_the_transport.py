@@ -48,7 +48,7 @@ SPEND_HELPERS: set[str] = set()
 #: A lost or unreadable reply on these is UNKNOWN (ADR 0191 section 2.3), so
 #: their sentences must send Joe to the Kalshi app and never claim nothing
 #: happened.
-SPENDING = ("placeOrder", "placeManualOrder", "acceptComboQuote", "placeComboBid")
+SPENDING = ("placeManualOrder", "acceptComboQuote", "placeComboBid")
 
 # Node strips types but does not resolve `./transport` to `./transport.ts`;
 # the bundler does. Same hook as tests/test_sweep_tone_predicate.py.

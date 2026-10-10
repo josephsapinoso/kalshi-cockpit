@@ -895,7 +895,7 @@ class TestThePanelStatesWhichOfThreeStatesItIsIn:
         sentence would send a reader away from a screen he wanted open to buy
         nothing he was not already getting.
 
-        Three surfaces, because the phrase was on three and this repo's own
+        Three surfaces (WindowBanner went with the Board, #342), because the phrase was on three and this repo's own
         record of ticket #35 is three passes at one lie. Asserted on the
         rendered wording rather than the phrase alone: the comments in these
         files quote *"Once you stop looking"* deliberately, and a pin that
@@ -906,7 +906,6 @@ class TestThePanelStatesWhichOfThreeStatesItIsIn:
         """
         for path in (
             self.PANEL,
-            REPO / "frontend" / "src" / "components" / "WindowBanner.tsx",
             REPO / "frontend" / "src" / "lib" / "nextOddsWindow.ts",
         ):
             src = path.read_text(encoding="utf-8")

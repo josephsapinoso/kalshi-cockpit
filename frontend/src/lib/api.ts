@@ -25,22 +25,19 @@ export type { WriteResult };
 import type {
   ConfigVersion,
   ConsensusProvenance,
-  Dashboards,
   DevigMethods,
   Gate,
   GateCondition,
-  Ledger,
   ListFilter,
   ListFilterEcho,
   Panel,
   Recommendation,
   Signal,
-  Suppression,
   TrustScore,
 } from "./types/signal";
 import type {
-  ActionableWindow,
   Board,
+  ActionableWindow,
   EdgeTone,
   Exposure,
   OddsRefreshResult,
@@ -59,14 +56,11 @@ import type {
 import type {
   BookDistribution,
   ChartCandle,
-  EstimateLogged,
   EstimateMarket,
   LineShopData,
   LineShopLeg,
   MarketCandles,
   MarketDetail,
-  RecentEstimate,
-  StudyStop,
 } from "./types/market";
 import type {
   LockedDetail,
@@ -74,9 +68,6 @@ import type {
   ManualMarketSide,
   ManualOrderPlaced,
   ManualOrderResult,
-  OrderPlaced,
-  OrderQuote,
-  OrderResult,
 } from "./types/orders";
 import type {
   CheckedParlayAltBuy,
@@ -153,22 +144,19 @@ import type {
 export type {
   ConfigVersion,
   ConsensusProvenance,
-  Dashboards,
   DevigMethods,
   Gate,
   GateCondition,
-  Ledger,
   ListFilter,
   ListFilterEcho,
   Panel,
   Recommendation,
   Signal,
-  Suppression,
   TrustScore,
 } from "./types/signal";
 export type {
-  ActionableWindow,
   Board,
+  ActionableWindow,
   EdgeTone,
   Exposure,
   OddsRefreshResult,
@@ -187,14 +175,11 @@ export type {
 export type {
   BookDistribution,
   ChartCandle,
-  EstimateLogged,
   EstimateMarket,
   LineShopData,
   LineShopLeg,
   MarketCandles,
   MarketDetail,
-  RecentEstimate,
-  StudyStop,
 } from "./types/market";
 export type {
   LockedDetail,
@@ -202,9 +187,6 @@ export type {
   ManualMarketSide,
   ManualOrderPlaced,
   ManualOrderResult,
-  OrderPlaced,
-  OrderQuote,
-  OrderResult,
 } from "./types/orders";
 export type {
   CheckedParlayAltBuy,
@@ -314,41 +296,6 @@ export function newIntentKey(): string {
   return `k${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
 }
 
-/**
- * `idempotencyKey` identifies the intent, so the same value must be sent by
- * every attempt at one order — a double-tap, or a retry after a lost response.
- * The server answers a repeat with the first attempt's outcome instead of
- * placing a second order. A fresh key per attempt protects nothing.
- */
-export async function placeOrder(
-  recommendationId: number,
-  contracts: number,
-  idempotencyKey: string,
-  token?: string,
-): Promise<OrderResult> {
-  // A lost reply is UNKNOWN, not "nothing happened" (ADR 0191 section 2.3):
-  // a connection can drop after the cockpit has already sent the order on, so
-  // neither sentence below may claim nothing was sent. The engine path is dry
-  // today (ORDERS_ARE_DRY_RUNS); the words are written for the day it is not.
-  // A 2xx that cannot be read is unreadable too, never a placed order.
-  return postJson<OrderPlaced>({
-    path: `${BASE}/api/orders`,
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    body: {
-      recommendation_id: recommendationId,
-      contracts,
-      idempotency_key: idempotencyKey,
-    },
-    noReply: (error) =>
-      `The order's answer never arrived (${networkMessage(error)}). It may ` +
-      "have reached the exchange -- check the Kalshi app before trying again.",
-    unreadable: (status) =>
-      `HTTP ${status}, and the answer was not readable. The order may have ` +
-      "reached the exchange -- check the Kalshi app before trying again.",
-    noDetail: (status) => `HTTP ${status}, and the refusal carried no reason.`,
-  });
-}
-
 /** Whether a refusal body is the gate's structured one rather than a string. */
 export function isLockedDetail(detail: unknown): detail is LockedDetail {
   return (
@@ -423,8 +370,6 @@ export function listFilterQuery(filter: ListFilter): string {
   const s = qs.toString();
   return s ? `?${s}` : "";
 }
-
-export const fetchDashboards = () => get<Dashboards>("/api/dashboards");
 
 export const fetchParlays = (
   filter: ListFilter = NO_FILTER,
@@ -598,17 +543,9 @@ export async function checkParlay(
 
 export const fetchWindow = () => get<ActionableWindow>("/api/window");
 
-export const fetchBoard = (includeSuppressed = false) =>
-  get<Board>(`/api/board?include_suppressed=${includeSuppressed}`);
-
-export const fetchLedger = () => get<Ledger>("/api/ledger");
-
 export const fetchGate = () => get<Gate>("/api/gate");
 
 export const fetchSignal = () => get<Signal>("/api/signal");
-
-export const fetchSuppression = (sinceMs = 0) =>
-  get<Suppression>(`/api/suppression?since_ms=${sinceMs}`);
 
 /** Reads, and never gates. A thrown fetch or a non-2xx is rendered as a
  *  refusal beside the buy button (`exposureUnreadable`), never as a reason to
@@ -802,11 +739,6 @@ export const searchManualMarkets = (q: string) =>
     `/api/manual/search?q=${encodeURIComponent(q)}`,
   );
 
-export const fetchRecentEstimates = () =>
-  get<{ estimates: RecentEstimate[] }>("/api/estimates/recent");
-
-export const fetchStudyStop = () => get<StudyStop>("/api/estimates/stop");
-
 /**
  * One tap of "not tonight": lock the estimate log until the next day roll.
  * No parameters and no cancel — the release is the clock. The backend owns
@@ -819,43 +751,6 @@ export async function engageLockout(): Promise<WriteResult<{ until_ms: number }>
       `The request did not reach the cockpit (${networkMessage(error)}). ` +
       "The lockout may not be on -- tap again.",
     unreadable: (status) => `lockout failed (${status})`,
-  });
-}
-
-/**
- * Log one estimate, through the Next route handler that holds the bearer
- * token server-side (the `/refresh-odds` pattern: the browser proves session,
- * the server supplies authority).
- */
-export async function logEstimate(body: {
-  ticker: string;
-  stated_probability_bp: number;
-  had_already_opened_kalshi: 0 | 1;
-  estimate_client_ms: number;
-}): Promise<WriteResult<EstimateLogged>> {
-  return postJson<EstimateLogged>({
-    path: `/log-estimate`,
-    body,
-    noReply: (error) =>
-      `The request did not reach the cockpit (${networkMessage(error)}). ` +
-      "The estimate may not have been logged -- check the recent list before logging it again.",
-    unreadable: (status) => `logging failed (${status})`,
-  });
-}
-
-/** Flag an estimate as mistyped. Append-only; nothing is edited in place. */
-export async function reviseEstimate(
-  id: number,
-  reason: string,
-): Promise<WriteResult<null>> {
-  return postJson<null>({
-    path: `/revise-estimate`,
-    body: { id, reason },
-    noReply: (error) =>
-      `The request did not reach the cockpit (${networkMessage(error)}). ` +
-      "The revision may not have been recorded -- check the recent list before revising again.",
-    unreadable: (status) => `revision failed (${status})`,
-    tolerateEmptyBody: true,
   });
 }
 

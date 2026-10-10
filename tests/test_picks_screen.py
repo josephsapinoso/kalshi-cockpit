@@ -24,8 +24,8 @@ What these pin, and why each is worth a test rather than a docstring:
   two prohibitions that only become possible once the block is a screen.
 - **The deposit-arithmetic sentence does not travel.** Honest apparatus beside
   the refusal machinery on Games, a funnel beside a favourites list at 11pm.
-- **`/board` is served, linked from the footer as "Refusals", with the blurb
-  that says what it is; its h1 agrees.** One screen, one name (#29).
+- **(`/board` was served as "Refusals" until it was deleted 2026-10-10, #342;
+  its guards on the footer entry and the h1 went with it.)**
 
 Mutation observed red, per test, in the docstring of each.
 """
@@ -41,7 +41,6 @@ ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend" / "src"
 PICKS_PAGE = FRONTEND / "app" / "picks" / "page.tsx"
 PICKS_LOADING = FRONTEND / "app" / "picks" / "loading.tsx"
-BOARD_PAGE = FRONTEND / "app" / "board" / "page.tsx"
 NAV = FRONTEND / "components" / "Nav.tsx"
 FOOTER = FRONTEND / "components" / "Footer.tsx"
 
@@ -53,16 +52,6 @@ PICKS_LEDE = (
     "make more likely, the chance they give it, and what Kalshi charges — "
     "ordered by kickoff, earliest first, which is not a claim that any of "
     "them is worth buying."
-)
-
-#: #9's seventh string, as the footer blurb for `/board`, with the exactness
-#: fix #9 itself sanctioned ("the reason that stopped it") extended to name
-#: both kinds of refusal -- measured on live 2026-09-02, two rows in three in
-#: the window were refused by the fee bar with no rule named.
-REFUSALS_BLURB = (
-    "The candidates the engine priced in its last half-hour of recording, "
-    "each with the reason that stopped it — a named check, or the fee bar. "
-    "Nearly all are refused — the ordinary night."
 )
 
 
@@ -257,38 +246,3 @@ class TestTheEmptyNightIsDrawnAsWhatItIs:
         assert "export default function" in text
         assert "not yet answered" in text
 
-
-class TestTheRefusalsScreenHasOneName:
-    """#29: the h1, the footer label and the footer's sentence change in the
-    same commit, or the screen has two names again."""
-
-    def test_the_footer_carries_board_as_refusals_with_the_blurb(self):
-        """Mutation observed red: relabel the entry "Board"."""
-        entries = footer_entries()
-        assert "/board" in entries, entries
-        label, blurb = entries["/board"]
-        assert label == "Refusals"
-        assert blurb == REFUSALS_BLURB
-
-    def test_the_h1_says_refusals(self):
-        """Mutation observed red: put "Board" back in the h1."""
-        text = code_only(source(BOARD_PAGE))
-        h1 = re.search(r"<h1[^>]*>([^<]*)</h1>", text)
-        assert h1 is not None
-        assert h1.group(1).strip() == "Refusals"
-        assert re.search(r"<h1[^>]*>\s*Board\s*</h1>", text) is None
-
-    def test_the_lede_names_both_kinds_of_refusal(self):
-        """82 of 122 rows in the live window on 2026-09-02 were refused by
-        the fee bar with no rule named. A lede saying every row sits under a
-        named rule would be false on two rows in three."""
-        text = prose(code_only(source(BOARD_PAGE)))
-        assert "each with the reason that stopped it" in text
-        assert "a named check, or the" in text
-        assert "fee" in text and "bar it could not clear" in text
-        assert "Nearly all are refused" in text
-
-    def test_the_old_lede_is_gone(self):
-        """"A bet appears only when the edge survives ..." described the
-        screen as a place bets appear. None has, in the life of the record."""
-        assert "A bet appears only when" not in source(BOARD_PAGE)

@@ -269,10 +269,9 @@ class TestTheNeutralCountIsNotPaintedAsAVerdict:
         one: **no count is painted in the loss colour**, whatever the loss
         colour happens to be this month.
         """
-        # The Board moved to /board on 2026-08-20; "/" is a re-export of the
+        # The Board page was deleted 2026-10-10 (#342); "/" is a re-export of the
         # Slate and defines no Stat. The claim follows the screens that do.
         for page_path in (
-            GLOBALS.parent / "board" / "page.tsx",
             GLOBALS.parent / "slate" / "page.tsx",
         ):
             page = page_path.read_text(encoding="utf-8")

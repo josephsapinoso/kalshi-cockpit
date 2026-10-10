@@ -1,6 +1,6 @@
 """The token-holding Next route handlers, as a family.
 
-**Why this file exists.** There are seven of these, and the seventh
+**Why this file exists.** There were seven of these once, and the seventh
 (`/parlay-lookup`) was hand-copied from the sixth — flagged by the 2026-08-24
 code review. Each holds `APP_AUTH_TOKEN` server-side because the browser
 deliberately never carries it (`lib/session.ts` issues a cookie proving
@@ -46,8 +46,6 @@ PROXY = ROOT / "frontend" / "src" / "lib" / "proxy.ts"
 TOKEN_HANDLERS = (
     "refresh-odds",
     "scout-desk",
-    "log-estimate",
-    "revise-estimate",
     "lockout",
     "pass",
     "parlay-lookup",
@@ -190,8 +188,6 @@ class TestEveryHandlerStillRefusesTheDemoInItsOwnWords:
             ("scout-desk", "nothing was spent"),
             ("parlay-lookup", "Nothing was created"),
             ("lockout", "NOT locked out"),
-            ("log-estimate", "NOT logged"),
-            ("revise-estimate", "Nothing was revised"),
             ("refresh-odds", "No credits were spent"),
         ],
     )
