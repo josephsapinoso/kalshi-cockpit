@@ -1299,6 +1299,7 @@ def create_app(
         # like with like), and this is what `older_than_window` and the
         # filter's `hidden` count are measured against.
         in_window_all = 0
+        window_rows = 0
         if since is not None:
             in_window_all = int(
                 conn.execute(
@@ -1307,16 +1308,31 @@ def create_app(
                     (since,),
                 ).fetchone()["n"]
             )
-            in_window = in_window_all
-            if list_filter is not None:
-                in_window = int(
-                    conn.execute(
-                        f"SELECT COUNT(*) AS n FROM recommendations r "
-                        "LEFT JOIN event_links l ON l.id = r.link_id "
-                        f"WHERE {_BASIS_SQL} >= ?{filter_sql}",
-                        (since, *filter_params),
-                    ).fetchone()["n"]
-                )
+            # **One row per market (#357).** The window holds every
+            # re-evaluation the runner wrote (506 rows were 128 tickers on
+            # 2026-10-10), so the list, the counts and `truncated` all
+            # describe the deduplicated population: each ticker's row with
+            # the greatest freshness basis. `in_window_all` is that
+            # population before the league/kickoff cut, so `hidden` compares
+            # like with like; `window_rows` is the raw row count, which only
+            # `older_than_window` (rows against `recorded_total`'s rows) uses.
+            window_rows = in_window_all
+            in_window_all = int(
+                conn.execute(
+                    f"SELECT COUNT(*) AS n FROM recommendations r "
+                    f"WHERE {_BASIS_SQL} >= ?{_FRESHEST_PER_TICKER_SQL}",
+                    (since,),
+                ).fetchone()["n"]
+            )
+            in_window = int(
+                conn.execute(
+                    f"SELECT COUNT(*) AS n FROM recommendations r "
+                    "LEFT JOIN event_links l ON l.id = r.link_id "
+                    f"WHERE {_BASIS_SQL} >= ?{_FRESHEST_PER_TICKER_SQL}"
+                    f"{filter_sql}",
+                    (since, *filter_params),
+                ).fetchone()["n"]
+            )
             rows = conn.execute(
                 # **The kickoff is the sportsbook's clock, never Kalshi's.**
                 # Until 2026-08-29 this selected `e.commence_ms`, which stores
@@ -1377,14 +1393,28 @@ def create_app(
                 # pooled number is not a finding until the parts agree").
                 "       f.anchored_on_sharp, f.outcome_name, "
                 "       f.market AS consensus_market, "
-                "       l.odds_event_id, l.league "
+                "       l.odds_event_id, l.league, "
+                # The kickoff the ORDER BY needs BEFORE `LIMIT`: the same
+                # `MIN(commence_ms)` per fixture the `kickoffs` read below
+                # takes, as an indexed first-entry seek on
+                # `idx_odds_event_commence` per window row, never a grouped
+                # copy of `odds_snapshots`.
+                "       (SELECT o.commence_ms FROM odds_snapshots o "
+                "        WHERE o.odds_event_id = l.odds_event_id "
+                "        ORDER BY o.commence_ms LIMIT 1) AS kickoff_sort_ms "
                 "FROM recommendations r "
                 "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
                 "LEFT JOIN kalshi_events e ON e.event_ticker = m.event_ticker "
                 "LEFT JOIN fair_prices f ON f.id = r.fair_price_id "
                 "LEFT JOIN event_links l ON l.id = r.link_id "
-                f"WHERE {_BASIS_SQL} >= ?{filter_sql} "
-                f"ORDER BY r.suggested_contracts DESC, {_BASIS_SQL} DESC, r.id DESC "
+                f"WHERE {_BASIS_SQL} >= ?{_FRESHEST_PER_TICKER_SQL}"
+                f"{filter_sql} "
+                # Kickoff order, unknown last, ticker as the tiebreak: the
+                # clock order Joe chose for Picks (#235 A), and the one
+                # neutral order (ADR 0071 s2.5). It is NOT edge, fair value,
+                # size or the consensus gap, and the old
+                # `suggested_contracts DESC` lead was inert (0 on every row).
+                "ORDER BY (kickoff_sort_ms IS NULL), kickoff_sort_ms, r.ticker "
                 "LIMIT ?",
                 (since, *filter_params, limit),
             ).fetchall()
@@ -1883,7 +1913,7 @@ def create_app(
                 "truncated": in_window > len(items),
                 "recorded_total": recorded_total,
                 "actionable_total": population_counts(conn, 0)["actionable"],
-                "older_than_window": max(0, recorded_total - in_window_all),
+                "older_than_window": max(0, recorded_total - window_rows),
             },
             "drift_window_ms": DRIFT_WINDOW_MS,
             # Read by the screen and printed there. It is the sentence that
@@ -3771,6 +3801,19 @@ def _write_outcome(db_path, order_row_id: int, outcome) -> None:
 # the failure `gate.live_ages` and `odds/timing._SERVED_SWEEP` were both written
 # to end.
 _BASIS_SQL = "MAX(r.created_ms, COALESCE(r.last_confirmed_ms, r.created_ms))"
+
+#: `/api/slate` carries each market-side once (#357; a ticker has a YES and a NO row, and tests/test_row_names_its_own_side.py pins both): a suffix keeping
+#: only the row with the greatest freshness basis per (ticker, side) (id breaks a
+#: tie). A correlated seek on the `(ticker, side, ...)` index, one bounded
+#: probe per window row; no grouped copy of `recommendations`.
+_FRESHEST_PER_TICKER_SQL = (
+    " AND NOT EXISTS (SELECT 1 FROM recommendations r2 "
+    "WHERE r2.ticker = r.ticker AND r2.side = r.side AND ("
+    "MAX(r2.created_ms, COALESCE(r2.last_confirmed_ms, r2.created_ms)) "
+    f"> {_BASIS_SQL} OR ("
+    "MAX(r2.created_ms, COALESCE(r2.last_confirmed_ms, r2.created_ms)) "
+    f"= {_BASIS_SQL} AND r2.id > r.id)))"
+)
 
 
 def _slate_filter_sql(list_filter: Optional[ListFilter]) -> tuple[str, list]:
