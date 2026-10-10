@@ -141,7 +141,7 @@ function CardAge({ card }: { card: CardData }) {
   useEffect(() => {
     setNowMs(Date.now());
   }, []);
-  if (nowMs === null) return null;
+  if (nowMs === null || card.built_ms === null) return null;
   const age = formatAge(Math.max(0, nowMs - card.built_ms));
   // Only the NFL has an inactives time this repo can cite; another sport's
   // card does not claim one (#284).
@@ -820,7 +820,7 @@ export function GameScriptParlays() {
           <p className="mt-2 text-xs text-muted" aria-live="polite">
             {hiddenCount > 0
               ? `${hiddenCount} ${hiddenCount === 1 ? "game" : "games"} hidden by this filter.`
-              : "Every game the desk has a card for is shown."}
+              : "Every in-scope game in the next 24 hours is shown, with or without a card."}
           </p>
           {shownCount === 0 && (
             <p className="mt-3 max-w-[65ch] text-sm text-muted">
@@ -833,7 +833,7 @@ export function GameScriptParlays() {
           <ul className="mt-4 grid gap-4 md:grid-cols-2">
             {data.cards.map((card) =>
               matches(card) ? (
-                <li key={card.id}>
+                <li key={card.game_event_ticker}>
                   <GameScriptCard card={card} heading />
                 </li>
               ) : null,

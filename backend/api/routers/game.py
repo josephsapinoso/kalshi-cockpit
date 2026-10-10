@@ -14,6 +14,7 @@ reaches the venue.
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -23,7 +24,12 @@ from pydantic import BaseModel
 from ...agents.base import AgentConfig, build_client
 from ...agents.budget import AgentBudget
 from ...agents.game_script import CALL_FAILED_PREFIX, build_card, recheck_card
-from ...config import AppConfig, ConfigError, StalenessConfig
+from ...config import (
+    AppConfig,
+    ConfigError,
+    StalenessConfig,
+    configured_day_start_utc_hour,
+)
 from ...core.leg_words import no_words_for
 from ...core.prices import format_price
 from ...game_script_watch import is_unattended_refusal
@@ -35,7 +41,9 @@ from ...game_builder import (
     mint_game_combo,
     parse_game_ticker,
 )
+from ...kalshi.discovery import IN_SCOPE_LEAGUES
 from ...kalshi.orderbook import OrderBook
+from ...odds.timing import day_start_ms
 from ...parlays import LookupRefused, _commence_ms_for_tickers
 from ...store import db, game_script_cards
 
@@ -225,27 +233,158 @@ UNATTENDED_NO_CARD_LINE = (
 )
 
 
-def no_card_line(card: dict) -> Optional[str]:
+#: What the list says on a game the desk holds no card row for at all: not
+#: refused, not skipped -- nothing has been tried, because the watcher is off
+#: (Joe's (A) to #349) and he has not tapped.
+NO_ROW_NO_CARD_LINE = (
+    "No card yet. Open the game and tap Build card to make one."
+)
+
+#: The daily-ceiling sentences `AgentBudget.refusal_reason` writes start with
+#: the spend and the ceiling ("2838176 of 2500000 Anthropic tokens ..."). Only
+#: those lift at the day's roll; the per-pass sentence does not.
+_DAILY_CEILING_SENTENCE = re.compile(r"^\d+ of \d+ ")
+
+#: The zone Joe reads clocks in (`agents/game_script.GAME_DAY_TIME_ZONE`).
+_RESET_ZONE = "America/Los_Angeles"
+
+_HOUR_MS = 3_600_000
+
+
+def budget_reset_clock(
+    now_ms: int, day_start_hour: Optional[int] = None
+) -> Optional[str]:
+    """When the Anthropic day rolls, as Joe reads a clock ("3:00 AM PT"), or
+    `None` when the hour cannot be read.
+
+    **From the budget's own day start**, `configured_day_start_utc_hour()` --
+    the one parse `AgentBudget.from_config` uses -- never a literal: the hour
+    is an env dial, and a clock printed from a constant would go on being
+    wrong the day it moved. `None` rather than a guess on a ConfigError."""
+    from zoneinfo import ZoneInfo
+
+    if day_start_hour is None:
+        try:
+            day_start_hour = configured_day_start_utc_hour()
+        except ConfigError:
+            return None
+    reset = datetime.fromtimestamp(
+        (day_start_ms(now_ms, hour=day_start_hour) + 24 * _HOUR_MS) / 1000,
+        ZoneInfo(_RESET_ZONE),
+    )
+    return reset.strftime("%I:%M %p").lstrip("0") + " PT"
+
+
+def no_card_line(card: dict, now_ms: Optional[int] = None) -> Optional[str]:
     """What a game with no built card says, in words, or `None` on a built one.
 
     A skipped or refused game is listed with this sentence, never dropped and
     never an empty row (#216). A refusal the unattended watcher wrote is told
     apart from a tap the daily ceiling refused: the first says the build is
-    his to tap, the second repeats the budget's own plain sentence, because
-    tapping again would meet the same ceiling."""
+    his to tap, the second repeats the budget's own plain sentence and, when
+    that sentence is a daily ceiling, says when the day resets in Pacific time
+    -- the one fact that sentence leaves out."""
     status = card["status"]
     if status == "built":
         return None
+    if status == "none":
+        return NO_ROW_NO_CARD_LINE
     reason = (card.get("reason") or "").strip() or "no reason was recorded"
     if status == "refused_budget":
         if is_unattended_refusal(reason):
             return UNATTENDED_NO_CARD_LINE
-        return f"No card today: {reason}"
+        line = f"No card today: {reason}"
+        if _DAILY_CEILING_SENTENCE.match(reason):
+            clock = budget_reset_clock(
+                now_ms if now_ms is not None else db.now_ms()
+            )
+            if clock is not None:
+                line += f". The day resets at {clock}."
+        return line
     if status == "refused_invalid" and reason.startswith(CALL_FAILED_PREFIX):
         # A machine failure, retried on a later pass (#309): not the scout's
         # judgement, so never "No clean story".
         return f"No card yet: {reason}; it will be retried"
     return f"No clean story: {reason}"
+
+
+#: The window the list reads for games with no card row.
+TONIGHT_MS = 24 * _HOUR_MS
+
+#: Kalshi's `occurrence_datetime` can sit hours off the sportsbook's kickoff
+#: (CLAUDE.md: three hours late), so the index seek on the Kalshi clock is cut
+#: wider than the window and the exact test is on the sportsbook's own
+#: `odds_fixtures.commence_ms`.
+_KALSHI_CLOCK_MARGIN_MS = 6 * _HOUR_MS
+
+#: Tonight's game events, bounded and indexed: a seek on
+#: `kalshi_events(commence_ms)`, a seek on `event_links` by its leading
+#: `kalshi_event_ticker`, a primary-key seek on `odds_fixtures`. **Never a read
+#: of `odds_snapshots` or `kalshi_quotes`** (the shape `parlays.py`
+#: `commence_for_tickers_sql` was fixed to in 2026-08/09). Discovery rejects an
+#: event with no `occurrence_datetime`, so every stored event has the clock the
+#: seek uses. `tests/test_game_script_card_screen.py` pins the plan.
+TONIGHTS_GAMES_SQL = (
+    "SELECT e.event_ticker AS game_event_ticker, f.sport_key AS sport_key, "
+    "       f.commence_ms AS commence_ms "
+    "FROM kalshi_events e "
+    "JOIN event_links l ON l.kalshi_event_ticker = e.event_ticker "
+    "JOIN odds_fixtures f ON f.odds_event_id = l.odds_event_id "
+    "WHERE e.commence_ms >= ? AND e.commence_ms <= ? "
+    "  AND f.commence_ms > ? AND f.commence_ms <= ? "
+    "  AND e.event_ticker LIKE 'KX%GAME-%'"
+)
+
+
+def tonights_games_params(now_ms: int) -> tuple:
+    return (
+        now_ms - _KALSHI_CLOCK_MARGIN_MS,
+        now_ms + TONIGHT_MS + _KALSHI_CLOCK_MARGIN_MS,
+        now_ms,
+        now_ms + TONIGHT_MS,
+    )
+
+
+def tonights_games(conn, now_ms: int) -> dict[str, dict]:
+    """In-scope game events kicking off within 24 h, from what the desk
+    already holds: `{game_event_ticker: {kickoff_ms, sport_key}}`. A game
+    linked to more than one fixture keeps the earliest kickoff."""
+    sports = set(IN_SCOPE_LEAGUES.values())
+    out: dict[str, dict] = {}
+    for row in conn.execute(TONIGHTS_GAMES_SQL, tonights_games_params(now_ms)):
+        ticker = row["game_event_ticker"]
+        if row["sport_key"] not in sports:
+            continue
+        if not ticker.split("-")[0].endswith("GAME"):
+            continue
+        kickoff = int(row["commence_ms"])
+        if ticker not in out or kickoff < out[ticker]["kickoff_ms"]:
+            out[ticker] = {
+                "kickoff_ms": kickoff,
+                "sport_key": game_script_cards.sport_key_for(ticker),
+            }
+    return out
+
+
+def no_row_card(game_event_ticker: str, info: dict) -> dict:
+    """The list entry for a game nothing has been tried on: the fields a
+    stored card carries, `status: "none"`, no legs, no story."""
+    return {
+        "id": None,
+        "game_event_ticker": game_event_ticker,
+        "sport_key": info["sport_key"],
+        "kickoff_ms": info["kickoff_ms"],
+        "built_ms": None,
+        "status": "none",
+        "story": None,
+        "drop_if": None,
+        "reason": None,
+        "combo_ticker": None,
+        "legs": [],
+        "dropped_legs": [],
+        "sources": None,
+        "ticket_needs": None,
+    }
 
 
 def at_build_view(stored: Optional[dict]) -> Optional[dict]:
@@ -405,7 +544,8 @@ def register(
         """The stored game-script cards, newest per game, in KICKOFF order (#216).
 
         With `game_event_ticker`, that one game's latest card (or an empty
-        list). Without it, every game that has not kicked off. **Skipped and
+        list). Without it, every game that has not kicked off, plus every in-scope game kicking
+        off within 24 h that has no card row (`status: "none"`). **Skipped and
         refused games are in the list, each with its reason in `no_card_line`**;
         a built card carries each leg's title and Kalshi's own single-leg ask,
         read now. No combined figure exists in this payload (ADR 0189), and the
@@ -417,6 +557,7 @@ def register(
         model, so it spends nothing.
         """
         now = db.now_ms()
+        tonight: dict[str, dict] = {}
         if game_event_ticker is not None:
             games = [game_event_ticker.strip().upper()]
         else:
@@ -428,6 +569,7 @@ def register(
                     (now,),
                 ).fetchall()
             ]
+            tonight = tonights_games(conn, now)
         cards: list[dict] = []
         for game in games:
             # A built card beats a later refusal: a refusal never replaces a
@@ -437,6 +579,16 @@ def register(
             ) or game_script_cards.latest_for_game(conn, game)
             if card is not None:
                 cards.append(card)
+        # A game kicking off in the next 24 h with no card row at all is
+        # listed too (#358): the watcher is off, so the rows it wrote at T-24h
+        # stop arriving and a list of stored cards alone goes empty on a night
+        # with games. A game WITH a row of any kind was handled above.
+        listed = set(games)
+        for game, info in tonight.items():
+            if game in listed:
+                continue
+            if game_script_cards.latest_for_game(conn, game) is None:
+                cards.append(no_row_card(game, info))
         cards = kickoff_order(cards)
         # The game's own name ("Game 1: Chicago C vs San Diego"), from the
         # event row discovery keeps, so the heading is not a raw ticker.
@@ -462,7 +614,7 @@ def register(
             except ConfigError:
                 api = None
         for card in cards:
-            card["no_card_line"] = no_card_line(card)
+            card["no_card_line"] = no_card_line(card, now)
             card["inactives_line"] = lineup_line(card["sport_key"])
             if card["status"] != "built":
                 card["legs"] = []

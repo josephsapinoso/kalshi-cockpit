@@ -852,12 +852,18 @@ export type GameScriptLeg = {
 };
 
 export type GameScriptCard = {
-  id: number;
+  /** `null` on a `none` entry: a game the desk holds no card row for (#358). */
+  id: number | null;
   game_event_ticker: string;
   sport_key: string;
   kickoff_ms: number;
-  built_ms: number;
-  status: "built" | "skipped" | "refused_budget" | "refused_invalid";
+  built_ms: number | null;
+  status:
+    | "built"
+    | "skipped"
+    | "refused_budget"
+    | "refused_invalid"
+    | "none";
   story: string | null;
   drop_if: string | null;
   reason: string | null;

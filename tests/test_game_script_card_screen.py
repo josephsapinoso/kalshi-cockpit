@@ -447,7 +447,7 @@ class TestAWatcherRefusalTellsHimTheTapIsHis:
         http, conn = _app(tmp_path)
         _refused(conn, "KXNCAAFGAME-26OCT10LSUUKY", NOW + HOUR, "refused_budget", TAP_REFUSAL)
         card = http.get("/api/game-cards").json()["cards"][0]
-        assert card["no_card_line"] == f"No card today: {TAP_REFUSAL}"
+        assert card["no_card_line"].startswith(f"No card today: {TAP_REFUSAL}")
 
     def test_is_unattended_refusal_reads_only_the_watchers_prefixes(self):
         from backend.game_script_watch import is_unattended_refusal
@@ -456,3 +456,102 @@ class TestAWatcherRefusalTellsHimTheTapIsHis:
         assert not is_unattended_refusal(TAP_REFUSAL)
         assert not is_unattended_refusal(None)
         assert not is_unattended_refusal("")
+
+
+def _fixture(conn, odds_id, game, kickoff, *, sport="americanfootball_nfl",
+             title=None, linked=True):
+    """One sportsbook fixture and its Kalshi game event, as the recorder keeps
+    them: `odds_fixtures` row, `kalshi_events` row, `event_links` row."""
+    series = game.split("-")[0]
+    conn.execute(
+        "INSERT OR IGNORE INTO kalshi_series (series_ticker, first_seen_ms, "
+        "last_seen_ms) VALUES (?, 0, 0)", (series,))
+    conn.execute(
+        "INSERT INTO kalshi_events (event_ticker, series_ticker, title, commence_ms, "
+        "first_seen_ms, last_seen_ms) VALUES (?, ?, ?, ?, 0, 0)",
+        (game, series, title, kickoff + 3 * HOUR))  # Kalshi runs 3h late
+    conn.execute(
+        "INSERT INTO odds_fixtures (odds_event_id, sport_key, commence_ms, "
+        "last_fetched_ms) VALUES (?, ?, ?, ?)", (odds_id, sport, kickoff, NOW))
+    if linked:
+        conn.execute(
+            "INSERT INTO event_links (kalshi_event_ticker, odds_event_id, "
+            "league, method, commence_skew_ms, linked_ms) "
+            "VALUES (?, ?, 'nfl', 'exact_alias_pair', 0, ?)",
+            (game, odds_id, NOW))
+    conn.commit()
+
+
+class TestTheListCarriesTonightsGamesWithoutACard:
+    def test_a_game_with_no_card_row_is_listed_with_the_tap_sentence(self, tmp_path):
+        http, conn = _app(tmp_path)
+        _built(conn, "KXNFLGAME-26SEP13BUILTA", NOW + 6 * HOUR)
+        _fixture(conn, "o1", "KXNFLGAME-26SEP13EARLYA", NOW + 2 * HOUR,
+                 title="Early vs Game")
+        _fixture(conn, "o2", "KXNFLGAME-26SEP13MIDDLE", NOW + 10 * HOUR)
+        _fixture(conn, "o3", "KXNFLGAME-26SEP13PASTAA", NOW - HOUR)
+        _fixture(conn, "o4", "KXNFLGAME-26SEP13FARAWY", NOW + 30 * HOUR)
+        cards = http.get("/api/game-cards").json()["cards"]
+        assert [c["game_event_ticker"][-6:] for c in cards] == [
+            "EARLYA", "BUILTA", "MIDDLE",
+        ], "kickoff order among the games that do have rows"
+        early = cards[0]
+        assert early["status"] == "none"
+        assert early["legs"] == []
+        assert early["story"] is None
+        assert "Open the game and tap Build card" in early["no_card_line"]
+        assert early["game_title"] == "Early vs Game"
+        assert early["sport_key"] == "nfl"
+        assert early["kickoff_ms"] == NOW + 2 * HOUR
+        assert cards[1]["status"] == "built"
+
+    def test_a_game_with_a_card_row_is_not_listed_twice(self, tmp_path):
+        http, conn = _app(tmp_path)
+        _fixture(conn, "o1", "KXNFLGAME-26SEP13TWICEA", NOW + 2 * HOUR)
+        _refused(conn, "KXNFLGAME-26SEP13TWICEA", NOW + 2 * HOUR,
+                 "skipped", "no clean story")
+        cards = http.get("/api/game-cards").json()["cards"]
+        assert [c["status"] for c in cards] == ["skipped"]
+
+    def test_a_prop_event_or_unlinked_fixture_is_not_a_game(self, tmp_path):
+        http, conn = _app(tmp_path)
+        _fixture(conn, "o1", "KXNFLTOTAL-26SEP13PROPAA", NOW + 2 * HOUR)
+        _fixture(conn, "o2", "KXNFLGAME-26SEP13NOLINK", NOW + 2 * HOUR,
+                 linked=False)
+        _fixture(conn, "o3", "KXNBAGAME-26SEP13OUTSCP", NOW + 2 * HOUR,
+                 sport="basketball_ncaab")
+        assert http.get("/api/game-cards").json()["cards"] == []
+
+    def test_the_fixture_read_is_an_indexed_seek_not_a_snapshot_scan(self, tmp_path):
+        _, conn = _app(tmp_path)
+        plan = " | ".join(
+            r[3] for r in conn.execute(
+                "EXPLAIN QUERY PLAN " + game_router.TONIGHTS_GAMES_SQL,
+                game_router.tonights_games_params(NOW),
+            ).fetchall()
+        )
+        assert "idx_events_commence" in plan, plan
+        assert "odds_snapshots" not in plan and "kalshi_quotes" not in plan, plan
+        assert not re.search(r"SCAN (f|odds_fixtures|l|event_links)\b", plan), plan
+
+    def test_a_budget_refusal_names_the_reset_in_pacific_time(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.delenv("ODDS_BUDGET_DAY_START_UTC_HOUR", raising=False)
+        http, conn = _app(tmp_path)
+        _refused(conn, "KXNCAAFGAME-26OCT10LSUUKY", NOW + HOUR,
+                 "refused_budget", TAP_REFUSAL)
+        line = http.get("/api/game-cards").json()["cards"][0]["no_card_line"]
+        assert TAP_REFUSAL in line
+        assert "resets at 3:00 AM PT" in line
+        assert "AGENT_MAX_" not in line and "SCOUT_AUTO_" not in line
+        # Derived from the budget's day start, not a literal: moving the day
+        # start moves the clock the screen prints.
+        monkeypatch.setenv("ODDS_BUDGET_DAY_START_UTC_HOUR", "12")
+        line = http.get("/api/game-cards").json()["cards"][0]["no_card_line"]
+        assert "resets at 5:00 AM PT" in line and "3:00 AM" not in line
+
+    def test_a_refusal_that_is_not_the_budgets_sentence_is_printed_as_it_is(self):
+        assert game_router.no_card_line(
+            {"status": "refused_budget", "reason": "the daily token ceiling"}
+        ) == "No card today: the daily token ceiling"
