@@ -201,14 +201,17 @@ class TestUnknownIsItsOwnCount:
 
 
 class TestItSitsAboveTheRows:
-    """Its whole job is to set the expectation BEFORE the per-row warnings."""
+    """It used to set the expectation BEFORE the per-row warnings (Joe's A,
+    2026-09-16). #344 folded it into the one collapsed "How to read this" at
+    the foot, so a phone opens on rows; the position pin follows it there."""
 
     def test_the_slate_renders_it(self):
         assert "<AnchorBaseRate rows={rows} />" in _read(SLATE_PAGE)
 
     def test_it_is_rendered_before_the_row_list(self):
         source = _read(SLATE_PAGE)
-        assert source.index("<AnchorBaseRate") < source.index("rows.map((row)")
+        assert source.index("rows.map((row)") < source.index("<AnchorBaseRate")
+        assert source.index("How to read this") < source.index("<AnchorBaseRate")
 
 
 class TestItTeachesTheTerm:

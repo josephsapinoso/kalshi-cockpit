@@ -296,20 +296,6 @@ export default async function SlatePage({
         </p>
       ) : (
         <>
-          {/* Above the rows, because its job is to set an expectation BEFORE
-              the per-row warnings start arriving. On NCAAF spreads that
-              warning fires on about seven rows in ten, and a caveat read
-              seven times stops being read — Joe's option A, 2026-09-16. */}
-          <AnchorBaseRate rows={rows} />
-          {/* Said once here, not on every row (#247): it was the same two
-              sentences under each of 100 rows. The per-row refusal code
-              stays on the row -- that one is different on each. */}
-          <p className="mt-6 max-w-[65ch] text-xs text-muted">
-            &ldquo;Bet this by hand&rdquo; on any row below is your own bet. It
-            is recorded apart from the engine&rsquo;s record and never counts
-            toward the gate. The ticket reads Kalshi&rsquo;s live book and shows
-            you the ask you would pay; nothing is sent until you confirm.
-          </p>
           <ul className="mt-8 divide-y divide-border">
             {rows.map((row) => (
               <li key={row.id}>
@@ -393,7 +379,27 @@ export default async function SlatePage({
         </p>
       )}
 
-      <footer className="mt-10 max-w-[65ch] space-y-3 border-t border-border pt-6 text-xs text-muted">
+      {/* **One disclosure for all the explaining (#344).** The sharp-book
+          base rate, the "Bet this by hand" note and the four footer
+          paragraphs used to sit above and below the rows, so a phone opened
+          on ~2.5 screens of prose before the first game. Every sentence
+          keeps its exact words; only the position moved. Collapsed: the
+          rows are what a glance is for. */}
+      <details className="mt-10 max-w-[65ch] border-t border-border pt-6 text-xs text-muted">
+        <summary className="cursor-pointer text-sm font-semibold text-muted">
+          How to read this
+        </summary>
+        <div className="mt-4 space-y-3">
+        {/* Was above the rows (Joe's option A, 2026-09-16: a caveat read
+            seven times stops being read). Folded here by #344 so a phone
+            opens on games; the per-row marker still says it row by row. */}
+        {rows.length > 0 && <AnchorBaseRate rows={rows} />}
+        <p>
+          &ldquo;Bet this by hand&rdquo; on any row above is your own bet. It
+          is recorded apart from the engine&rsquo;s record and never counts
+          toward the gate. The ticket reads Kalshi&rsquo;s live book and shows
+          you the ask you would pay; nothing is sent until you confirm.
+        </p>
         <p>
           <strong className="text-foreground">
             Where Kalshi sits is measured against you.
@@ -443,7 +449,8 @@ export default async function SlatePage({
           scoreboard is still closing-line value against Kalshi&rsquo;s own
           close, and none of this is that yet.
         </p>
-      </footer>
+        </div>
+      </details>
       {/*
         **A bet placed somewhere else is invisible to this desk, and Joe asked
         for it on this screen** (2026-09-06). His sportsbook bets never reach
@@ -598,7 +605,6 @@ function Row({
           nothing against anything. */}
       <StatusLine
         row={row}
-        maxQuoteAgeMs={maxQuoteAgeMs}
         maxOddsAgeMs={maxOddsAgeMs}
       />
       {/* Same opinion, cheaper way round (#245). Printed only when the
@@ -890,7 +896,9 @@ function QuoteAge({
  *
  *   1. the consensus is past the odds limit          — the row cannot be
  *      actionable until the books are re-bought (the button above the list)
- *   2. the Kalshi quote is past the staleness limit  — the ask may be gone
+ *   2. (removed, #344) the Kalshi quote past its limit. The red age chip and
+ *      the evidence line under the row already say it; a third sentence made
+ *      each stale row say it three times.
  *   3. the tape has moved ≥ 1.0c in the drift window — the price being
  *      compared is not the price that was compared
  *
@@ -926,11 +934,9 @@ function QuoteAge({
  */
 function StatusLine({
   row,
-  maxQuoteAgeMs,
   maxOddsAgeMs,
 }: {
   row: SlateRowData;
-  maxQuoteAgeMs: number;
   maxOddsAgeMs: number;
 }) {
   let line: string | null = null;
@@ -942,12 +948,6 @@ function StatusLine({
     row.odds_age_now_ms > maxOddsAgeMs
   ) {
     line = `Books last read ${Math.round((row.odds_age_now_ms ?? 0) / 60_000)} min ago — past the ${Math.round(maxOddsAgeMs / 60_000)} min limit. Not actionable until the odds are refreshed.`;
-  } else if (
-    row.quote_age_now_ms !== null &&
-    row.quote_age_now_ms !== undefined &&
-    row.quote_age_now_ms > maxQuoteAgeMs
-  ) {
-    line = `Kalshi quote is ${Math.round((row.quote_age_now_ms ?? 0) / 1000)}s old — past the ${Math.round(maxQuoteAgeMs / 1000)}s limit, so the ask shown may already be gone.`;
   } else if (
     row.kalshi_drift_tenths !== null &&
     Math.abs(row.kalshi_drift_tenths) >= 10

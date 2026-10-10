@@ -276,28 +276,58 @@ class TestLessonsKeepTheirThreeStates:
         assert payload["proposals_awaiting_approval"] == []
 
 
-class TestAnEmptyListIsNotAHealthySilence:
-    """The rendering decision this screen exists to protect.
+class TestThePlaybookDrawsNothingThatCannotFill:
+    """#344: the Lessons section is gone, and the drill works today.
 
-    `lessons` has no writer: its one writer, the Historian, was never called
-    by anything that runs and was deleted on 2026-09-05. So an empty list is a
-    fact about the code, and showing it as "nothing to report" is a screen
-    reporting a healthy silence over a wire that was never connected. Same
-    shape as `analysis/marts.py` refusing to let a missing warehouse read as
-    an empty one. The field keeps its historical name (`backend/playbook.py`
-    says why); what it reports is whether a lesson row exists.
+    `lessons` had one writer, the Historian, deleted on 2026-09-05 (ADR 0106),
+    so the screen's Lessons block could only ever say "never run". The payload
+    keeps the field (the backend is untouched), the page stops drawing it. The
+    five-step drill told Joe to "log the estimate anyway", and the estimate log
+    was retired (ADR 0094, 0131).
+
+    Source-text assertions, like `TestParlayChapter`: they establish that the
+    files omit the retired text, not that the page renders.
     """
 
-    def test_no_lessons_says_the_historian_has_not_run(self, conn):
+    ROOT = Path(__file__).resolve().parents[1] / "frontend" / "src"
+
+    def _code(self, rel: str) -> str:
+        text = (self.ROOT / rel).read_text(encoding="utf-8")
+        text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+        return re.sub(r"^\s*//.*$", "", text, flags=re.MULTILINE)
+
+    def test_the_payload_still_carries_lessons(self, conn):
+        """The field stays; only the screen's block went."""
         add_version(conn, 1, {"a": 1})
-        payload = read_playbook(conn)
-        assert payload["lessons"] == []
-        assert payload["historian_has_run"] is False
+        assert read_playbook(conn)["lessons"] == []
+
+    def test_the_lessons_block_is_not_drawn(self):
+        """Mutation observed red: restore the `Lessons` heading."""
+        code = self._code("app/playbook/page.tsx")
+        assert "Lessons" not in code
+        assert "LessonCard" not in code
+        assert "Historian has never run" not in code
+        assert "historian_has_run" not in code
+
+    def test_the_estimate_drill_is_refused(self):
+        """Mutation observed red: restore "log the estimate anyway"."""
+        text = re.sub(
+            r"\s+", " ", self._code("components/FiveStepTest.tsx")
+        )
+        assert "the estimate anyway" not in text
+        assert "skip the bet" not in text
+
+    def test_the_drill_says_to_write_it_on_paper_and_compare_to_the_close(self):
+        text = re.sub(
+            r"\s+", " ", self._code("components/FiveStepTest.tsx")
+        )
+        assert "on paper" in text
+        assert "Kalshi’s close, not to the result" in text
 
     def test_one_lesson_flips_it(self, conn):
         """Inserted by hand, because nothing in the tree inserts one. The
-        flip is what the screen renders on; that no production path can
-        cause it is the module docstring's point, not this test's."""
+        backend flag keeps its historical name; nothing on the screen reads
+        it now."""
         add_version(conn, 1, {"a": 1})
         conn.execute(
             "INSERT INTO lessons (created_ms, title, body, sample_size) "

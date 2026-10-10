@@ -49,8 +49,9 @@ const STEPS: Step[] = [
       "ever been shown to predict anything.",
     drill:
       "Write the sentence down before you tap. If it needs the word " +
-      "“feel” or “due”, you have found nothing — log " +
-      "the estimate anyway and skip the bet.",
+      "“feel” or “due”, you have found nothing. Write your own " +
+      "number on paper before you open the game, then compare it to " +
+      "Kalshi’s close, not to the result.",
   },
   {
     name: "Price it at the ask, then add the fee.",

@@ -1224,7 +1224,7 @@ DISPOSITIONS: dict[str, Tool | Quarantined] = {
     # was a dockerignored script, `review` was called by nothing, and the
     # `lessons` table it was the one writer of now has none -- which
     # `backend/playbook.py` and `frontend/src/app/playbook/page.tsx` say in so
-    # many words, pinned by `test_no_lessons_says_the_historian_has_not_run`.
+    # many words, pinned (until #344 deleted the block) by the Playbook's former "Historian has never run" test; now `TestThePlaybookDrawsNothingThatCannotFill`.
     # The class below therefore holds the two model files only, and
     # `_unmetered_but_unreachable()` has no member.
     "backend/model/elo.py": Quarantined(
