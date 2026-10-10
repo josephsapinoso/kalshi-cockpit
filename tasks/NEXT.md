@@ -146,20 +146,23 @@ the channel diagnostic (A17.6/A17.11).
 - **The measurement (audited):** 39.47M tokens recorded over 2026-09-26..10-09, a floor (92 of 453 calls NULL usage); automatic cards 74.1%, leg verdicts 25.6%; since cards began a mean 3.35M a day (median 2.56M, range 1.51M–7.20M, 10 complete days); a built card median 178K (mean 200K, n = 105); excluding the 10-05 outage 100 of 154 card calls built a card, 30 were the model's own declines (~170K each). The wording Joe was asked with ("half the calls build nothing") overstated it; corrected on #349. Side finding on #338: on 10-04 the day passed the 4.5M unattended line because `CARD_TOKEN_ESTIMATE` (290K) sat under that day's 448K mean.
 - **Defects verified on main and fixed:** `overround` is the margin (sum − 1) and `FairValueSteps` rendered it as the sum ("3.3% — not 100%", "−96.7 points"; the test pinned the wrong expression as source text); the engine's `reason_text` ("… Sized at 1.") rendered on `/market`; "not ranked" on a kickoff-ordered Picks; the Playbook drill pointing at the retired estimate log; "combined into nothing"; the "Record it below" anchor.
 - **Lanes (Sonnet, worktrees, each full-suite green before hand-back):** #341 `62993d49`, #342 `c27d3573` (one conflict with #344 in `test_picks_screen.py`, resolved by dropping the Refusals pins), #343 `286a53d4`, #344 `d571f82c`, #345 `acf3ec3a`. Main: `ed76631d` (config, switch, ADRs, CLAUDE.md), `8f9a8fb7` (`last_ask_display` served for Picks, lesson, ledger). Full suite on the merged tree before #345: 10011 passed, 0 failed.
-- **Deploy:** requested after CI on the final push with the authorised form; verify `/api/health` `build.git_sha` against `origin/main` and re-read `/market/<ticker>` ("103.3%", a positive margin, no "Sized at"), the footer (Gate · Playbook only), Your bets (opens on the strip).
+- **Deploy:** CI green on `8f9a8fb7` and on `4ff2e5df` (the final suite on that tree: 10016 passed, 0 failed). Live deployed with the authorised form and verified: `/api/health` `build.git_sha = 4ff2e5df318540c16f24431084daf07043601b60`, status ok. The demo deploy requested two seconds later was **cancelled by the workflow's concurrency rule**, not failed; re-run after live landed (run 38083158426). Re-read on the new build: `/market/<ticker>` ("103.3%", a positive margin, no "Sized at"), the footer (Gate · Playbook only), Your bets (opens on the strip).
+- **Joe's four closed tickets, same evening ("learn from these losses too"; some his, some the desk's own cards).** The sharp-bettor's lesson is on his page (the stake, not the picks: $5 on a 5.5% six-leg cross-sport ticket against a ~$28 account is ~18% of bankroll where Walters's public unit rule is 1–3%; a price is a probability; each leg adds a margin; same-game legs are correlated and only the maker checked the price; tailing the desk is tailing a tout until its record is kept; one opinion sized three times; the only winner was a single; recognise "no exit"). No operator data entered the repo. Two tickets came out of it: **#354** (the combination cost line says what the price means: implied joint chance, leg count, cross-sport flag, fair chances multiplied beside the quote; sonnet) and **#355** (Your bets split by leg count and same-game vs cross-sport; main; blocked by #331). The record already tags `card` and `preset` as pick sources (ADR 0193), and #343's strip shows each source's expected-vs-actual, so "score the desk's picks" needs no new decision: Joe tags the tickets placed in the Kalshi app, which sit in `untagged` until he does.
 - **Refused or deferred, with the reason (ADR 0195 §2):** merging Picks into Games; an `/ops` page; stake % on the ticket; a dollar spend line; per-leg CLV (after #331); the key-number flag (#348); cutting the scout desk / renaming Willy; the backend no-op sweep (#347, now also carrying #342's orphans).
 - **Housekeeping:** `tasks/lessons.md` is ~228K of 262,144 — about 8K under the split line; split it before the next entry. `frontend/.next/dev/types` can hold stale generated route types after a deletion; delete `.next/dev` and `.next/types` before `tsc` on the main tree. #302's frontier is empty again (all four questions answered): a finding, not a clean desk.
 
 ### Still open
 
-1. #353 — Games row: "0/5 books under" beside "1 book(s), need 2", and the age still said twice (chip + evidence line).
-2. #347 — the backend no-op sweep and the routes nothing calls (plus #342's frontend orphans); deferred, zero spend.
-3. #348 — key-number flag on NFL/NCAAF spread legs; unscheduled, one feature at a time.
-4. #338 — after a full budget day on the new ceiling: `game-script-card-refusals` near zero `max_tokens`, then close (moot while cards are tap-only; keep for the tap path).
-5. #337 — 2027-01-15: look B for P1 only; step 1 is #336's live count.
-6. #331 — 2026-11-01: the leg census by kind (per-leg CLV waits on it).
-7. #210 — closes on the first scout convening with a sourced Matchup tile.
-8. #151, #197, #267 — carried forward unchanged.
+1. #354 — the combination cost line says what the price means (implied joint chance, leg count, cross-sport flag, fair chances multiplied beside the quote); sonnet lane, ready.
+2. #353 — Games row: "0/5 books under" beside "1 book(s), need 2", and the age still said twice (chip + evidence line).
+3. #355 — Your bets split by leg count and same-game vs cross-sport; blocked by #331.
+4. #347 — the backend no-op sweep and the routes nothing calls (plus #342's frontend orphans); deferred, zero spend.
+5. #348 — key-number flag on NFL/NCAAF spread legs; unscheduled, one feature at a time.
+6. #338 — after a full budget day on the new ceiling: `game-script-card-refusals` near zero `max_tokens`, then close (moot while cards are tap-only; keep for the tap path).
+7. #337 — 2027-01-15: look B for P1 only; step 1 is #336's live count.
+8. #331 — 2026-11-01: the leg census by kind (per-leg CLV waits on it).
+9. #210 — closes on the first scout convening with a sourced Matchup tile.
+10. #151, #197, #267 — carried forward unchanged.
 
 ## 2026-10-09 (eighty-eighth session) — #316 closed by its live read; card output cap 3000→6000 (#338); builder routes deleted (#332); fee_coefficient served (#334); Joe's (C) withholds baseball singles (#339); live on `a6532df6`
 
