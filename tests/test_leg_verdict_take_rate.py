@@ -97,7 +97,7 @@ class TestALegVerdictShowsItsTakeRate:
         api = API.read_text(encoding="utf-8")
         start = api.index("function legVerdictBody")
         end = api.index("UNREADABLE_LEG_VERDICTS", start)
-        assert "take_rate" in api[start:end]
+        assert "{ take_rate: takeRate }" in api[start:end]
 
     def test_the_count_is_one_bounded_aggregate(self, db_path):
         conn = store.open_db(db_path)
