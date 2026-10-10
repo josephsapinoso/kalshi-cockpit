@@ -229,9 +229,12 @@ were **74% of every agent token** the fleet recorded over 2026-09-26..10-09
 200K, range 40K–817K, n = 105)**, and the one Sunday in the window recorded
 6.72M of card spend on 15 calls. Cards now build on his tap only. What bounds
 all of it is the shared `AgentBudget`'s daily ceilings (`AGENT_MAX_*`: 100
-searches since #157, 100 calls since #212 and **2.5M tokens since #349** —
-each moved alone, on Joe's word; the 9M of #219 held ~15 automatic cards a
-day and is superseded), checked against recorded
+searches since #157, 100 calls since #212 and **5M tokens since the evening
+of 2026-10-10** — each moved alone, on Joe's word; the 9M of #219 held ~15
+automatic cards a day and is superseded, and #349's 2.5M lasted five hours
+because it landed below the budget day's already-recorded 2.84M and refused
+his own taps until the 10:00Z reset — **a ceiling set below the day's
+recorded spend is a lockout, not a cap**), checked against recorded
 usage *before* each call — so a day overshoots by what the last call costs,
 and since ADR 0186 Amendment 1 in-flight verdicts hold an estimated 60K
 tokens and 3 searches each, so a burst no longer slips through on settled

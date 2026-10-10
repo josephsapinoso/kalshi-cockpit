@@ -557,7 +557,20 @@ primary_region = "ord"
   # verdicts (busiest day 1.21M) and his own taps; 2.5M is about twice the
   # busiest verdict day. Still tokens alone. Keep the Anthropic account's
   # own spend limit above what this allows, or the account refuses first.
-  AGENT_MAX_TOKENS_PER_DAY = "2500000"
+  #
+  # **2.5M -> 5M the same evening (2026-10-10 ~23:15Z), on Joe's word
+  # ("whatever is blocking me, fix it").** The 2.5M landed in the middle of
+  # a budget day that had already recorded 2.84M under the 9M regime
+  # (`agent-spend --days 2`: 2,838,176 by 16:31Z, all of it the automatic
+  # watcher before it was switched off), so the budget refused EVERY call --
+  # his taps included -- until the 10:00Z reset, and the Parlays list showed
+  # him the watcher's refusal formula on every game of a Saturday night. A
+  # ceiling lowered below the day's recorded spend is a lockout, not a cap;
+  # the lesson is in `tasks/lessons.md` 2026-10-10. At 5M a tap-only day
+  # holds ~10 cards (median 178K) or ~40 verdicts (~51K) above the busiest
+  # verdict day; the automatic path stays OFF, so nothing but his taps can
+  # reach it. Tokens alone, as every move before it.
+  AGENT_MAX_TOKENS_PER_DAY = "5000000"
 
   # **Unattended scouting is ON on live, at UNCHANGED ceilings** -- Joe's
   # answer (b) to ticket #116, given 2026-09-21, shipped as #118.

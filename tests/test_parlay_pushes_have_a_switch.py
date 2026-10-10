@@ -124,8 +124,10 @@ class TestLivePinsWhatJoeChoseOn20261010:
     def test_automatic_game_script_cards_are_off(self, live_env):
         assert live_env["GAME_SCRIPT_AUTO_ENABLED"] == "false"
 
-    def test_the_token_ceiling_is_two_and_a_half_million(self, live_env):
-        assert live_env["AGENT_MAX_TOKENS_PER_DAY"] == "2500000"
+    def test_the_token_ceiling_is_five_million(self, live_env):
+        # 2.5M for five hours on 2026-10-10: it landed below the budget day's
+        # already-recorded 2.84M and refused Joe's own taps until the reset.
+        assert live_env["AGENT_MAX_TOKENS_PER_DAY"] == "5000000"
 
     def test_the_contract_names_the_switch(self):
         text = (ROOT / ".env.example").read_text(encoding="utf-8")
