@@ -302,6 +302,25 @@ def configured_parlay_card_utc_hour() -> int:
     return hour
 
 
+def configured_parlay_pushes_enabled() -> bool:
+    """The **one** env read of `PARLAY_PUSHES_ENABLED`.
+
+    Whether the desk pushes parlays it built itself to the phone at all --
+    both the scheduled card (`PARLAY_CARD_UTC_HOUR`) and the
+    composition-change alerts (`MAX_PARLAY_PUSHES_PER_DAY`). `"false"` on live
+    since 2026-10-10, Joe's (A) to #350: stop the pushes, keep the ladder
+    view on `/parlays`. The ground is ADR 0071 §2.1 -- the desk does not
+    manufacture action, and a push of a parlay nobody asked for is exactly
+    that. Off, the runner also skips the ladder build the push needed (a
+    200,000-sample copula a card), because `Alerter.parlay_cards_could_send`
+    reads the same switch before the build.
+
+    Default true so a fresh copy behaves as the record describes; the owner's
+    choice lives in the deploy file, next to the hour it governs.
+    """
+    return _bool("PARLAY_PUSHES_ENABLED", True)
+
+
 @dataclass(frozen=True)
 class OddsConfig:
     api_key: str

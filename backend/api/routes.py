@@ -1878,10 +1878,15 @@ def create_app(
             },
             "drift_window_ms": DRIFT_WINDOW_MS,
             # Read by the screen and printed there. It is the sentence that
-            # stops every column on this page being read as a signal.
+            # stops every column on this page being read as a signal. Until
+            # 2026-10-10 it ended "and combined into nothing", which read as
+            # garbled on the page (the 2026-10-09 professional-bettor review,
+            # #344); the meaning -- no column here is added up into a pick --
+            # is now said in those words.
             "note": (
-                "None of these factors has been scored against an outcome. "
-                "They are recorded so they can be, and combined into nothing."
+                "None of these figures has been scored against an outcome, "
+                "and none of them is added up into a pick. They are recorded "
+                "so they can be scored one day."
             ),
         }
         # The cut, echoed, ONLY when one was applied: the key is absent

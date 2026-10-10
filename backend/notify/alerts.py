@@ -576,13 +576,31 @@ class Alerter:
     only thing this project cannot recreate later.
     """
 
-    def __init__(self, conn, notifier):
+    def __init__(self, conn, notifier, *, parlay_pushes_enabled: bool = True):
         self.conn = conn
         self.notifier = notifier
+        #: Whether the two parlay channels (the scheduled card and the
+        #: composition-change alert) may send at all. `PARLAY_PUSHES_ENABLED`,
+        #: read once in `scripts/run_loop.py`; `"false"` on live since
+        #: 2026-10-10 (Joe's (A) to #350: stop the pushes, keep the ladder
+        #: view). The other channels -- failures, the digest, hedge pushes --
+        #: are untouched by it. Default true so a fresh copy behaves as the
+        #: record describes; the deploy file is where the owner's choice lives.
+        self.parlay_pushes_enabled = bool(parlay_pushes_enabled)
 
     @property
     def enabled(self) -> bool:
         return bool(getattr(self.notifier, "enabled", False))
+
+    @property
+    def parlay_pushes_armed(self) -> bool:
+        """Both switches: a configured notifier AND the parlay channels on.
+
+        `parlay_cards_could_send` and `parlay_cards` read this instead of
+        `enabled`, so the switch stops the ladder build (and the 200,000-sample
+        copula it costs) on the runner side as well as the send.
+        """
+        return self.enabled and self.parlay_pushes_enabled
 
     # -- the ledger of what was said ---------------------------------------
 
@@ -885,7 +903,7 @@ class Alerter:
         the gap anyway (both channels were exhausted), so pausing the streak's
         clock there costs nothing a live send would have needed.
         """
-        if not self.enabled:
+        if not self.parlay_pushes_armed:
             return False
         if now_ms >= parlay_card_due_ms(day_start_ms, card_hour_utc):
             row = self.conn.execute(
@@ -970,7 +988,7 @@ class Alerter:
         skipped: list[str] = []
         held: list[str] = []
 
-        if not self.enabled:
+        if not self.parlay_pushes_armed:
             return AlertResult((), (), (), ())
 
         notes = ladder.get("notes") or {}

@@ -164,3 +164,27 @@ it never earned.
   stubbed. Held, released after two builds, silent on the third, scheduled card
   at 20:00Z on its own key, silent for the rest of the hour. Six embeds on the
   worst-case day, which is the number Joe chose.
+
+## Amendment — the pushes are off on live, the schedule and the debounce stay (2026-10-10, Joe's (A) to #350)
+
+Both channels this ADR built — the scheduled card at `PARLAY_CARD_UTC_HOUR`
+and the debounced composition-change alert under `MAX_PARLAY_PUSHES_PER_DAY`
+— are switched off on live by a new `PARLAY_PUSHES_ENABLED = "false"`
+(`backend/config.py:configured_parlay_pushes_enabled`, `.env.example`,
+`fly.live.toml`). The main `Alerter` takes it as `parlay_pushes_enabled`;
+`parlay_cards_could_send` and `parlay_cards` read `parlay_pushes_armed`
+(notifier configured AND the switch on) instead of `enabled`, so the runner
+skips the ladder build the push needed — the 200,000-sample copula a card —
+as well as the send. `tests/test_parlay_pushes_have_a_switch.py` pins it,
+with a positive control (the same ladder IS sent with the switch on) because
+the first version of the "off sends nothing" test stayed green under mutation:
+a ladder that cannot send for another reason cannot tell the switch from the
+debounce. Every other channel — failures, the digest, the hedge pushes — is
+untouched.
+
+Ground: ADR 0071 §2.1, the desk does not manufacture action. The 2026-10-09
+professional-bettor review (ADR 0195) read a pushed desk-built parlay as
+exactly that: "a professional never looks at a parlay someone else built to
+fill a screen". The ladder view on `/parlays` stays (Joe chose (A) over
+cutting it). Re-arming is one line in the deploy file; the hour, the
+ceiling and the debounce are kept so that line is all it takes.

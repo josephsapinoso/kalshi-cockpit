@@ -1355,14 +1355,14 @@ async def poll_portfolio_forever(
     `None`, every fee mismatch is still computed and logged at ERROR; nothing
     reaches a phone.
 
-    **It is unwired in production as this lands**, and that is a lane boundary
+    **It was unwired in production when this landed**, as a lane boundary
     rather than a decision: `scripts/run_loop.py` constructs the `Alerter` and
-    starts this task, and the session that wrote this could not edit it. One
-    line there -- `poll_portfolio_forever(args.db, kalshi,
-    alerter_factory=lambda poll_conn: Alerter(poll_conn, discord))` -- is what
-    puts the alarm on the phone. Until that line exists this is the
-    "built but never called" pattern `tasks/lessons.md` records, deliberately
-    and with the remedy named.
+    starts this task, and the session that wrote this could not edit it. That
+    line now exists -- `scripts/run_loop.py` passes
+    `alerter_factory=lambda poll_conn: Alerter(poll_conn, discord)` -- so the
+    alarm reaches the phone. (This paragraph said "unwired" until 2026-10-10,
+    a session after the wiring landed; the runtime trace of `de880d1c` caught
+    the stale claim.)
 
     `sleep`, `clock` and `max_cycles` exist for tests. Production callers pass
     none of them.

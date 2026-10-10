@@ -61,10 +61,16 @@
 #
 # Since ADR 0062 the pricing pass defaults to `review_retired`
 # (backend/agents/review.py): every surfaced row is refused as unreviewed and
-# **no Anthropic call is made from the scheduled path at all**. The key stays
-# set because the scout desk uses it; the desk is metered separately by
-# AGENT_MAX_CALLS_* below. Keep the spend limit on the Anthropic account
-# regardless -- config in this file has been wrong about this bill once.
+# **the pricing pass makes no Anthropic call**. That sentence used to say "no
+# Anthropic call is made from the scheduled path at all", and it was false
+# from 2026-09-30 to 2026-10-10: the game-script watcher (`run_loop.py`,
+# `GAME_SCRIPT_AUTO_ENABLED` below) is a scheduled path and it spent 74% of
+# the fleet's tokens over 2026-09-26..10-09. It is off again as of
+# 2026-10-10 (Joe's (A) to #349); the scout watcher
+# (`SCOUT_AUTO_CONVENE_ENABLED`) is also off. The key stays set because the
+# tap paths use it; everything is metered by AGENT_MAX_* below. Keep the
+# spend limit on the Anthropic account regardless -- config in this file has
+# been wrong about this bill twice.
 #
 # The Kalshi RSA private key is a file rather than a string, so it travels as
 # KALSHI_PRIVATE_KEY_B64 and `docker/entrypoint.sh` decodes it into /dev/shm --
@@ -112,6 +118,15 @@ primary_region = "ord"
   # November the same value lands at 3pm Eastern; changing THIS is the fix, and
   # a timezone is not.
   PARLAY_CARD_UTC_HOUR = "20"
+
+  # **Parlay pushes OFF -- Joe's (A) to #350, 2026-10-10.** Neither the
+  # scheduled card nor the composition-change alerts reach the phone, and the
+  # runner skips the ladder build that fed them. The ladder view on /parlays
+  # stays. Ground: ADR 0071 §2.1, the desk does not manufacture action; the
+  # 2026-10-09 professional-bettor review called a pushed desk-built parlay
+  # exactly that. The hour above is inert while this is false and is kept so
+  # re-arming is one line.
+  PARLAY_PUSHES_ENABLED = "false"
 
   # The gate stays LOCKED until the paper record earns it: >=300 scored
   # recommendations, positive CLV surviving the noise guard, and every fill
@@ -530,11 +545,19 @@ primary_region = "ord"
   # **1.5M -> 9M on 2026-09-30, Joe's (D) to #219.** The first real
   # game-script card cost 289,372 tokens (n = 1, #218), not the 60K assumed,
   # so the 0.5 unattended share of 1.5M held ~2 cards a day. At 9M the share
-  # holds ~15, a full NFL Sunday. Tokens ALONE moved; calls (100) and
-  # searches (100) are unmoved. Worst case ~$18 a day at the $2/$10 rate
-  # above (not re-checked). Keep the Anthropic account's own spend limit
-  # above what this allows, or the account refuses first.
-  AGENT_MAX_TOKENS_PER_DAY = "9000000"
+  # held ~15, a full NFL Sunday. Tokens ALONE moved; calls (100) and
+  # searches (100) are unmoved.
+  #
+  # **9M -> 2.5M on 2026-10-10, Joe's (A) to #349, with automatic cards OFF
+  # below.** The 14-day `agent-spend` read (2026-09-26..10-09, audited by
+  # measurement-skeptic): 39.47M tokens recorded, 74% of them automatic
+  # cards; since cards began the fleet ran a mean 3.35M a day (median 2.56M,
+  # range 1.51M-7.20M, 10 complete budget days, a floor because 92 of 453
+  # calls carry NULL usage). With cards on tap only, what remains is leg
+  # verdicts (busiest day 1.21M) and his own taps; 2.5M is about twice the
+  # busiest verdict day. Still tokens alone. Keep the Anthropic account's
+  # own spend limit above what this allows, or the account refuses first.
+  AGENT_MAX_TOKENS_PER_DAY = "2500000"
 
   # **Unattended scouting is ON on live, at UNCHANGED ceilings** -- Joe's
   # answer (b) to ticket #116, given 2026-09-21, shipped as #118.
@@ -610,7 +633,16 @@ primary_region = "ord"
   #
   # **On 2026-09-30 (#218), after the reading (289,372 tokens, one card) and
   # Joe's (D) to #219 raised the token ceiling to fit it.**
-  GAME_SCRIPT_AUTO_ENABLED = "true"
+  #
+  # **OFF again 2026-10-10, Joe's (A) to #349 -- cards on his tap only.**
+  # Over 2026-09-26..10-09 automatic cards were 74% of all agent tokens
+  # (29.2M of 39.47M recorded; a built card median 178K, mean 200K, n = 105;
+  # `agent-spend --days 14`, audited). The professional-bettor review of
+  # 2026-10-09 read a T-24h card as the slowest information available --
+  # before MLB lineups and most NFL injury designations -- in the shape of a
+  # tout's card with no record. The on-tap "Build card" on /game is
+  # untouched; the T-2h re-check is part of this watcher and stops with it.
+  GAME_SCRIPT_AUTO_ENABLED = "false"
 
   # **No preseason cards -- Joe, 2026-09-30.** By date, because Kalshi
   # labels NBA/NHL preseason with the same league string as the regular

@@ -851,7 +851,10 @@ CREATE TABLE IF NOT EXISTS fair_prices (
     -- being bought. Three layers of conservatism (worst method, derived ask,
     -- fee-net) is deliberate.
     p_conservative      REAL NOT NULL,
-    overround           REAL,               -- sum of raw implied probabilities
+    overround           REAL,               -- the MARGIN: sum of raw implied probabilities MINUS 1
+                                            -- (`core/devig.overround`, e.g. 0.033 for a 103.3% book).
+                                            -- This line said "sum" until 2026-10-10, and the market
+                                            -- screen rendered it as one -- "3.3%, not 100%" (#341).
     -- Spread between the best and worst book on this outcome. Wide market =
     -- untrustworthy fair line = suppression input.
     market_width        REAL,

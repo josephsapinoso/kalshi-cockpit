@@ -113,3 +113,24 @@ question, each verified by mutation.
 should be re-read after this ships — a share of the "empty nights" it was
 opened for were a missing ten-second poll, and the distribution it designs
 against is the post-fix one.
+
+## Amendment — `/board` ("Refusals") is deleted, not demoted (2026-10-10, Joe's (A) to #351)
+
+This ADR and #8 kept the refusal list as the footer entry "Refusals" when
+Picks took the nav word (ratified 2026-08-27). That is superseded. On
+2026-10-09 the professional-bettor review (ADR 0195) read the screen from a
+real capture: it drew the dry engine's edge in green ("EDGE, NET OF FEES
++1.7c", "EXPECTED +$0.02") — the claim ADR 0071 §2.5 forbids — over a
+server-sent stream (`/api/stream/quotes`) that carries nothing on live by
+construction, because `review_retired` zeroes `suggested_contracts` on every
+row and the QuoteHub therefore subscribes to nothing. Joe was asked whether
+to delete all four engine/study screens (`/board`, `/ledger`, `/estimate`,
+`/dashboards`), all but Refusals, or none; he chose **all four**. The page,
+its sole-imported components (`LiveBoard`, `OpportunityCard`, `TicketSheet`,
+`TicketProvider`, `WindowBanner`, `WindowSchedule`, `HowToRead`, `SlateRow`,
+`lib/liveSizing.ts`) and its footer entry go (#342). `GET /api/board`,
+`/api/stream/quotes` and `POST /api/orders` stay for now — a main-owned
+follow-up (#347) removes the routes nothing calls — and the gate interlock is
+untouched. Map #3's note that deleting `/board` was out of scope "because
+three components are reached only from it" is answered the other way: a
+component reached only from a dead screen is dead too.

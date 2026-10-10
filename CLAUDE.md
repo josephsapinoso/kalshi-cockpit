@@ -220,13 +220,18 @@ but the scout desk spends on every convening, and **leg verdicts** (#151,
 ADR 0186) spend on every tap that asks for one — about 51K tokens a verdict
 (range 29K–90K, n = 17, one day). Unattended scouting ran 2026-09-21 to -25
 and is **off** again (`SCOUT_AUTO_CONVENE_ENABLED = "false"`,
-`fly.live.toml`), its budget given to leg verdicts. What bounds all of it is
-the shared `AgentBudget`'s daily ceilings (`AGENT_MAX_*`: 100 searches
-since #157, 100 calls since #212 and **9M tokens since #219** — each moved
-alone, on Joe's word, for automatic **game-script cards** (#213, ADR 0190 +
-Amd 1): one call and ≤3 searches a game at T-24h, inside the 0.5 tap share.
-A card measured **289,372 tokens** (n = 1), so the share holds ~15 a day
-and an NFL Sunday costs ~4.1M), checked against recorded
+`fly.live.toml`), its budget given to leg verdicts. **Automatic game-script
+cards are also off** (`GAME_SCRIPT_AUTO_ENABLED = "false"` since 2026-10-10,
+Joe's (A) to #349, ADR 0190 Amendment 2): they ran 2026-09-30 to 10-10 and
+were **74% of every agent token** the fleet recorded over 2026-09-26..10-09
+(29.2M of 39.47M, n = 453 calls, a floor; `inspect_live_db.py agent-spend
+--days 14`, audited). A built card measured a **median 178K tokens (mean
+200K, range 40K–817K, n = 105)**, and the one Sunday in the window recorded
+6.72M of card spend on 15 calls. Cards now build on his tap only. What bounds
+all of it is the shared `AgentBudget`'s daily ceilings (`AGENT_MAX_*`: 100
+searches since #157, 100 calls since #212 and **2.5M tokens since #349** —
+each moved alone, on Joe's word; the 9M of #219 held ~15 automatic cards a
+day and is superseded), checked against recorded
 usage *before* each call — so a day overshoots by what the last call costs,
 and since ADR 0186 Amendment 1 in-flight verdicts hold an estimated 60K
 tokens and 3 searches each, so a burst no longer slips through on settled
@@ -590,7 +595,7 @@ costs days.
 
 | Idea | Result |
 |---|---|
-| **The "last scored call" card** (`/estimate`) | **Binned by Joe 2026-09-09**, not deferred. It can never render: `bet_estimates` holds exactly **one** row on live and it is `is_study_row = 1`, which `last_scored_call` must exclude, so the card is empty forever. The premise was stale when assigned — ADR 0094 §11 had killed the log screen on Joe's word 2026-09-05. Reopening needs real scored calls that are not study rows. The build (350 insertions, 7 files) is commit `ab559e6`, recoverable from the object store until GC. |
+| **The "last scored call" card** (`/estimate`) | **Binned by Joe 2026-09-09**, not deferred. It can never render: `bet_estimates` holds exactly **one** row on live and it is `is_study_row = 1`, which `last_scored_call` must exclude, so the card is empty forever. The premise was stale when assigned — ADR 0094 §11 had killed the log screen on Joe's word 2026-09-05. Reopening needs real scored calls that are not study rows. The build (350 insertions, 7 files) is commit `ab559e6`, recoverable from the object store until GC. **The `/estimate` page itself is gone too** (2026-10-10, Joe's (A) to #351, ADR 0195), with `/board`, `/ledger` and `/dashboards`: four screens that served the dry engine or the stopped study. Do not rebuild a screen for either. |
 | Stale-quote detection / picking off | Edge lives at ~400ms; a 60–180s detector is far too slow |
 | "The NO side is systematically cheap" | Refuted on 66,686 settled markets — every price bucket negative |
 | Kalshi↔Polymarket arbitrage | Text matching gives 0.56% match rate, and the matches are *wrong* |

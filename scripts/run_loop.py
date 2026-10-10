@@ -99,6 +99,7 @@ from backend.config import (  # noqa: E402
     assert_odds_age_limits_agree,
     assert_risk_day_start_agrees,
     configured_parlay_card_utc_hour,
+    configured_parlay_pushes_enabled,
 )
 from backend.core.suppression import SuppressionConfig  # noqa: E402
 from backend.kalshi.rest import KalshiRestClient  # noqa: E402
@@ -854,6 +855,11 @@ async def main() -> int:
     # a card that silently lands at the wrong time every day. An hour is a
     # value being validated, not one being trusted.
     parlay_card_hour = configured_parlay_card_utc_hour()
+    # `PARLAY_PUSHES_ENABLED`: "false" on live since 2026-10-10 (Joe's (A) to
+    # #350). Read once and handed to the main Alerter below; off, it stops
+    # both parlay channels AND the ladder build that fed them, because
+    # `parlay_cards_could_send` is the gate on the build.
+    parlay_pushes_enabled = configured_parlay_pushes_enabled()
     # Loaded once, here, rather than inside the pass: a bad value announces at
     # ERROR and falls back to the default, and doing that on every pass would
     # be 96 identical ERROR lines a day -- the exact failure the pass itself was
@@ -1095,7 +1101,7 @@ async def main() -> int:
             DiscordNotifier(discord_config) as discord, \
             httpx.AsyncClient(timeout=HEALTH_TIMEOUT_S) as health_client:
 
-        alerter = Alerter(conn, discord)
+        alerter = Alerter(conn, discord, parlay_pushes_enabled=parlay_pushes_enabled)
         tempo = Tempo(
             slow_interval_s=args.interval, fast_interval_s=args.fast_interval
         )
@@ -1224,8 +1230,11 @@ async def main() -> int:
         # The game-script watcher (#217, ADR 0190): one card per game in Joe's
         # sports as it comes within GAME_SCRIPT_LEAD_HOURS of kickoff, inside
         # the unattended token share. Unattended spend, so it ships behind
-        # `GAME_SCRIPT_AUTO_ENABLED` (default false; live stays false until one
-        # real card's cost is read, #218). Every build goes through
+        # `GAME_SCRIPT_AUTO_ENABLED` (default false). Live ran it "true" from
+        # 2026-09-30 (#218, after the one-card reading) to 2026-10-10, when
+        # Joe's (A) to #349 turned it off again: the 14-day `agent-spend`
+        # read put automatic cards at 74% of all agent tokens. Cards now
+        # build on his tap only (`/game-card`). Every build goes through
         # `build_card_for_game`, the tap's own path, so it reuses a card the
         # game already has and bills through the allowlisted `build_client`.
         game_script_config = GameScriptConfig.load()
