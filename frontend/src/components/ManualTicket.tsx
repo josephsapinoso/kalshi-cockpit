@@ -160,8 +160,14 @@ export default function ManualTicket({
   ticker: string;
   variant?: BuyVariant;
   /** The side the surface is about -- a parlay leg that is the Under of a
-   *  total opens on NO. Only honoured when that side has an ask; the
-   *  reader can still switch. Absent means "whichever side has an ask". */
+   *  total opens on NO, a "Bet this one alone: NO" row opens on NO. **Strict
+   *  since 2026-10-10 (#356's platform review):** when that side has no ask
+   *  on the live book the ticket REFUSES to open rather than opening on the
+   *  other contract -- the row's ask is read at page load, the ticket's at
+   *  the tap, and in between a thin book can lose its only bid; a silent
+   *  fall-back then sent a real order for the opposite side with nothing but
+   *  a highlighted button to say so. The reader can still switch inside the
+   *  open ticket. Absent means "whichever side has an ask". */
   preferSide?: "yes" | "no";
   /** Overrides the open affordance's words on a crowded surface. */
   openLabel?: string;
@@ -296,8 +302,17 @@ export default function ManualTicket({
     // `cooloff_until_ms: null`, pinned by
     // `test_the_estimate_route_reports_no_cooloff_either`. The DESK LOCKOUT
     // above is untouched — Joe removed the cool-off, not the lockout.
+    // A surface that named its side gets that side or nothing. The other
+    // contract is never a substitute for the one the row described.
+    if (preferSide !== undefined && market.sides[preferSide].ask_tenths === null) {
+      setPhase({
+        name: "blocked",
+        words: `The ${preferSide.toUpperCase()} side of this market has no ask on Kalshi's book right now, so this row cannot be bet. Nothing was sent; try again when a maker is back.`,
+      });
+      return;
+    }
     const defaultSide: "yes" | "no" =
-      preferSide !== undefined && market.sides[preferSide].ask_tenths !== null
+      preferSide !== undefined
         ? preferSide
         : market.sides.yes.ask_tenths !== null
           ? "yes"
@@ -319,9 +334,13 @@ export default function ManualTicket({
   // a Confirm figure the venue would not charge. The intent key is kept: it
   // is one ticket and one order, however many times the book is read. The
   // typed dollars survive too; `DollarAmount` recomputes the count from the
-  // new ask. A side whose ask has gone falls to whichever side still has one.
-  // Nothing here is automatic and nothing here gates: no auto-refresh, and a
-  // stale ask stays confirmable with its age beside it.
+  // new ask. **A side whose ask has gone STAYS the side he is on**, with no
+  // price pinned (so Confirm is disabled) and a note saying so -- until
+  // 2026-10-10 it fell to whichever side still had an ask, which on a
+  // ticket opened for the Under of a total meant a re-read could quietly
+  // turn it into the Over, with only a highlighted button to say so (#356's
+  // platform review). Nothing here is automatic and nothing here gates: no
+  // auto-refresh, and a stale ask stays confirmable with its age beside it.
   const reread = async () => {
     setRereadNote(null);
     let market: ManualMarket;
@@ -335,14 +354,17 @@ export default function ManualTicket({
       );
       return;
     }
-    const nextSide: "yes" | "no" =
-      market.sides[side].ask_tenths !== null
-        ? side
-        : market.sides.yes.ask_tenths !== null
-          ? "yes"
-          : "no";
+    // Never a different side than the one he is on: the side is his choice
+    // (or the row's), and the book going quiet on it is a fact to show, not
+    // a reason to buy the other contract.
+    const nextSide: "yes" | "no" = side;
     setSide(nextSide);
     setMaxPriceTenths(market.sides[nextSide].ask_tenths);
+    if (market.sides[nextSide].ask_tenths === null) {
+      setRereadNote(
+        `The ${nextSide.toUpperCase()} side has no ask on Kalshi's book now, so nothing can be sent on it. Switch sides only if you mean to buy the other contract.`,
+      );
+    }
     setPhase({ name: "ticket", market });
   };
 

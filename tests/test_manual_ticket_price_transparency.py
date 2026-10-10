@@ -529,3 +529,44 @@ class TestThePreflightComputesNoRealisedPnl:
             assert "venue_daily_pnl_dollars" not in (SRC / rel).read_text(
                 encoding="utf-8"
             ), rel
+
+
+class TestTheTicketNeverOpensOnASideTheRowDidNotName:
+    """#356's platform review (2026-10-10): a row's ask is read at page
+    load and the ticket's at the tap, and a thin book can lose its only
+    bid in between. `preferSide` used to be a default that fell back to
+    the other contract, so a "Bet this one alone: NO Under" tap could open
+    -- and send a real order -- on the Over, with only a highlighted button
+    to say so. Mutation observed red on each pin: restore the fall-back."""
+
+    def _open(self) -> str:
+        code = ticket_code()
+        body = code[code.index("const openTicket = async"):]
+        return body[: body.index("const reread = async")]
+
+    def _reread(self) -> str:
+        code = ticket_code()
+        body = code[code.index("const reread = async"):]
+        return body[: body.index("const confirm = async")]
+
+    def test_a_named_side_with_no_ask_blocks_the_ticket_instead_of_switching(self):
+        body = self._open()
+        assert "market.sides[preferSide].ask_tenths === null" in body
+        blocked = body[body.index("market.sides[preferSide].ask_tenths === null"):]
+        blocked = blocked[: blocked.index("return;")]
+        assert 'name: "blocked"' in blocked
+        assert "Nothing was sent" in blocked
+
+    def test_a_named_side_is_the_side_opened_never_a_fallback(self):
+        body = self._open()
+        chosen = body[body.index("const defaultSide"):]
+        chosen = chosen[: chosen.index("setSide(defaultSide)")]
+        assert "preferSide !== undefined\n        ? preferSide" in chosen
+        # The fall-back shape that could pick the other contract is gone.
+        assert "preferSide !== undefined && market.sides[preferSide]" not in chosen
+
+    def test_a_reread_keeps_the_side_he_is_on(self):
+        body = self._reread()
+        assert 'const nextSide: "yes" | "no" = side;' in body
+        assert 'market.sides.yes.ask_tenths !== null\n          ? "yes"' not in body
+        assert "setRereadNote(" in body and "has no ask on Kalshi's book now" in body
