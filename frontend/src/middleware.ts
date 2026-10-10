@@ -73,8 +73,6 @@ const PUBLIC_PATHS = new Set([
 const JSON_ROUTE_HANDLERS = new Set([
   "/refresh-odds",
   "/scout-desk",
-  "/log-estimate",
-  "/revise-estimate",
   "/lockout",
   "/pass",
   "/parlay-lookup",

@@ -285,9 +285,7 @@ OLD_PRIVATE = {
     "components/GoodChancePicks.tsx": ["ageWords"],
     "components/HedgePositions.tsx": ["describeQuoteAge"],
     "components/ParlayCards.tsx": ["scoutAge"],
-    "components/WindowBanner.tsx": ["formatCountdown"],
     "components/RecordChart.tsx": ["dollars"],
-    "components/SlateRow.tsx": ["formatBankroll"],
     "components/PriceChart.tsx": ["pct"],
     "lib/gauges.ts": ["pct"],
 }

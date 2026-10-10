@@ -218,13 +218,6 @@ export const GLOSSARY = {
       "beating the close again and again is the real sign a bettor knows " +
       "something.",
   },
-  ev: {
-    label: "expected value",
-    definition:
-      "The average result if this exact bet were repeated many times. " +
-      "+$0.10 expected on a $2 bet means that, on average, such bets earn " +
-      "ten cents — any single one still just wins or loses.",
-  },
   // `sd` (swing) was removed 2026-09-16 with the two figures that were the
   // only things rendering it. Issue #48, answered A: the swing and the
   // run-length sentence beside it were both computed from the
@@ -319,13 +312,6 @@ export const GLOSSARY = {
       "Kelly is a formula that sizes a bet by how big your edge is; " +
       "betting a quarter of what it says is deliberate caution — because " +
       "the edge estimate is usually the shaky part.",
-  },
-  fill: {
-    label: "fill",
-    definition:
-      "An order actually matching — the moment your buy found a seller. " +
-      "The fill price is what you truly paid, and it can differ from the " +
-      "ask you were looking at.",
   },
   expected_wins: {
     label: "expected to win",

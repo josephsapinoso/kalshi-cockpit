@@ -45,15 +45,12 @@ PAGES = [
     # were deleted in the 2026-08-22 review (builder deleted outright;
     # rejections folded into the Slate's disclosure; the scout index absorbed
     # into the game screens the desk is sent from).
-    "/dashboards",
-    "/ledger",
     "/playbook",
     "/gate",
-    # Off the nav is not off this list: `/slate`, `/dashboards` and
-    # `/estimate` are still served and still have to fit a phone. A page
+    # Off the nav is not off this list: `/slate` and
+    # `/gate` are still served and still have to fit a phone. A page
     # nobody links to is a page nobody notices has broken.
     "/slate",
-    "/estimate",
     # Joe's record (2026-08-21). Bare stack renders the zero-state strip and
     # the mirror caveat; populated rows are truncate + shrink-0 by design.
     "/bets",
@@ -61,11 +58,10 @@ PAGES = [
     # leg rows are truncate + shrink-0 like the picks list they mirror.
     "/parlays",
     # Added 2026-09-04: three served screens this list never measured. /picks
-    # took the nav word from /slate (ADR 0098); /board is Refusals and carries
-    # HowToRead; /hedge records a held parlay (ADR 0078). Two lanes changed
+    # took the nav word from /slate (ADR 0098); /board (Refusals) was deleted 2026-10-10 (#342);
+    # /hedge records a held parlay (ADR 0078). Two lanes changed
     # copy on the first two tonight and the check could not see them.
     "/picks",
-    "/board",
     "/hedge",
 ]
 

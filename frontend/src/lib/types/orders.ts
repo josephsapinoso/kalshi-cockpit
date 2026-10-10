@@ -8,79 +8,12 @@
 import type { WriteResult } from "../transport";
 import type { GateCondition } from "./signal";
 
-/**
- * What the order endpoint sends back when it accepts.
- *
- * **Every field is optional and unknown keys are preserved**, deliberately. The
- * response is being extended (an `order_id` for the persisted row, a
- * `resulting_exposure_dollars`), and a ticket that threw on a field it had not
- * been told about would break the one screen a person uses to bet, at the
- * moment the backend improves. So the sheet renders what it recognises, renders
- * anything else generically, and never assumes a key is there.
- *
- * The price appears as `limit_price_dollars` in the extended shape and as
- * `limit_price_cents` in the current one. Both are rendered in their own unit.
- * Converting between them here would be exactly the arithmetic this frontend is
- * not allowed to do -- see the module docstring on `LiveBoard`.
- */
-export type OrderQuote = {
-  recorded_ask_display?: string;
-  live_ask_display?: string;
-  moved_tenths?: number;
-  age_ms?: number;
-  depth_at_ask?: number | null;
-  authorised_contracts?: number;
-  resized_contracts?: number;
-  binding_constraint?: string;
-  note?: string;
-  [key: string]: unknown;
-};
-
-export type OrderPlaced = {
-  status?: string;
-  dry_run?: boolean;
-  client_order_id?: string;
-  /** Present once the endpoint persists the row. Absent until then. */
-  order_id?: number | string | null;
-  ticker?: string;
-  side?: string;
-  book_side?: string;
-  contracts?: number;
-  /** The venue's own count, or `null` when the response was unreadable --
-   * never `0` for "unknown". `undefined` on a row placed before this field
-   * existed (a stale replay). See `fill_count_display` for the reason. */
-  fill_count?: number | null;
-  fill_count_display?: string;
-  limit_price_dollars?: number;
-  limit_price_cents?: number;
-  fill_price_tenths?: number;
-  fill_price_display?: string;
-  price_grid?: string;
-  worst_case_cost_dollars?: number;
-  /** Present once orders are written. Rendered when it is, omitted when not. */
-  resulting_exposure_dollars?: number;
-  quote?: OrderQuote;
-  request_body?: Record<string, unknown>;
-  note?: string;
-  [key: string]: unknown;
-};
-
 /** The 423 body. `conditions` is the gate's own list, not a re-derivation. */
 export type LockedDetail = {
   message?: string;
   reason?: string;
   conditions?: GateCondition[];
 };
-
-/**
- * `status: 0` means the request never reached the server.
- *
- * Given its own value rather than folded into 503, because they call for
- * different sentences: one says the exchange could not be read, the other says
- * this phone could not be heard. Telling a person on a train that Kalshi is
- * down when their signal dropped sends them looking in the wrong place.
- */
-export type OrderResult = WriteResult<OrderPlaced>;
 
 export type ManualMarketSide = {
   ask_tenths: number | null;

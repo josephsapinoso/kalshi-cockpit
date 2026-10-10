@@ -46,7 +46,7 @@ VOCABULARY: dict[str, str] = {
     #: indistinguishable from the identifier (`bet.contracts`,
     #: `const contracts`) in comment-stripped source, so scanning for it
     #: reports code as prose. The orphan test still guarantees the term is
-    #: rendered somewhere; TicketSheet, OpportunityCard and the market page
+    #: rendered somewhere; ManualTicket and the market page
     #: carry it.
     r"[Cc]onsensus fair": "consensus",
     r"\bdevigged\b": "devig",
@@ -60,9 +60,6 @@ VOCABULARY: dict[str, str] = {
 #: An exemption without a reason is a hole wearing a label. `lib/glossary.ts`
 #: is skipped wholesale in the scan — it IS the glossary.
 EXEMPT: dict[tuple[str, str], str] = {
-    ("components/HowToRead.tsx", "consensus"): (
-        "teaching prose that defines its own words in full sentences"
-    ),
     ("lib/suppressionGloss.ts", "bankroll"): (
         "gloss sentences define in place; a Term inside a gloss would nest "
         "popovers"
@@ -80,10 +77,6 @@ EXEMPT: dict[tuple[str, str], str] = {
         '`get<Exposure>("/api/exposure")` — a URL, not prose, and this file '
         "renders no DOM at all. The line that URL feeds is glossed where it "
         "is read: `ManualTicket.tsx` wraps it in <Term k=\"exposure\">"
-    ),
-    ("app/dashboards/page.tsx", "clv"): (
-        "developer screen (503 on live, off the nav since 2026-08-22); its "
-        "subtitle sentence carries the caveat in place"
     ),
 }
 
@@ -163,7 +156,7 @@ class TestTheScanFindsWhatItShould:
         this repo's history."""
         files = scanned_files()
         for expected in (
-            "components/TicketSheet.tsx",
+            "components/ManualTicket.tsx",
             "app/slate/page.tsx",
             "app/bets/page.tsx",
             "app/gate/page.tsx",
@@ -174,7 +167,7 @@ class TestTheScanFindsWhatItShould:
             for rel, source in files.items()
             if any(re.search(p, source) for p in VOCABULARY)
         }
-        assert "components/TicketSheet.tsx" in hits
+        assert "components/ManualTicket.tsx" in hits
         assert "app/gate/page.tsx" in hits
         assert "app/bets/page.tsx" in hits
 

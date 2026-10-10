@@ -65,7 +65,7 @@ def cookie() -> str:
     return f"{expiry}.{sig}"
 
 
-PAGES = ["/parlays", "/board", "/slate", "/hedge", "/picks"]
+PAGES = ["/parlays", "/slate", "/hedge", "/picks"]
 APIS = [
     "/api/health",
     "/api/window",

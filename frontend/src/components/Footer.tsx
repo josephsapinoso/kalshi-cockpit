@@ -67,6 +67,9 @@ import { SHELL_WIDTH } from "@/lib/shell";
 // - **`/rejections` is DELETED and folded into the Slate** — the Slate was
 //   already a strict superset per-row; it now carries the per-code counts
 //   as a disclosure, so the aggregate lives beside the rows it aggregates.
+// - **`/board`, `/ledger`, `/estimate` and `/dashboards` are DELETED**
+//   (2026-10-10, #342); the entries for the first three are gone from this
+//   list, and the note that follows is history.
 // - **`/dashboards` lost this slot** (Joe approved). It is a dev screen:
 //   on the deployed box its only state is a 503 whose remedy is two shell
 //   commands. Still served for the developer who just ran dbt; reachable
@@ -92,56 +95,6 @@ const SECONDARY = [
     label: "Playbook",
     blurb:
       "The rules in force when each observation was recorded, and every threshold change that splits the evidence into halves. Reference, not a betting screen.",
-  },
-  {
-    // The stopped study's record (Amendment 2, stopped without result).
-    // The FORM retired 2026-08-22 (ADR 0065), which moved a typed P(YES) to
-    // the manual ticket as its first field, asked before the price was
-    // revealed and required by the route. **The ticket stopped asking on
-    // 2026-09-09** (ADR 0131),
-    // for the reason this comment already carried: it was RECORDED there and
-    // never consumed. The comment claimed "where it has a consumer (bet_clv)"
-    // until 2026-08-29 and that was never true -- nothing in the tree SELECTs
-    // `p_yes_bp`, and `bet_clv` scores entry price against the closing mid
-    // without it.
-    // This page keeps the entries already logged and their revision flags.
-    href: "/estimate",
-    label: "Estimates",
-    blurb:
-      "The stopped study's record of typed P(YES) numbers. The form is retired.",
-  },
-  {
-    // Demoted from the nav 2026-08-24 when the Parlay desk took its slot
-    // (Joe's call: promote parlays, demote what is not day-to-day). This is
-    // the engine's evidence base — every candidate row with its factors —
-    // read when auditing the record, not when placing a bet.
-    href: "/ledger",
-    label: "Evidence",
-    blurb:
-      "Every candidate the engine has recorded, with its factors and suppression reason. The audit trail, not a betting screen.",
-  },
-  {
-    // Demoted from the nav 2026-09-02 when the ranked list took the "Picks"
-    // slot (#8, ratified by Joe 2026-08-27; the word is his, #29). This is
-    // the engine's working kept in the open -- every candidate it priced in
-    // its last half-hour, and what stopped each one -- consulted after a
-    // question, not scanned nightly. The footer is the link, deliberately:
-    // #8 struck the in-page link from the foot of Picks because every row
-    // here carries a live hand-bet button, and a next-step affordance under
-    // a favourites list is the chase shape. Its sibling above is the same
-    // subject on the other clock: `/ledger` is the whole record, this is
-    // one window anchored on the recorder's last pass.
-    //
-    // "The reason that stopped it -- a named check, or the fee bar": #9
-    // wrote "the named rule" and recorded the caveat that only the rejected
-    // bucket carries one. Measured on live 2026-09-02, 82 of 122 rows in the
-    // window were refused by the fee bar alone with no rule named, so the
-    // universal reading was false on two rows in three and #9's own
-    // exactness fix is taken.
-    href: "/board",
-    label: "Refusals",
-    blurb:
-      "The candidates the engine priced in its last half-hour of recording, each with the reason that stopped it — a named check, or the fee bar. Nearly all are refused — the ordinary night.",
   },
 ];
 

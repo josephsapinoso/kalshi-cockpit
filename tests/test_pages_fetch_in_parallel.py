@@ -1,6 +1,6 @@
-"""Four pages cost their slowest fetch, not the sum -- #186, ADR 0188.
+"""Three pages cost their slowest fetch, not the sum -- #186, ADR 0188.
 
-`slate`, `parlays`, `picks` and `board` `page.tsx` each read one primary
+`slate`, `parlays` and `picks` `page.tsx` (`board` was deleted 2026-10-10, #342) each read one primary
 resource and one or more secondary ones (a timetable, a signal strip, a
 refresh panel). Before this ticket every secondary fetch was `await`ed one
 after another, so a page's cost was the SUM of every call's latency; one
@@ -38,7 +38,6 @@ PAGES = {
     "slate": REPO / "frontend" / "src" / "app" / "slate" / "page.tsx",
     "parlays": REPO / "frontend" / "src" / "app" / "parlays" / "page.tsx",
     "picks": REPO / "frontend" / "src" / "app" / "picks" / "page.tsx",
-    "board": REPO / "frontend" / "src" / "app" / "board" / "page.tsx",
 }
 
 # A directly-awaited fetch call: `await fetchSomething(`. A secondary fetch
@@ -104,7 +103,7 @@ class TestNoPageAwaitsIndependentFetchesInSequence:
     def test_each_secondary_fetch_still_carries_its_own_catch(self):
         """The ticket's first "keep exactly": a failed secondary read is
         drawn in words, never an error page. Every `...Promise = fetch...`
-        assignment across the four pages must chain `.catch(() => null)`
+        assignment across the three pages must chain `.catch(() => null)`
         immediately, the same shape as before this ticket.
 
         Mutation observed red: dropping `.catch(() => null)` from

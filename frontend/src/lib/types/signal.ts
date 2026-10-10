@@ -278,56 +278,6 @@ export type Gate = {
   note: string;
 };
 
-export type Ledger = {
-  rows: Recommendation[];
-  /**
-   * Independent ACTIONABLE games scored on CLV: the gate's own population
-   * (`clustered_clv(conn, "actionable")`), so this equals the Gate screen's
-   * count. Not a row count, and not every scored game (#230).
-   */
-  clv_scored: number;
-  /** Raw recommendation rows behind those games, kept visible beside them. */
-  clv_scored_rows: number;
-  clv_required: number;
-  gate_open: boolean;
-  /** Rows in the whole table. Compare with `returned` to tell a slice from it. */
-  total: number;
-  /** How many rows `rows` actually holds. */
-  returned: number;
-  /** The `LIMIT` that was applied. */
-  limit: number;
-  /**
-   * The `OFFSET` that was applied. Echoed because `total`, `returned` and
-   * `limit` cannot tell "I fetched every page" from "I fetched page 0 twice".
-   */
-  offset: number;
-  /**
-   * The snapshot pin in force, or `null` for an unpinned read.
-   *
-   * A multi-page pull **must** pass `newest_id` back as `max_id`. The route
-   * sorts newest-first, so a row written during the pull lands on page 0 and
-   * shifts every later page — and on live one `created_ms` carries 84 rows,
-   * so a single sweep landing mid-pull duplicates a quarter of the result and
-   * drops rows that were there the whole time, with `returned` and `total`
-   * still adding up.
-   */
-  max_id: number | null;
-  /**
-   * The newest `id` in the table, not in the page. Pass it back as `max_id`
-   * to pin a snapshot. Under a pin, `newest_id > max_id` says rows arrived
-   * during the pull and were correctly excluded.
-   */
-  newest_id: number | null;
-  /**
-   * The whole table counted by `clv_horizon_hours`, keyed as strings — `"0"`,
-   * `"1"`, `"unscored"`. Over the table rather than the returned window,
-   * because the legacy rows are the oldest and the window is newest-first.
-   */
-  horizons: Record<string, number>;
-  /** The anchor the gate counts. Everything else is record, not evidence. */
-  primary_horizon_hours: number;
-};
-
 /**
  * The two cuts a list screen may make (#15, Joe's option A): one league, by
  * the odds feed's sport key, and a kickoff window in hours. Both are sent as
@@ -374,14 +324,6 @@ export type Panel = {
   status: "ok" | "empty" | "unavailable";
   rows: Record<string, string | number | boolean | null>[];
   note: string | null;
-};
-
-export type Dashboards = {
-  warehouse_built_ms: number;
-  freshness_note: string;
-  missing_required_marts: string[];
-  panels: Record<string, Panel>;
-  headlines: string[];
 };
 
 /**
@@ -521,16 +463,6 @@ export type Signal = {
   registration: string;
   note: string;
 };
-
-/**
- * How often each suppression rule fired.
- *
- * The shape is the route's, read before it was typed: `{"counts": {reason: n}}`,
- * already sorted by count descending server-side, with a row failing several
- * checks counted once under each. So the values sum to more than the number of
- * rejected rows, and that is correct rather than a bug to normalise away.
- */
-export type Suppression = { counts: Record<string, number> };
 
 /** One strategy version, and the evidence recorded while it was in force. */
 export type ConfigVersion = {

@@ -31,6 +31,11 @@ import { GaugeReadout } from "@/components/ui";
 // nobody had measured. The history below is kept as it was written, and
 // every "six" in it describes the row before #18.
 //
+// **`/board`, `/ledger`, `/estimate` AND `/dashboards` NO LONGER EXIST either.
+// Deleted 2026-10-10 (#342, Joe's answer A).** Every mention of them below, and
+// of "still served", is history; `tests/test_dead_screens_stay_deleted.py` pins
+// the deletion. The footer lists Gate and Playbook only.
+//
 // **`/builder` AND `/rejections` NO LONGER EXIST. Corrected 2026-08-29.**
 // This comment said in four separate places that they were "still served",
 // and `frontend/src/app/` has held no `builder/` or `rejections/` directory

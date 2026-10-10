@@ -158,66 +158,6 @@ class TestHeadlines:
         assert not any("mart_suppression_audit" in h for h in headlines)
 
 
-class TestTheDashboardCannotRenderAnUncensoredResult:
-    """The presentation half of the noise guard, tested as a guard.
-
-    Suppressing a conclusion does not suppress the finding if its operands are
-    still on screen: `gap = actual - implied`, so a row reading
-    `73.0c | 46 | 73.0% | 52.2% | (noise)` hands the reader the 20.8-point
-    result by subtraction. The marts now emit pre-censored `*_display` columns;
-    this asserts the page reads those and not the raw ones.
-
-    A source check rather than a render check, deliberately -- the failure mode
-    is someone reaching for the obvious column name, and that is visible in the
-    source before it is visible in a screenshot.
-    """
-
-    PAGE = (
-        Path(__file__).resolve().parents[1]
-        / "frontend" / "src" / "app" / "dashboards" / "page.tsx"
-    )
-
-    # Columns that are results. Rendering any of them raw re-opens the leak.
-    RESULT_COLUMNS = (
-        "actual_rate",
-        "mean_pnl_cents",
-        "beat_close_rate",
-        "mean_clv_cents",
-    )
-
-    def _column_keys(self) -> set[str]:
-        """The `key:` values the page actually binds to table columns."""
-        source = self.PAGE.read_text(encoding="utf-8")
-        return set(re.findall(r'key:\s*"([a-z_]+)"', source))
-
-    def test_the_page_exists_where_this_test_thinks_it_does(self):
-        """Otherwise every assertion below passes vacuously."""
-        assert self.PAGE.exists(), self.PAGE
-        assert self._column_keys(), "no column bindings found -- regex is stale"
-
-    @pytest.mark.parametrize("column", RESULT_COLUMNS)
-    def test_no_result_column_is_rendered_raw(self, column):
-        assert column not in self._column_keys(), (
-            f"{column} is a result. Bind {column.replace('_rate', '')}_display "
-            f"or the equivalent censored column instead -- a raw value here "
-            f"renders a finding in a cell the guard has already refused."
-        )
-
-    def test_the_censored_columns_are_the_ones_bound(self):
-        keys = self._column_keys()
-        for expected in ("actual_display", "gap_display", "beat_close_display"):
-            assert expected in keys, f"{expected} is not rendered"
-
-    def test_implied_and_n_stay_raw(self):
-        """Not everything is censored, and the distinction is the point. The
-        price paid and the sample size are inputs, true regardless of outcome;
-        withholding them would make the table unreadable without hiding
-        anything, since one operand is enough to break the subtraction."""
-        keys = self._column_keys()
-        assert "implied_probability" in keys
-        assert "n" in keys
-
-
 class TestFreshness:
     def test_the_snapshot_lag_is_stated_not_implied(self, warehouse):
         """These marts are built from Parquet, so they lag live SQLite."""

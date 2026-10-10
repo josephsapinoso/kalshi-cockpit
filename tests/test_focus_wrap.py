@@ -41,7 +41,9 @@ from tests._node_driver import node_driver
 
 REPO = Path(__file__).resolve().parents[1]
 MODULE = REPO / "frontend" / "src" / "lib" / "focusWrap.ts"
-SHEET = REPO / "frontend" / "src" / "components" / "TicketSheet.tsx"
+# TicketSheet.tsx (where the defect was found) was deleted 2026-10-10 (#342); the
+# generic Sheet.tsx carries the same trap and imports the same predicate.
+SHEET = REPO / "frontend" / "src" / "components" / "Sheet.tsx"
 
 NODE = shutil.which("node")
 

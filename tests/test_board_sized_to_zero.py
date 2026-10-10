@@ -29,9 +29,6 @@ counts equal on one fixture so they cannot drift apart silently.
 from __future__ import annotations
 
 import re
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -41,11 +38,8 @@ from backend.config import AppConfig
 from tests.test_api import _slate_row, get
 from tests.test_board_screen import (
     API_TS,
-    BOARD_PAGE,
-    SLATE_ROW,
     _one_row_db,
     block,
-    code,
     source,
 )
 
@@ -268,121 +262,7 @@ class TestTheBoardAndTheGateCannotDrift:
 
 
 class TestTheScreenNamesTheState:
-    """(e) Source pins for the chip, the caption, the tile and the sentence."""
-
-    def test_the_row_has_the_state_and_the_chip_names_it(self):
-        row = code(SLATE_ROW)
-        states = block(row, "export type SlateState =", ";")
-        assert '"sized-to-zero"' in states
-        chip = block(row, '"sized-to-zero": {', "},")
-        assert 'label: "SIZED TO ZERO"' in chip
-        assert "text-positive" not in chip, "a counted size is not an offer"
-        assert "negative" not in chip and "accent" not in chip, (
-            "the chip carries a tone colour, and colour is a claim; this row's "
-            "claim is a fact about two bankrolls, not a verdict."
-        )
-
-    def test_the_caption_says_both_halves_and_the_row_renders_it(self):
-        """"reference size N at $1,000" alone reads as a size to buy; "sized
-        to 0" alone reads as NO EDGE with a different chip."""
-        row = code(SLATE_ROW)
-        caption = block(row, "export function sizedToZeroCaption(", "\n}")
-        assert "reference size " in caption
-        assert "sized to 0 at your balance" in caption
-        # And it is what the row renders for the state, not a helper nothing
-        # calls.
-        assert 'resolved === "sized-to-zero"' in row
-        assert "sizedToZeroCaption(rec, referenceBankrollDollars)" in row
-
-    def test_the_caption_is_what_the_function_actually_produces(self):
-        """Run the real declarations, as `test_board_screen` does for
-        `edgeTone`. Node strips erasable TypeScript natively."""
-        row = source(SLATE_ROW)
-        # `formatBankroll` moved to lib/format.ts (#261); the row imports it.
-        fmt = source(SLATE_ROW.parent.parent / "lib" / "format.ts")
-        fns = "".join(
-            f"export function {name}(" + block(src, f"export function {name}(", "\n}") + "\n}\n"
-            for name, src in (("formatBankroll", fmt), ("sizedToZeroCaption", row))
-        )
-        harness = (
-            "type Recommendation = { reference_contracts: number | null };\n"
-            + fns
-            + """
-const full = sizedToZeroCaption({ reference_contracts: 4 }, 1000);
-// Two different bankrolls print two different figures: the caption reads
-// the argument, not a literal.
-if (sizedToZeroCaption({ reference_contracts: 2 }, 2500) !== "reference size 2 at $2,500 · sized to 0 at your balance") {
-  console.error("the bankroll in the caption is not the one passed in");
-  process.exit(1);
-}
-if (full !== "reference size 4 at $1,000 · sized to 0 at your balance") {
-  console.error(`full caption: ${full}`);
-  process.exit(1);
-}
-const nul = sizedToZeroCaption({ reference_contracts: null }, 1000);
-if (nul !== "sized to 0 at your balance") {
-  console.error(`null caption: ${nul}`);
-  process.exit(1);
-}
-"""
-        )
-        node = shutil.which("node")
-        if node is None:
-            pytest.skip("node is not on PATH; the source assertions above still hold")
-        with tempfile.TemporaryDirectory() as d:
-            tmp_ts = Path(d) / "sized_to_zero_caption.ts"
-            tmp_ts.write_text(harness, encoding="utf-8")
-            scratch = subprocess.run(
-                [node, str(tmp_ts)], capture_output=True, text=True, timeout=60
-            )
-        assert scratch.returncode == 0, scratch.stderr + scratch.stdout
-
-    def test_the_page_maps_the_bucket_to_the_state(self):
-        page = code(BOARD_PAGE)
-        assert "board.sized_to_zero.map(" in page, (
-            "the bucket is in the payload and rendered by nothing."
-        )
-        mapping = block(page, "board.sized_to_zero.map(", "})")
-        assert '"sized-to-zero"' in mapping
-        assert (
-            "referenceBankrollDollars={board.slate.reference_bankroll_dollars}"
-            in page
-        )
-
-    def test_the_page_has_the_tile_and_counts_it_as_hidden(self):
-        page = code(BOARD_PAGE)
-        assert (
-            '<Stat label="Sized to zero" value={board.counts.sized_to_zero} />'
-            in page
-        )
-        hidden = block(page, "const hidden =", ";")
-        assert "board.counts.sized_to_zero" in hidden, (
-            "with rejected rows hidden the page under-counts what it is not "
-            "showing, which is the old defect at one remove."
-        )
-
-    def test_the_record_sentence_reconciles_with_the_tiles(self):
-        """"N of M ever recorded" is the gate's count at the reference
-        bankroll. The sentence now says so and names the rows that count
-        there and buy nothing here, so the headline and the chips agree about
-        what "actionable" means -- the disagreement Joe's option A would have
-        left standing."""
-        page = source(BOARD_PAGE)
-        sentence = block(page, "Bettable now{", "</p>")
-        assert "actionable_total" in sentence
-        assert "{referenceBankroll}" in sentence
-        assert "SIZED TO ZERO" in sentence
-        assert "{board.counts.sized_to_zero}" in sentence
-
-    def test_no_edge_keeps_its_caption_and_the_header_names_three_reasons(self):
-        row = code(SLATE_ROW)
-        assert '"no edge after fees"' in row
-        page = source(BOARD_PAGE)
-        header = block(page, "<h1", "</header>")
-        assert "quarter-Kelly" in header and "buys no" in header, (
-            "the header still names two kinds of refusal while the rows show "
-            "three."
-        )
+    """(e) The chip, caption, tile and sentence pins went with the Board page and SlateRow (#342, 2026-10-10); the wire type stays."""
 
     def test_the_types_carry_the_bucket(self):
         api = source(API_TS.parent / "types" / "slate.ts")

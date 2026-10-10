@@ -75,46 +75,6 @@ export type EstimateMarket = {
   close_ms: number | null;
 };
 
-export type RecentEstimate = {
-  id: number;
-  ticker: string;
-  /** P(YES) in basis points: 6250 renders as 62.50%. */
-  stated_probability_bp: number;
-  estimate_server_ms: number;
-  had_already_opened_kalshi: number | null;
-  stated_probability_is_revised: number;
-};
-
-/**
- * The money arm's position: realised loss since the study opened, against
- * the $100 stop. Summed over the venue's own settlement record — never the
- * estimate log — which is why showing it breaks no embargo (A7). Nulls mean
- * "cannot read the record right now", which is a state, not a zero.
- */
-export type StudyStop = {
-  /**
-   * The registration's terminal state (Amendment 2, 2026-08-20):
-   * "stopped_without_result" — Joe stopped the study; nothing was scored.
-   * Distinct from `stopped`, the $100 money arm, which never fired.
-   */
-  study_state: string;
-  /** When the owner stopped the study, epoch ms. */
-  stopped_by_owner_ms: number;
-  loss_dollars: number | null;
-  ceiling_dollars: number;
-  stopped: boolean | null;
-  /** When the self-lockout releases (next 10:00Z), or null if none is live. */
-  lockout_until_ms: number | null;
-};
-
-/** What `POST /log-estimate` answers with. Quote-free by construction. */
-export type EstimateLogged = {
-  id: number;
-  ticker: string;
-  stated_probability_bp: number;
-  estimate_server_ms: number;
-};
-
 /** One drawable bar of a market's price history. Prices in tenths of a cent;
  *  every field independently nullable — a candle in which nothing traded is a
  *  gap on the chart, never a bar invented at zero. */

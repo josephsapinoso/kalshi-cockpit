@@ -53,8 +53,6 @@ SUPPRESSION = REPO / "backend" / "core" / "suppression.py"
 SIZING = REPO / "backend" / "core" / "sizing.py"
 ENGINE = REPO / "backend" / "engine.py"
 GLOSS_TS = REPO / "frontend" / "src" / "lib" / "suppressionGloss.ts"
-SLATE_ROW = REPO / "frontend" / "src" / "components" / "SlateRow.tsx"
-CARD = REPO / "frontend" / "src" / "components" / "OpportunityCard.tsx"
 SLATE_PAGE = REPO / "frontend" / "src" / "app" / "slate" / "page.tsx"
 MARKET_PAGE = REPO / "frontend" / "src" / "app" / "market" / "[ticker]" / "page.tsx"
 SKEPTIC_PANEL = REPO / "frontend" / "src" / "components" / "SkepticPanel.tsx"
@@ -220,38 +218,6 @@ class TestTheGlossIsAdditive:
         )
         return rendered.search(without_comments(source)) is not None
 
-    def test_the_slate_row_still_renders_the_raw_code(self):
-        """The Board's row: the code, and a link to where it is explained.
-
-        Ticket #16 (16A) took the sentence off this row. The code is still
-        the row's content -- it is what `/api/suppression` counts -- and the
-        thing beside it is now a pointer, not a paragraph. Mutation observed
-        red both ways: put `glossSentence(rec.suppressed_reason)` back, or
-        drop the `whyRefusedHref` link.
-        """
-        source = SLATE_ROW.read_text(encoding="utf-8")
-        assert self._renders_raw_code(source, "rec"), (
-            "SlateRow no longer renders the engine's own code. The link was "
-            "permitted because it sits beside the code, not in place of it -- "
-            "one rule, one name, and the explanation one tap away."
-        )
-        live = without_comments(source)
-        assert "glossSentence(" not in live, (
-            "SlateRow renders the gloss sentence on the row again. Ticket #16 "
-            "(16A) moved it to the game screen; the row keeps the code and a "
-            "link, and eleven rows of prose is what the ticket was opened for."
-        )
-        assert "whyRefusedHref(rec.ticker)" in live, (
-            "SlateRow dropped the sentence without pointing at where it went. "
-            "A beginner who cannot see why a row was refused cannot learn from "
-            "the refusal -- the ticket's own words."
-        )
-
-    def test_the_card_still_renders_the_raw_code(self):
-        source = CARD.read_text(encoding="utf-8")
-        assert self._renders_raw_code(source, "rec")
-        assert "glossSentence(rec.suppressed_reason)" in source
-
     def test_the_slate_page_still_renders_the_raw_code(self):
         """`/slate`'s own row, the screen the ticket measured. Same shape as
         the Board's row: code stays, sentence goes, link arrives. The
@@ -304,7 +270,7 @@ class TestEveryRenderSiteIsGlossed:
     #: The row sites ticket #16 cut. These must take the *pointer* branch and
     #: not the in-place one -- listed by name, because the scan below accepts
     #: either and would call a row that grew its paragraph back complete.
-    POINT_AWAY = {"components/SlateRow.tsx", "app/slate/page.tsx"}
+    POINT_AWAY = {"app/slate/page.tsx"}
 
     @staticmethod
     def _explains(live: str) -> bool:
@@ -359,8 +325,6 @@ class TestEveryRenderSiteIsGlossed:
             )
         }
         assert {
-            "components/SlateRow.tsx",
-            "components/OpportunityCard.tsx",
             "app/slate/page.tsx",
         } <= found, found
 

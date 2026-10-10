@@ -53,12 +53,9 @@ from tests.test_api import _every_row, _slate_row, get
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend" / "src"
 API_TS = FRONTEND / "lib" / "api.ts"
-SLATE_ROW = FRONTEND / "components" / "SlateRow.tsx"
-# The Board moved to /board on 2026-08-20 (fleet convening item 3): "/" now
-# lands on the Slate. Every claim in this file is about the BOARD screen, so
-# the path follows the screen, not the route.
-BOARD_PAGE = FRONTEND / "app" / "board" / "page.tsx"
-LEDGER_PAGE = FRONTEND / "app" / "ledger" / "page.tsx"
+# The Board page, its slate row and the Ledger page were deleted 2026-10-10
+# (#342); what remains here is the shared tone helper, the Slate page and the
+# `/api/board` route, which stays.
 SLATE_PAGE = FRONTEND / "app" / "slate" / "page.tsx"
 
 
@@ -109,19 +106,6 @@ class TestARefusedRowIsNeverPaintedAsMoney:
         assert "export function edgeTone(" in api
         assert "export const EDGE_TONE_CLASS" in api
         assert "export function hasSuppression(" in api
-        assert "edgeTone" in source(SLATE_ROW)
-
-    def test_the_slate_row_never_names_the_positive_colour_itself(self):
-        """The mechanism, not just the outcome.
-
-        A component that keeps its own `text-positive` branch beside the shared
-        tone is one edit away from the original defect, and the edit would look
-        like a simplification.
-        """
-        assert "text-positive" not in code(SLATE_ROW), (
-            "SlateRow must take its edge colour from EDGE_TONE_CLASS, so that "
-            "'is this number money?' is answered in one place."
-        )
 
     def test_suppression_is_consulted_before_the_sign_of_the_subtraction(self):
         # From the opening brace, so the parameter's type annotation -- which
@@ -206,21 +190,6 @@ class TestARefusedRowIsNeverPaintedAsMoney:
             "row reading 'suspicious_edge,wide_market' escapes the loud tone."
         )
 
-    def test_the_reason_is_not_rendered_at_the_weight_of_a_footnote(self):
-        """The other half of the defect. The code naming the row a defect was
-        `text-muted` on every row while the edge beside it was bright green."""
-        row = source(SLATE_ROW)
-        rejected = block(row, 'resolved === "rejected"', "}")
-        # `text-accent-2`, the warning ochre, since ADR 0081 moved refusal
-        # off the brand red. The claim is that the reason is ESCALATED, not
-        # which token does it -- but naming the token exactly is what stops
-        # this passing on a substring of some future `text-accent-3`.
-        assert "text-muted" not in rejected or "text-accent-2" in row, (
-            "the suppression reason still renders in the muted colour with no "
-            "escalated branch beside it."
-        )
-
-
 class TestAZeroContractRowIsNeverPaintedAsMoney:
     """The second bound on the same quantity.
 
@@ -300,36 +269,11 @@ for (const edge_cents of [5, 0, -5]) {
 class TestEveryPathASuppressedRowCanReachTheScreenBy:
     """The point of the fix, checked rather than assumed.
 
-    One component does not own this. A row carrying `suppressed_reason` is
-    rendered by the Board's slate rows *and* by the Ledger, which lists every
-    recommendation the database holds.
+    One component does not own this. The Board, its slate rows and the Ledger
+    were the screens a refused row reached; all three were deleted (#342,
+    2026-10-10), so the inventory below is now empty by construction and any
+    screen that colours an edge has to be decided here again.
     """
-
-    # Screens that colour an edge and cannot receive a refused row, with the
-    # reason each one is safe. `build_recommendation` and
-    # `with_added_suppression` both zero `suggested_contracts` on suppression
-    # (asserted below), and `/api/board` only routes rows with
-    # `suggested_contracts > 0` into `surfaced`/`expired` -- which are the only
-    # rows these three ever see.
-    CANNOT_RECEIVE_A_REFUSED_ROW = {
-        "components/OpportunityCard.tsx": "rendered by LiveBoard from board.surfaced",
-        # Matches on both substrings without ever colouring an edge: its
-        # `edge_cents` is a field of the streamed quote it merges into a row,
-        # and its `text-positive` is the LIVE feed-status chip. Kept in the
-        # inventory rather than special-cased -- a screen that holds both names
-        # for unrelated reasons today is one edit from holding them for the
-        # related one.
-        "components/LiveBoard.tsx": "board.surfaced only; colours a feed status, not an edge",
-        "components/TicketSheet.tsx": "opens only for a surfaced row",
-    }
-
-    # The two screens a row carrying `suppressed_reason` actually reaches, and
-    # therefore the two that must ask `edgeTone` rather than the sign. The
-    # Ledger was the second one and was fixed one lane later than the Board.
-    TAKE_THE_SHARED_TONE = {
-        "components/SlateRow.tsx",
-        "app/ledger/page.tsx",
-    }
 
     def colouring_screens(self) -> set[str]:
         found = set()
@@ -341,23 +285,14 @@ class TestEveryPathASuppressedRowCanReachTheScreenBy:
                 found.add(path.relative_to(FRONTEND).as_posix())
         return found
 
-    def test_the_inventory_is_not_empty(self):
-        """Without this the set could collapse to nothing and every membership
-        assertion below would hold vacuously."""
-        assert len(self.colouring_screens()) >= 4
-
     def test_no_screen_colours_an_edge_without_being_accounted_for(self):
         """The anchor that makes this an inventory rather than a snapshot.
 
         A new screen rendering `edge_cents` in a tone colour fails here until
-        somebody decides which of the two groups it belongs to: it asks
-        `edgeTone`, or the engine invariant says no refused row can reach it.
+        somebody decides whether it asks `edgeTone` or the engine invariant
+        says no refused row can reach it. The accounted set is empty today.
         """
-        accounted = self.TAKE_THE_SHARED_TONE | set(self.CANNOT_RECEIVE_A_REFUSED_ROW)
-        assert self.colouring_screens() <= accounted
-
-    def test_the_board_slate_row_takes_the_shared_tone(self):
-        assert "edgeTone" in source(SLATE_ROW)
+        assert self.colouring_screens() == set()
 
     def test_the_slate_screen_renders_no_edge_at_all(self):
         """Inverted 2026-08-21, and the inversion is the point.
@@ -386,61 +321,6 @@ class TestEveryPathASuppressedRowCanReachTheScreenBy:
             "the Slate consults the edge tone machinery, which means an edge "
             "is being coloured somewhere on the landing screen"
         )
-
-    def test_the_ledger_takes_the_shared_tone(self):
-        """The Ledger is the *wider* of the two paths, not a lesser one.
-
-        The Board shows one windowed slate; the Ledger lists every
-        recommendation the database holds, so before this every
-        `suspicious_edge` row ever written rendered in the colour that means
-        take this. This was a strict xfail while the file sat outside the
-        Board lane's ownership.
-
-        Asserting only that the name `edgeTone` appears in the file would pass
-        on an import nothing calls, and on a file that computes the tone and
-        then colours the span by the sign anyway. So: the helper is *called*,
-        the class map is keyed on what it returned, and no sign-of-edge test
-        reaches a tone colour.
-        """
-        ledger = code(LEDGER_PAGE)
-
-        call = re.search(r"(?:const|let)\s+(\w+)\s*=\s*edgeTone\(\s*rec\s*\)", ledger)
-        assert call, (
-            "the Ledger does not call edgeTone on its row, so any tone name it "
-            "mentions came from somewhere else."
-        )
-        tone = call.group(1)
-        assert f"EDGE_TONE_CLASS[{tone}]" in ledger, (
-            "the Ledger computes the shared tone and does not colour the edge "
-            "with it, which renders exactly as the original defect."
-        )
-        assert f"EDGE_TONE_MARK[{tone}]" in ledger, (
-            "the Ledger carries the rule in colour alone, so for a reader who "
-            "cannot separate the two hues a suspicious_edge row is identical "
-            "to a bettable one."
-        )
-
-    def test_the_ledger_never_decides_a_tone_colour_from_the_sign(self):
-        """The mechanism, not just the presence of the call.
-
-        `text-positive` legitimately survives on this page for `clv_tenths` --
-        a settled measurement against Kalshi's close, which is an outcome
-        rather than a claim that a number is money. What must not survive is a
-        tone colour chosen from `edge_cents` in the same expression, which is
-        the defect verbatim.
-        """
-        ledger = code(LEDGER_PAGE)
-        # `[^;{}]`: one JSX expression. The defect was
-        # `rec.edge_cents > 0 ? "text-positive" : "text-negative"`, with
-        # nothing but a comparison and a quote between the two names.
-        for pattern in (
-            r"edge_cents[^;{}]*text-(?:positive|negative)",
-            r"text-(?:positive|negative)[^;{}]*edge_cents",
-        ):
-            assert not re.search(pattern, ledger), (
-                "the Ledger picks a tone colour from the sign of the edge, "
-                "with no reference to whether the row was refused."
-            )
 
     def test_the_allowlisted_screens_really_cannot_receive_a_refused_row(self):
         """The allowlist above is a claim about the engine, so check it there.
@@ -540,23 +420,6 @@ class TestTheBoardStatesTheRecordAndNotOnlyTheSlate:
         slate = (await get(app, "/api/board")).json()["slate"]
         assert slate["recorded_total"] == 0
         assert slate["actionable_total"] == 0
-
-    def test_the_page_renders_both_halves_of_the_sentence(self):
-        page = source(BOARD_PAGE)
-        assert "slate.actionable_total" in page, (
-            "the count the whole page exists to report is in the payload and "
-            "on no screen, which is the defect."
-        )
-        assert "slate.recorded_total" in page
-
-    def test_the_page_does_not_hardcode_the_finding(self):
-        """A zero typed into the copy goes on reading as a finding on the day
-        it stops being one."""
-        page = source(BOARD_PAGE)
-        sentence = block(page, "Bettable now", "</p>")
-        assert "actionable_total" in sentence
-        assert not re.search(r">\s*0\s*(?:of|<)", sentence)
-
 
 # ---------------------------------------------------------------------------
 # 3. Nothing is silently discarded -- now true.
@@ -677,173 +540,9 @@ class TestNothingLeavesTheSlateWithoutBeingCounted:
         assert "Nothing is silently discarded" in text
         assert "slate.off_basis" in text
 
-    def test_the_page_says_something_about_the_dropped_rows(self):
-        """Both halves: the guard that decides whether to speak, and the number
-        it speaks. Asserting only that the field is mentioned somewhere passes
-        on a block that is mentioned and never rendered."""
-        page = source(BOARD_PAGE)
-        assert "board.slate.off_basis > 0 && (" in page, (
-            "nothing on the page is conditional on rows having been dropped, "
-            "so they are accounted for in the payload and still vanish on the "
-            "screen."
-        )
-        assert "{board.slate.off_basis}" in page, (
-            "the page reacts to the drops without ever saying how many."
-        )
-
-
 # ---------------------------------------------------------------------------
 # 4. The lesson goes below the prices.
 # ---------------------------------------------------------------------------
-
-
-class TestThePhoneReachesAPriceBeforeALesson:
-    """`HowToRead` is ~1,700px of a ~9,000px page and sat between the counts and
-    the cards, so every phone load scrolled past it to reach a price. The copy
-    is good and is unchanged; only the placement moved."""
-
-    def test_the_how_to_read_block_is_rendered_after_the_slate(self):
-        page = source(BOARD_PAGE)
-        assert "<HowToRead />" in page
-        assert page.index("<HowToRead />") > page.index("The rest of the slate"), (
-            "the explainer is still between the counts and the prices."
-        )
-
-    def test_the_copy_was_moved_and_not_rewritten(self):
-        """The reviewer singled the writing out as good. The move (2026-08-2x)
-        touched the call site only; the 2026-09-03 edit grew the held-back
-        bullet and rewrote nothing, so every headline the reviewer read is
-        still there verbatim.
-
-        **One headline has since been rewritten on purpose** (issue #52,
-        answered A by Joe 2026-09-16): the swing bullet said the swing was
-        larger than *the* edge, which presupposes one. It is pinned below in
-        its new form, with the presupposition refused, rather than dropped
-        from this list — the list is what stops the panel being reworded by
-        accident, and an edit Joe asked for is not an accident.
-        """
-        component = source(FRONTEND / "components" / "HowToRead.tsx")
-        assert "How to read this board" in component
-        for phrase in (
-            "You need to be right 52 times in 100 here, not 50.",
-            "The price is the one in cents. The percentage is not a price.",
-            "The biggest edge on the board is deliberately held back.",
-            "The swing is far larger than any edge on this screen.",
-        ):
-            assert phrase in component
-
-    def test_the_swing_bullet_presupposes_no_edge_for_it_to_be_larger_than(self):
-        """Issue #52, answer A. Both halves of the old sentence granted an
-        edge: "larger than *the* edge" named one, and "not evidence the tool
-        is broken" made a losing week the thing failing to reveal it. On the
-        measured record -- `beta_hat` -0.1412 and -0.0756, both always-valid
-        intervals entirely below the registered 0.40 NO-SIGNAL threshold --
-        there is no edge to be larger than, and CLAUDE.md says to treat the
-        signal as settled negative for planning.
-
-        The protective half is KEPT, because it is true whatever beta is: a
-        losing week is not a reason to bet bigger. What this does not
-        establish: that the new sentence reads well, or that anything
-        renders -- source text only, same limit as every guard in this file.
-
-        Whitespace is collapsed before matching, because Prettier wraps JSX
-        prose at 80 columns and a guard that matches a phrase only when it
-        fits on one line is a guard against short sentences
-        (`tasks/lessons.md`, 2026-09-16, tenth). The first run of this test
-        went red on "bet\\n bigger" for exactly that reason.
-        """
-        component = re.sub(
-            r"\s+", " ", source(FRONTEND / "components" / "HowToRead.tsx")
-        )
-        assert "a losing week is not a reason to bet bigger" in component, (
-            "the don't-chase-losses half went out with the presupposition; "
-            "it is true regardless of what beta is"
-        )
-        assert "week" in component and "tell you almost nothing" in component
-        for killed in (
-            "far larger than the edge",
-            "not evidence the tool is broken",
-            "is not evidence",
-        ):
-            assert killed not in component, (
-                f"HowToRead says {killed!r} again. A losing week failing to "
-                "disprove an edge is a claim that there is one; the record "
-                "says the signal is settled negative."
-            )
-
-
-class TestTheExplainerNamesEveryChipTheBoardDraws:
-    """ADR 0103 gave the Board a SIZED TO ZERO chip and `HowToRead` did not
-    hear about it: its only chip gloss was REJECTED, and a beginner reading
-    the new chip cold had nothing on the page to read it against. Its header
-    also said "Four, and no more" over five bullets -- a cap that had become
-    decoration. Fixed 2026-09-03 by folding the two non-refusal chips into the
-    held-back bullet rather than adding a sixth."""
-
-    COMPONENT = FRONTEND / "components" / "HowToRead.tsx"
-
-    def _bullets(self) -> list[str]:
-        return re.findall(r"<li>(.*?)</li>", source(self.COMPONENT), flags=re.S)
-
-    def test_there_are_five_bullets_and_the_docstring_says_five(self):
-        """Both halves, because the defect was the two disagreeing. Mutation
-        observed red: a sixth `<li>`; and separately, "Four, and no more."
-        restored in the header."""
-        text = source(self.COMPONENT)
-        assert len(self._bullets()) == 5
-        assert "Five, and no more." in text
-        assert "Four, and no more." not in text
-        assert text.lstrip().startswith("/**\n * Five sentences")
-
-    def test_sized_to_zero_and_no_edge_are_glossed_in_the_rejected_bullet(self):
-        """One bullet, three chips: all three are the same lesson (the board
-        shows what it did not bet, and why), so a chip is glossed inside the
-        rule it instantiates rather than given a bullet of its own. Mutation
-        observed red: rename the SIZED TO ZERO gloss."""
-        bullets = self._bullets()
-        held_back = [b for b in bullets if "REJECTED" in b]
-        assert len(held_back) == 1
-        (bullet,) = held_back
-        assert "SIZED TO ZERO" in bullet
-        assert "NO EDGE" in bullet
-        # And nowhere else: a second gloss is a second chance to disagree.
-        others = [b for b in bullets if b != bullet]
-        assert len(others) == 4
-        assert not any("SIZED TO ZERO" in b or "NO EDGE" in b for b in others)
-
-    def test_the_gloss_says_both_halves_of_sized_to_zero(self):
-        """ADR 0103 §2.4: either half alone is the misreading the chip exists
-        to end -- a size to buy, or NO EDGE under a different label. The gloss
-        must say the row is counted (at the reference balance) AND that it
-        sizes to zero contracts at the real one, and must call it evidence
-        rather than a bet."""
-        (bullet,) = [b for b in self._bullets() if "SIZED TO ZERO" in b]
-        flat = re.sub(r"\s+", " ", bullet)
-        assert "reference balance" in flat
-        assert "zero" in flat and "contracts" in flat
-        assert "not a bet" in flat
-
-    def test_the_gloss_does_not_hardcode_the_reference_figure(self):
-        """ADR 0103 §6: the `$1,000` is read off the server
-        (`slate.reference_bankroll_dollars`) so no caption prints a figure the
-        constant has moved away from. `HowToRead` takes no props, so it points
-        at the row's caption instead of printing a number that would go stale
-        the day `REFERENCE_BANKROLL_DOLLARS` changes."""
-        assert "$1,000" not in source(self.COMPONENT)
-        assert "1000" not in source(self.COMPONENT)
-
-    def test_the_prose_the_reviewer_kept_is_still_there(self):
-        """Two passages were named as genuinely good and stay verbatim: the
-        three-way empty-board split, and the sentence about Kalshi pricing
-        sports to two cents."""
-        page = source(BOARD_PAGE)
-        for phrase in (
-            "Nothing recorded yet",
-            "Nothing bettable now",
-            "Nothing to bet",
-            "about two cents against a",
-        ):
-            assert phrase in page
 
 
 class TestFairAndBreakevenNeverShareTheRow:
@@ -954,9 +653,3 @@ class TestMoneyRendersWithoutAVerdict:
         page = code(SLATE_PAGE)
         assert "ceiling_dollars" not in page
         assert "daily_line_display" not in page
-
-    def test_the_net_up_parenthetical_is_gone(self):
-        """Deleted 2026-08-20: a signed running P&L where bets begin is the
-        chase trigger the tilt review refused, in both directions."""
-        estimate = code(FRONTEND / "app" / "estimate" / "page.tsx")
-        assert "net up" not in estimate

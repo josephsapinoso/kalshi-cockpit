@@ -24,7 +24,7 @@ from pathlib import Path
 SRC = Path(__file__).resolve().parents[1] / "frontend" / "src"
 FOOTER = SRC / "components" / "Footer.tsx"
 LAYOUT = SRC / "app" / "layout.tsx"
-REFERENCE = ("/gate", "/playbook", "/estimate", "/ledger", "/board")
+REFERENCE = ("/gate", "/playbook")
 
 
 def _code(path: Path) -> str:

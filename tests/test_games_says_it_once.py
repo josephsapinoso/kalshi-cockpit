@@ -123,4 +123,4 @@ class TestTheClosedStateSentenceRendersOnceOnGames:
                 if "ticker=" in head:
                     mounts += 1
                     assert "closedNote" not in head, path.name
-        assert mounts >= 5
+        assert mounts >= 4  # was 5 until LiveBoard and SlateRow were deleted (#342)
