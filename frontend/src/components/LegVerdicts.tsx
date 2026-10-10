@@ -104,6 +104,7 @@ export default function LegVerdicts({
 }) {
   const [rows, setRows] = useState<LegVerdict[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [takeRate, setTakeRate] = useState<LegVerdictsResult["take_rate"]>();
   // A stable string key for the effect below -- `legs` is a fresh array on
   // every render of the caller, and re-running the poll loop on every
   // render would restart the 3-minute clock forever.
@@ -124,6 +125,7 @@ export default function LegVerdicts({
       if (cancelled) return;
       setRows(result.legs);
       setError(result.error);
+      setTakeRate(result.take_rate);
       const justAsked =
         requestedAtMs !== null && Date.now() - requestedAtMs < NONE_GRACE_MS;
       const stillWaiting = result.legs.some(
@@ -189,13 +191,20 @@ export default function LegVerdicts({
           // replay on every 5s re-fetch. See the module docstring (#182).
           key={`${row.ticker}:${row.side}:${row.state === "cached" ? "answered" : "waiting"}`}
           row={row}
+          takeRate={takeRate}
         />
       ))}
     </div>
   );
 }
 
-function LegVerdictLine({ row }: { row: LegVerdict }) {
+function LegVerdictLine({
+  row,
+  takeRate,
+}: {
+  row: LegVerdict;
+  takeRate?: LegVerdictsResult["take_rate"];
+}) {
   if (row.state === "pending") {
     return (
       <p className="text-xs text-muted">Scouts are reading this leg&hellip;</p>
@@ -225,6 +234,14 @@ function LegVerdictLine({ row }: { row: LegVerdict }) {
       )}
       {row.age_ms !== null && (
         <span className="text-muted"> &middot; {formatAge(row.age_ms)}</span>
+      )}
+      {/* A base rate in counts (#345), never a percentage and never an
+          accuracy figure; nothing is printed when the server sent none. */}
+      {takeRate && (
+        <span className="text-muted">
+          {" "}
+          &middot; says take on {takeRate.take} of {takeRate.judged}
+        </span>
       )}
     </p>
   );

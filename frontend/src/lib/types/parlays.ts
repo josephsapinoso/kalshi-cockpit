@@ -785,6 +785,12 @@ export type LegVerdict = {
 export type LegVerdictsResult = {
   legs: LegVerdict[];
   /**
+   * How often the leg scouts have said take, as counts (#345): `take` of
+   * `judged` decided verdicts. A base rate, never an accuracy figure. Absent
+   * (undefined) when the server did not send it -- absent is not zero.
+   */
+  take_rate?: { take: number; judged: number };
+  /**
    * `null` on success. Set on any failure to reach or read the server,
    * including the 503 the backend sends while the seat is switched off --
    * that case is always worded exactly `"Scouts are off"`, which is the
