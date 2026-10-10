@@ -19,6 +19,10 @@ import { glossSuppression } from "@/lib/suppressionGloss";
  *   and passed" and "never ran" are different facts and must not collapse.
  * - **The as-of caption always renders.** The verdicts are facts about the
  *   moment the row was judged, not about now.
+ * - **The engine's sentence is not printed here (#341).** `reason_text`
+ *   carries the edge estimate and the sizing ("... after fees. Sized at
+ *   1."), which ADR 0071 §2.5 took off the row; this is a betting screen.
+ *   The payload field stays; the panel does not render it.
  * - **Unknown codes surface.** A newer server's rule renders as its bare
  *   code rather than silently vanishing — deploy skew is a fact worth
  *   seeing.
@@ -42,11 +46,6 @@ export default function SkepticPanel({ detail }: { detail: MarketDetail }) {
       ) : (
         <>
           <VerdictList gauntlet={gauntlet} />
-          {detail.reason_text && (
-            <p className="mt-3 max-w-[65ch] text-sm text-muted">
-              {detail.reason_text}
-            </p>
-          )}
           <p className="mt-3 max-w-[65ch] border-t pt-2 text-xs text-muted">
             Verdicts as of{" "}
             {gauntlet.judged_ms != null

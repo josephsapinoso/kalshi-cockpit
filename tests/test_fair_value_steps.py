@@ -119,7 +119,7 @@ class TestTheFigureTeachesTheSequence:
         picture.
         """
         text = source()
-        assert "(overround - 1) * 100" in text
+        assert "marginPoints" in text and "barFrac" in text
         assert "baseline" in COMPONENT.read_text(encoding="utf-8").lower()
 
     def test_the_printed_margin_is_never_the_clamped_one(self):
@@ -192,3 +192,31 @@ class TestTheTwoMarketPagePicturesAreDifferentQuestions:
         assert "bookSpan" not in text
         assert "dispersion(" not in text
         assert re.search(r"\bmarks\b", text) is None
+
+
+class TestOverroundIsTheMargin:
+    """`fair_prices.overround` is `sum(probs) - 1` (backend/core/devig.py), the
+    MARGIN. The component once read it as the sum ("come to 3.3%") and as
+    sum - 1 again ("-96.7 points"), and this file pinned that arithmetic as
+    source text, which is why it stayed green (#341)."""
+
+    def test_sum_is_one_plus_overround_and_margin_is_overround_times_100(self):
+        text = source()
+        # The backend's definition, so the display is pinned to the thing it reads.
+        devig = (Path(__file__).resolve().parents[1] / "backend" / "core"
+                 / "devig.py").read_text(encoding="utf-8")
+        assert "sum(probs) - 1.0" in devig
+        # The margin in points is the stored value times 100, nothing else.
+        assert re.search(r"marginPoints\s*=\s*overround === null \? null : overround \* 100;", text)
+        # The sum is one plus the stored value.
+        assert re.search(r"sumPercent\s*=\s*overround === null \? null : \(1 \+ overround\) \* 100;", text)
+        assert "{sumPercent?.toFixed(1)}%" in text
+        # The two wrong readings are gone.
+        assert "(overround - 1)" not in text
+        assert "(overround * 100).toFixed" not in text
+
+    def test_the_arithmetic_on_a_real_stored_value(self):
+        """0.033 as stored is a 103.3% sum and a 3.3 point margin."""
+        overround = 0.033
+        assert round((1 + overround) * 100, 1) == 103.3
+        assert round(overround * 100, 1) == 3.3

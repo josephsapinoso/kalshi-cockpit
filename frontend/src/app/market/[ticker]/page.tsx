@@ -339,6 +339,50 @@ export default function MarketPage() {
         )}
       </header>
 
+      {/* **Moved up under the quote strip and evidence line (#341).** The
+          ticket is the decision this page exists for; it sat below five
+          panels of reading. The five desk areas and their anchors are
+          unchanged below. */}
+      {/* The manual ticket (ADR 0063): below the desk's facts, above the
+          history. It self-reports its own unreachable states (demo, flag off,
+          lockout) in words, so mounting it unconditionally is honest on every
+          instance.
+
+          **It takes no `priceAlreadyVisible` flag any more.** That prop
+          existed to tell the ticket which of two masked-ask wordings to use,
+          and the mask went with the P(YES) field on 2026-09-09 (ADR 0131, superseding ADR
+          0065 §2 -- Joe removed the entry, and the consumer ADR 0065 named
+          to justify the masking was never built).
+
+          Decision-map ticket #24's fix is not undone by that, and it is
+          worth being exact about why. #24 required the flag to be DERIVED
+          from `quoteVisibility` rather than asserted as a constant `true`,
+          because asserted it made the ticket announce "the price is already
+          on this screen" in the three states where the strip prints nothing:
+          `detail` null, a refused stale ask, and a market past its close. A
+          flag with no reader satisfies that requirement outright. The strip
+          below still renders from that one function; `askIsVisible` went
+          with its only caller, so there is no second reader left to
+          disagree with it. */}
+      {/* Tonight's commitment and the "Not tonight" control, directly above
+          the ticket (#45, Joe's A, 2026-09-16). Games and Picks carry this
+          strip; the game screen -- the one with the buy button on it -- did
+          not, so the reader deciding here could not see what was already
+          staked tonight or say "not tonight" without leaving the page. Same
+          component, same payload block (`detail.tonight` is the slate's
+          `tonight`, served by `/api/market/{ticker}` from the one helper). A
+          control Joe already has, on a screen that lacked it -- not a
+          restored brake (ADR 0112): the lockout is his own tap, and the
+          server enforced it here already. */}
+      {detail?.tonight && <TonightStrip tonight={detail.tonight} />}
+      <ManualTicket ticker={ticker} />
+
+      {/* The calm alternative (ADR 0066): a quiet row below the ticket's
+          card, deliberately NOT styled as its sibling — passing must read as
+          stepping back from the decision, not as the decision's other
+          button. It records and does not hide; the facts above stay put. */}
+      <PassControl ticker={ticker} />
+
       {/* The desk's five areas, all fully present (ADR 0068) — Joe's
           direction: no hover, no tap-to-reveal. The nav row scrolls;
           navigation is allowed, concealment is not. */}
@@ -380,46 +424,6 @@ export default function MarketPage() {
       {/* The scout desk renders three of the five areas (scout,
           specialists, Willy) from one briefing fetch. */}
       <ScoutDesk ticker={ticker} />
-
-      {/* The manual ticket (ADR 0063): below the desk's facts, above the
-          history. It self-reports its own unreachable states (demo, flag off,
-          lockout) in words, so mounting it unconditionally is honest on every
-          instance.
-
-          **It takes no `priceAlreadyVisible` flag any more.** That prop
-          existed to tell the ticket which of two masked-ask wordings to use,
-          and the mask went with the P(YES) field on 2026-09-09 (ADR 0131, superseding ADR
-          0065 §2 -- Joe removed the entry, and the consumer ADR 0065 named
-          to justify the masking was never built).
-
-          Decision-map ticket #24's fix is not undone by that, and it is
-          worth being exact about why. #24 required the flag to be DERIVED
-          from `quoteVisibility` rather than asserted as a constant `true`,
-          because asserted it made the ticket announce "the price is already
-          on this screen" in the three states where the strip prints nothing:
-          `detail` null, a refused stale ask, and a market past its close. A
-          flag with no reader satisfies that requirement outright. The strip
-          below still renders from that one function; `askIsVisible` went
-          with its only caller, so there is no second reader left to
-          disagree with it. */}
-      {/* Tonight's commitment and the "Not tonight" control, directly above
-          the ticket (#45, Joe's A, 2026-09-16). Games and Picks carry this
-          strip; the game screen -- the one with the buy button on it -- did
-          not, so the reader deciding here could not see what was already
-          staked tonight or say "not tonight" without leaving the page. Same
-          component, same payload block (`detail.tonight` is the slate's
-          `tonight`, served by `/api/market/{ticker}` from the one helper). A
-          control Joe already has, on a screen that lacked it -- not a
-          restored brake (ADR 0112): the lockout is his own tap, and the
-          server enforced it here already. */}
-      {detail?.tonight && <TonightStrip tonight={detail.tonight} />}
-      <ManualTicket ticker={ticker} />
-
-      {/* The calm alternative (ADR 0066): a quiet row below the ticket's
-          card, deliberately NOT styled as its sibling — passing must read as
-          stepping back from the decision, not as the decision's other
-          button. It records and does not hide; the facts above stay put. */}
-      <PassControl ticker={ticker} />
 
       <p className="mt-2 max-w-[65ch] font-mono text-xs text-muted">{ticker}</p>
 

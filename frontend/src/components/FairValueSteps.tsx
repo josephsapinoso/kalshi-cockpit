@@ -17,8 +17,11 @@ import Term from "@/components/Term";
  *
  * THE NUMBER THAT MAKES IT TEACHABLE
  * ----------------------------------
- * `overround` — the books' raw implied probabilities summed — has been stored
- * since the beginning and served by nothing. It is the whole lesson: two sides
+ * `overround` — the books' raw implied probabilities summed, MINUS ONE (the
+ * margin itself, 0.05 for a book that sums to 105%) — is stored and served.
+ * This component used to read it as the sum and print "5.0%" for a 105% book
+ * (#341); the sum is `1 + overround` and the margin in points is
+ * `overround * 100`. It is the whole lesson: two sides
  * of a market quoted at 54% and 51% sum to 105%, and a probability cannot do
  * that. The extra five points are the house's cut, and devigging is the
  * arithmetic that removes them. Without this number, "devigged" is a word a
@@ -62,7 +65,10 @@ export default function FairValueSteps({ detail }: { detail: MarketDetail }) {
 
   // The excess over a margin-free book, in points. Clamped only for DRAWING
   // width; the printed number is always the measured one.
-  const marginPoints = overround === null ? null : (overround - 1) * 100;
+  // `overround` is stored as the MARGIN (sum of the books' probabilities
+  // minus 1, backend/core/devig.py), so 0.033 means the sides sum to 103.3%.
+  const marginPoints = overround === null ? null : overround * 100;
+  const sumPercent = overround === null ? null : (1 + overround) * 100;
   const barFrac =
     marginPoints === null ? 0 : Math.max(0, Math.min(1, marginPoints / 10));
 
@@ -81,7 +87,7 @@ export default function FairValueSteps({ detail }: { detail: MarketDetail }) {
             ) : (
               <>
                 Added up, their chances come to{" "}
-                <span className="tabular">{(overround * 100).toFixed(1)}%</span>
+                <span className="tabular">{sumPercent?.toFixed(1)}%</span>
                 {" — not 100%."}
               </>
             )}
