@@ -10,6 +10,7 @@ import type { BetsKindSummary } from "@/lib/types/bets";
 import RecordParlay from "@/components/RecordParlay";
 import HedgePositions from "@/components/HedgePositions";
 import PickSourceChips from "@/components/PickSourceChips";
+import { Stat } from "@/components/ui";
 import {
   DISPLAY_TIME_ZONE,
   fetchBets,
@@ -128,6 +129,8 @@ export default async function BetsPage() {
         </p>
       </header>
 
+      <RecordStrip record={record} />
+
       {/*
         **Open (N), first on the page (#240, Joe's 234 A, 2026-09-30).** What
         he still holds is what a bet screen is opened for; /hedge used to be
@@ -155,19 +158,22 @@ export default async function BetsPage() {
           </p>
         ) : (
           <>
-            <p className="mt-3 max-w-[65ch] text-sm leading-relaxed text-muted">
-              Tickets you hold, priced against what the other side costs on
-              Kalshi right now. When one <Term k="leg">leg</Term> is left and
-              the rest have won, a <Term k="hedge">hedge</Term> can pay the
-              same whichever way it goes &mdash; a <Term k="lock">lock</Term>.
-              Before that it can only <Term k="derisk">de-risk</Term>.
-            </p>
-            <p className="mt-2 max-w-[65ch] text-xs leading-relaxed text-muted">
-              {hedge.notes.not_advice}
-            </p>
-            <p className="mt-1 max-w-[65ch] text-xs leading-relaxed text-muted">
-              {hedge.notes.no_button}
-            </p>
+            <details className="mt-3 max-w-[65ch] text-sm text-muted" data-how-to-read>
+              <summary className="cursor-pointer">How to read this</summary>
+              <p className="mt-3 max-w-[65ch] text-sm leading-relaxed text-muted">
+                Tickets you hold, priced against what the other side costs on
+                Kalshi right now. When one <Term k="leg">leg</Term> is left and
+                the rest have won, a <Term k="hedge">hedge</Term> can pay the
+                same whichever way it goes &mdash; a <Term k="lock">lock</Term>.
+                Before that it can only <Term k="derisk">de-risk</Term>.
+              </p>
+              <p className="mt-2 max-w-[65ch] text-xs leading-relaxed text-muted">
+                {hedge.notes.not_advice}
+              </p>
+              <p className="mt-1 max-w-[65ch] text-xs leading-relaxed text-muted">
+                {hedge.notes.no_button}
+              </p>
+            </details>
             <HedgePositions
               positions={hedge.positions}
               notes={hedge.notes}
@@ -257,7 +263,7 @@ export default async function BetsPage() {
       */}
       <p className="mt-4 max-w-[65ch] text-sm text-muted">
         A parlay you placed somewhere else is invisible here.{" "}
-        <Link href="#open" className="underline decoration-dotted">
+        <Link href="#record-parlay" className="underline decoration-dotted">
           Record it below
         </Link>{" "}
         and the desk will watch its legs while the games run; it then appears
@@ -305,6 +311,123 @@ export default async function BetsPage() {
         blurb="Already paid for a bet the desk cannot see? Record it and it will price the legs against Kalshi while the games run."
       />
     </Shell>
+  );
+}
+
+/**
+ * #343: the scoreboard first. Settled count, wins expected at the prices paid,
+ * wins actual (with the range), net -- then one line per pick source, each
+ * with its own n. Every figure is the server's; the only arithmetic here is
+ * adding counts and expected wins across the two kinds, which are additive.
+ * A range is NOT additive, so the pooled line prints one only when a single
+ * kind carries an expected block, and the source rows keep the kinds apart
+ * rather than pooling a range that would be wrong. Source rows stay in the
+ * server's FIXED order and are never sorted by an outcome (ADR 0193). The
+ * payload serves no net per source, so none is printed -- absent, not zero.
+ */
+function RecordStrip({ record }: { record: BetsRecord }) {
+  const kinds = SECTIONS.map((section) => ({
+    section,
+    summary: record.summary?.[section.kind],
+  }));
+  const withExpected = kinds.filter((k) => k.summary?.expected);
+  let settled = 0;
+  let expectedSum = 0;
+  let wonSum = 0;
+  for (const k of kinds) {
+    settled += k.summary?.computable ?? 0;
+    if (k.summary?.expected) {
+      expectedSum += k.summary.expected.expected;
+      wonSum += k.summary.expected.won;
+    }
+  }
+  const only = withExpected.length === 1 ? withExpected[0].summary?.expected : null;
+  const rangeWords =
+    withExpected.length === 0
+      ? ""
+      : only && !only.too_few
+        ? ` (range ${only.range_low} to ${only.range_high})`
+        : only
+          ? " (too few for a range)"
+          : " (a range per kind is in each section below)";
+  const sourceOrder: string[] = [];
+  const sourceLabel: Record<string, string> = {};
+  for (const section of SECTIONS) {
+    for (const block of record.by_source?.[section.kind] ?? []) {
+      if (!sourceOrder.includes(block.source)) sourceOrder.push(block.source);
+      sourceLabel[block.source] = block.label;
+    }
+  }
+  return (
+    <section data-record-strip className="mb-8 max-w-[65ch]">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <Stat
+          label={<Term k="settled">Settled</Term>}
+          value={settled}
+          sub="singles and combinations together"
+        />
+        <Stat
+          label={<Term k="expected_wins">Expected wins</Term>}
+          value={withExpected.length === 0 ? "—" : expectedSum.toFixed(1)}
+          sub="at the prices you paid"
+        />
+        <Stat
+          label="Won"
+          value={withExpected.length === 0 ? "—" : wonSum}
+          sub={rangeWords === "" ? undefined : rangeWords.trim()}
+        />
+        <Stat
+          label={<Term k="net">Net</Term>}
+          value={
+            <span
+              className={
+                record.totals.net_tenths < 0 ? "text-negative" : "text-positive"
+              }
+            >
+              {record.totals.net_display}
+            </span>
+          }
+          sub={`over ${record.totals.computable} settled`}
+        />
+      </div>
+      {sourceOrder.length > 0 && (
+        <ul className="mt-3 space-y-1 font-mono text-xs text-muted" data-source-rows>
+          {sourceOrder.map((source) => (
+            <li key={source} data-source-row>
+              <span className="font-semibold">
+                {sourceLabel[source]}
+              </span>
+              {SECTIONS.map((section) => {
+                const block = (record.by_source?.[section.kind] ?? []).find(
+                  (b) => b.source === source,
+                );
+                if (!block) return null;
+                const n = block.wins + block.losses;
+                if (n === 0) return null;
+                return (
+                  <span key={section.kind} className="ml-3">
+                    {section.kind === "combo" ? "combos" : "singles"}: n={n}
+                    {block.expected === null
+                      ? ` · won ${block.wins} · expected wins not shown (counts only)`
+                      : ` · expected ${block.expected.expected} · won ${block.expected.won}${
+                          block.expected.too_few
+                            ? " (too few for a range)"
+                            : ` (range ${block.expected.range_low} to ${block.expected.range_high})`
+                        }`}
+                  </span>
+                );
+              })}
+            </li>
+          ))}
+        </ul>
+      )}
+      {sourceOrder.length > 0 && (
+        <p className="mt-1 max-w-[65ch] text-xs text-muted">
+          Net per source is not served, so none is shown. Sources are in a
+          fixed order, never ranked by result.
+        </p>
+      )}
+    </section>
   );
 }
 
