@@ -92,9 +92,21 @@ export default function GoodChancePicks({
               </span>
               {pick.ask_display === null ? (
                 <span className="text-xs text-muted">
+                  {/* The last ask, greyed, beside its age (#344): a stale
+                      row used to print the books' chance and no price. The
+                      server withholds `ask_display` once the quote is past
+                      its limit and sends the withheld figure as
+                      `last_ask_display`; the figure is shown as a memory
+                      and never in the ask's own ink. */}
+                  {lastAsk(pick) !== null && (
+                    <span className="tabular opacity-60">
+                      {`${lastAsk(pick)} ask`}
+                    </span>
+                  )}
+                  {lastAsk(pick) !== null && " "}
                   {typeof pick.quote_age_now_ms === "number"
-                    ? `ask ${ageWords(pick.quote_age_now_ms)} old`
-                    : "ask of unknown age"}
+                    ? `quote ${ageWords(pick.quote_age_now_ms)} old`
+                    : "quote of unknown age"}
                   {" "}&mdash; refresh the books, or open the game screen
                 </span>
               ) : (
@@ -119,11 +131,11 @@ export default function GoodChancePicks({
           {not_ranked.stale_consensus > 0 &&
             `${not_ranked.stale_consensus} game${
               not_ranked.stale_consensus === 1 ? "" : "s"
-            } not ranked: the consensus is too old to speak. `}
+            } not shown: the consensus is too old to speak. `}
           {not_ranked.favorite_unpriced > 0 &&
             `${not_ranked.favorite_unpriced} game${
               not_ranked.favorite_unpriced === 1 ? "" : "s"
-            } not ranked: no fresh price on the favorite's side. `}
+            } not shown: no fresh price on the favorite's side. `}
           {propsExcluded > 0 &&
             `${propsExcluded} player prop${
               propsExcluded === 1 ? "" : "s"
@@ -137,6 +149,12 @@ export default function GoodChancePicks({
       </p>
     </section>
   );
+}
+
+/** The ask the server withheld as stale, or null when none was served. */
+function lastAsk(pick: object): string | null {
+  const served = (pick as { last_ask_display?: string | null }).last_ask_display;
+  return typeof served === "string" ? served : null;
 }
 
 /** Pacific, matching the slate rows' kickoff column. */

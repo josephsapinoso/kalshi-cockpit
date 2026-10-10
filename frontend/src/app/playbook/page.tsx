@@ -3,7 +3,6 @@ import {
   displayZoneLabel,
   fetchPlaybook,
   type ConfigVersion,
-  type Lesson,
 } from "@/lib/api";
 
 import FiveStepTest from "@/components/FiveStepTest";
@@ -20,11 +19,11 @@ export const dynamic = "force-dynamic";
  * edit splits the record into halves that cannot be compared, and the halves
  * look exactly like one continuous record when totalled.
  *
- * The load-bearing rendering decision: **an empty lessons list is not
- * "nothing to report".** `lessons` has one writer -- the Historian -- and
- * nothing that runs calls it. So the empty state says the agent has never run,
- * for the same reason the Dashboards screen distinguishes an unbuilt warehouse
- * from an empty one.
+ * The Lessons section is gone (#344): its one writer, the Historian, was
+ * deleted on 2026-09-05 (ADR 0106), so the list could never fill and the
+ * block only ever said "never run". The payload still carries `lessons`
+ * (and `proposals_awaiting_approval`, which renders above); this page
+ * simply no longer draws the list.
  */
 export default async function PlaybookPage() {
   let playbook;
@@ -38,7 +37,7 @@ export default async function PlaybookPage() {
     );
   }
 
-  const { config_versions: versions, lessons, proposals_awaiting_approval } =
+  const { config_versions: versions, proposals_awaiting_approval } =
     playbook;
 
   return (
@@ -97,33 +96,6 @@ export default async function PlaybookPage() {
               version={version}
               floor={playbook.min_rows_to_mean_anything}
             />
-          ))}
-        </ul>
-      )}
-
-      <h2 className="mt-12 text-sm font-semibold uppercase tracking-widest text-muted">
-        Lessons
-      </h2>
-
-      {!playbook.historian_has_run ? (
-        <div className="mt-6 rounded-2xl border border-edge bg-card p-6">
-          <div className="font-mono text-sm font-semibold">
-            The Historian has never run
-          </div>
-          <p className="mt-2 text-sm leading-relaxed text-muted">
-            This is <em>not</em>{" "}
-            &ldquo;no lessons found&rdquo;. The agent that wrote them was
-            built, tested, called by nothing that runs, and deleted on
-            2026-09-05 without ever running, so this list would be empty
-            however much the record contained. Saying so is the point: an
-            empty list rendered as a healthy silence over a wire that was
-            never connected is worse than no list at all.
-          </p>
-        </div>
-      ) : (
-        <ul className="mt-6 space-y-4">
-          {lessons.map((lesson) => (
-            <LessonCard key={lesson.id} lesson={lesson} />
           ))}
         </ul>
       )}
@@ -221,37 +193,6 @@ function VersionCard({
           </ul>
         </div>
       )}
-    </li>
-  );
-}
-
-function LessonCard({ lesson }: { lesson: Lesson }) {
-  return (
-    <li className="rounded-2xl border border-edge bg-card p-6">
-      <div className="flex flex-wrap items-baseline gap-x-3">
-        <h3 className="text-lg font-bold tracking-tight">{lesson.title}</h3>
-        {lesson.accepted_by_user === null && lesson.proposed_config_diff && (
-          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs font-semibold text-accent">
-            awaiting decision
-          </span>
-        )}
-        {lesson.accepted_by_user === false && (
-          <span className="rounded-full bg-negative/15 px-2 py-0.5 text-xs font-semibold text-negative">
-            rejected
-          </span>
-        )}
-      </div>
-      <p className="mt-2 text-sm leading-relaxed text-muted">{lesson.body}</p>
-      <p className="mt-3 text-xs text-muted">
-        {/*
-          `n` before the effect size, per the measurement rules. A lesson
-          without a sample size is an anecdote, and it is the number
-          `validate_proposals` refuses on.
-        */}
-        {lesson.sample_size === null
-          ? "No sample size recorded — treat as an anecdote."
-          : `n = ${lesson.sample_size}`}
-      </p>
     </li>
   );
 }

@@ -70,9 +70,9 @@ class TestTheBindingClockIsNamedFirst:
         """
         body = _status_line_body()
         odds = body.index("row.odds_age_now_ms > maxOddsAgeMs")
-        quote = body.index("row.quote_age_now_ms > maxQuoteAgeMs")
-        assert odds < quote, (
-            "the Kalshi quote is tested before the consensus, so a row that "
+        drift = body.index("row.kalshi_drift_tenths")
+        assert odds < drift, (
+            "the tape is tested before the consensus, so a row that "
             "is not actionable prints a caveat about its price instead"
         )
 
@@ -86,24 +86,17 @@ class TestTheBindingClockIsNamedFirst:
         body = _status_line_body()
         assert "Not actionable until the odds are refreshed" in body
 
-    def test_the_quote_branch_still_says_price_not_expiry(self):
-        """A stale quote must not read as "this row is dead".
+    def test_the_quote_age_is_not_voiced_as_a_sentence(self):
+        """#344: a stale Kalshi quote is said once on the row, by the red age
+        chip and the evidence line, not a third time here. The claim this test
+        used to guard -- a stale quote is a price caveat, not an expiry -- is
+        now carried by the chip alone.
 
-        The order endpoint re-reads the Kalshi price inside the request, so
-        the row is still buyable -- what is stale is the number printed on it.
-        This is the claim `OpportunityCard` already makes on the Board, and
-        demoting the branch must not quietly strengthen it.
+        Mutation observed red: restore a `row.quote_age_now_ms` branch.
         """
         body = _status_line_body()
-        i = body.index("row.quote_age_now_ms > maxQuoteAgeMs")
-        j = body.index("`;", body.index("line = `", i))
-        message = body[i:j]
-        assert "the ask shown may already be gone" in message
-        for banned in ("not actionable", "Not actionable", "expired", "dead"):
-            assert banned not in message, (
-                f"the quote branch says {banned!r}; a stale quote is a price "
-                f"caveat, not an expiry"
-            )
+        assert "quote_age_now_ms" not in body
+        assert "Kalshi quote is" not in body
 
     def test_the_drift_branch_stays_last(self):
         """It is the only one of the three that is not a validity failure.
@@ -113,9 +106,9 @@ class TestTheBindingClockIsNamedFirst:
         display threshold over a refusal.
         """
         body = _status_line_body()
-        quote = body.index("row.quote_age_now_ms > maxQuoteAgeMs")
+        odds = body.index("row.odds_age_now_ms > maxOddsAgeMs")
         drift = body.index("row.kalshi_drift_tenths")
-        assert quote < drift
+        assert odds < drift
 
 
 class TestALongRefusalCodeCannotScrollTheSlateSideways:
@@ -196,13 +189,13 @@ class TestTheDocstringDescribesTheCodeItSitsOn:
         """
         doc = self._doc()
         doc_consensus = doc.index("the consensus is past the odds limit")
-        doc_quote = doc.index("the Kalshi quote is past the staleness limit")
+        doc_tape = doc.index("the tape has moved")
 
         body = _status_line_body()
         code_consensus = body.index("row.odds_age_now_ms > maxOddsAgeMs")
-        code_quote = body.index("row.quote_age_now_ms > maxQuoteAgeMs")
+        code_tape = body.index("row.kalshi_drift_tenths")
 
-        assert (doc_consensus < doc_quote) == (code_consensus < code_quote), (
+        assert (doc_consensus < doc_tape) == (code_consensus < code_tape), (
             "the numbered priority in the comment and the branch order in the "
             "code disagree about which clock is voiced first"
         )

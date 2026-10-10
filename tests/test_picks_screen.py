@@ -246,3 +246,35 @@ class TestTheEmptyNightIsDrawnAsWhatItIs:
         assert "export default function" in text
         assert "not yet answered" in text
 
+
+class TestAStalePickShowsItsAskGreyedWithItsAge:
+    """#344. A stale row used to print the books' chance and no price, and the
+    list said "N games not ranked" about a list that has been kickoff-ordered
+    since #235 A. The server withholds `ask_display` once the quote is stale and
+    now sends the withheld figure as `last_ask_display`; the row prints it
+    greyed with "quote Nm old" beside it.
+
+    What this does NOT establish: that the server serves `last_ask_display`
+    (that is `backend/api/routes.py`, main's), or how the row wraps at 390px.
+    """
+
+    COMPONENT = FRONTEND / "components" / "GoodChancePicks.tsx"
+
+    def _code(self) -> str:
+        return re.sub(r"\s+", " ", code_only(source(self.COMPONENT)))
+
+    def test_a_stale_pick_shows_the_greyed_ask_with_its_age(self):
+        """Mutation observed red: drop the `opacity-60` ask span, or the
+        `quote ... old` wording."""
+        text = self._code()
+        assert "last_ask_display" in text
+        assert 'className="tabular opacity-60"' in text
+        assert "`${lastAsk(pick)} ask`" in text
+        assert "`quote ${ageWords(pick.quote_age_now_ms)} old`" in text
+
+    def test_the_list_no_longer_says_not_ranked(self):
+        """Mutation observed red: restore either old sentence."""
+        text = self._code()
+        assert "not ranked" not in text
+        assert "not shown: the consensus is too old to speak" in text
+        assert "not shown: no fresh price on the favorite's side" in text

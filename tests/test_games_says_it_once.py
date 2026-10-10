@@ -50,10 +50,14 @@ class TestTheDisclaimerIsSaidOnce:
         ticket = row.split("<ManualTicket", 1)[1].split("/>", 1)[0]
         assert "note=" not in ticket
 
-    def test_the_sentence_sits_above_the_list(self):
+    def test_the_sentence_sits_in_the_foot_disclosure(self):
+        """Position moved by #344: it was above the list, now it is inside the
+        one collapsed "How to read this" at the foot. Its words are unchanged
+        but for "below" -> "above", which the move made true."""
         src = _src()
-        assert src.index("never") < src.index("<ul className=\"mt-8 divide-y")
-        assert "toward the gate" in src.split('<ul className="mt-8 divide-y', 1)[0]
+        after = src.split('<ul className="mt-8 divide-y', 1)[1]
+        assert "How to read this" in after.split("never counts toward", 1)[0]
+        assert "toward the gate" in _flat(after)
 
     def test_the_row_still_offers_the_door(self):
         assert 'openLabel="Bet this by hand"' in _row_body(_src())
@@ -106,11 +110,12 @@ class TestTheClosedStateSentenceRendersOnceOnGames:
         ticket = _row_body(_src()).split("<ManualTicket", 1)[1].split("/>", 1)[0]
         assert "closedNote={false}" in ticket
 
-    def test_games_says_it_once_above_the_list(self):
+    def test_games_says_it_once_in_the_foot_disclosure(self):
+        """Position moved by #344 (was above the list)."""
         flat = _flat(_src())
         assert flat.count(CLOSED_SENTENCE.replace("Nothing", "nothing")) == 1
-        above = _src().split('<ul className="mt-8 divide-y', 1)[0]
-        assert "nothing is sent until you confirm" in _flat(above)
+        below = _src().split('<ul className="mt-8 divide-y', 1)[1]
+        assert "nothing is sent until you confirm" in _flat(below)
 
     def test_every_other_screen_keeps_the_default(self):
         mounts = 0
