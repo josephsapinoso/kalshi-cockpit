@@ -139,6 +139,28 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-10 (eighty-ninth session) — the desk through a professional bettor's eyes: ADR 0195; cards off, pushes off, ceiling 2.5M (#349–#351 A); four dead screens deleted (#342); the vig unit bug fixed (#341); Your bets leads with the record (#343); Games/Picks/Playbook copy (#344); verdict take rate (#345)
+
+- **Joe's ask (2026-10-09):** evaluate the site as Billy Walters would, critique it, improve it, take away the useless stuff. `sharp-bettor` reviewed real screenshots of the demo (`scripts/check_mobile.py --shots`, 390 and 1440) through the lens of Walters's public record; `partner` ranked it, ran `agent-spend --days 14`, and argued back (not "costs more than you bet", the friend tag already exists, the dead-code sweep earns nothing); `measurement-skeptic` audited the spend aggregation before a number entered the record. The critique for Joe is a private page: https://claude.ai/artifact/4HotGhdwkRgUXrGHKKox7Q. Record: **ADR 0195**, ADR 0190 Amendment 2, ADR 0098 and ADR 0076 amendments.
+- **Joe's answers, in-session with option buttons:** #349 **A** (automatic game-script cards off, tap only; `AGENT_MAX_TOKENS_PER_DAY` 9M → 2.5M), #350 **A** (parlay pushes off, ladder view kept; new `PARLAY_PUSHES_ENABLED`, both guards mutation-red), #351 **A** (delete `/board`, `/ledger`, `/estimate`, `/dashboards`), #352 **A** (the sharp-book base rate box stays folded at the foot of Games), and merge + live deploy as one batch. All four tickets closed with the letter.
+- **The measurement (audited):** 39.47M tokens recorded over 2026-09-26..10-09, a floor (92 of 453 calls NULL usage); automatic cards 74.1%, leg verdicts 25.6%; since cards began a mean 3.35M a day (median 2.56M, range 1.51M–7.20M, 10 complete days); a built card median 178K (mean 200K, n = 105); excluding the 10-05 outage 100 of 154 card calls built a card, 30 were the model's own declines (~170K each). The wording Joe was asked with ("half the calls build nothing") overstated it; corrected on #349. Side finding on #338: on 10-04 the day passed the 4.5M unattended line because `CARD_TOKEN_ESTIMATE` (290K) sat under that day's 448K mean.
+- **Defects verified on main and fixed:** `overround` is the margin (sum − 1) and `FairValueSteps` rendered it as the sum ("3.3% — not 100%", "−96.7 points"; the test pinned the wrong expression as source text); the engine's `reason_text` ("… Sized at 1.") rendered on `/market`; "not ranked" on a kickoff-ordered Picks; the Playbook drill pointing at the retired estimate log; "combined into nothing"; the "Record it below" anchor.
+- **Lanes (Sonnet, worktrees, each full-suite green before hand-back):** #341 `62993d49`, #342 `c27d3573` (one conflict with #344 in `test_picks_screen.py`, resolved by dropping the Refusals pins), #343 `286a53d4`, #344 `d571f82c`, #345 `acf3ec3a`. Main: `ed76631d` (config, switch, ADRs, CLAUDE.md), `8f9a8fb7` (`last_ask_display` served for Picks, lesson, ledger). Full suite on the merged tree before #345: 10011 passed, 0 failed.
+- **Deploy:** requested after CI on the final push with the authorised form; verify `/api/health` `build.git_sha` against `origin/main` and re-read `/market/<ticker>` ("103.3%", a positive margin, no "Sized at"), the footer (Gate · Playbook only), Your bets (opens on the strip).
+- **Refused or deferred, with the reason (ADR 0195 §2):** merging Picks into Games; an `/ops` page; stake % on the ticket; a dollar spend line; per-leg CLV (after #331); the key-number flag (#348); cutting the scout desk / renaming Willy; the backend no-op sweep (#347, now also carrying #342's orphans).
+- **Housekeeping:** `tasks/lessons.md` is ~228K of 262,144 — about 8K under the split line; split it before the next entry. `frontend/.next/dev/types` can hold stale generated route types after a deletion; delete `.next/dev` and `.next/types` before `tsc` on the main tree. #302's frontier is empty again (all four questions answered): a finding, not a clean desk.
+
+### Still open
+
+1. #353 — Games row: "0/5 books under" beside "1 book(s), need 2", and the age still said twice (chip + evidence line).
+2. #347 — the backend no-op sweep and the routes nothing calls (plus #342's frontend orphans); deferred, zero spend.
+3. #348 — key-number flag on NFL/NCAAF spread legs; unscheduled, one feature at a time.
+4. #338 — after a full budget day on the new ceiling: `game-script-card-refusals` near zero `max_tokens`, then close (moot while cards are tap-only; keep for the tap path).
+5. #337 — 2027-01-15: look B for P1 only; step 1 is #336's live count.
+6. #331 — 2026-11-01: the leg census by kind (per-leg CLV waits on it).
+7. #210 — closes on the first scout convening with a sourced Matchup tile.
+8. #151, #197, #267 — carried forward unchanged.
+
 ## 2026-10-09 (eighty-eighth session) — #316 closed by its live read; card output cap 3000→6000 (#338); builder routes deleted (#332); fee_coefficient served (#334); Joe's (C) withholds baseball singles (#339); live on `a6532df6`
 
 - **/go, no focus from Joe.** Partner ranked: the overdue #316 read, then #332 and #334 as parallel Sonnet lanes, #336 folded into #337. Joe approved merge + live deploy of both lanes as one batch (option buttons) and answered #339 (C) mid-session.
@@ -1748,6 +1770,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-10 (eighty-ninth session) — the desk through a professional bettor's eyes: ADR 0195; cards off, pushes off, ceiling 2.5M (#349–#351 A); four dead screens deleted (#342); the vig unit bug fixed (#341); Your bets leads with the record (#343); Games/Picks/Playbook copy (#344); verdict take rate (#345)
 - 2026-10-09 (eighty-eighth session) — #316 closed by its live read; card output cap 3000→6000 (#338); builder routes deleted (#332); fee_coefficient served (#334); Joe's (C) withholds baseball singles (#339); live on `a6532df6`
 - 2026-10-08 (eighty-seventh session) — Joe's parlay challenge: success rate is the price; the record reaches each leg (ADR 0194, v65/v66); the friend's-parlay path gets its guards; cash-out watch; cost line; markup registered; live on `7f135730`
 - 2026-10-06 (eighty-sixth session) — README rewritten as a short user guide on Joe's call; the research record archived verbatim; five stale remote branches deleted
