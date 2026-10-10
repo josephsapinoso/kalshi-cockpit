@@ -400,3 +400,59 @@ class TestMintStampsTheCardsComboTicker:
 
         source = inspect.getsource(game_builder.mint_game_combo)
         assert "attach_combo_to_card(" in source
+
+
+#: The two refusal texts the unattended watcher had written on live by
+#: 2026-10-10 (`inspect_live_db.py game-script-card-refusals`: 187 and 125
+#: rows), verbatim. Joe's phone showed the first on every NCAAF game of a
+#: Saturday night, hours after the watcher was switched off.
+WATCHER_REFUSALS = [
+    "unattended token share reached: AGENT_MAX_TOKENS_PER_DAY 9000000 x "
+    "(1 - SCOUT_AUTO_TAP_TOKEN_SHARE 0.75) = 2250000; the rest is kept for taps",
+    "unattended token share reached: AGENT_MAX_TOKENS_PER_DAY 9000000 x "
+    "(1 - SCOUT_AUTO_TAP_TOKEN_SHARE 0.5) = 4500000; the rest is kept for taps",
+    "AGENT_MAX_SEARCHES_PER_DAY 100 would be reached by another card's 3 searches",
+]
+
+#: A tap the daily ceiling refused: the budget's own sentence
+#: (`AgentBudget.refusal_reason`), which the list repeats as it is.
+TAP_REFUSAL = "2838176 of 2500000 Anthropic tokens already recorded today"
+
+
+class TestAWatcherRefusalTellsHimTheTapIsHis:
+    """The stored reason names the dial, for the record; the screen must not
+    print it (2026-10-10). A tap refusal is the positive control: the same
+    status with the budget's sentence is still printed as it is, so the
+    rewrite is of the watcher's rows and not of every refusal."""
+
+    @pytest.mark.parametrize("reason", WATCHER_REFUSALS)
+    def test_the_list_says_open_the_game_and_tap_build_card(self, tmp_path, reason):
+        http, conn = _app(tmp_path)
+        _refused(conn, "KXNCAAFGAME-26OCT10CCUMRSH", NOW + HOUR, "refused_budget", reason)
+        card = http.get("/api/game-cards").json()["cards"][0]
+        assert card["no_card_line"] == game_router.UNATTENDED_NO_CARD_LINE
+        assert "tap Build card" in card["no_card_line"]
+        # The record keeps the dial's name; only the sentence lost it.
+        assert card["reason"] == reason
+
+    @pytest.mark.parametrize("reason", WATCHER_REFUSALS)
+    def test_no_config_name_reaches_the_sentence(self, reason):
+        line = game_router.no_card_line(
+            {"status": "refused_budget", "reason": reason}
+        )
+        for dial in ("AGENT_MAX_", "SCOUT_AUTO_", "= 2250000", "= 4500000"):
+            assert dial not in line, (dial, line)
+
+    def test_a_tap_the_ceiling_refused_still_says_so(self, tmp_path):
+        http, conn = _app(tmp_path)
+        _refused(conn, "KXNCAAFGAME-26OCT10LSUUKY", NOW + HOUR, "refused_budget", TAP_REFUSAL)
+        card = http.get("/api/game-cards").json()["cards"][0]
+        assert card["no_card_line"] == f"No card today: {TAP_REFUSAL}"
+
+    def test_is_unattended_refusal_reads_only_the_watchers_prefixes(self):
+        from backend.game_script_watch import is_unattended_refusal
+
+        assert all(is_unattended_refusal(r) for r in WATCHER_REFUSALS)
+        assert not is_unattended_refusal(TAP_REFUSAL)
+        assert not is_unattended_refusal(None)
+        assert not is_unattended_refusal("")

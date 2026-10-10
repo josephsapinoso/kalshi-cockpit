@@ -150,10 +150,22 @@ class Action:
     reason: Optional[str] = None  # names the ceiling on a refusal
 
 
+#: How the watcher's own two refusals begin. The stored text names the dial
+#: (`tests/test_game_script_watch.py` pins that: an operator reading the row
+#: or `inspect_live_db.py game-script-card-refusals` must see WHICH ceiling),
+#: and the screen must not print it -- Joe saw "AGENT_MAX_TOKENS_PER_DAY
+#: 9000000 x (1 - SCOUT_AUTO_TAP_TOKEN_SHARE 0.75) = 2250000" on every game
+#: of a Saturday night (2026-10-10). `is_unattended_refusal` is how the list
+#: tells these rows from a tap the daily ceiling refused, whose reason is the
+#: budget's own plain sentence and is printed as it is.
+UNATTENDED_TOKEN_REFUSAL_PREFIX = "unattended token share reached"
+UNATTENDED_SEARCH_REFUSAL_PREFIX = "AGENT_MAX_SEARCHES_PER_DAY"
+
+
 def _token_reason(budget: WatchBudget, line: int) -> str:
     # Stable text (no running totals) so a repeated refusal is one row a day.
     return (
-        f"unattended token share reached: AGENT_MAX_TOKENS_PER_DAY "
+        f"{UNATTENDED_TOKEN_REFUSAL_PREFIX}: AGENT_MAX_TOKENS_PER_DAY "
         f"{budget.tokens_ceiling} x (1 - SCOUT_AUTO_TAP_TOKEN_SHARE "
         f"{budget.tap_token_share}) = {line}; the rest is kept for taps"
     )
@@ -161,8 +173,19 @@ def _token_reason(budget: WatchBudget, line: int) -> str:
 
 def _search_reason(budget: WatchBudget) -> str:
     return (
-        f"AGENT_MAX_SEARCHES_PER_DAY {budget.searches_ceiling} would be "
+        f"{UNATTENDED_SEARCH_REFUSAL_PREFIX} {budget.searches_ceiling} would be "
         f"reached by another card's {CARD_SEARCHES} searches"
+    )
+
+
+def is_unattended_refusal(reason: Optional[str]) -> bool:
+    """Whether a stored `refused_budget` reason is the watcher's own -- the
+    unattended token share or the search ceiling -- rather than a tap the
+    daily ceiling refused. Matches the prefixes above, which the rows written
+    since 2026-09-30 all carry; an unreadable reason is not the watcher's."""
+    text = (reason or "").strip()
+    return text.startswith(UNATTENDED_TOKEN_REFUSAL_PREFIX) or text.startswith(
+        UNATTENDED_SEARCH_REFUSAL_PREFIX
     )
 
 

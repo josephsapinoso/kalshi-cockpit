@@ -64,3 +64,15 @@ A scout convening per game; a second NFL refresh; prices in the prompt; any comb
 - The on-tap path (`POST /api/game/{event}/card`, "Build card" on `/game`) is untouched. A card Joe asks for is his spend.
 
 **Not decided here:** whether to shrink the card (Amendment 1's option (A), still unbuilt), or to re-arm automatic cards at T-2h. Either is a new question for Joe with a fresh `agent-spend` reading attached.
+
+## Amendment 3 — the 2.5M lasted five hours: a ceiling set below the day's recorded spend is a lockout, and the ceiling moves to 5M (2026-10-10 evening, on Joe's word)
+
+**What happened.** Amendment 2 deployed at ~20:00Z on a budget day (10:00Z start) that had already recorded **2,838,176 tokens by 16:31Z** (`agent-spend --days 2`, every row the automatic watcher's, before it was switched off). `AgentBudget.refusal_reason` gates every call on the day's recorded total, so from the deploy to the 10:00Z reset it refused every call — Joe's own taps included, the one path Amendment 2 meant to keep. At 23:06Z (4:06pm PT, kickoff of the NCAAF late window) Joe sent a screenshot of the Parlays list: every game read "No card today: unattended token share reached: AGENT_MAX_TOKENS_PER_DAY 9000000 x (1 - SCOUT_AUTO_TAP_TOKEN_SHARE 0.75) = 2250000; the rest is kept for taps" — the watcher's refusal rows from the morning, printed verbatim by `no_card_line`, with nothing telling him the build was his to tap — and wrote "whatever it is is blocking me fix it".
+
+**The changes.**
+- `AGENT_MAX_TOKENS_PER_DAY` 2.5M → **5M**, alone (commit `0931303a`, live at 23:3xZ). Above the 2.84M already recorded, so taps resumed that night; going forward a tap-only day holds ~10 cards (median 178K) or ~40 verdicts (~51K) above the busiest verdict day. Calls (100) and searches (100) are unmoved; the automatic path stays off, so nothing but his taps can reach the ceiling.
+- `no_card_line` tells a watcher refusal (`is_unattended_refusal`: the two prefixes `game_script_watch.py` writes) from a tap the daily ceiling refused. The first now reads "The desk did not build this card by itself. Open the game and tap Build card to make one."; the second repeats the budget's own plain sentence, because a second tap would meet the same ceiling. The stored reason still names the dial — `tests/test_game_script_watch.py` pins that for the record and the instrument — and `tests/test_game_script_card_screen.py` pins that no config name reaches the sentence, with the tap refusal as the positive control.
+
+**The rule, for the next move of any `AGENT_MAX_*` dial:** read the budget day's recorded total first (`agent-spend --days 1`) and either set the new ceiling above it or time the deploy for after the 10:00Z reset. A ceiling below the recorded total is not a cap on tomorrow; it is a lockout for the rest of today, and the screen shows the operator the previous regime's refusals with no way through.
+
+**Not decided here:** whether 5M is the number for a season with NBA added (2026-10-20); re-read `agent-spend` after the first attended Sunday on the tap-only path.

@@ -26,6 +26,7 @@ from ...agents.game_script import CALL_FAILED_PREFIX, build_card, recheck_card
 from ...config import AppConfig, ConfigError, StalenessConfig
 from ...core.leg_words import no_words_for
 from ...core.prices import format_price
+from ...game_script_watch import is_unattended_refusal
 from ...game_builder import (
     _read_event_markets,
     consensus_for_legs,
@@ -212,16 +213,33 @@ def kickoff_order(cards: list[dict]) -> list[dict]:
     return sorted(cards, key=lambda c: (c["kickoff_ms"], c["game_event_ticker"]))
 
 
+#: What the list says on a game the unattended watcher declined to build. The
+#: stored reason names the dial, for the record; the screen says what to do.
+#: Seen on Joe's phone 2026-10-10: every NCAAF game of a Saturday night
+#: printing "AGENT_MAX_TOKENS_PER_DAY 9000000 x (1 - SCOUT_AUTO_TAP_TOKEN_SHARE
+#: 0.75) = 2250000; the rest is kept for taps", hours after the watcher had
+#: been switched off, with no sentence telling him the tap was his.
+UNATTENDED_NO_CARD_LINE = (
+    "The desk did not build this card by itself. Open the game and tap "
+    "Build card to make one."
+)
+
+
 def no_card_line(card: dict) -> Optional[str]:
     """What a game with no built card says, in words, or `None` on a built one.
 
     A skipped or refused game is listed with this sentence, never dropped and
-    never an empty row (#216)."""
+    never an empty row (#216). A refusal the unattended watcher wrote is told
+    apart from a tap the daily ceiling refused: the first says the build is
+    his to tap, the second repeats the budget's own plain sentence, because
+    tapping again would meet the same ceiling."""
     status = card["status"]
     if status == "built":
         return None
     reason = (card.get("reason") or "").strip() or "no reason was recorded"
     if status == "refused_budget":
+        if is_unattended_refusal(reason):
+            return UNATTENDED_NO_CARD_LINE
         return f"No card today: {reason}"
     if status == "refused_invalid" and reason.startswith(CALL_FAILED_PREFIX):
         # A machine failure, retried on a later pass (#309): not the scout's

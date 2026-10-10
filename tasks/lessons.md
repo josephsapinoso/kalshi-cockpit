@@ -16,6 +16,16 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-10 - A daily ceiling lowered below the day's recorded spend is a lockout, not a cap; and a stored refusal is not a sentence for the screen
+
+From the ninetieth session (ADR 0190 Amendment 3).
+
+- **The 2.5M token ceiling of #349 deployed at ~20:00Z into a budget day that had already recorded 2.84M.** `AgentBudget` gates every call on the day's recorded total, so from the deploy to the 10:00Z reset it refused every call, including the taps the change was meant to keep. Joe found out at kickoff of the Saturday late window, from a Parlays list that printed the morning's watcher refusals on every game.
+- **The screen printed the stored reason verbatim** — "AGENT_MAX_TOKENS_PER_DAY 9000000 x (1 - SCOUT_AUTO_TAP_TOKEN_SHARE 0.75) = 2250000" — because `no_card_line` was written as "No card today: {reason}" and the reason was written for the record (it names the dial, and a test pins that). Two audiences, one string.
+- **The rule:**
+  - Before moving any daily ceiling down, read the budget day's recorded total (`agent-spend --days 1`) and set the new value above it, or time the deploy for after the reset. The check is one instrument call; the failure is an operator locked out for the rest of the day with the previous regime's refusals on his screen.
+  - A reason stored for the record and a sentence shown to the operator are different strings with different tests. The record names the dial; the screen says what to do next ("Open the game and tap Build card"). When one function serves both, the screen test must assert that no config name reaches the sentence, with a positive control that a reason meant to be shown still is.
+
 ## 2026-10-10 - A test that an off switch "sends nothing" proves nothing until the same input is shown to send with the switch on
 
 From the eighty-ninth session (#346, the parlay-push switch).
