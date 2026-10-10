@@ -1671,6 +1671,15 @@ def create_app(
                             if best["price_is_current"]
                             else None
                         ),
+                        # The last recorded ask, served whether or not it is
+                        # current, so a stale row can print it GREYED beside
+                        # its age instead of a chance with no price at all
+                        # (#344, the 2026-10-09 review: a chance alone is
+                        # "who wins", not "what it costs"). `ask_display`
+                        # above still says whether it is a price you can
+                        # act on; the screen greys this one and never
+                        # styles it as a quote.
+                        "last_ask_display": best["ask_display"],
                         # How old the recorded Kalshi quote is, moved to
                         # now by `_live_ages` -- served whether or not the
                         # ask above survived, so a row whose ask was

@@ -16,6 +16,17 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-10 - A test that an off switch "sends nothing" proves nothing until the same input is shown to send with the switch on
+
+From the eighty-ninth session (#346, the parlay-push switch).
+
+- **The first version of `test_off_a_built_ladder_sends_nothing` was green with the switch on, off, and with the guard deleted.** The hand-built ladder it fed `parlay_cards` could not send for a reason unrelated to the switch (the debounce holds a composition until it has been seen twice), so "nothing was sent" was true of every code path. The runner-side gate test went red under mutation; the send-side test did not, and only the mutation pass noticed.
+- **A screen-level review found the same shape elsewhere the same day:** `tests/test_fair_value_steps.py` pinned `(overround - 1) * 100` as source text and stayed green while every market page printed a negative house cut, because a pin on an expression asserts the expression, not the number it produces.
+- **The rule:**
+  - A test for a refusal, an off switch or a guard starts with a positive control: the same input, through the same helper, reaching the thing the guard blocks. Without it the assertion cannot tell the guard from any other reason the action did not happen.
+  - A source-text pin on an arithmetic expression is not a test of the arithmetic. Beside it, assert one concrete value (0.033 → "103.3%" and "3.3 points"); when the repo has no renderer, assert the formula on the number, not on the string of the formula.
+  - Mutation-check every guard separately. Two guards behind one switch are two mutations; the one you skip is the one that was decoration.
+
 ## 2026-10-09 - A deletion lane's red is in a registry, not a caller: run the full suite before the merge, not after
 
 From the eighty-eighth session (#332).

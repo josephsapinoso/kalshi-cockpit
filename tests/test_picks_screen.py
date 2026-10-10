@@ -42,7 +42,6 @@ FRONTEND = ROOT / "frontend" / "src"
 PICKS_PAGE = FRONTEND / "app" / "picks" / "page.tsx"
 PICKS_LOADING = FRONTEND / "app" / "picks" / "loading.tsx"
 NAV = FRONTEND / "components" / "Nav.tsx"
-FOOTER = FRONTEND / "components" / "Footer.tsx"
 
 #: The sentence #9 wrote for the Picks slot, ratified with its disarming
 #: clause 2026-08-27. Whitespace-normalised before comparison because JSX
@@ -80,20 +79,6 @@ def nav_links() -> list[tuple[str, str]]:
     block = text[text.index("const LINKS = ["):]
     block = block[: block.index("];")]
     return re.findall(r'href:\s*"([^"]+)",\s*label:\s*"([^"]+)"', block)
-
-
-def footer_entries() -> dict[str, tuple[str, str]]:
-    """`href -> (label, blurb)` from `SECONDARY`, from the code only."""
-    text = code_only(source(FOOTER))
-    block = text[text.index("const SECONDARY = ["):]
-    block = block[: block.index("];")]
-    return {
-        href: (label, blurb)
-        for href, label, blurb in re.findall(
-            r'href:\s*"([^"]+)",\s*label:\s*"([^"]+)",\s*blurb:\s*"([^"]*)"',
-            block,
-        )
-    }
 
 
 class TestTheWordPicksOpensTheRankedList:

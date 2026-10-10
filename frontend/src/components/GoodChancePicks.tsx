@@ -152,9 +152,8 @@ export default function GoodChancePicks({
 }
 
 /** The ask the server withheld as stale, or null when none was served. */
-function lastAsk(pick: object): string | null {
-  const served = (pick as { last_ask_display?: string | null }).last_ask_display;
-  return typeof served === "string" ? served : null;
+function lastAsk(pick: { last_ask_display?: string | null }): string | null {
+  return typeof pick.last_ask_display === "string" ? pick.last_ask_display : null;
 }
 
 /** Pacific, matching the slate rows' kickoff column. */

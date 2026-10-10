@@ -398,6 +398,13 @@ export type SlatePick = {
    * (ADR 0067). Optional for a backend one version behind.
    */
   started_ago_ms?: number | null;
+  /**
+   * The last recorded ask, served whether or not it is current, so a stale
+   * row can print it greyed beside its age instead of a chance with no
+   * price (#344). `ask_display` above still says whether it is a price you
+   * can act on; this one is never styled as a quote.
+   */
+  last_ask_display?: string | null;
   anchored_on_sharp: boolean | null;
 };
 
