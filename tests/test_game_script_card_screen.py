@@ -531,8 +531,12 @@ class TestTheListCarriesTonightsGamesWithoutACard:
             ).fetchall()
         )
         assert "idx_events_commence" in plan, plan
+        steps = plan.split(" | ")
+        # Exactly the three seeks designed: events by clock, links by event,
+        # fixture by key. A fourth step (a join to a snapshot or quote table)
+        # or any SCAN is a different, unbounded query.
+        assert len(steps) == 3 and all(s.startswith("SEARCH") for s in steps), plan
         assert "odds_snapshots" not in plan and "kalshi_quotes" not in plan, plan
-        assert not re.search(r"SCAN (f|odds_fixtures|l|event_links)\b", plan), plan
 
     def test_a_budget_refusal_names_the_reset_in_pacific_time(
         self, tmp_path, monkeypatch

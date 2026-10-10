@@ -355,8 +355,6 @@ def tonights_games(conn, now_ms: int) -> dict[str, dict]:
         ticker = row["game_event_ticker"]
         if row["sport_key"] not in sports:
             continue
-        if not ticker.split("-")[0].endswith("GAME"):
-            continue
         kickoff = int(row["commence_ms"])
         if ticker not in out or kickoff < out[ticker]["kickoff_ms"]:
             out[ticker] = {
@@ -582,11 +580,8 @@ def register(
         # A game kicking off in the next 24 h with no card row at all is
         # listed too (#358): the watcher is off, so the rows it wrote at T-24h
         # stop arriving and a list of stored cards alone goes empty on a night
-        # with games. A game WITH a row of any kind was handled above.
-        listed = set(games)
+        # with games. A game WITH a row of any kind is skipped by the `latest_for_game` test.
         for game, info in tonight.items():
-            if game in listed:
-                continue
             if game_script_cards.latest_for_game(conn, game) is None:
                 cards.append(no_row_card(game, info))
         cards = kickoff_order(cards)
