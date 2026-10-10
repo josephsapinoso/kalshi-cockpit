@@ -8,6 +8,17 @@ split date, and regenerate the index from the headings.
 
 ---
 
+**Split 2026-10-10, at 233,027 bytes — 88.9%, one entry short of the 90% line.**
+Everything 2026-09-19 and earlier — **29 lessons across four dates**
+(2026-09-19, -18, -17, -16) — moved to `archive/lessons-2026-10-10.md`,
+verbatim, leaving 156,904 bytes — **59.9%**. The four index markers for those
+dates became links in the same edit, and the two 2026-10-10 lessons, which had
+no index block (the session that wrote the first of them did not regenerate the
+index), got theirs. Verified: md5 of head + moved + original index equals the
+original file (`9e203a21a3b867550fada1d15d62c8ef`); the moved bytes hash to `60f1cce441ef74da9a1e3c0aafeec841`.
+
+---
+
 **Split 2026-09-18, at 225,816 bytes — 86.1%, under the 90% trigger and taken
 on Joe's instruction that a trigger handed forward fires one session late.**
 Everything 2026-09-15 and earlier — **51 lessons across five dates**
