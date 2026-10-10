@@ -209,8 +209,13 @@ async def measure(
                     ws, next_id(), "Page.captureScreenshot",
                     {"format": "png", "captureBeyondViewport": True},
                 )
+                # "/" lands as board.png (the landing screen's old name); a
+                # nested path such as /market/<ticker> lands in a subfolder,
+                # which must exist first -- it did not, and a fresh --shots
+                # directory crashed on the market page (2026-10-10).
                 name = (path.strip("/") or "board") + ".png"
                 destination = shot_dir / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(
                     base64.b64decode(shot["result"]["data"])
                 )
