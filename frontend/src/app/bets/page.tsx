@@ -331,15 +331,16 @@ function RecordStrip({ record }: { record: BetsRecord }) {
     summary: record.summary?.[section.kind],
   }));
   const withExpected = kinds.filter((k) => k.summary?.expected);
-  const settled = kinds.reduce((n, k) => n + (k.summary?.computable ?? 0), 0);
-  const expectedSum = withExpected.reduce(
-    (n, k) => n + (k.summary?.expected?.expected ?? 0),
-    0,
-  );
-  const wonSum = withExpected.reduce(
-    (n, k) => n + (k.summary?.expected?.won ?? 0),
-    0,
-  );
+  let settled = 0;
+  let expectedSum = 0;
+  let wonSum = 0;
+  for (const k of kinds) {
+    settled += k.summary?.computable ?? 0;
+    if (k.summary?.expected) {
+      expectedSum += k.summary.expected.expected;
+      wonSum += k.summary.expected.won;
+    }
+  }
   const only = withExpected.length === 1 ? withExpected[0].summary?.expected : null;
   const rangeWords =
     withExpected.length === 0
@@ -421,7 +422,7 @@ function RecordStrip({ record }: { record: BetsRecord }) {
         </ul>
       )}
       {sourceOrder.length > 0 && (
-        <p className="mt-1 text-xs text-muted">
+        <p className="mt-1 max-w-[65ch] text-xs text-muted">
           Net per source is not served, so none is shown. Sources are in a
           fixed order, never ranked by result.
         </p>
