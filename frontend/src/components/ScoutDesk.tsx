@@ -473,9 +473,9 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
         </div>
       ) : state.status === "refused" ? (
         <p className="max-w-[65ch] text-sm leading-relaxed text-muted">
-          The desk was refused by the day&rsquo;s budget:{" "}
-          {state.refusal_reason ?? "the daily call ceiling"}. Nothing was
-          spent. The day rolls over on its own.
+          {state.refusal_reason ??
+            "The scouts have used today’s allowance."}{" "}
+          Nothing was spent. The day rolls over on its own.
         </p>
       ) : state.status === "failed" ? (
         <div className="space-y-3">

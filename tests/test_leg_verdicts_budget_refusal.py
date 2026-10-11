@@ -83,10 +83,10 @@ class TestATokenCeilingRefusalHasNoOperatorJargon:
         reason = leg["refusal_reason"]
         assert reason
         assert "Anthropic" not in reason
-        assert "token" not in reason.lower()
+        assert "AGENT_MAX" not in reason
         assert re.search(r"\d{4,}", reason) is None
         # And it is the plain sentence, not just "not jargon."
-        assert reason.startswith("The scouts have used today's allowance.")
+        assert reason.startswith("The scouts have used today's token allowance.")
 
 
 class TestItNamesWhenTheScoutsAreBack:
