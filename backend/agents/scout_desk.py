@@ -67,7 +67,13 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from .base import AgentConfig, CallUsage, search_cap_rule, structured_call
+from .base import (
+    AgentConfig,
+    CallUsage,
+    api_error_verdict,
+    search_cap_rule,
+    structured_call,
+)
 from .budget import AgentBudget
 from .pro_bettor import SYSTEM as PRO_BETTOR_SYSTEM
 from .pro_bettor import SharpTake
@@ -270,6 +276,9 @@ class StaffNote:
     # `budget.settle`. Never serialized into the briefing; the desk's output
     # schema stays free of numbers (ADR 0060) and this is not part of it.
     usage: Optional[CallUsage] = None
+    #: `agent_calls.verdict` when the call ERRORED (`api_error[:credit]`,
+    #: #365); None otherwise. An outage is not "the scout filed nothing".
+    error_verdict: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -406,10 +415,15 @@ async def _staff_call(
             tools=[WEB_SEARCH_TOOL],
         )
         report, usage = outcome.parsed, outcome.usage
+        error_verdict = outcome.settle_verdict
     except Exception:
         logger.exception("the %s scout (%s) died", team, role)
         report, usage = None, None
-    return StaffNote(role=role, team=team, report=report, usage=usage)
+        error_verdict = api_error_verdict("call_error")
+    return StaffNote(
+        role=role, team=team, report=report, usage=usage,
+        error_verdict=error_verdict,
+    )
 
 
 async def convene_desk(
@@ -486,7 +500,7 @@ async def convene_desk(
         budget.settle(
             call_id,
             verdict=(
-                "filed_nothing"
+                (note.error_verdict or "filed_nothing")
                 if note.report is None
                 else f"{len(note.report.findings)} findings"
             ),
@@ -520,12 +534,17 @@ async def convene_desk(
             effort="high",
         )
         briefing, master_usage = outcome.parsed, outcome.usage
+        master_error = outcome.settle_verdict
     except Exception:
         logger.exception("the master scout died")
         briefing, master_usage = None, None
+        master_error = api_error_verdict("call_error")
     budget.settle(
         master_id,
-        verdict="briefing" if briefing is not None else "filed_nothing",
+        verdict=(
+            "briefing" if briefing is not None
+            else (master_error or "filed_nothing")
+        ),
         usage=master_usage,
     )
     if briefing is not None:
@@ -559,13 +578,18 @@ async def convene_desk(
                 effort="high",
             )
             sharp, sharp_usage = outcome.parsed, outcome.usage
+            sharp_error = outcome.settle_verdict
         except Exception:
             logger.exception("the pro's seat died")
             sharp, sharp_usage = None, None
+            sharp_error = api_error_verdict("call_error")
             sharp_absent_reason = "the call failed"
         budget.settle(
             sharp_id,
-            verdict="sharp_take" if sharp is not None else "filed_nothing",
+            verdict=(
+                "sharp_take" if sharp is not None
+                else (sharp_error or "filed_nothing")
+            ),
             usage=sharp_usage,
         )
 

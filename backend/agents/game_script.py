@@ -37,7 +37,13 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 from ..store import game_script_cards
-from .base import AgentConfig, CallUsage, search_cap_rule, structured_call
+from .base import (
+    AgentConfig,
+    CallUsage,
+    api_error_verdict,
+    search_cap_rule,
+    structured_call,
+)
 from .budget import AgentBudget
 from .scout import WEB_SEARCH_TOOL
 
@@ -519,6 +525,10 @@ _FAILURE_WORDS = {
         "malformed output); its tokens are not counted"
     ),
     "call_error": "the call to the model errored (connection or API failure)",
+    "credit_exhausted": (
+        "the Anthropic account is out of credit (a billing failure, not a "
+        "judgement about this game)"
+    ),
     "refusal": "the model refused to answer",
     "no_output": "the model returned no parseable card",
     "search_failed": "the web search failed",
@@ -620,13 +630,19 @@ async def build_card(
         parsed, usage = outcome.parsed, outcome.usage
         failure = outcome.failure
         detail = outcome.failure_detail or ""
+        error_verdict = outcome.settle_verdict
     except Exception:
         logger.exception("the game-script scout died")
         parsed, usage, failure, detail = None, None, "call_error", "exception"
+        error_verdict = api_error_verdict("call_error")
 
     if parsed is None:
-        budget.settle(call_id, verdict="filed_nothing", usage=usage)
-        why = call_failed_reason(failure or "no_output", detail=detail)
+        budget.settle(call_id, verdict=error_verdict or "filed_nothing", usage=usage)
+        why = call_failed_reason(
+            "credit_exhausted" if error_verdict == "api_error:credit"
+            else (failure or "no_output"),
+            detail=detail,
+        )
         return CardResult(
             "refused_invalid",
             store("refused_invalid", reason=why, agent_call_id=call_id),

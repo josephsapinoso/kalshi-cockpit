@@ -223,7 +223,7 @@ class TestOneLegIsOneMeteredCall:
             "SELECT verdict, input_tokens, output_tokens, web_searches "
             "FROM agent_calls"
         ).fetchone()
-        assert row["verdict"] == "filed_nothing"
+        assert row["verdict"] == "api_error"  # an errored call, #365
         assert row["input_tokens"] is None
         assert row["output_tokens"] is None
         assert row["web_searches"] is None

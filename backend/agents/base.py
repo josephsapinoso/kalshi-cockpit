@@ -212,6 +212,45 @@ class StructuredCallOutcome:
     #: The exception class and, for a schema mismatch, pydantic's error types
     #: (`json_invalid` is what a reply cut off at `max_tokens` looks like).
     failure_detail: Optional[str] = None
+    #: `"credit"` when a `call_error` was the account being out of credit
+    #: (#365), else None. Read off the exception itself, not the 200-character
+    #: `failure_detail`, which is a display string and may truncate the message.
+    api_error_kind: Optional[str] = None
+
+    @property
+    def settle_verdict(self) -> Optional[str]:
+        """`agent_calls.verdict` for a call that errored, else None (#365).
+
+        A transport or API failure is not a content judgement: settling it
+        `filed_nothing` made an outage read as "the model looked and found
+        nothing" (lesson 2026-10-05). `api_error:credit` names the billing
+        case; any other `call_error` is plain `api_error`.
+        """
+        return api_error_verdict(self.failure, self.api_error_kind)
+
+
+#: The text Anthropic returns (HTTP 400 `invalid_request_error`) when the
+#: account has no credit. As recorded on live 2026-10-10 23:50Z.
+CREDIT_EXHAUSTED_TEXT = "credit balance is too low"
+
+
+def is_credit_exhausted(error_or_text) -> bool:
+    """True when an exception or its text is the out-of-credit failure.
+
+    Reused by the credit alert (#368). Matches on the message text, which is
+    the only thing the API gives for this case: it is a generic 400.
+    """
+    if error_or_text is None:
+        return False
+    text = error_or_text if isinstance(error_or_text, str) else str(error_or_text)
+    return CREDIT_EXHAUSTED_TEXT in " ".join(text.split()).lower()
+
+
+def api_error_verdict(failure: Optional[str], api_error_kind: Optional[str] = None) -> Optional[str]:
+    """The settled verdict naming an API failure, or None for any other kind."""
+    if failure != "call_error":
+        return None
+    return f"api_error:{api_error_kind}" if api_error_kind else "api_error"
 
 
 def _usage_from(response) -> Optional[CallUsage]:
@@ -622,6 +661,7 @@ async def structured_call(
         return StructuredCallOutcome(
             parsed=None, usage=None, failure="call_error",
             failure_detail=f"{type(exc).__name__}: {' '.join(str(exc).split())[:200]}",
+            api_error_kind="credit" if is_credit_exhausted(exc) else None,
         )
 
     usage = _usage_from(response)
