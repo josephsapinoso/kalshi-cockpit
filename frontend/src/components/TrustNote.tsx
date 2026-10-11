@@ -46,16 +46,32 @@
 
 import type { TrustScore } from "@/lib/api";
 
+/** `core/trust.py` `_age_check` names. */
+const AGE_CHECKS = new Set(["consensus_fresh", "quote_fresh"]);
+
 export default function TrustNote({
   trust,
   size = "compact",
+  hideAgeChecks = false,
 }: {
   trust: TrustScore | null | undefined;
   size?: "compact" | "panel";
+  /**
+   * Opt-in (#353): leave the two AGE checks (`consensus_fresh`,
+   * `quote_fresh`) out of the printed failure list, for a host that already
+   * shows the age in its own chip. Only the Games row passes it. The score
+   * and the not-checked count still count them, and a row whose ONLY failures
+   * are age checks prints no failure line at all (the chip says it) and does
+   * NOT print the all-passed sentence, because something did fail.
+   */
+  hideAgeChecks?: boolean;
 }) {
   if (!trust) return null;
   const unknown = trust.total - trust.known;
-  const failures = trust.checks.filter((c) => c.state === "fail");
+  const failed = trust.checks.filter((c) => c.state === "fail");
+  const failures = hideAgeChecks
+    ? failed.filter((c) => !AGE_CHECKS.has(c.name))
+    : failed;
   const scale = size === "panel" ? "text-xs" : "text-[0.6rem]";
   // **The prose sets its own size rather than inheriting one.** On the parlay
   // card the failure list sat inside an `11px` list item and looked right; the
@@ -104,7 +120,7 @@ export default function TrustNote({
           {failures.map((f) => f.detail).join("; ")}.
         </span>
       )}
-      {failures.length === 0 && unknown === 0 && (
+      {failed.length === 0 && unknown === 0 && (
         <span className="block">
           Every check the desk can run here passed. That is about the
           evidence, not about whether the bet wins.
