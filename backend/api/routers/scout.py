@@ -34,6 +34,7 @@ from ...agents import scout_desk
 from ...agents.base import AgentConfig, build_client
 from ...agents.budget import AgentBudget
 from ...config import AppConfig
+from ...notify.credit_alert import screen_sentence
 from ...store import db
 from .game import plain_budget_refusal
 
@@ -52,6 +53,9 @@ def _screen_refusal(row, now_ms: int) -> Optional[str]:
     daily cap refused and when it resets, in Pacific time, with no config
     name (#363). Non-refused rows and unreadable reasons pass through."""
     reason = row["refusal_reason"]
+    credit = screen_sentence(reason)
+    if credit is not None and row["status"] in ("failed", "refused"):
+        return credit
     if row["status"] != "refused" or not reason:
         return reason
     return plain_budget_refusal(

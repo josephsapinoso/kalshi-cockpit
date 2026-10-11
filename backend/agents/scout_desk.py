@@ -75,6 +75,11 @@ from .base import (
     structured_call,
 )
 from .budget import AgentBudget
+from ..notify.credit_alert import (
+    CREDIT_RECORD_REASON,
+    CREDIT_VERDICT,
+    push_if_credit_failed,
+)
 from .pro_bettor import SYSTEM as PRO_BETTOR_SYSTEM
 from .pro_bettor import SharpTake
 from .scout import WEB_SEARCH_TOOL, ScoutReport
@@ -506,10 +511,18 @@ async def convene_desk(
             ),
             usage=note.usage,
         )
+        await push_if_credit_failed(budget, note.error_verdict, now_ms)
 
     filed = [n for n in staff if n.report is not None]
     if not filed:
-        return DeskResult(status="failed", staff=staff, briefing=None)
+        return DeskResult(
+            status="failed", staff=staff, briefing=None,
+            refusal_reason=(
+                CREDIT_RECORD_REASON
+                if any(n.error_verdict == CREDIT_VERDICT for n in staff)
+                else None
+            ),
+        )
 
     if not budget.can_afford(1, now_ms):
         # The staff's notes still exist and are still served; the result is
@@ -547,6 +560,7 @@ async def convene_desk(
         ),
         usage=master_usage,
     )
+    await push_if_credit_failed(budget, master_error, now_ms)
     if briefing is not None:
         briefing = complete_board(briefing, staff)
 
@@ -592,6 +606,7 @@ async def convene_desk(
             ),
             usage=sharp_usage,
         )
+        await push_if_credit_failed(budget, sharp_error, now_ms)
 
     if briefing is not None and len(filed) == len(staff):
         return DeskResult(

@@ -749,6 +749,21 @@ class DiscordNotifier:
             f"reconnects.",
         )
 
+    async def ai_credit_exhausted(self) -> bool:
+        """The AI account is out of credit (#368). Plain words, no secrets."""
+        if not self.config:
+            return False
+        return await self._post(
+            {
+                "title": "⚠ The desk's AI account is out of credit",
+                "description": (
+                    "Scout notes, leg verdicts and game cards are paused until "
+                    "it's topped up."
+                ),
+                "color": COLOUR_FAILURE,
+            }
+        )
+
     async def credits_exhausted(self, remaining: int) -> bool:
         return await self.failure(
             "Odds credits exhausted",
