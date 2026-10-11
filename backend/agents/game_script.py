@@ -45,6 +45,7 @@ from .base import (
     structured_call,
 )
 from .budget import AgentBudget
+from ..notify.credit_alert import push_if_credit_failed
 from .scout import WEB_SEARCH_TOOL
 
 logger = logging.getLogger(__name__)
@@ -638,6 +639,7 @@ async def build_card(
 
     if parsed is None:
         budget.settle(call_id, verdict=error_verdict or "filed_nothing", usage=usage)
+        await push_if_credit_failed(budget, error_verdict, now_ms)
         why = call_failed_reason(
             "credit_exhausted" if error_verdict == "api_error:credit"
             else (failure or "no_output"),

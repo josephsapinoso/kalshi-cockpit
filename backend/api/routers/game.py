@@ -43,6 +43,7 @@ from ...game_builder import (
 )
 from ...kalshi.discovery import IN_SCOPE_LEAGUES
 from ...kalshi.orderbook import OrderBook
+from ...notify.credit_alert import screen_sentence
 from ...odds.timing import day_start_ms
 from ...parlays import LookupRefused, _commence_ms_for_tickers
 from ...store import db, game_script_cards
@@ -362,6 +363,9 @@ def no_card_line(card: dict, now_ms: Optional[int] = None) -> Optional[str]:
                 line += f". The day resets at {clock}."
         return line
     if status == "refused_invalid" and reason.startswith(CALL_FAILED_PREFIX):
+        credit = screen_sentence(reason)
+        if credit is not None:
+            return f"No card yet: {credit} It will build once it's topped up."
         # A machine failure, retried on a later pass (#309): not the scout's
         # judgement, so never "No clean story".
         return f"No card yet: {reason}; it will be retried"

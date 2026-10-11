@@ -66,6 +66,11 @@ from .base import (
     structured_call,
 )
 from .budget import AgentBudget
+from ..notify.credit_alert import (
+    CREDIT_RECORD_REASON,
+    CREDIT_VERDICT,
+    push_if_credit_failed,
+)
 from .scout import WEB_SEARCH_TOOL
 
 logger = logging.getLogger(__name__)
@@ -259,6 +264,12 @@ async def give_leg_verdict(
         ),
         usage=usage,
     )
+    await push_if_credit_failed(budget, error_verdict, now_ms)
     if parsed is None:
-        return LegVerdictResult("failed", None, usage, "the call returned nothing", call_id)
+        return LegVerdictResult(
+            "failed", None, usage,
+            CREDIT_RECORD_REASON if error_verdict == CREDIT_VERDICT
+            else "the call returned nothing",
+            call_id,
+        )
     return LegVerdictResult("complete", parsed, usage, None, call_id)

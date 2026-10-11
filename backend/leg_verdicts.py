@@ -44,6 +44,7 @@ from .agents.budget import AgentBudget
 from .agents.leg_verdict import build_prompt, give_leg_verdict
 from .config import LegVerdictConfig
 from .core.prices import format_price
+from .notify.credit_alert import screen_sentence
 from .parlays import _ask_facts_for_side, _leg_scouting, _scout_facts, leg_facts
 from .store import db
 
@@ -333,7 +334,7 @@ def _row_to_response(row, *, now_ms: int) -> dict:
         verdict=None,
         reason=None,
         age_ms=max(0, now_ms - int(stamp)),
-        refusal_reason=row["refusal_reason"],
+        refusal_reason=screen_sentence(row["refusal_reason"]) or row["refusal_reason"],
     )
     return base
 
