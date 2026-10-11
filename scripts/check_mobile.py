@@ -134,6 +134,24 @@ PROBE = """
 """
 
 
+def routes_for(
+    market_ticker: Optional[str] = None, game_event: Optional[str] = None
+) -> list[str]:
+    """PAGES plus the routes that need an identifier, in a stable order.
+
+    `/game/<event>` needs an event ticker for the same reason `/market/<ticker>`
+    needs a ticker (see the note beside PAGES): #356 shipped a ticket on that
+    screen with no picture because this tool could not visit it (#364). Returns
+    a new list; PAGES itself is never mutated.
+    """
+    routes = list(PAGES)
+    if market_ticker:
+        routes.append(f"/market/{market_ticker}")
+    if game_event:
+        routes.append(f"/game/{game_event}")
+    return routes
+
+
 def find_chrome() -> Path:
     for candidate in CHROME_CANDIDATES:
         if candidate.exists():
@@ -158,6 +176,7 @@ async def measure(
     width: int,
     height: int,
     shot_dir: Optional[Path] = None,
+    pages: Optional[list[str]] = None,
 ) -> list[dict[str, Any]]:
     """Measure, and optionally capture, through one CDP session.
 
@@ -188,7 +207,7 @@ async def measure(
             },
         )
 
-        for path in PAGES:
+        for path in (pages if pages is not None else PAGES):
             await _call(ws, next_id(), "Page.navigate", {"url": f"{base}{path}"})
             # Server components render on request; give the load a moment rather
             # than racing it and measuring an empty page.
@@ -232,6 +251,11 @@ def main() -> int:
         "--market-ticker",
         default=None,
         help="also measure /market/<ticker> (see the note beside PAGES)",
+    )
+    parser.add_argument(
+        "--game-event",
+        default=None,
+        help="also measure /game/<EVENT_TICKER> (see the note beside PAGES)",
     )
     parser.add_argument("--height", type=int, default=844)
     parser.add_argument("--base", default="http://localhost:3000")
@@ -279,10 +303,11 @@ def main() -> int:
         if not ws_url:
             raise SystemExit("Chrome did not expose a debugging endpoint.")
 
-        if args.market_ticker:
-            PAGES.append(f"/market/{args.market_ticker}")
         results = asyncio.run(
-            measure(ws_url, args.base, args.width, args.height, shot_dir)
+            measure(
+                ws_url, args.base, args.width, args.height, shot_dir,
+                routes_for(args.market_ticker, args.game_event),
+            )
         )
     finally:
         process.terminate()
