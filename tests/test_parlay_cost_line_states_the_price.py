@@ -354,3 +354,34 @@ class TestEachFactIsIndependentlyAbsent:
     def test_no_implied_chance_on_a_null_price(self, built):
         html = render(SIX_LEG_CROSS_SPORT, None, built)
         assert html == ""
+
+
+class TestAFreshPriceNeverCarriesAnOlderJoint:
+    """#354 review: `PriceOnKalshi` builds the context from the FRESH lookup.
+    A null fresh joint (same-game set, unknown leg) must give no "multiply"
+    clause -- not the ladder card's older joint beside a fresh price, which
+    puts two observation times on one line."""
+
+    def test_a_null_fresh_joint_renders_no_clause(self, built):
+        legs_info = dict(SIX_LEG_CROSS_SPORT, fairJointPercentDisplay=None)
+        html = render(legs_info, 55, built)
+        assert "multiply" not in html
+        assert "4.1%" not in html
+
+    def test_price_on_kalshi_does_not_fall_back_to_the_outer_joint(self):
+        src = (SRC / "components" / "PriceOnKalshi.tsx").read_text(
+            encoding="utf-8"
+        )
+        m = re.search(r"fairJointPercentDisplay:([^;]*?),\s*\n\s*\};", src, re.S)
+        assert m, "legsInfo no longer ends with fairJointPercentDisplay"
+        expr = m.group(1)
+        assert "conservative_percent_display" in expr
+        assert "outer" not in expr, (
+            "the fresh lookup's joint must not fall back to the ladder card's"
+        )
+
+    def test_the_books_clause_wraps_books_in_a_glossary_term(self):
+        src = ASK_THE_MARKET.read_text(encoding="utf-8")
+        assert '<Term k="books">books</Term> multiply' in src
+        gloss = GLOSSARY.read_text(encoding="utf-8")
+        assert re.search(r"^\s*books:\s*\{", gloss, re.M)

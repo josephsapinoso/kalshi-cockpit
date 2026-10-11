@@ -702,7 +702,9 @@ export function ParlayCostLine({
       )}
       Wins about 1 in {line.oneIn}.
       {line.fairJointPercentDisplay !== null && (
-        <> The books multiply to {line.fairJointPercentDisplay}.</>
+        <> The <Term k="books">books</Term> multiply to{" "}
+          {line.fairJointPercentDisplay}.
+        </>
       )}
       {line.feePercent !== null && (
         <>

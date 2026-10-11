@@ -246,6 +246,14 @@ export const GLOSSARY = {
       "true price. An estimate, not a fact: the books can all be wrong " +
       "together.",
   },
+  books: {
+    label: "the books",
+    definition:
+      "The sportsbooks — the betting companies that set their own odds. " +
+      "Here, what they together say each leg is worth, with their margins " +
+      "removed. Multiplied across the legs, that is what the books say the " +
+      "whole parlay is worth: 70% × 60% ≈ 42%.",
+  },
   sharp_book: {
     label: "sharp book",
     definition:
