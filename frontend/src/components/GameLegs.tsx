@@ -14,6 +14,7 @@ import {
 import AskTheMarket from "@/components/AskTheMarket";
 import { CheckTheseLegs } from "@/components/GameScriptCard";
 import { RestChip } from "@/components/ParlayCards";
+import ManualTicket from "@/components/ManualTicket";
 import ScoutDesk from "@/components/ScoutDesk";
 import Term from "@/components/Term";
 import { Button, SectionLabel } from "@/components/ui";
@@ -311,7 +312,9 @@ export default function GameLegs({
           Tick two or more <Term k="leg">legs</Term> to build a{" "}
           <Term k="same_game_parlay">same-game parlay</Term>. Kalshi lists{" "}
           {data.leg_count} legs on this game. Where the desk has its own
-          chance for a leg it shows it; where it does not, it says why.
+          chance for a leg it shows it; where it does not, it says why. To bet
+          one leg on its own, as a <Term k="single">single</Term>, use
+          &ldquo;Bet this one alone&rdquo; on its row.
         </p>
         <p className="max-w-[65ch] text-sm">{NO_COMBINED_CHANCE_LINE}</p>
         <p className="max-w-[65ch] text-xs text-muted">{EXTRA_LEG_LINE}</p>
@@ -574,6 +577,37 @@ function Group({
                   <p key={side} className="mt-0.5 text-[11px] text-muted">
                     {side.toUpperCase()}: {facts.unknown_reason ?? "unknown"}.
                   </p>
+                );
+              })}
+              {/* Bet this leg alone (#356). One ticket per allowed side, each
+                  opened on the side its own row names: ManualTicket falls back
+                  to the OTHER side when the preferred one has no ask, so a
+                  side with no readable ask is not offered at all rather than
+                  opening on a contract the row did not name. No ordering and
+                  no mark: the ask and the chance are facts on the row. */}
+              {leg.allowed_sides.map((side) => {
+                const facts = leg.sides[side];
+                const askTenths =
+                  (leg as GameLegListed).listed?.[side]?.ask_tenths ?? null;
+                if (askTenths === null) return null;
+                const sideWords = side === "yes" ? leg.yes_label : leg.no_label;
+                return (
+                  <ManualTicket
+                    key={`single-${side}`}
+                    ticker={leg.market_ticker}
+                    preferSide={side}
+                    variant="inline"
+                    openLabel={`Bet this one alone: ${side.toUpperCase()}${
+                      sideWords && sideLabelAddsWords(leg.title, sideWords)
+                        ? ` ${sideWords}`
+                        : ""
+                    }`}
+                    note={
+                      facts && facts.chance !== null
+                        ? "One leg, on its own. This is not a parlay — it wins or loses by itself."
+                        : "One leg, on its own, and the desk has no price for it. Nothing on this product says what it is worth — your own number is the only estimate there is."
+                    }
+                  />
                 );
               })}
               {blocked && (
