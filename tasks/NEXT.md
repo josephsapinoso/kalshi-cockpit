@@ -139,6 +139,29 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-11 (ninety-first session) — the Anthropic credit lapse found and labelled (#365; Joe's B to #367 → #368), every budget refusal names its cap and reset (#363), the combination cost line states the price (#354, PR #362), one definition of a book and one age on a Games row (#353), `check_mobile --game-event` (#364), #338 closed
+
+- **No focus from Joe; `/go` start.** State clean, live on `cf46f995`, zero Dependabot alerts, one routine PR (#362 for #354). `partner` ranked the board and ran two committed live instruments itself (`agent-spend --days 2`, `game-script-card-refusals --limit 120`, ~14:40Z).
+- **Partner's two findings that changed the plan:** (1) **#338 closed early**: the 5M token ceiling is independent of the per-call output cap, and the evidence already existed: 13 metered cards after the 6000 cap went live, 7 wrote 3,036–5,349 output tokens (cut off under the old 3000), 0 `max_tokens`/`json_invalid` refusals in the newest 120. Watch item: the largest card used 89% of 6000. (2) **The Anthropic account ran out of credit Sat 2026-10-10 23:50–23:55Z**: seven calls failed ("Your credit balance is too low…"), six scout-staff calls were settled `filed_nothing` (`scout_desk.py:489`), and calls worked again by 00:04Z. Session 90's 00:30Z verification missed it (lesson 2026-10-11).
+- **The next cap to bind is searches, not tokens** (partner): a leg verdict reserves 3 searches, so 100/day stops verdicts at ~33/day while 5M tokens allows ~100; budget day 10-10 reached 78/100 searches against 3.16M/5M tokens. Not raised: copy first (#363), measure, then ask Joe.
+- **Joe's answers (option buttons):** **#367 B** (he tops up the Anthropic balance by hand; build a phone alert → **#368**) and merge + deploy the whole lane batch.
+- **Lanes (Sonnet, worktrees):** #354 PR #362 finished on `lane-354` (`ce7066de`: no fallback to the ladder card's older joint beside a fresh price; "books" is a glossary Term) → `22ce1978`. #363 `16931ef9` → `1d624f2e` (`plain_budget_refusal` in `routers/game.py` reuses #358's clock: "The scouts have used today's web-search allowance. They're back at 3:00 AM PT, in about 6 hours."; leg verdicts, Check a parlay, scout desk tap and served refusals). #353 `7ad665c5` → `c07049a7` (books-under figure only when its denominator equals the anchored book count, else "books —") and `4c29367c` → `ff757128` (TrustNote `hideAgeChecks` on the Games row only). #364 `b427a55b` → `fe8ec86a`. #365 `8c6516a4` → `e15c9b53` (`call_error` settles `api_error:credit`/`api_error`; `is_credit_exhausted` in `agents/base.py`; screens read scout state from `scout_briefings`, so no screen moved). Every guard mutation-red in its lane.
+- **Verification:** full suite on the merged tree of the first three lanes 10,065 passed, 0 failed (15:00); ruff, tsc and `next build --webpack` clean; the later two lanes' tests re-run on main (604 and 829 passed); CI green on `ff757128` and `e15c9b53`. **Live deployed and verified `build.git_sha = e15c9b53a7896d83905240fa4725f637f79bbbf1`**, status ok; every route in `time_live_routes.py` answered 200 (`/hedge` 307 to Your bets by design, #240). Demo deployed after live, same sha; its 390 Games screenshot shows "books —" and the quote age once, in the red chip.
+- **Not done, named:** #356's single-leg ticket still has no picture: the demo `/game` page has no Kalshi credentials or card, so `--game-event` proves the route fits, not the ticket. The demo `/game` page prints a raw config sentence naming `KALSHI_PRIVATE_KEY_PATH` on load (demo only, pre-existing). On live, "books —" will show on every row whose anchored set is smaller than its quoting set, possibly most rows; read it on a busy slate. `no_card_line` and the Odds API credit refusal keep their own wording (#363 report). Games rows print raw codes (`suspicious_edge`, `stale_kalshi_quote`) beside their plain sentences. `tasks/NEXT.md` is ~88% of its budget: split it before the next entry.
+
+### Still open
+
+1. #368 — one phone push per budget day when the Anthropic account is out of credit, plain words on the refused screen (Joe's B to #367); sonnet lane running at session end.
+2. #360 — college basketball into scope when Kalshi lists it; check date 2026-11-01.
+3. #361 — 2026-10-27: credit projection after an NBA week; fit the caps; warn Joe before 20,000.
+4. #366 — `/game` offers the single NO on a yes-only prop; unscheduled, main, `kalshi-platform` review required.
+5. #355 — Your bets split by leg count and same-game vs cross-sport; blocked by #331.
+6. #347 — the backend no-op sweep and the routes nothing calls; deferred.
+7. #348 — key-number flag on NFL/NCAAF spread legs; reconsider next week.
+8. #337 — 2027-01-15: look B for P1 only.
+9. #331 — 2026-11-01: the leg census by kind.
+10. #210, #151, #197, #267 — carried forward unchanged.
+
 ## 2026-10-10 (ninetieth session) — "more singles" and the cap that actually blocked him: token ceiling 5M (ADR 0190 Amendment 3), a leg can be bet alone on `/game` (#356), Games one row per market side in kickoff order (#357), Parlays lists tonight's games card or not (#358), #359 answered B
 
 - **Joe's ask (2026-10-10 ~23:00Z):** "I want to see more singles and probably [Kalshi/maybe] increase my API cap", then a phone screenshot of the Parlays page printing `AGENT_MAX_TOKENS_PER_DAY 9000000 x (1 - SCOUT_AUTO_TAP_TOKEN_SHARE 0.75) = 2250000` on every NCAAF game: "whatever it is is blocking me fix it".
@@ -1799,6 +1822,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-11 (ninety-first session) — the Anthropic credit lapse found and labelled (#365; #367 B → #368); budget refusals name the cap and reset (#363); the combination cost line states the price (#354); one book and one age on a Games row (#353); `check_mobile --game-event` (#364); #338 closed
 - 2026-10-10 (ninetieth session) — "more singles" and the cap that actually blocked him: token ceiling 5M (ADR 0190 Amendment 3); a leg can be bet alone on `/game` (#356); Games one row per market side (#357); Parlays lists tonight's games card or not (#358); #359 B
 - 2026-10-10 (eighty-ninth session) — the desk through a professional bettor's eyes: ADR 0195; cards off, pushes off, ceiling 2.5M (#349–#351 A); four dead screens deleted (#342); the vig unit bug fixed (#341); Your bets leads with the record (#343); Games/Picks/Playbook copy (#344); verdict take rate (#345)
 - 2026-10-09 (eighty-eighth session) — #316 closed by its live read; card output cap 3000→6000 (#338); builder routes deleted (#332); fee_coefficient served (#334); Joe's (C) withholds baseball singles (#339); live on `a6532df6`

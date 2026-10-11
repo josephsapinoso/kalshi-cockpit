@@ -16,6 +16,16 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-11 - A ticket that waits for a condition must depend on that condition; and a verification read covers the window it read, not the evening
+
+From the ninety-first session (#338, #365).
+
+- **#338 was parked "after a full budget day on the 5M ceiling" to check whether game-script cards still hit `max_tokens`.** The token ceiling and the per-call output cap are independent, and with automatic cards off a full budget day would hold almost no cards. The evidence was already in the record from the day before (13 metered cards, 7 above the old cap, 0 `max_tokens` refusals). `partner` caught it; the ticket closed a day early on the reading that existed.
+- **Session 90 verified the deploy at ~00:30Z and called it healthy.** Forty minutes earlier the Anthropic account had run out of credit and seven calls failed. The ledger had settled six of them as `filed_nothing`, so a read of verdicts showed a quiet desk, not an outage.
+- **The rule:**
+  - Before parking a ticket on "wait for X", name the mechanism by which X changes the answer. If none exists, read the evidence that is already there and close or re-scope now.
+  - A post-deploy read states the window it covered. Read the agent ledger's errors for the whole budget day, not only the minutes after the deploy, and never trust a verdict column to report an outage until a failure path is shown to write a failure verdict (#365 made that true for `call_error`).
+
 ## 2026-10-10 - A daily ceiling lowered below the day's recorded spend is a lockout, not a cap; and a stored refusal is not a sentence for the screen
 
 From the ninetieth session (ADR 0190 Amendment 3).
@@ -1511,6 +1521,10 @@ each is in the linked archive file, unchanged; the sections marked *in this
 file, above* are the ones not yet archived. Regenerate it from the headings in
 the same edit as the entry — an index that is not is stale by one entry
 immediately and by dozens within a week.
+
+### 2026-10-11 — in this file, above
+
+- A ticket that waits for a condition must depend on that condition; and a verification read covers the window it read, not the evening
 
 ### 2026-10-10 — in this file, above
 
