@@ -35,6 +35,7 @@ from ...agents.base import AgentConfig, build_client
 from ...agents.budget import AgentBudget
 from ...config import AppConfig
 from ...store import db
+from .game import plain_budget_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,19 @@ logger = logging.getLogger(__name__)
 # that owned it cannot come back to finish it after a restart, and a row
 # that looks alive forever would pin the button in its spinner state.
 SCOUT_DESK_PATIENCE_MS = 15 * 60 * 1000
+
+
+def _screen_refusal(row, now_ms: int) -> Optional[str]:
+    """The sentence the screen shows for a refused briefing: the stored
+    `refusal_reason` names the ceiling for the record; this one names which
+    daily cap refused and when it resets, in Pacific time, with no config
+    name (#363). Non-refused rows and unreadable reasons pass through."""
+    reason = row["refusal_reason"]
+    if row["status"] != "refused" or not reason:
+        return reason
+    return plain_budget_refusal(
+        reason, now_ms, stored_ms=row["completed_ms"] or row["requested_ms"]
+    )
 
 
 def _resolve_scout_fixture(conn, ticker: str) -> Optional[dict]:
@@ -274,7 +288,12 @@ def register(
                 searches_worst_case=scout_desk.STAFF_PAIR_SEARCHES_WORST_CASE,
             )
             if reason is not None:
-                raise HTTPException(status_code=429, detail=reason)
+                raise HTTPException(
+                    status_code=429,
+                    detail=plain_budget_refusal(
+                        reason, now, budget.day_start_hour
+                    ),
+                )
             cursor = write_conn.execute(
                 "INSERT INTO scout_briefings (ticker, event_title, league, "
                 "home_team, away_team, commence_ms, requested_ms, status, "
@@ -348,7 +367,7 @@ def register(
                     "completed_ms": row["completed_ms"],
                     "status": row["status"],
                     "gone_quiet": gone_quiet,
-                    "refusal_reason": row["refusal_reason"],
+                    "refusal_reason": _screen_refusal(row, now),
                     "has_briefing": bool(row["has_briefing"]),
                 }
             )
@@ -401,7 +420,7 @@ def register(
             "commence_ms": row["commence_ms"],
             "requested_ms": row["requested_ms"],
             "completed_ms": row["completed_ms"],
-            "refusal_reason": row["refusal_reason"],
+            "refusal_reason": _screen_refusal(row, db.now_ms()),
             "staff": json.loads(row["staff_json"]) if row["staff_json"] else None,
             "briefing": (
                 json.loads(row["briefing_json"]) if row["briefing_json"] else None

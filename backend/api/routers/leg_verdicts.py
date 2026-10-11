@@ -48,6 +48,7 @@ from ...leg_verdicts import (
     resolve_leg,
 )
 from ...store import db
+from .game import plain_budget_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +91,6 @@ def _refusal_item(ticker: str, side: str, reason: str) -> dict:
     }
 
 
-_MS_PER_HOUR = 60 * 60 * 1000
-
 
 #: One bounded aggregate over `agent_calls` (no index on `agent`; the scan is
 #: the table, which holds ~3 rows per scout convening). Counts decided verdicts
@@ -122,32 +121,20 @@ def _running_verdicts(conn, now_ms: int) -> int:
     )
 
 
-def _budget_refusal_message(budget: AgentBudget, now_ms: int) -> str:
-    """Plain words for a budget refusal (#154), replacing `refusal_reason`'s
-    operator text -- "500000 of 500000 Anthropic tokens already recorded
-    today" -- with something Joe's rule for this feature (#151) allows:
-    everyday sentences, no jargon.
+def _budget_refusal_message(
+    budget: AgentBudget, now_ms: int, reason: str = ""
+) -> str:
+    """Plain words for a budget refusal (#154, #363): which daily cap refused
+    (tokens, web searches or calls) and when the day resets in Pacific time,
+    with no config name and no raw count.
 
-    Any non-`None` `budget.refusal_reason` -- the calls, tokens, searches or
-    per-pass ceiling -- means today's allowance is spent; the operator text
-    still reaches the server log, because `budget.refusal_reason` logs it
-    itself before returning. `backend/agents/budget.py` is untouched: the
-    scout desk and the logs still read its own text, and this function only
-    runs at this route's one call site.
-
-    N is hours from `now_ms` to the *next* `AgentBudget.day_start_ms`
-    boundary, rounded UP -- never a hard-coded 10:00 UTC, so a configured
-    `day_start_hour` still gets the right answer. Hours-until, not a clock
-    time, so no timezone guess is shown to Joe.
-    """
-    next_boundary_ms = budget.day_start_ms(now_ms) + 24 * _MS_PER_HOUR
-    remaining_ms = next_boundary_ms - now_ms
-    if remaining_ms < _MS_PER_HOUR:
-        when = "in under an hour"
-    else:
-        hours = -(-remaining_ms // _MS_PER_HOUR)  # ceil division, no float
-        when = f"in about {hours} hours"
-    return f"The scouts have used today's allowance. They're back {when}."
+    The operator text (`reason`, "500000 of 500000 Anthropic tokens already
+    recorded today") still reaches the server log, because
+    `budget.refusal_reason` logs it itself before returning.
+    `backend/agents/budget.py` is untouched. The sentence is built by
+    `routers.game.plain_budget_refusal`, which reuses #358's reset clock
+    (the budget's own `day_start_hour`, never a literal 10:00 UTC)."""
+    return plain_budget_refusal(reason, now_ms, budget.day_start_hour)
 
 
 def register(app: FastAPI, *, app_config, get_conn, require_auth) -> None:
@@ -251,7 +238,7 @@ def register(app: FastAPI, *, app_config, get_conn, require_auth) -> None:
                     reserved_tokens=LEG_VERDICT_TOKEN_RESERVATION * in_flight,
                 )
                 if reason is not None:
-                    refuse(ticker, side, _budget_refusal_message(budget, now))
+                    refuse(ticker, side, _budget_refusal_message(budget, now, reason))
                     continue
 
                 row_id = insert_running_row(

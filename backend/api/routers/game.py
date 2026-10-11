@@ -275,6 +275,66 @@ def budget_reset_clock(
     return reset.strftime("%I:%M %p").lstrip("0") + " PT"
 
 
+#: Which daily cap a `refusal_reason` sentence names, in the words the screen
+#: uses for it. Matched on the sentence's own noun, in the order
+#: `AgentBudget.refusal_reason` writes them. The stored sentence names the
+#: dial for the record; this one never does (lesson 2026-10-10).
+_CAP_PHRASES = (
+    ("Anthropic tokens", "token"),
+    ("web searches", "web-search"),
+    ("Anthropic calls", "call"),
+)
+
+PER_PASS_REFUSAL_LINE = (
+    "That asked the scouts for more at once than they are allowed in one go. "
+    "Try again with fewer."
+)
+
+
+def plain_budget_refusal(
+    reason: str,
+    now_ms: int,
+    day_start_hour: Optional[int] = None,
+    *,
+    stored_ms: Optional[int] = None,
+) -> str:
+    """The screen's sentence for an `AgentBudget.refusal_reason`: which daily
+    cap refused ("token", "web-search" or "call" allowance) and when the day
+    resets in Pacific time, in plain words and never a config name.
+
+    **Reuses `budget_reset_clock`** (#358), so the clock comes from the
+    budget's own day start. The per-pass ceiling lifts with a smaller batch,
+    not at the roll, so it carries no clock. `stored_ms`, for a refusal read
+    back from a row, drops the clock when the refusal belongs to an earlier
+    budget day: "back at 3:00 AM" about yesterday's refusal would be wrong.
+    The reason stored for the record is untouched by this function."""
+    if reason.startswith("one pass may make"):
+        return PER_PASS_REFUSAL_LINE
+    cap = next((word for noun, word in _CAP_PHRASES if noun in reason), None)
+    line = (
+        f"The scouts have used today's {cap} allowance."
+        if cap
+        else "The scouts have used today's allowance."
+    )
+    hour = day_start_hour
+    if hour is None:
+        try:
+            hour = configured_day_start_utc_hour()
+        except ConfigError:
+            return line
+    if stored_ms is not None and stored_ms < day_start_ms(now_ms, hour=hour):
+        return line
+    clock = budget_reset_clock(now_ms, hour)
+    if clock is None:
+        return line
+    remaining_ms = day_start_ms(now_ms, hour=hour) + 24 * _HOUR_MS - now_ms
+    if remaining_ms < _HOUR_MS:
+        when = "in under an hour"
+    else:
+        when = f"in about {-(-remaining_ms // _HOUR_MS)} hours"
+    return f"{line} They're back at {clock}, {when}."
+
+
 def no_card_line(card: dict, now_ms: Optional[int] = None) -> Optional[str]:
     """What a game with no built card says, in words, or `None` on a built one.
 
