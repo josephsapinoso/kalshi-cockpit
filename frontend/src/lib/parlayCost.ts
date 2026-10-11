@@ -26,6 +26,15 @@
  *
  * Money is integer tenths of a cent throughout; a missing figure is `null`
  * and a clause that needs it is left out.
+ *
+ * **Four more facts, #354.** Joe's 2026-10-09 lesson: a $5 six-leg
+ * cross-sport ticket at 5.5c was an 18%-of-bankroll bet he never read as
+ * "this price says 5.5%, across three sports." So the line also states the
+ * price as a chance ("this price says {price_tenths / 10}%"), flags when
+ * the legs span more than one sport, and prints the server's own fair
+ * joint beside the quote — `fairJointPercentDisplay`, never computed here,
+ * because ADR 0189 refuses a same-game combined chance and a client-side
+ * product would be exactly that for the legs it cannot tell apart.
  */
 
 import { createContext } from "react";
@@ -37,6 +46,21 @@ export type ParlayLegsInfo = {
   legAsksTenths: (number | null)[] | null;
   /** The served `fee_coefficient` (#334), where the payload carried one. */
   feeCoefficient?: number | null;
+  /**
+   * Each leg's sport key, e.g. `"icehockey_nhl"` (#354). Only `ParlayCardLeg`
+   * carries a league today — the check-a-parlay and plain-ask payloads do
+   * not — so this is `null`/absent wherever the caller has no such field,
+   * and the cross-sport flag is then left out rather than guessed.
+   */
+  legLeagues?: string[] | null;
+  /**
+   * The server's own joint fair chance, already a percent string (the four
+   * devig readings' worst case, multiplied across legs, #354) — never
+   * recomputed here, so the client cannot show a number ADR 0189 refused to
+   * compute. `null`/absent when the server has none (an unpriced leg, or a
+   * same-game set).
+   */
+  fairJointPercentDisplay?: string | null;
 };
 
 export const ParlayLegsContext = createContext<ParlayLegsInfo | null>(null);
@@ -76,6 +100,48 @@ export function oneIn(priceTenths: number | null): number | null {
     return null;
   }
   return Math.round(1000 / priceTenths);
+}
+
+/**
+ * The chance a price states, as a percent string (#354): "this price says
+ * 5.5%" for a 5.5c quote. A tenth of a cent on a $1 Kalshi contract IS a
+ * tenth of a percentage point, so this restates `priceTenths` and nothing
+ * else — no claim that the price is right, only what it says. `null` on an
+ * unreadable price, matching `oneIn`.
+ */
+export function impliedChancePercentDisplay(
+  priceTenths: number | null,
+): string | null {
+  if (priceTenths === null || !(priceTenths > 0) || priceTenths >= 1000) {
+    return null;
+  }
+  return (priceTenths / 10).toFixed(1);
+}
+
+/**
+ * The sport behind a league key, e.g. `"americanfootball"` from
+ * `"americanfootball_ncaaf"` — everything before the key's LAST underscore,
+ * which is where the odds feed's own `{sport}_{league}` keys split
+ * (`lib/leagueLabel.ts`'s six known keys all have exactly one). A key with
+ * no underscore is its own sport: two different unrecognised keys then read
+ * as different sports rather than silently the same one, which is the
+ * safer wrong guess for a flag that must never under-report.
+ */
+function sportFromLeagueKey(leagueKey: string): string {
+  const cut = leagueKey.lastIndexOf("_");
+  return cut === -1 ? leagueKey : leagueKey.slice(0, cut);
+}
+
+/**
+ * How many distinct sports the legs span (#354). `null` when there are
+ * fewer than two legs with a league, or the caller served no league data at
+ * all — never `1`, which would read as "checked, and they agree."
+ */
+export function distinctSportCount(
+  legLeagues: string[] | null | undefined,
+): number | null {
+  if (!legLeagues || legLeagues.length < 2) return null;
+  return new Set(legLeagues.map(sportFromLeagueKey)).size;
 }
 
 /**
@@ -148,6 +214,14 @@ export type CostLine = {
   oneIn: number;
   feePercent: string | null;
   singlesPercent: string | null;
+  /** "This price says 5.5%." (#354) `null` alongside `oneIn` — same price. */
+  impliedChancePercent: string | null;
+  /** How many distinct sports the legs span; `null` when that cannot be
+   *  said (#354). Render the flag only when this is more than one. */
+  sportCount: number | null;
+  /** The server's own fair joint, already worded (#354); `null` when none
+   *  was served. Never computed here — see `ParlayLegsInfo.fairJointPercentDisplay`. */
+  fairJointPercentDisplay: string | null;
 };
 
 const onePlace = (percent: number) => percent.toFixed(1);
@@ -158,6 +232,8 @@ export function costLine(input: {
   priceTenths: number | null;
   coefficient: number | null;
   legAsksTenths: (number | null)[] | null;
+  legLeagues?: string[] | null;
+  fairJointPercentDisplay?: string | null;
 }): CostLine | null {
   const n = oneIn(input.priceTenths);
   if (n === null) return null;
@@ -171,5 +247,8 @@ export function costLine(input: {
     oneIn: n,
     feePercent: fee === null ? null : onePlace(fee),
     singlesPercent: singles === null ? null : onePlace(singles),
+    impliedChancePercent: impliedChancePercentDisplay(input.priceTenths),
+    sportCount: distinctSportCount(input.legLeagues),
+    fairJointPercentDisplay: input.fairJointPercentDisplay ?? null,
   };
 }

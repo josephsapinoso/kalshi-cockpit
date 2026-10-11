@@ -465,12 +465,17 @@ function BuyTabs({
             {/* #328: hands the card's leg count and each leg's Kalshi ask
                 to the cost line inside AskTheMarket, below PriceOnKalshi.
                 An unreadable ask is null, and the singles clause is then
-                left out. */}
+                left out. #354: the legs' own sport keys (for the cross-sport
+                flag) and the ladder's already-computed fair joint (never
+                recomputed here -- ADR 0189). */}
             <ParlayLegsContext.Provider
               value={{
                 legCount: card.legs.length,
                 // null on a card with a baseball leg: singles withheld (#339).
                 legAsksTenths: singlesLegAsks(card.legs),
+                legLeagues: card.legs.map((leg) => leg.league),
+                fairJointPercentDisplay:
+                  card.joint?.conservative_percent_display ?? null,
               }}
             >
               <PriceOnKalshi card={card} horizon={horizon} />
