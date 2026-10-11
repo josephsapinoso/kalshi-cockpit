@@ -830,8 +830,49 @@ function RefusalSummary({
  * and would otherwise render identically — this repo&rsquo;s recurring *zero
  * that means no measurement*.
  */
+// BOOKS-UNDER-FIGURE-START (tests/test_books_under_matches_evidence_line.py
+// lifts this function by these markers and runs it; keep it import-free.)
+/**
+ * The "x/N books under" figure, or `null` when it cannot be printed honestly.
+ *
+ * #353. `books.book_count` counts every book that quoted the outcome;
+ * the row's `book_count` is `fair_prices.book_count`, the books that survived
+ * anchoring -- the number the evidence line (`TrustNote`, `core/trust.py`)
+ * prints as "N book(s)". The two are different sets: a seeded row read
+ * "0/5 books under" beside "1 book(s), need 2". `books_below` is computed
+ * over the first set only and the payload carries no per-book list that would
+ * let us recompute it over the second, so the figure may print only when both
+ * counts are known and equal. Unknown anchored count also withholds it: with
+ * nothing to compare against, agreement cannot be shown.
+ */
+function booksUnderFigure(
+  books: { book_count: number; books_below: number } | null | undefined,
+  anchoredBookCount: number | null | undefined,
+): string | null {
+  if (!books || books.book_count === 0) return null;
+  if (typeof anchoredBookCount !== "number") return null;
+  if (anchoredBookCount !== books.book_count) return null;
+  return `${books.books_below}/${books.book_count} books under`;
+}
+// BOOKS-UNDER-FIGURE-END
+
 function Books({ row }: { row: SlateRowData }) {
   const books = row.books;
+  const figure = booksUnderFigure(books, row.book_count);
+  if (books && books.book_count > 0 && figure === null) {
+    // Usable books exist but they are not the books behind the fair value
+    // (or the anchored count is unreadable). Say nothing numeric rather than
+    // a denominator the evidence line contradicts; the dispersion strip
+    // below states both counts.
+    return (
+      <Hint
+        hint="The books that quoted this outcome are not the books the fair value was averaged over, so no books-under count is shown. The strip below says how many of each."
+        className="tabular text-xs text-muted"
+      >
+        books —
+      </Hint>
+    );
+  }
   if (!books || books.book_count === 0) {
     return (
       <Hint
@@ -847,7 +888,7 @@ function Books({ row }: { row: SlateRowData }) {
       hint={`${books.books_below} of ${books.book_count} usable books price this side below Kalshi's ask. Book figures are devigged — the bookmaker's margin removed — while Kalshi's is an ask, so "under" over-counts by about half a spread.`}
       className="tabular text-xs text-muted"
     >
-      {books.books_below}/{books.book_count} books under
+      {figure}
     </Hint>
   );
 }
