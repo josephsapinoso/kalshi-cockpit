@@ -686,7 +686,7 @@ function Row({
           there. Panel is 12px, matching the gloss and status lines beside it.
           Joe's call, 2026-08-31, after the 390px read. */}
       <span className="w-full xl:col-span-full">
-        <TrustNote trust={row.trust} size="panel" />
+        <TrustNote trust={row.trust} size="panel" hideAgeChecks />
       </span>
 
       {/* The same-game builder (#202), for a game's own row. Full width and
