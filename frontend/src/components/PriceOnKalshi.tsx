@@ -350,6 +350,13 @@ function Result({
     legCount: outer?.legCount ?? legs.length,
     legAsksTenths: outer?.legAsksTenths ?? null,
     feeCoefficient: value.fee_coefficient ?? null,
+    // #354: the card's own leagues, from the outer provider (ParlayCards) --
+    // this lookup result carries no per-leg league of its own.
+    legLeagues: outer?.legLeagues ?? null,
+    // Only the fresh lookup's own joint, never the ladder card's older one:
+    // a null here (same-game set, unknown leg) shows no clause rather than an
+    // old joint beside a fresh price. The server's own number, never ours.
+    fairJointPercentDisplay: value.fair.conservative_percent_display ?? null,
   };
   return (
     <ParlayLegsContext.Provider

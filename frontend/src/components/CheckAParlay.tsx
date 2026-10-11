@@ -317,6 +317,11 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
             legCount: value.legs.length,
             legAsksTenths: null,
             feeCoefficient: value.fee_coefficient ?? null,
+            // #354: this payload carries no per-leg league, so the
+            // cross-sport flag is left out rather than guessed; the fair
+            // joint is the server's own number, already worded.
+            legLeagues: null,
+            fairJointPercentDisplay: value.fair.conservative_percent_display,
           }}
         >
           <ParlayCostLine
@@ -339,6 +344,8 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
             legCount: value.legs.length,
             legAsksTenths: null,
             feeCoefficient: value.fee_coefficient ?? null,
+            legLeagues: null,
+            fairJointPercentDisplay: value.fair.conservative_percent_display,
           }}
         >
           <AskTheMarket marketTicker={value.minted_market_ticker} />

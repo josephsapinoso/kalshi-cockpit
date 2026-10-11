@@ -654,12 +654,16 @@ function FeeShare({ quote }: { quote: ComboRfqResult["quotes"][number] }) {
 }
 
 /**
- * The cost line (#328): "{n} legs. Wins about 1 in {N}. Fee is {x}% of
+ * The cost line (#328, #354): "{n} legs[, {m} sports]. This price says
+ * {p}%. Wins about 1 in {N}. [The books multiply to {q}%.] Fee is {x}% of
  * stake. The same picks as singles: {y}%." It restates the price on screen
  * and nothing else -- no claim a factor predicts anything, no word for the
  * price, no ordering. Arithmetic lives in `lib/parlayCost.ts`. Absent when
  * the price is null; the fee and singles clauses are absent when no served
- * fee gave a coefficient, and the singles clause when any leg lacks an ask.
+ * fee gave a coefficient, the singles clause when any leg lacks an ask, the
+ * sport count when fewer than two legs carry a league, and the books'
+ * multiplied figure when the server served none (#354: it is the server's
+ * own joint, never recomputed here -- see `lib/parlayCost.ts`).
  */
 export function ParlayCostLine({
   priceTenths,
@@ -677,6 +681,8 @@ export function ParlayCostLine({
     // The served coefficient wins; a quote-derived one is the fallback (#334).
     coefficient: resolveCoefficient(legs?.feeCoefficient, coefficient),
     legAsksTenths: legs?.legAsksTenths ?? null,
+    legLeagues: legs?.legLeagues ?? null,
+    fairJointPercentDisplay: legs?.fairJointPercentDisplay ?? null,
   });
   if (line === null) return null;
   return (
@@ -684,10 +690,22 @@ export function ParlayCostLine({
       {lead ? `${lead} ` : null}
       {line.legs !== null && (
         <>
-          {line.legs} <Term k="leg">legs</Term>.{" "}
+          {line.legs} <Term k="leg">legs</Term>
+          {line.sportCount !== null && line.sportCount > 1 && (
+            <>, {line.sportCount} sports</>
+          )}
+          .{" "}
         </>
       )}
+      {line.impliedChancePercent !== null && (
+        <>This price says {line.impliedChancePercent}%. </>
+      )}
       Wins about 1 in {line.oneIn}.
+      {line.fairJointPercentDisplay !== null && (
+        <> The <Term k="books">books</Term> multiply to{" "}
+          {line.fairJointPercentDisplay}.
+        </>
+      )}
       {line.feePercent !== null && (
         <>
           {" "}
