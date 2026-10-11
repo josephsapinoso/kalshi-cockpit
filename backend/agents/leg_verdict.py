@@ -58,7 +58,13 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from .base import AgentConfig, CallUsage, search_cap_rule, structured_call
+from .base import (
+    AgentConfig,
+    CallUsage,
+    api_error_verdict,
+    search_cap_rule,
+    structured_call,
+)
 from .budget import AgentBudget
 from .scout import WEB_SEARCH_TOOL
 
@@ -228,9 +234,11 @@ async def give_leg_verdict(
             tools=[LEG_VERDICT_SEARCH_TOOL],
         )
         parsed, usage = outcome.parsed, outcome.usage
+        error_verdict = outcome.settle_verdict
     except Exception:
         logger.exception("the leg scout died")
         parsed, usage = None, None
+        error_verdict = api_error_verdict("call_error")
 
     if parsed is not None and len(parsed.reason) > REASON_MAX_CHARS:
         logger.warning(
@@ -245,7 +253,10 @@ async def give_leg_verdict(
 
     budget.settle(
         call_id,
-        verdict=parsed.verdict if parsed is not None else "filed_nothing",
+        verdict=(
+            parsed.verdict if parsed is not None
+            else (error_verdict or "filed_nothing")
+        ),
         usage=usage,
     )
     if parsed is None:

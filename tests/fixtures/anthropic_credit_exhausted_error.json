@@ -1,0 +1,11 @@
+{
+  "_provenance": "The message text is as recorded on live 2026-10-10 23:50Z, per the partner's read of `agent-spend` (seven calls, six scout-staff and one card). The envelope (HTTP 400, type invalid_request_error) is the Anthropic SDK's documented error shape, NOT a capture: no live response body was read by this lane.",
+  "status_code": 400,
+  "body": {
+    "type": "error",
+    "error": {
+      "type": "invalid_request_error",
+      "message": "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."
+    }
+  }
+}

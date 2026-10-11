@@ -426,6 +426,11 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
         reason="Same as anthropic_scout_report.json -- SDK-derived by "
                "scripts/build_agent_wire_fixture.py, no call made.",
     ),
+    "anthropic_credit_exhausted_error.json": NotACapture(
+        reason="Message text as recorded on live 2026-10-10 23:50Z (partner's "
+               "agent-spend read); the HTTP envelope is the SDK's documented "
+               "400 invalid_request_error shape, hand-built, not a capture (#365).",
+    ),
     "combo_collections_summary.json": NotACapture(
         reason="Derived counts over the collections walk (1,389 collections, "
                "13,986 legs, 0 with active quoters), not a stored response.",
