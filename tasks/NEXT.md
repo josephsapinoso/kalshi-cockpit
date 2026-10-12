@@ -258,6 +258,8 @@ the channel diagnostic (A17.6/A17.11).
 4. #331 — 2026-11-01: the leg census by kind (NHL puck lines and totals are unparsed; the same-game share).
 5. #316, #210, #197, #151, #267 — carried forward unchanged from the eighty-fifth session.
 
+---
+
 # The session index
 
 Every session entry ever written to this file, newest date first. Full text in
