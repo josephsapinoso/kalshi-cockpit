@@ -16,6 +16,18 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-12 - Label the comparator before you divide by it; forecast which cap binds from the day that is coming; and a billed call that settles with no usage is a hole in the meter
+
+From the ninety-second session (#370, #371, #372).
+
+- **Session 91 forecast that web searches would bind next.** It was read off a Saturday of college-football cards. Sunday's NFL cards each cost 0.5–1.1M tokens, searches peaked at 61 of 100, and the token ceiling was the one at 90%. The forecast named the wrong cap because it was fitted to the wrong day shape.
+- **The first reading of the card cost said "NFL is four times non-football."** The comparator population had not been labelled: the instrument's default shows the newest five cards, and the thirteen cards it did not show were all college football at 121K–227K. Once labelled, "football" and "near kickoff" both fell away as explanations and the NFL listing (921 legs against 105–322) was left. `measurement-skeptic` refused the ratio before the label existed; the ticket carries counts.
+- **The master scout settled `filed_nothing` with NULL tokens on a call the vendor billed.** A schema mismatch raises inside `messages.parse`, the outcome carries no usage, and the budget records zero for a call that spent. #365 labelled the credit failure one path earlier; this is the next path along the same seam.
+- **The rule:**
+  - Before stating a ratio between two populations, print the label of every row in both. An unlabelled comparator is a guess with a denominator; the instrument that labels it costs one call.
+  - A forecast of which ceiling binds is a function of the slate, not of the last day read. Say which day shape it was fitted to, and re-fit it the first time that shape changes (an NFL Sunday, the NBA's first week).
+  - Every settle path that follows a billed request must carry usage, or the meter under-counts the day it is checked against. When adding a failure verdict, walk every `except` and every early return in the same call for the same gap.
+
 ## 2026-10-11 - A ticket that waits for a condition must depend on that condition; and a verification read covers the window it read, not the evening
 
 From the ninety-first session (#338, #365).
