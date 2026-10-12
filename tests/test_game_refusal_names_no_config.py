@@ -61,5 +61,5 @@ class TestCredentialsRefusal:
         r = await _send(keyless_app, method, path)
         assert r.status_code == 503, r.text
         detail = r.json()["detail"]
-        assert "no Kalshi credentials on this instance" in detail
+        assert "No Kalshi credentials on this instance." in detail
         assert not TOKEN.search(detail), detail

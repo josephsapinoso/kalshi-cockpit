@@ -579,7 +579,7 @@ def register(
             logger.warning("no Kalshi credentials on this instance: %s", exc)
             raise HTTPException(
                 status_code=503,
-                detail="no Kalshi credentials on this instance",
+                detail="No Kalshi credentials on this instance.",
             ) from exc
 
     @app.get("/api/game/{event_ticker}/legs")
