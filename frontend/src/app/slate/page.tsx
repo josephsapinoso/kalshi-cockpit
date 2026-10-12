@@ -857,7 +857,12 @@ function booksUnderFigure(
 // BOOKS-UNDER-FIGURE-END
 
 function Books({ row }: { row: SlateRowData }) {
-  const books = row.books;
+  // The figure counts the anchored books when the fair price was anchored
+  // (#375, Joe's A to #373); `row.books` stays the unanchored distribution
+  // the strip below and Willy read (ADR 0021 §7.2). An anchored row whose
+  // anchored object is missing falls back to `row.books`, whose count then
+  // disagrees with the anchored count and prints "books —" (#353).
+  const books = row.books_anchored ?? row.books;
   const figure = booksUnderFigure(books, row.book_count);
   if (books && books.book_count > 0 && figure === null) {
     // Usable books exist but they are not the books behind the fair value

@@ -341,6 +341,10 @@ export type SlateRowData = Recommendation & {
    */
   kalshi_drift_tenths: number | null;
   books: BookDistribution | null;
+  /** The distribution over the anchored books only, when the fair price was
+   *  sharp-anchored and `books_used` was readable (#375). Drives the row's
+   *  "x/N books under"; `books` stays unanchored (ADR 0021 §7.2). */
+  books_anchored: BookDistribution | null;
   /**
    * How often a taker at this ask must win to break even, fee included —
    * `breakeven_win_rate(ask, 1)` on the server, never recomputed here (the

@@ -143,30 +143,38 @@ def evidence_book_count(row: dict) -> int | None:
 
 
 def figure_cases(rows: list) -> list:
-    return [[r.get("books"), r.get("book_count")] for r in rows]
+    # Mirrors the row: the anchored object when served, else the unanchored one.
+    return [[r.get("books_anchored") or r.get("books"), r.get("book_count")] for r in rows]
 
 
 class TestFigureAgreesWithEvidenceLine:
     def test_the_seed_carries_the_anchored_subset_case(self, seeded_rows):
         """Else the tests below are vacuous: 5 usable books, 1 anchored."""
         anchored = [
-            r for r in seeded_rows if r.get("books") and r.get("anchored_on_sharp")
+            r for r in seeded_rows
+            if r.get("books") and r.get("books_anchored") and r.get("anchored_on_sharp")
         ]
-        assert anchored, "no seeded row is sharp-anchored with a books object"
-        assert any(r["books"]["books_unselected"] > 0 for r in anchored)
+        assert anchored, "no seeded row is sharp-anchored with both books objects"
+        assert any(r["books_anchored"]["books_unselected"] > 0 for r in anchored)
+        # ADR 0021 §7.2: the unanchored object is still every usable book.
+        assert all(r["books"]["books_unselected"] == 0 for r in anchored)
+        assert any(
+            r["books"]["book_count"] > r["books_anchored"]["book_count"] for r in anchored
+        )
 
     def test_the_served_count_is_the_anchored_count_and_prints(
         self, seeded_rows, tmp_path
     ):
-        """#375: the route counts the anchored set, so the figure prints."""
+        """#375: the figure counts the anchored set (`books_anchored`), so it prints."""
         figures = run_helper(shipped_helper_source(), figure_cases(seeded_rows), tmp_path)
         checked = 0
         for row, fig in zip(seeded_rows, figures):
-            if not (row.get("books") and row.get("anchored_on_sharp")):
+            if not (row.get("books_anchored") and row.get("anchored_on_sharp")):
                 continue
             checked += 1
-            assert row["books"]["book_count"] == row["book_count"], row["ticker"]
-            assert fig == f"{row['books']['books_below']}/{row['book_count']} books under"
+            ba = row["books_anchored"]
+            assert ba["book_count"] == row["book_count"], row["ticker"]
+            assert fig == f"{ba['books_below']}/{row['book_count']} books under"
         assert checked
 
     def test_an_unanchored_row_still_gets_every_usable_book(self, unanchored_rows):
@@ -176,6 +184,7 @@ class TestFigureAgreesWithEvidenceLine:
         for r in rows:
             assert not r["anchored_on_sharp"]
             assert r["books"]["books_unselected"] == 0
+            assert r.get("books_anchored") is None
         assert max(r["books"]["book_count"] for r in rows) > 1
 
     def test_no_figure_has_a_denominator_the_evidence_line_contradicts(
@@ -224,5 +233,6 @@ class TestTheComparisonIsLoadBearing:
 class TestTheRowCallsIt:
     def test_books_renders_the_helper_result_not_its_own_counts(self):
         text = PAGE.read_text(encoding="utf-8")
+        assert "const books = row.books_anchored ?? row.books;" in text
         assert "booksUnderFigure(books, row.book_count)" in text
         assert "{books.books_below}/{books.book_count} books under" not in text

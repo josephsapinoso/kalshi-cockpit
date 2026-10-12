@@ -149,6 +149,11 @@ export type MarketDetail = {
   p_shin?: number | null;
   p_conservative?: number | null;
   books?: BookDistribution | null;
+  /** The same distribution over the anchored books only (`books_used`),
+   *  present when the fair price was sharp-anchored and the subset was
+   *  readable (#375). Drives the "x/N books under" figure; `books` stays
+   *  unanchored for the strip and Willy (ADR 0021 §7.2). */
+  books_anchored?: BookDistribution | null;
   kalshi_drift_tenths?: number | null;
   drift_window_ms?: number;
   gauntlet?: Gauntlet;
