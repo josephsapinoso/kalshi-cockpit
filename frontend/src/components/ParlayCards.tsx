@@ -327,6 +327,11 @@ function Card({
                 >
                   {leg.label}
                 </Link>
+                {leg.key_number ? (
+                  <span className="shrink-0 whitespace-nowrap text-xs text-muted">
+                    <Term k="key_number">{keyNumberWords(leg.key_number)}</Term>
+                  </span>
+                ) : null}
                 <span className="tabular ml-auto text-sm text-muted">
                   {leg.fair_percent_display}
                 </span>
@@ -1541,6 +1546,19 @@ export function RestChip({ rest }: { rest: LegRest | null | undefined }) {
 function signedPoint(point: number): string {
   const text = String(point);
   return text.startsWith("-") ? `−${text.slice(1)}` : text;
+}
+
+/**
+ * The words for a football key-number flag (#348): "on 3" for a line that is
+ * 3, "crosses 3" for a half point beside it. A fact beside the line, never a
+ * ranking and never read by the ticket; each render site wraps it in
+ * `<Term k="key_number">`.
+ */
+export function keyNumberWords(kn: {
+  kind: "on" | "crosses";
+  number: number;
+}): string {
+  return `${kn.kind} ${kn.number}`;
 }
 
 /**
