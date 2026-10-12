@@ -14,6 +14,7 @@ reaches the venue.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Optional
@@ -47,6 +48,8 @@ from ...notify.credit_alert import screen_sentence
 from ...odds.timing import day_start_ms
 from ...parlays import LookupRefused, _commence_ms_for_tickers
 from ...store import db, game_script_cards
+
+logger = logging.getLogger(__name__)
 
 
 #: Card builds run one at a time on the process: two taps at once must not both
@@ -571,9 +574,12 @@ def register(
         try:
             return combo_api()
         except ConfigError as exc:
+            # The ConfigError text is the operator's (names the variable and
+            # the fix); the screen gets the state only. Full text to the log.
+            logger.warning("no Kalshi credentials on this instance: %s", exc)
             raise HTTPException(
                 status_code=503,
-                detail=f"no Kalshi credentials on this instance: {exc}",
+                detail="no Kalshi credentials on this instance",
             ) from exc
 
     @app.get("/api/game/{event_ticker}/legs")
