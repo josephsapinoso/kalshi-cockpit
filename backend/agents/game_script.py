@@ -184,17 +184,52 @@ class CardOutput(BaseModel):
     )
 
 
+#: Strikes of one player's ladder the card is shown (Joe's (A) to #372).
+#: A module constant, not config: the trim keeps an NFL prompt near a baseball
+#: one, and the `/game` screen still lists every strike.
+PROMPT_STRIKES_PER_LADDER = 5
+
+
+def _middle_strikes(legs: list[dict]) -> set[int]:
+    """`id()`s of the `PROMPT_STRIKES_PER_LADDER` legs of one ladder nearest
+    its median index; ties go to the lower strike."""
+    ordered = sorted(legs, key=lambda l: l["strike"])
+    middle = (len(ordered) - 1) / 2
+    nearest = sorted(range(len(ordered)), key=lambda i: (abs(i - middle), i))
+    return {id(ordered[i]) for i in nearest[:PROMPT_STRIKES_PER_LADDER]}
+
+
 def listing_for_prompt(listing: dict) -> list[tuple[str, list[dict]]]:
     """`(group label, legs)` from a `list_game_legs` result, each leg reduced
     to `PROMPT_LEG_FIELDS`. Everything else, prices and chances included, is
-    dropped here and nowhere else."""
-    return [
-        (
-            str(group.get("label") or group.get("series") or ""),
-            [{f: leg.get(f) for f in PROMPT_LEG_FIELDS} for leg in group.get("legs", [])],
-        )
-        for group in listing.get("groups", [])
-    ]
+    dropped here and nowhere else.
+
+    A player's ladder (legs of one series sharing a player, each with a
+    strike) is cut to the `PROMPT_STRIKES_PER_LADDER` strikes nearest its
+    middle, and the group label says how many were left out. Legs with no
+    player or no strike pass untouched. Only the model's text is trimmed: the
+    listing, and the card's picks checked against it, are not."""
+    out = []
+    for group in listing.get("groups", []):
+        label = str(group.get("label") or group.get("series") or "")
+        legs = group.get("legs", [])
+        ladders: dict[str, list[dict]] = {}
+        for leg in legs:
+            if leg.get("player") and leg.get("strike") is not None:
+                ladders.setdefault(str(leg["player"]), []).append(leg)
+        longest = max((len(v) for v in ladders.values()), default=0)
+        if longest > PROMPT_STRIKES_PER_LADDER:
+            keep: set[int] = set()
+            for ladder in ladders.values():
+                keep |= _middle_strikes(ladder)
+            laddered = {id(l) for ladder in ladders.values() for l in ladder}
+            legs = [l for l in legs if id(l) not in laddered or id(l) in keep]
+            label += (
+                f" (showing {PROMPT_STRIKES_PER_LADDER} of {longest} strikes "
+                "per player; the ladder is longer on the game page)"
+            )
+        out.append((label, [{f: leg.get(f) for f in PROMPT_LEG_FIELDS} for leg in legs]))
+    return out
 
 
 def build_prompt(*, game_title: str, sport_key: str, kickoff_iso: str, listing: dict) -> str:
