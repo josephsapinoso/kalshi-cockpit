@@ -94,6 +94,7 @@ PRE_MOVE_EXPORTS = [
     "OddsRefreshResult",
     "OpenPositionsBlock",
     "Panel",
+    "KeyNumber",
     "ParlayCardData",
     "ParlayCardJoint",
     "ParlayCardLeg",
