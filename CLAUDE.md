@@ -227,7 +227,17 @@ were **74% of every agent token** the fleet recorded over 2026-09-26..10-09
 (29.2M of 39.47M, n = 453 calls, a floor; `inspect_live_db.py agent-spend
 --days 14`, audited). A built card measured a **median 178K tokens (mean
 200K, range 40K–817K, n = 105)**, and the one Sunday in the window recorded
-6.72M of card spend on 15 calls. Cards now build on his tap only. What bounds
+6.72M of card spend on 15 calls. Cards now build on his tap only. **That
+178K is the cost of an automatic card a day out, mostly college football;
+it is not the cost of an NFL tap.** Measured 2026-10-12 (#370, audited):
+five NFL cards tapped near kickoff on 10-11/12 cost **497K–1.10M tokens
+each (median 873K)**, college-football cards 121K–227K (n = 13) and the
+one baseball tap 357K, because the NFL listing the card reads is 921 legs
+(233K characters of prompt against 28K–78K on the other sports) and is
+re-presented on every internal step of the one call. Five NFL cards took
+3.62M of Sunday's 4.48M; nothing was refused. A card tap holds **no**
+tokens while it runs (`game_script.py:600-615`), so the last card admitted
+can overshoot the ceiling by its whole cost; the lever is Joe's (#372). What bounds
 all of it is the shared `AgentBudget`'s daily ceilings (`AGENT_MAX_*`: 100
 searches since #157, 100 calls since #212 and **5M tokens since the evening
 of 2026-10-10** — each moved alone, on Joe's word; the 9M of #219 held ~15
