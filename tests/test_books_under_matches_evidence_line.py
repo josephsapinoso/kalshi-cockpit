@@ -98,12 +98,9 @@ def run_helper(source: str, cases: list, tmp_path: Path) -> list:
     return json.loads(out.stdout.strip().splitlines()[-1])
 
 
-@pytest.fixture(scope="module")
-def seeded_rows(tmp_path_factory):
+def _served_rows(path: Path) -> list:
     import asyncio
 
-    path = tmp_path_factory.mktemp("books353") / "demo.db"
-    seed_all(path)
     app = create_app(AppConfig(instance_mode="demo", db_path=path))
 
     async def fetch():
@@ -112,6 +109,27 @@ def seeded_rows(tmp_path_factory):
             return (await c.get("/api/slate")).json()["rows"]
 
     return asyncio.run(fetch())
+
+
+@pytest.fixture(scope="module")
+def seeded_rows(tmp_path_factory):
+    path = tmp_path_factory.mktemp("books353") / "demo.db"
+    seed_all(path)
+    return _served_rows(path)
+
+
+@pytest.fixture(scope="module")
+def unanchored_rows(tmp_path_factory):
+    """The same seed with every fair price marked NOT sharp-anchored."""
+    import sqlite3
+
+    path = tmp_path_factory.mktemp("books375") / "demo.db"
+    seed_all(path)
+    conn = sqlite3.connect(path)
+    conn.execute("UPDATE fair_prices SET anchored_on_sharp = 0")
+    conn.commit()
+    conn.close()
+    return _served_rows(path)
 
 
 def evidence_book_count(row: dict) -> int | None:
@@ -129,16 +147,36 @@ def figure_cases(rows: list) -> list:
 
 
 class TestFigureAgreesWithEvidenceLine:
-    def test_the_seed_carries_the_disagreeing_case(self, seeded_rows):
-        """Else the test below is vacuous."""
-        disagree = [
-            r
-            for r in seeded_rows
-            if r.get("books")
-            and evidence_book_count(r) is not None
-            and r["books"]["book_count"] != evidence_book_count(r)
+    def test_the_seed_carries_the_anchored_subset_case(self, seeded_rows):
+        """Else the tests below are vacuous: 5 usable books, 1 anchored."""
+        anchored = [
+            r for r in seeded_rows if r.get("books") and r.get("anchored_on_sharp")
         ]
-        assert disagree, "no seeded row has usable books != evidence-line books"
+        assert anchored, "no seeded row is sharp-anchored with a books object"
+        assert any(r["books"]["books_unselected"] > 0 for r in anchored)
+
+    def test_the_served_count_is_the_anchored_count_and_prints(
+        self, seeded_rows, tmp_path
+    ):
+        """#375: the route counts the anchored set, so the figure prints."""
+        figures = run_helper(shipped_helper_source(), figure_cases(seeded_rows), tmp_path)
+        checked = 0
+        for row, fig in zip(seeded_rows, figures):
+            if not (row.get("books") and row.get("anchored_on_sharp")):
+                continue
+            checked += 1
+            assert row["books"]["book_count"] == row["book_count"], row["ticker"]
+            assert fig == f"{row['books']['books_below']}/{row['book_count']} books under"
+        assert checked
+
+    def test_an_unanchored_row_still_gets_every_usable_book(self, unanchored_rows):
+        """Positive control: no anchoring, no subsetting."""
+        rows = [r for r in unanchored_rows if r.get("books")]
+        assert rows
+        for r in rows:
+            assert not r["anchored_on_sharp"]
+            assert r["books"]["books_unselected"] == 0
+        assert max(r["books"]["book_count"] for r in rows) > 1
 
     def test_no_figure_has_a_denominator_the_evidence_line_contradicts(
         self, seeded_rows, tmp_path
@@ -156,12 +194,14 @@ class TestFigureAgreesWithEvidenceLine:
             )
         assert checked, "no row printed a figure to compare; seed has no agreeing row"
 
-    def test_a_disagreeing_row_prints_no_figure(self, seeded_rows, tmp_path):
-        figures = run_helper(shipped_helper_source(), figure_cases(seeded_rows), tmp_path)
-        for row, fig in zip(seeded_rows, figures):
-            n = evidence_book_count(row)
-            if row.get("books") and n is not None and row["books"]["book_count"] != n:
-                assert fig is None, f"{row['ticker']} printed {fig!r} beside {n} book(s)"
+    def test_a_disagreeing_row_prints_no_figure(self, tmp_path):
+        """Counter-case, now synthetic: the seed no longer disagrees (#375)."""
+        got = run_helper(
+            shipped_helper_source(),
+            [[{"book_count": 5, "books_below": 2}, 1]],
+            tmp_path,
+        )
+        assert got == [None]
 
     def test_agreeing_counts_still_print_and_unreadable_counts_do_not(self, tmp_path):
         b = {"book_count": 1, "books_below": 0}
@@ -174,18 +214,11 @@ class TestFigureAgreesWithEvidenceLine:
 
 
 class TestTheComparisonIsLoadBearing:
-    def test_the_old_helper_fails_the_agreement_check(self, seeded_rows, tmp_path):
+    def test_the_old_helper_fails_the_agreement_check(self, tmp_path):
         """The mutation, run through the same driver: without the comparison a
-        disagreeing row prints a figure, which is what the checks above refuse."""
-        figures = run_helper(OLD_HELPER, figure_cases(seeded_rows), tmp_path)
-        printed_wrong = [
-            r["ticker"]
-            for r, fig in zip(seeded_rows, figures)
-            if fig is not None
-            and evidence_book_count(r) is not None
-            and fig.split("/")[1].split(" ")[0] != str(evidence_book_count(r))
-        ]
-        assert printed_wrong, "the old helper agrees with the evidence line; test is decoration"
+        disagreeing pair prints a figure, which is what the checks above refuse."""
+        figures = run_helper(OLD_HELPER, [[{"book_count": 5, "books_below": 2}, 1]], tmp_path)
+        assert figures == ["2/5 books under"]
 
 
 class TestTheRowCallsIt:

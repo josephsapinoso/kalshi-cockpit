@@ -1551,13 +1551,25 @@ def create_app(
                         conn, odds_event_id, now=now
                     )
                 books = book_cache[odds_event_id]
-                if books is not None:
+                # Ticket #375: a sharp-anchored fair price was built from the
+                # stored `books_used` subset, so count that subset. Anchored
+                # but unreadable -> no figure, never the all-books fallback.
+                only_books = None
+                anchored_unreadable = False
+                if row["anchored_on_sharp"]:
+                    used = _decode_books_used(row["books_used"])
+                    if used is None:
+                        anchored_unreadable = True
+                    else:
+                        only_books = frozenset(used)
+                if books is not None and not anchored_unreadable:
                     dist = book_distribution(
                         outcomes=books.outcomes,
                         quotes_by_book=books.quotes_by_book,
                         outcome_name=outcome_name,
                         kalshi_ask_tenths=ask,
                         already_dropped=len(books.books_dropped),
+                        only_books=only_books,
                     )
                     if dist is not None:
                         item["books"] = dist.as_dict()

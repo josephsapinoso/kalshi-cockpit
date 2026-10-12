@@ -96,6 +96,10 @@ class BookDistribution:
     #: a price the devig refuses). Reported rather than dropped: a distribution
     #: over 2 of 21 books is a different object from one over 21.
     books_unusable: int
+    #: Books that quoted usably but were left out because the caller named a
+    #: subset (`only_books`). Not unusable -- unselected. Kept apart from
+    #: `books_unusable` so the two reasons a book is missing stay two numbers.
+    books_unselected: int = 0
 
     @property
     def book_count(self) -> int:
@@ -125,6 +129,7 @@ class BookDistribution:
             "book_count": self.book_count,
             "books_below": self.books_below,
             "books_unusable": self.books_unusable,
+            "books_unselected": self.books_unselected,
             "median_book_probability": self.median_book_probability,
             "min_book_probability": (
                 self.book_probabilities[0] if self.book_probabilities else None
@@ -143,6 +148,7 @@ def book_distribution(
     outcome_name: str,
     kalshi_ask_tenths: int,
     already_dropped: int = 0,
+    only_books: Optional[frozenset[str]] = None,
 ) -> Optional[BookDistribution]:
     """Devig every book separately and place Kalshi's ask among the results.
 
@@ -169,6 +175,12 @@ def book_distribution(
     the shape `tasks/lessons.md` names as *two limits on one quantity, and the
     tighter one wins in silence*.
 
+    `only_books` restricts the distribution to the named books (ticket #375):
+    a row whose fair price was anchored on a sharp subset passes that subset so
+    "x/N books under" counts the books the fair price trusts. Books outside it
+    are dropped before devigging and counted in `books_unselected`, never in
+    `books_unusable`. `None` keeps every usable book.
+
     Returns `None` when the outcome is not one this market quotes -- a caller
     must not receive a distribution computed for the other team.
     """
@@ -178,7 +190,11 @@ def book_distribution(
 
     probabilities: list[float] = []
     unusable = 0
+    unselected = 0
     for book, odds in quotes_by_book.items():
+        if only_books is not None and book not in only_books:
+            unselected += 1
+            continue
         try:
             result = devig(outcomes, odds)
         except DevigError as exc:
@@ -197,6 +213,7 @@ def book_distribution(
         book_probabilities=tuple(probabilities),
         books_below=sum(1 for p in probabilities if p < kalshi_probability),
         books_unusable=unusable + already_dropped,
+        books_unselected=unselected,
     )
 
 
