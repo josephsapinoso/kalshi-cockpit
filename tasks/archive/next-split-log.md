@@ -140,3 +140,24 @@ past the line; this session read `wc -c` at start and cut before planning
 anything else. The index section is now ~36 KB on its own and grows one
 line a session plus a paragraph a split — it is the part of the file that
 no split moves, and at this rate it becomes the next thing to archive.
+
+**Split again 2026-10-12, at 232,027 bytes — 88.5%, by the session that
+found it there.** The two 2026-10-06, three 2026-10-05, one 2026-10-03, four
+2026-10-02, three 2026-10-01, three 2026-09-30, four 2026-09-29, one
+2026-09-28, one 2026-09-27/28, five 2026-09-26, four 2026-09-25, four
+2026-09-24 and four 2026-09-23 entries (39 of them) moved to
+`archive/next-2026-10-12.md`, verbatim, leaving **39,165 bytes before the
+index — 14.9%**, 83,070 with it (31.7%). Date boundary; md5
+`9c2d318926dcba2fc88965694477a834`; binary throughout; the cut was made
+before the session's entry existed and before any other work, as the
+2026-09-18 paragraph requires.
+
+**What this one taught:** the 2026-09-18 rule held a second time, and the
+plan that scheduled the cut miscounted the entries (41 written, 39 moved) —
+the script's assertion on the index-line count caught it before a byte was
+written, which is the check that an entry count in prose does not provide.
+The index section is now ~44 KB, more than the five entries kept above it,
+and no split moves it; it grows one line a session and one paragraph a
+split. It is the next thing to archive, and the cut that does it should
+move the per-split listings into their archive files and leave one line
+per split here.
