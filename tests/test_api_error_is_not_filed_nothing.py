@@ -22,6 +22,7 @@ import anthropic
 import httpx
 
 from backend.agents.base import api_error_verdict, is_credit_exhausted
+from backend.agents.base import output_model_name
 from backend.agents.game_script import build_card
 from backend.agents.scout import ScoutReport
 from tests.test_game_script_card import (
@@ -52,7 +53,7 @@ class _Raises:
     def __init__(self, exc):
         self._exc = exc
 
-    async def parse(self, **kwargs):
+    async def create(self, **kwargs):
         raise self._exc
 
 
@@ -90,14 +91,14 @@ class TestScoutDesk:
         """Positive control: no report, but no error either."""
         conn, budget = desk_budget(tmp_path)
         client = DeskStubClient()
-        original = client.messages.parse
+        original = client.messages.create
 
-        async def parse(**kwargs):
-            if kwargs["output_format"] is ScoutReport:
+        async def create(**kwargs):
+            if output_model_name(kwargs["output_format"]) == "ScoutReport":
                 return DeskResponse(None)
             return await original(**kwargs)
 
-        client.messages.parse = parse
+        client.messages.create = create
         await _convene(client, budget)
         assert _verdicts(conn)[:2] == ["filed_nothing", "filed_nothing"]
 

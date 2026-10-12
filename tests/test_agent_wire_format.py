@@ -197,7 +197,7 @@ class TestARefusalNeverReachesTheRefusalBranch:
             "a billed-but-unparseable response is logged as a transport "
             "failure again, so a refusal and a dead network read alike"
         )
-        assert "the call was billed and its token count is lost" in source
+        assert "the call was billed and its usage is kept" in source
 
 
 class TestUsageIsReadFromTheRealShape:

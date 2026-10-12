@@ -29,16 +29,42 @@ class _ZeroSearchUsage(StubUsage):
 
 
 class _Messages:
-    def __init__(self, exc=None, parsed=None, usage=None):
+    def __init__(self, exc=None, parsed=None, usage=None, mismatch=False):
         self._exc, self._parsed, self._usage = exc, parsed, usage
+        self._mismatch = mismatch
 
-    async def parse(self, **kwargs):
+    async def create(self, **kwargs):
         if self._exc is not None:
             raise self._exc
+        if self._mismatch:
+            return _mismatched_message()
         resp = StubResponse(self._parsed)
         if self._usage is not None:
             resp.usage = self._usage
         return resp
+
+
+def _mismatched_message():
+    """A real captured response whose JSON text does not match `CardOutput`
+    (#371): the SDK's own `Message`, so `structured_call` parses it the way a
+    live reply is parsed, and its usage block is the capture's. Before #371
+    this case was simulated by raising `ValidationError` from the stub; a
+    raise now means a transport death, which is the other test."""
+    import copy
+    import json
+    from pathlib import Path
+
+    from anthropic.types import Message
+
+    payload = json.loads(
+        (Path(__file__).resolve().parent / "fixtures" / "anthropic_scout_report.json")
+        .read_text(encoding="utf-8")
+    )
+    payload = copy.deepcopy(payload)
+    for block in payload["content"]:
+        if block["type"] == "text":
+            block["text"] = json.dumps({"skip": "not a bool", "legs": 3})
+    return Message.model_validate(payload)
 
 
 async def _run(tmp_path, messages):
@@ -103,7 +129,7 @@ class TestAFailedSearchIsRetryable:
 
 class TestTheFailureKindIsNamed:
     async def test_the_schema_mismatch_path_stores_a_reason_naming_it(self, tmp_path):
-        conn, result = await _run(tmp_path, _Messages(exc=_schema_error()))
+        conn, result = await _run(tmp_path, _Messages(mismatch=True))
         assert result.status == "refused_invalid"
         reason = _row(conn, result.card_id)["reason"]
         assert reason.startswith(game_script.CALL_FAILED_PREFIX)
@@ -117,7 +143,7 @@ class TestTheFailureKindIsNamed:
     async def test_the_reason_carries_the_exception_class_or_pydantic_error_types(
         self, tmp_path
     ):
-        conn, result = await _run(tmp_path, _Messages(exc=_schema_error()))
+        conn, result = await _run(tmp_path, _Messages(mismatch=True))
         assert "ValidationError:" in _row(conn, result.card_id)["reason"]
         conn, result = await _run(
             tmp_path / "b",
@@ -126,8 +152,17 @@ class TestTheFailureKindIsNamed:
         reason = _row(conn, result.card_id)["reason"]
         assert "RuntimeError: Error code: 400 credit balance is too low" in reason
 
-    async def test_a_lost_usage_settles_null_not_zero(self, tmp_path):
-        conn, result = await _run(tmp_path, _Messages(exc=_schema_error()))
+    async def test_a_billed_mismatch_settles_its_usage_and_a_dead_call_settles_null(self, tmp_path):
+        """#371: a reply that did not parse was still billed, so its tokens
+        are recorded; only a call that never returned settles NULL, never 0."""
+        conn, result = await _run(tmp_path, _Messages(mismatch=True))
+        got = conn.execute(
+            "SELECT input_tokens, verdict FROM agent_calls WHERE id = ?",
+            (result.agent_call_id,),
+        ).fetchone()
+        assert got[0] is not None and got[0] > 0
+        assert got[1] == "schema_mismatch"
+        conn, result = await _run(tmp_path, _Messages(exc=RuntimeError("reset")))
         got = conn.execute(
             "SELECT input_tokens FROM agent_calls WHERE id = ?", (result.agent_call_id,)
         ).fetchone()
@@ -193,7 +228,7 @@ class _RecordingMessages(_Messages):
         super().__init__(exc=RuntimeError("stop after the request is recorded"))
         self.sent = None
 
-    async def parse(self, **kwargs):
+    async def create(self, **kwargs):
         self.sent = kwargs
         return await super().parse(**kwargs)
 

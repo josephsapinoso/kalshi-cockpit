@@ -68,7 +68,7 @@ class StubMessages:
         self.calls: list[dict] = []
         self.rows_at_call: int | None = None
 
-    async def parse(self, **kwargs):
+    async def create(self, **kwargs):
         self.calls.append(kwargs)
         if self._conn is not None:
             self.rows_at_call = self._conn.execute(

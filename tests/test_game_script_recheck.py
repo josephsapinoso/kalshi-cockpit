@@ -107,7 +107,7 @@ class _Client:
         parent = self
 
         class _Messages:
-            async def parse(self, **kw):
+            async def create(self, **kw):
                 parent.calls.append(kw)
                 return type("R", (), {"parsed_output": parsed, "stop_reason": "end_turn",
                                       "usage": _Usage()})()
@@ -171,7 +171,7 @@ class _Sequence:
         queue = list(answers)
 
         class _Messages:
-            async def parse(self, **kw):
+            async def create(self, **kw):
                 parent.calls.append(kw)
                 return type("R", (), {"parsed_output": queue.pop(0),
                                       "stop_reason": "end_turn", "usage": _Usage()})()

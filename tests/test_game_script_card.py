@@ -165,7 +165,7 @@ class StubMessages:
         self._parsed = parsed
         self.calls: list[dict] = []
 
-    async def parse(self, **kwargs):
+    async def create(self, **kwargs):
         self.calls.append(kwargs)
         return StubResponse(self._parsed)
 
@@ -581,13 +581,13 @@ class TestTheRoute:
         http, _stub, _p = self._app(tmp_path, monkeypatch)
         gate = asyncio.Event()
         gated = StubClient(_card(ATL, TOT40))
-        real_parse = gated.messages.parse
+        real_parse = gated.messages.create
 
         async def slow_parse(**kwargs):
             await gate.wait()
             return await real_parse(**kwargs)
 
-        gated.messages.parse = slow_parse
+        gated.messages.create = slow_parse
         monkeypatch.setattr(game_router, "build_client", lambda cfg: gated)
 
         transport = httpx.ASGITransport(app=http.app)

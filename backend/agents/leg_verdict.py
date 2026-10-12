@@ -36,8 +36,8 @@ the lean as a known bias of the instrument.
 
 Joe is a beginner (`PLAIN_WORDS_RULE`). The reason is capped at
 `REASON_MAX_CHARS`. The cap is checked after parsing, not on the pydantic
-field, because a field-level `max_length` would raise inside
-`messages.parse`, and that branch loses the call's usage. An over-length
+field, because a field-level `max_length` would raise inside the
+SDK's parse and settle `schema_mismatch` (its usage kept since #371). An over-length
 reason is recorded as failed, not clipped: cutting it would change what the
 model said.
 

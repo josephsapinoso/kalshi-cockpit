@@ -57,7 +57,7 @@ class StubMessages:
         self._raises = raises
         self.last_kwargs = None
 
-    async def parse(self, **kwargs):
+    async def create(self, **kwargs):
         self.last_kwargs = kwargs
         if self._raises:
             raise self._raises

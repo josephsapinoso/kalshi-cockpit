@@ -24,6 +24,7 @@ from __future__ import annotations
 import typing
 
 from backend.agents.base import AgentConfig
+from backend.agents.base import output_model_name
 from backend.agents.budget import AgentBudget
 from backend.agents.pro_bettor import SharpTake
 from backend.agents.scout import ScoutReport
@@ -74,19 +75,19 @@ class DeskStubMessages:
     def attach_budget_probe(self, conn):
         self._probe_conn = conn
 
-    async def parse(self, **kwargs):
+    async def create(self, **kwargs):
         self.calls.append(kwargs)
         if self.rows_at_first_call is None and hasattr(self, "_probe_conn"):
             self.rows_at_first_call = self._probe_conn.execute(
                 "SELECT COUNT(*) AS c FROM agent_calls"
             ).fetchone()["c"]
-        if kwargs["output_format"] is ScoutReport:
+        if output_model_name(kwargs["output_format"]) == "ScoutReport":
             index = self._staff_seen
             self._staff_seen += 1
             if self._staff_raises and index in self._staff_raises:
                 raise RuntimeError("this scout is down")
             return StubResponse(self._staff)
-        if kwargs["output_format"] is SharpTake:
+        if output_model_name(kwargs["output_format"]) == "SharpTake":
             return StubResponse(SHARP)
         return StubResponse(self._briefing)
 
@@ -270,7 +271,7 @@ class TestFiledNothingIsNotFoundNothing:
         # the master, so `calls[-1]` is Willy's.
         master_call = next(
             c for c in client.messages.calls
-            if c["output_format"] is DeskBriefing
+            if output_model_name(c["output_format"]) == "DeskBriefing"
         )
         prompt = master_call["messages"][0]["content"]
         assert "FILED NOTHING" in prompt
@@ -294,7 +295,7 @@ class TestFiledNothingIsNotFoundNothing:
         staff_systems = [
             c["system"][1]["text"]
             for c in client.messages.calls
-            if c["output_format"] is ScoutReport
+            if output_model_name(c["output_format"]) == "ScoutReport"
         ]
         home, away = staff_systems
         assert "You are the B scout" in home

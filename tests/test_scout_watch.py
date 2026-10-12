@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import backend.scout_watch as scout_watch
 from backend.agents.base import AgentConfig
+from backend.agents.base import output_model_name
 from backend.agents.scout import ScoutReport
 from backend.agents.scout_desk import DeskBriefing
 from backend.store import db
@@ -51,9 +52,9 @@ class DeskStubMessages:
     def __init__(self):
         self.calls = []
 
-    async def parse(self, **kwargs):
+    async def create(self, **kwargs):
         self.calls.append(kwargs)
-        if kwargs["output_format"] is ScoutReport:
+        if output_model_name(kwargs["output_format"]) == "ScoutReport":
             return StubResponse(EMPTY_REPORT)
         return StubResponse(BRIEFING)
 

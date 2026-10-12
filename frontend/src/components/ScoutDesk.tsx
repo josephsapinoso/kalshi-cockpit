@@ -563,7 +563,8 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
           ) : (
             <p className="max-w-[65ch] text-sm leading-relaxed text-muted">
               The staff filed, but the master&rsquo;s synthesis is missing —
-              the day&rsquo;s budget could not afford it, or his call failed.
+              the day&rsquo;s budget could not afford it, his call failed, or
+              his answer did not parse.
               The raw notes below are still the desk&rsquo;s work.
             </p>
           )}

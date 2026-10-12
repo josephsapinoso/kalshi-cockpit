@@ -46,9 +46,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional, Type, TypeVar
 
-# `ValidationError` is caught around `messages.parse`: the SDK parses a
-# response's content with no regard for `stop_reason`, so a refusal
-# arrives as a pydantic error rather than as a returned Message.
+# `ValidationError` is caught around the SDK's `parse_response`, which this
+# file runs itself after `messages.create` (#371) so the returned Message,
+# and the usage on it, survive a reply that does not match the schema.
 from pydantic import BaseModel, ValidationError
 
 from ..config import ConfigError
@@ -224,8 +224,15 @@ class StructuredCallOutcome:
         A transport or API failure is not a content judgement: settling it
         `filed_nothing` made an outage read as "the model looked and found
         nothing" (lesson 2026-10-05). `api_error:credit` names the billing
-        case; any other `call_error` is plain `api_error`.
+        case; any other `call_error` is plain `api_error`. Since #371 a
+        billed reply that did not parse settles `schema_mismatch` and a
+        safety refusal `refusal`, each with its usage, because the master
+        scout's `filed_nothing` with NULL tokens on 2026-10-12 was a billed
+        call the ceiling never counted. `no_output` stays None: the caller's
+        own default names it.
         """
+        if self.failure in ("schema_mismatch", "refusal"):
+            return self.failure
         return api_error_verdict(self.failure, self.api_error_kind)
 
 
@@ -251,6 +258,47 @@ def api_error_verdict(failure: Optional[str], api_error_kind: Optional[str] = No
     if failure != "call_error":
         return None
     return f"api_error:{api_error_kind}" if api_error_kind else "api_error"
+
+
+def _structured_output_format(output_model) -> dict:
+    """The `output_format` param `messages.create` takes, built the way
+    `messages.parse` builds it before calling `create` (anthropic 0.120.2,
+    `resources/messages/messages.py`): the pydantic model's JSON schema, run
+    through the SDK's own `transform_schema`. Called by name so an SDK change
+    fails loudly at import, not silently at parse time."""
+    from anthropic.lib._parse._transform import transform_schema
+    from pydantic import TypeAdapter
+
+    schema = TypeAdapter(output_model).json_schema()
+    return {"type": "json_schema", "schema": transform_schema(schema)}
+
+
+def output_model_name(output_format) -> Optional[str]:
+    """The model name a `create` request asked for, read off the schema's
+    `title` (pydantic writes the class name there and `transform_schema`
+    keeps it). For a test double that dispatches on which seat is calling,
+    now that `kwargs["output_format"]` is the schema dict and not the class."""
+    try:
+        return output_format["schema"]["title"]
+    except (KeyError, TypeError):
+        return getattr(output_format, "__name__", None)
+
+
+def _parse_structured(raw, output_model):
+    """The SDK's `parse_response` over a returned `Message`, giving the
+    `ParsedMessage` whose `parsed_output` is the model instance.
+
+    A response that already carries `parsed_output` is returned as it is:
+    that is a test double standing in for the SDK's `ParsedMessage`, and the
+    real `Message` type has no such attribute, so a live call always parses.
+    `tests/test_structured_call_keeps_usage.py` drives real captured
+    payloads through this path, which is what keeps the shortcut honest.
+    """
+    if hasattr(raw, "parsed_output"):
+        return raw
+    from anthropic.lib._parse._response import parse_response
+
+    return parse_response(response=raw, output_format=output_model)
 
 
 def _usage_from(response) -> Optional[CallUsage]:
@@ -624,38 +672,20 @@ async def structured_call(
     if tools:
         kwargs["tools"] = tools
 
+    # The request goes through `messages.create`, not `messages.parse` (#371).
+    # `parse` is `create` plus the SDK's `parse_response` run inside the
+    # request pipeline, so when the content does not match the schema the
+    # pydantic error surfaces and the `Message` -- usage block and all -- is
+    # never handed back. On live, 2026-10-12 19:06Z, the master scout's reply
+    # failed to parse, the vendor billed the call, and the meter recorded
+    # NULL: a billed call the ceiling never counted. Splitting the two steps
+    # keeps the raw message, so the usage is read before anything is parsed.
+    # `_structured_output_format` and `_parse_structured` are the SDK's own
+    # two halves of `parse`, called by name; nothing here re-implements them.
+    create_kwargs = dict(kwargs)
+    create_kwargs["output_format"] = _structured_output_format(output_model)
     try:
-        response = await client.messages.parse(**kwargs)
-    except ValidationError as exc:
-        # **The call SUCCEEDED and we were billed for it.** `messages.parse`
-        # runs the SDK's `parse_response` over every text block with no regard
-        # for `stop_reason`, so a response whose content does not match the
-        # schema raises here rather than returning -- a safety refusal (HTTP
-        # 200, `stop_reason: "refusal"`) and a model that emitted malformed
-        # JSON arrive identically, as a pydantic error, with the `Message`
-        # never handed back.
-        #
-        # Logged apart from a transport failure because the two differ in the
-        # one way that matters to the meter: this one spent tokens. **Their
-        # count is unrecoverable through this API shape** -- the usage block
-        # lives on the `Message` the SDK did not return -- so the reserve row
-        # stays and settles with NULL usage, which `agent_calls` already
-        # documents as "a call that happened and said nothing". Recovering it
-        # would mean calling `messages.create` and re-running the SDK's own
-        # `output_format` -> JSON-schema transformation ourselves, which is a
-        # second implementation of the SDK inside this file.
-        logger.exception(
-            "agent output did not match the schema (a refusal, or malformed "
-            "output); the call was billed and its token count is lost"
-        )
-        try:
-            kinds = sorted({str(e.get("type")) for e in exc.errors()})
-        except Exception:  # noqa: BLE001 -- the detail is best effort
-            kinds = []
-        return StructuredCallOutcome(
-            parsed=None, usage=None, failure="schema_mismatch",
-            failure_detail="ValidationError: " + (",".join(kinds) or "unreadable"),
-        )
+        raw = await client.messages.create(**create_kwargs)
     except Exception as exc:  # noqa: BLE001
         logger.exception("agent call failed; continuing without a verdict")
         return StructuredCallOutcome(
@@ -664,36 +694,48 @@ async def structured_call(
             api_error_kind="credit" if is_credit_exhausted(exc) else None,
         )
 
-    usage = _usage_from(response)
+    usage = _usage_from(raw)
     if usage is not None and usage.tool_errors:
         # The raw blocks too: no real error block has been captured yet, and
         # this line is where the first one will come from (#316, Joe's (A)).
         logger.warning(
             "agent call carried server-tool errors: %s; blocks: %s",
-            dict(usage.tool_errors), _error_blocks_json(response),
+            dict(usage.tool_errors), _error_blocks_json(raw),
         )
 
     # A safety refusal returns HTTP 200 with stop_reason "refusal" and content
-    # that will not match the schema.
-    #
-    # **This branch is currently unreachable and is kept deliberately** -- see
-    # the `ValidationError` handler above, which is where a refusal actually
-    # lands today (verified against anthropic 0.120.2 by
-    # `tests/test_agent_wire_format.py`, which drives a real refusal payload
-    # through `parse_response`). It stays because it costs nothing, because it
-    # is correct the moment the SDK stops parsing content it was told is a
-    # refusal, and because deleting it would delete the only statement in this
-    # file of what a refusal *is*. It is NOT the guard the comment here used
-    # to imply: "check before touching parsed_output" describes an ordering
-    # that never gets the chance to run.
-    if getattr(response, "stop_reason", None) == "refusal":
+    # that will not match the schema. Read before parsing, so a refusal is a
+    # refusal and not a schema mismatch. (Until #371 this branch could not
+    # run: `messages.parse` raised on the refusal's content first, and
+    # `tests/test_agent_wire_format.py` pins that the SDK still does.)
+    if getattr(raw, "stop_reason", None) == "refusal":
         logger.warning(
             "agent call refused (%s)",
-            getattr(getattr(response, "stop_details", None), "category", "unknown"),
+            getattr(getattr(raw, "stop_details", None), "category", "unknown"),
         )
         return StructuredCallOutcome(
             parsed=None, usage=usage, failure="refusal",
-            failure_detail=f"stop_reason={getattr(response, 'stop_reason', None)}",
+            failure_detail=f"stop_reason={getattr(raw, 'stop_reason', None)}",
+        )
+
+    try:
+        response = _parse_structured(raw, output_model)
+    except ValidationError as exc:
+        # **The call SUCCEEDED and we were billed for it**, and since #371 the
+        # usage is on the outcome: the reserve row settles with real tokens
+        # and the verdict `schema_mismatch`, apart from a transport failure,
+        # which settles NULL and `api_error`.
+        logger.exception(
+            "agent output did not match the schema (malformed or cut-off "
+            "output); the call was billed and its usage is kept"
+        )
+        try:
+            kinds = sorted({str(e.get("type")) for e in exc.errors()})
+        except Exception:  # noqa: BLE001 -- the detail is best effort
+            kinds = []
+        return StructuredCallOutcome(
+            parsed=None, usage=usage, failure="schema_mismatch",
+            failure_detail="ValidationError: " + (",".join(kinds) or "unreadable"),
         )
 
     parsed = getattr(response, "parsed_output", None)
