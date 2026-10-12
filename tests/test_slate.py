@@ -332,3 +332,45 @@ class TestNothingHereIsAnEdge:
                 f"{module} imports the slate module; a factor that has never "
                 f"been scored against an outcome must not reach the money path"
             )
+
+
+class TestBookDistributionAnchored:
+    """Ticket #375: `only_books` counts the books the fair price was anchored on."""
+
+    OUTCOMES = ("Cubs", "Cardinals")
+
+    def _quotes(self):
+        # b0/b1 price Cubs below Kalshi's 51.0c; b2..b4 above it.
+        return {
+            "b0": [2.10, 1.75],
+            "b1": [2.10, 1.75],
+            "b2": [1.80, 2.05],
+            "b3": [1.80, 2.05],
+            "b4": [1.80, 2.05],
+        }
+
+    def test_only_the_anchored_books_are_counted(self):
+        dist = book_distribution(
+            outcomes=self.OUTCOMES,
+            quotes_by_book=self._quotes(),
+            outcome_name="Cubs",
+            kalshi_ask_tenths=510,
+            only_books=frozenset({"b0", "b1"}),
+        )
+        assert dist is not None
+        assert dist.book_count == 2
+        assert dist.books_below == 2
+        assert dist.books_unselected == 3
+        assert dist.books_unusable == 0
+        assert dist.as_dict()["books_unselected"] == 3
+
+    def test_no_subset_keeps_every_usable_book(self):
+        dist = book_distribution(
+            outcomes=self.OUTCOMES,
+            quotes_by_book=self._quotes(),
+            outcome_name="Cubs",
+            kalshi_ask_tenths=510,
+        )
+        assert dist.book_count == 5
+        assert dist.books_below == 2
+        assert dist.books_unselected == 0
