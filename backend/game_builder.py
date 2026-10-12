@@ -59,6 +59,7 @@ import re
 import sqlite3
 from typing import Optional, Sequence
 
+from .core.key_numbers import FOOTBALL_KALSHI_PREFIXES, key_number_flag
 from .core.ladder import unusable_reason
 from .core.leg_words import no_words_for
 from .core.prices import (
@@ -586,6 +587,13 @@ async def list_game_legs(
                     yes_label=market.get("yes_sub_title"),
                 ),
                 "strike": _strike_of(market),
+                # Display-only (#348): where a football spread line sits
+                # against 3/7/6/10/14. Nothing the ticket reads uses it.
+                "key_number": (
+                    key_number_flag(_strike_of(market))
+                    if kind == "SPREAD" and prefix in FOOTBALL_KALSHI_PREFIXES
+                    else None
+                ),
                 "player": _player_of(market),
                 "allowed_sides": ["yes"] if event.is_yes_only else ["yes", "no"],
                 "size_max": cap,

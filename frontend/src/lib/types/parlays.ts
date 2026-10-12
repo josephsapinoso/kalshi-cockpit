@@ -7,6 +7,10 @@
 
 import type { ListFilterEcho, TrustScore } from "./signal";
 
+/** Where a football spread line sits against a key number (#348). `on` is the
+ *  line itself (3.0); `crosses` is a half point beside it (2.5 / 3.5). */
+export type KeyNumber = { kind: "on" | "crosses"; number: number };
+
 /** One leg of a parlay card: a game's YES side at its consensus chance. */
 /**
  * One leg, with the provenance behind its number.
@@ -34,6 +38,9 @@ export type ParlayCardLeg = {
   commence_ms: number;
   market: string;
   point: number | null;
+  /** A football spread line on or beside 3/7/6/10/14. Display-only; `null` on
+   *  every other leg. */
+  key_number: KeyNumber | null;
   /** Which side of `ticker` this leg buys: "no" is the Under of a total or
    *  prop, the NO of Kalshi's Over market. Echoed back on the lookup tap. */
   side: "yes" | "no";
@@ -672,6 +679,8 @@ export type GameLeg = {
   yes_label: string | null;
   no_label: string | null;
   strike: number | null;
+  /** Display-only; the ticket never reads it. */
+  key_number: KeyNumber | null;
   player: string | null;
   allowed_sides: ("yes" | "no")[];
   /** How many legs Kalshi lets one combination take from this event; `null`

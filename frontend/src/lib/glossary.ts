@@ -410,6 +410,14 @@ export const GLOSSARY = {
       "the bet cannot tie. On a Kalshi rung the line is the strike in its " +
       "title.",
   },
+  key_number: {
+    label: "key number",
+    definition:
+      "A margin football games land on far more often than its neighbours " +
+      "— 3 and 7 most, then 6, 10, 14 — so a half point across one is " +
+      "worth more than elsewhere. “On 3” is a line of exactly 3; " +
+      "“crosses 3” is 2.5 or 3.5.",
+  },
   consensus_chance: {
     label: "chance to win",
     definition:

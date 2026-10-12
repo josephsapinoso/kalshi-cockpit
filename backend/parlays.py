@@ -32,6 +32,7 @@ from typing import Mapping, NamedTuple, Optional, Sequence
 
 from backend.core.correlation import Leg
 from backend.core.fees import COMBO_TAKER_COEFFICIENT
+from backend.core.key_numbers import FOOTBALL_SPORT_KEY_PREFIX, key_number_flag
 from backend.core.ladder import (
     CARD_SHAPES,
     METHODS,
@@ -1536,6 +1537,16 @@ def _method_spread_points(leg: CandidateLeg) -> Optional[float]:
     return method_spread_points(leg.p_by_method.values())
 
 
+def parlay_leg_key_number(leg: CandidateLeg) -> Optional[dict]:
+    """The leg's football key-number flag (#348), `None` unless it is a
+    football spread leg. The Check-a-parlay payload's `key_number`."""
+    if leg.market != "spreads" or not str(leg.league or "").startswith(
+        FOOTBALL_SPORT_KEY_PREFIX
+    ):
+        return None
+    return key_number_flag(leg.point)
+
+
 def _prefix_chances(legs: Sequence[CandidateLeg]) -> list[dict]:
     """The chance that the first N legs ALL land, for N = 1..len(legs).
 
@@ -1622,6 +1633,9 @@ def _serialise_leg(
         "commence_ms": leg.commence_ms,
         "market": leg.market,
         "point": leg.point,
+        #: Display-only (#348): a football spread line's place against the
+        #: key numbers (3, 7, 6, 10, 14). `None` on every other leg.
+        "key_number": parlay_leg_key_number(leg),
         #: Which side of `ticker` this leg buys -- "yes", or "no" on the
         #: Under of a total or prop. The lookup tap echoes it back with the
         #: tickers, and the venue is asked for exactly that side.

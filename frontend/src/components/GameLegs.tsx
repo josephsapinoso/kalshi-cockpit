@@ -14,6 +14,7 @@ import {
 import AskTheMarket from "@/components/AskTheMarket";
 import { CheckTheseLegs } from "@/components/GameScriptCard";
 import { RestChip } from "@/components/ParlayCards";
+import { keyNumberWords } from "@/components/ParlayCards";
 import ManualTicket from "@/components/ManualTicket";
 import ScoutDesk from "@/components/ScoutDesk";
 import Term from "@/components/Term";
@@ -525,7 +526,14 @@ function Group({
             impliedByCover !== null && ticked[leg.market_ticker] !== "yes";
           return (
             <li key={leg.market_ticker} className="py-2">
-              <p className="text-sm">{leg.title}</p>
+              <p className="text-sm">
+                {leg.title}
+                {leg.key_number ? (
+                  <span className="ml-2 whitespace-nowrap text-xs text-muted">
+                    <Term k="key_number">{keyNumberWords(leg.key_number)}</Term>
+                  </span>
+                ) : null}
+              </p>
               <RestChip rest={leg.rest} />
               <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
                 {leg.allowed_sides.map((side) => {
