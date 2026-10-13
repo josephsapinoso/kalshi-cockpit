@@ -60,10 +60,11 @@ function kickoffText(ms: number): string {
 /** Why a card shows one leg fewer than its scout picked. Kalshi refuses a
  * "team wins" leg beside "that team wins by N+", and dropping it changes
  * nothing about when the ticket pays. */
-const DROPPED_WIN_LINE =
-  "The scout also picked this team to win. That pick is left off: winning " +
-  "by the margin above already includes winning, so the ticket pays on " +
-  "exactly the same results, and Kalshi refuses the pair.";
+const DROPPED_LEG_LINE =
+  "The scout also picked a leg the legs above already guarantee (say, a " +
+  "team to win beside that team winning by a margin). It is left off: the " +
+  "ticket pays on exactly the same results without it, and Kalshi refuses " +
+  "a combination that repeats itself.";
 
 /**
  * What this ticket needs, as the card's own heading for `ticket_needs` (#284).
@@ -320,7 +321,7 @@ export default function GameScriptCard({
         </p>
         {card.dropped_legs.length > 0 && (
           <p className="mt-2 max-w-[65ch] text-xs text-muted">
-            {DROPPED_WIN_LINE}
+            {DROPPED_LEG_LINE}
           </p>
         )}
         {card.ticket_needs && (

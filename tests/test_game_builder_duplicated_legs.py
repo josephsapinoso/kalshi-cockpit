@@ -2,7 +2,7 @@
 
 Kalshi refuses the pair as `duplicated_legs`: winning by N+ already guarantees
 the win (Joe hit it on /parlays 2026-09-30, `store/game_script_cards.py`'s
-`drop_implied_win_legs` docstring). On the hand-ticked /game path the refusal
+`drop_implied_legs` docstring). On the hand-ticked /game path the refusal
 used to come back from the venue as a recorded 502 AFTER the mint call. Joe's
 answer to #274 was (A): refuse in words, never drop a leg silently.
 
@@ -10,7 +10,7 @@ What these tests establish
 --------------------------
 - YES "team wins" + YES "that team wins by N+" is a worded 422 before any venue
   call, with no `parlay_lookups` row, and the words name both markets.
-- The detection is `drop_implied_win_legs` (reused, for detection only); the
+- The detection is `drop_implied_legs` (reused, for detection only); the
   refusal does not drop a leg and mint the rest.
 - The pairs that are NOT duplicates still mint with every ticked leg: the
   other team's cover, a NO win leg, a NO cover leg.

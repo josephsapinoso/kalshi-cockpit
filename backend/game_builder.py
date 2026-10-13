@@ -723,12 +723,22 @@ def _validate_request(game: tuple[str, str, str], legs: Sequence[dict]) -> list[
             )
         seen[market] = side
         out.append({"market_ticker": market, "event_ticker": event, "side": side})
-    # A team to win beside that same team's cover (#277). Kalshi refuses the
-    # pair as `duplicated_legs` AFTER the mint call, so it is refused here, in
-    # words, before any venue call. The detector is the one the scout cards
-    # use, for DETECTION only: this path never drops the win leg and mints the
-    # rest, because the ticker would then differ from what Joe ticked (#274 A).
-    _kept, implied = game_script_cards.drop_implied_win_legs(out)
+    # A leg the other ticked legs already guarantee (#277; a team to win
+    # beside that team's cover, or a team total under a game total plus a
+    # spread). Kalshi refuses it as `duplicated_legs` AFTER the mint call, so
+    # it is refused here, in words, before any venue call. The detector is the
+    # one the scout cards use, for DETECTION only: this path never drops the
+    # leg and mints the rest, because the ticker would then differ from what
+    # Joe ticked (#274 A).
+    _kept, implied = game_script_cards.drop_implied_legs(out)
+    if implied and not implied[0]["event_ticker"].split("-")[0].endswith("GAME"):
+        raise _refuse(
+            422,
+            f"{implied[0]['market_ticker']} is already guaranteed by the other "
+            "legs you ticked, so the combination would pay on exactly the "
+            "same scores without it. Kalshi refuses that as duplicated legs. "
+            "Untick it. Nothing was created.",
+        )
     if implied:
         win = implied[0]["market_ticker"]
         team = win.rsplit("-", 1)[-1]
@@ -820,8 +830,8 @@ def attach_combo_to_card(
         if row is None:
             return None
         # Compared as the card is SHOWN: a win leg beside its own cover is
-        # dropped on read (`drop_implied_win_legs`), so that is what Joe mints.
-        shown, _ = game_script_cards.drop_implied_win_legs(json.loads(row[1]))
+        # dropped on read (`drop_implied_legs`), so that is what Joe mints.
+        shown, _ = game_script_cards.drop_implied_legs(json.loads(row[1]))
         card_legs = {(l["market_ticker"], l["side"]) for l in shown}
         if card_legs != set(legs):
             return None

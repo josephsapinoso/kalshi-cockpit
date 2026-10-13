@@ -652,23 +652,23 @@ class TestAWinLegBesideItsOwnCoverIsDropped:
     leg pays on exactly the same outcomes."""
 
     def test_the_same_teams_win_is_dropped(self):
-        kept, dropped = game_script_cards.drop_implied_win_legs([ATL, SPREAD_ATL, TOT40])
+        kept, dropped = game_script_cards.drop_implied_legs([ATL, SPREAD_ATL, TOT40])
         assert kept == [SPREAD_ATL, TOT40] and dropped == [ATL]
 
     def test_the_other_teams_cover_leaves_the_win_alone(self):
-        kept, dropped = game_script_cards.drop_implied_win_legs([ATL, SPREAD_PIT])
+        kept, dropped = game_script_cards.drop_implied_legs([ATL, SPREAD_PIT])
         assert kept == [ATL, SPREAD_PIT] and dropped == []
 
     def test_a_no_side_is_left_alone(self):
         no_cover = {**SPREAD_ATL, "side": "no"}
-        kept, dropped = game_script_cards.drop_implied_win_legs([ATL, no_cover])
+        kept, dropped = game_script_cards.drop_implied_legs([ATL, no_cover])
         assert dropped == []
 
     def test_the_real_nhl_tickers_joe_hit(self):
         win = _l("KXNHLGAME-26SEP29CHIVGK-VGK", "KXNHLGAME-26SEP29CHIVGK")
         cover = _l("KXNHLSPREAD-26SEP29CHIVGK-VGK2", "KXNHLSPREAD-26SEP29CHIVGK")
         prop = _l("KXNHLPTS-26SEP29CHIVGK-EICHEL1", "KXNHLPTS-26SEP29CHIVGK")
-        kept, dropped = game_script_cards.drop_implied_win_legs([win, cover, prop])
+        kept, dropped = game_script_cards.drop_implied_legs([win, cover, prop])
         assert kept == [cover, prop] and dropped == [win]
 
     async def test_a_three_leg_card_is_built_with_two(self, tmp_path):
@@ -876,3 +876,86 @@ class TestTheBuildPathPassesTheKickoff:
         conn, _c, result = await _run(tmp_path, card)
         assert result.status == "refused_invalid"
         assert "game day" in result.reason
+
+
+_CLE = "26OCT132000CLETB"
+
+
+def _mlb(series, rung, side="yes"):
+    event = f"KXMLB{series}-{_CLE}"
+    return _l(f"{event}-{rung}", event, side)
+
+
+class TestALegTheOthersGuaranteeIsDropped:
+    """Kalshi refused Joe's 8-leg card, 2026-10-13: "Over 6.5 runs and
+    Cleveland winning by 2+ already guarantee Cleveland scoring over 2.5
+    runs." Three legs together, which the win-beside-cover check could not
+    see. Cleveland >= 5 follows (C + T >= 7 and C - T >= 2), so the team total
+    adds nothing and dropping it pays on exactly the same scores."""
+
+    def test_the_card_kalshi_refused_drops_the_team_total(self):
+        total = _mlb("TOTAL", "7")
+        spread = _mlb("SPREAD", "CLE2")
+        team_total = _mlb("TEAMTOTAL", "CLE3")
+        tb_total = _mlb("TEAMTOTAL", "TB2")
+        prop = _l(f"KXMLBHIT-{_CLE}-ADELL1", f"KXMLBHIT-{_CLE}")
+        kept, dropped = game_script_cards.drop_implied_legs(
+            [spread, total, team_total, tb_total, prop]
+        )
+        assert dropped == [team_total]
+        assert kept == [spread, total, tb_total, prop]
+
+    def test_a_team_total_out_of_reach_stays(self):
+        # C - T >= 2 and C + T >= 7 gives C >= 5, not C >= 6.
+        kept, dropped = game_script_cards.drop_implied_legs(
+            [_mlb("TOTAL", "7"), _mlb("SPREAD", "CLE2"), _mlb("TEAMTOTAL", "CLE6")]
+        )
+        assert dropped == []
+
+    def test_the_other_teams_spread_does_not_guarantee_this_teams_runs(self):
+        # Tampa Bay by 2+ with Cleveland on 3+ forces 8+ runs, not 9+, and
+        # Cleveland can score 0 in a 9-run game Tampa Bay wins.
+        kept, dropped = game_script_cards.drop_implied_legs(
+            [_mlb("TOTAL", "9"), _mlb("SPREAD", "TB2"), _mlb("TEAMTOTAL", "CLE3")]
+        )
+        assert dropped == []
+
+    def test_two_team_totals_guarantee_the_game_total(self):
+        total = _mlb("TOTAL", "7")
+        kept, dropped = game_script_cards.drop_implied_legs(
+            [_mlb("TEAMTOTAL", "CLE4"), _mlb("TEAMTOTAL", "TB3"), total]
+        )
+        assert dropped == [total]
+
+    def test_a_no_leg_is_read_as_its_opposite(self):
+        # NO on "over 8.5" means at most 8; with Cleveland by 2+ that caps
+        # Tampa Bay at 3, so NO on Tampa Bay over 3.5 is guaranteed.
+        tb_no = _mlb("TEAMTOTAL", "TB4", "no")
+        kept, dropped = game_script_cards.drop_implied_legs(
+            [_mlb("TOTAL", "9", "no"), _mlb("SPREAD", "CLE2"), tb_no]
+        )
+        assert dropped == [tb_no]
+
+    def test_a_first_five_series_never_shares_scores_with_the_full_game(self):
+        f5 = f"KXMLBF5SPREAD-{_CLE}"
+        kept, dropped = game_script_cards.drop_implied_legs(
+            [_mlb("TOTAL", "7"), _l(f"{f5}-CLE2", f5), _mlb("TEAMTOTAL", "CLE3")]
+        )
+        assert dropped == []
+
+    def test_two_legs_that_guarantee_each_other_lose_only_one(self):
+        # Cleveland by over 0.5 IS Cleveland winning.
+        win, by_one = _mlb("GAME", "CLE"), _mlb("SPREAD", "CLE1")
+        kept, dropped = game_script_cards.drop_implied_legs([win, by_one])
+        assert kept == [by_one] and dropped == [win]
+
+    def test_one_leg_twice_is_left_for_the_validator(self):
+        a = _mlb("TOTAL", "7")
+        kept, dropped = game_script_cards.drop_implied_legs([a, dict(a)])
+        assert dropped == []
+
+    def test_contradictory_legs_drop_nothing(self):
+        kept, dropped = game_script_cards.drop_implied_legs(
+            [_mlb("SPREAD", "CLE2"), _mlb("SPREAD", "TB2"), _mlb("TOTAL", "3")]
+        )
+        assert dropped == []

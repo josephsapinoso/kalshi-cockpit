@@ -795,11 +795,12 @@ async def build_card(
             why, usage, call_id,
         )
 
-    # A win leg beside the same team's cover is dropped before validation,
-    # not refused: the pair pays on the same outcomes as the cover alone, and
-    # Kalshi refuses it as `duplicated_legs`. The stored legs stay as the
+    # A leg the card's other legs already guarantee (a win beside that
+    # team's cover; a team total under a game total plus a spread) is dropped
+    # before validation, not refused: the card pays on the same final scores
+    # without it, and Kalshi refuses it as `duplicated_legs`. The stored legs stay as the
     # scout wrote them; `game_script_cards` drops the same leg on read.
-    kept, _dropped = game_script_cards.drop_implied_win_legs(
+    kept, _dropped = game_script_cards.drop_implied_legs(
         [leg.model_dump() for leg in parsed.legs]
     )
     invalid = validate_card(

@@ -22,6 +22,7 @@ on a card; `combo_ticker` is kept only so which cards Joe bet can be counted.
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from typing import Optional, Sequence
 
@@ -110,7 +111,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     legs = json.loads(raw) if raw else None
     out["dropped_legs"] = []
     if legs:
-        legs, out["dropped_legs"] = drop_implied_win_legs(legs)
+        legs, out["dropped_legs"] = drop_implied_legs(legs)
     out["legs"] = legs
     # NULL on every card built before v61 and on every skip: no sources were
     # asked for, so none are claimed. Never an empty list standing in for one.
@@ -121,44 +122,141 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     return out
 
 
-def _series_and_team(market_ticker: str) -> Optional[tuple[str, str, str]]:
-    """`KXNHLSPREAD-26SEP29CHIVGK-VGK2` -> `("KXNHLSPREAD", "26SEP29CHIVGK",
-    "VGK")`: series, game suffix, team with any trailing rung digits cut.
-    `None` for a ticker that is not three dash-separated parts."""
-    parts = market_ticker.strip().upper().split("-")
-    if len(parts) != 3:
-        return None
-    return parts[0], parts[1], parts[2].rstrip("0123456789")
+def _score_predicate(market_ticker: str, side: str):
+    """A game-line leg as a condition on the two teams' final scores, or None.
 
-
-def drop_implied_win_legs(legs: list[dict]) -> tuple[list[dict], list[dict]]:
-    """Drop a YES "team wins" leg when the card also has YES "that team wins
-    by N+" for the same game. Returns `(kept, dropped)`.
-
-    Kalshi refuses the pair as `duplicated_legs` ("Vegas winning by 2+
-    already guarantees Vegas winning"; Joe hit it on /parlays 2026-09-30).
-    Dropping the win leg is lossless: both-happen IS the cover, so the
-    combination pays on exactly the same outcomes. Nothing else is touched.
-    The stored `legs_json` keeps what the scout wrote; this runs on read.
+    `(group, team, ca, cb, lo, hi)`: the leg wins when
+    `lo <= ca*score[team] + cb*score[other] <= hi`. `group` is the series'
+    league prefix plus the game suffix, so a first-five or first-half series
+    never shares scores with the full game. Kalshi's rung number is the whole
+    score the leg needs, read off every captured strike (`MLBTOTAL-...-7` is
+    "Over 6.5", `SPREAD-...-CLE2` "wins by over 1.5", `TEAMTOTAL-...-CLE3`
+    "over 2.5"). `team` is None for a game total. Anything else -- props,
+    a tie market, an unreadable rung -- is None and never dropped.
     """
-    covers = set()
-    for leg in legs:
-        parsed = _series_and_team(leg.get("market_ticker", ""))
-        if parsed and leg.get("side") == "yes" and parsed[0].endswith("SPREAD"):
-            covers.add((parsed[0][: -len("SPREAD")], parsed[1], parsed[2]))
-    kept, dropped = [], []
-    for leg in legs:
-        parsed = _series_and_team(leg.get("market_ticker", ""))
-        if (
-            parsed
-            and leg.get("side") == "yes"
-            and parsed[0].endswith("GAME")
-            and (parsed[0][: -len("GAME")], parsed[1], parsed[2]) in covers
-        ):
-            dropped.append(leg)
+    parts = market_ticker.strip().upper().split("-")
+    if len(parts) != 3 or side not in ("yes", "no"):
+        return None
+    series, game, rung = parts
+    team = rung.rstrip("0123456789")
+    digits = rung[len(team):]
+    if series.endswith("TEAMTOTAL"):
+        kind, league = "teamtotal", series[: -len("TEAMTOTAL")]
+    elif series.endswith("TOTAL"):
+        kind, league = "total", series[: -len("TOTAL")]
+    elif series.endswith("SPREAD"):
+        kind, league = "spread", series[: -len("SPREAD")]
+    elif series.endswith("GAME"):
+        kind, league = "game", series[: -len("GAME")]
+    else:
+        return None
+    if kind == "total":
+        if team or not digits:
+            return None
+        ca, cb, k = 1, 1, int(digits)
+    elif kind == "game":
+        if not team or digits or team == "TIE":
+            return None
+        ca, cb, k = 1, -1, 1
+    else:
+        if not team or not digits:
+            return None
+        ca, cb, k = (1, 0, int(digits)) if kind == "teamtotal" else (1, -1, int(digits))
+    lo, hi = (k, None) if side == "yes" else (None, k - 1)
+    return (league, game), (team or None), ca, cb, lo, hi
+
+
+def _b_interval(pred, a: int) -> tuple[float, float]:
+    """The other team's scores (B >= 0) that satisfy `pred` given A = `a`."""
+    ca, cb, lo, hi = pred
+    lo = -math.inf if lo is None else lo
+    hi = math.inf if hi is None else hi
+    v = ca * a
+    if cb == 0:
+        return (0.0, math.inf) if lo <= v <= hi else (1.0, 0.0)
+    if cb == 1:
+        return max(0.0, lo - v), hi - v
+    return max(0.0, v - hi), v - lo
+
+
+def _implied(target, others) -> bool:
+    """Every final score that wins all of `others` also wins `target`, and at
+    least one such score exists. Scores are whole numbers >= 0; for each
+    team-A score the other team's winning scores form one interval, so this
+    walks A and compares intervals. A counterexample, if any, sits within
+    a couple of rungs of the largest one, which bounds the walk."""
+    rungs = [abs(x) for p in (target, *others) for x in p[2:] if x is not None]
+    top = 2 * max(rungs, default=0) + 4
+    feasible = False
+    for a in range(top + 1):
+        lo, hi = 0.0, math.inf
+        for p in others:
+            plo, phi = _b_interval(p, a)
+            lo, hi = max(lo, plo), min(hi, phi)
+        lo = math.ceil(lo)
+        if lo > hi:
+            continue
+        feasible = True
+        tlo, thi = _b_interval(target, a)
+        tlo = math.ceil(tlo)
+        # Some B in [lo, hi] outside [tlo, thi] loses the target.
+        if lo < tlo or hi > thi or tlo > thi:
+            return False
+    return feasible
+
+
+def drop_implied_legs(legs: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Drop every game-line leg the card's other legs already guarantee.
+    Returns `(kept, dropped)`.
+
+    Kalshi refuses such a combination as `duplicated_legs`: "Vegas winning by
+    2+ already guarantees Vegas winning" (Joe, /parlays 2026-09-30), and
+    "Over 6.5 runs and Cleveland winning by 2+ already guarantee Cleveland
+    scoring over 2.5 runs" (Joe, a game-script card, 2026-10-13 -- three legs,
+    which the win-beside-cover check this replaced could not see). Dropping a
+    guaranteed leg is lossless: the combination pays on exactly the same
+    final scores. Reads game winner, spread, game total and team total legs
+    on either side; props are never read and never dropped, and only legs on
+    other events count (two rungs of one event is the validator's refusal).
+    One leg is dropped at a time and the rest re-checked, so two legs that
+    guarantee each other lose only one. The stored `legs_json` keeps what the scout
+    wrote; this runs on read.
+    """
+    kept, dropped = list(legs), []
+    while True:
+        preds = [
+            _score_predicate(leg.get("market_ticker", ""), leg.get("side", ""))
+            for leg in kept
+        ]
+        for i, pred in enumerate(preds):
+            if pred is None:
+                continue
+            # Only legs on OTHER events: two rungs of one event, or one leg
+            # twice, is the validator's to refuse, not this to drop.
+            event = kept[i].get("event_ticker")
+            group = [
+                p for j, p in enumerate(preds)
+                if j != i and p is not None and p[0] == pred[0]
+                and kept[j].get("event_ticker") != event
+            ]
+            teams = {p[1] for p in (pred, *group) if p[1] is not None}
+            if not group or len(teams) > 2:
+                continue
+            # Team A is the target's team (or either, for a game total); a
+            # leg on the other team reads with its coefficients swapped.
+            a_team = pred[1] or next(iter(teams), None)
+
+            def oriented(p):
+                _g, team, ca, cb, lo, hi = p
+                if team is None or team == a_team:
+                    return ca, cb, lo, hi
+                return cb, ca, lo, hi
+
+            if _implied(oriented(pred), [oriented(p) for p in group]):
+                dropped.append(kept.pop(i))
+                break
         else:
-            kept.append(leg)
-    return kept, dropped
+            return kept, dropped
 
 
 def sport_key_for(game_event_ticker: str) -> str:

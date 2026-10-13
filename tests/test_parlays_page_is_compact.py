@@ -116,7 +116,7 @@ class TestTheCardIsCompact:
         assert "Why this card" in details.group(0)
         for needle in (
             "{card.story}",
-            "{DROPPED_WIN_LINE}",
+            "{DROPPED_LEG_LINE}",
             "splitDropIf(card.drop_if)",
             'k="inactives"',
         ):
