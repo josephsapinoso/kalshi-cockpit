@@ -122,7 +122,7 @@ DEFAULT_MAX_CALLS_PER_DAY = 24
 # call caps above. Arithmetic, on the same [ASSUMED] rates and the desk's own
 # ceilings (staff `max_tokens=6000`, up to 6 searches each; master 12000, #377):
 #
-#   one saturated convening  ~2 x (50K in + 6K out) + (5K in + 4K out)  ~ 121K
+#   one saturated convening  ~2 x (50K in + 6K out) + (5K in + 12K out) ~ 129K
 #   tokens: 500K a day  ~ 4 saturated convenings, more when calls run lean
 #   searches: 60 a day  ~ 5 convenings that spend all 12, more when fewer
 #

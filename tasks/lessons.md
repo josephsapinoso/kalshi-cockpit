@@ -16,6 +16,18 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-13 - An output cap on a structured seat fails worst on the richest inputs, and a fixed meter is not a fixed cause
+
+From the ninety-third session (#377, #210).
+
+- **#210 waited twenty days for a `complete` convening and none came.** The master scout's call sent `max_tokens=4000` with `effort="high"`, and adaptive thinking draws on that same allowance. The one row that stopped at exactly 4,000 output tokens was the convening with six findings in; the ones with none finished in 700. The cap bound on precisely the inputs the seat exists for.
+- **#371 made the cut-off visible (`schema_mismatch`, tokens recorded) and the record read that as progress.** It was. But a meter that now reports the failure correctly does not change how often the failure happens; the ticket that depended on the seat succeeding was still waiting on the cause.
+- **#338 had fixed the same defect on the card seat three weeks earlier** (3000 → 6000). The fix was not carried to the other seat with the same shape because nothing listed the seats.
+- **The rule:**
+  - Before trusting any `max_tokens`, read that seat's `output_tokens` for a row sitting exactly at the cap; one such row is proof the cap binds, whatever the median says. Set the cap from the seat's largest observed output plus headroom, and name it as a constant with the evidence beside it.
+  - When a fix lands on one seat, grep every other `max_tokens=` in the package the same session and say on the ticket which seats were checked.
+  - A meter fix and a cause fix are two tickets. When a meter fix lands, re-ask what the waiting ticket actually depends on.
+
 ## 2026-10-12 - Label the comparator before you divide by it; forecast which cap binds from the day that is coming; and a billed call that settles with no usage is a hole in the meter
 
 From the ninety-second session (#370, #371, #372).
