@@ -142,7 +142,7 @@ class TestTheCardIsCompact:
         src = _code(SCRIPTS)
         heading = src[src.index("function GameHeading"): src.index("function LegRow")]
         assert "kickoffText(card.kickoff_ms)" in heading
-        assert "leagueLabel(card.sport_key)" in heading
+        assert "<LeagueTag league={card.sport_key} />" in heading  # LeagueTag maps through leagueLabel
 
     def test_the_list_is_two_columns_from_md_up(self):
         assert "md:grid-cols-2" in _code(SCRIPTS)
@@ -175,7 +175,8 @@ class TestTheFiltersCutTheListAndNeverOrderIt:
     def test_the_filter_is_a_test_inside_the_map_so_the_server_order_holds(self):
         src = _code(SCRIPTS)
         assert "data.cards.map((card) =>" in src
-        assert "matches(card) ?" in src
+        assert "matches(card) && card.status" in src  # built grid
+        assert "matches(card) && card.status !== \"built\"" in src  # unbuilt list
 
     def test_the_number_of_hidden_games_is_said(self):
         src = _code(SCRIPTS)
