@@ -139,6 +139,12 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-13 (ninety-fourth session) — two errands from Joe's phone: every agent call was dead since #371 (`output_format` on `create`), and a card could carry a leg its other legs guarantee; both fixed, live on `633444e`, Joe got a price
+
+- **Every AI call raised TypeError since #371** (`576445c`). `structured_call` moved from `messages.parse` to `messages.create` and kept `output_format`, which only `parse` takes; cards, leg verdicts and scouts all failed before the network (nothing billed). The schema now rides in `output_config.format` beside `effort`. `TestTheRequestBindsToTheRealCreate` binds the sent kwargs to the SDK's real signature; red on the old code. Lesson in `tasks/lessons.md`.
+- **`duplicated_legs` with three legs** (`633444e`). Kalshi refused Joe's 8-leg CLE–TB card: "Over 6.5 runs and Cleveland winning by 2+ already guarantee Cleveland scoring over 2.5". `drop_implied_win_legs` became `drop_implied_legs`: winner/spread/total/team-total legs, either side, read as conditions on the final score; a leg every score winning the others (on other events) also wins is dropped, losslessly. Rung number = whole score needed, checked on every captured strike. The /game hand-tick path still refuses in words (#274 A). Read back off live `/api/game-cards`: the card shows 7 legs, `CLE3` dropped; Joe tapped Get a price and got one.
+- **Not done:** the /game screen's tick-time greying (`GameLegs.tsx coverTickedFor`) still mirrors only win+cover; the server refuses the general case in words before any venue call. First-five/first-three winner series (`KXMLBF5`, `KXMLBF3`) are not read by the check.
+
 ## 2026-10-13 (ninety-third session) — the master scout's output cap was why #210 never saw a `complete` convening: named and raised to 12,000 (#377, like #338 on the card); #376 has no trimmed reading yet and a 670K prediction; `usage.iterations` is beta-only on the pinned SDK and server-tool caching is already on (#370); seat sweep found no other cap bound
 
 - **No focus from Joe; `/go` start in plan mode.** State clean, live on `bf26c721`, zero Dependabot alerts, no PRs, no lanes (three stale `worktree-agent-*` branches at `b6a45c5a`, 19 behind, deleted). `partner` ranked the board and read `agent-spend` on live itself; its one finding changed the night.
