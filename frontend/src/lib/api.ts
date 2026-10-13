@@ -1346,6 +1346,7 @@ export const BUILD_CARD_WAIT_MS = 150_000;
  */
 export async function buildGameCard(
   eventTicker: string,
+  legCount?: number,
 ): Promise<{ ok: true; reused: boolean } | { ok: false; refusal: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), BUILD_CARD_WAIT_MS);
@@ -1355,7 +1356,10 @@ export async function buildGameCard(
   try {
     result = await postJson<unknown>({
       path: "/game-card",
-      body: { event_ticker: eventTicker },
+      body:
+        legCount === undefined
+          ? { event_ticker: eventTicker }
+          : { event_ticker: eventTicker, leg_count: legCount },
       signal: controller.signal,
       noReply: (error) => {
         const timedOut =

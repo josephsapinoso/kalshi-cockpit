@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
   buildGameCard,
+  fetchGameLegs,
   DISPLAY_TIME_ZONE,
   displayZoneLabel,
   fetchGameCards,
@@ -563,11 +564,36 @@ function NoCard({ card, heading }: { card: CardData; heading: boolean }) {
  * about a minute, so the wait is shown in words, and a timeout or refusal is
  * a readable message. **Nothing here retries**: a second tap is the reader's.
  */
+/** The sizes Joe may pick on a tap (#379). */
+export const CARD_SIZES = [3, 5, 8] as const;
+
+/** Why a size is off: Kalshi will not mint that many legs on this game. */
+export function sizeOffWords(size: number, maxLegs: number | null): string | null {
+  if (maxLegs === null || size <= maxLegs) return null;
+  return `Kalshi allows at most ${maxLegs} legs in one combination on this game.`;
+}
+
 export function GameCardPanel({ eventTicker }: { eventTicker: string }) {
   const [card, setCard] = useState<CardData | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
   const [buildWords, setBuildWords] = useState<string | null>(null);
+  // Kalshi's most legs on this game, read from the game's own legs listing.
+  // `null` until read or when the venue did not say: no size is then disabled
+  // (the server refuses an over-size ask before spending anything).
+  const [maxLegs, setMaxLegs] = useState<number | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    fetchGameLegs(eventTicker)
+      .then((legs) => {
+        if (live) setMaxLegs(legs.max_legs ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [eventTicker]);
 
   const load = useCallback(async () => {
     try {
@@ -583,10 +609,10 @@ export function GameCardPanel({ eventTicker }: { eventTicker: string }) {
     void load();
   }, [load]);
 
-  const build = async () => {
+  const build = async (size: number) => {
     setBuilding(true);
     setBuildWords(null);
-    const result = await buildGameCard(eventTicker);
+    const result = await buildGameCard(eventTicker, size);
     if (!result.ok) setBuildWords(result.refusal);
     setBuilding(false);
     await load();
@@ -618,9 +644,33 @@ export function GameCardPanel({ eventTicker }: { eventTicker: string }) {
       )}
       {canBuild && card !== undefined && (
         <div>
-          <Button onClick={build} disabled={building}>
-            {building ? "Building…" : "Build card"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {CARD_SIZES.map((size) => {
+              const off = sizeOffWords(size, maxLegs);
+              return (
+                <Button
+                  key={size}
+                  onClick={() => build(size)}
+                  disabled={building || off !== null}
+                  title={off ?? undefined}
+                >
+                  {building ? "Building…" : `${size} legs`}
+                </Button>
+              );
+            })}
+          </div>
+          <p className="mt-2 max-w-[65ch] text-sm text-muted">
+            Pick how many legs the card has. Each extra leg is one more place
+            a maker can charge, and the desk shows no combined chance.
+          </p>
+          {CARD_SIZES.map((size) => {
+            const off = sizeOffWords(size, maxLegs);
+            return off ? (
+              <p key={size} className="mt-1 max-w-[65ch] text-sm text-muted">
+                {size} legs is off: {off}
+              </p>
+            ) : null;
+          })}
           {building && (
             <p className="mt-2 max-w-[65ch] text-sm text-muted">
               Reading the news for this game. This takes about a minute; keep
@@ -805,7 +855,7 @@ export function GameScriptParlays() {
       {data && data.cards.length === 0 && (
         <p className="mt-4 max-w-[65ch] text-sm text-muted">
           No game-script card is stored for an upcoming game. Open a game and
-          tap Build card to make one.
+          tap a card size (3, 5 or 8 legs) to make one.
         </p>
       )}
       {data && data.cards.length > 0 && (

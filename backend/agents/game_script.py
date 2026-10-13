@@ -34,7 +34,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, create_model
 
 from ..store import game_script_cards
 from .base import (
@@ -54,7 +54,7 @@ AGENT_NAME = "game_script"
 
 #: Bumped whenever `SYSTEM` or the prompt's shape changes, so a stored card
 #: says which instructions built it.
-PROMPT_VERSION = "5"
+PROMPT_VERSION = "6"
 
 GAME_SCRIPT_MAX_SEARCHES = 3
 GAME_SCRIPT_SEARCH_TOOL = {**WEB_SEARCH_TOOL, "max_uses": GAME_SCRIPT_MAX_SEARCHES}
@@ -67,6 +67,32 @@ GAME_SCRIPT_MAX_OUTPUT_TOKENS = 6000
 
 MIN_LEGS = 2
 MAX_LEGS = 3
+
+#: The sizes Joe may ask for on a tap (#379, his (A) of 2026-10-12): the card
+#: must hit the size exactly. Outside 2..8 is refused at the route.
+MIN_REQUESTED_LEGS = 2
+MAX_REQUESTED_LEGS = 8
+
+#: Extra output budget per leg above the default card's three (#379).
+#: Arithmetic: the 6000 cap covers a 2-3 leg card plus thinking at
+#: effort="medium" (which counts against it). A leg is ~50 tokens of JSON and
+#: the story / ticket_needs grow ~50 tokens with it, so ~100 visible tokens a
+#: leg; the cap is spent mostly on thinking, and thinking grows with the
+#: number of legs that must cohere. 500 a leg is 5x the visible cost, so an
+#: 8-leg card gets 6000 + 5 x 500 = 8500, 5 legs 7000. An output cap fails
+#: worst on the richest inputs (lesson 2026-10-13); this keeps the margin
+#: the 3-leg card has.
+OUTPUT_TOKENS_PER_EXTRA_LEG = 500
+
+
+def output_cap_for(leg_count: Optional[int]) -> int:
+    """The card call's output cap for a requested size. `None` (the old 2-3
+    behaviour) and any size up to 3 keep the named 6000."""
+    if leg_count is None:
+        return GAME_SCRIPT_MAX_OUTPUT_TOKENS
+    return GAME_SCRIPT_MAX_OUTPUT_TOKENS + OUTPUT_TOKENS_PER_EXTRA_LEG * max(
+        0, leg_count - MAX_LEGS
+    )
 
 #: The only leg fields the model is shown. Whitelisted, never "everything but
 #: the prices": see the module docstring.
@@ -184,6 +210,39 @@ class CardOutput(BaseModel):
     )
 
 
+def system_for(leg_count: Optional[int]) -> str:
+    """`SYSTEM`, or the same instructions asking for exactly `leg_count` legs."""
+    if leg_count is None:
+        return SYSTEM
+    out = SYSTEM
+    for old, new in (
+        ("two or three bets on this game", f"exactly {leg_count} bets on this game"),
+        ("Pick two or three legs, never fewer or more.",
+         f"Pick exactly {leg_count} legs, never fewer or more."),
+    ):
+        assert old in out, old
+        out = out.replace(old, new)
+    return out
+
+
+def output_model_for(leg_count: Optional[int]):
+    """`CardOutput`, or a subclass whose schema descriptions say exactly N."""
+    if leg_count is None:
+        return CardOutput
+    return create_model(
+        f"CardOutput{leg_count}",
+        __base__=CardOutput,
+        skip=(bool, Field(
+            default=False,
+            description=f"true if no coherent {leg_count}-leg card can be built.",
+        )),
+        legs=(list[CardLeg], Field(
+            default_factory=list,
+            description=f"Exactly {leg_count} legs from the list.",
+        )),
+    )
+
+
 #: Strikes of one player's ladder the card is shown (Joe's (A) to #372).
 #: A module constant, not config: the trim keeps an NFL prompt near a baseball
 #: one, and the `/game` screen still lists every strike.
@@ -232,7 +291,10 @@ def listing_for_prompt(listing: dict) -> list[tuple[str, list[dict]]]:
     return out
 
 
-def build_prompt(*, game_title: str, sport_key: str, kickoff_iso: str, listing: dict) -> str:
+def build_prompt(
+    *, game_title: str, sport_key: str, kickoff_iso: str, listing: dict,
+    leg_count: Optional[int] = None,
+) -> str:
     """The user turn: the game, kickoff, and the price-free leg list."""
     lines = []
     for label, legs in listing_for_prompt(listing):
@@ -258,7 +320,12 @@ def build_prompt(*, game_title: str, sport_key: str, kickoff_iso: str, listing: 
     return "\n".join([
         f"Game: {game_title} ({sport_key}).",
         f"Kickoff: {kickoff_iso}.",
-        "Build one same-game card from these legs, or skip:",
+        (
+            f"Build one same-game card of exactly {leg_count} legs from these "
+            "legs, or skip:"
+            if leg_count is not None
+            else "Build one same-game card from these legs, or skip:"
+        ),
         *lines,
     ])
 
@@ -458,13 +525,16 @@ def _game_day(kickoff_ms: int) -> str:
 
 
 def validate_card(
-    card: CardOutput, listing: dict, kickoff_ms: Optional[int] = None
+    card: CardOutput, listing: dict, kickoff_ms: Optional[int] = None,
+    leg_count: Optional[int] = None,
 ) -> Optional[str]:
     """`None` if the card may be stored as built, else the reason it may not.
 
     Runs on the server before anything is stored; the model is never asked
     again on a failure. `kickoff_ms` arms the game-day-source rule; without it
-    that one rule cannot be judged and is skipped.
+    that one rule cannot be judged and is skipped. `leg_count` (#379) is the
+    size Joe asked for: the card must have exactly that many legs; `None`
+    keeps the 2-3 rule.
     """
     if not card.story.strip() or not card.drop_if.strip():
         return "the card has no story or no drop-if condition"
@@ -488,7 +558,10 @@ def validate_card(
         return "the card does not say what the ticket needs to happen"
     if any(word in needs.lower() for word in TICKET_NEEDS_FORBIDDEN):
         return "what the ticket needs must be words about the game, not a chance or a price"
-    if not MIN_LEGS <= len(card.legs) <= MAX_LEGS:
+    if leg_count is not None:
+        if len(card.legs) != leg_count:
+            return f"the card has {len(card.legs)} legs; it needs exactly {leg_count}"
+    elif not MIN_LEGS <= len(card.legs) <= MAX_LEGS:
         return f"the card has {len(card.legs)} legs; it needs {MIN_LEGS} to {MAX_LEGS}"
     by_market = {
         leg["market_ticker"]: leg
@@ -617,8 +690,14 @@ async def build_card(
     kickoff_iso: str,
     listing: dict,
     now_ms: int,
+    leg_count: Optional[int] = None,
 ) -> CardResult:
-    """One metered call, or a refusal that spends nothing. Always one row."""
+    """One metered call, or a refusal that spends nothing. Always one row.
+
+    `leg_count` (#379): the size Joe picked, exactly. A size above the game's
+    Kalshi maximum (`listing["max_legs"]`) is refused before the budget is
+    touched and before any model call.
+    """
 
     def store(status, **kw) -> int:
         return game_script_cards.insert_card(
@@ -630,6 +709,16 @@ async def build_card(
             status=status,
             prompt_version=PROMPT_VERSION,
             **kw,
+        )
+
+    max_legs = listing.get("max_legs")
+    if leg_count is not None and max_legs is not None and leg_count > max_legs:
+        why = (
+            f"Kalshi allows at most {max_legs} legs in a combination on this "
+            f"game, so a {leg_count}-leg card cannot be minted. Nothing was spent."
+        )
+        return CardResult(
+            "refused_invalid", store("refused_invalid", reason=why), why, None, None
         )
 
     reason = budget.refusal_reason(
@@ -650,16 +739,16 @@ async def build_card(
     )
     prompt = build_prompt(
         game_title=game_title, sport_key=sport_key,
-        kickoff_iso=kickoff_iso, listing=listing,
+        kickoff_iso=kickoff_iso, listing=listing, leg_count=leg_count,
     )
     try:
         outcome = await structured_call(
             client,
             model=config.model,
-            system=SYSTEM,
+            system=system_for(leg_count),
             user_content=prompt,
-            output_model=CardOutput,
-            max_tokens=GAME_SCRIPT_MAX_OUTPUT_TOKENS,
+            output_model=output_model_for(leg_count),
+            max_tokens=output_cap_for(leg_count),
             effort="medium",
             tools=[GAME_SCRIPT_SEARCH_TOOL],
         )
@@ -715,7 +804,7 @@ async def build_card(
     )
     invalid = validate_card(
         parsed.model_copy(update={"legs": [CardLeg(**leg) for leg in kept]}), listing,
-        kickoff_ms=kickoff_ms,
+        kickoff_ms=kickoff_ms, leg_count=leg_count,
     )
     if invalid is not None:
         budget.settle(call_id, verdict="invalid", usage=usage)

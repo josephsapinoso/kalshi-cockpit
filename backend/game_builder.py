@@ -652,6 +652,13 @@ async def list_game_legs(
         "game_market_ticker": game_markets[0] if game_markets else None,
         "groups": groups,
         "leg_count": len(legs),
+        # Kalshi's own most legs in one combination on this game (#379): the
+        # `size_max` of the collection that would mint it. `None`, never 0,
+        # when the venue did not say.
+        "max_legs": (
+            collection.size_max
+            if collection.size_max and collection.size_max > 0 else None
+        ),
         "game_title": context["game_title"],
         "kickoff_ms": context["kickoff_ms"],
         "sport_key": context["sport_key"],
