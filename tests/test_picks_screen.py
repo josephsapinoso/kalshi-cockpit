@@ -249,13 +249,13 @@ class TestAStalePickShowsItsAskGreyedWithItsAge:
         return re.sub(r"\s+", " ", code_only(source(self.COMPONENT)))
 
     def test_a_stale_pick_shows_the_greyed_ask_with_its_age(self):
-        """Mutation observed red: drop the `opacity-60` ask span, or the
+        """Mutation observed red: drop the last-ask span, or the
         `quote ... old` wording."""
         text = self._code()
         assert "last_ask_display" in text
-        assert 'className="tabular opacity-60"' in text
         assert "`${lastAsk(pick)} ask`" in text
-        assert "`quote ${ageWords(pick.quote_age_now_ms)} old`" in text
+        assert "ageWords(pick.quote_age_now_ms)" in text
+        assert "old`" in text
 
     def test_the_list_no_longer_says_not_ranked(self):
         """Mutation observed red: restore either old sentence."""
@@ -263,3 +263,59 @@ class TestAStalePickShowsItsAskGreyedWithItsAge:
         assert "not ranked" not in text
         assert "not shown: the consensus is too old to speak" in text
         assert "not shown: no fresh price on the favorite's side" in text
+
+
+class TestTheAskWearsTheFairChancesWeightAndAStaleOneIsMutedByToken:
+    """#387 (UI review 2026-10-13, lane L2). A fresh ask used to be
+    `text-xs text-muted` beside a `text-sm font-semibold` fair chance, so the
+    price Joe pays read as a footnote. It now wears the same size, weight and
+    ink -- EQUAL, not bigger (#17 killed the size tier). A stale ask stays
+    greyed (#344) through the `text-muted` token; `opacity-60` is about 3:1
+    and fails AA. A quote age every stale row shares is said once, in the list
+    header.
+
+    What this does NOT establish: how the rows wrap at 390px, or that the
+    contrast of `text-muted` passes (it is the page's existing muted ink).
+    """
+
+    COMPONENT = FRONTEND / "components" / "GoodChancePicks.tsx"
+
+    def _code(self) -> str:
+        return re.sub(r"\s+", " ", code_only(source(self.COMPONENT)))
+
+    def test_a_fresh_ask_wears_the_same_weight_as_the_fair_chance(self):
+        """Mutation observed red: put `text-xs text-muted` back on the fresh
+        ask span, or make it `text-base`/`text-lg`."""
+        text = self._code()
+        fair = text.split("pick.fair_percent_display")[0]
+        fair_cls = re.findall(r'className="([^"]*)"', fair)[-1]
+        fresh = text.split("`${pick.ask_display} ask`")[0]
+        fresh_cls = re.findall(r'className="([^"]*)"', fresh)[-1]
+        assert fair_cls == "tabular text-sm font-semibold"
+        assert fresh_cls == fair_cls
+
+    def test_a_stale_ask_is_greyed_without_opacity(self):
+        """Mutation observed red: restore `opacity-60` on the stale span."""
+        text = self._code()
+        assert "opacity-" not in text
+        stale = text.split("`${lastAsk(pick)} ask`")[0]
+        assert re.findall(r'className="([^"]*)"', stale)[-1] == "tabular text-muted"
+
+    def test_a_shared_quote_age_is_stated_once_in_the_header(self):
+        """Mutation observed red: print the age on every row unconditionally,
+        or drop the header note."""
+        text = self._code()
+        # The shared age and the remedy live in the header paragraph...
+        assert "sharedAge" in text
+        header = text.split("{ranked.length > 0 && (")[0]
+        assert "{staleAges.length > 0 && ( <p" in header
+        assert "`quote ${sharedAge} old " in header
+        assert "refresh the books, or open the game screen" in header
+        # ...and a row prints its own age only when the ages differ.
+        assert "{sharedAge === undefined && (typeof pick.quote_age_now_ms" in text
+        assert text.count("refresh the books, or open the game screen") == 1
+        # Compact format: 47s / 6m / 2h.
+        assert 'unit === "min" ? "m" : "s"' in text
+        assert "`${Math.round(Number(n))}h`" in text
+        # No break-even beside fair (ADR 0071 s2.2).
+        assert "break" not in text.lower().replace("breakeven", "")
