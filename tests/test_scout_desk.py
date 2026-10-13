@@ -21,6 +21,7 @@ prompts produce useful notes, or that the API routes serve this correctly --
 
 from __future__ import annotations
 
+import re
 import typing
 
 from backend.agents.base import AgentConfig
@@ -30,6 +31,7 @@ from backend.agents.pro_bettor import SharpTake
 from backend.agents.scout import ScoutReport
 from backend.agents.scout_desk import (
     BoardTile,
+    MASTER_MAX_OUTPUT_TOKENS,
     DeskBriefing,
     StaffNote,
     complete_board,
@@ -526,3 +528,35 @@ class TestMatchupCategory:
         clause = " ".join(STAFF_SYSTEM_TEMPLATE[start:].split("\n- ")[0].split())
         assert "never as a probability, pick, edge" in clause
         assert "should cover" in clause
+
+
+class TestOutputCaps:
+    async def test_the_master_sends_its_named_cap_and_it_is_at_least_12000(self, tmp_path):
+        """#377: a bare 4000 cut the synthesis off (rows 80, 641)."""
+        conn, budget = _budget(tmp_path)
+        client = DeskStubClient()
+        await _convene(client, budget)
+        master = next(
+            c for c in client.messages.calls
+            if output_model_name(c["output_format"]) == "DeskBriefing"
+        )
+        assert master["max_tokens"] == MASTER_MAX_OUTPUT_TOKENS
+        assert MASTER_MAX_OUTPUT_TOKENS >= 12_000
+
+    async def test_the_staff_scouts_still_send_6000(self, tmp_path):
+        conn, budget = _budget(tmp_path)
+        client = DeskStubClient()
+        await _convene(client, budget)
+        staff = [
+            c for c in client.messages.calls
+            if output_model_name(c["output_format"]) == "ScoutReport"
+        ]
+        assert len(staff) == 2
+        assert all(c["max_tokens"] == 6000 for c in staff)
+
+    def test_the_board_description_count_matches_the_category_members(self):
+        words = {"six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+        description = DeskBriefing.model_fields["board"].description
+        n = len(typing.get_args(BoardTile.model_fields["category"].annotation))
+        stated = [v for w, v in words.items() if w in re.findall(r"[a-z]+", description.lower())]
+        assert stated in ([], [n]), (description, n)

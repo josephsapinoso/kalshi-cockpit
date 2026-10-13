@@ -92,6 +92,14 @@ logger = logging.getLogger(__name__)
 # route's early refusal) and a drifted copy would let a tap through that the
 # desk then refuses -- a `running` row with nothing running.
 STAFF_PAIR_SEARCHES_WORST_CASE = 2 * int(WEB_SEARCH_TOOL["max_uses"])
+# The master call's output cap. Was a bare 4000 until #377: agent_calls row 80
+# (2026-09-23, 6 findings in) stopped at exactly 4,000 output tokens and settled
+# filed_nothing; row 86 (17 findings in) used 3,567; row 641 (2026-10-12, 20
+# findings in) settled filed_nothing. Over 14 days 8 taps gave 0 complete, 6
+# failed, 2 partial. Adaptive thinking at effort="high" draws on the same
+# allowance, so the cap binds on reasoning plus the structured reply together.
+# Same defect as #338 on the game-script card. Worst case +8K tokens a convening.
+MASTER_MAX_OUTPUT_TOKENS = 12_000
 
 # One staff scout's brief. The two hard rules are carried in full from
 # `scout.SYSTEM` rather than referenced, because a system prompt is the one
@@ -235,7 +243,7 @@ class DeskBriefing(BaseModel):
 
     board: list[BoardTile] = Field(
         default_factory=list,
-        description="One tile per category, always all seven, filled from "
+        description="One tile per category, always all eight, filled from "
         "the staff's notes. The phone renders these before any prose.",
     )
     headline: str = Field(
@@ -543,7 +551,7 @@ async def convene_desk(
             system=MASTER_SYSTEM,
             user_content=_master_prompt(staff, event_title=event_title),
             output_model=DeskBriefing,
-            max_tokens=4000,
+            max_tokens=MASTER_MAX_OUTPUT_TOKENS,
             effort="high",
         )
         briefing, master_usage = outcome.parsed, outcome.usage
