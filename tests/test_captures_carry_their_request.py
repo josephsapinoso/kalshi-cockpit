@@ -327,6 +327,16 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
             "the per-event alternate_spreads/alternate_totals call, ten books asked. "
             "The response is verbatim.",
     ),
+    # #381 -- the KXNFL* series on one live game; written once by a scratch
+    # script through `write_capture` (not committed under scripts/).
+    "series_nfl_live_game.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("series_ticker", "limit"),
+        endpoint_in=("endpoint",),
+        how="A `request` block via `capture_envelope.write_capture` (#381): "
+            "GET /series?category=Sports for titles, then GET /events per "
+            "KXNFL series, kept to one fixture's event.",
+    ),
     "events_nhl_same_game.json": RecordsItsRequest(
         params_in=("request",),
         param_names=("series_ticker", "status"),

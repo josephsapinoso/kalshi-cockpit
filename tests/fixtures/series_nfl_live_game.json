@@ -1,0 +1,430 @@
+{
+  "endpoint": "https://api.elections.kalshi.com/trade-api/v2/events",
+  "game_event_ticker": "KXNFLGAME-26OCT15SEADEN",
+  "request": {
+    "endpoint": "https://api.elections.kalshi.com/trade-api/v2/events",
+    "method": "GET",
+    "note": "GET /series?category=Sports once for titles; GET /events?series_ticker=<S>&limit=200 once per KXNFL series (274 probed; EXACTWINS, WINS-, DRAFT series skipped as season-long). Kept only the events whose ticker is <S>-26OCT15SEADEN. No status filter and no nested markets. Unauthenticated, no spend. Captured 2026-10-13.",
+    "params": {
+      "category": "Sports",
+      "limit": 200,
+      "series_ticker": "<each KXNFL* series from GET /series?category=Sports>"
+    }
+  },
+  "series": [
+    {
+      "event_ticker": "KXNFL1H-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 1st Half Winner",
+      "series_ticker": "KXNFL1H",
+      "series_title": "Pro Football 1st Half Winner"
+    },
+    {
+      "event_ticker": "KXNFL1HFT-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 1st Half / Fulltime Result",
+      "series_ticker": "KXNFL1HFT",
+      "series_title": "1st Half Fulltime Result"
+    },
+    {
+      "event_ticker": "KXNFL1HSPREAD-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 1st Half Spread",
+      "series_ticker": "KXNFL1HSPREAD",
+      "series_title": "Pro Football 1st Half Spread"
+    },
+    {
+      "event_ticker": "KXNFL1HTEAMTOTAL-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 1st Half Team Total",
+      "series_ticker": "KXNFL1HTEAMTOTAL",
+      "series_title": "Pro Football 1st Half Team Total"
+    },
+    {
+      "event_ticker": "KXNFL1HTOTAL-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 1st Half Total",
+      "series_ticker": "KXNFL1HTOTAL",
+      "series_title": "Pro Football 1st  Half Total Points"
+    },
+    {
+      "event_ticker": "KXNFL1Q-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 1st Quarter Winner",
+      "series_ticker": "KXNFL1Q",
+      "series_title": "Pro Football 1st Quarter Winner"
+    },
+    {
+      "event_ticker": "KXNFL1QBTTS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 1st Quarter Both Teams to Score",
+      "series_ticker": "KXNFL1QBTTS",
+      "series_title": "Pro Football Both Teams to Score in 1st Quarter"
+    },
+    {
+      "event_ticker": "KXNFL1QSPREAD-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 1st Quarter Spread ",
+      "series_ticker": "KXNFL1QSPREAD",
+      "series_title": "Pro Football 1st Quarter Spread"
+    },
+    {
+      "event_ticker": "KXNFL1QTOTAL-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 1st Quarter Total ",
+      "series_ticker": "KXNFL1QTOTAL",
+      "series_title": "Pro Football 1st Quarter Total"
+    },
+    {
+      "event_ticker": "KXNFL2H-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 2nd Half Winner",
+      "series_ticker": "KXNFL2H",
+      "series_title": "Pro Football 2nd Half"
+    },
+    {
+      "event_ticker": "KXNFL2HSPREAD-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 2nd Half Spread",
+      "series_ticker": "KXNFL2HSPREAD",
+      "series_title": "Pro Football 2nd Half Spread"
+    },
+    {
+      "event_ticker": "KXNFL2HTOTAL-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 2nd Half Total",
+      "series_ticker": "KXNFL2HTOTAL",
+      "series_title": "Pro Football 2nd Half Total"
+    },
+    {
+      "event_ticker": "KXNFL2Q-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 2nd Quarter Winner",
+      "series_ticker": "KXNFL2Q",
+      "series_title": "Pro Football 2nd Quarter Winner"
+    },
+    {
+      "event_ticker": "KXNFL2QBTTS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 2nd Quarter Both Teams to Score",
+      "series_ticker": "KXNFL2QBTTS",
+      "series_title": "Pro Football Both Teams to Score in 2nd Quarter"
+    },
+    {
+      "event_ticker": "KXNFL2QSPREAD-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 2nd Quarter Spread ",
+      "series_ticker": "KXNFL2QSPREAD",
+      "series_title": "Pro Football 2nd Quarter Spread"
+    },
+    {
+      "event_ticker": "KXNFL2QTOTAL-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 2nd Quarter Total ",
+      "series_ticker": "KXNFL2QTOTAL",
+      "series_title": "Pro Football 2nd Quarter Total"
+    },
+    {
+      "event_ticker": "KXNFL3Q-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 3rd Quarter Winner",
+      "series_ticker": "KXNFL3Q",
+      "series_title": "Pro Football 3rd Quarter Winner"
+    },
+    {
+      "event_ticker": "KXNFL3QBTTS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 3rd Quarter Both Teams to Score",
+      "series_ticker": "KXNFL3QBTTS",
+      "series_title": "Pro Football Both Teams to Score in 3rd Quarter"
+    },
+    {
+      "event_ticker": "KXNFL3QSPREAD-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 3rd Quarter Spread ",
+      "series_ticker": "KXNFL3QSPREAD",
+      "series_title": "Pro Football 3rd Quarter Spread"
+    },
+    {
+      "event_ticker": "KXNFL3QTOTAL-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 3rd Quarter Total ",
+      "series_ticker": "KXNFL3QTOTAL",
+      "series_title": "Pro Football 3rd Quarter Total"
+    },
+    {
+      "event_ticker": "KXNFL4Q-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 4th Quarter Winner",
+      "series_ticker": "KXNFL4Q",
+      "series_title": "Pro Football 4th Quarter Winner"
+    },
+    {
+      "event_ticker": "KXNFL4QBTTS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 4th Quarter Both Teams to Score",
+      "series_ticker": "KXNFL4QBTTS",
+      "series_title": "Pro Football Both Teams to Score in 4th Quarter"
+    },
+    {
+      "event_ticker": "KXNFL4QSPREAD-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 4th Quarter Spread ",
+      "series_ticker": "KXNFL4QSPREAD",
+      "series_title": "Pro Football 4th Quarter Spread"
+    },
+    {
+      "event_ticker": "KXNFL4QTOTAL-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 4th Quarter Total ",
+      "series_ticker": "KXNFL4QTOTAL",
+      "series_title": "Pro Football 4th Quarter Total"
+    },
+    {
+      "event_ticker": "KXNFLBOTH-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Both Teams to Score",
+      "series_ticker": "KXNFLBOTH",
+      "series_title": "Pro Football Both Teams to Score Points"
+    },
+    {
+      "event_ticker": "KXNFLDSTTD-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: D/ST Touchdown",
+      "series_ticker": "KXNFLDSTTD",
+      "series_title": "Pro Football D/ST Touchdown"
+    },
+    {
+      "event_ticker": "KXNFLEQBTTS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Both Teams to Score in Every Quarter",
+      "series_ticker": "KXNFLEQBTTS",
+      "series_title": "Pro Football Both Teams to Score in Every Quarter"
+    },
+    {
+      "event_ticker": "KXNFLESCALATORREC-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Receptions Escalator",
+      "series_ticker": "KXNFLESCALATORREC",
+      "series_title": "Receptions Escalator"
+    },
+    {
+      "event_ticker": "KXNFLESCALATORRECYDS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Receiving Yards Escalator",
+      "series_ticker": "KXNFLESCALATORRECYDS",
+      "series_title": "Receiving Yards Escalator"
+    },
+    {
+      "event_ticker": "KXNFLESCALATORRSHYDS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Rushing Yards Escalator",
+      "series_ticker": "KXNFLESCALATORRSHYDS",
+      "series_title": "Rushing Yards Escalator"
+    },
+    {
+      "event_ticker": "KXNFLFFPTS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Fantasy Points",
+      "series_ticker": "KXNFLFFPTS",
+      "series_title": "Pro Football Player Fantasy Points"
+    },
+    {
+      "event_ticker": "KXNFLFFPTSLADDER-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Fantasy Ladder",
+      "series_ticker": "KXNFLFFPTSLADDER",
+      "series_title": "Fantasy Ladder"
+    },
+    {
+      "event_ticker": "KXNFLFG-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Team Field Goals",
+      "series_ticker": "KXNFLFG",
+      "series_title": "Pro Football Field Goals"
+    },
+    {
+      "event_ticker": "KXNFLFIRSTTD-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: 1st Touchdown",
+      "series_ticker": "KXNFLFIRSTTD",
+      "series_title": "Pro Football First Touchdown"
+    },
+    {
+      "event_ticker": "KXNFLFIRSTTDTEAM-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: First Team to Score a TD",
+      "series_ticker": "KXNFLFIRSTTDTEAM",
+      "series_title": "Pro Football First Team to Score a Touchdown"
+    },
+    {
+      "event_ticker": "KXNFLGAME-26OCT15SEADEN",
+      "event_title": "SEA Seahawks vs DEN Broncos",
+      "series_ticker": "KXNFLGAME",
+      "series_title": "NFL Game"
+    },
+    {
+      "event_ticker": "KXNFLLADDERREC-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Receptions Ladder",
+      "series_ticker": "KXNFLLADDERREC",
+      "series_title": "Receptions Ladder"
+    },
+    {
+      "event_ticker": "KXNFLLADDERRECYDS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Receiving Yards Ladder",
+      "series_ticker": "KXNFLLADDERRECYDS",
+      "series_title": "Receiving Yards Ladder"
+    },
+    {
+      "event_ticker": "KXNFLLADDERRSHYDS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Rushing Yards Ladder",
+      "series_ticker": "KXNFLLADDERRSHYDS",
+      "series_title": "Rushing Yards Ladder"
+    },
+    {
+      "event_ticker": "KXNFLLONGREC-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Player Longest Reception",
+      "series_ticker": "KXNFLLONGREC",
+      "series_title": "Longest Reception"
+    },
+    {
+      "event_ticker": "KXNFLLONGRSH-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Player Longest Rush",
+      "series_ticker": "KXNFLLONGRSH",
+      "series_title": "Longest Rush"
+    },
+    {
+      "event_ticker": "KXNFLMOSTRECYDS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Most Receiving Yards",
+      "series_ticker": "KXNFLMOSTRECYDS",
+      "series_title": "Pro Football Most Receiving Yards"
+    },
+    {
+      "event_ticker": "KXNFLMOSTRSHYDS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Most Rushing Yards",
+      "series_ticker": "KXNFLMOSTRSHYDS",
+      "series_title": "Pro Football Most Rushing Yards"
+    },
+    {
+      "event_ticker": "KXNFLOT-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Overtime",
+      "series_ticker": "KXNFLOT",
+      "series_title": "Pro Football Overtime"
+    },
+    {
+      "event_ticker": "KXNFLPASSATT-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Passing Attempts",
+      "series_ticker": "KXNFLPASSATT",
+      "series_title": "Pro Football Passing Attempts"
+    },
+    {
+      "event_ticker": "KXNFLPASSCOMP-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Passing Completions",
+      "series_ticker": "KXNFLPASSCOMP",
+      "series_title": "Pro Football Passing Completions"
+    },
+    {
+      "event_ticker": "KXNFLPASSINT-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Passing Interceptions",
+      "series_ticker": "KXNFLPASSINT",
+      "series_title": "Pro Football Passing Interceptions"
+    },
+    {
+      "event_ticker": "KXNFLPASSTDS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Passing Touchdowns",
+      "series_ticker": "KXNFLPASSTDS",
+      "series_title": "Pro Football player Passing Touchdowns"
+    },
+    {
+      "event_ticker": "KXNFLPASSTDSPROT-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Passing Touchdowns (Protected)",
+      "series_ticker": "KXNFLPASSTDSPROT",
+      "series_title": "Passing Touchdowns Protected"
+    },
+    {
+      "event_ticker": "KXNFLPASSYDS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Passing Yards",
+      "series_ticker": "KXNFLPASSYDS",
+      "series_title": "Pro Football Passing Yards"
+    },
+    {
+      "event_ticker": "KXNFLPASSYDSPROT-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Passing Yards (Protected)",
+      "series_ticker": "KXNFLPASSYDSPROT",
+      "series_title": "Passing Yards Protected"
+    },
+    {
+      "event_ticker": "KXNFLREC-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Receptions",
+      "series_ticker": "KXNFLREC",
+      "series_title": "Pro Football Player Receptions"
+    },
+    {
+      "event_ticker": "KXNFLRECPROT-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Receptions (Protected)",
+      "series_ticker": "KXNFLRECPROT",
+      "series_title": "Receptions Protected"
+    },
+    {
+      "event_ticker": "KXNFLRECYDS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Receiving Yards",
+      "series_ticker": "KXNFLRECYDS",
+      "series_title": "Pro Football Receiving Yards"
+    },
+    {
+      "event_ticker": "KXNFLRECYDSPROT-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Receiving Yards (Protected)",
+      "series_ticker": "KXNFLRECYDSPROT",
+      "series_title": "Receiving Yards Protected"
+    },
+    {
+      "event_ticker": "KXNFLRRYDS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Rushing + Receiving Yards",
+      "series_ticker": "KXNFLRRYDS",
+      "series_title": "Pro Football Rush and Receiving Yards"
+    },
+    {
+      "event_ticker": "KXNFLRSHATT-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Rushing Attempts",
+      "series_ticker": "KXNFLRSHATT",
+      "series_title": "Pro Football Rushing Attempts"
+    },
+    {
+      "event_ticker": "KXNFLRSHYDS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Rushing Yards",
+      "series_ticker": "KXNFLRSHYDS",
+      "series_title": "Pro Football Rushing Yards"
+    },
+    {
+      "event_ticker": "KXNFLRSHYDSPROT-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Rushing Yards (Protected)",
+      "series_ticker": "KXNFLRSHYDSPROT",
+      "series_title": "Rushing Yards Protected"
+    },
+    {
+      "event_ticker": "KXNFLSFTY-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Safety",
+      "series_ticker": "KXNFLSFTY",
+      "series_title": "Pro Football Safety"
+    },
+    {
+      "event_ticker": "KXNFLSPREAD-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Spread",
+      "series_ticker": "KXNFLSPREAD",
+      "series_title": "Pro Football Spread"
+    },
+    {
+      "event_ticker": "KXNFLTD-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Touchdowns",
+      "series_ticker": "KXNFLTD",
+      "series_title": "Pro Football Touchdowns"
+    },
+    {
+      "event_ticker": "KXNFLTDPROT-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Touchdowns (Protected)",
+      "series_ticker": "KXNFLTDPROT",
+      "series_title": "Pro Football Touchdowns Protected"
+    },
+    {
+      "event_ticker": "KXNFLTEAMSACK-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Team Sacks",
+      "series_ticker": "KXNFLTEAMSACK",
+      "series_title": "Pro Football Team Sacks"
+    },
+    {
+      "event_ticker": "KXNFLTEAMTOTAL-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Team Total",
+      "series_ticker": "KXNFLTEAMTOTAL",
+      "series_title": "Pro Football Team Total Points"
+    },
+    {
+      "event_ticker": "KXNFLTEAMYDS-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Team Total Yards",
+      "series_ticker": "KXNFLTEAMYDS",
+      "series_title": "Pro Football Team Yards"
+    },
+    {
+      "event_ticker": "KXNFLTIE-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Tie",
+      "series_ticker": "KXNFLTIE",
+      "series_title": "NFL Game to Tie"
+    },
+    {
+      "event_ticker": "KXNFLTOTAL-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Total Points",
+      "series_ticker": "KXNFLTOTAL",
+      "series_title": "Pro Football Total Points"
+    },
+    {
+      "event_ticker": "KXNFLWINMARGIN-26OCT15SEADEN",
+      "event_title": "Seattle vs Denver: Winning Margin",
+      "series_ticker": "KXNFLWINMARGIN",
+      "series_title": "Pro Football Win Margin"
+    }
+  ]
+}
