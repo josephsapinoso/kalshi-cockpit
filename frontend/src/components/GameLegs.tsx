@@ -192,6 +192,10 @@ export default function GameLegs({
   const [error, setError] = useState<string | null>(null);
   // market_ticker -> the side ticked on it. One side per market by shape.
   const [ticked, setTicked] = useState<Record<string, Side>>({});
+  const [query, setQuery] = useState("");
+  // Which groups are open; every group starts collapsed except those holding
+  // a ticked leg (pre-ticked `?legs=` included), decided once per listing.
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [mint, setMint] = useState<
     | { kind: "idle" }
     | { kind: "minting" }
@@ -207,6 +211,13 @@ export default function GameLegs({
         setData(payload);
         const wanted = preTick(initialLegs, payload);
         if (Object.keys(wanted).length > 0) setTicked(wanted);
+        const opened: Record<string, boolean> = {};
+        for (const group of payload.groups) {
+          if (group.legs.some((leg) => leg.market_ticker in wanted)) {
+            opened[group.series] = true;
+          }
+        }
+        setOpenGroups(opened);
       })
       .catch((err) => {
         if (live)
@@ -227,6 +238,26 @@ export default function GameLegs({
     }
     return map;
   }, [data]);
+
+  // Joe's search text is the only thing that hides a leg. Text only, and the
+  // server's order is kept.
+  const visible = useMemo(() => {
+    const map = new Map<string, GameLeg[]>();
+    for (const group of data?.groups ?? []) {
+      map.set(group.series, group.legs.filter((leg) => legMatches(leg, query)));
+    }
+    return map;
+  }, [data, query]);
+
+  const jumpTo = useCallback((group: GameLegGroup) => {
+    setOpenGroups((current) => ({ ...current, [group.series]: true }));
+    // Let the group open before scrolling to it.
+    window.setTimeout(() => {
+      document
+        .getElementById(groupAnchor(group))
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }, []);
 
   const toggle = useCallback((leg: GameLeg, side: Side) => {
     // Any change to the ticket makes a minted combination stale: it was
@@ -334,15 +365,42 @@ export default function GameLegs({
           </p>
         )}
 
-        {data.groups.map((group) => (
-          <Group
-            key={group.series}
-            group={group}
-            ticked={ticked}
-            legsByMarket={legsByMarket}
-            onToggle={toggle}
-          />
-        ))}
+        <JumpStrip
+          groups={data.groups}
+          visible={visible}
+          ticked={ticked}
+          legsByMarket={legsByMarket}
+          query={query}
+          onQuery={setQuery}
+          onJump={jumpTo}
+        />
+
+        {query.trim() !== "" && (
+          <p className="text-xs text-muted">
+            Showing legs whose words match &ldquo;{query.trim()}&rdquo;. Clear
+            the search to see every leg.
+          </p>
+        )}
+
+        {data.groups.map((group) => {
+          const legs = visible.get(group.series) ?? [];
+          const searching = query.trim() !== "";
+          if (searching && legs.length === 0) return null;
+          return (
+            <Group
+              key={group.series}
+              group={group}
+              legs={legs}
+              open={searching || openGroups[group.series] === true}
+              onOpenChange={(isOpen) =>
+                setOpenGroups((current) => ({ ...current, [group.series]: isOpen }))
+              }
+              ticked={ticked}
+              legsByMarket={legsByMarket}
+              onToggle={toggle}
+            />
+          );
+        })}
       </div>
 
       <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
@@ -458,6 +516,10 @@ function GameHeading({
   const title = data?.game_title ?? null;
   const kickoff = data?.kickoff_ms ?? null;
   const sport = data?.sport_key ?? null;
+  // Rest is the GAME's, copied onto every leg by the server
+  // (game_builder.py:616), so it is drawn once, here, from the first leg that
+  // carries it -- not once per leg.
+  const leg = data?.groups.flatMap((g) => g.legs).find((l) => l.rest);
   return (
     <div className="mt-2">
       <p className="max-w-[65ch] text-base font-semibold">
@@ -477,17 +539,189 @@ function GameHeading({
           )}
         </p>
       )}
+      {leg && <RestChip rest={leg.rest} />}
+    </div>
+  );
+}
+
+/**
+ * Case-insensitive text match over what Joe can read on a leg. The search
+ * box is the ONLY thing that ever hides a leg (#378), and it filters by text
+ * alone: never by chance, price, rest or anything else (ADR 0071).
+ */
+function legMatches(leg: GameLeg, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (q === "") return true;
+  return [leg.title, leg.yes_label, leg.no_label, leg.player].some(
+    (field) => field !== null && field !== undefined && field.toLowerCase().includes(q),
+  );
+}
+
+/**
+ * One screen row: a single leg, or -- inside a one-rung group -- every rung
+ * of one Kalshi event (a ladder), in the server's order of first appearance.
+ */
+type LegRow = { key: string; legs: GameLeg[] };
+
+function rowsOf(group: GameLegGroup, legs: GameLeg[]): LegRow[] {
+  if (!group.one_per_event) {
+    return legs.map((leg) => ({ key: leg.market_ticker, legs: [leg] }));
+  }
+  const rows: LegRow[] = [];
+  const byEvent = new Map<string, LegRow>();
+  for (const leg of legs) {
+    const existing = byEvent.get(leg.event_ticker);
+    if (existing) {
+      existing.legs.push(leg);
+    } else {
+      const row = { key: leg.event_ticker, legs: [leg] };
+      byEvent.set(leg.event_ticker, row);
+      rows.push(row);
+    }
+  }
+  return rows;
+}
+
+/** The words every rung's title starts with, trimmed to a whole word. */
+function commonTitle(legs: GameLeg[]): string {
+  const first = legs[0].title;
+  let end = first.length;
+  for (const leg of legs) {
+    let i = 0;
+    while (i < end && i < leg.title.length && leg.title[i] === first[i]) i++;
+    end = i;
+  }
+  const cut = first.slice(0, end);
+  const trimmed = cut.includes(" ") ? cut.slice(0, cut.lastIndexOf(" ")) : "";
+  return trimmed.trim() === "" ? first : trimmed.trim();
+}
+
+/** What distinguishes one rung from its siblings: its title past the common words. */
+function rungLabel(leg: GameLeg, common: string): string {
+  const rest = leg.title.startsWith(common) ? leg.title.slice(common.length).trim() : "";
+  return rest !== "" ? rest : (leg.yes_label ?? leg.title);
+}
+
+function SideButton({
+  leg,
+  side,
+  checked,
+  sideBlocked,
+  prefix,
+  onToggle,
+}: {
+  leg: GameLeg;
+  side: Side;
+  checked: boolean;
+  sideBlocked: boolean;
+  /** For a ladder rung: which rung this button is. */
+  prefix?: string;
+  onToggle: (leg: GameLeg, side: Side) => void;
+}) {
+  const ask = (leg as GameLegListed).listed?.[side]?.ask_display ?? null;
+  return (
+    <button
+      type="button"
+      aria-pressed={checked}
+      disabled={sideBlocked}
+      onClick={() => onToggle(leg, side)}
+      className={`tabular min-h-9 rounded-md border px-2.5 py-1 text-xs font-semibold ${
+        checked
+          ? "border-accent bg-accent-fill text-white"
+          : "border-border bg-card"
+      } ${sideBlocked ? "opacity-50" : ""}`}
+    >
+      {prefix ? `${prefix} ` : ""}
+      {side.toUpperCase()} {ask ?? "no ask"}
+    </button>
+  );
+}
+
+/**
+ * Everything about one leg that is not the title and the price buttons:
+ * the listed ask's depth and read time, the desk's chance (or the reason it
+ * has none), and the single bet. Opened by tap, never by default.
+ */
+function LegDetails({ leg }: { leg: GameLeg }) {
+  return (
+    <div className="mt-1 space-y-0.5">
+      {leg.allowed_sides.map((side) => {
+        const facts = leg.sides[side];
+        const sideWords = side === "yes" ? leg.yes_label : leg.no_label;
+        return (
+          <p key={`chance-${side}`} className="text-[11px] text-muted">
+            <span className="font-mono uppercase">{side}</span>
+            {sideWords && sideLabelAddsWords(leg.title, sideWords) && (
+              <> {sideWords}</>
+            )}
+            {" · desk chance "}
+            <span className="tabular">
+              {facts && facts.chance !== null ? facts.chance_display : "no desk price"}
+            </span>
+          </p>
+        );
+      })}
+      {leg.allowed_sides.map((side) => (
+        <ListedAsk key={`ask-${side}`} leg={leg} side={side} />
+      ))}
+      {leg.allowed_sides.map((side) => {
+        const facts = leg.sides[side];
+        if (!facts || facts.chance !== null) return null;
+        return (
+          <p key={side} className="mt-0.5 text-[11px] text-muted">
+            {side.toUpperCase()}: {facts.unknown_reason ?? "unknown"}.
+          </p>
+        );
+      })}
+      {/* Bet this leg alone (#356). One ticket per allowed side, each
+          opened on the side its own row names: ManualTicket falls back
+          to the OTHER side when the preferred one has no ask, so a
+          side with no readable ask is not offered at all rather than
+          opening on a contract the row did not name. No ordering and
+          no mark: the ask and the chance are facts on the row. */}
+      {leg.allowed_sides.map((side) => {
+        const facts = leg.sides[side];
+        const askTenths =
+          (leg as GameLegListed).listed?.[side]?.ask_tenths ?? null;
+        if (askTenths === null) return null;
+        const sideWords = side === "yes" ? leg.yes_label : leg.no_label;
+        return (
+          <ManualTicket
+            key={`single-${side}`}
+            ticker={leg.market_ticker}
+            preferSide={side}
+            variant="inline"
+            openLabel={`Bet this one alone: ${side.toUpperCase()}${
+              sideWords && sideLabelAddsWords(leg.title, sideWords)
+                ? ` ${sideWords}`
+                : ""
+            }`}
+            note={
+              facts && facts.chance !== null
+                ? "One leg, on its own. This is not a parlay — it wins or loses by itself."
+                : "One leg, on its own, and the desk has no price for it. Nothing on this product says what it is worth — your own number is the only estimate there is."
+            }
+          />
+        );
+      })}
     </div>
   );
 }
 
 function Group({
   group,
+  legs,
+  open,
+  onOpenChange,
   ticked,
   legsByMarket,
   onToggle,
 }: {
   group: GameLegGroup;
+  /** The group's legs that survive Joe's search text; the server's order. */
+  legs: GameLeg[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   ticked: Record<string, Side>;
   legsByMarket: Map<string, GameLeg>;
   onToggle: (leg: GameLeg, side: Side) => void;
@@ -499,134 +733,117 @@ function Group({
     const leg = legsByMarket.get(market);
     if (leg && leg.one_per_event) takenBy.set(leg.event_ticker, market);
   }
+  const rows = rowsOf(group, legs);
   return (
     <details
-      open={group.legs.length <= 12}
-      className="rounded-xl border border-border bg-card"
+      id={groupAnchor(group)}
+      open={open}
+      onToggle={(e) => onOpenChange(e.currentTarget.open)}
+      className="scroll-mt-44 rounded-xl border border-border bg-card"
     >
       <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">
         {group.label}{" "}
         <span className="font-mono text-xs font-normal text-muted">
-          {group.legs.length} legs
+          {legs.length} legs
           {group.one_per_event ? " · pick one" : ""}
         </span>
       </summary>
       <ul className="divide-y divide-border px-4 pb-2">
-        {group.legs.map((leg) => {
-          const holder = takenBy.get(leg.event_ticker);
-          const blocked =
-            leg.one_per_event &&
-            holder !== undefined &&
-            holder !== leg.market_ticker;
-          // The win leg of a team whose cover is ticked (#277). Greyed only
-          // when it is NOT itself ticked, so a pair ticked in the other order
-          // can still be unticked; the Build button refuses that pair too.
-          const impliedByCover = coverTickedFor(leg, ticked, legsByMarket);
-          const winGreyed =
-            impliedByCover !== null && ticked[leg.market_ticker] !== "yes";
+        {rows.map((row) => {
+          const ladder = row.legs.length > 1;
+          const common = ladder ? commonTitle(row.legs) : "";
           return (
-            <li key={leg.market_ticker} className="py-2">
-              <p className="text-sm">
-                {leg.title}
-                {leg.key_number ? (
-                  <span className="ml-2 whitespace-nowrap text-xs text-muted">
-                    <Term k="key_number">{keyNumberWords(leg.key_number)}</Term>
-                  </span>
-                ) : null}
-              </p>
-              <RestChip rest={leg.rest} />
-              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-                {leg.allowed_sides.map((side) => {
-                  const facts = leg.sides[side];
-                  const checked = ticked[leg.market_ticker] === side;
-                  // Kalshi's NO sub-title repeats the YES one, so the server
-                  // words the NO side as its opposite (#275); show it when it
-                  // says anything the title does not.
-                  const sideWords =
-                    side === "yes" ? leg.yes_label : leg.no_label;
-                  const sideBlocked =
-                    blocked || (side === "yes" && winGreyed);
-                  return (
-                    <label
-                      key={side}
-                      className={`flex items-center gap-2 text-sm ${
-                        sideBlocked ? "opacity-50" : ""
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={sideBlocked}
-                        onChange={() => onToggle(leg, side)}
-                      />
-                      <span className="font-mono text-xs uppercase">
-                        {side}
-                      </span>
-                      {sideWords &&
-                        sideLabelAddsWords(leg.title, sideWords) && (
-                          <span className="text-xs">{sideWords}</span>
-                        )}
-                      <span className="tabular text-xs text-muted">
-                        {facts && facts.chance !== null
-                          ? facts.chance_display
-                          : "no desk price"}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-              {leg.allowed_sides.map((side) => (
-                <ListedAsk key={`ask-${side}`} leg={leg} side={side} />
-              ))}
-              {leg.allowed_sides.map((side) => {
-                const facts = leg.sides[side];
-                if (!facts || facts.chance !== null) return null;
-                return (
-                  <p key={side} className="mt-0.5 text-[11px] text-muted">
-                    {side.toUpperCase()}: {facts.unknown_reason ?? "unknown"}.
-                  </p>
-                );
-              })}
-              {/* Bet this leg alone (#356). One ticket per allowed side, each
-                  opened on the side its own row names: ManualTicket falls back
-                  to the OTHER side when the preferred one has no ask, so a
-                  side with no readable ask is not offered at all rather than
-                  opening on a contract the row did not name. No ordering and
-                  no mark: the ask and the chance are facts on the row. */}
-              {leg.allowed_sides.map((side) => {
-                const facts = leg.sides[side];
-                const askTenths =
-                  (leg as GameLegListed).listed?.[side]?.ask_tenths ?? null;
-                if (askTenths === null) return null;
-                const sideWords = side === "yes" ? leg.yes_label : leg.no_label;
-                return (
-                  <ManualTicket
-                    key={`single-${side}`}
-                    ticker={leg.market_ticker}
-                    preferSide={side}
-                    variant="inline"
-                    openLabel={`Bet this one alone: ${side.toUpperCase()}${
-                      sideWords && sideLabelAddsWords(leg.title, sideWords)
-                        ? ` ${sideWords}`
-                        : ""
-                    }`}
-                    note={
-                      facts && facts.chance !== null
-                        ? "One leg, on its own. This is not a parlay — it wins or loses by itself."
-                        : "One leg, on its own, and the desk has no price for it. Nothing on this product says what it is worth — your own number is the only estimate there is."
-                    }
-                  />
-                );
-              })}
-              {blocked && (
-                <p className="mt-0.5 text-[11px] text-muted">
-                  Kalshi takes one leg from this group, and one is already
-                  ticked.
+            <li key={row.key} className="py-2">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <p className="min-w-0 flex-1 basis-40 text-sm">
+                  {ladder ? common : row.legs[0].title}
+                  {!ladder && row.legs[0].key_number ? (
+                    <span className="ml-2 whitespace-nowrap text-xs text-muted">
+                      <Term k="key_number">{keyNumberWords(row.legs[0].key_number)}</Term>
+                    </span>
+                  ) : null}
                 </p>
-              )}
-              {impliedByCover !== null && (
+                <div className="flex flex-wrap gap-1.5">
+                  {row.legs.map((leg) => {
+                    const holder = takenBy.get(leg.event_ticker);
+                    const blocked =
+                      leg.one_per_event &&
+                      holder !== undefined &&
+                      holder !== leg.market_ticker;
+                    // The win leg of a team whose cover is ticked (#277).
+                    // Greyed only when it is NOT itself ticked, so a pair
+                    // ticked in the other order can still be unticked; the
+                    // Build button refuses that pair too.
+                    const impliedByCover = coverTickedFor(leg, ticked, legsByMarket);
+                    const winGreyed =
+                      impliedByCover !== null && ticked[leg.market_ticker] !== "yes";
+                    return leg.allowed_sides.map((side) => {
+                      const sideBlocked = blocked || (side === "yes" && winGreyed);
+                      return (
+                        <SideButton
+                          key={`${leg.market_ticker}-${side}`}
+                          leg={leg}
+                          side={side}
+                          checked={ticked[leg.market_ticker] === side}
+                          sideBlocked={sideBlocked}
+                          prefix={ladder ? rungLabel(leg, common) : undefined}
+                          onToggle={onToggle}
+                        />
+                      );
+                    });
+                  })}
+                </div>
+              </div>
+              <details className="mt-1">
+                <summary className="cursor-pointer text-[11px] text-muted">
+                  Depth, desk chance, bet alone
+                </summary>
+                {row.legs.map((leg) => (
+                  <div key={leg.market_ticker} className="mt-1">
+                    {ladder && (
+                      <p className="text-xs font-semibold">
+                        {rungLabel(leg, common)}
+                        {leg.key_number ? (
+                          <span className="ml-2 whitespace-nowrap font-normal text-muted">
+                            <Term k="key_number">{keyNumberWords(leg.key_number)}</Term>
+                          </span>
+                        ) : null}
+                      </p>
+                    )}
+                    <LegDetails leg={leg} />
+                  </div>
+                ))}
+              </details>
+              {row.legs.map((leg) => {
+                const holder = takenBy.get(leg.event_ticker);
+                const blocked =
+                  leg.one_per_event &&
+                  holder !== undefined &&
+                  holder !== leg.market_ticker;
+                const impliedByCover = coverTickedFor(leg, ticked, legsByMarket);
+                return (
+                  <div key={`notes-${leg.market_ticker}`}>
+                    {blocked && !ladder && (
+                      <p className="mt-0.5 text-[11px] text-muted">
+                        Kalshi takes one leg from this group, and one is already
+                        ticked.
+                      </p>
+                    )}
+                    {impliedByCover !== null && (
+                      <p className="mt-0.5 text-[11px] text-muted">
+                        {IMPLIED_WIN_LINE}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+              {ladder && row.legs.some((leg) => {
+                const holder = takenBy.get(leg.event_ticker);
+                return holder !== undefined && holder !== leg.market_ticker;
+              }) && (
                 <p className="mt-0.5 text-[11px] text-muted">
-                  {IMPLIED_WIN_LINE}
+                  Kalshi takes one rung from this event, and one is already
+                  ticked.
                 </p>
               )}
             </li>
@@ -634,5 +851,75 @@ function Group({
         })}
       </ul>
     </details>
+  );
+}
+
+/** The DOM id a jump chip scrolls to. */
+function groupAnchor(group: GameLegGroup): string {
+  return `game-group-${group.series}`;
+}
+
+/**
+ * Sticky strip of one chip per group, with the search box. A chip opens its
+ * group and scrolls to it. The chips follow the server's order and count what
+ * is there; none is ranked and none is dropped (a group the search empties
+ * stays, at zero, so Joe sees that it was searched).
+ */
+function JumpStrip({
+  groups,
+  visible,
+  ticked,
+  legsByMarket,
+  query,
+  onQuery,
+  onJump,
+}: {
+  groups: GameLegGroup[];
+  visible: Map<string, GameLeg[]>;
+  ticked: Record<string, Side>;
+  legsByMarket: Map<string, GameLeg>;
+  query: string;
+  onQuery: (q: string) => void;
+  onJump: (group: GameLegGroup) => void;
+}) {
+  return (
+    <nav
+      aria-label="Jump to a group of legs"
+      style={{ top: "var(--nav-height, 69px)" }}
+      className="sticky z-30 -mx-1 space-y-2 border-b border-border bg-background px-1 py-2"
+    >
+      <input
+        type="search"
+        value={query}
+        onChange={(e) => onQuery(e.target.value)}
+        placeholder="Search legs (team, player, line)"
+        aria-label="Search legs"
+        className="w-full rounded-md border border-border bg-card px-3 py-1.5 text-sm"
+      />
+      <div className="flex gap-1.5 overflow-x-auto pb-1">
+        {groups.map((group) => {
+          const count = visible.get(group.series)?.length ?? 0;
+          const tickedHere = Object.keys(ticked).filter(
+            (market) => legsByMarket.get(market)?.series === group.series,
+          ).length;
+          return (
+            <button
+              key={group.series}
+              type="button"
+              onClick={() => onJump(group)}
+              className="shrink-0 whitespace-nowrap rounded-full border border-border bg-card px-3 py-1 text-xs"
+            >
+              {group.label}{" "}
+              <span className="font-mono text-muted">{count}</span>
+              {tickedHere > 0 && (
+                <span className="tabular ml-1.5 rounded-full bg-accent-fill px-1.5 text-white">
+                  {tickedHere}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
