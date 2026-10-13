@@ -16,6 +16,13 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-13 - A reviewer who has not read the refusals re-proposes them, and a lane's targeted recipe misses the cross-file pins
+
+From the ninety-sixth session (UI review, #385–#392).
+
+- **The designer and the sharp-bettor each re-proposed a figure the repo deliberately refuses** — break-even beside fair (ADR 0071 §2.2) and friendly labels for refusal codes (#16A) — plus a nav change #18A settled. Partner caught all three, but only because it read the closed map tickets. **Brief any screen reviewer with the refusal list before it looks**: ADR 0071 §2.2, #16A, #17, #18A, #31, #10/#32, #343, and "no ranking by the gap".
+- **Seven lanes each ran their ticket's grep-selected tests green, and CI still found three breaks**: a helper landing inside a slice another test pins colourless, a page drawing its own score line that `test_trust_surfaces` refuses, a regex pinned to the old inline form. A source-text pin can live in any test file and key on a sibling file. **Run the full suite on main after merging a lane batch, before pushing** — not one push per lane, which only buys cancelled CI runs.
+
 ## 2026-10-13 - A `**kwargs` stub accepts a parameter the real client does not have
 
 From Joe's phone, the morning after #371.

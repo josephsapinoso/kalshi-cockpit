@@ -139,6 +139,35 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-13 (ninety-sixth session) — UI review: a UX/graphic designer and sharp-bettor read the demo renders, partner ranked them, seven layout lanes merged (#386–#392), on demo at `0ab7ae76`; live deploy refused by the classifier; three copy questions to Joe (#385)
+
+- **Joe's focus: "any ui improvement"** — a UX + graphic designer evaluates the site and its navigation, consulting partner and sharp-bettor. Demo redeployed to main first (`36891cc5`, it was 11 behind), renders at 390/1440 via `check_mobile --shots`. Designer (general-purpose, role prompt) and `sharp-bettor` reviewed in parallel; `partner` merged them into 7 lanes, 3 questions, and rejections.
+- **Rejected by partner on prior rulings — do not re-propose:** break-even beside fair on a row (ADR 0071 §2.2; subtraction hands Joe the measured-negative edge); refusal codes → friendly labels/tooltips (#16A, #31); bottom tab bar and moving Gate/Playbook under "More" (#18A); CLV-first on Your bets (#343; no instrument for hand-bet CLV); promoting "Open the ticket" to a filled button (ADR 0071: no manufactured action); market-page "other side" link and "you hold this" marker (3-way markets; a ~2s `/api/hedge` read, #191) — deferred.
+- **Built (Sonnet lanes, merged on main):** #386 Games row is a card — kickoff/league/team/side, ask and fair at equal weight, diagnostics behind `Details`, bet + parlay actions inside the card, a failure every row shares stated once ("On every game below: …") via new `TrustNote hideDetails`, `width` hidden when null, no name truncation, stale quote age ochre with `· limit 30s` (never red: #10/#32); #387 Picks ask at the fair chance's weight, stale ask `text-muted` not `opacity-60`, shared quote age once in the header; #388 nav links ≥44px, freshness line on a phone; #389 `/game` heads with teams·league·kickoff (ticker only when the listing has no title — demo has none), "← Games" back link, market → its game, "Send the scouts" outline; #390 Parlays: games without a card are one list, each "Make a card →" to `/game` (no 3/5/8 buttons on /parlays — an NFL tap costs up to ~1M tokens), uppercase league tags; #391 a zero net is `$0.00` neutral ink, empty Open section one line; #392 the refresh panel's shared sentence once (`RefreshOddsButton showCaption`).
+- **Pins moved, claims kept:** `test_desktop_tier` ScoutDesk filled accents 1 → 0 (stricter, same intent); `test_games_says_stale_once` age chip red → ochre; `test_bets_sections`/`test_hud_bets`/`test_your_bets_reads_like_bets` read through `netInk`/`netShown`. Two integration breaks the lanes' targeted recipes missed and CI caught: #391's helpers landed inside the colourless by-leg-kind slice (moved out); #386 drew its own `evidence {` line, which `test_trust_surfaces` refuses (now `TrustNote hideDetails`, mutation-verified).
+- **Verification:** CI green on `0ab7ae76` (run 38479354470); demo deployed and `build.git_sha` verified; after-renders at 390/1440: no overflow on any page; Games phone page 12,184 → 11,468px (2× DPR) — demo's every-row staleness inflates it.
+- **Not done, named:** **live deploy** — `gh workflow run deploy.yml -f instance=live -f confirm_live=kalshi-cockpit` was refused [Production Deploy] by the auto-mode classifier this session; live is still on `36891cc5` (#393). Wave 2 (one PageTitle style, D7) not started — it touches every page and should run alone. Four lane worktrees remain harness-locked under `.claude/worktrees/` (branches merged).
+- Question for Joe: three screen sentences — Games intro, the signal-test box on Games, the Parlays intro — A1/B1/C1 recommended — #385
+
+### Still open
+
+1. #385 — Joe's question: Games intro, signal-test box, Parlays intro (A/B/C); build his answers.
+2. #393 — deploy `0ab7ae76` to live; refused by the classifier this session.
+3. #383 — read `server_tool_steps` back on live after Joe's next card or verdict tap, then close.
+4. #376 — 2026-10-18: re-read NFL card cost on the trimmed prompt, now with step counts; prediction ≈670K.
+5. #384 — card tap token hold; blocked by #376.
+6. #380 — Joe's question: rebuild a game's card at a different leg count.
+7. #210 — closes on the first `complete` convening whose board carries the Matchup tile.
+8. #360 — college basketball into scope when Kalshi lists it; check 2026-11-01.
+9. #361 — 2026-10-27: credit projection after an NBA week; warn Joe before 20,000.
+10. #355 — Your bets split by leg count and same-game vs cross-sport; blocked by #331.
+11. #347 — the backend no-op sweep and the routes nothing calls; deferred.
+12. #337 — 2027-01-15: look B for P1 only.
+13. #331 — 2026-11-01: the leg census by kind.
+14. #151, #197, #267 — carried forward unchanged.
+
+---
+
 ## 2026-10-13 (ninety-fifth session) — four builds live: each agent call records its server-tool steps (#383, schema v67), the NFL /game listing names every series (#381), the hand-tick refusal stops naming a cover nobody ticked (#382), and a yes-only leg's NO is offered as a single (#366)
 
 - **No focus from Joe; `/go` start in plan mode.** State clean, live on `633444e`, no PRs. `partner` ranked the board: three builds today, one with a deadline (the step count before Thu 10-16 00:15Z SEA@DEN, so #376's 10-18 re-read can say which lever drives NFL card cost). Ticket hygiene: **#377 closed** (landed `418b75c9`, live); **#370 closed as a delivered finding and split** into **#383** (step count, built) and **#384** (token hold on a card tap, blocked by #376 — the hold's size is #376's output); #381 labelled `model:sonnet` and narrowed to labels only (dropping a same-count group would remove bettable legs).
@@ -354,6 +383,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-13 (ninety-sixth session) — UI review by a designer and sharp-bettor, partner-ranked; seven layout lanes merged (#386–#392), on demo at `0ab7ae76`; live deploy refused by the classifier (#393); three copy questions to Joe (#385)
 - 2026-10-13 (ninety-fifth session) — server-tool steps recorded per agent call (#383, v67); NFL series named (#381); the hand-tick refusal names only ticked legs (#382); a yes-only leg's NO offered as a single (#366, platform review PASS after one fix); #370 split, #377 closed; live on `eb49b82d`
 - 2026-10-13 (ninety-fourth session) — every agent call dead since #371 (`output_format` on `create`) fixed; a card drops any leg its other legs guarantee (`drop_implied_legs`); live on `633444e`
 - 2026-10-13 (ninety-third session) — the master scout's output cap (4000, bound exactly) named and raised to 12,000 (#377) so #210 can close; #376 no trimmed reading, prediction ≈670K; #370 docs lookup (`usage.iterations` beta-only, server-tool caching already on) and a seat sweep; live on `21aca8da`
