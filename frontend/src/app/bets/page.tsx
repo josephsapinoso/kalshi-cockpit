@@ -158,6 +158,17 @@ export default async function BetsPage() {
           </p>
         ) : (
           <>
+            {hedge.positions.length === 0 &&
+            hedge.unrecorded_at_venue.length === 0 ? (
+              <p className="mt-3 max-w-[65ch] text-sm text-muted" data-open-empty>
+                No tickets recorded.{" "}
+                <Link href="#record-parlay" className="underline decoration-dotted">
+                  Add one below
+                </Link>{" "}
+                and the desk will watch its legs while the games run.
+              </p>
+            ) : (
+              <>
             <details className="mt-3 max-w-[65ch] text-sm text-muted" data-how-to-read>
               <summary className="cursor-pointer">How to read this</summary>
               <p className="mt-3 max-w-[65ch] text-sm leading-relaxed text-muted">
@@ -183,6 +194,8 @@ export default async function BetsPage() {
               maxQuoteAgeMs={hedge.max_quote_age_ms}
               pickSources={record.pick_sources}
             />
+              </>
+            )}
           </>
         )}
       </section>
@@ -201,10 +214,10 @@ export default async function BetsPage() {
               which would erase won vs. lost. Plain, in its own colour. */}
           <span
             className={`display text-3xl sm:text-4xl ${
-              totals.net_tenths < 0 ? "text-negative" : "text-positive"
+              netInk(totals.net_tenths)
             }`}
           >
-            {totals.net_display}
+            {netShown(totals.net_tenths, totals.net_display)}
           </span>
           <span className="ml-3 font-mono text-sm text-muted">
             over {totals.computable} <Term k="settled">settled</Term>
@@ -381,10 +394,10 @@ function RecordStrip({ record }: { record: BetsRecord }) {
           value={
             <span
               className={
-                record.totals.net_tenths < 0 ? "text-negative" : "text-positive"
+                netInk(record.totals.net_tenths)
               }
             >
-              {record.totals.net_display}
+              {netShown(record.totals.net_tenths, record.totals.net_display)}
             </span>
           }
           sub={`over ${record.totals.computable} settled`}
@@ -486,10 +499,10 @@ function BetSection({
           <Term k="net">net</Term>{" "}
           <span
             className={
-              block.net_tenths < 0 ? "text-negative" : "text-positive"
+              netInk(block.net_tenths)
             }
           >
-            {block.net_display}
+            {netShown(block.net_tenths, block.net_display)}
           </span>{" "}
           over {block.computable} <Term k="settled">settled</Term>
           {block.uncomputable > 0
@@ -722,6 +735,28 @@ type ByLegKind = {
   kind_order: string[];
   leagues: { league: string; kinds: LegKindBlock[] }[];
 };
+
+/**
+ * A net's ink and sign (#391). The server renders a wash as "+$0.00"
+ * (`backend/bets.py:format_net_dollars`), and a zero painted green with a plus
+ * reads as a gain. Zero is neutral ink and "$0.00" with no sign; a positive
+ * stays `text-positive`, a negative `text-negative`. Done here because the
+ * server's string is not this lane's to change.
+ */
+function netInk(tenths: number | null | undefined): string {
+  if (tenths === 0) return "text-foreground";
+  return typeof tenths === "number" && tenths < 0
+    ? "text-negative"
+    : "text-positive";
+}
+
+function netShown(
+  tenths: number | null | undefined,
+  display: string | null | undefined,
+): string | null | undefined {
+  if (tenths === 0) return "$0.00";
+  return display;
+}
 
 function signedCents(value: number | null): string {
   if (value === null) return "not recorded";
@@ -1042,12 +1077,10 @@ function BetRow({
             className={`block font-mono text-sm font-semibold ${
               bet.net_tenths === null
                 ? "text-muted"
-                : bet.net_tenths < 0
-                  ? "text-negative"
-                  : "text-positive"
+                : netInk(bet.net_tenths)
             }`}
           >
-            {bet.net_display ?? "—"}
+            {netShown(bet.net_tenths, bet.net_display) ?? "—"}
           </span>
           <span className="mt-0.5 block text-xs text-muted">{result}</span>
         </span>

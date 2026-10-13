@@ -140,8 +140,9 @@ class TestTheNetFigureIsPlainInItsOwnColour:
         see this file's module docstring. Both branches of the conditional
         must survive the HUD pass."""
         body = self._net_span()
-        assert "text-negative" in body
-        assert "text-positive" in body
+        # The branches (and the neutral zero) live in `netInk` since #391;
+        # tests/test_bets_zero_is_neutral.py pins them there.
+        assert "netInk(totals.net_tenths)" in body
 
     def test_it_does_not_take_the_readout_indigo(self):
         """`ui.tsx`'s `Stat` with `readout` set always paints `text-accent`.
