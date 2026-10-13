@@ -720,6 +720,9 @@ export type GameLegs = {
   sport_key?: string | null;
   groups: GameLegGroup[];
   leg_count: number;
+  /** Kalshi's most legs in one combination on this game (#379); `null` when
+   *  the venue did not say. Never 0. */
+  max_legs?: number | null;
   unreadable_events: { event_ticker: string; words: string }[];
   skipped_events: number;
   now_ms: number;

@@ -36,7 +36,9 @@ export async function POST(request: NextRequest) {
 
   const parsed = await readJsonBody(request);
   if (!parsed.ok) return parsed.response;
-  const body = parsed.body as { event_ticker?: unknown } | null;
+  const body = parsed.body as
+    | { event_ticker?: unknown; leg_count?: unknown }
+    | null;
 
   const event =
     typeof body?.event_ticker === "string" ? body.event_ticker.trim() : "";
@@ -47,9 +49,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // The size Joe picked (#379), relayed only when it is an integer; the
+  // backend refuses anything outside 2..8 with a 422.
+  const legCount = body?.leg_count;
   return relayToBackend(
     `/api/game/${event}/card`,
-    { method: "POST", token, body: {} },
+    {
+      method: "POST",
+      token,
+      body: Number.isInteger(legCount) ? { leg_count: legCount } : {},
+    },
     "The cockpit backend did not answer. The card may still be building; " +
       "reload the game before tapping again.",
   );

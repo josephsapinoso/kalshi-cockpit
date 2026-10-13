@@ -431,7 +431,7 @@ class TestAWatcherRefusalTellsHimTheTapIsHis:
         _refused(conn, "KXNCAAFGAME-26OCT10CCUMRSH", NOW + HOUR, "refused_budget", reason)
         card = http.get("/api/game-cards").json()["cards"][0]
         assert card["no_card_line"] == game_router.UNATTENDED_NO_CARD_LINE
-        assert "tap Build card" in card["no_card_line"]
+        assert "tap a card size" in card["no_card_line"]
         # The record keeps the dial's name; only the sentence lost it.
         assert card["reason"] == reason
 
@@ -499,7 +499,7 @@ class TestTheListCarriesTonightsGamesWithoutACard:
         assert early["status"] == "none"
         assert early["legs"] == []
         assert early["story"] is None
-        assert "Open the game and tap Build card" in early["no_card_line"]
+        assert "Open the game and tap a card size" in early["no_card_line"]
         assert early["game_title"] == "Early vs Game"
         assert early["sport_key"] == "nfl"
         assert early["kickoff_ms"] == NOW + 2 * HOUR

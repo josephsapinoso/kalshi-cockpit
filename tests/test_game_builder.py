@@ -684,3 +684,21 @@ class TestTheBuilderNeverReachesForAJoint:
         for name in ("joint_for", "joint_probability_all", "value_parlay",
                      "CorrelationRefused"):
             assert name not in code, f"{name} appears in game_builder's code"
+
+
+class TestTheListingServesKalshisMaxLegs:
+    """#379: `max_legs` is the `size_max` of the collection that would mint."""
+
+    async def test_max_legs_is_the_collections_size_max(self, conn, monkeypatch):
+        import dataclasses
+
+        async def fake_fetch(api, max_pages=25):
+            return [dataclasses.replace(_catch_all_for_atlpit(), size_max=8)]
+
+        monkeypatch.setattr(parlays, "fetch_collections", fake_fetch)
+        assert (await _list(conn))["max_legs"] == 8
+
+    async def test_an_unreadable_size_max_is_none_never_zero(self, conn):
+        # The captured collection carries no top-level `size_max`, which the
+        # parser reads as 0: the listing must say "unknown", not "zero legs".
+        assert (await _list(conn))["max_legs"] is None

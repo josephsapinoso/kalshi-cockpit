@@ -20,11 +20,17 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ...agents.base import AgentConfig, build_client
 from ...agents.budget import AgentBudget
-from ...agents.game_script import CALL_FAILED_PREFIX, build_card, recheck_card
+from ...agents.game_script import (
+    CALL_FAILED_PREFIX,
+    MAX_REQUESTED_LEGS,
+    MIN_REQUESTED_LEGS,
+    build_card,
+    recheck_card,
+)
 from ...config import (
     AppConfig,
     ConfigError,
@@ -71,6 +77,7 @@ async def build_card_for_game(
     agent_config: AgentConfig,
     max_odds_age_ms: int,
     client=None,
+    leg_count: Optional[int] = None,
 ) -> dict:
     """Build one game's card, or return the one it already has (#215, #217).
 
@@ -85,6 +92,9 @@ async def build_card_for_game(
 
     `client` is for tests. `None`, what production passes, means this
     module's own literal `build_client(agent_config)`, the allowlisted site.
+
+    `leg_count` (#379, Joe's tap only): the exact size he picked; `None`, what
+    the watcher passes, keeps the 2-3 leg card.
 
     Raises `LookupRefused` (not a game ticker, or the venue refused the
     listing) and `NoKickoffOnRecord`; neither spends anything.
@@ -141,6 +151,7 @@ async def build_card_for_game(
                 ).strftime("%Y-%m-%dT%H:%MZ"),
                 listing=listing,
                 now_ms=now,
+                leg_count=leg_count,
             )
             return {
                 "card": game_script_cards.card_by_id(write_conn, result.card_id),
@@ -233,7 +244,7 @@ def kickoff_order(cards: list[dict]) -> list[dict]:
 #: been switched off, with no sentence telling him the tap was his.
 UNATTENDED_NO_CARD_LINE = (
     "The desk did not build this card by itself. Open the game and tap "
-    "Build card to make one."
+    "a card size (3, 5 or 8 legs) to make one."
 )
 
 
@@ -241,7 +252,7 @@ UNATTENDED_NO_CARD_LINE = (
 #: refused, not skipped -- nothing has been tried, because the watcher is off
 #: (Joe's (A) to #349) and he has not tapped.
 NO_ROW_NO_CARD_LINE = (
-    "No card yet. Open the game and tap Build card to make one."
+    "No card yet. Open the game and tap a card size (3, 5 or 8 legs) to make one."
 )
 
 #: The daily-ceiling sentences `AgentBudget.refusal_reason` writes start with
@@ -552,6 +563,15 @@ class GameMintLeg(BaseModel):
     side: str
 
 
+class GameCardRequest(BaseModel):
+    """The optional body of the card route (#379): how many legs Joe picked.
+    Outside 2..8 is a 422 before anything is read or spent."""
+
+    leg_count: Optional[int] = Field(
+        default=None, ge=MIN_REQUESTED_LEGS, le=MAX_REQUESTED_LEGS
+    )
+
+
 class GameMintRequest(BaseModel):
     """The ticked legs, and nothing else. Fewer than two is refused in words
     by the builder (with no venue call), not by a length constraint here."""
@@ -767,7 +787,9 @@ def register(
     @app.post(
         "/api/game/{event_ticker}/card", dependencies=[Depends(require_auth)]
     )
-    async def game_card(event_ticker: str) -> dict:
+    async def game_card(
+        event_ticker: str, request: Optional[GameCardRequest] = None
+    ) -> dict:
         """Build one game-script card for this game, now (#215, ADR 0190).
 
         One metered call through the shared `AgentBudget`; the outcome is
@@ -793,6 +815,7 @@ def register(
                 api=api,
                 agent_config=agent_config,
                 max_odds_age_ms=staleness.max_odds_age_s * 1000,
+                leg_count=request.leg_count if request else None,
             )
         except LookupRefused as exc:
             raise HTTPException(
