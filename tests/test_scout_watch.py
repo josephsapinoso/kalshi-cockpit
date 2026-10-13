@@ -54,7 +54,7 @@ class DeskStubMessages:
 
     async def create(self, **kwargs):
         self.calls.append(kwargs)
-        if output_model_name(kwargs["output_format"]) == "ScoutReport":
+        if output_model_name(kwargs["output_config"]) == "ScoutReport":
             return StubResponse(EMPTY_REPORT)
         return StubResponse(BRIEFING)
 

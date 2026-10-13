@@ -83,13 +83,13 @@ class DeskStubMessages:
             self.rows_at_first_call = self._probe_conn.execute(
                 "SELECT COUNT(*) AS c FROM agent_calls"
             ).fetchone()["c"]
-        if output_model_name(kwargs["output_format"]) == "ScoutReport":
+        if output_model_name(kwargs["output_config"]) == "ScoutReport":
             index = self._staff_seen
             self._staff_seen += 1
             if self._staff_raises and index in self._staff_raises:
                 raise RuntimeError("this scout is down")
             return StubResponse(self._staff)
-        if output_model_name(kwargs["output_format"]) == "SharpTake":
+        if output_model_name(kwargs["output_config"]) == "SharpTake":
             return StubResponse(SHARP)
         return StubResponse(self._briefing)
 
@@ -273,7 +273,7 @@ class TestFiledNothingIsNotFoundNothing:
         # the master, so `calls[-1]` is Willy's.
         master_call = next(
             c for c in client.messages.calls
-            if output_model_name(c["output_format"]) == "DeskBriefing"
+            if output_model_name(c["output_config"]) == "DeskBriefing"
         )
         prompt = master_call["messages"][0]["content"]
         assert "FILED NOTHING" in prompt
@@ -297,7 +297,7 @@ class TestFiledNothingIsNotFoundNothing:
         staff_systems = [
             c["system"][1]["text"]
             for c in client.messages.calls
-            if output_model_name(c["output_format"]) == "ScoutReport"
+            if output_model_name(c["output_config"]) == "ScoutReport"
         ]
         home, away = staff_systems
         assert "You are the B scout" in home
@@ -538,7 +538,7 @@ class TestOutputCaps:
         await _convene(client, budget)
         master = next(
             c for c in client.messages.calls
-            if output_model_name(c["output_format"]) == "DeskBriefing"
+            if output_model_name(c["output_config"]) == "DeskBriefing"
         )
         assert master["max_tokens"] == MASTER_MAX_OUTPUT_TOKENS
         assert MASTER_MAX_OUTPUT_TOKENS >= 12_000
@@ -549,7 +549,7 @@ class TestOutputCaps:
         await _convene(client, budget)
         staff = [
             c for c in client.messages.calls
-            if output_model_name(c["output_format"]) == "ScoutReport"
+            if output_model_name(c["output_config"]) == "ScoutReport"
         ]
         assert len(staff) == 2
         assert all(c["max_tokens"] == 6000 for c in staff)

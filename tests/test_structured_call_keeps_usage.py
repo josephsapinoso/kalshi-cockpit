@@ -89,7 +89,7 @@ class TestTheRequestIsCreateWithTheSdkSchema:
     async def test_output_format_is_the_json_schema_create_takes(self):
         client = _Client(response=message(load("anthropic_scout_report.json")))
         await call(client)
-        sent = client.messages.calls[0]["output_format"]
+        sent = client.messages.calls[0]["output_config"]["format"]
         assert sent["type"] == "json_schema"
         assert "properties" in sent["schema"]
         assert "findings" in sent["schema"]["properties"]
@@ -142,7 +142,7 @@ class _MasterMismatchMessages(DeskStubMessages):
     whose JSON does not match `DeskBriefing`."""
 
     async def create(self, **kwargs):
-        if output_model_name(kwargs["output_format"]) == "DeskBriefing":
+        if output_model_name(kwargs["output_config"]) == "DeskBriefing":
             self.calls.append(kwargs)
             # A captured reply cut in half: real usage, JSON that no schema
             # accepts -- the shape of the 2026-10-12 19:06Z master reply.
@@ -199,3 +199,28 @@ class TestTheOldSentenceIsGone:
         assert "its token count is lost" not in source
         assert "client.messages.parse(" not in source
         assert "client.messages.create(" in source
+
+
+class TestTheRequestBindsToTheRealCreate:
+    """Every stub here takes `**kwargs`, so a parameter `create` does not have
+    passed the suite and raised TypeError on every live call (#371 sent
+    `output_format`, which only `parse` takes). Bind to the SDK's own
+    signature so the next one fails here."""
+
+    async def test_the_sent_kwargs_bind_to_async_messages_create(self):
+        import inspect
+
+        from anthropic.resources.messages import AsyncMessages
+
+        client = _Client(response=message(load("anthropic_scout_report.json")))
+        await call(client)
+        sent = client.messages.calls[0]
+        inspect.signature(AsyncMessages.create).bind(None, **sent)
+
+    async def test_the_schema_rides_in_output_config_beside_effort(self):
+        client = _Client(response=message(load("anthropic_scout_report.json")))
+        await call(client)
+        sent = client.messages.calls[0]
+        assert "output_format" not in sent
+        assert sent["output_config"]["format"]["type"] == "json_schema"
+        assert "effort" in sent["output_config"]

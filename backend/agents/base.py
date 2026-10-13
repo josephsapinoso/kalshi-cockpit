@@ -278,6 +278,8 @@ def output_model_name(output_format) -> Optional[str]:
     `title` (pydantic writes the class name there and `transform_schema`
     keeps it). For a test double that dispatches on which seat is calling,
     now that `kwargs["output_format"]` is the schema dict and not the class."""
+    if isinstance(output_format, dict) and "format" in output_format:
+        output_format = output_format["format"]  # the whole `output_config`
     try:
         return output_format["schema"]["title"]
     except (KeyError, TypeError):
@@ -682,8 +684,17 @@ async def structured_call(
     # keeps the raw message, so the usage is read before anything is parsed.
     # `_structured_output_format` and `_parse_structured` are the SDK's own
     # two halves of `parse`, called by name; nothing here re-implements them.
+    # `create` has no `output_format` parameter -- only `parse` does, and it
+    # folds the schema into `output_config.format` before calling `create`.
+    # Passing it to `create` raised TypeError on every call (Joe's phone,
+    # 2026-10-13: every card, verdict and scout dead since #371). Fold it
+    # here the same way.
     create_kwargs = dict(kwargs)
-    create_kwargs["output_format"] = _structured_output_format(output_model)
+    del create_kwargs["output_format"]
+    create_kwargs["output_config"] = {
+        **kwargs["output_config"],
+        "format": _structured_output_format(output_model),
+    }
     try:
         raw = await client.messages.create(**create_kwargs)
     except Exception as exc:  # noqa: BLE001

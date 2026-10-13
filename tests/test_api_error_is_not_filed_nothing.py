@@ -94,7 +94,7 @@ class TestScoutDesk:
         original = client.messages.create
 
         async def create(**kwargs):
-            if output_model_name(kwargs["output_format"]) == "ScoutReport":
+            if output_model_name(kwargs["output_config"]) == "ScoutReport":
                 return DeskResponse(None)
             return await original(**kwargs)
 
