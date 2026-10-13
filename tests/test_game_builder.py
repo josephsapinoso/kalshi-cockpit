@@ -702,3 +702,44 @@ class TestTheListingServesKalshisMaxLegs:
         # The captured collection carries no top-level `size_max`, which the
         # parser reads as 0: the listing must say "unknown", not "zero legs".
         assert (await _list(conn))["max_legs"] is None
+
+
+class TestNflSeriesHaveWords:
+    """#381: every series Kalshi lists on a live NFL game gets plain words.
+
+    `series_nfl_live_game.json` is the KXNFL* series that had an event on
+    KXNFLGAME-26OCT15SEADEN (captured 2026-10-13, public /series and /events
+    reads). Each is run through `series_label` as the listing does
+    (`_kind_of`, then `series_label`); none may fall to UNKNOWN_SERIES_LABEL.
+
+    Does not establish which of these the catch-all collection offers as legs
+    (that capture does not exist), only that none would be headed "Other
+    markets" if it did.
+    """
+
+    def _kinds(self):
+        doc = _load("series_nfl_live_game.json")
+        return sorted(
+            (row["series_ticker"], game_builder._kind_of(row["series_ticker"], "KXNFL"))
+            for row in doc["series"]
+        )
+
+    def test_the_capture_is_a_full_live_game(self):
+        kinds = [k for _, k in self._kinds()]
+        assert len(kinds) >= 60
+        assert {"GAME", "SPREAD", "TOTAL", "PASSYDS"} <= set(kinds)
+
+    def test_no_nfl_series_is_labelled_other_markets(self):
+        unlabelled = [
+            series for series, kind in self._kinds()
+            if game_builder.series_label("KXNFL", kind)
+            == game_builder.UNKNOWN_SERIES_LABEL
+        ]
+        assert not unlabelled, f"no words for: {unlabelled}"
+
+    def test_no_two_nfl_series_share_a_heading(self):
+        seen: dict[str, str] = {}
+        for series, kind in self._kinds():
+            label = game_builder.series_label("KXNFL", kind)
+            assert label not in seen, f"{series} and {seen[label]} are both {label!r}"
+            seen[label] = series
