@@ -381,7 +381,7 @@ export default function Nav() {
         measured rather than promised; it is recorded here and not fixed here.
       */}
       <nav
-        className={`${SHELL_WIDTH} flex items-center justify-between gap-1.5 px-4 py-4 sm:gap-2 sm:px-6 xl:px-8`}
+        className={`${SHELL_WIDTH} flex items-center justify-between gap-1.5 px-4 py-3 sm:gap-2 sm:px-6 xl:px-8`}
       >
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
           <Link href="/" className="flex shrink-0 items-center gap-3">
@@ -458,7 +458,7 @@ export default function Nav() {
               // tracking-wider + px-1.5 needed 289px of a 267px row at a 375px
               // viewport, so the row scrolled and hid the theme toggle
               // (measured on live, 2026-09-26). px-1 + tracking-wide fits at 265.
-              className={`shrink-0 rounded-sm px-1 py-1.5 font-mono text-xs uppercase tracking-wide transition-colors hover:bg-accent-soft hover:text-foreground sm:px-3 sm:tracking-wider ${
+              className={`inline-flex min-h-11 shrink-0 items-center rounded-sm px-1 font-mono text-xs uppercase tracking-wide transition-colors hover:bg-accent-soft hover:text-foreground sm:px-3 sm:tracking-wider ${
                 lights(link.href, pathname) ? "glow text-accent" : "text-muted"
               }`}
             >
@@ -479,6 +479,18 @@ export default function Nav() {
           </div>
         </div>
       </nav>
+      {/* The same window fact as the desktop chip above, for a phone (#388):
+          one muted line under the row rather than a fifth item in it, because
+          the row has 10px to spare at 390. Same label, same muted ink, no
+          state colour. */}
+      {chip !== null && (
+        <div
+          data-phone-chip
+          className={`${SHELL_WIDTH} -mt-1.5 px-4 pb-1.5 font-mono text-xs text-muted sm:px-6 xl:hidden`}
+        >
+          {chip.label}
+        </div>
+      )}
       {/* The panel hangs off the header's bottom edge as a layer, so opening
           it changes nothing about the header's own height. Its own opaque
           background matters: the header is transparent until the page is
