@@ -141,7 +141,16 @@ class TestAConditionEveryRowSharesIsStatedOnceAboveTheList:
         assert "sharedEvidence={sharedEvidence}" in code
         # The row's evidence line takes the shared list so it can drop them.
         assert "<RowEvidence trust={row.trust} shared={sharedEvidence} />" in _row_body(code)
-        assert "shared.includes(c.detail)" in _function(code, "RowEvidence")
+        assert "hideDetails={shared}" in _function(code, "RowEvidence")
+
+    def test_a_row_left_with_only_shared_failures_never_reads_all_passed(self):
+        """TrustNote hides the shared details from the printed list but the
+        all-passed sentence keys on EVERY failure, so a hidden one still
+        suppresses it. Mutation observed red: key the sentence on `failures`."""
+        note = _code((SLATE_PAGE.parents[2] / "components" / "TrustNote.tsx").read_text(encoding="utf-8"))
+        assert "!hideDetails.includes(c.detail)" in note
+        assert "failed.length === 0 && unknown === 0" in note
+        assert "failures.length === 0 && unknown === 0" not in note
 
 
 class TestWidthIsNotRenderedWhenNull:

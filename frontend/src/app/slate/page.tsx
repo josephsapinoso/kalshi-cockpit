@@ -519,25 +519,10 @@ function RowEvidence({
   shared: string[];
 }) {
   if (!trust) return null;
-  if (shared.length === 0) {
-    return <TrustNote trust={trust} size="panel" hideAgeChecks />;
-  }
-  const rest = trust.checks.filter(
-    (c) => !(c.state === "fail" && shared.includes(c.detail)),
-  );
-  if (rest.some((c) => c.state === "fail")) {
-    return (
-      <TrustNote trust={{ ...trust, checks: rest }} size="panel" hideAgeChecks />
-    );
-  }
-  // Nothing but shared failures left: TrustNote would print its all-passed
-  // sentence over a row that did fail, so print the score alone.
-  const unknown = trust.total - trust.known;
+  // TrustNote drops the shared details from its failure list but still counts
+  // them, so a row left with only shared failures never reads "all passed".
   return (
-    <span className="block font-mono text-xs uppercase tracking-wide text-muted">
-      evidence {trust.passed}/{trust.known} checks
-      {unknown > 0 && <> · {unknown} not checked</>}
-    </span>
+    <TrustNote trust={trust} size="panel" hideAgeChecks hideDetails={shared} />
   );
 }
 

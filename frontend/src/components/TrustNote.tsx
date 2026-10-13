@@ -53,6 +53,7 @@ export default function TrustNote({
   trust,
   size = "compact",
   hideAgeChecks = false,
+  hideDetails = [],
 }: {
   trust: TrustScore | null | undefined;
   size?: "compact" | "panel";
@@ -65,13 +66,23 @@ export default function TrustNote({
    * NOT print the all-passed sentence, because something did fail.
    */
   hideAgeChecks?: boolean;
+  /**
+   * Opt-in (#386): failure details the host already states once above its
+   * list ("On every game below: …"). They leave the printed failure list
+   * only; the score still counts them, and a row whose only failures are
+   * hidden here does NOT print the all-passed sentence, because something
+   * did fail. Only the Games list passes it.
+   */
+  hideDetails?: string[];
 }) {
   if (!trust) return null;
   const unknown = trust.total - trust.known;
   const failed = trust.checks.filter((c) => c.state === "fail");
   const failures = hideAgeChecks
-    ? failed.filter((c) => !AGE_CHECKS.has(c.name))
-    : failed;
+    ? failed.filter(
+        (c) => !AGE_CHECKS.has(c.name) && !hideDetails.includes(c.detail),
+      )
+    : failed.filter((c) => !hideDetails.includes(c.detail));
   const scale = size === "panel" ? "text-xs" : "text-[0.6rem]";
   // **The prose sets its own size rather than inheriting one.** On the parlay
   // card the failure list sat inside an `11px` list item and looked right; the
