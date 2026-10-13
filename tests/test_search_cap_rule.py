@@ -69,5 +69,5 @@ class TestEveryPromptCarriesItsOwnCap:
         """A card built under the rule is distinguishable from one built
         without it, so the `game-script-latest-prompt` read can tell them
         apart."""
-        assert game_script.PROMPT_VERSION == "5"
+        assert game_script.PROMPT_VERSION == "6"  # 6 since #379 (leg count); the search-cap rule is still in it
         assert game_script.RECHECK_PROMPT_VERSION == "2"
