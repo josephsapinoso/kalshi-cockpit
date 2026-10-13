@@ -731,30 +731,35 @@ def _validate_request(game: tuple[str, str, str], legs: Sequence[dict]) -> list[
     # leg and mints the rest, because the ticker would then differ from what
     # Joe ticked (#274 A).
     _kept, implied = game_script_cards.drop_implied_legs(out)
-    if implied and not implied[0]["event_ticker"].split("-")[0].endswith("GAME"):
-        raise _refuse(
-            422,
-            f"{implied[0]['market_ticker']} is already guaranteed by the other "
-            "legs you ticked, so the combination would pay on exactly the "
-            "same scores without it. Kalshi refuses that as duplicated legs. "
-            "Untick it. Nothing was created.",
-        )
     if implied:
         win = implied[0]["market_ticker"]
         team = win.rsplit("-", 1)[-1]
+        is_win = implied[0]["event_ticker"].split("-")[0].endswith("GAME")
+        # Name a cover only when one was actually ticked: a win can also be
+        # implied by other legs (two team totals), and naming "its cover"
+        # then names a leg Joe never ticked (#382).
         covers = [
             leg["market_ticker"] for leg in out
-            if leg["side"] == "yes"
+            if is_win
+            and leg["side"] == "yes"
             and leg["event_ticker"].split("-")[0].endswith("SPREAD")
             and leg["market_ticker"].split("-")[-1].rstrip("0123456789") == team
         ]
-        cover = covers[0] if covers else "its cover"
+        if covers:
+            raise _refuse(
+                422,
+                f"{win} (the team to win) and {covers[0]} (the same team "
+                "winning by a margin) are both ticked. Kalshi refuses that "
+                "pair as duplicated legs, because winning by that margin "
+                "already guarantees the win. Untick one of them. Nothing was "
+                "created.",
+            )
         raise _refuse(
             422,
-            f"{win} (the team to win) and {cover} (the same team winning by a "
-            "margin) are both ticked. Kalshi refuses that pair as duplicated "
-            "legs, because winning by that margin already guarantees the win. "
-            "Untick one of them. Nothing was created.",
+            f"{win} is already guaranteed by the other "
+            "legs you ticked, so the combination would pay on exactly the "
+            "same scores without it. Kalshi refuses that as duplicated legs. "
+            "Untick it. Nothing was created.",
         )
     return out
 

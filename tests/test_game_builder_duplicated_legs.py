@@ -122,3 +122,39 @@ def test_the_screen_greys_the_win_box_while_that_teams_cover_is_ticked():
     # (the panel's button and the phone bar both read `buildDisabled`).
     assert re.search(r"buildDisabled\s*=\s*[^;]*impliedPair", src, re.DOTALL)
     assert "already guarantees" in src
+
+
+TOTAL_45 = "KXNFLTOTAL-26SEP13ATLPIT-45"
+PIT_TEAMTOTAL_20 = "KXNFLTEAMTOTAL-26SEP13ATLPIT-PIT20"
+PIT_TEAMTOTAL_30 = "KXNFLTEAMTOTAL-26SEP13ATLPIT-PIT30"
+ATL_TEAMTOTAL_20 = "KXNFLTEAMTOTAL-26SEP13ATLPIT-ATL20"
+
+
+async def test_a_non_win_implied_leg_is_named_and_refused_before_the_venue(build):  # noqa: F811
+    # Total over 44.5 plus PIT by 7+ forces PIT to 26+, so PIT over 19.5 adds
+    # nothing.
+    app, fake, lookups, path = build()
+    fake.calls.clear()
+    response = await _mint(
+        app, [_leg(TOTAL_45), _leg(PIT_COVER), _leg(PIT_TEAMTOTAL_20)]
+    )
+    assert response.status_code == 422, response.text
+    words = response.json()["detail"]
+    assert PIT_TEAMTOTAL_20 in words and "already guaranteed" in words
+    assert "Nothing was created" in words
+    assert lookups == [] and fake.calls == [] and _rows(path) == []
+
+
+async def test_a_win_implied_by_team_totals_names_no_cover_nobody_ticked(build):  # noqa: F811
+    # PIT 30+ and ATL under 20 force a PIT win; no spread is ticked.
+    app, fake, lookups, path = build()
+    fake.calls.clear()
+    response = await _mint(
+        app,
+        [_leg(PIT), _leg(PIT_TEAMTOTAL_30), _leg(ATL_TEAMTOTAL_20, "no")],
+    )
+    assert response.status_code == 422, response.text
+    words = response.json()["detail"]
+    assert PIT in words and "already guaranteed" in words
+    assert "cover" not in words.lower()
+    assert lookups == [] and fake.calls == [] and _rows(path) == []
