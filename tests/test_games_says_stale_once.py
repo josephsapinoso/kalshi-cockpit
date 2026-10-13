@@ -55,12 +55,15 @@ class TestGamesSaysStaleOnce:
         assert "Kalshi quote is" not in code
         assert "may already be gone" not in code
 
-    def test_the_age_chip_survives_and_goes_red_past_the_limit(self):
-        """Mutation observed red: drop the `text-negative` branch."""
+    def test_the_age_chip_survives_and_goes_ochre_past_the_limit(self):
+        """Was "goes red" until #386 (red means loss, #10 / #32): the chip is
+        ochre past the limit, never red. Mutation observed red: drop the
+        `text-accent-2` branch."""
         code = _code(_src())
         chip = _between(code, "function QuoteAge({", "function StatusLine({")
         assert "ageMs > maxMs" in chip
-        assert "text-negative" in chip
+        assert "text-accent-2" in chip
+        assert "text-negative" not in chip
         assert "<QuoteAge ageMs={row.quote_age_now_ms}" in code
 
     def test_the_odds_clock_sentence_is_kept(self):

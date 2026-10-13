@@ -147,6 +147,7 @@ export default async function SlatePage({
   }
 
   const { rows, counts, slate } = data;
+  const sharedEvidence = sharedEvidenceDetails(rows);
   const hidden = data.filter?.hidden ?? 0;
 
   return (
@@ -296,6 +297,11 @@ export default async function SlatePage({
         </p>
       ) : (
         <>
+          {sharedEvidence.length > 0 && (
+            <p className="mt-8 max-w-[65ch] text-xs text-muted">
+              On every game below: {sharedEvidence.join("; ")}.
+            </p>
+          )}
           <ul className="mt-8 divide-y divide-border">
             {rows.map((row) => (
               <li key={row.id}>
@@ -304,6 +310,7 @@ export default async function SlatePage({
                   driftWindowMs={data.drift_window_ms}
                   maxQuoteAgeMs={data.staleness.max_kalshi_quote_age_s * 1000}
                   maxOddsAgeMs={data.staleness.max_odds_age_s * 1000}
+                  sharedEvidence={sharedEvidence}
                 />
               </li>
             ))}
@@ -479,6 +486,61 @@ function gameEventOf(ticker: string): string | null {
   return match ? match[1] : null;
 }
 
+const PRICE_CLASS = "tabular text-sm text-muted";
+
+/** `core/trust.py` age checks; the Games row voices these in its quote chip. */
+const AGE_CHECK_NAMES = new Set(["consensus_fresh", "quote_fresh"]);
+
+/**
+ * Evidence failures every visible row carries (#386), said once above the list
+ * instead of on each row. Needs two or more rows and a readable score on all
+ * of them; the match is on the check's own detail text, so a failure whose
+ * wording differs by row (different numbers) is never called shared.
+ */
+function sharedEvidenceDetails(rows: SlateRowData[]): string[] {
+  if (rows.length < 2) return [];
+  let shared: string[] | null = null;
+  for (const r of rows) {
+    if (!r.trust) return [];
+    const mine = r.trust.checks
+      .filter((c) => c.state === "fail" && !AGE_CHECK_NAMES.has(c.name))
+      .map((c) => c.detail);
+    shared = shared === null ? mine : shared.filter((d) => mine.includes(d));
+  }
+  return Array.from(new Set(shared ?? []));
+}
+
+/** The row's evidence line, minus the failures the list states once above. */
+function RowEvidence({
+  trust,
+  shared,
+}: {
+  trust: SlateRowData["trust"];
+  shared: string[];
+}) {
+  if (!trust) return null;
+  if (shared.length === 0) {
+    return <TrustNote trust={trust} size="panel" hideAgeChecks />;
+  }
+  const rest = trust.checks.filter(
+    (c) => !(c.state === "fail" && shared.includes(c.detail)),
+  );
+  if (rest.some((c) => c.state === "fail")) {
+    return (
+      <TrustNote trust={{ ...trust, checks: rest }} size="panel" hideAgeChecks />
+    );
+  }
+  // Nothing but shared failures left: TrustNote would print its all-passed
+  // sentence over a row that did fail, so print the score alone.
+  const unknown = trust.total - trust.known;
+  return (
+    <span className="block font-mono text-xs uppercase tracking-wide text-muted">
+      evidence {trust.passed}/{trust.known} checks
+      {unknown > 0 && <> · {unknown} not checked</>}
+    </span>
+  );
+}
+
 /**
  * One line per row, at phone width.
  *
@@ -491,139 +553,67 @@ function Row({
   driftWindowMs,
   maxQuoteAgeMs,
   maxOddsAgeMs,
+  sharedEvidence,
 }: {
   row: SlateRowData;
   driftWindowMs: number;
   maxQuoteAgeMs: number;
   maxOddsAgeMs: number;
+  sharedEvidence: string[];
 }) {
   // The team this row's own side pays on, and how it is bought. `row.team`
   // is the YES-side team on both rows of a market, so printing it here named
   // the opponent on every NO row -- ticket #6; see `lib/rowSubject.ts`.
   const subject = rowSubject(row);
+  // **A card, not a table row (#386).** Line 1 is who and when, line 2 is
+  // what it costs and what it is worth at equal weight, the refusal code
+  // stays visible, and the actions sit INSIDE the card above its divider.
+  // Every diagnostic (books, size, drift, width, the readings strip, the
+  // evidence line) is behind the one `Details` disclosure.
   return (
-    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3 xl:grid xl:grid-cols-[3rem_minmax(0,1fr)_5.5rem_5rem_8rem_6.5rem_11rem_6rem_7rem_6.5rem_2.5rem] xl:gap-x-4 xl:items-baseline">
-      <span className="tabular w-12 shrink-0 font-mono text-xs text-muted">
-        {kickoff(row.commence_ms)}
-      </span>
-      {/* The name opens the market's price-history chart. A plain link,
-          not a button: history is safe to browse, and the chart page says
-          itself that the tradeable number is the ask on this row.
-
-          The league tag shares the name's grid cell rather than taking one
-          of its own: the xl template names eleven columns, and a twelfth
-          child would shift every column after it by one. */}
-      <span className="flex min-w-0 items-baseline gap-2">
+    <div className="rounded-lg border border-border bg-card p-3">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="tabular w-12 shrink-0 font-mono text-xs text-muted">
+          {kickoff(row.commence_ms)}
+        </span>
         <LeagueTag league={row.league} />
+        {/* Wraps, never truncates (#386): a clipped name is a different team. */}
         <Link
           href={`/market/${encodeURIComponent(row.ticker)}`}
-          className="min-w-0 truncate font-semibold tracking-tight hover:underline"
+          className="min-w-0 break-words font-semibold tracking-tight hover:underline"
         >
           {subject.name}
         </Link>
-        {/* Which side this row prices, inside the name's grid cell for the
-            same reason the league tag is: a twelfth child would shift every
-            xl column after it. Present on every row, because both sides of
-            one game sit next to each other here. */}
         {subject.how && (
           <span className="shrink-0 font-mono text-[0.65rem] text-muted">
             {subject.how}
           </span>
         )}
-      </span>
-      <span className="tabular text-sm text-muted">
-        {row.ask_display} <Term k="ask">ask</Term>
-      </span>
+        <span className="ml-auto hidden shrink-0 sm:inline-flex">
+          <CrewBubble row={row} />
+        </span>
+      </div>
 
-      {/* **What it is worth, beside what it costs** (ADR 0071 §2.2, Joe's
-          answer 2026-08-24). This track held `breakeven_win_rate` until then,
-          on fleet convening item 6, and the two cannot share the row:
-          `edge_tenths` is exactly 1000 × (fair − break-even), so rendering
-          both hands the reader the measured-negative edge by subtraction.
-          The swap is the whole change — one of them, never both.
+      {/* Ask and fair at equal weight: one class for both. Two plain numbers,
+          no sign, no tone, and never a break-even beside fair (ADR 0071
+          section 2.2). */}
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        <span className={PRICE_CLASS}>
+          {row.ask_display} <Term k="ask">ask</Term>
+        </span>
+        <span className={PRICE_CLASS}>
+          {row.fair_percent_display ?? "--"} <Term k="consensus">fair</Term>
+        </span>
+        <QuoteAge ageMs={row.quote_age_now_ms} maxMs={maxQuoteAgeMs} />
+        <Anchor anchored={row.anchored_on_sharp} />
+      </div>
 
-          Fair won because break-even is the ask with the fee added, not a
-          third fact, while fair is the only one of the three that says
-          something the row does not already carry. Ask stays a price and
-          fair stays a probability, deliberately: their difference is NOT the
-          edge, because the fee is missing from it. Precedent is
-          `ConsensusPanel.tsx`, which renders fair% and is forbidden
-          break-even by `tests/test_desk_panels.py:94` for this same reason.
-
-          Two plain numbers. No sign, no arrow, no tone class — the 2026-08-21
-          ruling took the *claim* off this screen, not the facts, and a
-          comparison is only drawn if we draw it.
-
-          **Unconditional, and that is a fix.** The old span rendered only
-          when `breakeven_win_rate !== null`, so on a row with no tradeable
-          price every column from `Books` rightward shifted one track left at
-          xl. `fair_percent_display` is server-rendered and already carries
-          `--` for an unreadable fair value, so the cell is always present.
-          It also ends the one piece of client-side arithmetic on this row
-          (`* 100).toFixed(1)`), which is the drift `format_probability`
-          exists to prevent. */}
-      {/* The visible word is "fair", not "consensus fair": the xl track is
-          5rem and the longer label wrapped to three lines on every row. The
-          full phrase is in the glossary popover, and `SlateRow.tsx` on the
-          Board already says `{fair} fair / {ask} ask` — one vocabulary
-          across both screens. */}
-      <span className="tabular text-sm text-muted">
-        {row.fair_percent_display ?? "--"} <Term k="consensus">fair</Term>
-      </span>
-
-      <Books row={row} />
-      <Drift tenths={row.kalshi_drift_tenths} windowMs={driftWindowMs} />
-      <Capacity row={row} />
-      <QuoteAge ageMs={row.quote_age_now_ms} maxMs={maxQuoteAgeMs} />
-      {/* On every width since 2026-08-20 (fleet convening item 4). This is
-          the most consequential caveat in the product — all three actionable
-          rows ever written were soft fallbacks — and it was desktop-only on a
-          tool operated from a phone. It costs the phone row a short fragment;
-          that price was the finding, not an oversight to re-hide. */}
-      <Anchor anchored={row.anchored_on_sharp} />
-      <span className="hidden xl:inline">
-        <Width width={row.market_width} />
-      </span>
-
-      {/* **Desktop only, and nothing is lost by that.** The bubble opens on
-          hover, which a phone does not have — and at 390px it wrapped onto a
-          line of its own, so eleven rows paid eleven lines for an affordance
-          that could not be used. Every fact inside it is already a column on
-          this row: the Skeptic reads back `suppressed_reason`, which renders
-          below in full. */}
-      <span className="ml-auto hidden shrink-0 sm:inline-flex">
-        <CrewBubble row={row} />
-      </span>
-
-      {/* The status line: the single most urgent clock-or-tape fact on this
-          row, in words, on every width (fleet convening item 4). Priority is
-          registered in the convening record: staleness, then old consensus,
-          then the tape — and the suppression code below is the bar, which
-          keeps the fourth rung where it already renders. **This is a
-          selection, not a composite** (ADR 0021 §9): one line voices one
-          fact from one source; choosing WHICH fact by fixed priority weighs
-          nothing against anything. */}
-      <StatusLine
-        row={row}
-        maxOddsAgeMs={maxOddsAgeMs}
-      />
-      {/* Same opinion, cheaper way round (#245). Printed only when the
-          server found one; the row is not ordered or filtered by it. */}
+      <StatusLine row={row} maxOddsAgeMs={maxOddsAgeMs} />
       <LineShopHint hint={row.line_shop} />
 
-      {/* The code, and where it is explained. The code is the engine's own
-          name for the rule and is what the suppression-count disclosure at
-          the foot of this screen groups by (`/rejections` was deleted
-          2026-08-22 and folded there). Until 2026-09-02 a plain-English
-          sentence rendered under it on every row; decision-map ticket #16
-          (Joe's answer 16A) cut it, because eleven games ran to ~12,000px at
-          390px and just under half of that was prose. The sentence now lives
-          on the game screen's skeptic section, captioning the same code from
-          the same map, and the row carries the link — one tap, which is the
-          cost Joe accepted. `break-words` stays: a composite reason is one
-          unbreakable token and pushed the whole page sideways once. */}
+      {/* The code, verbatim, and where it is explained (#16A, #31). */}
       {row.suppressed_reason && (
-        <span className="flex w-full flex-wrap items-baseline gap-x-2 xl:col-span-full">
+        <span className="mt-1 flex w-full flex-wrap items-baseline gap-x-2">
           <span className="min-w-0 break-words font-mono text-xs text-accent-2">
             {row.suppressed_reason}
           </span>
@@ -637,88 +627,48 @@ function Row({
         </span>
       )}
 
-      {/* **Every width, including the phone.** This shipped `xl:`-only on
-          2026-08-19 under ADR 0047's rule that everything below 1280px stays
-          byte-identical, with the cost of overriding that stated and the
-          decision handed to Joe. He took it the same day: he reads this screen
-          on a phone, and an explanation that only exists on a monitor explains
-          nothing to the person who owns the account. ADR 0052.
-
-          The rule it overrides was about *density* -- not adding rows of
-          columns to a hand-held screen -- and this is not a column. It is the
-          one thing on the row that says where its own number came from: this
-          line reads `fair` once, and that number is the lowest of four devig
-          readings averaged over an anchored subset of the books. Three
-          choices, none of them on any screen before this. */}
-      <span className="w-full xl:col-span-full">
-        <DispersionStrip
-          books={row.books}
-          methods={row}
-          kalshiProbability={
-            typeof row.ask_tenths === "number" ? row.ask_tenths / 1000 : null
-          }
-          anchoredBookCount={row.book_count ?? null}
-        />
-      </span>
-
-      {/* **The sweet spot** (ADR 0090; Joe chose all three surfaces and the
-          parlay card shipped first). Directly above the hand-bet door, which
-          is where it earns its place: the last thing read before the control
-          is how much of this row was actually checked.
-
-          The component is `TrustNote`, unchanged and shared with the parlay
-          card — the same reasoning as `DispersionStrip variant="chart"`. Its
-          four honesty properties (denominator is `known`, the unknowns live
-          inside the score's own span, every failure is named, no colour and
-          no ordering) are only guaranteed while there is one implementation
-          of them, and a copy here would carry none of them.
-
-          Renders nothing when the server sent no score, which is the honest
-          state for a row whose `fair_prices` join found nothing: half the
-          checks read off that row, and four unknowns from one missing join is
-          a different quantity from four separately unmeasured checks. */}
-      {/* `size="panel"`, not the parlay card's `compact`, and the reason is a
-          measurement. At 390px the compact score renders at 9.6px -- the
-          SMALLEST text on the row, under the 10.4px `readings disagree by`
-          line directly above it. Compact was sized for the card, where six
-          legs share one `text-[11px]` list; on a row whose other captions are
-          `text-xs` it made the thing Joe asked for the quietest element
-          there. Panel is 12px, matching the gloss and status lines beside it.
-          Joe's call, 2026-08-31, after the 390px read. */}
-      <span className="w-full xl:col-span-full">
-        <TrustNote trust={row.trust} size="panel" hideAgeChecks />
-      </span>
-
-      {/* The same-game builder (#202), for a game's own row. Full width and
-          `xl:col-span-full` like the spans around it, so it adds no track
-          to the xl grid. Only a GAME-series ticker names the game itself;
-          a spread or prop row's suffix is the same fixture but its league
-          prefix is not the game series', so it does not guess one. */}
-      {gameEventOf(row.ticker) && (
-        <span className="w-full xl:col-span-full">
-          <Link
-            href={`/game/${encodeURIComponent(gameEventOf(row.ticker) as string)}`}
-            className="text-xs text-accent underline"
-          >
-            Build a same-game parlay &rarr;
-          </Link>
-        </span>
-      )}
-
-      {/* The hand-bet door (ADR 0063), last on the row so the facts are read
-          before the control. The ticket no longer asks for a probability and
-          masks nothing (ADR 0131),
-          so this row printing the ask three tracks left of here is simply ADR
-          0071 §2.2 doing its job. The engine's own door is not here and never
-          was: this row has always carried `suggested_contracts === 0`. */}
-      <span className="w-full xl:col-span-full">
+      {/* The actions, inside the card and above its divider. */}
+      <div className="mt-3 space-y-2">
         <ManualTicket
           ticker={row.ticker}
           variant="inline"
           openLabel="Bet this by hand"
           closedNote={false}
         />
-      </span>
+        {gameEventOf(row.ticker) && (
+          <span className="block">
+            <Link
+              href={`/game/${encodeURIComponent(gameEventOf(row.ticker) as string)}`}
+              className="text-xs text-accent underline"
+            >
+              Build a same-game parlay &rarr;
+            </Link>
+          </span>
+        )}
+      </div>
+
+      <details className="mt-3 border-t border-border pt-2">
+        <summary className="cursor-pointer text-xs font-semibold text-muted">
+          Details
+        </summary>
+        <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <Books row={row} />
+          <Capacity row={row} />
+          <Drift tenths={row.kalshi_drift_tenths} windowMs={driftWindowMs} />
+          <Width width={row.market_width} />
+        </div>
+        <div className="mt-2 space-y-2">
+          <DispersionStrip
+            books={row.books}
+            methods={row}
+            kalshiProbability={
+              typeof row.ask_tenths === "number" ? row.ask_tenths / 1000 : null
+            }
+            anchoredBookCount={row.book_count ?? null}
+          />
+          <RowEvidence trust={row.trust} shared={sharedEvidence} />
+        </div>
+      </details>
     </div>
   );
 }
@@ -924,11 +874,14 @@ function QuoteAge({
     );
   }
   const stale = ageMs > maxMs;
+  // One format (`47s`, `6m`, `2h`). Neutral ink under the limit; past it the
+  // caution ochre with the limit named, never red (#10, #32, #386).
   return (
     <span
-      className={`tabular text-xs ${stale ? "text-negative" : "text-muted"}`}
+      className={`tabular text-xs ${stale ? "text-accent-2" : "text-muted"}`}
     >
       <Term k="quote_age">quote</Term> {formatAgeShort(ageMs)}
+      {stale && <> · limit {formatAgeShort(maxMs)}</>}
     </span>
   );
 }
@@ -1114,7 +1067,7 @@ function Anchor({ anchored }: { anchored: boolean | null | undefined }) {
  */
 function Width({ width }: { width: number | null | undefined }) {
   if (width === null || width === undefined) {
-    return <span className="tabular text-xs text-muted">width —</span>;
+    return null;
   }
   const points = width * 100;
   return (
