@@ -35,7 +35,9 @@ SRC = (ROOT / "frontend" / "src" / "components" / "GameLegs.tsx").read_text(
 
 
 def _leg_map() -> str:
-    start = SRC.index("group.legs.map((leg)")
+    # #378: the per-leg body moved out of the Group map into LegDetails; the
+    # anchor follows it, the assertions below are unchanged.
+    start = SRC.index("function LegDetails(")
     return SRC[start:]
 
 
