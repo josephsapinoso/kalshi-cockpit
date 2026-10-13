@@ -739,7 +739,7 @@ function Group({
       id={groupAnchor(group)}
       open={open}
       onToggle={(e) => onOpenChange(e.currentTarget.open)}
-      className="scroll-mt-28 rounded-xl border border-border bg-card"
+      className="scroll-mt-44 rounded-xl border border-border bg-card"
     >
       <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">
         {group.label}{" "}
@@ -885,7 +885,8 @@ function JumpStrip({
   return (
     <nav
       aria-label="Jump to a group of legs"
-      className="sticky top-0 z-30 -mx-1 space-y-2 border-b border-border bg-background px-1 py-2"
+      style={{ top: "var(--nav-height, 69px)" }}
+      className="sticky z-30 -mx-1 space-y-2 border-b border-border bg-background px-1 py-2"
     >
       <input
         type="search"
