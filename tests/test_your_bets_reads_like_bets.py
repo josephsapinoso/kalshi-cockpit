@@ -106,7 +106,7 @@ class TestPageHeadingIsQuieterThanTheNet:
 
     def test_h1_is_a_smaller_type_step_than_the_net_figure(self):
         h1 = re.search(r'<h1 className="([^"]+)">Your bets', SRC).group(1)
-        net = re.search(r"className=\{`(display [^$`]*)\$\{\s*totals\.net_tenths", SRC).group(1)
+        net = re.search(r"className=\{`(display [^$`]*)\$\{\s*(?:netInk\()?totals\.net_tenths", SRC).group(1)
         assert self._step(h1) < self._step(net)
 
 
