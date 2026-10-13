@@ -400,11 +400,14 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
   };
 
   /**
-   * Only the FIRST send wears the filled accent; every re-send is a bordered
-   * secondary. ADR 0047 made the same call for TicketSheet: a filled accent
-   * control must not be the brightest thing on a wide screen unless it spends
-   * money it has not spent before -- and a red button under a completed board
-   * invites re-rolling the desk until it says something.
+   * No send wears the filled accent any more (#389): the market page has no
+   * filled button, because a filled control claims the money slot and this
+   * one spends tokens, not money. The first send is a bordered outline in
+   * the accent colour, every re-send the quieter bordered secondary. ADR 0047
+   * made the same call for TicketSheet: a filled accent control must not be
+   * the brightest thing on a wide screen unless it spends money it has not
+   * spent before -- and a red button under a completed board invites
+   * re-rolling the desk until it says something.
    */
   const sendButton = (label: string, again = false) => (
     <div>
@@ -414,7 +417,7 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
         className={
           again
             ? "rounded-lg border border-border-strong px-4 py-2 text-sm font-semibold text-muted disabled:opacity-50"
-            : "rounded-lg bg-accent-fill px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            : "rounded-lg border border-accent px-4 py-2 text-sm font-semibold text-accent disabled:opacity-50"
         }
       >
         {sending ? "Sending…" : label}
