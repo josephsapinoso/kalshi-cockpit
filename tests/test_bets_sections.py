@@ -83,7 +83,7 @@ class TestTheKindsAreSeparated:
 
     def test_each_section_shows_a_sum_and_no_rate(self):
         text = code(PAGE)
-        assert "{block.net_display}" in text
+        assert "netShown(block.net_tenths, block.net_display)" in text
         assert "{block.computable}" in text
         assert "block.total /" not in text
         assert "/ block." not in text
