@@ -169,10 +169,13 @@ class TestTheMarketScreenStaysOnItsInstruments:
             "chose one row of lamps over a 3x2 fold deliberately"
         )
 
-    def test_only_the_first_send_wears_the_accent(self):
+    def test_no_send_wears_the_filled_accent(self):
+        # Was `== 1` (only the first send filled). #389 (2026-10-13 UI review)
+        # demoted the first send too, so no metered request is ever the
+        # brightest control on the market page.
         text = (SRC / "components" / "ScoutDesk.tsx").read_text(encoding="utf-8")
-        assert text.count("bg-accent-fill") == 1, (
-            "more than one filled-accent control in the desk; re-sends are "
-            "bordered secondaries so the brightest thing on the screen is "
-            "never an invitation to re-roll a metered request"
+        assert text.count("bg-accent-fill") == 0, (
+            "a filled-accent control in the desk; every send is a bordered "
+            "secondary so the brightest thing on the screen is never an "
+            "invitation to spend a metered request"
         )

@@ -736,28 +736,6 @@ type ByLegKind = {
   leagues: { league: string; kinds: LegKindBlock[] }[];
 };
 
-/**
- * A net's ink and sign (#391). The server renders a wash as "+$0.00"
- * (`backend/bets.py:format_net_dollars`), and a zero painted green with a plus
- * reads as a gain. Zero is neutral ink and "$0.00" with no sign; a positive
- * stays `text-positive`, a negative `text-negative`. Done here because the
- * server's string is not this lane's to change.
- */
-function netInk(tenths: number | null | undefined): string {
-  if (tenths === 0) return "text-foreground";
-  return typeof tenths === "number" && tenths < 0
-    ? "text-negative"
-    : "text-positive";
-}
-
-function netShown(
-  tenths: number | null | undefined,
-  display: string | null | undefined,
-): string | null | undefined {
-  if (tenths === 0) return "$0.00";
-  return display;
-}
-
 function signedCents(value: number | null): string {
   if (value === null) return "not recorded";
   return `${value < 0 ? "-" : "+"}${Math.abs(value).toFixed(1)}c`;
@@ -1145,4 +1123,26 @@ function Shell({ children }: { children: React.ReactNode }) {
       {children}
     </div>
   );
+}
+
+/**
+ * A net's ink and sign (#391). The server renders a wash as "+$0.00"
+ * (`backend/bets.py:format_net_dollars`), and a zero painted green with a plus
+ * reads as a gain. Zero is neutral ink and "$0.00" with no sign; a positive
+ * stays `text-positive`, a negative `text-negative`. Done here because the
+ * server's string is not this lane's to change.
+ */
+function netInk(tenths: number | null | undefined): string {
+  if (tenths === 0) return "text-foreground";
+  return typeof tenths === "number" && tenths < 0
+    ? "text-negative"
+    : "text-positive";
+}
+
+function netShown(
+  tenths: number | null | undefined,
+  display: string | null | undefined,
+): string | null | undefined {
+  if (tenths === 0) return "$0.00";
+  return display;
 }
