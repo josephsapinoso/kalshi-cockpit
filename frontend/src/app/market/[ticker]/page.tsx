@@ -39,6 +39,7 @@
  */
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 
 import {
@@ -58,6 +59,7 @@ import SkepticPanel from "@/components/SkepticPanel";
 import Term from "@/components/Term";
 import TonightStrip from "@/components/TonightStrip";
 import TrustNote from "@/components/TrustNote";
+import { gameEventOf } from "@/lib/gameEvent";
 import { SHELL_WIDTH } from "@/lib/shell";
 import { kalshiMarketUrl } from "@/lib/kalshiLink";
 import { leagueLabel } from "@/lib/leagueLabel";
@@ -307,7 +309,7 @@ export default function MarketPage() {
         {/* The escape hatch this app never had (A7): scheme verified in a
             browser 2026-08-22, built in lib/kalshiLink.ts. External link on
             purpose — it leaves the cockpit and says so. */}
-        <p className="mt-2 max-w-[65ch] text-sm">
+        <p className="mt-2 flex max-w-[65ch] flex-wrap gap-x-4 gap-y-1 text-sm">
           <a
             href={kalshiUrl}
             target="_blank"
@@ -316,6 +318,17 @@ export default function MarketPage() {
           >
             Open on Kalshi ↗
           </a>
+          {/* The game this market belongs to (#389), for a game-series
+              ticker only; the href is built inline so the reachability
+              walk sees it. */}
+          {gameEventOf(ticker) && (
+            <Link
+              href={`/game/${encodeURIComponent(gameEventOf(ticker) as string)}`}
+              className="font-semibold text-accent underline"
+            >
+              See the whole game &rarr;
+            </Link>
+          )}
         </p>
         {detail && <QuoteStrip detail={detail} now={now} kalshiUrl={kalshiUrl} />}
         {/* **The sweet spot** (ADR 0090; Joe chose all three surfaces). In the
@@ -442,7 +455,9 @@ export default function MarketPage() {
                 key={r.key}
                 onClick={() => setRange(r.key)}
                 className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase ${
-                  range === r.key ? "bg-accent-fill text-white" : "border text-muted"
+                  range === r.key
+                    ? "border border-accent text-accent"
+                    : "border text-muted"
                 }`}
               >
                 {r.label}

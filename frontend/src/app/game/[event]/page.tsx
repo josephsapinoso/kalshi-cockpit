@@ -31,7 +31,9 @@ export default async function GamePage({
   const eventTicker = decodeURIComponent(event);
   return (
     <div className={`${SHELL_WIDTH} px-4 py-12 sm:px-6 sm:py-16 xl:px-8`}>
-      <h1 className="display text-4xl sm:text-5xl">Same-game parlay</h1>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted">
+        Same-game parlay
+      </p>
       {/* The game's title and kickoff lead the page (Joe, 2026-10-02): GameLegs
           draws its heading first and the card panel right under it. */}
       <GameLegs

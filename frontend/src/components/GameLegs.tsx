@@ -12,6 +12,7 @@ import {
   type GameLegs as GameLegsData,
 } from "@/lib/api";
 import AskTheMarket from "@/components/AskTheMarket";
+import GameHeader from "@/components/GameHeader";
 import { CheckTheseLegs } from "@/components/GameScriptCard";
 import { RestChip } from "@/components/ParlayCards";
 import { keyNumberWords } from "@/components/ParlayCards";
@@ -528,23 +529,16 @@ function GameHeading({
   const leg = data?.groups.flatMap((g) => g.legs).find((l) => l.rest);
   return (
     <div className="mt-2">
-      <p className="max-w-[65ch] text-base font-semibold">
-        {title ?? <span className="font-mono text-xs font-normal text-muted">{eventTicker}</span>}
-      </p>
-      {(kickoff !== null || sport) && (
-        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted">
-          {kickoff !== null && (
-            <span className="tabular">
-              kickoff {formatKickoff(kickoff)} {displayZoneLabel(kickoff)}
-            </span>
-          )}
-          {sport && (
-            <span className="rounded border border-border px-1 font-mono text-[0.65rem] uppercase tracking-wide">
-              {leagueLabel(sport)}
-            </span>
-          )}
-        </p>
-      )}
+      <GameHeader
+        eventTicker={eventTicker}
+        title={title}
+        league={sport ? leagueLabel(sport) : null}
+        kickoff={
+          kickoff !== null
+            ? `${formatKickoff(kickoff)} ${displayZoneLabel(kickoff)}`
+            : null
+        }
+      />
       {leg && <RestChip rest={leg.rest} />}
     </div>
   );
