@@ -50,9 +50,11 @@ class TestEveryLegCanBeBetAlone:
         assert "ticker={leg.market_ticker}" in tag
         assert "preferSide={side}" in tag
         assert "Bet this one alone" in tag
-        # `side` is the allowed-sides loop variable, not a constant.
+        # `side` is the loop variable over both sides, not a constant. Not
+        # `allowed_sides` (#366): that is the combination's rule, and a
+        # yes-only leg's NO is still a single Kalshi trades.
         before = body[: body.index("<ManualTicket")]
-        loop = before[before.rindex("leg.allowed_sides.map((side)"):]
+        loop = before[before.rindex("SINGLE_SIDES.map((side)"):]
         # Gated on a readable ask for that very side (no silent side fallback).
         assert "if (askTenths === null) return null" in loop
 
@@ -60,6 +62,9 @@ class TestEveryLegCanBeBetAlone:
         body = _leg_map()
         assert "your own number is the only estimate there is" in body
         assert "facts.chance === null" in body or "facts.chance !== null" in body
+
+    def test_single_sides_is_both_sides(self):
+        assert 'const SINGLE_SIDES: Side[] = ["yes", "no"];' in SRC
 
     def test_the_page_names_a_single_with_its_glossary_term(self):
         assert '<Term k="single">' in SRC

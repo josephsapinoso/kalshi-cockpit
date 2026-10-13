@@ -662,7 +662,13 @@ class TestTheFourRefusalsCostNoVenueCall:
         listing = (await _get(app, f"/api/game/{GAME}/legs")).json()
         game_leg = listing["groups"][0]["legs"][0]
         assert game_leg["allowed_sides"] == ["yes"]
-        assert list(game_leg["sides"]) == ["yes"]
+        # #366: both sides are priced for the page (the NO is a single),
+        # while `allowed_sides` keeps the combination's yes-only rule.
+        assert list(game_leg["sides"]) == ["yes", "no"]
+        # #366: the NO ask is still listed, read off the captured market, so
+        # the screen can offer the NO as a single. Readable here, never 0.
+        no_side = game_leg["listed"]["no"]
+        assert no_side["ask_tenths"] is not None and no_side["ask_tenths"] > 0
         fake.calls.clear()
         response = await _mint(app, [_leg(ATL, "no"), _leg(_rec_markets()[0])])
         assert response.status_code == 422

@@ -428,7 +428,8 @@ async def _read_event_markets(api, event_ticker: str, gate: asyncio.Semaphore):
 
 
 def _price_sides(
-    conn, legs: list[dict], *, now_ms: int, max_odds_age_ms: int
+    conn, legs: list[dict], *, now_ms: int, max_odds_age_ms: int,
+    sides: Optional[tuple[str, ...]] = None,
 ) -> None:
     """Fill each leg's `sides[...]` with the desk's chance or a worded reason.
 
@@ -437,6 +438,11 @@ def _price_sides(
     eligibility cache would only ever hide one), `ladder_candidates` under the
     widest window, then `unusable_reason` and `p_conservative`. A leg absent
     from the pool is `None` and a reason, never `0`.
+
+    `sides` overrides each leg's `allowed_sides` when given: the game page
+    prices both sides (#366), because a yes-only leg is yes-only in a
+    combination only and its NO is offered as a single; without a price the
+    NO ticket would say the desk has none when the desk never looked.
     """
     pool = candidate_pool(conn, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms)
     pool = pool._replace(eligible_events=None)
@@ -451,13 +457,13 @@ def _price_sides(
     missing = [
         leg["market_ticker"]
         for leg in legs
-        for side in leg["allowed_sides"]
+        for side in (sides or leg["allowed_sides"])
         if (leg["event_ticker"], leg["market_ticker"], side) not in by_key
     ]
     kickoffs = _commence_ms_for_tickers(conn, sorted(set(missing))) if missing else {}
 
     for leg in legs:
-        for side in leg["allowed_sides"]:
+        for side in (sides or leg["allowed_sides"]):
             candidate = by_key.get((leg["event_ticker"], leg["market_ticker"], side))
             chance: Optional[float] = None
             code: Optional[str] = None
@@ -653,18 +659,22 @@ async def list_game_legs(
                 "size_max": cap,
                 "one_per_event": cap == 1,
                 "sides": {},
-                # Kalshi's ask as the listing printed it, per allowed side,
-                # stamped with when this listing was read (#276).
+                # Kalshi's ask as the listing printed it, for BOTH sides,
+                # stamped with when this listing was read (#276). Both even on
+                # a yes-only event (#366): `is_yes_only` is the combination
+                # collection's rule, so a NO leg stays refused in a parlay
+                # (`allowed_sides`), but the market itself trades NO as a
+                # single and the screen offers that bet when its ask reads.
                 "listed": {
                     "read_ms": now_ms,
-                    **{
-                        s: _listed_side(market, s)
-                        for s in (["yes"] if event.is_yes_only else ["yes", "no"])
-                    },
+                    **{s: _listed_side(market, s) for s in ("yes", "no")},
                 },
             })
 
-    _price_sides(conn, legs, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms)
+    _price_sides(
+        conn, legs, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms,
+        sides=("yes", "no"),
+    )
     context = game_context(conn, game_event_ticker, [e.event_ticker for e in events])
     for leg in legs:
         leg["rest"] = context["rest"]

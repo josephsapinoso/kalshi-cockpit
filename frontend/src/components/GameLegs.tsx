@@ -54,6 +54,10 @@ const EXTRA_LEG_LINE =
 
 type Side = "yes" | "no";
 
+/** Both sides of a market can be bet alone, whatever a combination allows
+ * (#366); each is still offered only when its own listed ask reads. */
+const SINGLE_SIDES: Side[] = ["yes", "no"];
+
 /**
  * Kalshi's ask for one side as the listing printed it (#276), integer tenths
  * from the server; `null` is "unreadable", never zero. Depth at the YES ask is
@@ -647,7 +651,9 @@ function SideButton({
 function LegDetails({ leg }: { leg: GameLeg }) {
   return (
     <div className="mt-1 space-y-0.5">
-      {leg.allowed_sides.map((side) => {
+      {/* Both sides' facts, not allowed_sides (#366): the NO of a yes-only
+          leg is offered as a single below, so its chance and ask show too. */}
+      {SINGLE_SIDES.map((side) => {
         const facts = leg.sides[side];
         const sideWords = side === "yes" ? leg.yes_label : leg.no_label;
         return (
@@ -663,10 +669,10 @@ function LegDetails({ leg }: { leg: GameLeg }) {
           </p>
         );
       })}
-      {leg.allowed_sides.map((side) => (
+      {SINGLE_SIDES.map((side) => (
         <ListedAsk key={`ask-${side}`} leg={leg} side={side} />
       ))}
-      {leg.allowed_sides.map((side) => {
+      {SINGLE_SIDES.map((side) => {
         const facts = leg.sides[side];
         if (!facts || facts.chance !== null) return null;
         return (
@@ -675,13 +681,15 @@ function LegDetails({ leg }: { leg: GameLeg }) {
           </p>
         );
       })}
-      {/* Bet this leg alone (#356). One ticket per allowed side, each
+      {/* Bet this leg alone (#356). One ticket per side, each
           opened on the side its own row names: ManualTicket falls back
           to the OTHER side when the preferred one has no ask, so a
           side with no readable ask is not offered at all rather than
           opening on a contract the row did not name. No ordering and
-          no mark: the ask and the chance are facts on the row. */}
-      {leg.allowed_sides.map((side) => {
+          no mark: the ask and the chance are facts on the row.
+          SINGLE_SIDES, not allowed_sides (#366): a yes-only leg is
+          yes-only in a COMBINATION; alone, its NO is an ordinary bet. */}
+      {SINGLE_SIDES.map((side) => {
         const facts = leg.sides[side];
         const askTenths =
           (leg as GameLegListed).listed?.[side]?.ask_tenths ?? null;
