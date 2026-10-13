@@ -139,6 +139,32 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-13 (ninety-fifth session) — four builds live: each agent call records its server-tool steps (#383, schema v67), the NFL /game listing names every series (#381), the hand-tick refusal stops naming a cover nobody ticked (#382), and a yes-only leg's NO is offered as a single (#366)
+
+- **No focus from Joe; `/go` start in plan mode.** State clean, live on `633444e`, no PRs. `partner` ranked the board: three builds today, one with a deadline (the step count before Thu 10-16 00:15Z SEA@DEN, so #376's 10-18 re-read can say which lever drives NFL card cost). Ticket hygiene: **#377 closed** (landed `418b75c9`, live); **#370 closed as a delivered finding and split** into **#383** (step count, built) and **#384** (token hold on a card tap, blocked by #376 — the hold's size is #376's output); #381 labelled `model:sonnet` and narrowed to labels only (dropping a same-count group would remove bettable legs).
+- **#383 (main, `551980ba`):** `agent_calls.server_tool_steps` = the `server_tool_use` blocks in the returned `Message`, walked beside `tool_errors_from`; the create call is untouched (#371's lesson). NULL when no reply came back, never 0. Captured `anthropic_scout_captured.json` reads 10. `agent-spend` prints the column. Mutations (walk counts the wrong block type; settle writes 0 for no reply) both red. **Live migrated to v67, column read back via `agent-spend --days 1`: NULL on every row, all pre-deploy.** The first number arrives with Joe's next card/verdict tap; #383 stays open for that read.
+- **#381 (Sonnet lane, `3a73be81`):** 50 NFL series gained Kalshi-worded labels from a new public capture (`tests/fixtures/series_nfl_live_game.json`, 69 series on SEA@DEN); 0 "Other markets" on the capture; `TestNflSeriesHaveWords` red when one label is removed. Not verified: which of the 69 the catch-all collection offers as legs.
+- **#382 (Sonnet lane, `3089f993`, found by partner checking session 94's "Not done"):** a win implied by two team totals with no spread ticked was refused with "and its cover ... are both ticked" — a leg Joe never ticked. The win+cover sentence now fires only when that cover was ticked; else the general "already guaranteed" sentence. `GameLegs.tsx` comment corrected (`coverTickedFor` mirrors only win+cover).
+- **#366 (main, `eb49b82d`):** `is_yes_only` is the combination collection's rule, so `allowed_sides` and the mint refusal keep it; the market itself trades NO. `/game` now prices and lists both sides and "Bet this one alone" loops both, still gated on that side's readable ask. **`kalshi-platform` review FAILED the first diff on one sentence** — the NO ticket said the desk had no price when the desk had never priced that side — and **PASSED after fix (a)** (`_price_sides(sides=("yes","no"))` for the listing only; the card path prices its own side). Its gap against the ticket wording: the test flags a game leg yes-only, not a captured prop, and the frontend pin is source text.
+- **Dropped on purpose (partner):** general-case `coverTickedFor` greying (a TS copy of the score engine would drift; the server refuses in words); `KXMLBF5`/`KXMLBF3` in the implied-leg check (fails safe — `_score_predicate` returns None, never drops; no refusal observed; MLB ends in ~3 weeks; reopen only if a `duplicated_legs` refusal names one).
+- **Verification:** targeted runs green (4,419 over schema/budget/instrument tests; 693 + 669 in the lanes; 658 over game_builder/GameLegs/game_script after #366), ruff and tsc clean; CI green on `edee0f13` and on `eb49b82d`. Live deployed on `edee0f13` (verified `build.git_sha`), then on `eb49b82d` (verified `build.git_sha`).
+- **Not done, named:** stale worktree shells under `.claude/worktrees/` (two registered at 0 ahead, ~12 unregistered with one `.next/standalone/node_modules` junction each) — removal was refused by the auto-mode classifier as irreversible; left for Joe. No question for Joe owed (#380 is the one open).
+
+### Still open
+
+1. #383 — read `server_tool_steps` back on live after Joe's next card or verdict tap, then close.
+2. #376 — 2026-10-18: re-read NFL card cost on the trimmed prompt, now with step counts; prediction ≈670K.
+3. #384 — card tap token hold; blocked by #376.
+4. #380 — Joe's question: rebuild a game's card at a different leg count.
+5. #210 — closes on the first `complete` convening whose board carries the Matchup tile.
+6. #360 — college basketball into scope when Kalshi lists it; check 2026-11-01.
+7. #361 — 2026-10-27: credit projection after an NBA week; warn Joe before 20,000.
+8. #355 — Your bets split by leg count and same-game vs cross-sport; blocked by #331.
+9. #347 — the backend no-op sweep and the routes nothing calls; deferred.
+10. #337 — 2027-01-15: look B for P1 only.
+11. #331 — 2026-11-01: the leg census by kind.
+12. #151, #197, #267 — carried forward unchanged.
+
 ## 2026-10-13 (ninety-fourth session) — two errands from Joe's phone: every agent call was dead since #371 (`output_format` on `create`), and a card could carry a leg its other legs guarantee; both fixed, live on `633444e`, Joe got a price
 
 - **Every AI call raised TypeError since #371** (`576445c`). `structured_call` moved from `messages.parse` to `messages.create` and kept `output_format`, which only `parse` takes; cards, leg verdicts and scouts all failed before the network (nothing billed). The schema now rides in `output_config.format` beside `effort`. `TestTheRequestBindsToTheRealCreate` binds the sent kwargs to the SDK's real signature; red on the old code. Lesson in `tasks/lessons.md`.
@@ -328,6 +354,8 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-13 (ninety-fifth session) — server-tool steps recorded per agent call (#383, v67); NFL series named (#381); the hand-tick refusal names only ticked legs (#382); a yes-only leg's NO offered as a single (#366, platform review PASS after one fix); #370 split, #377 closed; live on `eb49b82d`
+- 2026-10-13 (ninety-fourth session) — every agent call dead since #371 (`output_format` on `create`) fixed; a card drops any leg its other legs guarantee (`drop_implied_legs`); live on `633444e`
 - 2026-10-13 (ninety-third session) — the master scout's output cap (4000, bound exactly) named and raised to 12,000 (#377) so #210 can close; #376 no trimmed reading, prediction ≈670K; #370 docs lookup (`usage.iterations` beta-only, server-tool caching already on) and a seat sweep; live on `21aca8da`
 - 2026-10-12 (ninety-second session) — NEXT.md split; an NFL card costs 0.5–1.1M tokens for what it reads (#370, #372 A → #374, ADR 0190 Am 4); "books under" counts the anchored books (#373 A → #375); key-number flag (#348); the demo /game refusal names no config (#369); the master scout settles with usage (#371, after the handoff); live on `bf26c721`
 - 2026-10-11 (ninety-first session) — the Anthropic credit lapse found and labelled (#365; #367 B → #368); budget refusals name the cap and reset (#363); the combination cost line states the price (#354); one book and one age on a Games row (#353); `check_mobile --game-event` (#364); #338 closed
