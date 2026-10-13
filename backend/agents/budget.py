@@ -430,7 +430,7 @@ class AgentBudget:
         self.conn.execute(
             "UPDATE agent_calls SET verdict = ?, blocked = ?, "
             "input_tokens = ?, output_tokens = ?, web_searches = ?, "
-            "tool_error_codes = ? WHERE id = ?",
+            "tool_error_codes = ?, server_tool_steps = ? WHERE id = ?",
             (
                 verdict,
                 None if blocked is None else int(blocked),
@@ -443,6 +443,9 @@ class AgentBudget:
                 # '{}' when the content was read and held no error block;
                 # NULL when no response arrived, as for the token columns.
                 None if usage is None else json.dumps(dict(usage.tool_errors)),
+                # NULL when no response arrived, or when the usage came from
+                # somewhere that did not read the content (#383).
+                None if usage is None else usage.server_tool_steps,
                 call_id,
             ),
         )

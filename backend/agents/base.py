@@ -186,6 +186,12 @@ class CallUsage:
     #: A web search that fails still counts in `web_searches` -- the counter
     #: says a search was attempted, this says what came back.
     tool_errors: tuple[tuple[str, int], ...] = ()
+    #: How many server-tool steps the response's content records -- one per
+    #: `server_tool_use` block (#383). Each step re-presents the whole prompt,
+    #: so this is what separates "a long listing" from "many steps over it"
+    #: when a card's `input_tokens` is large (#370). `None` when no response
+    #: content was read, never 0.
+    server_tool_steps: Optional[int] = None
 
     @property
     def total_tokens(self) -> int:
@@ -324,6 +330,22 @@ def _usage_from(response) -> Optional[CallUsage]:
         output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
         web_searches=int(searches or 0),
         tool_errors=tool_errors_from(response),
+        server_tool_steps=server_tool_steps_from(response),
+    )
+
+
+def server_tool_steps_from(response) -> int:
+    """Count the `server_tool_use` blocks in a response's content (#383).
+
+    One block per server-tool invocation the model made inside this one
+    call -- a web search, or a code-execution block that may itself run
+    searches. The API re-presents the prompt on each, which is why an NFL
+    card's 233K-character listing cost 0.5-1.1M input tokens (#370). Called
+    only once a usage block was read, so 0 here is an observation.
+    """
+    return sum(
+        1 for block in getattr(response, "content", None) or ()
+        if getattr(block, "type", None) == "server_tool_use"
     )
 
 

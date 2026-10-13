@@ -296,7 +296,12 @@ logger = logging.getLogger(__name__)
 #: The Check-a-parlay screen's "Ask the scouts" button fires it, on Joe's
 #: tap only. A CHECK cannot be altered in place, so this is the v58 rebuild
 #: again; the rows are copied by id and nothing else changes.
-SCHEMA_VERSION = 66
+#:
+#: v67 (2026-10-13) `agent_calls.server_tool_steps` (#383): how many
+#: server-tool steps one call took, so a large card's cost can be split into
+#: listing size and step count (#370, #376). Nullable column step; no
+#: backfill -- NULL is the truth about every earlier row.
+SCHEMA_VERSION = 67
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1388,6 +1393,10 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45, 57, 59, 
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # Server-tool steps on each agent call. See the v67 note above.
+    67: _Migration(
+        columns=(("agent_calls", "server_tool_steps", "INTEGER"),),
+    ),
     # The leg scout's fourth trigger, the Check-a-parlay screen's own button
     # (#325). See the v66 note above. Cheap on the live volume: a few hundred
     # rows at most.

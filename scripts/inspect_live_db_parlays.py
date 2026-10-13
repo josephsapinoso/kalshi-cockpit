@@ -1101,6 +1101,7 @@ WITH days AS (
         input_tokens,
         output_tokens,
         web_searches,
+        server_tool_steps,
         strftime('%Y%m%d', (called_ms - :offset_ms) / 1000, 'unixepoch')
             AS budget_day
     FROM agent_calls
@@ -1116,6 +1117,7 @@ SELECT
     input_tokens,
     output_tokens,
     web_searches,
+    server_tool_steps,
     COUNT(*) OVER w AS calls_running,
     COALESCE(SUM(input_tokens) OVER w, 0)
         + COALESCE(SUM(output_tokens) OVER w, 0) AS tokens_running,

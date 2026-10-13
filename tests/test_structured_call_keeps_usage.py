@@ -224,3 +224,45 @@ class TestTheRequestBindsToTheRealCreate:
         assert "output_format" not in sent
         assert sent["output_config"]["format"]["type"] == "json_schema"
         assert "effort" in sent["output_config"]
+
+
+class TestTheStepCountIsRecorded:
+    """#383: each `agent_calls` row records how many server-tool steps the
+    returned `Message` took, read off a captured reply with tool blocks; NULL
+    when no reply came back, never 0. Answers #370's "steps are unrecorded"."""
+
+    def _budget(self, tmp_path):
+        conn = db.init_db(tmp_path / "steps.db")
+        return conn, AgentBudget(conn, per_pass_budget=8, daily_budget=24)
+
+    async def test_a_reply_with_tool_blocks_counts_its_server_tool_use_blocks(self):
+        payload = load("anthropic_scout_captured.json")
+        expected = sum(1 for b in payload["content"] if b["type"] == "server_tool_use")
+        assert expected == 10  # the capture, not the walk, fixes this number
+        outcome = await call(_Client(response=message(payload)))
+        assert outcome.usage is not None
+        assert outcome.usage.server_tool_steps == expected
+
+    async def test_a_reply_with_no_tool_blocks_reads_zero_not_null(self):
+        outcome = await call(_Client(response=message(load("anthropic_scout_report.json"))))
+        assert outcome.usage.server_tool_steps == 0
+
+    async def test_the_count_reaches_the_ledger_row(self, tmp_path):
+        conn, budget = self._budget(tmp_path)
+        outcome = await call(_Client(response=message(load("anthropic_scout_captured.json"))))
+        call_id = budget.reserve(called_ms=1_000, agent="scout", model="m")
+        budget.settle(call_id, usage=outcome.usage)
+        row = conn.execute(
+            "SELECT server_tool_steps FROM agent_calls WHERE id = ?", (call_id,)
+        ).fetchone()
+        assert row["server_tool_steps"] == 10
+
+    async def test_a_call_that_never_returned_settles_null_not_zero(self, tmp_path):
+        conn, budget = self._budget(tmp_path)
+        outcome = await call(_Client(raises=RuntimeError("down")))
+        call_id = budget.reserve(called_ms=1_000, agent="scout", model="m")
+        budget.settle(call_id, usage=outcome.usage)
+        row = conn.execute(
+            "SELECT server_tool_steps FROM agent_calls WHERE id = ?", (call_id,)
+        ).fetchone()
+        assert row["server_tool_steps"] is None

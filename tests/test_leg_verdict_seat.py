@@ -194,7 +194,7 @@ class TestOneLegIsOneMeteredCall:
             "agent": "leg_verdict", "ticker": "KXTEST-1", "side": "yes",
             "verdict": "take", "web_searches": 2,
         }
-        assert result.usage == CallUsage(900, 120, 2)
+        assert result.usage == CallUsage(900, 120, 2, server_tool_steps=0)
 
     async def test_an_unaffordable_leg_spends_nothing_and_names_the_ceiling(
         self, tmp_path
