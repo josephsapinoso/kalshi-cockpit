@@ -77,9 +77,11 @@ const IMPLIED_WIN_LINE =
 /**
  * The market ticker of a ticked YES cover ("that team wins by N+") on the same
  * game and team as `leg`, when `leg` is that team's moneyline; else `null`.
- * Mirrors `drop_implied_legs` (backend/store/game_script_cards.py), which
- * the server uses to refuse the pair; the screen only keeps the pair from
- * being ticked by accident.
+ * Mirrors only the win-plus-cover case of `drop_implied_legs`
+ * (backend/store/game_script_cards.py). The server detects more (a win implied
+ * by two team totals, a team total under a game total plus a spread) and
+ * refuses those in words; the screen only keeps the common pair from being
+ * ticked by accident.
  */
 function coverTickedFor(
   leg: GameLeg,
