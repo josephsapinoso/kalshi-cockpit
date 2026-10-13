@@ -16,6 +16,13 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-13 - A `**kwargs` stub accepts a parameter the real client does not have
+
+From Joe's phone, the morning after #371.
+
+- **#371 swapped `messages.parse` for `messages.create` and kept `output_format`, which only `parse` takes.** Every agent call on live raised `TypeError` before reaching the network: cards, leg verdicts, scouts. 909 agent tests stayed green because every client double was `async def create(self, **kwargs)`.
+- **When a call site changes which SDK method it calls, bind the sent kwargs to that method's real signature** (`inspect.signature(AsyncMessages.create).bind(None, **sent)`), as `tests/test_structured_call_keeps_usage.py::TestTheRequestBindsToTheRealCreate` now does. A stub records what you sent; only the real signature says whether it can be sent.
+
 ## 2026-10-13 - An output cap on a structured seat fails worst on the richest inputs, and a fixed meter is not a fixed cause
 
 From the ninety-third session (#377, #210).
