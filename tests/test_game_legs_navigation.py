@@ -65,7 +65,7 @@ class TestJumpStripAndSearch:
     def test_a_search_input_exists_and_the_page_mounts_the_strip(self):
         strip = _function("JumpStrip")
         assert 'type="search"' in strip
-        assert "<JumpStrip" in _function("GameLegs")
+        assert re.search(r"<JumpStrip[\s/>]", _function("GameLegs"))
 
     def test_search_is_case_insensitive_text_over_title_labels_and_player(self):
         match = _function("legMatches")
