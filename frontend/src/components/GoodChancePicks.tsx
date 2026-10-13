@@ -56,6 +56,19 @@ export default function GoodChancePicks({
   // Markets, not games — kept out of `skipped`, which sums games.
   const propsExcluded = not_ranked.props_excluded ?? 0;
   if (ranked.length === 0 && skipped === 0) return null;
+  // One quote-age note per list when every stale row shares it (#387); rows
+  // whose ages differ keep their own age and the header carries the remedy.
+  const staleAges = ranked
+    .filter((pick) => pick.ask_display === null)
+    .map((pick) =>
+      typeof pick.quote_age_now_ms === "number"
+        ? compactAge(ageWords(pick.quote_age_now_ms))
+        : null,
+    );
+  const sharedAge =
+    staleAges.length > 0 && staleAges.every((age) => age === staleAges[0])
+      ? staleAges[0]
+      : undefined;
   return (
     <section className="mt-8">
       <h2 className="text-sm font-semibold uppercase tracking-widest text-muted">
@@ -65,6 +78,17 @@ export default function GoodChancePicks({
         Each game&rsquo;s <Term k="favorite">favorite</Term> by the
         books&rsquo; <Term k="consensus_chance">chance to win</Term>. {picks.note}
       </p>
+      {staleAges.length > 0 && (
+        <p className="mt-1 max-w-prose text-xs leading-snug text-muted">
+          {sharedAge === undefined
+            ? ""
+            : sharedAge === null
+              ? "quote of unknown age "
+              : `quote ${sharedAge} old `}
+          {sharedAge !== undefined && "— "}
+          refresh the books, or open the game screen
+        </p>
+      )}
       {ranked.length > 0 && (
         <ol className="mt-3 divide-y divide-border">
           {ranked.map((pick) => (
@@ -97,20 +121,24 @@ export default function GoodChancePicks({
                       server withholds `ask_display` once the quote is past
                       its limit and sends the withheld figure as
                       `last_ask_display`; the figure is shown as a memory
-                      and never in the ask's own ink. */}
+                      and never in the ask's own ink. The muted token, not
+                      a fade (about 3:1, fails AA; #387). A quote age every
+                      stale row shares is stated once, in the list header. */}
                   {lastAsk(pick) !== null && (
-                    <span className="tabular opacity-60">
+                    <span className="tabular text-muted">
                       {`${lastAsk(pick)} ask`}
                     </span>
                   )}
-                  {lastAsk(pick) !== null && " "}
-                  {typeof pick.quote_age_now_ms === "number"
-                    ? `quote ${ageWords(pick.quote_age_now_ms)} old`
-                    : "quote of unknown age"}
-                  {" "}&mdash; refresh the books, or open the game screen
+                  {sharedAge === undefined && lastAsk(pick) !== null && " "}
+                  {sharedAge === undefined &&
+                    (typeof pick.quote_age_now_ms === "number"
+                      ? `quote ${compactAge(ageWords(pick.quote_age_now_ms))} old`
+                      : "quote of unknown age")}
                 </span>
               ) : (
-                <span className="tabular text-xs text-muted">
+                /* A fresh ask: the same size, weight and ink as the fair
+                   chance beside it, equal and not bigger (#17, #387). */
+                <span className="tabular text-sm font-semibold">
                   {`${pick.ask_display} ask`}
                 </span>
               )}
@@ -149,6 +177,13 @@ export default function GoodChancePicks({
       </p>
     </section>
   );
+}
+
+/** `ageWords` output ("47 s", "6 min", "1.3 h") as `47s` / `6m` / `1h`. */
+function compactAge(words: string): string {
+  const [n, unit] = words.split(" ");
+  if (unit === "h") return `${Math.round(Number(n))}h`;
+  return `${n}${unit === "min" ? "m" : "s"}`;
 }
 
 /** The ask the server withheld as stale, or null when none was served. */
