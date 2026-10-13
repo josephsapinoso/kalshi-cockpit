@@ -25,6 +25,7 @@ import { RestChip } from "@/components/ParlayCards";
 import Term from "@/components/Term";
 import { Button, SectionLabel } from "@/components/ui";
 import { leagueLabel } from "@/lib/leagueLabel";
+import LeagueTag from "@/components/LeagueTag";
 import { splitDropIf } from "@/lib/dropIfNames";
 import { formatClock } from "@/lib/format";
 import { sideLabelAddsWords } from "@/lib/sideLabel";
@@ -446,9 +447,7 @@ function GameHeading({ card }: { card: CardData }) {
       </Link>
       <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted">
         <span className="tabular">kickoff {kickoffText(card.kickoff_ms)}</span>
-        <span className="rounded border border-border px-1 font-mono text-[0.65rem] uppercase tracking-wide">
-          {leagueLabel(card.sport_key)}
-        </span>
+        <LeagueTag league={card.sport_key} />
       </p>
     </div>
   );
@@ -544,6 +543,42 @@ function BooksChance({ leg }: { leg: GameScriptLeg }) {
         leg.books_chance_reason ??
         "the books' chance was not read."}
     </span>
+  );
+}
+
+/** The sentence the server writes for a game it holds no card row for. The
+ *  list states it once above the unbuilt games, so a row repeats only a
+ *  reason that differs from it (a refusal, a budget, a retry). */
+export const GENERIC_NO_CARD_LINE =
+  "No card yet. Open the game and tap a card size (3, 5 or 8 legs) to make one.";
+
+/** One game with no built card, as a compact row: its heading and a link to
+ *  the game, where the build stays one deliberate tap (an NFL card can cost
+ *  about a million tokens, so /parlays carries no build button). */
+function UnbuiltRow({ card }: { card: CardData }) {
+  const line = card.no_card_line;
+  return (
+    <li className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2">
+      <Link
+        href={`/game/${encodeURIComponent(card.game_event_ticker)}`}
+        className="min-w-0 font-mono text-sm text-accent underline-offset-4 hover:underline"
+      >
+        {card.game_title ?? fixtureOf(card.game_event_ticker)}
+      </Link>
+      <span className="tabular text-xs text-muted">
+        kickoff {kickoffText(card.kickoff_ms)}
+      </span>
+      <LeagueTag league={card.sport_key} />
+      {line && line !== GENERIC_NO_CARD_LINE && (
+        <span className="max-w-[65ch] text-xs text-muted">{line}</span>
+      )}
+      <Link
+        href={`/game/${encodeURIComponent(card.game_event_ticker)}`}
+        className="ml-auto text-sm text-accent underline-offset-4 hover:underline"
+      >
+        Make a card &rarr;
+      </Link>
+    </li>
   );
 }
 
@@ -815,6 +850,7 @@ export function GameScriptParlays() {
       (day === "tomorrow" && key === tomorrowKey);
     return dayOk && (league === null || card.sport_key === league);
   };
+  const unbuilt = cards.filter((card) => matches(card) && card.status !== "built");
   const shownCount = cards.filter(matches).length;
   const hiddenCount = cards.length - shownCount;
   // The leagues on the list, in the order the list first meets them.
@@ -883,13 +919,27 @@ export function GameScriptParlays() {
               reversed or rebuilt (ADR 0071). Two columns from md up. */}
           <ul className="mt-4 grid gap-4 md:grid-cols-2">
             {data.cards.map((card) =>
-              matches(card) ? (
+              matches(card) && card.status === "built" ? (
                 <li key={card.game_event_ticker}>
                   <GameScriptCard card={card} heading />
                 </li>
               ) : null,
             )}
           </ul>
+          {/* Games without a card are one list, not one box each, and the
+              instruction is said once above it. Same server order. */}
+          {unbuilt.length > 0 && (
+            <section aria-label="Games without a card" className="mt-6">
+              <p className="max-w-[65ch] text-sm text-muted">
+                {GENERIC_NO_CARD_LINE}
+              </p>
+              <ul className="mt-2 divide-y divide-border rounded-xl border border-border bg-card px-4">
+                {unbuilt.map((card) => (
+                  <UnbuiltRow key={card.game_event_ticker} card={card} />
+                ))}
+              </ul>
+            </section>
+          )}
         </>
       )}
     </section>
