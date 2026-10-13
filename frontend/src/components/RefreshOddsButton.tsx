@@ -40,6 +40,7 @@ export default function RefreshOddsButton({
   credits,
   className = "",
   buttonClassName = "min-h-11 rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-50",
+  showCaption = true,
 }: {
   sportKey: string;
   /** `null` buys team lines. A fixture id also buys that game's player props. */
@@ -62,6 +63,12 @@ export default function RefreshOddsButton({
    * (`accent-2`) nor money (`bg-accent-fill`), ADR 0061 §3.
    */
   buttonClassName?: string;
+  /**
+   * The "Buys a fresh price..." sentence under the button. A panel that
+   * lists several of these says it once itself and passes `false` (#392);
+   * a lone button keeps it.
+   */
+  showCaption?: boolean;
 }) {
   const [phase, setPhase] = useState<"idle" | "sending" | "answered">("idle");
   const [result, setResult] = useState<OddsRefreshResult | null>(null);
@@ -116,10 +123,12 @@ export default function RefreshOddsButton({
         </p>
       ) : null}
 
-      <p className="mt-1 text-xs text-muted">
-        Buys a fresh price. It does not make a row bettable — how many games
-        the gate counts as actionable is on the Gate screen.
-      </p>
+      {showCaption ? (
+        <p className="mt-1 text-xs text-muted">
+          Buys a fresh price. It does not make a row bettable — how many games
+          the gate counts as actionable is on the Gate screen.
+        </p>
+      ) : null}
     </div>
   );
 }

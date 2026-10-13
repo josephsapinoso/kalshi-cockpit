@@ -326,6 +326,13 @@ export default async function RefreshOddsPanel({
         </p>
       )}
 
+      {/* Said once for the panel: the sentence is the same under every
+          sport, so the buttons below are captionless (#392). */}
+      <p className="mt-3 max-w-prose text-xs text-muted">
+        Buys a fresh price. It does not make a row bettable — how many games
+        the gate counts as actionable is on the Gate screen.
+      </p>
+
       {cut.sports.map((sport) => {
         // A const so the null check narrows inside the fixture list below;
         // `sport.prop_credits` itself does not narrow across that closure.
@@ -343,6 +350,7 @@ export default async function RefreshOddsPanel({
               sportKey={sport.sport_key}
               label="Team lines, whole slate"
               credits={sport.team_credits}
+              showCaption={false}
             />
 
             {propCredits === null || !sport.prop_markets_available ? (
@@ -376,6 +384,7 @@ export default async function RefreshOddsPanel({
                           fixture.commence_ms,
                         )}`}
                         credits={propCredits}
+                        showCaption={false}
                       />
                     </li>
                   ))}
