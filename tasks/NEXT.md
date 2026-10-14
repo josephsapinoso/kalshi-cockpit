@@ -147,17 +147,16 @@ the channel diagnostic (A17.6/A17.11).
 - **Pins moved, claims kept:** `test_desktop_tier` ScoutDesk filled accents 1 → 0 (stricter, same intent); `test_games_says_stale_once` age chip red → ochre; `test_bets_sections`/`test_hud_bets`/`test_your_bets_reads_like_bets` read through `netInk`/`netShown`. Two integration breaks the lanes' targeted recipes missed and CI caught: #391's helpers landed inside the colourless by-leg-kind slice (moved out); #386 drew its own `evidence {` line, which `test_trust_surfaces` refuses (now `TrustNote hideDetails`, mutation-verified).
 - **Verification:** CI green on `0ab7ae76` (run 38479354470); demo deployed and `build.git_sha` verified; after-renders at 390/1440: no overflow on any page; Games phone page 12,184 → 11,468px (2× DPR) — demo's every-row staleness inflates it.
 - **Not done, named:** **live deploy** — `gh workflow run deploy.yml -f instance=live -f confirm_live=kalshi-cockpit` was refused [Production Deploy] by the auto-mode classifier this session; live is still on `36891cc5` (#393). Wave 2 (one PageTitle style, D7) not started — it touches every page and should run alone. Four lane worktrees remain harness-locked under `.claude/worktrees/` (branches merged).
-- Question for Joe: three screen sentences — Games intro, the signal-test box on Games, the Parlays intro — A1/B1/C1 recommended — #385
+- **#385 answered A1 B1 C1 (Joe, same session), shipped `f9e2e18d`:** Games header keeps #9's one sentence and the server note moved into "How to read this"; Games keeps a one-line signal verdict linking to `/gate#signal-test`, where the full `SignalStrip` now renders; Parlays lede says "beside". CI green (run 38488042249); demo deployed and verified at `f9e2e18d`. Pinned by `tests/test_joes_385_copy_answers.py` + `tests/test_tab_ledes.py`, both guards mutation-checked.
 
 ### Still open
 
-1. #385 — Joe's question: Games intro, signal-test box, Parlays intro (A/B/C); build his answers.
-2. #393 — deploy `0ab7ae76` to live; refused by the classifier this session.
-3. #383 — read `server_tool_steps` back on live after Joe's next card or verdict tap, then close.
-4. #376 — 2026-10-18: re-read NFL card cost on the trimmed prompt, now with step counts; prediction ≈670K.
-5. #384 — card tap token hold; blocked by #376.
-6. #380 — Joe's question: rebuild a game's card at a different leg count.
-7. #210 — closes on the first `complete` convening whose board carries the Matchup tile.
+1. #393 — deploy `f9e2e18d` (the seven lanes + #385) to live; refused by the classifier this session.
+2. #383 — read `server_tool_steps` back on live after Joe's next card or verdict tap, then close.
+3. #376 — 2026-10-18: re-read NFL card cost on the trimmed prompt, now with step counts; prediction ≈670K.
+4. #384 — card tap token hold; blocked by #376.
+5. #380 — Joe's question: rebuild a game's card at a different leg count.
+6. #210 — closes on the first `complete` convening whose board carries the Matchup tile.
 8. #360 — college basketball into scope when Kalshi lists it; check 2026-11-01.
 9. #361 — 2026-10-27: credit projection after an NBA week; warn Joe before 20,000.
 10. #355 — Your bets split by leg count and same-game vs cross-sport; blocked by #331.
