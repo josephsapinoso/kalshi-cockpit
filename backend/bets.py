@@ -944,6 +944,114 @@ def by_leg_kind_summary(conn: sqlite3.Connection) -> dict[str, Any]:
     return {"kind_order": list(LEG_KINDS), "leagues": out_leagues}
 
 
+def settlement_staked_tenths(row: Any) -> Optional[int]:
+    """The cost term of `settlement_net_tenths`, over exactly its rows.
+
+    `contracts x entry_price_tenths`, rounded like the net (half-even), and
+    None exactly where `settlement_net_tenths` is None -- so a staked sum and
+    a net sum are over the same rows and reconcile.
+    """
+    if settlement_net_tenths(row) is None:
+        return None
+    cost = Decimal(str(row["contracts"])) * row["entry_price_tenths"]
+    return int(cost.quantize(Decimal(1)))
+
+
+def _sum_ints(values: list[int]) -> int:
+    """Plain accumulation (this file polices the builtin's call token)."""
+    total = 0
+    for v in values:
+        total += v
+    return total
+
+
+def by_shape_summary(
+    conn: sqlite3.Connection,
+    shape_rows: list[tuple[str, int, bool, int, int]],
+    uncomputable: int,
+) -> dict[str, Any]:
+    """Where the money went, by price band and by exact leg count (#397).
+
+    **COMBINATIONS only; singles stay out.** `shape_rows` is one
+    `(ticker, entry_price_tenths, won, staked_tenths, net_tenths)` per
+    combination `settlement_net_tenths` can compute; rows it cannot compute
+    are counted in `uncomputable`, never summed as 0.
+
+    * `price_bands`: the `EXPECTED_BUCKETS` edges (unchanged), each with
+      `expected_block`'s n / won / expected / too_few plus `staked_tenths`
+      and `net_tenths`. A computable row whose price is outside 1..999 sits in
+      `unbanded`, so the bands plus `unbanded` always reconcile to the totals.
+    * `leg_counts`: one row per EXACT leg count, ascending, from the newest
+      recorded position for the combination's ticker. No bins.
+    * `no_leg_list`: combinations with no recorded legs, counted, never
+      dropped.
+
+    Lifetime settled record only, no day window. Descriptive: no rate, no
+    return figure, nothing sorted by a result. Lives apart from `summary`
+    because that block's keys may not name a net (#287).
+    """
+    tickers = sorted({r[0] for r in shape_rows})
+    leg_count: dict[str, int] = {}
+    if tickers:
+        marks = ",".join("?" for _ in tickers)
+        # Ordered by position id, so the newest position's count wins.
+        for r in conn.execute(
+            "SELECT p.combo_ticker AS combo, COUNT(l.id) AS n "
+            "FROM parlay_positions p "
+            "JOIN parlay_position_legs l ON l.position_id = p.id "
+            f"WHERE p.combo_ticker IN ({marks}) "
+            "GROUP BY p.id ORDER BY p.id",
+            tickers,
+        ).fetchall():
+            leg_count[r["combo"]] = r["n"]
+
+    Row = tuple[str, int, bool, int, int]
+
+    def cell(rows: list[Row]) -> dict[str, Any]:
+        block = expected_block([(p, w) for _t, p, w, _s, _n in rows])
+        block["staked_tenths"] = _sum_ints([r[3] for r in rows])
+        block["net_tenths"] = _sum_ints([r[4] for r in rows])
+        return block
+
+    def banded(p: int) -> bool:
+        return 1 <= p <= 999
+
+    price_bands = [
+        {
+            "label": label,
+            **cell([r for r in shape_rows if banded(r[1]) and low <= r[1] < high]),
+        }
+        for low, high, label in EXPECTED_BUCKETS
+    ]
+    unbanded = [r for r in shape_rows if not banded(r[1])]
+    with_legs = [r for r in shape_rows if leg_count.get(r[0], 0) > 0]
+    without = [r for r in shape_rows if leg_count.get(r[0], 0) <= 0]
+    leg_counts = [
+        {
+            "legs": k,
+            **cell([r for r in with_legs if leg_count[r[0]] == k]),
+        }
+        for k in sorted({leg_count[r[0]] for r in with_legs})
+    ]
+    return {
+        "price_bands": price_bands,
+        "unbanded": {
+            "n": len(unbanded),
+            "staked_tenths": _sum_ints([r[3] for r in unbanded]),
+            "net_tenths": _sum_ints([r[4] for r in unbanded]),
+        },
+        "leg_counts": leg_counts,
+        "no_leg_list": {
+            "n": len(without),
+            "staked_tenths": _sum_ints([r[3] for r in without]),
+            "net_tenths": _sum_ints([r[4] for r in without]),
+        },
+        "uncomputable": uncomputable,
+        "staked_tenths": _sum_ints([r[3] for r in shape_rows]),
+        "net_tenths": _sum_ints([r[4] for r in shape_rows]),
+    }
+
+
 def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
     """The record and its honest totals, newest settlement first.
 
@@ -1059,6 +1167,7 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
     # v63: Joe's own tag per ticker, over the WHOLE table like `totals`.
     tags = pick_sources_for(conn, [r["ticker"] for r in rows])
     source_rows: list[tuple[str, Optional[str], bool, Optional[int]]] = []
+    shape_rows: list[tuple[str, int, bool, int, int]] = []
     for row in rows:
         kind = bet_kind(row["ticker"])
         section = sections[kind]
@@ -1077,6 +1186,14 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
             net_sum += net
             section["computable"] += 1
             section["net_tenths"] += net
+            if kind == KIND_COMBO:
+                shape_rows.append((
+                    row["ticker"],
+                    row["entry_price_tenths"],
+                    bool(won),
+                    settlement_staked_tenths(row),
+                    net,
+                ))
             if won:
                 wins += 1
                 kind_wl[kind][0] += 1
@@ -1236,6 +1353,9 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
             expected_excluded,
         )
         record["by_source"] = by_source_summary(source_rows)
+        record["by_shape"] = by_shape_summary(
+            conn, shape_rows, sections[KIND_COMBO]["uncomputable"]
+        )
     # #323: the legs of the combinations he holds. Outside `if rows`: it reads
     # `parlay_position_legs`, which can hold settled legs on an empty mirror.
     # Absent, not a block of zeros, when no leg has settled (as `summary` is).

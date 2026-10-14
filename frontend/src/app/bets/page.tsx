@@ -10,6 +10,7 @@ import type { BetsKindSummary } from "@/lib/types/bets";
 import RecordParlay from "@/components/RecordParlay";
 import HedgePositions from "@/components/HedgePositions";
 import PickSourceChips from "@/components/PickSourceChips";
+import ShapeStrip from "@/components/ShapeStrip";
 import { Stat } from "@/components/ui";
 import {
   DISPLAY_TIME_ZONE,
@@ -518,6 +519,7 @@ function BetSection({
         summary={record.summary?.[section.kind]}
       />
       <BySource kind={section.kind} blocks={record.by_source?.[section.kind]} />
+      {section.kind === "combo" && <ShapeStrip record={record} />}
       {section.kind === "combo" && (
         <ByLegKindBlock
           data={
