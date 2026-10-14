@@ -380,9 +380,10 @@ function Quotes({
           a screen showing only the best one hides that there was a choice. */}
       {value.quotes.length > 1 && (
         <ul className="text-xs text-muted tabular">
-          {value.quotes.slice(1).map((q) => (
+          {value.quotes.slice(1).map((q, i) => (
             <li key={q.quote_id}>
-              also {q.ask_display}
+              {i === 0 ? <Term k="quote_spread">also</Term> : "also"}{" "}
+              {q.ask_display}
               {q.contracts !== null && ` · ${q.contracts.toFixed(2)} contracts`}
             </li>
           ))}
@@ -698,18 +699,22 @@ export function ParlayCostLine({
         </>
       )}
       {line.impliedChancePercent !== null && (
-        <>This price says {line.impliedChancePercent}%. </>
+        <>
+          <Term k="implied_chance">This price says</Term>{" "}
+          {line.impliedChancePercent}%.{" "}
+        </>
       )}
-      Wins about 1 in {line.oneIn}.
+      <Term k="one_in">Wins about 1 in</Term> {line.oneIn}.
       {line.fairJointPercentDisplay !== null && (
         <> The <Term k="books">books</Term> multiply to{" "}
-          {line.fairJointPercentDisplay}.
+          <Term k="books_joint">{line.fairJointPercentDisplay}</Term>.
         </>
       )}
       {line.feePercent !== null && (
         <>
           {" "}
-          <Term k="fee">Fee</Term> is {line.feePercent}% of stake.
+          <Term k="fee_share">Fee</Term> is {line.feePercent}% of{" "}
+          <Term k="unit">stake</Term>.
         </>
       )}
       {line.singlesPercent !== null && (

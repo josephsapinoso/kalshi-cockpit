@@ -333,7 +333,7 @@ function Card({
                   </span>
                 ) : null}
                 <span className="tabular ml-auto text-sm text-muted">
-                  {leg.fair_percent_display}
+                  <Term k="fair_value">{leg.fair_percent_display}</Term>
                 </span>
                 <LegGame leg={leg} />
                 <RestChip rest={leg.rest} />
@@ -585,23 +585,23 @@ const MISSING = "—";
 function LegFacts({ leg }: { leg: ParlayCardLeg }) {
   return (
     <span className="tabular w-full font-mono text-xs text-muted">
-      <span title="What Kalshi charges for this leg right now">
+      <Hint hint="What Kalshi charges for this leg right now">
         {leg.ask_display ? `Kalshi ${leg.ask_display}` : `Kalshi ${MISSING}`}
-      </span>
+      </Hint>
       {" · "}
-      <span title="Books behind the consensus, after anchoring">
+      <Hint hint="Books behind the consensus, after anchoring">
         {leg.book_count === null
           ? MISSING
           : `${leg.book_count} book${leg.book_count === 1 ? "" : "s"}`}
-      </span>
+      </Hint>
       {" · "}
-      <span title="How far the four devig readings sit apart">
+      <Hint hint="How far the four devig readings sit apart">
         {leg.method_spread_display ?? MISSING}
-      </span>
+      </Hint>
       {" · "}
-      <span title="Age of the sportsbook consensus behind this leg">
+      <Hint hint="Age of the sportsbook consensus behind this leg">
         {leg.odds_age_ms === null ? MISSING : formatAge(leg.odds_age_ms)}
-      </span>
+      </Hint>
     </span>
   );
 }
@@ -1112,7 +1112,7 @@ function LegBuys({
                 {leg.label}
               </span>
               <span className="tabular ml-auto text-xs text-muted">
-                {leg.fair_percent_display} fair
+                <Term k="fair_value">{leg.fair_percent_display} fair</Term>
               </span>
               <LegGame leg={leg} />
             </div>

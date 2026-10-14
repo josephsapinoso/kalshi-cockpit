@@ -44,6 +44,36 @@ export const GLOSSARY = {
       "is unmeasured, so an old quote on screen is a price that was " +
       "offered, not one known to be standing.",
   },
+  implied_chance: {
+    label: "this price says",
+    definition:
+      "The price read as a chance. A 5c ticket is the market saying " +
+      "it wins about 5 times in 100. Paying more than that only " +
+      "makes sense if you believe it is likelier than the market " +
+      "does.",
+  },
+  one_in: {
+    label: "wins about 1 in",
+    definition:
+      "How many tickets like this it takes to expect one win. At 1 " +
+      "in 20, losing 40 in a row happens about one time in eight — " +
+      "a normal run, not bad luck.",
+  },
+  books_joint: {
+    label: "the books multiply to",
+    definition:
+      "The sportsbooks' consensus chance that every leg wins, as a " +
+      "price. Paying above it means paying the makers a markup on " +
+      "top of the books' own number. It is a price to compare " +
+      "against, not a prediction.",
+  },
+  quote_spread: {
+    label: "quote spread",
+    definition:
+      "How far apart the makers' quotes are, best to worst. A wide " +
+      "gap means asking again a few minutes later can get a better " +
+      "price. Asking commits you to nothing.",
+  },
   shard: {
     label: "shard",
     definition:
@@ -63,9 +93,10 @@ export const GLOSSARY = {
   leg: {
     label: "leg",
     definition:
-      "One pick inside a parlay. A 6-leg ticket has six picks, and every " +
-      "single one must win for the ticket to pay. Lose one leg, lose the " +
-      "whole stake.",
+      "One pick inside a parlay. A 6-leg ticket has six picks, and " +
+      "every single one must win for the ticket to pay. Lose one " +
+      "leg, lose the whole stake. Each extra leg multiplies the " +
+      "odds against you.",
   },
   days_rest: {
     label: "days of rest",
@@ -205,18 +236,27 @@ export const GLOSSARY = {
     // balance. A glossary that gives a number gives an order; the caps
     // screen owns the numbers. Pinned by test_glossary_coverage.py.
     definition:
-      "The money put on one bet. Keep it a small fixed fraction of your " +
-      "bankroll — the caps on this site compute yours from your actual " +
-      "balance. Changing the stake because of the last result is how " +
-      "bankrolls die.",
+      "The money put on one bet. Keep it a small fixed fraction of " +
+      "your bankroll, the same on every ticket. Changing the stake " +
+      "because of the last result, or because a ticket is cheap, is " +
+      "how bankrolls die.",
+  },
+  unit: {
+    label: "unit",
+    definition:
+      "A fixed small share of your bankroll, put on every bet " +
+      "regardless of its price or your last result. Professionals " +
+      "size in units so one long shot cannot empty a week. The " +
+      "share is yours to choose.",
   },
   clv: {
     label: "CLV",
     definition:
-      "Closing-line value: was your price better than the final price just " +
-      "before the game started? Tonight's win or loss is mostly luck; " +
-      "beating the close again and again is the real sign a bettor knows " +
-      "something.",
+      "Closing-line value: your price against the final price just " +
+      "before the game started. −0.5c means you paid half a cent " +
+      "more than the close. Tonight's result is mostly luck; " +
+      "beating the close again and again is the real sign a bettor " +
+      "knows something.",
   },
   // `sd` (swing) was removed 2026-09-16 with the two figures that were the
   // only things rendering it. Issue #48, answered A: the swing and the
@@ -281,9 +321,9 @@ export const GLOSSARY = {
   bankroll: {
     label: "bankroll",
     definition:
-      "The money set aside for betting — here, the cash actually in your " +
-      "Kalshi account. Every cap on this site is a fraction of it, so a " +
-      "small bankroll means small bets, on purpose.",
+      "The money set aside for betting — here, the cash actually in " +
+      "your Kalshi account. Size every bet as a small fixed share " +
+      "of it, so one losing run cannot end the week.",
   },
   depth: {
     label: "depth",
@@ -334,6 +374,30 @@ export const GLOSSARY = {
       "Wins bounce around even when prices are fair, like heads in 40 coin " +
       "flips. The range is where the win count lands about 19 times in 20 if " +
       "the prices were fair, so 10 expected might read 4 to 16.",
+  },
+  too_few: {
+    label: "too few to judge",
+    definition:
+      "Not enough expected wins or losses in this cell to tell luck " +
+      "from a pattern — under five on either side. The counts are " +
+      "shown; a rate would mislead. Read it again when the cell has " +
+      "grown.",
+  },
+  stake_weighted: {
+    label: "where the money went",
+    definition:
+      "Winning as often as the prices expected can still lose " +
+      "money, if the biggest stakes sat on the longest shots. " +
+      "Staked and net beside each row show where the money actually " +
+      "went.",
+  },
+  longshot: {
+    label: "long shot",
+    definition:
+      "A low-priced ticket — here, under 10c. Across betting " +
+      "markets long shots return less per dollar than favourites, " +
+      "and the fee is a bigger share of a small price. Fun to hold, " +
+      "costly to hold often.",
   },
   wl: {
     label: "W / L",
@@ -447,6 +511,14 @@ export const GLOSSARY = {
       "and a player's yards, say. The legs move together (a blowout " +
       "changes several at once), so their chances cannot just be " +
       "multiplied. The makers' quote prices that link in.",
+  },
+  correlation: {
+    label: "correlation",
+    definition:
+      "Legs that tend to win or lose together — a team covering and " +
+      "the game going over, say. The makers who quote your " +
+      "combination charge for that link. The desk does not compute " +
+      "it.",
   },
   betting_splits: {
     label: "splits & line movement",

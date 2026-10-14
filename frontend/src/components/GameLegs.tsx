@@ -349,7 +349,9 @@ export default function GameLegs({
       <div className="min-w-0 space-y-4">
         <p className="max-w-[65ch] text-sm text-muted">
           Tick two or more <Term k="leg">legs</Term> to build a{" "}
-          <Term k="same_game_parlay">same-game parlay</Term>. Kalshi lists{" "}
+          <Term k="same_game_parlay">same-game parlay</Term>; legs from one
+          game tend to move together, which is their{" "}
+          <Term k="correlation">correlation</Term>. Kalshi lists{" "}
           {data.leg_count} legs on this game. Where the desk has its own
           chance for a leg it shows it; where it does not, it says why. To bet
           one leg on its own, as a <Term k="single">single</Term>, use
@@ -656,7 +658,9 @@ function LegDetails({ leg }: { leg: GameLeg }) {
             {sideWords && sideLabelAddsWords(leg.title, sideWords) && (
               <> {sideWords}</>
             )}
-            {" · desk chance "}
+            {" · "}
+            <Term k="chance_when_priced">desk chance</Term>
+            {" "}
             <span className="tabular">
               {facts && facts.chance !== null ? facts.chance_display : "no desk price"}
             </span>
