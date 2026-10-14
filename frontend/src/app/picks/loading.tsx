@@ -1,3 +1,4 @@
+import PageTitle from "@/components/PageTitle";
 import { SHELL_WIDTH } from "@/lib/shell";
 
 /**
@@ -13,7 +14,7 @@ import { SHELL_WIDTH } from "@/lib/shell";
 export default function PicksLoading() {
   return (
     <div className={`${SHELL_WIDTH} px-6 py-12 sm:py-16 xl:px-8`}>
-      <h1 className="text-2xl font-extrabold tracking-tight">Picks</h1>
+      <PageTitle>Picks</PageTitle>
       <p className="mt-4 max-w-prose text-sm text-muted" aria-live="polite">
         Reading tonight&rsquo;s prices &mdash; not empty, not yet answered.
       </p>

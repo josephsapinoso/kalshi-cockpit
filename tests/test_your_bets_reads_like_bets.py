@@ -16,7 +16,8 @@ WHAT THIS ESTABLISHES
 (iii) `BetSection` renders its rows through `groupByDay`, each group under
       an `<h3>` day heading, and `groupByDay` opens a new group when the day
       changes rather than sorting.
-(iv)  The h1 is a smaller type step than the net figure's.
+(iv)  The h1 (now `PageTitle`'s `page` variant, #394) is a smaller type step
+      than the net figure's.
 (v)   Nothing in the `<section id="open"` block was edited by this ticket:
       it is asserted to still precede the settled list.
 
@@ -34,7 +35,7 @@ MUTATIONS, each observed red
   2. drop the `groupByDay` call in BetSection -> (iii).
   3. remove the ticker from the row -> (i) ticker-still-renders.
   4. let the regex accept a pick that is neither side (drop the guard) -> (ii).
-  5. put the h1 back at text-4xl sm:text-5xl -> (iv).
+  5. widen `PageTitle`'s `page` variant to text-4xl sm:text-5xl -> (iv).
 """
 
 from __future__ import annotations
@@ -47,6 +48,12 @@ PAGE = (
     / "frontend" / "src" / "app" / "bets" / "page.tsx"
 )
 SRC = PAGE.read_text(encoding="utf-8").replace("\r\n", "\n")
+
+PAGE_TITLE = (
+    Path(__file__).resolve().parents[1]
+    / "frontend" / "src" / "components" / "PageTitle.tsx"
+)
+PAGE_TITLE_SRC = PAGE_TITLE.read_text(encoding="utf-8").replace("\r\n", "\n")
 
 
 def _body(start: str) -> str:
@@ -105,9 +112,13 @@ class TestPageHeadingIsQuieterThanTheNet:
         return max(order.index(t) for t in re.findall(r"\btext-(\dxl|xl)\b", cls))
 
     def test_h1_is_a_smaller_type_step_than_the_net_figure(self):
-        h1 = re.search(r'<h1 className="([^"]+)">Your bets', SRC).group(1)
+        # #394: the h1 moved into the shared `PageTitle` component. This page
+        # still renders its heading through `page`, not `detail`, so the
+        # class that governs its size now lives there.
+        assert "<PageTitle>Your bets</PageTitle>" in SRC
+        page_variant = re.search(r'page:\s*"([^"]+)"', PAGE_TITLE_SRC).group(1)
         net = re.search(r"className=\{`(display [^$`]*)\$\{\s*(?:netInk\()?totals\.net_tenths", SRC).group(1)
-        assert self._step(h1) < self._step(net)
+        assert self._step(page_variant) < self._step(net)
 
 
 class TestOpenSectionUntouchedAndStillFirst:

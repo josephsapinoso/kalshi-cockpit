@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { gameHeaderParts } from "@/lib/gameEvent";
+import PageTitle from "@/components/PageTitle";
 
 /**
  * The head of `/game/<event>` (#389): a way back to Games, then the teams,
@@ -27,18 +28,20 @@ export default function GameHeader({
           &larr; Games
         </Link>
       </p>
-      <h1 className="display mt-2 text-3xl sm:text-4xl xl:text-5xl">
-        {parts.title ?? (
-          <span className="font-mono text-base font-normal text-muted">
-            {eventTicker}
-          </span>
-        )}
-        {parts.rest.length > 0 && (
-          <span className="tabular text-muted">
-            {parts.rest.map((part) => ` · ${part}`).join("")}
-          </span>
-        )}
-      </h1>
+      <div className="mt-2">
+        <PageTitle variant="detail">
+          {parts.title ?? (
+            <span className="font-mono text-base font-normal text-muted">
+              {eventTicker}
+            </span>
+          )}
+          {parts.rest.length > 0 && (
+            <span className="tabular text-muted">
+              {parts.rest.map((part) => ` · ${part}`).join("")}
+            </span>
+          )}
+        </PageTitle>
+      </div>
     </div>
   );
 }

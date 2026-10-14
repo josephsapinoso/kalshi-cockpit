@@ -52,6 +52,7 @@ import {
 import ConsensusPanel from "@/components/ConsensusPanel";
 import ManualTicket from "@/components/ManualTicket";
 import MarketSearch from "@/components/MarketSearch";
+import PageTitle from "@/components/PageTitle";
 import PassControl from "@/components/PassControl";
 import PriceChart from "@/components/PriceChart";
 import ScoutDesk from "@/components/ScoutDesk";
@@ -264,7 +265,7 @@ export default function MarketPage() {
   return (
     <main className={`${SHELL_WIDTH} px-4 py-8 sm:px-6 sm:py-12 xl:px-8`}>
       <header className="mb-4">
-        <h1 className="display text-3xl sm:text-4xl xl:text-5xl">{matchup}</h1>
+        <PageTitle variant="detail">{matchup}</PageTitle>
         {/* `/api/market/{ticker}` serves the newest row of EITHER side, and
             this line used to describe the YES contract whichever side that
             row priced -- true, but unqualified, on a page whose numbers

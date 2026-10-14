@@ -6,6 +6,7 @@ import {
 } from "@/lib/api";
 
 import FiveStepTest from "@/components/FiveStepTest";
+import PageTitle from "@/components/PageTitle";
 import ParlayChapter from "@/components/ParlayChapter";
 import Term from "@/components/Term";
 
@@ -43,7 +44,7 @@ export default async function PlaybookPage() {
   return (
     <Shell>
       <header className="mb-10">
-        <h1 className="display text-4xl sm:text-5xl">Playbook</h1>
+        <PageTitle>Playbook</PageTitle>
         {/* Ticket #9's ratified Playbook lede (Joe, 2026-08-27), verbatim.
             The sentence it replaced described only the archive half and
             never mentioned the five steps, which is why the screen read as

@@ -9,6 +9,7 @@ import Term from "@/components/Term";
 import type { BetsKindSummary } from "@/lib/types/bets";
 import RecordParlay from "@/components/RecordParlay";
 import HedgePositions from "@/components/HedgePositions";
+import PageTitle from "@/components/PageTitle";
 import PickSourceChips from "@/components/PickSourceChips";
 import { Stat } from "@/components/ui";
 import {
@@ -89,9 +90,10 @@ export default async function BetsPage() {
     <Shell>
       <header className="mb-8">
         {/* Quieter than the net figure below (#248): the page's name is not
-            its news. The h1 steps down to 2xl/3xl; the net readout is
-            3xl/4xl, so the money is the largest type on the screen. */}
-        <h1 className="display text-2xl sm:text-3xl">Your bets</h1>
+            its news, so the money stays the largest type on the screen.
+            `PageTitle`'s `page` variant (2xl/3xl) is sized to that constraint
+            -- see its own comment (#394). */}
+        <PageTitle>Your bets</PageTitle>
         {/* Decisions as the unit (B6): counting only bets placed made
             betting the sole recordable act. The pass count is a floor —
             only taps are recorded — and passes are never scored or rated;
