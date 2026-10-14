@@ -39,7 +39,6 @@ import Term from "@/components/Term";
 import RefreshOddsPanel from "@/components/RefreshOddsPanel";
 import RefreshWhenPriced from "@/components/RefreshWhenPriced";
 import StaleOddsExit from "@/components/StaleOddsExit";
-import SignalStrip from "@/components/SignalStrip";
 import TonightStrip from "@/components/TonightStrip";
 import TrustNote from "@/components/TrustNote";
 import RecordParlay from "@/components/RecordParlay";
@@ -99,7 +98,7 @@ export default async function SlatePage({
   const filter = readListFilter(await searchParams);
   let data: Slate;
   // Allowed to fail on its own, as on the Board. `beta` is context for the
-  // rows and not a precondition of them, and `SignalStrip` renders nothing
+  // rows and not a precondition of them, and the signal line renders nothing
   // rather than a placeholder that could be misread as a measured zero.
   let signal: Signal | null = null;
   // Same treatment: the timetable is context for the refresh panel, never a
@@ -176,11 +175,10 @@ export default async function SlatePage({
           the sportsbooks think it is, and the reason behind each one the desk
           refused — a named check, or the fee bar — with your balance and the
           caps it sets at the top.
-          {/* The sentence that stops every other column reading as a signal.
-              Taken from the payload rather than written here, so the server and
-              the screen cannot come to disagree about what this page claims. */}{" "}
-          {data.note}
         </p>
+        {/* The server's note used to follow this sentence here; Joe's A1 to
+            #385 (2026-10-13) moved it into "How to read this" below, so a
+            phone opens about eight lines closer to the first game. */}
       </header>
 
       {/* The #15 cut: league and kickoff window, under the nav and above
@@ -372,9 +370,25 @@ export default async function SlatePage({
           close. It stays on the page even though the edge column is gone —
           it is the reason the column is gone — but a measurement's
           post-mortem does not outrank tonight's games. */}
-      <div className="mt-8">
-        <SignalStrip signal={signal} now={Date.now()} />
-      </div>
+      {/* One line, not the box (Joe's B1 to #385, 2026-10-13): the verdict
+          word exactly as the server states it -- UNRESOLVED is never
+          rendered as "no signal" -- and a link to the full box, which moved
+          to Gate. The caveat beside the rows that show the gap stays where
+          it is; only the statistics moved. Nothing renders when the read
+          failed, as before. */}
+      {signal && (
+        <p className="mt-8 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted">
+            Signal test
+          </span>
+          <span className="font-mono font-semibold">
+            {signal.available ? signal.verdict : "not computable here"}
+          </span>
+          <Link href="/gate#signal-test" className="text-muted hover:underline">
+            details on Gate &rarr;
+          </Link>
+        </p>
+      )}
 
       {slate.truncated && (
         <p className="mt-6 max-w-[65ch] text-xs text-muted">
@@ -397,6 +411,12 @@ export default async function SlatePage({
           How to read this
         </summary>
         <div className="mt-4 space-y-3">
+        {/* The sentence that stops every other column reading as a signal.
+            Taken from the payload rather than written here, so the server and
+            the screen cannot come to disagree about what this page claims.
+            It sat in the header after #9's lede until Joe's A1 to #385
+            (2026-10-13); its words are unchanged, only its position moved. */}
+        <p>{data.note}</p>
         {/* Was above the rows (Joe's option A, 2026-09-16: a caveat read
             seven times stops being read). Folded here by #344 so a phone
             opens on games; the per-row marker still says it row by row. */}

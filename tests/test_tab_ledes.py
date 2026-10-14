@@ -94,11 +94,15 @@ GAMES_LEDE = (
 #: no rate, so the next reading cannot falsify it -- which is the property
 #: being bought, not the wording.
 #:
+#: **Re-ratified by Joe on 2026-10-13, #385 (C1):** "rather than at" became
+#: "beside" once every card showed Kalshi's price next to fair value
+#: (#312, #354), which had made "rather than" false.
+#:
 #: Changing it again is his call rather than a side effect of shipping a
 #: feature, which is what this constant exists to enforce.
 PARLAYS_LEDE = (
     "Parlay cards cut from tonight’s games, one pick per game, shown at the "
-    "fair value the sportsbooks’ chances imply rather than at what Kalshi "
+    "fair value the sportsbooks’ chances imply beside what Kalshi "
     "charges — a card pays only if every pick on it wins, and selling one "
     "back before the outcome usually costs more than holding it."
 )
@@ -185,13 +189,18 @@ class TestEveryRatifiedLedeIsOnItsPage:
         deny."""
         assert GATE_LEDE in prose(GATE)
 
-    def test_the_games_lede_still_hands_off_to_the_server_note(self):
-        """#9: the lede keeps `{data.note}` appended -- the chance-is-not-edge
-        sentence comes from the payload so the server and the screen cannot
-        disagree about what the page claims. Mutation observed red: delete
-        `{data.note}` from the header."""
-        header = prose(GAMES).split("</header>", 1)[0]
-        assert "{data.note}" in header
+    def test_the_games_page_still_renders_the_server_note(self):
+        """#9: the chance-is-not-edge sentence comes from the payload so the
+        server and the screen cannot disagree about what the page claims.
+        Joe's A1 to #385 (2026-10-13) moved it from after the lede into "How
+        to read this"; it must still render there, once. Mutation observed
+        red: delete `<p>{data.note}</p>`."""
+        source = prose(GAMES)
+        header = source.split("</header>", 1)[0]
+        assert "{data.note}" not in header
+        assert source.count("{data.note}") == 1
+        disclosure = source[source.index("How to read this") :]
+        assert "<p>{data.note}</p>" in disclosure
 
 
 class TestTheGateNoLongerSaysItIsWaitingToEarnAnEdge:

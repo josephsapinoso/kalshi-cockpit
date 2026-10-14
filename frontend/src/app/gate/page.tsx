@@ -1,4 +1,6 @@
-import { fetchGate } from "@/lib/api";
+import { fetchGate, fetchSignal } from "@/lib/api";
+import type { Signal } from "@/lib/api";
+import SignalStrip from "@/components/SignalStrip";
 import Term from "@/components/Term";
 
 export const dynamic = "force-dynamic";
@@ -28,8 +30,13 @@ const CONDITION_HEADLINES: Record<string, string> = {
  */
 export default async function GatePage() {
   let gate;
+  // Context, never a precondition: a failed read renders no strip rather
+  // than a placeholder that could be misread as a measured zero.
+  const signalPromise = fetchSignal().catch(() => null);
+  let signal: Signal | null = null;
   try {
     gate = await fetchGate();
+    signal = await signalPromise;
   } catch {
     return (
       <Shell>
@@ -192,6 +199,15 @@ export default async function GatePage() {
           scored whether or not it was bet, which is what makes that reachable
           without wagering three hundred times.
         </p>
+      </div>
+
+      {/* The signal test's full box (Joe's B1 to #385, 2026-10-13). It used
+          to sit on Games, where it printed raw statistics above the rows;
+          Games now keeps one line -- the verdict word, unchanged -- and links
+          here. Every rule SignalStrip documents still applies: nothing in
+          the box was reworded, only where it renders. */}
+      <div id="signal-test" className="mt-10 scroll-mt-20">
+        <SignalStrip signal={signal} now={Date.now()} />
       </div>
     </Shell>
   );

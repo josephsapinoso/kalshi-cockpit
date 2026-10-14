@@ -145,11 +145,16 @@ export default async function ParlaysPage({
             line whenever the window is not tonight. If the wider windows
             become the common case, the lede needs RE-RATIFYING rather than
             quietly rewording.
+
+            **Re-ratified by Joe 2026-10-13, #385 (C1):** "rather than at"
+            became "beside", because since #312 and #354 every card shows
+            Kalshi's price next to fair value, so "rather than" had become
+            false. One word, his call, nothing else moved.
           */}
           <Term k="parlay">Parlay</Term> cards cut from tonight&rsquo;s games,
           one pick per game, shown at the{" "}
           <Term k="fair_value">fair value</Term> the sportsbooks&rsquo; chances
-          imply rather than at what Kalshi charges — a card pays only if every
+          imply beside what Kalshi charges — a card pays only if every
           pick on it wins, and selling one back before the outcome usually
           costs more than holding it.{" "}
           {ladder?.notes.chance}
