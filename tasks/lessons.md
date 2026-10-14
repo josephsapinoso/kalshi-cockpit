@@ -16,6 +16,14 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-14 - A record that reports wins against expectation can hide a stake-weighted loss; print staked and net beside every rate cell
+
+From the ninety-eighth session (Joe: "you can see that I am not winning parlays").
+
+- **Your bets said the combinations won inside the range the prices imply, and the account was down the whole stake anyway.** Both were true: wins-vs-expected is per ticket, money is per dollar, and the dollars sat on the lowest-priced tickets. A rate table with no stake column cannot show that, and a reader who trusts it concludes "unlucky" when the answer is "shape". Beside every rate cell, print what was staked and what came back.
+- **A cut chosen after reading the table is a description, not a finding.** The 15c line and the "5+ legs" bin that made the diagnosis vivid were drawn from the answer; the desk keeps its fixed bands and exact counts, and a tooltip must never fire at a threshold read off the record (ADR 0071 decision 2). Say which cuts were pre-registered and which were drawn afterwards, every time.
+- **A glossary entry that cites a mechanism goes stale when the mechanism is removed.** `stake` and `bankroll` still told Joe the site's caps sized his bets, a month after ADR 0112 removed every cap. When a decision deletes a mechanism, grep the glossary for it.
+
 ## 2026-10-13 - A reviewer who has not read the refusals re-proposes them, and a lane's targeted recipe misses the cross-file pins
 
 From the ninety-sixth session (UI review, #385–#392).

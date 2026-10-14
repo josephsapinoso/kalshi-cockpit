@@ -170,12 +170,18 @@ class TestTooFewCells:
 
     def test_the_strip_prints_no_range_or_rate_for_a_too_few_cell(self):
         src = STRIP.read_text(encoding="utf-8")
-        # The range is only ever printed in the not-too_few branch.
-        m = re.search(r"const expected = cell\.too_few\s*\?\s*\"([^\"]*)\"\s*:\s*`([^`]*)`", src)
+        # The range is only ever printed in the not-too_few branch. The
+        # branches are JSX since main wrapped the words in <Term> (#396):
+        #   {cell.too_few ? ( <too-few branch> ) : ( <range branch> )}
+        m = re.search(
+            r"cell\.too_few\s*\?\s*\((.*?)\)\s*:\s*\((.*?)\)\}", src, re.S
+        )
         assert m, "too_few branch not found"
-        assert "range" not in m.group(1) and "%" not in m.group(1)
-        assert "range" in m.group(2)
-        assert "too few to judge" in m.group(1)
+        too_few, otherwise = m.group(1), m.group(2)
+        assert "range" not in too_few and "%" not in too_few
+        assert "range" in otherwise
+        assert "too few to judge" in too_few
+        assert 'k="too_few"' in too_few
         assert "%" not in src
 
 

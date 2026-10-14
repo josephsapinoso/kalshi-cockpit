@@ -139,6 +139,33 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-14 (ninety-eighth session) — Joe's bet history read whole: the picks are market-rate, the shape of the tickets is the loss; the build screens teach their terms (#396), Your bets shows where the money went (#397); ADR 0196
+
+- **Joe's ask, verbatim:** *"look at my bet history. you can see that I am not winning parlays. consult with the sharp agent and evaluate how i can make better bets and add tool tips. contemplate other ways we can get winning parlays."* The whole settled record was read from live `/api/bets?limit=1000` (operator data; scratchpad only). `sharp-bettor` reviewed it briefed with the refusal list; `partner` returned the dispatch table and opened #396/#397 under #340; two Sonnet lanes built them; main merged, wrapped the strip's words, fixed two things (the leg-count `IN` list now chunks at 500 like `pick_sources_for`; the strip opens by default) and repinned one source test for the JSX form.
+- **What the record says (shape only here; numbers on his private page):** singles and combinations both won *inside* the range the prices paid imply, and the legs read one at a time hit at or above expectation with leg CLV just under zero — the picks are market-quality. The loss sits in the ticket shape: the lowest price bands carry most of the stake and almost all of the net loss, the longest tickets almost never won, and the largest single losses were large stakes at very low prices. Paying above the desk's joint chance did not separate winners from losers. **The critique for Joe is a private page: https://claude.ai/artifact/MnY5YEARG2ezCCeXRhjwjF** (six lessons ranked by money, drills, ten other routes judged, what nobody can teach). The sharp-bettor's verdict: no trick wins parlays; fewer legs, a price floor, a flat stake and asking the makers twice make the losing smaller and slower — all his rules, none the desk's.
+- **Joe's answers (option buttons, same session):** tooltips **plus** the shape strip; `unit` and `longshot` **in**. Partner's cut, accepted: no threshold-triggered "long shot" word on the ticket line (a word that fires at the suggested floor is the floor on screen, ADR 0071 decision 2); `longshot` renders only on Your bets' lowest band. No 15c edge, no "5+" bin — both were drawn from the record.
+- **Shipped (ADR 0196):** nine glossary keys (`implied_chance`, `one_in`, `books_joint`, `quote_spread`, `correlation`, `too_few`, `stake_weighted`, `longshot`, `unit`), `leg`/`clv`/`stake`/`bankroll` corrected (the last two still cited caps ADR 0112 removed); `LegFacts`' hover-only titles are tappable `<Hint>`s; `by_shape` on `/api/bets` (combinations only, `EXPECTED_BUCKETS` bands + exact leg counts, `no_leg_list`, `unbanded`, `uncomputable`; beside `summary`, never inside it — #287's pin bans a net there) rendered by `ShapeStrip` under the by-source strip. `tests/test_cost_line_teaches_its_terms.py`, `tests/test_bets_shape_strip.py`.
+- **Two deviations the lanes reported, kept:** `books_joint` wraps the figure, not the phrase (`test_parlay_cost_line_states_the_price.py:385` pins `<Term k="books">books</Term> multiply`); no `<Hint>` on the "same picks as singles" figure because that test's harness compiles `AskTheMarket.tsx` in a temp dir and does not rewrite a `Hint` import. `quote_spread` sits on the first "also" quote row (`label="Best quote"` is pinned).
+- **Verification:** full suite on the merged tree 10,259 passed / 2 skipped / 10 xfailed (one param collected under the ADR's pre-rename DRAFT name; green on re-run), ruff clean, `tsc` clean, `next build` green. Deployed on Joe's word ("push it and deploy to live when the suite is green").
+- **Lesson:** a rate table with no stake column cannot show a stake-weighted loss; cuts drawn from the answer are descriptions; a glossary entry that cites a mechanism goes stale when the mechanism is removed.
+
+### Still open
+
+1. #355 — same-game vs cross-sport half only (the leg-count half shipped in #397); still behind #331.
+2. #376 — 2026-10-18: re-read NFL card cost on the trimmed prompt, now with step counts; prediction ≈670K.
+3. #384 — card tap token hold; blocked by #376.
+4. #380 — Joe's question: rebuild a game's card at a different leg count.
+5. #394 — one PageTitle style (D7); polish, Sonnet lane.
+6. #210 — closes on the first `complete` convening whose board carries the Matchup tile.
+7. #360 — college basketball into scope when Kalshi lists it; check 2026-11-01.
+8. #361 — 2026-10-27: credit projection after an NBA week; warn Joe before 20,000.
+9. #347 — the backend no-op sweep and the routes nothing calls; deferred.
+10. #337 — 2027-01-15: look B for P1 only.
+11. #331 — 2026-11-01: the leg census by kind.
+12. #151, #197, #267 — carried forward unchanged.
+
+---
+
 ## 2026-10-14 (ninety-seventh session) — a housekeeping day: live already on `28b0c7a5` (Joe deployed, #393 closed); #383 waits on one tap from Joe; the two 10-13 card failures were #371's bug; D7 ticketed (#394)
 
 - **State at start:** main clean at `28b0c7a5`, no PRs, zero dependabot alerts; live `build.git_sha` = `28b0c7a5` — Joe ran the live deploy himself (run 38514284062), so #386–#392 and #385 are live and #393 is closed.

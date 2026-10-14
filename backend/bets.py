@@ -992,8 +992,11 @@ def by_shape_summary(
     """
     tickers = sorted({r[0] for r in shape_rows})
     leg_count: dict[str, int] = {}
-    if tickers:
-        marks = ",".join("?" for _ in tickers)
+    # Chunked at 500 like `pick_sources_for`: the whole settled record is
+    # read here, and an IN (...) list has a hard parameter ceiling.
+    for start in range(0, len(tickers), 500):
+        chunk = tickers[start:start + 500]
+        marks = ",".join("?" for _ in chunk)
         # Ordered by position id, so the newest position's count wins.
         for r in conn.execute(
             "SELECT p.combo_ticker AS combo, COUNT(l.id) AS n "
@@ -1001,7 +1004,7 @@ def by_shape_summary(
             "JOIN parlay_position_legs l ON l.position_id = p.id "
             f"WHERE p.combo_ticker IN ({marks}) "
             "GROUP BY p.id ORDER BY p.id",
-            tickers,
+            chunk,
         ).fetchall():
             leg_count[r["combo"]] = r["n"]
 

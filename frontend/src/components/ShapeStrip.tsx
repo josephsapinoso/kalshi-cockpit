@@ -1,4 +1,5 @@
 import type { BetsRecord } from "@/lib/api";
+import Term from "@/components/Term";
 
 /**
  * #397: where the money went, by price paid and by number of legs.
@@ -39,12 +40,22 @@ function dollars(tenths: number, signed: boolean): string {
   return `${sign}$${(Math.abs(tenths) / 1000).toFixed(2)}`;
 }
 
-function cellText(cell: ShapeCell, noun: string): string {
-  const head = `${cell.n} ${noun} · ${cell.won} won`;
-  const expected = cell.too_few
-    ? " · too few to judge"
-    : ` · about ${cell.expected} expected to win (range ${cell.range_low} to ${cell.range_high})`;
-  return `${head}${expected} · staked ${dollars(cell.staked_tenths, false)} · net ${dollars(cell.net_tenths, true)}`;
+function CellText({ cell, noun }: { cell: ShapeCell; noun: string }) {
+  return (
+    <>
+      {cell.n} {noun} · {cell.won} won ·{" "}
+      {cell.too_few ? (
+        <Term k="too_few">too few to judge</Term>
+      ) : (
+        <>
+          about {cell.expected} expected to win (range {cell.range_low} to{" "}
+          {cell.range_high})
+        </>
+      )}{" "}
+      · staked {dollars(cell.staked_tenths, false)} · net{" "}
+      {dollars(cell.net_tenths, true)}
+    </>
+  );
 }
 
 export default function ShapeStrip({ record }: { record: BetsRecord }) {
@@ -57,8 +68,10 @@ export default function ShapeStrip({ record }: { record: BetsRecord }) {
     data.unbanded.n === 0;
   if (nothing) return null;
   return (
-    <details className="mt-1 max-w-[65ch] text-xs text-muted">
-      <summary className="cursor-pointer">Where the money went</summary>
+    <details open className="mt-1 max-w-[65ch] text-xs text-muted">
+      <summary className="cursor-pointer">
+        <Term k="stake_weighted">Where the money went</Term>
+      </summary>
       <p className="mt-1 max-w-prose">
         Combinations only. Settled bets, whole record.
       </p>
@@ -66,7 +79,12 @@ export default function ShapeStrip({ record }: { record: BetsRecord }) {
       <ul className="mt-1 space-y-1 font-mono">
         {data.price_bands.map((band) => (
           <li key={band.label}>
-            {band.label}: {cellText(band, "combos")}
+            {band.label === "under 10c" ? (
+              <Term k="longshot">under 10c</Term>
+            ) : (
+              band.label
+            )}
+            : <CellText cell={band} noun="combos" />
           </li>
         ))}
         {data.unbanded.n > 0 && (
@@ -81,7 +99,7 @@ export default function ShapeStrip({ record }: { record: BetsRecord }) {
       <ul className="mt-1 space-y-1 font-mono">
         {data.leg_counts.map((row) => (
           <li key={row.legs}>
-            {row.legs} legs: {cellText(row, "combos")}
+            {row.legs} legs: <CellText cell={row} noun="combos" />
           </li>
         ))}
         <li>
