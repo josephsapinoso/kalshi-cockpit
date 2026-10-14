@@ -139,6 +139,33 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-14 (ninety-seventh session) — a housekeeping day: live already on `28b0c7a5` (Joe deployed, #393 closed); #383 waits on one tap from Joe; the two 10-13 card failures were #371's bug; D7 ticketed (#394)
+
+- **State at start:** main clean at `28b0c7a5`, no PRs, zero dependabot alerts; live `build.git_sha` = `28b0c7a5` — Joe ran the live deploy himself (run 38514284062), so #386–#392 and #385 are live and #393 is closed.
+- **Partner's call: almost nothing is executable today; end short, do not invent work (#196).** #347 stays deferred (saves nothing Joe sees; ~20 registry pins; sits beside the armed app).
+- **#383 is built and deployed but unread:** `server_tool_steps` is NULL on all 20 rows 630–649, correctly — the newest agent call (649, 2026-10-13T20:04:35Z) predates the column's deploy (20:05Z), and none has run since. Closing it needs one card or leg-verdict tap from Joe before 2026-10-16 00:15Z, then `flyctl ssh console -a kalshi-cockpit -C "python /app/scripts/inspect_live_db.py agent-spend --days 1"`. Commented on #383.
+- **`agent_calls` 644/645 (two `game_script` `api_error`s at 2026-10-13 18:25Z) were ours and already fixed:** `game-script-card-refusals --limit 15` on live reads `TypeError: AsyncMessages.create() got an unexpected keyword argument 'output_format'` — #371, the 94th session's fix. `agent_calls` has no error column; the text lives in `game_script_cards.reason`, joined by `agent_call_id`, and no committed instrument reads it by id.
+- **D7 ticketed as #394** (under #244, `owner:agent model:sonnet`): 14 `<h1>` with 5 class strings → one `PageTitle`. Polish; for the nightly routine or a UI session.
+- **Not done, named:** the stale lane worktrees. Seven `.next/standalone/node_modules` junctions into main's `frontend/node_modules` were unlinked (main's untouched), but `git worktree remove` of the four locked `agent-*` worktrees and `rm` of three unregistered dirs (`agent-a6be…`, `agent-ae56…`, `lane-390`) plus a stray `.claude/worktrees/frontend/` were refused [Irreversible Local Destruction] by the classifier. Harmless to leave; Joe can run it, or a later session can with his word.
+
+### Still open
+
+1. #383 — needs one card or leg-verdict tap from Joe before 2026-10-16 00:15Z; then read `agent-spend --days 1` on live and close.
+2. #376 — 2026-10-18: re-read NFL card cost on the trimmed prompt, now with step counts; prediction ≈670K.
+3. #384 — card tap token hold; blocked by #376.
+4. #380 — Joe's question: rebuild a game's card at a different leg count.
+5. #394 — one PageTitle style (D7); polish, Sonnet lane.
+6. #210 — closes on the first `complete` convening whose board carries the Matchup tile.
+7. #360 — college basketball into scope when Kalshi lists it; check 2026-11-01.
+8. #361 — 2026-10-27: credit projection after an NBA week; warn Joe before 20,000.
+9. #355 — Your bets split by leg count and same-game vs cross-sport; blocked by #331.
+10. #347 — the backend no-op sweep and the routes nothing calls; deferred.
+11. #337 — 2027-01-15: look B for P1 only.
+12. #331 — 2026-11-01: the leg census by kind.
+13. #151, #197, #267 — carried forward unchanged.
+
+---
+
 ## 2026-10-13 (ninety-sixth session) — UI review: a UX/graphic designer and sharp-bettor read the demo renders, partner ranked them, seven layout lanes merged (#386–#392), on demo at `0ab7ae76`; live deploy refused by the classifier; three copy questions to Joe (#385)
 
 - **Joe's focus: "any ui improvement"** — a UX + graphic designer evaluates the site and its navigation, consulting partner and sharp-bettor. Demo redeployed to main first (`36891cc5`, it was 11 behind), renders at 390/1440 via `check_mobile --shots`. Designer (general-purpose, role prompt) and `sharp-bettor` reviewed in parallel; `partner` merged them into 7 lanes, 3 questions, and rejections.
@@ -382,6 +409,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-14 (ninety-seventh session) — housekeeping: live on `28b0c7a5` by Joe's deploy (#393 closed); #383 awaits a tap; 644/645 were #371; D7 ticketed (#394); worktree removal refused by the classifier
 - 2026-10-13 (ninety-sixth session) — UI review by a designer and sharp-bettor, partner-ranked; seven layout lanes merged (#386–#392), on demo at `0ab7ae76`; live deploy refused by the classifier (#393); three copy questions to Joe (#385)
 - 2026-10-13 (ninety-fifth session) — server-tool steps recorded per agent call (#383, v67); NFL series named (#381); the hand-tick refusal names only ticked legs (#382); a yes-only leg's NO offered as a single (#366, platform review PASS after one fix); #370 split, #377 closed; live on `eb49b82d`
 - 2026-10-13 (ninety-fourth session) — every agent call dead since #371 (`output_format` on `create`) fixed; a card drops any leg its other legs guarantee (`drop_implied_legs`); live on `633444e`
