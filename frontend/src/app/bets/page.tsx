@@ -382,7 +382,12 @@ function RecordStrip({ record }: { record: BetsRecord }) {
         <Stat
           label={<Term k="expected_wins">Expected wins</Term>}
           value={withExpected.length === 0 ? "—" : expectedSum.toFixed(1)}
-          sub="at the prices you paid"
+          sub={
+            <>
+              at the prices you paid; see{" "}
+              <Term k="stake_weighted">where the money went</Term>
+            </>
+          }
         />
         <Stat
           label="Won"
@@ -633,10 +638,20 @@ function KindSummary({
         <ul className="mt-1 space-y-1 font-mono">
           {expected.buckets.map((bucket) => (
             <li key={bucket.label}>
-              {bucket.label}: {bucket.n} {bucket.n === 1 ? "bet" : "bets"},
+              {bucket.label === "under 10c" ? (
+                <Term k="longshot">under 10c</Term>
+              ) : (
+                bucket.label
+              )}
+              : {bucket.n} {bucket.n === 1 ? "bet" : "bets"},
               about {bucket.expected} expected, {bucket.won} won
               {bucket.too_few
-                ? " — too few to judge"
+                ? (
+                  <>
+                    {" — "}
+                    <Term k="too_few">too few to judge</Term>
+                  </>
+                )
                 : ` — range ${bucket.range_low} to ${bucket.range_high}`}
             </li>
           ))}
@@ -680,7 +695,12 @@ function BySource({
             {block.expected === null
               ? ""
               : block.expected.too_few
-                ? ` — too few ${noun} to judge`
+                ? (
+                  <>
+                    {" — "}
+                    <Term k="too_few">too few {noun} to judge</Term>
+                  </>
+                )
                 : ` — range ${block.expected.range_low} to ${block.expected.range_high}`}
           </li>
         ))}
@@ -760,7 +780,12 @@ function ByLegKindBlock({ data }: { data: ByLegKind | undefined }) {
                   : ""}
                 {block.expected.n > 0
                   ? block.expected.too_few
-                    ? " — too few to judge"
+                    ? (
+                      <>
+                        {" — "}
+                        <Term k="too_few">too few to judge</Term>
+                      </>
+                    )
                     : ` — range ${block.expected.range_low} to ${block.expected.range_high}`
                   : ""}
                 {block.ask_not_recorded > 0

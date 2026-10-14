@@ -211,7 +211,9 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
                 {leg.unknown_reason ? ` — ${leg.unknown_reason}` : ""}.
               </p>
             ) : (
-              <p className="tabular text-sm">{leg.chance_display}</p>
+              <p className="tabular text-sm">
+                <Term k="chance_when_priced">{leg.chance_display}</Term>
+              </p>
             )}
             {/* #325: the singles screen's probable-bug reading, a fact on the
                 row. Never sorts, never blocks. A leg with no desk price is
@@ -279,7 +281,12 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
         <p className="text-sm text-muted">{value.words}</p>
       ) : (
         <Stat
-          label={<>Kalshi&rsquo;s book</>}
+          label={
+            <>
+              Kalshi&rsquo;s book <Term k="ask">ask</Term> and{" "}
+              <Term k="depth">depth</Term>
+            </>
+          }
           value={value.quoted.ask_display}
           sub={
             // The age always shows, depth or not: a price with no clock is
