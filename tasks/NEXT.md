@@ -150,7 +150,7 @@ the channel diagnostic (A17.6/A17.11).
 
 ### Still open
 
-1. #383 — needs one card or leg-verdict tap from Joe before 2026-10-16 00:15Z; then read `agent-spend --days 1` on live and close.
+1. ~~#383~~ — CLOSED same session: Joe tapped the MIL–LAD Game 3 card; live id 650 carries `server_tool_steps = 6`.
 2. #376 — 2026-10-18: re-read NFL card cost on the trimmed prompt, now with step counts; prediction ≈670K.
 3. #384 — card tap token hold; blocked by #376.
 4. #380 — Joe's question: rebuild a game's card at a different leg count.
