@@ -37,6 +37,7 @@ import Hint from "@/components/Hint";
 import OpenPositions from "@/components/OpenPositions";
 import Term from "@/components/Term";
 import RefreshOddsPanel from "@/components/RefreshOddsPanel";
+import PageTitle from "@/components/PageTitle";
 import RefreshWhenPriced from "@/components/RefreshWhenPriced";
 import StaleOddsExit from "@/components/StaleOddsExit";
 import TonightStrip from "@/components/TonightStrip";
@@ -127,7 +128,7 @@ export default async function SlatePage({
     if (error instanceof ApiError && error.status === 422) {
       return (
         <Shell>
-          <h1 className="text-2xl font-extrabold tracking-tight">Games</h1>
+          <PageTitle>Games</PageTitle>
           <FilterBar pathname="/slate" filter={filter} />
           <p className="mt-6 max-w-prose text-sm text-accent-2">
             That cut is not one this desk carries: the league or the window in
@@ -139,7 +140,7 @@ export default async function SlatePage({
     }
     return (
       <Shell>
-        <h1 className="text-2xl font-extrabold tracking-tight">Games</h1>
+        <PageTitle>Games</PageTitle>
         <p className="mt-4 text-muted">Backend unreachable.</p>
       </Shell>
     );
@@ -157,7 +158,7 @@ export default async function SlatePage({
             say a third thing — one screen, one name. "Slate" survives as
             the route alias and the API vocabulary, which readers of code
             meet with the map in hand. */}
-        <h1 className="text-2xl font-extrabold tracking-tight">Games</h1>
+        <PageTitle>Games</PageTitle>
         {/* Ticket #9's ratified Games lede (Joe, 2026-08-27). The sentence it
             replaced -- "Everything on the record for tonight" -- over-claimed
             twice: the list is capped at 100 rows against ~350 in-window, and

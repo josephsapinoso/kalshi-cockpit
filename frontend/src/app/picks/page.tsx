@@ -10,6 +10,7 @@ import type { ActionableWindow, Slate } from "@/lib/api";
 
 import FilterBar from "@/components/FilterBar";
 import GoodChancePicks from "@/components/GoodChancePicks";
+import PageTitle from "@/components/PageTitle";
 import PicksAnchorBaseRate from "@/components/PicksAnchorBaseRate";
 import RefreshWhenPriced from "@/components/RefreshWhenPriced";
 import TonightStrip from "@/components/TonightStrip";
@@ -115,7 +116,7 @@ export default async function PicksPage({
     if (error instanceof ApiError && error.status === 422) {
       return (
         <Shell>
-          <h1 className="text-2xl font-extrabold tracking-tight">Picks</h1>
+          <PageTitle>Picks</PageTitle>
           <FilterBar pathname="/picks" filter={filter} />
           <p className="mt-6 max-w-prose text-sm text-accent-2">
             That cut is not one this desk carries: the league or the window in
@@ -127,7 +128,7 @@ export default async function PicksPage({
     }
     return (
       <Shell>
-        <h1 className="text-2xl font-extrabold tracking-tight">Picks</h1>
+        <PageTitle>Picks</PageTitle>
         <p className="mt-4 max-w-prose text-muted">
           Backend unreachable. Nothing is drawn on purpose: a list that
           rendered without data would look like &ldquo;no favourites
@@ -160,7 +161,7 @@ export default async function PicksPage({
         {/* "Picks", matching its own nav label: one screen, one name, the
             rule Games settled on 2026-08-22 and Refusals on 2026-09-02
             (#29). The list below is headed by what it is: tonight's games, by kickoff. */}
-        <h1 className="text-2xl font-extrabold tracking-tight">Picks</h1>
+        <PageTitle>Picks</PageTitle>
         {/* The #9 lede for this slot, ratified 2026-08-27. It names the
             ordering and disarms it in the same breath; on a desk whose
             measured signal is negative, a screen labelled "Picks" and sorted

@@ -7,6 +7,8 @@
  * cookie that cannot be replayed as one -- see `lib/session.ts`.
  */
 
+import PageTitle from "@/components/PageTitle";
+
 export const metadata = { title: "Sign in — Kalshi Cockpit" };
 
 export default async function LoginPage({
@@ -19,7 +21,7 @@ export default async function LoginPage({
   return (
     <div className="mx-auto max-w-md px-4 py-16 sm:py-24">
       <header className="mb-8">
-        <h1 className="display text-3xl sm:text-4xl">Sign in</h1>
+        <PageTitle>Sign in</PageTitle>
         <p className="mt-3 text-lg text-muted">
           This instance holds live credentials and a running record. The demo is
           public; this is not.

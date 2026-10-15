@@ -16,6 +16,7 @@ import ParlayCards from "@/components/ParlayCards";
 import RefreshOddsPanel from "@/components/RefreshOddsPanel";
 import CheckAParlay from "@/components/CheckAParlay";
 import { GameScriptParlays } from "@/components/GameScriptCard";
+import PageTitle from "@/components/PageTitle";
 import Term from "@/components/Term";
 
 export const dynamic = "force-dynamic";
@@ -91,7 +92,7 @@ export default async function ParlaysPage({
   return (
     <Shell>
       <header className="mb-4">
-        <h1 className="display text-4xl sm:text-5xl">Parlay desk</h1>
+        <PageTitle>Parlay desk</PageTitle>
         <p className="mt-3 max-w-[65ch] text-sm leading-relaxed text-muted">
           {/*
             No count in this sentence, deliberately. It said "Three" until
