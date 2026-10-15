@@ -139,6 +139,31 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-15 (ninety-ninth session) — nothing to build, by partner's call: PR #395 (#394) finished on screen and shipped; one timing flake pinned by ordering; (B) recommended on #380; the heading hierarchy question is #398; live and demo on `ef7cb3cf`
+
+- **State at start:** main clean at `a3ad8e56`, live and demo on `bc821475`, CI green, zero dependabot alerts, one open PR from the nightly routine (#395 for #394). Board: READY 10, 0 warnings — every item dated in the future (#376 on 10-18 is the next) or waiting on Joe (#380). **Partner: nothing to build today, and that is the finding** (#196); no lane-builder or scout was spawned.
+- **PR #395 merged as `4d7fb5a4`** after the half of #394's Done-when the lane could not do: before-renders of demo at 390 and 1440 (pre-PR look), then after-renders on demo at `ef7cb3cf` — all eight listed pages plus `/market` and `/game` fit the viewport at both widths, PNGs read. Gate, Parlays and Playbook stepped down from `4xl/5xl` to the Your bets size (`2xl/3xl`), inside D7's remit (partner). **What the renders showed that the tests could not:** on Parlays the page name and the `Game-script parlays` `<h2>` (`GameScriptCard.tsx:877`) are now the same size. **Question for Joe: leave it, shrink section headings (recommended), or make page names bigger again — #398.**
+- **One pre-existing flake fixed on main, `ef7cb3cf`:** `test_signal_cache.py`'s inline-first-read test failed 2 of 5 runs with nothing changed — `time.sleep(0.3)` read 0.297 on `time.monotonic()` (Windows clock granularity). The claim is ordering, so the recompute now sets a flag as it returns and the test asserts the flag was set before the response; the elapsed check stays with 20 ms allowed. 10 of 10 green; mutation (the nothing-cached branch starts the recompute in a thread and answers at once) red on the flag. Lesson below.
+- **#380 commented with a recommendation of (B)** (one card per game, as now), from the 2026-10-14 record: the longest tickets almost never won, fewer legs was the sharp-bettor's first rule, and (A) is 0.5–1.1M tokens a re-size on an NFL Sunday. Joe's call stands.
+- **Verification:** full suite on the merged tree 10,263 passed / 2 skipped / 10 xfailed plus the one flake (then fixed); ruff clean; `tsc` clean; `next build --webpack` green; CI green on `ef7cb3cf` (run 38674046381). Demo deployed (run 38674089766) before the after-renders; live deployed on the plan Joe approved (run 38674667669); both `/api/health` `build.git_sha` = `ef7cb3cf`, live status ok.
+- **Housekeeping:** `scratchpad_dummy` deleted. `.claude/worktrees/agent-ab8c5f1a28ad6089b` is still held by a process handle (`rmdir`: busy); per partner, not recorded again after this line.
+- **State at end:** main at `ef7cb3cf` plus this entry, nothing unpushed, no PRs, no worktrees. Next dated item: **#376 on Sunday 10-18 / MNF 10-19** (NFL card cost on the trimmed prompt).
+
+### Still open
+
+1. #398 — Joe's question: Parlays' page name and first section heading are the same size after #394 — (A) leave, (B) shrink section headings, (C) page names bigger.
+2. #380 — Joe's question: rebuild a game's card at a different leg count; (B) recommended on the ticket.
+3. #376 — 2026-10-18: re-read NFL card cost on the trimmed prompt, now with step counts; prediction ≈670K.
+4. #384 — card tap token hold; blocked by #376.
+5. #355 — same-game vs cross-sport half only; still behind #331.
+6. #210 — closes on the first `complete` convening whose board carries the Matchup tile.
+7. #360 — college basketball into scope when Kalshi lists it; check 2026-11-01.
+8. #361 — 2026-10-27: credit projection after an NBA week; warn Joe before 20,000.
+9. #347 — the backend no-op sweep and the routes nothing calls; deferred.
+10. #337 — 2027-01-15: look B for P1 only.
+11. #331 — 2026-11-01: the leg census by kind.
+12. #151, #197, #267 — carried forward unchanged.
+
 ## 2026-10-14 (ninety-eighth session) — Joe's bet history read whole: the picks are market-rate, the shape of the tickets is the loss; the build screens teach their terms (#396), Your bets shows where the money went (#397); ADR 0196
 
 - **Joe's ask, verbatim:** *"look at my bet history. you can see that I am not winning parlays. consult with the sharp agent and evaluate how i can make better bets and add tool tips. contemplate other ways we can get winning parlays."* The whole settled record was read from live `/api/bets?limit=1000` (operator data; scratchpad only). `sharp-bettor` reviewed it briefed with the refusal list; `partner` returned the dispatch table and opened #396/#397 under #340; two Sonnet lanes built them; main merged, wrapped the strip's words, fixed two things (the leg-count `IN` list now chunks at 500 like `pick_sources_for`; the strip opens by default) and repinned one source test for the JSX form.
@@ -437,6 +462,8 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-15 (ninety-ninth session) — nothing to build (partner); PR #395/#394 finished on screen and shipped, live and demo on `ef7cb3cf`; a signal-cache timing flake pinned by ordering; (B) recommended on #380; heading hierarchy to Joe (#398)
+- 2026-10-14 (ninety-eighth session) — Joe's bet history read whole: picks market-rate, ticket shape is the loss; nine glossary keys (#396), `by_shape` strip on Your bets (#397); ADR 0196; live and demo on `bc821475`
 - 2026-10-14 (ninety-seventh session) — housekeeping: live on `28b0c7a5` by Joe's deploy (#393 closed); #383 awaits a tap; 644/645 were #371; D7 ticketed (#394); worktree removal refused by the classifier
 - 2026-10-13 (ninety-sixth session) — UI review by a designer and sharp-bettor, partner-ranked; seven layout lanes merged (#386–#392), on demo at `0ab7ae76`; live deploy refused by the classifier (#393); three copy questions to Joe (#385)
 - 2026-10-13 (ninety-fifth session) — server-tool steps recorded per agent call (#383, v67); NFL series named (#381); the hand-tick refusal names only ticked legs (#382); a yes-only leg's NO offered as a single (#366, platform review PASS after one fix); #370 split, #377 closed; live on `eb49b82d`

@@ -16,6 +16,13 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-15 - A test that proves "it waited" by timing a sleep flakes at the clock's granularity; pin the ordering with a flag
+
+From the ninety-ninth session (`test_signal_cache.py`, 2 of 5 runs red with nothing changed).
+
+- **`time.sleep(0.3)` measured by `time.monotonic()` can read 0.297 on Windows.** A test asserting `elapsed >= 0.3` then fails on a clock tick, not on the code, and the full suite on main goes red at random. The claim was never the duration; it was that the route returned *after* the recompute. Set a flag inside the slow stub as it returns and assert the flag was set before the response came back. Keep any timing check as a second opinion with the granularity allowed for, never as the pin.
+- **A flake found on the merged tree is fixed on main before the push, with its own mutation**, not retried until green: the lane's suite was green and so was yesterday's, which is what a flake looks like from either side.
+
 ## 2026-10-14 - A record that reports wins against expectation can hide a stake-weighted loss; print staked and net beside every rate cell
 
 From the ninety-eighth session (Joe: "you can see that I am not winning parlays").
