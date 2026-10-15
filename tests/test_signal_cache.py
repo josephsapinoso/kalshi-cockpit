@@ -194,13 +194,23 @@ class TestTheFirstReadWithNoReportStillComputesInline:
         Mutation observed red: make the "nothing cached" branch of
         `_cached_signal_report` also defer to
         `_maybe_start_background_signal_refresh` and return early -- the
-        route would then answer in well under the recompute's own 0.3s sleep,
-        and `elapsed >= 0.3` would fail.
+        route would then answer before the recompute's own 0.3s sleep had
+        finished, and `finished_before_response` would be False.
+
+        The ordering is pinned by a flag the recompute sets as it returns,
+        not by `elapsed >= 0.3`: `time.sleep(0.3)` measured by
+        `time.monotonic()` reads 0.297 on Windows (clock granularity), which
+        failed this test on 2 of 5 runs on 2026-10-15 with nothing changed.
+        The elapsed check stays as a second opinion with that granularity
+        allowed for.
         """
         assert status._signal_cache.get("report") is None
 
+        finished = {"before_response": False}
+
         def _slow_recompute(conn):
             time.sleep(0.3)
+            finished["before_response"] = True
             return real_report
 
         monkeypatch.setattr(status, "report_from_connection", _slow_recompute)
@@ -209,11 +219,16 @@ class TestTheFirstReadWithNoReportStillComputesInline:
             start = time.monotonic()
             resp = client.get("/api/signal")
             elapsed = time.monotonic() - start
+            finished_before_response = finished["before_response"]
 
         assert resp.status_code == 200
-        assert elapsed >= 0.3, (
+        assert finished_before_response, (
             "a first read with nothing cached must compute inline and wait "
             "for it, not return before the recompute finished"
+        )
+        assert elapsed >= 0.3 - 0.02, (
+            "the response came back faster than the recompute's own sleep, "
+            "even allowing for Windows clock granularity"
         )
         assert status._signal_cache.get("report") is not None
         assert status._signal_refresh_in_flight is False
